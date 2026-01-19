@@ -1,0 +1,65 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: auxilia-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    # Enable AOF persistence for durability
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    networks:
+      - auxilia-network
+
+  postgres:
+    image: postgres:17
+    container_name: postgres_db
+    restart: always
+    environment:
+      POSTGRES_USER: auxilia
+      POSTGRES_PASSWORD: auxilia
+      POSTGRES_DB: auxilia
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auxilia"]
+      interval: 5s
+      retries: 5
+      timeout: 3s
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@auxilia.ai
+      PGADMIN_DEFAULT_PASSWORD: auxilia
+    ports:
+      - "8080:80"
+    depends_on:
+      - postgres
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+
+networks:
+  auxilia-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+    driver: local
+    # Data persists even after 'docker compose down'
+    # Use 'docker compose down -v' to remove data
+  postgres-data:
+    driver: local
+  pgadmin_data:
+    driver: local

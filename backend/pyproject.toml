@@ -1,0 +1,79 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+license = "AGPL-3.0-or-later"
+requires-python = ">=3.11"
+dependencies = [
+    "alembic>=1.15.0",
+    "fastapi>=0.121.1",
+    "greenlet>=3.1.1",
+    "langchain-anthropic>=1.2.0",
+    "langchain-deepseek>=1.0.1",
+    "langchain-mcp-adapters>=0.2.1",
+    "langchain-openai>=1.1.1",
+    "langgraph-checkpoint-postgres>=3.0.1",
+    "mcp>=1.23.3",
+    "psycopg[binary]>=3.2.12",
+    "redis>=5.2.0",
+    "sqlmodel>=0.0.27",
+    "python-jose[cryptography]>=3.3.0",
+    "pydantic[email]>=2.12.4",
+    "authlib>=1.6.6",
+    "pwdlib[argon2]>=0.3.0",
+    "langchain-google-genai>=4.2.0",
+    "langchain>=1.2.4",
+    "itsdangerous>=2.2.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14.4",
+    "pytest>=8.3.4",
+    "pytest-asyncio>=0.24.0",
+    "httpx>=0.28.1",
+    "pytest-mock>=3.14.0",
+]
+
+[tool.ruff]
+indent-width = 4
+target-version = "py310"
+exclude = ["alembic"]
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "ARG001", # unused arguments in functions
+    "T201",   # print statements are not allowed
+]
+ignore = [
+    "E501",  # line too long, handled by black
+    "B008",  # do not perform function calls in argument defaults
+    "W191",  # indentation contains tabs
+    "B904",  # Allow raising exceptions without from e, for HTTPException
+]
+
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+
+[tool.ruff.lint.pyupgrade]
+# Preserve types, even if a file imports `from __future__ import annotations`.
+keep-runtime-typing = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
