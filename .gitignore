@@ -10,8 +10,9 @@ wheels/
 # Virtual environments
 .venv
 
-# Notebooks
+# Notebooks and scripts
 *.ipynb
+scripts/
 
 # Ruff
 .ruff_cache/
