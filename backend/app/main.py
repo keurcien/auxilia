@@ -1,3 +1,4 @@
+import os
 from builtins import ExceptionGroup
 from contextlib import asynccontextmanager
 
@@ -16,9 +17,14 @@ from app.model_providers.router import router as model_providers_router
 from app.threads.router import router as threads_router
 from app.users.router import router as users_router
 
+# Redis configuration from environment variables
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    redis_client = redis.Redis(host="localhost", port=6379, decode_responses=True)
+    redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
     app.state.redis = redis_client
     yield
 

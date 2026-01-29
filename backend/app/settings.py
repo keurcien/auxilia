@@ -10,6 +10,11 @@ class AppSettings(BaseSettings):
     # Database Configuration
     database_url: str = "postgresql+psycopg://auxilia:auxilia@localhost:5432/auxilia"
 
+    # Redis Configuration
+    redis_host: str = "localhost"
+    redis_port: int = 6379
+    redis_db: int = 0
+
     class Config:
         env_file = ROOT_ENV
         extra = "ignore"

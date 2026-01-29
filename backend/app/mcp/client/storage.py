@@ -4,10 +4,12 @@ from redis.asyncio import Redis
 from datetime import datetime, timezone, timedelta
 from pydantic import BaseModel
 
+from app.settings import app_settings
+
 
 class StoredToken(BaseModel):
     token_payload: OAuthToken
-    expires_at: datetime
+    expires_at: datetime | None = None
 
 
 class OAuthStateData(BaseModel):
@@ -147,7 +149,12 @@ class TokenStorageFactory:
     """Factory for creating token storage instances."""
 
     def __init__(self):
-        self.redis = Redis(host="localhost", port=6379, db=0, decode_responses=True)
+        self.redis = Redis(
+            host=app_settings.redis_host,
+            port=app_settings.redis_port,
+            db=app_settings.redis_db,
+            decode_responses=True,
+        )
 
     def get_storage(self, user_id: str, mcp_server_id: str) -> RedisTokenStorage:
         return RedisTokenStorage(user_id, mcp_server_id, redis=self.redis)

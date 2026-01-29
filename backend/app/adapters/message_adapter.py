@@ -227,12 +227,13 @@ def deserialize_to_ui_messages(langgraph_messages: list) -> list[Message]:
                                                             
                             # Set state based on status and presence of output
                             if tool_output is None:
-                                tool_state = "call"
+                                tool_state = "output-error"
                             elif tool_status == "error":
                                 tool_state = "output-error"
                             else:
                                 tool_state = "output-available"
 
+                            # TO BE REFACTORED
                             # For errors, use a clean message consistent with streaming
                             error_text = None
                             if tool_state == "output-error":

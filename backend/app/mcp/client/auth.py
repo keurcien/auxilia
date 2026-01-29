@@ -143,6 +143,8 @@ class ServerlessOAuthProvider(OAuthClientProvider):
         token_request = await self._exchange_token_authorization_code(
             auth_code=code, code_verifier=verifier
         )
+
+        token_request.headers["Accept"] = "application/json"
         
         # Execute the request (since _exchange... returns a Request object)
         async with httpx.AsyncClient() as client:

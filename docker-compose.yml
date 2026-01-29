@@ -1,4 +1,84 @@
 services:
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    image: ${DOCKERHUB_USERNAME:-auxilia}/auxilia-web:${VERSION:-latest}
+    container_name: auxilia-web
+    ports:
+      - "3000:3000"
+    environment:
+      # Backend URL for API proxy (use Docker service name from inside the container)
+      BACKEND_URL: http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:3000/",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - auxilia-network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: ${DOCKERHUB_USERNAME:-auxilia}/auxilia-backend:${VERSION:-latest}
+    container_name: auxilia-backend
+    ports:
+      - "8000:8000"
+    environment:
+      # Database
+      DATABASE_URL: postgresql+psycopg://auxilia:auxilia@postgres:5432/auxilia
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # Auth
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:8000/auth/google/callback}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      # API Keys
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      MCP_API_KEY_ENCRYPTION_KEY: ${MCP_API_KEY_ENCRYPTION_KEY:-changeme}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs')",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - auxilia-network
+
   redis:
     image: redis:7-alpine
     container_name: auxilia-redis
@@ -20,7 +100,7 @@ services:
 
   postgres:
     image: postgres:17
-    container_name: postgres_db
+    container_name: auxilia-postgres
     restart: always
     environment:
       POSTGRES_USER: auxilia
@@ -35,6 +115,8 @@ services:
       interval: 5s
       retries: 5
       timeout: 3s
+    networks:
+      - auxilia-network
 
   pgadmin:
     image: dpage/pgadmin4:latest
@@ -49,6 +131,8 @@ services:
       - postgres
     volumes:
       - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - auxilia-network
 
 networks:
   auxilia-network:
@@ -57,8 +141,6 @@ networks:
 volumes:
   redis-data:
     driver: local
-    # Data persists even after 'docker compose down'
-    # Use 'docker compose down -v' to remove data
   postgres-data:
     driver: local
   pgadmin_data:
