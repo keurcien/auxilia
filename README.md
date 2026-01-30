@@ -6,7 +6,7 @@ Built with langgraph and the AI SDK.
 
 ## Quick start
 
-1. Clone the repository
+1. Clone the repository: `git clone git@github.com:keurcien/auxilia.git`
 2. Copy the .env.example file and rename it .env
 3. Set an LLM provider API key (OpenAI, Anthropic, ...) to the .env file
 4. Open a terminal and run `docker compose up --build`
