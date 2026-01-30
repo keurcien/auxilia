@@ -17,3 +17,7 @@ Built with langgraph and the AI SDK.
 2. Open a terminal and run `docker compose -f docker-compose.dev.yml up --build`
 3. Open a terminal, cd into backend and run `uv run uvicorn app.main:app --reload`
 4. Open a terminal, cd into web and run `npm run dev`
+
+## Google Sign In
+
+To set up Google Sign In, add your Google client credentials to the `.env` file.
