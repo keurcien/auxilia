@@ -4,19 +4,36 @@ A lightweight web MCP client designed to host your MCP-powered AI assistants. au
 
 Built with langgraph and the AI SDK.
 
-## Quick start
+## 🚀 Quick Start
 
-1. Clone the repository: `git clone git@github.com:keurcien/auxilia.git`
-2. Copy the .env.example file and rename it .env
-3. Set an LLM provider API key (OpenAI, Anthropic, ...) to the .env file
-4. Open a terminal and run `docker compose up --build`
+1. **Clone the repository:**
 
-## Development
+```bash
+git clone git@github.com:keurcien/auxilia.git
+cd auxilia
+```
 
-1. Set an LLM provider API key (OpenAI, Anthropic, ...) to the .env.development file
-2. Open a terminal and run `docker compose -f docker-compose.dev.yml up --build`
-3. Open a terminal, cd into backend and run `uv run uvicorn app.main:app --reload`
-4. Open a terminal, cd into web and run `npm run dev`
+2. **Configure Environment:**
+
+Copy `.env.example` to `.env` and add your LLM API keys (OpenAI, Anthropic, etc.).
+
+3. **Start services:**
+
+Run `make build && make up` in a terminal to start the Docker containers.
+
+4. **Access interface**:
+
+Open http://localhost:3000 in your browser.
+
+## 🚧 Development
+
+2. **Configure Environment:**
+
+Copy `.env.example` to `.env.dev` and add your LLM API keys (OpenAI, Anthropic, etc.).
+
+3. **Start services:**
+
+Run `make dev` in a terminal.
 
 ## Google Sign In
 
