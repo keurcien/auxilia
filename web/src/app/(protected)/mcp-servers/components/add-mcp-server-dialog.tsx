@@ -59,8 +59,13 @@ export default function AddMCPServerDialog({
 		}
 
 		// OAuth validation: can't have client secret without client id
-		if (customForm.authType === "oauth2" && customForm.oauthClientSecret && !customForm.oauthClientId) {
-			newErrors.oauthClientId = "Client ID is required when providing a Client Secret.";
+		if (
+			customForm.authType === "oauth2" &&
+			customForm.oauthClientSecret &&
+			!customForm.oauthClientId
+		) {
+			newErrors.oauthClientId =
+				"Client ID is required when providing a Client Secret.";
 		}
 
 		setErrors(newErrors);
@@ -113,7 +118,7 @@ export default function AddMCPServerDialog({
 
 	const handleCustomFormChange = (
 		field: keyof typeof customForm,
-		value: string | boolean
+		value: string | boolean,
 	) => {
 		setCustomForm((prev) => ({ ...prev, [field]: value }));
 		if (errors[field]) {
@@ -262,33 +267,46 @@ export default function AddMCPServerDialog({
 								{customForm.authType === "oauth2" && (
 									<div className="space-y-4">
 										<p className="text-sm text-muted-foreground">
-											Leave empty to use Dynamic Client Registration (DCR). Only fill these if your MCP server requires pre-registered credentials.
+											Leave empty to use Dynamic Client Registration (DCR). Only
+											fill these if your MCP server requires static credentials.
 										</p>
 										<div className="space-y-2">
-											<Label htmlFor="oauthClientId">Client ID (optional)</Label>
+											<Label htmlFor="oauthClientId">
+												Client ID (optional)
+											</Label>
 											<Input
 												id="oauthClientId"
 												placeholder="Enter your OAuth client ID"
 												value={customForm.oauthClientId}
 												onChange={(e) =>
-													handleCustomFormChange("oauthClientId", e.target.value)
+													handleCustomFormChange(
+														"oauthClientId",
+														e.target.value,
+													)
 												}
 												className={errors.oauthClientId ? "border-red-500" : ""}
 												aria-invalid={!!errors.oauthClientId}
 											/>
 											{errors.oauthClientId && (
-												<p className="text-sm text-red-600">{errors.oauthClientId}</p>
+												<p className="text-sm text-red-600">
+													{errors.oauthClientId}
+												</p>
 											)}
 										</div>
 										<div className="space-y-2">
-											<Label htmlFor="oauthClientSecret">Client Secret (optional)</Label>
+											<Label htmlFor="oauthClientSecret">
+												Client Secret (optional)
+											</Label>
 											<Input
 												id="oauthClientSecret"
 												type="password"
 												placeholder="Enter your OAuth client secret"
 												value={customForm.oauthClientSecret}
 												onChange={(e) =>
-													handleCustomFormChange("oauthClientSecret", e.target.value)
+													handleCustomFormChange(
+														"oauthClientSecret",
+														e.target.value,
+													)
 												}
 											/>
 										</div>
