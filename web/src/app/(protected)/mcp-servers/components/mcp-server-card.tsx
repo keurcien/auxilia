@@ -64,7 +64,7 @@ export function OfficialMCPServerCard({
 
 	// Check if this server requires credentials (non-DCR OAuth)
 	const requiresCredentials =
-		!server.supportsDcr && server.authType === "oauth2";
+		server.supportsDcr === false && server.authType === "oauth2";
 
 	const handleInstall = () => {
 		api

@@ -127,6 +127,7 @@ class OfficialMCPServerDB(MCPServerBase, table=True):
     auth_type: MCPAuthType = Field(
         default=MCPAuthType.none, sa_column=Column(Enum(MCPAuthType), nullable=False)
     )
+    supports_dcr: bool | None = Field(default=None)
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     created_at: datetime = Field(
         default=None,

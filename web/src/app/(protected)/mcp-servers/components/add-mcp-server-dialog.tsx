@@ -149,7 +149,7 @@ export default function AddMCPServerDialog({
 	}, []);
 
 	const handleOfficialServerClick = (server: OfficialMCPServer) => {
-		if (!server.supportsDcr && server.authType === "oauth2") {
+		if (server.supportsDcr === false && server.authType === "oauth2") {
 			setSelectedNonDcrServer(server);
 			setNonDcrCredentials({ clientId: "", clientSecret: "" });
 		}
