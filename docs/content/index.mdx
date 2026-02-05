@@ -1,0 +1,58 @@
+# auxilia
+
+**auxilia** is an open-source web MCP client for hosting MCP-powered AI assistants. Built for enterprise deployment, it lets teams share AI agents backed by remote [Model Context Protocol](https://modelcontextprotocol.io/) servers.
+
+## Why auxilia?
+
+Most MCP clients today are desktop apps tied to a single user. **auxilia** is different:
+
+- **Web-based** — accessible from any browser, no desktop app required
+- **Multi-user** — share agents across teams and organization members
+- **Remote MCP only** — designed for production server-to-server MCP connections, not local stdio processes
+- **Self-hosted** — deploy on your own infrastructure
+
+## Architecture
+
+**auxilia** is composed of three services:
+
+| Service      | Technology          | Purpose                        |
+| ------------ | ------------------- | ------------------------------ |
+| **Backend**  | FastAPI + LangGraph | Agent runtime, MCP client, API |
+| **Web**      | Next.js + React     | User interface                 |
+| **Database** | PostgreSQL + Redis  | Persistence and token storage  |
+
+```
+┌─────────────┐     ┌─────────────┐     ┌──────────────────┐
+│   Browser   │────▶│   Next.js   │────▶│     FastAPI      │
+│   (React)   │◀────│   (proxy)   │◀────│   (LangGraph)    │
+└─────────────┘     └─────────────┘     └────────┬─────────┘
+                                                 │
+                                        ┌────────▼─────────┐
+                                        │  Remote MCP      │
+                                        │  Servers         │
+                                        └──────────────────┘
+```
+
+## Key Concepts
+
+### Agents
+
+An agent is an AI assistant configured with a system prompt and a set of MCP server bindings. Each agent can use tools from multiple MCP servers simultaneously.
+
+### MCP Servers
+
+**auxilia** connects to remote MCP servers over HTTP. You can register **official** pre-configured servers or add **custom** ones with your own URLs and credentials.
+
+### Tool Settings
+
+Each tool exposed by an MCP server can be configured per-agent with one of three states: **always allow**, **needs approval**, or **disabled**.
+
+## Supported LLM Providers
+
+| Provider  | Models                       |
+| --------- | ---------------------------- |
+| Anthropic | Claude Haiku / Sonnet / Opus |
+| OpenAI    | GPT-4o mini                  |
+| Google    | Gemini 3 Flash / Pro         |
+| DeepSeek  | DeepSeek Chat / Reasoner     |
+| LiteLLM   | Any model via proxy          |

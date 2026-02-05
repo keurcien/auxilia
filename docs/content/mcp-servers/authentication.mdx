@@ -1,0 +1,70 @@
+# MCP Server Authentication
+
+**auxilia** supports three authentication methods for connecting to remote MCP servers.
+
+## No Authentication
+
+Some MCP servers don't require any credentials. Select **None** as the auth type when adding the server.
+
+## Bearer Token (API Key)
+
+For servers that accept a static API key or token:
+
+1. Select **API Key** as the auth type
+2. Enter your API key or token
+
+**auxilia** encrypts the key with AES before storing it in the database. On each request to the MCP server, the key is sent as a `Bearer` token in the `Authorization` header:
+
+```
+Authorization: Bearer your-api-key
+```
+
+## OAuth 2.0
+
+For servers that use OAuth 2.0, **auxilia** supports two credential management approaches:
+
+### Dynamic Client Registration (DCR)
+
+With DCR, **auxilia** automatically registers itself as an OAuth client with the MCP server. This is the simplest setup — just click **Connect** and authorize through the provider's consent screen.
+
+**How it works:**
+
+1. You click **Connect** on the MCP server
+2. **auxilia** contacts the server's OAuth metadata endpoint
+3. If the server supports DCR, **auxilia** registers a client dynamically
+4. You're redirected to the provider's consent screen
+5. After authorization, tokens are stored in Redis per user
+
+DCR is used by most official servers (Notion, Linear, Sentry, Stripe, etc.).
+
+### Static OAuth Credentials
+
+Some providers require you to create an OAuth application manually and provide the credentials to **auxilia**.
+
+When adding or editing the MCP server:
+
+1. Select **OAuth 2.0** as the auth type
+2. Enter the **Client ID** and **Client Secret** from your OAuth app
+
+**How it works:**
+
+1. You click **Connect** on the MCP server
+2. **auxilia** uses your pre-registered client credentials
+3. A PKCE challenge is generated for security
+4. You're redirected to the provider's consent screen
+5. After authorization, **auxilia** exchanges the code for tokens
+6. Tokens are stored in Redis, scoped to your user account
+
+### Token Storage
+
+OAuth tokens are stored in Redis with the key pattern:
+
+```
+mcp:{user_id}:{mcp_server_id}:tokens
+```
+
+Each user has their own set of tokens per MCP server. Tokens are refreshed automatically when they expire.
+
+### Reconnecting
+
+If a token expires or is revoked, click **Connect** again on the MCP server to re-authorize. The existing tokens will be replaced.

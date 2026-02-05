@@ -1,0 +1,63 @@
+# Get Started
+
+This guide walks you through running **auxilia** locally with Docker Compose.
+
+## Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) and Docker Compose
+- At least one LLM API key (OpenAI, Anthropic, Google, or DeepSeek)
+
+## Clone the Repository
+
+```bash
+git clone https://github.com/keurcien/auxilia.git
+cd auxilia
+```
+
+## Configure Environment
+
+Copy the example environment file and fill in your API keys:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` with your configuration:
+
+```env
+# Required: at least one LLM provider
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+GOOGLE_API_KEY=...
+DEEPSEEK_API_KEY=...
+```
+
+## Start the Stack
+
+For development with hot-reloading:
+
+```bash
+make dev
+```
+
+Or using Docker Compose directly:
+
+```bash
+docker compose -f docker-compose.dev.yml up
+```
+
+For production:
+
+```bash
+docker compose up -d
+```
+
+## Access the App
+
+Open [http://localhost:3000](http://localhost:3000) in your browser. Create an account with email and password to get started.
+
+## Next Steps
+
+1. **[Add MCP Servers](/docs/mcp-servers)** — Register remote MCP servers for your workspace
+2. **[Create an Agent](/docs/agents/configuration)** — Set up your first AI assistant
+3. **[Configure Tools](/docs/tools/settings)** — Control which tools your agents can use

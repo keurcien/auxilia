@@ -1,0 +1,26 @@
+# Langfuse
+
+[Langfuse](https://langfuse.com/) is an open-source LLM observability platform. Integrating Langfuse with **auxilia** allows you to trace agent executions, monitor token usage, and debug tool calls.
+
+> This integration is **planned** and not yet available. This page documents the intended setup.
+
+## What Langfuse Provides
+
+- **Tracing** — See the full execution flow of each agent interaction, including LLM calls, tool invocations, and response times
+- **Cost tracking** — Monitor token usage and estimated costs per agent, user, or thread
+- **Evaluation** — Score and annotate agent responses for quality monitoring
+- **Prompt management** — Version and manage system prompts centrally
+
+## Planned Configuration
+
+The integration will use the LangChain callback handler for Langfuse. Configuration will be done via environment variables:
+
+```env
+LANGFUSE_PUBLIC_KEY=pk-...
+LANGFUSE_SECRET_KEY=sk-...
+LANGFUSE_HOST=https://cloud.langfuse.com  # or self-hosted URL
+```
+
+## Self-Hosted Langfuse
+
+Langfuse can be self-hosted alongside **auxilia** for full data control. See the [Langfuse self-hosting guide](https://langfuse.com/docs/deployment/self-host) for setup instructions.

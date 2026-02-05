@@ -1,0 +1,33 @@
+# Deployment
+
+**auxilia** can be deployed on any platform that supports Docker containers. The stack consists of three services:
+
+- **Backend** (FastAPI) — Python 3.12+
+- **Web** (Next.js) — Node.js 20+
+- **Database** — PostgreSQL 17 + Redis 7
+
+## Docker Images
+
+The project provides Dockerfiles for both services:
+
+```
+backend/Dockerfile    # FastAPI backend
+web/Dockerfile        # Next.js frontend
+```
+
+## Environment Variables
+
+All configuration is done through environment variables. See the [Get Started](/docs/get-started) guide for the full list.
+
+Key production considerations:
+
+| Variable                     | Production Value                                      |
+| ---------------------------- | ----------------------------------------------------- |
+| `JWT_SECRET_KEY`             | A strong random string (32+ characters)               |
+| `COOKIE_SECURE`              | `true` (requires HTTPS)                               |
+| `FRONTEND_URL`               | Your public URL (e.g. `https://auxilia.example.com`)  |
+| `MCP_API_KEY_ENCRYPTION_KEY` | A strong random string for encrypting stored API keys |
+
+## Deployment Guides
+
+- [Google Cloud Run](/docs/deployment/cloud-run) — Deploy **auxilia** as serverless containers on GCP

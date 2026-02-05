@@ -1,0 +1,54 @@
+# Agents
+
+Agents are the core of **auxilia**. An agent is an AI assistant configured with a system prompt (instructions), an emoji avatar, and a set of MCP server bindings that determine which tools it can use.
+
+## How Agents Work
+
+When a user sends a message to an agent, **auxilia**:
+
+1. Loads the agent configuration (instructions, model, MCP servers)
+2. Connects to all bound MCP servers and discovers available tools
+3. Filters tools based on each tool's status (always allow / needs approval / disabled)
+4. Sends the message to the LLM with the system prompt and available tools
+5. Streams the response back, executing tool calls as needed
+
+## Creating an Agent
+
+1. Navigate to the **Agents** page
+2. Click **Create Agent**
+3. Fill in the agent details:
+   - **Name** — a descriptive name for the agent
+   - **Emoji** — an avatar emoji shown in the agent list and chat
+   - **Instructions** — the system prompt that defines the agent's behavior
+
+## Agent-MCP Server Bindings
+
+Each agent can be connected to multiple MCP servers. When you bind an MCP server to an agent, all of that server's tools become available (subject to [tool settings](/docs/tools/settings)).
+
+To add MCP servers to an agent:
+
+1. Open the agent's configuration page
+2. Click **Add MCP Server**
+3. Select from the workspace's registered MCP servers
+4. Configure tool permissions for each server
+
+## Chat Threads
+
+Conversations with agents are organized into **threads**. Each thread:
+
+- Is tied to a specific agent and user
+- Has its own conversation history (persisted via LangGraph checkpoints)
+- Can use a specific LLM model (selectable per thread)
+- Is independent from other threads with the same agent
+
+## Supported Models
+
+You can select a different LLM model for each thread. Available models depend on which API keys are configured:
+
+| Provider  | Models                                   |
+| --------- | ---------------------------------------- |
+| Anthropic | Claude Haiku, Claude Sonnet, Claude Opus |
+| OpenAI    | GPT-4o mini                              |
+| Google    | Gemini 3 Flash, Gemini 3 Pro             |
+| DeepSeek  | DeepSeek Chat, DeepSeek Reasoner         |
+| LiteLLM   | Any custom model via LiteLLM proxy       |

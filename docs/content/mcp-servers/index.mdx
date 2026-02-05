@@ -1,0 +1,31 @@
+# MCP Servers
+
+**auxilia** connects to remote [Model Context Protocol](https://modelcontextprotocol.io/) servers to give agents access to external tools and data sources. Unlike desktop MCP clients, **auxilia** only supports **remote MCP servers** — it connects over HTTP with Server-Sent Events (SSE), not local stdio processes.
+
+## How It Works
+
+```
+┌──────────────┐           HTTPS           ┌──────────────────┐
+│   auxilia    │ ◀──────────────────────▶  │   Remote MCP     │
+│   Backend    │    Tool calls + Results   │   Server         │
+└──────────────┘                           └──────────────────┘
+```
+
+When an agent runs, **auxilia**'s backend establishes connections to all MCP servers bound to that agent. It discovers available tools, filters them based on [tool settings](/docs/tools/settings), and makes them available to the LLM.
+
+## Workspace-Level Registration
+
+MCP servers are registered at the **workspace level**. Once added, any agent in the workspace can be configured to use them. This avoids duplicate setup across agents.
+
+## Adding an MCP Server
+
+Navigate to the **MCP Servers** page from the sidebar. You can:
+
+1. **Install an official server** — Choose from pre-configured servers like HubSpot, GitHub, Notion, and more
+2. **Add a custom server** — Enter the URL and credentials for any remote MCP server
+
+## Next Steps
+
+- [Official vs Custom servers](/docs/mcp-servers/official-vs-custom)
+- [Authentication methods](/docs/mcp-servers/authentication)
+- Setup examples: [HubSpot](/docs/mcp-servers/examples/hubspot) · [GitHub](/docs/mcp-servers/examples/github) · [BigQuery](/docs/mcp-servers/examples/bigquery)
