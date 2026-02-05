@@ -38,9 +38,7 @@ function AvailableAgentMCPServerCard({
 	const handleAdd = async () => {
 		setIsAdding(true);
 		try {
-			await api.post(`/agents/${agentId}/mcp-servers/${server.id}`, {
-				enabled_tools: ["*"],
-			});
+			await api.post(`/agents/${agentId}/mcp-servers/${server.id}`, {});
 			onAdd();
 		} catch (error) {
 			console.error("Failed to add MCP server to agent:", error);

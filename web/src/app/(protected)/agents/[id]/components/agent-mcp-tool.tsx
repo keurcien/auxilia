@@ -13,7 +13,6 @@ interface AgentMCPToolProps {
 	serverId: string;
 	toolName: string;
 	toolDescription?: string;
-	allTools: Array<{ name: string; description?: string }>;
 	onUpdate?: () => void;
 }
 
@@ -22,23 +21,15 @@ export default function AgentMCPTool({
 	serverId,
 	toolName,
 	toolDescription,
-	allTools,
 	onUpdate,
 }: AgentMCPToolProps) {
 	const agentServer = agent.mcpServers?.find((s) => s.id === serverId);
 
-	// Get the initial tool status from the tools column
 	const getInitialStatus = (): ToolStatus => {
-		// First, check the new tools column
 		if (agentServer?.tools && toolName in agentServer.tools) {
 			return agentServer.tools[toolName];
 		}
-		// Fall back to the old enabledTools array for backwards compatibility
-		const isEnabled =
-			agentServer?.enabledTools?.includes(toolName) ||
-			agentServer?.enabledTools?.includes("*") ||
-			false;
-		return isEnabled ? "always_allow" : "disabled";
+		return "always_allow";
 	};
 
 	const [toolStatus, setToolStatus] = useState<ToolStatus>(getInitialStatus);
@@ -48,49 +39,11 @@ export default function AgentMCPTool({
 		setToolStatus(newStatus);
 
 		try {
-			// Update the tools column with the new status
 			const toolsUpdate: Record<string, ToolStatus> = {
 				[toolName]: newStatus,
 			};
 
-			// Also update the legacy enabled_tools array for backwards compatibility
-			const currentEnabledTools = agentServer?.enabledTools || [];
-			const hasWildcard = currentEnabledTools.includes("*");
-			const isEnabled = newStatus !== "disabled";
-
-			let updatedTools: string[];
-
-			if (isEnabled) {
-				// ENABLING A TOOL (always_allow or needs_approval)
-				if (hasWildcard) {
-					updatedTools = ["*"];
-				} else {
-					updatedTools = currentEnabledTools.includes(toolName)
-						? currentEnabledTools
-						: [...currentEnabledTools, toolName];
-
-					// Optimize: if all tools now enabled, switch back to wildcard
-					const allToolNames = allTools.map((t) => t.name);
-					if (
-						updatedTools.length === allToolNames.length &&
-						allToolNames.every((name) => updatedTools.includes(name))
-					) {
-						updatedTools = ["*"];
-					}
-				}
-			} else {
-				// DISABLING A TOOL
-				if (hasWildcard) {
-					// Expand wildcard to explicit list, then remove this tool
-					const allToolNames = allTools.map((t) => t.name);
-					updatedTools = allToolNames.filter((name) => name !== toolName);
-				} else {
-					updatedTools = currentEnabledTools.filter((t) => t !== toolName);
-				}
-			}
-
 			await api.patch(`/agents/${agent.id}/mcp-servers/${serverId}`, {
-				enabled_tools: updatedTools,
 				tools: toolsUpdate,
 			});
 
