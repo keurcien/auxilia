@@ -1,9 +1,5 @@
-from typing import Any
-
-from pydantic import BaseModel
-from pydantic import Discriminator, Tag
-from typing import Annotated
-
+from typing import Any, Annotated
+from pydantic import BaseModel, Discriminator, Tag
 
 
 class TextMessagePart(BaseModel):
@@ -57,7 +53,6 @@ MessagePart = Annotated[
 
 class Message(BaseModel):
     """AI SDK client message format"""
-
     id: str
     role: str
     parts: list[MessagePart]

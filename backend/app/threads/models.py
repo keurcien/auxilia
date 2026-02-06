@@ -36,7 +36,7 @@ class ThreadDB(ThreadBase, table=True):
 
 
 class ThreadCreate(SQLModel):
-    id: UUID | None = None  # Allow frontend to provide ID
+    id: UUID | None = None
     agent_id: UUID
     model_id: str | None = None
     first_message_content: str | None = None
