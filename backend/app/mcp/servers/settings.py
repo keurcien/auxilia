@@ -7,8 +7,8 @@ ROOT_ENV = BASE_DIR.parent / ".env"
 
 
 class MCPServerSettings(BaseSettings):
-    # Encryption Key for MCP API Keys
-    mcp_api_key_encryption_key: SecretStr
+    # Salt used to derive the Fernet encryption key for MCP API keys
+    mcp_api_key_encryption_salt: SecretStr
 
     class Config:
         env_file = ROOT_ENV

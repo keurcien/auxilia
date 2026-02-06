@@ -1,24 +1,25 @@
 """Encryption utilities for MCP server API keys."""
-import os
+import base64
+import hashlib
 from cryptography.fernet import Fernet
 
 from app.mcp.servers.settings import mcp_server_settings
 
-def get_encryption_key() -> bytes:
-    """Get or generate the encryption key for API keys.
 
-    In production, this should be stored in environment variables or a secrets manager.
-    For now, we'll use an environment variable or generate one.
+def get_encryption_key() -> bytes:
+    """Derive a valid Fernet key from the user-provided salt.
+
+    Hashes the salt with SHA-256 to produce 32 bytes, then base64url-encodes
+    it into a valid Fernet key.
     """
-    key = mcp_server_settings.mcp_api_key_encryption_key.get_secret_value()
-    if not key:
-        # In development, generate a key. In production, this should be set in env vars
-        # For now, we'll use a placeholder - you should set this in your .env file
+    salt = mcp_server_settings.mcp_api_key_encryption_salt.get_secret_value()
+    if not salt:
         raise ValueError(
-            "MCP_API_KEY_ENCRYPTION_KEY not found in environment variables. "
-            "Generate one using: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"
+            "MCP_API_KEY_ENCRYPTION_SALT not found in environment variables. "
+            "Set it to any secret string in your .env file."
         )
-    return key.encode()
+    derived = hashlib.sha256(salt.encode()).digest()
+    return base64.urlsafe_b64encode(derived)
 
 
 def encrypt_api_key(api_key: str) -> str:

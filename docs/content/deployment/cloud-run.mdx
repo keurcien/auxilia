@@ -67,7 +67,7 @@ gcloud run deploy auxilia-backend \
   --set-env-vars "JWT_SECRET_KEY=your-secret-key" \
   --set-env-vars "COOKIE_SECURE=true" \
   --set-env-vars "FRONTEND_URL=https://auxilia-web-HASH.run.app" \
-  --set-env-vars "MCP_API_KEY_ENCRYPTION_KEY=your-encryption-key" \
+  --set-env-vars "MCP_API_KEY_ENCRYPTION_SALT=your-encryption-salt" \
   --set-env-vars "OPENAI_API_KEY=sk-..." \
   --add-cloudsql-instances ${PROJECT_ID}:${REGION}:auxilia-db \
   --vpc-connector your-vpc-connector

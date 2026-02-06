@@ -57,7 +57,7 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
-      MCP_API_KEY_ENCRYPTION_KEY: ${MCP_API_KEY_ENCRYPTION_KEY:-changeme}
+      MCP_API_KEY_ENCRYPTION_SALT: ${MCP_API_KEY_ENCRYPTION_SALT:-changeme}
     depends_on:
       postgres:
         condition: service_healthy

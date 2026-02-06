@@ -26,7 +26,7 @@ Key production considerations:
 | `JWT_SECRET_KEY`             | A strong random string (32+ characters)               |
 | `COOKIE_SECURE`              | `true` (requires HTTPS)                               |
 | `FRONTEND_URL`               | Your public URL (e.g. `https://auxilia.example.com`)  |
-| `MCP_API_KEY_ENCRYPTION_KEY` | A strong random string for encrypting stored API keys |
+| `MCP_API_KEY_ENCRYPTION_SALT` | A secret string used to derive the encryption key for stored API keys |
 
 ## Deployment Guides
 
