@@ -135,15 +135,21 @@ const ChatPromptInput = ({
 							>
 								<ModelSelectorTrigger asChild>
 									<PromptInputButton>
-										{selectedModelData?.chefSlug && (
-											<ModelSelectorLogo
-												provider={selectedModelData.chefSlug}
-											/>
-										)}
-										{selectedModelData?.name && (
-											<ModelSelectorName>
-												{selectedModelData.name}
-											</ModelSelectorName>
+										{selectedModelData ? (
+											<>
+												<ModelSelectorLogo
+													provider={selectedModelData.chefSlug}
+												/>
+												<ModelSelectorName>
+													{selectedModelData.name}
+												</ModelSelectorName>
+											</>
+										) : (
+											<>
+												<ModelSelectorName className="text-muted-foreground">
+													Select model
+												</ModelSelectorName>
+											</>
 										)}
 									</PromptInputButton>
 								</ModelSelectorTrigger>

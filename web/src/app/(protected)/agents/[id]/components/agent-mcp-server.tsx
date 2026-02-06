@@ -14,6 +14,8 @@ interface AgentMCPServerProps {
 	agent: Agent;
 	server: MCPServer;
 	onUpdate?: () => void;
+	onSaving?: () => void;
+	onSaved?: () => void;
 }
 
 interface MCPServerTool {
@@ -25,6 +27,8 @@ export default function AgentMCPServer({
 	agent,
 	server,
 	onUpdate,
+	onSaving,
+	onSaved,
 }: AgentMCPServerProps) {
 	const initialAttached =
 		agent.mcpServers?.some((s) => s.id === server.id) || false;
@@ -38,6 +42,7 @@ export default function AgentMCPServer({
 
 	const handleToggleServer = async (serverId: string, isEnabled: boolean) => {
 		setIsAttached(isEnabled);
+		onSaving?.();
 
 		try {
 			if (isEnabled) {
@@ -55,9 +60,11 @@ export default function AgentMCPServer({
 				// Notify parent to update
 				onUpdate?.();
 			}
+			onSaved?.();
 		} catch (error) {
 			console.error("Failed to toggle server:", error);
 			setIsAttached(!isEnabled);
+			onSaved?.();
 		}
 	};
 
@@ -277,6 +284,8 @@ export default function AgentMCPServer({
 										toolName={tool.name}
 										toolDescription={tool.description}
 										onUpdate={onUpdate}
+										onSaving={onSaving}
+										onSaved={onSaved}
 									/>
 								))}
 							</div>

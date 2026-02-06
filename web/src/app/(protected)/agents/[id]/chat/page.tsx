@@ -7,20 +7,26 @@ import { type PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import ChatPromptInput from "./components/prompt-input";
 import { useThreadsStore } from "@/stores/threads-store";
 import { usePendingMessageStore } from "@/stores/pending-message-store";
+import { useModelsStore } from "@/stores/models-store";
 import { api } from "@/lib/api/client";
 import { Agent } from "@/types/agents";
 import { NewThreadDialog } from "@/components/layout/app-sidebar/new-thread-dialog";
+import { getDefaultModel } from "@/lib/utils/get-default-model";
 
 const StarterChatPage = () => {
 	const params = useParams();
 	const router = useRouter();
 	const agentId = params.id as string;
 	const [isCreating, setIsCreating] = useState(false);
-	const [selectedModel, setSelectedModel] = useState<string>("deepseek-chat");
+	const [selectedModel, setSelectedModel] = useState<string | undefined>(
+		undefined,
+	);
 	const addThread = useThreadsStore((state) => state.addThread);
 	const setPendingMessage = usePendingMessageStore(
 		(state) => state.setPendingMessage,
 	);
+	const models = useModelsStore((state) => state.models);
+	const fetchModels = useModelsStore((state) => state.fetchModels);
 	const [agent, setAgent] = useState<Agent | null>(null);
 	const [isAgentDialogOpen, setIsAgentDialogOpen] = useState(false);
 
@@ -32,6 +38,12 @@ const StarterChatPage = () => {
 			"files" in message && message.files && message.files.length > 0;
 
 		if (!hasText && !hasFiles) {
+			return;
+		}
+
+		const modelId = selectedModel ?? getDefaultModel(models);
+		if (!modelId) {
+			console.error("No model available to create thread");
 			return;
 		}
 
@@ -50,7 +62,7 @@ const StarterChatPage = () => {
 			const response = await api.post("/threads", {
 				id: threadId,
 				agentId: agentId,
-				modelId: selectedModel,
+				modelId,
 				firstMessageContent: textContent,
 			});
 
@@ -68,6 +80,25 @@ const StarterChatPage = () => {
 			setIsCreating(false);
 		}
 	};
+
+	useEffect(() => {
+		if (models.length === 0) {
+			fetchModels().catch((error) => {
+				console.error("Error fetching models:", error);
+			});
+		}
+	}, [fetchModels, models.length]);
+
+	useEffect(() => {
+		if (selectedModel) {
+			return;
+		}
+
+		const defaultModel = getDefaultModel(models);
+		if (defaultModel) {
+			setSelectedModel(defaultModel);
+		}
+	}, [models, selectedModel]);
 
 	useEffect(() => {
 		const fetchAgent = async () => {

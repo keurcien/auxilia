@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import EmojiPicker, { EmojiClickData } from "emoji-picker-react";
-import { MoreVertical, Trash2 } from "lucide-react";
+import { Check, Loader2, MoreVertical, Trash2 } from "lucide-react";
 import { Agent } from "@/types/agents";
 import AgentMCPServerList from "../[id]/components/agent-mcp-server-list";
 import { api } from "@/lib/api/client";
@@ -25,11 +25,17 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 	const updateAgent = useAgentsStore((state) => state.updateAgent);
 	const removeAgent = useAgentsStore((state) => state.removeAgent);
 
+	const liveAgent = useAgentsStore(
+		(state) => state.agents.find((a) => a.id === agent.id) ?? agent,
+	);
+
 	const [name, setName] = useState(agent.name || "");
 	const [instructions, setInstructions] = useState(agent.instructions || "");
 	const [emoji, setEmoji] = useState(agent.emoji || "🤖");
 	const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+	const [saveStatus, setSaveStatus] = useState<"saved" | "saving">("saved");
 	const emojiPickerRef = useRef<HTMLDivElement>(null);
+	const nameTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
 	const instructionsTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
 	useEffect(() => {
@@ -64,6 +70,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 				const response = await api.patch(`/agents/${agent.id}`, updates);
 				const updatedAgent: Agent = response.data;
 				updateAgent(agent.id, updatedAgent);
+				setSaveStatus("saved");
 			} catch (error) {
 				console.error("Error saving agent:", error);
 			}
@@ -90,28 +97,42 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 		}
 	};
 
-	// Auto-save name changes
+	// Auto-save name changes with 300ms debounce
 	useEffect(() => {
-		if (name.trim() && name !== agent.name) {
+		if (!name.trim() || name === liveAgent.name) return;
+
+		setSaveStatus("saving");
+
+		if (nameTimeoutRef.current) clearTimeout(nameTimeoutRef.current);
+		nameTimeoutRef.current = setTimeout(() => {
 			saveAgent({ name: name.trim() });
-		}
-	}, [name, agent.name, saveAgent]);
+		}, 300);
+
+		return () => {
+			if (nameTimeoutRef.current) clearTimeout(nameTimeoutRef.current);
+		};
+	}, [name, liveAgent.name, saveAgent]);
 
 	// Auto-save emoji changes
 	useEffect(() => {
-		if (emoji !== agent.emoji) {
+		if (emoji !== liveAgent.emoji) {
+			setSaveStatus("saving");
 			saveAgent({ emoji });
 		}
-	}, [emoji, agent.emoji, saveAgent]);
+	}, [emoji, liveAgent.emoji, saveAgent]);
 
 	// Auto-save instructions with debounce
 	useEffect(() => {
+		if (instructions !== liveAgent.instructions) {
+			setSaveStatus("saving");
+		}
+
 		if (instructionsTimeoutRef.current) {
 			clearTimeout(instructionsTimeoutRef.current);
 		}
 
 		instructionsTimeoutRef.current = setTimeout(() => {
-			if (instructions !== agent.instructions) {
+			if (instructions !== liveAgent.instructions) {
 				saveAgent({ instructions: instructions.trim() });
 			}
 		}, 1000);
@@ -121,7 +142,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 				clearTimeout(instructionsTimeoutRef.current);
 			}
 		};
-	}, [instructions, agent.instructions, saveAgent]);
+	}, [instructions, liveAgent.instructions, saveAgent]);
 
 	return (
 		<div className="h-full flex flex-col">
@@ -151,6 +172,20 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 					<p className="text-lg text-gray-500 truncate w-full">
 						@{name.toLowerCase().replace(/\s+/g, "_") || "agent_name"}
 					</p>
+				</div>
+
+				<div className="flex items-center gap-1.5 shrink-0">
+					{saveStatus === "saved" ? (
+						<>
+							<Check className="w-5 h-5 text-green-500" />
+							<span className="text-base text-green-500 font-medium">Saved</span>
+						</>
+					) : (
+						<>
+							<Loader2 className="w-5 h-5 text-yellow-500 animate-spin" />
+							<span className="text-base text-yellow-500 font-medium">Saving</span>
+						</>
+					)}
 				</div>
 
 				<DropdownMenu>
@@ -191,7 +226,11 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 				</div>
 
 				<div className="h-full w-full md:w-1/2 p-6 flex flex-col min-h-0">
-					<AgentMCPServerList agent={agent} />
+					<AgentMCPServerList
+						agent={liveAgent}
+						onSaving={() => setSaveStatus("saving")}
+						onSaved={() => setSaveStatus("saved")}
+					/>
 				</div>
 			</div>
 		</div>
