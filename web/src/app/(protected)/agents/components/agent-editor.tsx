@@ -226,7 +226,11 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 				</div>
 
 				<div className="h-full w-full md:w-1/2 p-6 flex flex-col min-h-0">
-					<AgentMCPServerList agent={liveAgent} />
+					<AgentMCPServerList
+						agent={liveAgent}
+						onSaving={() => setSaveStatus("saving")}
+						onSaved={() => setSaveStatus("saved")}
+					/>
 				</div>
 			</div>
 		</div>

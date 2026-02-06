@@ -15,6 +15,8 @@ interface AgentMCPToolProps {
 	toolDescription?: string;
 	allTools: Array<{ name: string; description?: string }>;
 	onUpdate?: () => void;
+	onSaving?: () => void;
+	onSaved?: () => void;
 }
 
 export default function AgentMCPTool({
@@ -24,6 +26,8 @@ export default function AgentMCPTool({
 	toolDescription,
 	allTools,
 	onUpdate,
+	onSaving,
+	onSaved,
 }: AgentMCPToolProps) {
 	const agentServer = agent.mcpServers?.find((s) => s.id === serverId);
 
@@ -46,6 +50,7 @@ export default function AgentMCPTool({
 	const handleStatusChange = async (newStatus: ToggleState) => {
 		const previousStatus = toolStatus;
 		setToolStatus(newStatus);
+		onSaving?.();
 
 		try {
 			// Update the tools column with the new status
@@ -96,9 +101,11 @@ export default function AgentMCPTool({
 
 			// Notify parent to refresh/update
 			onUpdate?.();
+			onSaved?.();
 		} catch (error) {
 			console.error("Failed to update tool status:", error);
 			setToolStatus(previousStatus);
+			onSaved?.();
 		}
 	};
 
