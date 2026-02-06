@@ -20,30 +20,37 @@ interface AddAgentMCPServerDialogProps {
 	onOpenChange: (open: boolean) => void;
 	agent: Agent;
 	onServerAdded?: () => void;
+	onSaving?: () => void;
+	onSaved?: () => void;
 }
 
 interface AvailableAgentMCPServerCardProps {
 	server: MCPServer;
 	agentId: string;
 	onAdd: () => void;
+	onSaving?: () => void;
+	onSaved?: () => void;
 }
 
 function AvailableAgentMCPServerCard({
 	server,
 	agentId,
 	onAdd,
+	onSaving,
+	onSaved,
 }: AvailableAgentMCPServerCardProps) {
 	const [isAdding, setIsAdding] = useState(false);
 
 	const handleAdd = async () => {
 		setIsAdding(true);
+		onSaving?.();
 		try {
-			await api.post(`/agents/${agentId}/mcp-servers/${server.id}`, {
-				enabled_tools: ["*"],
-			});
+			await api.post(`/agents/${agentId}/mcp-servers/${server.id}`, {});
 			onAdd();
+			onSaved?.();
 		} catch (error) {
 			console.error("Failed to add MCP server to agent:", error);
+			onSaved?.();
 		} finally {
 			setIsAdding(false);
 		}
@@ -90,6 +97,8 @@ export default function AddAgentMCPServerDialog({
 	onOpenChange,
 	agent,
 	onServerAdded,
+	onSaving,
+	onSaved,
 }: AddAgentMCPServerDialogProps) {
 	const [allServers, setAllServers] = useState<MCPServer[]>([]);
 
@@ -108,7 +117,12 @@ export default function AddAgentMCPServerDialog({
 
 	const handleServerAdded = () => {
 		onServerAdded?.();
-		// Refresh the server list
+
+		if (availableServers.length <= 1) {
+			onOpenChange(false);
+			return;
+		}
+
 		api.get("/mcp-servers").then((res) => {
 			setAllServers(res.data);
 		});
@@ -129,6 +143,8 @@ export default function AddAgentMCPServerDialog({
 									server={server}
 									agentId={agent.id}
 									onAdd={handleServerAdded}
+									onSaving={onSaving}
+									onSaved={onSaved}
 								/>
 							))}
 						</div>

@@ -1,0 +1,26 @@
+# Tools
+
+Tools are the actions an agent can perform through MCP servers. Each MCP server exposes a set of tools — functions the agent can call during a conversation to fetch data, create records, or perform actions in external systems.
+
+## How Tools Work
+
+1. **auxilia** connects to an MCP server and discovers its available tools
+2. Each tool has a name, description, and input schema
+3. The LLM decides when to call a tool based on the conversation context
+4. **auxilia** executes the tool call against the MCP server
+5. The result is returned to the LLM to incorporate into its response
+
+## Tool Discovery
+
+When you bind an MCP server to an agent, **auxilia** fetches the list of tools from the server. These appear in the agent's configuration with their names and descriptions.
+
+Tools are refreshed each time the agent handles a message, so new tools added to an MCP server are picked up automatically.
+
+## Tool Execution in Chat
+
+During a conversation, tool calls appear in the chat as expandable blocks showing:
+
+- The **tool name** and which MCP server it belongs to
+- The **input parameters** sent to the tool
+- The **result** returned by the tool
+- Whether the call was **auto-approved** or required **manual approval**

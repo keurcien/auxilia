@@ -11,10 +11,14 @@ import { api } from "@/lib/api/client";
 
 interface AgentMCPServerListProps {
 	agent: Agent;
+	onSaving?: () => void;
+	onSaved?: () => void;
 }
 
 export default function AgentMCPServerList({
 	agent: initialAgent,
+	onSaving,
+	onSaved,
 }: AgentMCPServerListProps) {
 	const [allMCPServers, setAllMCPServers] = useState<MCPServer[]>([]);
 	const [agent, setAgent] = useState<Agent>(initialAgent);
@@ -59,6 +63,8 @@ export default function AgentMCPServerList({
 							agent={agent}
 							server={server}
 							onUpdate={refreshAgent}
+							onSaving={onSaving}
+							onSaved={onSaved}
 						/>
 					))
 				) : (
@@ -73,6 +79,8 @@ export default function AgentMCPServerList({
 				onOpenChange={setDialogOpen}
 				agent={agent}
 				onServerAdded={refreshAgent}
+				onSaving={onSaving}
+				onSaved={onSaved}
 			/>
 		</div>
 	);

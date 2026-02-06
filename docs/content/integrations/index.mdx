@@ -1,0 +1,29 @@
+# Integrations
+
+**auxilia** can be extended with integrations for observability, notifications, and more.
+
+## Available Integrations
+
+| Integration                             | Purpose                         | Status  |
+| --------------------------------------- | ------------------------------- | ------- |
+| [Langfuse](/docs/integrations/langfuse) | LLM observability and tracing   | Planned |
+| [Slack](/docs/integrations/slack)       | Notifications and bot interface | Planned |
+
+## LLM Providers
+
+**auxilia** supports multiple LLM providers out of the box. Configure API keys in your environment variables:
+
+| Provider  | Environment Variable | Models                       |
+| --------- | -------------------- | ---------------------------- |
+| OpenAI    | `OPENAI_API_KEY`     | GPT-4o mini                  |
+| Anthropic | `ANTHROPIC_API_KEY`  | Claude Haiku / Sonnet / Opus |
+| Google    | `GOOGLE_API_KEY`     | Gemini 3 Flash / Pro         |
+| DeepSeek  | `DEEPSEEK_API_KEY`   | DeepSeek Chat / Reasoner     |
+| LiteLLM   | `LITELLM_BASE_URL`   | Any model via proxy          |
+
+## Authentication Providers
+
+| Provider       | Environment Variables                                             |
+| -------------- | ----------------------------------------------------------------- |
+| Email/Password | Built-in (no extra config)                                        |
+| Google OAuth   | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` |

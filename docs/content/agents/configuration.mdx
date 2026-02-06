@@ -1,0 +1,59 @@
+# Agent Configuration
+
+This page covers the details of configuring an agent in **auxilia**.
+
+## System Prompt (Instructions)
+
+The instructions field is the system prompt sent to the LLM on every message. It defines the agent's personality, behavior, and constraints.
+
+Tips for writing effective instructions:
+
+- Be specific about the agent's role and domain
+- List what the agent should and shouldn't do
+- Mention which tools to prefer for specific tasks
+- Include formatting preferences for responses
+
+**Example:**
+
+```
+You are a CRM assistant for the sales team. Use the HubSpot tools to look up
+contacts, deals, and company information.
+
+When asked about a contact, always include their email, company, and deal stage.
+Format monetary values with currency symbols. If you can't find a record,
+say so clearly rather than guessing.
+```
+
+## Emoji Avatar
+
+Each agent has an emoji avatar displayed in the agent list and chat header. Click the emoji in the agent editor to open the picker.
+
+## MCP Server Bindings
+
+After creating an agent, bind MCP servers to give it access to tools:
+
+1. Click **Add MCP Server** in the agent configuration
+2. Select a server from the workspace's registered servers
+3. The server's tools will appear with their default status
+
+Each binding tracks:
+
+- **Enabled tools** — which tools from this server are available
+- **Tool statuses** — per-tool permission level (see [Tool Settings](/docs/tools/settings))
+
+## Editing an Agent
+
+All agent properties can be modified at any time:
+
+- Changes to **instructions** take effect on the next message
+- Changes to **MCP server bindings** take effect on the next message
+- Changes to **tool settings** take effect on the next message
+- Existing chat threads are not affected by historical changes — they use the current configuration
+
+## Deleting an Agent
+
+Deleting an agent removes:
+
+- The agent configuration
+- All MCP server bindings for that agent
+- All chat threads associated with the agent

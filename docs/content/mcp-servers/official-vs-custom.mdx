@@ -1,0 +1,51 @@
+# Official vs Custom MCP Servers
+
+**auxilia** supports two categories of MCP servers: **official** (pre-configured) and **custom** (user-registered).
+
+## Official MCP Servers
+
+Official servers are pre-configured in **auxilia** with their URLs, metadata, and OAuth capabilities. They appear in a dedicated section on the MCP Servers page with an **Install** button.
+
+Currently available official servers include:
+
+| Server    | Auth Type | OAuth Method       |
+| --------- | --------- | ------------------ |
+| Notion    | OAuth 2.0 | DCR                |
+| Atlassian | OAuth 2.0 | DCR                |
+| Linear    | OAuth 2.0 | DCR                |
+| Sentry    | OAuth 2.0 | DCR                |
+| Stripe    | OAuth 2.0 | DCR                |
+| Canva     | OAuth 2.0 | DCR                |
+| Intercom  | OAuth 2.0 | DCR                |
+| Supabase  | OAuth 2.0 | DCR                |
+| HubSpot   | OAuth 2.0 | Static credentials |
+| GitHub    | OAuth 2.0 | Static credentials |
+| BigQuery  | OAuth 2.0 | Static credentials |
+
+When you install an official server, **auxilia** creates a workspace MCP server entry with the correct URL and authentication configuration.
+
+### DCR Servers
+
+Servers that support **Dynamic Client Registration (DCR)** handle OAuth automatically. When you click **Connect**, **auxilia** registers itself as an OAuth client with the MCP server on the fly. No client ID or secret is needed from you.
+
+### Static Credential Servers
+
+Some servers (HubSpot, GitHub, BigQuery) require you to register an OAuth app yourself and provide the client ID and secret. See the [setup examples](/docs/mcp-servers/examples/hubspot) for step-by-step guides.
+
+## Custom MCP Servers
+
+You can add any remote MCP server by providing its URL. Click **Add MCP Server** and fill in:
+
+| Field       | Required | Description                                   |
+| ----------- | -------- | --------------------------------------------- |
+| URL         | Yes      | The MCP server endpoint (must support SSE)    |
+| Name        | Yes      | Display name in the UI                        |
+| Description | No       | Brief description of what the server provides |
+| Icon URL    | No       | URL to an icon for the server card            |
+| Auth Type   | Yes      | `None`, `API Key`, or `OAuth 2.0`             |
+
+### When to Use Custom Servers
+
+- Self-hosted MCP servers within your infrastructure
+- MCP servers not yet in the official list
+- Servers requiring specific authentication configurations

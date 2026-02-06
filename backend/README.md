@@ -1,6 +1,6 @@
-# Auxilia Backend
+# auxilia Backend
 
-FastAPI backend for the Auxilia project with MCP (Model Context Protocol) server integration and OAuth authentication.
+FastAPI backend for the auxilia project with MCP (Model Context Protocol) server integration and OAuth authentication.
 
 ## Features
 
