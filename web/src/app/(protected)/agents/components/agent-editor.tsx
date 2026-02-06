@@ -34,6 +34,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 	const [emoji, setEmoji] = useState(agent.emoji || "🤖");
 	const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 	const [saveStatus, setSaveStatus] = useState<"saved" | "saving">("saved");
+	const savingTimerRef = useRef<NodeJS.Timeout | undefined>(undefined);
 	const emojiPickerRef = useRef<HTMLDivElement>(null);
 	const nameTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
 	const instructionsTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
@@ -60,17 +61,20 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 	const handleEmojiClick = (emojiData: EmojiClickData) => {
 		setEmoji(emojiData.emoji);
 		setShowEmojiPicker(false);
+		saveAgent({ emoji: emojiData.emoji });
 	};
 
 	const saveAgent = useCallback(
 		async (
 			updates: Partial<Pick<Agent, "name" | "instructions" | "emoji">>,
 		) => {
+			setSaveStatus("saving");
 			try {
 				const response = await api.patch(`/agents/${agent.id}`, updates);
 				const updatedAgent: Agent = response.data;
 				updateAgent(agent.id, updatedAgent);
-				setSaveStatus("saved");
+				if (savingTimerRef.current) clearTimeout(savingTimerRef.current);
+				savingTimerRef.current = setTimeout(() => setSaveStatus("saved"), 500);
 			} catch (error) {
 				console.error("Error saving agent:", error);
 			}
@@ -101,8 +105,6 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 	useEffect(() => {
 		if (!name.trim() || name === liveAgent.name) return;
 
-		setSaveStatus("saving");
-
 		if (nameTimeoutRef.current) clearTimeout(nameTimeoutRef.current);
 		nameTimeoutRef.current = setTimeout(() => {
 			saveAgent({ name: name.trim() });
@@ -113,20 +115,8 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 		};
 	}, [name, liveAgent.name, saveAgent]);
 
-	// Auto-save emoji changes
-	useEffect(() => {
-		if (emoji !== liveAgent.emoji) {
-			setSaveStatus("saving");
-			saveAgent({ emoji });
-		}
-	}, [emoji, liveAgent.emoji, saveAgent]);
-
 	// Auto-save instructions with debounce
 	useEffect(() => {
-		if (instructions !== liveAgent.instructions) {
-			setSaveStatus("saving");
-		}
-
 		if (instructionsTimeoutRef.current) {
 			clearTimeout(instructionsTimeoutRef.current);
 		}
@@ -135,7 +125,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 			if (instructions !== liveAgent.instructions) {
 				saveAgent({ instructions: instructions.trim() });
 			}
-		}, 1000);
+		}, 600);
 
 		return () => {
 			if (instructionsTimeoutRef.current) {
@@ -177,13 +167,15 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 				<div className="flex items-center gap-1.5 shrink-0">
 					{saveStatus === "saved" ? (
 						<>
-							<Check className="w-5 h-5 text-green-500" />
-							<span className="text-base text-green-500 font-medium">Saved</span>
+							<Check className="w-4 h-4 text-green-600" />
+							<span className="text-sm text-green-600 font-medium">Saved</span>
 						</>
 					) : (
 						<>
-							<Loader2 className="w-5 h-5 text-yellow-500 animate-spin" />
-							<span className="text-base text-yellow-500 font-medium">Saving</span>
+							<Loader2 className="w-4 h-4 text-yellow-500 animate-spin" />
+							<span className="text-sm text-yellow-500 font-medium">
+								Saving
+							</span>
 						</>
 					)}
 				</div>
@@ -229,7 +221,13 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 					<AgentMCPServerList
 						agent={liveAgent}
 						onSaving={() => setSaveStatus("saving")}
-						onSaved={() => setSaveStatus("saved")}
+						onSaved={() => {
+							if (savingTimerRef.current) clearTimeout(savingTimerRef.current);
+							savingTimerRef.current = setTimeout(
+								() => setSaveStatus("saved"),
+								400,
+							);
+						}}
 					/>
 				</div>
 			</div>
