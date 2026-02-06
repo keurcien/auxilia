@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import AgentMCPServer from "./agent-mcp-server";
 import AddAgentMCPServerDialog from "./add-agent-mcp-server-dialog";
 import { api } from "@/lib/api/client";
+import { useAgentsStore } from "@/stores/agents-store";
 
 interface AgentMCPServerListProps {
 	agent: Agent;
@@ -20,6 +21,7 @@ export default function AgentMCPServerList({
 	onSaving,
 	onSaved,
 }: AgentMCPServerListProps) {
+	const updateAgent = useAgentsStore((state) => state.updateAgent);
 	const [allMCPServers, setAllMCPServers] = useState<MCPServer[]>([]);
 	const [agent, setAgent] = useState<Agent>(initialAgent);
 	const [dialogOpen, setDialogOpen] = useState(false);
@@ -33,6 +35,7 @@ export default function AgentMCPServerList({
 	const refreshAgent = () => {
 		api.get(`/agents/${agent.id}`).then((res) => {
 			setAgent(res.data);
+			updateAgent(agent.id, res.data);
 		});
 	};
 

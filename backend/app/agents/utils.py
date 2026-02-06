@@ -1,3 +1,4 @@
+from collections import defaultdict
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -10,6 +11,38 @@ from app.agents.models import (
     AgentMCPServerBindingDB,
     AgentRead,
 )
+
+
+async def read_agents(
+    db: AsyncSession, owner_id: UUID | None = None
+) -> list[AgentRead]:
+    query = (
+        select(AgentDB, AgentMCPServerBindingDB)
+        .outerjoin(
+            AgentMCPServerBindingDB, AgentDB.id == AgentMCPServerBindingDB.agent_id
+        )
+        .order_by(AgentDB.created_at.asc())
+    )
+    if owner_id:
+        query = query.where(AgentDB.owner_id == owner_id)
+
+    result = await db.execute(query)
+    rows = result.all()
+
+    agents_map: dict[UUID, AgentDB] = {}
+    bindings_map: dict[UUID, list[AgentMCPServer]] = defaultdict(list)
+
+    for agent, binding in rows:
+        agents_map[agent.id] = agent
+        if binding is not None:
+            bindings_map[agent.id].append(
+                AgentMCPServer(id=binding.mcp_server_id, tools=binding.tools)
+            )
+
+    return [
+        AgentRead(**agent.model_dump(), mcp_servers=bindings_map.get(agent.id, []))
+        for agent in agents_map.values()
+    ]
 
 
 async def read_agent(agent_id: UUID, db: AsyncSession) -> AgentRead:

@@ -15,7 +15,7 @@ from app.agents.models import (
     AgentRead,
     AgentUpdate,
 )
-from app.agents.utils import read_agent
+from app.agents.utils import read_agent, read_agents
 from app.auth.dependencies import get_current_user
 from app.database import get_db
 from app.mcp.client.auth import ServerlessOAuthProvider, build_oauth_client_metadata
@@ -44,12 +44,7 @@ async def create_agent(
 async def get_agents(
     owner_id: UUID | None = None, db: AsyncSession = Depends(get_db)
 ) -> list[AgentRead]:
-    query = select(AgentDB).order_by(AgentDB.created_at.asc())
-    if owner_id:
-        query = query.where(AgentDB.owner_id == owner_id)
-    result = await db.execute(query)
-    agents = result.scalars().all()
-    return list(agents)
+    return await read_agents(db, owner_id=owner_id)
 
 
 @router.get("/{agent_id}", response_model=AgentRead, response_model_by_alias=True)
