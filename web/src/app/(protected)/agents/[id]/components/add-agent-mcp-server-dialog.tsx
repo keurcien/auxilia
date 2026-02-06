@@ -119,7 +119,12 @@ export default function AddAgentMCPServerDialog({
 
 	const handleServerAdded = () => {
 		onServerAdded?.();
-		// Refresh the server list
+
+		if (availableServers.length <= 1) {
+			onOpenChange(false);
+			return;
+		}
+
 		api.get("/mcp-servers").then((res) => {
 			setAllServers(res.data);
 		});
