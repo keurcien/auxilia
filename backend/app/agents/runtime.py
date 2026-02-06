@@ -149,14 +149,14 @@ class AgentRuntime:
     async def get_tools(
         self,
         multi_mcp_server_configs: dict,
-        enabled_tools_map: dict[str, list[str] | None],
+        tool_settings_map: dict[str, dict[str, str] | None],
     ) -> list[Tool]:
         """
-        Fetch tools from MCP servers and filter based on enabled_tools per server.
+        Fetch tools from MCP servers and filter based on tool settings per server.
 
         Args:
             multi_mcp_server_configs: Dict mapping server_id to server config
-            enabled_tools_map: Dict mapping server_id to list of enabled tool names (None means all tools enabled)
+            tool_settings_map: Dict mapping server_name to tool status dict (e.g. {"tool_name": "always_allow"})
 
         Returns:
             Filtered list of tools
@@ -165,9 +165,9 @@ class AgentRuntime:
 
         async def fetch_and_filter_tools(server_id: str):
             tools = await client.get_tools(server_name=server_id)
-            enabled_tools = enabled_tools_map.get(str(server_id))        
-            always_allowed_tools = [tool for tool in tools if tool.name in [server_id + "_" + tool for tool, status in enabled_tools.items() if status == "always_allow"]]
-            need_approval_tools = [tool for tool in tools if tool.name in [server_id + "_" + tool for tool, status in enabled_tools.items() if status == "needs_approval"]]
+            tool_settings = tool_settings_map.get(str(server_id))
+            always_allowed_tools = [tool for tool in tools if tool.name in [server_id + "_" + tool for tool, status in tool_settings.items() if status == "always_allow"]]
+            need_approval_tools = [tool for tool in tools if tool.name in [server_id + "_" + tool for tool, status in tool_settings.items() if status == "needs_approval"]]
             return always_allowed_tools, need_approval_tools
 
         tasks = [

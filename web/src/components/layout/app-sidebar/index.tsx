@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -90,15 +91,12 @@ export function AppSidebar() {
 		<>
 			<Sidebar>
 				<SidebarHeader>
-					<div className="flex items-center gap-2 px-2 py-2">
-						<div className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-							<Bot className="size-4" />
+					<div className="flex items-center gap-1 px-2 py-2">
+						<div className="flex size-8 items-center justify-center rounded-lg text-primary-foreground">
+							<Image src="/logo.svg" alt="auxilia" height={24} width={24} />
 						</div>
 						<div className="flex flex-col">
-							<span className="text-sm font-semibold">auxilia</span>
-							<span className="text-xs text-muted-foreground">
-								Agent Platform
-							</span>
+							<span className="text-base font-semibold">auxilia</span>
 						</div>
 					</div>
 				</SidebarHeader>

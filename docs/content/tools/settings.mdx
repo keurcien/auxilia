@@ -1,0 +1,58 @@
+# Tool Settings
+
+Every tool bound to an agent can be configured with one of three permission states. This gives you fine-grained control over what actions an agent can take autonomously versus what requires human oversight.
+
+## The Three States
+
+### Always Allow
+
+The tool executes immediately when the LLM decides to call it. No user intervention is needed.
+
+**Use for:** Read-only tools, low-risk actions, tools you trust completely.
+
+### Needs Approval
+
+When the LLM calls this tool, execution pauses and the user is shown an approval prompt in the chat. The user can review the tool name and input parameters, then approve or reject the call.
+
+**Use for:** Write operations, actions with side effects, tools that modify external data, or any tool where you want human oversight.
+
+**How it works:**
+
+1. The LLM decides to call the tool
+2. **auxilia** pauses the agent execution
+3. The chat shows the pending tool call with its parameters
+4. The user clicks **Approve** or **Reject**
+5. If approved, the tool executes and the agent continues
+6. If rejected, the agent is informed and adjusts its response
+
+### Disabled
+
+The tool is completely excluded from the agent's toolset. The LLM doesn't know the tool exists and can't call it.
+
+**Use for:** Tools that are irrelevant to the agent's purpose, or tools you want to temporarily turn off.
+
+## Configuring Tool Settings
+
+1. Open the agent's configuration page
+2. Find the MCP server section
+3. Each tool shows a three-state toggle:
+
+```
+   ✓  Always Allow
+   ⏸  Needs Approval
+   ✗  Disabled
+```
+
+4. Click the toggle to cycle between states
+
+## Default Behavior
+
+When an MCP server is first bound to an agent, all tools default to **Always Allow**. Review the tool list and adjust permissions based on your needs.
+
+## Per-Agent Configuration
+
+Tool settings are scoped to each agent-server binding. The same MCP server can have different tool permissions across different agents. For example:
+
+- A "Read-Only CRM Agent" might have all HubSpot write tools **disabled**
+- A "Sales Assistant" might have HubSpot write tools set to **needs approval**
+- An "Automation Agent" might have all tools set to **always allow**

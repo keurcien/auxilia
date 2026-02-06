@@ -152,7 +152,6 @@ async def create_or_update_binding(
 
     if existing_binding:
         # Update existing binding
-        existing_binding.enabled_tools = binding.enabled_tools
         if binding.tools is not None:
             existing_binding.tools = binding.tools
         db.add(existing_binding)
@@ -164,7 +163,6 @@ async def create_or_update_binding(
     db_binding = AgentMCPServerBindingDB(
         agent_id=agent_id,
         mcp_server_id=server_id,
-        enabled_tools=binding.enabled_tools,
         tools=None,  # Start with null, will populate after
     )
     db.add(db_binding)

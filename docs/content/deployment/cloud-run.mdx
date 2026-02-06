@@ -1,0 +1,110 @@
+# Deploy on Google Cloud Run
+
+This guide walks through deploying **auxilia** on Google Cloud Run with Cloud SQL (PostgreSQL) and Memorystore (Redis).
+
+## Prerequisites
+
+- A Google Cloud project with billing enabled
+- [gcloud CLI](https://cloud.google.com/sdk/docs/install) installed and authenticated
+- Docker installed locally
+
+## 1. Set Up Cloud SQL
+
+Create a PostgreSQL instance:
+
+```bash
+gcloud sql instances create auxilia-db \
+  --database-version=POSTGRES_17 \
+  --tier=db-f1-micro \
+  --region=us-central1
+
+gcloud sql databases create auxilia \
+  --instance=auxilia-db
+
+gcloud sql users set-password postgres \
+  --instance=auxilia-db \
+  --password=YOUR_DB_PASSWORD
+```
+
+## 2. Set Up Memorystore (Redis)
+
+```bash
+gcloud redis instances create auxilia-redis \
+  --size=1 \
+  --region=us-central1 \
+  --redis-version=redis_7_0
+```
+
+Note the IP address from the output — you'll need it for `REDIS_HOST`.
+
+## 3. Build and Push Images
+
+```bash
+# Set your project
+export PROJECT_ID=your-project-id
+export REGION=us-central1
+
+# Build and push backend
+gcloud builds submit backend/ \
+  --tag ${REGION}-docker.pkg.dev/${PROJECT_ID}/auxilia/backend
+
+# Build and push web
+gcloud builds submit web/ \
+  --tag ${REGION}-docker.pkg.dev/${PROJECT_ID}/auxilia/web
+```
+
+## 4. Deploy Backend
+
+```bash
+gcloud run deploy auxilia-backend \
+  --image ${REGION}-docker.pkg.dev/${PROJECT_ID}/auxilia/backend \
+  --region ${REGION} \
+  --platform managed \
+  --allow-unauthenticated \
+  --set-env-vars "DATABASE_URL=postgresql+psycopg://postgres:YOUR_DB_PASSWORD@/auxilia?host=/cloudsql/${PROJECT_ID}:${REGION}:auxilia-db" \
+  --set-env-vars "REDIS_HOST=REDIS_IP" \
+  --set-env-vars "REDIS_PORT=6379" \
+  --set-env-vars "JWT_SECRET_KEY=your-secret-key" \
+  --set-env-vars "COOKIE_SECURE=true" \
+  --set-env-vars "FRONTEND_URL=https://auxilia-web-HASH.run.app" \
+  --set-env-vars "MCP_API_KEY_ENCRYPTION_KEY=your-encryption-key" \
+  --set-env-vars "OPENAI_API_KEY=sk-..." \
+  --add-cloudsql-instances ${PROJECT_ID}:${REGION}:auxilia-db \
+  --vpc-connector your-vpc-connector
+```
+
+## 5. Deploy Web
+
+```bash
+gcloud run deploy auxilia-web \
+  --image ${REGION}-docker.pkg.dev/${PROJECT_ID}/auxilia/web \
+  --region ${REGION} \
+  --platform managed \
+  --allow-unauthenticated \
+  --set-env-vars "BACKEND_URL=https://auxilia-backend-HASH.run.app"
+```
+
+## 6. Configure VPC Connector
+
+Both Cloud Run services need to access Memorystore through a VPC connector:
+
+```bash
+gcloud compute networks vpc-access connectors create auxilia-connector \
+  --region ${REGION} \
+  --range 10.8.0.0/28
+```
+
+Update both Cloud Run services to use `--vpc-connector auxilia-connector`.
+
+## Custom Domain
+
+Map a custom domain to the web service:
+
+```bash
+gcloud run domain-mappings create \
+  --service auxilia-web \
+  --domain auxilia.example.com \
+  --region ${REGION}
+```
+
+Update `FRONTEND_URL` on the backend service to match.

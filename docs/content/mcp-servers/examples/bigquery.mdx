@@ -1,0 +1,92 @@
+# BigQuery MCP Server
+
+This guide walks through connecting the BigQuery MCP server to **auxilia**. BigQuery uses **Google OAuth 2.0** with static credentials.
+
+## 1. Create a Google Cloud OAuth Client
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/)
+2. Select your project (or create a new one)
+3. Navigate to **APIs & Services** → **Credentials**
+4. Click **Create Credentials** → **OAuth client ID**
+5. If prompted, configure the OAuth consent screen first:
+   - **User Type**: External (or Internal for Google Workspace)
+   - **App name**: **auxilia** MCP
+   - **Scopes**: Add `https://www.googleapis.com/auth/bigquery`
+6. Back in **Create OAuth client ID**:
+   - **Application type**: Web application
+   - **Name**: **auxilia** MCP
+   - **Authorized redirect URIs**: Add:
+     ```
+     https://your-auxilia-domain.com/api/backend/mcp-servers/oauth/callback
+     ```
+     For local development:
+     ```
+     http://localhost:3000/api/backend/mcp-servers/oauth/callback
+     ```
+7. Click **Create**
+8. Copy the **Client ID** and **Client Secret**
+
+## 2. Enable the BigQuery API
+
+Make sure the BigQuery API is enabled for your project:
+
+```bash
+gcloud services enable bigquery.googleapis.com \
+  --project=your-project-id
+```
+
+## 3. Install the BigQuery MCP Server
+
+In **auxilia**, navigate to **MCP Servers**:
+
+1. Find **BigQuery** in the official servers list
+2. Click **Install**
+3. Enter the credentials from your Google Cloud OAuth client:
+   - **Client ID**: Your Google OAuth client ID
+   - **Client Secret**: Your Google OAuth client secret
+
+## 4. Connect Your Account
+
+1. Click the **Connect** button on the BigQuery server card
+2. You'll be redirected to Google's consent screen
+3. Select your Google account
+4. Grant BigQuery access permissions
+5. You'll be redirected back to **auxilia**
+
+**auxilia** automatically requests the `https://www.googleapis.com/auth/bigquery` scope.
+
+## 5. Add to an Agent
+
+1. Navigate to an agent's configuration page
+2. Click **Add MCP Server**
+3. Select **BigQuery** from the list
+4. Configure [tool settings](/docs/tools/settings) as needed
+
+## Available Tools
+
+The BigQuery MCP server typically provides tools for:
+
+- Listing datasets and tables in a project
+- Querying data with SQL
+- Describing table schemas
+- Listing dataset IDs
+
+## Troubleshooting
+
+### "Access denied" error
+
+Ensure that:
+
+- The BigQuery API is enabled in your Google Cloud project
+- Your Google account has BigQuery permissions in the target project
+- The OAuth consent screen includes the BigQuery scope
+
+### "Redirect URI mismatch"
+
+The redirect URI in your Google Cloud OAuth client must exactly match:
+
+```
+https://your-auxilia-domain.com/api/backend/mcp-servers/oauth/callback
+```
+
+Make sure there are no trailing slashes or protocol mismatches.

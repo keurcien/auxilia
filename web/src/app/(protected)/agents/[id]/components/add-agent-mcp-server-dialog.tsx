@@ -45,9 +45,7 @@ function AvailableAgentMCPServerCard({
 		setIsAdding(true);
 		onSaving?.();
 		try {
-			await api.post(`/agents/${agentId}/mcp-servers/${server.id}`, {
-				enabled_tools: ["*"],
-			});
+			await api.post(`/agents/${agentId}/mcp-servers/${server.id}`, {});
 			onAdd();
 			onSaved?.();
 		} catch (error) {

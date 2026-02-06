@@ -46,9 +46,7 @@ export default function AgentMCPServer({
 
 		try {
 			if (isEnabled) {
-				await api.post(`/agents/${agent.id}/mcp-servers/${serverId}`, {
-					enabled_tools: ["*"],
-				});
+				await api.post(`/agents/${agent.id}/mcp-servers/${serverId}`, {});
 
 				// Notify parent to update
 				onUpdate?.();
@@ -285,7 +283,6 @@ export default function AgentMCPServer({
 										serverId={server.id}
 										toolName={tool.name}
 										toolDescription={tool.description}
-										allTools={tools}
 										onUpdate={onUpdate}
 										onSaving={onSaving}
 										onSaved={onSaved}
