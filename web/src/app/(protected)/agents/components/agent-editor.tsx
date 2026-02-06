@@ -25,6 +25,10 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 	const updateAgent = useAgentsStore((state) => state.updateAgent);
 	const removeAgent = useAgentsStore((state) => state.removeAgent);
 
+	const liveAgent = useAgentsStore(
+		(state) => state.agents.find((a) => a.id === agent.id) ?? agent,
+	);
+
 	const [name, setName] = useState(agent.name || "");
 	const [instructions, setInstructions] = useState(agent.instructions || "");
 	const [emoji, setEmoji] = useState(agent.emoji || "🤖");
@@ -95,7 +99,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 
 	// Auto-save name changes with 300ms debounce
 	useEffect(() => {
-		if (!name.trim() || name === agent.name) return;
+		if (!name.trim() || name === liveAgent.name) return;
 
 		setSaveStatus("saving");
 
@@ -107,19 +111,19 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 		return () => {
 			if (nameTimeoutRef.current) clearTimeout(nameTimeoutRef.current);
 		};
-	}, [name, agent.name, saveAgent]);
+	}, [name, liveAgent.name, saveAgent]);
 
 	// Auto-save emoji changes
 	useEffect(() => {
-		if (emoji !== agent.emoji) {
+		if (emoji !== liveAgent.emoji) {
 			setSaveStatus("saving");
 			saveAgent({ emoji });
 		}
-	}, [emoji, agent.emoji, saveAgent]);
+	}, [emoji, liveAgent.emoji, saveAgent]);
 
 	// Auto-save instructions with debounce
 	useEffect(() => {
-		if (instructions !== agent.instructions) {
+		if (instructions !== liveAgent.instructions) {
 			setSaveStatus("saving");
 		}
 
@@ -128,7 +132,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 		}
 
 		instructionsTimeoutRef.current = setTimeout(() => {
-			if (instructions !== agent.instructions) {
+			if (instructions !== liveAgent.instructions) {
 				saveAgent({ instructions: instructions.trim() });
 			}
 		}, 1000);
@@ -138,7 +142,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 				clearTimeout(instructionsTimeoutRef.current);
 			}
 		};
-	}, [instructions, agent.instructions, saveAgent]);
+	}, [instructions, liveAgent.instructions, saveAgent]);
 
 	return (
 		<div className="h-full flex flex-col">
@@ -222,7 +226,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 				</div>
 
 				<div className="h-full w-full md:w-1/2 p-6 flex flex-col min-h-0">
-					<AgentMCPServerList agent={agent} />
+					<AgentMCPServerList agent={liveAgent} />
 				</div>
 			</div>
 		</div>
