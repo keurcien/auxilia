@@ -164,20 +164,27 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 					</p>
 				</div>
 
-				<div className="flex items-center gap-1.5 shrink-0">
-					{saveStatus === "saved" ? (
-						<>
-							<Check className="w-4 h-4 text-green-600" />
-							<span className="text-sm text-green-600 font-medium">Saved</span>
-						</>
-					) : (
-						<>
-							<Loader2 className="w-4 h-4 text-yellow-500 animate-spin" />
-							<span className="text-sm text-yellow-500 font-medium">
-								Saving
-							</span>
-						</>
-					)}
+				<div
+					className={`inline-flex items-center gap-2 rounded-2xl px-3.5 py-2 text-base ${
+						saveStatus === "saving"
+							? "bg-amber-50"
+							: "bg-emerald-50"
+					}`}
+				>
+					<span
+						className={`block size-2 rounded-full ${
+							saveStatus === "saving"
+								? "bg-amber-500 animate-pulse-dot"
+								: "bg-emerald-500"
+						}`}
+					/>
+					<span
+						className={`text-sm font-medium leading-none ${
+							saveStatus === "saving" ? "text-amber-700" : "text-emerald-700"
+						}`}
+					>
+						{saveStatus === "saving" ? "Saving" : "Saved"}
+					</span>
 				</div>
 
 				<DropdownMenu>
