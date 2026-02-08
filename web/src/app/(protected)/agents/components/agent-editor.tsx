@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import EmojiPicker, { EmojiClickData } from "emoji-picker-react";
-import { Check, Loader2, MoreVertical, Trash2 } from "lucide-react";
+import { MoreVertical, Trash2 } from "lucide-react";
 import { Agent } from "@/types/agents";
 import AgentMCPServerList from "../[id]/components/agent-mcp-server-list";
 import { api } from "@/lib/api/client";
