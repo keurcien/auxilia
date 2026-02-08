@@ -12,6 +12,7 @@ import { api } from "@/lib/api/client";
 import { Agent } from "@/types/agents";
 import { NewThreadDialog } from "@/components/layout/app-sidebar/new-thread-dialog";
 import { getDefaultModel } from "@/lib/utils/get-default-model";
+import { useAgentReadiness } from "@/hooks/use-agent-readiness";
 
 const StarterChatPage = () => {
 	const params = useParams();
@@ -29,6 +30,12 @@ const StarterChatPage = () => {
 	const fetchModels = useModelsStore((state) => state.fetchModels);
 	const [agent, setAgent] = useState<Agent | null>(null);
 	const [isAgentDialogOpen, setIsAgentDialogOpen] = useState(false);
+	const {
+		ready: agentReady,
+		status,
+		disconnectedMcpServers,
+		refetch: refetchReady,
+	} = useAgentReadiness(agentId);
 
 	const handleSubmit = async (message: PromptInputMessage) => {
 		if (!message) return;
@@ -122,26 +129,42 @@ const StarterChatPage = () => {
 						</div>
 						<h1 className="text-4xl font-bold">{agent?.name}</h1>
 					</button>
-					<p className="text-lg text-muted-foreground">
-						Ask me anything to begin
-					</p>
+					{status == "not_configured" ? (
+						<></>
+					) : (
+						<p className="text-lg text-muted-foreground">
+							Ask me anything to begin
+						</p>
+					)}
 				</div>
 
 				<div className="w-full">
-					<ChatPromptInput
-						onSubmit={handleSubmit}
-						status={isCreating ? "streaming" : "ready"}
-						className="w-full"
-						selectedModel={selectedModel}
-						onModelChange={setSelectedModel}
-					/>
+					{status == "not_configured" ? (
+						<div className="w-full flex items-center justify-center border border-red-200 bg-red-50 rounded-lg px-4 py-8">
+							<p className="text-md text-center text-red-700">
+								Agent is not configured yet. Contact agent owner to configure it
+								first.
+							</p>
+						</div>
+					) : (
+						<ChatPromptInput
+							onSubmit={handleSubmit}
+							status={isCreating ? "streaming" : "ready"}
+							className="w-full"
+							selectedModel={selectedModel}
+							onModelChange={setSelectedModel}
+							agentReady={agentReady}
+							disconnectedServers={disconnectedMcpServers}
+							onAllConnected={refetchReady}
+						/>
+					)}
 				</div>
-			</div>
 
-			<NewThreadDialog
-				open={isAgentDialogOpen}
-				onOpenChange={setIsAgentDialogOpen}
-			/>
+				<NewThreadDialog
+					open={isAgentDialogOpen}
+					onOpenChange={setIsAgentDialogOpen}
+				/>
+			</div>
 		</div>
 	);
 };

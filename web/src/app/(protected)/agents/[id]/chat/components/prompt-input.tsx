@@ -27,10 +27,12 @@ import {
 	PromptInputTools,
 	usePromptInputController,
 } from "@/components/ai-elements/prompt-input";
-import { CheckIcon } from "lucide-react";
+import { CheckIcon, PlugIcon } from "lucide-react";
 import { useRef, useState, useEffect, useMemo } from "react";
 import { useModelsStore } from "@/stores/models-store";
 import { Model } from "@/types/models";
+import { MCPServer } from "@/types/mcp-servers";
+import { ConnectServersDialog } from "./connect-servers-dialog";
 
 interface ChatPromptInputProps {
 	onSubmit: (message: PromptInputMessage) => void;
@@ -40,6 +42,9 @@ interface ChatPromptInputProps {
 	onModelChange?: (modelId: string) => void;
 	selectedModel?: string;
 	readOnlyModel?: boolean;
+	agentReady?: boolean | null;
+	disconnectedServers?: MCPServer[];
+	onAllConnected?: () => void;
 }
 
 const ChatPromptInput = ({
@@ -50,7 +55,11 @@ const ChatPromptInput = ({
 	onModelChange,
 	selectedModel: externalSelectedModel,
 	readOnlyModel = false,
+	agentReady,
+	disconnectedServers = [],
+	onAllConnected,
 }: ChatPromptInputProps) => {
+	const [connectDialogOpen, setConnectDialogOpen] = useState(false);
 	const models = useModelsStore((state) => state.models);
 	const fetchModels = useModelsStore((state) => state.fetchModels);
 	const [model, setModel] = useState<string | undefined>(undefined);
@@ -188,9 +197,19 @@ const ChatPromptInput = ({
 							</ModelSelector>
 						)}
 					</PromptInputTools>
-					<SubmitButton status={status} stop={stop} />
+					{agentReady === false ? (
+						<ConnectButton onClick={() => setConnectDialogOpen(true)} />
+					) : (
+						<SubmitButton status={status} stop={stop} />
+					)}
 				</PromptInputFooter>
 			</PromptInput>
+			<ConnectServersDialog
+				open={connectDialogOpen}
+				onOpenChange={setConnectDialogOpen}
+				disconnectedServers={disconnectedServers}
+				onAllConnected={() => onAllConnected?.()}
+			/>
 		</PromptInputProvider>
 	);
 };
@@ -245,6 +264,22 @@ const SubmitButton = ({
 					<path d="M8.99992 16V6.41407L5.70696 9.70704C5.31643 10.0976 4.68342 10.0976 4.29289 9.70704C3.90237 9.31652 3.90237 8.6835 4.29289 8.29298L9.29289 3.29298L9.36907 3.22462C9.76184 2.90427 10.3408 2.92686 10.707 3.29298L15.707 8.29298L15.7753 8.36915C16.0957 8.76192 16.0731 9.34092 15.707 9.70704C15.3408 10.0732 14.7618 10.0958 14.3691 9.7754L14.2929 9.70704L10.9999 6.41407V16C10.9999 16.5523 10.5522 17 9.99992 17C9.44764 17 8.99992 16.5523 8.99992 16Z" />
 				</svg>
 			)}
+		</button>
+	);
+};
+
+const ConnectButton = ({ onClick }: { onClick: () => void }) => {
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			className={cn(
+				"flex items-center gap-2 rounded-full px-4 h-10 transition-all cursor-pointer",
+				"bg-black text-white font-medium hover:bg-gray-800",
+			)}
+		>
+			<PlugIcon size={16} />
+			<span>Connect</span>
 		</button>
 	);
 };
