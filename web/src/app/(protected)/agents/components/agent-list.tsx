@@ -17,8 +17,8 @@ export default function AgentList() {
 
 	if (agents.length === 0) {
 		return (
-			<div className="flex items-center justify-center p-12 border border-gray-200 rounded-lg">
-				<div className="text-gray-500">
+			<div className="flex items-center justify-center p-12 border border-border rounded-lg">
+				<div className="text-muted-foreground">
 					No agents configured. Click the &quot;Create an agent&quot; button to
 					get started.
 				</div>

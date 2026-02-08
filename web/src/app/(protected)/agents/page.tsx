@@ -40,12 +40,12 @@ export default function AgentsPage() {
 	return (
 		<div className="mx-auto min-h-full w-full max-w-5xl px-4 pb-20 @min-screen-md/layout:px-8 @min-screen-xl/layout:max-w-6xl">
 			<div className="flex items-center justify-between my-8">
-				<h1 className="text-3xl font-bold text-gray-900">
+				<h1 className="text-3xl font-bold text-foreground">
 					Your workspace agents
 				</h1>
 
 				<Button
-					className="flex items-center gap-2 px-4 py-2 bg-black text-sm font-medium text-white rounded-lg hover:bg-gray-800 transition-colors cursor-pointer"
+					className="flex items-center gap-2 px-4 py-2 bg-primary text-sm font-medium text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors cursor-pointer"
 					onClick={handleCreateAgent}
 					disabled={isCreating}
 				>
