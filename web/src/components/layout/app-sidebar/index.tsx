@@ -37,6 +37,7 @@ import { useThreadsStore } from "@/stores/threads-store";
 import { useUserStore } from "@/stores/user-store";
 import { useAgentsStore } from "@/stores/agents-store";
 import { api } from "@/lib/api/client";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 const navItems = [
 	{
@@ -238,6 +239,9 @@ export function AppSidebar() {
 									</DropdownMenuItem>
 								</DropdownMenuContent>
 							</DropdownMenu>
+							<SidebarMenuAction asChild className="top-1/2 -translate-y-1/2">
+								<ThemeToggle />
+							</SidebarMenuAction>
 						</SidebarMenuItem>
 					</SidebarMenu>
 				</SidebarFooter>
