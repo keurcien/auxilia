@@ -2,7 +2,8 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import EmojiPicker, { EmojiClickData } from "emoji-picker-react";
+import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
+import { useTheme } from "next-themes";
 import { MoreVertical, Trash2 } from "lucide-react";
 import { Agent } from "@/types/agents";
 import AgentMCPServerList from "../[id]/components/agent-mcp-server-list";
@@ -22,6 +23,7 @@ interface AgentEditorProps {
 
 export default function AgentEditor({ agent }: AgentEditorProps) {
 	const router = useRouter();
+	const { resolvedTheme } = useTheme();
 	const updateAgent = useAgentsStore((state) => state.updateAgent);
 	const removeAgent = useAgentsStore((state) => state.removeAgent);
 
@@ -140,13 +142,13 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 				<div className="relative">
 					<div
 						onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-						className="flex items-center justify-center shrink-0 w-16 h-16 rounded-2xl bg-gray-100 text-3xl cursor-pointer hover:bg-gray-200 transition-colors"
+						className="flex items-center justify-center shrink-0 w-16 h-16 rounded-2xl bg-muted text-3xl cursor-pointer hover:bg-muted/80 transition-colors"
 					>
 						{emoji}
 					</div>
 					{showEmojiPicker && (
 						<div ref={emojiPickerRef} className="absolute top-full mt-2 z-50">
-							<EmojiPicker onEmojiClick={handleEmojiClick} />
+							<EmojiPicker onEmojiClick={handleEmojiClick} theme={resolvedTheme === "dark" ? Theme.DARK : Theme.LIGHT} />
 						</div>
 					)}
 				</div>
@@ -157,9 +159,9 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 						value={name}
 						onChange={(e) => setName(e.target.value)}
 						placeholder="Agent name"
-						className="text-2xl font-bold text-gray-900 leading-tight truncate w-full bg-transparent border-none focus:outline-none focus:ring-0 p-0"
+						className="text-2xl font-bold text-foreground leading-tight truncate w-full bg-transparent border-none focus:outline-none focus:ring-0 p-0"
 					/>
-					<p className="text-lg text-gray-500 truncate w-full">
+					<p className="text-lg text-muted-foreground truncate w-full">
 						@{name.toLowerCase().replace(/\s+/g, "_") || "agent_name"}
 					</p>
 				</div>
@@ -167,8 +169,8 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 				<div
 					className={`inline-flex items-center gap-2 rounded-2xl px-3.5 py-2 text-base ${
 						saveStatus === "saving"
-							? "bg-amber-50"
-							: "bg-emerald-50"
+							? "bg-amber-50 dark:bg-amber-950/40"
+							: "bg-emerald-50 dark:bg-emerald-950/40"
 					}`}
 				>
 					<span
@@ -180,7 +182,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 					/>
 					<span
 						className={`text-sm font-medium leading-none ${
-							saveStatus === "saving" ? "text-amber-700" : "text-emerald-700"
+							saveStatus === "saving" ? "text-amber-700 dark:text-amber-400" : "text-emerald-700 dark:text-emerald-400"
 						}`}
 					>
 						{saveStatus === "saving" ? "Saving" : "Saved"}
@@ -209,13 +211,13 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 			<div className="relative flex flex-col md:flex-row flex-1 min-h-0">
 				<div className="h-full w-full md:w-1/2 flex flex-col">
 					<div className="w-full p-6 flex flex-col flex-1">
-						<h2 className="text-gray-500 text-sm leading-5 font-medium block mb-4">
+						<h2 className="text-muted-foreground text-sm leading-5 font-medium block mb-4">
 							Instructions
 						</h2>
 
 						<div className="prose prose-gray max-w-none flex-1 flex flex-col">
 							<textarea
-								className="flex-1 w-full h-full text-gray-700 bg-gray-50 rounded-lg px-4 py-3 resize-none font-noto text-sm focus:outline-none focus:ring-0 font-medium [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+								className="flex-1 w-full h-full text-foreground bg-muted rounded-lg px-4 py-3 resize-none font-noto text-sm focus:outline-none focus:ring-0 font-medium [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
 								value={instructions}
 								onChange={(e) => setInstructions(e.target.value)}
 								placeholder="Enter instructions for your agent..."

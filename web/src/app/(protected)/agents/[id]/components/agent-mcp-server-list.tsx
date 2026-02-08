@@ -47,7 +47,7 @@ export default function AgentMCPServerList({
 	return (
 		<div className="flex flex-col min-h-0">
 			<div className="flex items-center justify-between mb-2 shrink-0">
-				<h2 className="text-gray-500 text-sm leading-5 font-medium">Tools</h2>
+				<h2 className="text-muted-foreground text-sm leading-5 font-medium">Tools</h2>
 				<Button
 					variant="ghost"
 					size="sm"
@@ -71,7 +71,7 @@ export default function AgentMCPServerList({
 						/>
 					))
 				) : (
-					<div className="p-4 text-sm text-gray-500 text-center">
+					<div className="p-4 text-sm text-muted-foreground text-center">
 						No enabled MCP servers
 					</div>
 				)}

@@ -90,13 +90,13 @@ export function ThreeStateToggle({
 	return (
 		<div
 			className={cn(
-				"relative inline-flex items-center bg-gray-100 rounded-full p-1",
+				"relative inline-flex items-center bg-gray-100 dark:bg-neutral-800 rounded-full p-1",
 				className,
 			)}
 		>
 			{/* Sliding Background Pill */}
 			<div
-				className="absolute h-8 w-10 bg-white rounded-full shadow transition-all duration-300 ease-out"
+				className="absolute h-8 w-10 bg-white dark:bg-neutral-600 rounded-full shadow transition-all duration-300 ease-out"
 				style={{
 					left: `${4 + selectedIndex * 40}px`,
 				}}
@@ -116,8 +116,8 @@ export function ThreeStateToggle({
 							"relative z-10 w-10 h-8 flex items-center justify-center rounded-full",
 							"transition-colors duration-200 cursor-pointer",
 							isSelected
-								? "text-gray-800"
-								: "text-gray-400 hover:text-gray-500",
+								? "text-gray-800 dark:text-gray-100"
+								: "text-gray-400 dark:text-gray-500 hover:text-gray-500 dark:hover:text-gray-400",
 						)}
 						aria-label={state.label}
 						aria-pressed={isSelected}

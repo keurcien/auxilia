@@ -180,7 +180,7 @@ export default function AgentMCPServer({
 
 	return (
 		<div className="border-b last:border-b-0">
-			<div className="flex items-center p-3 hover:bg-gray-50">
+			<div className="flex items-center p-3 hover:bg-muted/50">
 				<div className="w-6 h-6 rounded-sm flex items-center justify-center text-white font-semibold mr-3 overflow-hidden relative">
 					<Image
 						width={24}
@@ -200,15 +200,15 @@ export default function AgentMCPServer({
 						{isCheckingConnection ? (
 							<Badge
 								variant="secondary"
-								className="bg-gray-100 text-gray-600 border-gray-200 text-[0.6rem]"
+								className="bg-muted text-muted-foreground border-border text-[0.6rem]"
 							>
-								<span className="w-1.5 h-1.5 rounded-full bg-gray-400" />
+								<span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/60" />
 								Checking
 							</Badge>
 						) : isConnected ? (
 							<Badge
 								variant="secondary"
-								className="bg-green-100 text-green-600 border-green-200 text-[0.6rem]"
+								className="bg-green-100 dark:bg-green-950/40 text-green-600 dark:text-green-400 border-green-200 dark:border-green-800 text-[0.6rem]"
 							>
 								<span className="w-1.5 h-1.5 rounded-full bg-green-400" />
 								Ready
@@ -216,7 +216,7 @@ export default function AgentMCPServer({
 						) : (
 							<Badge
 								variant="destructive"
-								className="bg-red-100 text-red-600 border-red-200 text-[0.6rem]"
+								className="bg-red-100 dark:bg-red-950/40 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800 text-[0.6rem]"
 							>
 								<span className="w-1.5 h-1.5 rounded-full bg-red-400" />
 								Not Connected
@@ -227,7 +227,7 @@ export default function AgentMCPServer({
 
 				<button
 					onClick={handleToggleExpand}
-					className="text-gray-500 hover:text-gray-700 cursor-pointer p-1"
+					className="text-muted-foreground hover:text-foreground cursor-pointer p-1"
 				>
 					<ChevronRight
 						className={`w-5 h-5 transition-transform ${
@@ -238,11 +238,11 @@ export default function AgentMCPServer({
 			</div>
 
 			{isExpanded && (
-				<div className="bg-white p-4 border-t">
+				<div className="bg-card p-4 border-t">
 					<div className="max-h-[400px] overflow-y-auto mb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 						{!isConnected ? (
-							<div className="bg-gray-50 rounded-xl p-5 text-center mb-3">
-								<div className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center mx-auto mb-3">
+							<div className="bg-muted rounded-xl p-5 text-center mb-3">
+								<div className="w-10 h-10 bg-muted/80 rounded-xl flex items-center justify-center mx-auto mb-3">
 									<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
 										<rect
 											x="4"
@@ -250,30 +250,32 @@ export default function AgentMCPServer({
 											width="12"
 											height="9"
 											rx="2"
-											stroke="#6b7280"
+											stroke="currentColor"
 											strokeWidth="1.5"
+											className="text-muted-foreground"
 										/>
 										<path
 											d="M7 9V6a3 3 0 116 0v3"
-											stroke="#6b7280"
+											stroke="currentColor"
 											strokeWidth="1.5"
 											strokeLinecap="round"
+											className="text-muted-foreground"
 										/>
 									</svg>
 								</div>
 								<p className="text-sm font-medium mb-1">Connect your account</p>
-								<p className="text-xs text-gray-700 mb-4">
+								<p className="text-xs text-muted-foreground mb-4">
 									This server requires authentication.
 								</p>
 								<button
-									className="px-5 py-2.5 bg-black text-white text-sm font-medium rounded-xl hover:bg-gray-800 transition-colors cursor-pointer"
+									className="px-5 py-2.5 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:bg-primary/90 transition-colors cursor-pointer"
 									onClick={handleConnect}
 								>
 									Connect
 								</button>
 							</div>
 						) : isLoading ? (
-							<div className="text-sm text-gray-500 py-2">Loading tools...</div>
+							<div className="text-sm text-muted-foreground py-2">Loading tools...</div>
 						) : tools && tools.length > 0 ? (
 							<div className="space-y-2">
 								{tools.map((tool) => (
@@ -290,7 +292,7 @@ export default function AgentMCPServer({
 								))}
 							</div>
 						) : (
-							<div className="text-sm text-gray-500 py-2">
+							<div className="text-sm text-muted-foreground py-2">
 								No tools available
 							</div>
 						)}
@@ -299,7 +301,7 @@ export default function AgentMCPServer({
 						<Button
 							variant="ghost"
 							size="sm"
-							className="text-gray-500 cursor-pointer"
+							className="text-muted-foreground cursor-pointer"
 							onClick={() => handleToggleServer(server.id, false)}
 						>
 							Disable {server.name}
