@@ -21,6 +21,7 @@ from app.database import get_db
 from app.mcp.client.auth import ServerlessOAuthProvider, build_oauth_client_metadata
 from app.mcp.client.storage import TokenStorageFactory
 from app.mcp.servers.models import MCPAuthType, MCPServerDB
+from app.mcp.utils import check_mcp_server_connected
 from app.mcp.servers.router import connect_to_server
 from app.users.models import UserDB
 
@@ -272,3 +273,45 @@ async def sync_tools(
     await fetch_and_save_tools(db_binding, mcp_server, str(current_user.id), db)
 
     return db_binding
+
+
+@router.get("/{agent_id}/is-ready")
+async def is_ready(
+    agent_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserDB = Depends(get_current_user),
+):
+    """Check if all MCP servers bound to an agent are connected for the current user.
+
+    Returns:
+      - ready: true if ALL servers are connected (or agent has no servers)
+      - ready: false if ANY server is not connected
+      - disconnected_servers: list of server IDs that are not connected
+    """
+    agent = await read_agent(agent_id, db)
+
+    if not agent.mcp_servers:
+        return {"ready": True, "disconnected_servers": [], "status": "ready"}
+
+    for mcp_server in agent.mcp_servers:
+        if mcp_server.tools is None:
+            return {"ready": False, "disconnected_servers": [], "status": "not_configured"}
+
+    server_ids = [s.id for s in agent.mcp_servers]
+    result = await db.execute(
+        select(MCPServerDB).where(MCPServerDB.id.in_(server_ids))
+    )
+    servers = result.scalars().all()
+
+    disconnected = []
+    for server in servers:
+        
+        connected = await check_mcp_server_connected(server, str(current_user.id))
+        if not connected:
+            disconnected.append(str(server.id))
+
+    return {
+        "ready": len(disconnected) == 0,
+        "disconnected_servers": disconnected,
+        "status": "disconnected"
+    }

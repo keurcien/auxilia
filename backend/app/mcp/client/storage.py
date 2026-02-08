@@ -57,6 +57,13 @@ class RedisTokenStorage(TokenStorage):
         """Global state key (not scoped to user/server since we need to look up by state)."""
         return f"{prefix}:oauth_states:{state}"
 
+    async def get_stored_token(self) -> StoredToken | None:
+        """Get the raw stored token including the absolute expires_at timestamp."""
+        raw = await self.redis.get(self._tokens_key())
+        if not raw:
+            return None
+        return StoredToken.model_validate_json(raw)
+
     async def get_tokens(self) -> OAuthToken | None:
         stored_token = await self.redis.get(self._tokens_key())
         if not stored_token:
