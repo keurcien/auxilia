@@ -66,7 +66,7 @@ export function NewThreadDialog({ open, onOpenChange }: NewThreadDialogProps) {
 					{filteredAgents.map((agent) => (
 						<div
 							key={agent.id}
-							className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-100 cursor-pointer transition-colors border border-transparent hover:border-slate-200"
+							className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted cursor-pointer transition-colors border border-transparent hover:border-border"
 							onClick={() => handleSelectAgent(agent.id)}
 						>
 							<span className="text-2xl">{agent.emoji || "🤖"}</span>

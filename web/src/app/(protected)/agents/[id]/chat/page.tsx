@@ -117,7 +117,7 @@ const StarterChatPage = () => {
 						onClick={() => setIsAgentDialogOpen(true)}
 						className="flex items-center justify-center gap-2 mx-auto hover:opacity-80 transition-opacity cursor-pointer"
 					>
-						<div className="shrink-0 w-12 h-12 rounded-2xl bg-gray-100 text-2xl flex items-center justify-center">
+						<div className="shrink-0 w-12 h-12 rounded-2xl bg-muted text-2xl flex items-center justify-center">
 							{agent?.emoji || "🤖"}
 						</div>
 						<h1 className="text-4xl font-bold">{agent?.name}</h1>
