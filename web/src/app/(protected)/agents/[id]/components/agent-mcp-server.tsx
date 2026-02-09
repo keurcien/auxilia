@@ -101,7 +101,7 @@ export default function AgentMCPServer({
 				const pollInterval = setInterval(async () => {
 					try {
 						const statusRes = await api.get(
-							`/mcp-servers/${server.id}/is-connected`,
+							`/mcp-servers/${server.id}/is-connected-v2`,
 						);
 						const statusData = statusRes.data;
 
@@ -158,7 +158,7 @@ export default function AgentMCPServer({
 	useEffect(() => {
 		setIsCheckingConnection(true);
 		api
-			.get(`/mcp-servers/${server.id}/is-connected`)
+			.get(`/mcp-servers/${server.id}/is-connected-v2`)
 			.then((res) => {
 				setIsConnected(res.data.connected);
 			})

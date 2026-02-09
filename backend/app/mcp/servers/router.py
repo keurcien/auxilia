@@ -13,6 +13,7 @@ from app.auth.dependencies import get_current_user
 from app.database import get_db
 from app.mcp.client.auth import ServerlessOAuthProvider, build_oauth_client_metadata
 from app.mcp.client.storage import TokenStorageFactory
+from app.mcp.utils import check_mcp_server_connected
 from app.users.models import UserDB
 from app.mcp.servers.encryption import encrypt_api_key, decrypt_api_key
 from app.mcp.servers.models import (
@@ -234,6 +235,11 @@ async def oauth_callback(
         storage=storage
     )
 
+    await provider._initialize()
+    
+    if mcp_server.url == "https://mcp.supabase.com/mcp":
+        provider.context.client_metadata.token_endpoint_auth_method = "client_secret_post"
+
     await provider.manual_exchange(code, state)
 
     return JSONResponse(
@@ -315,9 +321,9 @@ async def connect_to_server(mcp_server: MCPServerDB, user_id: str, db: AsyncSess
             response = await session.list_tools()
             tools = response.tools    
 
-            if "bigquery" in mcp_server.url:                
-                await session.call_tool("list_dataset_ids", {"project_id": "choose-data-dev"})            
-
+            if mcp_server.url == "https://bigquery.googleapis.com/mcp":                
+                await session.call_tool("list_dataset_ids", {"project_id": "choose-data-dev"})
+     
             yield session, tools
 
 
@@ -368,3 +374,23 @@ async def is_connected(
     if not tokens:
         return {"connected": False}
     return {"connected": True}
+
+
+@router.get("/{mcp_server_id}/is-connected-v2")
+async def is_connected_v2(
+    mcp_server: MCPServerDB = Depends(get_mcp_server_dependency),
+    current_user: UserDB = Depends(get_current_user),
+):
+    """Check if an MCP server is connected, with token validation and refresh.
+
+    Returns True if:
+    - The MCP server does not require OAuth, OR
+    - The MCP server requires OAuth and the token is not expired, OR
+    - The MCP server requires OAuth, the token is expired, but refresh succeeds
+
+    Returns False if:
+    - No tokens are available
+    - Token is expired and refresh fails
+    """
+    connected = await check_mcp_server_connected(mcp_server, str(current_user.id))
+    return {"connected": connected}

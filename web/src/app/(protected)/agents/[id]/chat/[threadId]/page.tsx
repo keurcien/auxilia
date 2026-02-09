@@ -61,13 +61,21 @@ import { api, API_BASE_URL } from "@/lib/api/client";
 import { Loader } from "../components/loader";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { usePendingMessageStore } from "@/stores/pending-message-store";
+import { useAgentReadiness } from "@/hooks/use-agent-readiness";
 
 const ChatPage = () => {
 	const params = useParams();
+	const agentId = params.id as string;
 	const threadId = params.threadId as string;
 	const hasInitialized = useRef(false);
 	const [threadModel, setThreadModel] = useState<string | undefined>(undefined);
 	const { mcpServers } = useMcpServersStore();
+	const {
+		ready: agentReady,
+		status: agentStatus,
+		disconnectedMcpServers,
+		refetch: refetchReady,
+	} = useAgentReadiness(agentId);
 	const {
 		messages,
 		sendMessage,
@@ -420,14 +428,28 @@ const ChatPage = () => {
 				</Conversation>
 			</div>
 			<div className="w-full shrink-0 bg-background">
-				<ChatPromptInput
-					onSubmit={handleSubmit}
-					status={status === "streaming" ? "streaming" : "ready"}
-					className="w-full max-w-4xl mx-auto lg:px-10 px-6 py-4"
-					stop={stop}
-					selectedModel={threadModel}
-					readOnlyModel={true}
-				/>
+				{agentStatus === "not_configured" ? (
+					<div className="w-full max-w-4xl mx-auto lg:px-10 px-6 py-4">
+						<div className="w-full flex items-center justify-center border border-red-200 bg-red-50 rounded-lg px-4 py-8">
+							<p className="text-md text-center text-red-700">
+								Agent is not configured yet. Contact agent owner to configure it
+								first.
+							</p>
+						</div>
+					</div>
+				) : (
+					<ChatPromptInput
+						onSubmit={handleSubmit}
+						status={status === "streaming" ? "streaming" : "ready"}
+						className="w-full max-w-4xl mx-auto lg:px-10 px-6 py-4"
+						stop={stop}
+						selectedModel={threadModel}
+						readOnlyModel={true}
+						agentReady={agentReady}
+						disconnectedServers={disconnectedMcpServers}
+						onAllConnected={refetchReady}
+					/>
+				)}
 			</div>
 		</div>
 	);
