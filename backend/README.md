@@ -5,7 +5,7 @@ FastAPI backend for the auxilia project with MCP (Model Context Protocol) server
 ## Features
 
 - **MCP Server Integration**: Connect to multiple MCP servers (DeepWiki, Data Gouv, Notion, etc.)
-- **OAuth 2.0 Flow**: Serverless OAuth implementation with Redis-based callback handling
+- **OAuth 2.0 Flow**: Web OAuth implementation with Redis-based callback handling
 - **Redis Pub/Sub**: Real-time communication for OAuth callbacks
 - **LangGraph Integration**: Agent-based conversation management
 - **Thread Management**: Persistent conversation threads with checkpointing
