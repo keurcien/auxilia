@@ -18,7 +18,7 @@ from app.agents.models import (
 from app.agents.utils import read_agent, read_agents
 from app.auth.dependencies import get_current_user
 from app.database import get_db
-from app.mcp.client.auth import ServerlessOAuthProvider, build_oauth_client_metadata
+from app.mcp.client.auth import WebOAuthClientProvider, build_oauth_client_metadata
 from app.mcp.client.storage import TokenStorageFactory
 from app.mcp.servers.models import MCPAuthType, MCPServerDB
 from app.mcp.utils import check_mcp_server_connected
@@ -90,7 +90,7 @@ async def check_oauth_connected(
     storage = TokenStorageFactory().get_storage(user_id, str(mcp_server.id))
     client_metadata = build_oauth_client_metadata(mcp_server)
 
-    provider = ServerlessOAuthProvider(
+    provider = WebOAuthClientProvider(
         server_url=mcp_server.url,
         client_metadata=client_metadata,
         storage=storage
@@ -118,7 +118,8 @@ async def fetch_and_save_tools(
             await db.refresh(db_binding)
     except Exception as e:
         # Log the error but don't fail the binding creation
-        logger.warning(f"Failed to fetch tools for MCP server {mcp_server.id}: {e}")
+        logger.warning(
+            f"Failed to fetch tools for MCP server {mcp_server.id}: {e}")
 
 
 @router.post(
@@ -305,7 +306,7 @@ async def is_ready(
 
     disconnected = []
     for server in servers:
-        
+
         connected = await check_mcp_server_connected(server, str(current_user.id))
         if not connected:
             disconnected.append(str(server.id))
