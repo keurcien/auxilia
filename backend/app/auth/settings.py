@@ -1,5 +1,7 @@
-from pydantic_settings import BaseSettings
 from pathlib import Path
+from pydantic import ConfigDict
+from pydantic_settings import BaseSettings
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 ROOT_ENV = BASE_DIR.parent / ".env"
@@ -26,9 +28,10 @@ class AuthSettings(BaseSettings):
     # Frontend URL for OAuth redirects
     FRONTEND_URL: str = "http://localhost:3000"
 
-    class Config:
-        env_file = ROOT_ENV
-        extra = "ignore"
+    model_config: ConfigDict = ConfigDict(
+        env_file=ROOT_ENV,
+        extra="ignore"
+    )
 
     @property
     def google_oauth_enabled(self) -> bool:
