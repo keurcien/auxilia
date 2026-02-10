@@ -1,16 +1,15 @@
+from uuid import uuid4
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
-
 from fastapi.testclient import TestClient
-
 from app.threads.models import ThreadDB
 
 
-def test_create_thread(client: TestClient, mock_db):
+def test_create_thread(client: TestClient, mock_db, current_user):
     """Test creating a new thread."""
-    user_id = uuid4()
+    user_id = current_user.id
     agent_id = uuid4()
+
     thread_data = {
         "user_id": str(user_id),
         "agent_id": str(agent_id),
@@ -37,9 +36,9 @@ def test_create_thread(client: TestClient, mock_db):
     assert "updated_at" in data
 
 
-def test_create_thread_without_first_message(client: TestClient, mock_db):
+def test_create_thread_without_first_message(client: TestClient, mock_db, current_user):
     """Test creating a thread without first_message_content."""
-    user_id = uuid4()
+    user_id = current_user.id
     agent_id = uuid4()
     thread_data = {
         "user_id": str(user_id),
@@ -63,9 +62,9 @@ def test_create_thread_without_first_message(client: TestClient, mock_db):
     assert data["first_message_content"] is None
 
 
-def test_get_threads(client: TestClient, mock_db):
+def test_get_threads(client: TestClient, mock_db, current_user):
     """Test getting all threads."""
-    user_id = uuid4()
+    user_id = current_user.id
     agent_id = uuid4()
     thread1 = ThreadDB(
         id=uuid4(),
@@ -85,9 +84,10 @@ def test_get_threads(client: TestClient, mock_db):
     )
 
     mock_result = MagicMock()
-    mock_scalars = MagicMock()
-    mock_scalars.all.return_value = [thread2, thread1]  # Ordered by created_at desc
-    mock_result.scalars.return_value = mock_scalars
+    mock_result.all.return_value = [
+        (thread2, "Test Agent", "🤖"),
+        (thread1, "Test Agent", "🤖"),
+    ]
     mock_db.execute.return_value = mock_result
 
     response = client.get("/threads/")
