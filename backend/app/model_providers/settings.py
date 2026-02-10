@@ -1,5 +1,7 @@
-from pydantic_settings import BaseSettings
 from pathlib import Path
+from pydantic import ConfigDict
+from pydantic_settings import BaseSettings
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 ROOT_ENV = BASE_DIR.parent / ".env"
@@ -13,8 +15,10 @@ class ModelProviderSettings(BaseSettings):
     litellm_api_key: str | None = None
     litellm_api_base: str | None = None
 
-    class Config:
-        env_file = ROOT_ENV
-        extra = "ignore"
+    model_config: ConfigDict = ConfigDict(
+        env_file=ROOT_ENV,
+        extra="ignore"
+    )
+
 
 model_provider_settings = ModelProviderSettings()

@@ -1,10 +1,11 @@
-from unittest.mock import AsyncMock, MagicMock
-
 import pytest
+from uuid import uuid4
+from unittest.mock import AsyncMock, MagicMock
 from fastapi.testclient import TestClient
-
 from app.database import get_db
 from app.main import app
+from app.users.models import UserDB
+from app.auth.dependencies import get_current_user
 
 
 @pytest.fixture
@@ -29,4 +30,19 @@ def client(mock_db):
     app.dependency_overrides[get_db] = override_get_db
     client = TestClient(app)
     yield client
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def current_user():
+    """Create a test user and override the get_current_user dependency."""
+    user = UserDB(
+        id=uuid4(),
+        name="Test User",
+        email="test@test.com",
+        is_superuser=False,
+        hashed_password="hashed_password"
+    )
+    app.dependency_overrides[get_current_user] = lambda: user
+    yield user
     app.dependency_overrides.clear()

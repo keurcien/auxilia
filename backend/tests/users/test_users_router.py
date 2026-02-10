@@ -12,8 +12,8 @@ def test_create_user(client: TestClient, mock_db):
     user_data = {
         "name": "Test User",
         "email": "test@example.com",
-        "password_hash": "hashed_password",
-        "is_admin": False,
+        "hashed_password": "hashed_password",
+        "is_superuser": False,
     }
 
     mock_result = MagicMock()
@@ -33,7 +33,7 @@ def test_create_user(client: TestClient, mock_db):
     data = response.json()
     assert data["name"] == user_data["name"]
     assert data["email"] == user_data["email"]
-    assert data["is_admin"] == user_data["is_admin"]
+    assert data["is_superuser"] == user_data["is_superuser"]
     assert "id" in data
     assert "created_at" in data
     assert "updated_at" in data
@@ -44,7 +44,7 @@ def test_create_user_duplicate_email(client: TestClient, mock_db):
     user_data = {
         "name": "Test User",
         "email": "duplicate@example.com",
-        "password_hash": "hashed_password",
+        "hashed_password": "hashed_password",
     }
 
     existing_user = UserDB(
@@ -69,7 +69,7 @@ def test_get_users(client: TestClient, mock_db):
         id=uuid4(),
         name="User 1",
         email="user1@example.com",
-        is_admin=False,
+        is_superuser=False,
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )
@@ -77,7 +77,7 @@ def test_get_users(client: TestClient, mock_db):
         id=uuid4(),
         name="User 2",
         email="user2@example.com",
-        is_admin=True,
+        is_superuser=True,
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )
@@ -101,7 +101,7 @@ def test_get_user(client: TestClient, mock_db):
         id=user_id,
         name="Test User",
         email="getuser@example.com",
-        is_admin=False,
+        is_superuser=False,
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )
@@ -136,7 +136,7 @@ def test_get_user_by_email(client: TestClient, mock_db):
         id=uuid4(),
         name="Test User",
         email="byemail@example.com",
-        is_admin=False,
+        is_superuser=False,
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )
@@ -170,7 +170,7 @@ def test_update_user(client: TestClient, mock_db):
         id=user_id,
         name="Original Name",
         email="original@example.com",
-        is_admin=False,
+        is_superuser=False,
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )
@@ -181,7 +181,7 @@ def test_update_user(client: TestClient, mock_db):
 
     update_data = {
         "name": "Updated Name",
-        "is_admin": True,
+        "is_superuser": True,
     }
 
     response = client.patch(f"/users/{user_id}", json=update_data)
@@ -189,7 +189,7 @@ def test_update_user(client: TestClient, mock_db):
     data = response.json()
     assert data["id"] == str(user_id)
     assert data["name"] == update_data["name"]
-    assert data["is_admin"] is True
+    assert data["is_superuser"] is True
 
 
 def test_update_user_duplicate_email(client: TestClient, mock_db):
@@ -199,7 +199,7 @@ def test_update_user_duplicate_email(client: TestClient, mock_db):
         id=user_id,
         name="User 2",
         email="user2@example.com",
-        is_admin=False,
+        is_superuser=False,
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )
@@ -247,7 +247,7 @@ def test_delete_user(client: TestClient, mock_db):
         id=user_id,
         name="Test User",
         email="delete@example.com",
-        is_admin=False,
+        is_superuser=False,
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )

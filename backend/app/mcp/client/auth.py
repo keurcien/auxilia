@@ -1,18 +1,13 @@
-import secrets
-from urllib.parse import urlencode, urljoin
-
 import httpx
+import secrets
+from pydantic import AnyUrl, AnyHttpUrl
+from urllib.parse import urlencode, urljoin
 from mcp.client.auth import OAuthClientProvider, OAuthFlowError, PKCEParameters
 from mcp.shared.auth import OAuthClientMetadata, OAuthClientInformationFull
 from mcp.client.auth.exceptions import OAuthTokenError
 from mcp.client.auth.utils import handle_token_response_scopes
-from pydantic import AnyUrl, AnyHttpUrl
-
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
 
-import logging
-
-logger = logging.getLogger(__name__)
 
 def build_oauth_client_metadata(mcp_server: dict) -> OAuthClientMetadata:
 
@@ -28,7 +23,9 @@ def build_oauth_client_metadata(mcp_server: dict) -> OAuthClientMetadata:
     )
 
 
-class ServerlessOAuthProvider(OAuthClientProvider):
+class WebOAuthClientProvider(OAuthClientProvider):
+    """Web OAuth client provider for MCP servers. Idea is to stick as close as possible to the official MCP SDK."""
+
     def __init__(self, *args, client_id: str | None = None, client_secret: str | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self._client_id = client_id
@@ -41,15 +38,15 @@ class ServerlessOAuthProvider(OAuthClientProvider):
 
         if not self.context.oauth_metadata:
             self.context.oauth_metadata = await self.context.storage.get_oauth_metadata()
-        
+
         if self.context.oauth_metadata and self.context.oauth_metadata.issuer == AnyHttpUrl("https://mcp.hubspot.com/"):
             print("Setting token endpoint to https://mcp.hubspot.com/oauth/v1/token")
-            self.context.oauth_metadata.token_endpoint = AnyHttpUrl("https://mcp.hubspot.com/oauth/v1/token")
+            self.context.oauth_metadata.token_endpoint = AnyHttpUrl(
+                "https://mcp.hubspot.com/oauth/v1/token")
 
         if self.context.oauth_metadata and self.context.oauth_metadata.issuer == AnyHttpUrl("https://api.supabase.com/"):
             print("Setting token endpoint auth method to client_secret_post")
             self.context.client_info.token_endpoint_auth_method = "client_secret_post"
-
 
         if not self.context.client_info and self.context.client_metadata and self._client_id:
             self.context.client_info = OAuthClientInformationFull(
@@ -57,10 +54,10 @@ class ServerlessOAuthProvider(OAuthClientProvider):
                 client_secret=self._client_secret,
                 **self.context.client_metadata.model_dump()
             )
-        
+
         if self.context.current_tokens:
             self.context.update_token_expiry(self.context.current_tokens)
-        
+
         self._initialized = True
 
     async def _handle_token_response(self, response: httpx.Response) -> None:
@@ -68,7 +65,8 @@ class ServerlessOAuthProvider(OAuthClientProvider):
         if response.status_code not in {200, 201}:
             body = await response.aread()  # pragma: no cover
             body_text = body.decode("utf-8")  # pragma: no cover
-            raise OAuthTokenError(f"Token exchange failed ({response.status_code}): {body_text}")  # pragma: no cover
+            raise OAuthTokenError(
+                f"Token exchange failed ({response.status_code}): {body_text}")  # pragma: no cover
 
         # Parse and validate response with scope validation
         token_response = await handle_token_response_scopes(response)
@@ -96,7 +94,8 @@ class ServerlessOAuthProvider(OAuthClientProvider):
             self.context.oauth_metadata
             and self.context.oauth_metadata.authorization_endpoint
         ):
-            auth_endpoint = str(self.context.oauth_metadata.authorization_endpoint)
+            auth_endpoint = str(
+                self.context.oauth_metadata.authorization_endpoint)
         else:
             auth_base_url = self.context.get_authorization_base_url(
                 self.context.server_url
@@ -120,7 +119,7 @@ class ServerlessOAuthProvider(OAuthClientProvider):
             "code_challenge": pkce_params.code_challenge,
             "code_challenge_method": "S256",
         }
-        
+
         if self.context.oauth_metadata.issuer == AnyHttpUrl("https://accounts.google.com/"):
             auth_params["access_type"] = "offline"
             auth_params["prompt"] = "consent"
@@ -158,13 +157,13 @@ class ServerlessOAuthProvider(OAuthClientProvider):
 
         # Use the SDK's protected method to finish the exchange
         # This handles the HTTP request, token parsing, and storage writing
-        
+
         token_request = await self._exchange_token_authorization_code(
             auth_code=code, code_verifier=verifier
         )
 
         token_request.headers["Accept"] = "application/json"
-        
+
         # Execute the request (since _exchange... returns a Request object)
         async with httpx.AsyncClient() as client:
             response = await client.send(token_request)

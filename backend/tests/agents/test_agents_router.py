@@ -1,9 +1,7 @@
+from uuid import uuid4
 from datetime import datetime
 from unittest.mock import MagicMock
-from uuid import uuid4
-
 from fastapi.testclient import TestClient
-
 from app.agents.models import AgentDB
 
 
@@ -36,9 +34,9 @@ def test_create_agent(client: TestClient, mock_db):
     assert "updated_at" in data
 
 
-def test_get_agents(client: TestClient, mock_db):
+def test_get_agents(client: TestClient, mock_db, current_user):
     """Test getting all agents."""
-    owner_id = uuid4()
+    owner_id = current_user.id
     agent1 = AgentDB(
         id=uuid4(),
         name="Agent 1",
@@ -57,9 +55,7 @@ def test_get_agents(client: TestClient, mock_db):
     )
 
     mock_result = MagicMock()
-    mock_scalars = MagicMock()
-    mock_scalars.all.return_value = [agent1, agent2]
-    mock_result.scalars.return_value = mock_scalars
+    mock_result.all.return_value = [(agent1, None), (agent2, None)]
     mock_db.execute.return_value = mock_result
 
     response = client.get("/agents/")
@@ -68,9 +64,9 @@ def test_get_agents(client: TestClient, mock_db):
     assert len(data) == 2
 
 
-def test_get_agents_filter_by_owner(client: TestClient, mock_db):
+def test_get_agents_filter_by_owner(client: TestClient, mock_db, current_user):
     """Test getting agents filtered by owner_id."""
-    owner_id = uuid4()
+    owner_id = current_user.id
     agent = AgentDB(
         id=uuid4(),
         name="Agent 1",
@@ -81,9 +77,7 @@ def test_get_agents_filter_by_owner(client: TestClient, mock_db):
     )
 
     mock_result = MagicMock()
-    mock_scalars = MagicMock()
-    mock_scalars.all.return_value = [agent]
-    mock_result.scalars.return_value = mock_scalars
+    mock_result.all.return_value = [(agent, None)]
     mock_db.execute.return_value = mock_result
 
     response = client.get(f"/agents/?owner_id={owner_id}")
@@ -93,10 +87,10 @@ def test_get_agents_filter_by_owner(client: TestClient, mock_db):
     assert data[0]["name"] == agent.name
 
 
-def test_get_agent(client: TestClient, mock_db):
+def test_get_agent(client: TestClient, mock_db, current_user):
     """Test getting a single agent by ID."""
     agent_id = uuid4()
-    owner_id = uuid4()
+    owner_id = current_user.id
     agent = AgentDB(
         id=agent_id,
         name="Test Agent",
@@ -106,9 +100,8 @@ def test_get_agent(client: TestClient, mock_db):
         updated_at=datetime.now(),
     )
 
-    # Mock the read_agent utility function
     mock_result = MagicMock()
-    mock_result.scalar_one_or_none.return_value = agent
+    mock_result.all.return_value = [(agent, None)]
     mock_db.execute.return_value = mock_result
 
     response = client.get(f"/agents/{agent_id}")
@@ -123,7 +116,7 @@ def test_get_agent_not_found(client: TestClient, mock_db):
     fake_id = uuid4()
 
     mock_result = MagicMock()
-    mock_result.scalar_one_or_none.return_value = None
+    mock_result.all.return_value = []
     mock_db.execute.return_value = mock_result
 
     response = client.get(f"/agents/{fake_id}")
