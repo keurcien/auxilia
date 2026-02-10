@@ -22,19 +22,19 @@ from app.adapters.message_adapter import (
 )
 from app.adapters.stream_adapter import AISDKStreamAdapter
 from app.agents.utils import read_agent
-from app.mcp.client.auth import ServerlessOAuthProvider, build_oauth_client_metadata
-from app.mcp.client.storage import TokenStorageFactory
-from app.mcp.servers.models import MCPAuthType, MCPServerDB
+from app.mcp.servers.models import MCPServerDB
 from app.models.message import Message
 from app.threads.models import ThreadDB
-from app.mcp.servers.router import get_mcp_server_api_key
 from app.model_providers.settings import model_provider_settings
 from app.settings import app_settings
+from app.agents.settings import agent_settings
+from app.mcp.client.factory import MCPClientConfigFactory
 
 
 class ModelProvider(BaseModel):
     name: str
     api_key: str
+
 
 class Model(BaseModel):
     name: str
@@ -45,22 +45,26 @@ LLM_PROVIDERS = []
 MODELS = []
 
 if model_provider_settings.openai_api_key:
-    LLM_PROVIDERS.append(ModelProvider(name="openai", api_key=model_provider_settings.openai_api_key))
+    LLM_PROVIDERS.append(ModelProvider(
+        name="openai", api_key=model_provider_settings.openai_api_key))
     MODELS.append(Model(name="gpt-4o-mini", provider="openai"))
 
 if model_provider_settings.deepseek_api_key:
-    LLM_PROVIDERS.append(ModelProvider(name="deepseek", api_key=model_provider_settings.deepseek_api_key))
+    LLM_PROVIDERS.append(ModelProvider(
+        name="deepseek", api_key=model_provider_settings.deepseek_api_key))
     MODELS.append(Model(name="deepseek-chat", provider="deepseek"))
     MODELS.append(Model(name="deepseek-reasoner", provider="deepseek"))
 
 if model_provider_settings.anthropic_api_key:
-    LLM_PROVIDERS.append(ModelProvider(name="anthropic", api_key=model_provider_settings.anthropic_api_key))
+    LLM_PROVIDERS.append(ModelProvider(
+        name="anthropic", api_key=model_provider_settings.anthropic_api_key))
     MODELS.append(Model(name="claude-haiku-4-5", provider="anthropic"))
     MODELS.append(Model(name="claude-sonnet-4-5", provider="anthropic"))
     MODELS.append(Model(name="claude-opus-4-5", provider="anthropic"))
 
 if model_provider_settings.google_api_key:
-    LLM_PROVIDERS.append(ModelProvider(name="google", api_key=model_provider_settings.google_api_key))
+    LLM_PROVIDERS.append(ModelProvider(
+        name="google", api_key=model_provider_settings.google_api_key))
     MODELS.append(Model(name="gemini-3-flash-preview", provider="google"))
     MODELS.append(Model(name="gemini-3-pro-preview", provider="google"))
 
@@ -68,7 +72,7 @@ if model_provider_settings.google_api_key:
 class ChatModelFactory:
 
     def create(self, provider: str, model_id: str, api_key: str):
-        
+
         match provider:
             case "openai":
                 return ChatOpenAI(model=model_id, api_key=api_key)
@@ -104,6 +108,8 @@ class ChatModelFactory:
 @dataclass
 class AgentRuntimeDependencies:
     model_factory: ChatModelFactory
+    mcp_client_config_factory: MCPClientConfigFactory
+
 
 class AgentRuntime:
     def __init__(self, thread: ThreadDB, db: AsyncSession, deps: AgentRuntimeDependencies):
@@ -112,37 +118,10 @@ class AgentRuntime:
         self.db = db
         self._deps = deps
 
-    async def build_mcp_server_config(self, mcp_server_config: dict) -> dict:
-        client_metadata = build_oauth_client_metadata(mcp_server_config)
-        storage = TokenStorageFactory().get_storage(self.thread.user_id, mcp_server_config.id)
-
-        config = {
-            "url": mcp_server_config.url,
-            "transport": "streamable_http",
-        }
-
-        if mcp_server_config.auth_type == MCPAuthType.none:
-            return config
-    
-        if mcp_server_config.auth_type == MCPAuthType.api_key:
-            api_key = await get_mcp_server_api_key(mcp_server_config.id, self.db)
-            return {
-                **config,
-                "headers": {"Authorization": f"Bearer {api_key}"},
-            }
-
-        return {
-            **config,
-            "auth": ServerlessOAuthProvider(
-                server_url=mcp_server_config.url,
-                client_metadata=client_metadata,
-                storage=storage,
-            ),
-        }
-
     async def build_multi_mcp_server_configs(self, mcp_server_configs: list[dict]) -> dict:
+
         return {
-            mcp_server_config.name: await self.build_mcp_server_config(mcp_server_config)
+            mcp_server_config.name: await self._deps.mcp_client_config_factory.build(mcp_server_config)
             for mcp_server_config in mcp_server_configs
         }
 
@@ -161,13 +140,16 @@ class AgentRuntime:
         Returns:
             Filtered list of tools
         """
-        client = MultiServerMCPClient(multi_mcp_server_configs, tool_name_prefix=True)
+        client = MultiServerMCPClient(
+            multi_mcp_server_configs, tool_name_prefix=True)
 
         async def fetch_and_filter_tools(server_id: str):
             tools = await client.get_tools(server_name=server_id)
             tool_settings = tool_settings_map.get(str(server_id))
-            always_allowed_tools = [tool for tool in tools if tool.name in [server_id + "_" + tool for tool, status in tool_settings.items() if status == "always_allow"]]
-            need_approval_tools = [tool for tool in tools if tool.name in [server_id + "_" + tool for tool, status in tool_settings.items() if status == "needs_approval"]]
+            always_allowed_tools = [tool for tool in tools if tool.name in [
+                server_id + "_" + tool for tool, status in tool_settings.items() if status == "always_allow"]]
+            need_approval_tools = [tool for tool in tools if tool.name in [
+                server_id + "_" + tool for tool, status in tool_settings.items() if status == "needs_approval"]]
             return always_allowed_tools, need_approval_tools
 
         tasks = [
@@ -175,9 +157,11 @@ class AgentRuntime:
             for server_id in multi_mcp_server_configs.keys()
         ]
         results = await asyncio.gather(*tasks)
-        
-        always_allowed_tools = [tool for result in results for tool in result[0]]
-        need_approval_tools = [tool for result in results for tool in result[1]]
+
+        always_allowed_tools = [
+            tool for result in results for tool in result[0]]
+        need_approval_tools = [
+            tool for result in results for tool in result[1]]
 
         return always_allowed_tools, need_approval_tools
 
@@ -195,7 +179,7 @@ class AgentRuntime:
 
     async def initialize(self):
         self.config = await read_agent(self.thread.agent_id, self.db)
-        
+
         result = await self.db.execute(
             select(MCPServerDB).where(
                 MCPServerDB.id.in_(
@@ -205,41 +189,42 @@ class AgentRuntime:
         )
         mcp_servers = result.scalars().all()
         mcp_servers = list(mcp_servers)
-        
+
         mcp_server_configs = await self.build_multi_mcp_server_configs(mcp_servers)
-        
+
         tool_settings = {
             next(server.name for server in mcp_servers if server.id == mcp_server.id): mcp_server.tools
             for mcp_server in self.config.mcp_servers
         }
 
         self.tools = await self.get_tools(mcp_server_configs, tool_settings)
-        
 
     async def stream(self, messages: list[Message], message_id: str | None = None):
         """Wrapper to keep checkpointer alive during streaming.
-        
+
         Args:
             messages: List of messages to process
             message_id: Optional message ID from frontend (used when resuming after HITL approval)
         """
         # AsyncPostgresSaver expects a native psycopg3 connection string (postgresql://)
         # not the SQLAlchemy dialect URL (postgresql+psycopg://)
-        conn_string = app_settings.database_url.replace("postgresql+psycopg://", "postgresql://")
+        conn_string = app_settings.database_url.replace(
+            "postgresql+psycopg://", "postgresql://")
         async with AsyncPostgresSaver.from_conn_string(conn_string) as checkpointer:
             model_provider = await self.get_model_provider(self.thread.model_id)
-            chat_model = self._deps.model_factory.create(model_provider.name, self.thread.model_id, model_provider.api_key)
-            
+            chat_model = self._deps.model_factory.create(
+                model_provider.name, self.thread.model_id, model_provider.api_key)
+
             tools = self.tools[0] + self.tools[1]
             need_approval_tools = self.tools[1]
-            
+
             agent = create_agent(
                 model=chat_model,
                 tools=tools,
                 system_prompt=SystemMessage(content=self.config.instructions),
                 checkpointer=checkpointer,
-                    middleware=[
-                    HumanInTheLoopMiddleware( 
+                middleware=[
+                    HumanInTheLoopMiddleware(
                         interrupt_on={
                             tool.name: True for tool in need_approval_tools
                         },
@@ -247,31 +232,35 @@ class AgentRuntime:
                     )
                 ],
             )
-            langchain_messages = [to_langchain_message(message) for message in messages]
-            commands = sum([extract_commands(message) for message in messages if extract_commands(message)], [])
-            
+            langchain_messages = [to_langchain_message(
+                message) for message in messages]
+            commands = sum([extract_commands(message)
+                           for message in messages if extract_commands(message)], [])
+
             # Extract rejected tool calls to emit error events in the stream
             rejected_tool_calls = sum(
                 [extract_rejected_tool_calls(message) for message in messages],
                 []
             )
-            
+
             # Extract approved tool call IDs to skip their input events (already shown in UI)
             approved_tool_call_ids = sum(
-                [extract_approved_tool_call_ids(message) for message in messages],
+                [extract_approved_tool_call_ids(message)
+                 for message in messages],
                 []
             )
-            
+
             is_resume = len(commands) > 0
             resume_message_id = message_id if is_resume else None
-            
+
             if is_resume:
                 langchain_stream = agent.astream_events(
-                    Command(resume={"decisions": [{"type": command} for command in commands]}),
+                    Command(
+                        resume={"decisions": [{"type": command} for command in commands]}),
                     version="v2",
                     config={
                         "configurable": {"thread_id": self.thread.id},
-                        "recursion_limit": 50
+                        "recursion_limit": agent_settings.recursion_limit
                     },
                 )
             else:
@@ -279,7 +268,7 @@ class AgentRuntime:
                     {"messages": langchain_messages},
                     version="v2",
                     config={
-                        "configurable": {"thread_id": self.thread.id}, "recursion_limit": 50
+                        "configurable": {"thread_id": self.thread.id}, "recursion_limit": agent_settings.recursion_limit
                     },
                 )
 
@@ -289,7 +278,8 @@ class AgentRuntime:
                 rejected_tool_calls=rejected_tool_calls,
                 approved_tool_call_ids=approved_tool_call_ids,
             )
-            ai_sdk_stream = ai_sdk_stream_adapter.to_data_stream(langchain_stream)
+            ai_sdk_stream = ai_sdk_stream_adapter.to_data_stream(
+                langchain_stream)
 
             async for chunk in ai_sdk_stream:
                 yield chunk

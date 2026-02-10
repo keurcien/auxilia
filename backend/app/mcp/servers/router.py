@@ -4,14 +4,14 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import OAuthClientInformationFull
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.auth.dependencies import get_current_user
 from app.database import get_db
-from app.mcp.client.auth import ServerlessOAuthProvider, build_oauth_client_metadata
+from app.mcp.client.auth import WebOAuthClientProvider, build_oauth_client_metadata
 from app.mcp.client.storage import TokenStorageFactory
 from app.mcp.utils import check_mcp_server_connected
 from app.users.models import UserDB
@@ -128,6 +128,7 @@ async def get_mcp_servers(db: AsyncSession = Depends(get_db)) -> list[MCPServerR
     servers = result.scalars().all()
     return list(servers)
 
+
 @router.get("/official", response_model=list[OfficialMCPServerRead])
 async def get_official_mcp_servers(db: AsyncSession = Depends(get_db)) -> list[OfficialMCPServerRead]:
     stmt = (
@@ -194,31 +195,32 @@ async def delete_mcp_server(
 
 @router.get("/oauth/callback")
 async def oauth_callback(
-    code: str = Query(..., description="Authorization code from OAuth provider"),
+    code: str = Query(...,
+                      description="Authorization code from OAuth provider"),
     state: str = Query(..., description="State parameter from OAuth provider"),
     db: AsyncSession = Depends(get_db),
 ):
     # Recover user_id and mcp_server_id from state
     storage_factory = TokenStorageFactory()
     result = await storage_factory.get_storage_from_state(state)
-    
+
     if not result:
         raise HTTPException(
             status_code=400,
             detail="Invalid or expired OAuth state"
         )
-    
+
     storage, state_data = result
-    
+
     # Load MCP server from database
     db_result = await db.execute(
         select(MCPServerDB).where(MCPServerDB.id == state_data.mcp_server_id)
     )
     mcp_server = db_result.scalar_one_or_none()
-    
+
     if not mcp_server:
         raise HTTPException(status_code=404, detail="MCP server not found")
-    
+
     client_metadata = build_oauth_client_metadata(mcp_server)
 
     # Load stored OAuth credentials to set token_endpoint_auth_method
@@ -229,14 +231,14 @@ async def oauth_callback(
             oauth_credentials.token_endpoint_auth_method or "client_secret_post"
         )
 
-    provider = ServerlessOAuthProvider(
+    provider = WebOAuthClientProvider(
         server_url=mcp_server.url,
         client_metadata=client_metadata,
         storage=storage
     )
 
     await provider._initialize()
-    
+
     if mcp_server.url == "https://mcp.supabase.com/mcp":
         provider.context.client_metadata.token_endpoint_auth_method = "client_secret_post"
 
@@ -270,7 +272,7 @@ async def connect_to_server(mcp_server: MCPServerDB, user_id: str, db: AsyncSess
         OAuthAuthorizationRequired: If OAuth authorization is needed
     """
     storage = TokenStorageFactory().get_storage(user_id, str(mcp_server.id))
-    
+
     if mcp_server.auth_type == MCPAuthType.oauth2:
         client_metadata = build_oauth_client_metadata(mcp_server)
 
@@ -280,7 +282,8 @@ async def connect_to_server(mcp_server: MCPServerDB, user_id: str, db: AsyncSess
         if oauth_credentials:
             # Use statically registered OAuth credentials
             client_id = oauth_credentials.client_id
-            client_secret = decrypt_api_key(oauth_credentials.client_secret_encrypted)
+            client_secret = decrypt_api_key(
+                oauth_credentials.client_secret_encrypted)
 
             # Default to client_secret_post when statically registered credentials exist
             client_metadata.token_endpoint_auth_method = (
@@ -299,7 +302,7 @@ async def connect_to_server(mcp_server: MCPServerDB, user_id: str, db: AsyncSess
             client_id = None
             client_secret = None
 
-        provider = ServerlessOAuthProvider(
+        provider = WebOAuthClientProvider(
             server_url=mcp_server.url,
             client_metadata=client_metadata,
             storage=storage,
@@ -310,20 +313,21 @@ async def connect_to_server(mcp_server: MCPServerDB, user_id: str, db: AsyncSess
         client_args = {"url": mcp_server.url, "auth": provider}
     elif mcp_server.auth_type == MCPAuthType.api_key:
         api_key = await get_mcp_server_api_key(mcp_server.id, db)
-        client_args = {"url": mcp_server.url, "headers": {"Authorization": f"Bearer {api_key}"}}
+        client_args = {"url": mcp_server.url, "headers": {
+            "Authorization": f"Bearer {api_key}"}}
     else:
         client_args = {"url": mcp_server.url}
 
-    async with streamablehttp_client(**client_args) as (read, write, _):
+    async with streamable_http_client(**client_args) as (read, write, _):
         async with ClientSession(read, write) as session:
             await session.initialize()
 
             response = await session.list_tools()
-            tools = response.tools    
+            tools = response.tools
 
-            if mcp_server.url == "https://bigquery.googleapis.com/mcp":                
+            if mcp_server.url == "https://bigquery.googleapis.com/mcp":
                 await session.call_tool("list_dataset_ids", {"project_id": "choose-data-dev"})
-     
+
             yield session, tools
 
 
@@ -359,10 +363,11 @@ async def is_connected(
     if mcp_server.auth_type in [MCPAuthType.none, MCPAuthType.api_key]:
         return {"connected": True}
 
-    storage = TokenStorageFactory().get_storage(str(current_user.id), str(mcp_server.id))
+    storage = TokenStorageFactory().get_storage(
+        str(current_user.id), str(mcp_server.id))
     client_metadata = build_oauth_client_metadata(mcp_server)
 
-    provider = ServerlessOAuthProvider(
+    provider = WebOAuthClientProvider(
         server_url=mcp_server.url,
         client_metadata=client_metadata,
         storage=storage
@@ -370,7 +375,7 @@ async def is_connected(
 
     await provider._initialize()
     tokens = await provider.context.storage.get_tokens()
-    
+
     if not tokens:
         return {"connected": False}
     return {"connected": True}
