@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { Plus } from "lucide-react";
 import { api } from "@/lib/api/client";
@@ -100,6 +101,7 @@ export default function AddAgentMCPServerDialog({
 	onSaving,
 	onSaved,
 }: AddAgentMCPServerDialogProps) {
+	const router = useRouter();
 	const [allServers, setAllServers] = useState<MCPServer[]>([]);
 
 	useEffect(() => {
@@ -150,10 +152,26 @@ export default function AddAgentMCPServerDialog({
 						</div>
 					) : (
 						<div className="text-center py-8 text-muted-foreground">
-							<p className="text-sm">No available MCP servers to add.</p>
-							<p className="text-xs mt-1">
-								All workspace servers are already enabled for this agent.
-							</p>
+							{allServers.length === 0 ? (
+								<>
+									<p className="text-sm text-center mb-4">
+										No MCP servers found. Start by adding a MCP server to your
+										workspace.
+									</p>
+									<Button
+										variant="outline"
+										size="sm"
+										className="mt-2 cursor-pointer"
+										onClick={() => router.push("/mcp-servers")}
+									>
+										Add MCP Server
+									</Button>
+								</>
+							) : (
+								<p className="text-sm">
+									All workspace servers are already enabled for this agent.
+								</p>
+							)}
 						</div>
 					)}
 				</div>
