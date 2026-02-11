@@ -4,7 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from mcp import ClientSession
-from mcp.client.streamable_http import streamable_http_client
+from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.auth import OAuthClientInformationFull
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -318,7 +318,7 @@ async def connect_to_server(mcp_server: MCPServerDB, user_id: str, db: AsyncSess
     else:
         client_args = {"url": mcp_server.url}
 
-    async with streamable_http_client(**client_args) as (read, write, _):
+    async with streamablehttp_client(**client_args) as (read, write, _):
         async with ClientSession(read, write) as session:
             await session.initialize()
 
