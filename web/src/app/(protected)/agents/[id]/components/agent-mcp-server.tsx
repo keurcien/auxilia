@@ -40,6 +40,13 @@ export default function AgentMCPServer({
 	const [isConnected, setIsConnected] = useState(false);
 	const [isCheckingConnection, setIsCheckingConnection] = useState(true);
 
+	// Auto-expand when not connected
+	useEffect(() => {
+		if (!isCheckingConnection && !isConnected) {
+			setIsExpanded(true);
+		}
+	}, [isCheckingConnection, isConnected]);
+
 	const handleToggleServer = async (serverId: string, isEnabled: boolean) => {
 		setIsAttached(isEnabled);
 		onSaving?.();
@@ -230,9 +237,8 @@ export default function AgentMCPServer({
 					className="text-muted-foreground hover:text-foreground cursor-pointer p-1"
 				>
 					<ChevronRight
-						className={`w-5 h-5 transition-transform ${
-							isExpanded ? "rotate-90" : ""
-						}`}
+						className={`w-5 h-5 transition-transform ${isExpanded ? "rotate-90" : ""
+							}`}
 					/>
 				</button>
 			</div>
