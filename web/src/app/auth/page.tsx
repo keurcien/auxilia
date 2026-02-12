@@ -176,10 +176,8 @@ export default function AuthPage() {
 								type="button"
 								variant="outline"
 								className="w-full cursor-pointer"
-								onClick={() => {
-									window.location.href = `${
-										process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
-									}/auth/google`;
+							onClick={() => {
+								window.location.href = "/api/backend/auth/google";
 								}}
 							>
 								<svg
