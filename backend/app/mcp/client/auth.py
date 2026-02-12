@@ -7,6 +7,7 @@ from mcp.shared.auth import OAuthClientMetadata, OAuthClientInformationFull
 from mcp.client.auth.exceptions import OAuthTokenError
 from mcp.client.auth.utils import handle_token_response_scopes
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
+from app.settings import app_settings
 
 
 def build_oauth_client_metadata(mcp_server: dict) -> OAuthClientMetadata:
@@ -14,7 +15,7 @@ def build_oauth_client_metadata(mcp_server: dict) -> OAuthClientMetadata:
     return OAuthClientMetadata(
         client_name="auxilia",
         redirect_uris=[
-            AnyUrl("http://localhost:8000/mcp-servers/oauth/callback")
+            AnyUrl(f"{app_settings.backend_url}/mcp-servers/oauth/callback")
         ],
         grant_types=["authorization_code", "refresh_token"],
         response_types=["code"],
