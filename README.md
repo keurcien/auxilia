@@ -9,7 +9,7 @@ Built with langgraph and the AI SDK.
 1. **Clone the repository:**
 
 ```bash
-git clone git@github.com:keurcien/auxilia.git
+git clone https://github.com/keurcien/auxilia.git
 cd auxilia
 ```
 
