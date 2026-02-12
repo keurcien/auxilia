@@ -33,6 +33,7 @@ Copy `.env.example` to `.env.dev` and add your LLM API keys (OpenAI, Anthropic, 
 
 3. **Start services:**
 
+Run `npm install` in web folder.
 Run `make dev` in a terminal.
 
 ## Google Sign In
