@@ -20,7 +20,7 @@ from app.adapters.message_adapter import (
     extract_rejected_tool_calls,
     extract_approved_tool_call_ids,
 )
-from app.adapters.stream_adapter import AISDKStreamAdapter
+from app.adapters.stream_adapter import AISDKStreamAdapter, SlackStreamAdapter
 from app.agents.utils import read_agent
 from app.mcp.servers.models import MCPServerDB
 from app.models.message import Message
@@ -199,7 +199,7 @@ class AgentRuntime:
 
         self.tools = await self.get_tools(mcp_server_configs, tool_settings)
 
-    async def stream(self, messages: list[Message], message_id: str | None = None):
+    async def stream(self, messages: list[Message], message_id: str | None = None, stream_adapter: str = "ai_sdk"):
         """Wrapper to keep checkpointer alive during streaming.
 
         Args:
@@ -272,14 +272,19 @@ class AgentRuntime:
                     },
                 )
 
-            ai_sdk_stream_adapter = AISDKStreamAdapter(
-                message_id=resume_message_id,
-                is_resume=is_resume,
-                rejected_tool_calls=rejected_tool_calls,
-                approved_tool_call_ids=approved_tool_call_ids,
-            )
-            ai_sdk_stream = ai_sdk_stream_adapter.to_data_stream(
-                langchain_stream)
+            if stream_adapter == "ai_sdk":
+                ai_sdk_stream_adapter = AISDKStreamAdapter(
+                    message_id=resume_message_id,
+                    is_resume=is_resume,
+                    rejected_tool_calls=rejected_tool_calls,
+                    approved_tool_call_ids=approved_tool_call_ids,
+                )
+                stream = ai_sdk_stream_adapter.to_data_stream(
+                    langchain_stream)
+            elif stream_adapter == "slack":
+                slack_stream_adapter = SlackStreamAdapter()
+                stream = slack_stream_adapter.to_data_stream(
+                    langchain_stream)
 
-            async for chunk in ai_sdk_stream:
+            async for chunk in stream:
                 yield chunk

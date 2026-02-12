@@ -1,14 +1,16 @@
 from datetime import datetime
 from uuid import UUID, uuid4
-
+from enum import Enum
 from pydantic import BaseModel
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 from sqlmodel import Column, DateTime, Field, SQLModel, Text
 
 
-# Tool status type for the tools JSON column
-ToolStatus = str  # "always_allow" | "needs_approval" | "disabled"
+class ToolStatus(str, Enum):
+    always_allow = "always_allow"
+    needs_approval = "needs_approval"
+    disabled = "disabled"
 
 
 class AgentMCPServer(BaseModel):
