@@ -176,8 +176,8 @@ export default function AuthPage() {
 								type="button"
 								variant="outline"
 								className="w-full cursor-pointer"
-							onClick={() => {
-								window.location.href = "/api/backend/auth/google";
+								onClick={() => {
+									window.location.href = "/api/backend/auth/google";
 								}}
 							>
 								<svg
