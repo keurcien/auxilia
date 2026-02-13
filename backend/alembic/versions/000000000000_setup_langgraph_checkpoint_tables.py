@@ -33,7 +33,7 @@ def upgrade() -> None:
     bind = op.get_bind()
     url = bind.engine.url.set(drivername="postgresql")
     db_url = url.render_as_string(hide_password=False)
-    print(db_url)
+
     with PostgresSaver.from_conn_string(db_url) as checkpointer:
         checkpointer.setup()
 
