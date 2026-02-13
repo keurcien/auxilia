@@ -26,6 +26,7 @@ from app.mcp.servers.models import MCPServerDB
 from app.models.message import Message
 from app.threads.models import ThreadDB
 from app.model_providers.settings import model_provider_settings
+from app.database import get_psycopg_conn_string
 from app.settings import app_settings
 from app.agents.settings import agent_settings
 from app.mcp.client.factory import MCPClientConfigFactory
@@ -206,17 +207,17 @@ class AgentRuntime:
             messages: List of messages to process
             message_id: Optional message ID from frontend (used when resuming after HITL approval)
         """
-        # AsyncPostgresSaver expects a native psycopg3 connection string (postgresql://)
-        # not the SQLAlchemy dialect URL (postgresql+psycopg://)
-        conn_string = app_settings.database_url.replace(
-            "postgresql+psycopg://", "postgresql://")
-        async with AsyncPostgresSaver.from_conn_string(conn_string) as checkpointer:
+        async with AsyncPostgresSaver.from_conn_string(get_psycopg_conn_string()) as checkpointer:
             model_provider = await self.get_model_provider(self.thread.model_id)
             chat_model = self._deps.model_factory.create(
                 model_provider.name, self.thread.model_id, model_provider.api_key)
 
             tools = self.tools[0] + self.tools[1]
             need_approval_tools = self.tools[1]
+
+            # Catch all tool errors
+            for tool in tools:
+                tool.handle_tool_error = True
 
             agent = create_agent(
                 model=chat_model,

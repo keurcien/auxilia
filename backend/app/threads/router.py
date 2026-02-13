@@ -8,20 +8,14 @@ from app.adapters.message_adapter import deserialize_to_ui_messages
 from app.agents.models import AgentDB
 from app.agents.runtime import AgentRuntime
 from app.mcp.client.factory import MCPClientConfigFactory
-from app.database import get_db
+from app.database import get_db, get_psycopg_conn_string
 from app.models.message import Message
 from app.users.models import UserDB
 from app.auth.dependencies import get_current_user
 from app.threads.models import ThreadCreate, ThreadDB, ThreadRead
 from app.agents.runtime import AgentRuntimeDependencies, ChatModelFactory
-from app.settings import app_settings
 from app.mcp.servers.router import get_mcp_server_api_key
 from app.mcp.client.storage import TokenStorageFactory
-
-
-def get_psycopg_conn_string() -> str:
-    """Convert SQLAlchemy URL to psycopg3-compatible connection string."""
-    return app_settings.database_url.replace("postgresql+psycopg://", "postgresql://")
 
 
 router = APIRouter(prefix="/threads", tags=["threads"])
