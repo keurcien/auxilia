@@ -62,6 +62,39 @@ import { Loader } from "../components/loader";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { usePendingMessageStore } from "@/stores/pending-message-store";
 import { useAgentReadiness } from "@/hooks/use-agent-readiness";
+import { HostToolWidget } from "../components/host-tool-widgets";
+
+const getToolMetadata = (toolType: string, knownServerNames: string[]) => {
+	const normalizedToolType = toolType.replace(/^tool-/, "");
+	const matchedServerName = knownServerNames.find(
+		(serverName) =>
+			normalizedToolType === serverName ||
+			normalizedToolType.startsWith(`${serverName}_`),
+	);
+
+	if (matchedServerName) {
+		const suffix = normalizedToolType.slice(matchedServerName.length);
+		const toolName = suffix.startsWith("_") ? suffix.slice(1) : suffix;
+
+		return {
+			serverName: matchedServerName,
+			toolName: toolName || normalizedToolType,
+		};
+	}
+
+	const separatorIndex = normalizedToolType.indexOf("_");
+	if (separatorIndex === -1) {
+		return {
+			serverName: normalizedToolType,
+			toolName: normalizedToolType,
+		};
+	}
+
+	return {
+		serverName: normalizedToolType.slice(0, separatorIndex),
+		toolName: normalizedToolType.slice(separatorIndex + 1),
+	};
+};
 
 const ChatPage = () => {
 	const params = useParams();
@@ -116,6 +149,9 @@ const ChatPage = () => {
 
 	const consumePendingMessage = usePendingMessageStore(
 		(state) => state.consumePendingMessage,
+	);
+	const knownServerNames = [...mcpServers.map((server) => server.name)].sort(
+		(a, b) => b.length - a.length,
 	);
 
 	const handleSubmit = (message: PromptInputMessage) => {
@@ -307,96 +343,96 @@ const ChatPage = () => {
 														<ReasoningContent>{part.text}</ReasoningContent>
 													</Reasoning>
 												);
-											default:
-												if (part.type.startsWith("tool-")) {
-													const toolPart = part as ToolUIPart;
-													const serverName = part.type
-														.split("_")[0]
-														.replace("tool-", "");
-													const toolName = part.type
-														.split("_")
-														.slice(1)
-														.join("_");
+												default:
+													if (part.type.startsWith("tool-")) {
+														const toolPart = part as ToolUIPart;
+														const { serverName, toolName } =
+															getToolMetadata(part.type, knownServerNames);
 
-													return (
-														<Tool
-															key={`${message.id}-${i}`}
-															toolState={toolPart.state}
-														>
-															<ToolHeader
-																title={toolName}
-																type={toolPart.type}
-																state={toolPart.state}
-																approval={toolPart.approval}
-																mcpServerName={serverName}
-																mcpServerIcon={
-																	mcpServers.find(
-																		(server) => server.name === serverName,
-																	)?.iconUrl
-																}
-															/>
-															<ToolContent>
-																<ToolContentInner>
-																	{toolPart.input !== undefined && (
-																		<ToolInput input={toolPart.input} />
-																	)}
-																	{/* Show output, error, or optimistic rejection message */}
-																	{(toolPart.output ||
-																		toolPart.errorText ||
-																		toolPart.state === "input-available" ||
-																		toolPart.state === "input-streaming" ||
-																		(toolPart.state === "approval-responded" &&
-																			toolPart.approval?.approved ===
-																				false)) && (
-																		<ToolOutput
-																			output={
-																				toolPart.output as React.ReactNode
-																			}
-																			errorText={
+														return (
+															<Fragment key={`${message.id}-${i}`}>
+																<Tool toolState={toolPart.state}>
+																	<ToolHeader
+																		title={toolName}
+																		type={toolPart.type}
+																		state={toolPart.state}
+																		approval={toolPart.approval}
+																		mcpServerName={serverName}
+																		mcpServerIcon={
+																			mcpServers.find(
+																				(server) => server.name === serverName,
+																			)?.iconUrl
+																		}
+																	/>
+																	<ToolContent>
+																		<ToolContentInner>
+																			{toolPart.input !== undefined && (
+																				<ToolInput input={toolPart.input} />
+																			)}
+																			{/* Show output, error, or optimistic rejection message */}
+																			{(toolPart.output ||
 																				toolPart.errorText ||
-																				(toolPart.state ===
-																					"approval-responded" &&
-																				toolPart.approval?.approved === false
-																					? "Tool execution was rejected by user"
-																					: undefined)
-																			}
-																		/>
-																	)}
-																</ToolContentInner>
-																{/* Tool Approval UI */}
-																{toolPart.state === "approval-requested" && (
-																	<ToolFooter>
-																		<Button
-																			variant="default"
-																			className="cursor-pointer"
-																			onClick={() => {
-																				addToolApprovalResponse({
-																					id: toolPart.approval.id,
-																					approved: true,
-																				});
-																			}}
-																		>
-																			Approve
-																		</Button>
-																		<Button
-																			variant="ghost"
-																			className="cursor-pointer"
-																			onClick={() => {
-																				addToolApprovalResponse({
-																					id: toolPart.approval.id,
-																					approved: false,
-																				});
-																			}}
-																		>
-																			Reject
-																		</Button>
-																	</ToolFooter>
-																)}
-															</ToolContent>
-														</Tool>
-													);
-												}
-												return null;
+																				toolPart.state === "input-available" ||
+																				toolPart.state === "input-streaming" ||
+																				(toolPart.state === "approval-responded" &&
+																					toolPart.approval?.approved ===
+																						false)) && (
+																				<ToolOutput
+																					output={
+																						toolPart.output as React.ReactNode
+																					}
+																					errorText={
+																						toolPart.errorText ||
+																						(toolPart.state ===
+																							"approval-responded" &&
+																						toolPart.approval?.approved ===
+																							false
+																							? "Tool execution was rejected by user"
+																							: undefined)
+																					}
+																				/>
+																			)}
+																		</ToolContentInner>
+																		{/* Tool Approval UI */}
+																		{toolPart.state === "approval-requested" && (
+																			<ToolFooter>
+																				<Button
+																					variant="default"
+																					className="cursor-pointer"
+																					onClick={() => {
+																						addToolApprovalResponse({
+																							id: toolPart.approval.id,
+																							approved: true,
+																						});
+																					}}
+																				>
+																					Approve
+																				</Button>
+																				<Button
+																					variant="ghost"
+																					className="cursor-pointer"
+																					onClick={() => {
+																						addToolApprovalResponse({
+																							id: toolPart.approval.id,
+																							approved: false,
+																						});
+																					}}
+																				>
+																					Reject
+																				</Button>
+																			</ToolFooter>
+																		)}
+																	</ToolContent>
+																</Tool>
+																<HostToolWidget
+																	toolPart={toolPart}
+																	toolName={toolName}
+																	serverName={serverName}
+																/>
+															</Fragment>
+														);
+													}
+													return null;
 										}
 									})}
 								</Fragment>
