@@ -231,7 +231,6 @@ async def oauth_callback(
             oauth_credentials.token_endpoint_auth_method or "client_secret_post"
         )
 
-    print(client_metadata)
     provider = WebOAuthClientProvider(
         server_url=mcp_server.url,
         client_metadata=client_metadata,

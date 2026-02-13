@@ -133,7 +133,7 @@ class WebOAuthClientProvider(OAuthClientProvider):
             auth_params["scope"] = self.context.client_metadata.scope
 
         authorization_url = f"{auth_endpoint}?{urlencode(auth_params)}"
-        print(authorization_url)
+
         raise OAuthAuthorizationRequired(authorization_url)
 
     # --- HELPER FOR PHASE 2 ---
