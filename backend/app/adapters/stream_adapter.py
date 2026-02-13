@@ -293,7 +293,8 @@ class AISDKStreamAdapter:
         tool_name = event.get("name")
         raw_input = event.get("data", {}).get("input", {})
         runtime = raw_input.get("runtime")
-        tool_call_id = getattr(runtime, "tool_call_id", None) if runtime else None
+        tool_call_id = getattr(runtime, "tool_call_id",
+                               None) if runtime else None
 
         if not tool_call_id:
             tool_call_id = event.get("run_id")
@@ -354,7 +355,8 @@ class AISDKStreamAdapter:
         if not tool_call_id:
             return
 
-        output = tool_output.content if hasattr(tool_output, "content") else tool_output
+        output = tool_output.content if hasattr(
+            tool_output, "content") else tool_output
 
         # Handle list output (e.g., from some tools)
         if isinstance(output, list) and len(output) > 0:
@@ -365,7 +367,8 @@ class AISDKStreamAdapter:
             try:
                 output = json.loads(output.get("text"))
             except (json.JSONDecodeError, TypeError):
-                output = output.get("text") if isinstance(output, dict) else output
+                output = output.get("text") if isinstance(
+                    output, dict) else output
 
         # Emit tool output event
         yield self._emit_event(
@@ -389,7 +392,8 @@ class AISDKStreamAdapter:
         if node_name == "model":
             messages = chunk.get("messages", [])
             if messages:
-                last_msg = messages[-1] if isinstance(messages, list) else messages
+                last_msg = messages[-1] if isinstance(
+                    messages, list) else messages
                 tool_calls = getattr(last_msg, "tool_calls", [])
                 if tool_calls:
                     self.state.pending_tool_calls = tool_calls
@@ -416,7 +420,8 @@ class AISDKStreamAdapter:
         # Build a lookup from (name, args) to tool_call_id using stored pending_tool_calls
         tool_call_lookup: dict[tuple[str, str], str] = {}
         for tc in self.state.pending_tool_calls:
-            key = (tc.get("name"), json.dumps(tc.get("args", {}), sort_keys=True))
+            key = (tc.get("name"), json.dumps(
+                tc.get("args", {}), sort_keys=True))
             tool_call_lookup[key] = tc.get("id")
 
         # Emit tool input and approval events for each pending tool call
@@ -492,7 +497,8 @@ class AISDKStreamAdapter:
             yield self._emit_event(
                 "tool-output-error",
                 toolCallId=rejected["toolCallId"],
-                errorText=rejected.get("reason", "Tool execution was rejected by user"),
+                errorText=rejected.get(
+                    "reason", "Tool execution was rejected by user"),
             )
 
         try:
@@ -501,7 +507,7 @@ class AISDKStreamAdapter:
                     continue
 
                 event_type = value["event"]
-                    
+
                 if event_type == "error":
                     async for event in self._handle_error(value):
                         yield event
