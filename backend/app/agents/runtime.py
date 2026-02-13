@@ -20,7 +20,7 @@ from app.adapters.message_adapter import (
     extract_rejected_tool_calls,
     extract_approved_tool_call_ids,
 )
-from app.adapters.stream_adapter import AISDKStreamAdapter
+from app.adapters.stream.adapter import AISDKStreamAdapter
 from app.agents.utils import read_agent
 from app.mcp.servers.models import MCPServerDB
 from app.models.message import Message
@@ -279,7 +279,7 @@ class AgentRuntime:
                 rejected_tool_calls=rejected_tool_calls,
                 approved_tool_call_ids=approved_tool_call_ids,
             )
-            ai_sdk_stream = ai_sdk_stream_adapter.to_data_stream(
+            ai_sdk_stream = ai_sdk_stream_adapter.stream(
                 langchain_stream)
 
             async for chunk in ai_sdk_stream:
