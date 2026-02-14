@@ -16,6 +16,7 @@ from app.mcp.servers.router import router as mcp_servers_router
 from app.model_providers.router import router as model_providers_router
 from app.threads.router import router as threads_router
 from app.users.router import router as users_router
+from app.mcp.router import auxilia_mcp
 
 # Redis configuration from environment variables
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
@@ -24,11 +25,13 @@ REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
+    redis_client = redis.Redis(
+        host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
     app.state.redis = redis_client
-    yield
 
-    await redis_client.close()
+    async with auxilia_mcp.session_manager.run():
+        yield
+        await redis_client.close()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -38,7 +41,7 @@ app = FastAPI(lifespan=lifespan)
 @app.exception_handler(ExceptionGroup)
 async def oauth_exception_handler(request: Request, exc: Exception):
     """Global exception handler for OAuth authorization requirements.
-    
+
     Handles both direct OAuthAuthorizationRequired exceptions and those 
     wrapped inside ExceptionGroups (e.g., from TaskGroups).
     """
@@ -58,10 +61,11 @@ async def oauth_exception_handler(request: Request, exc: Exception):
             first_match = matching_group.exceptions[0]
             return JSONResponse(
                 status_code=401,
-                content={"error": "oauth_required", "auth_url": first_match.url},
+                content={"error": "oauth_required",
+                         "auth_url": first_match.url},
             )
 
-    # 3. If it's an ExceptionGroup that doesn't contain our error, 
+    # 3. If it's an ExceptionGroup that doesn't contain our error,
     # or an unrelated exception caught by accident, re-raise it.
     raise exc
 
@@ -88,3 +92,5 @@ app.include_router(mcp_servers_router)
 app.include_router(threads_router)
 app.include_router(users_router)
 app.include_router(model_providers_router)
+
+app.mount("/", auxilia_mcp.streamable_http_app())
