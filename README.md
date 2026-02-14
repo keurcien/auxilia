@@ -9,7 +9,7 @@ Built with langgraph and the AI SDK.
 1. **Clone the repository:**
 
 ```bash
-git clone git@github.com:keurcien/auxilia.git
+git clone https://github.com/keurcien/auxilia.git
 cd auxilia
 ```
 
@@ -33,6 +33,7 @@ Copy `.env.example` to `.env.dev` and add your LLM API keys (OpenAI, Anthropic, 
 
 3. **Start services:**
 
+Run `npm install` in web folder.
 Run `make dev` in a terminal.
 
 ## Google Sign In

@@ -1,3 +1,14 @@
+from app.integrations.langfuse.callback import langfuse_callback_handler
+from app.mcp.client.factory import MCPClientConfigFactory
+from app.agents.settings import agent_settings
+from app.database import get_psycopg_conn_string
+from app.model_providers.settings import model_provider_settings
+from app.threads.models import ThreadDB
+from app.models.message import Message
+from app.mcp.servers.models import MCPServerDB
+from app.agents.utils import read_agent
+from app.adapters.stream.adapter import AISDKStreamAdapter
+from app.adapters.stream_adapter import AISDKStreamAdapter, SlackStreamAdapter
 import asyncio
 from pydantic import BaseModel
 from dataclasses import dataclass
@@ -20,15 +31,6 @@ from app.adapters.message_adapter import (
     extract_rejected_tool_calls,
     extract_approved_tool_call_ids,
 )
-from app.adapters.stream_adapter import AISDKStreamAdapter, SlackStreamAdapter
-from app.agents.utils import read_agent
-from app.mcp.servers.models import MCPServerDB
-from app.models.message import Message
-from app.threads.models import ThreadDB
-from app.model_providers.settings import model_provider_settings
-from app.settings import app_settings
-from app.agents.settings import agent_settings
-from app.mcp.client.factory import MCPClientConfigFactory
 
 
 class ModelProvider(BaseModel):
@@ -117,6 +119,16 @@ class AgentRuntime:
         self.tools = None
         self.db = db
         self._deps = deps
+        self.callbacks = [
+            langfuse_callback_handler] if langfuse_callback_handler is not None else []
+
+    @property
+    def metadata(self) -> dict:
+        return {
+            "user_id": self.thread.user_id,
+            "thread_id": self.thread.id,
+            "agent_id": self.thread.agent_id,
+        }
 
     async def build_multi_mcp_server_configs(self, mcp_server_configs: list[dict]) -> dict:
 
@@ -206,17 +218,17 @@ class AgentRuntime:
             messages: List of messages to process
             message_id: Optional message ID from frontend (used when resuming after HITL approval)
         """
-        # AsyncPostgresSaver expects a native psycopg3 connection string (postgresql://)
-        # not the SQLAlchemy dialect URL (postgresql+psycopg://)
-        conn_string = app_settings.database_url.replace(
-            "postgresql+psycopg://", "postgresql://")
-        async with AsyncPostgresSaver.from_conn_string(conn_string) as checkpointer:
+        async with AsyncPostgresSaver.from_conn_string(get_psycopg_conn_string()) as checkpointer:
             model_provider = await self.get_model_provider(self.thread.model_id)
             chat_model = self._deps.model_factory.create(
                 model_provider.name, self.thread.model_id, model_provider.api_key)
 
             tools = self.tools[0] + self.tools[1]
             need_approval_tools = self.tools[1]
+
+            # Catch all tool errors
+            for tool in tools:
+                tool.handle_tool_error = True
 
             agent = create_agent(
                 model=chat_model,
@@ -260,7 +272,9 @@ class AgentRuntime:
                     version="v2",
                     config={
                         "configurable": {"thread_id": self.thread.id},
-                        "recursion_limit": agent_settings.recursion_limit
+                        "recursion_limit": agent_settings.recursion_limit,
+                        "callbacks": self.callbacks,
+                        "metadata": self.metadata
                     },
                 )
             else:
@@ -268,7 +282,10 @@ class AgentRuntime:
                     {"messages": langchain_messages},
                     version="v2",
                     config={
-                        "configurable": {"thread_id": self.thread.id}, "recursion_limit": agent_settings.recursion_limit
+                        "configurable": {"thread_id": self.thread.id},
+                        "recursion_limit": agent_settings.recursion_limit,
+                        "callbacks": self.callbacks,
+                        "metadata": self.metadata
                     },
                 )
 

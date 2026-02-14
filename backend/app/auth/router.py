@@ -162,11 +162,11 @@ async def google_login(request: Request):
             detail="Google OAuth is not configured",
         )
 
-    redirect_uri = auth_settings.GOOGLE_REDIRECT_URI
+    redirect_uri = f"{auth_settings.FRONTEND_URL}/api/backend/auth/google/callback"
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 
-@router.get("/google/callback")
+@router.get("/google/callback", name="google_callback")
 async def google_callback(
     request: Request,
     db: AsyncSession = Depends(get_db),

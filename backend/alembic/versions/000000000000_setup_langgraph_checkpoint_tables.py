@@ -24,22 +24,16 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Set up LangGraph checkpoint tables using the library's setup method."""
-    import os
     from langgraph.checkpoint.postgres import PostgresSaver
 
-    # Get database URL from environment (more reliable than extracting from connection)
-    # Fall back to alembic config if not set
-    db_url = os.environ.get("DATABASE_URL")
-    if not db_url:
-        from alembic import context
-        db_url = context.config.get_main_option("sqlalchemy.url")
+    # Get the database URL from Alembic's connection binding.
+    # Using SQLAlchemy's URL object ensures special characters (e.g. @ in
+    # usernames for IAM auth) are properly percent-encoded, which avoids
+    # host-resolution errors from psycopg's connection string parser.
+    bind = op.get_bind()
+    url = bind.engine.url.set(drivername="postgresql")
+    db_url = url.render_as_string(hide_password=False)
 
-    # Convert SQLAlchemy URL to psycopg format
-    # postgresql+psycopg://user:pass@host:port/db -> postgresql://user:pass@host:port/db
-    if db_url and "+psycopg" in db_url:
-        db_url = db_url.replace("+psycopg", "")
-
-    # PostgresSaver.from_conn_string handles connection setup properly
     with PostgresSaver.from_conn_string(db_url) as checkpointer:
         checkpointer.setup()
 
