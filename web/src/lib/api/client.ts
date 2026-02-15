@@ -24,7 +24,7 @@ export const api = axios.create({
 });
 
 // Fields that should not have their nested keys transformed to snake_case
-const PRESERVE_KEYS_FIELDS = ["tools"];
+const PRESERVE_KEYS_FIELDS = ["tools", "arguments"];
 
 // Recursively transform keys to snake_case while preserving specified fields
 function snakecaseKeysWithExclusions(
