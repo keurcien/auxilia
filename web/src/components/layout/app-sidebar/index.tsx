@@ -94,8 +94,20 @@ export function AppSidebar() {
 				<SidebarHeader>
 					<div className="flex items-center gap-1 px-2 py-2">
 						<div className="flex size-8 items-center justify-center rounded-lg text-primary-foreground">
-							<Image src="/logo.svg" alt="auxilia" height={24} width={24} className="dark:hidden" />
-							<Image src="/logo-dark.svg" alt="auxilia" height={24} width={24} className="hidden dark:block" />
+							<Image
+								src="/logo.svg"
+								alt="auxilia"
+								height={24}
+								width={24}
+								className="dark:hidden"
+							/>
+							<Image
+								src="/logo-dark.svg"
+								alt="auxilia"
+								height={24}
+								width={24}
+								className="hidden dark:block"
+							/>
 						</div>
 						<div className="flex flex-col">
 							<span className="text-base font-semibold">auxilia</span>
