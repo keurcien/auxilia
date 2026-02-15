@@ -29,7 +29,7 @@ Open http://localhost:3000 in your browser.
 
 2. **Configure Environment:**
 
-Copy `.env.example` to `.env.dev` and add your LLM API keys (OpenAI, Anthropic, etc.).
+Copy `.env.example` to `.env` and add your LLM API keys (OpenAI, Anthropic, etc.).
 
 3. **Start services:**
 
