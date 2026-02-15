@@ -35,6 +35,46 @@ class SlackEventPayload(BaseModel):
     event: SlackEvent | None = None
 
 
+class SlackAction(BaseModel):
+    """A single action from a block_actions interaction payload."""
+    action_id: str
+    value: str | None = None
+
+
+class SlackInteractionChannel(BaseModel):
+    id: str
+
+
+class SlackInteractionUser(BaseModel):
+    id: str
+
+
+class SlackInteractionContainer(BaseModel):
+    thread_ts: str | None = None
+    channel_id: str | None = None
+    message_ts: str | None = None
+
+
+class SlackInteractionMessage(BaseModel):
+    """The original message that contained the interactive component."""
+    blocks: list[dict] = []
+    thread_ts: str | None = None
+    ts: str | None = None
+
+
+class SlackInteractionPayload(BaseModel):
+    """Payload Slack sends for interactive components and message shortcuts."""
+    type: str
+    user: SlackInteractionUser
+    channel: SlackInteractionChannel | None = None
+    actions: list[SlackAction] = []
+    container: SlackInteractionContainer | None = None
+    message: SlackInteractionMessage | None = None
+    message_ts: str | None = None
+    callback_id: str | None = None
+    team: dict | None = None
+
+
 class SlackUserProfile(BaseModel):
     email: str
 

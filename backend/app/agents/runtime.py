@@ -1,14 +1,3 @@
-from app.integrations.langfuse.callback import langfuse_callback_handler
-from app.mcp.client.factory import MCPClientConfigFactory
-from app.agents.settings import agent_settings
-from app.database import get_psycopg_conn_string
-from app.model_providers.settings import model_provider_settings
-from app.threads.models import ThreadDB
-from app.models.message import Message
-from app.mcp.servers.models import MCPServerDB
-from app.agents.utils import read_agent
-from app.adapters.stream.adapter import AISDKStreamAdapter
-from app.adapters.stream_adapter import AISDKStreamAdapter, SlackStreamAdapter
 import asyncio
 from pydantic import BaseModel
 from dataclasses import dataclass
@@ -25,6 +14,18 @@ from langchain_core.messages import SystemMessage
 from langchain.agents.middleware import HumanInTheLoopMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
+from app.integrations.langfuse.callback import langfuse_callback_handler
+from app.mcp.client.factory import MCPClientConfigFactory
+from app.agents.settings import agent_settings
+from app.database import get_psycopg_conn_string
+from app.model_providers.settings import model_provider_settings
+from app.threads.models import ThreadDB
+from app.models.message import Message
+from app.mcp.servers.models import MCPServerDB
+from app.agents.utils import read_agent
+from app.adapters.stream.adapter import AISDKStreamAdapter, SlackStreamAdapter
+from app.mcp.servers.router import get_mcp_server_api_key
+from app.mcp.client.storage import TokenStorageFactory
 from app.adapters.message_adapter import (
     to_langchain_message,
     extract_commands,
@@ -111,6 +112,20 @@ class ChatModelFactory:
 class AgentRuntimeDependencies:
     model_factory: ChatModelFactory
     mcp_client_config_factory: MCPClientConfigFactory
+
+
+def build_agent_deps(thread: ThreadDB, db: AsyncSession) -> AgentRuntimeDependencies:
+    """Create the standard agent runtime dependencies."""
+
+    return AgentRuntimeDependencies(
+        model_factory=ChatModelFactory(),
+        mcp_client_config_factory=MCPClientConfigFactory(
+            resolve_api_key=lambda mcp_server_config: get_mcp_server_api_key(
+                mcp_server_config.id, db),
+            resolve_storage=lambda mcp_server_config: TokenStorageFactory(
+            ).get_storage(thread.user_id, mcp_server_config.id),
+        ),
+    )
 
 
 class AgentRuntime:
@@ -211,12 +226,21 @@ class AgentRuntime:
 
         self.tools = await self.get_tools(mcp_server_configs, tool_settings)
 
-    async def stream(self, messages: list[Message], message_id: str | None = None, stream_adapter: str = "ai_sdk"):
+    async def stream(
+        self,
+        messages: list[Message],
+        message_id: str | None = None,
+        stream_adapter: str = "ai_sdk",
+        commands: list[str] | None = None,
+    ):
         """Wrapper to keep checkpointer alive during streaming.
 
         Args:
             messages: List of messages to process
             message_id: Optional message ID from frontend (used when resuming after HITL approval)
+            stream_adapter: Which stream adapter to use ("ai_sdk" or "slack")
+            commands: Optional list of explicit commands ("approve"/"reject") for direct resume
+                      (bypasses message-based command extraction)
         """
         async with AsyncPostgresSaver.from_conn_string(get_psycopg_conn_string()) as checkpointer:
             model_provider = await self.get_model_provider(self.thread.model_id)
@@ -244,31 +268,39 @@ class AgentRuntime:
                     )
                 ],
             )
-            langchain_messages = [to_langchain_message(
-                message) for message in messages]
-            commands = sum([extract_commands(message)
-                           for message in messages if extract_commands(message)], [])
 
-            # Extract rejected tool calls to emit error events in the stream
-            rejected_tool_calls = sum(
-                [extract_rejected_tool_calls(message) for message in messages],
-                []
-            )
+            # Use explicit commands if provided, otherwise extract from messages
+            if commands is not None:
+                extracted_commands = commands
+                rejected_tool_calls = []
+                approved_tool_call_ids = []
+            else:
+                langchain_messages = [to_langchain_message(
+                    message) for message in messages]
+                extracted_commands = sum([extract_commands(message)
+                                          for message in messages if extract_commands(message)], [])
 
-            # Extract approved tool call IDs to skip their input events (already shown in UI)
-            approved_tool_call_ids = sum(
-                [extract_approved_tool_call_ids(message)
-                 for message in messages],
-                []
-            )
+                # Extract rejected tool calls to emit error events in the stream
+                rejected_tool_calls = sum(
+                    [extract_rejected_tool_calls(message)
+                     for message in messages],
+                    []
+                )
 
-            is_resume = len(commands) > 0
+                # Extract approved tool call IDs to skip their input events (already shown in UI)
+                approved_tool_call_ids = sum(
+                    [extract_approved_tool_call_ids(message)
+                     for message in messages],
+                    []
+                )
+
+            is_resume = len(extracted_commands) > 0
             resume_message_id = message_id if is_resume else None
 
             if is_resume:
                 langchain_stream = agent.astream_events(
                     Command(
-                        resume={"decisions": [{"type": command} for command in commands]}),
+                        resume={"decisions": [{"type": command} for command in extracted_commands]}),
                     version="v2",
                     config={
                         "configurable": {"thread_id": self.thread.id},
@@ -296,11 +328,11 @@ class AgentRuntime:
                     rejected_tool_calls=rejected_tool_calls,
                     approved_tool_call_ids=approved_tool_call_ids,
                 )
-                stream = ai_sdk_stream_adapter.to_data_stream(
+                stream = ai_sdk_stream_adapter.stream(
                     langchain_stream)
             elif stream_adapter == "slack":
                 slack_stream_adapter = SlackStreamAdapter()
-                stream = slack_stream_adapter.to_data_stream(
+                stream = slack_stream_adapter.stream(
                     langchain_stream)
 
             async for chunk in stream:
