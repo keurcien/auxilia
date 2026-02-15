@@ -11,6 +11,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.agents.router import router as agents_router
 from app.auth.router import router as auth_router
 from app.auth.settings import auth_settings
+from app.mcp.apps.router import router as mcp_apps_router
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
 from app.mcp.servers.router import router as mcp_servers_router
 from app.model_providers.router import router as model_providers_router
@@ -36,10 +37,10 @@ app = FastAPI(lifespan=lifespan)
 
 @app.exception_handler(OAuthAuthorizationRequired)
 @app.exception_handler(ExceptionGroup)
-async def oauth_exception_handler(request: Request, exc: Exception):
+async def oauth_exception_handler(_request: Request, exc: Exception):
     """Global exception handler for OAuth authorization requirements.
-    
-    Handles both direct OAuthAuthorizationRequired exceptions and those 
+
+    Handles both direct OAuthAuthorizationRequired exceptions and those
     wrapped inside ExceptionGroups (e.g., from TaskGroups).
     """
 
@@ -61,7 +62,7 @@ async def oauth_exception_handler(request: Request, exc: Exception):
                 content={"error": "oauth_required", "auth_url": first_match.url},
             )
 
-    # 3. If it's an ExceptionGroup that doesn't contain our error, 
+    # 3. If it's an ExceptionGroup that doesn't contain our error,
     # or an unrelated exception caught by accident, re-raise it.
     raise exc
 
@@ -84,6 +85,7 @@ app.add_middleware(
 
 app.include_router(agents_router)
 app.include_router(auth_router)
+app.include_router(mcp_apps_router)
 app.include_router(mcp_servers_router)
 app.include_router(threads_router)
 app.include_router(users_router)
