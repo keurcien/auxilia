@@ -5,12 +5,12 @@ import { useParams, useRouter } from "next/navigation";
 import { v4 as uuidv4 } from "uuid";
 import { type PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import ChatPromptInput from "./components/prompt-input";
+import { SelectAgentDialog } from "./components/select-agent-dialog";
 import { useThreadsStore } from "@/stores/threads-store";
 import { usePendingMessageStore } from "@/stores/pending-message-store";
 import { useModelsStore } from "@/stores/models-store";
 import { api } from "@/lib/api/client";
 import { Agent } from "@/types/agents";
-import { NewThreadDialog } from "@/components/layout/app-sidebar/new-thread-dialog";
 import { getDefaultModel } from "@/lib/utils/get-default-model";
 import { useAgentReadiness } from "@/hooks/use-agent-readiness";
 
@@ -160,7 +160,7 @@ const StarterChatPage = () => {
 					)}
 				</div>
 
-				<NewThreadDialog
+				<SelectAgentDialog
 					open={isAgentDialogOpen}
 					onOpenChange={setIsAgentDialogOpen}
 				/>

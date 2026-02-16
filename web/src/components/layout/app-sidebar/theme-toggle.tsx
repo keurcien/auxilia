@@ -13,7 +13,11 @@ export function ThemeToggle() {
 			onClick={() => setTheme(isDark ? "light" : "dark")}
 			className="cursor-pointer"
 		>
-			{isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+			{isDark ? (
+				<Sun className="mr-2 h-4 w-4" />
+			) : (
+				<Moon className="mr-2 h-4 w-4" />
+			)}
 			<span>{isDark ? "Light mode" : "Dark mode"}</span>
 		</DropdownMenuItem>
 	);

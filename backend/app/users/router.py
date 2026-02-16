@@ -56,10 +56,10 @@ async def get_user(user_id: UUID, db: AsyncSession = Depends(get_db)) -> UserRea
 
 
 @router.get("/email/{email}", response_model=UserRead)
-async def get_user_by_email(email: str, db: AsyncSession = Depends(get_db)) -> UserRead:
+async def get_user_by_email_route(email: str, db: AsyncSession = Depends(get_db)) -> UserRead:
     """Get a user by email."""
-    result = await db.execute(select(UserDB).where(UserDB.email == email))
-    user = result.scalar_one_or_none()
+    from app.users.service import get_user_by_email
+    user = await get_user_by_email(email, db)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user

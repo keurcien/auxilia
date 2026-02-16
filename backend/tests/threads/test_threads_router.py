@@ -18,7 +18,7 @@ def test_create_thread(client: TestClient, mock_db, current_user):
 
     # Mock refresh to populate the created thread with generated fields
     async def mock_refresh(obj):
-        obj.id = uuid4()
+        obj.id = str(uuid4())
         obj.created_at = datetime.now()
         obj.updated_at = datetime.now()
 
@@ -47,7 +47,7 @@ def test_create_thread_without_first_message(client: TestClient, mock_db, curren
 
     # Mock refresh to populate the created thread with generated fields
     async def mock_refresh(obj):
-        obj.id = uuid4()
+        obj.id = str(uuid4())
         obj.created_at = datetime.now()
         obj.updated_at = datetime.now()
 
@@ -67,7 +67,7 @@ def test_get_threads(client: TestClient, mock_db, current_user):
     user_id = current_user.id
     agent_id = uuid4()
     thread1 = ThreadDB(
-        id=uuid4(),
+        id=str(uuid4()),
         user_id=user_id,
         agent_id=agent_id,
         first_message_content="First thread",
@@ -75,7 +75,7 @@ def test_get_threads(client: TestClient, mock_db, current_user):
         updated_at=datetime.now(),
     )
     thread2 = ThreadDB(
-        id=uuid4(),
+        id=str(uuid4()),
         user_id=user_id,
         agent_id=agent_id,
         first_message_content="Second thread",
@@ -99,7 +99,7 @@ def test_get_threads(client: TestClient, mock_db, current_user):
 @patch("app.threads.router.AsyncPostgresSaver.from_conn_string")
 def test_get_thread(mock_checkpointer, client: TestClient, mock_db):
     """Test getting a single thread by ID."""
-    thread_id = uuid4()
+    thread_id = str(uuid4())
     user_id = uuid4()
     agent_id = uuid4()
     thread = ThreadDB(
@@ -128,7 +128,7 @@ def test_get_thread(mock_checkpointer, client: TestClient, mock_db):
     data = response.json()
     assert "thread" in data
     assert "messages" in data
-    assert data["thread"]["id"] == str(thread_id)
+    assert data["thread"]["id"] == thread_id
     assert data["messages"] == []
 
 
@@ -148,7 +148,7 @@ def test_get_thread_not_found(client: TestClient, mock_db):
 @patch("app.threads.router.AsyncPostgresSaver.from_conn_string")
 def test_delete_thread(mock_checkpointer, client: TestClient, mock_db):
     """Test deleting a thread."""
-    thread_id = uuid4()
+    thread_id = str(uuid4())
     user_id = uuid4()
     agent_id = uuid4()
     thread = ThreadDB(

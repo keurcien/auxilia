@@ -162,7 +162,7 @@ async def google_login(request: Request):
             detail="Google OAuth is not configured",
         )
 
-    redirect_uri = request.url_for("google_callback")
+    redirect_uri = f"{auth_settings.FRONTEND_URL}/api/backend/auth/google/callback"
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 

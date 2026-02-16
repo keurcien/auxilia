@@ -24,10 +24,22 @@ async def get_db() -> AsyncSession:
         yield session
 
 
+def get_psycopg_conn_string(sqlalchemy_url=None) -> str:
+    """Convert a SQLAlchemy database URL to a psycopg-compatible connection string.
+
+    Uses SQLAlchemy's URL object to ensure special characters (e.g. @ in IAM
+    usernames) are properly percent-encoded, avoiding host-resolution errors.
+
+    Args:
+        sqlalchemy_url: Optional SQLAlchemy URL object or string. Defaults to
+            the engine's URL if not provided.
+    """
+    url = engine.url.set(drivername="postgresql")
+    return url.render_as_string(hide_password=False)
+
+
 @asynccontextmanager
 async def get_checkpointer():
-    # AsyncPostgresSaver expects a native psycopg3 connection string (postgresql://)
-    # not the SQLAlchemy dialect URL (postgresql+psycopg://)
-    conn_string = app_settings.database_url.replace("postgresql+psycopg://", "postgresql://")
+    conn_string = get_psycopg_conn_string()
     async with AsyncPostgresSaver.from_conn_string(conn_string) as checkpointer:
         yield checkpointer

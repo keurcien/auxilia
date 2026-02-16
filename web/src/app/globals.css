@@ -3,10 +3,6 @@
 
 @source "../node_modules/streamdown/dist/*.js";
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -175,7 +171,7 @@
 		opacity: 0.82;
 	}
 	50% {
-		transform: scale(1.20);
+		transform: scale(1.2);
 		opacity: 1;
 	}
 }

@@ -1,4 +1,3 @@
-import uuid
 from sqlmodel import select
 from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -6,22 +5,13 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.adapters.message_adapter import deserialize_to_ui_messages
 from app.agents.models import AgentDB
-from app.agents.runtime import AgentRuntime
-from app.mcp.client.factory import MCPClientConfigFactory
-from app.database import get_db
+from app.agents.runtime import AgentRuntime, build_agent_deps
+from app.database import get_db, get_psycopg_conn_string
 from app.models.message import Message
 from app.users.models import UserDB
 from app.auth.dependencies import get_current_user
 from app.threads.models import ThreadCreate, ThreadDB, ThreadRead
-from app.agents.runtime import AgentRuntimeDependencies, ChatModelFactory
-from app.settings import app_settings
-from app.mcp.servers.router import get_mcp_server_api_key
-from app.mcp.client.storage import TokenStorageFactory
-
-
-def get_psycopg_conn_string() -> str:
-    """Convert SQLAlchemy URL to psycopg3-compatible connection string."""
-    return app_settings.database_url.replace("postgresql+psycopg://", "postgresql://")
+from app.threads.service import get_thread
 
 
 router = APIRouter(prefix="/threads", tags=["threads"])
@@ -30,7 +20,7 @@ router = APIRouter(prefix="/threads", tags=["threads"])
 @router.get("/{thread_id}")
 async def read_thread(thread_id: str, db: AsyncSession = Depends(get_db)) -> dict:
     result = await db.execute(
-        select(ThreadDB).where(ThreadDB.id == uuid.UUID(thread_id))
+        select(ThreadDB).where(ThreadDB.id == thread_id)
     )
     thread = result.scalar_one_or_none()
 
@@ -89,23 +79,13 @@ async def delete_thread(thread_id: str, db: AsyncSession = Depends(get_db)) -> N
         await checkpointer.adelete_thread(thread_id=thread_id)
 
     result = await db.execute(
-        select(ThreadDB).where(ThreadDB.id == uuid.UUID(thread_id))
+        select(ThreadDB).where(ThreadDB.id == thread_id)
     )
     thread = result.scalar_one_or_none()
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
     await db.delete(thread)
     await db.commit()
-
-
-async def get_thread(thread_id: str, db: AsyncSession = Depends(get_db)) -> ThreadDB:
-    result = await db.execute(
-        select(ThreadDB).where(ThreadDB.id == uuid.UUID(thread_id))
-    )
-    thread = result.scalar_one_or_none()
-    if not thread:
-        raise HTTPException(status_code=404, detail="Thread not found")
-    return thread
 
 
 @router.post("/{thread_id}/invoke")
@@ -115,15 +95,7 @@ async def invoke(
     messageId: str | None = Body(None, embed=True),
     db=Depends(get_db)
 ):
-    deps = AgentRuntimeDependencies(
-        model_factory=ChatModelFactory(),
-        mcp_client_config_factory=MCPClientConfigFactory(
-            resolve_api_key=lambda mcp_server_config: get_mcp_server_api_key(
-                mcp_server_config.id, db),
-            resolve_storage=lambda mcp_server_config: TokenStorageFactory(
-            ).get_storage(thread.user_id, mcp_server_config.id),
-        )
-    )
+    deps = build_agent_deps(thread, db)
     agent_runtime = await AgentRuntime.create(thread=thread, db=db, deps=deps)
 
     return StreamingResponse(

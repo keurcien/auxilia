@@ -14,21 +14,24 @@ from langchain_core.messages import SystemMessage
 from langchain.agents.middleware import HumanInTheLoopMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
+from app.integrations.langfuse.callback import langfuse_callback_handler
+from app.mcp.client.factory import MCPClientConfigFactory
+from app.agents.settings import agent_settings
+from app.database import get_psycopg_conn_string
+from app.model_providers.settings import model_provider_settings
+from app.threads.models import ThreadDB
+from app.models.message import Message
+from app.mcp.servers.models import MCPServerDB
+from app.agents.utils import read_agent
+from app.adapters.stream.adapter import AISDKStreamAdapter, SlackStreamAdapter
+from app.mcp.servers.router import get_mcp_server_api_key
+from app.mcp.client.storage import TokenStorageFactory
 from app.adapters.message_adapter import (
     to_langchain_message,
     extract_commands,
     extract_rejected_tool_calls,
     extract_approved_tool_call_ids,
 )
-from app.adapters.stream_adapter import AISDKStreamAdapter
-from app.agents.utils import read_agent
-from app.mcp.servers.models import MCPServerDB
-from app.models.message import Message
-from app.threads.models import ThreadDB
-from app.model_providers.settings import model_provider_settings
-from app.settings import app_settings
-from app.agents.settings import agent_settings
-from app.mcp.client.factory import MCPClientConfigFactory
 
 
 class ModelProvider(BaseModel):
@@ -111,12 +114,36 @@ class AgentRuntimeDependencies:
     mcp_client_config_factory: MCPClientConfigFactory
 
 
+def build_agent_deps(thread: ThreadDB, db: AsyncSession) -> AgentRuntimeDependencies:
+    """Create the standard agent runtime dependencies."""
+
+    return AgentRuntimeDependencies(
+        model_factory=ChatModelFactory(),
+        mcp_client_config_factory=MCPClientConfigFactory(
+            resolve_api_key=lambda mcp_server_config: get_mcp_server_api_key(
+                mcp_server_config.id, db),
+            resolve_storage=lambda mcp_server_config: TokenStorageFactory(
+            ).get_storage(thread.user_id, mcp_server_config.id),
+        ),
+    )
+
+
 class AgentRuntime:
     def __init__(self, thread: ThreadDB, db: AsyncSession, deps: AgentRuntimeDependencies):
         self.thread = thread
         self.tools = None
         self.db = db
         self._deps = deps
+        self.callbacks = [
+            langfuse_callback_handler] if langfuse_callback_handler is not None else []
+
+    @property
+    def metadata(self) -> dict:
+        return {
+            "user_id": self.thread.user_id,
+            "thread_id": self.thread.id,
+            "agent_id": self.thread.agent_id,
+        }
 
     async def build_multi_mcp_server_configs(self, mcp_server_configs: list[dict]) -> dict:
 
@@ -199,24 +226,33 @@ class AgentRuntime:
 
         self.tools = await self.get_tools(mcp_server_configs, tool_settings)
 
-    async def stream(self, messages: list[Message], message_id: str | None = None):
+    async def stream(
+        self,
+        messages: list[Message],
+        message_id: str | None = None,
+        stream_adapter: str = "ai_sdk",
+        commands: list[str] | None = None,
+    ):
         """Wrapper to keep checkpointer alive during streaming.
 
         Args:
             messages: List of messages to process
             message_id: Optional message ID from frontend (used when resuming after HITL approval)
+            stream_adapter: Which stream adapter to use ("ai_sdk" or "slack")
+            commands: Optional list of explicit commands ("approve"/"reject") for direct resume
+                      (bypasses message-based command extraction)
         """
-        # AsyncPostgresSaver expects a native psycopg3 connection string (postgresql://)
-        # not the SQLAlchemy dialect URL (postgresql+psycopg://)
-        conn_string = app_settings.database_url.replace(
-            "postgresql+psycopg://", "postgresql://")
-        async with AsyncPostgresSaver.from_conn_string(conn_string) as checkpointer:
+        async with AsyncPostgresSaver.from_conn_string(get_psycopg_conn_string()) as checkpointer:
             model_provider = await self.get_model_provider(self.thread.model_id)
             chat_model = self._deps.model_factory.create(
                 model_provider.name, self.thread.model_id, model_provider.api_key)
 
             tools = self.tools[0] + self.tools[1]
             need_approval_tools = self.tools[1]
+
+            # Catch all tool errors
+            for tool in tools:
+                tool.handle_tool_error = True
 
             agent = create_agent(
                 model=chat_model,
@@ -232,35 +268,45 @@ class AgentRuntime:
                     )
                 ],
             )
-            langchain_messages = [to_langchain_message(
-                message) for message in messages]
-            commands = sum([extract_commands(message)
-                           for message in messages if extract_commands(message)], [])
 
-            # Extract rejected tool calls to emit error events in the stream
-            rejected_tool_calls = sum(
-                [extract_rejected_tool_calls(message) for message in messages],
-                []
-            )
+            # Use explicit commands if provided, otherwise extract from messages
+            if commands is not None:
+                extracted_commands = commands
+                rejected_tool_calls = []
+                approved_tool_call_ids = []
+            else:
+                langchain_messages = [to_langchain_message(
+                    message) for message in messages]
+                extracted_commands = sum([extract_commands(message)
+                                          for message in messages if extract_commands(message)], [])
 
-            # Extract approved tool call IDs to skip their input events (already shown in UI)
-            approved_tool_call_ids = sum(
-                [extract_approved_tool_call_ids(message)
-                 for message in messages],
-                []
-            )
+                # Extract rejected tool calls to emit error events in the stream
+                rejected_tool_calls = sum(
+                    [extract_rejected_tool_calls(message)
+                     for message in messages],
+                    []
+                )
 
-            is_resume = len(commands) > 0
+                # Extract approved tool call IDs to skip their input events (already shown in UI)
+                approved_tool_call_ids = sum(
+                    [extract_approved_tool_call_ids(message)
+                     for message in messages],
+                    []
+                )
+
+            is_resume = len(extracted_commands) > 0
             resume_message_id = message_id if is_resume else None
 
             if is_resume:
                 langchain_stream = agent.astream_events(
                     Command(
-                        resume={"decisions": [{"type": command} for command in commands]}),
+                        resume={"decisions": [{"type": command} for command in extracted_commands]}),
                     version="v2",
                     config={
                         "configurable": {"thread_id": self.thread.id},
-                        "recursion_limit": agent_settings.recursion_limit
+                        "recursion_limit": agent_settings.recursion_limit,
+                        "callbacks": self.callbacks,
+                        "metadata": self.metadata
                     },
                 )
             else:
@@ -268,18 +314,26 @@ class AgentRuntime:
                     {"messages": langchain_messages},
                     version="v2",
                     config={
-                        "configurable": {"thread_id": self.thread.id}, "recursion_limit": agent_settings.recursion_limit
+                        "configurable": {"thread_id": self.thread.id},
+                        "recursion_limit": agent_settings.recursion_limit,
+                        "callbacks": self.callbacks,
+                        "metadata": self.metadata
                     },
                 )
 
-            ai_sdk_stream_adapter = AISDKStreamAdapter(
-                message_id=resume_message_id,
-                is_resume=is_resume,
-                rejected_tool_calls=rejected_tool_calls,
-                approved_tool_call_ids=approved_tool_call_ids,
-            )
-            ai_sdk_stream = ai_sdk_stream_adapter.to_data_stream(
-                langchain_stream)
+            if stream_adapter == "ai_sdk":
+                ai_sdk_stream_adapter = AISDKStreamAdapter(
+                    message_id=resume_message_id,
+                    is_resume=is_resume,
+                    rejected_tool_calls=rejected_tool_calls,
+                    approved_tool_call_ids=approved_tool_call_ids,
+                )
+                stream = ai_sdk_stream_adapter.stream(
+                    langchain_stream)
+            elif stream_adapter == "slack":
+                slack_stream_adapter = SlackStreamAdapter()
+                stream = slack_stream_adapter.stream(
+                    langchain_stream)
 
-            async for chunk in ai_sdk_stream:
+            async for chunk in stream:
                 yield chunk

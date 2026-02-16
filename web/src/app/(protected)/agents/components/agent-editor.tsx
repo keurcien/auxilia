@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
 import { useTheme } from "next-themes";
-import { MoreVertical, Trash2 } from "lucide-react";
+import { MoreVertical, Trash2, ShieldCheck } from "lucide-react";
 import { Agent } from "@/types/agents";
 import AgentMCPServerList from "../[id]/components/agent-mcp-server-list";
 import { api } from "@/lib/api/client";
@@ -84,6 +84,10 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 		[agent.id, updateAgent],
 	);
 
+	const handleManagePermissions = async () => {
+		console.log("Managing permissions");
+	};
+
 	const handleDeleteAgent = async () => {
 		if (
 			!confirm(
@@ -148,7 +152,10 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 					</div>
 					{showEmojiPicker && (
 						<div ref={emojiPickerRef} className="absolute top-full mt-2 z-50">
-							<EmojiPicker onEmojiClick={handleEmojiClick} theme={resolvedTheme === "dark" ? Theme.DARK : Theme.LIGHT} />
+							<EmojiPicker
+								onEmojiClick={handleEmojiClick}
+								theme={resolvedTheme === "dark" ? Theme.DARK : Theme.LIGHT}
+							/>
 						</div>
 					)}
 				</div>
@@ -182,7 +189,9 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 					/>
 					<span
 						className={`text-sm font-medium leading-none ${
-							saveStatus === "saving" ? "text-amber-700 dark:text-amber-400" : "text-emerald-700 dark:text-emerald-400"
+							saveStatus === "saving"
+								? "text-amber-700 dark:text-amber-400"
+								: "text-emerald-700 dark:text-emerald-400"
 						}`}
 					>
 						{saveStatus === "saving" ? "Saving" : "Saved"}
@@ -197,6 +206,13 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 						</Button>
 					</DropdownMenuTrigger>
 					<DropdownMenuContent side="bottom" align="end">
+						<DropdownMenuItem
+							className="text-primary focus:text-primary cursor-pointer"
+							onClick={handleManagePermissions}
+						>
+							<ShieldCheck className="size-4 mr-2" />
+							<span>Manage permissions</span>
+						</DropdownMenuItem>
 						<DropdownMenuItem
 							className="text-destructive focus:text-destructive cursor-pointer"
 							onClick={handleDeleteAgent}

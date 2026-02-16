@@ -12,12 +12,15 @@ import { Input } from "@/components/ui/input";
 import type { Agent } from "@/types/agents";
 import { api } from "@/lib/api/client";
 
-interface NewThreadDialogProps {
+interface SelectAgentDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 }
 
-export function NewThreadDialog({ open, onOpenChange }: NewThreadDialogProps) {
+export function SelectAgentDialog({
+	open,
+	onOpenChange,
+}: SelectAgentDialogProps) {
 	const router = useRouter();
 	const [searchQuery, setSearchQuery] = useState("");
 	const [agents, setAgents] = useState<Agent[]>([]);
@@ -42,7 +45,7 @@ export function NewThreadDialog({ open, onOpenChange }: NewThreadDialogProps) {
 	};
 
 	const filteredAgents = agents.filter((agent) =>
-		agent.name.toLowerCase().includes(searchQuery.toLowerCase())
+		agent.name.toLowerCase().includes(searchQuery.toLowerCase()),
 	);
 
 	return (

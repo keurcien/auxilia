@@ -1,8 +1,7 @@
 from datetime import datetime
 from uuid import UUID, uuid4
-
 from sqlalchemy.sql import func
-from sqlmodel import Column, DateTime, Field, SQLModel, Text
+from sqlmodel import Column, DateTime, Field, SQLModel, String, Text
 
 
 class ThreadBase(SQLModel):
@@ -17,7 +16,10 @@ class ThreadBase(SQLModel):
 class ThreadDB(ThreadBase, table=True):
     __tablename__ = "threads"
 
-    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    id: str = Field(
+        default_factory=lambda: str(uuid4()),
+        sa_column=Column(String, primary_key=True),
+    )
     created_at: datetime = Field(
         default=None,
         sa_column=Column(
@@ -36,7 +38,7 @@ class ThreadDB(ThreadBase, table=True):
 
 
 class ThreadCreate(SQLModel):
-    id: UUID | None = None
+    id: str | None = None
     agent_id: UUID
     model_id: str | None = None
     first_message_content: str | None = None
@@ -48,7 +50,7 @@ class ThreadUpdate(SQLModel):
 
 
 class ThreadRead(ThreadBase):
-    id: UUID
+    id: str
     created_at: datetime
     updated_at: datetime
     agent_name: str | None = None
