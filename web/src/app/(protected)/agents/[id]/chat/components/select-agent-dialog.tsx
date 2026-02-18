@@ -34,7 +34,6 @@ export function SelectAgentDialog({
 					setAgents(
 						data.filter((agent: Agent) => agent.currentUserPermission !== null),
 					);
-					console.log(data);
 				});
 			setTimeout(() => {
 				setSearchQuery("");
