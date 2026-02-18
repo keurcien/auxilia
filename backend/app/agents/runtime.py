@@ -145,6 +145,15 @@ class AgentRuntime:
             "agent_id": self.thread.agent_id,
         }
 
+    @property
+    def stream_config(self) -> dict:
+        return {
+            "configurable": {"thread_id": self.thread.id},
+            "recursion_limit": agent_settings.recursion_limit,
+            "callbacks": self.callbacks,
+            "metadata": self.metadata
+        }
+
     async def build_multi_mcp_server_configs(self, mcp_server_configs: list[dict]) -> dict:
 
         return {
@@ -297,29 +306,14 @@ class AgentRuntime:
             is_resume = len(extracted_commands) > 0
             resume_message_id = message_id if is_resume else None
 
-            if is_resume:
-                langchain_stream = agent.astream_events(
-                    Command(
-                        resume={"decisions": [{"type": command} for command in extracted_commands]}),
-                    version="v2",
-                    config={
-                        "configurable": {"thread_id": self.thread.id},
-                        "recursion_limit": agent_settings.recursion_limit,
-                        "callbacks": self.callbacks,
-                        "metadata": self.metadata
-                    },
-                )
-            else:
-                langchain_stream = agent.astream_events(
-                    {"messages": langchain_messages},
-                    version="v2",
-                    config={
-                        "configurable": {"thread_id": self.thread.id},
-                        "recursion_limit": agent_settings.recursion_limit,
-                        "callbacks": self.callbacks,
-                        "metadata": self.metadata
-                    },
-                )
+            stream_input = Command(
+                resume={"decisions": [{"type": command} for command in extracted_commands]}) if is_resume else {"messages": langchain_messages}
+
+            langchain_stream = agent.astream_events(
+                stream_input,
+                version="v2",
+                config=self.stream_config
+            )
 
             if stream_adapter == "ai_sdk":
                 ai_sdk_stream_adapter = AISDKStreamAdapter(

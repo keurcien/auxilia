@@ -1,3 +1,4 @@
+from sqlmodel import SQLModel
 import os
 from logging.config import fileConfig
 
@@ -23,11 +24,10 @@ if database_url:
 
 # add your model's MetaData object here
 # for 'autogenerate' support
-from sqlmodel import SQLModel
 # Import all models here for Alembic to detect them
 from app.mcp.servers.models import MCPServerDB  # noqa: F401
 from app.users.models import UserDB  # noqa: F401
-from app.agents.models import AgentDB, AgentMCPServerBindingDB  # noqa: F401
+from app.agents.models import AgentDB, AgentMCPServerBindingDB, AgentUserPermissionDB  # noqa: F401
 from app.threads.models import ThreadDB  # noqa: F401
 
 target_metadata = SQLModel.metadata

@@ -237,8 +237,9 @@ export default function AgentMCPServer({
 					className="text-muted-foreground hover:text-foreground cursor-pointer p-1"
 				>
 					<ChevronRight
-						className={`w-5 h-5 transition-transform ${isExpanded ? "rotate-90" : ""
-							}`}
+						className={`w-5 h-5 transition-transform ${
+							isExpanded ? "rotate-90" : ""
+						}`}
 					/>
 				</button>
 			</div>
@@ -281,7 +282,9 @@ export default function AgentMCPServer({
 								</button>
 							</div>
 						) : isLoading ? (
-							<div className="text-sm text-muted-foreground py-2">Loading tools...</div>
+							<div className="text-sm text-muted-foreground py-2">
+								Loading tools...
+							</div>
 						) : tools && tools.length > 0 ? (
 							<div className="space-y-2">
 								{tools.map((tool) => (
@@ -307,7 +310,7 @@ export default function AgentMCPServer({
 						<Button
 							variant="ghost"
 							size="sm"
-							className="text-muted-foreground cursor-pointer"
+							className="text-destructive cursor-pointer hover:text-destructive/80"
 							onClick={() => handleToggleServer(server.id, false)}
 						>
 							Disable {server.name}

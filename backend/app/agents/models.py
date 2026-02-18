@@ -4,7 +4,14 @@ from enum import Enum
 from pydantic import BaseModel
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
+from sqlalchemy import UniqueConstraint
 from sqlmodel import Column, DateTime, Field, SQLModel, Text
+
+
+class PermissionLevel(str, Enum):
+    user = "user"
+    editor = "editor"
+    admin = "admin"
 
 
 class ToolStatus(str, Enum):
@@ -111,6 +118,43 @@ class AgentUpdate(SQLModel):
     emoji: str | None = None
 
 
+class AgentUserPermissionDB(SQLModel, table=True):
+    __tablename__ = "agent_user_permissions"
+    __table_args__ = (
+        UniqueConstraint("agent_id", "user_id", name="uq_agent_user_permission"),
+    )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    agent_id: UUID = Field(foreign_key="agents.id", nullable=False)
+    user_id: UUID = Field(foreign_key="users.id", nullable=False)
+    permission: PermissionLevel = Field(nullable=False)
+    created_at: datetime = Field(
+        default=None,
+        sa_column=Column(
+            DateTime(timezone=True), server_default=func.now(), nullable=False
+        ),
+    )
+    updated_at: datetime = Field(
+        default=None,
+        sa_column=Column(
+            DateTime(timezone=True),
+            server_default=func.now(),
+            onupdate=func.now(),
+            nullable=False,
+        ),
+    )
+
+
+class AgentPermissionRead(SQLModel):
+    user_id: UUID
+    permission: PermissionLevel
+
+
+class AgentPermissionWrite(SQLModel):
+    user_id: UUID
+    permission: PermissionLevel
+
+
 class AgentRead(SQLModel):
     id: UUID
     name: str
@@ -120,3 +164,4 @@ class AgentRead(SQLModel):
     created_at: datetime
     updated_at: datetime
     mcp_servers: list[AgentMCPServer] | None = None
+    current_user_permission: str | None = None

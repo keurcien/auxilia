@@ -10,42 +10,70 @@ from app.agents.models import (
     AgentMCPServer,
     AgentMCPServerBindingDB,
     AgentRead,
+    AgentUserPermissionDB,
 )
 
 
 async def read_agents(
-    db: AsyncSession, owner_id: UUID | None = None
+    db: AsyncSession, user_id: UUID | None = None
 ) -> list[AgentRead]:
-    query = (
-        select(AgentDB, AgentMCPServerBindingDB)
-        .outerjoin(
-            AgentMCPServerBindingDB, AgentDB.id == AgentMCPServerBindingDB.agent_id
+    if user_id:
+        query = (
+            select(AgentDB, AgentMCPServerBindingDB, AgentUserPermissionDB.permission)
+            .outerjoin(
+                AgentMCPServerBindingDB, AgentDB.id == AgentMCPServerBindingDB.agent_id
+            )
+            .outerjoin(
+                AgentUserPermissionDB,
+                (AgentDB.id == AgentUserPermissionDB.agent_id)
+                & (AgentUserPermissionDB.user_id == user_id),
+            )
+            .order_by(AgentDB.created_at.asc())
         )
-        .order_by(AgentDB.created_at.asc())
-    )
-    if owner_id:
-        query = query.where(AgentDB.owner_id == owner_id)
+    else:
+        query = (
+            select(AgentDB, AgentMCPServerBindingDB)
+            .outerjoin(
+                AgentMCPServerBindingDB, AgentDB.id == AgentMCPServerBindingDB.agent_id
+            )
+            .order_by(AgentDB.created_at.asc())
+        )
 
     result = await db.execute(query)
     rows = result.all()
 
     agents_map: dict[UUID, AgentDB] = {}
     bindings_map: dict[UUID, list[AgentMCPServer]] = defaultdict(list)
+    permissions_map: dict[UUID, str] = {}
 
-    for agent, binding in rows:
+    for row in rows:
+        agent = row[0]
+        binding = row[1]
         agents_map[agent.id] = agent
+
         if binding is not None:
             bindings_map[agent.id].append(
                 AgentMCPServer(id=binding.mcp_server_id, tools=binding.tools)
             )
 
+        if user_id:
+            permission = row[2]
+            if agent.owner_id == user_id:
+                permissions_map[agent.id] = "owner"
+            elif permission and agent.id not in permissions_map:
+                permissions_map[agent.id] = permission.value
+
     return [
-        AgentRead(**agent.model_dump(), mcp_servers=bindings_map.get(agent.id, []))
+        AgentRead(
+            **agent.model_dump(),
+            mcp_servers=bindings_map.get(agent.id, []),
+            current_user_permission=permissions_map.get(agent.id),
+        )
         for agent in agents_map.values()
     ]
 
 
-async def read_agent(agent_id: UUID, db: AsyncSession) -> AgentRead:
+async def read_agent(agent_id: UUID, db: AsyncSession, user_id: UUID | None = None) -> AgentRead:
     result = await db.execute(
         select(AgentDB, AgentMCPServerBindingDB)
         .outerjoin(
@@ -69,4 +97,24 @@ async def read_agent(agent_id: UUID, db: AsyncSession) -> AgentRead:
         if binding is not None
     ]
 
-    return AgentRead(**agent.model_dump(), mcp_servers=mcp_servers)
+    # Compute current user permission
+    current_user_permission = None
+    if user_id:
+        if agent.owner_id == user_id:
+            current_user_permission = "owner"
+        else:
+            perm_result = await db.execute(
+                select(AgentUserPermissionDB.permission).where(
+                    AgentUserPermissionDB.agent_id == agent_id,
+                    AgentUserPermissionDB.user_id == user_id,
+                )
+            )
+            perm = perm_result.scalar_one_or_none()
+            if perm:
+                current_user_permission = perm.value
+
+    return AgentRead(
+        **agent.model_dump(),
+        mcp_servers=mcp_servers,
+        current_user_permission=current_user_permission,
+    )

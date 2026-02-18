@@ -16,6 +16,7 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import AgentPermissionsDialog from "./agent-permissions-dialog";
 
 interface AgentEditorProps {
 	agent: Agent;
@@ -36,6 +37,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 	const [emoji, setEmoji] = useState(agent.emoji || "🤖");
 	const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 	const [saveStatus, setSaveStatus] = useState<"saved" | "saving">("saved");
+	const [permissionsOpen, setPermissionsOpen] = useState(false);
 	const savingTimerRef = useRef<NodeJS.Timeout | undefined>(undefined);
 	const emojiPickerRef = useRef<HTMLDivElement>(null);
 	const nameTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
@@ -84,8 +86,8 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 		[agent.id, updateAgent],
 	);
 
-	const handleManagePermissions = async () => {
-		console.log("Managing permissions");
+	const handleManagePermissions = () => {
+		setPermissionsOpen(true);
 	};
 
 	const handleDeleteAgent = async () => {
@@ -256,6 +258,13 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 					/>
 				</div>
 			</div>
+
+			<AgentPermissionsDialog
+				open={permissionsOpen}
+				onOpenChange={setPermissionsOpen}
+				agentId={agent.id}
+				ownerId={liveAgent.ownerId}
+			/>
 		</div>
 	);
 }

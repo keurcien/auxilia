@@ -1,7 +1,6 @@
 import axios from "axios";
 import snakecaseKeys from "snakecase-keys";
 
-// Determine if we're running on the server or client
 const isServer = typeof window === "undefined";
 
 // API base URL:
@@ -9,10 +8,8 @@ const isServer = typeof window === "undefined";
 // - Client-side: use Next.js proxy path (hides backend URL from browser)
 const getApiBaseUrl = () => {
 	if (isServer) {
-		// Server Components call the backend directly
 		return process.env.BACKEND_URL || "http://localhost:8000";
 	}
-	// Client-side uses the Next.js proxy
 	return "/api/backend";
 };
 
@@ -46,12 +43,9 @@ function snakecaseKeysWithExclusions(
 				(letter) => `_${letter.toLowerCase()}`,
 			);
 
-			// Check if this field should be preserved (don't transform its nested keys)
 			if (excludeFields.includes(key)) {
-				// Keep the value as-is (don't transform nested keys)
 				result[snakeKey] = record[key];
 			} else {
-				// Recursively transform nested objects
 				result[snakeKey] = snakecaseKeysWithExclusions(
 					record[key],
 					excludeFields,
@@ -72,7 +66,7 @@ api.interceptors.request.use((config) => {
 		!(config.data instanceof FormData)
 	) {
 		config.data = snakecaseKeysWithExclusions(
-			{ ...config.data },
+			Array.isArray(config.data) ? [...config.data] : { ...config.data },
 			PRESERVE_KEYS_FIELDS,
 		);
 	}
@@ -96,17 +90,13 @@ function camelcaseKeysWithExclusions(
 		const result: Record<string, unknown> = {};
 
 		for (const key of Object.keys(record)) {
-			// Convert key from snake_case to camelCase
 			const camelKey = key.replace(/_([a-z])/g, (_, letter) =>
 				letter.toUpperCase(),
 			);
 
-			// Check if this field should be preserved (don't transform its nested keys)
 			if (excludeFields.includes(camelKey)) {
-				// Keep the value as-is (don't transform nested keys)
 				result[camelKey] = record[key];
 			} else {
-				// Recursively transform nested objects
 				result[camelKey] = camelcaseKeysWithExclusions(
 					record[key],
 					excludeFields,
