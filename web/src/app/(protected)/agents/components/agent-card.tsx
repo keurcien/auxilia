@@ -142,15 +142,15 @@ export default function AgentCard({ agent }: AgentCardProps) {
 						);
 					})()}
 				</div>
-				<p className="text-[13.5px] leading-relaxed text-muted-foreground line-clamp-2">
-					{agent.instructions || "No description provided."}
+				<p className="text-[13.5px] leading-relaxed text-muted-foreground line-clamp-3 min-h-[4.5em]">
+					{agent.description || "No description provided."}
 				</p>
 			</div>
 
 			<Dialog open={open} onOpenChange={setOpen}>
 				<DialogContent className="sm:max-w-[420px]" showCloseButton={false}>
 					<DialogHeader>
-						<div className="flex items-center gap-4">
+						<div className="flex items-center gap-4 mb-4">
 							<div className="flex items-center justify-center shrink-0 w-12 h-12 rounded-2xl bg-muted text-2xl">
 								{agent.emoji || "🤖"}
 							</div>
@@ -158,14 +158,19 @@ export default function AgentCard({ agent }: AgentCardProps) {
 						</div>
 					</DialogHeader>
 
-					<p className="text-sm text-muted-foreground">
-						{agent.instructions || "No description provided."}
-					</p>
+					<div className="mb-4">
+						<p className="text-xs font-bold text-muted-foreground mb-1">
+							Description
+						</p>
+						<p className="text-sm text-muted-foreground wrap-break-word whitespace-pre-wrap">
+							{agent.description || "No description provided."}
+						</p>
+					</div>
 
 					{resolvedServers.length > 0 && (
 						<div>
-							<p className="text-sm font-bold text-muted-foreground mb-1">
-								MCP Servers
+							<p className="text-xs font-bold text-muted-foreground mb-1">
+								Tools
 							</p>
 							<div className="flex flex-wrap gap-2">
 								{resolvedServers.map((server) => (

@@ -14,6 +14,7 @@ export interface Agent {
 	instructions: string;
 	ownerId: string;
 	emoji?: string | null;
+	description?: string | null;
 	mcpServers: AgentMCPServer[];
 	currentUserPermission?: AgentPermission | null;
 }

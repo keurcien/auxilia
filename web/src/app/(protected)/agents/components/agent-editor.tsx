@@ -34,6 +34,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 
 	const [name, setName] = useState(agent.name || "");
 	const [instructions, setInstructions] = useState(agent.instructions || "");
+	const [description, setDescription] = useState(agent.description || "");
 	const [emoji, setEmoji] = useState(agent.emoji || "🤖");
 	const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 	const [saveStatus, setSaveStatus] = useState<"saved" | "saving">("saved");
@@ -42,6 +43,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 	const emojiPickerRef = useRef<HTMLDivElement>(null);
 	const nameTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
 	const instructionsTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
+	const descriptionTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
 	useEffect(() => {
 		const handleClickOutside = (event: MouseEvent) => {
@@ -70,7 +72,9 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 
 	const saveAgent = useCallback(
 		async (
-			updates: Partial<Pick<Agent, "name" | "instructions" | "emoji">>,
+			updates: Partial<
+				Pick<Agent, "name" | "instructions" | "emoji" | "description">
+			>,
 		) => {
 			setSaveStatus("saving");
 			try {
@@ -141,6 +145,25 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 			}
 		};
 	}, [instructions, liveAgent.instructions, saveAgent]);
+
+	// Auto-save description with debounce
+	useEffect(() => {
+		if (descriptionTimeoutRef.current) {
+			clearTimeout(descriptionTimeoutRef.current);
+		}
+
+		descriptionTimeoutRef.current = setTimeout(() => {
+			if (description !== (liveAgent.description || "")) {
+				saveAgent({ description: description.trim() });
+			}
+		}, 600);
+
+		return () => {
+			if (descriptionTimeoutRef.current) {
+				clearTimeout(descriptionTimeoutRef.current);
+			}
+		};
+	}, [description, liveAgent.description, saveAgent]);
 
 	return (
 		<div className="h-full flex flex-col">
@@ -227,13 +250,32 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 			</div>
 
 			<div className="relative flex flex-col md:flex-row flex-1 min-h-0">
-				<div className="h-full w-full md:w-1/2 flex flex-col">
-					<div className="w-full p-6 flex flex-col flex-1">
+				<div className="h-full w-full md:w-1/2 flex flex-col p-6">
+					<div className="shrink-0 mb-4">
+						<h2 className="h-[32px] text-muted-foreground text-sm leading-5 font-medium block mb-2">
+							Description
+						</h2>
+						<input
+							type="text"
+							maxLength={255}
+							className="h-[52px] w-full text-foreground bg-muted border border-muted rounded-lg px-4 py-3 font-noto text-sm focus:outline-none focus:ring-0 font-medium"
+							value={description}
+							onChange={(e) => setDescription(e.target.value)}
+							placeholder="A short description of your agent..."
+						/>
+						{description.length > 240 && (
+							<p className="text-xs text-muted-foreground mt-1 text-right">
+								{description.length}/255
+							</p>
+						)}
+					</div>
+
+					<div className="flex-1 flex flex-col min-h-0">
 						<h2 className="text-muted-foreground text-sm leading-5 font-medium block mb-4">
 							Instructions
 						</h2>
 
-						<div className="prose prose-gray max-w-none flex-1 flex flex-col">
+						<div className="prose prose-gray max-w-none flex-1 flex flex-col min-h-0">
 							<textarea
 								className="flex-1 w-full h-full text-foreground bg-muted rounded-lg px-4 py-3 resize-none font-noto text-sm focus:outline-none focus:ring-0 font-medium [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
 								value={instructions}
