@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 from sqlalchemy import UniqueConstraint
-from sqlmodel import Column, DateTime, Field, SQLModel, Text
+from sqlmodel import Column, DateTime, Field, SQLModel, Text, String
 
 
 class PermissionLevel(str, Enum):
@@ -32,7 +32,6 @@ class AgentConfig(BaseModel):
     mcp_servers: list[AgentMCPServer]
 
 
-# Agent MCP Server Binding Models (Database)
 class AgentMCPServerBindingBase(SQLModel):
     agent_id: UUID = Field(foreign_key="agents.id", nullable=False)
     mcp_server_id: UUID = Field(foreign_key="mcp_servers.id", nullable=False)
@@ -82,6 +81,8 @@ class AgentBase(SQLModel):
     instructions: str = Field(sa_column=Column(Text, nullable=False))
     owner_id: UUID = Field(foreign_key="users.id", nullable=False)
     emoji: str | None = Field(default=None, max_length=10, nullable=True)
+    description: str | None = Field(
+        default=None, max_length=255, sa_column=Column(String(255), nullable=True))
 
 
 class AgentDB(AgentBase, table=True):
@@ -116,12 +117,14 @@ class AgentUpdate(SQLModel):
     name: str | None = Field(default=None, max_length=255)
     instructions: str | None = None
     emoji: str | None = None
+    description: str | None = None
 
 
 class AgentUserPermissionDB(SQLModel, table=True):
     __tablename__ = "agent_user_permissions"
     __table_args__ = (
-        UniqueConstraint("agent_id", "user_id", name="uq_agent_user_permission"),
+        UniqueConstraint("agent_id", "user_id",
+                         name="uq_agent_user_permission"),
     )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
@@ -161,6 +164,7 @@ class AgentRead(SQLModel):
     instructions: str
     owner_id: UUID
     emoji: str | None
+    description: str | None
     created_at: datetime
     updated_at: datetime
     mcp_servers: list[AgentMCPServer] | None = None
