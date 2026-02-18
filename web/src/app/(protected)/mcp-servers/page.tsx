@@ -2,15 +2,28 @@
 
 import { useState } from "react";
 import MCPServerList from "@/app/(protected)/mcp-servers/components/mcp-server-list";
-import AddMCPServerDialog from "@/app/(protected)/mcp-servers/components/add-mcp-server-dialog";
+import MCPServerDialog from "@/app/(protected)/mcp-servers/components/mcp-server-dialog";
+import { MCPServer } from "@/types/mcp-servers";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export default function MCPServersPage() {
-	const [isDialogOpen, setIsDialogOpen] = useState(false);
+	const [dialogOpen, setDialogOpen] = useState(false);
+	const [editServer, setEditServer] = useState<MCPServer | null>(null);
 
 	const handleAddServer = () => {
-		setIsDialogOpen(true);
+		setEditServer(null);
+		setDialogOpen(true);
+	};
+
+	const handleEditServer = (server: MCPServer) => {
+		setEditServer(server);
+		setDialogOpen(true);
+	};
+
+	const handleDialogChange = (open: boolean) => {
+		setDialogOpen(open);
+		if (!open) setEditServer(null);
 	};
 
 	return (
@@ -27,9 +40,13 @@ export default function MCPServersPage() {
 					Add MCP Server
 				</Button>
 			</div>
-			<MCPServerList />
+			<MCPServerList onServerClick={handleEditServer} />
 
-			<AddMCPServerDialog open={isDialogOpen} onOpenChange={setIsDialogOpen} />
+			<MCPServerDialog
+				open={dialogOpen}
+				onOpenChange={handleDialogChange}
+				server={editServer}
+			/>
 		</div>
 	);
 }

@@ -2,9 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
+import { MCPServer } from "@/types/mcp-servers";
 import MCPServerCard from "./mcp-server-card";
 
-export default function MCPServerList() {
+interface MCPServerListProps {
+	onServerClick?: (server: MCPServer) => void;
+}
+
+export default function MCPServerList({ onServerClick }: MCPServerListProps) {
 	const { mcpServers, fetchMcpServers, isInitialized } = useMcpServersStore();
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
@@ -60,7 +65,11 @@ export default function MCPServerList() {
 	return (
 		<div className="grid grid-cols-3 gap-x-2.5 gap-y-4 mx-0">
 			{mcpServers.map((server) => (
-				<MCPServerCard key={server.id} server={server} />
+				<MCPServerCard
+					key={server.id}
+					server={server}
+					onClick={() => onServerClick?.(server)}
+				/>
 			))}
 		</div>
 	);
