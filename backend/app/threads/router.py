@@ -93,6 +93,7 @@ async def invoke(
     thread=Depends(get_thread),
     messages: list[Message] = Body(..., embed=True),
     messageId: str | None = Body(None, embed=True),
+    user_id: str = Depends(get_current_user),
     db=Depends(get_db)
 ):
     deps = build_agent_deps(thread, db)
@@ -103,8 +104,9 @@ async def invoke(
         media_type="text/plain",
         headers={
             "x-vercel-ai-ui-message-stream": "v1",
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-cache, no-transform",
             "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
             "Content-Type": "text/plain; charset=utf-8",
         },
     )

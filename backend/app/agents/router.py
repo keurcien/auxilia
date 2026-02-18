@@ -12,11 +12,14 @@ from app.agents.models import (
     AgentMCPServerBindingDB,
     AgentMCPServerBindingRead,
     AgentMCPServerBindingUpdate,
+    AgentPermissionRead,
+    AgentPermissionWrite,
     AgentRead,
     AgentUpdate,
+    AgentUserPermissionDB,
 )
 from app.agents.utils import read_agent, read_agents
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, get_current_user_optional
 from app.database import get_db
 from app.mcp.client.auth import WebOAuthClientProvider, build_oauth_client_metadata
 from app.mcp.client.storage import TokenStorageFactory
@@ -43,14 +46,19 @@ async def create_agent(
 
 @router.get("/", response_model=list[AgentRead])
 async def get_agents(
-    owner_id: UUID | None = None, db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: UserDB = Depends(get_current_user),
 ) -> list[AgentRead]:
-    return await read_agents(db, owner_id=owner_id)
+    return await read_agents(db, user_id=current_user.id)
 
 
 @router.get("/{agent_id}", response_model=AgentRead, response_model_by_alias=True)
-async def get_agent(agent_id: UUID, db: AsyncSession = Depends(get_db)) -> AgentRead:
-    return await read_agent(agent_id, db)
+async def get_agent(
+    agent_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserDB | None = Depends(get_current_user_optional),
+) -> AgentRead:
+    return await read_agent(agent_id, db, user_id=current_user.id if current_user else None)
 
 
 @router.patch("/{agent_id}", response_model=AgentRead)
@@ -81,6 +89,56 @@ async def delete_agent(agent_id: UUID, db: AsyncSession = Depends(get_db)) -> No
 
     await db.delete(db_agent)
     await db.commit()
+
+
+@router.get("/{agent_id}/permissions", response_model=list[AgentPermissionRead])
+async def get_agent_permissions(
+    agent_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserDB = Depends(get_current_user),
+) -> list[AgentPermissionRead]:
+    result = await db.execute(
+        select(AgentUserPermissionDB).where(
+            AgentUserPermissionDB.agent_id == agent_id
+        )
+    )
+    permissions = result.scalars().all()
+    return list(permissions)
+
+
+@router.put("/{agent_id}/permissions", response_model=list[AgentPermissionRead])
+async def set_agent_permissions(
+    agent_id: UUID,
+    permissions: list[AgentPermissionWrite],
+    db: AsyncSession = Depends(get_db),
+    current_user: UserDB = Depends(get_current_user),
+) -> list[AgentPermissionRead]:
+    result = await db.execute(
+        select(AgentUserPermissionDB).where(
+            AgentUserPermissionDB.agent_id == agent_id
+        )
+    )
+    existing = result.scalars().all()
+    for perm in existing:
+        await db.delete(perm)
+    await db.flush()
+
+    # Insert new permissions
+    new_permissions = []
+    for p in permissions:
+        db_perm = AgentUserPermissionDB(
+            agent_id=agent_id,
+            user_id=p.user_id,
+            permission=p.permission,
+        )
+        db.add(db_perm)
+        new_permissions.append(db_perm)
+
+    await db.commit()
+    for perm in new_permissions:
+        await db.refresh(perm)
+
+    return new_permissions
 
 
 async def check_oauth_connected(
