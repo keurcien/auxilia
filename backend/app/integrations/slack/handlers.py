@@ -78,6 +78,9 @@ async def _stream_and_collect_approvals(
     async for ev in agent_runtime.stream(**stream_kwargs):
         if ev["type"] == "text":
             await streamer.append(markdown_text=ev["content"])
+        elif ev["type"] == "tool_start":
+            tool_name = ev["tool_name"]
+            await streamer.append(markdown_text=f"\n\n:{tool_name.split('_')[0].lower()}:  **{tool_name.split('_')[0]}**  ›  `{'_'.join(tool_name.split('_')[1:])}`\n\n")
         elif ev["type"] == "tool_approval_request":
             approval_requests.append(ev)
 
@@ -229,6 +232,10 @@ async def handle_message(event: SlackEvent, *, team_id: str | None = None) -> No
     if not question:
         return
 
+    user = await resolve_user(event.user)
+    if not user:
+        return
+
     client = AsyncWebClient(token=slack_settings.slack_bot_token)
 
     # Look up the existing thread (created when the user picked an agent)
@@ -236,8 +243,9 @@ async def handle_message(event: SlackEvent, *, team_id: str | None = None) -> No
     thread = await db.get(ThreadDB, thread_ts)
 
     if not thread:
+        await post_agent_picker(client, event.channel, thread_ts, db, user.id)
         await db.close()
-        await post_agent_picker(client, event.channel, thread_ts)
+
         return
 
     await client.assistant_threads_setStatus(

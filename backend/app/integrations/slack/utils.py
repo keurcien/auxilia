@@ -6,6 +6,9 @@ from typing import Optional
 from fastapi import Header, HTTPException, Request
 from app.integrations.slack.settings import slack_settings
 from app.integrations.slack.models import SlackUserInfo
+from app.users.models import UserDB
+from app.users.service import get_user_by_email
+from app.database import AsyncSessionLocal
 
 _MAX_AGE_SECONDS = 60 * 5
 
@@ -67,3 +70,12 @@ async def get_user_info(user_id: str) -> Optional[SlackUserInfo]:
             print(
                 f"An unexpected error occurred calling Slack API (users.info): {e}")
             return None
+
+
+async def resolve_user(slack_user_id: str) -> UserDB | None:
+    """Map a Slack user ID to an internal user via email lookup."""
+    user_info = await get_user_info(slack_user_id)
+    if not user_info or not user_info.profile.email:
+        return None
+    async with AsyncSessionLocal() as db:
+        return await get_user_by_email(user_info.profile.email, db)
