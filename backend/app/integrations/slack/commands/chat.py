@@ -1,12 +1,12 @@
 """Slack agent picker — lets users pick an agent for the current thread."""
-
+from sqlalchemy.ext.asyncio import AsyncSession
 from slack_sdk.web.async_client import AsyncWebClient
 
 from app.agents.models import AgentDB
-from app.agents.service import get_all_agents
+from app.agents.utils import read_agents
 from app.integrations.slack.models import SlackEvent, SlackInteractionPayload
 from app.integrations.slack.settings import slack_settings
-from app.integrations.slack.utils import get_user_info
+from app.integrations.slack.utils import get_user_info, resolve_user
 from app.threads.service import get_or_create_thread
 from app.users.service import get_user_by_email
 from app.database import AsyncSessionLocal
@@ -59,9 +59,11 @@ def _build_agent_selected_blocks(agent: AgentDB) -> list[dict]:
 
 async def post_agent_picker(
     client: AsyncWebClient, channel_id: str, thread_ts: str,
+    db: AsyncSession, user_id: str,
 ) -> None:
     """Post an agent picker in the thread."""
-    agents = await get_all_agents()
+    all_agents = await read_agents(db, user_id=user_id)
+    agents = [a for a in all_agents if a.current_user_permission is not None]
     if not agents:
         return
 
@@ -80,8 +82,14 @@ async def handle_app_mention(event: SlackEvent, **_: object) -> None:
     if not event.channel or not thread_ts:
         return
 
-    client = AsyncWebClient(token=slack_settings.slack_bot_token)
-    await post_agent_picker(client, event.channel, thread_ts)
+    user = await resolve_user(event.user)
+    print(user)
+    if not user:
+        return
+
+    async with AsyncSessionLocal() as db:
+        client = AsyncWebClient(token=slack_settings.slack_bot_token)
+        await post_agent_picker(client, event.channel, thread_ts, db, user.id)
 
 
 # ---------------------------------------------------------------------------
@@ -125,16 +133,28 @@ async def handle_agent_selection(payload: SlackInteractionPayload) -> None:
     if not agent:
         return
 
+    # Fetch the original message that started the thread
+    client = AsyncWebClient(token=slack_settings.slack_bot_token)
+    first_message = ""
+    try:
+        replies = await client.conversations_replies(
+            channel=channel_id, ts=thread_ts, limit=1,
+        )
+        messages = replies.get("messages", [])
+        if messages:
+            first_message = (messages[0].get("text") or "").strip()
+    except Exception:
+        pass
+
     # Create the thread bound to this agent
     await get_or_create_thread(
         ts=thread_ts,
         agent_id=str(agent.id),
-        question="",
+        question=first_message,
         user_id=str(user.id),
     )
 
     # Replace the picker message with a confirmation
-    client = AsyncWebClient(token=slack_settings.slack_bot_token)
     blocks = _build_agent_selected_blocks(agent)
     if message_ts:
         await client.chat_update(
