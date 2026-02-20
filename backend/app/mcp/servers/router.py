@@ -322,13 +322,17 @@ async def connect_to_server(mcp_server: MCPServerDB, user_id: str, db: AsyncSess
         async with ClientSession(read, write) as session:
             await session.initialize()
 
-            response = await session.list_tools()
-            tools = response.tools
+            try:
+                response = await session.list_tools()
 
-            if mcp_server.url == "https://bigquery.googleapis.com/mcp":
-                await session.call_tool("list_dataset_ids", {"project_id": "choose-data-dev"})
+                tools = response.tools
 
-            yield session, tools
+                if mcp_server.url == "https://bigquery.googleapis.com/mcp":
+                    await session.call_tool("list_dataset_ids", {"project_id": "choose-data-dev"})
+
+                yield session, tools
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/{mcp_server_id}/list-tools")
