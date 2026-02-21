@@ -5,7 +5,7 @@ interface User {
 	id: string;
 	name: string | null;
 	email: string | null;
-	isSuperuser: boolean;
+	role: "member" | "editor" | "admin";
 	createdAt: string;
 	updatedAt: string;
 }
