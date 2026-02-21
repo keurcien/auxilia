@@ -22,7 +22,8 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import { Search, X, CheckIcon, Shield } from "lucide-react";
+import { Search, X, CheckIcon } from "lucide-react";
+import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import Image from "next/image";
 
 const DEFAULT_ICON = "https://storage.googleapis.com/choose-assets/mcp.png";
@@ -76,6 +77,7 @@ export default function MCPServerDialog({
 	);
 	const [selectedOfficial, setSelectedOfficial] =
 		useState<OfficialMCPServer | null>(null);
+	const [errorDialogOpen, setErrorDialogOpen] = useState(false);
 
 	// Fetch official servers
 	useEffect(() => {
@@ -245,8 +247,16 @@ export default function MCPServerDialog({
 			await api.delete(`/mcp-servers/${server.id}`);
 			removeMcpServer(server.id);
 			onOpenChange(false);
-		} catch {
-			console.error("Failed to delete MCP server");
+		} catch (error: unknown) {
+			if (
+				error instanceof Object &&
+				"status" in error &&
+				error.status === 403
+			) {
+				setErrorDialogOpen(true);
+			} else {
+				console.error("Failed to delete MCP server");
+			}
 		} finally {
 			setIsSubmitting(false);
 		}
@@ -267,6 +277,12 @@ export default function MCPServerDialog({
 
 	return (
 		<Dialog open={open} onOpenChange={handleOpenChange}>
+			<ForbiddenErrorDialog
+				open={errorDialogOpen}
+				onOpenChange={setErrorDialogOpen}
+				title="Insufficient privileges"
+				message="You are not allowed to perform this action."
+			/>
 			<DialogContent
 				className="sm:max-w-[560px] rounded-3xl p-0 gap-0 overflow-hidden"
 				showCloseButton={false}
