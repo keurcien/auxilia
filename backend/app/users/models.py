@@ -1,15 +1,22 @@
 from datetime import datetime
+from enum import Enum
 from uuid import UUID, uuid4
 
 from sqlalchemy.sql import func
 from sqlmodel import Column, DateTime, Field, Relationship, SQLModel, UniqueConstraint
 
 
+class WorkspaceRole(str, Enum):
+    member = "member"
+    editor = "editor"
+    admin = "admin"
+
+
 class UserBase(SQLModel):
     name: str | None = Field(default=None, max_length=255)
     email: str | None = Field(default=None, max_length=255, unique=True, index=True)
     hashed_password: str | None = Field(default=None)
-    is_superuser: bool = Field(default=False, nullable=False)
+    role: WorkspaceRole = Field(default=WorkspaceRole.member, nullable=False)
 
 
 class UserDB(UserBase, table=True):
@@ -39,21 +46,24 @@ class UserCreate(SQLModel):
     name: str | None = Field(default=None, max_length=255)
     email: str | None = Field(default=None, max_length=255)
     hashed_password: str | None = None
-    is_superuser: bool = False
+    role: WorkspaceRole = WorkspaceRole.member
 
 
 class UserUpdate(SQLModel):
     name: str | None = Field(default=None, max_length=255)
     email: str | None = Field(default=None, max_length=255)
     hashed_password: str | None = None
-    is_superuser: bool | None = None
+
+
+class UserRoleUpdate(SQLModel):
+    role: WorkspaceRole
 
 
 class UserRead(SQLModel):
     id: UUID
     name: str | None
     email: str | None
-    is_superuser: bool
+    role: WorkspaceRole
     created_at: datetime
     updated_at: datetime
 

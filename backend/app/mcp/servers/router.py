@@ -9,7 +9,7 @@ from mcp.shared.auth import OAuthClientInformationFull
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, require_admin
 from app.database import get_db
 from app.mcp.client.auth import WebOAuthClientProvider, build_oauth_client_metadata
 from app.mcp.client.storage import TokenStorageFactory
@@ -85,7 +85,9 @@ async def get_mcp_server_oauth_credentials(
 
 @router.post("/", response_model=MCPServerRead, status_code=201)
 async def create_mcp_server(
-    server: MCPServerCreate, db: AsyncSession = Depends(get_db)
+    server: MCPServerCreate,
+    current_user: UserDB = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
 ) -> MCPServerRead:
     db_server = MCPServerDB.model_validate(server)
     db.add(db_server)
@@ -123,14 +125,20 @@ async def create_mcp_server(
 
 
 @router.get("/", response_model=list[MCPServerRead])
-async def get_mcp_servers(db: AsyncSession = Depends(get_db)) -> list[MCPServerRead]:
+async def get_mcp_servers(
+    current_user: UserDB = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[MCPServerRead]:
     result = await db.execute(select(MCPServerDB).order_by(MCPServerDB.created_at.asc()))
     servers = result.scalars().all()
     return list(servers)
 
 
 @router.get("/official", response_model=list[OfficialMCPServerRead])
-async def get_official_mcp_servers(db: AsyncSession = Depends(get_db)) -> list[OfficialMCPServerRead]:
+async def get_official_mcp_servers(
+    current_user: UserDB = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[OfficialMCPServerRead]:
     stmt = (
         select(
             OfficialMCPServerDB,
@@ -152,7 +160,9 @@ async def get_official_mcp_servers(db: AsyncSession = Depends(get_db)) -> list[O
 
 @router.get("/{server_id}", response_model=MCPServerRead)
 async def get_mcp_server(
-    server_id: UUID, db: AsyncSession = Depends(get_db)
+    server_id: UUID,
+    current_user: UserDB = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> MCPServerRead:
     result = await db.execute(select(MCPServerDB).where(MCPServerDB.id == server_id))
     server = result.scalar_one_or_none()
@@ -163,7 +173,10 @@ async def get_mcp_server(
 
 @router.patch("/{server_id}", response_model=MCPServerRead)
 async def update_mcp_server(
-    server_id: UUID, server_update: MCPServerUpdate, db: AsyncSession = Depends(get_db)
+    server_id: UUID,
+    server_update: MCPServerUpdate,
+    current_user: UserDB = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
 ) -> MCPServerRead:
     result = await db.execute(select(MCPServerDB).where(MCPServerDB.id == server_id))
     db_server = result.scalar_one_or_none()
@@ -182,7 +195,9 @@ async def update_mcp_server(
 
 @router.delete("/{server_id}", status_code=204)
 async def delete_mcp_server(
-    server_id: UUID, db: AsyncSession = Depends(get_db)
+    server_id: UUID,
+    current_user: UserDB = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
 ) -> None:
     result = await db.execute(select(MCPServerDB).where(MCPServerDB.id == server_id))
     db_server = result.scalar_one_or_none()

@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -5,7 +7,13 @@ from sqlmodel import select
 from app.auth.settings import auth_settings
 from app.auth.utils import decode_access_token
 from app.database import get_db
-from app.users.models import UserDB
+from app.users.models import UserDB, WorkspaceRole
+
+ROLE_HIERARCHY: dict[WorkspaceRole, int] = {
+    WorkspaceRole.member: 0,
+    WorkspaceRole.editor: 1,
+    WorkspaceRole.admin: 2,
+}
 
 
 async def get_current_user(
@@ -64,16 +72,21 @@ async def get_current_user_optional(
     return result.scalar_one_or_none()
 
 
-async def get_current_superuser(
-    current_user: UserDB = Depends(get_current_user),
-) -> UserDB:
-    """
-    Require the current user to be a superuser.
-    Raises 403 if not a superuser.
-    """
-    if not current_user.is_superuser:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Superuser access required",
-        )
-    return current_user
+def require_role(minimum_role: WorkspaceRole) -> Callable:
+    """Factory that returns a FastAPI dependency requiring a minimum workspace role."""
+
+    async def dependency(
+        current_user: UserDB = Depends(get_current_user),
+    ) -> UserDB:
+        if ROLE_HIERARCHY[current_user.role] < ROLE_HIERARCHY[minimum_role]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"{minimum_role.value} access required",
+            )
+        return current_user
+
+    return dependency
+
+
+require_admin = require_role(WorkspaceRole.admin)
+require_editor = require_role(WorkspaceRole.editor)
