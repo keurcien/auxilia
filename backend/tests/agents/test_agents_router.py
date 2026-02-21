@@ -55,7 +55,7 @@ def test_get_agents(client: TestClient, mock_db, current_user):
     )
 
     mock_result = MagicMock()
-    mock_result.all.return_value = [(agent1, None), (agent2, None)]
+    mock_result.all.return_value = [(agent1, None, None), (agent2, None, None)]
     mock_db.execute.return_value = mock_result
 
     response = client.get("/agents/")
@@ -77,7 +77,7 @@ def test_get_agents_filter_by_owner(client: TestClient, mock_db, current_user):
     )
 
     mock_result = MagicMock()
-    mock_result.all.return_value = [(agent, None)]
+    mock_result.all.return_value = [(agent, None, None)]
     mock_db.execute.return_value = mock_result
 
     response = client.get(f"/agents/?owner_id={owner_id}")
