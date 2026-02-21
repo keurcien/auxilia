@@ -49,7 +49,7 @@ async def get_agents(
     db: AsyncSession = Depends(get_db),
     current_user: UserDB = Depends(get_current_user),
 ) -> list[AgentRead]:
-    return await read_agents(db, user_id=current_user.id)
+    return await read_agents(db, user_id=current_user.id, user_role=current_user.role)
 
 
 @router.get("/{agent_id}", response_model=AgentRead, response_model_by_alias=True)
@@ -58,7 +58,11 @@ async def get_agent(
     db: AsyncSession = Depends(get_db),
     current_user: UserDB | None = Depends(get_current_user_optional),
 ) -> AgentRead:
-    return await read_agent(agent_id, db, user_id=current_user.id if current_user else None)
+    return await read_agent(
+        agent_id, db,
+        user_id=current_user.id if current_user else None,
+        user_role=current_user.role if current_user else None,
+    )
 
 
 @router.patch("/{agent_id}", response_model=AgentRead)

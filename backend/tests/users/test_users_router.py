@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from app.users.models import UserDB
+from app.users.models import UserDB, WorkspaceRole
 
 
 def test_create_user(client: TestClient, mock_db):
@@ -13,7 +13,7 @@ def test_create_user(client: TestClient, mock_db):
         "name": "Test User",
         "email": "test@example.com",
         "hashed_password": "hashed_password",
-        "is_superuser": False,
+        "role": "member",
     }
 
     mock_result = MagicMock()
@@ -33,7 +33,7 @@ def test_create_user(client: TestClient, mock_db):
     data = response.json()
     assert data["name"] == user_data["name"]
     assert data["email"] == user_data["email"]
-    assert data["is_superuser"] == user_data["is_superuser"]
+    assert data["role"] == user_data["role"]
     assert "id" in data
     assert "created_at" in data
     assert "updated_at" in data
@@ -69,7 +69,7 @@ def test_get_users(client: TestClient, mock_db):
         id=uuid4(),
         name="User 1",
         email="user1@example.com",
-        is_superuser=False,
+        role=WorkspaceRole.member,
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )
@@ -77,7 +77,7 @@ def test_get_users(client: TestClient, mock_db):
         id=uuid4(),
         name="User 2",
         email="user2@example.com",
-        is_superuser=True,
+        role=WorkspaceRole.admin,
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )
@@ -101,7 +101,7 @@ def test_get_user(client: TestClient, mock_db):
         id=user_id,
         name="Test User",
         email="getuser@example.com",
-        is_superuser=False,
+        role=WorkspaceRole.member,
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )
@@ -136,7 +136,7 @@ def test_get_user_by_email(client: TestClient, mock_db):
         id=uuid4(),
         name="Test User",
         email="byemail@example.com",
-        is_superuser=False,
+        role=WorkspaceRole.member,
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )
@@ -170,7 +170,7 @@ def test_update_user(client: TestClient, mock_db):
         id=user_id,
         name="Original Name",
         email="original@example.com",
-        is_superuser=False,
+        role=WorkspaceRole.member,
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )
@@ -181,7 +181,6 @@ def test_update_user(client: TestClient, mock_db):
 
     update_data = {
         "name": "Updated Name",
-        "is_superuser": True,
     }
 
     response = client.patch(f"/users/{user_id}", json=update_data)
@@ -189,7 +188,42 @@ def test_update_user(client: TestClient, mock_db):
     data = response.json()
     assert data["id"] == str(user_id)
     assert data["name"] == update_data["name"]
-    assert data["is_superuser"] is True
+
+
+def test_update_user_role(client: TestClient, mock_db, admin_user):
+    """Test updating a user's role (admin only)."""
+    user_id = uuid4()
+    user = UserDB(
+        id=user_id,
+        name="Test User",
+        email="test@example.com",
+        role=WorkspaceRole.member,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = user
+    mock_db.execute.return_value = mock_result
+
+    response = client.patch(f"/users/{user_id}/role", json={"role": "admin"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["id"] == str(user_id)
+    assert data["role"] == "admin"
+
+
+def test_update_user_role_not_found(client: TestClient, mock_db, admin_user):
+    """Test updating role of a non-existent user returns 404."""
+    fake_id = uuid4()
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = None
+    mock_db.execute.return_value = mock_result
+
+    response = client.patch(f"/users/{fake_id}/role", json={"role": "admin"})
+    assert response.status_code == 404
+    assert response.json()["detail"] == "User not found"
 
 
 def test_update_user_duplicate_email(client: TestClient, mock_db):
@@ -199,7 +233,7 @@ def test_update_user_duplicate_email(client: TestClient, mock_db):
         id=user_id,
         name="User 2",
         email="user2@example.com",
-        is_superuser=False,
+        role=WorkspaceRole.member,
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )
@@ -208,7 +242,7 @@ def test_update_user_duplicate_email(client: TestClient, mock_db):
         id=uuid4(),
         name="User 1",
         email="user1@example.com",
-        is_admin=False,
+        role=WorkspaceRole.member,
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )
@@ -247,7 +281,7 @@ def test_delete_user(client: TestClient, mock_db):
         id=user_id,
         name="Test User",
         email="delete@example.com",
-        is_superuser=False,
+        role=WorkspaceRole.member,
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )

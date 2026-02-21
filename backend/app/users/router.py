@@ -4,12 +4,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from app.auth.dependencies import require_admin
 from app.database import get_db
 from app.users.models import (
     UserCreate,
     UserDB,
     UserRead,
+    UserRoleUpdate,
     UserUpdate,
+    WorkspaceRole,
 )
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -23,7 +26,8 @@ async def create_user(user: UserCreate, db: AsyncSession = Depends(get_db)) -> U
         result = await db.execute(select(UserDB).where(UserDB.email == user.email))
         existing_user = result.scalar_one_or_none()
         if existing_user:
-            raise HTTPException(status_code=400, detail="Email already registered")
+            raise HTTPException(
+                status_code=400, detail="Email already registered")
 
     db_user = UserDB.model_validate(user)
     db.add(db_user)
@@ -34,12 +38,12 @@ async def create_user(user: UserCreate, db: AsyncSession = Depends(get_db)) -> U
 
 @router.get("/", response_model=list[UserRead])
 async def get_users(
-    is_admin: bool | None = None, db: AsyncSession = Depends(get_db)
+    role: WorkspaceRole | None = None, db: AsyncSession = Depends(get_db)
 ) -> list[UserRead]:
-    """List all users, optionally filtered by is_admin."""
+    """List all users, optionally filtered by role."""
     query = select(UserDB)
-    if is_admin is not None:
-        query = query.where(UserDB.is_admin == is_admin)
+    if role is not None:
+        query = query.where(UserDB.role == role)
     result = await db.execute(query)
     users = result.scalars().all()
     return list(users)
@@ -83,7 +87,8 @@ async def update_user(
         )
         existing_user = result.scalar_one_or_none()
         if existing_user:
-            raise HTTPException(status_code=400, detail="Email already registered")
+            raise HTTPException(
+                status_code=400, detail="Email already registered")
 
     for key, value in update_data.items():
         setattr(db_user, key, value)
@@ -94,8 +99,28 @@ async def update_user(
     return db_user
 
 
+@router.patch("/{user_id}/role", response_model=UserRead)
+async def update_user_role(
+    user_id: UUID,
+    role_update: UserRoleUpdate,
+    current_user: UserDB = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> UserRead:
+    """Update a user's role. Admin only."""
+    result = await db.execute(select(UserDB).where(UserDB.id == user_id))
+    db_user = result.scalar_one_or_none()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    db_user.role = role_update.role
+    db.add(db_user)
+    await db.commit()
+    await db.refresh(db_user)
+    return db_user
+
+
 @router.delete("/{user_id}", status_code=204)
-async def delete_user(user_id: UUID, db: AsyncSession = Depends(get_db)) -> None:
+async def delete_user(user_id: UUID, current_user: UserDB = Depends(require_admin), db: AsyncSession = Depends(get_db)) -> None:
     """Delete a user."""
     result = await db.execute(select(UserDB).where(UserDB.id == user_id))
     db_user = result.scalar_one_or_none()

@@ -13,6 +13,8 @@ import {
 	Trash2,
 	LogOut,
 	BookOpen,
+	Settings,
+	Users,
 } from "lucide-react";
 import {
 	Sidebar,
@@ -50,6 +52,11 @@ const navItems = [
 		title: "MCP Servers",
 		href: "/mcp-servers",
 		icon: Server,
+	},
+	{
+		title: "Users",
+		href: "/users",
+		icon: Users,
 	},
 ];
 
@@ -244,6 +251,15 @@ export function AppSidebar() {
 									align="end"
 									sideOffset={4}
 								>
+									<DropdownMenuItem
+										onClick={() =>
+											window.open("https://auxilia-docs.vercel.app/", "_blank")
+										}
+										className="cursor-pointer"
+									>
+										<Settings className="mr-2 h-4 w-4" />
+										Settings
+									</DropdownMenuItem>
 									<DropdownMenuItem
 										onClick={() =>
 											window.open("https://auxilia-docs.vercel.app/", "_blank")

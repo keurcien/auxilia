@@ -12,12 +12,17 @@ from app.agents.models import (
     AgentRead,
     AgentUserPermissionDB,
 )
+from app.users.models import WorkspaceRole
 
 
 async def read_agents(
-    db: AsyncSession, user_id: UUID | None = None
+    db: AsyncSession,
+    user_id: UUID | None = None,
+    user_role: WorkspaceRole | None = None,
 ) -> list[AgentRead]:
-    if user_id:
+    is_workspace_admin = user_role == WorkspaceRole.admin
+
+    if user_id and not is_workspace_admin:
         query = (
             select(AgentDB, AgentMCPServerBindingDB, AgentUserPermissionDB.permission)
             .outerjoin(
@@ -56,7 +61,9 @@ async def read_agents(
                 AgentMCPServer(id=binding.mcp_server_id, tools=binding.tools)
             )
 
-        if user_id:
+        if is_workspace_admin:
+            permissions_map[agent.id] = "admin"
+        elif user_id:
             permission = row[2]
             if agent.owner_id == user_id:
                 permissions_map[agent.id] = "owner"
@@ -73,7 +80,12 @@ async def read_agents(
     ]
 
 
-async def read_agent(agent_id: UUID, db: AsyncSession, user_id: UUID | None = None) -> AgentRead:
+async def read_agent(
+    agent_id: UUID,
+    db: AsyncSession,
+    user_id: UUID | None = None,
+    user_role: WorkspaceRole | None = None,
+) -> AgentRead:
     result = await db.execute(
         select(AgentDB, AgentMCPServerBindingDB)
         .outerjoin(
@@ -99,7 +111,9 @@ async def read_agent(agent_id: UUID, db: AsyncSession, user_id: UUID | None = No
 
     # Compute current user permission
     current_user_permission = None
-    if user_id:
+    if user_role == WorkspaceRole.admin:
+        current_user_permission = "admin"
+    elif user_id:
         if agent.owner_id == user_id:
             current_user_permission = "owner"
         else:
