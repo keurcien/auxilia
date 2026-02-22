@@ -29,6 +29,7 @@ from app.mcp.servers.models import MCPServerDB  # noqa: F401
 from app.users.models import UserDB  # noqa: F401
 from app.agents.models import AgentDB, AgentMCPServerBindingDB, AgentUserPermissionDB  # noqa: F401
 from app.threads.models import ThreadDB  # noqa: F401
+from app.invites.models import InviteDB  # noqa: F401
 
 target_metadata = SQLModel.metadata
 
