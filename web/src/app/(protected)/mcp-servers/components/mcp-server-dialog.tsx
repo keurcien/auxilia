@@ -69,6 +69,7 @@ export default function MCPServerDialog({
 	const [form, setForm] = useState<FormState>(emptyForm);
 	const [errors, setErrors] = useState<Record<string, string>>({});
 	const [isSubmitting, setIsSubmitting] = useState(false);
+	const [isResetting, setIsResetting] = useState(false);
 
 	// ConnectorSearch state (create mode only)
 	const [searchQuery, setSearchQuery] = useState("");
@@ -259,6 +260,33 @@ export default function MCPServerDialog({
 			}
 		} finally {
 			setIsSubmitting(false);
+		}
+	};
+
+	const handleReset = async () => {
+		if (!server) return;
+		if (
+			!window.confirm(
+				"This will revoke all user connections to this MCP server. Users will need to re-authenticate. Continue?",
+			)
+		)
+			return;
+
+		setIsResetting(true);
+		try {
+			await api.post(`/mcp-servers/${server.id}/reset`);
+		} catch (error: unknown) {
+			if (
+				error instanceof Object &&
+				"status" in error &&
+				error.status === 403
+			) {
+				setErrorDialogOpen(true);
+			} else {
+				console.error("Failed to reset MCP server connections");
+			}
+		} finally {
+			setIsResetting(false);
 		}
 	};
 
@@ -605,11 +633,21 @@ export default function MCPServerDialog({
 							<Button
 								variant="ghost"
 								onClick={handleDelete}
-								disabled={isSubmitting}
+								disabled={isSubmitting || isResetting}
 								className="text-destructive hover:text-destructive hover:bg-destructive/10 rounded-xl text-[13px] font-semibold cursor-pointer"
 							>
 								Delete server
 							</Button>
+							{server?.authType === "oauth2" && (
+								<Button
+									variant="ghost"
+									onClick={handleReset}
+									disabled={isSubmitting || isResetting}
+									className="rounded-xl text-[13px] font-semibold cursor-pointer"
+								>
+									{isResetting ? "Resetting..." : "Reset connections"}
+								</Button>
+							)}
 							<div className="flex-1" />
 							<div className="flex gap-2.5">
 								<Button

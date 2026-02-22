@@ -208,6 +208,26 @@ async def delete_mcp_server(
     await db.commit()
 
 
+@router.post("/{server_id}/reset", status_code=200)
+async def reset_mcp_server(
+    server_id: UUID,
+    current_user: UserDB = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Reset all user connections for an MCP server.
+
+    Clears all per-user OAuth tokens, client info, and metadata from Redis.
+    """
+    result = await db.execute(select(MCPServerDB).where(MCPServerDB.id == server_id))
+    db_server = result.scalar_one_or_none()
+    if not db_server:
+        raise HTTPException(status_code=404, detail="MCP server not found")
+
+    factory = TokenStorageFactory()
+    deleted = await factory.clear_server_data(str(server_id))
+    return {"deleted_keys": deleted}
+
+
 @router.get("/oauth/callback")
 async def oauth_callback(
     code: str = Query(...,

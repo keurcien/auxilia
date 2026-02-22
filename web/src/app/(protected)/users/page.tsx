@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { Search, Trash2, Plus } from "lucide-react";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
+import InviteDialog from "./invite-dialog";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -48,6 +49,7 @@ export default function UsersPage() {
 	const [search, setSearch] = useState("");
 	const [isLoading, setIsLoading] = useState(true);
 	const [errorDialogOpen, setErrorDialogOpen] = useState(false);
+	const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
 
 	useEffect(() => {
 		const fetchUsers = async () => {
@@ -122,11 +124,18 @@ export default function UsersPage() {
 				title="Insufficient privileges"
 				message="You are not allowed to perform this action."
 			/>
+			<InviteDialog
+				open={inviteDialogOpen}
+				onOpenChange={setInviteDialogOpen}
+			/>
 			<div className="flex items-center justify-between my-8">
 				<h1 className="text-3xl font-bold text-foreground">
 					Workspace members
 				</h1>
-				<Button className="flex items-center gap-2 px-4 py-2 bg-primary text-sm font-medium text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors cursor-pointer">
+				<Button
+					className="flex items-center gap-2 px-4 py-2 bg-primary text-sm font-medium text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors cursor-pointer"
+					onClick={() => setInviteDialogOpen(true)}
+				>
 					<Plus className="w-4 h-4" />
 					Add member
 				</Button>

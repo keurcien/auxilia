@@ -186,3 +186,18 @@ class TokenStorageFactory:
         
         storage = self.get_storage(state_data.user_id, state_data.mcp_server_id)
         return storage, state_data
+
+    async def clear_server_data(self, mcp_server_id: str) -> int:
+        """Delete all Redis keys for a given MCP server (all users).
+
+        Scans for keys matching mcp:*:{mcp_server_id}:* and deletes them.
+
+        Returns:
+            Number of keys deleted.
+        """
+        pattern = f"mcp:*:{mcp_server_id}:*"
+        deleted = 0
+        async for key in self.redis.scan_iter(match=pattern):
+            await self.redis.delete(key)
+            deleted += 1
+        return deleted
