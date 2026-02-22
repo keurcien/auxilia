@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from app.database import get_db
 from app.main import app
 from app.users.models import UserDB, WorkspaceRole
-from app.auth.dependencies import get_current_user, require_admin
+from app.auth.dependencies import get_current_user, require_admin, require_editor
 
 
 @pytest.fixture
@@ -49,8 +49,24 @@ def current_user():
 
 
 @pytest.fixture
+def editor_user():
+    """Create an editor user and override get_current_user and require_editor."""
+    user = UserDB(
+        id=uuid4(),
+        name="Editor User",
+        email="editor@test.com",
+        role=WorkspaceRole.editor,
+        hashed_password="hashed_password"
+    )
+    app.dependency_overrides[get_current_user] = lambda: user
+    app.dependency_overrides[require_editor] = lambda: user
+    yield user
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
 def admin_user():
-    """Create an admin user and override both get_current_user and require_admin."""
+    """Create an admin user and override get_current_user, require_editor, and require_admin."""
     user = UserDB(
         id=uuid4(),
         name="Admin User",
@@ -59,6 +75,7 @@ def admin_user():
         hashed_password="hashed_password"
     )
     app.dependency_overrides[get_current_user] = lambda: user
+    app.dependency_overrides[require_editor] = lambda: user
     app.dependency_overrides[require_admin] = lambda: user
     yield user
     app.dependency_overrides.clear()

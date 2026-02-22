@@ -2,19 +2,27 @@ from authlib.integrations.starlette_client import OAuth
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import func, select
 
 from app.auth.dependencies import get_current_user
 from app.auth.schemas import (
     AuthMessageResponse,
     AuthProvidersResponse,
+    InviteAcceptRequest,
+    InviteInfoResponse,
+    SetupStatusResponse,
     SigninRequest,
     SignupRequest,
 )
 from app.auth.settings import auth_settings
 from app.auth.utils import create_access_token, get_password_hash, verify_password
 from app.database import get_db
-from app.users.models import OAuthAccountDB, UserDB, UserRead
+from app.invites.models import InviteStatus
+from app.invites.service import (
+    get_pending_invite_by_email,
+    validate_invite,
+)
+from app.users.models import OAuthAccountDB, UserDB, UserRead, WorkspaceRole
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -57,40 +65,50 @@ def _clear_auth_cookie(response: JSONResponse) -> JSONResponse:
 
 
 @router.get("/providers", response_model=AuthProvidersResponse)
-async def get_auth_providers() -> AuthProvidersResponse:
-    """
-    Return available authentication methods.
-    Frontend uses this to show/hide OAuth buttons.
-    """
+async def get_auth_providers(
+    db: AsyncSession = Depends(get_db),
+) -> AuthProvidersResponse:
+    """Return available authentication methods."""
+    result = await db.execute(select(func.count()).select_from(UserDB))
+    user_count = result.scalar_one()
+
     return AuthProvidersResponse(
-        password=True,
+        password=auth_settings.password_enabled,
         google=auth_settings.google_oauth_enabled,
+        setup_required=user_count == 0,
     )
 
 
-@router.post("/signup", response_model=UserRead, status_code=201)
-async def signup(
+@router.get("/setup/status", response_model=SetupStatusResponse)
+async def get_setup_status(
+    db: AsyncSession = Depends(get_db),
+) -> SetupStatusResponse:
+    """Check whether initial setup is required (no users exist)."""
+    result = await db.execute(select(func.count()).select_from(UserDB))
+    user_count = result.scalar_one()
+    return SetupStatusResponse(setup_required=user_count == 0)
+
+
+@router.post("/setup", response_model=UserRead, status_code=201)
+async def setup(
     signup_data: SignupRequest,
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
-    """
-    Register a new user with email and password.
-    Sets JWT cookie on success.
-    """
-    result = await db.execute(select(UserDB).where(UserDB.email == signup_data.email))
-    existing_user = result.scalar_one_or_none()
-    if existing_user:
+    """Create the first user as admin. Fails if any users already exist."""
+    result = await db.execute(select(func.count()).select_from(UserDB))
+    user_count = result.scalar_one()
+    if user_count > 0:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Setup already completed",
         )
 
     hashed_password = get_password_hash(signup_data.password)
-
     user = UserDB(
         email=signup_data.email,
         name=signup_data.name,
         hashed_password=hashed_password,
+        role=WorkspaceRole.admin,
     )
     db.add(user)
     await db.commit()
@@ -110,10 +128,13 @@ async def signin(
     signin_data: SigninRequest,
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
-    """
-    Authenticate user with email and password.
-    Sets JWT cookie on success.
-    """
+    """Authenticate user with email and password."""
+    if not auth_settings.password_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Password authentication is disabled",
+        )
+
     result = await db.execute(select(UserDB).where(UserDB.email == signin_data.email))
     user = result.scalar_one_or_none()
 
@@ -140,9 +161,7 @@ async def signin(
 
 @router.post("/signout", response_model=AuthMessageResponse)
 async def signout() -> JSONResponse:
-    """
-    Sign out the current user by clearing the auth cookie.
-    """
+    """Sign out the current user by clearing the auth cookie."""
     response = JSONResponse(
         status_code=200,
         content={"message": "Successfully signed out"},
@@ -150,17 +169,89 @@ async def signout() -> JSONResponse:
     return _clear_auth_cookie(response)
 
 
+@router.get("/invite/{token}", response_model=InviteInfoResponse)
+async def get_invite_info(
+    token: str,
+    db: AsyncSession = Depends(get_db),
+) -> InviteInfoResponse:
+    """Return invite info for a given token."""
+    invite = await validate_invite(token, db)
+    if not invite:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invalid or expired invite",
+        )
+    return InviteInfoResponse(
+        email=invite.email,
+        role=invite.role,
+        password_enabled=auth_settings.password_enabled,
+        google_enabled=auth_settings.google_oauth_enabled,
+    )
+
+
+@router.post("/invite/accept", response_model=UserRead, status_code=201)
+async def accept_invite(
+    data: InviteAcceptRequest,
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Accept an invite and create a user account with password."""
+    if not auth_settings.password_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Password authentication is disabled",
+        )
+
+    invite = await validate_invite(data.token, db)
+    if not invite:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired invite",
+        )
+
+    # Check if email is already registered
+    result = await db.execute(select(UserDB).where(UserDB.email == invite.email))
+    if result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered",
+        )
+
+    hashed_password = get_password_hash(data.password)
+    user = UserDB(
+        email=invite.email,
+        name=data.name,
+        hashed_password=hashed_password,
+        role=WorkspaceRole(invite.role),
+    )
+    db.add(user)
+
+    invite.status = InviteStatus.accepted
+    db.add(invite)
+
+    await db.commit()
+    await db.refresh(user)
+
+    token = create_access_token(user.id)
+    user_read = UserRead.model_validate(user)
+    response = JSONResponse(
+        status_code=201,
+        content=user_read.model_dump(mode="json"),
+    )
+    return _set_auth_cookie(response, token)
+
+
 @router.get("/google")
-async def google_login(request: Request):
-    """
-    Initiate Google OAuth flow.
-    Redirects to Google's authorization page.
-    """
+async def google_login(request: Request, invite_token: str | None = None):
+    """Initiate Google OAuth flow."""
     if not auth_settings.google_oauth_enabled:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Google OAuth is not configured",
         )
+
+    # Store invite token in session so we can use it in the callback
+    if invite_token:
+        request.session["invite_token"] = invite_token
 
     redirect_uri = f"{auth_settings.FRONTEND_URL}/api/backend/auth/google/callback"
     return await oauth.google.authorize_redirect(request, redirect_uri)
@@ -171,11 +262,7 @@ async def google_callback(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Handle Google OAuth callback.
-    Creates or finds user, links OAuth account, sets JWT cookie.
-    Redirects to frontend after successful auth.
-    """
+    """Handle Google OAuth callback."""
     if not auth_settings.google_oauth_enabled:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -207,6 +294,7 @@ async def google_callback(
             detail="Missing required user info from Google",
         )
 
+    # Check for existing OAuth link
     result = await db.execute(
         select(OAuthAccountDB).where(
             OAuthAccountDB.provider == "google",
@@ -227,7 +315,7 @@ async def google_callback(
                 detail="Linked user not found",
             )
     else:
-        # New OAuth account - check if email exists
+        # New OAuth link - check if email exists (link to existing user)
         result = await db.execute(select(UserDB).where(UserDB.email == email))
         user = result.scalar_one_or_none()
 
@@ -240,15 +328,32 @@ async def google_callback(
             )
             db.add(oauth_account)
         else:
-            # Create new user
+            # New user - require a matching invite
+            invite_token = request.session.pop("invite_token", None)
+            invite = None
+
+            if invite_token:
+                invite = await validate_invite(invite_token, db)
+
+            # Fall back to matching by email
+            if not invite:
+                invite = await get_pending_invite_by_email(email, db)
+
+            if not invite:
+                # No invite found - reject
+                return RedirectResponse(
+                    url=f"{auth_settings.FRONTEND_URL}/auth?error=no_invite",
+                    status_code=302,
+                )
+
             user = UserDB(
                 email=email,
                 name=name,
+                role=WorkspaceRole(invite.role),
             )
             db.add(user)
-            await db.flush()  # Get user ID
+            await db.flush()
 
-            # Link OAuth account
             oauth_account = OAuthAccountDB(
                 provider="google",
                 sub_id=google_sub,
@@ -256,10 +361,13 @@ async def google_callback(
             )
             db.add(oauth_account)
 
+            invite.status = InviteStatus.accepted
+            db.add(invite)
+
         await db.commit()
         await db.refresh(user)
 
-    # Create JWT and redirect to frontend with cookie
+    # Create JWT and redirect
     access_token = create_access_token(user.id)
     redirect_url = f"{auth_settings.FRONTEND_URL}/agents"
     response = RedirectResponse(url=redirect_url, status_code=302)
@@ -279,7 +387,5 @@ async def google_callback(
 async def get_me(
     current_user: UserDB = Depends(get_current_user),
 ) -> UserRead:
-    """
-    Get the currently authenticated user.
-    """
+    """Get the currently authenticated user."""
     return UserRead.model_validate(current_user)
