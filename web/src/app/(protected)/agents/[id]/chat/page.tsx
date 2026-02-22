@@ -10,6 +10,7 @@ import { useThreadsStore } from "@/stores/threads-store";
 import { usePendingMessageStore } from "@/stores/pending-message-store";
 import { useModelsStore } from "@/stores/models-store";
 import { api } from "@/lib/api/client";
+import { ChevronDown } from "lucide-react";
 import { Agent } from "@/types/agents";
 import { getDefaultModel } from "@/lib/utils/get-default-model";
 import { useAgentReadiness } from "@/hooks/use-agent-readiness";
@@ -128,6 +129,7 @@ const StarterChatPage = () => {
 							{agent?.emoji || "🤖"}
 						</div>
 						<h1 className="text-4xl font-bold">{agent?.name}</h1>
+						<ChevronDown className="size-5 text-muted-foreground ml-8 mt-1" />
 					</button>
 					{status == "not_configured" ? (
 						<></>

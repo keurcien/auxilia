@@ -113,7 +113,7 @@ export default function AgentList() {
 						placeholder="Search agents..."
 						value={search}
 						onChange={(e) => setSearch(e.target.value)}
-						className="pl-10"
+						className="pl-10 h-11 text-base rounded-[14px]"
 					/>
 				</div>
 			</div>

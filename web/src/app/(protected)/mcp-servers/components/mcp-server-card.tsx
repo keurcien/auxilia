@@ -1,7 +1,7 @@
 "use client";
 
 import { MCPServer } from "@/types/mcp-servers";
-import { Card, CardHeader } from "@/components/ui/card";
+import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import Image from "next/image";
 
 export interface MCPServerCardProps {
@@ -12,7 +12,7 @@ export interface MCPServerCardProps {
 export default function MCPServerCard({ server, onClick }: MCPServerCardProps) {
 	return (
 		<Card
-			className="border border-border/60 shadow-none rounded-md overflow-hidden group justify-center cursor-pointer hover:border-border transition-colors"
+			className="border border-border/60 shadow-none rounded-[14px] overflow-hidden group justify-center cursor-pointer hover:border-border transition-colors"
 			onClick={onClick}
 		>
 			<CardHeader className="gap-0">
@@ -38,6 +38,11 @@ export default function MCPServerCard({ server, onClick }: MCPServerCardProps) {
 					</div>
 				</div>
 			</CardHeader>
+			<CardContent>
+				<p className="text-[13.5px] leading-relaxed text-muted-foreground line-clamp-3 min-h-[4.5em]">
+					{server.description}
+				</p>
+			</CardContent>
 		</Card>
 	);
 }

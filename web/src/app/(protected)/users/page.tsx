@@ -129,39 +129,39 @@ export default function UsersPage() {
 				onOpenChange={setInviteDialogOpen}
 			/>
 			<div className="flex items-center justify-between my-8">
-				<h1 className="text-3xl font-bold text-foreground">
-					Workspace members
+				<h1 className="font-primary font-extrabold text-4xl tracking-tighter text-[#2A2F2D]">
+					Users
 				</h1>
 				<Button
-					className="flex items-center gap-2 px-4 py-2 bg-primary text-sm font-medium text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors cursor-pointer"
+					className="flex items-center gap-2 py-5 bg-[#2A2F2D] text-base font-semibold text-white rounded-[14px] hover:opacity-90 transition-opacity cursor-pointer shadow-[0_4px_14px_rgba(118,181,160,0.14)] border-none"
 					onClick={() => setInviteDialogOpen(true)}
 				>
 					<Plus className="w-4 h-4" />
-					Add member
+					Invite user
 				</Button>
 			</div>
 
-			<div className="relative mb-6">
-				<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+			<div className="relative mb-6 max-w-xs">
+				<Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
 				<Input
-					placeholder="Search members..."
+					placeholder="Search users..."
 					value={search}
 					onChange={(e) => setSearch(e.target.value)}
-					className="pl-9"
+					className="pl-10 h-11 text-base rounded-[14px]"
 				/>
 			</div>
 
-			<div className="rounded-xl border bg-card overflow-hidden">
+			<div className="rounded-[20px] border bg-card overflow-hidden">
 				<table className="w-full">
 					<thead>
 						<tr className="border-b bg-muted/50">
-							<th className="px-6 py-3 text-left text-sm font-medium text-muted-foreground">
+							<th className="px-6 py-3 text-left text-xs text-muted-foreground font-semibold uppercase tracking-wider">
 								Name
 							</th>
-							<th className="px-6 py-3 text-left text-sm font-medium text-muted-foreground">
+							<th className="px-6 py-3 text-left text-xs text-muted-foreground font-semibold uppercase tracking-wider">
 								Email
 							</th>
-							<th className="px-6 py-3 text-left text-sm font-medium text-muted-foreground">
+							<th className="px-6 py-3 text-left text-xs text-muted-foreground font-semibold uppercase tracking-wider">
 								Role
 							</th>
 							<th className="w-16 px-6 py-3" />
@@ -193,7 +193,10 @@ export default function UsersPage() {
 								const isCurrentUser = user.id === currentUser?.id;
 
 								return (
-									<tr key={user.id} className="border-b last:border-b-0">
+									<tr
+										key={user.id}
+										className="border-b last:border-b-0 hover:bg-muted/30 transition-colors"
+									>
 										<td className="px-6 py-4">
 											<div className="flex items-center gap-3">
 												<Avatar className="h-9 w-9 shrink-0">
@@ -213,7 +216,7 @@ export default function UsersPage() {
 										</td>
 										<td className="px-6 py-4">
 											{isCurrentUser ? (
-												<span className="w-28 inline-flex items-center rounded-md border px-3 py-1.5 text-sm text-muted-foreground">
+												<span className="w-28 inline-flex items-center rounded-full border px-3 py-1.5 text-sm text-muted-foreground">
 													{ROLE_LABELS[user.role]}
 												</span>
 											) : (
@@ -223,7 +226,7 @@ export default function UsersPage() {
 														handleRoleChange(user.id, value)
 													}
 												>
-													<SelectTrigger className="w-28">
+													<SelectTrigger className="w-28 rounded-full">
 														<SelectValue />
 													</SelectTrigger>
 													<SelectContent>
