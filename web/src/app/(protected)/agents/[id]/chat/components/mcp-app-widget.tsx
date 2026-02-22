@@ -4,15 +4,55 @@ import { AppRenderer } from "@mcp-ui/client";
 import type { ToolUIPart } from "ai";
 import { api } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
-import type { McpAppToolInfo } from "@/hooks/use-mcp-app-tools";
 import { useMcpHostContext } from "@/hooks/use-mcp-host-context";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+
+export type McpAppToolInfo = {
+	resourceUri: string;
+	serverId: string;
+};
 
 type McpAppWidgetProps = {
 	toolPart: ToolUIPart;
 	toolName: string;
 	appToolInfo: McpAppToolInfo;
 	className?: string;
+};
+
+const AUXILIA_METADATA_KEY = "auxilia";
+const MCP_APP_RESOURCE_URI_KEY = "mcpAppResourceUri";
+const MCP_SERVER_ID_KEY = "mcpServerId";
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+	typeof value === "object" && value !== null;
+
+export const getMcpAppToolInfo = (toolPart: ToolUIPart): McpAppToolInfo | null => {
+	const providerMetadata = toolPart.callProviderMetadata;
+	if (!isRecord(providerMetadata)) {
+		return null;
+	}
+
+	const auxiliaMetadata = providerMetadata[AUXILIA_METADATA_KEY];
+	if (!isRecord(auxiliaMetadata)) {
+		return null;
+	}
+
+	const resourceUri = auxiliaMetadata[MCP_APP_RESOURCE_URI_KEY];
+	const serverId = auxiliaMetadata[MCP_SERVER_ID_KEY];
+
+	if (
+		typeof resourceUri !== "string" ||
+		typeof serverId !== "string" ||
+		resourceUri.trim().length === 0 ||
+		serverId.trim().length === 0
+	) {
+		return null;
+	}
+
+	return {
+		resourceUri,
+		serverId,
+	};
 };
 
 const toToolInput = (input: unknown): Record<string, unknown> | undefined => {

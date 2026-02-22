@@ -62,25 +62,31 @@ import { Loader } from "../components/loader";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { usePendingMessageStore } from "@/stores/pending-message-store";
 import { useAgentReadiness } from "@/hooks/use-agent-readiness";
-import { useMcpAppTools } from "@/hooks/use-mcp-app-tools";
-import { McpAppWidget } from "../components/mcp-app-widget";
+import { getMcpAppToolInfo, McpAppWidget } from "../components/mcp-app-widget";
+
+const sanitizeToolIdentifier = (value: string): string => {
+	const sanitized = value.replace(/[^a-zA-Z0-9_-]/g, "_").replace(/^_+|_+$/g, "");
+	return sanitized || "tool";
+};
 
 const getToolMetadata = (toolType: string, knownServerNames: string[]) => {
 	const normalizedToolType = toolType.replace(/^tool-/, "");
-	const matchedServerName = knownServerNames.find(
-		(serverName) =>
-			normalizedToolType === serverName ||
-			normalizedToolType.startsWith(`${serverName}_`),
-	);
+	for (const serverName of knownServerNames) {
+		const aliases = [serverName, sanitizeToolIdentifier(serverName)];
+		for (const alias of aliases) {
+			if (
+				normalizedToolType === alias ||
+				normalizedToolType.startsWith(`${alias}_`)
+			) {
+				const suffix = normalizedToolType.slice(alias.length);
+				const toolName = suffix.startsWith("_") ? suffix.slice(1) : suffix;
 
-	if (matchedServerName) {
-		const suffix = normalizedToolType.slice(matchedServerName.length);
-		const toolName = suffix.startsWith("_") ? suffix.slice(1) : suffix;
-
-		return {
-			serverName: matchedServerName,
-			toolName: toolName || normalizedToolType,
-		};
+				return {
+					serverName,
+					toolName: toolName || normalizedToolType,
+				};
+			}
+		}
 	}
 
 	const separatorIndex = normalizedToolType.indexOf("_");
@@ -110,7 +116,6 @@ const ChatPage = () => {
 		disconnectedMcpServers,
 		refetch: refetchReady,
 	} = useAgentReadiness(agentId);
-	const { mcpAppToolsMap } = useMcpAppTools(agentId);
 	const {
 		messages,
 		sendMessage,
@@ -350,8 +355,7 @@ const ChatPage = () => {
 														const toolPart = part as ToolUIPart;
 														const { serverName, toolName } =
 															getToolMetadata(part.type, knownServerNames);
-														const appToolInfo =
-															mcpAppToolsMap[serverName]?.[toolName];
+														const appToolInfo = getMcpAppToolInfo(toolPart);
 
 														return (
 															<Fragment key={`${message.id}-${i}`}>
@@ -428,13 +432,13 @@ const ChatPage = () => {
 																		)}
 																	</ToolContent>
 																</Tool>
-																{appToolInfo &&
+																{appToolInfo && (
 																	<McpAppWidget
 																		toolPart={toolPart}
 																		toolName={toolName}
 																		appToolInfo={appToolInfo}
 																	/>
-																}
+																)}
 															</Fragment>
 														);
 													}

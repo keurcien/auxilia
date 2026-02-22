@@ -53,6 +53,7 @@ class AISDKStreamAdapter:
         is_resume: bool = False,
         rejected_tool_calls: list[dict] | None = None,
         approved_tool_call_ids: list[str] | None = None,
+        tool_ui_metadata: dict[str, dict[str, str]] | None = None,
     ):
         self._message_id = message_id or str(uuid.uuid4())
         self._is_resuming = is_resume
@@ -66,6 +67,7 @@ class AISDKStreamAdapter:
 
         self._content = ContentStreamManager()
         self._tools = ToolCallTracker(pre_approved_ids=pre_approved)
+        self._tool_ui_metadata = tool_ui_metadata or {}
 
         self._approval_pending = False
         self._finished = False
@@ -115,15 +117,29 @@ class AISDKStreamAdapter:
 
         elif event_type == "on_chat_model_stream":
             chunk = value.get("data", {}).get("chunk")
-            async for event in handle_chat_model_stream(chunk, self._content, self._tools):
+            async for event in handle_chat_model_stream(
+                chunk,
+                self._content,
+                self._tools,
+                self._tool_ui_metadata,
+            ):
                 yield event
 
         elif event_type == "on_chat_model_end":
-            async for event in handle_chat_model_end(value, self._tools):
+            async for event in handle_chat_model_end(
+                value,
+                self._tools,
+                self._tool_ui_metadata,
+            ):
                 yield event
 
         elif event_type == "on_tool_start":
-            async for event in handle_tool_start(value, self._content, self._tools):
+            async for event in handle_tool_start(
+                value,
+                self._content,
+                self._tools,
+                self._tool_ui_metadata,
+            ):
                 yield event
 
         elif event_type == "on_tool_end":
@@ -135,7 +151,11 @@ class AISDKStreamAdapter:
 
         elif event_type == "on_chain_stream":
             has_approvals = False
-            async for event in handle_interrupt(value, self._tools):
+            async for event in handle_interrupt(
+                value,
+                self._tools,
+                self._tool_ui_metadata,
+            ):
                 has_approvals = True
                 yield event
             if has_approvals:
