@@ -98,7 +98,7 @@ export function AppSidebar() {
 	};
 	return (
 		<>
-			<Sidebar>
+			<Sidebar variant="floating" className="font-chat">
 				<SidebarHeader>
 					<div className="flex items-center gap-1 px-2 py-2">
 						<div className="flex size-8 items-center justify-center rounded-lg text-primary-foreground">
@@ -118,30 +118,25 @@ export function AppSidebar() {
 							/>
 						</div>
 						<div className="flex flex-col">
-							<span className="text-base font-semibold">auxilia</span>
+							<span className="font-sans text-base font-semibold">auxilia</span>
 						</div>
 					</div>
 				</SidebarHeader>
 
 				<SidebarContent>
 					<SidebarGroup>
-						<SidebarMenu>
-							<SidebarMenuItem>
-								<SidebarMenuButton
-									tooltip="New thread"
-									onClick={() => {
-										if (agents.length > 0) {
-											router.push(`/agents/${agents[0].id}/chat`);
-										}
-									}}
-									className="cursor-pointer"
-									disabled={agents.length === 0}
-								>
-									<SquarePen />
-									<span>New thread</span>
-								</SidebarMenuButton>
-							</SidebarMenuItem>
-						</SidebarMenu>
+						<button
+							onClick={() => {
+								if (agents.length > 0) {
+									router.push(`/agents/${agents[0].id}/chat`);
+								}
+							}}
+							disabled={agents.length === 0}
+							className="w-full py-2.5 px-3.5 rounded-xl border-[1.5px] border-sidebar-border bg-background text-sm font-medium flex items-center justify-center gap-2 cursor-pointer hover:bg-sidebar-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+						>
+							<SquarePen className="size-4" />
+							New thread
+						</button>
 					</SidebarGroup>
 
 					<SidebarGroup className="flex-1 min-h-0 overflow-hidden">
@@ -166,7 +161,8 @@ export function AppSidebar() {
 													<div className="text-sm font-medium truncate">
 														{thread.firstMessageContent}
 													</div>
-													<div className="text-xs text-muted-foreground truncate">
+													<div className="text-xs text-muted-foreground truncate flex items-center gap-1">
+														<Bot className="size-3 shrink-0" />
 														{thread.agentName}
 													</div>
 												</div>
@@ -198,8 +194,10 @@ export function AppSidebar() {
 						</SidebarGroupContent>
 					</SidebarGroup>
 
-					<SidebarGroup className="mt-auto">
-						<SidebarGroupLabel>Workspace</SidebarGroupLabel>
+					<SidebarGroup className="mt-auto border-t border-sidebar-border pt-3">
+						<SidebarGroupLabel className="text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">
+							Workspace
+						</SidebarGroupLabel>
 						<SidebarGroupContent>
 							<SidebarMenu>
 								{navItems.map((item) => (
@@ -221,7 +219,7 @@ export function AppSidebar() {
 					</SidebarGroup>
 				</SidebarContent>
 
-				<SidebarFooter>
+				<SidebarFooter className="border-t border-sidebar-border">
 					<SidebarMenu>
 						<SidebarMenuItem>
 							<DropdownMenu>
