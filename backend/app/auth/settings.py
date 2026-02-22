@@ -27,6 +27,9 @@ class AuthSettings(BaseSettings):
     # Frontend URL for OAuth redirects
     FRONTEND_URL: str = "http://localhost:3000"
 
+    # When True and Google OAuth is configured, password auth is disabled
+    AUTH_GOOGLE_EXCLUSIVE: bool = False
+
     model_config: ConfigDict = ConfigDict(
         env_file=ROOT_ENV,
         extra="ignore"
@@ -36,6 +39,11 @@ class AuthSettings(BaseSettings):
     def google_oauth_enabled(self) -> bool:
         """Check if Google OAuth is configured."""
         return bool(self.GOOGLE_CLIENT_ID and self.GOOGLE_CLIENT_SECRET)
+
+    @property
+    def password_enabled(self) -> bool:
+        """Password auth is disabled when Google exclusive mode is active."""
+        return not (self.google_oauth_enabled and self.AUTH_GOOGLE_EXCLUSIVE)
 
 
 auth_settings = AuthSettings()

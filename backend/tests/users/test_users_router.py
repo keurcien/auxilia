@@ -7,8 +7,8 @@ from fastapi.testclient import TestClient
 from app.users.models import UserDB, WorkspaceRole
 
 
-def test_create_user(client: TestClient, mock_db):
-    """Test creating a new user."""
+def test_create_user(client: TestClient, mock_db, admin_user):
+    """Test creating a new user (admin only)."""
     user_data = {
         "name": "Test User",
         "email": "test@example.com",
@@ -39,7 +39,7 @@ def test_create_user(client: TestClient, mock_db):
     assert "updated_at" in data
 
 
-def test_create_user_duplicate_email(client: TestClient, mock_db):
+def test_create_user_duplicate_email(client: TestClient, mock_db, admin_user):
     """Test creating a user with duplicate email fails."""
     user_data = {
         "name": "Test User",
@@ -274,7 +274,7 @@ def test_update_user_not_found(client: TestClient, mock_db):
     assert response.json()["detail"] == "User not found"
 
 
-def test_delete_user(client: TestClient, mock_db):
+def test_delete_user(client: TestClient, mock_db, admin_user):
     """Test deleting a user."""
     user_id = uuid4()
     user = UserDB(
@@ -295,7 +295,7 @@ def test_delete_user(client: TestClient, mock_db):
     mock_db.delete.assert_called_once()
 
 
-def test_delete_user_not_found(client: TestClient, mock_db):
+def test_delete_user_not_found(client: TestClient, mock_db, admin_user):
     """Test deleting a non-existent user returns 404."""
     fake_id = uuid4()
 

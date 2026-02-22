@@ -19,7 +19,7 @@ from app.agents.models import (
     AgentUserPermissionDB,
 )
 from app.agents.utils import read_agent, read_agents
-from app.auth.dependencies import get_current_user, get_current_user_optional
+from app.auth.dependencies import get_current_user, get_current_user_optional, require_editor
 from app.database import get_db
 from app.mcp.client.auth import WebOAuthClientProvider, build_oauth_client_metadata
 from app.mcp.client.storage import TokenStorageFactory
@@ -35,7 +35,9 @@ router = APIRouter(prefix="/agents", tags=["agents"])
 
 @router.post("/", response_model=AgentRead, status_code=201)
 async def create_agent(
-    agent: AgentCreate, db: AsyncSession = Depends(get_db)
+    agent: AgentCreate,
+    current_user: UserDB = Depends(require_editor),
+    db: AsyncSession = Depends(get_db),
 ) -> AgentRead:
     db_agent = AgentDB.model_validate(agent)
     db.add(db_agent)

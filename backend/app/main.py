@@ -18,6 +18,7 @@ from app.mcp.servers.router import router as mcp_servers_router
 from app.model_providers.router import router as model_providers_router
 from app.threads.router import router as threads_router
 from app.users.router import router as users_router
+from app.invites.router import router as invites_router
 from app.integrations.slack.router import router as slack_router
 
 # Redis configuration from environment variables
@@ -93,6 +94,7 @@ app.include_router(auth_router)
 app.include_router(mcp_servers_router)
 app.include_router(threads_router)
 app.include_router(users_router)
+app.include_router(invites_router)
 app.include_router(model_providers_router)
 app.include_router(slack_router)
 
