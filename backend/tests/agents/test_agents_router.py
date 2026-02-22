@@ -5,8 +5,8 @@ from fastapi.testclient import TestClient
 from app.agents.models import AgentDB
 
 
-def test_create_agent(client: TestClient, mock_db):
-    """Test creating a new agent."""
+def test_create_agent(client: TestClient, mock_db, editor_user):
+    """Test creating a new agent (editor or above)."""
     owner_id = uuid4()
     agent_data = {
         "name": "Test Agent",

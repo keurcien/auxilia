@@ -19,7 +19,11 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 
 @router.post("/", response_model=UserRead, status_code=201)
-async def create_user(user: UserCreate, db: AsyncSession = Depends(get_db)) -> UserRead:
+async def create_user(
+    user: UserCreate,
+    current_user: UserDB = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> UserRead:
     """Create a new user."""
     # Check if email already exists
     if user.email:
