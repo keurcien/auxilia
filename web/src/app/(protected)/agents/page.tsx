@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import AgentList from "@/app/(protected)/agents/components/agent-list";
+import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api/client";
 import { useAgentsStore } from "@/stores/agents-store";
@@ -15,6 +16,7 @@ export default function AgentsPage() {
 	const user = useUserStore((state) => state.user);
 	const addAgent = useAgentsStore((state) => state.addAgent);
 	const [isCreating, setIsCreating] = useState(false);
+	const [errorDialogOpen, setErrorDialogOpen] = useState(false);
 
 	const handleCreateAgent = async () => {
 		if (!user) return;
@@ -29,9 +31,16 @@ export default function AgentsPage() {
 			const newAgent: Agent = response.data;
 			addAgent(newAgent);
 			router.push(`/agents/${newAgent.id}`);
-		} catch (error) {
-			console.error("Error creating agent:", error);
-			alert("Failed to create agent. Please try again.");
+		} catch (error: unknown) {
+			if (
+				error instanceof Object &&
+				"status" in error &&
+				error.status === 403
+			) {
+				setErrorDialogOpen(true);
+			} else {
+				console.error("Error creating agent:", error);
+			}
 		} finally {
 			setIsCreating(false);
 		}
@@ -39,6 +48,12 @@ export default function AgentsPage() {
 
 	return (
 		<div className="mx-auto min-h-full w-full max-w-5xl px-4 pb-20 @min-screen-md/layout:px-8 @min-screen-xl/layout:max-w-6xl">
+			<ForbiddenErrorDialog
+				open={errorDialogOpen}
+				onOpenChange={setErrorDialogOpen}
+				title="Insufficient privileges"
+				message="You need at least editor permissions to create agents."
+			/>
 			<div className="flex items-center justify-between my-8">
 				<h1 className="text-3xl font-bold text-foreground">
 					Your workspace agents
