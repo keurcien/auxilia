@@ -361,6 +361,7 @@ async def handle_message(event: SlackEvent, *, team_id: str | None = None) -> No
         return
 
     user = await resolve_user(event.user)
+
     if not user:
         return
 
@@ -368,42 +369,60 @@ async def handle_message(event: SlackEvent, *, team_id: str | None = None) -> No
 
     # Look up the existing thread (created when the user picked an agent)
     db = AsyncSessionLocal()
-    thread = await db.get(ThreadDB, thread_ts)
+    try:
+        thread = await db.get(ThreadDB, thread_ts)
 
-    if not thread:
-        await post_agent_picker(client, event.channel, thread_ts, db, user.id, user_role=user.role)
-        await db.close()
+        if not thread:
+            await post_agent_picker(client, event.channel, thread_ts, db, user.id, user_role=user.role)
+            return
 
-        return
-
-    if not await _is_agent_ready(str(thread.agent_id), str(user.id), db):
-        connect_url = f"{auth_settings.FRONTEND_URL}/agents/{thread.agent_id}/chat"
-        await client.chat_postMessage(
-            channel=event.channel,
-            thread_ts=thread_ts,
-            blocks=[
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "Agent is not configured or agent requires authentication on your behalf. Please sign in to auxilia to continue.",
+        if not await _is_agent_ready(str(thread.agent_id), str(user.id), db):
+            connect_url = f"{auth_settings.FRONTEND_URL}/agents/{thread.agent_id}/chat"
+            await client.chat_postMessage(
+                channel=event.channel,
+                thread_ts=thread_ts,
+                blocks=[
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": "Agent is not configured or agent requires authentication on your behalf. Please sign in to auxilia to continue.",
+                        },
                     },
-                },
-                {
-                    "type": "actions",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": "Connect on auxilia"},
-                            "url": connect_url,
-                            "style": "primary",
-                        }
-                    ],
-                },
-            ],
+                    {
+                        "type": "actions",
+                        "elements": [
+                            {
+                                "type": "button",
+                                "text": {"type": "plain_text", "text": "Connect on auxilia"},
+                                "url": connect_url,
+                                "style": "primary",
+                            }
+                        ],
+                    },
+                ],
+            )
+            return
+
+        await client.assistant_threads_setStatus(
+            channel_id=event.channel, thread_ts=thread_ts, status="is typing...",
         )
+
+        # Set the Slack thread title to the first real user message.
+        if not thread.first_message_content:
+            thread.first_message_content = question
+            await db.commit()
+            await client.assistant_threads_setTitle(
+                channel_id=event.channel,
+                thread_ts=thread_ts,
+                title=question[:255],
+            )
+
+        await stream_agent_response(
+            thread, db, question, event, client, team_id=team_id,
+        )
+    finally:
         await db.close()
-        return
 
 
 async def handle_interaction(payload: SlackInteractionPayload) -> None:
@@ -481,30 +500,32 @@ async def _resume_agent(
         return
 
     db = AsyncSessionLocal()
-    thread = await db.get(ThreadDB, thread_ts)
-    if not thread:
+    try:
+        thread = await db.get(ThreadDB, thread_ts)
+        if not thread:
+            return
+
+        await client.assistant_threads_setStatus(
+            channel_id=channel_id, thread_ts=thread_ts, status="is typing...",
+        )
+
+        deps = build_agent_deps(thread, db)
+        agent_runtime = await AgentRuntime.create(thread=thread, db=db, deps=deps)
+
+        streamer = await client.chat_stream(
+            channel=channel_id,
+            thread_ts=thread_ts,
+            recipient_user_id=slack_user_id,
+        )
+
+        approval_requests = await _stream_and_collect_approvals(
+            agent_runtime, streamer, commands=commands,
+        )
+
+        for req in approval_requests:
+            await post_tool_approval_block(client, channel_id, thread_ts, req)
+
+        if not approval_requests:
+            await _post_auxilia_link(client, channel_id, thread_ts, thread)
+    finally:
         await db.close()
-        return
-
-    await client.assistant_threads_setStatus(
-        channel_id=channel_id, thread_ts=thread_ts, status="is typing...",
-    )
-
-    deps = build_agent_deps(thread, db)
-    agent_runtime = await AgentRuntime.create(thread=thread, db=db, deps=deps)
-
-    streamer = await client.chat_stream(
-        channel=channel_id,
-        thread_ts=thread_ts,
-        recipient_user_id=slack_user_id,
-    )
-
-    approval_requests = await _stream_and_collect_approvals(
-        agent_runtime, streamer, commands=commands,
-    )
-
-    for req in approval_requests:
-        await post_tool_approval_block(client, channel_id, thread_ts, req)
-
-    if not approval_requests:
-        await _post_auxilia_link(client, channel_id, thread_ts, thread)
