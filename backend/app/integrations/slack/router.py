@@ -12,8 +12,8 @@ from urllib.parse import parse_qs
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
-from app.integrations.slack.commands.chat import handle_agent_selection, handle_app_mention
-from app.integrations.slack.handlers import handle_interaction, handle_message
+from app.integrations.slack.commands.chat import handle_agent_selection
+from app.integrations.slack.handlers import handle_assistant_thread_started, handle_interaction, handle_message
 from app.integrations.slack.models import SlackEventPayload, SlackInteractionPayload
 from app.integrations.slack.utils import verify_slack_signature
 
@@ -34,10 +34,8 @@ async def slack_events(body: bytes = Depends(verify_slack_signature)):
     if payload.type == "url_verification":
         return JSONResponse(content={"challenge": payload.challenge})
 
-    if payload.event.type == "app_mention" and payload.event.user:
-        asyncio.create_task(
-            handle_app_mention(payload.event, team_id=payload.team_id),
-        )
+    if payload.event.type == "assistant_thread_started":
+        asyncio.create_task(handle_assistant_thread_started(payload.event))
 
     elif payload.event.type == "message" and payload.event.user:
         if payload.event.bot_id or payload.event.subtype == "bot_message":

@@ -16,6 +16,11 @@ from app.users.service import get_user_by_email
 from app.database import AsyncSessionLocal
 from app.agents.runtime import AgentRuntime, build_agent_deps
 from app.integrations.slack.blocks import build_tool_approval_blocks
+from sqlmodel import select
+from app.agents.utils import read_agent, read_agents
+from app.mcp.servers.models import MCPServerDB
+from app.mcp.utils import check_mcp_server_connected
+from app.auth.settings import auth_settings
 from app.integrations.slack.commands.chat import post_agent_picker
 from app.threads.models import ThreadDB
 
@@ -83,9 +88,29 @@ async def _stream_and_collect_approvals(
             await streamer.append(markdown_text=f"\n\n:{tool_name.split('_')[0].lower()}:  **{tool_name.split('_')[0]}**  ›  `{'_'.join(tool_name.split('_')[1:])}`\n\n")
         elif ev["type"] == "tool_approval_request":
             approval_requests.append(ev)
+        elif ev["type"] == "error":
+            await streamer.append(markdown_text=f"**`Error: {ev['content']}`**\n\n")
 
     await streamer.stop()
     return approval_requests
+
+
+async def _post_auxilia_link(
+    client: AsyncWebClient, channel: str, thread_ts: str, thread: ThreadDB,
+) -> None:
+    """Post a divider + 'Open in auxilia' link as a Block Kit message."""
+    url = f"{auth_settings.FRONTEND_URL}/agents/{thread.agent_id}/chat/{thread.id}"
+    await client.chat_postMessage(
+        channel=channel,
+        thread_ts=thread_ts,
+        blocks=[
+            {"type": "divider"},
+            {
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": f"<{url}|*View in auxilia*>"}],
+            },
+        ],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -224,10 +249,113 @@ async def stream_agent_response(
     for req in approval_requests:
         await post_tool_approval_block(client, event.channel, thread_ts, req)
 
+    if not approval_requests:
+        await _post_auxilia_link(client, event.channel, thread_ts, thread)
+
+
+async def handle_assistant_thread_started(event: SlackEvent) -> None:
+    """Welcome a user when they open a new AI-assistant thread.
+
+    Sets a typing status, resolves the Slack identity to an internal account,
+    then either explains the problem or presents the agent picker.
+    """
+    at = event.assistant_thread
+    if not at or not at.user_id or not at.channel_id or not at.thread_ts:
+        return
+
+    channel_id = at.channel_id
+    thread_ts = at.thread_ts
+    slack_user_id = at.user_id
+
+    client = AsyncWebClient(token=slack_settings.slack_bot_token)
+    await client.assistant_threads_setStatus(
+        channel_id=channel_id, thread_ts=thread_ts, status="is typing...",
+    )
+
+    user_info = await get_user_info(slack_user_id)
+    display_name = (
+        user_info.real_name or user_info.name) if user_info else "there"
+
+    # Resolve Slack identity → internal user
+    user = None
+    if user_info and user_info.profile.email:
+        async with AsyncSessionLocal() as db:
+            user = await get_user_by_email(user_info.profile.email, db)
+
+    if not user:
+        await client.chat_postMessage(
+            channel=channel_id,
+            thread_ts=thread_ts,
+            text=f"Hi {display_name}! It seems like you haven't registered on auxilia yet.",
+        )
+        return
+
+    async with AsyncSessionLocal() as db:
+        all_agents = await read_agents(db, user_id=user.id, user_role=user.role)
+    agents = [a for a in all_agents if a.current_user_permission is not None]
+
+    if not agents:
+        await client.chat_postMessage(
+            channel=channel_id,
+            thread_ts=thread_ts,
+            text=f"Hi {display_name}! You don't have any agents configured yet.",
+        )
+        return
+
+    buttons = [
+        {
+            "type": "button",
+            "text": {"type": "plain_text", "text": f"{a.emoji or ''} {a.name}".strip()},
+            "action_id": f"select_agent:{a.id}",
+            "value": str(a.id),
+        }
+        for a in agents
+    ]
+    await client.chat_postMessage(
+        channel=channel_id,
+        thread_ts=thread_ts,
+        blocks=[
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"Hi {display_name}! Select an agent to begin a conversation:",
+                },
+            },
+            {"type": "actions", "elements": buttons},
+        ],
+        text=f"Hi {display_name}! Select an agent to begin a conversation.",
+    )
+
+
+async def _is_agent_ready(agent_id: str, user_id: str, db: AsyncSession) -> bool:
+    """Mirror the /is-ready endpoint: return True only when all bound MCP servers
+    are connected for this user."""
+    from uuid import UUID
+    agent = await read_agent(UUID(agent_id), db)
+
+    if not agent.mcp_servers:
+        return True
+
+    for mcp_server in agent.mcp_servers:
+        if mcp_server.tools is None:
+            return False
+
+    server_ids = [s.id for s in agent.mcp_servers]
+    result = await db.execute(select(MCPServerDB).where(MCPServerDB.id.in_(server_ids)))
+    servers = result.scalars().all()
+
+    for server in servers:
+        if not await check_mcp_server_connected(server, user_id):
+            return False
+
+    return True
+
 
 async def handle_message(event: SlackEvent, *, team_id: str | None = None) -> None:
     """Route a Slack message to the configured agent for this thread."""
     thread_ts = event.thread_ts or event.ts
+
     question = (event.text or "").strip()
     if not question:
         return
@@ -243,18 +371,39 @@ async def handle_message(event: SlackEvent, *, team_id: str | None = None) -> No
     thread = await db.get(ThreadDB, thread_ts)
 
     if not thread:
-        await post_agent_picker(client, event.channel, thread_ts, db, user.id)
+        await post_agent_picker(client, event.channel, thread_ts, db, user.id, user_role=user.role)
         await db.close()
 
         return
 
-    await client.assistant_threads_setStatus(
-        channel_id=event.channel, thread_ts=thread_ts, status="is typing...",
-    )
-
-    await stream_agent_response(
-        thread, db, question, event, client, team_id=team_id,
-    )
+    if not await _is_agent_ready(str(thread.agent_id), str(user.id), db):
+        connect_url = f"{auth_settings.FRONTEND_URL}/agents/{thread.agent_id}/chat"
+        await client.chat_postMessage(
+            channel=event.channel,
+            thread_ts=thread_ts,
+            blocks=[
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "Agent is not configured or agent requires authentication on your behalf. Please sign in to auxilia to continue.",
+                    },
+                },
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "Connect on auxilia"},
+                            "url": connect_url,
+                            "style": "primary",
+                        }
+                    ],
+                },
+            ],
+        )
+        await db.close()
+        return
 
 
 async def handle_interaction(payload: SlackInteractionPayload) -> None:
@@ -356,3 +505,6 @@ async def _resume_agent(
 
     for req in approval_requests:
         await post_tool_approval_block(client, channel_id, thread_ts, req)
+
+    if not approval_requests:
+        await _post_auxilia_link(client, channel_id, thread_ts, thread)
