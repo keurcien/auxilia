@@ -166,6 +166,17 @@ export function AppSidebar() {
 														{thread.agentName}
 													</div>
 												</div>
+												{/* Check for a dot in the thread ID. If it exists, it means the thread was initiated in Slack. But need refactor this to use the thread type instead.*/}
+												{thread.id.includes(".") && (
+													<Image
+														src="https://storage.googleapis.com/choose-assets/slack.png"
+														alt="Slack"
+														height={16}
+														width={16}
+														className="h-4 w-4 shrink-0 ml-1"
+														title="Thread initiated in Slack"
+													/>
+												)}
 											</Link>
 										</SidebarMenuButton>
 										<DropdownMenu>
