@@ -89,7 +89,14 @@ function AuthPageContent() {
 						alt="auxilia"
 						width={48}
 						height={48}
-						className="mb-2"
+						className="dark:hidden mb-2"
+					/>
+					<Image
+						src="https://storage.googleapis.com/choose-assets/logo-dark.png"
+						alt="auxilia"
+						width={48}
+						height={48}
+						className="hidden dark:block mb-2"
 					/>
 					<span className="text-2xl">auxilia</span>
 				</CardTitle>
