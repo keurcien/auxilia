@@ -16,7 +16,7 @@ export default async function ProtectedLayout({
 		<SidebarProvider defaultOpen={defaultOpen}>
 			<StoreInitializer />
 			<AppSidebar />
-			<main className="flex-1 flex flex-col h-screen">
+			<main className="flex-1 flex flex-col h-screen w-full">
 				<div className="flex items-center gap-2 p-4 shrink-0">
 					<SidebarTrigger className="cursor-pointer" />
 				</div>
