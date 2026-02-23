@@ -14,6 +14,18 @@
 from pydantic import BaseModel
 
 
+class SlackAssistantThread(BaseModel):
+    """Nested object present in both assistant_thread_started and message events.
+
+    In assistant_thread_started the full context is provided (user_id, channel_id,
+    thread_ts).  In regular message events only action_token is present, so all
+    fields are optional.
+    """
+    user_id: str | None = None
+    channel_id: str | None = None
+    thread_ts: str | None = None
+
+
 class SlackEvent(BaseModel):
     """The inner event object inside an event_callback payload."""
     type: str
@@ -24,6 +36,7 @@ class SlackEvent(BaseModel):
     bot_id: str | None = None
     subtype: str | None = None
     thread_ts: str | None = None
+    assistant_thread: SlackAssistantThread | None = None
 
 
 class SlackEventPayload(BaseModel):
@@ -82,4 +95,5 @@ class SlackUserProfile(BaseModel):
 class SlackUserInfo(BaseModel):
     id: str
     name: str
+    real_name: str | None = None
     profile: SlackUserProfile
