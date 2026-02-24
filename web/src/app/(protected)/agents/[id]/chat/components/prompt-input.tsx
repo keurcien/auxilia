@@ -116,11 +116,11 @@ const ChatPromptInput = ({
 					{(attachment) => <PromptInputAttachment data={attachment} />}
 				</PromptInputAttachments>
 				<PromptInputBody>
-					<PromptInputTextarea ref={textareaRef} />
+					<PromptInputTextarea ref={textareaRef} disabled={agentReady === false} />
 				</PromptInputBody>
 				<PromptInputFooter>
 					<PromptInputTools>
-						<PromptInputAddAttachmentButton />
+						<PromptInputAddAttachmentButton disabled={agentReady === false} />
 						{/* <PromptInputSpeechButton textareaRef={textareaRef} />
 						<PromptInputButton>
 							<GlobeIcon size={16} />
