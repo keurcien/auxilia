@@ -62,6 +62,7 @@ import { Loader } from "../components/loader";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { usePendingMessageStore } from "@/stores/pending-message-store";
 import { useAgentReadiness } from "@/hooks/use-agent-readiness";
+import { useChatHeaderStore } from "@/stores/chat-header-store";
 
 const ChatPage = () => {
 	const params = useParams();
@@ -117,6 +118,7 @@ const ChatPage = () => {
 	const consumePendingMessage = usePendingMessageStore(
 		(state) => state.consumePendingMessage,
 	);
+	const { setCurrentChat, clearCurrentChat } = useChatHeaderStore();
 
 	const handleSubmit = (message: PromptInputMessage) => {
 		if (!message) return;
@@ -131,6 +133,10 @@ const ChatPage = () => {
 	};
 
 	useEffect(() => {
+		return () => clearCurrentChat();
+	}, [clearCurrentChat]);
+
+	useEffect(() => {
 		if (hasInitialized.current) return;
 
 		hasInitialized.current = true;
@@ -140,6 +146,11 @@ const ChatPage = () => {
 			const data = response.data;
 
 			setThreadModel(data.thread.modelId);
+			setCurrentChat({
+				agentName: data.thread.agentName ?? null,
+				agentEmoji: data.thread.agentEmoji ?? null,
+				modelId: data.thread.modelId ?? null,
+			});
 
 			const pendingMessage = consumePendingMessage(threadId);
 			if (pendingMessage) {
