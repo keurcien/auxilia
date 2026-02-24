@@ -235,14 +235,14 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 							className="text-primary focus:text-primary cursor-pointer"
 							onClick={handleManagePermissions}
 						>
-							<ShieldCheck className="size-4 mr-2" />
+							<ShieldCheck className="size-4" />
 							<span>Manage permissions</span>
 						</DropdownMenuItem>
 						<DropdownMenuItem
 							className="text-destructive focus:text-destructive cursor-pointer"
 							onClick={handleDeleteAgent}
 						>
-							<Trash2 className="size-4 mr-2" />
+							<Trash2 className="size-4 text-destructive" />
 							<span>Delete agent</span>
 						</DropdownMenuItem>
 					</DropdownMenuContent>
