@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import logging
 import time
 import httpx
 from typing import Optional
@@ -24,7 +25,8 @@ async def verify_slack_signature(
     read it a second time.
     """
     timestamp = int(x_slack_request_timestamp)
-    if abs(time.time() - timestamp) > _MAX_AGE_SECONDS:
+    age = abs(time.time() - timestamp)
+    if age > _MAX_AGE_SECONDS:
         raise HTTPException(status_code=403, detail="Request too old")
 
     body = await request.body()
@@ -39,7 +41,9 @@ async def verify_slack_signature(
         ).hexdigest()
     )
 
-    if not hmac.compare_digest(expected, x_slack_signature):
+    match = hmac.compare_digest(expected, x_slack_signature)
+
+    if not match:
         raise HTTPException(status_code=403, detail="Invalid signature")
 
     return body

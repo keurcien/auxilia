@@ -14,7 +14,11 @@ from app.users.models import UserDB
 router = APIRouter(prefix="/invites", tags=["invites"])
 
 
-def _invite_to_read(invite: InviteDB, include_url: bool = False) -> InviteRead:
+def _invite_to_read(
+    invite: InviteDB,
+    include_url: bool = False,
+    invited_by_name: str | None = None,
+) -> InviteRead:
     return InviteRead(
         id=invite.id,
         email=invite.email,
@@ -22,6 +26,7 @@ def _invite_to_read(invite: InviteDB, include_url: bool = False) -> InviteRead:
         status=invite.status.value,
         invite_url=build_invite_url(invite.token) if include_url else None,
         invited_by=invite.invited_by,
+        invited_by_name=invited_by_name,
         expires_at=invite.expires_at,
         created_at=invite.created_at,
     )
@@ -61,7 +66,20 @@ async def list_invites(
         select(InviteDB).where(InviteDB.status == InviteStatus.pending)
     )
     invites = result.scalars().all()
-    return [_invite_to_read(inv) for inv in invites]
+
+    inviter_ids = list({inv.invited_by for inv in invites})
+    inviters: dict[UUID, str | None] = {}
+    if inviter_ids:
+        users_result = await db.execute(
+            select(UserDB).where(UserDB.id.in_(inviter_ids))
+        )
+        for user in users_result.scalars().all():
+            inviters[user.id] = user.name
+
+    return [
+        _invite_to_read(inv, include_url=True, invited_by_name=inviters.get(inv.invited_by))
+        for inv in invites
+    ]
 
 
 @router.delete("/{invite_id}", status_code=204)

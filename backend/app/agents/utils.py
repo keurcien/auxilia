@@ -61,13 +61,13 @@ async def read_agents(
                 AgentMCPServer(id=binding.mcp_server_id, tools=binding.tools)
             )
 
-        if is_workspace_admin:
+        if user_id and agent.owner_id == user_id:
+            permissions_map[agent.id] = "owner"
+        elif is_workspace_admin:
             permissions_map[agent.id] = "admin"
         elif user_id:
             permission = row[2]
-            if agent.owner_id == user_id:
-                permissions_map[agent.id] = "owner"
-            elif permission and agent.id not in permissions_map:
+            if permission and agent.id not in permissions_map:
                 permissions_map[agent.id] = permission.value
 
     return [
@@ -111,21 +111,20 @@ async def read_agent(
 
     # Compute current user permission
     current_user_permission = None
-    if user_role == WorkspaceRole.admin:
+    if user_id and agent.owner_id == user_id:
+        current_user_permission = "owner"
+    elif user_role == WorkspaceRole.admin:
         current_user_permission = "admin"
     elif user_id:
-        if agent.owner_id == user_id:
-            current_user_permission = "owner"
-        else:
-            perm_result = await db.execute(
-                select(AgentUserPermissionDB.permission).where(
-                    AgentUserPermissionDB.agent_id == agent_id,
-                    AgentUserPermissionDB.user_id == user_id,
-                )
+        perm_result = await db.execute(
+            select(AgentUserPermissionDB.permission).where(
+                AgentUserPermissionDB.agent_id == agent_id,
+                AgentUserPermissionDB.user_id == user_id,
             )
-            perm = perm_result.scalar_one_or_none()
-            if perm:
-                current_user_permission = perm.value
+        )
+        perm = perm_result.scalar_one_or_none()
+        if perm:
+            current_user_permission = perm.value
 
     return AgentRead(
         **agent.model_dump(),
