@@ -166,9 +166,15 @@ async def handle_tool_end(
     if not tool_call_id:
         return
 
-    output = _extract_tool_output(tool_output)
+    status = getattr(tool_output, "status", "success")
 
-    yield format_sse_event("tool-output-available", toolCallId=tool_call_id, output=output)
+    if status == "error":
+        error_text = _extract_tool_output(tool_output)
+        yield format_sse_event("tool-output-error", toolCallId=tool_call_id, errorText=str(error_text))
+    else:
+        output = _extract_tool_output(tool_output)
+        yield format_sse_event("tool-output-available", toolCallId=tool_call_id, output=output)
+
     tools.finish_call(tool_call_id)
 
 
