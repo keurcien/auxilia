@@ -4,8 +4,7 @@ import { useState } from "react";
 import MCPServerList from "@/app/(protected)/mcp-servers/components/mcp-server-list";
 import MCPServerDialog from "@/app/(protected)/mcp-servers/components/mcp-server-dialog";
 import { MCPServer } from "@/types/mcp-servers";
-import { Plus } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import PageHeaderButton from "@/components/page-header-button";
 
 export default function MCPServersPage() {
 	const [dialogOpen, setDialogOpen] = useState(false);
@@ -32,13 +31,9 @@ export default function MCPServersPage() {
 				<h1 className="font-primary font-extrabold text-2xl md:text-4xl tracking-tighter text-[#2A2F2D] dark:text-white">
 					MCP servers
 				</h1>
-				<Button
-					onClick={handleAddServer}
-					className="flex items-center gap-2 py-2.5 md:py-5 bg-[#2A2F2D] text-sm md:text-base font-semibold text-white rounded-[14px] hover:bg-[#363D3A] transition-colors cursor-pointer shadow-[0_4px_14px_rgba(118,181,160,0.14)] border-none"
-				>
-					<Plus className="w-4 h-4" />
+				<PageHeaderButton onClick={handleAddServer}>
 					Add MCP Server
-				</Button>
+				</PageHeaderButton>
 			</div>
 			<MCPServerList onServerClick={handleEditServer} />
 

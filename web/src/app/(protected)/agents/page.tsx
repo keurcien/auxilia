@@ -2,10 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus } from "lucide-react";
 import AgentList from "@/app/(protected)/agents/components/agent-list";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
-import { Button } from "@/components/ui/button";
+import PageHeaderButton from "@/components/page-header-button";
 import { api } from "@/lib/api/client";
 import { useAgentsStore } from "@/stores/agents-store";
 import { useUserStore } from "@/stores/user-store";
@@ -59,14 +58,12 @@ export default function AgentsPage() {
 					Agents
 				</h1>
 
-				<Button
-					className="flex items-center gap-2 py-2.5 md:py-5 bg-[#2A2F2D] text-sm md:text-base font-semibold text-white rounded-[14px] hover:bg-[#363D3A] transition-colors cursor-pointer shadow-[0_4px_14px_rgba(118,181,160,0.14)] border-none"
+				<PageHeaderButton
 					onClick={handleCreateAgent}
 					disabled={isCreating}
 				>
-					<Plus className="w-4 h-4" />
 					{isCreating ? "Creating..." : "Create an agent"}
-				</Button>
+				</PageHeaderButton>
 			</div>
 			<AgentList />
 		</div>
