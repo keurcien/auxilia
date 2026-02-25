@@ -10,12 +10,7 @@ import AgentMCPServerList from "../[id]/components/agent-mcp-server-list";
 import { api } from "@/lib/api/client";
 import { useAgentsStore } from "@/stores/agents-store";
 import { Button } from "@/components/ui/button";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { OptionsMenu } from "@/components/ui/options-menu";
 import AgentPermissionsDialog from "./agent-permissions-dialog";
 
 interface AgentEditorProps {
@@ -223,30 +218,27 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 					</span>
 				</div>
 
-				<DropdownMenu>
-					<DropdownMenuTrigger asChild>
+				<OptionsMenu
+					trigger={
 						<Button variant="ghost" size="icon" className="cursor-pointer">
 							<MoreVertical className="w-5 h-5" />
 							<span className="sr-only">Agent settings</span>
 						</Button>
-					</DropdownMenuTrigger>
-					<DropdownMenuContent side="bottom" align="end">
-						<DropdownMenuItem
-							className="text-primary focus:text-primary cursor-pointer"
-							onClick={handleManagePermissions}
-						>
-							<ShieldCheck className="size-4" />
-							<span>Manage permissions</span>
-						</DropdownMenuItem>
-						<DropdownMenuItem
-							className="text-destructive focus:text-destructive cursor-pointer"
-							onClick={handleDeleteAgent}
-						>
-							<Trash2 className="size-4 text-destructive" />
-							<span>Delete agent</span>
-						</DropdownMenuItem>
-					</DropdownMenuContent>
-				</DropdownMenu>
+					}
+					items={[
+						{
+							label: "Manage permissions",
+							icon: ShieldCheck,
+							onClick: handleManagePermissions,
+						},
+						{
+							label: "Delete agent",
+							icon: Trash2,
+							onClick: handleDeleteAgent,
+							variant: "destructive",
+						},
+					]}
+				/>
 			</div>
 
 			<div className="relative flex flex-col md:flex-row flex-1 min-h-0">

@@ -35,6 +35,7 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { OptionsMenu } from "@/components/ui/options-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useThreadsStore } from "@/stores/threads-store";
 import { useUserStore } from "@/stores/user-store";
@@ -179,8 +180,8 @@ export function AppSidebar() {
 												)}
 											</Link>
 										</SidebarMenuButton>
-										<DropdownMenu>
-											<DropdownMenuTrigger asChild>
+										<OptionsMenu
+											trigger={
 												<SidebarMenuAction
 													showOnHover
 													className="cursor-pointer"
@@ -188,17 +189,18 @@ export function AppSidebar() {
 													<MoreVertical className="size-4" />
 													<span className="sr-only">More options</span>
 												</SidebarMenuAction>
-											</DropdownMenuTrigger>
-											<DropdownMenuContent side="right" align="start">
-												<DropdownMenuItem
-													className="text-destructive focus:text-destructive"
-													onClick={() => handleDeleteThread(thread.id)}
-												>
-													<Trash2 className="size-4 text-destructive" />
-													<span>Delete</span>
-												</DropdownMenuItem>
-											</DropdownMenuContent>
-										</DropdownMenu>
+											}
+											items={[
+												{
+													label: "Delete",
+													icon: Trash2,
+													onClick: () => handleDeleteThread(thread.id),
+													variant: "destructive",
+												},
+											]}
+											side="right"
+											align="start"
+										/>
 									</SidebarMenuItem>
 								))}
 							</SidebarMenu>
