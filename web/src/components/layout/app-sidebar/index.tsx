@@ -194,7 +194,7 @@ export function AppSidebar() {
 													className="text-destructive focus:text-destructive"
 													onClick={() => handleDeleteThread(thread.id)}
 												>
-													<Trash2 className="size-4 mr-2" />
+													<Trash2 className="size-4 text-destructive" />
 													<span>Delete</span>
 												</DropdownMenuItem>
 											</DropdownMenuContent>
