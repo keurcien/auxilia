@@ -26,7 +26,9 @@ const MCP_SERVER_ID_KEY = "mcpServerId";
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null;
 
-export const getMcpAppToolInfo = (toolPart: ToolUIPart): McpAppToolInfo | null => {
+export const getMcpAppToolInfo = (
+	toolPart: ToolUIPart,
+): McpAppToolInfo | null => {
 	const providerMetadata = toolPart.callProviderMetadata;
 	if (!isRecord(providerMetadata)) {
 		return null;
@@ -84,6 +86,7 @@ const stringifyToolOutput = (value: unknown): string => {
 };
 
 const toCallToolResult = (toolPart: ToolUIPart): CallToolResult | undefined => {
+	console.log(toolPart);
 	if (toolPart.output === undefined && !toolPart.errorText) {
 		return undefined;
 	}
@@ -110,7 +113,12 @@ export const McpAppWidget = ({
 	}
 
 	return (
-		<div className={cn("mt-2 w-full min-w-0 overflow-hidden [&_iframe]:max-w-full", className)}>
+		<div
+			className={cn(
+				"mt-2 w-full min-w-0 overflow-hidden [&_iframe]:w-full [&_iframe]:max-w-full",
+				className,
+			)}
+		>
 			<AppRenderer
 				toolName={toolName}
 				toolResourceUri={appToolInfo.resourceUri}
@@ -133,7 +141,24 @@ export const McpAppWidget = ({
 							arguments: args ?? null,
 						},
 					);
-					return response.data;
+
+					const data = response.data;
+
+					if (data.content) {
+						data.content = data.content.map(
+							(block: Record<string, unknown>) => {
+								const cleaned = { ...block };
+								if (cleaned.annotations === null) delete cleaned.annotations;
+								if (cleaned.Meta === null) delete cleaned.Meta;
+								if (cleaned._meta === null) delete cleaned._meta;
+								return cleaned;
+							},
+						);
+					}
+					if (data._meta === null) delete data._meta;
+					if (data.Meta === null) delete data.Meta;
+
+					return data;
 				}}
 			/>
 		</div>
