@@ -55,12 +55,12 @@ export default function AgentsPage() {
 				message="You need at least editor permissions to create agents."
 			/>
 			<div className="flex items-center justify-between my-8">
-				<h1 className="text-3xl font-bold text-foreground">
-					Your workspace agents
+				<h1 className="font-primary font-extrabold text-2xl md:text-4xl tracking-tighter text-[#2A2F2D] dark:text-white">
+					Agents
 				</h1>
 
 				<Button
-					className="flex items-center gap-2 px-4 py-2 bg-primary text-sm font-medium text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors cursor-pointer"
+					className="flex items-center gap-2 py-2.5 md:py-5 bg-[#2A2F2D] text-sm md:text-base font-semibold text-white rounded-[14px] hover:opacity-90 transition-opacity cursor-pointer shadow-[0_4px_14px_rgba(118,181,160,0.14)] border-none"
 					onClick={handleCreateAgent}
 					disabled={isCreating}
 				>

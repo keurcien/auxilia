@@ -219,16 +219,29 @@ class SlackStreamAdapter:
         self._approval_pending = False
 
     async def stream(self, events: AsyncGenerator[Any, None]) -> AsyncGenerator[dict[str, Any], None]:
-        async for value in events:
-            if not isinstance(value, dict) or "event" not in value:
-                continue
-            async for event in self._route_event(value):
-                yield event
+        try:
+            async for value in events:
+                if not isinstance(value, dict) or "event" not in value:
+                    continue
+                async for event in self._route_event(value):
+                    yield event
+        except Exception as e:
+            body = getattr(e, "body", None)
+            msg = (body.get("message") if isinstance(body, dict) else None) or str(e)
+            yield {"type": "error", "content": msg}
 
     async def _route_event(self, value: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         event_type = value["event"]
 
-        if event_type == "on_chat_model_stream":
+        if event_type == "error":
+            error_data = value.get("data", {}).get("error", "Unknown error")
+            if isinstance(error_data, dict):
+                msg = error_data.get("message") or str(error_data)
+            else:
+                msg = str(error_data)
+            yield {"type": "error", "content": msg}
+
+        elif event_type == "on_chat_model_stream":
             chunk = value.get("data", {}).get("chunk")
             if not chunk:
                 return

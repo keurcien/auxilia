@@ -48,7 +48,7 @@ def _build_agent_selected_blocks(agent: AgentDB) -> list[dict]:
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"Thread configured with {emoji} *{agent.name}*",
+                "text": f"{emoji} *{agent.name}*\n\nAsk me anything to begin.",
             },
         },
     ]
@@ -84,7 +84,7 @@ async def handle_app_mention(event: SlackEvent, **_: object) -> None:
         return
 
     user = await resolve_user(event.user)
-    print(user)
+
     if not user:
         return
 
@@ -136,31 +136,21 @@ async def handle_agent_selection(payload: SlackInteractionPayload) -> None:
     if not agent:
         return
 
-    # Fetch the original message that started the thread
-    client = AsyncWebClient(token=slack_settings.slack_bot_token)
-    first_message = ""
-    try:
-        replies = await client.conversations_replies(
-            channel=channel_id, ts=thread_ts, limit=1,
-        )
-        messages = replies.get("messages", [])
-        if messages:
-            first_message = (messages[0].get("text") or "").strip()
-    except Exception:
-        pass
-
-    # Create the thread bound to this agent
+    # Create the thread bound to this agent.
+    # first_message_content is left None here; it will be set (and the Slack
+    # thread title updated) when the user sends their first real message.
     await get_or_create_thread(
         ts=thread_ts,
         agent_id=str(agent.id),
-        question=first_message,
+        question=None,
         user_id=str(user.id),
     )
 
     # Replace the picker message with a confirmation
+    client = AsyncWebClient(token=slack_settings.slack_bot_token)
     blocks = _build_agent_selected_blocks(agent)
     if message_ts:
         await client.chat_update(
             channel=channel_id, ts=message_ts,
-            blocks=blocks, text=f"Thread configured with {agent.name}",
+            blocks=blocks, text=f"{agent.emoji or ''} *{agent.name}*\n\nAsk me anything to begin.",
         )

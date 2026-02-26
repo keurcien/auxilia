@@ -18,5 +18,6 @@ class InviteRead(BaseModel):
     status: str
     invite_url: str | None = None
     invited_by: UUID
+    invited_by_name: str | None = None
     expires_at: datetime
     created_at: datetime

@@ -20,12 +20,19 @@ router = APIRouter(prefix="/threads", tags=["threads"])
 @router.get("/{thread_id}")
 async def read_thread(thread_id: str, db: AsyncSession = Depends(get_db)) -> dict:
     result = await db.execute(
-        select(ThreadDB).where(ThreadDB.id == thread_id)
+        select(ThreadDB, AgentDB.name, AgentDB.emoji)
+        .join(AgentDB, ThreadDB.agent_id == AgentDB.id)
+        .where(ThreadDB.id == thread_id)
     )
-    thread = result.scalar_one_or_none()
+    row = result.one_or_none()
 
-    if not thread:
+    if not row:
         raise HTTPException(status_code=404, detail="Thread not found")
+
+    thread, agent_name, agent_emoji = row
+    thread_read = ThreadRead.model_validate(
+        thread, update={"agent_name": agent_name, "agent_emoji": agent_emoji}
+    )
 
     async with AsyncPostgresSaver.from_conn_string(get_psycopg_conn_string()) as checkpointer:
         checkpoint = await checkpointer.aget(
@@ -37,10 +44,10 @@ async def read_thread(thread_id: str, db: AsyncSession = Depends(get_db)) -> dic
                 "messages": deserialize_to_ui_messages(
                     checkpoint["channel_values"]["messages"]
                 ),
-                "thread": ThreadRead.model_validate(thread),
+                "thread": thread_read,
             }
         else:
-            return {"messages": [], "thread": ThreadRead.model_validate(thread)}
+            return {"messages": [], "thread": thread_read}
 
 
 @router.get("/")

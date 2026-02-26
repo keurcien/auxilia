@@ -17,6 +17,20 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from app.integrations.langfuse.callback import langfuse_callback_handler
+from app.mcp.client.factory import MCPClientConfigFactory
+from app.agents.settings import agent_settings
+from app.database import get_psycopg_conn_string
+from app.model_providers.settings import model_provider_settings
+from app.threads.models import ThreadDB
+from app.models.message import Message
+from app.mcp.servers.models import MCPServerDB
+from app.agents.utils import read_agent
+from app.adapters.stream.adapter import AISDKStreamAdapter, SlackStreamAdapter
+from app.mcp.servers.router import get_mcp_server_api_key
+from app.mcp.client.storage import TokenStorageFactory
+from app.mcp.client.tools import wrap_mcp_tool_errors
+
 from app.adapters.message_adapter import (
     extract_approved_tool_call_ids,
     extract_commands,
@@ -377,14 +391,29 @@ class AgentRuntime:
             tools = self.tools[0] + self.tools[1]
             need_approval_tools = self.tools[1]
 
-            # Catch all tool errors
+            # Wrap each tool's coroutine so that anyio ExceptionGroups (e.g. from
+            # HTTP errors in MCP streamable-HTTP sessions) are converted to
+            # ToolException before they reach LangGraph's ToolNode.  The default
+            # ToolNode error handler only handles ToolInvocationError and re-raises
+            # everything else, which would crash the whole stream.  By raising
+            # ToolException instead, BaseTool.arun catches it and returns the error
+            # as a tool result string, keeping the stream alive and letting the LLM
+            # report the error to the user.
             for tool in tools:
-                tool.handle_tool_error = True
+                wrap_mcp_tool_errors(tool)
+
+            system_prompt = {
+                "type": "text",
+                "text": self.config.instructions,
+            }
+
+            if model_provider == "anthropic":
+                system_prompt["cache_control"] = {"type": "ephemeral"}
 
             agent = create_agent(
                 model=chat_model,
                 tools=tools,
-                system_prompt=SystemMessage(content=self.config.instructions),
+                system_prompt=SystemMessage(content=[system_prompt]),
                 checkpointer=checkpointer,
                 middleware=[
                     HumanInTheLoopMiddleware(

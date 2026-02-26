@@ -76,7 +76,7 @@ export default function AgentList() {
 
 	return (
 		<div className="w-full mx-auto">
-			<div className="flex items-center justify-between mb-7">
+			<div className="w-full flex items-center justify-between mb-7 overflow-x-auto">
 				<div className="flex border-b border-border">
 					{TABS.map((tab) => {
 						const isActive = activeTab === tab.key;
@@ -107,13 +107,13 @@ export default function AgentList() {
 						);
 					})}
 				</div>
-				<div className="relative w-64">
+				<div className="relative w-64 shrink-0">
 					<Search className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
 					<Input
 						placeholder="Search agents..."
 						value={search}
 						onChange={(e) => setSearch(e.target.value)}
-						className="pl-10"
+						className="pl-10 h-11 text-base rounded-[14px]"
 					/>
 				</div>
 			</div>

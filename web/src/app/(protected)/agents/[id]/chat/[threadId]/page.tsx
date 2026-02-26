@@ -102,6 +102,7 @@ const getToolMetadata = (toolType: string, knownServerNames: string[]) => {
 		toolName: normalizedToolType.slice(separatorIndex + 1),
 	};
 };
+import { useChatHeaderStore } from "@/stores/chat-header-store";
 
 const ChatPage = () => {
 	const params = useParams();
@@ -160,6 +161,7 @@ const ChatPage = () => {
 	const knownServerNames = [...mcpServers.map((server) => server.name)].sort(
 		(a, b) => b.length - a.length,
 	);
+	const { setCurrentChat, clearCurrentChat } = useChatHeaderStore();
 
 	const handleSubmit = (message: PromptInputMessage) => {
 		if (!message) return;
@@ -174,6 +176,10 @@ const ChatPage = () => {
 	};
 
 	useEffect(() => {
+		return () => clearCurrentChat();
+	}, [clearCurrentChat]);
+
+	useEffect(() => {
 		if (hasInitialized.current) return;
 
 		hasInitialized.current = true;
@@ -183,6 +189,11 @@ const ChatPage = () => {
 			const data = response.data;
 
 			setThreadModel(data.thread.modelId);
+			setCurrentChat({
+				agentName: data.thread.agentName ?? null,
+				agentEmoji: data.thread.agentEmoji ?? null,
+				modelId: data.thread.modelId ?? null,
+			});
 
 			const pendingMessage = consumePendingMessage(threadId);
 			if (pendingMessage) {
