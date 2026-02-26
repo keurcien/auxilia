@@ -1,19 +1,22 @@
 import asyncio
-from pydantic import BaseModel
+import re
 from dataclasses import dataclass
+
 from langchain.agents import create_agent
+from langchain.agents.middleware import HumanInTheLoopMiddleware
+from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import SystemMessage
 from langchain_core.tools import Tool
 from langchain_deepseek import ChatDeepSeek
-from langchain_anthropic import ChatAnthropic
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langgraph.types import Command
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-from langchain_core.messages import SystemMessage
-from langchain.agents.middleware import HumanInTheLoopMiddleware
+from langgraph.types import Command
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
+
 from app.integrations.langfuse.callback import langfuse_callback_handler
 from app.mcp.client.factory import MCPClientConfigFactory
 from app.agents.settings import agent_settings
@@ -27,12 +30,132 @@ from app.adapters.stream.adapter import AISDKStreamAdapter, SlackStreamAdapter
 from app.mcp.servers.router import get_mcp_server_api_key
 from app.mcp.client.storage import TokenStorageFactory
 from app.mcp.client.tools import wrap_mcp_tool_errors
+
 from app.adapters.message_adapter import (
-    to_langchain_message,
+    extract_approved_tool_call_ids,
     extract_commands,
     extract_rejected_tool_calls,
-    extract_approved_tool_call_ids,
+    to_langchain_message,
 )
+from app.adapters.stream.adapter import AISDKStreamAdapter, SlackStreamAdapter
+from app.agents.settings import agent_settings
+from app.agents.utils import read_agent
+from app.database import get_psycopg_conn_string
+from app.integrations.langfuse.callback import langfuse_callback_handler
+from app.mcp.client.factory import MCPClientConfigFactory
+from app.mcp.client.storage import TokenStorageFactory
+from app.mcp.servers.models import MCPServerDB
+from app.mcp.servers.router import get_mcp_server_api_key
+from app.model_providers.settings import model_provider_settings
+from app.models.message import Message
+from app.threads.models import ThreadDB
+
+_VALID_TOOL_NAME_CHARS = re.compile(r"[^a-zA-Z0-9_-]")
+_MAX_TOOL_NAME_LENGTH = 128
+
+
+def _sanitize_tool_name(name: str) -> str:
+    sanitized = _VALID_TOOL_NAME_CHARS.sub("_", name).strip("_")
+    if not sanitized:
+        sanitized = "tool"
+    if len(sanitized) > _MAX_TOOL_NAME_LENGTH:
+        sanitized = sanitized[:_MAX_TOOL_NAME_LENGTH].rstrip("_")
+    return sanitized or "tool"
+
+
+def _sanitize_tools_in_place(tools: list[Tool]) -> dict[str, str]:
+    used_names: set[str] = set()
+    name_map: dict[str, str] = {}
+
+    for tool in tools:
+        original_name = tool.name
+        base_name = _sanitize_tool_name(original_name)
+        candidate = base_name
+        suffix = 1
+
+        while candidate in used_names:
+            suffix += 1
+            suffix_text = f"_{suffix}"
+            max_base_length = _MAX_TOOL_NAME_LENGTH - len(suffix_text)
+            truncated_base = base_name[:max_base_length].rstrip("_")
+            if not truncated_base:
+                truncated_base = "tool"
+            candidate = f"{truncated_base}{suffix_text}"
+
+        tool.name = candidate
+        used_names.add(candidate)
+        name_map[original_name] = candidate
+
+    return name_map
+
+
+def _extract_mcp_app_resource_uri(tool: Tool) -> str | None:
+    metadata = getattr(tool, "metadata", None)
+    if not isinstance(metadata, dict):
+        return None
+
+    raw_meta = metadata.get("_meta")
+    if not isinstance(raw_meta, dict):
+        return None
+
+    ui_meta = raw_meta.get("ui")
+    if not isinstance(ui_meta, dict):
+        ui_meta = raw_meta.get("io.modelcontextprotocol/ui")
+        if not isinstance(ui_meta, dict):
+            return None
+
+    resource_uri = ui_meta.get("resourceUri")
+    if not isinstance(resource_uri, str):
+        return None
+
+    cleaned = resource_uri.strip()
+    return cleaned if cleaned else None
+
+
+def _resolve_server_name_from_prefixed_tool_name(
+    prefixed_tool_name: str,
+    server_names: list[str],
+) -> str | None:
+    for server_name in sorted(server_names, key=len, reverse=True):
+        if prefixed_tool_name == server_name:
+            return server_name
+        if prefixed_tool_name.startswith(f"{server_name}_"):
+            return server_name
+    return None
+
+
+def _build_tool_ui_metadata_map(
+    tools: list[Tool],
+    mcp_servers: list[MCPServerDB],
+) -> dict[str, dict[str, str]]:
+    server_id_by_name = {server.name: str(server.id) for server in mcp_servers}
+    server_names = list(server_id_by_name.keys())
+    metadata_by_tool_name: dict[str, dict[str, str]] = {}
+
+    for tool in tools:
+        tool_name = getattr(tool, "name", None)
+        if not isinstance(tool_name, str) or not tool_name:
+            continue
+
+        resource_uri = _extract_mcp_app_resource_uri(tool)
+        if not resource_uri:
+            continue
+
+        server_name = _resolve_server_name_from_prefixed_tool_name(
+            tool_name, server_names)
+        if not server_name:
+            continue
+
+        server_id = server_id_by_name.get(server_name)
+        if not server_id:
+            continue
+
+        metadata_by_tool_name[tool_name] = {
+            "mcp_app_resource_uri": resource_uri,
+            "mcp_server_id": server_id,
+        }
+
+    return metadata_by_tool_name
 
 
 class ModelProvider(BaseModel):
@@ -133,6 +256,7 @@ class AgentRuntime:
     def __init__(self, thread: ThreadDB, db: AsyncSession, deps: AgentRuntimeDependencies):
         self.thread = thread
         self.tools = None
+        self.tool_ui_metadata: dict[str, dict[str, str]] = {}
         self.db = db
         self._deps = deps
         self.callbacks = [
@@ -235,6 +359,13 @@ class AgentRuntime:
         }
 
         self.tools = await self.get_tools(mcp_server_configs, tool_settings)
+        all_tools = self.tools[0] + self.tools[1]
+        raw_tool_ui_metadata = _build_tool_ui_metadata_map(all_tools, mcp_servers)
+        name_map = _sanitize_tools_in_place(all_tools)
+        self.tool_ui_metadata = {
+            name_map.get(tool_name, tool_name): metadata
+            for tool_name, metadata in raw_tool_ui_metadata.items()
+        }
 
     async def stream(
         self,
@@ -337,6 +468,7 @@ class AgentRuntime:
                     is_resume=is_resume,
                     rejected_tool_calls=rejected_tool_calls,
                     approved_tool_call_ids=approved_tool_call_ids,
+                    tool_ui_metadata=self.tool_ui_metadata,
                 )
                 stream = ai_sdk_stream_adapter.stream(
                     langchain_stream)

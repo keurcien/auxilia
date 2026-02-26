@@ -21,10 +21,35 @@ def _strip_internal_keys(raw_input: dict) -> dict:
     return {k: v for k, v in raw_input.items() if k not in _INTERNAL_INPUT_KEYS}
 
 
+def _get_provider_metadata_for_tool(
+    tool_name: str,
+    tool_ui_metadata: dict[str, dict[str, str]] | None,
+) -> dict[str, dict[str, str]] | None:
+    if not tool_ui_metadata:
+        return None
+
+    tool_metadata = tool_ui_metadata.get(tool_name)
+    if not tool_metadata:
+        return None
+
+    resource_uri = tool_metadata.get("mcp_app_resource_uri")
+    server_id = tool_metadata.get("mcp_server_id")
+    if not resource_uri or not server_id:
+        return None
+
+    return {
+        "auxilia": {
+            "mcpAppResourceUri": resource_uri,
+            "mcpServerId": server_id,
+        }
+    }
+
+
 async def handle_chat_model_stream(
     chunk: Any,
     content: ContentStreamManager,
     tools: ToolCallTracker,
+    tool_ui_metadata: dict[str, dict[str, str]] | None = None,
 ) -> AsyncGenerator[str, None]:
     """Process a streaming chunk from the chat model (text, reasoning, or tool deltas)."""
     if not chunk:
@@ -56,7 +81,16 @@ async def handle_chat_model_stream(
                 if already_approved:
                     continue
 
-                yield format_sse_event("tool-input-start", toolCallId=tool_call_id, toolName=tool_name)
+                event_payload = {
+                    "toolCallId": tool_call_id,
+                    "toolName": tool_name,
+                }
+                provider_metadata = _get_provider_metadata_for_tool(
+                    tool_name, tool_ui_metadata)
+                if provider_metadata:
+                    event_payload["providerMetadata"] = provider_metadata
+
+                yield format_sse_event("tool-input-start", **event_payload)
                 if args_delta:
                     yield format_sse_event("tool-input-delta", toolCallId=tool_call_id, inputTextDelta=args_delta)
 
@@ -84,6 +118,7 @@ async def handle_chat_model_stream(
 async def handle_chat_model_end(
     event: dict[str, Any],
     tools: ToolCallTracker,
+    tool_ui_metadata: dict[str, dict[str, str]] | None = None,
 ) -> AsyncGenerator[str, None]:
     """Finalize tool calls when the model finishes generating."""
     output = event.get("data", {}).get("output")
@@ -106,18 +141,24 @@ async def handle_chat_model_end(
         if tracked and tracked.already_approved:
             continue
 
-        yield format_sse_event(
-            "tool-input-available",
-            toolCallId=tool_call_id,
-            toolName=tool_name,
-            input=tool_args,
-        )
+        event_payload = {
+            "toolCallId": tool_call_id,
+            "toolName": tool_name,
+            "input": tool_args,
+        }
+        provider_metadata = _get_provider_metadata_for_tool(
+            tool_name, tool_ui_metadata)
+        if provider_metadata:
+            event_payload["providerMetadata"] = provider_metadata
+
+        yield format_sse_event("tool-input-available", **event_payload)
 
 
 async def handle_tool_start(
     event: dict[str, Any],
     content: ContentStreamManager,
     tools: ToolCallTracker,
+    tool_ui_metadata: dict[str, dict[str, str]] | None = None,
 ) -> AsyncGenerator[str, None]:
     """Handle a LangGraph tool node beginning execution."""
     tool_name = event.get("name")
@@ -149,8 +190,26 @@ async def handle_tool_start(
     tools.start_call(tool_call_id, tool_name,
                      args_buffer=json.dumps(tool_input))
 
-    yield format_sse_event("tool-input-start", toolCallId=tool_call_id, toolName=tool_name)
-    yield format_sse_event("tool-input-available", toolCallId=tool_call_id, toolName=tool_name, input=tool_input)
+    provider_metadata = _get_provider_metadata_for_tool(
+        tool_name, tool_ui_metadata)
+
+    start_payload = {
+        "toolCallId": tool_call_id,
+        "toolName": tool_name,
+    }
+    if provider_metadata:
+        start_payload["providerMetadata"] = provider_metadata
+
+    available_payload = {
+        "toolCallId": tool_call_id,
+        "toolName": tool_name,
+        "input": tool_input,
+    }
+    if provider_metadata:
+        available_payload["providerMetadata"] = provider_metadata
+
+    yield format_sse_event("tool-input-start", **start_payload)
+    yield format_sse_event("tool-input-available", **available_payload)
 
 
 async def handle_tool_end(
@@ -204,6 +263,7 @@ def _extract_tool_output(tool_output: Any) -> Any:
 async def handle_interrupt(
     event: dict[str, Any],
     tools: ToolCallTracker,
+    tool_ui_metadata: dict[str, dict[str, str]] | None = None,
 ) -> AsyncGenerator[str, None]:
     """
     Handle a LangGraph interrupt containing tool approval requests.
@@ -247,8 +307,26 @@ async def handle_interrupt(
 
         # Only emit tool-input events if not already streamed
         if not tools.is_signature_emitted(signature) and not tools.is_active(tool_call_id):
-            yield format_sse_event("tool-input-start", toolCallId=tool_call_id, toolName=tool_name)
-            yield format_sse_event("tool-input-available", toolCallId=tool_call_id, toolName=tool_name, input=tool_input)
+            provider_metadata = _get_provider_metadata_for_tool(
+                tool_name, tool_ui_metadata)
+
+            start_payload = {
+                "toolCallId": tool_call_id,
+                "toolName": tool_name,
+            }
+            if provider_metadata:
+                start_payload["providerMetadata"] = provider_metadata
+
+            available_payload = {
+                "toolCallId": tool_call_id,
+                "toolName": tool_name,
+                "input": tool_input,
+            }
+            if provider_metadata:
+                available_payload["providerMetadata"] = provider_metadata
+
+            yield format_sse_event("tool-input-start", **start_payload)
+            yield format_sse_event("tool-input-available", **available_payload)
             tools.register_signature(signature, tool_call_id)
 
         yield format_sse_event(
