@@ -22,12 +22,22 @@ import { api } from "@/lib/api/client";
 
 type Role = "member" | "editor" | "admin";
 
+interface Invite {
+	id: string;
+	email: string;
+	role: string;
+	inviteUrl: string;
+	invitedByName: string | null;
+	createdAt: string;
+}
+
 interface InviteDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	onInviteCreated?: (invite: Invite) => void;
 }
 
-export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) {
+export default function InviteDialog({ open, onOpenChange, onInviteCreated }: InviteDialogProps) {
 	const [email, setEmail] = useState("");
 	const [role, setRole] = useState<Role>("member");
 	const [isLoading, setIsLoading] = useState(false);
@@ -43,6 +53,7 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
 		try {
 			const response = await api.post("/invites/", { email, role });
 			setInviteUrl(response.data.inviteUrl);
+			onInviteCreated?.(response.data);
 		} catch (err: unknown) {
 			if (err && typeof err === "object" && "response" in err) {
 				const axiosError = err as { response?: { data?: { detail?: string } } };
