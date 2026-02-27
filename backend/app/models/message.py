@@ -21,6 +21,7 @@ class ToolMessagePart(BaseModel):
     output: Any | None = None
     errorText: str | None = None
     approval: Any | None = None
+    callProviderMetadata: dict | None = None
 
 
 class FileMessagePart(BaseModel):
