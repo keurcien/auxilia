@@ -29,7 +29,7 @@ from app.agents.utils import read_agent
 from app.adapters.stream.adapter import AISDKStreamAdapter, SlackStreamAdapter
 from app.mcp.servers.router import get_mcp_server_api_key
 from app.mcp.client.storage import TokenStorageFactory
-from app.mcp.client.tools import wrap_mcp_tool_errors
+from app.mcp.client.tools import inject_ui_metadata_into_tool, wrap_mcp_tool_errors
 
 from app.adapters.message_adapter import (
     extract_approved_tool_call_ids,
@@ -401,6 +401,8 @@ class AgentRuntime:
             # report the error to the user.
             for tool in tools:
                 wrap_mcp_tool_errors(tool)
+                if tool.name in self.tool_ui_metadata:
+                    inject_ui_metadata_into_tool(tool, self.tool_ui_metadata[tool.name])
 
             system_prompt = {
                 "type": "text",

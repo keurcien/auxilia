@@ -115,7 +115,7 @@ export const McpAppWidget = ({
 	return (
 		<div
 			className={cn(
-				"mt-2 w-full min-w-0 overflow-hidden [&_iframe]:w-full [&_iframe]:max-w-full",
+				"mt-2 w-full min-w-0 overflow-hidden [&_iframe]:w-full! [&_iframe]:max-w-full!",
 				className,
 			)}
 		>
