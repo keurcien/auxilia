@@ -93,7 +93,8 @@ async def delete_agent(agent_id: UUID, db: AsyncSession = Depends(get_db)) -> No
     if not db_agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    await db.delete(db_agent)
+    db_agent.is_archived = True
+    db.add(db_agent)
     await db.commit()
 
 

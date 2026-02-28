@@ -43,6 +43,11 @@ async def read_agents(
             )
             .order_by(AgentDB.created_at.asc())
         )
+        .where(AgentDB.is_archived == False)
+        .order_by(AgentDB.created_at.asc())
+    )
+    if owner_id:
+        query = query.where(AgentDB.owner_id == owner_id)
 
     result = await db.execute(query)
     rows = result.all()

@@ -97,7 +97,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 	const handleDeleteAgent = async () => {
 		if (
 			!confirm(
-				"Are you sure you want to delete this agent? This action cannot be undone.",
+				"Are you sure you want to delete this agent?",
 			)
 		) {
 			return;
@@ -242,7 +242,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 							className="text-destructive focus:text-destructive cursor-pointer"
 							onClick={handleDeleteAgent}
 						>
-							<Trash2 className="size-4 mr-2" />
+							<Trash2 className="size-4 mr-2 text-destructive" />
 							<span>Delete agent</span>
 						</DropdownMenuItem>
 					</DropdownMenuContent>
