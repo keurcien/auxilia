@@ -176,7 +176,10 @@ export default function AgentCard({ agent }: AgentCardProps) {
 								{resolvedServers.map((server) => (
 									<Image
 										key={server.id}
-										src={server.iconUrl ?? ""}
+										src={
+											server.iconUrl ??
+											"https://storage.googleapis.com/choose-assets/mcp.png"
+										}
 										alt={server.name}
 										width={24}
 										height={24}

@@ -28,6 +28,7 @@ dependencies = [
     "slack-sdk>=3.34.0",
     "aiohttp>=3.13.3",
     "langfuse>=3.14.1",
+    "h2>=4.3.0",
 ]
 
 [dependency-groups]

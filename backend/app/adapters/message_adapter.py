@@ -169,7 +169,6 @@ def to_langchain_message(message: Message) -> HumanMessage:
 
 
 def deserialize_to_ui_messages(langgraph_messages: list) -> list[Message]:
-    print(langgraph_messages)
     ui_messages = []
     i = 0
 
