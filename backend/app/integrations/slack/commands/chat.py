@@ -1,17 +1,16 @@
 """Slack agent picker — lets users pick an agent for the current thread."""
-from sqlalchemy.ext.asyncio import AsyncSession
 from slack_sdk.web.async_client import AsyncWebClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.models import AgentDB
-from app.agents.utils import read_agents
+from app.agents.service import AgentService
+from app.database import AsyncSessionLocal
 from app.integrations.slack.models import SlackEvent, SlackInteractionPayload
 from app.integrations.slack.settings import slack_settings
 from app.integrations.slack.utils import get_user_info, resolve_user
 from app.threads.service import get_or_create_thread
 from app.users.models import WorkspaceRole
 from app.users.service import get_user_by_email
-from app.database import AsyncSessionLocal
-
 
 # ---------------------------------------------------------------------------
 # Block Kit builders
@@ -63,7 +62,7 @@ async def post_agent_picker(
     db: AsyncSession, user_id: str, user_role: WorkspaceRole | None = None,
 ) -> None:
     """Post an agent picker in the thread."""
-    all_agents = await read_agents(db, user_id=user_id, user_role=user_role)
+    all_agents = await AgentService(db).list_agents(user_id=user_id, user_role=user_role)
     agents = [a for a in all_agents if a.current_user_permission is not None]
     if not agents:
         return

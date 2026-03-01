@@ -1,11 +1,12 @@
 from datetime import datetime
-from uuid import UUID, uuid4
 from enum import Enum
+from uuid import UUID, uuid4
+
 from pydantic import BaseModel
+from sqlalchemy import UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
-from sqlalchemy import UniqueConstraint
-from sqlmodel import Column, DateTime, Field, SQLModel, Text, String
+from sqlmodel import Column, DateTime, Field, SQLModel, String, Text
 
 
 class PermissionLevel(str, Enum):

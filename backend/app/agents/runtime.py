@@ -29,8 +29,8 @@ from app.adapters.message_adapter import (
     to_langchain_message,
 )
 from app.adapters.stream.adapter import AISDKStreamAdapter, SlackStreamAdapter
+from app.agents.service import AgentService
 from app.agents.settings import agent_settings
-from app.agents.utils import read_agent
 from app.database import get_psycopg_conn_string
 from app.integrations.langfuse.callback import langfuse_callback_handler
 from app.mcp.client.factory import MCPClientConfigFactory
@@ -168,7 +168,8 @@ async def _raw_list_mcp_tools(connection: dict) -> list[MCPTool]:
 
             data = _parse_mcp_response_body(list_resp)
             result = data.get("result", {}) if data else {}
-            all_tools.extend(MCPTool.model_validate(t) for t in result.get("tools", []))
+            all_tools.extend(MCPTool.model_validate(t)
+                             for t in result.get("tools", []))
 
             cursor = result.get("nextCursor")
             req_id += 1
@@ -617,7 +618,7 @@ class AgentRuntime:
 
     async def initialize(self):
         async with self._timer.aspan("read_agent"):
-            self.config = await read_agent(self.thread.agent_id, self.db)
+            self.config = await AgentService(self.db).get_agent(self.thread.agent_id)
 
         async with self._timer.aspan("fetch_mcp_servers"):
             result = await self.db.execute(
@@ -643,7 +644,8 @@ class AgentRuntime:
 
         with self._timer.span("build_tool_metadata"):
             all_tools = self.tools[0] + self.tools[1]
-            raw_tool_ui_metadata = _build_tool_ui_metadata_map(all_tools, mcp_servers)
+            raw_tool_ui_metadata = _build_tool_ui_metadata_map(
+                all_tools, mcp_servers)
             name_map = _sanitize_tools_in_place(all_tools)
             self.tool_ui_metadata = {
                 name_map.get(tool_name, tool_name): metadata
@@ -669,7 +671,8 @@ class AgentRuntime:
         try:
             _checkpointer_t0 = time.perf_counter()
             async with AsyncPostgresSaver.from_conn_string(get_psycopg_conn_string()) as checkpointer:
-                self._timer.record("checkpointer_setup", time.perf_counter() - _checkpointer_t0)
+                self._timer.record("checkpointer_setup",
+                                   time.perf_counter() - _checkpointer_t0)
 
                 async with self._timer.aspan("model_and_agent_build"):
                     model_provider = await self.get_model_provider(self.thread.model_id)
@@ -690,11 +693,12 @@ class AgentRuntime:
                     for tool in tools:
                         wrap_mcp_tool_errors(tool)
                         if tool.name in self.tool_ui_metadata:
-                            inject_ui_metadata_into_tool(tool, self.tool_ui_metadata[tool.name])
+                            inject_ui_metadata_into_tool(
+                                tool, self.tool_ui_metadata[tool.name])
 
                     system_prompt = {
                         "type": "text",
-                        "text": self.config.instructions,
+                        "text": self.config.instructions or "",
                     }
 
                     if model_provider == "anthropic":
@@ -772,9 +776,11 @@ class AgentRuntime:
                 _stream_t0 = time.perf_counter()
                 async for chunk in stream:
                     if _first_chunk:
-                        self._timer.record("time_to_first_chunk", time.perf_counter() - _stream_t0)
+                        self._timer.record(
+                            "time_to_first_chunk", time.perf_counter() - _stream_t0)
                         _first_chunk = False
                     yield chunk
-                self._timer.record("stream_total", time.perf_counter() - _stream_t0)
+                self._timer.record(
+                    "stream_total", time.perf_counter() - _stream_t0)
         finally:
             self._timer.summary()

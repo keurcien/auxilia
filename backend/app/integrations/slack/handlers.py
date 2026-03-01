@@ -5,25 +5,25 @@
 # are routed to the configured agent.
 
 import httpx
-from sqlalchemy.ext.asyncio import AsyncSession
-from slack_sdk.web.async_client import AsyncWebClient
 from langchain.messages import HumanMessage
+from slack_sdk.web.async_client import AsyncWebClient
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
+
+from app.agents.runtime import AgentRuntime, build_agent_deps
+from app.agents.service import AgentService
+from app.auth.settings import auth_settings
+from app.database import AsyncSessionLocal
+from app.integrations.slack.blocks import build_tool_approval_blocks
+from app.integrations.slack.commands.chat import post_agent_picker
 from app.integrations.slack.models import SlackEvent, SlackInteractionPayload
 from app.integrations.slack.settings import slack_settings
 from app.integrations.slack.utils import get_user_info
-from app.users.models import UserDB
-from app.users.service import get_user_by_email
-from app.database import AsyncSessionLocal
-from app.agents.runtime import AgentRuntime, build_agent_deps
-from app.integrations.slack.blocks import build_tool_approval_blocks
-from sqlmodel import select
-from app.agents.utils import read_agent, read_agents
 from app.mcp.servers.models import MCPServerDB
 from app.mcp.utils import check_mcp_server_connected
-from app.auth.settings import auth_settings
-from app.integrations.slack.commands.chat import post_agent_picker
 from app.threads.models import ThreadDB
-
+from app.users.models import UserDB
+from app.users.service import get_user_by_email
 
 SLACK_POST_MESSAGE_URL = "https://slack.com/api/chat.postMessage"
 
@@ -291,7 +291,7 @@ async def handle_assistant_thread_started(event: SlackEvent) -> None:
         return
 
     async with AsyncSessionLocal() as db:
-        all_agents = await read_agents(db, user_id=user.id, user_role=user.role)
+        all_agents = await AgentService(db).list_agents(user_id=user.id, user_role=user.role)
     agents = [a for a in all_agents if a.current_user_permission is not None]
 
     if not agents:
@@ -332,7 +332,7 @@ async def _is_agent_ready(agent_id: str, user_id: str, db: AsyncSession) -> bool
     """Mirror the /is-ready endpoint: return True only when all bound MCP servers
     are connected for this user."""
     from uuid import UUID
-    agent = await read_agent(UUID(agent_id), db)
+    agent = await AgentService(db).get_agent(UUID(agent_id))
 
     if not agent.mcp_servers:
         return True
