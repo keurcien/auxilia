@@ -1,23 +1,20 @@
 import asyncio
-import json
 import logging
 import re
 import time
 from dataclasses import dataclass
 
-import httpx
 from langchain.agents import create_agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import SystemMessage
-from langchain_core.tools import StructuredTool, Tool
+from langchain_core.tools import Tool
 from langchain_deepseek import ChatDeepSeek
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.types import Command
-from mcp.types import CallToolResult
-from mcp.types import Tool as MCPTool
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -37,7 +34,7 @@ from app.mcp.client.factory import MCPClientConfigFactory
 from app.mcp.client.storage import TokenStorageFactory
 from app.mcp.client.tools import inject_ui_metadata_into_tool, wrap_mcp_tool_errors
 from app.mcp.servers.models import MCPServerDB
-from app.mcp.servers.router import get_mcp_server_api_key
+from app.mcp.servers.repository import get_mcp_server_api_key
 from app.model_providers.settings import model_provider_settings
 from app.models.message import Message
 from app.threads.models import ThreadDB
@@ -46,271 +43,6 @@ from app.utils.timer import RequestTimer
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Raw HTTP tool listing — bypasses the MCP ClientSession / GET SSE stream
-# ---------------------------------------------------------------------------
-# Some servers (e.g. Google Sheets MCP on Cloud Run) implement the 2025-03-26
-# Streamable HTTP spec in a way where they only open the GET SSE stream when
-# they have a message to push.  The MCP SDK opens a GET stream after
-# notifications/initialized, then sends tools/list.  The server returns
-# 202 Accepted for tools/list (intending to push the result via GET stream),
-# but the GET stream HTTP response is held by the server until it has the
-# tools/list result ready — creating a race that results in ~15 s delays.
-#
-# By listing tools with plain HTTP (no GET stream), the server must respond
-# inline and the call completes in <1 s — matching the MCP Inspector and
-# other raw clients.  Actual tool *invocations* still go through the full
-# SDK session so that streaming / progress notifications work correctly.
-
-def _parse_mcp_response_body(response: httpx.Response) -> dict:
-    """Parse a synchronous-style MCP response (JSON or single-event SSE).
-
-    Needed because servers that return 202 Accepted and intend to push the result
-    via GET SSE sometimes fall back to inline SSE delivery when no GET stream is open.
-
-    Upstream: https://github.com/modelcontextprotocol/python-sdk/issues/1661
-    """
-    content_type = response.headers.get("content-type", "")
-    if "text/event-stream" in content_type:
-        last: dict = {}
-        for line in response.text.splitlines():
-            if line.startswith("data:"):
-                raw = line[len("data:"):].strip()
-                if raw:
-                    try:
-                        last = json.loads(raw)
-                    except json.JSONDecodeError:
-                        pass
-        return last
-    return response.json()
-
-
-async def _raw_list_mcp_tools(connection: dict) -> list[MCPTool]:
-    """Fetch MCP tool definitions via plain HTTP without a GET SSE stream.
-
-    Args:
-        connection: A connection config dict as produced by MCPClientConfigFactory,
-                    e.g. ``{"transport": "http", "url": "...", "headers": {...}}``
-                    or   ``{"transport": "http", "url": "...", "auth": <httpx.Auth>}``.
-
-    Returns:
-        List of raw MCP Tool objects (not yet converted to LangChain tools).
-
-    Upstream:
-        https://github.com/modelcontextprotocol/python-sdk/issues/1661
-            SDK does not handle 202 Accepted responses — hangs waiting for a GET
-            SSE event that the server only delivers once the stream is open.
-        https://github.com/modelcontextprotocol/python-sdk/issues/1053
-            Streamable HTTP transport hangs when connecting to a server on Cloud Run,
-            which is the exact deployment scenario that triggered this workaround.
-    """
-    url: str = connection["url"]
-    extra_headers: dict = connection.get("headers") or {}
-    auth: httpx.Auth | None = connection.get("auth")
-
-    request_headers = {
-        "Content-Type": "application/json",
-        "Accept": "application/json, text/event-stream",
-        **extra_headers,
-    }
-
-    async with httpx.AsyncClient(
-        auth=auth,
-        follow_redirects=True,
-        timeout=httpx.Timeout(30.0, read=60.0),
-    ) as client:
-        # 1. Initialise.
-        init_resp = await client.post(url, headers=request_headers, json={
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2025-11-25",
-                "capabilities": {},
-                "clientInfo": {"name": "auxilia", "version": "1.0"},
-            },
-            "jsonrpc": "2.0",
-            "id": 0,
-        })
-        init_resp.raise_for_status()
-
-        session_id = init_resp.headers.get("mcp-session-id")
-        session_headers = dict(request_headers)
-        if session_id:
-            session_headers["mcp-session-id"] = session_id
-
-        init_data = _parse_mcp_response_body(init_resp)
-        negotiated = (init_data.get("result", {}).get("protocolVersion")
-                      if init_data else None)
-        if negotiated:
-            session_headers["mcp-protocol-version"] = negotiated
-
-        # 2. Notify the server that initialisation is done.
-        await client.post(url, headers=session_headers, json={
-            "method": "notifications/initialized",
-            "jsonrpc": "2.0",
-        })
-
-        # 3. List tools (paginated).
-        all_tools: list[MCPTool] = []
-        cursor: str | None = None
-        req_id = 1
-        while True:
-            params: dict = {}
-            if cursor:
-                params["cursor"] = cursor
-
-            list_resp = await client.post(url, headers=session_headers, json={
-                "method": "tools/list",
-                "params": params,
-                "jsonrpc": "2.0",
-                "id": req_id,
-            })
-            list_resp.raise_for_status()
-
-            data = _parse_mcp_response_body(list_resp)
-            result = data.get("result", {}) if data else {}
-            all_tools.extend(MCPTool.model_validate(t)
-                             for t in result.get("tools", []))
-
-            cursor = result.get("nextCursor")
-            req_id += 1
-            if not cursor:
-                break
-
-        return all_tools
-
-
-async def _raw_call_mcp_tool(
-    connection: dict,
-    tool_name: str,
-    arguments: dict,
-) -> CallToolResult:
-    """Call an MCP tool via plain HTTP without a GET SSE stream.
-
-    Same rationale as _raw_list_mcp_tools: avoids the GET-stream deadlock where
-    the server returns 202 for tools/call and only delivers the result once the
-    GET SSE connection is established (which the server delays until it has
-    something to push).
-
-    Upstream:
-        https://github.com/modelcontextprotocol/python-sdk/issues/1661
-            SDK does not handle 202 Accepted — hangs indefinitely waiting for a
-            GET SSE event that never arrives because the stream is not yet open.
-        https://github.com/modelcontextprotocol/python-sdk/pull/1674
-            Open PR fixing a related race where requests sent immediately after
-            initialize are silently dropped before the POST writer is ready.
-    """
-
-    url: str = connection["url"]
-    extra_headers: dict = connection.get("headers") or {}
-    auth: httpx.Auth | None = connection.get("auth")
-
-    request_headers = {
-        "Content-Type": "application/json",
-        "Accept": "application/json, text/event-stream",
-        **extra_headers,
-    }
-
-    async with httpx.AsyncClient(
-        auth=auth,
-        follow_redirects=True,
-        # Use a long read timeout for tool calls — some tools may be slow.
-        timeout=httpx.Timeout(30.0, read=300.0),
-    ) as client:
-        # 1. Initialise.
-        init_resp = await client.post(url, headers=request_headers, json={
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2025-11-25",
-                "capabilities": {},
-                "clientInfo": {"name": "auxilia", "version": "1.0"},
-            },
-            "jsonrpc": "2.0",
-            "id": 0,
-        })
-        init_resp.raise_for_status()
-
-        session_id = init_resp.headers.get("mcp-session-id")
-        session_headers = dict(request_headers)
-        if session_id:
-            session_headers["mcp-session-id"] = session_id
-
-        init_data = _parse_mcp_response_body(init_resp)
-        negotiated = (init_data.get("result", {}).get("protocolVersion")
-                      if init_data else None)
-        if negotiated:
-            session_headers["mcp-protocol-version"] = negotiated
-
-        # 2. Notify the server that initialisation is done.
-        await client.post(url, headers=session_headers, json={
-            "method": "notifications/initialized",
-            "jsonrpc": "2.0",
-        })
-
-        # 3. Call the tool.
-        call_resp = await client.post(url, headers=session_headers, json={
-            "method": "tools/call",
-            "params": {
-                "name": tool_name,
-                "arguments": arguments,
-            },
-            "jsonrpc": "2.0",
-            "id": 1,
-        })
-        call_resp.raise_for_status()
-
-        data = _parse_mcp_response_body(call_resp)
-        result = data.get("result", {}) if data else {}
-        return CallToolResult.model_validate(result)
-
-
-def _make_raw_lc_tool(
-    mcp_tool: MCPTool,
-    connection: dict,
-    *,
-    server_name: str,
-    tool_name_prefix: bool,
-) -> StructuredTool:
-    """Build a LangChain StructuredTool backed by raw HTTP tool calls (no GET stream).
-
-    When session=None, langchain-mcp-adapters creates a fresh ClientSession (and
-    therefore a new GET SSE stream) for every tool invocation, reproducing the
-    same 202 deadlock on each call. This function constructs a StructuredTool
-    whose coroutine uses _raw_call_mcp_tool directly, bypassing that lifecycle.
-
-    Upstream:
-        https://github.com/langchain-ai/langchain-mcp-adapters/issues/207
-            Per-call session creation — a new MCP handshake runs on every tool
-            invocation, adding round-trip overhead and triggering the GET-stream
-            deadlock each time.
-        https://github.com/langchain-ai/langchain-mcp-adapters/issues/189
-            Session persistence across LangGraph turns — same root cause, surfaced
-            as state loss between sequential tool calls on stateful servers.
-    """
-    from langchain_mcp_adapters.tools import _convert_call_tool_result
-
-    lc_name = f"{server_name}_{mcp_tool.name}" if tool_name_prefix and server_name else mcp_tool.name
-
-    raw_meta = getattr(mcp_tool, "meta", None)
-    base = mcp_tool.annotations.model_dump() if mcp_tool.annotations is not None else {}
-    meta_dict = {"_meta": raw_meta} if raw_meta is not None else {}
-    metadata = {**base, **meta_dict} or None
-
-    # Capture loop variables so the closure is stable per tool.
-    _tool_name = mcp_tool.name
-    _connection = connection
-
-    async def call_tool(**arguments):
-        raw_result = await _raw_call_mcp_tool(_connection, _tool_name, arguments)
-        return _convert_call_tool_result(raw_result)
-
-    return StructuredTool(
-        name=lc_name,
-        description=mcp_tool.description or "",
-        args_schema=mcp_tool.inputSchema,
-        coroutine=call_tool,
-        response_format="content_and_artifact",
-        metadata=metadata,
-    )
 
 
 _VALID_TOOL_NAME_CHARS = re.compile(r"[^a-zA-Z0-9_-]")
@@ -565,24 +297,11 @@ class AgentRuntime:
         Returns:
             Filtered list of tools
         """
+        client = MultiServerMCPClient(multi_mcp_server_configs, tool_name_prefix=True)
+
         async def fetch_and_filter_tools(server_id: str):
-            connection = multi_mcp_server_configs[server_id]
-
-            # Use raw HTTP to avoid the ~15 s GET-stream race (see _raw_list_mcp_tools).
             async with self._timer.aspan(f"mcp_list_tools:{server_id}"):
-                raw_mcp_tools = await _raw_list_mcp_tools(connection)
-
-            # Build LangChain tools backed by raw HTTP tool calls (same fix for
-            # tool invocations — avoids the same GET-stream deadlock).
-            lc_tools = [
-                _make_raw_lc_tool(
-                    mcp_tool=tool,
-                    connection=connection,
-                    server_name=server_id,
-                    tool_name_prefix=True,
-                )
-                for tool in raw_mcp_tools
-            ]
+                lc_tools = await client.get_tools(server_name=server_id)
 
             tool_settings = tool_settings_map.get(str(server_id))
             always_allowed_tools = [tool for tool in lc_tools if tool.name in [

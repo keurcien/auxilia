@@ -23,7 +23,7 @@ from app.database import get_db
 from app.mcp.client.auth import WebOAuthClientProvider, build_oauth_client_metadata
 from app.mcp.client.storage import TokenStorageFactory
 from app.mcp.servers.models import MCPAuthType, MCPServerDB
-from app.mcp.servers.router import connect_to_server
+from app.mcp.servers.service import connect_to_server
 from app.mcp.utils import check_mcp_server_connected
 from app.users.models import WorkspaceRole
 
