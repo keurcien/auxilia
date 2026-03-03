@@ -1,4 +1,5 @@
-from typing import Any, Annotated
+from typing import Annotated, Any
+
 from pydantic import BaseModel, Discriminator, Tag
 
 
@@ -37,7 +38,7 @@ def get_message_part_type(value: Any) -> str:
         type_val = value.get("type", "")
     else:
         type_val = getattr(value, "type", "")
-    
+
     if isinstance(type_val, str) and type_val.startswith("tool-"):
         return "tool"
     return type_val

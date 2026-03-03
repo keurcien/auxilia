@@ -1,8 +1,9 @@
+from datetime import datetime, timedelta, timezone
+
 from mcp.client.auth import TokenStorage
-from mcp.shared.auth import OAuthClientInformationFull, OAuthToken, OAuthMetadata
-from redis.asyncio import Redis
-from datetime import datetime, timezone, timedelta
+from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata, OAuthToken
 from pydantic import BaseModel
+from redis.asyncio import Redis
 
 from app.settings import app_settings
 
@@ -71,7 +72,7 @@ class RedisTokenStorage(TokenStorage):
             return None
 
         stored_token = StoredToken.model_validate_json(stored_token)
-        
+
         if stored_token.expires_at is not None:
             print(f"Stored token for user {self.user_id} and MCP server {self.mcp_server_id} expires at {stored_token.expires_at}")
             now = datetime.now(timezone.utc)
@@ -130,7 +131,7 @@ class RedisTokenStorage(TokenStorage):
             mcp_server_id=self.mcp_server_id,
             verifier=verifier,
         )
-        
+
         await self.redis.set(
             self._state_key(state, self._prefix),
             state_data.model_dump_json(),
@@ -183,7 +184,7 @@ class TokenStorageFactory:
         state_data = await self.get_state_data(state)
         if not state_data:
             return None
-        
+
         storage = self.get_storage(state_data.user_id, state_data.mcp_server_id)
         return storage, state_data
 

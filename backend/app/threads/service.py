@@ -1,6 +1,7 @@
-from sqlmodel import select
-from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
+
 from app.database import AsyncSessionLocal, get_db
 from app.threads.models import ThreadDB
 

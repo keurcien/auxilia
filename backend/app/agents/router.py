@@ -1,5 +1,7 @@
 from uuid import UUID
+
 from fastapi import APIRouter, Depends
+
 from app.agents.models import (
     AgentCreate,
     AgentMCPServerBindingCreate,
@@ -17,6 +19,7 @@ from app.auth.dependencies import (
     require_editor,
 )
 from app.users.models import UserDB
+
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 

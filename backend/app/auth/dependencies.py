@@ -9,6 +9,7 @@ from app.auth.utils import decode_access_token
 from app.database import get_db
 from app.users.models import UserDB, WorkspaceRole
 
+
 ROLE_HIERARCHY: dict[WorkspaceRole, int] = {
     WorkspaceRole.member: 0,
     WorkspaceRole.editor: 1,

@@ -2,4 +2,5 @@
 
 from .adapter import AISDKStreamAdapter, SlackStreamAdapter
 
+
 __all__ = ["AISDKStreamAdapter", "SlackStreamAdapter"]

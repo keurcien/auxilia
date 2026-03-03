@@ -21,6 +21,7 @@ from app.invites.models import InviteStatus
 from app.invites.service import InviteService, get_invite_service
 from app.users.models import OAuthAccountDB, UserDB, UserRead, WorkspaceRole
 
+
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 # Initialize OAuth client

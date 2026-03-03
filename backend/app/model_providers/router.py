@@ -1,7 +1,9 @@
 import requests
 from fastapi import APIRouter
-from .settings import model_provider_settings
+
 from app.model_providers.models import ModelProviderRead, ModelProviderType, ModelRead
+
+from .settings import model_provider_settings
 
 
 router = APIRouter(prefix="/model-providers", tags=["model-providers"])

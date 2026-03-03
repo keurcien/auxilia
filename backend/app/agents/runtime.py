@@ -41,6 +41,7 @@ from app.models.message import Message
 from app.threads.models import ThreadDB
 from app.utils.timer import RequestTimer
 
+
 logger = logging.getLogger(__name__)
 
 

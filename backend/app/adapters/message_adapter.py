@@ -1,6 +1,7 @@
 import json
-import uuid
 import logging
+import uuid
+
 from langchain_core.messages import (
     AIMessage,
     HumanMessage,
@@ -8,9 +9,13 @@ from langchain_core.messages import (
     ToolMessage,
 )
 
-from app.models.message import Message, TextMessagePart, ToolMessagePart, ReasoningMessagePart, FileMessagePart
-
-import logging
+from app.models.message import (
+    FileMessagePart,
+    Message,
+    ReasoningMessagePart,
+    TextMessagePart,
+    ToolMessagePart,
+)
 
 
 def to_langchain_file_part(file_part) -> dict | None:

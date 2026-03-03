@@ -23,6 +23,7 @@ from app.settings import app_settings
 from app.threads.router import router as threads_router
 from app.users.router import router as users_router
 
+
 # Redis configuration from environment variables
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
@@ -110,4 +111,3 @@ app.include_router(model_providers_router)
 app.include_router(slack_router)
 
 app.mount("/", auxilia_mcp.streamable_http_app())
-

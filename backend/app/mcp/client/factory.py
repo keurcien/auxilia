@@ -1,6 +1,7 @@
-from typing import Callable, Awaitable
-from app.mcp.servers.models import MCPAuthType, MCPServerDB
+from collections.abc import Awaitable, Callable
+
 from app.mcp.client.auth import WebOAuthClientProvider, build_oauth_client_metadata
+from app.mcp.servers.models import MCPAuthType, MCPServerDB
 
 
 class MCPClientConfigFactory:

@@ -12,6 +12,7 @@ from app.threads.service import get_or_create_thread
 from app.users.models import WorkspaceRole
 from app.users.service import get_user_by_email
 
+
 # ---------------------------------------------------------------------------
 # Block Kit builders
 # ---------------------------------------------------------------------------

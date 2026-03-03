@@ -16,6 +16,7 @@ from app.threads.service import get_thread
 from app.users.models import UserDB
 from app.utils.timer import RequestTimer
 
+
 router = APIRouter(prefix="/threads", tags=["threads"])
 
 

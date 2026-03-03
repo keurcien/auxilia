@@ -17,6 +17,7 @@ from app.mcp.servers.repository import MCPServerRepository
 from app.mcp.servers.service import MCPServerService
 from app.users.models import UserDB
 
+
 router = APIRouter(prefix="/mcp-servers", tags=["mcp-servers"])
 
 

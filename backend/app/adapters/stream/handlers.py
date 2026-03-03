@@ -10,6 +10,7 @@ from .content_stream import ContentStreamManager
 from .sse import format_sse_event
 from .tool_tracker import ToolCallTracker, make_tool_signature, normalize_tool_call
 
+
 logger = logging.getLogger(__name__)
 
 # Keys that are LangGraph internals and should not leak into tool input.
