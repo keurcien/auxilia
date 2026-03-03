@@ -89,6 +89,7 @@ class AISDKStreamAdapter:
 
         try:
             async for value in events:
+                print(value)
                 if not isinstance(value, dict) or "event" not in value:
                     continue
 
@@ -227,7 +228,8 @@ class SlackStreamAdapter:
                     yield event
         except Exception as e:
             body = getattr(e, "body", None)
-            msg = (body.get("message") if isinstance(body, dict) else None) or str(e)
+            msg = (body.get("message") if isinstance(
+                body, dict) else None) or str(e)
             yield {"type": "error", "content": msg}
 
     async def _route_event(self, value: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
@@ -263,7 +265,8 @@ class SlackStreamAdapter:
                             index=index,
                         )
                     elif args_delta:
-                        match = self._tools.find_active_by_index(index) or self._tools.find_sole_active()
+                        match = self._tools.find_active_by_index(
+                            index) or self._tools.find_sole_active()
                         if match:
                             _, tracked = match
                             tracked.args_buffer += args_delta
@@ -296,7 +299,8 @@ class SlackStreamAdapter:
             tool_name = value.get("name")
             raw_input = value.get("data", {}).get("input", {})
             runtime = raw_input.get("runtime")
-            tool_call_id = getattr(runtime, "tool_call_id", None) if runtime else None
+            tool_call_id = getattr(
+                runtime, "tool_call_id", None) if runtime else None
             if not tool_call_id:
                 tool_call_id = value.get("run_id")
             yield {"type": "tool_start", "tool_call_id": tool_call_id, "tool_name": tool_name}

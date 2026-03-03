@@ -183,7 +183,8 @@ async def connect_to_server(mcp_server: MCPServerDB, user_id: str, db: AsyncSess
 
         if oauth_credentials:
             client_id = oauth_credentials.client_id
-            client_secret = decrypt_api_key(oauth_credentials.client_secret_encrypted)
+            client_secret = decrypt_api_key(
+                oauth_credentials.client_secret_encrypted)
 
             client_metadata.token_endpoint_auth_method = (
                 oauth_credentials.token_endpoint_auth_method or "client_secret_post"
