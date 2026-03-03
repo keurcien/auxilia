@@ -6,16 +6,12 @@ from dataclasses import dataclass
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware
-from langchain_anthropic import ChatAnthropic
+from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
 from langchain_core.messages import SystemMessage
 from langchain_core.tools import Tool
-from langchain_deepseek import ChatDeepSeek
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.types import Command
-from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -35,14 +31,17 @@ from app.mcp.client.storage import TokenStorageFactory
 from app.mcp.client.tools import inject_ui_metadata_into_tool, wrap_mcp_tool_errors
 from app.mcp.servers.models import MCPServerDB
 from app.mcp.servers.repository import get_mcp_server_api_key
-from app.model_providers.settings import model_provider_settings
+from app.model_providers.catalog import (
+    LLM_PROVIDERS,
+    MODELS,
+    ChatModelFactory,
+    ModelProvider,
+)
 from app.models.message import Message
 from app.threads.models import ThreadDB
 from app.utils.timer import RequestTimer
 
 logger = logging.getLogger(__name__)
-
-
 
 
 _VALID_TOOL_NAME_CHARS = re.compile(r"[^a-zA-Z0-9_-]")
@@ -153,79 +152,6 @@ def _build_tool_ui_metadata_map(
     return metadata_by_tool_name
 
 
-class ModelProvider(BaseModel):
-    name: str
-    api_key: str
-
-
-class Model(BaseModel):
-    name: str
-    provider: str
-
-
-LLM_PROVIDERS = []
-MODELS = []
-
-if model_provider_settings.openai_api_key:
-    LLM_PROVIDERS.append(ModelProvider(
-        name="openai", api_key=model_provider_settings.openai_api_key))
-    MODELS.append(Model(name="gpt-4o-mini", provider="openai"))
-
-if model_provider_settings.deepseek_api_key:
-    LLM_PROVIDERS.append(ModelProvider(
-        name="deepseek", api_key=model_provider_settings.deepseek_api_key))
-    MODELS.append(Model(name="deepseek-chat", provider="deepseek"))
-    MODELS.append(Model(name="deepseek-reasoner", provider="deepseek"))
-
-if model_provider_settings.anthropic_api_key:
-    LLM_PROVIDERS.append(ModelProvider(
-        name="anthropic", api_key=model_provider_settings.anthropic_api_key))
-    MODELS.append(Model(name="claude-haiku-4-5", provider="anthropic"))
-    MODELS.append(Model(name="claude-sonnet-4-5", provider="anthropic"))
-    MODELS.append(Model(name="claude-opus-4-5", provider="anthropic"))
-
-if model_provider_settings.google_api_key:
-    LLM_PROVIDERS.append(ModelProvider(
-        name="google", api_key=model_provider_settings.google_api_key))
-    MODELS.append(Model(name="gemini-3-flash-preview", provider="google"))
-    MODELS.append(Model(name="gemini-3-pro-preview", provider="google"))
-
-
-class ChatModelFactory:
-
-    def create(self, provider: str, model_id: str, api_key: str):
-
-        match provider:
-            case "openai":
-                return ChatOpenAI(model=model_id, api_key=api_key)
-            case "deepseek":
-                return ChatDeepSeek(model=model_id, api_key=api_key)
-            case "anthropic":
-                return ChatAnthropic(
-                    model=model_id,
-                    temperature=1,
-                    max_tokens=2048,
-                    streaming=True,
-                    timeout=None,
-                    thinking={"type": "enabled", "budget_tokens": 1024},
-                    max_retries=2,
-                    api_key=api_key
-                )
-            case "google":
-                return ChatGoogleGenerativeAI(
-                    model=model_id,
-                    temperature=0,
-                    max_tokens=None,
-                    timeout=None,
-                    max_retries=2,
-                    streaming=True,
-                    include_thoughts=True,
-                    thinking_budget=-1,
-                    api_key=api_key,
-                )
-            case _:
-                raise ValueError(f"Provider {provider} not supported")
-
 
 @dataclass
 class AgentRuntimeDependencies:
@@ -297,7 +223,8 @@ class AgentRuntime:
         Returns:
             Filtered list of tools
         """
-        client = MultiServerMCPClient(multi_mcp_server_configs, tool_name_prefix=True)
+        client = MultiServerMCPClient(
+            multi_mcp_server_configs, tool_name_prefix=True)
 
         async def fetch_and_filter_tools(server_id: str):
             async with self._timer.aspan(f"mcp_list_tools:{server_id}"):
@@ -420,22 +347,26 @@ class AgentRuntime:
                         "text": self.config.instructions or "",
                     }
 
+                    middlewares = [
+                        HumanInTheLoopMiddleware(
+                            interrupt_on={
+                                tool.name: True for tool in need_approval_tools
+                            },
+                            description_prefix="Tool execution pending approval",
+                        )
+                    ]
+
                     if model_provider == "anthropic":
-                        system_prompt["cache_control"] = {"type": "ephemeral"}
+                        middlewares.append(
+                            AnthropicPromptCachingMiddleware(ttl='5m'))
+                        # system_prompt["cache_control"] = {"type": "ephemeral"}
 
                     agent = create_agent(
                         model=chat_model,
                         tools=tools,
                         system_prompt=SystemMessage(content=[system_prompt]),
                         checkpointer=checkpointer,
-                        middleware=[
-                            HumanInTheLoopMiddleware(
-                                interrupt_on={
-                                    tool.name: True for tool in need_approval_tools
-                                },
-                                description_prefix="Tool execution pending approval",
-                            )
-                        ],
+                        middleware=middlewares,
                     )
 
                 with self._timer.span("message_processing"):

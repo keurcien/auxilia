@@ -1,6 +1,6 @@
-from contextlib import asynccontextmanager
+import os
 from uuid import UUID
-
+from contextlib import asynccontextmanager
 from fastapi import Depends, HTTPException
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
@@ -183,7 +183,8 @@ async def connect_to_server(mcp_server: MCPServerDB, user_id: str, db: AsyncSess
 
         if oauth_credentials:
             client_id = oauth_credentials.client_id
-            client_secret = decrypt_api_key(oauth_credentials.client_secret_encrypted)
+            client_secret = decrypt_api_key(
+                oauth_credentials.client_secret_encrypted)
 
             client_metadata.token_endpoint_auth_method = (
                 oauth_credentials.token_endpoint_auth_method or "client_secret_post"
@@ -226,7 +227,7 @@ async def connect_to_server(mcp_server: MCPServerDB, user_id: str, db: AsyncSess
                 tools = response.tools
 
                 if mcp_server.url == "https://bigquery.googleapis.com/mcp":
-                    await session.call_tool("list_dataset_ids", {"project_id": "choose-data-dev"})
+                    await session.call_tool("list_dataset_ids", {"project_id": os.getenv("GCLOUD_PROJECT")})
 
                 yield session, tools
             except Exception as e:
