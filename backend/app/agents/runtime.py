@@ -1,35 +1,19 @@
 import asyncio
+import logging
 import re
+import time
 from dataclasses import dataclass
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware
-from langchain_anthropic import ChatAnthropic
+from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
 from langchain_core.messages import SystemMessage
 from langchain_core.tools import Tool
-from langchain_deepseek import ChatDeepSeek
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.types import Command
-from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
-
-from app.integrations.langfuse.callback import langfuse_callback_handler
-from app.mcp.client.factory import MCPClientConfigFactory
-from app.agents.settings import agent_settings
-from app.database import get_psycopg_conn_string
-from app.model_providers.settings import model_provider_settings
-from app.threads.models import ThreadDB
-from app.models.message import Message
-from app.mcp.servers.models import MCPServerDB
-from app.agents.utils import read_agent
-from app.adapters.stream.adapter import AISDKStreamAdapter, SlackStreamAdapter
-from app.mcp.servers.router import get_mcp_server_api_key
-from app.mcp.client.storage import TokenStorageFactory
-from app.mcp.client.tools import inject_ui_metadata_into_tool, wrap_mcp_tool_errors
 
 from app.adapters.message_adapter import (
     extract_approved_tool_call_ids,
@@ -38,17 +22,27 @@ from app.adapters.message_adapter import (
     to_langchain_message,
 )
 from app.adapters.stream.adapter import AISDKStreamAdapter, SlackStreamAdapter
+from app.agents.service import AgentService
 from app.agents.settings import agent_settings
-from app.agents.utils import read_agent
 from app.database import get_psycopg_conn_string
 from app.integrations.langfuse.callback import langfuse_callback_handler
 from app.mcp.client.factory import MCPClientConfigFactory
 from app.mcp.client.storage import TokenStorageFactory
+from app.mcp.client.tools import inject_ui_metadata_into_tool, wrap_mcp_tool_errors
 from app.mcp.servers.models import MCPServerDB
-from app.mcp.servers.router import get_mcp_server_api_key
-from app.model_providers.settings import model_provider_settings
+from app.mcp.servers.repository import get_mcp_server_api_key
+from app.model_providers.catalog import (
+    LLM_PROVIDERS,
+    MODELS,
+    ChatModelFactory,
+    ModelProvider,
+)
 from app.models.message import Message
 from app.threads.models import ThreadDB
+from app.utils.timer import RequestTimer
+
+logger = logging.getLogger(__name__)
+
 
 _VALID_TOOL_NAME_CHARS = re.compile(r"[^a-zA-Z0-9_-]")
 _MAX_TOOL_NAME_LENGTH = 128
@@ -158,79 +152,6 @@ def _build_tool_ui_metadata_map(
     return metadata_by_tool_name
 
 
-class ModelProvider(BaseModel):
-    name: str
-    api_key: str
-
-
-class Model(BaseModel):
-    name: str
-    provider: str
-
-
-LLM_PROVIDERS = []
-MODELS = []
-
-if model_provider_settings.openai_api_key:
-    LLM_PROVIDERS.append(ModelProvider(
-        name="openai", api_key=model_provider_settings.openai_api_key))
-    MODELS.append(Model(name="gpt-4o-mini", provider="openai"))
-
-if model_provider_settings.deepseek_api_key:
-    LLM_PROVIDERS.append(ModelProvider(
-        name="deepseek", api_key=model_provider_settings.deepseek_api_key))
-    MODELS.append(Model(name="deepseek-chat", provider="deepseek"))
-    MODELS.append(Model(name="deepseek-reasoner", provider="deepseek"))
-
-if model_provider_settings.anthropic_api_key:
-    LLM_PROVIDERS.append(ModelProvider(
-        name="anthropic", api_key=model_provider_settings.anthropic_api_key))
-    MODELS.append(Model(name="claude-haiku-4-5", provider="anthropic"))
-    MODELS.append(Model(name="claude-sonnet-4-5", provider="anthropic"))
-    MODELS.append(Model(name="claude-opus-4-5", provider="anthropic"))
-
-if model_provider_settings.google_api_key:
-    LLM_PROVIDERS.append(ModelProvider(
-        name="google", api_key=model_provider_settings.google_api_key))
-    MODELS.append(Model(name="gemini-3-flash-preview", provider="google"))
-    MODELS.append(Model(name="gemini-3-pro-preview", provider="google"))
-
-
-class ChatModelFactory:
-
-    def create(self, provider: str, model_id: str, api_key: str):
-
-        match provider:
-            case "openai":
-                return ChatOpenAI(model=model_id, api_key=api_key)
-            case "deepseek":
-                return ChatDeepSeek(model=model_id, api_key=api_key)
-            case "anthropic":
-                return ChatAnthropic(
-                    model=model_id,
-                    temperature=1,
-                    max_tokens=2048,
-                    streaming=True,
-                    timeout=None,
-                    thinking={"type": "enabled", "budget_tokens": 1024},
-                    max_retries=2,
-                    api_key=api_key
-                )
-            case "google":
-                return ChatGoogleGenerativeAI(
-                    model=model_id,
-                    temperature=0,
-                    max_tokens=None,
-                    timeout=None,
-                    max_retries=2,
-                    streaming=True,
-                    include_thoughts=True,
-                    thinking_budget=-1,
-                    api_key=api_key,
-                )
-            case _:
-                raise ValueError(f"Provider {provider} not supported")
-
 
 @dataclass
 class AgentRuntimeDependencies:
@@ -253,12 +174,13 @@ def build_agent_deps(thread: ThreadDB, db: AsyncSession) -> AgentRuntimeDependen
 
 
 class AgentRuntime:
-    def __init__(self, thread: ThreadDB, db: AsyncSession, deps: AgentRuntimeDependencies):
+    def __init__(self, thread: ThreadDB, db: AsyncSession, deps: AgentRuntimeDependencies, timer: RequestTimer | None = None):
         self.thread = thread
         self.tools = None
         self.tool_ui_metadata: dict[str, dict[str, str]] = {}
         self.db = db
         self._deps = deps
+        self._timer = timer or RequestTimer("invoke", enabled=False)
         self.callbacks = [
             langfuse_callback_handler] if langfuse_callback_handler is not None else []
 
@@ -305,11 +227,13 @@ class AgentRuntime:
             multi_mcp_server_configs, tool_name_prefix=True)
 
         async def fetch_and_filter_tools(server_id: str):
-            tools = await client.get_tools(server_name=server_id)
+            async with self._timer.aspan(f"mcp_list_tools:{server_id}"):
+                lc_tools = await client.get_tools(server_name=server_id)
+
             tool_settings = tool_settings_map.get(str(server_id))
-            always_allowed_tools = [tool for tool in tools if tool.name in [
+            always_allowed_tools = [tool for tool in lc_tools if tool.name in [
                 server_id + "_" + tool for tool, status in tool_settings.items() if status == "always_allow"]]
-            need_approval_tools = [tool for tool in tools if tool.name in [
+            need_approval_tools = [tool for tool in lc_tools if tool.name in [
                 server_id + "_" + tool for tool, status in tool_settings.items() if status == "needs_approval"]]
             return always_allowed_tools, need_approval_tools
 
@@ -333,39 +257,46 @@ class AgentRuntime:
         )
 
     @classmethod
-    async def create(cls, thread: ThreadDB, db: AsyncSession, deps: AgentRuntimeDependencies):
-        self = cls(thread, db, deps)
+    async def create(cls, thread: ThreadDB, db: AsyncSession, deps: AgentRuntimeDependencies, timer: RequestTimer | None = None):
+        self = cls(thread, db, deps, timer=timer)
         await self.initialize()
         return self
 
     async def initialize(self):
-        self.config = await read_agent(self.thread.agent_id, self.db)
+        async with self._timer.aspan("read_agent"):
+            self.config = await AgentService(self.db).get_agent(self.thread.agent_id)
 
-        result = await self.db.execute(
-            select(MCPServerDB).where(
-                MCPServerDB.id.in_(
-                    [mcp_server.id for mcp_server in self.config.mcp_servers]
+        async with self._timer.aspan("fetch_mcp_servers"):
+            result = await self.db.execute(
+                select(MCPServerDB).where(
+                    MCPServerDB.id.in_(
+                        [mcp_server.id for mcp_server in self.config.mcp_servers]
+                    )
                 )
             )
-        )
-        mcp_servers = result.scalars().all()
-        mcp_servers = list(mcp_servers)
+            mcp_servers = result.scalars().all()
+            mcp_servers = list(mcp_servers)
 
-        mcp_server_configs = await self.build_multi_mcp_server_configs(mcp_servers)
+        async with self._timer.aspan("build_mcp_configs"):
+            mcp_server_configs = await self.build_multi_mcp_server_configs(mcp_servers)
 
         tool_settings = {
             next(server.name for server in mcp_servers if server.id == mcp_server.id): mcp_server.tools
             for mcp_server in self.config.mcp_servers
         }
 
-        self.tools = await self.get_tools(mcp_server_configs, tool_settings)
-        all_tools = self.tools[0] + self.tools[1]
-        raw_tool_ui_metadata = _build_tool_ui_metadata_map(all_tools, mcp_servers)
-        name_map = _sanitize_tools_in_place(all_tools)
-        self.tool_ui_metadata = {
-            name_map.get(tool_name, tool_name): metadata
-            for tool_name, metadata in raw_tool_ui_metadata.items()
-        }
+        async with self._timer.aspan("get_tools"):
+            self.tools = await self.get_tools(mcp_server_configs, tool_settings)
+
+        with self._timer.span("build_tool_metadata"):
+            all_tools = self.tools[0] + self.tools[1]
+            raw_tool_ui_metadata = _build_tool_ui_metadata_map(
+                all_tools, mcp_servers)
+            name_map = _sanitize_tools_in_place(all_tools)
+            self.tool_ui_metadata = {
+                name_map.get(tool_name, tool_name): metadata
+                for tool_name, metadata in raw_tool_ui_metadata.items()
+            }
 
     async def stream(
         self,
@@ -383,101 +314,123 @@ class AgentRuntime:
             commands: Optional list of explicit commands ("approve"/"reject") for direct resume
                       (bypasses message-based command extraction)
         """
-        async with AsyncPostgresSaver.from_conn_string(get_psycopg_conn_string()) as checkpointer:
-            model_provider = await self.get_model_provider(self.thread.model_id)
-            chat_model = self._deps.model_factory.create(
-                model_provider.name, self.thread.model_id, model_provider.api_key)
+        try:
+            _checkpointer_t0 = time.perf_counter()
+            async with AsyncPostgresSaver.from_conn_string(get_psycopg_conn_string()) as checkpointer:
+                self._timer.record("checkpointer_setup",
+                                   time.perf_counter() - _checkpointer_t0)
 
-            tools = self.tools[0] + self.tools[1]
-            need_approval_tools = self.tools[1]
+                async with self._timer.aspan("model_and_agent_build"):
+                    model_provider = await self.get_model_provider(self.thread.model_id)
+                    chat_model = self._deps.model_factory.create(
+                        model_provider.name, self.thread.model_id, model_provider.api_key)
 
-            # Wrap each tool's coroutine so that anyio ExceptionGroups (e.g. from
-            # HTTP errors in MCP streamable-HTTP sessions) are converted to
-            # ToolException before they reach LangGraph's ToolNode.  The default
-            # ToolNode error handler only handles ToolInvocationError and re-raises
-            # everything else, which would crash the whole stream.  By raising
-            # ToolException instead, BaseTool.arun catches it and returns the error
-            # as a tool result string, keeping the stream alive and letting the LLM
-            # report the error to the user.
-            for tool in tools:
-                wrap_mcp_tool_errors(tool)
-                if tool.name in self.tool_ui_metadata:
-                    inject_ui_metadata_into_tool(tool, self.tool_ui_metadata[tool.name])
+                    tools = self.tools[0] + self.tools[1]
+                    need_approval_tools = self.tools[1]
 
-            system_prompt = {
-                "type": "text",
-                "text": self.config.instructions,
-            }
+                    # Wrap each tool's coroutine so that anyio ExceptionGroups (e.g. from
+                    # HTTP errors in MCP streamable-HTTP sessions) are converted to
+                    # ToolException before they reach LangGraph's ToolNode.  The default
+                    # ToolNode error handler only handles ToolInvocationError and re-raises
+                    # everything else, which would crash the whole stream.  By raising
+                    # ToolException instead, BaseTool.arun catches it and returns the error
+                    # as a tool result string, keeping the stream alive and letting the LLM
+                    # report the error to the user.
+                    for tool in tools:
+                        wrap_mcp_tool_errors(tool)
+                        if tool.name in self.tool_ui_metadata:
+                            inject_ui_metadata_into_tool(
+                                tool, self.tool_ui_metadata[tool.name])
 
-            if model_provider == "anthropic":
-                system_prompt["cache_control"] = {"type": "ephemeral"}
+                    system_prompt = {
+                        "type": "text",
+                        "text": self.config.instructions or "",
+                    }
 
-            agent = create_agent(
-                model=chat_model,
-                tools=tools,
-                system_prompt=SystemMessage(content=[system_prompt]),
-                checkpointer=checkpointer,
-                middleware=[
-                    HumanInTheLoopMiddleware(
-                        interrupt_on={
-                            tool.name: True for tool in need_approval_tools
-                        },
-                        description_prefix="Tool execution pending approval",
+                    middlewares = [
+                        HumanInTheLoopMiddleware(
+                            interrupt_on={
+                                tool.name: True for tool in need_approval_tools
+                            },
+                            description_prefix="Tool execution pending approval",
+                        )
+                    ]
+
+                    if model_provider == "anthropic":
+                        middlewares.append(
+                            AnthropicPromptCachingMiddleware(ttl='5m'))
+                        # system_prompt["cache_control"] = {"type": "ephemeral"}
+
+                    agent = create_agent(
+                        model=chat_model,
+                        tools=tools,
+                        system_prompt=SystemMessage(content=[system_prompt]),
+                        checkpointer=checkpointer,
+                        middleware=middlewares,
                     )
-                ],
-            )
 
-            # Use explicit commands if provided, otherwise extract from messages
-            if commands is not None:
-                extracted_commands = commands
-                rejected_tool_calls = []
-                approved_tool_call_ids = []
-            else:
-                langchain_messages = [to_langchain_message(
-                    message) for message in messages]
-                extracted_commands = sum([extract_commands(message)
-                                          for message in messages if extract_commands(message)], [])
+                with self._timer.span("message_processing"):
+                    # Use explicit commands if provided, otherwise extract from messages
+                    if commands is not None:
+                        extracted_commands = commands
+                        rejected_tool_calls = []
+                        approved_tool_call_ids = []
+                    else:
+                        langchain_messages = [to_langchain_message(
+                            message) for message in messages]
+                        extracted_commands = sum([extract_commands(message)
+                                                  for message in messages if extract_commands(message)], [])
 
-                # Extract rejected tool calls to emit error events in the stream
-                rejected_tool_calls = sum(
-                    [extract_rejected_tool_calls(message)
-                     for message in messages],
-                    []
+                        # Extract rejected tool calls to emit error events in the stream
+                        rejected_tool_calls = sum(
+                            [extract_rejected_tool_calls(message)
+                             for message in messages],
+                            []
+                        )
+
+                        # Extract approved tool call IDs to skip their input events (already shown in UI)
+                        approved_tool_call_ids = sum(
+                            [extract_approved_tool_call_ids(message)
+                             for message in messages],
+                            []
+                        )
+
+                is_resume = len(extracted_commands) > 0
+                resume_message_id = message_id if is_resume else None
+
+                stream_input = Command(
+                    resume={"decisions": [{"type": command} for command in extracted_commands]}) if is_resume else {"messages": langchain_messages}
+
+                langchain_stream = agent.astream_events(
+                    stream_input,
+                    version="v2",
+                    config=self.stream_config
                 )
 
-                # Extract approved tool call IDs to skip their input events (already shown in UI)
-                approved_tool_call_ids = sum(
-                    [extract_approved_tool_call_ids(message)
-                     for message in messages],
-                    []
-                )
+                if stream_adapter == "ai_sdk":
+                    ai_sdk_stream_adapter = AISDKStreamAdapter(
+                        message_id=resume_message_id,
+                        is_resume=is_resume,
+                        rejected_tool_calls=rejected_tool_calls,
+                        approved_tool_call_ids=approved_tool_call_ids,
+                        tool_ui_metadata=self.tool_ui_metadata,
+                    )
+                    stream = ai_sdk_stream_adapter.stream(
+                        langchain_stream)
+                elif stream_adapter == "slack":
+                    slack_stream_adapter = SlackStreamAdapter()
+                    stream = slack_stream_adapter.stream(
+                        langchain_stream)
 
-            is_resume = len(extracted_commands) > 0
-            resume_message_id = message_id if is_resume else None
-
-            stream_input = Command(
-                resume={"decisions": [{"type": command} for command in extracted_commands]}) if is_resume else {"messages": langchain_messages}
-
-            langchain_stream = agent.astream_events(
-                stream_input,
-                version="v2",
-                config=self.stream_config
-            )
-
-            if stream_adapter == "ai_sdk":
-                ai_sdk_stream_adapter = AISDKStreamAdapter(
-                    message_id=resume_message_id,
-                    is_resume=is_resume,
-                    rejected_tool_calls=rejected_tool_calls,
-                    approved_tool_call_ids=approved_tool_call_ids,
-                    tool_ui_metadata=self.tool_ui_metadata,
-                )
-                stream = ai_sdk_stream_adapter.stream(
-                    langchain_stream)
-            elif stream_adapter == "slack":
-                slack_stream_adapter = SlackStreamAdapter()
-                stream = slack_stream_adapter.stream(
-                    langchain_stream)
-
-            async for chunk in stream:
-                yield chunk
+                _first_chunk = True
+                _stream_t0 = time.perf_counter()
+                async for chunk in stream:
+                    if _first_chunk:
+                        self._timer.record(
+                            "time_to_first_chunk", time.perf_counter() - _stream_t0)
+                        _first_chunk = False
+                    yield chunk
+                self._timer.record(
+                    "stream_total", time.perf_counter() - _stream_t0)
+        finally:
+            self._timer.summary()

@@ -1,18 +1,20 @@
-from sqlmodel import select
 from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
+
 from app.adapters.message_adapter import deserialize_to_ui_messages
 from app.agents.models import AgentDB
 from app.agents.runtime import AgentRuntime, build_agent_deps
+from app.agents.settings import agent_settings
+from app.auth.dependencies import get_current_user
 from app.database import get_db, get_psycopg_conn_string
 from app.models.message import Message
-from app.users.models import UserDB
-from app.auth.dependencies import get_current_user
 from app.threads.models import ThreadCreate, ThreadDB, ThreadRead
 from app.threads.service import get_thread
-
+from app.users.models import UserDB
+from app.utils.timer import RequestTimer
 
 router = APIRouter(prefix="/threads", tags=["threads"])
 
@@ -103,8 +105,9 @@ async def invoke(
     user_id: str = Depends(get_current_user),
     db=Depends(get_db)
 ):
+    timer = RequestTimer("invoke", enabled=agent_settings.invoke_profiling)
     deps = build_agent_deps(thread, db)
-    agent_runtime = await AgentRuntime.create(thread=thread, db=db, deps=deps)
+    agent_runtime = await AgentRuntime.create(thread=thread, db=db, deps=deps, timer=timer)
 
     return StreamingResponse(
         agent_runtime.stream(messages, message_id=messageId),

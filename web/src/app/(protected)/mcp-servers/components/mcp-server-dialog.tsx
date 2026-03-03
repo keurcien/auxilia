@@ -10,7 +10,7 @@ import {
 	OfficialMCPServer,
 } from "@/types/mcp-servers";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -318,9 +318,9 @@ export default function MCPServerDialog({
 				{/* ── Header ── */}
 				<div className="flex items-center justify-between px-8 pt-6 pb-5 border-b border-border">
 					<div>
-						<h2 className="text-lg font-bold tracking-tight">
+						<DialogTitle className="text-lg leading-normal font-bold tracking-tight">
 							{isEditMode ? "Edit MCP Server" : "Add MCP Server"}
-						</h2>
+						</DialogTitle>
 						<p className="text-[13px] text-muted-foreground mt-1">
 							{isEditMode
 								? "Update your server configuration"

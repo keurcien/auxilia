@@ -8,7 +8,7 @@ from sqlmodel import SQLModel, select
 from app.auth.dependencies import get_current_user
 from app.database import get_db
 from app.mcp.servers.models import MCPServerDB
-from app.mcp.servers.router import connect_to_server
+from app.mcp.servers.service import connect_to_server
 from app.users.models import UserDB
 
 router = APIRouter(tags=["mcp-apps"])

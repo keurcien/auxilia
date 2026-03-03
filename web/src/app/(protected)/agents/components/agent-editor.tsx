@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
 import { useTheme } from "next-themes";
-import { MoreVertical, Trash2, ShieldCheck } from "lucide-react";
+import { MoreVertical, Trash2, ShieldCheck, ArrowRight } from "lucide-react";
 import { Agent } from "@/types/agents";
 import AgentMCPServerList from "../[id]/components/agent-mcp-server-list";
 import { api } from "@/lib/api/client";
@@ -223,6 +223,14 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 					</span>
 				</div>
 
+				<Button
+					className="cursor-pointer"
+					onClick={() => router.push(`/agents/${agent.id}/chat`)}
+				>
+					Chat
+					<ArrowRight className="size-4 ml-1" />
+				</Button>
+
 				<DropdownMenu>
 					<DropdownMenuTrigger asChild>
 						<Button variant="ghost" size="icon" className="cursor-pointer">
@@ -235,14 +243,14 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 							className="text-primary focus:text-primary cursor-pointer"
 							onClick={handleManagePermissions}
 						>
-							<ShieldCheck className="size-4 mr-2" />
+							<ShieldCheck className="size-4" />
 							<span>Manage permissions</span>
 						</DropdownMenuItem>
 						<DropdownMenuItem
 							className="text-destructive focus:text-destructive cursor-pointer"
 							onClick={handleDeleteAgent}
 						>
-							<Trash2 className="size-4 mr-2" />
+							<Trash2 className="size-4 text-destructive" />
 							<span>Delete agent</span>
 						</DropdownMenuItem>
 					</DropdownMenuContent>

@@ -12,6 +12,7 @@ class AppSettings(BaseSettings):
     redis_port: int = 6379
     redis_db: int = 0
     backend_url: str = "http://localhost:8000"
+    log_level: str = "INFO"
 
     model_config: ConfigDict = ConfigDict(
         env_file=ROOT_ENV,

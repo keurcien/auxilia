@@ -32,7 +32,8 @@ def inject_ui_metadata_into_tool(tool: Tool, ui_metadata: dict) -> None:
                 artifact["mcp_app_resource_uri"] = resource_uri
                 artifact["mcp_server_id"] = server_id
             else:
-                artifact = {"mcp_app_resource_uri": resource_uri, "mcp_server_id": server_id}
+                artifact = {"mcp_app_resource_uri": resource_uri,
+                            "mcp_server_id": server_id}
             result = (content, artifact)
         elif isinstance(result, ToolMessage) and isinstance(result.artifact, dict):
             # Fallback for tools that return ToolMessage directly
@@ -59,7 +60,6 @@ def wrap_mcp_tool_errors(tool: Tool) -> None:
         try:
             return await original_coroutine(*args, **kwargs)
         except BaseExceptionGroup as eg:
-            # Unwrap nested groups to reach the root cause exception.
             inner: BaseException = eg.exceptions[0] if eg.exceptions else eg
             while isinstance(inner, BaseExceptionGroup) and inner.exceptions:
                 inner = inner.exceptions[0]
