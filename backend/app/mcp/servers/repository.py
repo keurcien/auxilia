@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from app.mcp.servers.encryption import decrypt_api_key, encrypt_api_key
+from app.mcp.servers.encryption import decrypt_value as decrypt_api_key, encrypt_value as encrypt_api_key
 from app.mcp.servers.models import (
     MCPServerAPIKeyDB,
     MCPServerCreate,
