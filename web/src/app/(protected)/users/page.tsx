@@ -170,6 +170,7 @@ export default function UsersPage() {
 			<InviteDialog
 				open={inviteDialogOpen}
 				onOpenChange={setInviteDialogOpen}
+				onInviteCreated={(invite) => setInvites((prev) => [...prev, invite])}
 			/>
 			<div className="flex items-center justify-between my-8">
 				<h1 className="font-primary font-extrabold text-2xl md:text-4xl tracking-tighter text-[#2A2F2D] dark:text-white">
