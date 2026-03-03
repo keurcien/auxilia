@@ -18,10 +18,7 @@ from app.auth.settings import auth_settings
 from app.auth.utils import create_access_token, get_password_hash, verify_password
 from app.database import get_db
 from app.invites.models import InviteStatus
-from app.invites.service import (
-    get_pending_invite_by_email,
-    validate_invite,
-)
+from app.invites.service import InviteService, get_invite_service
 from app.users.models import OAuthAccountDB, UserDB, UserRead, WorkspaceRole
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -172,10 +169,10 @@ async def signout() -> JSONResponse:
 @router.get("/invite/{token}", response_model=InviteInfoResponse)
 async def get_invite_info(
     token: str,
-    db: AsyncSession = Depends(get_db),
+    service: InviteService = Depends(get_invite_service),
 ) -> InviteInfoResponse:
     """Return invite info for a given token."""
-    invite = await validate_invite(token, db)
+    invite = await service.validate_invite(token)
     if not invite:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -193,6 +190,7 @@ async def get_invite_info(
 async def accept_invite(
     data: InviteAcceptRequest,
     db: AsyncSession = Depends(get_db),
+    service: InviteService = Depends(get_invite_service),
 ) -> JSONResponse:
     """Accept an invite and create a user account with password."""
     if not auth_settings.password_enabled:
@@ -201,7 +199,7 @@ async def accept_invite(
             detail="Password authentication is disabled",
         )
 
-    invite = await validate_invite(data.token, db)
+    invite = await service.validate_invite(data.token)
     if not invite:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -261,6 +259,7 @@ async def google_login(request: Request, invite_token: str | None = None):
 async def google_callback(
     request: Request,
     db: AsyncSession = Depends(get_db),
+    service: InviteService = Depends(get_invite_service),
 ):
     """Handle Google OAuth callback."""
     if not auth_settings.google_oauth_enabled:
@@ -333,11 +332,11 @@ async def google_callback(
             invite = None
 
             if invite_token:
-                invite = await validate_invite(invite_token, db)
+                invite = await service.validate_invite(invite_token)
 
             # Fall back to matching by email
             if not invite:
-                invite = await get_pending_invite_by_email(email, db)
+                invite = await service.get_pending_by_email(email)
 
             if not invite:
                 # No invite found - reject
