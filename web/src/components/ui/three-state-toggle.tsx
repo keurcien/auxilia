@@ -1,10 +1,16 @@
 "use client";
 
+import React from "react";
 import { cn } from "@/lib/utils";
+import { Tooltip } from "react-tooltip";
 
 export type ToggleState = "always_allow" | "needs_approval" | "disabled";
 
-const states: { id: ToggleState; icon: "check" | "hand" | "block"; label: string }[] = [
+const states: {
+	id: ToggleState;
+	icon: "check" | "hand" | "block";
+	label: string;
+}[] = [
 	{ id: "always_allow", icon: "check", label: "Always allow" },
 	{ id: "needs_approval", icon: "hand", label: "Needs approval" },
 	{ id: "disabled", icon: "block", label: "Disabled" },
@@ -94,7 +100,6 @@ export function ThreeStateToggle({
 				className,
 			)}
 		>
-			{/* Sliding Background Pill */}
 			<div
 				className="absolute h-8 w-10 bg-white dark:bg-neutral-600 rounded-full shadow transition-all duration-300 ease-out"
 				style={{
@@ -102,30 +107,40 @@ export function ThreeStateToggle({
 				}}
 			/>
 
-			{/* Buttons */}
 			{states.map((state) => {
 				const Icon = iconMap[state.icon];
 				const isSelected = value === state.id;
+				const tooltipId = `three-state-toggle-${state.id}`;
 
 				return (
-					<button
-						key={state.id}
-						type="button"
-						onClick={() => onChange(state.id)}
-						className={cn(
-							"relative z-10 w-10 h-8 flex items-center justify-center rounded-full",
-							"transition-colors duration-200 cursor-pointer",
-							isSelected
-								? "text-gray-800 dark:text-gray-100"
-								: "text-gray-400 dark:text-gray-500 hover:text-gray-500 dark:hover:text-gray-400",
-						)}
-						aria-label={state.label}
-						aria-pressed={isSelected}
-					>
-						<span className="scale-75">
-							<Icon />
-						</span>
-					</button>
+					<React.Fragment key={state.id}>
+						<button
+							type="button"
+							onClick={() => onChange(state.id)}
+							className={cn(
+								"relative z-10 w-10 h-8 flex items-center justify-center rounded-full",
+								"transition-colors duration-200 cursor-pointer",
+								isSelected
+									? "text-gray-800 dark:text-gray-100"
+									: "text-gray-400 dark:text-gray-500 hover:text-gray-500 dark:hover:text-gray-400",
+							)}
+							aria-label={state.label}
+							aria-pressed={isSelected}
+							data-tooltip-id={tooltipId}
+							data-tooltip-content={state.label}
+						>
+							<span className="scale-75">
+								<Icon />
+							</span>
+						</button>
+
+						<Tooltip
+							id={tooltipId}
+							place="top"
+							delayShow={300}
+							className="z-50 text-xs! py-1! px-2! rounded-lg! bg-gray-800! text-white!"
+						/>
+					</React.Fragment>
 				);
 			})}
 		</div>

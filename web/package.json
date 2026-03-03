@@ -46,6 +46,7 @@
 		"react": "^19.2.3",
 		"react-dom": "^19.2.3",
 		"react-markdown": "^10.1.0",
+		"react-tooltip": "^5.30.0",
 		"remark-breaks": "^4.0.0",
 		"remark-gfm": "^4.0.1",
 		"shiki": "^3.15.0",

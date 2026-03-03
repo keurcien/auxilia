@@ -302,7 +302,7 @@ export default function UsersPage() {
 			</div>
 
 			{invites.length > 0 && (
-				<div className="mt-10">
+				<div className="py-10">
 					<h2 className="font-primary font-bold text-lg tracking-tight text-[#2A2F2D] dark:text-white mb-2">
 						Pending invites
 					</h2>
