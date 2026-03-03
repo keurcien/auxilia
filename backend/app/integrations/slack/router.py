@@ -13,9 +13,14 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
 from app.integrations.slack.commands.chat import handle_agent_selection
-from app.integrations.slack.handlers import handle_assistant_thread_started, handle_interaction, handle_message
+from app.integrations.slack.handlers import (
+    handle_assistant_thread_started,
+    handle_interaction,
+    handle_message,
+)
 from app.integrations.slack.models import SlackEventPayload, SlackInteractionPayload
 from app.integrations.slack.utils import verify_slack_signature
+
 
 router = APIRouter(prefix="/integrations/slack", tags=["slack"])
 

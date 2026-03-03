@@ -1,7 +1,9 @@
-from uuid import uuid4
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
+
 from fastapi.testclient import TestClient
+
 from app.threads.models import ThreadDB
 
 

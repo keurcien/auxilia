@@ -27,6 +27,7 @@ from app.mcp.servers.service import connect_to_server
 from app.mcp.utils import check_mcp_server_connected
 from app.users.models import WorkspaceRole
 
+
 logger = logging.getLogger(__name__)
 
 

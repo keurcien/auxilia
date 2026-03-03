@@ -1,6 +1,7 @@
 import os
-from uuid import UUID
 from contextlib import asynccontextmanager
+from uuid import UUID
+
 from fastapi import Depends, HTTPException
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client

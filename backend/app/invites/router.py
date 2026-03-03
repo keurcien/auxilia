@@ -8,6 +8,7 @@ from app.invites.schemas import InviteCreate, InviteRead
 from app.invites.service import InviteService, get_invite_service
 from app.users.models import UserDB
 
+
 router = APIRouter(prefix="/invites", tags=["invites"])
 
 

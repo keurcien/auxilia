@@ -82,3 +82,10 @@ testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+known-third-party = ["fastapi", "sqlmodel", "psycopg", "redis", "langchain", "langgraph", "langfuse", "langchain-anthropic", "langchain-google-genai", "langchain-mcp-adapters", "langchain-openai", "langchain-deepseek", "langchain-google-genai", "langchain-mcp-adapters", "langchain-openai", "langchain-deepseek", "langchain-google-genai", "langchain-mcp-adapters", "langchain-openai", "langchain-deepseek"]
+combine-as-imports = true
+force-single-line = false
+lines-after-imports = 2

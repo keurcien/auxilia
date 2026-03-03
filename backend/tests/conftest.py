@@ -1,11 +1,13 @@
-import pytest
-from uuid import uuid4
 from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
+
+import pytest
 from fastapi.testclient import TestClient
+
+from app.auth.dependencies import get_current_user, require_admin, require_editor
 from app.database import get_db
 from app.main import app
 from app.users.models import UserDB, WorkspaceRole
-from app.auth.dependencies import get_current_user, require_admin, require_editor
 
 
 @pytest.fixture

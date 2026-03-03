@@ -1,4 +1,3 @@
-import pytest
 from app.database import get_psycopg_conn_string
 
 

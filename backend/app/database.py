@@ -6,6 +6,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.settings import app_settings
 
+
 engine = create_async_engine(
     app_settings.database_url,
     pool_pre_ping=True,

@@ -1,6 +1,7 @@
 """Encryption utilities for MCP server API keys."""
 import base64
 import hashlib
+
 from cryptography.fernet import Fernet
 
 from app.mcp.servers.settings import mcp_server_settings

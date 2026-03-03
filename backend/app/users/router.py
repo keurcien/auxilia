@@ -15,6 +15,7 @@ from app.users.models import (
     WorkspaceRole,
 )
 
+
 router = APIRouter(prefix="/users", tags=["users"])
 
 

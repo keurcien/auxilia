@@ -25,6 +25,7 @@ from app.threads.models import ThreadDB
 from app.users.models import UserDB
 from app.users.service import get_user_by_email
 
+
 SLACK_POST_MESSAGE_URL = "https://slack.com/api/chat.postMessage"
 
 

@@ -1,5 +1,6 @@
 import asyncio
-from mcp.server.fastmcp import FastMCP, Context
+
+from mcp.server.fastmcp import Context, FastMCP
 
 
 auxilia_mcp = FastMCP("auxilia MCP", stateless_http=True, json_response=True)

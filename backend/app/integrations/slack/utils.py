@@ -1,15 +1,16 @@
 import hashlib
 import hmac
-import logging
 import time
+
 import httpx
-from typing import Optional
 from fastapi import Header, HTTPException, Request
-from app.integrations.slack.settings import slack_settings
+
+from app.database import AsyncSessionLocal
 from app.integrations.slack.models import SlackUserInfo
+from app.integrations.slack.settings import slack_settings
 from app.users.models import UserDB
 from app.users.service import get_user_by_email
-from app.database import AsyncSessionLocal
+
 
 _MAX_AGE_SECONDS = 60 * 5
 
@@ -49,7 +50,7 @@ async def verify_slack_signature(
     return body
 
 
-async def get_user_info(user_id: str) -> Optional[SlackUserInfo]:
+async def get_user_info(user_id: str) -> SlackUserInfo | None:
     """Get user information from Slack API."""
     url = "https://slack.com/api/users.info"
     headers = {"Authorization": f"Bearer {slack_settings.slack_bot_token}"}

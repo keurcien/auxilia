@@ -1,5 +1,6 @@
 from langfuse import Langfuse
 from langfuse.langchain import CallbackHandler
+
 from app.integrations.langfuse.settings import langfuse_settings
 
 

@@ -1,11 +1,13 @@
-import httpx
 import secrets
-from pydantic import AnyUrl, AnyHttpUrl
 from urllib.parse import urlencode, urljoin
+
+import httpx
 from mcp.client.auth import OAuthClientProvider, OAuthFlowError, PKCEParameters
-from mcp.shared.auth import OAuthClientMetadata, OAuthClientInformationFull
 from mcp.client.auth.exceptions import OAuthTokenError
 from mcp.client.auth.utils import handle_token_response_scopes
+from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata
+from pydantic import AnyHttpUrl, AnyUrl
+
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
 from app.settings import app_settings
 
