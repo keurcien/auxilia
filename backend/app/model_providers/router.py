@@ -56,10 +56,10 @@ async def get_models() -> list[ModelRead]:
         models.extend([
             ModelRead(name="Claude Haiku 4.5", providers=[
                       ModelProviderType.anthropic], id="claude-haiku-4-5", chef="Anthropic", chefSlug="anthropic"),
-            ModelRead(name="Claude Sonnet 4.5", providers=[
-                      ModelProviderType.anthropic], id="claude-sonnet-4-5", chef="Anthropic", chefSlug="anthropic"),
-            ModelRead(name="Claude Opus 4.5", providers=[
-                      ModelProviderType.anthropic], id="claude-opus-4-5", chef="Anthropic", chefSlug="anthropic"),
+            ModelRead(name="Claude Sonnet 4.6", providers=[
+                      ModelProviderType.anthropic], id="claude-sonnet-4-6", chef="Anthropic", chefSlug="anthropic"),
+            ModelRead(name="Claude Opus 4.6", providers=[
+                      ModelProviderType.anthropic], id="claude-opus-4-6", chef="Anthropic", chefSlug="anthropic"),
         ])
     if model_provider_settings.google_api_key:
         models.extend([

@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { StoreInitializer } from "@/components/providers/store-initializer";
+import { ChatHeader } from "@/components/layout/chat-header";
 
 export default async function ProtectedLayout({
 	children,
@@ -19,6 +20,7 @@ export default async function ProtectedLayout({
 			<main className="flex-1 flex flex-col h-screen w-full">
 				<div className="flex items-center gap-2 p-4 shrink-0">
 					<SidebarTrigger className="cursor-pointer" />
+					<ChatHeader />
 				</div>
 				<div className="flex flex-1 flex-col gap-4 lg:px-8 px-4 py-4 pt-0 min-h-0 overflow-y-auto">
 					{children}

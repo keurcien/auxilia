@@ -1,18 +1,20 @@
-from sqlmodel import select
 from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
+
 from app.adapters.message_adapter import deserialize_to_ui_messages
 from app.agents.models import AgentDB
 from app.agents.runtime import AgentRuntime, build_agent_deps
+from app.agents.settings import agent_settings
+from app.auth.dependencies import get_current_user
 from app.database import get_db, get_psycopg_conn_string
 from app.models.message import Message
-from app.users.models import UserDB
-from app.auth.dependencies import get_current_user
 from app.threads.models import ThreadCreate, ThreadDB, ThreadRead
 from app.threads.service import get_thread
-
+from app.users.models import UserDB
+from app.utils.timer import RequestTimer
 
 router = APIRouter(prefix="/threads", tags=["threads"])
 
@@ -20,12 +22,19 @@ router = APIRouter(prefix="/threads", tags=["threads"])
 @router.get("/{thread_id}")
 async def read_thread(thread_id: str, db: AsyncSession = Depends(get_db)) -> dict:
     result = await db.execute(
-        select(ThreadDB).where(ThreadDB.id == thread_id)
+        select(ThreadDB, AgentDB.name, AgentDB.emoji)
+        .join(AgentDB, ThreadDB.agent_id == AgentDB.id)
+        .where(ThreadDB.id == thread_id)
     )
-    thread = result.scalar_one_or_none()
+    row = result.one_or_none()
 
-    if not thread:
+    if not row:
         raise HTTPException(status_code=404, detail="Thread not found")
+
+    thread, agent_name, agent_emoji = row
+    thread_read = ThreadRead.model_validate(
+        thread, update={"agent_name": agent_name, "agent_emoji": agent_emoji}
+    )
 
     async with AsyncPostgresSaver.from_conn_string(get_psycopg_conn_string()) as checkpointer:
         checkpoint = await checkpointer.aget(
@@ -37,10 +46,10 @@ async def read_thread(thread_id: str, db: AsyncSession = Depends(get_db)) -> dic
                 "messages": deserialize_to_ui_messages(
                     checkpoint["channel_values"]["messages"]
                 ),
-                "thread": ThreadRead.model_validate(thread),
+                "thread": thread_read,
             }
         else:
-            return {"messages": [], "thread": ThreadRead.model_validate(thread)}
+            return {"messages": [], "thread": thread_read}
 
 
 @router.get("/")
@@ -96,8 +105,9 @@ async def invoke(
     user_id: str = Depends(get_current_user),
     db=Depends(get_db)
 ):
+    timer = RequestTimer("invoke", enabled=agent_settings.invoke_profiling)
     deps = build_agent_deps(thread, db)
-    agent_runtime = await AgentRuntime.create(thread=thread, db=db, deps=deps)
+    agent_runtime = await AgentRuntime.create(thread=thread, db=db, deps=deps, timer=timer)
 
     return StreamingResponse(
         agent_runtime.stream(messages, message_id=messageId),

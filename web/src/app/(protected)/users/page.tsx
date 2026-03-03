@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { Search, Trash2, Plus } from "lucide-react";
+import { Search, Trash2, Plus, Copy, Check, Mail } from "lucide-react";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import InviteDialog from "./invite-dialog";
 import { Input } from "@/components/ui/input";
@@ -26,6 +26,15 @@ interface User {
 	updatedAt: string;
 }
 
+interface Invite {
+	id: string;
+	email: string;
+	role: string;
+	inviteUrl: string;
+	invitedByName: string | null;
+	createdAt: string;
+}
+
 type Role = "member" | "editor" | "admin";
 
 const ROLE_LABELS: Record<Role, string> = {
@@ -43,13 +52,32 @@ function getInitials(name: string | null | undefined): string {
 	return name.substring(0, 2).toUpperCase();
 }
 
+function timeAgo(dateStr: string): string {
+	const diff = Date.now() - new Date(dateStr).getTime();
+	const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+	if (days === 0) return "today";
+	if (days === 1) return "1 day ago";
+	return `${days} days ago`;
+}
+
+function getInviterShortName(name: string | null): string {
+	if (!name) return "Unknown";
+	const parts = name.trim().split(" ");
+	if (parts.length >= 2) {
+		return `${parts[0]} ${parts[parts.length - 1][0]}.`;
+	}
+	return parts[0];
+}
+
 export default function UsersPage() {
 	const currentUser = useUserStore((state) => state.user);
 	const [users, setUsers] = useState<User[]>([]);
+	const [invites, setInvites] = useState<Invite[]>([]);
 	const [search, setSearch] = useState("");
 	const [isLoading, setIsLoading] = useState(true);
 	const [errorDialogOpen, setErrorDialogOpen] = useState(false);
 	const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
+	const [copiedInviteId, setCopiedInviteId] = useState<string | null>(null);
 
 	useEffect(() => {
 		const fetchUsers = async () => {
@@ -62,8 +90,23 @@ export default function UsersPage() {
 				setIsLoading(false);
 			}
 		};
+		const fetchInvites = async () => {
+			try {
+				const response = await api.get("/invites/");
+				setInvites(response.data);
+			} catch (error) {
+				console.error("Error fetching invites:", error);
+			}
+		};
 		fetchUsers();
+		fetchInvites();
 	}, []);
+
+	const handleCopyInviteLink = async (invite: Invite) => {
+		await navigator.clipboard.writeText(invite.inviteUrl);
+		setCopiedInviteId(invite.id);
+		setTimeout(() => setCopiedInviteId(null), 2000);
+	};
 
 	const filteredUsers = useMemo(() => {
 		if (!search.trim()) return users;
@@ -256,6 +299,51 @@ export default function UsersPage() {
 					</tbody>
 				</table>
 			</div>
+
+			{invites.length > 0 && (
+				<div className="mt-10">
+					<h2 className="font-primary font-bold text-lg tracking-tight text-[#2A2F2D] dark:text-white mb-2">
+						Pending invites
+					</h2>
+					<div className="rounded-[20px] border bg-card overflow-hidden">
+						{invites.map((invite, index) => (
+							<div
+								key={invite.id}
+								className={`flex items-center gap-4 px-6 py-4 ${index < invites.length - 1 ? "border-b" : ""} hover:bg-muted/30 transition-colors`}
+							>
+								<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted">
+									<Mail className="h-4 w-4 text-muted-foreground" />
+								</div>
+								<div className="flex-1 min-w-0">
+									<p className="text-sm font-medium text-foreground truncate">
+										{invite.email}
+									</p>
+									<p className="text-xs text-muted-foreground">
+										Invited by {getInviterShortName(invite.invitedByName)} ·{" "}
+										{timeAgo(invite.createdAt)}
+									</p>
+								</div>
+								<span className="shrink-0 inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium text-muted-foreground capitalize">
+									{ROLE_LABELS[invite.role as Role] ?? invite.role}
+								</span>
+								<Button
+									variant="outline"
+									size="sm"
+									className="shrink-0 gap-1.5 cursor-pointer"
+									onClick={() => handleCopyInviteLink(invite)}
+								>
+									{copiedInviteId === invite.id ? (
+										<Check className="h-3.5 w-3.5" />
+									) : (
+										<Copy className="h-3.5 w-3.5" />
+									)}
+									{copiedInviteId === invite.id ? "Copied!" : "Copy link"}
+								</Button>
+							</div>
+						))}
+					</div>
+				</div>
+			)}
 		</div>
 	);
 }

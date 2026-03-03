@@ -1,34 +1,22 @@
-import logging
 from uuid import UUID
-
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
-
+from fastapi import APIRouter, Depends
 from app.agents.models import (
     AgentCreate,
-    AgentDB,
     AgentMCPServerBindingCreate,
-    AgentMCPServerBindingDB,
     AgentMCPServerBindingRead,
     AgentMCPServerBindingUpdate,
     AgentPermissionRead,
     AgentPermissionWrite,
     AgentRead,
     AgentUpdate,
-    AgentUserPermissionDB,
 )
-from app.agents.utils import read_agent, read_agents
-from app.auth.dependencies import get_current_user, get_current_user_optional, require_editor
-from app.database import get_db
-from app.mcp.client.auth import WebOAuthClientProvider, build_oauth_client_metadata
-from app.mcp.client.storage import TokenStorageFactory
-from app.mcp.servers.models import MCPAuthType, MCPServerDB
-from app.mcp.utils import check_mcp_server_connected
-from app.mcp.servers.router import connect_to_server
+from app.agents.service import AgentService, get_agent_service
+from app.auth.dependencies import (
+    get_current_user,
+    get_current_user_optional,
+    require_editor,
+)
 from app.users.models import UserDB
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -36,32 +24,28 @@ router = APIRouter(prefix="/agents", tags=["agents"])
 @router.post("/", response_model=AgentRead, status_code=201)
 async def create_agent(
     agent: AgentCreate,
-    current_user: UserDB = Depends(require_editor),
-    db: AsyncSession = Depends(get_db),
+    _: UserDB = Depends(require_editor),
+    service: AgentService = Depends(get_agent_service),
 ) -> AgentRead:
-    db_agent = AgentDB.model_validate(agent)
-    db.add(db_agent)
-    await db.commit()
-    await db.refresh(db_agent)
-    return db_agent
+    return await service.create_agent(agent)
 
 
 @router.get("/", response_model=list[AgentRead])
 async def get_agents(
-    db: AsyncSession = Depends(get_db),
     current_user: UserDB = Depends(get_current_user),
+    service: AgentService = Depends(get_agent_service),
 ) -> list[AgentRead]:
-    return await read_agents(db, user_id=current_user.id, user_role=current_user.role)
+    return await service.list_agents(user_id=current_user.id, user_role=current_user.role)
 
 
 @router.get("/{agent_id}", response_model=AgentRead, response_model_by_alias=True)
 async def get_agent(
     agent_id: UUID,
-    db: AsyncSession = Depends(get_db),
     current_user: UserDB | None = Depends(get_current_user_optional),
+    service: AgentService = Depends(get_agent_service),
 ) -> AgentRead:
-    return await read_agent(
-        agent_id, db,
+    return await service.get_agent(
+        agent_id,
         user_id=current_user.id if current_user else None,
         user_role=current_user.role if current_user else None,
     )
@@ -69,121 +53,38 @@ async def get_agent(
 
 @router.patch("/{agent_id}", response_model=AgentRead)
 async def update_agent(
-    agent_id: UUID, agent_update: AgentUpdate, db: AsyncSession = Depends(get_db)
+    agent_id: UUID,
+    agent_update: AgentUpdate,
+    service: AgentService = Depends(get_agent_service),
 ) -> AgentRead:
-    result = await db.execute(select(AgentDB).where(AgentDB.id == agent_id))
-    db_agent = result.scalar_one_or_none()
-    if not db_agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
-
-    update_data = agent_update.model_dump(exclude_unset=True)
-    for key, value in update_data.items():
-        setattr(db_agent, key, value)
-
-    db.add(db_agent)
-    await db.commit()
-    await db.refresh(db_agent)
-    return db_agent
+    return await service.update_agent(agent_id, agent_update)
 
 
 @router.delete("/{agent_id}", status_code=204)
-async def delete_agent(agent_id: UUID, db: AsyncSession = Depends(get_db)) -> None:
-    result = await db.execute(select(AgentDB).where(AgentDB.id == agent_id))
-    db_agent = result.scalar_one_or_none()
-    if not db_agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
-
-    await db.delete(db_agent)
-    await db.commit()
+async def delete_agent(
+    agent_id: UUID,
+    service: AgentService = Depends(get_agent_service),
+) -> None:
+    await service.delete_agent(agent_id)
 
 
 @router.get("/{agent_id}/permissions", response_model=list[AgentPermissionRead])
 async def get_agent_permissions(
     agent_id: UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: UserDB = Depends(get_current_user),
+    _: UserDB = Depends(get_current_user),
+    service: AgentService = Depends(get_agent_service),
 ) -> list[AgentPermissionRead]:
-    result = await db.execute(
-        select(AgentUserPermissionDB).where(
-            AgentUserPermissionDB.agent_id == agent_id
-        )
-    )
-    permissions = result.scalars().all()
-    return list(permissions)
+    return await service.get_permissions(agent_id)
 
 
 @router.put("/{agent_id}/permissions", response_model=list[AgentPermissionRead])
 async def set_agent_permissions(
     agent_id: UUID,
     permissions: list[AgentPermissionWrite],
-    db: AsyncSession = Depends(get_db),
-    current_user: UserDB = Depends(get_current_user),
+    _: UserDB = Depends(get_current_user),
+    service: AgentService = Depends(get_agent_service),
 ) -> list[AgentPermissionRead]:
-    result = await db.execute(
-        select(AgentUserPermissionDB).where(
-            AgentUserPermissionDB.agent_id == agent_id
-        )
-    )
-    existing = result.scalars().all()
-    for perm in existing:
-        await db.delete(perm)
-    await db.flush()
-
-    # Insert new permissions
-    new_permissions = []
-    for p in permissions:
-        db_perm = AgentUserPermissionDB(
-            agent_id=agent_id,
-            user_id=p.user_id,
-            permission=p.permission,
-        )
-        db.add(db_perm)
-        new_permissions.append(db_perm)
-
-    await db.commit()
-    for perm in new_permissions:
-        await db.refresh(perm)
-
-    return new_permissions
-
-
-async def check_oauth_connected(
-    mcp_server: MCPServerDB, user_id: str
-) -> bool:
-    """Check if user has OAuth credentials for the MCP server."""
-    storage = TokenStorageFactory().get_storage(user_id, str(mcp_server.id))
-    client_metadata = build_oauth_client_metadata(mcp_server)
-
-    provider = WebOAuthClientProvider(
-        server_url=mcp_server.url,
-        client_metadata=client_metadata,
-        storage=storage
-    )
-
-    await provider._initialize()
-    tokens = await provider.context.storage.get_tokens()
-    return tokens is not None
-
-
-async def fetch_and_save_tools(
-    db_binding: AgentMCPServerBindingDB,
-    mcp_server: MCPServerDB,
-    user_id: str,
-    db: AsyncSession,
-) -> None:
-    """Fetch tools from MCP server and save them to the binding."""
-    try:
-        async with connect_to_server(mcp_server, user_id, db) as (_, tools):
-            # Build tools dict with all tools set to "always_allow"
-            tools_dict = {tool.name: "always_allow" for tool in tools}
-            db_binding.tools = tools_dict
-            db.add(db_binding)
-            await db.commit()
-            await db.refresh(db_binding)
-    except Exception as e:
-        # Log the error but don't fail the binding creation
-        logger.warning(
-            f"Failed to fetch tools for MCP server {mcp_server.id}: {e}")
+    return await service.set_permissions(agent_id, permissions)
 
 
 @router.post(
@@ -195,56 +96,12 @@ async def create_or_update_binding(
     agent_id: UUID,
     server_id: UUID,
     binding: AgentMCPServerBindingCreate,
-    db: AsyncSession = Depends(get_db),
     current_user: UserDB = Depends(get_current_user),
+    service: AgentService = Depends(get_agent_service),
 ) -> AgentMCPServerBindingRead:
-    result = await db.execute(select(MCPServerDB).where(MCPServerDB.id == server_id))
-    mcp_server = result.scalar_one_or_none()
-    if not mcp_server:
-        raise HTTPException(status_code=404, detail="MCP server not found")
-
-    result = await db.execute(
-        select(AgentMCPServerBindingDB).where(
-            AgentMCPServerBindingDB.agent_id == agent_id,
-            AgentMCPServerBindingDB.mcp_server_id == server_id,
-        )
+    return await service.create_or_update_binding(
+        agent_id, server_id, binding, str(current_user.id)
     )
-    existing_binding = result.scalar_one_or_none()
-
-    if existing_binding:
-        # Update existing binding
-        if binding.tools is not None:
-            existing_binding.tools = binding.tools
-        db.add(existing_binding)
-        await db.commit()
-        await db.refresh(existing_binding)
-        return existing_binding
-
-    # Create new binding with tools = null initially
-    db_binding = AgentMCPServerBindingDB(
-        agent_id=agent_id,
-        mcp_server_id=server_id,
-        tools=None,  # Start with null, will populate after
-    )
-    db.add(db_binding)
-    await db.commit()
-    await db.refresh(db_binding)
-
-    # Try to fetch and save tools based on auth type
-    user_id = str(current_user.id)
-
-    if mcp_server.auth_type in [MCPAuthType.none, MCPAuthType.api_key]:
-        # For no-auth or API key, directly fetch tools
-        await fetch_and_save_tools(db_binding, mcp_server, user_id, db)
-    elif mcp_server.auth_type == MCPAuthType.oauth2:
-        # For OAuth, check if user has credentials first
-        is_connected = await check_oauth_connected(mcp_server, user_id)
-        if is_connected:
-            await fetch_and_save_tools(db_binding, mcp_server, user_id, db)
-        # If not connected, just return the binding without tools
-        # OAuth connection will be handled later
-
-    return db_binding
 
 
 @router.patch(
@@ -254,52 +111,18 @@ async def update_binding(
     agent_id: UUID,
     server_id: UUID,
     binding_update: AgentMCPServerBindingUpdate,
-    db: AsyncSession = Depends(get_db),
+    service: AgentService = Depends(get_agent_service),
 ) -> AgentMCPServerBindingRead:
-    result = await db.execute(
-        select(AgentMCPServerBindingDB).where(
-            AgentMCPServerBindingDB.agent_id == agent_id,
-            AgentMCPServerBindingDB.mcp_server_id == server_id,
-        )
-    )
-    db_binding = result.scalar_one_or_none()
-    if not db_binding:
-        raise HTTPException(status_code=404, detail="Binding not found")
-
-    update_data = binding_update.model_dump(exclude_unset=True)
-
-    # Handle tools update: merge with existing tools if present
-    if "tools" in update_data and update_data["tools"] is not None:
-        existing_tools = db_binding.tools or {}
-        # Merge: update existing tools with new values
-        merged_tools = {**existing_tools, **update_data["tools"]}
-        update_data["tools"] = merged_tools
-
-    for key, value in update_data.items():
-        setattr(db_binding, key, value)
-
-    db.add(db_binding)
-    await db.commit()
-    await db.refresh(db_binding)
-    return db_binding
+    return await service.update_binding(agent_id, server_id, binding_update)
 
 
 @router.delete("/{agent_id}/mcp-servers/{server_id}", status_code=204)
 async def delete_binding(
-    agent_id: UUID, server_id: UUID, db: AsyncSession = Depends(get_db)
+    agent_id: UUID,
+    server_id: UUID,
+    service: AgentService = Depends(get_agent_service),
 ) -> None:
-    result = await db.execute(
-        select(AgentMCPServerBindingDB).where(
-            AgentMCPServerBindingDB.agent_id == agent_id,
-            AgentMCPServerBindingDB.mcp_server_id == server_id,
-        )
-    )
-    db_binding = result.scalar_one_or_none()
-    if not db_binding:
-        raise HTTPException(status_code=404, detail="Binding not found")
-
-    await db.delete(db_binding)
-    await db.commit()
+    await service.delete_binding(agent_id, server_id)
 
 
 @router.post(
@@ -309,74 +132,16 @@ async def delete_binding(
 async def sync_tools(
     agent_id: UUID,
     server_id: UUID,
-    db: AsyncSession = Depends(get_db),
     current_user: UserDB = Depends(get_current_user),
+    service: AgentService = Depends(get_agent_service),
 ) -> AgentMCPServerBindingRead:
-    """Sync tools from MCP server to the binding.
-
-    This endpoint fetches tools from the MCP server and saves them to the binding
-    with 'always_allow' status. Useful after OAuth connection is established.
-    """
-    # Get the MCP server
-    result = await db.execute(select(MCPServerDB).where(MCPServerDB.id == server_id))
-    mcp_server = result.scalar_one_or_none()
-    if not mcp_server:
-        raise HTTPException(status_code=404, detail="MCP server not found")
-
-    # Get the binding
-    result = await db.execute(
-        select(AgentMCPServerBindingDB).where(
-            AgentMCPServerBindingDB.agent_id == agent_id,
-            AgentMCPServerBindingDB.mcp_server_id == server_id,
-        )
-    )
-    db_binding = result.scalar_one_or_none()
-    if not db_binding:
-        raise HTTPException(status_code=404, detail="Binding not found")
-
-    # Fetch and save tools
-    await fetch_and_save_tools(db_binding, mcp_server, str(current_user.id), db)
-
-    return db_binding
+    return await service.sync_tools(agent_id, server_id, str(current_user.id))
 
 
 @router.get("/{agent_id}/is-ready")
 async def is_ready(
     agent_id: UUID,
-    db: AsyncSession = Depends(get_db),
     current_user: UserDB = Depends(get_current_user),
+    service: AgentService = Depends(get_agent_service),
 ):
-    """Check if all MCP servers bound to an agent are connected for the current user.
-
-    Returns:
-      - ready: true if ALL servers are connected (or agent has no servers)
-      - ready: false if ANY server is not connected
-      - disconnected_servers: list of server IDs that are not connected
-    """
-    agent = await read_agent(agent_id, db)
-
-    if not agent.mcp_servers:
-        return {"ready": True, "disconnected_servers": [], "status": "ready"}
-
-    for mcp_server in agent.mcp_servers:
-        if mcp_server.tools is None:
-            return {"ready": False, "disconnected_servers": [], "status": "not_configured"}
-
-    server_ids = [s.id for s in agent.mcp_servers]
-    result = await db.execute(
-        select(MCPServerDB).where(MCPServerDB.id.in_(server_ids))
-    )
-    servers = result.scalars().all()
-
-    disconnected = []
-    for server in servers:
-
-        connected = await check_mcp_server_connected(server, str(current_user.id))
-        if not connected:
-            disconnected.append(str(server.id))
-
-    return {
-        "ready": len(disconnected) == 0,
-        "disconnected_servers": disconnected,
-        "status": "disconnected"
-    }
+    return await service.check_ready(agent_id, str(current_user.id))

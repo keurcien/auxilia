@@ -11,6 +11,15 @@ from app.settings import app_settings
 
 
 def build_oauth_client_metadata(mcp_server: dict) -> OAuthClientMetadata:
+    # TODO: Handle scopes automatically
+    if mcp_server.url == "https://bigquery.googleapis.com/mcp":
+        scope = "https://www.googleapis.com/auth/bigquery"
+    elif mcp_server.name == "Gmail":
+        scope = "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/gmail.modify"
+    elif mcp_server.name == "Google Sheets":
+        scope = "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive"
+    else:
+        scope = "user"
 
     return OAuthClientMetadata(
         client_name="auxilia",
@@ -20,7 +29,7 @@ def build_oauth_client_metadata(mcp_server: dict) -> OAuthClientMetadata:
         grant_types=["authorization_code", "refresh_token"],
         response_types=["code"],
         token_endpoint_auth_method=None,
-        scope="https://www.googleapis.com/auth/bigquery" if mcp_server.url == "https://bigquery.googleapis.com/mcp" else "user",
+        scope=scope,
     )
 
 

@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
 import { useTheme } from "next-themes";
-import { MoreVertical, Trash2, ShieldCheck } from "lucide-react";
+import { MoreVertical, Trash2, ShieldCheck, ArrowRight } from "lucide-react";
 import { Agent } from "@/types/agents";
 import AgentMCPServerList from "../[id]/components/agent-mcp-server-list";
 import { api } from "@/lib/api/client";
@@ -222,6 +222,14 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 						{saveStatus === "saving" ? "Saving" : "Saved"}
 					</span>
 				</div>
+
+				<Button
+					className="cursor-pointer"
+					onClick={() => router.push(`/agents/${agent.id}/chat`)}
+				>
+					Chat
+					<ArrowRight className="size-4 ml-1" />
+				</Button>
 
 				<DropdownMenu>
 					<DropdownMenuTrigger asChild>

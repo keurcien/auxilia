@@ -227,22 +227,24 @@ export const ToolOutput = ({
 		return null;
 	}
 
+	const content = errorText ?? output;
+
 	let Output: ReactNode = null;
 
-	if (!errorText && output != null) {
-		if (typeof output === "object" && !isValidElement(output)) {
+	if (content != null) {
+		if (typeof content === "object" && !isValidElement(content)) {
 			Output = (
 				<CodeBlock
-					code={JSON.stringify(output, null, 2).replace(/\\n/g, "\n")}
+					code={JSON.stringify(content, null, 2).replace(/\\n/g, "\n")}
 					language="json"
 				/>
 			);
-		} else if (typeof output === "string") {
+		} else if (typeof content === "string") {
 			Output = (
-				<CodeBlock code={output.replace(/\\n/g, "\n")} language="json" />
+				<CodeBlock code={content.replace(/\\n/g, "\n")} language="json" />
 			);
 		} else {
-			Output = <div>{output as ReactNode}</div>;
+			Output = <div>{content as ReactNode}</div>;
 		}
 	}
 
@@ -255,17 +257,10 @@ export const ToolOutput = ({
 			{...props}
 		>
 			<h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-				{errorText ? "Error" : "Result"}
+				Result
 			</h4>
-			<div
-				className={cn(
-					"min-w-0 overflow-x-auto rounded-md text-xs [&_table]:w-full max-h-80 overflow-y-auto",
-					errorText
-						? "bg-destructive/10 text-destructive p-3"
-						: "bg-muted/60 text-foreground",
-				)}
-			>
-				{errorText ? <span>{errorText}</span> : Output}
+			<div className="min-w-0 overflow-x-auto rounded-md bg-muted/60 text-foreground text-xs [&_table]:w-full max-h-80 overflow-y-auto">
+				{Output}
 			</div>
 		</div>
 	);
