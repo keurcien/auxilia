@@ -371,6 +371,7 @@ class AgentRuntime:
 
                 with self._timer.span("message_processing"):
                     # Use explicit commands if provided, otherwise extract from messages
+                    approved_tool_calls_meta: list[dict] = []
                     if commands is not None:
                         extracted_commands = commands
                         rejected_tool_calls = []
@@ -398,6 +399,34 @@ class AgentRuntime:
                 is_resume = len(extracted_commands) > 0
                 resume_message_id = message_id if is_resume else None
 
+                # On resume, read pending tool calls from the LangGraph checkpoint.
+                # This is more reliable than parsing frontend messages because:
+                #   1. The checkpoint stores the exact LLM-generated tool_call_ids
+                #   2. Frontend JSON bodies go through Axios camelCase→snake_case
+                #      conversion which can break Pydantic field name matching
+                if is_resume:
+                    checkpoint_data = await checkpointer.aget(
+                        config=self.stream_config)
+                    if checkpoint_data:
+                        msgs = checkpoint_data["channel_values"].get(
+                            "messages", [])
+                        for msg in reversed(msgs):
+                            tool_calls = getattr(msg, "tool_calls", None)
+                            if tool_calls:
+                                approved_tool_calls_meta = [
+                                    {
+                                        "toolCallId": tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None),
+                                        "toolName": tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None),
+                                        "input": tc.get("args", {}) if isinstance(tc, dict) else getattr(tc, "args", {}),
+                                    }
+                                    for tc in tool_calls
+                                ]
+                                approved_tool_calls_meta = [
+                                    tc for tc in approved_tool_calls_meta
+                                    if tc["toolCallId"] and tc["toolName"]
+                                ]
+                                break
+
                 stream_input = Command(
                     resume={"decisions": [{"type": command} for command in extracted_commands]}) if is_resume else {"messages": langchain_messages}
 
@@ -413,6 +442,7 @@ class AgentRuntime:
                         is_resume=is_resume,
                         rejected_tool_calls=rejected_tool_calls,
                         approved_tool_call_ids=approved_tool_call_ids,
+                        approved_tool_calls=approved_tool_calls_meta,
                         tool_ui_metadata=self.tool_ui_metadata,
                     )
                     stream = ai_sdk_stream_adapter.stream(

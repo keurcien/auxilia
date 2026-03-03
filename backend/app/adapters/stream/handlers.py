@@ -178,9 +178,18 @@ async def handle_tool_start(
         tools.register_signature(signature, tool_call_id)
         return
 
-    # Pre-approved tools: track but don't emit UI events
+    # Pre-approved tools: track but don't emit UI events.
+    # Check by ID first, then by content signature (handles resume streams where
+    # LangGraph assigns a fresh run_id instead of the original LLM tool_call_id).
     if tools.is_pre_approved(tool_call_id):
         tools.start_call(tool_call_id, tool_name, already_approved=True)
+        return
+
+    pre_approved_original_id = tools.get_pre_approved_id_for_signature(signature)
+    if pre_approved_original_id is not None:
+        # Register the original ID so tool_end (which uses the original) finds it
+        tools.start_call(pre_approved_original_id, tool_name, already_approved=True)
+        tools.register_signature(signature, pre_approved_original_id)
         return
 
     async for event_str in content.close_all():

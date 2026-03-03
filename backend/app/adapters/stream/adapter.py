@@ -53,6 +53,7 @@ class AISDKStreamAdapter:
         is_resume: bool = False,
         rejected_tool_calls: list[dict] | None = None,
         approved_tool_call_ids: list[str] | None = None,
+        approved_tool_calls: list[dict] | None = None,
         tool_ui_metadata: dict[str, dict[str, str]] | None = None,
     ):
         self._message_id = message_id or str(uuid.uuid4())
@@ -65,8 +66,22 @@ class AISDKStreamAdapter:
         pre_approved = set(approved_tool_call_ids or [])
         pre_approved.update(r["toolCallId"] for r in self._rejected_tool_calls)
 
+        # Build a signature → original_tool_call_id map for approved calls so that
+        # handle_tool_start can match by content when LangGraph uses a different run_id.
+        pre_approved_signatures: dict[str, str] = {}
+        for call in approved_tool_calls or []:
+            tool_name = call.get("toolName") or ""
+            tool_input = call.get("input") or {}
+            tool_call_id = call.get("toolCallId") or ""
+            if tool_name and tool_call_id:
+                sig = make_tool_signature(tool_name, tool_input)
+                pre_approved_signatures[sig] = tool_call_id
+
         self._content = ContentStreamManager()
-        self._tools = ToolCallTracker(pre_approved_ids=pre_approved)
+        self._tools = ToolCallTracker(
+            pre_approved_ids=pre_approved,
+            pre_approved_signatures=pre_approved_signatures,
+        )
         self._tool_ui_metadata = tool_ui_metadata or {}
 
         self._approval_pending = False
@@ -89,7 +104,7 @@ class AISDKStreamAdapter:
 
         try:
             async for value in events:
-
+                print(value)
                 if not isinstance(value, dict) or "event" not in value:
                     continue
 

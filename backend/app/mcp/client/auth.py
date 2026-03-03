@@ -49,10 +49,10 @@ class WebOAuthClientProvider(OAuthClientProvider):
         if not self.context.oauth_metadata:
             self.context.oauth_metadata = await self.context.storage.get_oauth_metadata()
 
-        if self.context.oauth_metadata and self.context.oauth_metadata.issuer == AnyHttpUrl("https://mcp.hubspot.com/"):
-            print("Setting token endpoint to https://mcp.hubspot.com/oauth/v1/token")
-            self.context.oauth_metadata.token_endpoint = AnyHttpUrl(
-                "https://mcp.hubspot.com/oauth/v1/token")
+        # if self.context.oauth_metadata and self.context.oauth_metadata.issuer == AnyHttpUrl("https://mcp.hubspot.com/"):
+        #     print("Setting token endpoint to https://mcp.hubspot.com/oauth/v1/token")
+        #     self.context.oauth_metadata.token_endpoint = AnyHttpUrl(
+        #         "https://mcp.hubspot.com/oauth/v1/token")
 
         if self.context.oauth_metadata and self.context.oauth_metadata.issuer == AnyHttpUrl("https://api.supabase.com/"):
             print("Setting token endpoint auth method to client_secret_post")

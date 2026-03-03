@@ -66,15 +66,29 @@ class ToolCallTracker:
     Tracks two dimensions:
     - active_calls: tool calls currently in-flight (keyed by tool_call_id)
     - emitted_signatures: content-based dedup index (signature -> tool_call_id)
+
+    On resume streams, LangGraph may assign a fresh run_id to an approved tool call
+    rather than preserving the original LLM-generated ID.  pre_approved_signatures
+    maps content signature → original_tool_call_id so handle_tool_start can match
+    the execution by content rather than ID.
     """
 
-    def __init__(self, pre_approved_ids: set[str] | None = None):
+    def __init__(
+        self,
+        pre_approved_ids: set[str] | None = None,
+        pre_approved_signatures: dict[str, str] | None = None,
+    ):
         self._active_calls: dict[str, TrackedToolCall] = {}
         self._emitted_signatures: dict[str, str] = {}
         self._pre_approved_ids: set[str] = pre_approved_ids or set()
+        self._pre_approved_signatures: dict[str, str] = pre_approved_signatures or {}
 
     def is_pre_approved(self, tool_call_id: str) -> bool:
         return tool_call_id in self._pre_approved_ids
+
+    def get_pre_approved_id_for_signature(self, signature: str) -> str | None:
+        """Return the original tool_call_id for a pre-approved signature, or None."""
+        return self._pre_approved_signatures.get(signature)
 
     def is_signature_emitted(self, signature: str) -> bool:
         return signature in self._emitted_signatures
