@@ -5,6 +5,7 @@ from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata, OAuthToke
 from pydantic import BaseModel
 from redis.asyncio import Redis
 
+from app.mcp.servers.encryption import decrypt_value, encrypt_value
 from app.settings import app_settings
 
 
@@ -63,41 +64,33 @@ class RedisTokenStorage(TokenStorage):
         raw = await self.redis.get(self._tokens_key())
         if not raw:
             return None
-        return StoredToken.model_validate_json(raw)
+        return StoredToken.model_validate_json(decrypt_value(raw))
 
     async def get_tokens(self) -> OAuthToken | None:
-        stored_token = await self.redis.get(self._tokens_key())
-        if not stored_token:
+        stored = await self.get_stored_token()
+        if not stored:
             print(f"No stored token for user {self.user_id} and MCP server {self.mcp_server_id}")
             return None
 
-        stored_token = StoredToken.model_validate_json(stored_token)
+        if stored.expires_at is not None:
+            print(f"Stored token for user {self.user_id} and MCP server {self.mcp_server_id} expires at {stored.expires_at}")
+            if stored.token_payload.expires_in is not None:
+                remaining = stored.expires_at - datetime.now(timezone.utc)
+                stored.token_payload.expires_in = max(0, int(remaining.total_seconds()))
 
-        if stored_token.expires_at is not None:
-            print(f"Stored token for user {self.user_id} and MCP server {self.mcp_server_id} expires at {stored_token.expires_at}")
-            now = datetime.now(timezone.utc)
-
-            if stored_token.token_payload.expires_in is not None:
-                remaining = stored_token.expires_at - now
-                stored_token.token_payload.expires_in = max(
-                    0, int(remaining.total_seconds())
-                )
-
-        return stored_token.token_payload
+        return stored.token_payload
 
     async def set_tokens(self, tokens: OAuthToken) -> None:
         expires_at: datetime | None = None
 
         if tokens.expires_in is not None:
-            expires_at = datetime.now(timezone.utc) + timedelta(
-                seconds=tokens.expires_in
-            )
+            expires_at = datetime.now(timezone.utc) + timedelta(seconds=tokens.expires_in)
 
         stored_token = StoredToken(token_payload=tokens, expires_at=expires_at)
 
         await self.redis.set(
             self._tokens_key(),
-            stored_token.model_dump_json()
+            encrypt_value(stored_token.model_dump_json()),
         )
 
     async def get_client_info(self) -> OAuthClientInformationFull | None:

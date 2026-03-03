@@ -1,4 +1,4 @@
-"""Encryption utilities for MCP server API keys."""
+"""Encryption utilities for sensitive stored values."""
 import base64
 import hashlib
 
@@ -8,44 +8,29 @@ from app.mcp.servers.settings import mcp_server_settings
 
 
 def get_encryption_key() -> bytes:
-    """Derive a valid Fernet key from the user-provided salt.
+    """Derive a valid Fernet key from the configured salt.
 
+    Reads SALT first; falls back to the deprecated MCP_API_KEY_ENCRYPTION_SALT.
     Hashes the salt with SHA-256 to produce 32 bytes, then base64url-encodes
     it into a valid Fernet key.
     """
-    salt = mcp_server_settings.mcp_api_key_encryption_salt.get_secret_value()
-    if not salt:
-        raise ValueError(
-            "MCP_API_KEY_ENCRYPTION_SALT not found in environment variables. "
-            "Set it to any secret string in your .env file."
-        )
+    salt = mcp_server_settings.get_salt()
     derived = hashlib.sha256(salt.encode()).digest()
     return base64.urlsafe_b64encode(derived)
 
 
-def encrypt_api_key(api_key: str) -> str:
-    """Encrypt an API key for storage.
-
-    Args:
-        api_key: The plain text API key to encrypt
-
-    Returns:
-        The encrypted API key as a base64-encoded string
-    """
+def encrypt_value(value: str) -> str:
+    """Encrypt a string value for storage."""
     fernet = Fernet(get_encryption_key())
-    encrypted = fernet.encrypt(api_key.encode())
-    return encrypted.decode()
+    return fernet.encrypt(value.encode()).decode()
 
 
-def decrypt_api_key(encrypted_key: str) -> str:
-    """Decrypt an API key from storage.
-
-    Args:
-        encrypted_key: The encrypted API key as a base64-encoded string
-
-    Returns:
-        The decrypted plain text API key
-    """
+def decrypt_value(encrypted: str) -> str:
+    """Decrypt a string value from storage."""
     fernet = Fernet(get_encryption_key())
-    decrypted = fernet.decrypt(encrypted_key.encode())
-    return decrypted.decode()
+    return fernet.decrypt(encrypted.encode()).decode()
+
+
+# Deprecated aliases — use encrypt_value / decrypt_value instead
+encrypt_api_key = encrypt_value
+decrypt_api_key = decrypt_value

@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.mcp.client.auth import WebOAuthClientProvider, build_oauth_client_metadata
 from app.mcp.client.storage import TokenStorageFactory
-from app.mcp.servers.encryption import decrypt_api_key
+from app.mcp.servers.encryption import decrypt_value as decrypt_api_key
 from app.mcp.servers.models import (
     MCPAuthType,
     MCPServerCreate,
