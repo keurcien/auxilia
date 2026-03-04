@@ -13,6 +13,7 @@ from app.agents.router import router as agents_router
 from app.auth.router import router as auth_router
 from app.auth.settings import auth_settings
 from app.integrations.slack.router import router as slack_router
+from app.integrations.webhooks.router import router as webhooks_router
 from app.invites.router import router as invites_router
 from app.mcp.apps.router import router as mcp_apps_router
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
@@ -109,5 +110,6 @@ app.include_router(users_router)
 app.include_router(invites_router)
 app.include_router(model_providers_router)
 app.include_router(slack_router)
+app.include_router(webhooks_router)
 
 app.mount("/", auxilia_mcp.streamable_http_app())
