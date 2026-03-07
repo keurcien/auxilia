@@ -1,10 +1,10 @@
 "use client";
 
+import { useMemo } from "react";
 import { AppRenderer } from "@mcp-ui/client";
 import type { ToolUIPart } from "ai";
 import { api } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
-import { useMcpHostContext } from "@/hooks/use-mcp-host-context";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
 export type McpAppToolInfo = {
@@ -85,19 +85,40 @@ const stringifyToolOutput = (value: unknown): string => {
 	}
 };
 
+const hasStructuredContent = (
+	output: unknown,
+): output is { _text: unknown; structuredContent: Record<string, unknown> } =>
+	isRecord(output) &&
+	"structuredContent" in output &&
+	isRecord(output.structuredContent);
+
+export const getToolOutputText = (output: unknown): unknown => {
+	if (hasStructuredContent(output)) {
+		return output._text;
+	}
+	return output;
+};
+
 const toCallToolResult = (toolPart: ToolUIPart): CallToolResult | undefined => {
-	console.log(toolPart);
 	if (toolPart.output === undefined && !toolPart.errorText) {
 		return undefined;
 	}
 
 	const isError = Boolean(toolPart.errorText);
-	const text = toolPart.errorText ?? stringifyToolOutput(toolPart.output);
+	const rawOutput = toolPart.output;
+	const textOutput = getToolOutputText(rawOutput);
+	const text = toolPart.errorText ?? stringifyToolOutput(textOutput);
 
-	return {
+	const result: CallToolResult = {
 		content: text ? [{ type: "text", text }] : [],
 		isError,
 	};
+
+	if (hasStructuredContent(rawOutput)) {
+		result.structuredContent = rawOutput.structuredContent;
+	}
+
+	return result;
 };
 
 export const McpAppWidget = ({
@@ -106,7 +127,10 @@ export const McpAppWidget = ({
 	appToolInfo,
 	className,
 }: McpAppWidgetProps) => {
-	const hostContext = useMcpHostContext();
+	const sandboxConfig = useMemo(
+		() => ({ url: new URL("/sandbox.html", window.location.origin) }),
+		[],
+	);
 
 	if (typeof window === "undefined") {
 		return null;
@@ -122,10 +146,9 @@ export const McpAppWidget = ({
 			<AppRenderer
 				toolName={toolName}
 				toolResourceUri={appToolInfo.resourceUri}
-				sandbox={{ url: new URL("/sandbox.html", window.location.origin) }}
+				sandbox={sandboxConfig}
 				toolInput={toToolInput(toolPart.input)}
 				toolResult={toCallToolResult(toolPart)}
-				hostContext={hostContext}
 				onReadResource={async ({ uri }) => {
 					const response = await api.post(
 						`/mcp-servers/${appToolInfo.serverId}/app/read-resource`,

@@ -186,10 +186,12 @@ async def handle_tool_start(
         tools.start_call(tool_call_id, tool_name, already_approved=True)
         return
 
-    pre_approved_original_id = tools.get_pre_approved_id_for_signature(signature)
+    pre_approved_original_id = tools.get_pre_approved_id_for_signature(
+        signature)
     if pre_approved_original_id is not None:
         # Register the original ID so tool_end (which uses the original) finds it
-        tools.start_call(pre_approved_original_id, tool_name, already_approved=True)
+        tools.start_call(pre_approved_original_id,
+                         tool_name, already_approved=True)
         tools.register_signature(signature, pre_approved_original_id)
         return
 
@@ -242,6 +244,9 @@ async def handle_tool_end(
         yield format_sse_event("tool-output-error", toolCallId=tool_call_id, errorText=str(error_text))
     else:
         output = _extract_tool_output(tool_output)
+        structured_content = _extract_structured_content(tool_output)
+        if structured_content is not None:
+            output = {"_text": output, "structuredContent": structured_content}
         yield format_sse_event("tool-output-available", toolCallId=tool_call_id, output=output)
 
     tools.finish_call(tool_call_id)
@@ -268,6 +273,16 @@ def _extract_tool_output(tool_output: Any) -> Any:
             return output.get("text", output)
 
     return output
+
+
+def _extract_structured_content(tool_output: Any) -> dict | None:
+    """Return structuredContent from a ToolMessage artifact, if present."""
+    artifact = getattr(tool_output, "artifact", None)
+    if isinstance(artifact, dict):
+        sc = artifact.get("structured_content")
+        if isinstance(sc, dict):
+            return sc
+    return None
 
 
 async def handle_interrupt(

@@ -13,6 +13,7 @@ class AppSettings(BaseSettings):
     redis_host: str = "localhost"
     redis_port: int = 6379
     redis_db: int = 0
+    redis_password: str | None = None
     backend_url: str = "http://localhost:8000"
     log_level: str = "INFO"
 
