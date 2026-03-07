@@ -16,6 +16,8 @@ class AppSettings(BaseSettings):
     redis_password: str | None = None
     backend_url: str = "http://localhost:8000"
     log_level: str = "INFO"
+    webhook_secret: str | None = None
+    webhook_user_id: str | None = None
 
     model_config: ConfigDict = ConfigDict(
         env_file=ROOT_ENV,
