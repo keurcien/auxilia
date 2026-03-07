@@ -62,7 +62,7 @@ import { Loader } from "../components/loader";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { usePendingMessageStore } from "@/stores/pending-message-store";
 import { useAgentReadiness } from "@/hooks/use-agent-readiness";
-import { getMcpAppToolInfo, McpAppWidget } from "../components/mcp-app-widget";
+import { getMcpAppToolInfo, getToolOutputText, McpAppWidget } from "../components/mcp-app-widget";
 
 const sanitizeToolIdentifier = (value: string): string => {
 	const sanitized = value.replace(/[^a-zA-Z0-9_-]/g, "_").replace(/^_+|_+$/g, "");
@@ -398,7 +398,7 @@ const ChatPage = () => {
 																						false)) && (
 																				<ToolOutput
 																					output={
-																						toolPart.output as React.ReactNode
+																						getToolOutputText(toolPart.output) as React.ReactNode
 																					}
 																					errorText={
 																						toolPart.errorText ||
