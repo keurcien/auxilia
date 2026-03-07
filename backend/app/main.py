@@ -1,5 +1,4 @@
 import logging
-import os
 from builtins import ExceptionGroup
 from contextlib import asynccontextmanager
 
@@ -22,25 +21,15 @@ from app.model_providers.router import router as model_providers_router
 from app.settings import app_settings
 from app.threads.router import router as threads_router
 from app.users.router import router as users_router
-
-
-# Redis configuration from environment variables
-REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+from app.settings import app_settings
 
 logging.getLogger("app").setLevel(app_settings.log_level.upper())
-
-# When DEBUG, also enable MCP transport logs so we can see "GET SSE connection
-# established", "Received 202 Accepted", and reconnection events alongside the
-# app.timer spans.  This helps diagnose why mcp_list_tools is slow.
-if app_settings.log_level.upper() == "DEBUG":
-    logging.getLogger("mcp.client.streamable_http").setLevel(logging.DEBUG)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     redis_client = redis.Redis(
-        host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
+        host=app_settings.redis_host, port=app_settings.redis_port, password=app_settings.redis_password, decode_responses=True)
     app.state.redis = redis_client
 
     async with auxilia_mcp.session_manager.run():

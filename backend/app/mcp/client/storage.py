@@ -69,14 +69,17 @@ class RedisTokenStorage(TokenStorage):
     async def get_tokens(self) -> OAuthToken | None:
         stored = await self.get_stored_token()
         if not stored:
-            print(f"No stored token for user {self.user_id} and MCP server {self.mcp_server_id}")
+            print(
+                f"No stored token for user {self.user_id} and MCP server {self.mcp_server_id}")
             return None
 
         if stored.expires_at is not None:
-            print(f"Stored token for user {self.user_id} and MCP server {self.mcp_server_id} expires at {stored.expires_at}")
+            print(
+                f"Stored token for user {self.user_id} and MCP server {self.mcp_server_id} expires at {stored.expires_at}")
             if stored.token_payload.expires_in is not None:
                 remaining = stored.expires_at - datetime.now(timezone.utc)
-                stored.token_payload.expires_in = max(0, int(remaining.total_seconds()))
+                stored.token_payload.expires_in = max(
+                    0, int(remaining.total_seconds()))
 
         return stored.token_payload
 
@@ -84,7 +87,8 @@ class RedisTokenStorage(TokenStorage):
         expires_at: datetime | None = None
 
         if tokens.expires_in is not None:
-            expires_at = datetime.now(timezone.utc) + timedelta(seconds=tokens.expires_in)
+            expires_at = datetime.now(timezone.utc) + \
+                timedelta(seconds=tokens.expires_in)
 
         stored_token = StoredToken(token_payload=tokens, expires_at=expires_at)
 
@@ -154,6 +158,7 @@ class TokenStorageFactory:
             host=app_settings.redis_host,
             port=app_settings.redis_port,
             db=app_settings.redis_db,
+            password=app_settings.redis_password,
             decode_responses=True,
         )
 
@@ -170,7 +175,7 @@ class TokenStorageFactory:
     async def get_storage_from_state(self, state: str) -> tuple[RedisTokenStorage, OAuthStateData] | None:
         """
         Recover storage instance from OAuth state parameter.
-        
+
         Returns:
             Tuple of (storage, state_data) or None if state is invalid/expired.
         """
@@ -178,7 +183,8 @@ class TokenStorageFactory:
         if not state_data:
             return None
 
-        storage = self.get_storage(state_data.user_id, state_data.mcp_server_id)
+        storage = self.get_storage(
+            state_data.user_id, state_data.mcp_server_id)
         return storage, state_data
 
     async def clear_server_data(self, mcp_server_id: str) -> int:

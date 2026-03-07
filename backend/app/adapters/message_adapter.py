@@ -154,8 +154,6 @@ def extract_approved_tool_call_ids(message: Message) -> list[str]:
     return approved_ids
 
 
-
-
 def to_langchain_message(message: Message) -> HumanMessage:
     """
     Convert AI SDK v5 messages to LangChain HumanMessage format.
@@ -299,10 +297,18 @@ def deserialize_to_ui_messages(langgraph_messages: list) -> list[Message]:
                                                 }
                                             }
 
+                                    structured_content = None
+                                    if isinstance(artifact, dict):
+                                        sc = artifact.get(
+                                            "structured_content")
+                                        if isinstance(sc, dict):
+                                            structured_content = sc
+
                                     tool_results[tool_call_id] = {
                                         "content": content,
                                         "status": status,
                                         "call_provider_metadata": call_provider_metadata,
+                                        "structured_content": structured_content,
                                     }
                                 j += 1
                             else:
@@ -326,10 +332,13 @@ def deserialize_to_ui_messages(langgraph_messages: list) -> list[Message]:
                             tool_output = None
                             tool_status = "success"
 
+                            structured_content = None
                             if tool_result:
                                 tool_output = tool_result.get("content")
                                 tool_status = tool_result.get(
                                     "status", "success")
+                                structured_content = tool_result.get(
+                                    "structured_content")
 
                             if isinstance(tool_output, list) and len(tool_output) > 0:
                                 tool_output = tool_output[0].get("text")
@@ -338,6 +347,12 @@ def deserialize_to_ui_messages(langgraph_messages: list) -> list[Message]:
                                 tool_output = json.loads(tool_output)
                             except:
                                 pass
+
+                            if structured_content is not None:
+                                tool_output = {
+                                    "_text": tool_output,
+                                    "structured_content": structured_content,
+                                }
 
                             # Set state based on status and presence of output
                             if tool_output is None:
