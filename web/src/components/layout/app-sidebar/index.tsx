@@ -9,7 +9,6 @@ import {
 	Bot,
 	Server,
 	SquarePen,
-	MoreVertical,
 	Trash2,
 	LogOut,
 	BookOpen,
@@ -27,7 +26,6 @@ import {
 	SidebarMenu,
 	SidebarMenuButton,
 	SidebarMenuItem,
-	SidebarMenuAction,
 } from "@/components/ui/sidebar";
 import {
 	DropdownMenu,
@@ -36,6 +34,7 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { OverflowActionsMenu } from "@/components/ui/overflow-actions-menu";
 import { useThreadsStore } from "@/stores/threads-store";
 import { useUserStore } from "@/stores/user-store";
 import { useAgentsStore } from "@/stores/agents-store";
@@ -179,26 +178,20 @@ export function AppSidebar() {
 												)}
 											</Link>
 										</SidebarMenuButton>
-										<DropdownMenu>
-											<DropdownMenuTrigger asChild>
-												<SidebarMenuAction
-													showOnHover
-													className="cursor-pointer"
-												>
-													<MoreVertical className="size-4" />
-													<span className="sr-only">More options</span>
-												</SidebarMenuAction>
-											</DropdownMenuTrigger>
-											<DropdownMenuContent side="right" align="start">
-												<DropdownMenuItem
-													className="text-destructive focus:text-destructive"
-													onClick={() => handleDeleteThread(thread.id)}
-												>
-													<Trash2 className="size-4 text-destructive" />
-													<span>Delete</span>
-												</DropdownMenuItem>
-											</DropdownMenuContent>
-										</DropdownMenu>
+										<OverflowActionsMenu
+											triggerVariant="sidebar"
+											srLabel="More options"
+											side="right"
+											align="start"
+											items={[
+												{
+													label: "Delete",
+													icon: Trash2,
+													tone: "destructive",
+													onClick: () => handleDeleteThread(thread.id),
+												},
+											]}
+										/>
 									</SidebarMenuItem>
 								))}
 							</SidebarMenu>
