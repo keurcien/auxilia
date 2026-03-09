@@ -10,12 +10,17 @@ from langchain_core.messages import (
 )
 
 from app.models.message import (
+    DataTodoMessagePart,
     FileMessagePart,
     Message,
     ReasoningMessagePart,
     TextMessagePart,
     ToolMessagePart,
 )
+
+
+# Tool names rendered as custom data parts instead of tool UI.
+_DATA_PART_TOOLS = frozenset({"write_todos"})
 
 
 def to_langchain_file_part(file_part) -> dict | None:
@@ -326,6 +331,15 @@ def deserialize_to_ui_messages(langgraph_messages: list) -> list[Message]:
                                     tool_call, "name", "unknown")
                                 tool_id = getattr(tool_call, "id", "unknown")
                                 tool_args = getattr(tool_call, "args", {})
+
+                            # Data-part tools: emit as custom data part
+                            if tool_name in _DATA_PART_TOOLS:
+                                if tool_name == "write_todos":
+                                    parts.append(DataTodoMessagePart(
+                                        id="todo",
+                                        data=tool_args,
+                                    ))
+                                continue
 
                             # Check if we have a result for this tool call
                             tool_result = tool_results.get(tool_id)

@@ -7,8 +7,12 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 from .content_stream import ContentStreamManager
-from .sse import format_sse_event
+from .sse import format_data_part_event, format_sse_event
 from .tool_tracker import ToolCallTracker, make_tool_signature, normalize_tool_call
+
+
+# Tool names whose UI is rendered via custom data parts instead of tool events.
+_DATA_PART_TOOLS = frozenset({"write_todos"})
 
 
 logger = logging.getLogger(__name__)
@@ -72,14 +76,15 @@ async def handle_chat_model_stream(
                     yield event
 
                 already_approved = tools.is_pre_approved(tool_call_id)
+                is_data_part_tool = tool_name in _DATA_PART_TOOLS
                 tools.start_call(
                     tool_call_id, tool_name,
                     args_buffer=args_delta,
-                    already_approved=already_approved,
+                    already_approved=already_approved or is_data_part_tool,
                     index=index,
                 )
 
-                if already_approved:
+                if already_approved or is_data_part_tool:
                     continue
 
                 event_payload = {
@@ -138,6 +143,13 @@ async def handle_chat_model_end(
         signature = make_tool_signature(tool_name, tool_args)
         tools.register_signature(signature, tool_call_id)
 
+        # Emit custom data part for data-part tools
+        if tool_name in _DATA_PART_TOOLS:
+            if tool_name == "write_todos":
+                yield format_data_part_event(
+                    "data-todo", part_id="todo", data=tool_args)
+            continue
+
         tracked = tools.get_active(tool_call_id)
         if tracked and tracked.already_approved:
             continue
@@ -195,6 +207,14 @@ async def handle_tool_start(
         tools.register_signature(signature, pre_approved_original_id)
         return
 
+    # Data-part tools: track internally but suppress tool UI events
+    if tool_name in _DATA_PART_TOOLS:
+        tools.register_signature(signature, tool_call_id)
+        tools.start_call(tool_call_id, tool_name,
+                         args_buffer=json.dumps(tool_input),
+                         already_approved=True)
+        return
+
     async for event_str in content.close_all():
         yield event_str
 
@@ -235,6 +255,12 @@ async def handle_tool_end(
 
     tool_call_id = getattr(tool_output, "tool_call_id", None)
     if not tool_call_id:
+        return
+
+    # Data-part tools: suppress tool output events entirely
+    tracked = tools.get_active(tool_call_id)
+    if tracked and tracked.name in _DATA_PART_TOOLS:
+        tools.finish_call(tool_call_id)
         return
 
     status = getattr(tool_output, "status", "success")

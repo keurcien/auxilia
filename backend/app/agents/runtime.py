@@ -4,6 +4,7 @@ import re
 import time
 from dataclasses import dataclass
 
+from deepagents import create_deep_agent, CompiledSubAgent
 from langchain.agents import create_agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware
 from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
@@ -151,7 +152,6 @@ def _build_tool_ui_metadata_map(
         }
 
     return metadata_by_tool_name
-
 
 
 @dataclass
@@ -343,9 +343,10 @@ class AgentRuntime:
                             inject_ui_metadata_into_tool(
                                 tool, self.tool_ui_metadata[tool.name])
 
+                    subagent_system_prompt = """Execute strictly the task given to you."""
                     system_prompt = {
                         "type": "text",
-                        "text": self.config.instructions or "",
+                        "text": (self.config.instructions or "") + "\n\n" + subagent_system_prompt,
                     }
 
                     middlewares = [
@@ -360,14 +361,46 @@ class AgentRuntime:
                     if model_provider == "anthropic":
                         middlewares.append(
                             AnthropicPromptCachingMiddleware(ttl='5m'))
-                        # system_prompt["cache_control"] = {"type": "ephemeral"}
 
-                    agent = create_agent(
+                    subagent = create_agent(
                         model=chat_model,
                         tools=tools,
-                        system_prompt=SystemMessage(content=[system_prompt]),
+                        system_prompt=SystemMessage(
+                            content=[system_prompt]),
+                        # checkpointer=checkpointer,
+                        middleware=middlewares,
+                    )
+
+                    # Use it as a custom subagent
+                    custom_subagent = CompiledSubAgent(
+                        name=self.config.name,
+                        description=self.config.description,
+                        runnable=subagent
+                    )
+
+                    agent = create_deep_agent(
+                        model=chat_model,
+                        tools=tools,
+                        system_prompt=SystemMessage(content=[
+                            """
+                            You are an agent coordinator that coordinates the execution of subagents.
+
+                            You and your subagents share the same tools, besides (ls, glob, write_file, read_file, task, write_todo).
+
+                            For complex tasks, write a todo list first. Involve subagents to spare your context.
+
+                            Your role is to answer to user's questions, and to delegate tasks to subagents to help you build your answer.
+                            Subagents are here only to execute simple tasks, they should not be to perform long running tasks.
+
+                            You decide what tasks you take on, and what tasks you delegate to subagents, with the required context so that 
+                            subagents do not repeat the same work you have already done.
+
+                            Instruct subagents to report any interesting findings to you, and to be the most concise and to the point as possible.
+                            """
+                        ]),
                         checkpointer=checkpointer,
                         middleware=middlewares,
+                        subagents=[custom_subagent],
                     )
 
                 with self._timer.span("message_processing"):

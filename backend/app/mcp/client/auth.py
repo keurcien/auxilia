@@ -13,15 +13,16 @@ from app.settings import app_settings
 
 
 def build_oauth_client_metadata(mcp_server: dict) -> OAuthClientMetadata:
-    # TODO: Handle scopes automatically
-    if mcp_server.url == "https://bigquery.googleapis.com/mcp":
-        scope = "https://www.googleapis.com/auth/bigquery"
-    elif mcp_server.name == "Gmail":
-        scope = "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/gmail.modify"
-    elif mcp_server.name == "Google Sheets":
-        scope = "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive"
-    else:
-        scope = "user"
+    # # TODO: Handle scopes automatically
+    # if mcp_server.url == "https://bigquery.googleapis.com/mcp":
+    #     scope = "https://www.googleapis.com/auth/bigquery"
+    # elif mcp_server.name == "Gmail":
+    #     scope = "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/gmail.modify"
+    # elif mcp_server.name == "Google Sheets":
+    #     scope = "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive"
+    # else:
+    #     scope = "user"
+    scope = "user"
 
     return OAuthClientMetadata(
         client_name="auxilia",
