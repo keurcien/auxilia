@@ -53,6 +53,7 @@ import { RefreshCcwIcon, CopyIcon } from "lucide-react";
 import { useChat } from "@ai-sdk/react";
 import {
 	DefaultChatTransport,
+	type UIMessage,
 	type ToolUIPart,
 	lastAssistantMessageIsCompleteWithApprovalResponses,
 } from "ai";
@@ -63,6 +64,29 @@ import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { usePendingMessageStore } from "@/stores/pending-message-store";
 import { useAgentReadiness } from "@/hooks/use-agent-readiness";
 import { getMcpAppToolInfo, getToolOutputText, McpAppWidget } from "../components/mcp-app-widget";
+import {
+	Queue,
+	QueueSection,
+	QueueSectionTrigger,
+	QueueSectionLabel,
+	QueueSectionContent,
+	QueueList,
+	QueueItem,
+	QueueItemContent,
+} from "@/components/ai-elements/queue";
+import { CheckCircle2Icon, CircleDotIcon, CircleIcon } from "lucide-react";
+
+type TodoItem = {
+	content: string;
+	status: "completed" | "in_progress" | "pending";
+};
+
+type ChatMessage = UIMessage<
+	never,
+	{
+		todo: { todos: TodoItem[] };
+	}
+>;
 
 const sanitizeToolIdentifier = (value: string): string => {
 	const sanitized = value.replace(/[^a-zA-Z0-9_-]/g, "_").replace(/^_+|_+$/g, "");
@@ -126,7 +150,7 @@ const ChatPage = () => {
 		error,
 		stop,
 		addToolApprovalResponse,
-	} = useChat({
+	} = useChat<ChatMessage>({
 		transport: new DefaultChatTransport({
 			api: `${API_BASE_URL}/threads/${threadId}/invoke`,
 			prepareSendMessagesRequest: ({ messages, trigger, messageId }) => {
@@ -361,7 +385,44 @@ const ChatPage = () => {
 														<ReasoningContent>{part.text}</ReasoningContent>
 													</Reasoning>
 												);
-												default:
+											case "data-todo": {
+												const todoPart = part as { type: "data-todo"; data: { todos: TodoItem[] } };
+												const todos = todoPart.data?.todos ?? [];
+												const completedCount = todos.filter((t) => t.status === "completed").length;
+												return (
+													<Queue key={`${message.id}-${i}`}>
+														<QueueSection defaultOpen>
+															<QueueSectionTrigger>
+																<QueueSectionLabel
+																	label={completedCount === todos.length ? "tasks completed" : "tasks"}
+																	count={completedCount === todos.length ? completedCount : todos.length}
+																/>
+															</QueueSectionTrigger>
+															<QueueSectionContent>
+																<QueueList>
+																	{todos.map((todo, j) => (
+																		<QueueItem key={j}>
+																			<div className="flex items-center gap-2">
+																				{todo.status === "completed" ? (
+																					<CheckCircle2Icon className="size-4 shrink-0 text-emerald-500" />
+																				) : todo.status === "in_progress" ? (
+																					<CircleDotIcon className="size-4 shrink-0 text-blue-500 animate-pulse" />
+																				) : (
+																					<CircleIcon className="size-4 shrink-0 text-muted-foreground/50" />
+																				)}
+																				<QueueItemContent completed={todo.status === "completed"}>
+																					{todo.content}
+																				</QueueItemContent>
+																			</div>
+																		</QueueItem>
+																	))}
+																</QueueList>
+															</QueueSectionContent>
+														</QueueSection>
+													</Queue>
+												);
+											}
+											default:
 													if (part.type.startsWith("tool-")) {
 														const toolPart = part as ToolUIPart;
 														const { serverName, toolName } =
