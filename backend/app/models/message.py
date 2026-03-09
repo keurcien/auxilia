@@ -32,8 +32,14 @@ class FileMessagePart(BaseModel):
     url: str | None = None
 
 
+class DataTodoMessagePart(BaseModel):
+    type: str = "data-todo"
+    id: str
+    data: dict
+
+
 def get_message_part_type(value: Any) -> str:
-    """Custom discriminator that handles dynamic tool-* types."""
+    """Custom discriminator that handles dynamic tool-* and data-* types."""
     if isinstance(value, dict):
         type_val = value.get("type", "")
     else:
@@ -41,6 +47,8 @@ def get_message_part_type(value: Any) -> str:
 
     if isinstance(type_val, str) and type_val.startswith("tool-"):
         return "tool"
+    if isinstance(type_val, str) and type_val.startswith("data-"):
+        return "data"
     return type_val
 
 
@@ -48,7 +56,8 @@ MessagePart = Annotated[
     Annotated[TextMessagePart, Tag("text")]
     | Annotated[ReasoningMessagePart, Tag("reasoning")]
     | Annotated[ToolMessagePart, Tag("tool")]
-    | Annotated[FileMessagePart, Tag("file")],
+    | Annotated[FileMessagePart, Tag("file")]
+    | Annotated[DataTodoMessagePart, Tag("data")],
     Discriminator(get_message_part_type),
 ]
 

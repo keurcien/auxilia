@@ -105,7 +105,7 @@ class AISDKStreamAdapter:
 
         try:
             async for value in events:
-                print(value)
+                print(value["metadata"])
                 if not isinstance(value, dict) or "event" not in value:
                     continue
 
