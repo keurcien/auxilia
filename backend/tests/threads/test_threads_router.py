@@ -114,7 +114,7 @@ def test_get_thread(mock_checkpointer, client: TestClient, mock_db):
     )
 
     mock_result = MagicMock()
-    mock_result.scalar_one_or_none.return_value = thread
+    mock_result.one_or_none.return_value = (thread, "Test Agent", "🤖")
     mock_db.execute.return_value = mock_result
 
     # Mock the checkpointer context manager
@@ -139,7 +139,7 @@ def test_get_thread_not_found(client: TestClient, mock_db):
     fake_id = uuid4()
 
     mock_result = MagicMock()
-    mock_result.scalar_one_or_none.return_value = None
+    mock_result.one_or_none.return_value = None
     mock_db.execute.return_value = mock_result
 
     response = client.get(f"/threads/{fake_id}")

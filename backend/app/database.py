@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from sqlalchemy import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -35,7 +36,10 @@ def get_psycopg_conn_string(sqlalchemy_url=None) -> str:
         sqlalchemy_url: Optional SQLAlchemy URL object or string. Defaults to
             the engine's URL if not provided.
     """
-    url = engine.url.set(drivername="postgresql")
+    if sqlalchemy_url is not None:
+        url = make_url(sqlalchemy_url).set(drivername="postgresql")
+    else:
+        url = engine.url.set(drivername="postgresql")
     return url.render_as_string(hide_password=False)
 
 
