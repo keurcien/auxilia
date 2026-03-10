@@ -262,7 +262,7 @@ export function AppSidebar() {
 								>
 									<DropdownMenuItem
 										onClick={() =>
-											window.open("https://auxilia-docs.vercel.app/", "_blank")
+											router.push("/settings")
 										}
 										className="cursor-pointer"
 									>
