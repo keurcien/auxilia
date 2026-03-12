@@ -6,6 +6,7 @@ from fastapi import Depends, HTTPException
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.auth import OAuthClientInformationFull
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -28,6 +29,23 @@ class MCPServerService:
         self.db = db
         self.repository = MCPServerRepository(db)
 
+    def _map_integrity_error(self, exc: IntegrityError) -> HTTPException | None:
+        error_message = str(getattr(exc, "orig", exc))
+
+        if "uq_mcp_servers_url" in error_message:
+            return HTTPException(
+                status_code=409,
+                detail="MCP server URL already exists",
+            )
+
+        if "agent_mcp_server_bindings_mcp_server_id_fkey" in error_message:
+            return HTTPException(
+                status_code=409,
+                detail="MCP server is attached to one or more agents",
+            )
+
+        return None
+
     async def create_server(self, data: MCPServerCreate) -> MCPServerDB:
         if data.auth_type == MCPAuthType.api_key and not data.api_key:
             raise HTTPException(
@@ -35,26 +53,33 @@ class MCPServerService:
                 detail="API key is required when auth_type is 'api_key'",
             )
 
-        db_server = await self.repository.create(data)
+        try:
+            db_server = await self.repository.create(data)
 
-        if data.auth_type == MCPAuthType.api_key and data.api_key:
-            await self.repository.save_api_key(db_server.id, data.api_key)
+            if data.auth_type == MCPAuthType.api_key and data.api_key:
+                await self.repository.save_api_key(db_server.id, data.api_key)
 
-        if (
-            data.auth_type == MCPAuthType.oauth2
-            and data.oauth_client_id
-            and data.oauth_client_secret
-        ):
-            await self.repository.save_oauth_credentials(
-                db_server.id,
-                data.oauth_client_id,
-                data.oauth_client_secret,
-                data.oauth_token_endpoint_auth_method,
-            )
+            if (
+                data.auth_type == MCPAuthType.oauth2
+                and data.oauth_client_id
+                and data.oauth_client_secret
+            ):
+                await self.repository.save_oauth_credentials(
+                    db_server.id,
+                    data.oauth_client_id,
+                    data.oauth_client_secret,
+                    data.oauth_token_endpoint_auth_method,
+                )
 
-        await self.db.commit()
-        await self.db.refresh(db_server)
-        return db_server
+            await self.db.commit()
+            await self.db.refresh(db_server)
+            return db_server
+        except IntegrityError as exc:
+            await self.db.rollback()
+            mapped_error = self._map_integrity_error(exc)
+            if mapped_error:
+                raise mapped_error from exc
+            raise
 
     async def get_server(self, server_id: UUID) -> MCPServerDB:
         server = await self.repository.get(server_id)
@@ -68,11 +93,25 @@ class MCPServerService:
     async def update_server(self, server_id: UUID, data: MCPServerUpdate) -> MCPServerDB:
         server = await self.get_server(server_id)
         update_data = data.model_dump(exclude_unset=True)
-        return await self.repository.update(server, update_data)
+        try:
+            return await self.repository.update(server, update_data)
+        except IntegrityError as exc:
+            await self.db.rollback()
+            mapped_error = self._map_integrity_error(exc)
+            if mapped_error:
+                raise mapped_error from exc
+            raise
 
     async def delete_server(self, server_id: UUID) -> None:
         server = await self.get_server(server_id)
-        await self.repository.delete(server)
+        try:
+            await self.repository.delete(server)
+        except IntegrityError as exc:
+            await self.db.rollback()
+            mapped_error = self._map_integrity_error(exc)
+            if mapped_error:
+                raise mapped_error from exc
+            raise
 
     async def list_official_servers(self) -> list[OfficialMCPServerRead]:
         rows = await self.repository.list_official()
