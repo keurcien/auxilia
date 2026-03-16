@@ -24,6 +24,29 @@ class MCPAppCallToolRequest(SQLModel):
     arguments: dict[str, Any] | None = None
 
 
+def _to_mcp_app_proxy_error(action: str, exc: Exception) -> HTTPException:
+    message = str(exc).strip() or "Unknown MCP error"
+    lowered_message = message.lower()
+
+    client_error_markers = (
+        "unknown tool",
+        "tool not found",
+        "unknown resource",
+        "resource not found",
+        "invalid params",
+        "invalid argument",
+    )
+    status_code = (
+        400
+        if any(marker in lowered_message for marker in client_error_markers)
+        else 502
+    )
+    return HTTPException(
+        status_code=status_code,
+        detail=f"MCP app {action} failed: {message}",
+    )
+
+
 async def get_server_or_404(server_id: UUID, db: AsyncSession) -> MCPServerDB:
     result = await db.execute(select(MCPServerDB).where(MCPServerDB.id == server_id))
     server = result.scalar_one_or_none()
@@ -41,7 +64,12 @@ async def read_mcp_app_resource(
 ):
     mcp_server = await get_server_or_404(server_id, db)
     async with connect_to_server(mcp_server, str(current_user.id), db) as (session, _):
-        return await session.read_resource(body.uri)
+        try:
+            return await session.read_resource(body.uri)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise _to_mcp_app_proxy_error("read-resource", exc) from exc
 
 
 @router.post("/mcp-servers/{server_id}/app/call-tool")
@@ -53,4 +81,9 @@ async def call_mcp_app_tool(
 ):
     mcp_server = await get_server_or_404(server_id, db)
     async with connect_to_server(mcp_server, str(current_user.id), db) as (session, _):
-        return await session.call_tool(body.tool_name, body.arguments)
+        try:
+            return await session.call_tool(body.tool_name, body.arguments)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise _to_mcp_app_proxy_error("call-tool", exc) from exc
