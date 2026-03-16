@@ -3,6 +3,13 @@ from langchain_core.tools import Tool
 from langchain_core.tools.base import ToolException
 
 
+try:
+    from exceptiongroup import BaseExceptionGroup
+except ImportError:
+    # Python 3.11+ exposes BaseExceptionGroup as a builtin.
+    pass
+
+
 def inject_ui_metadata_into_tool(tool: Tool, ui_metadata: dict) -> None:
     """Wrap a tool's coroutine in-place to persist MCP app UI metadata in ToolMessage artifacts.
 
@@ -35,10 +42,20 @@ def inject_ui_metadata_into_tool(tool: Tool, ui_metadata: dict) -> None:
                 artifact = {"mcp_app_resource_uri": resource_uri,
                             "mcp_server_id": server_id}
             result = (content, artifact)
-        elif isinstance(result, ToolMessage) and isinstance(result.artifact, dict):
+        elif isinstance(result, ToolMessage):
             # Fallback for tools that return ToolMessage directly
-            result.artifact["mcp_app_resource_uri"] = resource_uri
-            result.artifact["mcp_server_id"] = server_id
+            if isinstance(result.artifact, dict):
+                result.artifact["mcp_app_resource_uri"] = resource_uri
+                result.artifact["mcp_server_id"] = server_id
+            else:
+                result = result.model_copy(
+                    update={
+                        "artifact": {
+                            "mcp_app_resource_uri": resource_uri,
+                            "mcp_server_id": server_id,
+                        }
+                    }
+                )
         return result
 
     tool.coroutine = augmented_coroutine
