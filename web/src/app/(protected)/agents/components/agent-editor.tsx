@@ -4,18 +4,13 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
 import { useTheme } from "next-themes";
-import { MoreVertical, Trash2, ShieldCheck, ArrowRight } from "lucide-react";
+import { Trash2, ShieldCheck, ArrowRight } from "lucide-react";
 import { Agent } from "@/types/agents";
 import AgentMCPServerList from "../[id]/components/agent-mcp-server-list";
 import { api } from "@/lib/api/client";
 import { useAgentsStore } from "@/stores/agents-store";
 import { Button } from "@/components/ui/button";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { OverflowActionsMenu } from "@/components/ui/overflow-actions-menu";
 import AgentPermissionsDialog from "./agent-permissions-dialog";
 
 interface AgentEditorProps {
@@ -231,30 +226,23 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 					<ArrowRight className="size-4 ml-1" />
 				</Button>
 
-				<DropdownMenu>
-					<DropdownMenuTrigger asChild>
-						<Button variant="ghost" size="icon" className="cursor-pointer">
-							<MoreVertical className="w-5 h-5" />
-							<span className="sr-only">Agent settings</span>
-						</Button>
-					</DropdownMenuTrigger>
-					<DropdownMenuContent side="bottom" align="end">
-						<DropdownMenuItem
-							className="text-primary focus:text-primary cursor-pointer"
-							onClick={handleManagePermissions}
-						>
-							<ShieldCheck className="size-4" />
-							<span>Manage permissions</span>
-						</DropdownMenuItem>
-						<DropdownMenuItem
-							className="text-destructive focus:text-destructive cursor-pointer"
-							onClick={handleDeleteAgent}
-						>
-							<Trash2 className="size-4 text-destructive" />
-							<span>Delete agent</span>
-						</DropdownMenuItem>
-					</DropdownMenuContent>
-				</DropdownMenu>
+				<OverflowActionsMenu
+					srLabel="Agent settings"
+					items={[
+						{
+							label: "Manage permissions",
+							icon: ShieldCheck,
+							tone: "primary",
+							onClick: handleManagePermissions,
+						},
+						{
+							label: "Delete agent",
+							icon: Trash2,
+							tone: "destructive",
+							onClick: handleDeleteAgent,
+						},
+					]}
+				/>
 			</div>
 
 			<div className="relative flex flex-col md:flex-row flex-1 min-h-0">
