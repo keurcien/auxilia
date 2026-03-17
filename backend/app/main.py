@@ -10,6 +10,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.agents.router import router as agents_router
 from app.auth.router import router as auth_router
+from app.auth.tokens.router import router as tokens_router
 from app.auth.settings import auth_settings
 from app.integrations.slack.router import router as slack_router
 from app.invites.router import router as invites_router
@@ -91,6 +92,7 @@ app.add_middleware(
 
 app.include_router(agents_router)
 app.include_router(auth_router)
+app.include_router(tokens_router)
 app.include_router(mcp_apps_router)
 app.include_router(mcp_servers_router)
 app.include_router(threads_router)
