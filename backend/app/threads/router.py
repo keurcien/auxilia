@@ -4,7 +4,6 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from app.adapters.message_adapter import deserialize_to_ui_messages
 from app.agents.models import AgentDB
 from app.agents.runtime import AgentRuntime, build_agent_deps
 from app.agents.settings import agent_settings
@@ -12,6 +11,7 @@ from app.auth.dependencies import get_current_user
 from app.database import get_db, get_psycopg_conn_string
 from app.models.message import Message
 from app.threads.models import ThreadCreate, ThreadDB, ThreadRead
+from app.threads.serialization import deserialize_to_ui_messages
 from app.threads.service import get_thread
 from app.users.models import UserDB
 from app.utils.timer import RequestTimer
