@@ -154,6 +154,21 @@ def _build_tool_ui_metadata_map(
     return metadata_by_tool_name
 
 
+async def get_regeneration_checkpoint_id(agent, config: dict) -> str | None:
+    """Walk back checkpoint history to find the state before the last user message was added."""
+    current_state = await agent.aget_state(config)
+    current_messages = current_state.values.get("messages", [])
+    current_human_count = sum(1 for m in current_messages if m.type == "human")
+
+    async for state in agent.aget_state_history(config):
+        messages = state.values.get("messages", [])
+        human_count = sum(1 for m in messages if m.type == "human")
+        if human_count < current_human_count:
+            return state.config["configurable"]["checkpoint_id"]
+
+    return None
+
+
 @dataclass
 class AgentRuntimeDependencies:
     model_factory: ChatModelFactory
@@ -210,6 +225,15 @@ class AgentRuntime:
             "callbacks": self.callbacks,
             "metadata": self.metadata,
         }
+
+    async def _resolve_stream_config(self, agent, trigger: str | None) -> dict:
+        """Build the stream config, forking from an earlier checkpoint on regenerate."""
+        config = self.stream_config
+        if trigger == "regenerate-message":
+            checkpoint_id = await get_regeneration_checkpoint_id(agent, config)
+            if checkpoint_id:
+                config["configurable"]["checkpoint_id"] = checkpoint_id
+        return config
 
     async def build_multi_mcp_server_configs(
         self, mcp_server_configs: list[dict]
@@ -340,6 +364,7 @@ class AgentRuntime:
         message_id: str | None = None,
         stream_adapter: str = "ai_sdk",
         commands: list[str] | None = None,
+        trigger: str | None = None,
     ):
         """Wrapper to keep checkpointer alive during streaming.
 
@@ -349,6 +374,7 @@ class AgentRuntime:
             stream_adapter: Which stream adapter to use ("ai_sdk" or "slack")
             commands: Optional list of explicit commands ("approve"/"reject") for direct resume
                       (bypasses message-based command extraction)
+            trigger: Optional trigger from AI SDK ("submit-message", "regenerate-message")
         """
         try:
             _checkpointer_t0 = time.perf_counter()
@@ -497,9 +523,10 @@ class AgentRuntime:
                     else {"messages": langchain_messages}
                 )
 
+                config = await self._resolve_stream_config(agent, trigger)
                 langchain_stream = agent.astream(
                     stream_input,
-                    config=self.stream_config,
+                    config=config,
                     stream_mode=["messages", "values"],
                 )
 

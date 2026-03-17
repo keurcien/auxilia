@@ -98,7 +98,7 @@ export function AppSidebar() {
 	};
 	return (
 		<>
-			<Sidebar variant="floating" className="font-chat">
+			<Sidebar variant="floating">
 				<SidebarHeader>
 					<div className="flex items-center gap-1 px-2 py-2">
 						<div className="flex size-8 items-center justify-center rounded-lg text-primary-foreground">
@@ -261,9 +261,7 @@ export function AppSidebar() {
 									sideOffset={4}
 								>
 									<DropdownMenuItem
-										onClick={() =>
-											router.push("/settings")
-										}
+										onClick={() => router.push("/settings")}
 										className="cursor-pointer"
 									>
 										<Settings className="mr-2 h-4 w-4" />
