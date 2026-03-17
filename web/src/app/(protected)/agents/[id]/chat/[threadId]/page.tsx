@@ -58,7 +58,7 @@ import {
 } from "ai";
 import { useParams } from "next/navigation";
 import { api, API_BASE_URL } from "@/lib/api/client";
-import { Loader } from "../components/loader";
+import { ThinkingLoader, DotsLoader } from "../components/loader";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { usePendingMessageStore } from "@/stores/pending-message-store";
 import { useAgentReadiness } from "@/hooks/use-agent-readiness";
@@ -147,13 +147,21 @@ const ChatPage = () => {
 		},
 	});
 
+	const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
+	const lastPart = lastMessage?.parts[lastMessage.parts.length - 1];
+	const assistantHasStarted = lastMessage?.role === "assistant" &&
+		lastMessage.parts.some((p) =>
+			(p.type === "text" && p.text.length > 0) || p.type.startsWith("tool-"));
+
 	const isAwaitingResponse =
 		status === "submitted" ||
 		(status === "streaming" &&
-			messages.length > 0 &&
-			!messages[messages.length - 1].parts.some(
+			lastMessage !== null &&
+			(!lastMessage.parts.some(
 				(p) => p.type === "text" && p.text.length > 0,
-			));
+			) ||
+				(lastPart?.type?.startsWith("tool-") &&
+					(lastPart as ToolUIPart).state === "output-available")));
 
 	const consumePendingMessage = usePendingMessageStore(
 		(state) => state.consumePendingMessage,
@@ -465,7 +473,11 @@ const ChatPage = () => {
 								<Message from="assistant">
 									<div className="w-full flex flex-col gap-2">
 										<MessageContent>
-											<Loader className="px-0" />
+											{assistantHasStarted ? (
+												<DotsLoader className="px-0" />
+											) : (
+												<ThinkingLoader className="px-0" />
+											)}
 										</MessageContent>
 									</div>
 								</Message>
