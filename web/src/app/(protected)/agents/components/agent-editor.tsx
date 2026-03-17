@@ -167,7 +167,8 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 
 	return (
 		<div className="h-full flex flex-col">
-			<div className="flex items-center gap-4 p-6 py-4 shrink-0">
+			<div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4 p-6 py-4 shrink-0">
+				<div className="flex items-center gap-4 flex-1 min-w-0">
 				<div className="relative">
 					<div
 						onClick={() => setShowEmojiPicker(!showEmojiPicker)}
@@ -197,64 +198,67 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 						@{name.toLowerCase().replace(/\s+/g, "_") || "agent_name"}
 					</p>
 				</div>
-
-				<div
-					className={`inline-flex items-center gap-2 rounded-2xl px-3.5 py-2 text-base ${
-						saveStatus === "saving"
-							? "bg-amber-50 dark:bg-amber-950/40"
-							: "bg-emerald-50 dark:bg-emerald-950/40"
-					}`}
-				>
-					<span
-						className={`block size-2 rounded-full ${
-							saveStatus === "saving"
-								? "bg-amber-500 animate-pulse-dot"
-								: "bg-emerald-500"
-						}`}
-					/>
-					<span
-						className={`text-sm font-medium leading-none ${
-							saveStatus === "saving"
-								? "text-amber-700 dark:text-amber-400"
-								: "text-emerald-700 dark:text-emerald-400"
-						}`}
-					>
-						{saveStatus === "saving" ? "Saving" : "Saved"}
-					</span>
 				</div>
 
-				<Button
-					className="cursor-pointer"
-					onClick={() => router.push(`/agents/${agent.id}/chat`)}
-				>
-					Chat
-					<ArrowRight className="size-4 ml-1" />
-				</Button>
+				<div className="flex items-center gap-3">
+					<div
+						className={`inline-flex items-center gap-2 rounded-2xl px-3.5 py-2 text-base ${
+							saveStatus === "saving"
+								? "bg-amber-50 dark:bg-amber-950/40"
+								: "bg-emerald-50 dark:bg-emerald-950/40"
+						}`}
+					>
+						<span
+							className={`block size-2 rounded-full ${
+								saveStatus === "saving"
+									? "bg-amber-500 animate-pulse-dot"
+									: "bg-emerald-500"
+							}`}
+						/>
+						<span
+							className={`text-sm font-medium leading-none ${
+								saveStatus === "saving"
+									? "text-amber-700 dark:text-amber-400"
+									: "text-emerald-700 dark:text-emerald-400"
+							}`}
+						>
+							{saveStatus === "saving" ? "Saving" : "Saved"}
+						</span>
+					</div>
 
-				<DropdownMenu>
-					<DropdownMenuTrigger asChild>
-						<Button variant="ghost" size="icon" className="cursor-pointer">
-							<MoreVertical className="w-5 h-5" />
-							<span className="sr-only">Agent settings</span>
-						</Button>
-					</DropdownMenuTrigger>
-					<DropdownMenuContent side="bottom" align="end">
-						<DropdownMenuItem
-							className="text-primary focus:text-primary cursor-pointer"
-							onClick={handleManagePermissions}
-						>
-							<ShieldCheck className="size-4" />
-							<span>Manage permissions</span>
-						</DropdownMenuItem>
-						<DropdownMenuItem
-							className="text-destructive focus:text-destructive cursor-pointer"
-							onClick={handleDeleteAgent}
-						>
-							<Trash2 className="size-4 text-destructive" />
-							<span>Delete agent</span>
-						</DropdownMenuItem>
-					</DropdownMenuContent>
-				</DropdownMenu>
+					<Button
+						className="cursor-pointer"
+						onClick={() => router.push(`/agents/${agent.id}/chat`)}
+					>
+						Chat
+						<ArrowRight className="size-4 ml-1" />
+					</Button>
+
+					<DropdownMenu>
+						<DropdownMenuTrigger asChild>
+							<Button variant="ghost" size="icon" className="cursor-pointer">
+								<MoreVertical className="w-5 h-5" />
+								<span className="sr-only">Agent settings</span>
+							</Button>
+						</DropdownMenuTrigger>
+						<DropdownMenuContent side="bottom" align="end">
+							<DropdownMenuItem
+								className="text-primary focus:text-primary cursor-pointer"
+								onClick={handleManagePermissions}
+							>
+								<ShieldCheck className="size-4" />
+								<span>Manage permissions</span>
+							</DropdownMenuItem>
+							<DropdownMenuItem
+								className="text-destructive focus:text-destructive cursor-pointer"
+								onClick={handleDeleteAgent}
+							>
+								<Trash2 className="size-4 text-destructive" />
+								<span>Delete agent</span>
+							</DropdownMenuItem>
+						</DropdownMenuContent>
+					</DropdownMenu>
+				</div>
 			</div>
 
 			<div className="relative flex flex-col md:flex-row flex-1 min-h-0">
