@@ -30,6 +30,7 @@ dependencies = [
     "langfuse>=3.14.1",
     "h2>=4.3.0",
     "deepagents>=0.4.4",
+    "langchain-ai-sdk-adapter",
 ]
 
 [dependency-groups]
@@ -82,6 +83,9 @@ testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+
+[tool.uv.sources]
+langchain-ai-sdk-adapter = { git = "https://github.com/keurcien/langchain-ai-sdk-adapter.git" }
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]
