@@ -24,8 +24,6 @@ const AUXILIA_METADATA_KEY = "auxilia";
 const MCP_APP_RESOURCE_URI_KEY = "mcpAppResourceUri";
 const MCP_SERVER_ID_KEY = "mcpServerId";
 
-const hostContext = useMcpHostContext();
-
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null;
 
@@ -130,6 +128,7 @@ export const McpAppWidget = ({
 	appToolInfo,
 	className,
 }: McpAppWidgetProps) => {
+	const hostContext = useMcpHostContext();
 	const sandboxConfig = useMemo(
 		() => ({ url: new URL("/sandbox.html", window.location.origin) }),
 		[],
