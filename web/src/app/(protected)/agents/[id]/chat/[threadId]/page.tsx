@@ -58,14 +58,20 @@ import {
 } from "ai";
 import { useParams } from "next/navigation";
 import { api, API_BASE_URL } from "@/lib/api/client";
-import { Loader } from "../components/loader";
+import { ThinkingLoader, DotsLoader } from "../components/loader";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { usePendingMessageStore } from "@/stores/pending-message-store";
 import { useAgentReadiness } from "@/hooks/use-agent-readiness";
-import { getMcpAppToolInfo, getToolOutputText, McpAppWidget } from "../components/mcp-app-widget";
+import {
+	getMcpAppToolInfo,
+	getToolOutputText,
+	McpAppWidget,
+} from "../components/mcp-app-widget";
 
 const sanitizeToolIdentifier = (value: string): string => {
-	const sanitized = value.replace(/[^a-zA-Z0-9_-]/g, "_").replace(/^_+|_+$/g, "");
+	const sanitized = value
+		.replace(/[^a-zA-Z0-9_-]/g, "_")
+		.replace(/^_+|_+$/g, "");
 	return sanitized || "tool";
 };
 
@@ -147,13 +153,23 @@ const ChatPage = () => {
 		},
 	});
 
+	const lastMessage =
+		messages.length > 0 ? messages[messages.length - 1] : null;
+	const lastPart = lastMessage?.parts[lastMessage.parts.length - 1];
+	const assistantHasStarted =
+		lastMessage?.role === "assistant" &&
+		lastMessage.parts.some(
+			(p) =>
+				(p.type === "text" && p.text.length > 0) || p.type.startsWith("tool-"),
+		);
+
 	const isAwaitingResponse =
 		status === "submitted" ||
 		(status === "streaming" &&
-			messages.length > 0 &&
-			!messages[messages.length - 1].parts.some(
-				(p) => p.type === "text" && p.text.length > 0,
-			));
+			lastMessage !== null &&
+			(!lastMessage.parts.some((p) => p.type === "text" && p.text.length > 0) ||
+				(lastPart?.type?.startsWith("tool-") &&
+					(lastPart as ToolUIPart).state === "output-available")));
 
 	const consumePendingMessage = usePendingMessageStore(
 		(state) => state.consumePendingMessage,
@@ -361,99 +377,103 @@ const ChatPage = () => {
 														<ReasoningContent>{part.text}</ReasoningContent>
 													</Reasoning>
 												);
-												default:
-													if (part.type.startsWith("tool-")) {
-														const toolPart = part as ToolUIPart;
-														const { serverName, toolName } =
-															getToolMetadata(part.type, knownServerNames);
-														const appToolInfo = getMcpAppToolInfo(toolPart);
+											default:
+												if (part.type.startsWith("tool-")) {
+													const toolPart = part as ToolUIPart;
+													const { serverName, toolName } = getToolMetadata(
+														part.type,
+														knownServerNames,
+													);
+													const appToolInfo = getMcpAppToolInfo(toolPart);
 
-														return (
-															<Fragment key={`${message.id}-${i}`}>
-																<Tool toolState={toolPart.state}>
-																	<ToolHeader
-																		title={toolName}
-																		type={toolPart.type}
-																		state={toolPart.state}
-																		approval={toolPart.approval}
-																		mcpServerName={serverName}
-																		mcpServerIcon={
-																			mcpServers.find(
-																				(server) => server.name === serverName,
-																			)?.iconUrl
-																		}
-																	/>
-																	<ToolContent>
-																		<ToolContentInner>
-																			{toolPart.input !== undefined && (
-																				<ToolInput input={toolPart.input} />
-																			)}
-																			{/* Show output, error, or optimistic rejection message */}
-																			{(toolPart.output ||
-																				toolPart.errorText ||
-																				toolPart.state === "input-available" ||
-																				toolPart.state === "input-streaming" ||
-																				(toolPart.state === "approval-responded" &&
-																					toolPart.approval?.approved ===
-																						false)) && (
-																				<ToolOutput
-																					output={
-																						getToolOutputText(toolPart.output) as React.ReactNode
-																					}
-																					errorText={
-																						toolPart.errorText ||
-																						(toolPart.state ===
-																							"approval-responded" &&
-																						toolPart.approval?.approved ===
-																							false
-																							? "Tool execution was rejected by user"
-																							: undefined)
-																					}
-																				/>
-																			)}
-																		</ToolContentInner>
-																		{/* Tool Approval UI */}
-																		{toolPart.state === "approval-requested" && (
-																			<ToolFooter>
-																				<Button
-																					variant="default"
-																					className="cursor-pointer"
-																					onClick={() => {
-																						addToolApprovalResponse({
-																							id: toolPart.approval.id,
-																							approved: true,
-																						});
-																					}}
-																				>
-																					Approve
-																				</Button>
-																				<Button
-																					variant="ghost"
-																					className="cursor-pointer"
-																					onClick={() => {
-																						addToolApprovalResponse({
-																							id: toolPart.approval.id,
-																							approved: false,
-																						});
-																					}}
-																				>
-																					Reject
-																				</Button>
-																			</ToolFooter>
+													return (
+														<Fragment key={`${message.id}-${i}`}>
+															<Tool toolState={toolPart.state}>
+																<ToolHeader
+																	title={toolName}
+																	type={toolPart.type}
+																	state={toolPart.state}
+																	approval={toolPart.approval}
+																	mcpServerName={serverName}
+																	mcpServerIcon={
+																		mcpServers.find(
+																			(server) => server.name === serverName,
+																		)?.iconUrl
+																	}
+																/>
+																<ToolContent>
+																	<ToolContentInner>
+																		{toolPart.input !== undefined && (
+																			<ToolInput input={toolPart.input} />
 																		)}
-																	</ToolContent>
-																</Tool>
-																{appToolInfo && (
-																	<McpAppWidget
-																		toolPart={toolPart}
-																		toolName={toolName}
-																		appToolInfo={appToolInfo}
-																	/>
-																)}
-															</Fragment>
-														);
-													}
-													return null;
+																		{/* Show output, error, or optimistic rejection message */}
+																		{(toolPart.output ||
+																			toolPart.errorText ||
+																			toolPart.state === "input-available" ||
+																			toolPart.state === "input-streaming" ||
+																			(toolPart.state ===
+																				"approval-responded" &&
+																				toolPart.approval?.approved ===
+																					false)) && (
+																			<ToolOutput
+																				output={
+																					getToolOutputText(
+																						toolPart.output,
+																					) as React.ReactNode
+																				}
+																				errorText={
+																					toolPart.errorText ||
+																					(toolPart.state ===
+																						"approval-responded" &&
+																					toolPart.approval?.approved === false
+																						? "Tool execution was rejected by user"
+																						: undefined)
+																				}
+																			/>
+																		)}
+																	</ToolContentInner>
+																	{/* Tool Approval UI */}
+																	{toolPart.state === "approval-requested" && (
+																		<ToolFooter>
+																			<Button
+																				variant="default"
+																				className="cursor-pointer"
+																				onClick={() => {
+																					addToolApprovalResponse({
+																						id: toolPart.approval.id,
+																						approved: true,
+																					});
+																				}}
+																			>
+																				Approve
+																			</Button>
+																			<Button
+																				variant="ghost"
+																				className="cursor-pointer"
+																				onClick={() => {
+																					addToolApprovalResponse({
+																						id: toolPart.approval.id,
+																						approved: false,
+																					});
+																				}}
+																			>
+																				Reject
+																			</Button>
+																		</ToolFooter>
+																	)}
+																</ToolContent>
+															</Tool>
+															{appToolInfo && (
+																<McpAppWidget
+																	toolPart={toolPart}
+																	toolName={toolName}
+																	appToolInfo={appToolInfo}
+																/>
+															)}
+														</Fragment>
+													);
+												}
+												return null;
 										}
 									})}
 								</Fragment>
@@ -465,7 +485,11 @@ const ChatPage = () => {
 								<Message from="assistant">
 									<div className="w-full flex flex-col gap-2">
 										<MessageContent>
-											<Loader className="px-0" />
+											{assistantHasStarted ? (
+												<DotsLoader className="px-0" />
+											) : (
+												<ThinkingLoader className="px-0" />
+											)}
 										</MessageContent>
 									</div>
 								</Message>
@@ -483,6 +507,7 @@ const ChatPage = () => {
 					</ConversationContent>
 					<ConversationScrollButton />
 				</Conversation>
+				<div className="pointer-events-none absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-background to-transparent z-10" />
 			</div>
 			<div className="w-full shrink-0 bg-background">
 				{agentStatus === "not_configured" ? (

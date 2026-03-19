@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware
+from langchain_ai_sdk_adapter import to_lc_messages
 from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
 from langchain_core.messages import SystemMessage
 from langchain_core.tools import Tool
@@ -15,15 +16,14 @@ from langgraph.types import Command
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from app.adapters.message_adapter import (
+from app.agents.hitl import (
     extract_approved_tool_call_ids,
     extract_commands,
     extract_rejected_tool_calls,
-    to_langchain_message,
 )
-from app.adapters.stream.adapter import AISDKStreamAdapter, SlackStreamAdapter
 from app.agents.service import AgentService
 from app.agents.settings import agent_settings
+from app.agents.stream import AISDKStreamAdapter, SlackStreamAdapter
 from app.database import get_psycopg_conn_string
 from app.integrations.langfuse.callback import langfuse_callback_handler
 from app.mcp.client.factory import MCPClientConfigFactory
@@ -137,7 +137,8 @@ def _build_tool_ui_metadata_map(
             continue
 
         server_name = _resolve_server_name_from_prefixed_tool_name(
-            tool_name, server_names)
+            tool_name, server_names
+        )
         if not server_name:
             continue
 
@@ -153,6 +154,20 @@ def _build_tool_ui_metadata_map(
     return metadata_by_tool_name
 
 
+async def get_regeneration_checkpoint_id(agent, config: dict) -> str | None:
+    """Walk back checkpoint history to find the state before the last user message was added."""
+    current_state = await agent.aget_state(config)
+    current_messages = current_state.values.get("messages", [])
+    current_human_count = sum(1 for m in current_messages if m.type == "human")
+
+    async for state in agent.aget_state_history(config):
+        messages = state.values.get("messages", [])
+        human_count = sum(1 for m in messages if m.type == "human")
+        if human_count < current_human_count:
+            return state.config["configurable"]["checkpoint_id"]
+
+    return None
+
 
 @dataclass
 class AgentRuntimeDependencies:
@@ -167,23 +182,32 @@ def build_agent_deps(thread: ThreadDB, db: AsyncSession) -> AgentRuntimeDependen
         model_factory=ChatModelFactory(),
         mcp_client_config_factory=MCPClientConfigFactory(
             resolve_api_key=lambda mcp_server_config: get_mcp_server_api_key(
-                mcp_server_config.id, db),
-            resolve_storage=lambda mcp_server_config: TokenStorageFactory(
-            ).get_storage(thread.user_id, mcp_server_config.id),
+                mcp_server_config.id, db
+            ),
+            resolve_storage=lambda mcp_server_config: TokenStorageFactory().get_storage(
+                thread.user_id, mcp_server_config.id
+            ),
         ),
     )
 
 
 class AgentRuntime:
-    def __init__(self, thread: ThreadDB, db: AsyncSession, deps: AgentRuntimeDependencies, timer: RequestTimer | None = None):
+    def __init__(
+        self,
+        thread: ThreadDB,
+        db: AsyncSession,
+        deps: AgentRuntimeDependencies,
+        timer: RequestTimer | None = None,
+    ):
         self.thread = thread
         self.tools = None
         self.tool_ui_metadata: dict[str, dict[str, str]] = {}
         self.db = db
         self._deps = deps
         self._timer = timer or RequestTimer("invoke", enabled=False)
-        self.callbacks = [
-            langfuse_callback_handler] if langfuse_callback_handler is not None else []
+        self.callbacks = (
+            [langfuse_callback_handler] if langfuse_callback_handler is not None else []
+        )
 
     @property
     def metadata(self) -> dict:
@@ -199,13 +223,26 @@ class AgentRuntime:
             "configurable": {"thread_id": self.thread.id},
             "recursion_limit": agent_settings.recursion_limit,
             "callbacks": self.callbacks,
-            "metadata": self.metadata
+            "metadata": self.metadata,
         }
 
-    async def build_multi_mcp_server_configs(self, mcp_server_configs: list[dict]) -> dict:
+    async def _resolve_stream_config(self, agent, trigger: str | None) -> dict:
+        """Build the stream config, forking from an earlier checkpoint on regenerate."""
+        config = self.stream_config
+        if trigger == "regenerate-message":
+            checkpoint_id = await get_regeneration_checkpoint_id(agent, config)
+            if checkpoint_id:
+                config["configurable"]["checkpoint_id"] = checkpoint_id
+        return config
+
+    async def build_multi_mcp_server_configs(
+        self, mcp_server_configs: list[dict]
+    ) -> dict:
 
         return {
-            mcp_server_config.name: await self._deps.mcp_client_config_factory.build(mcp_server_config)
+            mcp_server_config.name: await self._deps.mcp_client_config_factory.build(
+                mcp_server_config
+            )
             for mcp_server_config in mcp_server_configs
         }
 
@@ -224,18 +261,33 @@ class AgentRuntime:
         Returns:
             Filtered list of tools
         """
-        client = MultiServerMCPClient(
-            multi_mcp_server_configs, tool_name_prefix=True)
+        client = MultiServerMCPClient(multi_mcp_server_configs, tool_name_prefix=True)
 
         async def fetch_and_filter_tools(server_id: str):
             async with self._timer.aspan(f"mcp_list_tools:{server_id}"):
                 lc_tools = await client.get_tools(server_name=server_id)
 
             tool_settings = tool_settings_map.get(str(server_id))
-            always_allowed_tools = [tool for tool in lc_tools if tool.name in [
-                server_id + "_" + tool for tool, status in tool_settings.items() if status == "always_allow"]]
-            need_approval_tools = [tool for tool in lc_tools if tool.name in [
-                server_id + "_" + tool for tool, status in tool_settings.items() if status == "needs_approval"]]
+            always_allowed_tools = [
+                tool
+                for tool in lc_tools
+                if tool.name
+                in [
+                    server_id + "_" + tool
+                    for tool, status in tool_settings.items()
+                    if status == "always_allow"
+                ]
+            ]
+            need_approval_tools = [
+                tool
+                for tool in lc_tools
+                if tool.name
+                in [
+                    server_id + "_" + tool
+                    for tool, status in tool_settings.items()
+                    if status == "needs_approval"
+                ]
+            ]
             return always_allowed_tools, need_approval_tools
 
         tasks = [
@@ -244,21 +296,27 @@ class AgentRuntime:
         ]
         results = await asyncio.gather(*tasks)
 
-        always_allowed_tools = [
-            tool for result in results for tool in result[0]]
-        need_approval_tools = [
-            tool for result in results for tool in result[1]]
+        always_allowed_tools = [tool for result in results for tool in result[0]]
+        need_approval_tools = [tool for result in results for tool in result[1]]
 
         return always_allowed_tools, need_approval_tools
 
-    async def get_model_provider(self, model_name: str = "gpt-4o-mini") -> ModelProvider:
+    async def get_model_provider(
+        self, model_name: str = "gpt-4o-mini"
+    ) -> ModelProvider:
         model = next(model for model in MODELS if model.name == model_name)
         return next(
             provider for provider in LLM_PROVIDERS if model.provider == provider.name
         )
 
     @classmethod
-    async def create(cls, thread: ThreadDB, db: AsyncSession, deps: AgentRuntimeDependencies, timer: RequestTimer | None = None):
+    async def create(
+        cls,
+        thread: ThreadDB,
+        db: AsyncSession,
+        deps: AgentRuntimeDependencies,
+        timer: RequestTimer | None = None,
+    ):
         self = cls(thread, db, deps, timer=timer)
         await self.initialize()
         return self
@@ -282,7 +340,9 @@ class AgentRuntime:
             mcp_server_configs = await self.build_multi_mcp_server_configs(mcp_servers)
 
         tool_settings = {
-            next(server.name for server in mcp_servers if server.id == mcp_server.id): mcp_server.tools
+            next(
+                server.name for server in mcp_servers if server.id == mcp_server.id
+            ): mcp_server.tools
             for mcp_server in self.config.mcp_servers
         }
 
@@ -291,8 +351,7 @@ class AgentRuntime:
 
         with self._timer.span("build_tool_metadata"):
             all_tools = self.tools[0] + self.tools[1]
-            raw_tool_ui_metadata = _build_tool_ui_metadata_map(
-                all_tools, mcp_servers)
+            raw_tool_ui_metadata = _build_tool_ui_metadata_map(all_tools, mcp_servers)
             name_map = _sanitize_tools_in_place(all_tools)
             self.tool_ui_metadata = {
                 name_map.get(tool_name, tool_name): metadata
@@ -305,6 +364,7 @@ class AgentRuntime:
         message_id: str | None = None,
         stream_adapter: str = "ai_sdk",
         commands: list[str] | None = None,
+        trigger: str | None = None,
     ):
         """Wrapper to keep checkpointer alive during streaming.
 
@@ -314,17 +374,24 @@ class AgentRuntime:
             stream_adapter: Which stream adapter to use ("ai_sdk" or "slack")
             commands: Optional list of explicit commands ("approve"/"reject") for direct resume
                       (bypasses message-based command extraction)
+            trigger: Optional trigger from AI SDK ("submit-message", "regenerate-message")
         """
         try:
             _checkpointer_t0 = time.perf_counter()
-            async with AsyncPostgresSaver.from_conn_string(get_psycopg_conn_string()) as checkpointer:
-                self._timer.record("checkpointer_setup",
-                                   time.perf_counter() - _checkpointer_t0)
+            async with AsyncPostgresSaver.from_conn_string(
+                get_psycopg_conn_string()
+            ) as checkpointer:
+                self._timer.record(
+                    "checkpointer_setup", time.perf_counter() - _checkpointer_t0
+                )
 
                 async with self._timer.aspan("model_and_agent_build"):
                     model_provider = await self.get_model_provider(self.thread.model_id)
                     chat_model = self._deps.model_factory.create(
-                        model_provider.name, self.thread.model_id, model_provider.api_key)
+                        model_provider.name,
+                        self.thread.model_id,
+                        model_provider.api_key,
+                    )
 
                     tools = self.tools[0] + self.tools[1]
                     need_approval_tools = self.tools[1]
@@ -341,7 +408,8 @@ class AgentRuntime:
                         wrap_mcp_tool_errors(tool)
                         if tool.name in self.tool_ui_metadata:
                             inject_ui_metadata_into_tool(
-                                tool, self.tool_ui_metadata[tool.name])
+                                tool, self.tool_ui_metadata[tool.name]
+                            )
 
                     system_prompt = {
                         "type": "text",
@@ -357,9 +425,8 @@ class AgentRuntime:
                         )
                     ]
 
-                    if model_provider == "anthropic":
-                        middlewares.append(
-                            AnthropicPromptCachingMiddleware(ttl='5m'))
+                    if model_provider.name == "anthropic":
+                        middlewares.append(AnthropicPromptCachingMiddleware(ttl="5m"))
                         # system_prompt["cache_control"] = {"type": "ephemeral"}
 
                     agent = create_agent(
@@ -378,23 +445,34 @@ class AgentRuntime:
                         rejected_tool_calls = []
                         approved_tool_call_ids = []
                     else:
-                        langchain_messages = [to_langchain_message(
-                            message) for message in messages]
-                        extracted_commands = sum([extract_commands(message)
-                                                  for message in messages if extract_commands(message)], [])
+                        langchain_messages = await to_lc_messages(
+                            [m.model_dump() for m in messages]
+                        )
+                        extracted_commands = sum(
+                            [
+                                extract_commands(message)
+                                for message in messages
+                                if extract_commands(message)
+                            ],
+                            [],
+                        )
 
                         # Extract rejected tool calls to emit error events in the stream
                         rejected_tool_calls = sum(
-                            [extract_rejected_tool_calls(message)
-                             for message in messages],
-                            []
+                            [
+                                extract_rejected_tool_calls(message)
+                                for message in messages
+                            ],
+                            [],
                         )
 
                         # Extract approved tool call IDs to skip their input events (already shown in UI)
                         approved_tool_call_ids = sum(
-                            [extract_approved_tool_call_ids(message)
-                             for message in messages],
-                            []
+                            [
+                                extract_approved_tool_call_ids(message)
+                                for message in messages
+                            ],
+                            [],
                         )
 
                 is_resume = len(extracted_commands) > 0
@@ -406,35 +484,50 @@ class AgentRuntime:
                 #   2. Frontend JSON bodies go through Axios camelCase→snake_case
                 #      conversion which can break Pydantic field name matching
                 if is_resume:
-                    checkpoint_data = await checkpointer.aget(
-                        config=self.stream_config)
+                    checkpoint_data = await checkpointer.aget(config=self.stream_config)
                     if checkpoint_data:
-                        msgs = checkpoint_data["channel_values"].get(
-                            "messages", [])
+                        msgs = checkpoint_data["channel_values"].get("messages", [])
                         for msg in reversed(msgs):
                             tool_calls = getattr(msg, "tool_calls", None)
                             if tool_calls:
                                 approved_tool_calls_meta = [
                                     {
-                                        "toolCallId": tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None),
-                                        "toolName": tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None),
-                                        "input": tc.get("args", {}) if isinstance(tc, dict) else getattr(tc, "args", {}),
+                                        "toolCallId": tc.get("id")
+                                        if isinstance(tc, dict)
+                                        else getattr(tc, "id", None),
+                                        "toolName": tc.get("name")
+                                        if isinstance(tc, dict)
+                                        else getattr(tc, "name", None),
+                                        "input": tc.get("args", {})
+                                        if isinstance(tc, dict)
+                                        else getattr(tc, "args", {}),
                                     }
                                     for tc in tool_calls
                                 ]
                                 approved_tool_calls_meta = [
-                                    tc for tc in approved_tool_calls_meta
+                                    tc
+                                    for tc in approved_tool_calls_meta
                                     if tc["toolCallId"] and tc["toolName"]
                                 ]
                                 break
 
-                stream_input = Command(
-                    resume={"decisions": [{"type": command} for command in extracted_commands]}) if is_resume else {"messages": langchain_messages}
+                stream_input = (
+                    Command(
+                        resume={
+                            "decisions": [
+                                {"type": command} for command in extracted_commands
+                            ]
+                        }
+                    )
+                    if is_resume
+                    else {"messages": langchain_messages}
+                )
 
-                langchain_stream = agent.astream_events(
+                config = await self._resolve_stream_config(agent, trigger)
+                langchain_stream = agent.astream(
                     stream_input,
-                    version="v2",
-                    config=self.stream_config
+                    config=config,
+                    stream_mode=["messages", "values"],
                 )
 
                 if stream_adapter == "ai_sdk":
@@ -446,22 +539,20 @@ class AgentRuntime:
                         approved_tool_calls=approved_tool_calls_meta,
                         tool_ui_metadata=self.tool_ui_metadata,
                     )
-                    stream = ai_sdk_stream_adapter.stream(
-                        langchain_stream)
+                    stream = ai_sdk_stream_adapter.stream(langchain_stream)
                 elif stream_adapter == "slack":
                     slack_stream_adapter = SlackStreamAdapter()
-                    stream = slack_stream_adapter.stream(
-                        langchain_stream)
+                    stream = slack_stream_adapter.stream(langchain_stream)
 
                 _first_chunk = True
                 _stream_t0 = time.perf_counter()
                 async for chunk in stream:
                     if _first_chunk:
                         self._timer.record(
-                            "time_to_first_chunk", time.perf_counter() - _stream_t0)
+                            "time_to_first_chunk", time.perf_counter() - _stream_t0
+                        )
                         _first_chunk = False
                     yield chunk
-                self._timer.record(
-                    "stream_total", time.perf_counter() - _stream_t0)
+                self._timer.record("stream_total", time.perf_counter() - _stream_t0)
         finally:
             self._timer.summary()

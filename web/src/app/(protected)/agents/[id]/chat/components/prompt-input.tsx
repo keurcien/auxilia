@@ -22,7 +22,6 @@ import {
 	PromptInputButton,
 	PromptInputFooter,
 	type PromptInputMessage,
-	PromptInputProvider,
 	PromptInputTextarea,
 	PromptInputTools,
 	usePromptInputController,
@@ -105,7 +104,7 @@ const ChatPromptInput = ({
 	}, [fetchModels, models.length]);
 
 	return (
-		<PromptInputProvider>
+		<>
 			<PromptInput
 				globalDrop
 				multiple
@@ -210,7 +209,7 @@ const ChatPromptInput = ({
 				disconnectedServers={disconnectedServers}
 				onAllConnected={() => onAllConnected?.()}
 			/>
-		</PromptInputProvider>
+		</>
 	);
 };
 
