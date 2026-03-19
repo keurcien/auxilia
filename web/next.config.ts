@@ -16,7 +16,7 @@ const nextConfig: NextConfig = {
 			{
 				source: "/",
 				destination: "/agents",
-				permanent: true,
+				permanent: process.env.NODE_ENV === "production",
 			},
 		];
 	},
