@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { AppRenderer } from "@mcp-ui/client";
 import type { ToolUIPart } from "ai";
 import { api } from "@/lib/api/client";
+import { parseDownloadFileRequest } from "@/lib/mcp-app-download-file";
 import { cn } from "@/lib/utils";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
@@ -182,6 +183,36 @@ export const McpAppWidget = ({
 					if (data.Meta === null) delete data.Meta;
 
 					return data;
+				}}
+				onFallbackRequest={async (request) => {
+					const parsedRequest = parseDownloadFileRequest(request);
+					if (!parsedRequest.ok) {
+						return { isError: true };
+					}
+
+					try {
+						const blob = new Blob([parsedRequest.payload.body], {
+							type: parsedRequest.payload.mimeType,
+						});
+						const downloadUrl = URL.createObjectURL(blob);
+
+						try {
+							const anchor = document.createElement("a");
+							anchor.href = downloadUrl;
+							anchor.download = parsedRequest.payload.fileName;
+							anchor.rel = "noopener noreferrer";
+							anchor.style.display = "none";
+							document.body.appendChild(anchor);
+							anchor.click();
+							anchor.remove();
+						} finally {
+							URL.revokeObjectURL(downloadUrl);
+						}
+
+						return { isError: false };
+					} catch {
+						return { isError: true };
+					}
 				}}
 			/>
 		</div>
