@@ -8,6 +8,10 @@ WORKDIR /app
 # Enable bytecode compilation for faster startup
 ENV UV_COMPILE_BYTECODE=1
 
+# Install git (needed for git dependencies in pyproject.toml)
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy dependency files first for better layer caching
 COPY pyproject.toml uv.lock ./
 
