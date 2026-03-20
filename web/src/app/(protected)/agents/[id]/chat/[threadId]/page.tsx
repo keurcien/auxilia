@@ -67,6 +67,7 @@ import {
 	getToolOutputText,
 	McpAppWidget,
 } from "../components/mcp-app-widget";
+import { useMcpAppExportMetadataStore } from "@/stores/mcp-app-export-metadata-store";
 
 const sanitizeToolIdentifier = (value: string): string => {
 	const sanitized = value
@@ -178,6 +179,9 @@ const ChatPage = () => {
 		(a, b) => b.length - a.length,
 	);
 	const { setCurrentChat, clearCurrentChat } = useChatHeaderStore();
+	const clearThreadExportMetadata = useMcpAppExportMetadataStore(
+		(state) => state.clearThreadExportMetadata,
+	);
 
 	const handleSubmit = (message: PromptInputMessage) => {
 		if (!message) return;
@@ -192,8 +196,11 @@ const ChatPage = () => {
 	};
 
 	useEffect(() => {
-		return () => clearCurrentChat();
-	}, [clearCurrentChat]);
+		return () => {
+			clearCurrentChat();
+			clearThreadExportMetadata(threadId);
+		};
+	}, [clearCurrentChat, clearThreadExportMetadata, threadId]);
 
 	useEffect(() => {
 		if (hasInitialized.current) return;
@@ -220,7 +227,7 @@ const ChatPage = () => {
 		};
 
 		initializeChat();
-	}, [threadId, setMessages, sendMessage, consumePendingMessage]);
+	}, [threadId, setMessages, sendMessage, consumePendingMessage, setCurrentChat]);
 
 	return (
 		<div className="h-full flex flex-col w-full overflow-hidden">
@@ -468,6 +475,9 @@ const ChatPage = () => {
 																	toolPart={toolPart}
 																	toolName={toolName}
 																	appToolInfo={appToolInfo}
+																	threadId={threadId}
+																	messageId={message.id}
+																	toolCallId={toolPart.toolCallId}
 																/>
 															)}
 														</Fragment>
