@@ -1,7 +1,7 @@
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import delete, select
 
 from app.agents.models import (
     AgentCreate,
@@ -10,6 +10,7 @@ from app.agents.models import (
     AgentPermissionWrite,
     AgentUserPermissionDB,
 )
+from app.threads.models import ThreadDB
 from app.users.models import WorkspaceRole
 
 
@@ -70,6 +71,23 @@ class AgentRepository:
         return agent
 
     async def delete(self, agent: AgentDB) -> None:
+        # WHY: FK constraints to agents are not cascading in the current schema.
+        # Remove dependents first to keep delete_agent deterministic.
+        await self.db.execute(
+            delete(AgentMCPServerBindingDB).where(
+                AgentMCPServerBindingDB.agent_id == agent.id
+            )
+        )
+        await self.db.execute(
+            delete(AgentUserPermissionDB).where(
+                AgentUserPermissionDB.agent_id == agent.id
+            )
+        )
+        await self.db.execute(
+            delete(ThreadDB).where(
+                ThreadDB.agent_id == agent.id
+            )
+        )
         await self.db.delete(agent)
         await self.db.commit()
 

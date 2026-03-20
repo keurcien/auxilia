@@ -224,11 +224,16 @@ async def test_update_with_empty_dict_leaves_agent_unchanged(repo, mock_db):
 # delete
 # ---------------------------------------------------------------------------
 
-async def test_delete_calls_delete_and_commits(repo, mock_db):
+async def test_delete_deletes_dependents_then_agent_and_commits(repo, mock_db):
     agent = make_agent()
 
     await repo.delete(agent)
 
+    assert mock_db.execute.await_count == 3
+    executed_sql = [str(call.args[0]) for call in mock_db.execute.await_args_list]
+    assert any("DELETE FROM agent_mcp_server_bindings" in sql for sql in executed_sql)
+    assert any("DELETE FROM agent_user_permissions" in sql for sql in executed_sql)
+    assert any("DELETE FROM threads" in sql for sql in executed_sql)
     mock_db.delete.assert_awaited_once_with(agent)
     mock_db.commit.assert_awaited_once()
 

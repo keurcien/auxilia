@@ -126,10 +126,11 @@ export default function MCPServerDialog({
 
 	const handleFormChange = (field: keyof FormState, value: string) => {
 		setForm((prev) => ({ ...prev, [field]: value }));
-		if (errors[field]) {
+		if (errors[field] || errors.form) {
 			setErrors((prev) => {
 				const next = { ...prev };
 				delete next[field];
+				delete next.form;
 				return next;
 			});
 		}
@@ -186,6 +187,40 @@ export default function MCPServerDialog({
 		return Object.keys(newErrors).length === 0;
 	};
 
+	const extractApiError = (
+		error: unknown,
+	): { status?: number; detail?: string } => {
+		if (error && typeof error === "object" && "response" in error) {
+			const axiosError = error as {
+				response?: { status?: number; data?: { detail?: string } };
+			};
+			return {
+				status: axiosError.response?.status,
+				detail: axiosError.response?.data?.detail,
+			};
+		}
+		return {};
+	};
+
+	const applyApiErrorToForm = (error: unknown) => {
+		const { status, detail } = extractApiError(error);
+
+		if (status === 403) {
+			setErrorDialogOpen(true);
+			return;
+		}
+
+		if (status === 409 && detail) {
+			setErrors((prev) => ({ ...prev, url: detail }));
+			return;
+		}
+
+		setErrors((prev) => ({
+			...prev,
+			form: detail || "Failed to save MCP server",
+		}));
+	};
+
 	const handleCreate = async () => {
 		if (!validate()) return;
 
@@ -205,8 +240,9 @@ export default function MCPServerDialog({
 			const response = await api.post("/mcp-servers", payload);
 			addMcpServer(response.data);
 			onOpenChange(false);
-		} catch {
-			console.error("Failed to create MCP server");
+		} catch (error: unknown) {
+			applyApiErrorToForm(error);
+			console.error("Failed to create MCP server", error);
 		} finally {
 			setIsSubmitting(false);
 		}
@@ -231,8 +267,9 @@ export default function MCPServerDialog({
 			const response = await api.patch(`/mcp-servers/${server.id}`, payload);
 			updateMcpServer(server.id, response.data);
 			onOpenChange(false);
-		} catch {
-			console.error("Failed to update MCP server");
+		} catch (error: unknown) {
+			applyApiErrorToForm(error);
+			console.error("Failed to update MCP server", error);
 		} finally {
 			setIsSubmitting(false);
 		}
@@ -249,15 +286,8 @@ export default function MCPServerDialog({
 			removeMcpServer(server.id);
 			onOpenChange(false);
 		} catch (error: unknown) {
-			if (
-				error instanceof Object &&
-				"status" in error &&
-				error.status === 403
-			) {
-				setErrorDialogOpen(true);
-			} else {
-				console.error("Failed to delete MCP server");
-			}
+			applyApiErrorToForm(error);
+			console.error("Failed to delete MCP server", error);
 		} finally {
 			setIsSubmitting(false);
 		}
@@ -276,15 +306,8 @@ export default function MCPServerDialog({
 		try {
 			await api.post(`/mcp-servers/${server.id}/reset`);
 		} catch (error: unknown) {
-			if (
-				error instanceof Object &&
-				"status" in error &&
-				error.status === 403
-			) {
-				setErrorDialogOpen(true);
-			} else {
-				console.error("Failed to reset MCP server connections");
-			}
+			applyApiErrorToForm(error);
+			console.error("Failed to reset MCP server connections", error);
 		} finally {
 			setIsResetting(false);
 		}
@@ -443,6 +466,12 @@ export default function MCPServerDialog({
 
 					{/* ── Shared Form ── */}
 					<div className="space-y-5 mb-4">
+						{errors.form && (
+							<div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+								{errors.form}
+							</div>
+						)}
+
 						<div className="space-y-1.5">
 							<Label htmlFor="name" className="text-[13px] font-semibold">
 								Name
