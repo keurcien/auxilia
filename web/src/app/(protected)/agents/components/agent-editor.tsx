@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
 import { useTheme } from "next-themes";
-import { MoreVertical, Trash2, ShieldCheck, ArrowRight } from "lucide-react";
+import { MoreVertical, ShieldCheck, ArrowRight, ArchiveIcon } from "lucide-react";
 import { Agent } from "@/types/agents";
 import AgentMCPServerList from "../[id]/components/agent-mcp-server-list";
 import { api } from "@/lib/api/client";
@@ -97,7 +97,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 	const handleDeleteAgent = async () => {
 		if (
 			!confirm(
-				"Are you sure you want to delete this agent? This action cannot be undone.",
+				"Are you sure you want to archive this agent?",
 			)
 		) {
 			return;
@@ -253,8 +253,8 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 								className="text-destructive focus:text-destructive cursor-pointer"
 								onClick={handleDeleteAgent}
 							>
-								<Trash2 className="size-4 text-destructive" />
-								<span>Delete agent</span>
+								<ArchiveIcon className="size-4 text-destructive" />
+								<span>Archive agent</span>
 							</DropdownMenuItem>
 						</DropdownMenuContent>
 					</DropdownMenu>

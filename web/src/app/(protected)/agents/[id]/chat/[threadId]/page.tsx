@@ -49,7 +49,7 @@ import {
 import { type PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { Button } from "@/components/ui/button";
 import ChatPromptInput from "../components/prompt-input";
-import { RefreshCcwIcon, CopyIcon } from "lucide-react";
+import { RefreshCcwIcon, CopyIcon, ArchiveIcon } from "lucide-react";
 import { useChat } from "@ai-sdk/react";
 import {
 	DefaultChatTransport,
@@ -116,13 +116,14 @@ const ChatPage = () => {
 	const threadId = params.threadId as string;
 	const hasInitialized = useRef(false);
 	const [threadModel, setThreadModel] = useState<string | undefined>(undefined);
+	const [agentArchived, setAgentArchived] = useState(false);
 	const { mcpServers } = useMcpServersStore();
 	const {
 		ready: agentReady,
 		status: agentStatus,
 		disconnectedMcpServers,
 		refetch: refetchReady,
-	} = useAgentReadiness(agentId);
+	} = useAgentReadiness(agentArchived ? undefined : agentId);
 	const {
 		messages,
 		sendMessage,
@@ -210,6 +211,10 @@ const ChatPage = () => {
 				agentEmoji: data.thread.agentEmoji ?? null,
 				modelId: data.thread.modelId ?? null,
 			});
+
+			if (data.thread.agentArchived) {
+				setAgentArchived(true);
+			}
 
 			const pendingMessage = consumePendingMessage(threadId);
 			if (pendingMessage) {
@@ -510,7 +515,18 @@ const ChatPage = () => {
 				<div className="pointer-events-none absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-background to-transparent z-10" />
 			</div>
 			<div className="w-full shrink-0 bg-background">
-				{agentStatus === "not_configured" ? (
+				{agentArchived ? (
+					<div className="w-full max-w-4xl mx-auto lg:px-10 px-6 py-6">
+						<div className="flex items-center gap-3 rounded-lg border border-border bg-muted/50 px-4 py-3">
+							<ArchiveIcon className="size-5 shrink-0 text-muted-foreground" />
+							<p className="text-sm text-muted-foreground">
+								The agent linked to this conversation has been archived. This
+								thread is preserved as read-only so you can still review your
+								past messages.
+							</p>
+						</div>
+					</div>
+				) : agentStatus === "not_configured" ? (
 					<div className="w-full max-w-4xl mx-auto lg:px-10 px-6 py-4">
 						<div className="w-full flex items-center justify-center border border-red-200 bg-red-50 rounded-lg px-4 py-8">
 							<p className="text-md text-center text-red-700">
