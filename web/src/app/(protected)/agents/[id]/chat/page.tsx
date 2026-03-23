@@ -3,7 +3,10 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { v4 as uuidv4 } from "uuid";
-import { type PromptInputMessage } from "@/components/ai-elements/prompt-input";
+import {
+	type PromptInputMessage,
+	usePromptInputController,
+} from "@/components/ai-elements/prompt-input";
 import ChatPromptInput from "./components/prompt-input";
 import { SelectAgentDialog } from "./components/select-agent-dialog";
 import { useThreadsStore } from "@/stores/threads-store";
@@ -20,9 +23,9 @@ const StarterChatPage = () => {
 	const router = useRouter();
 	const agentId = params.id as string;
 	const [isCreating, setIsCreating] = useState(false);
-	const [selectedModel, setSelectedModel] = useState<string | undefined>(
-		undefined,
-	);
+	const { modelSelection, starterAgent } = usePromptInputController();
+	const selectedModel = modelSelection.value;
+	const setSelectedModel = modelSelection.setModel;
 	const addThread = useThreadsStore((state) => state.addThread);
 	const setPendingMessage = usePendingMessageStore(
 		(state) => state.setPendingMessage,
@@ -106,13 +109,14 @@ const StarterChatPage = () => {
 		if (defaultModel) {
 			setSelectedModel(defaultModel);
 		}
-	}, [models, selectedModel]);
+	}, [models, selectedModel, setSelectedModel]);
 
 	useEffect(() => {
 		const fetchAgent = async () => {
 			const response = await api.get(`/agents/${agentId}`);
 			const agent = response.data;
 			setAgent(agent);
+			starterAgent.set({ name: agent.name, emoji: agent.emoji });
 		};
 		fetchAgent();
 	}, [agentId]);
@@ -126,9 +130,11 @@ const StarterChatPage = () => {
 						className="flex items-center justify-center gap-2 mx-auto hover:opacity-80 transition-opacity cursor-pointer"
 					>
 						<div className="shrink-0 w-12 h-12 rounded-2xl bg-muted text-2xl flex items-center justify-center">
-							{agent?.emoji || "🤖"}
+							{agent?.emoji || starterAgent.value?.emoji || "🤖"}
 						</div>
-						<h1 className="text-4xl font-bold">{agent?.name}</h1>
+						<h1 className="text-4xl font-bold">
+							{agent?.name || starterAgent.value?.name}
+						</h1>
 						<ChevronDown className="size-5 text-muted-foreground ml-8 mt-1" />
 					</button>
 					{status == "not_configured" ? (
@@ -165,6 +171,9 @@ const StarterChatPage = () => {
 				<SelectAgentDialog
 					open={isAgentDialogOpen}
 					onOpenChange={setIsAgentDialogOpen}
+					onAgentSelect={(a) =>
+						starterAgent.set({ name: a.name, emoji: a.emoji })
+					}
 				/>
 			</div>
 		</div>
