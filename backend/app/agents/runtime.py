@@ -5,10 +5,17 @@ import time
 from dataclasses import dataclass
 
 from langchain.agents import create_agent
+from deepagents import create_deep_agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware
 from langchain_ai_sdk_adapter import to_lc_messages
 from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import (
+    AIMessage as LCAIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage as LCToolMessage,
+)
 from langchain_core.tools import Tool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -23,7 +30,11 @@ from app.agents.hitl import (
 )
 from app.agents.service import AgentService
 from app.agents.settings import agent_settings
-from app.agents.stream import AISDKStreamAdapter, SlackStreamAdapter
+from app.agents.stream import (
+    AISDKStreamAdapter,
+    LangGraphStreamAdapter,
+    SlackStreamAdapter,
+)
 from app.database import get_psycopg_conn_string
 from app.integrations.langfuse.callback import langfuse_callback_handler
 from app.mcp.client.factory import MCPClientConfigFactory
@@ -261,7 +272,8 @@ class AgentRuntime:
         Returns:
             Filtered list of tools
         """
-        client = MultiServerMCPClient(multi_mcp_server_configs, tool_name_prefix=True)
+        client = MultiServerMCPClient(
+            multi_mcp_server_configs, tool_name_prefix=True)
 
         async def fetch_and_filter_tools(server_id: str):
             async with self._timer.aspan(f"mcp_list_tools:{server_id}"):
@@ -296,8 +308,10 @@ class AgentRuntime:
         ]
         results = await asyncio.gather(*tasks)
 
-        always_allowed_tools = [tool for result in results for tool in result[0]]
-        need_approval_tools = [tool for result in results for tool in result[1]]
+        always_allowed_tools = [
+            tool for result in results for tool in result[0]]
+        need_approval_tools = [
+            tool for result in results for tool in result[1]]
 
         return always_allowed_tools, need_approval_tools
 
@@ -351,7 +365,8 @@ class AgentRuntime:
 
         with self._timer.span("build_tool_metadata"):
             all_tools = self.tools[0] + self.tools[1]
-            raw_tool_ui_metadata = _build_tool_ui_metadata_map(all_tools, mcp_servers)
+            raw_tool_ui_metadata = _build_tool_ui_metadata_map(
+                all_tools, mcp_servers)
             name_map = _sanitize_tools_in_place(all_tools)
             self.tool_ui_metadata = {
                 name_map.get(tool_name, tool_name): metadata
@@ -426,7 +441,8 @@ class AgentRuntime:
                     ]
 
                     if model_provider.name == "anthropic":
-                        middlewares.append(AnthropicPromptCachingMiddleware(ttl="5m"))
+                        middlewares.append(
+                            AnthropicPromptCachingMiddleware(ttl="5m"))
                         # system_prompt["cache_control"] = {"type": "ephemeral"}
 
                     agent = create_agent(
@@ -486,7 +502,8 @@ class AgentRuntime:
                 if is_resume:
                     checkpoint_data = await checkpointer.aget(config=self.stream_config)
                     if checkpoint_data:
-                        msgs = checkpoint_data["channel_values"].get("messages", [])
+                        msgs = checkpoint_data["channel_values"].get(
+                            "messages", [])
                         for msg in reversed(msgs):
                             tool_calls = getattr(msg, "tool_calls", None)
                             if tool_calls:
@@ -553,6 +570,151 @@ class AgentRuntime:
                         )
                         _first_chunk = False
                     yield chunk
-                self._timer.record("stream_total", time.perf_counter() - _stream_t0)
+                self._timer.record(
+                    "stream_total", time.perf_counter() - _stream_t0)
         finally:
             self._timer.summary()
+
+    async def stream_langgraph(
+        self,
+        input: dict | None = None,
+        command: dict | None = None,
+        trigger: str | None = None,
+        config_overrides: dict | None = None,
+    ):
+        """Stream using the native LangGraph SSE protocol.
+
+        Subgraph events are always streamed so the frontend SDK can track
+        subagent lifecycle (status, messages, results) when present.
+
+        Args:
+            input: Graph input dict (e.g. {"messages": [{"type": "human", ...}]}) or None for resume.
+            command: LangGraph Command dict (e.g. {"resume": {...}}) for HITL resume.
+            trigger: Optional trigger ("regenerate-message") for regeneration.
+            config_overrides: Optional config dict with configurable overrides (e.g. checkpoint_id).
+        """
+        try:
+            _checkpointer_t0 = time.perf_counter()
+            async with AsyncPostgresSaver.from_conn_string(
+                get_psycopg_conn_string()
+            ) as checkpointer:
+                self._timer.record(
+                    "checkpointer_setup", time.perf_counter() - _checkpointer_t0
+                )
+
+                async with self._timer.aspan("model_and_agent_build"):
+                    model_provider = await self.get_model_provider(self.thread.model_id)
+                    chat_model = self._deps.model_factory.create(
+                        model_provider.name,
+                        self.thread.model_id,
+                        model_provider.api_key,
+                    )
+
+                    tools = self.tools[0] + self.tools[1]
+                    need_approval_tools = self.tools[1]
+
+                    for tool in tools:
+                        wrap_mcp_tool_errors(tool)
+                        if tool.name in self.tool_ui_metadata:
+                            inject_ui_metadata_into_tool(
+                                tool, self.tool_ui_metadata[tool.name]
+                            )
+
+                    system_prompt = {
+                        "type": "text",
+                        "text": self.config.instructions or "",
+                    }
+
+                    middlewares = [
+                        HumanInTheLoopMiddleware(
+                            interrupt_on={
+                                tool.name: True for tool in need_approval_tools
+                            },
+                            description_prefix="Tool execution pending approval",
+                        )
+                    ]
+
+                    # if model_provider.name == "anthropic":
+                    #     middlewares.append(
+                    #         AnthropicPromptCachingMiddleware(ttl="5m"))
+
+                    agent = create_agent(
+                        model=chat_model,
+                        tools=tools,
+                        system_prompt=SystemMessage(content=[system_prompt]),
+                        checkpointer=checkpointer,
+                        middleware=middlewares,
+                    )
+
+                # Determine stream input
+                if command is not None:
+                    stream_input = Command(resume=command.get("resume"))
+                else:
+                    lc_messages = _dicts_to_lc_messages(
+                        input.get("messages", []) if input else []
+                    )
+                    stream_input = {"messages": lc_messages}
+
+                # Build config
+                config = self.stream_config
+                if config_overrides and config_overrides.get("configurable"):
+                    # Allow frontend to pass checkpoint_id for regeneration
+                    config["configurable"].update(
+                        config_overrides["configurable"])
+
+                if trigger == "regenerate-message":
+                    checkpoint_id = await get_regeneration_checkpoint_id(agent, config)
+                    if checkpoint_id:
+                        config["configurable"]["checkpoint_id"] = checkpoint_id
+
+                langchain_stream = agent.astream(
+                    stream_input,
+                    config=config,
+                    stream_mode=["messages", "values", "updates"],
+                    subgraphs=True,
+                )
+
+                adapter = LangGraphStreamAdapter(subgraphs=True)
+                _first_chunk = True
+                _stream_t0 = time.perf_counter()
+                async for chunk in adapter.stream(langchain_stream):
+                    if _first_chunk:
+                        self._timer.record(
+                            "time_to_first_chunk", time.perf_counter() - _stream_t0
+                        )
+                        _first_chunk = False
+                    yield chunk
+                self._timer.record(
+                    "stream_total", time.perf_counter() - _stream_t0)
+        finally:
+            self._timer.summary()
+
+
+def _dicts_to_lc_messages(dicts: list[dict]) -> list[BaseMessage]:
+    """Convert message dicts (LangChain format) to LangChain BaseMessage objects."""
+    messages: list[BaseMessage] = []
+    for d in dicts:
+        msg_type = d.get("type", d.get("role", "human"))
+        content = d.get("content", "")
+        msg_id = d.get("id")
+
+        if msg_type in ("human", "user"):
+            messages.append(HumanMessage(content=content, id=msg_id))
+        elif msg_type in ("ai", "assistant"):
+            kwargs: dict = {"content": content, "id": msg_id}
+            if d.get("tool_calls"):
+                kwargs["tool_calls"] = d["tool_calls"]
+            messages.append(LCAIMessage(**kwargs))
+        elif msg_type == "tool":
+            messages.append(
+                LCToolMessage(
+                    content=content,
+                    tool_call_id=d.get("tool_call_id", ""),
+                    id=msg_id,
+                )
+            )
+        elif msg_type == "system":
+            messages.append(SystemMessage(content=content, id=msg_id))
+        else:
+            messages.append(HumanMessage(content=content, id=msg_id))
+    return messages
