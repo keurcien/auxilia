@@ -85,12 +85,16 @@ class AgentService:
         agent_id: UUID,
         user_id: UUID | None = None,
         user_role: WorkspaceRole | None = None,
+        include_archived: bool = False,
     ) -> AgentRead:
-        result = await self.db.execute(
+        query = (
             select(AgentDB, AgentMCPServerBindingDB)
             .outerjoin(AgentMCPServerBindingDB, AgentDB.id == AgentMCPServerBindingDB.agent_id)
             .where(AgentDB.id == agent_id)
         )
+        if not include_archived:
+            query = query.where(AgentDB.is_archived == False)  # noqa: E712
+        result = await self.db.execute(query)
         rows = result.all()
 
         if not rows:
@@ -143,6 +147,7 @@ class AgentService:
                     (AgentDB.id == AgentUserPermissionDB.agent_id)
                     & (AgentUserPermissionDB.user_id == user_id),
                 )
+                .where(AgentDB.is_archived == False)  # noqa: E712
                 .order_by(AgentDB.created_at.asc())
             )
         else:
@@ -151,6 +156,7 @@ class AgentService:
                 .outerjoin(
                     AgentMCPServerBindingDB, AgentDB.id == AgentMCPServerBindingDB.agent_id
                 )
+                .where(AgentDB.is_archived == False)  # noqa: E712
                 .order_by(AgentDB.created_at.asc())
             )
 
@@ -200,7 +206,7 @@ class AgentService:
         agent = await self.repository.get(agent_id)
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
-        await self.repository.delete(agent)
+        await self.repository.archive(agent)
 
     async def get_permissions(self, agent_id: UUID) -> list[AgentUserPermissionDB]:
         return await self.repository.get_permissions(agent_id)
@@ -285,7 +291,7 @@ class AgentService:
         return binding
 
     async def check_ready(self, agent_id: UUID, user_id: str) -> dict:
-        agent = await self.get_agent(agent_id)
+        agent = await self.get_agent(agent_id, include_archived=True)
 
         if not agent.mcp_servers:
             return {"ready": True, "disconnected_servers": [], "status": "ready"}

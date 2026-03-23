@@ -24,7 +24,7 @@ router = APIRouter(prefix="/threads", tags=["threads"])
 @router.get("/{thread_id}")
 async def read_thread(thread_id: str, db: AsyncSession = Depends(get_db)) -> dict:
     result = await db.execute(
-        select(ThreadDB, AgentDB.name, AgentDB.emoji)
+        select(ThreadDB, AgentDB.name, AgentDB.emoji, AgentDB.is_archived)
         .join(AgentDB, ThreadDB.agent_id == AgentDB.id)
         .where(ThreadDB.id == thread_id)
     )
@@ -33,9 +33,13 @@ async def read_thread(thread_id: str, db: AsyncSession = Depends(get_db)) -> dic
     if not row:
         raise HTTPException(status_code=404, detail="Thread not found")
 
-    thread, agent_name, agent_emoji = row
+    thread, agent_name, agent_emoji, agent_archived = row
     thread_read = ThreadRead.model_validate(
-        thread, update={"agent_name": agent_name, "agent_emoji": agent_emoji}
+        thread, update={
+            "agent_name": agent_name,
+            "agent_emoji": agent_emoji,
+            "agent_archived": agent_archived,
+        }
     )
 
     async with AsyncPostgresSaver.from_conn_string(
@@ -68,7 +72,7 @@ async def get_threads(
     db: AsyncSession = Depends(get_db), current_user: UserDB = Depends(get_current_user)
 ) -> list[ThreadRead]:
     result = await db.execute(
-        select(ThreadDB, AgentDB.name, AgentDB.emoji)
+        select(ThreadDB, AgentDB.name, AgentDB.emoji, AgentDB.is_archived)
         .join(AgentDB, ThreadDB.agent_id == AgentDB.id)
         .where(ThreadDB.user_id == current_user.id)
         .order_by(ThreadDB.created_at.desc())
@@ -76,9 +80,12 @@ async def get_threads(
     rows = result.all()
     return [
         ThreadRead.model_validate(
-            thread, update={"agent_name": agent_name, "agent_emoji": agent_emoji}
-        )
-        for thread, agent_name, agent_emoji in rows
+            thread, update={
+                "agent_name": agent_name,
+                "agent_emoji": agent_emoji,
+                "agent_archived": agent_archived,
+            })
+        for thread, agent_name, agent_emoji, agent_archived in rows
     ]
 
 

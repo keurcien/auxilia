@@ -4,5 +4,6 @@ export interface Thread {
 	firstMessageContent: string;
 	agentName: string | null;
 	agentEmoji: string | null;
+	agentArchived: boolean;
 	createdAt: string;
 }

@@ -69,8 +69,9 @@ class AgentRepository:
         await self.db.refresh(agent)
         return agent
 
-    async def delete(self, agent: AgentDB) -> None:
-        await self.db.delete(agent)
+    async def archive(self, agent: AgentDB) -> None:
+        agent.is_archived = True
+        self.db.add(agent)
         await self.db.commit()
 
     async def get_binding(

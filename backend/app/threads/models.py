@@ -56,3 +56,4 @@ class ThreadRead(ThreadBase):
     updated_at: datetime
     agent_name: str | None = None
     agent_emoji: str | None = None
+    agent_archived: bool = False
