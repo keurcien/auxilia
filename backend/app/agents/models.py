@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy import UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
-from sqlmodel import Column, DateTime, Field, SQLModel, String, Text
+from sqlmodel import Boolean, Column, DateTime, Field, SQLModel, String, Text
 
 
 class PermissionLevel(str, Enum):
@@ -90,6 +90,10 @@ class AgentDB(AgentBase, table=True):
     __tablename__ = "agents"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
+    is_archived: bool = Field(
+        default=False,
+        sa_column=Column(Boolean, nullable=False, server_default="false"),
+    )
     created_at: datetime = Field(
         default=None,
         sa_column=Column(

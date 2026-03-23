@@ -323,7 +323,7 @@ class AgentRuntime:
 
     async def initialize(self):
         async with self._timer.aspan("read_agent"):
-            self.config = await AgentService(self.db).get_agent(self.thread.agent_id)
+            self.config = await AgentService(self.db).get_agent(self.thread.agent_id, include_archived=True)
 
         async with self._timer.aspan("fetch_mcp_servers"):
             result = await self.db.execute(
