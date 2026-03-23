@@ -9,6 +9,7 @@ import { Agent } from "@/types/agents";
 import AgentMCPServerList from "../[id]/components/agent-mcp-server-list";
 import { api } from "@/lib/api/client";
 import { useAgentsStore } from "@/stores/agents-store";
+import { useThreadsStore } from "@/stores/threads-store";
 import { Button } from "@/components/ui/button";
 import {
 	DropdownMenu,
@@ -27,6 +28,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 	const { resolvedTheme } = useTheme();
 	const updateAgent = useAgentsStore((state) => state.updateAgent);
 	const removeAgent = useAgentsStore((state) => state.removeAgent);
+	const markAgentArchived = useThreadsStore((state) => state.markAgentArchived);
 
 	const liveAgent = useAgentsStore(
 		(state) => state.agents.find((a) => a.id === agent.id) ?? agent,
@@ -106,6 +108,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 		try {
 			await api.delete(`/agents/${agent.id}`);
 			removeAgent(agent.id);
+			markAgentArchived(agent.id);
 			router.push("/agents");
 		} catch (error) {
 			console.error("Error deleting agent:", error);
