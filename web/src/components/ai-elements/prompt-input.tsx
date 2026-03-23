@@ -91,9 +91,21 @@ export type TextInputContext = {
 	clear: () => void;
 };
 
+export type ModelSelectionContext = {
+	value: string | undefined;
+	setModel: (v: string | undefined) => void;
+};
+
+export type StarterAgentContext = {
+	value: { name: string; emoji: string | null } | null;
+	set: (v: { name: string; emoji: string | null } | null) => void;
+};
+
 export type PromptInputControllerProps = {
 	textInput: TextInputContext;
 	attachments: AttachmentsContext;
+	modelSelection: ModelSelectionContext;
+	starterAgent: StarterAgentContext;
 	/** INTERNAL: Allows PromptInput to register its file textInput + "open" callback */
 	__registerFileInput: (
 		ref: RefObject<HTMLInputElement | null>,
@@ -150,6 +162,17 @@ export function PromptInputProvider({
 	// ----- textInput state
 	const [textInput, setTextInput] = useState(initialTextInput);
 	const clearInput = useCallback(() => setTextInput(""), []);
+
+	// ----- model selection state
+	const [selectedModel, setSelectedModel] = useState<string | undefined>(
+		undefined,
+	);
+
+	// ----- starter agent state (persists agent display info across navigation)
+	const [starterAgentData, setStarterAgentData] = useState<{
+		name: string;
+		emoji: string | null;
+	} | null>(null);
 
 	// ----- attachments state (global when wrapped)
 	const [attachements, setAttachements] = useState<
@@ -222,6 +245,22 @@ export function PromptInputProvider({
 		[],
 	);
 
+	const modelSelection = useMemo<ModelSelectionContext>(
+		() => ({
+			value: selectedModel,
+			setModel: setSelectedModel,
+		}),
+		[selectedModel],
+	);
+
+	const starterAgent = useMemo<StarterAgentContext>(
+		() => ({
+			value: starterAgentData,
+			set: setStarterAgentData,
+		}),
+		[starterAgentData],
+	);
+
 	const controller = useMemo<PromptInputControllerProps>(
 		() => ({
 			textInput: {
@@ -230,9 +269,18 @@ export function PromptInputProvider({
 				clear: clearInput,
 			},
 			attachments,
+			modelSelection,
+			starterAgent,
 			__registerFileInput,
 		}),
-		[textInput, clearInput, attachments, __registerFileInput],
+		[
+			textInput,
+			clearInput,
+			attachments,
+			modelSelection,
+			starterAgent,
+			__registerFileInput,
+		],
 	);
 
 	return (
