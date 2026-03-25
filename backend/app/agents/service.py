@@ -15,8 +15,10 @@ from app.agents.models import (
     AgentMCPServerBindingUpdate,
     AgentPermissionWrite,
     AgentRead,
+    AgentSubagentBindingDB,
     AgentUpdate,
     AgentUserPermissionDB,
+    SubagentRead,
 )
 from app.agents.repository import AgentRepository
 from app.database import get_db
@@ -49,7 +51,9 @@ class AgentService:
             return "admin"
         return granted_permissions.get(agent.id)
 
-    async def _check_oauth_connected(self, mcp_server: MCPServerDB, user_id: str) -> bool:
+    async def _check_oauth_connected(
+        self, mcp_server: MCPServerDB, user_id: str
+    ) -> bool:
         storage = TokenStorageFactory().get_storage(user_id, str(mcp_server.id))
         client_metadata = build_oauth_client_metadata(mcp_server)
         provider = WebOAuthClientProvider(
@@ -80,6 +84,24 @@ class AgentService:
     async def create_agent(self, data: AgentCreate) -> AgentDB:
         return await self.repository.create(data)
 
+    async def _load_subagents(self, agent_id: UUID) -> list[SubagentRead]:
+        bindings = await self.repository.get_subagent_bindings_for_coordinator(agent_id)
+        if not bindings:
+            return []
+        sub_ids = [b.subagent_id for b in bindings]
+        result = await self.db.execute(select(AgentDB).where(AgentDB.id.in_(sub_ids)))
+        agents = {a.id: a for a in result.scalars().all()}
+        return [
+            SubagentRead(
+                id=agents[sid].id,
+                name=agents[sid].name,
+                emoji=agents[sid].emoji,
+                description=agents[sid].description,
+            )
+            for sid in sub_ids
+            if sid in agents
+        ]
+
     async def get_agent(
         self,
         agent_id: UUID,
@@ -89,7 +111,9 @@ class AgentService:
     ) -> AgentRead:
         query = (
             select(AgentDB, AgentMCPServerBindingDB)
-            .outerjoin(AgentMCPServerBindingDB, AgentDB.id == AgentMCPServerBindingDB.agent_id)
+            .outerjoin(
+                AgentMCPServerBindingDB, AgentDB.id == AgentMCPServerBindingDB.agent_id
+            )
             .where(AgentDB.id == agent_id)
         )
         if not include_archived:
@@ -123,11 +147,67 @@ class AgentService:
             if perm:
                 current_user_permission = perm.value
 
+        subagents = await self._load_subagents(agent_id)
+        is_subagent = await self.repository.is_subagent(agent_id)
+
         return AgentRead(
             **agent.model_dump(),
             mcp_servers=mcp_servers,
+            subagents=subagents,
+            is_subagent=is_subagent,
             current_user_permission=current_user_permission,
         )
+
+    async def _load_all_subagent_data(
+        self, agent_ids: list[UUID]
+    ) -> tuple[dict[UUID, list[SubagentRead]], set[UUID]]:
+        """Load subagent and coordinator info for a batch of agents."""
+        if not agent_ids:
+            return {}, {}
+
+        result = await self.db.execute(
+            select(AgentSubagentBindingDB).where(
+                AgentSubagentBindingDB.coordinator_id.in_(agent_ids)
+                | AgentSubagentBindingDB.subagent_id.in_(agent_ids)
+            )
+        )
+        all_bindings = list(result.scalars().all())
+
+        # Collect all referenced agent IDs for a single batch lookup
+        referenced_ids = set()
+        for b in all_bindings:
+            referenced_ids.add(b.coordinator_id)
+            referenced_ids.add(b.subagent_id)
+
+        agent_lookup: dict[UUID, AgentDB] = {}
+        if referenced_ids:
+            res = await self.db.execute(
+                select(AgentDB).where(AgentDB.id.in_(list(referenced_ids)))
+            )
+            agent_lookup = {a.id: a for a in res.scalars().all()}
+
+        # Build subagents map (coordinator_id → list of SubagentRead)
+        subagents_map: dict[UUID, list[SubagentRead]] = defaultdict(list)
+        # Build is_subagent set (agent IDs that are used as subagents)
+        is_subagent_ids: set[UUID] = set()
+
+        for b in all_bindings:
+            if b.coordinator_id in agent_ids:
+                sub = agent_lookup.get(b.subagent_id)
+                if sub:
+                    subagents_map[b.coordinator_id].append(
+                        SubagentRead(
+                            id=sub.id,
+                            name=sub.name,
+                            emoji=sub.emoji,
+                            description=sub.description,
+                        )
+                    )
+
+            if b.subagent_id in agent_ids:
+                is_subagent_ids.add(b.subagent_id)
+
+        return subagents_map, is_subagent_ids
 
     async def list_agents(
         self,
@@ -138,9 +218,12 @@ class AgentService:
 
         if user_id and not is_workspace_admin:
             query = (
-                select(AgentDB, AgentMCPServerBindingDB, AgentUserPermissionDB.permission)
+                select(
+                    AgentDB, AgentMCPServerBindingDB, AgentUserPermissionDB.permission
+                )
                 .outerjoin(
-                    AgentMCPServerBindingDB, AgentDB.id == AgentMCPServerBindingDB.agent_id
+                    AgentMCPServerBindingDB,
+                    AgentDB.id == AgentMCPServerBindingDB.agent_id,
                 )
                 .outerjoin(
                     AgentUserPermissionDB,
@@ -154,7 +237,8 @@ class AgentService:
             query = (
                 select(AgentDB, AgentMCPServerBindingDB)
                 .outerjoin(
-                    AgentMCPServerBindingDB, AgentDB.id == AgentMCPServerBindingDB.agent_id
+                    AgentMCPServerBindingDB,
+                    AgentDB.id == AgentMCPServerBindingDB.agent_id,
                 )
                 .where(AgentDB.is_archived == False)  # noqa: E712
                 .order_by(AgentDB.created_at.asc())
@@ -186,10 +270,17 @@ class AgentService:
                 if permission and agent.id not in permissions_map:
                     permissions_map[agent.id] = permission.value
 
+        agent_ids = list(agents_map.keys())
+        subagents_map, is_subagent_ids = await self._load_all_subagent_data(
+            agent_ids
+        )
+
         return [
             AgentRead(
                 **agent.model_dump(),
                 mcp_servers=bindings_map.get(agent.id, []),
+                subagents=subagents_map.get(agent.id, []),
+                is_subagent=agent.id in is_subagent_ids,
                 current_user_permission=permissions_map.get(agent.id),
             )
             for agent in agents_map.values()
@@ -206,6 +297,7 @@ class AgentService:
         agent = await self.repository.get(agent_id)
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
+        await self.repository.delete_all_subagent_bindings_for_agent(agent_id)
         await self.repository.archive(agent)
 
     async def get_permissions(self, agent_id: UUID) -> list[AgentUserPermissionDB]:
@@ -290,6 +382,59 @@ class AgentService:
         await self._fetch_and_save_tools(binding, mcp_server, user_id)
         return binding
 
+    async def create_subagent_binding(
+        self, coordinator_id: UUID, subagent_id: UUID
+    ) -> AgentSubagentBindingDB:
+        if coordinator_id == subagent_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot add an agent as its own subagent",
+            )
+
+        # Verify both agents exist and are not archived
+        coordinator = await self.repository.get(coordinator_id)
+        if not coordinator or coordinator.is_archived:
+            raise HTTPException(status_code=404, detail="Coordinator agent not found")
+
+        subagent = await self.repository.get(subagent_id)
+        if not subagent or subagent.is_archived:
+            raise HTTPException(status_code=404, detail="Subagent not found")
+
+        # One-level-deep constraint: subagent must not already be a coordinator
+        if await self.repository.has_subagents(subagent_id):
+            raise HTTPException(
+                status_code=400,
+                detail="This agent already has subagents and cannot be used as a subagent",
+            )
+
+        # One-level-deep constraint: coordinator must not already be someone's subagent
+        if await self.repository.is_subagent(coordinator_id):
+            raise HTTPException(
+                status_code=400,
+                detail="This agent is already used as a subagent and cannot have subagents",
+            )
+
+        # Idempotent: return existing binding if it already exists
+        existing = await self.repository.get_subagent_binding(
+            coordinator_id, subagent_id
+        )
+        if existing:
+            return existing
+
+        return await self.repository.create_subagent_binding(
+            coordinator_id, subagent_id
+        )
+
+    async def delete_subagent_binding(
+        self, coordinator_id: UUID, subagent_id: UUID
+    ) -> None:
+        binding = await self.repository.get_subagent_binding(
+            coordinator_id, subagent_id
+        )
+        if not binding:
+            raise HTTPException(status_code=404, detail="Subagent binding not found")
+        await self.repository.delete_subagent_binding(binding)
+
     async def check_ready(self, agent_id: UUID, user_id: str) -> dict:
         agent = await self.get_agent(agent_id, include_archived=True)
 
@@ -298,7 +443,11 @@ class AgentService:
 
         for mcp_server in agent.mcp_servers:
             if mcp_server.tools is None:
-                return {"ready": False, "disconnected_servers": [], "status": "not_configured"}
+                return {
+                    "ready": False,
+                    "disconnected_servers": [],
+                    "status": "not_configured",
+                }
 
         server_ids = [s.id for s in agent.mcp_servers]
         result = await self.db.execute(

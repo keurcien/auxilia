@@ -10,12 +10,14 @@ from app.agents.models import (
     AgentPermissionRead,
     AgentPermissionWrite,
     AgentRead,
+    AgentSubagentBindingRead,
     AgentUpdate,
 )
 from app.agents.service import AgentService, get_agent_service
 from app.auth.dependencies import (
     get_current_user,
     get_current_user_optional,
+    require_admin,
     require_editor,
 )
 from app.users.models import UserDB
@@ -38,7 +40,9 @@ async def get_agents(
     current_user: UserDB = Depends(get_current_user),
     service: AgentService = Depends(get_agent_service),
 ) -> list[AgentRead]:
-    return await service.list_agents(user_id=current_user.id, user_role=current_user.role)
+    return await service.list_agents(
+        user_id=current_user.id, user_role=current_user.role
+    )
 
 
 @router.get("/{agent_id}", response_model=AgentRead, response_model_by_alias=True)
@@ -139,6 +143,30 @@ async def sync_tools(
     service: AgentService = Depends(get_agent_service),
 ) -> AgentMCPServerBindingRead:
     return await service.sync_tools(agent_id, server_id, str(current_user.id))
+
+
+@router.post(
+    "/{agent_id}/subagents/{subagent_id}",
+    response_model=AgentSubagentBindingRead,
+    status_code=201,
+)
+async def create_subagent_binding(
+    agent_id: UUID,
+    subagent_id: UUID,
+    _: UserDB = Depends(require_admin),
+    service: AgentService = Depends(get_agent_service),
+) -> AgentSubagentBindingRead:
+    return await service.create_subagent_binding(agent_id, subagent_id)
+
+
+@router.delete("/{agent_id}/subagents/{subagent_id}", status_code=204)
+async def delete_subagent_binding(
+    agent_id: UUID,
+    subagent_id: UUID,
+    _: UserDB = Depends(require_admin),
+    service: AgentService = Depends(get_agent_service),
+) -> None:
+    await service.delete_subagent_binding(agent_id, subagent_id)
 
 
 @router.get("/{agent_id}/is-ready")

@@ -7,9 +7,11 @@ import { useTheme } from "next-themes";
 import { MoreVertical, ShieldCheck, ArrowRight, ArchiveIcon } from "lucide-react";
 import { Agent } from "@/types/agents";
 import AgentMCPServerList from "../[id]/components/agent-mcp-server-list";
+import AgentSubagentList from "../[id]/components/agent-subagent-list";
 import { api } from "@/lib/api/client";
 import { useAgentsStore } from "@/stores/agents-store";
 import { useThreadsStore } from "@/stores/threads-store";
+import { useUserStore } from "@/stores/user-store";
 import { Button } from "@/components/ui/button";
 import {
 	DropdownMenu,
@@ -29,6 +31,8 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 	const updateAgent = useAgentsStore((state) => state.updateAgent);
 	const removeAgent = useAgentsStore((state) => state.removeAgent);
 	const markAgentArchived = useThreadsStore((state) => state.markAgentArchived);
+	const user = useUserStore((state) => state.user);
+	const isAdmin = user?.role === "admin";
 
 	const liveAgent = useAgentsStore(
 		(state) => state.agents.find((a) => a.id === agent.id) ?? agent,
@@ -301,7 +305,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 					</div>
 				</div>
 
-				<div className="h-full w-full md:w-1/2 p-6 flex flex-col min-h-0">
+				<div className="h-full w-full md:w-1/2 p-6 flex flex-col min-h-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 					<AgentMCPServerList
 						agent={liveAgent}
 						onSaving={() => setSaveStatus("saving")}
@@ -313,6 +317,19 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 							);
 						}}
 					/>
+					{isAdmin && (
+						<AgentSubagentList
+							agent={liveAgent}
+							onSaving={() => setSaveStatus("saving")}
+							onSaved={() => {
+								if (savingTimerRef.current) clearTimeout(savingTimerRef.current);
+								savingTimerRef.current = setTimeout(
+									() => setSaveStatus("saved"),
+									400,
+								);
+							}}
+						/>
+					)}
 				</div>
 			</div>
 
