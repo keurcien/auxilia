@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.agents.runtime import AgentRuntime, build_agent_deps
-from app.agents.service import AgentService
+from app.agents.core.service import AgentService
 from app.auth.settings import auth_settings
 from app.database import AsyncSessionLocal
 from app.integrations.slack.blocks import build_tool_approval_blocks
