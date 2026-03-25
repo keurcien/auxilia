@@ -24,12 +24,12 @@ from langgraph.types import Command
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from app.agents.core.service import AgentService
 from app.agents.hitl import (
     extract_approved_tool_call_ids,
     extract_commands,
     extract_rejected_tool_calls,
 )
-from app.agents.service import AgentService
 from app.agents.settings import agent_settings
 from app.agents.stream import (
     AISDKStreamAdapter,

@@ -189,7 +189,7 @@ def test_delete_agent(client: TestClient, mock_db):
 
     response = client.delete(f"/agents/{agent_id}")
     assert response.status_code == 204
-    mock_db.delete.assert_called_once()
+    assert agent.is_archived is True
 
 
 def test_delete_agent_not_found(client: TestClient, mock_db):
