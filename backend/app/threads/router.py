@@ -67,6 +67,31 @@ async def read_thread(thread_id: str, db: AsyncSession = Depends(get_db)) -> dic
             return {"messages": [], "values": {"messages": []}, "thread": thread_read}
 
 
+@router.get("/{thread_id}/subagents/{tool_call_id}/state")
+async def get_subagent_state(thread_id: str, tool_call_id: str) -> dict:
+    """Fetch a subagent's checkpoint state (its internal messages) by tool call ID."""
+    async with AsyncPostgresSaver.from_conn_string(
+        get_psycopg_conn_string()
+    ) as checkpointer:
+        checkpoint = await checkpointer.aget(
+            config={
+                "configurable": {
+                    "thread_id": thread_id,
+                    "checkpoint_ns": f"tools:{tool_call_id}",
+                }
+            }
+        )
+
+        if not checkpoint:
+            return {"messages": [], "values": {}}
+
+        channel_values = checkpoint["channel_values"]
+        lc_messages = channel_values.get("messages", [])
+        return {
+            "messages": [_serialize_lc_message(m) for m in lc_messages],
+        }
+
+
 @router.get("/")
 async def get_threads(
     db: AsyncSession = Depends(get_db), current_user: UserDB = Depends(get_current_user)

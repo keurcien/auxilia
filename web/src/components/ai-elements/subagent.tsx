@@ -84,8 +84,13 @@ type ToolRenderState =
  * Renders the subagent's conversation as a mini log:
  * AI text paragraphs + Tool cards (same as coordinator).
  */
+interface MCPServerInfo {
+	name: string;
+	iconUrl?: string | null;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const SubAgentConversation = memo(({ messages, isStreaming }: { messages: any[]; isStreaming: boolean }) => {
+const SubAgentConversation = memo(({ messages, isStreaming, mcpServers }: { messages: any[]; isStreaming: boolean; mcpServers?: MCPServerInfo[] }) => {
 	if (!messages || messages.length === 0) return null;
 
 	// Build a map of tool_call_id → tool message for result lookup
@@ -131,7 +136,20 @@ const SubAgentConversation = memo(({ messages, isStreaming }: { messages: any[];
 						? "output-error"
 						: "output-available"
 					: "input-available";
-				const { serverName, toolName } = parseToolName(tc.name ?? "tool");
+				const knownNames = (mcpServers ?? []).map((s) => s.name).sort((a, b) => b.length - a.length);
+				const { serverName, toolName } = knownNames.length > 0
+					? (() => {
+						const fullName = tc.name ?? "tool";
+						for (const sn of knownNames) {
+							if (fullName === sn || fullName.startsWith(`${sn}_`)) {
+								const suffix = fullName.slice(sn.length);
+								return { serverName: sn, toolName: suffix.startsWith("_") ? suffix.slice(1) : suffix || fullName };
+							}
+						}
+						return parseToolName(fullName);
+					})()
+					: parseToolName(tc.name ?? "tool");
+				const serverIcon = mcpServers?.find((s) => s.name === serverName)?.iconUrl ?? undefined;
 				const output = getToolOutputContent(toolMsg);
 
 				elements.push(
@@ -141,6 +159,7 @@ const SubAgentConversation = memo(({ messages, isStreaming }: { messages: any[];
 							type={`tool-${tc.name}`}
 							state={toolState}
 							mcpServerName={serverName}
+							mcpServerIcon={serverIcon}
 						/>
 						<ToolContent>
 							<ToolContentInner>
@@ -219,16 +238,17 @@ StatusBadge.displayName = "StatusBadge";
 interface SubAgentCardProps {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	subagent: SubagentStreamInterface<any, any, any>;
+	mcpServers?: MCPServerInfo[];
 }
 
-export const SubAgentCard = memo(({ subagent }: SubAgentCardProps) => {
+export const SubAgentCard = memo(({ subagent, mcpServers }: SubAgentCardProps) => {
 	const { status, toolCall, result, startedAt, completedAt, messages, values } =
 		subagent;
 	const isStreaming = status === "running";
 	const isError = status === "error";
 	const description = toolCall?.args?.description as string | undefined;
 	const subagentType = toolCall?.args?.subagent_type as string | undefined;
-	const title = subagentType ?? "Sub-agent";
+	const title = subagentType?.replaceAll("_", " ") ?? "Sub-agent";
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const todos = ((values as any)?.todos ?? []) as Todo[];
 
@@ -302,6 +322,7 @@ export const SubAgentCard = memo(({ subagent }: SubAgentCardProps) => {
 								<SubAgentConversation
 									messages={messages}
 									isStreaming={isStreaming}
+									mcpServers={mcpServers}
 								/>
 							)}
 							{result && !hasConversation && (
@@ -309,7 +330,7 @@ export const SubAgentCard = memo(({ subagent }: SubAgentCardProps) => {
 									{result}
 								</div>
 							)}
-							{isError && subagent.error && (
+							{isError && subagent.error != null && (
 								<div className="text-sm text-red-500">
 									{subagent.error instanceof Error
 										? subagent.error.message

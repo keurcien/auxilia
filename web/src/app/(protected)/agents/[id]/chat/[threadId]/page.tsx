@@ -317,7 +317,6 @@ const ChatPage = () => {
 		[threadId],
 	);
 
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const thread = useStream<Record<string, unknown>>({
 		transport,
 		threadId,
@@ -328,7 +327,7 @@ const ChatPage = () => {
 			const audio = new Audio("/success.mp3");
 			audio.play().catch(() => {});
 		},
-	});
+	} as Parameters<typeof useStream<Record<string, unknown>>>[0]);
 
 	const {
 		isLoading,
@@ -445,7 +444,7 @@ const ChatPage = () => {
 			{ messages: [{ type: "human", content }] },
 			{
 				optimisticValues: { messages: [...messages, { type: "human", content, id: crypto.randomUUID() }] },
-
+				streamSubgraphs: true,
 			},
 		);
 	};
@@ -480,10 +479,57 @@ const ChatPage = () => {
 					configurable: { trigger: "regenerate-message" },
 				},
 				optimisticValues: { messages },
-
+				streamSubgraphs: true,
 			},
 		);
 	};
+
+	// ---- Fetch subagent internal messages after reconstruction ----
+
+	const hasFetchedSubagentHistory = useRef(false);
+
+	useEffect(() => {
+		if (hasFetchedSubagentHistory.current) return;
+		if (isLoading) return;
+		if (!subagentApi.subagents || subagentApi.subagents.size === 0) return;
+
+		// Find subagents that were reconstructed but have no internal messages
+		const toFetch = [...subagentApi.subagents.entries()].filter(
+			([, s]) => s.messages.length === 0 && (s.status === "complete" || s.status === "error"),
+		);
+		if (toFetch.length === 0) return;
+
+		hasFetchedSubagentHistory.current = true;
+
+		// Access the private subagentManager to call updateSubagentFromSubgraphState
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const streamManager = thread as any;
+		const subagentManager = streamManager.subagentManager ?? streamManager._subagentManager;
+
+		Promise.all(
+			toFetch.map(async ([toolCallId]) => {
+				try {
+					const res = await api.get(
+						`/threads/${threadId}/subagents/${toolCallId}/state`,
+					);
+					const msgs = res.data?.messages;
+					if (!Array.isArray(msgs) || msgs.length === 0) return;
+
+					if (subagentManager?.updateSubagentFromSubgraphState) {
+						subagentManager.updateSubagentFromSubgraphState(toolCallId, msgs);
+					} else {
+						// Fallback: mutate the subagent entry directly
+						const sub = subagentApi.getSubagent(toolCallId);
+						if (sub && sub.messages.length === 0) {
+							sub.messages = msgs;
+						}
+					}
+				} catch {
+					// Subgraph checkpoint may not exist — ignore
+				}
+			}),
+		);
+	}, [subagentApi, thread, isLoading, threadId]);
 
 	// ---- Initialization ----
 
@@ -758,7 +804,7 @@ const ChatPage = () => {
 												<div className="space-y-2 mt-1">
 													<SubAgentProgress subagents={turnSubagents} />
 													{turnSubagents.map((sub) => (
-														<SubAgentCard key={sub.id} subagent={sub} />
+														<SubAgentCard key={sub.id} subagent={sub} mcpServers={mcpServers} />
 													))}
 													<SynthesisIndicator
 														subagents={turnSubagents}
@@ -791,7 +837,7 @@ const ChatPage = () => {
 
 						{/* Streaming indicator when AI has started but text is still coming */}
 						{assistantIsStreaming &&
-							lastMsg &&
+							lastMsg !== null &&
 							getTextContent(lastMsg).length === 0 &&
 							!getToolCallsForMessage(lastMsg).length && (
 								<div>
@@ -805,7 +851,7 @@ const ChatPage = () => {
 								</div>
 							)}
 
-						{error && (
+						{error != null && (
 							<Error>
 								<ErrorContent>An error occurred.</ErrorContent>
 								<ErrorDetails>

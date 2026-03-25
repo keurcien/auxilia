@@ -4,8 +4,9 @@ import re
 import time
 from dataclasses import dataclass
 
+from deepagents.backends import StateBackend
+from deepagents.middleware.subagents import CompiledSubAgent, SubAgentMiddleware
 from langchain.agents import create_agent
-from deepagents import create_deep_agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware
 from langchain_ai_sdk_adapter import to_lc_messages
 from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
@@ -213,6 +214,7 @@ class AgentRuntime:
         self.thread = thread
         self.tools = None
         self.tool_ui_metadata: dict[str, dict[str, str]] = {}
+        self.subagent_configs: list[dict] = []
         self.db = db
         self._deps = deps
         self._timer = timer or RequestTimer("invoke", enabled=False)
@@ -272,8 +274,7 @@ class AgentRuntime:
         Returns:
             Filtered list of tools
         """
-        client = MultiServerMCPClient(
-            multi_mcp_server_configs, tool_name_prefix=True)
+        client = MultiServerMCPClient(multi_mcp_server_configs, tool_name_prefix=True)
 
         async def fetch_and_filter_tools(server_id: str):
             async with self._timer.aspan(f"mcp_list_tools:{server_id}"):
@@ -308,10 +309,8 @@ class AgentRuntime:
         ]
         results = await asyncio.gather(*tasks)
 
-        always_allowed_tools = [
-            tool for result in results for tool in result[0]]
-        need_approval_tools = [
-            tool for result in results for tool in result[1]]
+        always_allowed_tools = [tool for result in results for tool in result[0]]
+        need_approval_tools = [tool for result in results for tool in result[1]]
 
         return always_allowed_tools, need_approval_tools
 
@@ -337,7 +336,9 @@ class AgentRuntime:
 
     async def initialize(self):
         async with self._timer.aspan("read_agent"):
-            self.config = await AgentService(self.db).get_agent(self.thread.agent_id, include_archived=True)
+            self.config = await AgentService(self.db).get_agent(
+                self.thread.agent_id, include_archived=True
+            )
 
         async with self._timer.aspan("fetch_mcp_servers"):
             result = await self.db.execute(
@@ -365,13 +366,63 @@ class AgentRuntime:
 
         with self._timer.span("build_tool_metadata"):
             all_tools = self.tools[0] + self.tools[1]
-            raw_tool_ui_metadata = _build_tool_ui_metadata_map(
-                all_tools, mcp_servers)
+            raw_tool_ui_metadata = _build_tool_ui_metadata_map(all_tools, mcp_servers)
             name_map = _sanitize_tools_in_place(all_tools)
             self.tool_ui_metadata = {
                 name_map.get(tool_name, tool_name): metadata
                 for tool_name, metadata in raw_tool_ui_metadata.items()
             }
+
+        # Load subagent configs + tools if this agent has subagents
+        if self.config.subagents:
+            async with self._timer.aspan("load_subagents"):
+                self.subagent_configs = await self._load_subagent_configs()
+
+    async def _load_subagent_configs(self) -> list[dict]:
+        """Load each subagent's config metadata (no tools yet — those are loaded at stream time)."""
+        configs = []
+        for sub in self.config.subagents:
+            sub_config = await AgentService(self.db).get_agent(
+                sub.id, include_archived=True
+            )
+
+            # Resolve MCP server objects for later tool loading
+            sub_mcp_server_ids = [s.id for s in sub_config.mcp_servers]
+            sub_mcp_servers = []
+            if sub_mcp_server_ids:
+                result = await self.db.execute(
+                    select(MCPServerDB).where(MCPServerDB.id.in_(sub_mcp_server_ids))
+                )
+                sub_mcp_servers = list(result.scalars().all())
+
+            configs.append(
+                {
+                    "name": sub_config.name,
+                    "description": sub_config.description or sub_config.name,
+                    "instructions": sub_config.instructions or "",
+                    "mcp_servers": sub_mcp_servers,
+                    "mcp_server_bindings": sub_config.mcp_servers,
+                }
+            )
+        return configs
+
+    async def _load_subagent_tools(self, sub_cfg: dict) -> list[Tool]:
+        """Fetch MCP tools for a subagent. Must be called within the streaming context."""
+        mcp_servers = sub_cfg["mcp_servers"]
+        if not mcp_servers:
+            return []
+
+        mcp_configs = await self.build_multi_mcp_server_configs(mcp_servers)
+        tool_settings = {
+            next(s.name for s in mcp_servers if s.id == ms.id): ms.tools
+            for ms in sub_cfg["mcp_server_bindings"]
+        }
+        always_allowed, need_approval = await self.get_tools(mcp_configs, tool_settings)
+        sub_tools = always_allowed + need_approval
+        _sanitize_tools_in_place(sub_tools)
+        for tool in sub_tools:
+            wrap_mcp_tool_errors(tool)
+        return sub_tools
 
     async def stream(
         self,
@@ -441,8 +492,7 @@ class AgentRuntime:
                     ]
 
                     if model_provider.name == "anthropic":
-                        middlewares.append(
-                            AnthropicPromptCachingMiddleware(ttl="5m"))
+                        middlewares.append(AnthropicPromptCachingMiddleware(ttl="5m"))
                         # system_prompt["cache_control"] = {"type": "ephemeral"}
 
                     agent = create_agent(
@@ -502,8 +552,7 @@ class AgentRuntime:
                 if is_resume:
                     checkpoint_data = await checkpointer.aget(config=self.stream_config)
                     if checkpoint_data:
-                        msgs = checkpoint_data["channel_values"].get(
-                            "messages", [])
+                        msgs = checkpoint_data["channel_values"].get("messages", [])
                         for msg in reversed(msgs):
                             tool_calls = getattr(msg, "tool_calls", None)
                             if tool_calls:
@@ -570,8 +619,7 @@ class AgentRuntime:
                         )
                         _first_chunk = False
                     yield chunk
-                self._timer.record(
-                    "stream_total", time.perf_counter() - _stream_t0)
+                self._timer.record("stream_total", time.perf_counter() - _stream_t0)
         finally:
             self._timer.summary()
 
@@ -638,6 +686,37 @@ class AgentRuntime:
                     #     middlewares.append(
                     #         AnthropicPromptCachingMiddleware(ttl="5m"))
 
+                    # Build SubAgentMiddleware when subagents are configured
+                    if self.subagent_configs:
+                        compiled_subagents = []
+                        for sub_cfg in self.subagent_configs:
+                            sub_tools = await self._load_subagent_tools(sub_cfg)
+                            sub_system_prompt = SystemMessage(
+                                content=[
+                                    {"type": "text", "text": sub_cfg["instructions"]}
+                                ]
+                            )
+                            sub_agent = create_agent(
+                                model=chat_model,
+                                tools=sub_tools,
+                                system_prompt=sub_system_prompt,
+                            )
+                            # Sanitize name to a valid identifier for the LLM
+                            slug = _sanitize_tool_name(sub_cfg["name"])
+                            compiled_subagents.append(
+                                CompiledSubAgent(
+                                    name=slug,
+                                    description=f'{sub_cfg["name"]}: {sub_cfg["description"]}',
+                                    runnable=sub_agent,
+                                )
+                            )
+                        middlewares.append(
+                            SubAgentMiddleware(
+                                backend=StateBackend,
+                                subagents=compiled_subagents,
+                            )
+                        )
+
                     agent = create_agent(
                         model=chat_model,
                         tools=tools,
@@ -659,8 +738,7 @@ class AgentRuntime:
                 config = self.stream_config
                 if config_overrides and config_overrides.get("configurable"):
                     # Allow frontend to pass checkpoint_id for regeneration
-                    config["configurable"].update(
-                        config_overrides["configurable"])
+                    config["configurable"].update(config_overrides["configurable"])
 
                 if trigger == "regenerate-message":
                     checkpoint_id = await get_regeneration_checkpoint_id(agent, config)
@@ -684,8 +762,7 @@ class AgentRuntime:
                         )
                         _first_chunk = False
                     yield chunk
-                self._timer.record(
-                    "stream_total", time.perf_counter() - _stream_t0)
+                self._timer.record("stream_total", time.perf_counter() - _stream_t0)
         finally:
             self._timer.summary()
 

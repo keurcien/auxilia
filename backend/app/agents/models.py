@@ -83,7 +83,8 @@ class AgentBase(SQLModel):
     owner_id: UUID = Field(foreign_key="users.id", nullable=False)
     emoji: str | None = Field(default=None, max_length=10, nullable=True)
     description: str | None = Field(
-        default=None, max_length=255, sa_column=Column(String(255), nullable=True))
+        default=None, max_length=255, sa_column=Column(String(255), nullable=True)
+    )
 
 
 class AgentDB(AgentBase, table=True):
@@ -128,8 +129,7 @@ class AgentUpdate(SQLModel):
 class AgentUserPermissionDB(SQLModel, table=True):
     __tablename__ = "agent_user_permissions"
     __table_args__ = (
-        UniqueConstraint("agent_id", "user_id",
-                         name="uq_agent_user_permission"),
+        UniqueConstraint("agent_id", "user_id", name="uq_agent_user_permission"),
     )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
@@ -163,6 +163,51 @@ class AgentPermissionWrite(SQLModel):
     permission: PermissionLevel
 
 
+class AgentSubagentBindingDB(SQLModel, table=True):
+    __tablename__ = "agent_subagent_bindings"
+    __table_args__ = (
+        UniqueConstraint(
+            "coordinator_id",
+            "subagent_id",
+            name="uq_agent_subagent_binding",
+        ),
+    )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    coordinator_id: UUID = Field(foreign_key="agents.id", nullable=False)
+    subagent_id: UUID = Field(foreign_key="agents.id", nullable=False)
+    created_at: datetime = Field(
+        default=None,
+        sa_column=Column(
+            DateTime(timezone=True), server_default=func.now(), nullable=False
+        ),
+    )
+    updated_at: datetime = Field(
+        default=None,
+        sa_column=Column(
+            DateTime(timezone=True),
+            server_default=func.now(),
+            onupdate=func.now(),
+            nullable=False,
+        ),
+    )
+
+
+class AgentSubagentBindingRead(SQLModel):
+    id: UUID
+    coordinator_id: UUID
+    subagent_id: UUID
+    created_at: datetime
+    updated_at: datetime
+
+
+class SubagentRead(SQLModel):
+    id: UUID
+    name: str
+    emoji: str | None = None
+    description: str | None = None
+
+
 class AgentRead(SQLModel):
     id: UUID
     name: str
@@ -173,4 +218,6 @@ class AgentRead(SQLModel):
     created_at: datetime
     updated_at: datetime
     mcp_servers: list[AgentMCPServer] | None = None
+    subagents: list[SubagentRead] | None = None
+    is_subagent: bool = False
     current_user_permission: str | None = None
