@@ -8,6 +8,13 @@ export interface AgentMCPServer extends MCPServer {
 
 export type AgentPermission = "owner" | "admin" | "editor" | "user";
 
+export interface SubagentInfo {
+	id: string;
+	name: string;
+	emoji?: string | null;
+	description?: string | null;
+}
+
 export interface Agent {
 	id: string;
 	name: string;
@@ -16,5 +23,7 @@ export interface Agent {
 	emoji?: string | null;
 	description?: string | null;
 	mcpServers: AgentMCPServer[];
+	subagents: SubagentInfo[];
+	isSubagent: boolean;
 	currentUserPermission?: AgentPermission | null;
 }

@@ -1,6 +1,7 @@
 """Stream adapters for agent invocation output.
 
 Converts LangGraph astream(stream_mode=["messages", "values"]) output to:
+- LangGraph native SSE events (LangGraphStreamAdapter)
 - AI SDK v5 SSE strings (AISDKStreamAdapter)
 - Slack typed event dicts (SlackStreamAdapter)
 
@@ -9,6 +10,7 @@ HITL interrupts). A thin wrapper adds auxilia-specific features:
 messageId, providerMetadata, resume/HITL, output normalization.
 """
 
+import dataclasses
 import json
 import logging
 import uuid
@@ -16,6 +18,8 @@ from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Any
 
 from langchain_ai_sdk_adapter import to_ui_message_stream
+from langchain_core.messages import BaseMessage
+from langgraph.types import Overwrite
 
 
 logger = logging.getLogger(__name__)
@@ -130,9 +134,7 @@ class AISDKStreamAdapter:
             args = call.get("input") or {}
             tc_id = call.get("toolCallId") or ""
             if name and tc_id:
-                self._pre_approved_signatures[
-                    _make_tool_signature(name, args)
-                ] = tc_id
+                self._pre_approved_signatures[_make_tool_signature(name, args)] = tc_id
 
         self._tool_ui_metadata = tool_ui_metadata or {}
         self._approval_pending = False
@@ -242,6 +244,193 @@ class AISDKStreamAdapter:
         return events
 
 
+# ---------------------------------------------------------------------------
+# LangGraph native SSE protocol
+# ---------------------------------------------------------------------------
+
+
+def _encode_lg_sse(event: str, data: Any) -> str:
+    """Encode a LangGraph SSE event with event: and data: lines."""
+    return f"event: {event}\ndata: {json.dumps(data, default=_lg_json_default)}\n\n"
+
+
+def _lg_json_default(obj: Any) -> Any:
+    """JSON fallback for LangGraph SSE serialization."""
+    from uuid import UUID
+
+    if isinstance(obj, UUID):
+        return str(obj)
+    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+        return dataclasses.asdict(obj)
+    if isinstance(obj, BaseMessage):
+        return _serialize_lc_message(obj)
+    if hasattr(obj, "model_dump"):
+        return obj.model_dump()
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
+def _serialize_lc_message(msg: Any) -> dict[str, Any]:
+    """Serialize a LangChain message or chunk to a dict for the JS SDK.
+
+    The @langchain/langgraph-sdk JS SDK accepts dicts with:
+    - type: "ai"|"human"|"tool"|"system" (also "AIMessageChunk" etc.)
+    - content: str or list of content blocks
+    - id: str (required!)
+    - tool_calls, tool_call_id, status, etc. as applicable
+    """
+    d: dict[str, Any] = {
+        "type": getattr(msg, "type", "unknown"),
+        "content": getattr(msg, "content", ""),
+        "id": getattr(msg, "id", None),
+    }
+    if hasattr(msg, "tool_call_chunks") and msg.tool_call_chunks:
+        d["tool_call_chunks"] = list(msg.tool_call_chunks)
+    if hasattr(msg, "tool_calls") and msg.tool_calls:
+        d["tool_calls"] = list(msg.tool_calls)
+    if hasattr(msg, "invalid_tool_calls") and msg.invalid_tool_calls:
+        d["invalid_tool_calls"] = list(msg.invalid_tool_calls)
+    if hasattr(msg, "tool_call_id"):
+        d["tool_call_id"] = msg.tool_call_id
+    if hasattr(msg, "additional_kwargs") and msg.additional_kwargs:
+        d["additional_kwargs"] = msg.additional_kwargs
+    if hasattr(msg, "response_metadata") and msg.response_metadata:
+        d["response_metadata"] = msg.response_metadata
+    if hasattr(msg, "usage_metadata") and msg.usage_metadata:
+        d["usage_metadata"] = (
+            msg.usage_metadata
+            if isinstance(msg.usage_metadata, dict)
+            else msg.usage_metadata.model_dump()
+            if hasattr(msg.usage_metadata, "model_dump")
+            else {}
+        )
+    if hasattr(msg, "name") and msg.name:
+        d["name"] = msg.name
+    if hasattr(msg, "status") and msg.status:
+        d["status"] = msg.status
+    if hasattr(msg, "artifact") and msg.artifact:
+        d["artifact"] = msg.artifact
+    return d
+
+
+def _serialize_state(state: dict[str, Any]) -> dict[str, Any]:
+    """Serialize a LangGraph state dict for the values SSE event."""
+    result: dict[str, Any] = {}
+    for key, value in state.items():
+        # Unwrap Overwrite wrapper (used by deep agents)
+        if isinstance(value, Overwrite):
+            value = value.value
+        if key == "messages" and isinstance(value, list):
+            result[key] = [
+                _serialize_lc_message(m) if isinstance(m, BaseMessage) else m
+                for m in value
+            ]
+        elif key == "__interrupt__" and isinstance(value, list):
+            result[key] = [
+                dataclasses.asdict(i)
+                if dataclasses.is_dataclass(i) and not isinstance(i, type)
+                else i
+                for i in value
+            ]
+        else:
+            result[key] = value
+    return result
+
+
+class LangGraphStreamAdapter:
+    """Converts raw LangGraph astream output to native LangGraph SSE events.
+
+    Iterates (stream_mode, data) tuples from agent.astream() and emits
+    standard SSE with event: <mode> and data: <json>.
+
+    When subgraphs=True, events arrive as (namespace, mode, data) tuples.
+    Namespace info is emitted as pipe-separated segments in the SSE event
+    field (e.g. "values|tools:uuid") so the JS SDK can route subagent events.
+    """
+
+    def __init__(self, subgraphs: bool = False):
+        self._subgraphs = subgraphs
+
+    def _event_name(self, mode: str, namespace: tuple | None) -> str:
+        """Build SSE event name with optional namespace segments."""
+        if namespace:
+            ns_str = "|".join(namespace)
+            return f"{mode}|{ns_str}"
+        return mode
+
+    def _serialize_messages_event(
+        self, data: Any, namespace: tuple | None
+    ) -> str:
+        chunk, metadata = data
+        serialized_chunk = _serialize_lc_message(chunk)
+        if namespace:
+            metadata = {**(metadata or {}), "langgraph_checkpoint_ns": "|".join(namespace)}
+        return _encode_lg_sse(
+            self._event_name("messages", namespace),
+            [serialized_chunk, metadata],
+        )
+
+    def _serialize_values_event(
+        self, data: Any, namespace: tuple | None
+    ) -> str:
+        serialized_state = _serialize_state(data)
+        return _encode_lg_sse(
+            self._event_name("values", namespace), serialized_state
+        )
+
+    def _serialize_updates_event(
+        self, data: Any, namespace: tuple | None
+    ) -> str:
+        serialized = {}
+        for node_name, node_data in data.items():
+            if isinstance(node_data, dict):
+                unwrapped = {}
+                for k, v in node_data.items():
+                    # Unwrap Overwrite wrapper (used by deep agents)
+                    if isinstance(v, Overwrite):
+                        v = v.value
+                    if k == "messages":
+                        if not isinstance(v, list):
+                            v = [v]
+                        v = [
+                            _serialize_lc_message(m)
+                            if isinstance(m, BaseMessage)
+                            else m
+                            for m in v
+                        ]
+                    unwrapped[k] = v
+                serialized[node_name] = unwrapped
+            else:
+                serialized[node_name] = node_data
+        return _encode_lg_sse(
+            self._event_name("updates", namespace), serialized
+        )
+
+    async def stream(
+        self, langchain_stream: AsyncIterator[Any]
+    ) -> AsyncGenerator[str, None]:
+        try:
+            async for event in langchain_stream:
+                if self._subgraphs:
+                    # With subgraphs=True: (namespace_tuple, mode, data)
+                    namespace, mode, data = event
+                    namespace = namespace or None
+                else:
+                    # Without subgraphs: (mode, data)
+                    mode, data = event[0], event[1]
+                    namespace = None
+
+                if mode == "messages":
+                    yield self._serialize_messages_event(data, namespace)
+                elif mode == "values":
+                    yield self._serialize_values_event(data, namespace)
+                elif mode == "updates":
+                    yield self._serialize_updates_event(data, namespace)
+
+        except Exception as e:
+            logger.exception("Stream processing error")
+            yield _encode_lg_sse("error", {"message": str(e), "status_code": 500})
+
+
 class SlackStreamAdapter:
     """Converts a LangGraph stream to typed Slack event dicts.
 
@@ -264,9 +453,7 @@ class SlackStreamAdapter:
                     yield event
         except Exception as e:
             body = getattr(e, "body", None)
-            msg = (
-                body.get("message") if isinstance(body, dict) else None
-            ) or str(e)
+            msg = (body.get("message") if isinstance(body, dict) else None) or str(e)
             yield {"type": "error", "content": msg}
 
     def _process(self, chunk: dict[str, Any]) -> list[dict[str, Any]]:

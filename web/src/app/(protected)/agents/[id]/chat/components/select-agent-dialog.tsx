@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Search } from "lucide-react";
 
@@ -10,45 +10,34 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import type { Agent } from "@/types/agents";
-import { api } from "@/lib/api/client";
+import { useAgentsStore } from "@/stores/agents-store";
 
 interface SelectAgentDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	onAgentSelect?: (agent: Agent) => void;
 }
 
 export function SelectAgentDialog({
 	open,
 	onOpenChange,
+	onAgentSelect,
 }: SelectAgentDialogProps) {
 	const router = useRouter();
 	const [searchQuery, setSearchQuery] = useState("");
-	const [agents, setAgents] = useState<Agent[]>([]);
+	const agents = useAgentsStore((state) => state.agents);
 
-	useEffect(() => {
-		if (open) {
-			api
-				.get(`/agents`)
-				.then((res) => res.data)
-				.then((data) => {
-					setAgents(
-						data.filter((agent: Agent) => agent.currentUserPermission !== null),
-					);
-				});
-			setTimeout(() => {
-				setSearchQuery("");
-			}, 0);
-		}
-	}, [open]);
-
-	const handleSelectAgent = (agentId: string) => {
+	const handleSelectAgent = (agent: Agent) => {
+		onAgentSelect?.(agent);
 		onOpenChange(false);
-		router.push(`/agents/${agentId}/chat`);
+		router.push(`/agents/${agent.id}/chat`);
 	};
 
-	const filteredAgents = agents.filter((agent) =>
-		agent.name.toLowerCase().includes(searchQuery.toLowerCase()),
-	);
+	const filteredAgents = agents
+		.filter((agent) => agent.currentUserPermission !== null)
+		.filter((agent) =>
+			agent.name.toLowerCase().includes(searchQuery.toLowerCase()),
+		);
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
@@ -72,7 +61,7 @@ export function SelectAgentDialog({
 						<div
 							key={agent.id}
 							className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted cursor-pointer transition-colors border border-transparent hover:border-border"
-							onClick={() => handleSelectAgent(agent.id)}
+							onClick={() => handleSelectAgent(agent)}
 						>
 							<span className="text-2xl">{agent.emoji || "🤖"}</span>
 							<span className="font-medium text-sm">{agent.name}</span>

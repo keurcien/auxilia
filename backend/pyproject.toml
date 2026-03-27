@@ -29,8 +29,8 @@ dependencies = [
     "aiohttp>=3.13.3",
     "langfuse>=3.14.1",
     "h2>=4.3.0",
-    "deepagents>=0.4.4",
     "langchain-ai-sdk-adapter",
+    "deepagents>=0.4.12",
 ]
 
 [dependency-groups]

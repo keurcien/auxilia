@@ -30,10 +30,12 @@ class AgentRepository:
 
         if user_id and not is_workspace_admin:
             query = (
-                select(AgentDB, AgentMCPServerBindingDB,
-                       AgentUserPermissionDB.permission)
+                select(
+                    AgentDB, AgentMCPServerBindingDB, AgentUserPermissionDB.permission
+                )
                 .outerjoin(
-                    AgentMCPServerBindingDB, AgentDB.id == AgentMCPServerBindingDB.agent_id
+                    AgentMCPServerBindingDB,
+                    AgentDB.id == AgentMCPServerBindingDB.agent_id,
                 )
                 .outerjoin(
                     AgentUserPermissionDB,
@@ -46,7 +48,8 @@ class AgentRepository:
             query = (
                 select(AgentDB, AgentMCPServerBindingDB)
                 .outerjoin(
-                    AgentMCPServerBindingDB, AgentDB.id == AgentMCPServerBindingDB.agent_id
+                    AgentMCPServerBindingDB,
+                    AgentDB.id == AgentMCPServerBindingDB.agent_id,
                 )
                 .order_by(AgentDB.created_at.asc())
             )
@@ -69,46 +72,9 @@ class AgentRepository:
         await self.db.refresh(agent)
         return agent
 
-    async def delete(self, agent: AgentDB) -> None:
-        await self.db.delete(agent)
-        await self.db.commit()
-
-    async def get_binding(
-        self, agent_id: UUID, server_id: UUID
-    ) -> AgentMCPServerBindingDB | None:
-        result = await self.db.execute(
-            select(AgentMCPServerBindingDB).where(
-                AgentMCPServerBindingDB.agent_id == agent_id,
-                AgentMCPServerBindingDB.mcp_server_id == server_id,
-            )
-        )
-        return result.scalar_one_or_none()
-
-    async def create_binding(
-        self, agent_id: UUID, server_id: UUID
-    ) -> AgentMCPServerBindingDB:
-        db_binding = AgentMCPServerBindingDB(
-            agent_id=agent_id,
-            mcp_server_id=server_id,
-            tools=None,
-        )
-        self.db.add(db_binding)
-        await self.db.commit()
-        await self.db.refresh(db_binding)
-        return db_binding
-
-    async def update_binding(
-        self, binding: AgentMCPServerBindingDB, data: dict
-    ) -> AgentMCPServerBindingDB:
-        for key, value in data.items():
-            setattr(binding, key, value)
-        self.db.add(binding)
-        await self.db.commit()
-        await self.db.refresh(binding)
-        return binding
-
-    async def delete_binding(self, binding: AgentMCPServerBindingDB) -> None:
-        await self.db.delete(binding)
+    async def archive(self, agent: AgentDB) -> None:
+        agent.is_archived = True
+        self.db.add(agent)
         await self.db.commit()
 
     async def get_permissions(self, agent_id: UUID) -> list[AgentUserPermissionDB]:
