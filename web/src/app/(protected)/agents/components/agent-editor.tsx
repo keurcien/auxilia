@@ -4,11 +4,14 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
 import { useTheme } from "next-themes";
-import { MoreVertical, Trash2, ShieldCheck, ArrowRight } from "lucide-react";
+import { MoreVertical, ShieldCheck, ArrowRight, ArchiveIcon } from "lucide-react";
 import { Agent } from "@/types/agents";
 import AgentMCPServerList from "../[id]/components/agent-mcp-server-list";
+import AgentSubagentList from "../[id]/components/agent-subagent-list";
 import { api } from "@/lib/api/client";
 import { useAgentsStore } from "@/stores/agents-store";
+import { useThreadsStore } from "@/stores/threads-store";
+import { useUserStore } from "@/stores/user-store";
 import { Button } from "@/components/ui/button";
 import {
 	DropdownMenu,
@@ -27,6 +30,9 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 	const { resolvedTheme } = useTheme();
 	const updateAgent = useAgentsStore((state) => state.updateAgent);
 	const removeAgent = useAgentsStore((state) => state.removeAgent);
+	const markAgentArchived = useThreadsStore((state) => state.markAgentArchived);
+	const user = useUserStore((state) => state.user);
+	const isAdmin = user?.role === "admin";
 
 	const liveAgent = useAgentsStore(
 		(state) => state.agents.find((a) => a.id === agent.id) ?? agent,
@@ -97,7 +103,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 	const handleDeleteAgent = async () => {
 		if (
 			!confirm(
-				"Are you sure you want to delete this agent? This action cannot be undone.",
+				"Are you sure you want to archive this agent?",
 			)
 		) {
 			return;
@@ -106,6 +112,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 		try {
 			await api.delete(`/agents/${agent.id}`);
 			removeAgent(agent.id);
+			markAgentArchived(agent.id);
 			router.push("/agents");
 		} catch (error) {
 			console.error("Error deleting agent:", error);
@@ -253,8 +260,8 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 								className="text-destructive focus:text-destructive cursor-pointer"
 								onClick={handleDeleteAgent}
 							>
-								<Trash2 className="size-4 text-destructive" />
-								<span>Delete agent</span>
+								<ArchiveIcon className="size-4 text-destructive" />
+								<span>Archive agent</span>
 							</DropdownMenuItem>
 						</DropdownMenuContent>
 					</DropdownMenu>
@@ -298,7 +305,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 					</div>
 				</div>
 
-				<div className="h-full w-full md:w-1/2 p-6 flex flex-col min-h-0">
+				<div className="h-full w-full md:w-1/2 p-6 flex flex-col min-h-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 					<AgentMCPServerList
 						agent={liveAgent}
 						onSaving={() => setSaveStatus("saving")}
@@ -310,6 +317,19 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 							);
 						}}
 					/>
+					{isAdmin && (
+						<AgentSubagentList
+							agent={liveAgent}
+							onSaving={() => setSaveStatus("saving")}
+							onSaved={() => {
+								if (savingTimerRef.current) clearTimeout(savingTimerRef.current);
+								savingTimerRef.current = setTimeout(
+									() => setSaveStatus("saved"),
+									400,
+								);
+							}}
+						/>
+					)}
 				</div>
 			</div>
 

@@ -4,11 +4,19 @@ import re
 import time
 from dataclasses import dataclass
 
+from deepagents.backends import StateBackend
+from deepagents.middleware.subagents import CompiledSubAgent, SubAgentMiddleware
 from langchain.agents import create_agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware
 from langchain_ai_sdk_adapter import to_lc_messages
 from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import (
+    AIMessage as LCAIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage as LCToolMessage,
+)
 from langchain_core.tools import Tool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -16,14 +24,18 @@ from langgraph.types import Command
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from app.agents.core.service import AgentService
 from app.agents.hitl import (
     extract_approved_tool_call_ids,
     extract_commands,
     extract_rejected_tool_calls,
 )
-from app.agents.service import AgentService
 from app.agents.settings import agent_settings
-from app.agents.stream import AISDKStreamAdapter, SlackStreamAdapter
+from app.agents.stream import (
+    AISDKStreamAdapter,
+    LangGraphStreamAdapter,
+    SlackStreamAdapter,
+)
 from app.database import get_psycopg_conn_string
 from app.integrations.langfuse.callback import langfuse_callback_handler
 from app.mcp.client.factory import MCPClientConfigFactory
@@ -202,6 +214,7 @@ class AgentRuntime:
         self.thread = thread
         self.tools = None
         self.tool_ui_metadata: dict[str, dict[str, str]] = {}
+        self.subagent_configs: list[dict] = []
         self.db = db
         self._deps = deps
         self._timer = timer or RequestTimer("invoke", enabled=False)
@@ -323,7 +336,9 @@ class AgentRuntime:
 
     async def initialize(self):
         async with self._timer.aspan("read_agent"):
-            self.config = await AgentService(self.db).get_agent(self.thread.agent_id)
+            self.config = await AgentService(self.db).get_agent(
+                self.thread.agent_id, include_archived=True
+            )
 
         async with self._timer.aspan("fetch_mcp_servers"):
             result = await self.db.execute(
@@ -357,6 +372,57 @@ class AgentRuntime:
                 name_map.get(tool_name, tool_name): metadata
                 for tool_name, metadata in raw_tool_ui_metadata.items()
             }
+
+        # Load subagent configs + tools if this agent has subagents
+        if self.config.subagents:
+            async with self._timer.aspan("load_subagents"):
+                self.subagent_configs = await self._load_subagent_configs()
+
+    async def _load_subagent_configs(self) -> list[dict]:
+        """Load each subagent's config metadata (no tools yet — those are loaded at stream time)."""
+        configs = []
+        for sub in self.config.subagents:
+            sub_config = await AgentService(self.db).get_agent(
+                sub.id, include_archived=True
+            )
+
+            # Resolve MCP server objects for later tool loading
+            sub_mcp_server_ids = [s.id for s in sub_config.mcp_servers]
+            sub_mcp_servers = []
+            if sub_mcp_server_ids:
+                result = await self.db.execute(
+                    select(MCPServerDB).where(MCPServerDB.id.in_(sub_mcp_server_ids))
+                )
+                sub_mcp_servers = list(result.scalars().all())
+
+            configs.append(
+                {
+                    "name": sub_config.name,
+                    "description": sub_config.description or sub_config.name,
+                    "instructions": sub_config.instructions or "",
+                    "mcp_servers": sub_mcp_servers,
+                    "mcp_server_bindings": sub_config.mcp_servers,
+                }
+            )
+        return configs
+
+    async def _load_subagent_tools(self, sub_cfg: dict) -> list[Tool]:
+        """Fetch MCP tools for a subagent. Must be called within the streaming context."""
+        mcp_servers = sub_cfg["mcp_servers"]
+        if not mcp_servers:
+            return []
+
+        mcp_configs = await self.build_multi_mcp_server_configs(mcp_servers)
+        tool_settings = {
+            next(s.name for s in mcp_servers if s.id == ms.id): ms.tools
+            for ms in sub_cfg["mcp_server_bindings"]
+        }
+        always_allowed, need_approval = await self.get_tools(mcp_configs, tool_settings)
+        sub_tools = always_allowed + need_approval
+        _sanitize_tools_in_place(sub_tools)
+        for tool in sub_tools:
+            wrap_mcp_tool_errors(tool)
+        return sub_tools
 
     async def stream(
         self,
@@ -556,3 +622,176 @@ class AgentRuntime:
                 self._timer.record("stream_total", time.perf_counter() - _stream_t0)
         finally:
             self._timer.summary()
+
+    async def stream_langgraph(
+        self,
+        input: dict | None = None,
+        command: dict | None = None,
+        trigger: str | None = None,
+        config_overrides: dict | None = None,
+    ):
+        """Stream using the native LangGraph SSE protocol.
+
+        Subgraph events are always streamed so the frontend SDK can track
+        subagent lifecycle (status, messages, results) when present.
+
+        Args:
+            input: Graph input dict (e.g. {"messages": [{"type": "human", ...}]}) or None for resume.
+            command: LangGraph Command dict (e.g. {"resume": {...}}) for HITL resume.
+            trigger: Optional trigger ("regenerate-message") for regeneration.
+            config_overrides: Optional config dict with configurable overrides (e.g. checkpoint_id).
+        """
+        try:
+            _checkpointer_t0 = time.perf_counter()
+            async with AsyncPostgresSaver.from_conn_string(
+                get_psycopg_conn_string()
+            ) as checkpointer:
+                self._timer.record(
+                    "checkpointer_setup", time.perf_counter() - _checkpointer_t0
+                )
+
+                async with self._timer.aspan("model_and_agent_build"):
+                    model_provider = await self.get_model_provider(self.thread.model_id)
+                    chat_model = self._deps.model_factory.create(
+                        model_provider.name,
+                        self.thread.model_id,
+                        model_provider.api_key,
+                    )
+
+                    tools = self.tools[0] + self.tools[1]
+                    need_approval_tools = self.tools[1]
+
+                    for tool in tools:
+                        wrap_mcp_tool_errors(tool)
+                        if tool.name in self.tool_ui_metadata:
+                            inject_ui_metadata_into_tool(
+                                tool, self.tool_ui_metadata[tool.name]
+                            )
+
+                    system_prompt = {
+                        "type": "text",
+                        "text": self.config.instructions or "",
+                    }
+
+                    middlewares = [
+                        HumanInTheLoopMiddleware(
+                            interrupt_on={
+                                tool.name: True for tool in need_approval_tools
+                            },
+                            description_prefix="Tool execution pending approval",
+                        )
+                    ]
+
+                    # if model_provider.name == "anthropic":
+                    #     middlewares.append(
+                    #         AnthropicPromptCachingMiddleware(ttl="5m"))
+
+                    # Build SubAgentMiddleware when subagents are configured
+                    if self.subagent_configs:
+                        compiled_subagents = []
+                        for sub_cfg in self.subagent_configs:
+                            sub_tools = await self._load_subagent_tools(sub_cfg)
+                            sub_system_prompt = SystemMessage(
+                                content=[
+                                    {"type": "text", "text": sub_cfg["instructions"]}
+                                ]
+                            )
+                            sub_agent = create_agent(
+                                model=chat_model,
+                                tools=sub_tools,
+                                system_prompt=sub_system_prompt,
+                            )
+                            # Sanitize name to a valid identifier for the LLM
+                            slug = _sanitize_tool_name(sub_cfg["name"])
+                            compiled_subagents.append(
+                                CompiledSubAgent(
+                                    name=slug,
+                                    description=f'{sub_cfg["name"]}: {sub_cfg["description"]}',
+                                    runnable=sub_agent,
+                                )
+                            )
+                        middlewares.append(
+                            SubAgentMiddleware(
+                                backend=StateBackend,
+                                subagents=compiled_subagents,
+                            )
+                        )
+
+                    agent = create_agent(
+                        model=chat_model,
+                        tools=tools,
+                        system_prompt=SystemMessage(content=[system_prompt]),
+                        checkpointer=checkpointer,
+                        middleware=middlewares,
+                    )
+
+                # Determine stream input
+                if command is not None:
+                    stream_input = Command(resume=command.get("resume"))
+                else:
+                    lc_messages = _dicts_to_lc_messages(
+                        input.get("messages", []) if input else []
+                    )
+                    stream_input = {"messages": lc_messages}
+
+                # Build config
+                config = self.stream_config
+                if config_overrides and config_overrides.get("configurable"):
+                    # Allow frontend to pass checkpoint_id for regeneration
+                    config["configurable"].update(config_overrides["configurable"])
+
+                if trigger == "regenerate-message":
+                    checkpoint_id = await get_regeneration_checkpoint_id(agent, config)
+                    if checkpoint_id:
+                        config["configurable"]["checkpoint_id"] = checkpoint_id
+
+                langchain_stream = agent.astream(
+                    stream_input,
+                    config=config,
+                    stream_mode=["messages", "values", "updates"],
+                    subgraphs=True,
+                )
+
+                adapter = LangGraphStreamAdapter(subgraphs=True)
+                _first_chunk = True
+                _stream_t0 = time.perf_counter()
+                async for chunk in adapter.stream(langchain_stream):
+                    if _first_chunk:
+                        self._timer.record(
+                            "time_to_first_chunk", time.perf_counter() - _stream_t0
+                        )
+                        _first_chunk = False
+                    yield chunk
+                self._timer.record("stream_total", time.perf_counter() - _stream_t0)
+        finally:
+            self._timer.summary()
+
+
+def _dicts_to_lc_messages(dicts: list[dict]) -> list[BaseMessage]:
+    """Convert message dicts (LangChain format) to LangChain BaseMessage objects."""
+    messages: list[BaseMessage] = []
+    for d in dicts:
+        msg_type = d.get("type", d.get("role", "human"))
+        content = d.get("content", "")
+        msg_id = d.get("id")
+
+        if msg_type in ("human", "user"):
+            messages.append(HumanMessage(content=content, id=msg_id))
+        elif msg_type in ("ai", "assistant"):
+            kwargs: dict = {"content": content, "id": msg_id}
+            if d.get("tool_calls"):
+                kwargs["tool_calls"] = d["tool_calls"]
+            messages.append(LCAIMessage(**kwargs))
+        elif msg_type == "tool":
+            messages.append(
+                LCToolMessage(
+                    content=content,
+                    tool_call_id=d.get("tool_call_id", ""),
+                    id=msg_id,
+                )
+            )
+        elif msg_type == "system":
+            messages.append(SystemMessage(content=content, id=msg_id))
+        else:
+            messages.append(HumanMessage(content=content, id=msg_id))
+    return messages

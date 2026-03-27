@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, ListTree } from "lucide-react";
 import { Agent, AgentPermission } from "@/types/agents";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import {
@@ -145,6 +145,16 @@ export default function AgentCard({ agent }: AgentCardProps) {
 				<p className="text-[13.5px] leading-relaxed text-muted-foreground line-clamp-3 min-h-[4.5em]">
 					{agent.description || "No description provided."}
 				</p>
+				<span
+					className={`inline-flex items-center gap-1.5 self-start px-2.5 py-1 rounded-full text-xs font-medium ${
+						agent.subagents?.length > 0
+							? "bg-muted text-muted-foreground"
+							: "invisible"
+					}`}
+				>
+					<ListTree className="w-3.5 h-3.5" />
+					{agent.subagents?.length || 0} subagent{(agent.subagents?.length || 0) > 1 ? "s" : ""}
+				</span>
 			</div>
 
 			<Dialog open={open} onOpenChange={setOpen}>
@@ -185,6 +195,25 @@ export default function AgentCard({ agent }: AgentCardProps) {
 										height={24}
 										className="shrink-0 rounded-md"
 									/>
+								))}
+							</div>
+						</div>
+					)}
+
+					{agent.subagents?.length > 0 && (
+						<div>
+							<p className="text-xs font-bold text-muted-foreground mb-1">
+								Subagents
+							</p>
+							<div className="flex flex-wrap gap-2">
+								{agent.subagents.map((sub) => (
+									<div
+										key={sub.id}
+										className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-muted text-xs font-medium"
+									>
+										<span className="text-sm">{sub.emoji || "🤖"}</span>
+										<span className="text-muted-foreground">{sub.name}</span>
+									</div>
 								))}
 							</div>
 						</div>

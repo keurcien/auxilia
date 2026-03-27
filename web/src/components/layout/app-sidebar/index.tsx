@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+	ArchiveIcon,
 	Bot,
 	Server,
 	SquarePen,
@@ -162,8 +163,17 @@ export function AppSidebar() {
 														{thread.firstMessageContent}
 													</div>
 													<div className="text-xs text-muted-foreground truncate flex items-center gap-1">
-														<Bot className="size-3 shrink-0" />
-														{thread.agentName}
+														{thread.agentArchived ? (
+															<>
+																<ArchiveIcon className="size-3 shrink-0" />
+																Archived agent
+															</>
+														) : (
+															<>
+																<Bot className="size-3 shrink-0" />
+																{thread.agentName}
+															</>
+														)}
 													</div>
 												</div>
 												{/* Check for a dot in the thread ID. If it exists, it means the thread was initiated in Slack. But need refactor this to use the thread type instead.*/}

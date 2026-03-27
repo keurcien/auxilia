@@ -7,6 +7,7 @@ interface ThreadsState {
 	fetchThreads: () => Promise<void>;
 	addThread: (thread: Thread) => void;
 	removeThread: (threadId: string) => void;
+	markAgentArchived: (agentId: string) => void;
 }
 
 export const useThreadsStore = create<ThreadsState>((set) => ({
@@ -24,5 +25,13 @@ export const useThreadsStore = create<ThreadsState>((set) => ({
 	removeThread: (threadId) =>
 		set((state) => ({
 			threads: state.threads.filter((thread) => thread.id !== threadId),
+		})),
+	markAgentArchived: (agentId) =>
+		set((state) => ({
+			threads: state.threads.map((thread) =>
+				thread.agentId === agentId
+					? { ...thread, agentArchived: true, agentName: null }
+					: thread,
+			),
 		})),
 }));
