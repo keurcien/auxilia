@@ -68,16 +68,11 @@ import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { usePendingMessageStore } from "@/stores/pending-message-store";
 import { useAgentReadiness } from "@/hooks/use-agent-readiness";
 import {
-	getMcpAppToolInfo,
-	getToolOutputText,
-	McpAppWidget,
-} from "../components/mcp-app-widget";
-import { useMcpAppExportMetadataStore } from "@/stores/mcp-app-export-metadata-store";
-import { useChatHeaderStore } from "@/stores/chat-header-store";
-import {
 	McpAppWidget,
 	type McpAppToolInfo,
 } from "../components/mcp-app-widget";
+import { useMcpAppExportMetadataStore } from "@/stores/mcp-app-export-metadata-store";
+import { useChatHeaderStore } from "@/stores/chat-header-store";
 
 // ---------------------------------------------------------------------------
 // Helpers for extracting content from LangChain messages
@@ -597,7 +592,7 @@ const ChatPage = () => {
 		};
 
 		initializeChat();
-	}, [threadId, setMessages, sendMessage, consumePendingMessage, setCurrentChat]);
+	}, [threadId, consumePendingMessage, setCurrentChat]);
 
 	return (
 		<div className="h-full flex flex-col w-full overflow-hidden">
@@ -792,168 +787,52 @@ const ChatPage = () => {
 																	/>
 																)}
 															</ToolContentInner>
-															{/* HITL Approval UI */}
-															{toolState ===
-																"approval-requested" && (
-																<ToolFooter>
-																	<Button
-																		variant="default"
-																		className="cursor-pointer"
-																		onClick={handleApprove}
-																	>
-																		<CopyIcon className="size-3" />
-																	</MessageAction>
-																</MessageActions>
-															)}
-													</Fragment>
-												);
-											case "reasoning":
-												// Check if this specific reasoning part is still being streamed
-												// This should be true only when this reasoning part is actively being written to
-												const isReasoningStreaming =
-													status === "streaming" &&
-													messageIndex === messages.length - 1 &&
-													i === message.parts.length - 1;
-
-												return (
-													<Reasoning
-														key={`${message.id}-${i}`}
-														className="w-full"
-														isStreaming={isReasoningStreaming}
-													>
-														<ReasoningTrigger />
-														<ReasoningContent>{part.text}</ReasoningContent>
-													</Reasoning>
-												);
-											default:
-												if (part.type.startsWith("tool-")) {
-													const toolPart = part as ToolUIPart;
-													const { serverName, toolName } = getToolMetadata(
-														part.type,
-														knownServerNames,
-													);
-													const appToolInfo = getMcpAppToolInfo(toolPart);
-
-													return (
-														<Fragment key={`${message.id}-${i}`}>
-															<Tool toolState={toolPart.state}>
-																<ToolHeader
-																	title={toolName}
-																	type={toolPart.type}
-																	state={toolPart.state}
-																	approval={toolPart.approval}
-																	mcpServerName={serverName}
-																	mcpServerIcon={
-																		mcpServers.find(
-																			(server) => server.name === serverName,
-																		)?.iconUrl
-																	}
-																/>
-																<ToolContent>
-																	<ToolContentInner>
-																		{toolPart.input !== undefined && (
-																			<ToolInput input={toolPart.input} />
-																		)}
-																		{/* Show output, error, or optimistic rejection message */}
-																		{(toolPart.output ||
-																			toolPart.errorText ||
-																			toolPart.state === "input-available" ||
-																			toolPart.state === "input-streaming" ||
-																			(toolPart.state ===
-																				"approval-responded" &&
-																				toolPart.approval?.approved ===
-																					false)) && (
-																			<ToolOutput
-																				output={
-																					getToolOutputText(
-																						toolPart.output,
-																					) as React.ReactNode
-																				}
-																				errorText={
-																					toolPart.errorText ||
-																					(toolPart.state ===
-																						"approval-responded" &&
-																					toolPart.approval?.approved === false
-																						? "Tool execution was rejected by user"
-																						: undefined)
-																				}
-																			/>
-																		)}
-																	</ToolContentInner>
-																	{/* Tool Approval UI */}
-																	{toolPart.state === "approval-requested" && (
-																		<ToolFooter>
-																			<Button
-																				variant="default"
-																				className="cursor-pointer"
-																				onClick={() => {
-																					addToolApprovalResponse({
-																						id: toolPart.approval.id,
-																						approved: true,
-																					});
-																				}}
-																			>
-																				Approve
-																			</Button>
-																			<Button
-																				variant="ghost"
-																				className="cursor-pointer"
-																				onClick={() => {
-																					addToolApprovalResponse({
-																						id: toolPart.approval.id,
-																						approved: false,
-																					});
-																				}}
-																			>
-																				Reject
-																			</Button>
-																		</ToolFooter>
-																	)}
-																</ToolContent>
-															</Tool>
-															{appToolInfo && (
+																{/* HITL Approval UI */}
+																{toolState ===
+																	"approval-requested" && (
+																	<ToolFooter>
+																		<Button
+																			variant="default"
+																			className="cursor-pointer"
+																			onClick={handleApprove}
+																		>
+																			Approve
+																		</Button>
+																		<Button
+																			variant="ghost"
+																			className="cursor-pointer"
+																			onClick={handleReject}
+																		>
+																			Reject
+																		</Button>
+																	</ToolFooter>
+																)}
+															</ToolContent>
+														</Tool>
+														{(() => {
+															const appToolInfo = getMcpAppInfoFromToolCall(tc);
+															if (!appToolInfo) return null;
+															return (
 																<McpAppWidget
-																	toolPart={toolPart}
+																	input={tc.call.args}
+																	output={output}
+																	errorText={
+																		tc.state === "error" && tc.result
+																			? typeof tc.result.content === "string"
+																				? tc.result.content
+																				: "Tool execution failed"
+																			: undefined
+																	}
 																	toolName={toolName}
 																	appToolInfo={appToolInfo}
 																	threadId={threadId}
-																	messageId={message.id}
-																	toolCallId={toolPart.toolCallId}
+																	messageId={message.id ?? `${messageIndex}`}
+																	toolCallId={tc.id}
 																/>
-																		Approve
-																	</Button>
-																	<Button
-																		variant="ghost"
-																		className="cursor-pointer"
-																		onClick={handleReject}
-																	>
-																		Reject
-																	</Button>
-																</ToolFooter>
-															)}
-														</ToolContent>
-													</Tool>
-													{(() => {
-														const appToolInfo = getMcpAppInfoFromToolCall(tc);
-														if (!appToolInfo) return null;
-														return (
-															<McpAppWidget
-																input={tc.call.args}
-																output={getToolOutputContent(tc)}
-																errorText={
-																	tc.state === "error" && tc.result
-																		? typeof tc.result.content === "string"
-																			? tc.result.content
-																			: "Tool execution failed"
-																		: undefined
-																}
-																toolName={toolName}
-																appToolInfo={appToolInfo}
-															/>
-														);
-													})()}
-												</Fragment>
-											);
+															);
+														})()}
+													</Fragment>
+												);
 										})}
 
 										{/* Subagent cards */}
