@@ -74,6 +74,10 @@ import {
 } from "../components/mcp-app-widget";
 import { useMcpAppExportMetadataStore } from "@/stores/mcp-app-export-metadata-store";
 import { useChatHeaderStore } from "@/stores/chat-header-store";
+import {
+	McpAppWidget,
+	type McpAppToolInfo,
+} from "../components/mcp-app-widget";
 
 // ---------------------------------------------------------------------------
 // Helpers for extracting content from LangChain messages
@@ -276,6 +280,17 @@ function getToolRenderState(
 	// pending
 	if (isInterrupted) return "approval-requested";
 	return "input-available";
+}
+
+function getMcpAppInfoFromToolCall(tc: LocalToolCall): McpAppToolInfo | null {
+	const artifact = tc.result?.artifact;
+	if (!artifact || typeof artifact !== "object") return null;
+	const a = artifact as Record<string, unknown>;
+	// Handle both camelCase (Axios/history) and snake_case (stream)
+	const resourceUri = (a.mcpAppResourceUri ?? a.mcp_app_resource_uri) as string | undefined;
+	const serverId = (a.mcpServerId ?? a.mcp_server_id) as string | undefined;
+	if (!resourceUri || !serverId) return null;
+	return { resourceUri, serverId };
 }
 
 function getToolOutputContent(tc: LocalToolCall): unknown {
@@ -918,6 +933,25 @@ const ChatPage = () => {
 															)}
 														</ToolContent>
 													</Tool>
+													{(() => {
+														const appToolInfo = getMcpAppInfoFromToolCall(tc);
+														if (!appToolInfo) return null;
+														return (
+															<McpAppWidget
+																input={tc.call.args}
+																output={getToolOutputContent(tc)}
+																errorText={
+																	tc.state === "error" && tc.result
+																		? typeof tc.result.content === "string"
+																			? tc.result.content
+																			: "Tool execution failed"
+																		: undefined
+																}
+																toolName={toolName}
+																appToolInfo={appToolInfo}
+															/>
+														);
+													})()}
 												</Fragment>
 											);
 										})}

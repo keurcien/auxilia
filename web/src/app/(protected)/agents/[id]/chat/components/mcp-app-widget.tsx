@@ -2,7 +2,6 @@
 
 import { useMemo } from "react";
 import { AppRenderer } from "@mcp-ui/client";
-import type { ToolUIPart } from "ai";
 import { api } from "@/lib/api/client";
 import {
 	DOWNLOAD_FILE_METHOD,
@@ -18,6 +17,7 @@ import {
 } from "@/stores/mcp-app-export-metadata-store";
 import { cn } from "@/lib/utils";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { useMcpHostContext } from "@/hooks/use-mcp-host-context";
 
 export type McpAppToolInfo = {
 	resourceUri: string;
@@ -25,7 +25,9 @@ export type McpAppToolInfo = {
 };
 
 type McpAppWidgetProps = {
-	toolPart: ToolUIPart;
+	input?: Record<string, unknown>;
+	output?: unknown;
+	errorText?: string;
 	toolName: string;
 	appToolInfo: McpAppToolInfo;
 	threadId: string;
@@ -34,65 +36,16 @@ type McpAppWidgetProps = {
 	className?: string;
 };
 
-const AUXILIA_METADATA_KEY = "auxilia";
-const MCP_APP_RESOURCE_URI_KEY = "mcpAppResourceUri";
-const MCP_SERVER_ID_KEY = "mcpServerId";
-
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null;
-
-export const getMcpAppToolInfo = (
-	toolPart: ToolUIPart,
-): McpAppToolInfo | null => {
-	const providerMetadata = toolPart.callProviderMetadata;
-	if (!isRecord(providerMetadata)) {
-		return null;
-	}
-
-	const auxiliaMetadata = providerMetadata[AUXILIA_METADATA_KEY];
-	if (!isRecord(auxiliaMetadata)) {
-		return null;
-	}
-
-	const resourceUri = auxiliaMetadata[MCP_APP_RESOURCE_URI_KEY];
-	const serverId = auxiliaMetadata[MCP_SERVER_ID_KEY];
-
-	if (
-		typeof resourceUri !== "string" ||
-		typeof serverId !== "string" ||
-		resourceUri.trim().length === 0 ||
-		serverId.trim().length === 0
-	) {
-		return null;
-	}
-
-	return {
-		resourceUri,
-		serverId,
-	};
-};
-
-const toToolInput = (input: unknown): Record<string, unknown> | undefined => {
-	if (input === undefined || input === null) {
-		return undefined;
-	}
-
-	if (typeof input === "object" && !Array.isArray(input)) {
-		return input as Record<string, unknown>;
-	}
-
-	return { value: input };
-};
 
 const stringifyToolOutput = (value: unknown): string => {
 	if (value === undefined || value === null) {
 		return "";
 	}
-
 	if (typeof value === "string") {
 		return value;
 	}
-
 	try {
 		return JSON.stringify(value, null, 2);
 	} catch {
@@ -102,42 +55,38 @@ const stringifyToolOutput = (value: unknown): string => {
 
 const hasStructuredContent = (
 	output: unknown,
-): output is { _text: unknown; structuredContent: Record<string, unknown> } =>
+): output is { structuredContent: Record<string, unknown> } =>
 	isRecord(output) &&
 	"structuredContent" in output &&
 	isRecord(output.structuredContent);
 
-export const getToolOutputText = (output: unknown): unknown => {
-	if (hasStructuredContent(output)) {
-		return output._text;
-	}
-	return output;
-};
-
-const toCallToolResult = (toolPart: ToolUIPart): CallToolResult | undefined => {
-	if (toolPart.output === undefined && !toolPart.errorText) {
+const toCallToolResult = (
+	output: unknown,
+	errorText: string | undefined,
+): CallToolResult | undefined => {
+	if (output === undefined && !errorText) {
 		return undefined;
 	}
 
-	const isError = Boolean(toolPart.errorText);
-	const rawOutput = toolPart.output;
-	const textOutput = getToolOutputText(rawOutput);
-	const text = toolPart.errorText ?? stringifyToolOutput(textOutput);
+	const isError = Boolean(errorText);
+	const text = errorText ?? stringifyToolOutput(output);
 
 	const result: CallToolResult = {
 		content: text ? [{ type: "text", text }] : [],
 		isError,
 	};
 
-	if (hasStructuredContent(rawOutput)) {
-		result.structuredContent = rawOutput.structuredContent;
+	if (hasStructuredContent(output)) {
+		result.structuredContent = output.structuredContent;
 	}
 
 	return result;
 };
 
 export const McpAppWidget = ({
-	toolPart,
+	input,
+	output,
+	errorText,
 	toolName,
 	appToolInfo,
 	threadId,
@@ -145,6 +94,7 @@ export const McpAppWidget = ({
 	toolCallId,
 	className,
 }: McpAppWidgetProps) => {
+	const hostContext = useMcpHostContext();
 	const sandboxConfig = useMemo(
 		() => ({ url: new URL("/sandbox.html", window.location.origin) }),
 		[],
@@ -173,8 +123,9 @@ export const McpAppWidget = ({
 				toolName={toolName}
 				toolResourceUri={appToolInfo.resourceUri}
 				sandbox={sandboxConfig}
-				toolInput={toToolInput(toolPart.input)}
-				toolResult={toCallToolResult(toolPart)}
+				hostContext={hostContext}
+				toolInput={input}
+				toolResult={toCallToolResult(output, errorText)}
 				onReadResource={async ({ uri }) => {
 					const response = await api.post(
 						`/mcp-servers/${appToolInfo.serverId}/app/read-resource`,
