@@ -2,18 +2,12 @@
 
 Converts LangGraph astream(stream_mode=["messages", "values"]) output to:
 - LangGraph native SSE events (LangGraphStreamAdapter)
-- AI SDK v5 SSE strings (AISDKStreamAdapter)
 - Slack typed event dicts (SlackStreamAdapter)
-
-The library handles core stream conversion (text, reasoning, tool events,
-HITL interrupts). A thin wrapper adds auxilia-specific features:
-messageId, providerMetadata, resume/HITL, output normalization.
 """
 
 import dataclasses
 import json
 import logging
-import uuid
 from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Any
 
@@ -23,38 +17,6 @@ from langgraph.types import Overwrite
 
 
 logger = logging.getLogger(__name__)
-
-SSE_DONE = "data: [DONE]\n\n"
-
-
-def _encode_sse(chunk: dict[str, Any]) -> str:
-    return f"data: {json.dumps(chunk)}\n\n"
-
-
-def _make_tool_signature(name: str, args: Any) -> str:
-    """Deterministic content signature for matching tool calls across resume."""
-    if isinstance(args, str):
-        try:
-            args = json.loads(args) if args else {}
-        except (json.JSONDecodeError, TypeError):
-            args = {"raw": args}
-    return f"{name}:{json.dumps(args or {}, sort_keys=True)}"
-
-
-def _get_provider_metadata(
-    tool_name: str,
-    tool_ui_metadata: dict[str, dict[str, str]] | None,
-) -> dict[str, dict[str, str]] | None:
-    if not tool_ui_metadata:
-        return None
-    meta = tool_ui_metadata.get(tool_name)
-    if not meta:
-        return None
-    uri = meta.get("mcp_app_resource_uri")
-    sid = meta.get("mcp_server_id")
-    if not uri or not sid:
-        return None
-    return {"auxilia": {"mcpAppResourceUri": uri, "mcpServerId": sid}}
 
 
 def _normalize_tool_output(output: Any) -> Any:
@@ -92,156 +54,6 @@ def _normalize_raw_tool_output(output: Any) -> Any:
         except (json.JSONDecodeError, TypeError):
             pass
     return output
-
-
-# Event types to filter out (library-specific, not in AI SDK v5 protocol)
-_STRIP_EVENTS = frozenset({"start-step", "finish-step"})
-
-# Tool events that can carry providerMetadata
-_TOOL_META_EVENTS = frozenset({"tool-input-start", "tool-input-available"})
-
-
-class AISDKStreamAdapter:
-    """Converts a LangGraph stream to AI SDK v5 SSE.
-
-    Uses langchain-ai-sdk-adapter for core conversion (text, reasoning, tool
-    events, HITL interrupts, structured content), then wraps the output with
-    auxilia-specific features (messageId, providerMetadata, resume/HITL logic).
-    """
-
-    def __init__(
-        self,
-        message_id: str | None = None,
-        is_resume: bool = False,
-        rejected_tool_calls: list[dict] | None = None,
-        approved_tool_call_ids: list[str] | None = None,
-        approved_tool_calls: list[dict] | None = None,
-        tool_ui_metadata: dict[str, dict[str, str]] | None = None,
-    ):
-        self._message_id = message_id or str(uuid.uuid4())
-        self._rejected_tool_calls = rejected_tool_calls or []
-
-        # Pre-approved IDs: explicit approvals + rejections (both already handled)
-        self._pre_approved_ids: set[str] = set(approved_tool_call_ids or [])
-        self._pre_approved_ids.update(
-            r["toolCallId"] for r in self._rejected_tool_calls
-        )
-
-        # Signature → original_tool_call_id for content-based matching on resume
-        self._pre_approved_signatures: dict[str, str] = {}
-        for call in approved_tool_calls or []:
-            name = call.get("toolName") or ""
-            args = call.get("input") or {}
-            tc_id = call.get("toolCallId") or ""
-            if name and tc_id:
-                self._pre_approved_signatures[_make_tool_signature(name, args)] = tc_id
-
-        self._tool_ui_metadata = tool_ui_metadata or {}
-        self._approval_pending = False
-
-    async def stream(
-        self, langchain_stream: AsyncIterator[Any]
-    ) -> AsyncGenerator[str, None]:
-        try:
-            async for chunk in to_ui_message_stream(langchain_stream):
-                for sse in self._process(chunk):
-                    yield sse
-        except Exception as e:
-            logger.exception("Stream processing error")
-            yield _encode_sse(
-                {
-                    "type": "error",
-                    "errorText": f"Stream processing error: {str(e)}",
-                }
-            )
-
-        for event in self._finish():
-            yield event
-
-    def _process(self, chunk: dict[str, Any]) -> list[str]:
-        event_type = chunk.get("type")
-
-        if event_type in _STRIP_EVENTS:
-            return []
-
-        if event_type == "start":
-            chunk["messageId"] = self._message_id
-            events = [_encode_sse(chunk)]
-            # Replay rejection results at stream start
-            for r in self._rejected_tool_calls:
-                events.append(
-                    _encode_sse(
-                        {
-                            "type": "tool-output-error",
-                            "toolCallId": r["toolCallId"],
-                            "errorText": r.get(
-                                "reason",
-                                "Tool execution was rejected by user",
-                            ),
-                        }
-                    )
-                )
-            return events
-
-        if event_type == "finish":
-            return []  # handled by _finish()
-
-        # ── Tool input events ──────────────────────────────────────────
-        if event_type in (
-            "tool-input-start",
-            "tool-input-delta",
-            "tool-input-available",
-        ):
-            tc_id = chunk.get("toolCallId")
-            tool_name = chunk.get("toolName")
-
-            # Suppress pre-approved tools (by ID)
-            if tc_id in self._pre_approved_ids:
-                return []
-
-            # Suppress pre-approved tools (by content signature)
-            if event_type == "tool-input-available" and tool_name:
-                sig = _make_tool_signature(tool_name, chunk.get("input"))
-                if sig in self._pre_approved_signatures:
-                    self._pre_approved_ids.add(tc_id)
-                    return []
-
-            # Strip library-specific field
-            chunk.pop("dynamic", None)
-
-            # Inject providerMetadata
-            if tool_name and event_type in _TOOL_META_EVENTS:
-                pm = _get_provider_metadata(tool_name, self._tool_ui_metadata)
-                if pm:
-                    chunk["providerMetadata"] = pm
-
-            return [_encode_sse(chunk)]
-
-        # ── Tool output ────────────────────────────────────────────────
-        if event_type == "tool-output-available":
-            chunk["output"] = _normalize_tool_output(chunk.get("output"))
-            return [_encode_sse(chunk)]
-
-        if event_type == "tool-output-error":
-            return [_encode_sse(chunk)]
-
-        # ── Tool approval ──────────────────────────────────────────────
-        if event_type == "tool-approval-request":
-            tc_id = chunk.get("toolCallId")
-            if tc_id in self._pre_approved_ids:
-                return []
-            self._approval_pending = True
-            return [_encode_sse(chunk)]
-
-        # ── Everything else (text-start, text-delta, text-end, etc.) ──
-        return [_encode_sse(chunk)]
-
-    def _finish(self) -> list[str]:
-        events = []
-        if not self._approval_pending:
-            events.append(_encode_sse({"type": "finish"}))
-        events.append(SSE_DONE)
-        return events
 
 
 # ---------------------------------------------------------------------------
@@ -357,29 +169,24 @@ class LangGraphStreamAdapter:
             return f"{mode}|{ns_str}"
         return mode
 
-    def _serialize_messages_event(
-        self, data: Any, namespace: tuple | None
-    ) -> str:
+    def _serialize_messages_event(self, data: Any, namespace: tuple | None) -> str:
         chunk, metadata = data
         serialized_chunk = _serialize_lc_message(chunk)
         if namespace:
-            metadata = {**(metadata or {}), "langgraph_checkpoint_ns": "|".join(namespace)}
+            metadata = {
+                **(metadata or {}),
+                "langgraph_checkpoint_ns": "|".join(namespace),
+            }
         return _encode_lg_sse(
             self._event_name("messages", namespace),
             [serialized_chunk, metadata],
         )
 
-    def _serialize_values_event(
-        self, data: Any, namespace: tuple | None
-    ) -> str:
+    def _serialize_values_event(self, data: Any, namespace: tuple | None) -> str:
         serialized_state = _serialize_state(data)
-        return _encode_lg_sse(
-            self._event_name("values", namespace), serialized_state
-        )
+        return _encode_lg_sse(self._event_name("values", namespace), serialized_state)
 
-    def _serialize_updates_event(
-        self, data: Any, namespace: tuple | None
-    ) -> str:
+    def _serialize_updates_event(self, data: Any, namespace: tuple | None) -> str:
         serialized = {}
         for node_name, node_data in data.items():
             if isinstance(node_data, dict):
@@ -401,9 +208,7 @@ class LangGraphStreamAdapter:
                 serialized[node_name] = unwrapped
             else:
                 serialized[node_name] = node_data
-        return _encode_lg_sse(
-            self._event_name("updates", namespace), serialized
-        )
+        return _encode_lg_sse(self._event_name("updates", namespace), serialized)
 
     async def stream(
         self, langchain_stream: AsyncIterator[Any]

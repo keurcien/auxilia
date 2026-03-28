@@ -5,13 +5,12 @@
 # are routed to the configured agent.
 
 import httpx
-from langchain.messages import HumanMessage
 from slack_sdk.web.async_client import AsyncWebClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from app.agents.runtime import AgentRuntime, build_agent_deps
 from app.agents.core.service import AgentService
+from app.agents.runtime import AgentRuntime
 from app.auth.settings import auth_settings
 from app.database import AsyncSessionLocal
 from app.integrations.slack.blocks import build_tool_approval_blocks
@@ -64,8 +63,8 @@ async def _stream_and_collect_approvals(
     agent_runtime: AgentRuntime,
     streamer,
     *,
-    messages: list | None = None,
-    commands: list[str] | None = None,
+    input: dict | None = None,
+    command: dict | None = None,
 ) -> list[dict]:
     """Stream the agent response, forwarding text to the streamer.
 
@@ -74,14 +73,9 @@ async def _stream_and_collect_approvals(
     """
     approval_requests: list[dict] = []
 
-    stream_kwargs: dict = {"stream_adapter": "slack"}
-    if commands is not None:
-        stream_kwargs["messages"] = []
-        stream_kwargs["commands"] = commands
-    else:
-        stream_kwargs["messages"] = messages or []
-
-    async for ev in agent_runtime.stream(**stream_kwargs):
+    async for ev in agent_runtime.stream(
+        input=input, command=command, stream_adapter="slack",
+    ):
         if ev["type"] == "text":
             await streamer.append(markdown_text=ev["content"])
         elif ev["type"] == "tool_start":
@@ -239,12 +233,11 @@ async def stream_agent_response(
     )
     thread_ts = event.thread_ts or event.ts
 
-    deps = build_agent_deps(thread, db)
-    agent_runtime = await AgentRuntime.create(thread=thread, db=db, deps=deps)
+    agent_runtime = await AgentRuntime.build(thread=thread, db=db)
 
     approval_requests = await _stream_and_collect_approvals(
         agent_runtime, streamer,
-        messages=[HumanMessage(content=question)],
+        input={"messages": [{"type": "human", "content": question}]},
     )
 
     for req in approval_requests:
@@ -510,8 +503,7 @@ async def _resume_agent(
             channel_id=channel_id, thread_ts=thread_ts, status="is typing...",
         )
 
-        deps = build_agent_deps(thread, db)
-        agent_runtime = await AgentRuntime.create(thread=thread, db=db, deps=deps)
+        agent_runtime = await AgentRuntime.build(thread=thread, db=db)
 
         streamer = await client.chat_stream(
             channel=channel_id,
@@ -520,7 +512,8 @@ async def _resume_agent(
         )
 
         approval_requests = await _stream_and_collect_approvals(
-            agent_runtime, streamer, commands=commands,
+            agent_runtime, streamer,
+            command={"resume": {"decisions": [{"type": cmd} for cmd in commands]}},
         )
 
         for req in approval_requests:
