@@ -15,6 +15,7 @@ export type McpAppToolInfo = {
 type McpAppWidgetProps = {
 	input?: Record<string, unknown>;
 	output?: unknown;
+	structuredContent?: Record<string, unknown>;
 	errorText?: string;
 	toolName: string;
 	appToolInfo: McpAppToolInfo;
@@ -48,8 +49,9 @@ const hasStructuredContent = (
 const toCallToolResult = (
 	output: unknown,
 	errorText: string | undefined,
+	structuredContent?: Record<string, unknown>,
 ): CallToolResult | undefined => {
-	if (output === undefined && !errorText) {
+	if (output === undefined && !errorText && !structuredContent) {
 		return undefined;
 	}
 
@@ -61,7 +63,9 @@ const toCallToolResult = (
 		isError,
 	};
 
-	if (hasStructuredContent(output)) {
+	if (structuredContent) {
+		result.structuredContent = structuredContent;
+	} else if (hasStructuredContent(output)) {
 		result.structuredContent = output.structuredContent;
 	}
 
@@ -71,6 +75,7 @@ const toCallToolResult = (
 export const McpAppWidget = ({
 	input,
 	output,
+	structuredContent,
 	errorText,
 	toolName,
 	appToolInfo,
@@ -99,7 +104,7 @@ export const McpAppWidget = ({
 				sandbox={sandboxConfig}
 				hostContext={hostContext}
 				toolInput={input}
-				toolResult={toCallToolResult(output, errorText)}
+				toolResult={toCallToolResult(output, errorText, structuredContent)}
 				onReadResource={async ({ uri }) => {
 					const response = await api.post(
 						`/mcp-servers/${appToolInfo.serverId}/app/read-resource`,
