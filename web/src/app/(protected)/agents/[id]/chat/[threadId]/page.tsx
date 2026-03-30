@@ -287,6 +287,16 @@ function getMcpAppInfoFromToolCall(tc: LocalToolCall): McpAppToolInfo | null {
 	return { resourceUri, serverId };
 }
 
+function getStructuredContentFromToolCall(tc: LocalToolCall): Record<string, unknown> | undefined {
+	const artifact = tc.result?.artifact;
+	if (!artifact || typeof artifact !== "object") return undefined;
+	const a = artifact as Record<string, unknown>;
+	// Handle both camelCase (Axios/history) and snake_case (stream/langchain-mcp-adapters)
+	const sc = a.structuredContent ?? a.structured_content;
+	if (sc && typeof sc === "object") return sc as Record<string, unknown>;
+	return undefined;
+}
+
 function getToolOutputContent(tc: LocalToolCall): unknown {
 	if (!tc.result) return undefined;
 	const content = tc.result.content;
@@ -812,6 +822,7 @@ const ChatPage = () => {
 															<McpAppWidget
 																input={tc.call.args}
 																output={getToolOutputContent(tc)}
+																structuredContent={getStructuredContentFromToolCall(tc)}
 																errorText={
 																	tc.state === "error" && tc.result
 																		? typeof tc.result.content === "string"
