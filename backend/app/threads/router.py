@@ -5,17 +5,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.agents.models import AgentDB
-from app.agents.runtime import AgentRuntime, build_agent_deps
-from app.agents.settings import agent_settings
+from app.agents.runtime import AgentRuntime
 from app.agents.stream import _serialize_lc_message
 from app.auth.dependencies import get_current_user
 from app.database import get_db, get_psycopg_conn_string
-from app.models.message import Message
 from app.threads.models import ThreadCreate, ThreadDB, ThreadRead
 from app.threads.serialization import deserialize_to_ui_messages
 from app.threads.service import get_thread
 from app.users.models import UserDB
-from app.utils.timer import RequestTimer
 
 
 router = APIRouter(prefix="/threads", tags=["threads"])
@@ -145,34 +142,6 @@ async def delete_thread(thread_id: str, db: AsyncSession = Depends(get_db)) -> N
     await db.commit()
 
 
-@router.post("/{thread_id}/invoke")
-async def invoke(
-    thread=Depends(get_thread),
-    messages: list[Message] = Body(..., embed=True),
-    messageId: str | None = Body(None, embed=True),
-    trigger: str | None = Body(None, embed=True),
-    user_id: str = Depends(get_current_user),
-    db=Depends(get_db),
-):
-    timer = RequestTimer("invoke", enabled=agent_settings.invoke_profiling)
-    deps = build_agent_deps(thread, db)
-    agent_runtime = await AgentRuntime.create(
-        thread=thread, db=db, deps=deps, timer=timer
-    )
-
-    return StreamingResponse(
-        agent_runtime.stream(messages, message_id=messageId, trigger=trigger),
-        media_type="text/plain",
-        headers={
-            "x-vercel-ai-ui-message-stream": "v1",
-            "Cache-Control": "no-cache, no-transform",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-            "Content-Type": "text/plain; charset=utf-8",
-        },
-    )
-
-
 @router.post("/{thread_id}/runs/stream")
 async def run_stream(
     thread=Depends(get_thread),
@@ -184,11 +153,7 @@ async def run_stream(
     db=Depends(get_db),
 ):
     """LangGraph native streaming endpoint for @langchain/langgraph-sdk useStream."""
-    timer = RequestTimer("invoke", enabled=agent_settings.invoke_profiling)
-    deps = build_agent_deps(thread, db)
-    agent_runtime = await AgentRuntime.create(
-        thread=thread, db=db, deps=deps, timer=timer
-    )
+    runtime = await AgentRuntime.build(thread=thread, db=db)
 
     # Extract trigger from config.configurable if provided
     trigger = None
@@ -201,7 +166,7 @@ async def run_stream(
             config_overrides = config
 
     return StreamingResponse(
-        agent_runtime.stream_langgraph(
+        runtime.stream(
             input=input,
             command=command,
             trigger=trigger,
