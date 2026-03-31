@@ -6,7 +6,7 @@ from sqlmodel import select
 from app.agents.models import (
     AgentCreate,
     AgentDB,
-    AgentMCPServerBindingDB,
+    AgentMCPServerDB,
     AgentPermissionWrite,
     AgentUserPermissionDB,
 )
@@ -31,11 +31,11 @@ class AgentRepository:
         if user_id and not is_workspace_admin:
             query = (
                 select(
-                    AgentDB, AgentMCPServerBindingDB, AgentUserPermissionDB.permission
+                    AgentDB, AgentMCPServerDB, AgentUserPermissionDB.permission
                 )
                 .outerjoin(
-                    AgentMCPServerBindingDB,
-                    AgentDB.id == AgentMCPServerBindingDB.agent_id,
+                    AgentMCPServerDB,
+                    AgentDB.id == AgentMCPServerDB.agent_id,
                 )
                 .outerjoin(
                     AgentUserPermissionDB,
@@ -46,10 +46,10 @@ class AgentRepository:
             )
         else:
             query = (
-                select(AgentDB, AgentMCPServerBindingDB)
+                select(AgentDB, AgentMCPServerDB)
                 .outerjoin(
-                    AgentMCPServerBindingDB,
-                    AgentDB.id == AgentMCPServerBindingDB.agent_id,
+                    AgentMCPServerDB,
+                    AgentDB.id == AgentMCPServerDB.agent_id,
                 )
                 .order_by(AgentDB.created_at.asc())
             )

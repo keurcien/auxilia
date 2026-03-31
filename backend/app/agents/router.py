@@ -3,16 +3,19 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 
 from app.agents.core.service import AgentService, get_agent_service
-from app.agents.mcp_servers.service import MCPBindingService, get_mcp_binding_service
+from app.agents.mcp_servers.service import (
+    AgentMCPServerService,
+    get_agent_mcp_server_service,
+)
 from app.agents.models import (
     AgentCreate,
-    AgentMCPServerBindingCreate,
-    AgentMCPServerBindingRead,
-    AgentMCPServerBindingUpdate,
+    AgentMCPServerCreate,
+    AgentMCPServerRead,
+    AgentMCPServerUpdate,
     AgentPermissionRead,
     AgentPermissionWrite,
     AgentRead,
-    AgentSubagentBindingRead,
+    AgentSubagentRead,
     AgentUpdate,
 )
 from app.agents.subagents.service import SubagentService, get_subagent_service
@@ -98,77 +101,77 @@ async def set_agent_permissions(
 
 @router.post(
     "/{agent_id}/mcp-servers/{server_id}",
-    response_model=AgentMCPServerBindingRead,
+    response_model=AgentMCPServerRead,
     status_code=201,
 )
-async def create_or_update_binding(
+async def create_or_update_mcp_server(
     agent_id: UUID,
     server_id: UUID,
-    binding: AgentMCPServerBindingCreate,
+    data: AgentMCPServerCreate,
     current_user: UserDB = Depends(get_current_user),
-    service: MCPBindingService = Depends(get_mcp_binding_service),
-) -> AgentMCPServerBindingRead:
-    return await service.create_or_update_binding(
-        agent_id, server_id, binding, str(current_user.id)
+    service: AgentMCPServerService = Depends(get_agent_mcp_server_service),
+) -> AgentMCPServerRead:
+    return await service.create_or_update(
+        agent_id, server_id, data, str(current_user.id)
     )
 
 
 @router.patch(
-    "/{agent_id}/mcp-servers/{server_id}", response_model=AgentMCPServerBindingRead
+    "/{agent_id}/mcp-servers/{server_id}", response_model=AgentMCPServerRead
 )
-async def update_binding(
+async def update_mcp_server(
     agent_id: UUID,
     server_id: UUID,
-    binding_update: AgentMCPServerBindingUpdate,
-    service: MCPBindingService = Depends(get_mcp_binding_service),
-) -> AgentMCPServerBindingRead:
-    return await service.update_binding(agent_id, server_id, binding_update)
+    data: AgentMCPServerUpdate,
+    service: AgentMCPServerService = Depends(get_agent_mcp_server_service),
+) -> AgentMCPServerRead:
+    return await service.update(agent_id, server_id, data)
 
 
 @router.delete("/{agent_id}/mcp-servers/{server_id}", status_code=204)
-async def delete_binding(
+async def delete_mcp_server(
     agent_id: UUID,
     server_id: UUID,
-    service: MCPBindingService = Depends(get_mcp_binding_service),
+    service: AgentMCPServerService = Depends(get_agent_mcp_server_service),
 ) -> None:
-    await service.delete_binding(agent_id, server_id)
+    await service.delete(agent_id, server_id)
 
 
 @router.post(
     "/{agent_id}/mcp-servers/{server_id}/sync-tools",
-    response_model=AgentMCPServerBindingRead,
+    response_model=AgentMCPServerRead,
 )
 async def sync_tools(
     agent_id: UUID,
     server_id: UUID,
     current_user: UserDB = Depends(get_current_user),
-    service: MCPBindingService = Depends(get_mcp_binding_service),
-) -> AgentMCPServerBindingRead:
+    service: AgentMCPServerService = Depends(get_agent_mcp_server_service),
+) -> AgentMCPServerRead:
     return await service.sync_tools(agent_id, server_id, str(current_user.id))
 
 
 @router.post(
     "/{agent_id}/subagents/{subagent_id}",
-    response_model=AgentSubagentBindingRead,
+    response_model=AgentSubagentRead,
     status_code=201,
 )
-async def create_subagent_binding(
+async def create_subagent(
     agent_id: UUID,
     subagent_id: UUID,
     _: UserDB = Depends(require_admin),
     service: SubagentService = Depends(get_subagent_service),
-) -> AgentSubagentBindingRead:
-    return await service.create_binding(agent_id, subagent_id)
+) -> AgentSubagentRead:
+    return await service.create(agent_id, subagent_id)
 
 
 @router.delete("/{agent_id}/subagents/{subagent_id}", status_code=204)
-async def delete_subagent_binding(
+async def delete_subagent(
     agent_id: UUID,
     subagent_id: UUID,
     _: UserDB = Depends(require_admin),
     service: SubagentService = Depends(get_subagent_service),
 ) -> None:
-    await service.delete_binding(agent_id, subagent_id)
+    await service.delete(agent_id, subagent_id)
 
 
 @router.get("/{agent_id}/is-ready")

@@ -40,7 +40,7 @@ export default function AgentMCPServerList({
 	};
 
 	const enabledServers = useMemo(() => {
-		const enabledIds = new Set(agent.mcpServers?.map((s) => s.id) || []);
+		const enabledIds = new Set(agent.mcpServers?.map((s) => s.mcpServerId) || []);
 		return allMCPServers.filter((server) => enabledIds.has(server.id));
 	}, [allMCPServers, agent.mcpServers]);
 

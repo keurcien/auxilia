@@ -3,47 +3,47 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from app.agents.models import AgentMCPServerBindingDB
+from app.agents.models import AgentMCPServerDB
 
 
-class MCPBindingRepository:
+class MCPServerRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def get_binding(
+    async def get(
         self, agent_id: UUID, server_id: UUID
-    ) -> AgentMCPServerBindingDB | None:
+    ) -> AgentMCPServerDB | None:
         result = await self.db.execute(
-            select(AgentMCPServerBindingDB).where(
-                AgentMCPServerBindingDB.agent_id == agent_id,
-                AgentMCPServerBindingDB.mcp_server_id == server_id,
+            select(AgentMCPServerDB).where(
+                AgentMCPServerDB.agent_id == agent_id,
+                AgentMCPServerDB.mcp_server_id == server_id,
             )
         )
         return result.scalar_one_or_none()
 
-    async def create_binding(
+    async def create(
         self, agent_id: UUID, server_id: UUID
-    ) -> AgentMCPServerBindingDB:
-        db_binding = AgentMCPServerBindingDB(
+    ) -> AgentMCPServerDB:
+        db_link = AgentMCPServerDB(
             agent_id=agent_id,
             mcp_server_id=server_id,
             tools=None,
         )
-        self.db.add(db_binding)
+        self.db.add(db_link)
         await self.db.commit()
-        await self.db.refresh(db_binding)
-        return db_binding
+        await self.db.refresh(db_link)
+        return db_link
 
-    async def update_binding(
-        self, binding: AgentMCPServerBindingDB, data: dict
-    ) -> AgentMCPServerBindingDB:
+    async def update(
+        self, link: AgentMCPServerDB, data: dict
+    ) -> AgentMCPServerDB:
         for key, value in data.items():
-            setattr(binding, key, value)
-        self.db.add(binding)
+            setattr(link, key, value)
+        self.db.add(link)
         await self.db.commit()
-        await self.db.refresh(binding)
-        return binding
+        await self.db.refresh(link)
+        return link
 
-    async def delete_binding(self, binding: AgentMCPServerBindingDB) -> None:
-        await self.db.delete(binding)
+    async def delete(self, link: AgentMCPServerDB) -> None:
+        await self.db.delete(link)
         await self.db.commit()

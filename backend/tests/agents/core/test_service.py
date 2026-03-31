@@ -9,7 +9,7 @@ from app.agents.core.service import AgentService
 from app.agents.models import (
     AgentCreate,
     AgentDB,
-    AgentMCPServerBindingDB,
+    AgentMCPServerDB,
     AgentRead,
     AgentUpdate,
     PermissionLevel,
@@ -50,7 +50,7 @@ def mock_subagent_service():
     svc = MagicMock()
     svc.load_subagents = AsyncMock(return_value=[])
     svc.load_all_subagent_data = AsyncMock(return_value=({}, set()))
-    svc.delete_all_bindings_for_agent = AsyncMock()
+    svc.delete_all_for_agent = AsyncMock()
     svc.repository = MagicMock()
     svc.repository.is_subagent = AsyncMock(return_value=False)
     return svc
@@ -203,7 +203,7 @@ async def test_get_agent_includes_mcp_servers_from_bindings(service, mock_db):
     agent = make_agent()
     server_id = uuid4()
     tools = {"search": ToolStatus.always_allow}
-    binding = AgentMCPServerBindingDB(
+    binding = AgentMCPServerDB(
         id=uuid4(),
         agent_id=agent.id,
         mcp_server_id=server_id,
@@ -216,7 +216,7 @@ async def test_get_agent_includes_mcp_servers_from_bindings(service, mock_db):
     result = await service.get_agent(agent.id)
 
     assert len(result.mcp_servers) == 1
-    assert result.mcp_servers[0].id == server_id
+    assert result.mcp_servers[0].mcp_server_id == server_id
     assert result.mcp_servers[0].tools == tools
 
 
@@ -253,11 +253,11 @@ async def test_list_agents_returns_one_per_agent(service, mock_db):
 
 async def test_list_agents_deduplicates_multiple_bindings_per_agent(service, mock_db):
     agent = make_agent()
-    binding1 = AgentMCPServerBindingDB(
+    binding1 = AgentMCPServerDB(
         id=uuid4(), agent_id=agent.id, mcp_server_id=uuid4(),
         tools=None, created_at=datetime.now(), updated_at=datetime.now(),
     )
-    binding2 = AgentMCPServerBindingDB(
+    binding2 = AgentMCPServerDB(
         id=uuid4(), agent_id=agent.id, mcp_server_id=uuid4(),
         tools=None, created_at=datetime.now(), updated_at=datetime.now(),
     )
@@ -377,7 +377,7 @@ async def test_delete_agent_delegates_to_repository(service, mock_repo, mock_sub
     await service.delete_agent(agent.id)
 
     mock_repo.get.assert_awaited_once_with(agent.id)
-    mock_subagent_service.delete_all_bindings_for_agent.assert_awaited_once_with(agent.id)
+    mock_subagent_service.delete_all_for_agent.assert_awaited_once_with(agent.id)
     mock_repo.archive.assert_awaited_once_with(agent)
 
 
@@ -409,7 +409,7 @@ async def test_check_ready_returns_ready_when_no_mcp_servers(service, mock_db):
 async def test_check_ready_returns_not_configured_when_tools_is_none(service, mock_db):
     agent = make_agent()
     server_id = uuid4()
-    binding = AgentMCPServerBindingDB(
+    binding = AgentMCPServerDB(
         id=uuid4(),
         agent_id=agent.id,
         mcp_server_id=server_id,
@@ -428,7 +428,7 @@ async def test_check_ready_returns_not_configured_when_tools_is_none(service, mo
 async def test_check_ready_returns_ready_when_all_servers_connected(service, mock_db):
     agent = make_agent()
     server_id = uuid4()
-    binding = AgentMCPServerBindingDB(
+    binding = AgentMCPServerDB(
         id=uuid4(),
         agent_id=agent.id,
         mcp_server_id=server_id,
@@ -455,7 +455,7 @@ async def test_check_ready_returns_ready_when_all_servers_connected(service, moc
 async def test_check_ready_returns_not_ready_when_server_disconnected(service, mock_db):
     agent = make_agent()
     server_id = uuid4()
-    binding = AgentMCPServerBindingDB(
+    binding = AgentMCPServerDB(
         id=uuid4(),
         agent_id=agent.id,
         mcp_server_id=server_id,
@@ -482,7 +482,7 @@ async def test_check_ready_returns_not_ready_when_server_disconnected(service, m
 async def test_check_ready_disconnected_status_label(service, mock_db):
     agent = make_agent()
     server_id = uuid4()
-    binding = AgentMCPServerBindingDB(
+    binding = AgentMCPServerDB(
         id=uuid4(),
         agent_id=agent.id,
         mcp_server_id=server_id,

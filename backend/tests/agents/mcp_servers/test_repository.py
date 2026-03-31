@@ -4,8 +4,8 @@ from uuid import uuid4
 
 import pytest
 
-from app.agents.mcp_servers.repository import MCPBindingRepository
-from app.agents.models import AgentMCPServerBindingDB
+from app.agents.mcp_servers.repository import MCPServerRepository
+from app.agents.models import AgentMCPServerDB
 
 
 @pytest.fixture
@@ -21,10 +21,10 @@ def mock_db():
 
 @pytest.fixture
 def repo(mock_db):
-    return MCPBindingRepository(mock_db)
+    return MCPServerRepository(mock_db)
 
 
-def make_binding(**kwargs):
+def make_link(**kwargs):
     defaults = dict(
         id=uuid4(),
         agent_id=uuid4(),
@@ -32,51 +32,51 @@ def make_binding(**kwargs):
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )
-    return AgentMCPServerBindingDB(**{**defaults, **kwargs})
+    return AgentMCPServerDB(**{**defaults, **kwargs})
 
 
 # ---------------------------------------------------------------------------
-# get_binding
+# get
 # ---------------------------------------------------------------------------
 
-async def test_get_binding_returns_binding(repo, mock_db):
-    binding = make_binding()
+async def test_get_returns_link(repo, mock_db):
+    link = make_link()
     mock_result = MagicMock()
-    mock_result.scalar_one_or_none.return_value = binding
+    mock_result.scalar_one_or_none.return_value = link
     mock_db.execute.return_value = mock_result
 
-    result = await repo.get_binding(binding.agent_id, binding.mcp_server_id)
+    result = await repo.get(link.agent_id, link.mcp_server_id)
 
-    assert result is binding
+    assert result is link
     mock_db.execute.assert_awaited_once()
 
 
-async def test_get_binding_returns_none_when_not_found(repo, mock_db):
+async def test_get_returns_none_when_not_found(repo, mock_db):
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = None
     mock_db.execute.return_value = mock_result
 
-    result = await repo.get_binding(uuid4(), uuid4())
+    result = await repo.get(uuid4(), uuid4())
 
     assert result is None
 
 
 # ---------------------------------------------------------------------------
-# create_binding
+# create
 # ---------------------------------------------------------------------------
 
-async def test_create_binding_creates_with_null_tools(repo, mock_db):
+async def test_create_creates_with_null_tools(repo, mock_db):
     agent_id = uuid4()
     server_id = uuid4()
 
-    result = await repo.create_binding(agent_id, server_id)
+    result = await repo.create(agent_id, server_id)
 
     mock_db.add.assert_called_once()
     mock_db.commit.assert_awaited_once()
     mock_db.refresh.assert_awaited_once()
 
     added = mock_db.add.call_args[0][0]
-    assert isinstance(added, AgentMCPServerBindingDB)
+    assert isinstance(added, AgentMCPServerDB)
     assert added.agent_id == agent_id
     assert added.mcp_server_id == server_id
     assert added.tools is None
@@ -84,39 +84,39 @@ async def test_create_binding_creates_with_null_tools(repo, mock_db):
 
 
 # ---------------------------------------------------------------------------
-# update_binding
+# update
 # ---------------------------------------------------------------------------
 
-async def test_update_binding_applies_fields(repo, mock_db):
-    binding = make_binding(tools=None)
+async def test_update_applies_fields(repo, mock_db):
+    link = make_link(tools=None)
     new_tools = {"search": "always_allow"}
 
-    result = await repo.update_binding(binding, {"tools": new_tools})
+    result = await repo.update(link, {"tools": new_tools})
 
-    assert binding.tools == new_tools
-    mock_db.add.assert_called_once_with(binding)
+    assert link.tools == new_tools
+    mock_db.add.assert_called_once_with(link)
     mock_db.commit.assert_awaited_once()
-    mock_db.refresh.assert_awaited_once_with(binding)
-    assert result is binding
+    mock_db.refresh.assert_awaited_once_with(link)
+    assert result is link
 
 
-async def test_update_binding_with_empty_dict_is_noop(repo, mock_db):
-    binding = make_binding(tools={"x": "always_allow"})
+async def test_update_with_empty_dict_is_noop(repo, mock_db):
+    link = make_link(tools={"x": "always_allow"})
 
-    await repo.update_binding(binding, {})
+    await repo.update(link, {})
 
-    assert binding.tools == {"x": "always_allow"}
+    assert link.tools == {"x": "always_allow"}
     mock_db.commit.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
-# delete_binding
+# delete
 # ---------------------------------------------------------------------------
 
-async def test_delete_binding_calls_delete_and_commits(repo, mock_db):
-    binding = make_binding()
+async def test_delete_calls_delete_and_commits(repo, mock_db):
+    link = make_link()
 
-    await repo.delete_binding(binding)
+    await repo.delete(link)
 
-    mock_db.delete.assert_awaited_once_with(binding)
+    mock_db.delete.assert_awaited_once_with(link)
     mock_db.commit.assert_awaited_once()

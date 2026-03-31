@@ -27,7 +27,7 @@ export default function AgentMCPTool({
 	onSaving,
 	onSaved,
 }: AgentMCPToolProps) {
-	const agentServer = agent.mcpServers?.find((s) => s.id === serverId);
+	const agentServer = agent.mcpServers?.find((s) => s.mcpServerId === serverId);
 
 	const getInitialStatus = (): ToolStatus => {
 		if (agentServer?.tools && toolName in agentServer.tools) {

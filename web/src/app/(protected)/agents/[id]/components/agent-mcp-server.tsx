@@ -31,7 +31,7 @@ export default function AgentMCPServer({
 	onSaved,
 }: AgentMCPServerProps) {
 	const initialAttached =
-		agent.mcpServers?.some((s) => s.id === server.id) || false;
+		agent.mcpServers?.some((s) => s.mcpServerId === server.id) || false;
 	const [isAttached, setIsAttached] = useState(initialAttached);
 	const [isExpanded, setIsExpanded] = useState(false);
 	const [tools, setTools] = useState<MCPServerTool[]>([]);
@@ -117,7 +117,7 @@ export default function AgentMCPServer({
 							setIsConnected(true);
 							setIsAttached(true);
 
-							// Sync tools to the binding (saves with always_allow)
+							// Sync tools to the agent MCP server (saves with always_allow)
 							await api.post(
 								`/agents/${agent.id}/mcp-servers/${server.id}/sync-tools`,
 							);

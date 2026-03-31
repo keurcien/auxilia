@@ -10,8 +10,8 @@ from app.agents.core.repository import AgentRepository
 from app.agents.models import (
     AgentCreate,
     AgentDB,
-    AgentMCPServer,
-    AgentMCPServerBindingDB,
+    AgentMCPServerDB,
+    AgentMCPServerRead,
     AgentPermissionWrite,
     AgentRead,
     AgentUpdate,
@@ -57,9 +57,9 @@ class AgentService:
         include_archived: bool = False,
     ) -> AgentRead:
         query = (
-            select(AgentDB, AgentMCPServerBindingDB)
+            select(AgentDB, AgentMCPServerDB)
             .outerjoin(
-                AgentMCPServerBindingDB, AgentDB.id == AgentMCPServerBindingDB.agent_id
+                AgentMCPServerDB, AgentDB.id == AgentMCPServerDB.agent_id
             )
             .where(AgentDB.id == agent_id)
         )
@@ -73,9 +73,9 @@ class AgentService:
 
         agent = rows[0][0]
         mcp_servers = [
-            AgentMCPServer(id=binding.mcp_server_id, tools=binding.tools)
-            for _, binding in rows
-            if binding is not None
+            AgentMCPServerRead.model_validate(link)
+            for _, link in rows
+            if link is not None
         ]
 
         current_user_permission = None
@@ -115,11 +115,11 @@ class AgentService:
         if user_id and not is_workspace_admin:
             query = (
                 select(
-                    AgentDB, AgentMCPServerBindingDB, AgentUserPermissionDB.permission
+                    AgentDB, AgentMCPServerDB, AgentUserPermissionDB.permission
                 )
                 .outerjoin(
-                    AgentMCPServerBindingDB,
-                    AgentDB.id == AgentMCPServerBindingDB.agent_id,
+                    AgentMCPServerDB,
+                    AgentDB.id == AgentMCPServerDB.agent_id,
                 )
                 .outerjoin(
                     AgentUserPermissionDB,
@@ -131,10 +131,10 @@ class AgentService:
             )
         else:
             query = (
-                select(AgentDB, AgentMCPServerBindingDB)
+                select(AgentDB, AgentMCPServerDB)
                 .outerjoin(
-                    AgentMCPServerBindingDB,
-                    AgentDB.id == AgentMCPServerBindingDB.agent_id,
+                    AgentMCPServerDB,
+                    AgentDB.id == AgentMCPServerDB.agent_id,
                 )
                 .where(AgentDB.is_archived == False)  # noqa: E712
                 .order_by(AgentDB.created_at.asc())
@@ -144,17 +144,17 @@ class AgentService:
         rows = result.all()
 
         agents_map: dict[UUID, AgentDB] = {}
-        bindings_map: dict[UUID, list[AgentMCPServer]] = defaultdict(list)
+        mcp_map: dict[UUID, list[AgentMCPServerRead]] = defaultdict(list)
         permissions_map: dict[UUID, str] = {}
 
         for row in rows:
             agent = row[0]
-            binding = row[1]
+            link = row[1]
             agents_map[agent.id] = agent
 
-            if binding is not None:
-                bindings_map[agent.id].append(
-                    AgentMCPServer(id=binding.mcp_server_id, tools=binding.tools)
+            if link is not None:
+                mcp_map[agent.id].append(
+                    AgentMCPServerRead.model_validate(link)
                 )
 
             if user_id and agent.owner_id == user_id:
@@ -174,7 +174,7 @@ class AgentService:
         return [
             AgentRead(
                 **agent.model_dump(),
-                mcp_servers=bindings_map.get(agent.id, []),
+                mcp_servers=mcp_map.get(agent.id, []),
                 subagents=subagents_map.get(agent.id, []),
                 is_subagent=agent.id in is_subagent_ids,
                 current_user_permission=permissions_map.get(agent.id),
@@ -193,7 +193,7 @@ class AgentService:
         agent = await self.repository.get(agent_id)
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
-        await self.subagent_service.delete_all_bindings_for_agent(agent_id)
+        await self.subagent_service.delete_all_for_agent(agent_id)
         await self.repository.archive(agent)
 
     async def get_permissions(self, agent_id: UUID) -> list[AgentUserPermissionDB]:
@@ -218,7 +218,7 @@ class AgentService:
                     "status": "not_configured",
                 }
 
-        server_ids = [s.id for s in agent.mcp_servers]
+        server_ids = [s.mcp_server_id for s in agent.mcp_servers]
         result = await self.db.execute(
             select(MCPServerDB).where(MCPServerDB.id.in_(server_ids))
         )
