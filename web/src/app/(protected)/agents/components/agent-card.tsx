@@ -79,8 +79,8 @@ export default function AgentCard({ agent }: AgentCardProps) {
 	const resolvedServers = useMemo(() => {
 		if (!agent.mcpServers) return [];
 		return agent.mcpServers.map((s) => {
-			const full = mcpServers.find((m) => m.id === s.id);
-			return { id: s.id, name: full?.name ?? s.id, iconUrl: full?.iconUrl };
+			const full = mcpServers.find((m) => m.id === s.mcpServerId);
+			return { id: s.mcpServerId, name: full?.name ?? s.mcpServerId, iconUrl: full?.iconUrl };
 		});
 	}, [agent.mcpServers, mcpServers]);
 

@@ -7,7 +7,7 @@ from sqlmodel import select
 
 from app.agents.models import (
     AgentDB,
-    AgentSubagentBindingDB,
+    AgentSubagentDB,
     SubagentRead,
 )
 from app.agents.subagents.repository import SubagentRepository
@@ -20,10 +20,10 @@ class SubagentService:
         self.repository = SubagentRepository(db)
 
     async def load_subagents(self, agent_id: UUID) -> list[SubagentRead]:
-        bindings = await self.repository.get_bindings_for_coordinator(agent_id)
-        if not bindings:
+        links = await self.repository.get_for_coordinator(agent_id)
+        if not links:
             return []
-        sub_ids = [b.subagent_id for b in bindings]
+        sub_ids = [b.subagent_id for b in links]
         result = await self.db.execute(select(AgentDB).where(AgentDB.id.in_(sub_ids)))
         agents = {a.id: a for a in result.scalars().all()}
         return [
@@ -44,15 +44,15 @@ class SubagentService:
             return {}, set()
 
         result = await self.db.execute(
-            select(AgentSubagentBindingDB).where(
-                AgentSubagentBindingDB.coordinator_id.in_(agent_ids)
-                | AgentSubagentBindingDB.subagent_id.in_(agent_ids)
+            select(AgentSubagentDB).where(
+                AgentSubagentDB.coordinator_id.in_(agent_ids)
+                | AgentSubagentDB.subagent_id.in_(agent_ids)
             )
         )
-        all_bindings = list(result.scalars().all())
+        all_links = list(result.scalars().all())
 
         referenced_ids = set()
-        for b in all_bindings:
+        for b in all_links:
             referenced_ids.add(b.coordinator_id)
             referenced_ids.add(b.subagent_id)
 
@@ -66,7 +66,7 @@ class SubagentService:
         subagents_map: dict[UUID, list[SubagentRead]] = defaultdict(list)
         is_subagent_ids: set[UUID] = set()
 
-        for b in all_bindings:
+        for b in all_links:
             if b.coordinator_id in agent_ids:
                 sub = agent_lookup.get(b.subagent_id)
                 if sub:
@@ -84,9 +84,9 @@ class SubagentService:
 
         return subagents_map, is_subagent_ids
 
-    async def create_binding(
+    async def create(
         self, coordinator_id: UUID, subagent_id: UUID
-    ) -> AgentSubagentBindingDB:
+    ) -> AgentSubagentDB:
         if coordinator_id == subagent_id:
             raise HTTPException(
                 status_code=400,
@@ -117,21 +117,21 @@ class SubagentService:
                 detail="This agent is already used as a subagent and cannot have subagents",
             )
 
-        existing = await self.repository.get_binding(coordinator_id, subagent_id)
+        existing = await self.repository.get(coordinator_id, subagent_id)
         if existing:
             return existing
 
-        return await self.repository.create_binding(coordinator_id, subagent_id)
+        return await self.repository.create(coordinator_id, subagent_id)
 
-    async def delete_binding(
+    async def delete(
         self, coordinator_id: UUID, subagent_id: UUID
     ) -> None:
-        binding = await self.repository.get_binding(coordinator_id, subagent_id)
-        if not binding:
-            raise HTTPException(status_code=404, detail="Subagent binding not found")
-        await self.repository.delete_binding(binding)
+        link = await self.repository.get(coordinator_id, subagent_id)
+        if not link:
+            raise HTTPException(status_code=404, detail="Subagent not found")
+        await self.repository.delete(link)
 
-    async def delete_all_bindings_for_agent(self, agent_id: UUID) -> None:
+    async def delete_all_for_agent(self, agent_id: UUID) -> None:
         await self.repository.delete_all_for_agent(agent_id)
 
 

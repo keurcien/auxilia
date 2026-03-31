@@ -113,7 +113,7 @@ export default function AddAgentMCPServerDialog({
 	}, [open]);
 
 	const availableServers = useMemo(() => {
-		const enabledIds = new Set(agent.mcpServers?.map((s) => s.id) || []);
+		const enabledIds = new Set(agent.mcpServers?.map((s) => s.mcpServerId) || []);
 		return allServers.filter((server) => !enabledIds.has(server.id));
 	}, [allServers, agent.mcpServers]);
 

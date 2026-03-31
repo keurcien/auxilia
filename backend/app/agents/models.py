@@ -2,7 +2,6 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel
 from sqlalchemy import UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
@@ -21,19 +20,7 @@ class ToolStatus(str, Enum):
     disabled = "disabled"
 
 
-class AgentMCPServer(BaseModel):
-    id: UUID
-    tools: dict[str, ToolStatus] | None = None
-
-
-class AgentConfig(BaseModel):
-    name: str
-    model: str
-    instructions: str
-    mcp_servers: list[AgentMCPServer]
-
-
-class AgentMCPServerBindingBase(SQLModel):
+class AgentMCPServerBase(SQLModel):
     agent_id: UUID = Field(foreign_key="agents.id", nullable=False)
     mcp_server_id: UUID = Field(foreign_key="mcp_servers.id", nullable=False)
     tools: dict[str, ToolStatus] | None = Field(
@@ -41,8 +28,8 @@ class AgentMCPServerBindingBase(SQLModel):
     )
 
 
-class AgentMCPServerBindingDB(AgentMCPServerBindingBase, table=True):
-    __tablename__ = "agent_mcp_server_bindings"
+class AgentMCPServerDB(AgentMCPServerBase, table=True):
+    __tablename__ = "agent_mcp_servers"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     created_at: datetime = Field(
@@ -62,15 +49,15 @@ class AgentMCPServerBindingDB(AgentMCPServerBindingBase, table=True):
     )
 
 
-class AgentMCPServerBindingCreate(SQLModel):
+class AgentMCPServerCreate(SQLModel):
     tools: dict[str, ToolStatus] | None = None
 
 
-class AgentMCPServerBindingUpdate(SQLModel):
+class AgentMCPServerUpdate(SQLModel):
     tools: dict[str, ToolStatus] | None = None
 
 
-class AgentMCPServerBindingRead(AgentMCPServerBindingBase):
+class AgentMCPServerRead(AgentMCPServerBase):
     id: UUID
     created_at: datetime
     updated_at: datetime
@@ -163,13 +150,13 @@ class AgentPermissionWrite(SQLModel):
     permission: PermissionLevel
 
 
-class AgentSubagentBindingDB(SQLModel, table=True):
-    __tablename__ = "agent_subagent_bindings"
+class AgentSubagentDB(SQLModel, table=True):
+    __tablename__ = "agent_subagents"
     __table_args__ = (
         UniqueConstraint(
             "coordinator_id",
             "subagent_id",
-            name="uq_agent_subagent_binding",
+            name="uq_agent_subagent",
         ),
     )
 
@@ -193,7 +180,7 @@ class AgentSubagentBindingDB(SQLModel, table=True):
     )
 
 
-class AgentSubagentBindingRead(SQLModel):
+class AgentSubagentRead(SQLModel):
     id: UUID
     coordinator_id: UUID
     subagent_id: UUID
@@ -217,7 +204,7 @@ class AgentRead(SQLModel):
     description: str | None
     created_at: datetime
     updated_at: datetime
-    mcp_servers: list[AgentMCPServer] | None = None
+    mcp_servers: list[AgentMCPServerRead] | None = None
     subagents: list[SubagentRead] | None = None
     is_subagent: bool = False
     current_user_permission: str | None = None

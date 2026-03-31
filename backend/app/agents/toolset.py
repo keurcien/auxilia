@@ -8,7 +8,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from app.agents.models import AgentMCPServer
+from app.agents.models import AgentMCPServerRead
 from app.mcp.client.factory import MCPClientConfigFactory
 from app.mcp.client.tools import inject_ui_metadata_into_tool, wrap_mcp_tool_errors
 from app.mcp.servers.models import MCPServerDB
@@ -142,16 +142,16 @@ class Toolset:
     @classmethod
     async def resolve(
         cls,
-        mcp_server_bindings: list[AgentMCPServer],
+        agent_mcp_servers: list[AgentMCPServerRead],
         db: AsyncSession,
         user_id: str,
     ) -> "Toolset":
         """Full pipeline: DB lookup -> MCP config -> fetch -> filter -> sanitize -> wrap errors -> build metadata."""
-        if not mcp_server_bindings:
+        if not agent_mcp_servers:
             return cls(tools=[])
 
         # 1. Load MCP server records from DB
-        server_ids = [s.id for s in mcp_server_bindings]
+        server_ids = [s.mcp_server_id for s in agent_mcp_servers]
         result = await db.execute(
             select(MCPServerDB).where(MCPServerDB.id.in_(server_ids))
         )
@@ -165,8 +165,8 @@ class Toolset:
 
         # 3. Build tool settings map
         tool_settings = {
-            next(s.name for s in mcp_servers if s.id == b.id): b.tools
-            for b in mcp_server_bindings
+            next(s.name for s in mcp_servers if s.id == b.mcp_server_id): b.tools
+            for b in agent_mcp_servers
         }
 
         # 4. Fetch & filter tools per server, building AgentTool objects

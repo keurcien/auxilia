@@ -3,6 +3,7 @@ import { MCPServer } from "./mcp-servers";
 export type ToolStatus = "always_allow" | "needs_approval" | "disabled";
 
 export interface AgentMCPServer extends MCPServer {
+	mcpServerId: string;
 	tools: Record<string, ToolStatus> | null;
 }
 
