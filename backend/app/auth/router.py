@@ -24,7 +24,6 @@ from app.users.models import OAuthAccountDB, UserDB, UserRead, WorkspaceRole
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-# Initialize OAuth client
 oauth = OAuth()
 if auth_settings.google_oauth_enabled:
     oauth.register(
