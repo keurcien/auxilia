@@ -172,7 +172,7 @@ const StarterChatPage = () => {
 					open={isAgentDialogOpen}
 					onOpenChange={setIsAgentDialogOpen}
 					onAgentSelect={(a) =>
-						starterAgent.set({ name: a.name, emoji: a.emoji })
+						starterAgent.set({ name: a.name, emoji: a.emoji ?? null })
 					}
 				/>
 			</div>
