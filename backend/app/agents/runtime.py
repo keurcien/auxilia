@@ -28,9 +28,7 @@ from app.agents.toolset import Toolset, sanitize_tool_name
 from app.database import get_psycopg_conn_string
 from app.integrations.langfuse.callback import langfuse_callback_handler
 from app.model_providers.catalog import LLM_PROVIDERS, MODELS, ChatModelFactory
-from app.sandbox.lazy import LazySandboxBackend
 from app.sandbox.settings import sandbox_settings
-from app.sandbox.tools import create_sandbox_tools
 from app.threads.models import ThreadDB
 
 
@@ -245,6 +243,9 @@ class AgentRuntime:
         The sandbox is not created here — the LLM calls create_sandbox or
         connect_sandbox as its first tool call, which wires the lazy backend.
         """
+        from app.sandbox.lazy import LazySandboxBackend
+        from app.sandbox.tools import create_sandbox_tools
+
         lazy_backend = LazySandboxBackend()
         sandbox_tools = create_sandbox_tools(lazy_backend)
 
