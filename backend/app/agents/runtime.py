@@ -1,8 +1,11 @@
 import logging
 from dataclasses import dataclass
 
+from deepagents import create_deep_agent
 from deepagents.backends import StateBackend
 from deepagents.middleware.subagents import CompiledSubAgent, SubAgentMiddleware
+from langchain.agents.middleware import ToolCallLimitMiddleware
+
 from langchain.agents import create_agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware
 from langchain_core.messages import (
@@ -20,10 +23,14 @@ from app.agents.core.service import AgentService
 from app.agents.models import AgentRead
 from app.agents.settings import agent_settings
 from app.agents.stream import LangGraphStreamAdapter, SlackStreamAdapter
+from app.agents.tool_errors import ToolErrorMiddleware
 from app.agents.toolset import Toolset, sanitize_tool_name
 from app.database import get_psycopg_conn_string
 from app.integrations.langfuse.callback import langfuse_callback_handler
 from app.model_providers.catalog import LLM_PROVIDERS, MODELS, ChatModelFactory
+from app.sandbox.lazy import LazySandboxBackend
+from app.sandbox.settings import sandbox_settings
+from app.sandbox.tools import create_sandbox_tools
 from app.threads.models import ThreadDB
 
 
@@ -134,6 +141,7 @@ class AgentRuntime:
 
         # Build middleware stack
         middleware = [
+            ToolCallLimitMiddleware(run_limit=2, exit_behavior="end"),
             HumanInTheLoopMiddleware(
                 interrupt_on=agent.toolset.interrupt_on,
                 description_prefix="Tool execution pending approval",
@@ -183,13 +191,16 @@ class AgentRuntime:
         async with AsyncPostgresSaver.from_conn_string(
             get_psycopg_conn_string()
         ) as checkpointer:
-            agent = create_agent(
-                model=self.model,
-                tools=self.agent.toolset.all,
-                system_prompt=SystemMessage(self.agent.config.instructions),
-                checkpointer=checkpointer,
-                middleware=self.middleware,
-            )
+            if self.agent.config.sandbox and sandbox_settings.enabled:
+                agent = self._build_deep_agent(checkpointer)
+            else:
+                agent = create_agent(
+                    model=self.model,
+                    tools=self.agent.toolset.all,
+                    system_prompt=SystemMessage(self.agent.config.instructions),
+                    checkpointer=checkpointer,
+                    middleware=self.middleware,
+                )
 
             # Determine stream input
             if command is not None:
@@ -227,6 +238,25 @@ class AgentRuntime:
 
             async for chunk in adapter.stream(langchain_stream):
                 yield chunk
+
+    def _build_deep_agent(self, checkpointer):
+        """Build a deep agent with lazy sandbox backend for code execution.
+
+        The sandbox is not created here — the LLM calls create_sandbox or
+        connect_sandbox as its first tool call, which wires the lazy backend.
+        """
+        lazy_backend = LazySandboxBackend()
+        sandbox_tools = create_sandbox_tools(lazy_backend)
+
+        return create_deep_agent(
+            model=self.model,
+            tools=[*self.agent.toolset.all, *sandbox_tools],
+            system_prompt=self.agent.config.instructions or "",
+            backend=lazy_backend,
+            interrupt_on=self.agent.toolset.interrupt_on,
+            middleware=[ToolErrorMiddleware()],
+            checkpointer=checkpointer,
+        )
 
 
 def _dicts_to_lc_messages(dicts: list[dict]) -> list[BaseMessage]:

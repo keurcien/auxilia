@@ -1,6 +1,7 @@
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import Tool
-from langchain_core.tools.base import ToolException
+
+from app.agents.tool_errors import wrap_tool_errors
 
 
 def inject_ui_metadata_into_tool(tool: Tool, ui_metadata: dict) -> None:
@@ -45,25 +46,9 @@ def inject_ui_metadata_into_tool(tool: Tool, ui_metadata: dict) -> None:
 
 
 def wrap_mcp_tool_errors(tool: Tool) -> None:
-    """Wrap a tool's coroutine in-place to convert ExceptionGroup → ToolException.
+    """Wrap a tool in-place so uncaught exceptions become ToolMessages.
 
-    anyio task groups (used by the MCP streamable-HTTP client) surface errors as
-    BaseExceptionGroup.  LangGraph's default ToolNode error handler only knows how
-    to deal with ToolInvocationError and re-raises everything else, crashing the
-    stream.  By converting the group to a plain ToolException here, BaseTool.arun
-    catches it (because handle_tool_error=True) and returns the message as a
-    regular tool result, keeping the stream alive.
+    Delegates to the generic ``wrap_tool_errors`` helper which handles both
+    sync/async and unwraps BaseExceptionGroup chains.
     """
-    original_coroutine = tool.coroutine
-
-    async def safe_coroutine(*args, **kwargs):
-        try:
-            return await original_coroutine(*args, **kwargs)
-        except BaseExceptionGroup as eg:
-            inner: BaseException = eg.exceptions[0] if eg.exceptions else eg
-            while isinstance(inner, BaseExceptionGroup) and inner.exceptions:
-                inner = inner.exceptions[0]
-            raise ToolException(str(inner)) from inner
-
-    tool.coroutine = safe_coroutine
-    tool.handle_tool_error = True
+    wrap_tool_errors(tool)

@@ -23,6 +23,7 @@ export interface Agent {
 	ownerId: string;
 	emoji?: string | null;
 	description?: string | null;
+	sandbox: boolean;
 	mcpServers: AgentMCPServer[];
 	subagents: SubagentInfo[];
 	isSubagent: boolean;

@@ -82,6 +82,10 @@ class AgentDB(AgentBase, table=True):
         default=False,
         sa_column=Column(Boolean, nullable=False, server_default="false"),
     )
+    sandbox: bool = Field(
+        default=False,
+        sa_column=Column(Boolean, nullable=False, server_default="false"),
+    )
     created_at: datetime = Field(
         default=None,
         sa_column=Column(
@@ -104,6 +108,7 @@ class AgentCreate(SQLModel):
     instructions: str
     owner_id: UUID
     emoji: str | None = None
+    sandbox: bool = False
 
 
 class AgentUpdate(SQLModel):
@@ -111,6 +116,7 @@ class AgentUpdate(SQLModel):
     instructions: str | None = None
     emoji: str | None = None
     description: str | None = None
+    sandbox: bool | None = None
 
 
 class AgentUserPermissionDB(SQLModel, table=True):
@@ -202,6 +208,7 @@ class AgentRead(SQLModel):
     owner_id: UUID
     emoji: str | None
     description: str | None
+    sandbox: bool
     created_at: datetime
     updated_at: datetime
     mcp_servers: list[AgentMCPServerRead] | None = None

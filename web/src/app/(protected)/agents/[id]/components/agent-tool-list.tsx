@@ -6,21 +6,22 @@ import { MCPServer } from "@/types/mcp-servers";
 import { Agent } from "@/types/agents";
 import { Button } from "@/components/ui/button";
 import AgentMCPServer from "./agent-mcp-server";
-import AddAgentMCPServerDialog from "./add-agent-mcp-server-dialog";
+import AgentCodeExecution from "./agent-code-execution";
+import AddAgentToolDialog from "./add-agent-tool-dialog";
 import { api } from "@/lib/api/client";
 import { useAgentsStore } from "@/stores/agents-store";
 
-interface AgentMCPServerListProps {
+interface AgentToolListProps {
 	agent: Agent;
 	onSaving?: () => void;
 	onSaved?: () => void;
 }
 
-export default function AgentMCPServerList({
+export default function AgentToolList({
 	agent: initialAgent,
 	onSaving,
 	onSaved,
-}: AgentMCPServerListProps) {
+}: AgentToolListProps) {
 	const updateAgent = useAgentsStore((state) => state.updateAgent);
 	const [allMCPServers, setAllMCPServers] = useState<MCPServer[]>([]);
 	const [agent, setAgent] = useState<Agent>(initialAgent);
@@ -44,6 +45,8 @@ export default function AgentMCPServerList({
 		return allMCPServers.filter((server) => enabledIds.has(server.id));
 	}, [allMCPServers, agent.mcpServers]);
 
+	const hasTools = agent.sandbox || enabledServers.length > 0;
+
 	return (
 		<div className="flex flex-col min-h-0">
 			<div className="flex items-center justify-between mb-2 shrink-0">
@@ -55,33 +58,44 @@ export default function AgentMCPServerList({
 					onClick={() => setDialogOpen(true)}
 				>
 					<Plus className="w-4 h-4 mr-1" />
-					Add MCP Server
+					Add tool
 				</Button>
 			</div>
 			<div className="flex-1 overflow-y-auto rounded-lg border min-h-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-				{enabledServers.length > 0 ? (
-					enabledServers.map((server) => (
-						<AgentMCPServer
-							key={server.id}
-							agent={agent}
-							server={server}
-							onUpdate={refreshAgent}
-							onSaving={onSaving}
-							onSaved={onSaved}
-						/>
-					))
+				{hasTools ? (
+					<>
+						{agent.sandbox && (
+							<AgentCodeExecution
+								agent={agent}
+								onUpdate={refreshAgent}
+								onSaving={onSaving}
+								onSaved={onSaved}
+							/>
+						)}
+						{enabledServers.map((server) => (
+							<AgentMCPServer
+								key={server.id}
+								agent={agent}
+								server={server}
+								onUpdate={refreshAgent}
+								onSaving={onSaving}
+								onSaved={onSaved}
+							/>
+						))}
+					</>
 				) : (
 					<div className="p-4 text-sm text-muted-foreground text-center">
-						No enabled MCP servers
+						No tools enabled
 					</div>
 				)}
 			</div>
 
-			<AddAgentMCPServerDialog
+			<AddAgentToolDialog
 				open={dialogOpen}
 				onOpenChange={setDialogOpen}
 				agent={agent}
 				onServerAdded={refreshAgent}
+				onSandboxToggled={refreshAgent}
 				onSaving={onSaving}
 				onSaved={onSaved}
 			/>

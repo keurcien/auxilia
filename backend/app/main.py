@@ -19,10 +19,10 @@ from app.mcp.client.exceptions import OAuthAuthorizationRequired
 from app.mcp.router import auxilia_mcp
 from app.mcp.servers.router import router as mcp_servers_router
 from app.model_providers.router import router as model_providers_router
+from app.sandbox.router import router as sandbox_router
 from app.settings import app_settings
 from app.threads.router import router as threads_router
 from app.users.router import router as users_router
-from app.settings import app_settings
 
 logging.getLogger("app").setLevel(app_settings.log_level.upper())
 
@@ -99,6 +99,7 @@ app.include_router(threads_router)
 app.include_router(users_router)
 app.include_router(invites_router)
 app.include_router(model_providers_router)
+app.include_router(sandbox_router)
 app.include_router(slack_router)
 
 app.mount("/", auxilia_mcp.streamable_http_app())
