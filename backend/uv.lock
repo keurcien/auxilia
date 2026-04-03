@@ -290,6 +290,7 @@ dependencies = [
     { name = "langfuse" },
     { name = "langgraph-checkpoint-postgres" },
     { name = "mcp" },
+    { name = "opensandbox" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pwdlib", extra = ["argon2"] },
     { name = "pydantic", extra = ["email"] },
@@ -328,6 +329,7 @@ requires-dist = [
     { name = "langfuse", specifier = ">=3.14.1" },
     { name = "langgraph-checkpoint-postgres", specifier = ">=3.0.1" },
     { name = "mcp", specifier = ">=1.26.0" },
+    { name = "opensandbox", specifier = ">=0.1.6" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2.12" },
     { name = "pwdlib", extras = ["argon2"], specifier = ">=0.3.0" },
     { name = "pydantic", extras = ["email"], specifier = ">=2.12.4" },
@@ -1619,6 +1621,21 @@ wheels = [
 ]
 
 [[package]]
+name = "opensandbox"
+version = "0.1.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "attrs" },
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "python-dateutil" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/81/68/493e98dfc5be745cc2d199259d79af49b89f7973619a9b7e36d0d43d74b8/opensandbox-0.1.6.tar.gz", hash = "sha256:6a69c690342f3d28820154b4f7f27ce33fd4cf42e3982016535f6fc9de344324", size = 112275, upload-time = "2026-03-27T03:51:09.155Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0c/12/5454ec8eb63de9a4d73ad26cf1adad9cd760aba62dadd4dbb18eee5765d9/opensandbox-0.1.6-py3-none-any.whl", hash = "sha256:a8f7eeb124eddcf97c691230f55ef77413b9b727ede346e6e9219d8d56c61c43", size = 281317, upload-time = "2026-03-27T03:51:07.695Z" },
+]
+
+[[package]]
 name = "opentelemetry-api"
 version = "1.39.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2266,6 +2283,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/68/14/eb014d26be205d38ad5ad20d9a80f7d201472e08167f0bb4361e251084a9/pytest_mock-3.15.1.tar.gz", hash = "sha256:1849a238f6f396da19762269de72cb1814ab44416fa73a8686deac10b0d87a0f", size = 34036, upload-time = "2025-09-16T16:37:27.081Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5a/cc/06253936f4a7fa2e0f48dfe6d851d9c56df896a9ab09ac019d70b760619c/pytest_mock-3.15.1-py3-none-any.whl", hash = "sha256:0a25e2eb88fe5168d535041d09a4529a188176ae608a6d249ee65abc0949630d", size = 10095, upload-time = "2025-09-16T16:37:25.734Z" },
+]
+
+[[package]]
+name = "python-dateutil"
+version = "2.9.0.post0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "six" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/66/c0/0c8b6ad9f17a802ee498c46e004a0eb49bc148f2fd230864601a86dcf6db/python-dateutil-2.9.0.post0.tar.gz", hash = "sha256:37dd54208da7e1cd875388217d5e00ebd4179249f90fb72437e91a35459a0ad3", size = 342432, upload-time = "2024-03-01T18:36:20.211Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ec/57/56b9bcc3c9c6a792fcbaf139543cee77261f3651ca9da0c93f5c1221264b/python_dateutil-2.9.0.post0-py2.py3-none-any.whl", hash = "sha256:a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427", size = 229892, upload-time = "2024-03-01T18:36:18.57Z" },
 ]
 
 [[package]]

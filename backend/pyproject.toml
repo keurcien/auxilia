@@ -31,6 +31,7 @@ dependencies = [
     "h2>=4.3.0",
     "langchain-ai-sdk-adapter",
     "deepagents>=0.4.12",
+    "opensandbox>=0.1.6",
 ]
 
 [dependency-groups]
