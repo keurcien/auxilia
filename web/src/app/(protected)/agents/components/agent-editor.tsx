@@ -6,7 +6,7 @@ import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
 import { useTheme } from "next-themes";
 import { MoreVertical, ShieldCheck, ArrowRight, ArchiveIcon } from "lucide-react";
 import { Agent } from "@/types/agents";
-import AgentMCPServerList from "../[id]/components/agent-mcp-server-list";
+import AgentToolList from "../[id]/components/agent-tool-list";
 import AgentSubagentList from "../[id]/components/agent-subagent-list";
 import { api } from "@/lib/api/client";
 import { useAgentsStore } from "@/stores/agents-store";
@@ -306,7 +306,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 				</div>
 
 				<div className="h-full w-full md:w-1/2 p-6 flex flex-col min-h-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-					<AgentMCPServerList
+					<AgentToolList
 						agent={liveAgent}
 						onSaving={() => setSaveStatus("saving")}
 						onSaved={() => {
