@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
+import { AGENT_COLORS, agentColorBackground } from "@/lib/colors";
 import { useTheme } from "next-themes";
 import { MoreVertical, ShieldCheck, ArrowRight, ArchiveIcon } from "lucide-react";
 import { Agent } from "@/types/agents";
@@ -42,6 +43,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 	const [instructions, setInstructions] = useState(agent.instructions || "");
 	const [description, setDescription] = useState(agent.description || "");
 	const [emoji, setEmoji] = useState(agent.emoji || "🤖");
+	const [color, setColor] = useState(agent.color || AGENT_COLORS[0]);
 	const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 	const [saveStatus, setSaveStatus] = useState<"saved" | "saving">("saved");
 	const [permissionsOpen, setPermissionsOpen] = useState(false);
@@ -76,10 +78,15 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 		saveAgent({ emoji: emojiData.emoji });
 	};
 
+	const handleColorClick = (c: string) => {
+		setColor(c);
+		saveAgent({ color: c });
+	};
+
 	const saveAgent = useCallback(
 		async (
 			updates: Partial<
-				Pick<Agent, "name" | "instructions" | "emoji" | "description">
+				Pick<Agent, "name" | "instructions" | "emoji" | "color" | "description">
 			>,
 		) => {
 			setSaveStatus("saving");
@@ -179,7 +186,8 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 				<div className="relative">
 					<div
 						onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-						className="flex items-center justify-center shrink-0 w-16 h-16 rounded-2xl bg-muted text-3xl cursor-pointer hover:bg-muted/80 transition-colors"
+						style={{ background: agentColorBackground(color) }}
+						className="flex items-center justify-center shrink-0 w-16 h-16 rounded-2xl text-3xl cursor-pointer transition-colors hover:opacity-80"
 					>
 						{emoji}
 					</div>
@@ -188,7 +196,24 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 							<EmojiPicker
 								onEmojiClick={handleEmojiClick}
 								theme={resolvedTheme === "dark" ? Theme.DARK : Theme.LIGHT}
+								skinTonesDisabled
+								previewConfig={{ showPreview: false }}
 							/>
+							<div className="flex items-center justify-center gap-2 px-3 py-2 bg-white dark:bg-[#222] rounded-b-lg border-t border-gray-100 dark:border-gray-700">
+								{AGENT_COLORS.map((c) => (
+									<button
+										key={c}
+										type="button"
+										onClick={() => handleColorClick(c)}
+										style={{ backgroundColor: c }}
+										className={`w-7 h-7 rounded-full cursor-pointer transition-transform hover:scale-110 ${
+											color === c
+												? "ring-2 ring-offset-2 ring-gray-400 dark:ring-offset-[#222]"
+												: ""
+										}`}
+									/>
+								))}
+							</div>
 						</div>
 					)}
 				</div>

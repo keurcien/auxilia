@@ -574,6 +574,7 @@ const ChatPage = () => {
 			setCurrentChat({
 				agentName: data.thread.agentName ?? null,
 				agentEmoji: data.thread.agentEmoji ?? null,
+				agentColor: data.thread.agentColor ?? null,
 				modelId: data.thread.modelId ?? null,
 			});
 

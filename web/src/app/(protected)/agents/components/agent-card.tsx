@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, ListTree } from "lucide-react";
 import { Agent, AgentPermission } from "@/types/agents";
+import { agentColorBackground, PASTEL_MAP } from "@/lib/colors";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import {
 	Dialog,
@@ -102,30 +103,52 @@ export default function AgentCard({ agent }: AgentCardProps) {
 		router.push(`/agents/${agent.id}`);
 	};
 
+	const color = agent.color || "#9E9E9E";
+	const pastel = PASTEL_MAP[color] || PASTEL_MAP["#9E9E9E"];
+
 	return (
 		<>
 			<div
-				className={`group flex flex-col gap-4 p-6 border rounded-2xl transition-all duration-200 h-full border-border bg-card shadow-sm ${
-					hasAccess
-						? "hover:shadow-md hover:-translate-y-0.5 cursor-pointer"
-						: "cursor-default"
+				className={`group flex flex-col gap-4 p-7 rounded-3xl h-full bg-white dark:bg-card transition-all duration-300 ${
+					hasAccess ? "cursor-pointer" : "cursor-default"
 				}`}
+				style={{
+					boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
+				}}
+				onMouseEnter={(e) => {
+					if (!hasAccess) return;
+					e.currentTarget.style.transform = "translateY(-6px) scale(1.02)";
+					e.currentTarget.style.boxShadow = `0 20px 40px -12px ${color}30, 0 0 0 2px ${color}20`;
+				}}
+				onMouseLeave={(e) => {
+					e.currentTarget.style.transform = "";
+					e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.06)";
+				}}
 				onClick={() => hasAccess && setOpen(true)}
 			>
-				<div className="flex items-start justify-between gap-3">
-					<div className="flex items-center gap-3.5 min-w-0">
-						<div className="flex items-center justify-center shrink-0 w-11 h-11 rounded-xl bg-muted text-[22px]">
-							{agent.emoji || "🤖"}
-						</div>
-						<div className="min-w-0">
-							<h2 className="text-[15px] font-semibold text-card-foreground leading-tight truncate">
-								{agent.name}
-							</h2>
-							<p className="text-[13px] text-muted-foreground mt-0.5">
-								@{agent.name.toLowerCase().replace(/\s+/g, "_")}
-							</p>
-						</div>
+				<div className="flex items-center gap-3.5 min-w-0">
+					<div
+						style={{
+							background: agentColorBackground(color),
+							border: `1.5px solid ${color}18`,
+						}}
+						className="flex items-center justify-center shrink-0 w-[52px] h-[52px] rounded-full text-[26px] transition-transform duration-300 group-hover:rotate-[-8deg] group-hover:scale-110"
+					>
+						{agent.emoji || "🤖"}
 					</div>
+					<div className="min-w-0">
+						<h2 className="font-[family-name:var(--font-jakarta-sans)] text-[16px] font-bold text-[#1a1a2e] dark:text-foreground tracking-tight leading-tight truncate">
+							{agent.name}
+						</h2>
+						<p className="font-[family-name:var(--font-dm-sans)] text-[13px] text-[#999] dark:text-muted-foreground font-medium mt-0.5">
+							@{agent.name.toLowerCase().replace(/\s+/g, "_")}
+						</p>
+					</div>
+				</div>
+				<p className="font-[family-name:var(--font-dm-sans)] text-[14px] leading-relaxed text-[#666] dark:text-muted-foreground line-clamp-2 flex-1">
+					{agent.description || "No description provided."}
+				</p>
+				<div className="flex items-center gap-2 flex-wrap mt-auto">
 					{(() => {
 						const badge = agent.currentUserPermission
 							? ROLE_BADGE_CONFIG[agent.currentUserPermission]
@@ -141,27 +164,29 @@ export default function AgentCard({ agent }: AgentCardProps) {
 							</span>
 						);
 					})()}
+					{agent.subagents?.length > 0 && (
+						<span
+							style={{ background: pastel.pill, color: pastel.text }}
+							className="font-[family-name:var(--font-dm-sans)] inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-semibold"
+						>
+							<ListTree className="w-3.5 h-3.5" />
+							{agent.subagents.length} subagent{agent.subagents.length > 1 ? "s" : ""}
+						</span>
+					)}
 				</div>
-				<p className="text-[13.5px] leading-relaxed text-muted-foreground line-clamp-3 min-h-[4.5em]">
-					{agent.description || "No description provided."}
-				</p>
-				<span
-					className={`inline-flex items-center gap-1.5 self-start px-2.5 py-1 rounded-full text-xs font-medium ${
-						agent.subagents?.length > 0
-							? "bg-muted text-muted-foreground"
-							: "invisible"
-					}`}
-				>
-					<ListTree className="w-3.5 h-3.5" />
-					{agent.subagents?.length || 0} subagent{(agent.subagents?.length || 0) > 1 ? "s" : ""}
-				</span>
 			</div>
 
 			<Dialog open={open} onOpenChange={setOpen}>
 				<DialogContent className="sm:max-w-[420px]" showCloseButton={false}>
 					<DialogHeader>
 						<div className="flex items-center gap-4 mb-4">
-							<div className="flex items-center justify-center shrink-0 w-12 h-12 rounded-2xl bg-muted text-2xl">
+							<div
+								style={{
+									background: agentColorBackground(color),
+									border: `1.5px solid ${color}18`,
+								}}
+								className="flex items-center justify-center shrink-0 w-12 h-12 rounded-full text-2xl"
+							>
 								{agent.emoji || "🤖"}
 							</div>
 							<DialogTitle className="text-xl">{agent.name}</DialogTitle>

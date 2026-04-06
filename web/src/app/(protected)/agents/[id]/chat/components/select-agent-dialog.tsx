@@ -11,6 +11,7 @@ import {
 import { Input } from "@/components/ui/input";
 import type { Agent } from "@/types/agents";
 import { useAgentsStore } from "@/stores/agents-store";
+import { agentColorBackground } from "@/lib/colors";
 
 interface SelectAgentDialogProps {
 	open: boolean;
@@ -63,7 +64,12 @@ export function SelectAgentDialog({
 							className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted cursor-pointer transition-colors border border-transparent hover:border-border"
 							onClick={() => handleSelectAgent(agent)}
 						>
-							<span className="text-2xl">{agent.emoji || "🤖"}</span>
+							<span
+								style={agent.color ? { background: agentColorBackground(agent.color) } : undefined}
+								className={`flex items-center justify-center w-9 h-9 rounded-lg text-2xl shrink-0 ${agent.color ? "" : "bg-muted"}`}
+							>
+								{agent.emoji || "🤖"}
+							</span>
 							<span className="font-medium text-sm">{agent.name}</span>
 						</div>
 					))}

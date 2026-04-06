@@ -15,6 +15,7 @@ import { useModelsStore } from "@/stores/models-store";
 import { api } from "@/lib/api/client";
 import { ChevronDown } from "lucide-react";
 import { Agent } from "@/types/agents";
+import { agentColorBackground } from "@/lib/colors";
 import { getDefaultModel } from "@/lib/utils/get-default-model";
 import { useAgentReadiness } from "@/hooks/use-agent-readiness";
 
@@ -81,6 +82,7 @@ const StarterChatPage = () => {
 				...response.data,
 				agentName: agent?.name ?? null,
 				agentEmoji: agent?.emoji ?? null,
+				agentColor: agent?.color ?? null,
 			};
 
 			addThread(thread);
@@ -129,7 +131,10 @@ const StarterChatPage = () => {
 						onClick={() => setIsAgentDialogOpen(true)}
 						className="flex items-center justify-center gap-2 mx-auto hover:opacity-80 transition-opacity cursor-pointer"
 					>
-						<div className="shrink-0 w-12 h-12 rounded-2xl bg-muted text-2xl flex items-center justify-center">
+						<div
+							style={agent?.color ? { background: agentColorBackground(agent.color) } : undefined}
+							className={`shrink-0 w-12 h-12 rounded-2xl text-2xl flex items-center justify-center ${agent?.color ? "" : "bg-muted"}`}
+						>
 							{agent?.emoji || starterAgent.value?.emoji || "🤖"}
 						</div>
 						<h1 className="text-4xl font-bold">
