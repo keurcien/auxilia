@@ -63,7 +63,7 @@ export default function MCPServerList({ onServerClick }: MCPServerListProps) {
 	}
 
 	return (
-		<div className="grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))] gap-x-2.5 gap-y-4 mx-0">
+		<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 			{mcpServers.map((server) => (
 				<MCPServerCard
 					key={server.id}

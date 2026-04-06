@@ -28,13 +28,13 @@ export default function MCPServersPage() {
 
 	return (
 		<div className="mx-auto min-h-full w-full max-w-5xl px-4 pb-20 @min-screen-md/layout:px-8 @min-screen-xl/layout:max-w-6xl">
-			<div className="flex items-center justify-between my-8">
-				<h1 className="font-primary font-extrabold text-2xl md:text-4xl tracking-tighter text-[#2A2F2D] dark:text-white">
+			<div className="flex items-center justify-between my-8 mb-7">
+				<h1 className="font-[family-name:var(--font-jakarta-sans)] font-extrabold text-[32px] tracking-[-0.03em] text-[#111111] dark:text-white">
 					MCP servers
 				</h1>
 				<Button
 					onClick={handleAddServer}
-					className="flex items-center gap-2 py-2.5 md:py-5 bg-[#2A2F2D] text-sm md:text-base font-semibold text-white rounded-[14px] hover:bg-[#363D3A] transition-colors cursor-pointer shadow-[0_4px_14px_rgba(118,181,160,0.14)] border-none"
+					className="flex items-center gap-2 !px-6 !py-3 !h-auto bg-[#111111] dark:bg-white dark:text-[#111111] text-[14px] font-semibold font-[family-name:var(--font-dm-sans)] text-white rounded-full hover:bg-[#222222] dark:hover:bg-gray-100 transition-all cursor-pointer shadow-[0_4px_12px_-2px_rgba(0,0,0,0.15)] border-none"
 				>
 					<Plus className="w-4 h-4" />
 					Add MCP Server
