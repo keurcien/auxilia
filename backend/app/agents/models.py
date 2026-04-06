@@ -2,10 +2,22 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID, uuid4
 
+from pydantic import field_validator
 from sqlalchemy import UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 from sqlmodel import Boolean, Column, DateTime, Field, SQLModel, String, Text
+
+
+ALLOWED_COLORS = {
+    "#6C5CE7",
+    "#00B894",
+    "#E17055",
+    "#0984E3",
+    "#FDCB6E",
+    "#E84393",
+    "#9E9E9E",
+}
 
 
 class PermissionLevel(str, Enum):
@@ -69,6 +81,7 @@ class AgentBase(SQLModel):
     instructions: str = Field(sa_column=Column(Text, nullable=False))
     owner_id: UUID = Field(foreign_key="users.id", nullable=False)
     emoji: str | None = Field(default=None, max_length=10, nullable=True)
+    color: str | None = Field(default=None, max_length=7, nullable=True)
     description: str | None = Field(
         default=None, max_length=255, sa_column=Column(String(255), nullable=True)
     )
@@ -108,15 +121,31 @@ class AgentCreate(SQLModel):
     instructions: str
     owner_id: UUID
     emoji: str | None = None
+    color: str | None = None
     sandbox: bool = False
+
+    @field_validator("color")
+    @classmethod
+    def validate_color(cls, v: str | None) -> str | None:
+        if v is not None and v not in ALLOWED_COLORS:
+            raise ValueError(f"color must be one of {sorted(ALLOWED_COLORS)}")
+        return v
 
 
 class AgentUpdate(SQLModel):
     name: str | None = Field(default=None, max_length=255)
     instructions: str | None = None
     emoji: str | None = None
+    color: str | None = None
     description: str | None = None
     sandbox: bool | None = None
+
+    @field_validator("color")
+    @classmethod
+    def validate_color(cls, v: str | None) -> str | None:
+        if v is not None and v not in ALLOWED_COLORS:
+            raise ValueError(f"color must be one of {sorted(ALLOWED_COLORS)}")
+        return v
 
 
 class AgentUserPermissionDB(SQLModel, table=True):
@@ -198,6 +227,7 @@ class SubagentRead(SQLModel):
     id: UUID
     name: str
     emoji: str | None = None
+    color: str | None = None
     description: str | None = None
 
 
@@ -207,6 +237,7 @@ class AgentRead(SQLModel):
     instructions: str
     owner_id: UUID
     emoji: str | None
+    color: str | None
     description: str | None
     sandbox: bool
     created_at: datetime
