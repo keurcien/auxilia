@@ -38,12 +38,14 @@ export default function AgentList() {
 	const [agents, setAgents] = useState<Agent[]>([]);
 	const [activeTab, setActiveTab] = useState("mine");
 	const [search, setSearch] = useState("");
+	const [isLoading, setIsLoading] = useState(true);
 
 	useEffect(() => {
 		api
 			.get<Agent[]>("/agents")
 			.then((response) => setAgents(response.data))
-			.catch(console.error);
+			.catch(console.error)
+			.finally(() => setIsLoading(false));
 	}, []);
 
 	const currentTab = TABS.find((t) => t.key === activeTab)!;
@@ -63,9 +65,11 @@ export default function AgentList() {
 		);
 	}, [agents]);
 
+	if (isLoading) return null;
+
 	if (agents.length === 0) {
 		return (
-			<div className="flex items-center justify-center p-12 border border-border rounded-lg">
+			<div className="flex items-center justify-center p-12 border border-border rounded-lg animate-in fade-in duration-300">
 				<div className="text-muted-foreground">
 					No agents configured. Click the &quot;Create an agent&quot; button to
 					get started.
@@ -75,7 +79,7 @@ export default function AgentList() {
 	}
 
 	return (
-		<div className="w-full mx-auto">
+		<div className="w-full mx-auto animate-in fade-in duration-300">
 			<div className="w-full flex items-center justify-between mb-7 overflow-x-auto">
 				<div className="flex gap-1.5 bg-[#F5F8F6] dark:bg-white/5 rounded-full p-1">
 					{TABS.map((tab) => {
@@ -122,8 +126,14 @@ export default function AgentList() {
 
 			{filtered.length > 0 ? (
 				<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-					{filtered.map((agent) => (
-						<AgentCard key={agent.id} agent={agent} />
+					{filtered.map((agent, i) => (
+						<div
+							key={agent.id}
+							className="animate-in fade-in slide-in-from-bottom-3 duration-400"
+							style={{ animationDelay: `${i * 50}ms`, animationFillMode: "both" }}
+						>
+							<AgentCard agent={agent} />
+						</div>
 					))}
 				</div>
 			) : search ? (
