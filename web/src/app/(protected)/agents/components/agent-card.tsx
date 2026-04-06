@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { ArrowRight, ListTree, Pencil, X } from "lucide-react";
 import { Agent, AgentPermission } from "@/types/agents";
@@ -169,7 +170,7 @@ export default function AgentCard({ agent }: AgentCardProps) {
 				</div>
 			</div>
 
-			{open && (
+			{open && createPortal(
 				<div
 					className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(30,45,40,0.2)] backdrop-blur-[4px] animate-in fade-in duration-200"
 					onClick={() => setOpen(false)}
@@ -277,7 +278,8 @@ export default function AgentCard({ agent }: AgentCardProps) {
 							</button>
 						</div>
 					</div>
-				</div>
+				</div>,
+				document.body,
 			)}
 		</>
 	);

@@ -129,7 +129,7 @@ export default function AgentList() {
 					{filtered.map((agent, i) => (
 						<div
 							key={agent.id}
-							className="animate-in fade-in slide-in-from-bottom-3 duration-400"
+							className="h-full animate-in fade-in slide-in-from-bottom-3 duration-400"
 							style={{ animationDelay: `${i * 50}ms`, animationFillMode: "both" }}
 						>
 							<AgentCard agent={agent} />
