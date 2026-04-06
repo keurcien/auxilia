@@ -41,6 +41,7 @@ import { useThreadsStore } from "@/stores/threads-store";
 import { useUserStore } from "@/stores/user-store";
 import { useAgentsStore } from "@/stores/agents-store";
 import { api } from "@/lib/api/client";
+import { agentColorBackground } from "@/lib/colors";
 import { ThemeToggle } from "./theme-toggle";
 
 const navItems = [
@@ -126,139 +127,165 @@ export function AppSidebar() {
 
 				<SidebarContent>
 					<SidebarGroup>
-						<button
-							onClick={() => {
-								if (agents.length > 0) {
-									router.push(`/agents/${agents[0].id}/chat`);
-								}
-							}}
-							disabled={agents.length === 0}
-							className="w-full py-2.5 px-3.5 rounded-xl border-[1.5px] border-sidebar-border bg-background text-sm font-medium flex items-center justify-center gap-2 cursor-pointer hover:bg-sidebar-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-						>
-							<SquarePen className="size-4" />
-							New thread
-						</button>
+						<div className="px-3">
+							<button
+								onClick={() => {
+									if (agents.length > 0) {
+										router.push(`/agents/${agents[0].id}/chat`);
+									}
+								}}
+								disabled={agents.length === 0}
+								className="w-full py-2.5 px-4 rounded-full border-none bg-[#111111] dark:bg-white text-[13.5px] font-semibold font-(family-name:--font-dm-sans) text-white dark:text-[#111111] flex items-center justify-center gap-2 cursor-pointer hover:opacity-90 transition-all shadow-[0_4px_12px_-2px_rgba(0,0,0,0.15)] disabled:opacity-50 disabled:cursor-not-allowed"
+							>
+								<SquarePen className="size-4" />
+								New thread
+							</button>
+						</div>
 					</SidebarGroup>
 
 					<SidebarGroup className="flex-1 min-h-0 overflow-hidden">
 						<SidebarGroupContent className="overflow-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 							<SidebarMenu>
-								{threads.map((thread) => (
-									<SidebarMenuItem key={thread.id}>
-										<SidebarMenuButton
-											asChild
-											isActive={
-												pathname ===
-												`/agents/${thread.agentId}/chat/${thread.id}`
-											}
-											tooltip={thread.firstMessageContent}
-											className="h-auto"
-										>
-											<Link
-												href={`/agents/${thread.agentId}/chat/${thread.id}`}
-												className="p-1"
+								{threads.map((thread) => {
+									const isActive =
+										pathname === `/agents/${thread.agentId}/chat/${thread.id}`;
+									return (
+										<SidebarMenuItem key={thread.id}>
+											<SidebarMenuButton
+												asChild
+												isActive={isActive}
+												tooltip={thread.firstMessageContent}
+												className="h-auto rounded-2xl transition-all duration-200 hover:translate-x-1 hover:bg-sidebar-hover data-[active=true]:bg-sidebar-accent"
 											>
-												<div className="flex-1 min-w-0 text-left">
-													<div className="text-sm font-medium truncate">
-														{thread.firstMessageContent}
-													</div>
-													<div className="text-xs text-muted-foreground truncate flex items-center gap-1">
-														{thread.agentArchived ? (
-															<>
-																<ArchiveIcon className="size-3 shrink-0" />
-																Archived agent
-															</>
-														) : (
-															<>
-																<Bot className="size-3 shrink-0" />
-																{thread.agentName}
-															</>
-														)}
-													</div>
-												</div>
-												{/* Check for a dot in the thread ID. If it exists, it means the thread was initiated in Slack. But need refactor this to use the thread type instead.*/}
-												{thread.id.includes(".") && (
-													<Image
-														src="https://storage.googleapis.com/choose-assets/slack.png"
-														alt="Slack"
-														height={16}
-														width={16}
-														className="h-4 w-4 shrink-0 ml-1"
-														title="Thread initiated in Slack"
-													/>
-												)}
-											</Link>
-										</SidebarMenuButton>
-										<DropdownMenu>
-											<DropdownMenuTrigger asChild>
-												<SidebarMenuAction
-													showOnHover
-													className="cursor-pointer"
+												<Link
+													href={`/agents/${thread.agentId}/chat/${thread.id}`}
+													className="px-3 py-2.5 flex items-center gap-2.5"
 												>
-													<MoreVertical className="size-4" />
-													<span className="sr-only">More options</span>
-												</SidebarMenuAction>
-											</DropdownMenuTrigger>
-											<DropdownMenuContent side="right" align="start">
-												<DropdownMenuItem
-													className="text-destructive focus:text-destructive"
-													onClick={() => handleDeleteThread(thread.id)}
-												>
-													<Trash2 className="size-4 text-destructive" />
-													<span>Delete</span>
-												</DropdownMenuItem>
-											</DropdownMenuContent>
-										</DropdownMenu>
-									</SidebarMenuItem>
-								))}
+													<div
+														style={
+															thread.agentColor
+																? {
+																		background: agentColorBackground(
+																			thread.agentColor,
+																		),
+																		border: `1.5px solid ${thread.agentColor}18`,
+																	}
+																: undefined
+														}
+														className={`shrink-0 w-[34px] h-[34px] rounded-full flex items-center justify-center text-[15px] ${thread.agentColor ? "" : "bg-sidebar-hover"}`}
+													>
+														{thread.agentEmoji || "🤖"}
+													</div>
+													<div className="flex-1 min-w-0 text-left">
+														<div
+															className={`font-[family-name:var(--font-dm-sans)] text-[14px] truncate leading-[1.45] ${isActive ? "font-semibold" : "font-medium"} text-sidebar-foreground`}
+														>
+															{thread.firstMessageContent}
+														</div>
+														<div className="font-[family-name:var(--font-dm-sans)] text-[12px] text-[#999] dark:text-muted-foreground font-medium truncate mt-0.5 leading-snug">
+															{thread.agentArchived
+																? "Archived agent"
+																: thread.agentName}
+														</div>
+													</div>
+													{thread.id.includes(".") && (
+														<Image
+															src="https://storage.googleapis.com/choose-assets/slack.png"
+															alt="Slack"
+															height={16}
+															width={16}
+															className="h-4 w-4 shrink-0"
+															title="Thread initiated in Slack"
+														/>
+													)}
+												</Link>
+											</SidebarMenuButton>
+											<DropdownMenu>
+												<DropdownMenuTrigger asChild>
+													<SidebarMenuAction
+														showOnHover
+														className="cursor-pointer"
+													>
+														<MoreVertical className="size-4" />
+														<span className="sr-only">More options</span>
+													</SidebarMenuAction>
+												</DropdownMenuTrigger>
+												<DropdownMenuContent side="right" align="start">
+													<DropdownMenuItem
+														className="text-destructive focus:text-destructive"
+														onClick={() => handleDeleteThread(thread.id)}
+													>
+														<Trash2 className="size-4 text-destructive" />
+														<span>Delete</span>
+													</DropdownMenuItem>
+												</DropdownMenuContent>
+											</DropdownMenu>
+										</SidebarMenuItem>
+									);
+								})}
 							</SidebarMenu>
 						</SidebarGroupContent>
 					</SidebarGroup>
 
-					<SidebarGroup className="mt-auto border-t border-sidebar-border pt-3">
-						<SidebarGroupLabel className="text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">
+					<SidebarGroup className="mt-auto pt-3">
+						<SidebarGroupLabel className="font-[family-name:var(--font-dm-sans)] text-[10.5px] font-semibold uppercase tracking-[0.06em] text-sidebar-section-label">
 							Workspace
 						</SidebarGroupLabel>
 						<SidebarGroupContent>
 							<SidebarMenu>
-								{navItems.map((item) => (
-									<SidebarMenuItem key={item.href}>
-										<SidebarMenuButton
-											asChild
-											isActive={pathname === item.href}
-											tooltip={item.title}
-										>
-											<Link href={item.href}>
-												<item.icon />
-												<span>{item.title}</span>
-											</Link>
-										</SidebarMenuButton>
-									</SidebarMenuItem>
-								))}
+								{navItems.map((item) => {
+									const isNavActive = pathname === item.href;
+									return (
+										<SidebarMenuItem key={item.href}>
+											<SidebarMenuButton
+												asChild
+												isActive={isNavActive}
+												tooltip={item.title}
+												className="rounded-[14px] transition-all duration-200 hover:translate-x-0.5 hover:bg-sidebar-hover data-[active=true]:bg-sidebar-accent"
+											>
+												<Link href={item.href}>
+													<item.icon
+														className={
+															isNavActive
+																? "text-sidebar-active-icon"
+																: "text-sidebar-muted"
+														}
+														size={17}
+													/>
+													<span
+														className={`font-[family-name:var(--font-dm-sans)] text-[13.5px] ${isNavActive ? "font-semibold text-sidebar-foreground" : "font-medium text-sidebar-muted"}`}
+													>
+														{item.title}
+													</span>
+												</Link>
+											</SidebarMenuButton>
+										</SidebarMenuItem>
+									);
+								})}
 							</SidebarMenu>
 						</SidebarGroupContent>
 					</SidebarGroup>
 				</SidebarContent>
 
-				<SidebarFooter className="border-t border-sidebar-border">
+				<SidebarFooter className="px-3 pb-3">
 					<SidebarMenu>
 						<SidebarMenuItem>
 							<DropdownMenu>
 								<DropdownMenuTrigger asChild>
 									<SidebarMenuButton
 										size="lg"
-										className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground cursor-pointer"
+										className="rounded-[18px] bg-sidebar-hover data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground cursor-pointer px-3 py-2.5"
 									>
-										<Avatar className="h-8 w-8 rounded-lg">
-											<AvatarFallback className="rounded-lg">
+										<Avatar className="h-9 w-9 rounded-full">
+											<AvatarFallback className="rounded-full bg-[#111111] dark:bg-white text-white dark:text-[#111111] text-xs font-bold">
 												{getInitials(user?.name ?? undefined)}
 											</AvatarFallback>
 										</Avatar>
-										<div className="grid flex-1 text-left text-sm leading-tight">
-											<span className="truncate font-medium">
+										<div className="grid flex-1 text-left leading-tight min-w-0">
+											<span className="font-[family-name:var(--font-dm-sans)] truncate text-[13px] font-semibold text-sidebar-foreground">
 												{user?.name || "User"}
 											</span>
-											<span className="truncate text-xs">
+											<span className="font-[family-name:var(--font-dm-sans)] truncate text-[11px] text-sidebar-muted-highlight">
 												{user?.email || ""}
 											</span>
 										</div>
