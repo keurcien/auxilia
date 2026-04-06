@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Info, Search } from "lucide-react";
+import { Info } from "lucide-react";
 import { Agent } from "@/types/agents";
 import AgentCard from "@/app/(protected)/agents/components/agent-card";
 import { api } from "@/lib/api/client";
-import { Input } from "@/components/ui/input";
+import { SearchBar } from "@/components/ui/search-bar";
 
 const TABS = [
 	{
@@ -77,45 +77,39 @@ export default function AgentList() {
 	return (
 		<div className="w-full mx-auto">
 			<div className="w-full flex items-center justify-between mb-7 overflow-x-auto">
-				<div className="flex border-b border-border">
+				<div className="flex gap-1.5 bg-[#F5F8F6] dark:bg-white/5 rounded-full p-1">
 					{TABS.map((tab) => {
 						const isActive = activeTab === tab.key;
 						return (
 							<button
 								key={tab.key}
 								onClick={() => setActiveTab(tab.key)}
-								className={`relative flex items-center gap-2 px-5 pb-3 pt-2.5 text-sm cursor-pointer transition-colors whitespace-nowrap ${
+								className={`flex items-center gap-1.5 px-4.5 py-2 rounded-full text-[13.5px] font-[family-name:var(--font-dm-sans)] cursor-pointer transition-all whitespace-nowrap ${
 									isActive
-										? "text-foreground font-semibold"
-										: "text-muted-foreground font-normal hover:text-foreground/70"
+										? "bg-white dark:bg-white/10 text-[#1E2D28] dark:text-white font-semibold shadow-[0_1px_4px_rgba(0,0,0,0.06)]"
+										: "bg-transparent text-[#8FA89E] dark:text-white/40 font-medium hover:text-[#6B7F76] dark:hover:text-white/60"
 								}`}
 							>
 								{tab.label}
 								<span
-									className={`text-[11.5px] font-semibold px-2 py-0.5 rounded-full transition-colors ${
+									className={`text-[11.5px] font-semibold px-1.5 py-0.5 rounded-full transition-colors ${
 										isActive
-											? "bg-primary/10 text-primary"
-											: "bg-muted text-muted-foreground"
+											? "bg-[#EDF4F0] dark:bg-white/10 text-[#3D8B63] dark:text-emerald-400"
+											: "text-[#B8C8C0] dark:text-white/30"
 									}`}
 								>
 									{tabCounts[tab.key]}
 								</span>
-								{isActive && (
-									<div className="absolute bottom-[-1.5px] left-3 right-3 h-0.5 rounded-full bg-primary" />
-								)}
 							</button>
 						);
 					})}
 				</div>
-				<div className="relative w-64 shrink-0">
-					<Search className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-					<Input
-						placeholder="Search agents..."
-						value={search}
-						onChange={(e) => setSearch(e.target.value)}
-						className="pl-10 h-11 text-base rounded-[14px]"
-					/>
-				</div>
+				<SearchBar
+					placeholder="Search agents..."
+					value={search}
+					onChange={setSearch}
+					className="w-64 shrink-0"
+				/>
 			</div>
 
 			{activeTab === "discover" && filtered.length > 0 && (

@@ -7,6 +7,7 @@ import AgentList from "@/app/(protected)/agents/components/agent-list";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api/client";
+import { randomAgentColor } from "@/lib/colors";
 import { useAgentsStore } from "@/stores/agents-store";
 import { useUserStore } from "@/stores/user-store";
 import { Agent } from "@/types/agents";
@@ -26,6 +27,7 @@ export default function AgentsPage() {
 				name: "New Agent",
 				instructions: "",
 				emoji: "🤖",
+				color: randomAgentColor(),
 				owner_id: user.id,
 			});
 			const newAgent: Agent = response.data;
@@ -54,13 +56,13 @@ export default function AgentsPage() {
 				title="Insufficient privileges"
 				message="You need at least editor permissions to create agents."
 			/>
-			<div className="flex items-center justify-between my-8">
-				<h1 className="font-primary font-extrabold text-2xl md:text-4xl tracking-tighter text-[#2A2F2D] dark:text-white">
+			<div className="flex items-center justify-between my-8 mb-7">
+				<h1 className="font-[family-name:var(--font-jakarta-sans)] font-extrabold text-[32px] tracking-[-0.03em] text-[#111111] dark:text-white">
 					Agents
 				</h1>
 
 				<Button
-					className="flex items-center gap-2 py-2.5 md:py-5 bg-[#2A2F2D] text-sm md:text-base font-semibold text-white rounded-[14px] hover:bg-[#363D3A] transition-colors cursor-pointer shadow-[0_4px_14px_rgba(118,181,160,0.14)] border-none"
+					className="flex items-center gap-2 !px-6 !py-3 !h-auto bg-[#111111] dark:bg-white dark:text-[#111111] text-[14px] font-semibold font-[family-name:var(--font-dm-sans)] text-white rounded-full hover:bg-[#222222] dark:hover:bg-gray-100 transition-all cursor-pointer shadow-[0_4px_12px_-2px_rgba(0,0,0,0.15)] border-none"
 					onClick={handleCreateAgent}
 					disabled={isCreating}
 				>
