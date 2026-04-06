@@ -35,17 +35,11 @@ export default function MCPServerList({ onServerClick }: MCPServerListProps) {
 		loadServers();
 	}, [fetchMcpServers, isInitialized]);
 
-	if (loading) {
-		return (
-			<div className="flex items-center justify-center p-12">
-				<div className="text-gray-500">Loading MCP servers...</div>
-			</div>
-		);
-	}
+	if (loading) return null;
 
 	if (error) {
 		return (
-			<div className="flex items-center justify-center p-12">
+			<div className="flex items-center justify-center p-12 animate-in fade-in duration-300">
 				<div className="text-red-500">Error loading servers: {error}</div>
 			</div>
 		);
@@ -53,8 +47,8 @@ export default function MCPServerList({ onServerClick }: MCPServerListProps) {
 
 	if (mcpServers.length === 0) {
 		return (
-			<div className="flex items-center justify-center p-12 border border-gray-200 rounded-lg">
-				<div className="text-gray-500">
+			<div className="flex items-center justify-center p-12 border border-border rounded-lg animate-in fade-in duration-300">
+				<div className="text-muted-foreground">
 					No MCP servers configured. Click the &quot;Add MCP Server&quot; button
 					to get started.
 				</div>
@@ -63,13 +57,18 @@ export default function MCPServerList({ onServerClick }: MCPServerListProps) {
 	}
 
 	return (
-		<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-			{mcpServers.map((server) => (
-				<MCPServerCard
+		<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-in fade-in duration-300">
+			{mcpServers.map((server, i) => (
+				<div
 					key={server.id}
-					server={server}
-					onClick={() => onServerClick?.(server)}
-				/>
+					className="h-full animate-in fade-in slide-in-from-bottom-3 duration-400"
+					style={{ animationDelay: `${i * 50}ms`, animationFillMode: "both" }}
+				>
+					<MCPServerCard
+						server={server}
+						onClick={() => onServerClick?.(server)}
+					/>
+				</div>
 			))}
 		</div>
 	);
