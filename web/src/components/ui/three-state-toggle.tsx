@@ -96,7 +96,7 @@ export function ThreeStateToggle({
 	return (
 		<div
 			className={cn(
-				"relative inline-flex items-center bg-gray-100 dark:bg-neutral-800 rounded-full p-1",
+				"relative inline-flex items-center bg-[#EDF1EE] dark:bg-neutral-800 rounded-full p-1",
 				className,
 			)}
 		>

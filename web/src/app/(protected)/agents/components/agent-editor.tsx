@@ -179,9 +179,9 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 	}, [description, liveAgent.description, saveAgent]);
 
 	return (
-		<div className="h-full flex flex-col font-[family-name:var(--font-dm-sans)]">
+		<div className="h-full flex flex-col font-[family-name:var(--font-dm-sans)] animate-in fade-in duration-300">
 			{/* Top bar */}
-			<div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4 px-8 py-6 shrink-0">
+			<div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4 px-8 py-6 shrink-0 animate-in fade-in slide-in-from-bottom-3 duration-400" style={{ animationDelay: "0ms", animationFillMode: "both" }}>
 				<div className="flex items-center gap-4 flex-1 min-w-0">
 					<div className="relative">
 						<div
@@ -294,7 +294,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 			{/* Two column layout */}
 			<div className="relative flex flex-col md:flex-row flex-1 min-h-0 px-8 gap-8">
 				{/* Left: Description + Instructions */}
-				<div className="h-full w-full md:flex-1 flex flex-col min-w-0">
+				<div className="h-full w-full md:flex-1 flex flex-col min-w-0 animate-in fade-in slide-in-from-bottom-3 duration-400" style={{ animationDelay: "50ms", animationFillMode: "both" }}>
 					<div className="shrink-0 mb-7">
 						<div className="flex items-center min-h-[34px] mb-2.5">
 							<label className="text-[12px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em]">
@@ -330,7 +330,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 				</div>
 
 				{/* Right: Tools + Subagents */}
-				<div className="h-full w-full md:w-1/2 flex flex-col min-h-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+				<div className="h-full w-full md:w-1/2 flex flex-col min-h-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden animate-in fade-in slide-in-from-bottom-3 duration-400" style={{ animationDelay: "100ms", animationFillMode: "both" }}>
 					<AgentToolList
 						agent={liveAgent}
 						onSaving={() => setSaveStatus("saving")}
