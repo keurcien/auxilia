@@ -6,6 +6,7 @@ import MCPServerDialog from "@/app/(protected)/mcp-servers/components/mcp-server
 import { MCPServer } from "@/types/mcp-servers";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PageContainer } from "@/components/layout/page-container";
 
 export default function MCPServersPage() {
 	const [dialogOpen, setDialogOpen] = useState(false);
@@ -27,7 +28,7 @@ export default function MCPServersPage() {
 	};
 
 	return (
-		<div className="mx-auto min-h-full w-full max-w-5xl px-4 pb-20 @min-screen-md/layout:px-8 @min-screen-xl/layout:max-w-6xl">
+		<PageContainer>
 			<div className="flex items-center justify-between my-8 mb-7">
 				<h1 className="font-[family-name:var(--font-jakarta-sans)] font-extrabold text-[32px] tracking-[-0.03em] text-[#111111] dark:text-white">
 					MCP servers
@@ -47,6 +48,6 @@ export default function MCPServersPage() {
 				onOpenChange={handleDialogChange}
 				server={editServer}
 			/>
-		</div>
+		</PageContainer>
 	);
 }

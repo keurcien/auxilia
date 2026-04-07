@@ -8,6 +8,7 @@ import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api/client";
 import { randomAgentColor } from "@/lib/colors";
+import { PageContainer } from "@/components/layout/page-container";
 import { useAgentsStore } from "@/stores/agents-store";
 import { useUserStore } from "@/stores/user-store";
 import { Agent } from "@/types/agents";
@@ -49,7 +50,7 @@ export default function AgentsPage() {
 	};
 
 	return (
-		<div className="mx-auto min-h-full w-full max-w-5xl px-4 pb-20 @min-screen-md/layout:px-8 @min-screen-xl/layout:max-w-6xl">
+		<PageContainer>
 			<ForbiddenErrorDialog
 				open={errorDialogOpen}
 				onOpenChange={setErrorDialogOpen}
@@ -71,6 +72,6 @@ export default function AgentsPage() {
 				</Button>
 			</div>
 			<AgentList onCreateAgent={handleCreateAgent} />
-		</div>
+		</PageContainer>
 	);
 }
