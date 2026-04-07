@@ -75,7 +75,7 @@ function AvailableMCPServerCard({
 			</div>
 			<button
 				className="w-8 h-8 rounded-full bg-white dark:bg-white/10 border-[1.5px] border-[#E0E8E4] dark:border-white/10 flex items-center justify-center cursor-pointer transition-colors hover:bg-[#EDF4F0] dark:hover:bg-white/15 disabled:opacity-50"
-				onClick={handleAdd}
+				onClick={() => void handleAdd()}
 				disabled={isAdding}
 			>
 				<Plus className="w-3.5 h-3.5 text-[#6B7F76]" />
