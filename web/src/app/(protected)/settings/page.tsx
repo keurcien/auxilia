@@ -5,6 +5,7 @@ import { Trash2, Plus, KeyRound } from "lucide-react";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import CreateTokenDialog from "./create-token-dialog";
 import { Button } from "@/components/ui/button";
+import { PageContainer } from "@/components/layout/page-container";
 import { api } from "@/lib/api/client";
 
 interface PersonalAccessToken {
@@ -87,7 +88,7 @@ export default function SettingsPage() {
 	};
 
 	return (
-		<div className="mx-auto min-h-full w-full max-w-5xl px-4 pb-20 @min-screen-md/layout:px-8 @min-screen-xl/layout:max-w-6xl">
+		<PageContainer>
 			<ForbiddenErrorDialog
 				open={errorDialogOpen}
 				onOpenChange={setErrorDialogOpen}
@@ -196,6 +197,6 @@ export default function SettingsPage() {
 					</tbody>
 				</table>
 			</div>
-		</div>
+		</PageContainer>
 	);
 }

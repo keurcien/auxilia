@@ -162,7 +162,6 @@ function MCPServerSection({
 	const [isLoading, setIsLoading] = useState(true);
 
 	useEffect(() => {
-		setIsLoading(true);
 		api.get("/mcp-servers").then((res) => {
 			setAllServers(res.data);
 			setIsLoading(false);

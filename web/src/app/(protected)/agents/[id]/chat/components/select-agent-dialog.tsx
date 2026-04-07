@@ -1,17 +1,15 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Search } from "lucide-react";
 
 import {
 	Dialog,
 	DialogContent,
-	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { SearchBar } from "@/components/ui/search-bar";
+import { AgentAvatar } from "@/components/ui/agent-avatar";
 import type { Agent } from "@/types/agents";
 import { useAgentsStore } from "@/stores/agents-store";
-import { agentColorBackground } from "@/lib/colors";
 
 interface SelectAgentDialogProps {
 	open: boolean;
@@ -42,39 +40,50 @@ export function SelectAgentDialog({
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className="sm:max-w-[425px] gap-2">
-				<DialogHeader>
-					<DialogTitle>Chat with an Agent</DialogTitle>
-				</DialogHeader>
+			<DialogContent
+				className="sm:max-w-[440px] rounded-[28px] p-0 gap-0 overflow-hidden"
+				showCloseButton={false}
+			>
+				{/* Header */}
+				<div className="px-8 pt-7 pb-0">
+					<DialogTitle className="font-[family-name:var(--font-jakarta-sans)] text-[22px] font-extrabold text-[#111111] dark:text-white tracking-[-0.02em]">
+						Chat with an Agent
+					</DialogTitle>
+					<p className="font-[family-name:var(--font-dm-sans)] text-[14px] text-[#8FA89E] dark:text-muted-foreground font-medium mt-1">
+						Select an agent to start a conversation
+					</p>
+				</div>
 
-				<div className="relative my-2">
-					<Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-					<Input
+				{/* Search */}
+				<div className="px-8 pt-5 pb-1">
+					<SearchBar
 						placeholder="Search for an agent..."
-						className="pl-9"
 						value={searchQuery}
-						onChange={(e) => setSearchQuery(e.target.value)}
+						onChange={setSearchQuery}
 					/>
 				</div>
 
-				<div className="grid gap-2 mt-2 max-h-[300px] overflow-y-auto">
+				{/* Agent list */}
+				<div className="px-5 pt-3 pb-6 max-h-[340px] overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 					{filteredAgents.map((agent) => (
 						<div
 							key={agent.id}
-							className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted cursor-pointer transition-colors border border-transparent hover:border-border"
+							className="flex items-center gap-3.5 px-3 py-2.5 rounded-[16px] hover:bg-[#F8FAF9] dark:hover:bg-white/5 cursor-pointer transition-all duration-200 group"
 							onClick={() => handleSelectAgent(agent)}
 						>
-							<span
-								style={agent.color ? { background: agentColorBackground(agent.color) } : undefined}
-								className={`flex items-center justify-center w-9 h-9 rounded-lg text-2xl shrink-0 ${agent.color ? "" : "bg-muted"}`}
-							>
-								{agent.emoji || "🤖"}
+							<AgentAvatar
+								color={agent.color}
+								emoji={agent.emoji}
+								size="md"
+								className="transition-transform duration-300 group-hover:scale-105"
+							/>
+							<span className="font-[family-name:var(--font-dm-sans)] text-[14.5px] font-semibold text-[#1E2D28] dark:text-foreground truncate">
+								{agent.name}
 							</span>
-							<span className="font-medium text-sm">{agent.name}</span>
 						</div>
 					))}
 					{filteredAgents.length === 0 && (
-						<p className="text-center text-sm text-muted-foreground py-4">
+						<p className="font-[family-name:var(--font-dm-sans)] text-center text-[14px] text-[#A3B5AD] dark:text-muted-foreground font-medium py-8">
 							No agents found.
 						</p>
 					)}

@@ -11,23 +11,22 @@ import {
 } from "@/types/mcp-servers";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/ui/select";
-import { Search, X, CheckIcon } from "lucide-react";
+import { X, CheckIcon, ChevronDown } from "lucide-react";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import Image from "next/image";
+import { SageInput, SageTextarea } from "@/components/ui/sage-input";
+import { SageButton } from "@/components/ui/sage-button";
+import { SageDropdownMenu } from "@/components/ui/sage-dropdown-menu";
+import { SearchBar } from "@/components/ui/search-bar";
 
 const DEFAULT_ICON = "https://storage.googleapis.com/choose-assets/mcp.png";
 const GCS_HOST = "storage.googleapis.com";
+
+const AUTH_TYPE_LABELS: Record<MCPAuthType, string> = {
+	none: "None",
+	api_key: "API Key",
+	oauth2: "OAuth 2.0",
+};
 
 interface MCPServerDialogProps {
 	open: boolean;
@@ -312,16 +311,16 @@ export default function MCPServerDialog({
 				message="You are not allowed to perform this action."
 			/>
 			<DialogContent
-				className="sm:max-w-[560px] rounded-3xl p-0 gap-0 overflow-hidden"
+				className="sm:max-w-[560px] rounded-[28px] p-0 gap-0 overflow-hidden"
 				showCloseButton={false}
 			>
-				{/* ── Header ── */}
-				<div className="flex items-center justify-between px-8 pt-6 pb-5 border-b border-border">
+				{/* Header */}
+				<div className="flex items-start justify-between px-8 pt-7 pb-0">
 					<div>
-						<DialogTitle className="text-lg leading-normal font-bold tracking-tight">
+						<DialogTitle className="font-[family-name:var(--font-jakarta-sans)] text-[22px] font-extrabold text-[#111111] dark:text-white tracking-[-0.02em]">
 							{isEditMode ? "Edit MCP Server" : "Add MCP Server"}
 						</DialogTitle>
-						<p className="text-[13px] text-muted-foreground mt-1">
+						<p className="font-[family-name:var(--font-dm-sans)] text-[14px] text-[#8FA89E] dark:text-muted-foreground font-medium mt-1">
 							{isEditMode
 								? "Update your server configuration"
 								: "Connect a new service to your workspace"}
@@ -330,19 +329,19 @@ export default function MCPServerDialog({
 					<button
 						type="button"
 						onClick={() => handleOpenChange(false)}
-						className="flex items-center justify-center w-8 h-8 rounded-[10px] bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+						className="shrink-0 flex items-center justify-center w-9 h-9 rounded-full bg-[#F5F8F6] dark:bg-white/10 text-[#6B7F76] hover:bg-[#EDF4F0] dark:hover:bg-white/15 transition-colors cursor-pointer"
 					>
 						<X className="w-4 h-4" />
 					</button>
 				</div>
 
-				{/* ── Content ── */}
+				{/* Content */}
 				<div className="px-8 pt-6 pb-2 max-h-[60vh] overflow-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 					{/* Create Mode: ConnectorSearch */}
 					{!isEditMode && (
-						<div className="mb-6">
+						<div className="mb-7">
 							{selectedOfficial ? (
-								<div className="flex items-center gap-3 rounded-xl border border-border px-3.5 py-2.5">
+								<div className="flex items-center gap-3 rounded-[18px] border-[1.5px] border-[#E0E8E4] dark:border-white/10 px-4 py-3">
 									<Image
 										src={selectedOfficial.iconUrl ?? DEFAULT_ICON}
 										alt={selectedOfficial.name}
@@ -350,34 +349,30 @@ export default function MCPServerDialog({
 										height={24}
 										className="shrink-0 rounded-md"
 									/>
-									<span className="text-sm font-medium flex-1">
+									<span className="font-[family-name:var(--font-dm-sans)] text-[14px] font-medium text-[#1E2D28] dark:text-foreground flex-1">
 										{selectedOfficial.name}
 									</span>
 									<button
 										type="button"
 										onClick={clearSelection}
-										className="text-muted-foreground hover:text-foreground transition-colors"
+										className="text-[#8FA89E] hover:text-[#6B7F76] dark:text-muted-foreground dark:hover:text-foreground transition-colors cursor-pointer"
 									>
 										<X className="w-4 h-4" />
 									</button>
 								</div>
 							) : (
-								<div className="relative">
-									<Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-									<Input
-										placeholder="Search official MCP servers..."
-										value={searchQuery}
-										onChange={(e) => setSearchQuery(e.target.value)}
-										className="pl-10 rounded-xl"
-									/>
-								</div>
+								<SearchBar
+									placeholder="Search official MCP servers..."
+									value={searchQuery}
+									onChange={setSearchQuery}
+								/>
 							)}
 
 							{/* Dropdown list of official servers */}
 							{!selectedOfficial && (
-								<div className="mt-2 max-h-[200px] overflow-auto rounded-xl border border-border [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+								<div className="mt-2 max-h-[200px] overflow-auto rounded-[18px] border-[1.5px] border-[#E0E8E4] dark:border-white/10 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 									{filteredServers.length === 0 ? (
-										<div className="p-3 text-sm text-muted-foreground text-center">
+										<div className="font-[family-name:var(--font-dm-sans)] p-4 text-[13px] text-[#A3B5AD] dark:text-muted-foreground text-center">
 											No servers found
 										</div>
 									) : (
@@ -387,7 +382,7 @@ export default function MCPServerDialog({
 												type="button"
 												disabled={s.isInstalled}
 												onClick={() => selectOfficialServer(s)}
-												className="flex w-full items-center gap-3 px-3.5 py-2.5 text-left hover:bg-muted/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+												className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-[#F8FAF9] dark:hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer first:rounded-t-[16px] last:rounded-b-[16px]"
 											>
 												<Image
 													src={s.iconUrl ?? DEFAULT_ICON}
@@ -396,12 +391,12 @@ export default function MCPServerDialog({
 													height={24}
 													className="shrink-0 rounded-md"
 												/>
-												<span className="text-sm font-medium flex-1 truncate">
+												<span className="font-[family-name:var(--font-dm-sans)] text-[14px] font-medium text-[#1E2D28] dark:text-foreground flex-1 truncate">
 													{s.name}
 												</span>
 												{s.isInstalled && (
 													<CheckIcon
-														className="w-4 h-4 text-emerald-500"
+														className="w-4 h-4 text-[#4CA882]"
 														strokeWidth={3}
 													/>
 												)}
@@ -413,128 +408,140 @@ export default function MCPServerDialog({
 						</div>
 					)}
 
-					{/* Edit Mode: EditHeader */}
+					{/* Edit Mode: Server preview card */}
 					{isEditMode && server && (
-						<div className="flex items-center gap-3.5 p-4 rounded-xl bg-muted border border-border mb-6">
+						<div className="flex items-center gap-3.5 p-4 rounded-[18px] bg-[#F5F8F6] dark:bg-white/5 mb-7">
 							<Image
 								src={server.iconUrl ?? DEFAULT_ICON}
 								alt={server.name}
-								width={40}
-								height={40}
-								className="shrink-0 rounded-lg"
+								width={44}
+								height={44}
+								className="shrink-0 rounded-full border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-white dark:bg-[#1C1C1C] p-1.5"
 							/>
 							<div className="min-w-0 flex-1">
 								<div className="flex items-center gap-2">
-									<h3 className="font-semibold text-sm truncate">
+									<span className="font-[family-name:var(--font-dm-sans)] text-[15px] font-bold text-[#1E2D28] dark:text-foreground truncate">
 										{server.name}
-									</h3>
+									</span>
 									{isOfficialIcon(server.iconUrl) && (
-										<span className="text-[11px] font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full tracking-wide">
+										<span className="font-[family-name:var(--font-dm-sans)] text-[11px] font-semibold text-[#6B7F76] dark:text-muted-foreground bg-[#E0E8E4] dark:bg-white/10 px-2 py-0.5 rounded-full">
 											Official
 										</span>
 									)}
 								</div>
-								<p className="text-xs text-muted-foreground truncate mt-0.5">
+								<p className="font-[family-name:var(--font-dm-sans)] text-[12.5px] text-[#8FA89E] dark:text-muted-foreground font-medium truncate mt-0.5">
 									{server.url}
 								</p>
 							</div>
 						</div>
 					)}
 
-					{/* ── Shared Form ── */}
-					<div className="space-y-5 mb-4">
-						<div className="space-y-1.5">
-							<Label htmlFor="name" className="text-[13px] font-semibold">
+					{/* Form fields */}
+					<div className="space-y-[22px] mb-4">
+						{/* Name */}
+						<div>
+							<label className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-2">
 								Name
-							</Label>
-							<Input
-								id="name"
+							</label>
+							<SageInput
 								placeholder="Server Name"
 								value={form.name}
 								onChange={(e) => handleFormChange("name", e.target.value)}
-								className={`rounded-xl ${errors.name ? "border-red-500" : ""}`}
-								aria-invalid={!!errors.name}
+								error={!!errors.name}
 							/>
 							{errors.name && (
-								<p className="text-sm text-red-600 mt-1">{errors.name}</p>
+								<p className="font-[family-name:var(--font-dm-sans)] text-[13px] text-[#D45B45] mt-1.5">
+									{errors.name}
+								</p>
 							)}
 						</div>
 
-						<div className="space-y-1.5">
-							<Label htmlFor="url" className="text-[13px] font-semibold">
+						{/* URL */}
+						<div>
+							<label className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-2">
 								Remote Server Address
-								<span className="text-red-600">*</span>
-							</Label>
-							<Input
-								id="url"
+								<span className="text-[#D45B45] ml-0.5">*</span>
+							</label>
+							<SageInput
 								placeholder="https://mcp.example.com/mcp"
 								value={form.url}
 								onChange={(e) => handleFormChange("url", e.target.value)}
-								className={`rounded-xl ${errors.url ? "border-red-500" : ""}`}
-								aria-invalid={!!errors.url}
+								error={!!errors.url}
 							/>
 							{errors.url && (
-								<p className="text-sm text-red-600 mt-1">{errors.url}</p>
+								<p className="font-[family-name:var(--font-dm-sans)] text-[13px] text-[#D45B45] mt-1.5">
+									{errors.url}
+								</p>
 							)}
 						</div>
 
-						<div className="space-y-1.5">
-							<Label htmlFor="iconUrl" className="text-[13px] font-semibold">
+						{/* Icon URL */}
+						<div>
+							<label className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-2">
 								Icon URL
-							</Label>
-							<Input
-								id="iconUrl"
+							</label>
+							<SageInput
 								placeholder="https://example.com/icon.png"
 								value={form.iconUrl}
 								onChange={(e) => handleFormChange("iconUrl", e.target.value)}
-								className="rounded-xl"
 							/>
 						</div>
 
-						<div className="space-y-1.5">
-							<Label
-								htmlFor="description"
-								className="text-[13px] font-semibold"
-							>
+						{/* Description */}
+						<div>
+							<label className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-2">
 								Description
-							</Label>
-							<Textarea
-								id="description"
+							</label>
+							<SageTextarea
 								placeholder="Description"
 								value={form.description}
 								onChange={(e) =>
 									handleFormChange("description", e.target.value)
 								}
-								className="min-h-[80px] rounded-xl md:text-sm"
+								rows={4}
 							/>
 						</div>
 
-						{/* Auth Method: editable in create, read-only in edit */}
+						{/* Auth Method */}
 						{!isEditMode ? (
-							<div className="space-y-1.5">
-								<Label htmlFor="authType" className="text-[13px] font-semibold">
+							<div>
+								<label className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-2">
 									Authentication Method
-								</Label>
-								<Select
-									value={form.authType}
-									onValueChange={(value) => handleFormChange("authType", value)}
-								>
-									<SelectTrigger id="authType" className="w-full rounded-xl">
-										<SelectValue placeholder="Select authentication method" />
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value="none">None</SelectItem>
-										<SelectItem value="api_key">API Key</SelectItem>
-										<SelectItem value="oauth2">OAuth 2.0</SelectItem>
-									</SelectContent>
-								</Select>
+								</label>
+								<SageDropdownMenu
+									trigger={
+										<button className="w-full rounded-full border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-[#FAFCFB] dark:bg-white/5 text-[14px] font-medium font-[family-name:var(--font-dm-sans)] text-[#1E2D28] dark:text-foreground h-auto py-3 px-[18px] flex items-center justify-between cursor-pointer hover:border-[#A3B5AD] focus:border-[#4CA882] transition-colors outline-none">
+											<span>{AUTH_TYPE_LABELS[form.authType]}</span>
+											<ChevronDown className="size-4 text-[#8FA89E] shrink-0" />
+										</button>
+									}
+									align="start"
+									className="w-(--radix-dropdown-menu-trigger-width)"
+									items={[
+										{
+											label: "None",
+											onClick: () => handleFormChange("authType", "none"),
+											active: form.authType === "none",
+										},
+										{
+											label: "API Key",
+											onClick: () => handleFormChange("authType", "api_key"),
+											active: form.authType === "api_key",
+										},
+										{
+											label: "OAuth 2.0",
+											onClick: () => handleFormChange("authType", "oauth2"),
+											active: form.authType === "oauth2",
+										},
+									]}
+								/>
 							</div>
 						) : (
-							<div className="space-y-1.5">
-								<Label className="text-[13px] font-semibold">
+							<div>
+								<label className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-1">
 									Authentication Method
-								</Label>
-								<p className="text-sm text-muted-foreground">
+								</label>
+								<p className="font-[family-name:var(--font-dm-sans)] text-[14px] text-[#8FA89E] dark:text-muted-foreground font-medium">
 									{server?.authType === "none"
 										? "None"
 										: server?.authType === "api_key"
@@ -546,77 +553,60 @@ export default function MCPServerDialog({
 
 						{/* API Key field (create only) */}
 						{!isEditMode && form.authType === "api_key" && (
-							<div className="space-y-1.5">
-								<Label htmlFor="apiKey" className="text-[13px] font-semibold">
+							<div>
+								<label className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-2">
 									API Key
-								</Label>
-								<Input
-									id="apiKey"
+								</label>
+								<SageInput
 									type="password"
 									placeholder="Enter your API Key"
 									value={form.apiKey}
 									onChange={(e) => handleFormChange("apiKey", e.target.value)}
-									className="rounded-xl"
 								/>
 							</div>
 						)}
 
 						{/* OAuth fields (create only) */}
 						{!isEditMode && form.authType === "oauth2" && (
-							<div className="space-y-4">
-								{isNonDcrOAuth ? (
-									<p className="text-sm text-muted-foreground">
-										This server requires OAuth credentials.
-									</p>
-								) : (
-									<p className="text-sm text-muted-foreground">
-										Leave empty to use Dynamic Client Registration (DCR). Only
-										fill these if your MCP server requires static credentials.
-									</p>
-								)}
-								<div className="space-y-1.5">
-									<Label
-										htmlFor="oauthClientId"
-										className="text-[13px] font-semibold"
-									>
+							<div className="space-y-[22px]">
+								<p className="font-[family-name:var(--font-dm-sans)] text-[13px] text-[#8FA89E] dark:text-muted-foreground">
+									{isNonDcrOAuth
+										? "This server requires OAuth credentials."
+										: "Leave empty to use Dynamic Client Registration (DCR). Only fill these if your MCP server requires static credentials."}
+								</p>
+								<div>
+									<label className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-2">
 										Client ID{isNonDcrOAuth ? "" : " (optional)"}
-									</Label>
-									<Input
-										id="oauthClientId"
+									</label>
+									<SageInput
 										placeholder="Enter your OAuth client ID"
 										value={form.oauthClientId}
 										onChange={(e) =>
 											handleFormChange("oauthClientId", e.target.value)
 										}
-										className={`rounded-xl ${errors.oauthClientId ? "border-red-500" : ""}`}
-										aria-invalid={!!errors.oauthClientId}
+										error={!!errors.oauthClientId}
 									/>
 									{errors.oauthClientId && (
-										<p className="text-sm text-red-600">
+										<p className="font-[family-name:var(--font-dm-sans)] text-[13px] text-[#D45B45] mt-1.5">
 											{errors.oauthClientId}
 										</p>
 									)}
 								</div>
-								<div className="space-y-1.5">
-									<Label
-										htmlFor="oauthClientSecret"
-										className="text-[13px] font-semibold"
-									>
+								<div>
+									<label className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-2">
 										Client Secret{isNonDcrOAuth ? "" : " (optional)"}
-									</Label>
-									<Input
-										id="oauthClientSecret"
+									</label>
+									<SageInput
 										type="password"
 										placeholder="Enter your OAuth client secret"
 										value={form.oauthClientSecret}
 										onChange={(e) =>
 											handleFormChange("oauthClientSecret", e.target.value)
 										}
-										className={`rounded-xl ${errors.oauthClientSecret ? "border-red-500" : ""}`}
-										aria-invalid={!!errors.oauthClientSecret}
+										error={!!errors.oauthClientSecret}
 									/>
 									{errors.oauthClientSecret && (
-										<p className="text-sm text-red-600">
+										<p className="font-[family-name:var(--font-dm-sans)] text-[13px] text-[#D45B45] mt-1.5">
 											{errors.oauthClientSecret}
 										</p>
 									)}
@@ -626,64 +616,52 @@ export default function MCPServerDialog({
 					</div>
 				</div>
 
-				{/* ── Footer ── */}
-				<div className="flex items-center px-8 pt-4 pb-6 border-t border-border">
+				{/* Footer */}
+				<div className="flex items-center px-8 pt-5 pb-6 border-t border-[#F0F3F2] dark:border-white/5">
 					{isEditMode ? (
 						<>
-							<Button
-								variant="ghost"
+							<SageButton
+								color="destructive-ghost"
 								onClick={handleDelete}
 								disabled={isSubmitting || isResetting}
-								className="text-destructive hover:text-destructive hover:bg-destructive/10 rounded-xl text-[13px] font-semibold cursor-pointer"
 							>
-								Delete server
-							</Button>
+								Delete
+							</SageButton>
 							{server?.authType === "oauth2" && (
-								<Button
-									variant="ghost"
+								<SageButton
+									color="ghost"
 									onClick={handleReset}
 									disabled={isSubmitting || isResetting}
-									className="rounded-xl text-[13px] font-semibold cursor-pointer"
 								>
 									{isResetting ? "Resetting..." : "Reset connections"}
-								</Button>
+								</SageButton>
 							)}
 							<div className="flex-1" />
 							<div className="flex gap-2.5">
-								<Button
-									variant="outline"
+								<SageButton
+									color="outline"
 									onClick={() => handleOpenChange(false)}
-									className="rounded-xl cursor-pointer"
 								>
 									Cancel
-								</Button>
-								<Button
-									onClick={handleUpdate}
-									disabled={isSubmitting}
-									className="rounded-xl cursor-pointer"
-								>
-									{isSubmitting ? "Saving..." : "Save changes"}
-								</Button>
+								</SageButton>
+								<SageButton onClick={handleUpdate} disabled={isSubmitting}>
+									{isSubmitting ? "Saving..." : "Save"}
+								</SageButton>
 							</div>
 						</>
 					) : (
 						<>
 							<div className="flex-1" />
 							<div className="flex gap-2.5">
-								<Button
-									variant="outline"
+								<SageButton
+									color="outline"
 									onClick={() => handleOpenChange(false)}
-									className="rounded-xl cursor-pointer"
 								>
 									Cancel
-								</Button>
-								<Button
-									onClick={handleCreate}
-									disabled={isSubmitting}
-									className="rounded-xl cursor-pointer"
-								>
+								</SageButton>
+								<SageButton onClick={handleCreate} disabled={isSubmitting}>
 									{isSubmitting ? "Creating..." : "Create server"}
-								</Button>
+								</SageButton>
 							</div>
 						</>
 					)}

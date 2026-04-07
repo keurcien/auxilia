@@ -3,11 +3,20 @@
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ArrowDownIcon } from "lucide-react";
-import type { ComponentProps } from "react";
+import type { ComponentProps, FC } from "react";
 import { useCallback } from "react";
-import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
+import {
+	StickToBottom as _StickToBottom,
+	useStickToBottomContext,
+	type StickToBottomProps,
+} from "use-stick-to-bottom";
 
-export type ConversationProps = ComponentProps<typeof StickToBottom>;
+// React 19 compat: use-stick-to-bottom declares ReactNode return but JSX requires ReactElement | null
+const StickToBottom = _StickToBottom as unknown as FC<StickToBottomProps> & {
+	Content: FC<_StickToBottom.ContentProps>;
+};
+
+export type ConversationProps = StickToBottomProps;
 
 export const Conversation = ({ className, ...props }: ConversationProps) => (
 	<StickToBottom
@@ -22,9 +31,7 @@ export const Conversation = ({ className, ...props }: ConversationProps) => (
 	/>
 );
 
-export type ConversationContentProps = ComponentProps<
-	typeof StickToBottom.Content
->;
+export type ConversationContentProps = _StickToBottom.ContentProps;
 
 export const ConversationContent = ({
 	className,
@@ -83,21 +90,21 @@ export const ConversationScrollButton = ({
 		scrollToBottom();
 	}, [scrollToBottom]);
 
+	if (isAtBottom) return null;
+
 	return (
-		!isAtBottom && (
-			<Button
-				className={cn(
-					"absolute bottom-4 left-[50%] translate-x-[-50%] rounded-full",
-					className
-				)}
-				onClick={handleScrollToBottom}
-				size="icon"
-				type="button"
-				variant="outline"
-				{...props}
-			>
-				<ArrowDownIcon className="size-4" />
-			</Button>
-		)
+		<Button
+			className={cn(
+				"absolute bottom-4 left-[50%] translate-x-[-50%] rounded-full",
+				className
+			)}
+			onClick={handleScrollToBottom}
+			size="icon"
+			type="button"
+			variant="outline"
+			{...props}
+		>
+			<ArrowDownIcon className="size-4" />
+		</Button>
 	);
 };

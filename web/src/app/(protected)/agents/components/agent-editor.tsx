@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
 import { AGENT_COLORS, agentColorBackground } from "@/lib/colors";
 import { useTheme } from "next-themes";
-import { MoreVertical, ShieldCheck, ArrowRight, ArchiveIcon } from "lucide-react";
+import { ShieldCheck, ArrowRight, ArchiveIcon } from "lucide-react";
 import { Agent } from "@/types/agents";
 import AgentToolList from "../[id]/components/agent-tool-list";
 import AgentSubagentList from "../[id]/components/agent-subagent-list";
@@ -13,12 +13,7 @@ import { api } from "@/lib/api/client";
 import { useAgentsStore } from "@/stores/agents-store";
 import { useThreadsStore } from "@/stores/threads-store";
 import { useUserStore } from "@/stores/user-store";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { SageDropdownMenu } from "@/components/ui/sage-dropdown-menu";
 import AgentPermissionsDialog from "./agent-permissions-dialog";
 
 interface AgentEditorProps {
@@ -264,30 +259,13 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 					</button>
 
 					{/* More menu */}
-					<DropdownMenu>
-						<DropdownMenuTrigger asChild>
-							<button className="w-10 h-10 rounded-full bg-[#F5F8F6] dark:bg-white/10 flex items-center justify-center cursor-pointer transition-colors hover:bg-[#EDF4F0] dark:hover:bg-white/15">
-								<MoreVertical className="w-[18px] h-[18px] text-[#6B7F76]" />
-								<span className="sr-only">Agent settings</span>
-							</button>
-						</DropdownMenuTrigger>
-						<DropdownMenuContent side="bottom" align="end">
-							<DropdownMenuItem
-								className="text-primary focus:text-primary cursor-pointer"
-								onClick={handleManagePermissions}
-							>
-								<ShieldCheck className="size-4" />
-								<span>Manage permissions</span>
-							</DropdownMenuItem>
-							<DropdownMenuItem
-								className="text-destructive focus:text-destructive cursor-pointer"
-								onClick={handleDeleteAgent}
-							>
-								<ArchiveIcon className="size-4 text-destructive" />
-								<span>Archive agent</span>
-							</DropdownMenuItem>
-						</DropdownMenuContent>
-					</DropdownMenu>
+					<SageDropdownMenu
+						items={[
+							{ label: "Manage permissions", icon: <ShieldCheck />, onClick: handleManagePermissions },
+							{ separator: true },
+							{ label: "Archive agent", icon: <ArchiveIcon />, destructive: true, onClick: handleDeleteAgent },
+						]}
+					/>
 				</div>
 			</div>
 
