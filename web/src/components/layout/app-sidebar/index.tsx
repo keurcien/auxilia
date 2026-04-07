@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-	ArchiveIcon,
 	Bot,
 	Server,
 	SquarePen,
@@ -16,6 +15,8 @@ import {
 	BookOpen,
 	Settings,
 	Users,
+	Moon,
+	Sun,
 } from "lucide-react";
 import {
 	Sidebar,
@@ -30,19 +31,14 @@ import {
 	SidebarMenuItem,
 	SidebarMenuAction,
 } from "@/components/ui/sidebar";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { SageDropdownMenu } from "@/components/ui/sage-dropdown-menu";
 import { useThreadsStore } from "@/stores/threads-store";
 import { useUserStore } from "@/stores/user-store";
 import { useAgentsStore } from "@/stores/agents-store";
 import { api } from "@/lib/api/client";
-import { agentColorBackground } from "@/lib/colors";
-import { ThemeToggle } from "./theme-toggle";
+import { AgentAvatar } from "@/components/ui/agent-avatar";
+import { useTheme } from "next-themes";
 
 const navItems = [
 	{
@@ -77,6 +73,7 @@ export function AppSidebar() {
 	const { agents, fetchAgents } = useAgentsStore();
 	const { threads, fetchThreads, removeThread } = useThreadsStore();
 	const { user, fetchUser, logout } = useUserStore();
+	const { resolvedTheme, setTheme } = useTheme();
 
 	useEffect(() => {
 		fetchUser();
@@ -161,21 +158,11 @@ export function AppSidebar() {
 													href={`/agents/${thread.agentId}/chat/${thread.id}`}
 													className="px-3 py-2.5 flex items-center gap-2.5"
 												>
-													<div
-														style={
-															thread.agentColor
-																? {
-																		background: agentColorBackground(
-																			thread.agentColor,
-																		),
-																		border: `1.5px solid ${thread.agentColor}18`,
-																	}
-																: undefined
-														}
-														className={`shrink-0 w-[34px] h-[34px] rounded-full flex items-center justify-center text-[15px] ${thread.agentColor ? "" : "bg-sidebar-hover"}`}
-													>
-														{thread.agentEmoji || "🤖"}
-													</div>
+													<AgentAvatar
+														color={thread.agentColor}
+														emoji={thread.agentEmoji}
+														size="sm"
+													/>
 													<div className="flex-1 min-w-0 text-left">
 														<div
 															className={`font-[family-name:var(--font-dm-sans)] text-[14px] truncate leading-[1.45] ${isActive ? "font-semibold" : "font-medium"} text-sidebar-foreground`}
@@ -200,8 +187,8 @@ export function AppSidebar() {
 													)}
 												</Link>
 											</SidebarMenuButton>
-											<DropdownMenu>
-												<DropdownMenuTrigger asChild>
+											<SageDropdownMenu
+												trigger={
 													<SidebarMenuAction
 														showOnHover
 														className="cursor-pointer"
@@ -209,17 +196,13 @@ export function AppSidebar() {
 														<MoreVertical className="size-4" />
 														<span className="sr-only">More options</span>
 													</SidebarMenuAction>
-												</DropdownMenuTrigger>
-												<DropdownMenuContent side="right" align="start">
-													<DropdownMenuItem
-														className="text-destructive focus:text-destructive"
-														onClick={() => handleDeleteThread(thread.id)}
-													>
-														<Trash2 className="size-4 text-destructive" />
-														<span>Delete</span>
-													</DropdownMenuItem>
-												</DropdownMenuContent>
-											</DropdownMenu>
+												}
+												side="right"
+												align="start"
+												items={[
+													{ label: "Delete", icon: <Trash2 />, destructive: true, onClick: () => handleDeleteThread(thread.id) },
+												]}
+											/>
 										</SidebarMenuItem>
 									);
 								})}
@@ -270,8 +253,8 @@ export function AppSidebar() {
 				<SidebarFooter className="px-3 pb-3">
 					<SidebarMenu>
 						<SidebarMenuItem>
-							<DropdownMenu>
-								<DropdownMenuTrigger asChild>
+							<SageDropdownMenu
+								trigger={
 									<SidebarMenuButton
 										size="lg"
 										className="rounded-[18px] bg-sidebar-hover data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground cursor-pointer px-3 py-2.5"
@@ -290,39 +273,19 @@ export function AppSidebar() {
 											</span>
 										</div>
 									</SidebarMenuButton>
-								</DropdownMenuTrigger>
-								<DropdownMenuContent
-									className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg"
-									side="bottom"
-									align="end"
-									sideOffset={4}
-								>
-									<DropdownMenuItem
-										onClick={() => router.push("/settings")}
-										className="cursor-pointer"
-									>
-										<Settings className="mr-2 h-4 w-4" />
-										Settings
-									</DropdownMenuItem>
-									<DropdownMenuItem
-										onClick={() =>
-											window.open("https://auxilia-docs.vercel.app/", "_blank")
-										}
-										className="cursor-pointer"
-									>
-										<BookOpen className="mr-2 h-4 w-4" />
-										Documentation
-									</DropdownMenuItem>
-									<ThemeToggle />
-									<DropdownMenuItem
-										onClick={handleLogout}
-										className="cursor-pointer"
-									>
-										<LogOut className="mr-2 h-4 w-4" />
-										Log out
-									</DropdownMenuItem>
-								</DropdownMenuContent>
-							</DropdownMenu>
+								}
+								side="top"
+								align="end"
+								sideOffset={4}
+								className="w-(--radix-dropdown-menu-trigger-width) min-w-56"
+								items={[
+									{ label: "Settings", icon: <Settings />, onClick: () => router.push("/settings") },
+									{ label: "Documentation", icon: <BookOpen />, onClick: () => window.open("https://auxilia-docs.vercel.app/", "_blank") },
+									{ label: resolvedTheme === "dark" ? "Light mode" : "Dark mode", icon: resolvedTheme === "dark" ? <Sun /> : <Moon />, onClick: () => setTheme(resolvedTheme === "dark" ? "light" : "dark") },
+									{ separator: true },
+									{ label: "Log out", icon: <LogOut />, destructive: true, onClick: handleLogout },
+								]}
+							/>
 						</SidebarMenuItem>
 					</SidebarMenu>
 				</SidebarFooter>

@@ -1,18 +1,13 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { Trash2, Plus, Copy, Check, Mail } from "lucide-react";
+import { Trash2, Plus, Copy, Check, Mail, ChevronDown } from "lucide-react";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import InviteDialog from "./invite-dialog";
 import { SearchBar } from "@/components/ui/search-bar";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { PageContainer } from "@/components/layout/page-container";
+import { SageDropdownMenu } from "@/components/ui/sage-dropdown-menu";
 import { api } from "@/lib/api/client";
 import { useUserStore } from "@/stores/user-store";
 
@@ -176,7 +171,7 @@ export default function UsersPage() {
 	};
 
 	return (
-		<div className="mx-auto min-h-full w-full max-w-5xl px-4 pb-20 @min-screen-md/layout:px-8 @min-screen-xl/layout:max-w-6xl">
+		<PageContainer>
 			<ForbiddenErrorDialog
 				open={errorDialogOpen}
 				onOpenChange={setErrorDialogOpen}
@@ -268,21 +263,19 @@ export default function UsersPage() {
 											{ROLE_LABELS[user.role]}
 										</span>
 									) : (
-										<Select
-											value={user.role}
-											onValueChange={(value: Role) =>
-												handleRoleChange(user.id, value)
+										<SageDropdownMenu
+											trigger={
+												<button className="w-[116px] rounded-full border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-white dark:bg-transparent text-[13px] font-semibold font-[family-name:var(--font-dm-sans)] text-[#1E2D28] dark:text-foreground h-auto py-1.5 px-4 flex items-center justify-between gap-1 cursor-pointer hover:border-[#A3B5AD] transition-colors">
+													<span>{ROLE_LABELS[user.role]}</span>
+													<ChevronDown className="size-3.5 text-[#8FA89E] shrink-0" />
+												</button>
 											}
-										>
-											<SelectTrigger className="w-[100px] rounded-full border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-white dark:bg-transparent text-[13px] font-semibold font-[family-name:var(--font-dm-sans)] text-[#1E2D28] dark:text-foreground focus:border-[#A3B5AD] h-auto py-1.5">
-												<SelectValue />
-											</SelectTrigger>
-											<SelectContent>
-												<SelectItem value="admin">Admin</SelectItem>
-												<SelectItem value="editor">Editor</SelectItem>
-												<SelectItem value="member">Member</SelectItem>
-											</SelectContent>
-										</Select>
+											items={[
+												{ label: "Admin", onClick: () => handleRoleChange(user.id, "admin"), active: user.role === "admin" },
+												{ label: "Editor", onClick: () => handleRoleChange(user.id, "editor"), active: user.role === "editor" },
+												{ label: "Member", onClick: () => handleRoleChange(user.id, "member"), active: user.role === "member" },
+											]}
+										/>
 									)}
 								</div>
 
@@ -364,6 +357,6 @@ export default function UsersPage() {
 				</div>
 			)}
 			</>)}
-		</div>
+		</PageContainer>
 	);
 }
