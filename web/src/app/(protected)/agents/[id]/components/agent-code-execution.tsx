@@ -47,7 +47,7 @@ export default function AgentCodeExecution({
 
 	return (
 		<div className="border-b last:border-b-0">
-			<div className="flex items-center p-3 hover:bg-muted/50">
+			<div className="flex items-center p-3 hover:bg-[#F8FAF9] dark:hover:bg-white/5 transition-colors">
 				<div className="w-6 h-6 rounded-sm flex items-center justify-center mr-3 overflow-hidden relative">
 					<Image
 						width={24}
@@ -60,7 +60,7 @@ export default function AgentCodeExecution({
 
 				<div className="flex-1">
 					<div className="flex items-center gap-2">
-						<div className="text-sm">Code execution</div>
+						<div className="font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold text-[#1E2D28] dark:text-foreground">Code execution</div>
 						<Badge
 							variant="secondary"
 							className="bg-green-100 dark:bg-green-950/40 text-green-600 dark:text-green-400 border-green-200 dark:border-green-800 text-[0.6rem]"
@@ -90,13 +90,13 @@ export default function AgentCodeExecution({
 							{SANDBOX_TOOLS.map((tool) => (
 								<div
 									key={tool.name}
-									className="flex items-center p-3 bg-muted rounded hover:bg-muted/80"
+									className="flex items-center p-3 bg-[#FAFCFB] rounded-2xl hover:bg-sidebar-hover border-[1.5px] border-[#E0E8E4] dark:border-white/10"
 								>
-									<div className="w-8 h-8 bg-muted-foreground/15 rounded flex items-center justify-center text-muted-foreground text-xs font-semibold mr-3 shrink-0">
+									<div className="w-8 h-8 bg-white rounded-full flex items-center justify-center text-muted-foreground text-xs font-semibold mr-3 shrink-0 border-[1.5px] border-[#E0E8E4] dark:border-white/10">
 										{tool.name.charAt(0).toUpperCase()}
 									</div>
 									<div className="flex-1 min-w-0 mr-3">
-										<div className="text-sm font-medium truncate">
+										<div className="font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold text-[#1E2D28] dark:text-foreground truncate">
 											{tool.name}
 										</div>
 										<div className="text-xs text-muted-foreground line-clamp-2">

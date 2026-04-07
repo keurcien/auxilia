@@ -187,7 +187,7 @@ export default function AgentMCPServer({
 
 	return (
 		<div className="border-b last:border-b-0">
-			<div className="flex items-center p-3 hover:bg-muted/50">
+			<div className="flex items-center p-3 hover:bg-[#F8FAF9] dark:hover:bg-white/5 transition-colors">
 				<div className="w-6 h-6 rounded-sm flex items-center justify-center text-white font-semibold mr-3 overflow-hidden relative">
 					<Image
 						width={24}
@@ -203,7 +203,7 @@ export default function AgentMCPServer({
 
 				<div className="flex-1">
 					<div className="flex items-center gap-2">
-						<div className="text-sm">{server.name}</div>
+						<div className="font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold text-[#1E2D28] dark:text-foreground">{server.name}</div>
 						{isCheckingConnection ? (
 							<Badge
 								variant="secondary"
@@ -248,9 +248,9 @@ export default function AgentMCPServer({
 				<div className="bg-card p-4 border-t">
 					<div className="max-h-[400px] overflow-y-auto mb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 						{!isConnected ? (
-							<div className="bg-muted rounded-xl p-5 text-center mb-3">
-								<div className="w-10 h-10 bg-muted/80 rounded-xl flex items-center justify-center mx-auto mb-3">
-									<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+							<div className="rounded-2xl border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-[#FAFCFB] dark:bg-white/5 p-6 text-center mb-3">
+								<div className="w-10 h-10 rounded-full bg-[#F5F8F6] dark:bg-white/10 border-[1.5px] border-[#E0E8E4] dark:border-white/10 flex items-center justify-center mx-auto mb-3">
+									<svg width="18" height="18" viewBox="0 0 20 20" fill="none">
 										<rect
 											x="4"
 											y="9"
@@ -259,23 +259,23 @@ export default function AgentMCPServer({
 											rx="2"
 											stroke="currentColor"
 											strokeWidth="1.5"
-											className="text-muted-foreground"
+											className="text-[#6B7F76] dark:text-muted-foreground"
 										/>
 										<path
 											d="M7 9V6a3 3 0 116 0v3"
 											stroke="currentColor"
 											strokeWidth="1.5"
 											strokeLinecap="round"
-											className="text-muted-foreground"
+											className="text-[#6B7F76] dark:text-muted-foreground"
 										/>
 									</svg>
 								</div>
-								<p className="text-sm font-medium mb-1">Connect your account</p>
-								<p className="text-xs text-muted-foreground mb-4">
+								<p className="font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold text-[#1E2D28] dark:text-foreground mb-1">Connect your account</p>
+								<p className="font-[family-name:var(--font-dm-sans)] text-[12px] text-[#A3B5AD] dark:text-muted-foreground mb-4">
 									This server requires authentication.
 								</p>
 								<button
-									className="px-5 py-2.5 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:bg-primary/90 transition-colors cursor-pointer"
+									className="px-5 py-2.5 bg-[#111111] dark:bg-white text-white dark:text-[#111111] font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold rounded-full hover:opacity-90 transition-all cursor-pointer"
 									onClick={handleConnect}
 								>
 									Connect

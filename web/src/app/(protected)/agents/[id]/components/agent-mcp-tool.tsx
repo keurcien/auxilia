@@ -63,13 +63,15 @@ export default function AgentMCPTool({
 	};
 
 	return (
-		<div className="flex items-center p-3 bg-muted rounded hover:bg-muted/80">
-			<div className="w-8 h-8 bg-muted-foreground/15 rounded flex items-center justify-center text-muted-foreground text-xs font-semibold mr-3 shrink-0">
+		<div className="flex items-center p-3 bg-[#FAFCFB] rounded-2xl hover:bg-sidebar-hover border-[1.5px] border-[#E0E8E4] dark:border-white/10">
+			<div className="w-8 h-8 bg-white rounded-full flex items-center justify-center text-muted-foreground text-xs font-semibold mr-3 shrink-0 border-[1.5px] border-[#E0E8E4] dark:border-white/10">
 				{toolName.charAt(0).toUpperCase()}
 			</div>
 
 			<div className="flex-1 min-w-0 mr-3">
-				<div className="text-sm font-medium truncate">{toolName}</div>
+				<div className="font-(family-name:--font-dm-sans) text-[14px] font-semibold text-[#1E2D28] dark:text-foreground truncate">
+					{toolName}
+				</div>
 				{toolDescription && (
 					<div className="text-xs text-muted-foreground line-clamp-2">
 						{toolDescription}
