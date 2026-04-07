@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Info } from "lucide-react";
+import { Compass, Info, Plus, Search, Users, Zap } from "lucide-react";
 import { Agent } from "@/types/agents";
 import AgentCard from "@/app/(protected)/agents/components/agent-card";
 import { api } from "@/lib/api/client";
@@ -12,8 +12,6 @@ const TABS = [
 		key: "mine",
 		label: "My agents",
 		filter: (a: Agent) => a.currentUserPermission === "owner",
-		emptyTitle: "No agents yet",
-		emptyDesc: "Create your first agent to get started.",
 	},
 	{
 		key: "shared",
@@ -22,19 +20,60 @@ const TABS = [
 			a.currentUserPermission === "admin" ||
 			a.currentUserPermission === "editor" ||
 			a.currentUserPermission === "user",
-		emptyTitle: "Nothing shared yet",
-		emptyDesc: "When collaborators share agents with you, they'll appear here.",
 	},
 	{
 		key: "discover",
 		label: "Discover",
 		filter: (a: Agent) => !a.currentUserPermission,
-		emptyTitle: "Nothing to discover",
-		emptyDesc: "All workspace agents are already shared with you.",
 	},
 ];
 
-export default function AgentList() {
+function EmptyState({
+	icon,
+	title,
+	subtitle,
+	action,
+}: {
+	icon: React.ReactNode;
+	title: string;
+	subtitle: string;
+	action?: { label: string; icon: React.ReactNode; onClick: () => void };
+}) {
+	return (
+		<div className="flex flex-col items-center justify-center py-16 px-8 animate-in fade-in slide-in-from-bottom-2 duration-400">
+			{/* Icon bubble */}
+			<div className="w-[72px] h-[72px] rounded-full bg-[#F5F8F6] dark:bg-white/5 flex items-center justify-center mb-5">
+				<div className="w-12 h-12 rounded-full bg-[#EDF4F0] dark:bg-white/10 flex items-center justify-center">
+					{icon}
+				</div>
+			</div>
+
+			<div className="font-[family-name:var(--font-jakarta-sans)] text-[17px] font-bold text-[#1E2D28] dark:text-foreground tracking-[-0.01em] mb-1.5">
+				{title}
+			</div>
+
+			<div className="font-[family-name:var(--font-dm-sans)] text-[14px] text-[#8FA89E] dark:text-muted-foreground font-medium text-center max-w-[320px] leading-relaxed mb-6">
+				{subtitle}
+			</div>
+
+			{action && (
+				<button
+					onClick={action.onClick}
+					className="flex items-center gap-1.5 px-5.5 py-2.5 rounded-full border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-white dark:bg-transparent font-[family-name:var(--font-dm-sans)] text-[13.5px] font-semibold text-[#1E2D28] dark:text-foreground cursor-pointer transition-all hover:bg-[#F8FAF9] dark:hover:bg-white/5 hover:-translate-y-0.5"
+				>
+					{action.icon}
+					{action.label}
+				</button>
+			)}
+		</div>
+	);
+}
+
+interface AgentListProps {
+	onCreateAgent?: () => void;
+}
+
+export default function AgentList({ onCreateAgent }: AgentListProps) {
 	const [agents, setAgents] = useState<Agent[]>([]);
 	const [activeTab, setActiveTab] = useState("mine");
 	const [search, setSearch] = useState("");
@@ -67,16 +106,58 @@ export default function AgentList() {
 
 	if (isLoading) return null;
 
-	if (agents.length === 0) {
+	const renderEmptyState = () => {
+		// Search with no results
+		if (search) {
+			return (
+				<EmptyState
+					icon={<Search className="size-[22px] text-[#4CA882]" />}
+					title="No agents found"
+					subtitle="Try adjusting your search or filters to find what you're looking for."
+					action={{
+						label: "Clear search",
+						icon: <Search className="size-[15px] text-[#4CA882]" />,
+						onClick: () => setSearch(""),
+					}}
+				/>
+			);
+		}
+
+		// Empty workspace (no agents at all in "mine" tab)
+		if (activeTab === "mine") {
+			return (
+				<EmptyState
+					icon={<Zap className="size-[22px] text-[#4CA882]" />}
+					title="Create your first agent"
+					subtitle="Agents help your team automate tasks and access your data tools."
+					action={onCreateAgent ? {
+						label: "Create an agent",
+						icon: <Plus className="size-[15px] text-[#4CA882]" />,
+						onClick: onCreateAgent,
+					} : undefined}
+				/>
+			);
+		}
+
+		if (activeTab === "shared") {
+			return (
+				<EmptyState
+					icon={<Users className="size-[22px] text-[#4CA882]" />}
+					title="Nothing shared yet"
+					subtitle="When someone shares an agent with you, it will appear here."
+				/>
+			);
+		}
+
+		// Discover
 		return (
-			<div className="flex items-center justify-center p-12 border border-border rounded-lg animate-in fade-in duration-300">
-				<div className="text-muted-foreground">
-					No agents configured. Click the &quot;Create an agent&quot; button to
-					get started.
-				</div>
-			</div>
+			<EmptyState
+				icon={<Compass className="size-[22px] text-[#4CA882]" />}
+				title="Nothing to discover"
+				subtitle="All workspace agents are already shared with you."
+			/>
 		);
-	}
+	};
 
 	return (
 		<div className="w-full mx-auto animate-in fade-in duration-300">
@@ -136,19 +217,8 @@ export default function AgentList() {
 						</div>
 					))}
 				</div>
-			) : search ? (
-				<div className="text-center py-20 text-muted-foreground text-sm">
-					No agents found matching &quot;{search}&quot;
-				</div>
 			) : (
-				<div className="flex flex-col items-center justify-center py-16 px-5 rounded-2xl border border-dashed border-border bg-card">
-					<div className="text-[15px] font-semibold text-foreground mb-1.5">
-						{currentTab.emptyTitle}
-					</div>
-					<div className="text-[13.5px] text-muted-foreground max-w-[300px] text-center">
-						{currentTab.emptyDesc}
-					</div>
-				</div>
+				renderEmptyState()
 			)}
 		</div>
 	);

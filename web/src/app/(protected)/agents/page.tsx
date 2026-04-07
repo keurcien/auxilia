@@ -70,7 +70,7 @@ export default function AgentsPage() {
 					{isCreating ? "Creating..." : "Create an agent"}
 				</Button>
 			</div>
-			<AgentList />
+			<AgentList onCreateAgent={handleCreateAgent} />
 		</div>
 	);
 }
