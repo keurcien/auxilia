@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Search, Trash2 } from "lucide-react";
+import { Trash2, ChevronDown } from "lucide-react";
 import { api } from "@/lib/api/client";
 import {
 	Dialog,
@@ -10,15 +10,9 @@ import {
 	DialogTitle,
 	DialogFooter,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/ui/select";
+import { SearchBar } from "@/components/ui/search-bar";
+import { SageButton } from "@/components/ui/sage-button";
+import { SageDropdownMenu } from "@/components/ui/sage-dropdown-menu";
 
 type PermissionLevel = "user" | "editor" | "admin";
 
@@ -39,6 +33,12 @@ interface AgentPermissionsDialogProps {
 	agentId: string;
 	ownerId: string;
 }
+
+const PERMISSION_LABELS: Record<PermissionLevel, string> = {
+	admin: "Admin",
+	editor: "Editor",
+	user: "User",
+};
 
 function getInitials(name: string | null): string {
 	if (!name) return "?";
@@ -150,155 +150,142 @@ export default function AgentPermissionsDialog({
 				</DialogHeader>
 
 				<div className="relative">
-					<Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-					<Input
+					<SearchBar
 						placeholder="Search users by name or email..."
 						value={search}
-						onChange={(e) => setSearch(e.target.value)}
-						className="pl-9"
+						onChange={setSearch}
 					/>
+
+					{search.trim() && searchResults.length > 0 && (
+						<div className="absolute top-full left-0 right-0 mt-2 z-10 bg-white dark:bg-[#1C1C1C] border-[1.5px] border-[#E0E8E4] dark:border-white/10 rounded-[18px] max-h-[160px] overflow-y-auto shadow-[0_8px_24px_-6px_rgba(0,0,0,0.08)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+							{searchResults.map((user) => (
+								<button
+									key={user.id}
+									type="button"
+									className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-[#F8FAF9] dark:hover:bg-white/5 transition-colors cursor-pointer first:rounded-t-[16px] last:rounded-b-[16px]"
+									onClick={() => addUser(user.id)}
+								>
+									<div className="shrink-0 w-[34px] h-[34px] rounded-full bg-[#F0F3F2] dark:bg-white/10 border-[1.5px] border-[#E0E8E4] dark:border-white/10 flex items-center justify-center text-[12px] font-bold text-[#6B7F76] dark:text-muted-foreground">
+										{getInitials(user.name)}
+									</div>
+									<div className="flex-1 min-w-0">
+										<p className="font-[family-name:var(--font-dm-sans)] text-[13.5px] font-semibold text-[#1E2D28] dark:text-foreground truncate">
+											{user.name || "Unnamed"}
+										</p>
+										<p className="font-[family-name:var(--font-dm-sans)] text-[12px] text-[#8FA89E] dark:text-muted-foreground truncate">
+											{user.email}
+										</p>
+									</div>
+								</button>
+							))}
+						</div>
+					)}
+
+					{search.trim() && searchResults.length === 0 && !isLoading && (
+						<div className="absolute top-full left-0 right-0 mt-2 z-10 bg-white dark:bg-[#1C1C1C] border-[1.5px] border-[#E0E8E4] dark:border-white/10 rounded-[18px] shadow-[0_8px_24px_-6px_rgba(0,0,0,0.08)]">
+							<p className="font-[family-name:var(--font-dm-sans)] text-[13px] text-[#A3B5AD] dark:text-muted-foreground text-center py-4">
+								No users found.
+							</p>
+						</div>
+					)}
 				</div>
 
-				{search.trim() && searchResults.length > 0 && (
-					<div className="border rounded-md max-h-[140px] overflow-y-auto shrink-0">
-						{searchResults.map((user) => (
-							<button
+				<div className="flex-1 min-h-0 overflow-hidden">
+					{/* Table header */}
+					<div className="flex items-center py-2 px-5 pl-[58px] font-[family-name:var(--font-dm-sans)]">
+						<div className="flex-1 text-[11px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em]">
+							Name
+						</div>
+						<div className="flex-[1.2] text-[11px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em]">
+							Email
+						</div>
+						<div className="min-w-[100px] text-[11px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em]">
+							Role
+						</div>
+						<div className="w-[40px]" />
+					</div>
+
+					{/* Rows */}
+					<div className="overflow-y-auto max-h-[260px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+						{owner && (
+							<div className="flex items-center py-3 px-5 rounded-[16px] transition-all duration-200 hover:bg-[#F8FAF9] dark:hover:bg-white/5">
+								<div className="shrink-0 w-[34px] h-[34px] rounded-full bg-[#F0F3F2] dark:bg-white/10 border-[1.5px] border-[#E0E8E4] dark:border-white/10 flex items-center justify-center text-[12px] font-bold text-[#6B7F76] dark:text-muted-foreground">
+									{getInitials(owner.name)}
+								</div>
+								<div className="flex-1 min-w-0 ml-3 font-[family-name:var(--font-dm-sans)]">
+									<span className="text-[13.5px] font-semibold text-[#1E2D28] dark:text-foreground truncate">
+										{owner.name || "Unnamed"}
+									</span>
+								</div>
+								<div className="flex-[1.2] min-w-0 font-[family-name:var(--font-dm-sans)] text-[13px] text-[#8FA89E] dark:text-muted-foreground font-medium truncate">
+									{owner.email}
+								</div>
+								<div className="min-w-[100px]">
+									<span className="font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#6B7F76] dark:text-muted-foreground px-4 py-1.5">
+										Owner
+									</span>
+								</div>
+								<div className="w-[40px]" />
+							</div>
+						)}
+
+						{permittedUsers.map((user) => (
+							<div
 								key={user.id}
-								type="button"
-								className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-accent transition-colors cursor-pointer"
-								onClick={() => addUser(user.id)}
+								className="group flex items-center py-3 px-5 rounded-[16px] transition-all duration-200 hover:bg-[#F8FAF9] dark:hover:bg-white/5"
 							>
-								<div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium">
+								<div className="shrink-0 w-[34px] h-[34px] rounded-full bg-[#F0F3F2] dark:bg-white/10 border-[1.5px] border-[#E0E8E4] dark:border-white/10 flex items-center justify-center text-[12px] font-bold text-[#6B7F76] dark:text-muted-foreground">
 									{getInitials(user.name)}
 								</div>
-								<div className="flex-1 min-w-0">
-									<p className="text-sm font-medium truncate">
+								<div className="flex-1 min-w-0 ml-3 font-[family-name:var(--font-dm-sans)]">
+									<span className="text-[13.5px] font-semibold text-[#1E2D28] dark:text-foreground truncate">
 										{user.name || "Unnamed"}
-									</p>
-									<p className="text-xs text-muted-foreground truncate">
-										{user.email}
-									</p>
+									</span>
 								</div>
-							</button>
+								<div className="flex-[1.2] min-w-0 font-[family-name:var(--font-dm-sans)] text-[13px] text-[#8FA89E] dark:text-muted-foreground font-medium truncate">
+									{user.email}
+								</div>
+								<div className="min-w-[100px]">
+									<SageDropdownMenu
+										trigger={
+											<button className="w-[100px] rounded-full border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-white dark:bg-transparent text-[13px] font-semibold font-[family-name:var(--font-dm-sans)] text-[#1E2D28] dark:text-foreground h-auto py-1.5 px-4 flex items-center justify-between gap-1 cursor-pointer hover:border-[#A3B5AD] transition-colors">
+												<span>{PERMISSION_LABELS[user.permission]}</span>
+												<ChevronDown className="size-3.5 text-[#8FA89E] shrink-0" />
+											</button>
+										}
+										items={[
+											{ label: "Admin", onClick: () => updatePermission(user.id, "admin"), active: user.permission === "admin" },
+											{ label: "Editor", onClick: () => updatePermission(user.id, "editor"), active: user.permission === "editor" },
+											{ label: "User", onClick: () => updatePermission(user.id, "user"), active: user.permission === "user" },
+										]}
+									/>
+								</div>
+								<div className="w-[40px] flex justify-center">
+									<button
+										className="w-8 h-8 rounded-xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-[#F0F3F2] dark:hover:bg-white/10 cursor-pointer"
+										onClick={() => removeUser(user.id)}
+									>
+										<Trash2 className="h-[15px] w-[15px] text-[#A3B5AD]" />
+									</button>
+								</div>
+							</div>
 						))}
-					</div>
-				)}
 
-				{search.trim() && searchResults.length === 0 && !isLoading && (
-					<p className="text-sm text-muted-foreground text-center py-2">
-						No users found.
-					</p>
-				)}
-
-				<div className="flex-1 min-h-0 overflow-hidden border rounded-md">
-					<div className="h-full overflow-y-auto">
-						<table className="w-full">
-							<thead className="sticky top-0 bg-muted/50 backdrop-blur-sm">
-								<tr className="text-left text-xs text-muted-foreground font-medium">
-									<th className="px-3 py-2">Name</th>
-									<th className="px-3 py-2">Email</th>
-									<th className="px-3 py-2 w-[130px]">Role</th>
-									<th className="px-3 py-2 w-[50px]" />
-								</tr>
-							</thead>
-							<tbody className="text-sm">
-								{owner && (
-									<tr className="border-t">
-										<td className="px-3 py-2">
-											<div className="flex items-center gap-2">
-												<div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium">
-													{getInitials(owner.name)}
-												</div>
-												<span className="truncate max-w-[120px]">
-													{owner.name || "Unnamed"}
-												</span>
-											</div>
-										</td>
-										<td className="px-3 py-2 text-muted-foreground truncate max-w-[160px]">
-											{owner.email}
-										</td>
-										<td className="px-3 py-2">
-											<div className="flex h-8 w-full items-center rounded-md border bg-transparent px-3 text-sm text-muted-foreground">
-												Owner
-											</div>
-										</td>
-										<td className="px-3 py-2" />
-									</tr>
-								)}
-								{permittedUsers.map((user) => (
-									<tr key={user.id} className="border-t">
-										<td className="px-3 py-2">
-											<div className="flex items-center gap-2">
-												<div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium">
-													{getInitials(user.name)}
-												</div>
-												<span className="truncate max-w-[120px]">
-													{user.name || "Unnamed"}
-												</span>
-											</div>
-										</td>
-										<td className="px-3 py-2 text-muted-foreground truncate max-w-[160px]">
-											{user.email}
-										</td>
-										<td className="px-3 py-2">
-											<Select
-												value={user.permission}
-												onValueChange={(value) =>
-													updatePermission(user.id, value as PermissionLevel)
-												}
-											>
-												<SelectTrigger size="sm" className="w-full">
-													<SelectValue />
-												</SelectTrigger>
-												<SelectContent>
-													<SelectItem value="user">User</SelectItem>
-													<SelectItem value="editor">Editor</SelectItem>
-													<SelectItem value="admin">Admin</SelectItem>
-												</SelectContent>
-											</Select>
-										</td>
-										<td className="px-3 py-2">
-											<Button
-												variant="ghost"
-												size="icon-sm"
-												className="cursor-pointer text-muted-foreground hover:text-destructive"
-												onClick={() => removeUser(user.id)}
-											>
-												<Trash2 className="size-4" />
-											</Button>
-										</td>
-									</tr>
-								))}
-								{!owner && permittedUsers.length === 0 && !isLoading && (
-									<tr>
-										<td
-											colSpan={4}
-											className="px-3 py-8 text-center text-sm text-muted-foreground"
-										>
-											No permissions set. Search for users to add.
-										</td>
-									</tr>
-								)}
-							</tbody>
-						</table>
+						{!owner && permittedUsers.length === 0 && !isLoading && (
+							<div className="text-center py-12 font-[family-name:var(--font-dm-sans)] text-[14px] text-[#A3B5AD] dark:text-muted-foreground font-medium">
+								No permissions set. Search for users to add.
+							</div>
+						)}
 					</div>
 				</div>
 
 				<DialogFooter className="shrink-0">
-					<Button
-						variant="outline"
-						onClick={handleCancel}
-						className="cursor-pointer"
-					>
+					<SageButton color="outline" onClick={handleCancel}>
 						Cancel
-					</Button>
-					<Button
-						onClick={handleSave}
-						disabled={isSaving}
-						className="cursor-pointer"
-					>
+					</SageButton>
+					<SageButton onClick={handleSave} disabled={isSaving}>
 						{isSaving ? "Saving..." : "Save"}
-					</Button>
+					</SageButton>
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>
