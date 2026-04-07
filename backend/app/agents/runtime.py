@@ -132,14 +132,16 @@ class AgentRuntime:
         agent = await Agent.resolve(thread.agent_id, db, user_id, is_parent=True)
 
         model_entry = next(m for m in MODELS if m.name == thread.model_id)
-        provider = next(p for p in LLM_PROVIDERS if p.name == model_entry.provider)
+        provider = next(p for p in LLM_PROVIDERS if p.name ==
+                        model_entry.provider)
         model = ChatModelFactory().create(
             provider.name, thread.model_id, provider.api_key
         )
 
         # Build middleware stack
         middleware = [
-            ToolCallLimitMiddleware(run_limit=2, exit_behavior="end"),
+            ToolCallLimitMiddleware(run_limit=(
+                agent_settings.recursion_limit - 1) // 2, exit_behavior="end"),
             HumanInTheLoopMiddleware(
                 interrupt_on=agent.toolset.interrupt_on,
                 description_prefix="Tool execution pending approval",
@@ -195,7 +197,8 @@ class AgentRuntime:
                 agent = create_agent(
                     model=self.model,
                     tools=self.agent.toolset.all,
-                    system_prompt=SystemMessage(self.agent.config.instructions),
+                    system_prompt=SystemMessage(
+                        self.agent.config.instructions),
                     checkpointer=checkpointer,
                     middleware=self.middleware,
                 )
