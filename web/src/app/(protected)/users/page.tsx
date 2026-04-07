@@ -201,6 +201,7 @@ export default function UsersPage() {
 				</Button>
 			</div>
 
+			{isLoading ? null : (<>
 			<SearchBar
 				placeholder="Search users..."
 				value={search}
@@ -209,7 +210,7 @@ export default function UsersPage() {
 			/>
 
 			{/* Table header */}
-			<div className="flex items-center py-3 pl-[76px] pr-5 mb-1 font-[family-name:var(--font-dm-sans)]">
+			<div className="flex items-center py-3 pl-[76px] pr-5 mb-1 font-[family-name:var(--font-dm-sans)] animate-in fade-in duration-300">
 				<div className="flex-1 text-[11px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em]">
 					Name
 				</div>
@@ -224,22 +225,19 @@ export default function UsersPage() {
 
 			{/* User rows */}
 			<div>
-				{isLoading ? (
-					<div className="text-center py-12 text-[14px] text-[#A3B5AD] dark:text-muted-foreground font-medium">
-						Loading...
-					</div>
-				) : filteredUsers.length === 0 ? (
+				{filteredUsers.length === 0 ? (
 					<div className="text-center py-12 text-[14px] text-[#A3B5AD] dark:text-muted-foreground font-medium">
 						{search ? "No users match your search" : "No members in this workspace."}
 					</div>
 				) : (
-					filteredUsers.map((user) => {
+					filteredUsers.map((user, i) => {
 						const isCurrentUser = user.id === currentUser?.id;
 
 						return (
 							<div
 								key={user.id}
-								className="group flex items-center py-3.5 px-5 rounded-[18px] mb-1 transition-all duration-200 hover:bg-[#F8FAF9] dark:hover:bg-white/5 hover:translate-x-1"
+								className="group flex items-center py-3.5 px-5 rounded-[18px] mb-1 transition-all duration-200 hover:bg-[#F8FAF9] dark:hover:bg-white/5 hover:translate-x-1 animate-in fade-in slide-in-from-bottom-3 duration-400"
+								style={{ animationDelay: `${i * 40}ms`, animationFillMode: "both" }}
 							>
 								{/* Avatar */}
 								<div className="shrink-0 w-[42px] h-[42px] rounded-full bg-[#F0F3F2] dark:bg-white/10 border-[1.5px] border-[#E0E8E4] dark:border-white/10 flex items-center justify-center text-[13.5px] font-bold text-[#6B7F76] dark:text-muted-foreground transition-transform duration-300 group-hover:scale-105">
@@ -365,6 +363,7 @@ export default function UsersPage() {
 					</div>
 				</div>
 			)}
+			</>)}
 		</div>
 	);
 }
