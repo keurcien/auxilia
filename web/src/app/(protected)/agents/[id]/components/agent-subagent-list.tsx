@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { Plus, X, Info } from "lucide-react";
 import { Agent } from "@/types/agents";
-import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api/client";
 import { useAgentsStore } from "@/stores/agents-store";
 import AddAgentSubagentDialog from "./add-agent-subagent-dialog";
@@ -58,13 +57,13 @@ export default function AgentSubagentList({
 	// If this agent is used as a subagent elsewhere, show info banner instead
 	if (agent.isSubagent) {
 		return (
-			<div className="flex flex-col mt-4">
-				<h2 className="text-muted-foreground text-sm leading-5 font-medium mb-2">
+			<div className="flex flex-col mt-8">
+				<span className="text-[12px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em] font-[family-name:var(--font-dm-sans)] mb-3.5">
 					Subagents
-				</h2>
-				<div className="flex items-start gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 p-3">
-					<Info className="w-4 h-4 text-gray-400 dark:text-gray-500 mt-0.5 shrink-0" />
-					<p className="text-sm text-gray-600 dark:text-gray-400">
+				</span>
+				<div className="flex items-start gap-2 rounded-[18px] border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-[#FAFCFB] dark:bg-white/5 p-3.5">
+					<Info className="w-4 h-4 text-[#8FA89E] mt-0.5 shrink-0" />
+					<p className="font-[family-name:var(--font-dm-sans)] text-[13px] text-[#6B7F76] dark:text-muted-foreground">
 						This agent is already used as a subagent, it cannot have subagents.
 					</p>
 				</div>
@@ -73,52 +72,51 @@ export default function AgentSubagentList({
 	}
 
 	return (
-		<div className="flex flex-col mt-4">
-			<div className="flex items-center justify-between mb-2 shrink-0">
-				<h2 className="text-muted-foreground text-sm leading-5 font-medium">
+		<div className="flex flex-col mt-8">
+			<div className="flex items-center justify-between mb-3.5 shrink-0">
+				<span className="text-[12px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em] font-[family-name:var(--font-dm-sans)]">
 					Subagents
-				</h2>
-				<Button
-					variant="ghost"
-					size="sm"
-					className="cursor-pointer"
+				</span>
+				<button
+					className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-white dark:bg-transparent font-[family-name:var(--font-dm-sans)] text-[12.5px] font-semibold text-[#6B7F76] dark:text-muted-foreground cursor-pointer transition-all hover:border-[#A3B5AD]"
 					onClick={() => setDialogOpen(true)}
 				>
-					<Plus className="w-4 h-4 mr-1" />
+					<Plus className="w-[13px] h-[13px] text-[#8FA89E]" />
 					Add Subagent
-				</Button>
+				</button>
 			</div>
-			<div className="rounded-lg border min-h-0">
+			<div className="rounded-[22px] border-[1.5px] border-[#E0E8E4] dark:border-white/10 overflow-hidden min-h-0">
 				{agent.subagents && agent.subagents.length > 0 ? (
-					agent.subagents.map((sub) => (
+					agent.subagents.map((sub, i) => (
 						<div
 							key={sub.id}
-							className="flex items-center justify-between px-4 py-3 border-b last:border-b-0"
+							className={`group flex items-center px-4.5 py-3.5 cursor-default transition-colors hover:bg-[#F8FAF9] dark:hover:bg-white/5 ${
+								i < agent.subagents!.length - 1 ? "border-b border-[#F0F3F2] dark:border-white/5" : ""
+							}`}
 						>
-							<div className="flex items-center gap-3 min-w-0">
-								<span className="text-xl shrink-0">{sub.emoji || "🤖"}</span>
-								<div className="min-w-0">
-									<p className="text-sm font-medium truncate">{sub.name}</p>
-									{sub.description && (
-										<p className="text-xs text-muted-foreground truncate">
-											{sub.description}
-										</p>
-									)}
-								</div>
+							<div
+								style={{
+									background: sub.color ? `linear-gradient(145deg, ${sub.color}14, ${sub.color}10)` : "linear-gradient(145deg, #9E9E9E14, #75757510)",
+									border: sub.color ? `1.5px solid ${sub.color}18` : "1.5px solid #9E9E9E18",
+								}}
+								className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-[16px] mr-3"
+							>
+								{sub.emoji || "🤖"}
 							</div>
-							<Button
-								variant="ghost"
-								size="icon"
-								className="cursor-pointer shrink-0"
+							<span className="font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold text-[#1E2D28] dark:text-foreground flex-1 truncate">
+								{sub.name}
+							</span>
+							<button
+								className="w-[30px] h-[30px] rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all hover:bg-[#F0F3F2] dark:hover:bg-white/10 cursor-pointer"
 								onClick={() => handleRemove(sub.id)}
 								disabled={removingId === sub.id}
 							>
-								<X className="w-4 h-4" />
-							</Button>
+								<X className="w-[14px] h-[14px] text-[#A3B5AD]" />
+							</button>
 						</div>
 					))
 				) : (
-					<div className="p-4 text-sm text-muted-foreground text-center">
+					<div className="p-4 font-[family-name:var(--font-dm-sans)] text-[14px] text-[#8FA89E] dark:text-muted-foreground text-center">
 						No subagents configured
 					</div>
 				)}

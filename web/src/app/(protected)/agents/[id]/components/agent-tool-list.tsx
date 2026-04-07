@@ -4,7 +4,6 @@ import { useState, useEffect, useMemo } from "react";
 import { Plus } from "lucide-react";
 import { MCPServer } from "@/types/mcp-servers";
 import { Agent } from "@/types/agents";
-import { Button } from "@/components/ui/button";
 import AgentMCPServer from "./agent-mcp-server";
 import AgentCodeExecution from "./agent-code-execution";
 import AddAgentToolDialog from "./add-agent-tool-dialog";
@@ -49,19 +48,19 @@ export default function AgentToolList({
 
 	return (
 		<div className="flex flex-col min-h-0">
-			<div className="flex items-center justify-between mb-2 shrink-0">
-				<h2 className="text-muted-foreground text-sm leading-5 font-medium">Tools</h2>
-				<Button
-					variant="ghost"
-					size="sm"
-					className="cursor-pointer"
+			<div className="flex items-center justify-between min-h-[34px] mb-2.5 shrink-0">
+				<span className="text-[12px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em] font-[family-name:var(--font-dm-sans)]">
+					Tools
+				</span>
+				<button
+					className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-white dark:bg-transparent font-[family-name:var(--font-dm-sans)] text-[12.5px] font-semibold text-[#6B7F76] dark:text-muted-foreground cursor-pointer transition-all hover:border-[#A3B5AD]"
 					onClick={() => setDialogOpen(true)}
 				>
-					<Plus className="w-4 h-4 mr-1" />
+					<Plus className="w-[13px] h-[13px] text-[#8FA89E]" />
 					Add tool
-				</Button>
+				</button>
 			</div>
-			<div className="flex-1 overflow-y-auto rounded-lg border min-h-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+			<div className="flex-1 overflow-y-auto rounded-[22px] border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-white dark:bg-card min-h-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 				{hasTools ? (
 					<>
 						{agent.sandbox && (
@@ -84,7 +83,7 @@ export default function AgentToolList({
 						))}
 					</>
 				) : (
-					<div className="p-4 text-sm text-muted-foreground text-center">
+					<div className="p-4 font-[family-name:var(--font-dm-sans)] text-[14px] text-[#8FA89E] dark:text-muted-foreground text-center">
 						No tools enabled
 					</div>
 				)}

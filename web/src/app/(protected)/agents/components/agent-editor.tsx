@@ -13,7 +13,6 @@ import { api } from "@/lib/api/client";
 import { useAgentsStore } from "@/stores/agents-store";
 import { useThreadsStore } from "@/stores/threads-store";
 import { useUserStore } from "@/stores/user-store";
-import { Button } from "@/components/ui/button";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -180,98 +179,97 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 	}, [description, liveAgent.description, saveAgent]);
 
 	return (
-		<div className="h-full flex flex-col">
-			<div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4 p-6 py-4 shrink-0">
+		<div className="h-full flex flex-col font-[family-name:var(--font-dm-sans)]">
+			{/* Top bar */}
+			<div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4 px-8 py-6 shrink-0">
 				<div className="flex items-center gap-4 flex-1 min-w-0">
-				<div className="relative">
-					<div
-						onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-						style={{ background: agentColorBackground(color) }}
-						className="flex items-center justify-center shrink-0 w-16 h-16 rounded-2xl text-3xl cursor-pointer transition-colors hover:opacity-80"
-					>
-						{emoji}
-					</div>
-					{showEmojiPicker && (
-						<div ref={emojiPickerRef} className="absolute top-full mt-2 z-50">
-							<EmojiPicker
-								onEmojiClick={handleEmojiClick}
-								theme={resolvedTheme === "dark" ? Theme.DARK : Theme.LIGHT}
-								skinTonesDisabled
-								previewConfig={{ showPreview: false }}
-							/>
-							<div className="flex items-center justify-center gap-2 px-3 py-2 bg-white dark:bg-[#222] rounded-b-lg border-t border-gray-100 dark:border-gray-700">
-								{AGENT_COLORS.map((c) => (
-									<button
-										key={c}
-										type="button"
-										onClick={() => handleColorClick(c)}
-										style={{ backgroundColor: c }}
-										className={`w-7 h-7 rounded-full cursor-pointer transition-transform hover:scale-110 ${
-											color === c
-												? "ring-2 ring-offset-2 ring-gray-400 dark:ring-offset-[#222]"
-												: ""
-										}`}
-									/>
-								))}
-							</div>
+					<div className="relative">
+						<div
+							onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+							style={{
+								background: agentColorBackground(color),
+								border: `1.5px solid ${color}18`,
+							}}
+							className="flex items-center justify-center shrink-0 w-14 h-14 rounded-full text-[28px] cursor-pointer transition-colors hover:opacity-80"
+						>
+							{emoji}
 						</div>
-					)}
+						{showEmojiPicker && (
+							<div ref={emojiPickerRef} className="absolute top-full mt-2 z-50">
+								<EmojiPicker
+									onEmojiClick={handleEmojiClick}
+									theme={resolvedTheme === "dark" ? Theme.DARK : Theme.LIGHT}
+									skinTonesDisabled
+									previewConfig={{ showPreview: false }}
+								/>
+								<div className="flex items-center justify-center gap-2 px-3 py-2 bg-white dark:bg-[#222] rounded-b-lg border-t border-gray-100 dark:border-gray-700">
+									{AGENT_COLORS.map((c) => (
+										<button
+											key={c}
+											type="button"
+											onClick={() => handleColorClick(c)}
+											style={{ backgroundColor: c }}
+											className={`w-7 h-7 rounded-full cursor-pointer transition-transform hover:scale-110 ${
+												color === c
+													? "ring-2 ring-offset-2 ring-gray-400 dark:ring-offset-[#222]"
+													: ""
+											}`}
+										/>
+									))}
+								</div>
+							</div>
+						)}
+					</div>
+
+					<div className="flex flex-col overflow-hidden flex-1">
+						<input
+							type="text"
+							value={name}
+							onChange={(e) => setName(e.target.value)}
+							placeholder="Agent name"
+							className="font-[family-name:var(--font-jakarta-sans)] text-[24px] font-extrabold text-[#1E2D28] dark:text-foreground leading-tight tracking-[-0.03em] truncate w-full bg-transparent border-none focus:outline-none focus:ring-0 p-0"
+						/>
+						<p className="text-[14px] text-[#A3B5AD] dark:text-muted-foreground font-medium mt-0.5 truncate w-full">
+							@{name.toLowerCase().replace(/\s+/g, "_") || "agent_name"}
+						</p>
+					</div>
 				</div>
 
-				<div className="flex flex-col overflow-hidden flex-1">
-					<input
-						type="text"
-						value={name}
-						onChange={(e) => setName(e.target.value)}
-						placeholder="Agent name"
-						className="text-2xl font-bold text-foreground leading-tight truncate w-full bg-transparent border-none focus:outline-none focus:ring-0 p-0"
-					/>
-					<p className="text-lg text-muted-foreground truncate w-full">
-						@{name.toLowerCase().replace(/\s+/g, "_") || "agent_name"}
-					</p>
-				</div>
-				</div>
-
-				<div className="flex items-center gap-3">
+				<div className="flex items-center gap-2.5">
+					{/* Save status pill */}
 					<div
-						className={`inline-flex items-center gap-2 rounded-2xl px-3.5 py-2 text-base ${
+						className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[13px] font-semibold transition-all duration-300 ${
 							saveStatus === "saving"
-								? "bg-amber-50 dark:bg-amber-950/40"
-								: "bg-emerald-50 dark:bg-emerald-950/40"
+								? "bg-[#FFF5CC] dark:bg-amber-950/40 text-[#D4A832] dark:text-amber-400"
+								: "bg-[#EDF4F0] dark:bg-emerald-950/40 text-[#3D8B63] dark:text-emerald-400"
 						}`}
 					>
 						<span
-							className={`block size-2 rounded-full ${
+							className={`block w-[7px] h-[7px] rounded-full transition-all duration-300 ${
 								saveStatus === "saving"
-									? "bg-amber-500 animate-pulse-dot"
-									: "bg-emerald-500"
+									? "bg-[#FDCB6E] animate-pulse-dot"
+									: "bg-[#4CA882]"
 							}`}
 						/>
-						<span
-							className={`text-sm font-medium leading-none ${
-								saveStatus === "saving"
-									? "text-amber-700 dark:text-amber-400"
-									: "text-emerald-700 dark:text-emerald-400"
-							}`}
-						>
-							{saveStatus === "saving" ? "Saving" : "Saved"}
-						</span>
+						{saveStatus === "saving" ? "Saving..." : "Saved"}
 					</div>
 
-					<Button
-						className="cursor-pointer"
+					{/* Chat button */}
+					<button
+						className="flex items-center gap-2 px-5.5 py-2.5 rounded-full bg-[#111111] dark:bg-white text-white dark:text-[#111111] text-[14px] font-semibold cursor-pointer shadow-[0_4px_12px_-2px_rgba(0,0,0,0.15)] transition-all hover:opacity-90"
 						onClick={() => router.push(`/agents/${agent.id}/chat`)}
 					>
 						Chat
-						<ArrowRight className="size-4 ml-1" />
-					</Button>
+						<ArrowRight className="size-[15px]" />
+					</button>
 
+					{/* More menu */}
 					<DropdownMenu>
 						<DropdownMenuTrigger asChild>
-							<Button variant="ghost" size="icon" className="cursor-pointer">
-								<MoreVertical className="w-5 h-5" />
+							<button className="w-10 h-10 rounded-full bg-[#F5F8F6] dark:bg-white/10 flex items-center justify-center cursor-pointer transition-colors hover:bg-[#EDF4F0] dark:hover:bg-white/15">
+								<MoreVertical className="w-[18px] h-[18px] text-[#6B7F76]" />
 								<span className="sr-only">Agent settings</span>
-							</Button>
+							</button>
 						</DropdownMenuTrigger>
 						<DropdownMenuContent side="bottom" align="end">
 							<DropdownMenuItem
@@ -293,44 +291,46 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 				</div>
 			</div>
 
-			<div className="relative flex flex-col md:flex-row flex-1 min-h-0">
-				<div className="h-full w-full md:w-1/2 flex flex-col p-6">
-					<div className="shrink-0 mb-4">
-						<h2 className="h-[32px] text-muted-foreground text-sm leading-5 font-medium block mb-2">
-							Description
-						</h2>
+			{/* Two column layout */}
+			<div className="relative flex flex-col md:flex-row flex-1 min-h-0 px-8 gap-8">
+				{/* Left: Description + Instructions */}
+				<div className="h-full w-full md:flex-1 flex flex-col min-w-0">
+					<div className="shrink-0 mb-7">
+						<div className="flex items-center min-h-[34px] mb-2.5">
+							<label className="text-[12px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em]">
+								Description
+							</label>
+						</div>
 						<input
 							type="text"
 							maxLength={255}
-							className="h-[52px] w-full text-foreground bg-muted border border-muted rounded-lg px-4 py-3 font-noto text-sm focus:outline-none focus:ring-0 font-medium"
+							className="w-full px-5 py-3.5 rounded-[18px] border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-[#FAFCFB] dark:bg-white/5 text-[14px] font-medium text-[#1E2D28] dark:text-white placeholder:text-[#A3B5AD] dark:placeholder:text-white/30 focus:outline-none focus:border-[#4CA882] transition-colors"
 							value={description}
 							onChange={(e) => setDescription(e.target.value)}
 							placeholder="A short description of your agent..."
 						/>
 						{description.length > 240 && (
-							<p className="text-xs text-muted-foreground mt-1 text-right">
+							<p className="text-xs text-[#B8C8C0] mt-1 text-right">
 								{description.length}/255
 							</p>
 						)}
 					</div>
 
 					<div className="flex-1 flex flex-col min-h-0">
-						<h2 className="text-muted-foreground text-sm leading-5 font-medium block mb-4">
+						<label className="block text-[12px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em] mb-2.5">
 							Instructions
-						</h2>
-
-						<div className="prose prose-gray max-w-none flex-1 flex flex-col min-h-0">
-							<textarea
-								className="flex-1 w-full h-full text-foreground bg-muted rounded-lg px-4 py-3 resize-none font-noto text-sm focus:outline-none focus:ring-0 font-medium [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-								value={instructions}
-								onChange={(e) => setInstructions(e.target.value)}
-								placeholder="Enter instructions for your agent..."
-							/>
-						</div>
+						</label>
+						<textarea
+							className="flex-1 w-full h-full px-5 py-4.5 rounded-[22px] border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-[#FAFCFB] dark:bg-white/5 text-[14px] font-medium text-[#1E2D28] dark:text-white leading-relaxed placeholder:text-[#A3B5AD] dark:placeholder:text-white/30 resize-vertical focus:outline-none focus:border-[#4CA882] transition-colors [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+							value={instructions}
+							onChange={(e) => setInstructions(e.target.value)}
+							placeholder="Enter instructions for your agent..."
+						/>
 					</div>
 				</div>
 
-				<div className="h-full w-full md:w-1/2 p-6 flex flex-col min-h-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+				{/* Right: Tools + Subagents */}
+				<div className="h-full w-full md:w-1/2 flex flex-col min-h-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 					<AgentToolList
 						agent={liveAgent}
 						onSaving={() => setSaveStatus("saving")}
