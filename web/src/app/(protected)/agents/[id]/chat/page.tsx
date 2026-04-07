@@ -15,7 +15,8 @@ import { useModelsStore } from "@/stores/models-store";
 import { api } from "@/lib/api/client";
 import { ChevronDown } from "lucide-react";
 import { Agent } from "@/types/agents";
-import { agentColorBackground } from "@/lib/colors";
+import { AgentAvatar } from "@/components/ui/agent-avatar";
+import { SageAlert } from "@/components/ui/sage-alert";
 import { getDefaultModel } from "@/lib/utils/get-default-model";
 import { useAgentReadiness } from "@/hooks/use-agent-readiness";
 
@@ -131,20 +132,17 @@ const StarterChatPage = () => {
 						onClick={() => setIsAgentDialogOpen(true)}
 						className="flex items-center justify-center gap-2 mx-auto hover:opacity-80 transition-opacity cursor-pointer"
 					>
-						<div
-							style={agent?.color ? { background: agentColorBackground(agent.color) } : undefined}
-							className={`shrink-0 w-12 h-12 rounded-2xl text-2xl flex items-center justify-center ${agent?.color ? "" : "bg-muted"}`}
-						>
-							{agent?.emoji || starterAgent.value?.emoji || "🤖"}
-						</div>
+						<AgentAvatar
+							color={agent?.color}
+							emoji={agent?.emoji || starterAgent.value?.emoji}
+							size="lg"
+						/>
 						<h1 className="text-4xl font-bold">
 							{agent?.name || starterAgent.value?.name}
 						</h1>
 						<ChevronDown className="size-5 text-muted-foreground ml-8 mt-1" />
 					</button>
-					{status == "not_configured" ? (
-						<></>
-					) : (
+					{status !== "not_configured" && (
 						<p className="text-lg text-muted-foreground">
 							Ask me anything to begin
 						</p>
@@ -152,13 +150,12 @@ const StarterChatPage = () => {
 				</div>
 
 				<div className="w-full">
-					{status == "not_configured" ? (
-						<div className="w-full flex items-center justify-center border border-red-200 bg-red-50 rounded-lg px-4 py-8">
-							<p className="text-md text-center text-red-700">
-								Agent is not configured yet. Contact agent owner to configure it
-								first.
-							</p>
-						</div>
+					{status === "not_configured" ? (
+						<SageAlert
+							variant="error"
+							message="Agent is not configured yet. Contact agent owner to configure it first."
+							dismissible={false}
+						/>
 					) : (
 						<ChatPromptInput
 							onSubmit={handleSubmit}
