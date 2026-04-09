@@ -146,11 +146,15 @@ export function AppSidebar() {
 					<SidebarGroup className="flex-1 min-h-0 overflow-hidden">
 						<SidebarGroupContent className="overflow-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 							<SidebarMenu>
-								{threads.map((thread) => {
+								{threads.map((thread, i) => {
 									const isActive =
 										pathname === `/agents/${thread.agentId}/chat/${thread.id}`;
 									return (
-										<SidebarMenuItem key={thread.id}>
+										<SidebarMenuItem
+											key={thread.id}
+											className="animate-in fade-in slide-in-from-bottom-3 duration-400"
+											style={{ animationDelay: `${i * 50}ms`, animationFillMode: "both" }}
+										>
 											<SidebarMenuButton
 												asChild
 												isActive={isActive}
