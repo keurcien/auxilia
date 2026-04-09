@@ -22,7 +22,7 @@ export default async function ProtectedLayout({
 					<SidebarTrigger className="cursor-pointer" />
 					<ChatHeader />
 				</div>
-				<div className="flex flex-1 flex-col gap-4 lg:px-8 px-4 py-4 pt-0 min-h-0 overflow-y-auto">
+				<div className="flex flex-1 flex-col gap-4 lg:px-8 px-4 py-4 pt-0 min-h-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 					{children}
 				</div>
 			</main>

@@ -128,7 +128,10 @@ export function AppSidebar() {
 							<button
 								onClick={() => {
 									if (agents.length > 0) {
-										router.push(`/agents/${agents[0].id}/chat`);
+										const lastAgent = threads[0]
+											? agents.find((a) => a.id === threads[0].agentId)
+											: undefined;
+										router.push(`/agents/${(lastAgent ?? agents[0]).id}/chat`);
 									}
 								}}
 								disabled={agents.length === 0}
