@@ -329,23 +329,28 @@ async def test_list_agents_no_user_returns_agents_with_no_permission(service, mo
 # update_agent
 # ---------------------------------------------------------------------------
 
-async def test_update_agent_delegates_to_repository(service, mock_repo):
+async def test_update_agent_delegates_to_repository(service, mock_repo, mock_db):
     agent = make_agent()
-    updated = make_agent(id=agent.id, name="Updated")
     mock_repo.get.return_value = agent
-    mock_repo.update.return_value = updated
+
+    # Mock the get_agent reload query
+    mock_db.execute.return_value = _make_mock_execute_result(rows=[(agent, None)])
 
     result = await service.update_agent(agent.id, AgentUpdate(name="Updated"))
 
     mock_repo.get.assert_awaited_once_with(agent.id)
     mock_repo.update.assert_awaited_once_with(agent, {"name": "Updated"})
-    assert result is updated
+    assert isinstance(result, AgentRead)
+    assert result.id == agent.id
+    assert result.mcp_servers == []
 
 
-async def test_update_agent_passes_only_set_fields(service, mock_repo):
+async def test_update_agent_passes_only_set_fields(service, mock_repo, mock_db):
     agent = make_agent()
     mock_repo.get.return_value = agent
-    mock_repo.update.return_value = agent
+
+    # Mock the get_agent reload query
+    mock_db.execute.return_value = _make_mock_execute_result(rows=[(agent, None)])
 
     await service.update_agent(agent.id, AgentUpdate(name="New Name"))
 

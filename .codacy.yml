@@ -1,0 +1,4 @@
+engines:
+  bandit:
+    exclude_paths:
+      - "backend/tests/**"

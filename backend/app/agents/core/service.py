@@ -182,12 +182,19 @@ class AgentService:
             for agent in agents_map.values()
         ]
 
-    async def update_agent(self, agent_id: UUID, data: AgentUpdate) -> AgentDB:
+    async def update_agent(
+        self,
+        agent_id: UUID,
+        data: AgentUpdate,
+        user_id: UUID | None = None,
+        user_role: WorkspaceRole | None = None,
+    ) -> AgentRead:
         agent = await self.repository.get(agent_id)
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
         update_data = data.model_dump(exclude_unset=True)
-        return await self.repository.update(agent, update_data)
+        await self.repository.update(agent, update_data)
+        return await self.get_agent(agent_id, user_id=user_id, user_role=user_role)
 
     async def delete_agent(self, agent_id: UUID) -> None:
         agent = await self.repository.get(agent_id)
