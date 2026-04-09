@@ -87,8 +87,8 @@ def test_get_threads(client: TestClient, mock_db, current_user):
 
     mock_result = MagicMock()
     mock_result.all.return_value = [
-        (thread2, "Test Agent", "🤖"),
-        (thread1, "Test Agent", "🤖"),
+        (thread2, "Test Agent", "🤖", None, False),
+        (thread1, "Test Agent", "🤖", None, False),
     ]
     mock_db.execute.return_value = mock_result
 
@@ -114,7 +114,7 @@ def test_get_thread(mock_checkpointer, client: TestClient, mock_db):
     )
 
     mock_result = MagicMock()
-    mock_result.one_or_none.return_value = (thread, "Test Agent", "🤖")
+    mock_result.one_or_none.return_value = (thread, "Test Agent", "🤖", None, False)
     mock_db.execute.return_value = mock_result
 
     # Mock the checkpointer context manager
