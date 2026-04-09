@@ -126,22 +126,32 @@ def test_get_agent_not_found(client: TestClient, mock_db):
     assert response.json()["detail"] == "Agent not found"
 
 
-def test_update_agent(client: TestClient, mock_db):
+def test_update_agent(client: TestClient, mock_db, current_user):
     """Test updating an agent."""
     agent_id = uuid4()
-    owner_id = uuid4()
+    owner_id = current_user.id
     agent = AgentDB(
         id=agent_id,
-        name="Original Agent",
-        instructions="Original instructions",
+        name="Updated Agent",
+        instructions="Updated instructions",
         owner_id=owner_id,
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )
 
-    mock_result = MagicMock()
-    mock_result.scalar_one_or_none.return_value = agent
-    mock_db.execute.return_value = mock_result
+    def make_result(*, scalar=None, rows=None, scalars_list=None):
+        r = MagicMock()
+        r.scalar_one_or_none.return_value = scalar
+        r.all.return_value = rows or []
+        r.scalars.return_value.all.return_value = scalars_list or []
+        return r
+
+    mock_db.execute.side_effect = [
+        make_result(scalar=agent),         # repository.get
+        make_result(rows=[(agent, None)]), # get_agent reload
+        make_result(scalars_list=[]),       # load_subagents → get_for_coordinator
+        make_result(scalar=None),          # is_subagent
+    ]
 
     update_data = {
         "name": "Updated Agent",
@@ -154,9 +164,10 @@ def test_update_agent(client: TestClient, mock_db):
     assert data["id"] == str(agent_id)
     assert data["name"] == update_data["name"]
     assert data["instructions"] == update_data["instructions"]
+    assert data["mcp_servers"] == []
 
 
-def test_update_agent_not_found(client: TestClient, mock_db):
+def test_update_agent_not_found(client: TestClient, mock_db, current_user):
     """Test updating a non-existent agent returns 404."""
     fake_id = uuid4()
 

@@ -67,9 +67,12 @@ async def get_agent(
 async def update_agent(
     agent_id: UUID,
     agent_update: AgentUpdate,
+    current_user: UserDB = Depends(get_current_user),
     service: AgentService = Depends(get_agent_service),
 ) -> AgentRead:
-    return await service.update_agent(agent_id, agent_update)
+    return await service.update_agent(
+        agent_id, agent_update, user_id=current_user.id, user_role=current_user.role
+    )
 
 
 @router.delete("/{agent_id}", status_code=204)
