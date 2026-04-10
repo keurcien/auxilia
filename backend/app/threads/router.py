@@ -142,3 +142,32 @@ async def run_stream(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.post("/{thread_id}/runs/invoke")
+async def run_invoke(
+    thread=Depends(get_thread),
+    input: dict | None = Body(None, embed=True),
+    command: dict | None = Body(None, embed=True),
+    config: dict | None = Body(None, embed=True),
+    context: dict | None = Body(None, embed=True),
+    user_id: str = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    """Non-streaming invoke endpoint. Returns the final agent response as JSON."""
+    runtime = await AgentRuntime.build(thread=thread, db=db)
+
+    trigger = None
+    config_overrides = None
+    if config and config.get("configurable"):
+        trigger = config["configurable"].pop("trigger", None)
+        config["configurable"].pop("thread_id", None)
+        if config["configurable"]:
+            config_overrides = config
+
+    return await runtime.invoke(
+        input=input,
+        command=command,
+        trigger=trigger,
+        config_overrides=config_overrides,
+    )
