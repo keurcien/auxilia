@@ -1,6 +1,6 @@
 """HITL (Human-in-the-Loop) approval extraction from UI messages."""
 
-from app.models.message import Message, ToolMessagePart
+from app.models import Message, ToolMessagePart
 
 
 def _is_pending_approval(part: ToolMessagePart) -> bool:

@@ -2,7 +2,7 @@ from uuid import UUID, uuid4
 
 from sqlmodel import Column, Field, SQLModel, String, Text
 
-from app.models.mixins import TimestampMixin
+from app.models import TimestampMixin
 
 
 class ThreadBase(SQLModel):

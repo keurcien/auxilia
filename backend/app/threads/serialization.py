@@ -6,7 +6,7 @@ from typing import Any
 from langchain_ai_sdk_adapter import to_ui_messages
 from langchain_core.messages import BaseMessage, ToolMessage
 
-from app.models.message import (
+from app.models import (
     FileMessagePart,
     Message,
     ReasoningMessagePart,

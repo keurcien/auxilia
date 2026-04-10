@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from app.repositories import BaseRepository
+from app.repository import BaseRepository
 from app.users.models import UserDB, WorkspaceRole
 
 

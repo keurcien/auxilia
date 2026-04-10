@@ -9,7 +9,7 @@ from app.agents.models import (
     AgentUserPermissionDB,
 )
 from app.agents.schemas import AgentPermissionCreate
-from app.repositories import BaseRepository
+from app.repository import BaseRepository
 from app.users.models import WorkspaceRole
 
 

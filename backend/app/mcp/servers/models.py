@@ -4,7 +4,7 @@ from uuid import UUID
 import sqlalchemy as sa
 from sqlmodel import Column, Enum, Field, SQLModel
 
-from app.models.mixins import BaseDBModel
+from app.models import BaseDBModel
 
 
 class MCPAuthType(str, enum.Enum):

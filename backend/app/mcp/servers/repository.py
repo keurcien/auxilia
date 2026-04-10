@@ -13,7 +13,7 @@ from app.mcp.servers.models import (
     OfficialMCPServerDB,
 )
 from app.mcp.servers.schemas import MCPServerCreate
-from app.repositories import BaseRepository
+from app.repository import BaseRepository
 
 
 class MCPServerRepository(BaseRepository[MCPServerDB]):

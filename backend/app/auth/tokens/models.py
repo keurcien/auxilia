@@ -4,7 +4,7 @@ from uuid import UUID
 from sqlalchemy.sql import func
 from sqlmodel import Column, DateTime, Field, SQLModel
 
-from app.models.mixins import UUIDMixin
+from app.models import UUIDMixin
 
 
 class PersonalAccessTokenDB(UUIDMixin, SQLModel, table=True):

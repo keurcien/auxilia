@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.agents.models import AgentSubagentDB
-from app.repositories import BaseRepository
+from app.repository import BaseRepository
 
 
 class SubagentRepository(BaseRepository[AgentSubagentDB]):

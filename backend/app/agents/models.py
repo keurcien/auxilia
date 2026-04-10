@@ -5,7 +5,7 @@ from sqlalchemy import UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Boolean, Column, Field, SQLModel, String, Text
 
-from app.models.mixins import BaseDBModel
+from app.models import BaseDBModel
 
 
 ALLOWED_COLORS = {

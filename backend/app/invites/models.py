@@ -4,7 +4,7 @@ from uuid import UUID
 
 from sqlmodel import Column, DateTime, Field, SQLModel
 
-from app.models.mixins import BaseDBModel
+from app.models import BaseDBModel
 
 
 class InviteStatus(str, Enum):

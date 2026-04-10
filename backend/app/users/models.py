@@ -3,7 +3,7 @@ from uuid import UUID
 
 from sqlmodel import Field, Relationship, SQLModel, UniqueConstraint
 
-from app.models.mixins import BaseDBModel
+from app.models import BaseDBModel
 
 
 class WorkspaceRole(str, Enum):

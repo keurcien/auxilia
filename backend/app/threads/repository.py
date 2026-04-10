@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.agents.models import AgentDB
-from app.repositories import BaseRepository
+from app.repository import BaseRepository
 from app.threads.models import ThreadDB
 
 

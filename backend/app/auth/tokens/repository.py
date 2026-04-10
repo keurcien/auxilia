@@ -5,7 +5,7 @@ from sqlmodel import select
 
 from app.auth.tokens.models import PersonalAccessTokenDB
 from app.auth.utils import verify_password
-from app.repositories import BaseRepository
+from app.repository import BaseRepository
 
 
 class PersonalAccessTokenRepository(BaseRepository[PersonalAccessTokenDB]):

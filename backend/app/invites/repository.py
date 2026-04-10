@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.invites.models import InviteDB, InviteStatus
-from app.repositories import BaseRepository
+from app.repository import BaseRepository
 
 
 class InviteRepository(BaseRepository[InviteDB]):
