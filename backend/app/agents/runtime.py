@@ -171,6 +171,43 @@ class AgentRuntime:
             callbacks=callbacks,
         )
 
+    def _build_agent(self, checkpointer):
+        """Build the LangGraph agent (deep or standard) with the given checkpointer."""
+        if self.agent.config.sandbox and sandbox_settings.enabled:
+            return self._build_deep_agent(checkpointer)
+        return create_agent(
+            model=self.model,
+            tools=self.agent.toolset.all,
+            system_prompt=SystemMessage(self.agent.config.instructions),
+            checkpointer=checkpointer,
+            middleware=self.middleware,
+        )
+
+    def _resolve_input(self, input: dict | None, command: dict | None):
+        """Resolve raw input/command dicts into the value to pass to the agent."""
+        if command is not None:
+            return Command(resume=command.get("resume"))
+        lc_messages = _dicts_to_lc_messages(
+            input.get("messages", []) if input else []
+        )
+        return {"messages": lc_messages}
+
+    async def _resolve_config(
+        self,
+        agent,
+        trigger: str | None,
+        config_overrides: dict | None,
+    ) -> dict:
+        """Build the run config, applying overrides and regeneration logic."""
+        config = self._stream_config
+        if config_overrides and config_overrides.get("configurable"):
+            config["configurable"].update(config_overrides["configurable"])
+        if trigger == "regenerate-message":
+            checkpoint_id = await get_regeneration_checkpoint_id(agent, config)
+            if checkpoint_id:
+                config["configurable"]["checkpoint_id"] = checkpoint_id
+        return config
+
     async def stream(
         self,
         input: dict | None = None,
@@ -191,35 +228,9 @@ class AgentRuntime:
         async with AsyncPostgresSaver.from_conn_string(
             get_psycopg_conn_string()
         ) as checkpointer:
-            if self.agent.config.sandbox and sandbox_settings.enabled:
-                agent = self._build_deep_agent(checkpointer)
-            else:
-                agent = create_agent(
-                    model=self.model,
-                    tools=self.agent.toolset.all,
-                    system_prompt=SystemMessage(
-                        self.agent.config.instructions),
-                    checkpointer=checkpointer,
-                    middleware=self.middleware,
-                )
-
-            # Determine stream input
-            if command is not None:
-                stream_input = Command(resume=command.get("resume"))
-            else:
-                lc_messages = _dicts_to_lc_messages(
-                    input.get("messages", []) if input else []
-                )
-                stream_input = {"messages": lc_messages}
-
-            config = self._stream_config
-            if config_overrides and config_overrides.get("configurable"):
-                config["configurable"].update(config_overrides["configurable"])
-
-            if trigger == "regenerate-message":
-                checkpoint_id = await get_regeneration_checkpoint_id(agent, config)
-                if checkpoint_id:
-                    config["configurable"]["checkpoint_id"] = checkpoint_id
+            agent = self._build_agent(checkpointer)
+            stream_input = self._resolve_input(input, command)
+            config = await self._resolve_config(agent, trigger, config_overrides)
 
             if stream_adapter == "slack":
                 langchain_stream = agent.astream(
@@ -239,6 +250,27 @@ class AgentRuntime:
 
             async for chunk in adapter.stream(langchain_stream):
                 yield chunk
+
+    async def invoke(
+        self,
+        input: dict | None = None,
+        command: dict | None = None,
+        trigger: str | None = None,
+        config_overrides: dict | None = None,
+    ) -> dict:
+        """Run the agent to completion and return the text of the last AI message."""
+        async with AsyncPostgresSaver.from_conn_string(
+            get_psycopg_conn_string()
+        ) as checkpointer:
+            agent = self._build_agent(checkpointer)
+            agent_input = self._resolve_input(input, command)
+            config = await self._resolve_config(agent, trigger, config_overrides)
+
+            result = await agent.ainvoke(agent_input, config=config)
+
+            messages = result.get("messages", [])
+            last = messages[-1] if messages else None
+            return {"content": _extract_text(last) if last else ""}
 
     def _build_deep_agent(self, checkpointer):
         """Build a deep agent with lazy sandbox backend for code execution.
@@ -261,6 +293,18 @@ class AgentRuntime:
             middleware=[ToolErrorMiddleware()],
             checkpointer=checkpointer,
         )
+
+
+def _extract_text(message: BaseMessage) -> str:
+    """Extract the text content from an AIMessage, skipping thinking blocks."""
+    content = message.content
+    if isinstance(content, str):
+        return content
+    return "".join(
+        block.get("text", "")
+        for block in content
+        if isinstance(block, dict) and block.get("type") == "text"
+    )
 
 
 def _dicts_to_lc_messages(dicts: list[dict]) -> list[BaseMessage]:
