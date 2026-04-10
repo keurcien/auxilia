@@ -5,12 +5,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.agents.models import AgentSubagentDB
-from app.repository import BaseRepository
 
 
-class SubagentRepository(BaseRepository[AgentSubagentDB]):
+class SubagentRepository:
     def __init__(self, db: AsyncSession):
-        super().__init__(AgentSubagentDB, db)
+        self.db = db
 
     async def get(
         self, coordinator_id: UUID, subagent_id: UUID
