@@ -1,8 +1,8 @@
-from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy.sql import func
-from sqlmodel import Column, DateTime, Field, SQLModel, String, Text
+from sqlmodel import Column, Field, SQLModel, String, Text
+
+from app.models.mixins import TimestampMixin
 
 
 class ThreadBase(SQLModel):
@@ -14,27 +14,10 @@ class ThreadBase(SQLModel):
     )
 
 
-class ThreadDB(ThreadBase, table=True):
+class ThreadDB(ThreadBase, TimestampMixin, table=True):
     __tablename__ = "threads"
 
     id: str = Field(
         default_factory=lambda: str(uuid4()),
         sa_column=Column(String, primary_key=True),
     )
-    created_at: datetime = Field(
-        default=None,
-        sa_column=Column(
-            DateTime(timezone=True), server_default=func.now(), nullable=False
-        ),
-    )
-    updated_at: datetime = Field(
-        default=None,
-        sa_column=Column(
-            DateTime(timezone=True),
-            server_default=func.now(),
-            onupdate=func.now(),
-            nullable=False,
-        ),
-    )
-
-

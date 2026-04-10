@@ -1,11 +1,11 @@
-from datetime import datetime
 from enum import Enum
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from sqlalchemy import UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.sql import func
-from sqlmodel import Boolean, Column, DateTime, Field, SQLModel, String, Text
+from sqlmodel import Boolean, Column, Field, SQLModel, String, Text
+
+from app.models.mixins import BaseDBModel
 
 
 ALLOWED_COLORS = {
@@ -39,28 +39,10 @@ class AgentMCPServerBase(SQLModel):
     )
 
 
-class AgentMCPServerDB(AgentMCPServerBase, table=True):
+class AgentMCPServerDB(AgentMCPServerBase, BaseDBModel, table=True):
     __tablename__ = "agent_mcp_servers"
 
-    id: UUID = Field(default_factory=uuid4, primary_key=True)
-    created_at: datetime = Field(
-        default=None,
-        sa_column=Column(
-            DateTime(timezone=True), server_default=func.now(), nullable=False
-        ),
-    )
-    updated_at: datetime = Field(
-        default=None,
-        sa_column=Column(
-            DateTime(timezone=True),
-            server_default=func.now(),
-            onupdate=func.now(),
-            nullable=False,
-        ),
-    )
 
-
-# Agent Models (Database)
 class AgentBase(SQLModel):
     name: str = Field(max_length=255, nullable=False)
     instructions: str = Field(sa_column=Column(Text, nullable=False))
@@ -72,10 +54,9 @@ class AgentBase(SQLModel):
     )
 
 
-class AgentDB(AgentBase, table=True):
+class AgentDB(AgentBase, BaseDBModel, table=True):
     __tablename__ = "agents"
 
-    id: UUID = Field(default_factory=uuid4, primary_key=True)
     is_archived: bool = Field(
         default=False,
         sa_column=Column(Boolean, nullable=False, server_default="false"),
@@ -84,51 +65,20 @@ class AgentDB(AgentBase, table=True):
         default=False,
         sa_column=Column(Boolean, nullable=False, server_default="false"),
     )
-    created_at: datetime = Field(
-        default=None,
-        sa_column=Column(
-            DateTime(timezone=True), server_default=func.now(), nullable=False
-        ),
-    )
-    updated_at: datetime = Field(
-        default=None,
-        sa_column=Column(
-            DateTime(timezone=True),
-            server_default=func.now(),
-            onupdate=func.now(),
-            nullable=False,
-        ),
-    )
 
 
-class AgentUserPermissionDB(SQLModel, table=True):
+class AgentUserPermissionDB(BaseDBModel, table=True):
     __tablename__ = "agent_user_permissions"
     __table_args__ = (
         UniqueConstraint("agent_id", "user_id", name="uq_agent_user_permission"),
     )
 
-    id: UUID = Field(default_factory=uuid4, primary_key=True)
     agent_id: UUID = Field(foreign_key="agents.id", nullable=False)
     user_id: UUID = Field(foreign_key="users.id", nullable=False)
     permission: PermissionLevel = Field(nullable=False)
-    created_at: datetime = Field(
-        default=None,
-        sa_column=Column(
-            DateTime(timezone=True), server_default=func.now(), nullable=False
-        ),
-    )
-    updated_at: datetime = Field(
-        default=None,
-        sa_column=Column(
-            DateTime(timezone=True),
-            server_default=func.now(),
-            onupdate=func.now(),
-            nullable=False,
-        ),
-    )
 
 
-class AgentSubagentDB(SQLModel, table=True):
+class AgentSubagentDB(BaseDBModel, table=True):
     __tablename__ = "agent_subagents"
     __table_args__ = (
         UniqueConstraint(
@@ -138,21 +88,5 @@ class AgentSubagentDB(SQLModel, table=True):
         ),
     )
 
-    id: UUID = Field(default_factory=uuid4, primary_key=True)
     coordinator_id: UUID = Field(foreign_key="agents.id", nullable=False)
     subagent_id: UUID = Field(foreign_key="agents.id", nullable=False)
-    created_at: datetime = Field(
-        default=None,
-        sa_column=Column(
-            DateTime(timezone=True), server_default=func.now(), nullable=False
-        ),
-    )
-    updated_at: datetime = Field(
-        default=None,
-        sa_column=Column(
-            DateTime(timezone=True),
-            server_default=func.now(),
-            onupdate=func.now(),
-            nullable=False,
-        ),
-    )

@@ -1,10 +1,10 @@
 import enum
-from datetime import datetime
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import sqlalchemy as sa
-from sqlalchemy.sql import func
-from sqlmodel import Column, DateTime, Enum, Field, SQLModel
+from sqlmodel import Column, Enum, Field, SQLModel
+
+from app.models.mixins import BaseDBModel
 
 
 class MCPAuthType(str, enum.Enum):
@@ -21,81 +21,34 @@ class MCPServerBase(SQLModel):
     description: str | None = Field(default=None)
 
 
-class MCPServerDB(MCPServerBase, table=True):
+class MCPServerDB(MCPServerBase, BaseDBModel, table=True):
     __tablename__ = "mcp_servers"
 
     url: str = Field(nullable=False, unique=True)
     auth_type: MCPAuthType = Field(
         default=MCPAuthType.none, sa_column=Column(Enum(MCPAuthType), nullable=False)
     )
-    id: UUID = Field(default_factory=uuid4, primary_key=True)
-    created_at: datetime = Field(
-        default=None,
-        sa_column=Column(
-            DateTime(timezone=True), server_default=func.now(), nullable=False
-        ),
-    )
-    updated_at: datetime = Field(
-        default=None,
-        sa_column=Column(
-            DateTime(timezone=True),
-            server_default=func.now(),
-            onupdate=func.now(),
-            nullable=False,
-        ),
-    )
 
 
-class MCPServerAPIKeyDB(SQLModel, table=True):
+class MCPServerAPIKeyDB(BaseDBModel, table=True):
     __tablename__ = "mcp_server_api_keys"
 
-    id: UUID = Field(default_factory=uuid4, primary_key=True)
     mcp_server_id: UUID = Field(foreign_key="mcp_servers.id", nullable=False)
     key_encrypted: str = Field(sa_column=Column(sa.Text, nullable=False))
     created_by: UUID | None = Field(default=None, foreign_key="users.id")
-    created_at: datetime = Field(
-        default=None,
-        sa_column=Column(
-            DateTime(timezone=True), server_default=func.now(), nullable=False
-        ),
-    )
-    updated_at: datetime = Field(
-        default=None,
-        sa_column=Column(
-            DateTime(timezone=True),
-            server_default=func.now(),
-            onupdate=func.now(),
-            nullable=False,
-        ),
-    )
 
 
-class MCPServerOAuthCredentialsDB(SQLModel, table=True):
+class MCPServerOAuthCredentialsDB(BaseDBModel, table=True):
     __tablename__ = "mcp_server_oauth_credentials"
 
-    id: UUID = Field(default_factory=uuid4, primary_key=True)
     mcp_server_id: UUID = Field(foreign_key="mcp_servers.id", nullable=False, unique=True)
     client_id: str = Field(nullable=False)
     client_secret_encrypted: str = Field(sa_column=Column(sa.Text, nullable=False))
     token_endpoint_auth_method: str | None = Field(default=None)
     created_by: UUID | None = Field(default=None, foreign_key="users.id")
-    created_at: datetime = Field(
-        default=None,
-        sa_column=Column(
-            DateTime(timezone=True), server_default=func.now(), nullable=False
-        ),
-    )
-    updated_at: datetime = Field(
-        default=None,
-        sa_column=Column(
-            DateTime(timezone=True),
-            server_default=func.now(),
-            onupdate=func.now(),
-            nullable=False,
-        ),
-    )
 
-class OfficialMCPServerDB(MCPServerBase, table=True):
+
+class OfficialMCPServerDB(MCPServerBase, BaseDBModel, table=True):
     __tablename__ = "official_mcp_servers"
 
     url: str = Field(nullable=False, unique=True)
@@ -103,19 +56,3 @@ class OfficialMCPServerDB(MCPServerBase, table=True):
         default=MCPAuthType.none, sa_column=Column(Enum(MCPAuthType), nullable=False)
     )
     supports_dcr: bool | None = Field(default=None)
-    id: UUID = Field(default_factory=uuid4, primary_key=True)
-    created_at: datetime = Field(
-        default=None,
-        sa_column=Column(
-            DateTime(timezone=True), server_default=func.now(), nullable=False
-        ),
-    )
-    updated_at: datetime = Field(
-        default=None,
-        sa_column=Column(
-            DateTime(timezone=True),
-            server_default=func.now(),
-            onupdate=func.now(),
-            nullable=False,
-        ),
-    )
