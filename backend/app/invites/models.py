@@ -12,6 +12,14 @@ class InviteStatus(str, Enum):
     revoked = "revoked"
 
 
+class InviteCreateDB(SQLModel):
+    email: str
+    role: str
+    token: str
+    invited_by: UUID
+    expires_at: datetime
+
+
 class InviteDB(SQLModel, table=True):
     __tablename__ = "invites"
 

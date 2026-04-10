@@ -46,31 +46,6 @@ class MCPServerDB(MCPServerBase, table=True):
     )
 
 
-class MCPServerCreate(MCPServerBase):
-    api_key: str | None = Field(default=None, exclude=True)  # Not persisted to mcp_servers table
-    # OAuth credentials for pre-registered OAuth clients (not DCR)
-    oauth_client_id: str | None = Field(default=None, exclude=True)
-    oauth_client_secret: str | None = Field(default=None, exclude=True)
-    oauth_token_endpoint_auth_method: str | None = Field(default=None, exclude=True)
-
-
-class MCPServerUpdate(SQLModel):
-    name: str | None = None
-    url: str | None = None
-    auth_type: MCPAuthType | None = None
-    icon_url: str | None = None
-    description: str | None = None
-
-
-class MCPServerRead(MCPServerBase):
-    id: UUID
-    created_at: datetime
-    updated_at: datetime
-
-class OfficialMCPServerRead(MCPServerRead):
-    is_installed: bool = Field(default=False)
-    supports_dcr: bool | None = Field(default=None)
-
 class MCPServerAPIKeyDB(SQLModel, table=True):
     __tablename__ = "mcp_server_api_keys"
 

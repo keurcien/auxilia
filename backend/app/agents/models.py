@@ -2,7 +2,6 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID, uuid4
 
-from pydantic import field_validator
 from sqlalchemy import UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
@@ -61,20 +60,6 @@ class AgentMCPServerDB(AgentMCPServerBase, table=True):
     )
 
 
-class AgentMCPServerCreate(SQLModel):
-    tools: dict[str, ToolStatus] | None = None
-
-
-class AgentMCPServerUpdate(SQLModel):
-    tools: dict[str, ToolStatus] | None = None
-
-
-class AgentMCPServerRead(AgentMCPServerBase):
-    id: UUID
-    created_at: datetime
-    updated_at: datetime
-
-
 # Agent Models (Database)
 class AgentBase(SQLModel):
     name: str = Field(max_length=255, nullable=False)
@@ -116,38 +101,6 @@ class AgentDB(AgentBase, table=True):
     )
 
 
-class AgentCreate(SQLModel):
-    name: str = Field(max_length=255)
-    instructions: str
-    owner_id: UUID
-    emoji: str | None = None
-    color: str | None = None
-    sandbox: bool = False
-
-    @field_validator("color")
-    @classmethod
-    def validate_color(cls, v: str | None) -> str | None:
-        if v is not None and v not in ALLOWED_COLORS:
-            raise ValueError(f"color must be one of {sorted(ALLOWED_COLORS)}")
-        return v
-
-
-class AgentUpdate(SQLModel):
-    name: str | None = Field(default=None, max_length=255)
-    instructions: str | None = None
-    emoji: str | None = None
-    color: str | None = None
-    description: str | None = None
-    sandbox: bool | None = None
-
-    @field_validator("color")
-    @classmethod
-    def validate_color(cls, v: str | None) -> str | None:
-        if v is not None and v not in ALLOWED_COLORS:
-            raise ValueError(f"color must be one of {sorted(ALLOWED_COLORS)}")
-        return v
-
-
 class AgentUserPermissionDB(SQLModel, table=True):
     __tablename__ = "agent_user_permissions"
     __table_args__ = (
@@ -173,16 +126,6 @@ class AgentUserPermissionDB(SQLModel, table=True):
             nullable=False,
         ),
     )
-
-
-class AgentPermissionRead(SQLModel):
-    user_id: UUID
-    permission: PermissionLevel
-
-
-class AgentPermissionWrite(SQLModel):
-    user_id: UUID
-    permission: PermissionLevel
 
 
 class AgentSubagentDB(SQLModel, table=True):
@@ -213,36 +156,3 @@ class AgentSubagentDB(SQLModel, table=True):
             nullable=False,
         ),
     )
-
-
-class AgentSubagentRead(SQLModel):
-    id: UUID
-    coordinator_id: UUID
-    subagent_id: UUID
-    created_at: datetime
-    updated_at: datetime
-
-
-class SubagentRead(SQLModel):
-    id: UUID
-    name: str
-    emoji: str | None = None
-    color: str | None = None
-    description: str | None = None
-
-
-class AgentRead(SQLModel):
-    id: UUID
-    name: str
-    instructions: str
-    owner_id: UUID
-    emoji: str | None
-    color: str | None
-    description: str | None
-    sandbox: bool
-    created_at: datetime
-    updated_at: datetime
-    mcp_servers: list[AgentMCPServerRead] | None = None
-    subagents: list[SubagentRead] | None = None
-    is_subagent: bool = False
-    current_user_permission: str | None = None

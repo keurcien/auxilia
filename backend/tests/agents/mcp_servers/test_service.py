@@ -3,15 +3,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
-from fastapi import HTTPException
 
 from app.agents.mcp_servers.service import AgentMCPServerService
-from app.agents.models import (
-    AgentMCPServerCreate,
-    AgentMCPServerDB,
-    AgentMCPServerUpdate,
-    ToolStatus,
-)
+from app.agents.models import AgentMCPServerDB, ToolStatus
+from app.agents.schemas import AgentMCPServerCreate, AgentMCPServerPatch
+from app.exceptions import NotFoundError
 from app.mcp.servers.models import MCPAuthType
 
 
@@ -93,10 +89,9 @@ def make_mock_execute_result(*, rows=_UNSET, scalar=_UNSET, scalars_list=_UNSET)
 async def test_update_raises_404_when_not_found(service, mock_repo):
     mock_repo.get.return_value = None
 
-    with pytest.raises(HTTPException) as exc_info:
-        await service.update(uuid4(), uuid4(), AgentMCPServerUpdate())
+    with pytest.raises(NotFoundError) as exc_info:
+        await service.update(uuid4(), uuid4(), AgentMCPServerPatch())
 
-    assert exc_info.value.status_code == 404
     assert exc_info.value.detail == "Agent MCP server not found"
 
 
@@ -108,11 +103,12 @@ async def test_update_merges_tools_with_existing(service, mock_repo):
     await service.update(
         link.agent_id,
         link.mcp_server_id,
-        AgentMCPServerUpdate(tools={"write": ToolStatus.needs_approval}),
+        AgentMCPServerPatch(tools={"write": ToolStatus.needs_approval}),
     )
 
-    update_data = mock_repo.update.call_args[0][1]
-    assert update_data["tools"] == {
+    update_schema = mock_repo.update.call_args[0][1]
+    assert isinstance(update_schema, AgentMCPServerPatch)
+    assert update_schema.tools == {
         "search": ToolStatus.always_allow,
         "write": ToolStatus.needs_approval,
     }
@@ -126,11 +122,12 @@ async def test_update_sets_tools_when_no_existing(service, mock_repo):
     await service.update(
         link.agent_id,
         link.mcp_server_id,
-        AgentMCPServerUpdate(tools={"search": ToolStatus.always_allow}),
+        AgentMCPServerPatch(tools={"search": ToolStatus.always_allow}),
     )
 
-    update_data = mock_repo.update.call_args[0][1]
-    assert update_data["tools"] == {"search": ToolStatus.always_allow}
+    update_schema = mock_repo.update.call_args[0][1]
+    assert isinstance(update_schema, AgentMCPServerPatch)
+    assert update_schema.tools == {"search": ToolStatus.always_allow}
 
 
 async def test_update_skips_merge_when_update_tools_is_none(service, mock_repo):
@@ -141,12 +138,13 @@ async def test_update_skips_merge_when_update_tools_is_none(service, mock_repo):
     await service.update(
         link.agent_id,
         link.mcp_server_id,
-        AgentMCPServerUpdate(tools=None),
+        AgentMCPServerPatch(tools=None),
     )
 
-    update_data = mock_repo.update.call_args[0][1]
-    # tools key is present but None — no merge happened
-    assert update_data.get("tools") is None
+    update_schema = mock_repo.update.call_args[0][1]
+    assert isinstance(update_schema, AgentMCPServerPatch)
+    # tools is present but None — no merge happened
+    assert update_schema.tools is None
 
 
 # ---------------------------------------------------------------------------
@@ -166,10 +164,9 @@ async def test_delete_delegates_to_repository(service, mock_repo):
 async def test_delete_raises_404_when_not_found(service, mock_repo):
     mock_repo.get.return_value = None
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(NotFoundError):
         await service.delete(uuid4(), uuid4())
 
-    assert exc_info.value.status_code == 404
     mock_repo.delete.assert_not_called()
 
 
@@ -180,12 +177,11 @@ async def test_delete_raises_404_when_not_found(service, mock_repo):
 async def test_create_or_update_raises_404_when_server_not_found(service, mock_db):
     mock_db.execute.return_value = make_mock_execute_result(scalar=None)
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(NotFoundError) as exc_info:
         await service.create_or_update(
             uuid4(), uuid4(), AgentMCPServerCreate(), "user-id"
         )
 
-    assert exc_info.value.status_code == 404
     assert "MCP server" in exc_info.value.detail
 
 
@@ -309,10 +305,9 @@ async def test_create_or_update_oauth_skips_fetch_when_not_connected(
 async def test_sync_tools_raises_404_when_server_not_found(service, mock_db):
     mock_db.execute.return_value = make_mock_execute_result(scalar=None)
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(NotFoundError) as exc_info:
         await service.sync_tools(uuid4(), uuid4(), "user-id")
 
-    assert exc_info.value.status_code == 404
     assert "MCP server" in exc_info.value.detail
 
 
@@ -321,10 +316,9 @@ async def test_sync_tools_raises_404_when_link_not_found(service, mock_db, mock_
     mock_db.execute.return_value = make_mock_execute_result(scalar=server)
     mock_repo.get.return_value = None
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(NotFoundError) as exc_info:
         await service.sync_tools(uuid4(), server.id, "user-id")
 
-    assert exc_info.value.status_code == 404
     assert "Agent MCP server" in exc_info.value.detail
 
 

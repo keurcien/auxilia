@@ -1,10 +1,11 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from app.auth.dependencies import require_admin
 from app.invites.models import InviteDB
-from app.invites.schemas import InviteCreate, InviteRead
+from app.invites.schemas import InviteCreate, InviteResponse
+from app.exceptions import NotFoundError
 from app.invites.service import InviteService, get_invite_service
 from app.users.models import UserDB
 
@@ -17,8 +18,8 @@ def _invite_to_read(
     service: InviteService,
     include_url: bool = False,
     invited_by_name: str | None = None,
-) -> InviteRead:
-    return InviteRead(
+) -> InviteResponse:
+    return InviteResponse(
         id=invite.id,
         email=invite.email,
         role=invite.role,
@@ -31,12 +32,12 @@ def _invite_to_read(
     )
 
 
-@router.post("/", response_model=InviteRead, status_code=201)
+@router.post("/", response_model=InviteResponse, status_code=201)
 async def create_invite_endpoint(
     data: InviteCreate,
     current_user: UserDB = Depends(require_admin),
     service: InviteService = Depends(get_invite_service),
-) -> InviteRead:
+) -> InviteResponse:
     """Create an invite for a new user. Admin only."""
     invite = await service.create_invite(
         email=data.email,
@@ -46,11 +47,11 @@ async def create_invite_endpoint(
     return _invite_to_read(invite, service, include_url=True)
 
 
-@router.get("/", response_model=list[InviteRead])
+@router.get("/", response_model=list[InviteResponse])
 async def list_invites(
     current_user: UserDB = Depends(require_admin),
     service: InviteService = Depends(get_invite_service),
-) -> list[InviteRead]:
+) -> list[InviteResponse]:
     """List pending invites. Admin only."""
     invites_with_inviters = await service.list_pending_with_inviters()
     return [
@@ -68,4 +69,4 @@ async def revoke_invite(
     """Revoke an invite. Admin only."""
     invite = await service.revoke(invite_id)
     if not invite:
-        raise HTTPException(status_code=404, detail="Invite not found")
+        raise NotFoundError("Invite not found")

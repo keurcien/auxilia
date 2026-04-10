@@ -3,18 +3,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
-from fastapi import HTTPException
 
 from app.agents.core.service import AgentService
 from app.agents.models import (
-    AgentCreate,
     AgentDB,
     AgentMCPServerDB,
-    AgentRead,
-    AgentUpdate,
     PermissionLevel,
     ToolStatus,
 )
+from app.agents.schemas import AgentCreateDB, AgentPatch, AgentResponse
+from app.exceptions import NotFoundError
 from app.users.models import WorkspaceRole
 
 
@@ -118,7 +116,7 @@ def _make_mock_execute_result(*, rows=_UNSET, scalar=_UNSET, scalars_list=_UNSET
 async def test_create_agent_delegates_to_repository(service, mock_repo):
     agent = make_agent()
     mock_repo.create.return_value = agent
-    data = AgentCreate(name="X", instructions="Y", owner_id=uuid4())
+    data = AgentCreateDB(name="X", instructions="Y", owner_id=uuid4())
 
     result = await service.create_agent(data)
 
@@ -136,7 +134,7 @@ async def test_get_agent_returns_agent_read(service, mock_db):
 
     result = await service.get_agent(agent.id)
 
-    assert isinstance(result, AgentRead)
+    assert isinstance(result, AgentResponse)
     assert result.id == agent.id
     assert result.name == agent.name
     assert result.mcp_servers == []
@@ -146,10 +144,9 @@ async def test_get_agent_returns_agent_read(service, mock_db):
 async def test_get_agent_raises_404_when_not_found(service, mock_db):
     mock_db.execute.return_value = _make_mock_execute_result(rows=[])
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(NotFoundError) as exc_info:
         await service.get_agent(uuid4())
 
-    assert exc_info.value.status_code == 404
     assert exc_info.value.detail == "Agent not found"
 
 
@@ -336,11 +333,14 @@ async def test_update_agent_delegates_to_repository(service, mock_repo, mock_db)
     # Mock the get_agent reload query
     mock_db.execute.return_value = _make_mock_execute_result(rows=[(agent, None)])
 
-    result = await service.update_agent(agent.id, AgentUpdate(name="Updated"))
+    result = await service.update_agent(agent.id, AgentPatch(name="Updated"))
 
     mock_repo.get.assert_awaited_once_with(agent.id)
-    mock_repo.update.assert_awaited_once_with(agent, {"name": "Updated"})
-    assert isinstance(result, AgentRead)
+    call_args = mock_repo.update.call_args[0]
+    assert call_args[0] is agent
+    assert isinstance(call_args[1], AgentPatch)
+    assert call_args[1].name == "Updated"
+    assert isinstance(result, AgentResponse)
     assert result.id == agent.id
     assert result.mcp_servers == []
 
@@ -352,21 +352,19 @@ async def test_update_agent_passes_only_set_fields(service, mock_repo, mock_db):
     # Mock the get_agent reload query
     mock_db.execute.return_value = _make_mock_execute_result(rows=[(agent, None)])
 
-    await service.update_agent(agent.id, AgentUpdate(name="New Name"))
+    await service.update_agent(agent.id, AgentPatch(name="New Name"))
 
-    update_data = mock_repo.update.call_args[0][1]
-    assert update_data == {"name": "New Name"}
-    assert "instructions" not in update_data
-    assert "emoji" not in update_data
+    update_schema = mock_repo.update.call_args[0][1]
+    assert isinstance(update_schema, AgentPatch)
+    assert update_schema.model_dump(exclude_unset=True) == {"name": "New Name"}
 
 
 async def test_update_agent_raises_404_when_not_found(service, mock_repo):
     mock_repo.get.return_value = None
 
-    with pytest.raises(HTTPException) as exc_info:
-        await service.update_agent(uuid4(), AgentUpdate(name="X"))
+    with pytest.raises(NotFoundError) as exc_info:
+        await service.update_agent(uuid4(), AgentPatch(name="X"))
 
-    assert exc_info.value.status_code == 404
     assert exc_info.value.detail == "Agent not found"
     mock_repo.update.assert_not_called()
 
@@ -389,10 +387,10 @@ async def test_delete_agent_delegates_to_repository(service, mock_repo, mock_sub
 async def test_delete_agent_raises_404_when_not_found(service, mock_repo):
     mock_repo.get.return_value = None
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(NotFoundError) as exc_info:
         await service.delete_agent(uuid4())
 
-    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "Agent not found"
     mock_repo.archive.assert_not_called()
 
 

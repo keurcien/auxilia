@@ -4,22 +4,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.agents.models import (
-    AgentCreate,
     AgentDB,
     AgentMCPServerDB,
-    AgentPermissionWrite,
     AgentUserPermissionDB,
 )
+from app.agents.schemas import AgentPermissionCreate
+from app.repositories import BaseRepository
 from app.users.models import WorkspaceRole
 
 
-class AgentRepository:
+class AgentRepository(BaseRepository[AgentDB]):
     def __init__(self, db: AsyncSession):
-        self.db = db
-
-    async def get(self, agent_id: UUID) -> AgentDB | None:
-        result = await self.db.execute(select(AgentDB).where(AgentDB.id == agent_id))
-        return result.scalar_one_or_none()
+        super().__init__(AgentDB, db)
 
     async def list_with_permissions(
         self,
@@ -29,7 +25,7 @@ class AgentRepository:
         is_workspace_admin = user_role == WorkspaceRole.admin
 
         if user_id and not is_workspace_admin:
-            query = (
+            stmt = (
                 select(
                     AgentDB, AgentMCPServerDB, AgentUserPermissionDB.permission
                 )
@@ -45,7 +41,7 @@ class AgentRepository:
                 .order_by(AgentDB.created_at.asc())
             )
         else:
-            query = (
+            stmt = (
                 select(AgentDB, AgentMCPServerDB)
                 .outerjoin(
                     AgentMCPServerDB,
@@ -54,39 +50,23 @@ class AgentRepository:
                 .order_by(AgentDB.created_at.asc())
             )
 
-        result = await self.db.execute(query)
+        result = await self.db.execute(stmt)
         return result.all()
-
-    async def create(self, data: AgentCreate) -> AgentDB:
-        db_agent = AgentDB.model_validate(data)
-        self.db.add(db_agent)
-        await self.db.commit()
-        await self.db.refresh(db_agent)
-        return db_agent
-
-    async def update(self, agent: AgentDB, data: dict) -> AgentDB:
-        for key, value in data.items():
-            setattr(agent, key, value)
-        self.db.add(agent)
-        await self.db.commit()
-        await self.db.refresh(agent)
-        return agent
 
     async def archive(self, agent: AgentDB) -> None:
         agent.is_archived = True
         self.db.add(agent)
-        await self.db.commit()
+        await self.db.flush()
 
     async def get_permissions(self, agent_id: UUID) -> list[AgentUserPermissionDB]:
-        result = await self.db.execute(
-            select(AgentUserPermissionDB).where(
-                AgentUserPermissionDB.agent_id == agent_id
-            )
+        stmt = select(AgentUserPermissionDB).where(
+            AgentUserPermissionDB.agent_id == agent_id
         )
+        result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
     async def set_permissions(
-        self, agent_id: UUID, permissions: list[AgentPermissionWrite]
+        self, agent_id: UUID, permissions: list[AgentPermissionCreate]
     ) -> list[AgentUserPermissionDB]:
         existing = await self.get_permissions(agent_id)
         for perm in existing:
@@ -103,7 +83,7 @@ class AgentRepository:
             self.db.add(db_perm)
             new_permissions.append(db_perm)
 
-        await self.db.commit()
+        await self.db.flush()
         for perm in new_permissions:
             await self.db.refresh(perm)
         return new_permissions

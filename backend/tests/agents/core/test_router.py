@@ -9,11 +9,9 @@ from app.agents.models import AgentDB
 
 def test_create_agent(client: TestClient, mock_db, editor_user):
     """Test creating a new agent (editor or above)."""
-    owner_id = uuid4()
     agent_data = {
         "name": "Test Agent",
         "instructions": "You are a helpful assistant.",
-        "owner_id": str(owner_id),
     }
 
     # Mock refresh to populate the created agent with generated fields
@@ -30,7 +28,7 @@ def test_create_agent(client: TestClient, mock_db, editor_user):
     data = response.json()
     assert data["name"] == agent_data["name"]
     assert data["instructions"] == agent_data["instructions"]
-    assert data["owner_id"] == agent_data["owner_id"]
+    assert data["owner_id"] == str(editor_user.id)
     assert "id" in data
     assert "created_at" in data
     assert "updated_at" in data

@@ -19,7 +19,8 @@ from app.auth.utils import create_access_token, get_password_hash, verify_passwo
 from app.database import get_db
 from app.invites.models import InviteStatus
 from app.invites.service import InviteService, get_invite_service
-from app.users.models import OAuthAccountDB, UserDB, UserRead, WorkspaceRole
+from app.users.models import OAuthAccountDB, UserDB, WorkspaceRole
+from app.users.schemas import UserResponse
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -86,7 +87,7 @@ async def get_setup_status(
     return SetupStatusResponse(setup_required=user_count == 0)
 
 
-@router.post("/setup", response_model=UserRead, status_code=201)
+@router.post("/setup", response_model=UserResponse, status_code=201)
 async def setup(
     signup_data: SignupRequest,
     db: AsyncSession = Depends(get_db),
@@ -112,7 +113,7 @@ async def setup(
     await db.refresh(user)
 
     token = create_access_token(user.id)
-    user_read = UserRead.model_validate(user)
+    user_read = UserResponse.model_validate(user)
     response = JSONResponse(
         status_code=201,
         content=user_read.model_dump(mode="json"),
@@ -120,7 +121,7 @@ async def setup(
     return _set_auth_cookie(response, token)
 
 
-@router.post("/signin", response_model=UserRead)
+@router.post("/signin", response_model=UserResponse)
 async def signin(
     signin_data: SigninRequest,
     db: AsyncSession = Depends(get_db),
@@ -148,7 +149,7 @@ async def signin(
         )
 
     token = create_access_token(user.id)
-    user_read = UserRead.model_validate(user)
+    user_read = UserResponse.model_validate(user)
     response = JSONResponse(
         status_code=200,
         content=user_read.model_dump(mode="json"),
@@ -186,7 +187,7 @@ async def get_invite_info(
     )
 
 
-@router.post("/invite/accept", response_model=UserRead, status_code=201)
+@router.post("/invite/accept", response_model=UserResponse, status_code=201)
 async def accept_invite(
     data: InviteAcceptRequest,
     db: AsyncSession = Depends(get_db),
@@ -230,7 +231,7 @@ async def accept_invite(
     await db.refresh(user)
 
     token = create_access_token(user.id)
-    user_read = UserRead.model_validate(user)
+    user_read = UserResponse.model_validate(user)
     response = JSONResponse(
         status_code=201,
         content=user_read.model_dump(mode="json"),
@@ -382,9 +383,9 @@ async def google_callback(
     return response
 
 
-@router.get("/me", response_model=UserRead)
+@router.get("/me", response_model=UserResponse)
 async def get_me(
     current_user: UserDB = Depends(get_current_user),
-) -> UserRead:
+) -> UserResponse:
     """Get the currently authenticated user."""
-    return UserRead.model_validate(current_user)
+    return UserResponse.model_validate(current_user)

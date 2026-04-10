@@ -6,12 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user, require_admin
 from app.database import get_db
-from app.mcp.servers.models import (
+from app.mcp.servers.models import MCPServerDB
+from app.mcp.servers.schemas import (
     MCPServerCreate,
-    MCPServerDB,
-    MCPServerRead,
-    MCPServerUpdate,
-    OfficialMCPServerRead,
+    MCPServerPatch,
+    MCPServerResponse,
+    OfficialMCPServerResponse,
 )
 from app.mcp.servers.repository import MCPServerRepository
 from app.mcp.servers.service import MCPServerService
@@ -27,47 +27,47 @@ async def get_mcp_server_dependency(
     return await MCPServerRepository(db).get(mcp_server_id)
 
 
-@router.post("/", response_model=MCPServerRead, status_code=201)
+@router.post("/", response_model=MCPServerResponse, status_code=201)
 async def create_mcp_server(
     server: MCPServerCreate,
     _current_user: UserDB = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
-) -> MCPServerRead:
+) -> MCPServerResponse:
     return await MCPServerService(db).create_server(server)
 
 
-@router.get("/", response_model=list[MCPServerRead])
+@router.get("/", response_model=list[MCPServerResponse])
 async def get_mcp_servers(
     _current_user: UserDB = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> list[MCPServerRead]:
+) -> list[MCPServerResponse]:
     return await MCPServerService(db).list_servers()
 
 
-@router.get("/official", response_model=list[OfficialMCPServerRead])
+@router.get("/official", response_model=list[OfficialMCPServerResponse])
 async def get_official_mcp_servers(
     _current_user: UserDB = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> list[OfficialMCPServerRead]:
+) -> list[OfficialMCPServerResponse]:
     return await MCPServerService(db).list_official_servers()
 
 
-@router.get("/{server_id}", response_model=MCPServerRead)
+@router.get("/{server_id}", response_model=MCPServerResponse)
 async def get_mcp_server(
     server_id: UUID,
     _current_user: UserDB = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> MCPServerRead:
+) -> MCPServerResponse:
     return await MCPServerService(db).get_server(server_id)
 
 
-@router.patch("/{server_id}", response_model=MCPServerRead)
+@router.patch("/{server_id}", response_model=MCPServerResponse)
 async def update_mcp_server(
     server_id: UUID,
-    server_update: MCPServerUpdate,
+    server_update: MCPServerPatch,
     _current_user: UserDB = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
-) -> MCPServerRead:
+) -> MCPServerResponse:
     return await MCPServerService(db).update_server(server_id, server_update)
 
 

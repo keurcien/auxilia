@@ -42,32 +42,6 @@ class UserDB(UserBase, table=True):
     oauth_accounts: list["OAuthAccountDB"] = Relationship(back_populates="user")
 
 
-class UserCreate(SQLModel):
-    name: str | None = Field(default=None, max_length=255)
-    email: str | None = Field(default=None, max_length=255)
-    hashed_password: str | None = None
-    role: WorkspaceRole = WorkspaceRole.member
-
-
-class UserUpdate(SQLModel):
-    name: str | None = Field(default=None, max_length=255)
-    email: str | None = Field(default=None, max_length=255)
-    hashed_password: str | None = None
-
-
-class UserRoleUpdate(SQLModel):
-    role: WorkspaceRole
-
-
-class UserRead(SQLModel):
-    id: UUID
-    name: str | None
-    email: str | None
-    role: WorkspaceRole
-    created_at: datetime
-    updated_at: datetime
-
-
 class OAuthAccountBase(SQLModel):
     provider: str = Field(index=True)
     sub_id: str = Field(index=True)
@@ -98,14 +72,3 @@ class OAuthAccountDB(OAuthAccountBase, table=True):
     user: UserDB = Relationship(back_populates="oauth_accounts")
 
 
-class OAuthAccountCreate(SQLModel):
-    provider: str
-    sub_id: str
-    user_id: UUID
-
-
-class OAuthAccountRead(OAuthAccountBase):
-    id: UUID
-    user_id: UUID
-    created_at: datetime
-    updated_at: datetime

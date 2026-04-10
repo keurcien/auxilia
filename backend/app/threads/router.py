@@ -1,17 +1,15 @@
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends
 from fastapi.responses import StreamingResponse
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
 
-from app.agents.models import AgentDB
 from app.agents.runtime import AgentRuntime
 from app.agents.stream import _serialize_lc_message
 from app.auth.dependencies import get_current_user
 from app.database import get_db, get_psycopg_conn_string
-from app.threads.models import ThreadCreate, ThreadDB, ThreadRead
+from app.threads.schemas import ThreadCreate, ThreadResponse
 from app.threads.serialization import deserialize_to_ui_messages
-from app.threads.service import get_thread
+from app.threads.service import ThreadService, get_thread_service
 from app.users.models import UserDB
 
 
@@ -19,26 +17,11 @@ router = APIRouter(prefix="/threads", tags=["threads"])
 
 
 @router.get("/{thread_id}")
-async def read_thread(thread_id: str, db: AsyncSession = Depends(get_db)) -> dict:
-    result = await db.execute(
-        select(ThreadDB, AgentDB.name, AgentDB.emoji, AgentDB.color, AgentDB.is_archived)
-        .join(AgentDB, ThreadDB.agent_id == AgentDB.id)
-        .where(ThreadDB.id == thread_id)
-    )
-    row = result.one_or_none()
-
-    if not row:
-        raise HTTPException(status_code=404, detail="Thread not found")
-
-    thread, agent_name, agent_emoji, agent_color, agent_archived = row
-    thread_read = ThreadRead.model_validate(
-        thread, update={
-            "agent_name": agent_name,
-            "agent_emoji": agent_emoji,
-            "agent_color": agent_color,
-            "agent_archived": agent_archived,
-        }
-    )
+async def read_thread(
+    thread_id: str,
+    service: ThreadService = Depends(get_thread_service),
+) -> dict:
+    thread_read = await service.get_thread_with_agent(thread_id)
 
     async with AsyncPostgresSaver.from_conn_string(
         get_psycopg_conn_string()
@@ -92,69 +75,47 @@ async def get_subagent_state(thread_id: str, tool_call_id: str) -> dict:
 
 @router.get("/")
 async def get_threads(
-    db: AsyncSession = Depends(get_db), current_user: UserDB = Depends(get_current_user)
-) -> list[ThreadRead]:
-    result = await db.execute(
-        select(ThreadDB, AgentDB.name, AgentDB.emoji, AgentDB.color, AgentDB.is_archived)
-        .join(AgentDB, ThreadDB.agent_id == AgentDB.id)
-        .where(ThreadDB.user_id == current_user.id)
-        .order_by(ThreadDB.created_at.desc())
-    )
-    rows = result.all()
-    return [
-        ThreadRead.model_validate(
-            thread, update={
-                "agent_name": agent_name,
-                "agent_emoji": agent_emoji,
-                "agent_color": agent_color,
-                "agent_archived": agent_archived,
-            })
-        for thread, agent_name, agent_emoji, agent_color, agent_archived in rows
-    ]
+    current_user: UserDB = Depends(get_current_user),
+    service: ThreadService = Depends(get_thread_service),
+) -> list[ThreadResponse]:
+    return await service.list_threads(current_user.id)
 
 
 @router.post("/")
 async def create_thread(
     thread_data: ThreadCreate,
-    db: AsyncSession = Depends(get_db),
     current_user: UserDB = Depends(get_current_user),
-) -> ThreadRead:
-    # Exclude None id so ThreadDB uses its default_factory
-    thread_dict = thread_data.model_dump(exclude_none=True)
-    thread = ThreadDB(**thread_dict, user_id=current_user.id)
-    db.add(thread)
-    await db.commit()
-    await db.refresh(thread)
-    return ThreadRead.model_validate(thread)
+    service: ThreadService = Depends(get_thread_service),
+) -> ThreadResponse:
+    return await service.create_thread(thread_data, current_user.id)
 
 
 @router.delete("/{thread_id}", status_code=204)
-async def delete_thread(thread_id: str, db: AsyncSession = Depends(get_db)) -> None:
-
+async def delete_thread(
+    thread_id: str,
+    service: ThreadService = Depends(get_thread_service),
+) -> None:
     async with AsyncPostgresSaver.from_conn_string(
         get_psycopg_conn_string()
     ) as checkpointer:
         await checkpointer.adelete_thread(thread_id=thread_id)
 
-    result = await db.execute(select(ThreadDB).where(ThreadDB.id == thread_id))
-    thread = result.scalar_one_or_none()
-    if not thread:
-        raise HTTPException(status_code=404, detail="Thread not found")
-    await db.delete(thread)
-    await db.commit()
+    await service.delete_thread(thread_id)
 
 
 @router.post("/{thread_id}/runs/stream")
 async def run_stream(
-    thread=Depends(get_thread),
+    thread_id: str,
     input: dict | None = Body(None, embed=True),
     command: dict | None = Body(None, embed=True),
     config: dict | None = Body(None, embed=True),
     context: dict | None = Body(None, embed=True),
     user_id: str = Depends(get_current_user),
+    service: ThreadService = Depends(get_thread_service),
     db=Depends(get_db),
 ):
     """LangGraph native streaming endpoint for @langchain/langgraph-sdk useStream."""
+    thread = await service.get_thread(thread_id)
     runtime = await AgentRuntime.build(thread=thread, db=db)
 
     # Extract trigger from config.configurable if provided

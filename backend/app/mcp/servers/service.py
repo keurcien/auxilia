@@ -2,24 +2,24 @@ import os
 from contextlib import asynccontextmanager
 from uuid import UUID
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.auth import OAuthClientInformationFull
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.exceptions import DomainError, NotFoundError, ValidationError
 from app.mcp.client.auth import WebOAuthClientProvider, build_oauth_client_metadata
 from app.mcp.client.storage import TokenStorageFactory
 from app.mcp.servers.encryption import decrypt_value as decrypt_api_key
-from app.mcp.servers.models import (
-    MCPAuthType,
-    MCPServerCreate,
-    MCPServerDB,
-    MCPServerUpdate,
-    OfficialMCPServerRead,
-)
+from app.mcp.servers.models import MCPAuthType, MCPServerDB
 from app.mcp.servers.repository import MCPServerRepository
+from app.mcp.servers.schemas import (
+    MCPServerCreate,
+    MCPServerPatch,
+    OfficialMCPServerResponse,
+)
 from app.mcp.utils import check_mcp_server_connected
 
 
@@ -30,10 +30,7 @@ class MCPServerService:
 
     async def create_server(self, data: MCPServerCreate) -> MCPServerDB:
         if data.auth_type == MCPAuthType.api_key and not data.api_key:
-            raise HTTPException(
-                status_code=400,
-                detail="API key is required when auth_type is 'api_key'",
-            )
+            raise ValidationError("API key is required when auth_type is 'api_key'")
 
         db_server = await self.repository.create(data)
 
@@ -59,25 +56,27 @@ class MCPServerService:
     async def get_server(self, server_id: UUID) -> MCPServerDB:
         server = await self.repository.get(server_id)
         if not server:
-            raise HTTPException(status_code=404, detail="MCP server not found")
+            raise NotFoundError("MCP server not found")
         return server
 
     async def list_servers(self) -> list[MCPServerDB]:
         return await self.repository.list()
 
-    async def update_server(self, server_id: UUID, data: MCPServerUpdate) -> MCPServerDB:
+    async def update_server(self, server_id: UUID, data: MCPServerPatch) -> MCPServerDB:
         server = await self.get_server(server_id)
-        update_data = data.model_dump(exclude_unset=True)
-        return await self.repository.update(server, update_data)
+        result = await self.repository.update(server, data)
+        await self.db.commit()
+        return result
 
     async def delete_server(self, server_id: UUID) -> None:
         server = await self.get_server(server_id)
         await self.repository.delete(server)
+        await self.db.commit()
 
-    async def list_official_servers(self) -> list[OfficialMCPServerRead]:
+    async def list_official_servers(self) -> list[OfficialMCPServerResponse]:
         rows = await self.repository.list_official()
         return [
-            OfficialMCPServerRead(**row[0].model_dump(), is_installed=row[1])
+            OfficialMCPServerResponse(**row[0].model_dump(), is_installed=row[1])
             for row in rows
         ]
 
@@ -94,16 +93,13 @@ class MCPServerService:
         result = await storage_factory.get_storage_from_state(state)
 
         if not result:
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid or expired OAuth state",
-            )
+            raise ValidationError("Invalid or expired OAuth state")
 
         storage, state_data = result
 
         mcp_server = await self.repository.get(state_data.mcp_server_id)
         if not mcp_server:
-            raise HTTPException(status_code=404, detail="MCP server not found")
+            raise NotFoundError("MCP server not found")
 
         client_metadata = build_oauth_client_metadata(mcp_server)
 
@@ -232,7 +228,7 @@ async def connect_to_server(mcp_server: MCPServerDB, user_id: str, db: AsyncSess
 
                 yield session, tools
             except Exception as e:
-                raise HTTPException(status_code=500, detail=str(e))
+                raise DomainError(str(e)) from e
 
 
 def get_mcp_server_service(db: AsyncSession = Depends(get_db)) -> MCPServerService:

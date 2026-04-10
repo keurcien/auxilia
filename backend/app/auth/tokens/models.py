@@ -19,20 +19,3 @@ class PersonalAccessTokenDB(SQLModel, table=True):
             DateTime(timezone=True), server_default=func.now(), nullable=False
         ),
     )
-
-
-class PersonalAccessTokenCreate(SQLModel):
-    name: str = Field(max_length=255)
-
-
-class PersonalAccessTokenRead(SQLModel):
-    id: UUID
-    name: str
-    prefix: str
-    created_at: datetime
-
-
-class PersonalAccessTokenCreated(PersonalAccessTokenRead):
-    """Returned only at creation time — includes the plaintext token."""
-
-    token: str

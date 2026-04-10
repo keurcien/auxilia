@@ -1,13 +1,15 @@
-from datetime import datetime, timezone
+import secrets
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.auth.settings import auth_settings
 from app.database import get_db
-from app.invites.models import InviteDB, InviteStatus
+from app.exceptions import AlreadyExistsError
+from app.invites.models import InviteCreateDB, InviteDB, InviteStatus
 from app.invites.repository import InviteRepository
 from app.users.models import UserDB
 
@@ -24,12 +26,18 @@ class InviteService:
         """Create a new invite, revoking any existing pending invite for the same email."""
         result = await self.db.execute(select(UserDB).where(UserDB.email == email))
         if result.scalar_one_or_none():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email already registered",
-            )
+            raise AlreadyExistsError("Email already registered")
         await self.repository.revoke_pending_by_email(email)
-        return await self.repository.create(email=email, role=role, invited_by=invited_by)
+        data = InviteCreateDB(
+            email=email,
+            role=role,
+            token=secrets.token_urlsafe(32),
+            invited_by=invited_by,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+        )
+        invite = await self.repository.create(data)
+        await self.db.commit()
+        return invite
 
     async def validate_invite(self, token: str) -> InviteDB | None:
         """Return the invite if it's pending and not expired, else None."""
@@ -63,7 +71,9 @@ class InviteService:
         invite = await self.repository.get(invite_id)
         if invite is None:
             return None
-        return await self.repository.set_status(invite, InviteStatus.revoked)
+        result = await self.repository.set_status(invite, InviteStatus.revoked)
+        await self.db.commit()
+        return result
 
 
 def get_invite_service(db: AsyncSession = Depends(get_db)) -> InviteService:

@@ -2,8 +2,8 @@
 from slack_sdk.web.async_client import AsyncWebClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.models import AgentDB
 from app.agents.core.service import AgentService
+from app.agents.models import AgentDB
 from app.database import AsyncSessionLocal
 from app.integrations.slack.models import SlackEvent, SlackInteractionPayload
 from app.integrations.slack.settings import slack_settings

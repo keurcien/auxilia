@@ -1,17 +1,15 @@
 import logging
 from uuid import UUID
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from app.agents.mcp_servers.repository import MCPServerRepository
-from app.agents.models import (
-    AgentMCPServerCreate,
-    AgentMCPServerDB,
-    AgentMCPServerUpdate,
-)
+from app.agents.mcp_servers.repository import AgentMCPServerRepository
+from app.agents.models import AgentMCPServerBase, AgentMCPServerDB
+from app.agents.schemas import AgentMCPServerCreate, AgentMCPServerPatch
 from app.database import get_db
+from app.exceptions import NotFoundError
 from app.mcp.client.auth import WebOAuthClientProvider, build_oauth_client_metadata
 from app.mcp.client.storage import TokenStorageFactory
 from app.mcp.servers.models import MCPAuthType, MCPServerDB
@@ -24,7 +22,7 @@ logger = logging.getLogger(__name__)
 class AgentMCPServerService:
     def __init__(self, db: AsyncSession):
         self.db = db
-        self.repository = MCPServerRepository(db)
+        self.repository = AgentMCPServerRepository(db)
 
     async def _check_oauth_connected(
         self, mcp_server: MCPServerDB, user_id: str
@@ -68,7 +66,7 @@ class AgentMCPServerService:
         )
         mcp_server = result.scalar_one_or_none()
         if not mcp_server:
-            raise HTTPException(status_code=404, detail="MCP server not found")
+            raise NotFoundError("MCP server not found")
 
         existing = await self.repository.get(agent_id, server_id)
 
@@ -80,7 +78,13 @@ class AgentMCPServerService:
                 await self.db.refresh(existing)
             return existing
 
-        db_link = await self.repository.create(agent_id, server_id)
+        link_data = AgentMCPServerBase(
+            agent_id=agent_id,
+            mcp_server_id=server_id,
+            tools=None,
+        )
+        db_link = await self.repository.create(link_data)
+        await self.db.commit()
 
         if mcp_server.auth_type in [MCPAuthType.none, MCPAuthType.api_key]:
             await self._fetch_and_save_tools(db_link, mcp_server, user_id)
@@ -92,26 +96,28 @@ class AgentMCPServerService:
         return db_link
 
     async def update(
-        self, agent_id: UUID, server_id: UUID, data: AgentMCPServerUpdate
+        self, agent_id: UUID, server_id: UUID, data: AgentMCPServerPatch
     ) -> AgentMCPServerDB:
         link = await self.repository.get(agent_id, server_id)
         if not link:
-            raise HTTPException(status_code=404, detail="Agent MCP server not found")
+            raise NotFoundError("Agent MCP server not found")
 
-        update_data = data.model_dump(exclude_unset=True)
-
-        if "tools" in update_data and update_data["tools"] is not None:
+        if data.tools is not None:
             existing_tools = link.tools or {}
-            merged_tools = {**existing_tools, **update_data["tools"]}
-            update_data["tools"] = merged_tools
+            merged_data = AgentMCPServerPatch(tools={**existing_tools, **data.tools})
+        else:
+            merged_data = data
 
-        return await self.repository.update(link, update_data)
+        result = await self.repository.update(link, merged_data)
+        await self.db.commit()
+        return result
 
     async def delete(self, agent_id: UUID, server_id: UUID) -> None:
         link = await self.repository.get(agent_id, server_id)
         if not link:
-            raise HTTPException(status_code=404, detail="Agent MCP server not found")
+            raise NotFoundError("Agent MCP server not found")
         await self.repository.delete(link)
+        await self.db.commit()
 
     async def sync_tools(
         self, agent_id: UUID, server_id: UUID, user_id: str
@@ -121,11 +127,11 @@ class AgentMCPServerService:
         )
         mcp_server = result.scalar_one_or_none()
         if not mcp_server:
-            raise HTTPException(status_code=404, detail="MCP server not found")
+            raise NotFoundError("MCP server not found")
 
         link = await self.repository.get(agent_id, server_id)
         if not link:
-            raise HTTPException(status_code=404, detail="Agent MCP server not found")
+            raise NotFoundError("Agent MCP server not found")
 
         await self._fetch_and_save_tools(link, mcp_server, user_id)
         return link
