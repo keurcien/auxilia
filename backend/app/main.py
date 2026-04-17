@@ -8,6 +8,10 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
+from app.agents.router import router as agents_router
+from app.auth.router import router as auth_router
+from app.auth.settings import auth_settings
+from app.auth.tokens.router import router as tokens_router
 from app.exceptions import (
     AlreadyExistsError,
     DomainError,
@@ -15,10 +19,6 @@ from app.exceptions import (
     PermissionDeniedError,
     ValidationError,
 )
-from app.agents.router import router as agents_router
-from app.auth.router import router as auth_router
-from app.auth.tokens.router import router as tokens_router
-from app.auth.settings import auth_settings
 from app.integrations.slack.router import router as slack_router
 from app.invites.router import router as invites_router
 from app.mcp.apps.router import router as mcp_apps_router
@@ -30,6 +30,7 @@ from app.sandbox.router import router as sandbox_router
 from app.settings import app_settings
 from app.threads.router import router as threads_router
 from app.users.router import router as users_router
+
 
 logging.getLogger("app").setLevel(app_settings.log_level.upper())
 

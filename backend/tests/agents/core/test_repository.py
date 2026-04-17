@@ -92,7 +92,7 @@ async def test_list_with_permissions_returns_rows(repo, mock_db):
     mock_result.all.return_value = [(agent, None, None)]
     mock_db.execute.return_value = mock_result
 
-    rows = await repo.list_with_permissions(uuid4(), WorkspaceRole.member)
+    rows = await repo.list_with_permissions(user_id=uuid4(), user_role=WorkspaceRole.member)
 
     mock_db.execute.assert_awaited_once()
     mock_result.all.assert_called_once()
@@ -104,7 +104,7 @@ async def test_list_with_permissions_non_admin_joins_permissions(repo, mock_db):
     mock_result.all.return_value = []
     mock_db.execute.return_value = mock_result
 
-    await repo.list_with_permissions(uuid4(), WorkspaceRole.member)
+    await repo.list_with_permissions(user_id=uuid4(), user_role=WorkspaceRole.member)
 
     query_str = str(mock_db.execute.call_args[0][0])
     assert "agent_user_permissions" in query_str
@@ -115,7 +115,7 @@ async def test_list_with_permissions_admin_skips_permission_join(repo, mock_db):
     mock_result.all.return_value = []
     mock_db.execute.return_value = mock_result
 
-    await repo.list_with_permissions(uuid4(), WorkspaceRole.admin)
+    await repo.list_with_permissions(user_id=uuid4(), user_role=WorkspaceRole.admin)
 
     query_str = str(mock_db.execute.call_args[0][0])
     assert "agent_user_permissions" not in query_str
@@ -126,7 +126,7 @@ async def test_list_with_permissions_no_user_skips_permission_join(repo, mock_db
     mock_result.all.return_value = []
     mock_db.execute.return_value = mock_result
 
-    await repo.list_with_permissions(None, None)
+    await repo.list_with_permissions(user_id=None, user_role=None)
 
     query_str = str(mock_db.execute.call_args[0][0])
     assert "agent_user_permissions" not in query_str
@@ -137,7 +137,7 @@ async def test_list_with_permissions_returns_empty_list(repo, mock_db):
     mock_result.all.return_value = []
     mock_db.execute.return_value = mock_result
 
-    result = await repo.list_with_permissions(None, None)
+    result = await repo.list_with_permissions(user_id=None, user_role=None)
 
     assert result == []
 

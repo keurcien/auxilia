@@ -16,10 +16,55 @@ External integrations:
 
 ## Backend conventions
 
-Always wrap SQLAlchemy queries in a stmt variable:
+### Layered architecture
 
-```
-BAD:
+Every backend feature follows `router → service → repository → model`. Each layer has a single responsibility:
+
+- **Router** (`router.py`) — HTTP surface. Declares the FastAPI endpoints, binds auth dependencies, shapes the response. No DB access, no branching on domain rules.
+- **Service** (`service.py`) — business logic. Inherits `BaseService[ModelDB, Repository]` (`app/service.py`), owns the request-scoped `db`, raises domain exceptions, and delegates IO to its repository. Cross-module orchestration (e.g. `AgentService` using `SubagentService`) happens here.
+- **Repository** (`repository.py`) — SQL. Inherits `BaseRepository[ModelDB]` (`app/repository.py`), which provides `get / create / update / delete` for anything that subclasses `BaseDBModel`. Subclasses add one method per query shape (e.g. `get_by_email`, `list_with_permissions`). Never raises domain exceptions — returns `None` / `[]`.
+- **Model** (`models.py`) — SQLModel table definitions. Inherit `BaseDBModel` (UUID PK + `created_at` / `updated_at` timestamps). For join tables skip the UUID and use `(TimestampMixin, SQLModel, table=True)`.
+- **Schema** (`schemas.py`) — request/response DTOs.
+
+Keep these layers honest. Don't write `db.execute(select(...))` in a router or in a service — lift it into a repository method named after *what* it returns. Don't catch `NotFoundError` in a service just to rewrap it — let it bubble through the global handler in `main.py`.
+
+### Naming
+
+- `*DB` — SQLModel table (`UserDB`, `AgentDB`, `AgentMCPServerDB`)
+- `*Base` — shared column set mixed into both the table and the create schema (`AgentBase`, `UserBase`)
+- `*Create` — client-supplied create payload
+- `*CreateDB` — server-side create payload (adds fields like `owner_id`, `token_hash`, `expires_at`)
+- `*Patch` — optional partial-update payload (all fields nullable, consumed with `model_dump(exclude_unset=True)`)
+- `*Response` — API response shape. Never return a `*DB` directly; always project to a schema so relations and DB-only fields don't leak.
+
+### Transactions
+
+`get_db` (in `app/database.py`) runs one transaction per HTTP request: it commits on success, rolls back on any exception. Service methods should use `await self.db.flush()` when they need a server-generated value (PK, timestamp) and never call `self.db.commit()`.
+
+The only exception is code that doesn't run inside a FastAPI request — e.g. Slack handlers use `AsyncSessionLocal()` directly and manage their own commit (see `get_or_create_thread`).
+
+### Domain exceptions
+
+Services raise exceptions from `app/exceptions.py`:
+
+| Exception | HTTP status |
+| --- | --- |
+| `NotFoundError` | 404 |
+| `AlreadyExistsError` | 400 |
+| `ValidationError` | 400 |
+| `PermissionDeniedError` | 403 |
+| `DomainError` (base) | 500 |
+
+Global handlers in `main.py` translate them to JSON responses. Routers don't catch or re-raise these — the only router-level `try/except` is for cases that need non-standard handling (e.g. OAuth callback catching `NoInviteError` to emit a 302 redirect instead of a 400).
+
+Use `BaseService.get_or_404(id)` instead of hand-rolling `if not x: raise NotFoundError(...)`.
+
+### SQLAlchemy queries
+
+Always wrap statements in a `stmt` variable before executing — it keeps call sites readable and lets you log/inspect the query during debugging:
+
+```python
+# BAD
 result = await self.db.execute(
     select(AgentMCPServerDB).where(
         AgentMCPServerDB.agent_id == agent_id,
@@ -27,65 +72,106 @@ result = await self.db.execute(
     )
 )
 
-GOOD:
+# GOOD
 stmt = select(AgentMCPServerDB).where(
     AgentMCPServerDB.agent_id == agent_id,
     AgentMCPServerDB.mcp_server_id == server_id,
 )
-
 result = await self.db.execute(stmt)
+```
+
+### FastAPI auth dependencies
+
+Use the shared helpers in `app/auth/dependencies.py`:
+
+- `get_current_user` — required auth (JWT cookie or PAT/JWT bearer)
+- `get_current_user_optional` — optional auth (returns `None` if unauthenticated)
+- `require_editor` / `require_admin` — role gates
+
+When a role gate's return value is not used in the handler (the dependency runs for its side-effect check only), bind it to `_` to satisfy `ARG001`:
+
+```python
+async def create_user(
+    user: UserCreate,
+    _: UserDB = Depends(require_admin),  # side-effect auth check
+    service: UserService = Depends(get_user_service),
+) -> UserResponse:
+    return await service.create_user(user)
 ```
 
 ## Repository Structure
 
 ```
-
 auxilia/
-├── backend/ # FastAPI Python application
-│ ├── app/
-│ │ ├── agents/ # Agent management & LangGraph runtime
-│ │ │ ├── hitl.py # HITL approval extraction from UI messages
-│ │ │ ├── stream.py # AI SDK SSE & Slack stream adapters
-│ │ │ └── runtime.py # Agent invocation & tool orchestration
-│ │ ├── auth/ # JWT + OAuth authentication
-│ │ ├── integrations/
-│ │ │ ├── langfuse/ # LLM monitoring callback
-│ │ │ └── slack/ # Slack events, commands, interactions
-│ │ ├── mcp/ # MCP server management & client
-│ │ │ ├── client/ # MCP client, OAuth, token storage
-│ │ │ └── servers/ # MCP server CRUD, encryption
-│ │ ├── model_providers/ # LLM provider configuration
-│ │ ├── threads/ # Chat thread management
-│ │ │ ├── serialization.py # LangGraph checkpoint → UI message conversion
-│ │ │ └── router.py # Thread CRUD & history endpoints
-│ │ ├── users/ # User management
-│ │ ├── database.py # SQLAlchemy async engine
-│ │ └── main.py # FastAPI app entrypoint
-│ ├── alembic/ # Database migrations
-│ ├── tests/ # Pytest test suite
-│ ├── pyproject.toml # Python dependencies (uv)
-│ └── Dockerfile
-├── web/ # Next.js frontend (App Router)
-│ ├── src/
-│ │ ├── app/
-│ │ │ ├── (protected)/ # Authenticated routes (agents, MCP servers)
-│ │ │ ├── auth/ # Signin/signup pages
-│ │ │ └── api/ # API routes (auth, backend proxy)
-│ │ ├── components/
-│ │ │ ├── ai-elements/ # Chat UI components
-│ │ │ ├── layout/ # Sidebar, navigation
-│ │ │ ├── providers/ # Context providers
-│ │ │ └── ui/ # shadcn/ui components
-│ │ ├── hooks/ # Custom React hooks
-│ │ ├── lib/api/ # Axios client with case conversion
-│ │ ├── stores/ # Zustand state stores
-│ │ └── types/ # TypeScript type definitions
-│ ├── package.json
-│ └── Dockerfile
-├── docker-compose.yml # Production setup
-├── docker-compose.dev.yml # Dev services (postgres, redis)
-└── Makefile # Development commands
-
+├── backend/                           # FastAPI Python application
+│   ├── app/
+│   │   ├── agents/                    # Agent management & LangGraph runtime
+│   │   │   ├── core/                  # AgentService + repository (CRUD, permissions)
+│   │   │   ├── mcp_servers/           # AgentMCPServerService (agent↔MCP bindings, tool sync)
+│   │   │   ├── subagents/             # SubagentService (coordinator/subagent links)
+│   │   │   ├── hitl.py                # HITL approval extraction from UI messages
+│   │   │   ├── runtime.py             # AgentRuntime — LangGraph invocation & tool orchestration
+│   │   │   ├── stream.py              # AI SDK SSE & Slack stream adapters
+│   │   │   ├── toolset.py             # Tool binding for the agent
+│   │   │   ├── tool_errors.py         # ToolException middleware
+│   │   │   ├── router.py              # /agents endpoints (unified)
+│   │   │   ├── models.py              # AgentDB, AgentMCPServerDB, permissions, subagent links
+│   │   │   └── schemas.py
+│   │   ├── auth/                      # JWT + OAuth authentication
+│   │   │   ├── tokens/                # Personal access tokens (PAT) service
+│   │   │   ├── dependencies.py        # get_current_user, require_admin, require_editor
+│   │   │   ├── router.py              # Thin auth endpoints (signin, setup, Google OAuth)
+│   │   │   ├── service.py             # AuthService (signup/signin/invite/Google link-or-create)
+│   │   │   └── utils.py               # Password hash, JWT encode/decode
+│   │   ├── integrations/
+│   │   │   ├── langfuse/              # LLM monitoring callback
+│   │   │   └── slack/                 # Slack events, commands, interactions
+│   │   ├── invites/                   # Admin invites (email → pending role)
+│   │   ├── mcp/                       # MCP server management & client
+│   │   │   ├── apps/                  # FastMCP demo tools exposed by auxilia itself
+│   │   │   ├── client/                # MCP client, OAuth provider, Redis storage, connectivity probes
+│   │   │   ├── servers/               # MCP server CRUD, API-key/OAuth credentials encryption
+│   │   │   ├── router.py              # auxilia_mcp (FastMCP) endpoint
+│   │   │   └── utils.py               # check_mcp_server_connected (with token refresh)
+│   │   ├── model_providers/           # LLM provider configuration & catalog
+│   │   ├── sandbox/                   # Sandboxed code execution
+│   │   ├── threads/                   # Chat thread management
+│   │   │   ├── serialization.py       # LangGraph checkpoint → UI message conversion
+│   │   │   └── router.py              # Thread CRUD & history + /runs/stream & /runs/invoke
+│   │   ├── users/                     # User management
+│   │   ├── utils/                     # RequestTimer and other shared helpers
+│   │   ├── database.py                # Async engine + request-scoped get_db
+│   │   ├── exceptions.py              # DomainError hierarchy (NotFoundError, ValidationError, …)
+│   │   ├── main.py                    # FastAPI app + global exception handlers
+│   │   ├── models.py                  # BaseDBModel, UUIDMixin, TimestampMixin, AI SDK Message
+│   │   ├── repository.py              # BaseRepository[T] — generic CRUD
+│   │   ├── service.py                 # BaseService[M, R] — get_or_404 + shared helpers
+│   │   └── settings.py                # App-wide settings (pydantic-settings)
+│   ├── alembic/                       # Database migrations
+│   ├── scripts/                       # One-off utilities (diagnostics, PAT tests, probes)
+│   ├── tests/                         # Pytest test suite (mirrors app/ layout)
+│   ├── pyproject.toml                 # Python dependencies (uv) + ruff config
+│   └── Dockerfile
+├── web/                               # Next.js frontend (App Router)
+│   ├── src/
+│   │   ├── app/
+│   │   │   ├── (protected)/           # Authenticated routes (agents, MCP servers)
+│   │   │   ├── auth/                  # Signin/signup pages
+│   │   │   └── api/                   # API routes (auth, backend proxy)
+│   │   ├── components/
+│   │   │   ├── ai-elements/           # Chat UI components
+│   │   │   ├── layout/                # Sidebar, navigation
+│   │   │   ├── providers/             # Context providers
+│   │   │   └── ui/                    # shadcn/ui components
+│   │   ├── hooks/                     # Custom React hooks
+│   │   ├── lib/api/                   # Axios client with case conversion
+│   │   ├── stores/                    # Zustand state stores
+│   │   └── types/                     # TypeScript type definitions
+│   ├── package.json
+│   └── Dockerfile
+├── docker-compose.yml                 # Production setup
+├── docker-compose.dev.yml             # Dev services (postgres, redis)
+└── Makefile                           # Development commands
 ```
 
 ## Development Commands
@@ -173,10 +259,12 @@ cd backend && uv run ruff format .        # Format Python code
 
 ### Backend Patterns
 
-- **Router → Service/Utils → Models**: each module has `router.py` (endpoints), `utils.py` or `service.py` (business logic), and `models.py` (DB + Pydantic schemas)
-- **Model naming**: `*DB` for database models, `*Create`/`*Update`/`*Read` for request/response schemas
+See **Backend conventions** above for the full layered architecture, naming rules, transaction model, and exception-handling contract. Additional rules of thumb:
+
 - **Async everywhere**: all database operations, HTTP calls, and MCP interactions use `async/await`
-- **Dependency injection**: use FastAPI `Depends()` for database sessions (`get_db`) and auth (`get_current_user`)
+- **Dependency injection**: use FastAPI `Depends()` for database sessions (`get_db`) and auth (`get_current_user` / `require_admin` / `require_editor`)
+- **Pure helpers stay out of services**: if a function doesn't need the DB, don't put it on the service. Connectivity probes live in `app/mcp/client/connectivity.py`, not on `MCPServerService`, so callers never have to pass `None` for an unused session.
+- **Cross-module service use**: a service can compose another service directly (e.g. `AgentService` constructs a `SubagentService` in its `__init__`). Avoid reaching into another module's repository from a router.
 
 ### Frontend Patterns
 
@@ -187,7 +275,16 @@ cd backend && uv run ruff format .        # Format Python code
 
 ### Agent Permissions
 
-Agents have a permission system with levels: `owner`, `admin`, `editor`, `user`. The `read_agents()` utility attaches `current_user_permission` to each agent but does not filter — callers must filter agents where `current_user_permission is not None` to enforce access control.
+Workspace role levels (`WorkspaceRole`): `member`, `editor`, `admin`. Per-agent permission levels (`PermissionLevel`): `user`, `editor`, `admin`, plus a virtual `"owner"` derived from `AgentDB.owner_id`.
+
+`AgentService.list_agents(user_id, user_role)` and `AgentService.get_agent(agent_id, user_id, user_role)` return `AgentResponse` with `current_user_permission` resolved via `_resolve_permission`:
+
+1. Owner of the agent → `"owner"`
+2. Workspace admin → `"admin"`
+3. Explicit grant in `AgentUserPermissionDB` → `user` / `editor` / `admin`
+4. Otherwise → `None`
+
+The service does **not** filter unauthorized agents out of `list_agents`. Callers (e.g. Slack handlers) must filter on `current_user_permission is not None` when enforcing access.
 
 ### MCP Server Security
 

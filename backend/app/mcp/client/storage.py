@@ -1,4 +1,5 @@
-from datetime import datetime, timedelta, timezone
+import logging
+from datetime import UTC, datetime, timedelta
 
 from mcp.client.auth import TokenStorage
 from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata, OAuthToken
@@ -7,6 +8,9 @@ from redis.asyncio import Redis
 
 from app.mcp.servers.encryption import decrypt_value, encrypt_value
 from app.settings import app_settings
+
+
+logger = logging.getLogger(__name__)
 
 
 class StoredToken(BaseModel):
@@ -69,15 +73,19 @@ class RedisTokenStorage(TokenStorage):
     async def get_tokens(self) -> OAuthToken | None:
         stored = await self.get_stored_token()
         if not stored:
-            print(
-                f"No stored token for user {self.user_id} and MCP server {self.mcp_server_id}")
+            logger.debug(
+                "No stored token for user %s and MCP server %s",
+                self.user_id, self.mcp_server_id,
+            )
             return None
 
         if stored.expires_at is not None:
-            print(
-                f"Stored token for user {self.user_id} and MCP server {self.mcp_server_id} expires at {stored.expires_at}")
+            logger.debug(
+                "Stored token for user %s and MCP server %s expires at %s",
+                self.user_id, self.mcp_server_id, stored.expires_at,
+            )
             if stored.token_payload.expires_in is not None:
-                remaining = stored.expires_at - datetime.now(timezone.utc)
+                remaining = stored.expires_at - datetime.now(UTC)
                 stored.token_payload.expires_in = max(
                     0, int(remaining.total_seconds()))
 
@@ -87,7 +95,7 @@ class RedisTokenStorage(TokenStorage):
         expires_at: datetime | None = None
 
         if tokens.expires_in is not None:
-            expires_at = datetime.now(timezone.utc) + \
+            expires_at = datetime.now(UTC) + \
                 timedelta(seconds=tokens.expires_in)
 
         stored_token = StoredToken(token_payload=tokens, expires_at=expires_at)

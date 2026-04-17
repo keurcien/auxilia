@@ -3,9 +3,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 
 from app.auth.dependencies import require_admin
+from app.exceptions import NotFoundError
 from app.invites.models import InviteDB
 from app.invites.schemas import InviteCreate, InviteResponse
-from app.exceptions import NotFoundError
 from app.invites.service import InviteService, get_invite_service
 from app.users.models import UserDB
 
@@ -49,7 +49,7 @@ async def create_invite_endpoint(
 
 @router.get("/", response_model=list[InviteResponse])
 async def list_invites(
-    current_user: UserDB = Depends(require_admin),
+    _: UserDB = Depends(require_admin),
     service: InviteService = Depends(get_invite_service),
 ) -> list[InviteResponse]:
     """List pending invites. Admin only."""
@@ -63,7 +63,7 @@ async def list_invites(
 @router.delete("/{invite_id}", status_code=204)
 async def revoke_invite(
     invite_id: UUID,
-    current_user: UserDB = Depends(require_admin),
+    _: UserDB = Depends(require_admin),
     service: InviteService = Depends(get_invite_service),
 ) -> None:
     """Revoke an invite. Admin only."""

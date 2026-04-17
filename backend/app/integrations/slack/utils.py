@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import logging
 import time
 
 import httpx
@@ -9,8 +10,10 @@ from app.database import AsyncSessionLocal
 from app.integrations.slack.models import SlackUserInfo
 from app.integrations.slack.settings import slack_settings
 from app.users.models import UserDB
-from app.users.service import get_user_by_email
+from app.users.repository import UserRepository
 
+
+logger = logging.getLogger(__name__)
 
 _MAX_AGE_SECONDS = 60 * 5
 
@@ -64,16 +67,16 @@ async def get_user_info(user_id: str) -> SlackUserInfo | None:
             data = response.json()
             if data.get("ok"):
                 return SlackUserInfo.model_validate(data.get("user"))
-            else:
-                print(f"Slack API error (users.info): {data.get('error')}")
-                return None
-        except httpx.HTTPStatusError as e:
-            print(
-                f"HTTP error calling Slack API (users.info): {e.response.status_code} - {e.response.text}")
+            logger.warning("Slack API error (users.info): %s", data.get("error"))
             return None
-        except Exception as e:
-            print(
-                f"An unexpected error occurred calling Slack API (users.info): {e}")
+        except httpx.HTTPStatusError as e:
+            logger.warning(
+                "HTTP error calling Slack API (users.info): %s - %s",
+                e.response.status_code, e.response.text,
+            )
+            return None
+        except Exception:
+            logger.exception("Unexpected error calling Slack API (users.info)")
             return None
 
 
@@ -83,4 +86,4 @@ async def resolve_user(slack_user_id: str) -> UserDB | None:
     if not user_info or not user_info.profile.email:
         return None
     async with AsyncSessionLocal() as db:
-        return await get_user_by_email(user_info.profile.email, db)
+        return await UserRepository(db).get_by_email(user_info.profile.email)

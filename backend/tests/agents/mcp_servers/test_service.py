@@ -268,7 +268,10 @@ async def test_create_or_update_oauth_fetches_tools_when_connected(
     mock_repo.create.return_value = link
 
     with (
-        patch.object(service, "_check_oauth_connected", new=AsyncMock(return_value=True)),
+        patch(
+            "app.agents.mcp_servers.service.check_oauth_connected",
+            new=AsyncMock(return_value=True),
+        ),
         patch.object(service, "_fetch_and_save_tools", new=AsyncMock()) as mock_fetch,
     ):
         await service.create_or_update(
@@ -288,7 +291,10 @@ async def test_create_or_update_oauth_skips_fetch_when_not_connected(
     mock_repo.create.return_value = link
 
     with (
-        patch.object(service, "_check_oauth_connected", new=AsyncMock(return_value=False)),
+        patch(
+            "app.agents.mcp_servers.service.check_oauth_connected",
+            new=AsyncMock(return_value=False),
+        ),
         patch.object(service, "_fetch_and_save_tools", new=AsyncMock()) as mock_fetch,
     ):
         await service.create_or_update(

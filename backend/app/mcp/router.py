@@ -16,7 +16,7 @@ def list_agents() -> dict[str, list[dict[str, str]]]:
 
 
 @auxilia_mcp.tool()
-async def ask_agent(agent_name: str, question: str, ctx: Context) -> dict[str, str]:
+async def ask_agent(agent_name: str, question: str, ctx: Context) -> dict[str, str]:  # noqa: ARG001
     """
     Ask an agent a question
     Args:

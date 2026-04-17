@@ -6,6 +6,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user, require_admin
 from app.database import get_db
+from app.mcp.client.connectivity import (
+    check_connectivity,
+    check_connectivity_with_refresh,
+)
 from app.mcp.servers.models import MCPServerDB
 from app.mcp.servers.schemas import (
     MCPServerCreate,
@@ -13,8 +17,7 @@ from app.mcp.servers.schemas import (
     MCPServerResponse,
     OfficialMCPServerResponse,
 )
-from app.mcp.servers.repository import MCPServerRepository
-from app.mcp.servers.service import MCPServerService
+from app.mcp.servers.service import MCPServerService, get_mcp_server_service
 from app.users.models import UserDB
 
 
@@ -22,43 +25,44 @@ router = APIRouter(prefix="/mcp-servers", tags=["mcp-servers"])
 
 
 async def get_mcp_server_dependency(
-    mcp_server_id: str, db: AsyncSession = Depends(get_db)
+    mcp_server_id: UUID,
+    service: MCPServerService = Depends(get_mcp_server_service),
 ) -> MCPServerDB:
-    return await MCPServerRepository(db).get(mcp_server_id)
+    return await service.get_server(mcp_server_id)
 
 
 @router.post("/", response_model=MCPServerResponse, status_code=201)
 async def create_mcp_server(
     server: MCPServerCreate,
     _current_user: UserDB = Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
+    service: MCPServerService = Depends(get_mcp_server_service),
 ) -> MCPServerResponse:
-    return await MCPServerService(db).create_server(server)
+    return await service.create_server(server)
 
 
 @router.get("/", response_model=list[MCPServerResponse])
 async def get_mcp_servers(
     _current_user: UserDB = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    service: MCPServerService = Depends(get_mcp_server_service),
 ) -> list[MCPServerResponse]:
-    return await MCPServerService(db).list_servers()
+    return await service.list_servers()
 
 
 @router.get("/official", response_model=list[OfficialMCPServerResponse])
 async def get_official_mcp_servers(
     _current_user: UserDB = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    service: MCPServerService = Depends(get_mcp_server_service),
 ) -> list[OfficialMCPServerResponse]:
-    return await MCPServerService(db).list_official_servers()
+    return await service.list_official_servers()
 
 
 @router.get("/{server_id}", response_model=MCPServerResponse)
 async def get_mcp_server(
     server_id: UUID,
     _current_user: UserDB = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    service: MCPServerService = Depends(get_mcp_server_service),
 ) -> MCPServerResponse:
-    return await MCPServerService(db).get_server(server_id)
+    return await service.get_server(server_id)
 
 
 @router.patch("/{server_id}", response_model=MCPServerResponse)
@@ -66,40 +70,40 @@ async def update_mcp_server(
     server_id: UUID,
     server_update: MCPServerPatch,
     _current_user: UserDB = Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
+    service: MCPServerService = Depends(get_mcp_server_service),
 ) -> MCPServerResponse:
-    return await MCPServerService(db).update_server(server_id, server_update)
+    return await service.update_server(server_id, server_update)
 
 
 @router.delete("/{server_id}", status_code=204)
 async def delete_mcp_server(
     server_id: UUID,
     _current_user: UserDB = Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
+    service: MCPServerService = Depends(get_mcp_server_service),
 ) -> None:
-    await MCPServerService(db).delete_server(server_id)
+    await service.delete_server(server_id)
 
 
 @router.post("/{server_id}/reset", status_code=200)
 async def reset_mcp_server(
     server_id: UUID,
     _current_user: UserDB = Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
+    service: MCPServerService = Depends(get_mcp_server_service),
 ):
     """Reset all user connections for an MCP server.
 
     Clears all per-user OAuth tokens, client info, and metadata from Redis.
     """
-    return await MCPServerService(db).reset_server(server_id)
+    return await service.reset_server(server_id)
 
 
 @router.get("/oauth/callback")
 async def oauth_callback(
     code: str = Query(..., description="Authorization code from OAuth provider"),
     state: str = Query(..., description="State parameter from OAuth provider"),
-    db: AsyncSession = Depends(get_db),
+    service: MCPServerService = Depends(get_mcp_server_service),
 ):
-    result = await MCPServerService(db).handle_oauth_callback(code, state)
+    result = await service.handle_oauth_callback(code, state)
     return JSONResponse(status_code=200, content=result)
 
 
@@ -123,16 +127,7 @@ async def is_connected(
     mcp_server: MCPServerDB = Depends(get_mcp_server_dependency),
     current_user: UserDB = Depends(get_current_user),
 ):
-    """Check if an MCP server is connected.
-
-    Returns True if:
-    - The MCP server does not require OAuth, OR
-    - The MCP server requires OAuth and a valid token is available in storage
-
-    Returns False if:
-    - The MCP server requires OAuth but no token is available
-    """
-    connected = await MCPServerService(None).check_connectivity(mcp_server, str(current_user.id))
+    connected = await check_connectivity(mcp_server, str(current_user.id))
     return {"connected": connected}
 
 
@@ -141,18 +136,7 @@ async def is_connected_v2(
     mcp_server: MCPServerDB = Depends(get_mcp_server_dependency),
     current_user: UserDB = Depends(get_current_user),
 ):
-    """Check if an MCP server is connected, with token validation and refresh.
-
-    Returns True if:
-    - The MCP server does not require OAuth, OR
-    - The MCP server requires OAuth and the token is not expired, OR
-    - The MCP server requires OAuth, the token is expired, but refresh succeeds
-
-    Returns False if:
-    - No tokens are available
-    - Token is expired and refresh fails
-    """
-    connected = await MCPServerService(None).check_connectivity_with_refresh(
+    connected = await check_connectivity_with_refresh(
         mcp_server, str(current_user.id)
     )
     return {"connected": connected}

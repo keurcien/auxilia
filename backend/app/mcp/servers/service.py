@@ -20,13 +20,14 @@ from app.mcp.servers.schemas import (
     MCPServerPatch,
     OfficialMCPServerResponse,
 )
-from app.mcp.utils import check_mcp_server_connected
+from app.service import BaseService
 
 
-class MCPServerService:
+class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
+    not_found_message = "MCP server not found"
+
     def __init__(self, db: AsyncSession):
-        self.db = db
-        self.repository = MCPServerRepository(db)
+        super().__init__(db, MCPServerRepository(db))
 
     async def create_server(self, data: MCPServerCreate) -> MCPServerDB:
         if data.auth_type == MCPAuthType.api_key and not data.api_key:
@@ -49,29 +50,21 @@ class MCPServerService:
                 data.oauth_token_endpoint_auth_method,
             )
 
-        await self.db.commit()
-        await self.db.refresh(db_server)
         return db_server
 
     async def get_server(self, server_id: UUID) -> MCPServerDB:
-        server = await self.repository.get(server_id)
-        if not server:
-            raise NotFoundError("MCP server not found")
-        return server
+        return await self.get_or_404(server_id)
 
     async def list_servers(self) -> list[MCPServerDB]:
         return await self.repository.list()
 
     async def update_server(self, server_id: UUID, data: MCPServerPatch) -> MCPServerDB:
-        server = await self.get_server(server_id)
-        result = await self.repository.update(server, data)
-        await self.db.commit()
-        return result
+        server = await self.get_or_404(server_id)
+        return await self.repository.update(server, data)
 
     async def delete_server(self, server_id: UUID) -> None:
-        server = await self.get_server(server_id)
+        server = await self.get_or_404(server_id)
         await self.repository.delete(server)
-        await self.db.commit()
 
     async def list_official_servers(self) -> list[OfficialMCPServerResponse]:
         rows = await self.repository.list_official()
@@ -87,8 +80,6 @@ class MCPServerService:
         return {"deleted_keys": deleted}
 
     async def handle_oauth_callback(self, code: str, state: str) -> dict:
-        from app.mcp.client.storage import TokenStorageFactory
-
         storage_factory = TokenStorageFactory()
         result = await storage_factory.get_storage_from_state(state)
 
@@ -126,26 +117,6 @@ class MCPServerService:
             "status": "success",
             "message": "Authorization code received and published",
         }
-
-    async def check_connectivity(self, server: MCPServerDB, user_id: str) -> bool:
-        if server.auth_type in [MCPAuthType.none, MCPAuthType.api_key]:
-            return True
-
-        storage = TokenStorageFactory().get_storage(user_id, str(server.id))
-        client_metadata = build_oauth_client_metadata(server)
-
-        provider = WebOAuthClientProvider(
-            server_url=server.url,
-            client_metadata=client_metadata,
-            storage=storage,
-        )
-
-        await provider._initialize()
-        tokens = await provider.context.storage.get_tokens()
-        return tokens is not None
-
-    async def check_connectivity_with_refresh(self, server: MCPServerDB, user_id: str) -> bool:
-        return await check_mcp_server_connected(server, user_id)
 
     async def list_tools(self, server: MCPServerDB, user_id: str) -> list[dict]:
         async with connect_to_server(server, user_id, self.db) as (_, tools):

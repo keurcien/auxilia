@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 from mcp.shared.auth import OAuthToken
@@ -35,7 +35,7 @@ async def check_mcp_server_connected(
     # 2. Check if token is still valid
     is_expired = (
         stored_token.expires_at is not None
-        and datetime.now(timezone.utc) > stored_token.expires_at
+        and datetime.now(UTC) > stored_token.expires_at
     )
 
     if not is_expired:

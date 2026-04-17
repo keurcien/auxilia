@@ -5,7 +5,10 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from app.mcp.servers.encryption import decrypt_value as decrypt_api_key, encrypt_value as encrypt_api_key
+from app.mcp.servers.encryption import (
+    decrypt_value as decrypt_api_key,
+    encrypt_value as encrypt_api_key,
+)
 from app.mcp.servers.models import (
     MCPServerAPIKeyDB,
     MCPServerDB,
@@ -85,16 +88,3 @@ class MCPServerRepository(BaseRepository[MCPServerDB]):
         )
         result = await self.db.execute(stmt)
         return result.all()
-
-
-# Standalone wrappers — importable without circular deps
-async def get_mcp_server_api_key(server_id: UUID, db: AsyncSession) -> str | None:
-    """Get the decrypted API key for an MCP server."""
-    return await MCPServerRepository(db).get_api_key(server_id)
-
-
-async def get_mcp_server_oauth_credentials(
-    server_id: UUID, db: AsyncSession
-) -> MCPServerOAuthCredentialsDB | None:
-    """Get OAuth credentials for an MCP server."""
-    return await MCPServerRepository(db).get_oauth_credentials(server_id)

@@ -22,8 +22,15 @@ AsyncSessionLocal = sessionmaker(
 
 
 async def get_db() -> AsyncSession:
+    """Request-scoped session. Commits on success, rolls back on any error."""
     async with AsyncSessionLocal() as session:
-        yield session
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
+            raise
+        else:
+            await session.commit()
 
 
 def get_psycopg_conn_string(sqlalchemy_url=None) -> str:

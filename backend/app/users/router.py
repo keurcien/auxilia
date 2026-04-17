@@ -14,7 +14,7 @@ router = APIRouter(prefix="/users", tags=["users"])
 @router.post("/", response_model=UserResponse, status_code=201)
 async def create_user(
     user: UserCreate,
-    current_user: UserDB = Depends(require_admin),
+    _: UserDB = Depends(require_admin),
     service: UserService = Depends(get_user_service),
 ) -> UserResponse:
     return await service.create_user(user)
@@ -65,7 +65,7 @@ async def update_user_role(
 @router.delete("/{user_id}", status_code=204)
 async def delete_user(
     user_id: UUID,
-    current_user: UserDB = Depends(require_admin),
+    _: UserDB = Depends(require_admin),
     service: UserService = Depends(get_user_service),
 ) -> None:
     await service.delete_user(user_id)

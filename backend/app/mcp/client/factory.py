@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.mcp.client.auth import WebOAuthClientProvider, build_oauth_client_metadata
 from app.mcp.client.storage import TokenStorageFactory
 from app.mcp.servers.models import MCPAuthType, MCPServerDB
-from app.mcp.servers.repository import get_mcp_server_api_key
+from app.mcp.servers.repository import MCPServerRepository
 
 
 class MCPClientConfigFactory:
@@ -11,6 +11,7 @@ class MCPClientConfigFactory:
         self._db = db
         self._user_id = user_id
         self._token_storage_factory = TokenStorageFactory()
+        self._servers = MCPServerRepository(db)
 
     async def build(self, config: MCPServerDB) -> dict:
 
@@ -23,7 +24,7 @@ class MCPClientConfigFactory:
             return base_config
 
         if config.auth_type == MCPAuthType.api_key:
-            api_key = await get_mcp_server_api_key(config.id, self._db)
+            api_key = await self._servers.get_api_key(config.id)
             return {**base_config, "headers": {"Authorization": f"Bearer {api_key}"}}
 
         if config.auth_type == MCPAuthType.oauth2:
