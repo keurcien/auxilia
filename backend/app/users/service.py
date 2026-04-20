@@ -42,7 +42,7 @@ class UserService(BaseService[UserDB, UserRepository]):
         user = await self.get_or_404(user_id)
         update_data = data.model_dump(exclude_unset=True)
         new_email = update_data.get("email")
-        if new_email and new_email != user.email:
+        if "email" in update_data and new_email is not None and new_email != user.email:
             await self._ensure_email_available(new_email)
         return await self.repository.update(user, data)
 
