@@ -145,15 +145,17 @@ async def run_stream(
 
 @router.post("/{thread_id}/runs/invoke")
 async def run_invoke(
-    thread=Depends(get_thread),
+    thread_id: str,
     input: dict | None = Body(None, embed=True),
     command: dict | None = Body(None, embed=True),
     config: dict | None = Body(None, embed=True),
-    context: dict | None = Body(None, embed=True),
-    user_id: str = Depends(get_current_user),
+    context: dict | None = Body(None, embed=True),  # noqa: ARG001
+    user_id: str = Depends(get_current_user),  # noqa: ARG001
+    service: ThreadService = Depends(get_thread_service),
     db=Depends(get_db),
 ):
     """Non-streaming invoke endpoint. Returns the final agent response as JSON."""
+    thread = await service.get_thread(thread_id)
     runtime = await AgentRuntime.build(thread=thread, db=db)
 
     trigger = None
