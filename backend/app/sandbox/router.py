@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.sandbox.settings import sandbox_settings
 
+
 router = APIRouter(prefix="/sandbox", tags=["sandbox"])
 
 

@@ -10,8 +10,15 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.agents.router import router as agents_router
 from app.auth.router import router as auth_router
-from app.auth.tokens.router import router as tokens_router
 from app.auth.settings import auth_settings
+from app.auth.tokens.router import router as tokens_router
+from app.exceptions import (
+    AlreadyExistsError,
+    DomainError,
+    NotFoundError,
+    PermissionDeniedError,
+    ValidationError,
+)
 from app.integrations.slack.router import router as slack_router
 from app.invites.router import router as invites_router
 from app.mcp.apps.router import router as mcp_apps_router
@@ -23,6 +30,7 @@ from app.sandbox.router import router as sandbox_router
 from app.settings import app_settings
 from app.threads.router import router as threads_router
 from app.users.router import router as users_router
+
 
 logging.getLogger("app").setLevel(app_settings.log_level.upper())
 
@@ -72,6 +80,31 @@ async def oauth_exception_handler(_request: Request, exc: Exception):
     # 3. If it's an ExceptionGroup that doesn't contain our error,
     # or an unrelated exception caught by accident, re-raise it.
     raise exc
+
+
+@app.exception_handler(NotFoundError)
+async def not_found_handler(_request: Request, exc: NotFoundError):
+    return JSONResponse(status_code=404, content={"detail": exc.detail})
+
+
+@app.exception_handler(AlreadyExistsError)
+async def already_exists_handler(_request: Request, exc: AlreadyExistsError):
+    return JSONResponse(status_code=409, content={"detail": exc.detail})
+
+
+@app.exception_handler(ValidationError)
+async def validation_error_handler(_request: Request, exc: ValidationError):
+    return JSONResponse(status_code=400, content={"detail": exc.detail})
+
+
+@app.exception_handler(PermissionDeniedError)
+async def permission_denied_handler(_request: Request, exc: PermissionDeniedError):
+    return JSONResponse(status_code=403, content={"detail": exc.detail})
+
+
+@app.exception_handler(DomainError)
+async def domain_error_handler(_request: Request, exc: DomainError):
+    return JSONResponse(status_code=500, content={"detail": exc.detail})
 
 
 app.add_middleware(

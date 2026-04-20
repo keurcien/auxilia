@@ -2,15 +2,15 @@
 from slack_sdk.web.async_client import AsyncWebClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.models import AgentDB
 from app.agents.core.service import AgentService
+from app.agents.models import AgentDB
 from app.database import AsyncSessionLocal
 from app.integrations.slack.models import SlackEvent, SlackInteractionPayload
 from app.integrations.slack.settings import slack_settings
 from app.integrations.slack.utils import get_user_info, resolve_user
 from app.threads.service import get_or_create_thread
 from app.users.models import WorkspaceRole
-from app.users.service import get_user_by_email
+from app.users.repository import UserRepository
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +126,7 @@ async def handle_agent_selection(payload: SlackInteractionPayload) -> None:
     if not user_info or not user_info.profile.email:
         return
     async with AsyncSessionLocal() as db:
-        user = await get_user_by_email(user_info.profile.email, db)
+        user = await UserRepository(db).get_by_email(user_info.profile.email)
     if not user:
         return
 

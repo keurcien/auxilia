@@ -7,16 +7,17 @@ from app.agents.mcp_servers.service import (
     AgentMCPServerService,
     get_agent_mcp_server_service,
 )
-from app.agents.models import (
+from app.agents.schemas import (
     AgentCreate,
+    AgentCreateDB,
     AgentMCPServerCreate,
-    AgentMCPServerRead,
-    AgentMCPServerUpdate,
-    AgentPermissionRead,
-    AgentPermissionWrite,
-    AgentRead,
-    AgentSubagentRead,
-    AgentUpdate,
+    AgentMCPServerPatch,
+    AgentMCPServerResponse,
+    AgentPatch,
+    AgentPermissionCreate,
+    AgentPermissionResponse,
+    AgentResponse,
+    AgentSubagentResponse,
 )
 from app.agents.subagents.service import SubagentService, get_subagent_service
 from app.auth.dependencies import (
@@ -31,31 +32,33 @@ from app.users.models import UserDB
 router = APIRouter(prefix="/agents", tags=["agents"])
 
 
-@router.post("/", response_model=AgentRead, status_code=201)
+@router.post("/", response_model=AgentResponse, status_code=201)
 async def create_agent(
-    agent: AgentCreate,
-    _: UserDB = Depends(require_editor),
+    data: AgentCreate,
+    current_user: UserDB = Depends(require_editor),
     service: AgentService = Depends(get_agent_service),
-) -> AgentRead:
-    return await service.create_agent(agent)
+) -> AgentResponse:
+    return await service.create_agent(
+        AgentCreateDB(**data.model_dump(), owner_id=current_user.id)
+    )
 
 
-@router.get("/", response_model=list[AgentRead])
+@router.get("/", response_model=list[AgentResponse])
 async def get_agents(
     current_user: UserDB = Depends(get_current_user),
     service: AgentService = Depends(get_agent_service),
-) -> list[AgentRead]:
+) -> list[AgentResponse]:
     return await service.list_agents(
         user_id=current_user.id, user_role=current_user.role
     )
 
 
-@router.get("/{agent_id}", response_model=AgentRead, response_model_by_alias=True)
+@router.get("/{agent_id}", response_model=AgentResponse, response_model_by_alias=True)
 async def get_agent(
     agent_id: UUID,
     current_user: UserDB | None = Depends(get_current_user_optional),
     service: AgentService = Depends(get_agent_service),
-) -> AgentRead:
+) -> AgentResponse:
     return await service.get_agent(
         agent_id,
         user_id=current_user.id if current_user else None,
@@ -63,13 +66,13 @@ async def get_agent(
     )
 
 
-@router.patch("/{agent_id}", response_model=AgentRead)
+@router.patch("/{agent_id}", response_model=AgentResponse)
 async def update_agent(
     agent_id: UUID,
-    agent_update: AgentUpdate,
+    agent_update: AgentPatch,
     current_user: UserDB = Depends(get_current_user),
     service: AgentService = Depends(get_agent_service),
-) -> AgentRead:
+) -> AgentResponse:
     return await service.update_agent(
         agent_id, agent_update, user_id=current_user.id, user_role=current_user.role
     )
@@ -83,28 +86,28 @@ async def delete_agent(
     await service.delete_agent(agent_id)
 
 
-@router.get("/{agent_id}/permissions", response_model=list[AgentPermissionRead])
+@router.get("/{agent_id}/permissions", response_model=list[AgentPermissionResponse])
 async def get_agent_permissions(
     agent_id: UUID,
     _: UserDB = Depends(get_current_user),
     service: AgentService = Depends(get_agent_service),
-) -> list[AgentPermissionRead]:
+) -> list[AgentPermissionResponse]:
     return await service.get_permissions(agent_id)
 
 
-@router.put("/{agent_id}/permissions", response_model=list[AgentPermissionRead])
+@router.put("/{agent_id}/permissions", response_model=list[AgentPermissionResponse])
 async def set_agent_permissions(
     agent_id: UUID,
-    permissions: list[AgentPermissionWrite],
+    permissions: list[AgentPermissionCreate],
     _: UserDB = Depends(get_current_user),
     service: AgentService = Depends(get_agent_service),
-) -> list[AgentPermissionRead]:
+) -> list[AgentPermissionResponse]:
     return await service.set_permissions(agent_id, permissions)
 
 
 @router.post(
     "/{agent_id}/mcp-servers/{server_id}",
-    response_model=AgentMCPServerRead,
+    response_model=AgentMCPServerResponse,
     status_code=201,
 )
 async def create_or_update_mcp_server(
@@ -113,21 +116,21 @@ async def create_or_update_mcp_server(
     data: AgentMCPServerCreate,
     current_user: UserDB = Depends(get_current_user),
     service: AgentMCPServerService = Depends(get_agent_mcp_server_service),
-) -> AgentMCPServerRead:
+) -> AgentMCPServerResponse:
     return await service.create_or_update(
         agent_id, server_id, data, str(current_user.id)
     )
 
 
 @router.patch(
-    "/{agent_id}/mcp-servers/{server_id}", response_model=AgentMCPServerRead
+    "/{agent_id}/mcp-servers/{server_id}", response_model=AgentMCPServerResponse
 )
 async def update_mcp_server(
     agent_id: UUID,
     server_id: UUID,
-    data: AgentMCPServerUpdate,
+    data: AgentMCPServerPatch,
     service: AgentMCPServerService = Depends(get_agent_mcp_server_service),
-) -> AgentMCPServerRead:
+) -> AgentMCPServerResponse:
     return await service.update(agent_id, server_id, data)
 
 
@@ -142,20 +145,20 @@ async def delete_mcp_server(
 
 @router.post(
     "/{agent_id}/mcp-servers/{server_id}/sync-tools",
-    response_model=AgentMCPServerRead,
+    response_model=AgentMCPServerResponse,
 )
 async def sync_tools(
     agent_id: UUID,
     server_id: UUID,
     current_user: UserDB = Depends(get_current_user),
     service: AgentMCPServerService = Depends(get_agent_mcp_server_service),
-) -> AgentMCPServerRead:
+) -> AgentMCPServerResponse:
     return await service.sync_tools(agent_id, server_id, str(current_user.id))
 
 
 @router.post(
     "/{agent_id}/subagents/{subagent_id}",
-    response_model=AgentSubagentRead,
+    response_model=AgentSubagentResponse,
     status_code=201,
 )
 async def create_subagent(
@@ -163,7 +166,7 @@ async def create_subagent(
     subagent_id: UUID,
     _: UserDB = Depends(require_admin),
     service: SubagentService = Depends(get_subagent_service),
-) -> AgentSubagentRead:
+) -> AgentSubagentResponse:
     return await service.create(agent_id, subagent_id)
 
 

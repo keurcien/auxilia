@@ -1,3 +1,4 @@
+import logging
 import secrets
 from urllib.parse import urlencode, urljoin
 
@@ -10,6 +11,9 @@ from pydantic import AnyHttpUrl, AnyUrl
 
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
 from app.settings import app_settings
+
+
+logger = logging.getLogger(__name__)
 
 
 def build_oauth_client_metadata(mcp_server: dict) -> OAuthClientMetadata:
@@ -51,13 +55,9 @@ class WebOAuthClientProvider(OAuthClientProvider):
         if not self.context.oauth_metadata:
             self.context.oauth_metadata = await self.context.storage.get_oauth_metadata()
 
-        # if self.context.oauth_metadata and self.context.oauth_metadata.issuer == AnyHttpUrl("https://mcp.hubspot.com/"):
-        #     print("Setting token endpoint to https://mcp.hubspot.com/oauth/v1/token")
-        #     self.context.oauth_metadata.token_endpoint = AnyHttpUrl(
-        #         "https://mcp.hubspot.com/oauth/v1/token")
-
         if self.context.oauth_metadata and self.context.oauth_metadata.issuer == AnyHttpUrl("https://api.supabase.com/"):
-            print("Setting token endpoint auth method to client_secret_post")
+            logger.debug(
+                "Setting token endpoint auth method to client_secret_post")
             self.context.client_info.token_endpoint_auth_method = "client_secret_post"
 
         if not self.context.client_info and self.context.client_metadata and self._client_id:

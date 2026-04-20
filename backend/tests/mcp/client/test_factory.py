@@ -23,11 +23,17 @@ async def test_no_auth():
 
 
 @pytest.mark.asyncio
-@patch("app.mcp.client.factory.get_mcp_server_api_key", new_callable=AsyncMock, return_value="secret")
-async def test_api_key_auth(mock_get_key):
-    factory = MCPClientConfigFactory(db=MagicMock(), user_id="u1")
-    result = await factory.build(_config(MCPAuthType.api_key))
-    assert result["headers"] == {"Authorization": "Bearer secret"}
+async def test_api_key_auth():
+    with patch(
+        "app.mcp.client.factory.MCPServerRepository"
+    ) as mock_repo_cls:
+        repo = MagicMock()
+        repo.get_api_key = AsyncMock(return_value="secret")
+        mock_repo_cls.return_value = repo
+
+        factory = MCPClientConfigFactory(db=MagicMock(), user_id="u1")
+        result = await factory.build(_config(MCPAuthType.api_key))
+        assert result["headers"] == {"Authorization": "Bearer secret"}
 
 
 @pytest.mark.asyncio

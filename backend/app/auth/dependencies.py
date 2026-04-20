@@ -6,7 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.auth.settings import auth_settings
-from app.auth.tokens.repository import TOKEN_PREFIX, PersonalAccessTokenRepository
+from app.auth.tokens.repository import PersonalAccessTokenRepository
+from app.auth.tokens.service import TOKEN_PREFIX
 from app.auth.utils import decode_access_token
 from app.database import get_db
 from app.users.models import UserDB, WorkspaceRole

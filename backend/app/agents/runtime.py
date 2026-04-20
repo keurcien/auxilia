@@ -4,10 +4,11 @@ from dataclasses import dataclass
 from deepagents import create_deep_agent
 from deepagents.backends import StateBackend
 from deepagents.middleware.subagents import CompiledSubAgent, SubAgentMiddleware
-from langchain.agents.middleware import ToolCallLimitMiddleware
-
 from langchain.agents import create_agent
-from langchain.agents.middleware import HumanInTheLoopMiddleware
+from langchain.agents.middleware import (
+    HumanInTheLoopMiddleware,
+    ToolCallLimitMiddleware,
+)
 from langchain_core.messages import (
     AIMessage,
     BaseMessage,
@@ -20,7 +21,7 @@ from langgraph.types import Command
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.core.service import AgentService
-from app.agents.models import AgentRead
+from app.agents.schemas import AgentResponse
 from app.agents.settings import agent_settings
 from app.agents.stream import LangGraphStreamAdapter, SlackStreamAdapter
 from app.agents.tool_errors import ToolErrorMiddleware
@@ -54,7 +55,7 @@ async def get_regeneration_checkpoint_id(agent, config: dict) -> str | None:
 class Agent:
     """An agent config with its resolved toolset. Used for both parent and subagents."""
 
-    config: AgentRead
+    config: AgentResponse
     toolset: Toolset
 
     @classmethod

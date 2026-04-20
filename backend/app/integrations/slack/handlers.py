@@ -22,7 +22,7 @@ from app.mcp.servers.models import MCPServerDB
 from app.mcp.utils import check_mcp_server_connected
 from app.threads.models import ThreadDB
 from app.users.models import UserDB
-from app.users.service import get_user_by_email
+from app.users.repository import UserRepository
 
 
 SLACK_POST_MESSAGE_URL = "https://slack.com/api/chat.postMessage"
@@ -44,7 +44,7 @@ async def resolve_user(slack_user_id: str) -> UserDB | None:
     if not user_info or not user_info.profile.email:
         return None
     async with AsyncSessionLocal() as db:
-        return await get_user_by_email(user_info.profile.email, db)
+        return await UserRepository(db).get_by_email(user_info.profile.email)
 
 
 async def post_tool_approval_block(
@@ -274,7 +274,7 @@ async def handle_assistant_thread_started(event: SlackEvent) -> None:
     user = None
     if user_info and user_info.profile.email:
         async with AsyncSessionLocal() as db:
-            user = await get_user_by_email(user_info.profile.email, db)
+            user = await UserRepository(db).get_by_email(user_info.profile.email)
 
     if not user:
         await client.chat_postMessage(

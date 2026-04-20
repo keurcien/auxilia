@@ -6,12 +6,11 @@ import pytest
 
 from app.agents.core.repository import AgentRepository
 from app.agents.models import (
-    AgentCreate,
     AgentDB,
-    AgentPermissionWrite,
     AgentUserPermissionDB,
     PermissionLevel,
 )
+from app.agents.schemas import AgentCreateDB, AgentPatch, AgentPermissionCreate
 from app.users.models import WorkspaceRole
 
 
@@ -93,7 +92,7 @@ async def test_list_with_permissions_returns_rows(repo, mock_db):
     mock_result.all.return_value = [(agent, None, None)]
     mock_db.execute.return_value = mock_result
 
-    rows = await repo.list_with_permissions(uuid4(), WorkspaceRole.member)
+    rows = await repo.list_with_permissions(user_id=uuid4(), user_role=WorkspaceRole.member)
 
     mock_db.execute.assert_awaited_once()
     mock_result.all.assert_called_once()
@@ -105,7 +104,7 @@ async def test_list_with_permissions_non_admin_joins_permissions(repo, mock_db):
     mock_result.all.return_value = []
     mock_db.execute.return_value = mock_result
 
-    await repo.list_with_permissions(uuid4(), WorkspaceRole.member)
+    await repo.list_with_permissions(user_id=uuid4(), user_role=WorkspaceRole.member)
 
     query_str = str(mock_db.execute.call_args[0][0])
     assert "agent_user_permissions" in query_str
@@ -116,7 +115,7 @@ async def test_list_with_permissions_admin_skips_permission_join(repo, mock_db):
     mock_result.all.return_value = []
     mock_db.execute.return_value = mock_result
 
-    await repo.list_with_permissions(uuid4(), WorkspaceRole.admin)
+    await repo.list_with_permissions(user_id=uuid4(), user_role=WorkspaceRole.admin)
 
     query_str = str(mock_db.execute.call_args[0][0])
     assert "agent_user_permissions" not in query_str
@@ -127,7 +126,7 @@ async def test_list_with_permissions_no_user_skips_permission_join(repo, mock_db
     mock_result.all.return_value = []
     mock_db.execute.return_value = mock_result
 
-    await repo.list_with_permissions(None, None)
+    await repo.list_with_permissions(user_id=None, user_role=None)
 
     query_str = str(mock_db.execute.call_args[0][0])
     assert "agent_user_permissions" not in query_str
@@ -138,7 +137,7 @@ async def test_list_with_permissions_returns_empty_list(repo, mock_db):
     mock_result.all.return_value = []
     mock_db.execute.return_value = mock_result
 
-    result = await repo.list_with_permissions(None, None)
+    result = await repo.list_with_permissions(user_id=None, user_role=None)
 
     assert result == []
 
@@ -149,12 +148,12 @@ async def test_list_with_permissions_returns_empty_list(repo, mock_db):
 
 async def test_create_adds_commits_and_refreshes(repo, mock_db):
     owner_id = uuid4()
-    data = AgentCreate(name="Agent X", instructions="Be helpful", owner_id=owner_id)
+    data = AgentCreateDB(name="Agent X", instructions="Be helpful", owner_id=owner_id)
 
     result = await repo.create(data)
 
     mock_db.add.assert_called_once()
-    mock_db.commit.assert_awaited_once()
+    mock_db.flush.assert_awaited_once()
     mock_db.refresh.assert_awaited_once()
 
     added = mock_db.add.call_args[0][0]
@@ -167,7 +166,7 @@ async def test_create_adds_commits_and_refreshes(repo, mock_db):
 
 async def test_create_returns_validated_agent_db(repo, mock_db):
     owner_id = uuid4()
-    data = AgentCreate(name="X", instructions="Y", owner_id=owner_id, emoji="🤖")
+    data = AgentCreateDB(name="X", instructions="Y", owner_id=owner_id, emoji="🤖")
 
     result = await repo.create(data)
 
@@ -182,44 +181,44 @@ async def test_create_returns_validated_agent_db(repo, mock_db):
 async def test_update_applies_all_fields(repo, mock_db):
     agent = make_agent(name="Old Name", emoji=None)
 
-    result = await repo.update(agent, {"name": "New Name", "emoji": "🤖"})
+    result = await repo.update(agent, AgentPatch(name="New Name", emoji="🤖"))
 
     assert agent.name == "New Name"
     assert agent.emoji == "🤖"
     assert result is agent
 
 
-async def test_update_commits_and_refreshes(repo, mock_db):
+async def test_update_flushes_and_refreshes(repo, mock_db):
     agent = make_agent()
 
-    await repo.update(agent, {"name": "Updated"})
+    await repo.update(agent, AgentPatch(name="Updated"))
 
     mock_db.add.assert_called_once_with(agent)
-    mock_db.commit.assert_awaited_once()
+    mock_db.flush.assert_awaited_once()
     mock_db.refresh.assert_awaited_once_with(agent)
 
 
-async def test_update_with_empty_dict_leaves_agent_unchanged(repo, mock_db):
+async def test_update_with_empty_schema_leaves_agent_unchanged(repo, mock_db):
     agent = make_agent(name="Original")
 
-    await repo.update(agent, {})
+    await repo.update(agent, AgentPatch())
 
     assert agent.name == "Original"
-    mock_db.commit.assert_awaited_once()
+    mock_db.flush.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
 # archive
 # ---------------------------------------------------------------------------
 
-async def test_archive_sets_is_archived_and_commits(repo, mock_db):
+async def test_archive_sets_is_archived_and_flushes(repo, mock_db):
     agent = make_agent()
 
     await repo.archive(agent)
 
     assert agent.is_archived is True
     mock_db.add.assert_called_once_with(agent)
-    mock_db.commit.assert_awaited_once()
+    mock_db.flush.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -260,12 +259,11 @@ async def test_set_permissions_deletes_existing_before_inserting(repo, mock_db):
     mock_result.scalars.return_value.all.return_value = [existing]
     mock_db.execute.return_value = mock_result
 
-    new_write = AgentPermissionWrite(user_id=uuid4(), permission=PermissionLevel.editor)
+    new_write = AgentPermissionCreate(user_id=uuid4(), permission=PermissionLevel.editor)
     await repo.set_permissions(agent_id, [new_write])
 
     mock_db.delete.assert_awaited_once_with(existing)
-    mock_db.flush.assert_awaited_once()
-    mock_db.commit.assert_awaited_once()
+    assert mock_db.flush.await_count == 2
 
 
 async def test_set_permissions_inserts_new_permissions(repo, mock_db):
@@ -275,7 +273,7 @@ async def test_set_permissions_inserts_new_permissions(repo, mock_db):
     mock_db.execute.return_value = mock_result
 
     new_user_id = uuid4()
-    new_write = AgentPermissionWrite(user_id=new_user_id, permission=PermissionLevel.editor)
+    new_write = AgentPermissionCreate(user_id=new_user_id, permission=PermissionLevel.editor)
     result = await repo.set_permissions(agent_id, [new_write])
 
     mock_db.add.assert_called_once()
@@ -308,8 +306,8 @@ async def test_set_permissions_refreshes_each_new_permission(repo, mock_db):
     mock_db.execute.return_value = mock_result
 
     writes = [
-        AgentPermissionWrite(user_id=uuid4(), permission=PermissionLevel.user),
-        AgentPermissionWrite(user_id=uuid4(), permission=PermissionLevel.editor),
+        AgentPermissionCreate(user_id=uuid4(), permission=PermissionLevel.user),
+        AgentPermissionCreate(user_id=uuid4(), permission=PermissionLevel.editor),
     ]
     result = await repo.set_permissions(agent_id, writes)
 

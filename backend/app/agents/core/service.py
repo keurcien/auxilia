@@ -2,51 +2,104 @@ import logging
 from collections import defaultdict
 from uuid import UUID
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.agents.core.repository import AgentRepository
 from app.agents.models import (
-    AgentCreate,
     AgentDB,
-    AgentMCPServerDB,
-    AgentMCPServerRead,
-    AgentPermissionWrite,
-    AgentRead,
-    AgentUpdate,
     AgentUserPermissionDB,
+)
+from app.agents.schemas import (
+    AgentCreateDB,
+    AgentMCPServerResponse,
+    AgentPatch,
+    AgentPermissionCreate,
+    AgentResponse,
 )
 from app.agents.subagents.service import SubagentService
 from app.database import get_db
+from app.exceptions import NotFoundError
 from app.mcp.servers.models import MCPServerDB
 from app.mcp.utils import check_mcp_server_connected
+from app.service import BaseService
 from app.users.models import WorkspaceRole
 
 
 logger = logging.getLogger(__name__)
 
 
-class AgentService:
+class AgentService(BaseService[AgentDB, AgentRepository]):
+    not_found_message = "Agent not found"
+
     def __init__(self, db: AsyncSession):
-        self.db = db
-        self.repository = AgentRepository(db)
+        super().__init__(db, AgentRepository(db))
         self.subagent_service = SubagentService(db)
 
+    @staticmethod
     def _resolve_permission(
-        self,
         agent: AgentDB,
         user_id: UUID | None,
         user_role: WorkspaceRole | None,
-        granted_permissions: dict[UUID, str],
+        granted: dict[UUID, str],
     ) -> str | None:
         if user_id and agent.owner_id == user_id:
             return "owner"
         if user_role == WorkspaceRole.admin:
             return "admin"
-        return granted_permissions.get(agent.id)
+        return granted.get(agent.id)
 
-    async def create_agent(self, data: AgentCreate) -> AgentDB:
+    async def _assemble(
+        self,
+        agents: list[AgentDB],
+        mcp_map: dict[UUID, list[AgentMCPServerResponse]],
+        permissions_map: dict[UUID, str],
+        user_id: UUID | None,
+        user_role: WorkspaceRole | None,
+    ) -> list[AgentResponse]:
+        agent_ids = [a.id for a in agents]
+        subagents_map, is_subagent_ids = (
+            await self.subagent_service.load_all_subagent_data(agent_ids)
+        )
+        return [
+            AgentResponse(
+                **agent.model_dump(),
+                mcp_servers=mcp_map.get(agent.id, []),
+                subagents=subagents_map.get(agent.id, []),
+                is_subagent=agent.id in is_subagent_ids,
+                current_user_permission=self._resolve_permission(
+                    agent, user_id, user_role, permissions_map
+                ),
+            )
+            for agent in agents
+        ]
+
+    @staticmethod
+    def _group_rows(
+        rows: list,
+        user_id: UUID | None,
+    ) -> tuple[
+        dict[UUID, AgentDB],
+        dict[UUID, list[AgentMCPServerResponse]],
+        dict[UUID, str],
+    ]:
+        agents_map: dict[UUID, AgentDB] = {}
+        mcp_map: dict[UUID, list[AgentMCPServerResponse]] = defaultdict(list)
+        permissions_map: dict[UUID, str] = {}
+        for row in rows:
+            agent = row[0]
+            link = row[1]
+            agents_map[agent.id] = agent
+            if link is not None:
+                mcp_map[agent.id].append(AgentMCPServerResponse.model_validate(link))
+            if user_id and len(row) > 2:
+                permission = row[2]
+                if permission and agent.id not in permissions_map:
+                    permissions_map[agent.id] = permission.value
+        return agents_map, mcp_map, permissions_map
+
+    async def create_agent(self, data: AgentCreateDB) -> AgentDB:
         return await self.repository.create(data)
 
     async def get_agent(
@@ -55,151 +108,56 @@ class AgentService:
         user_id: UUID | None = None,
         user_role: WorkspaceRole | None = None,
         include_archived: bool = False,
-    ) -> AgentRead:
-        query = (
-            select(AgentDB, AgentMCPServerDB)
-            .outerjoin(
-                AgentMCPServerDB, AgentDB.id == AgentMCPServerDB.agent_id
-            )
-            .where(AgentDB.id == agent_id)
+    ) -> AgentResponse:
+        rows = await self.repository.list_with_permissions(
+            user_id=user_id,
+            user_role=user_role,
+            agent_id=agent_id,
+            include_archived=include_archived,
         )
-        if not include_archived:
-            query = query.where(AgentDB.is_archived == False)  # noqa: E712
-        result = await self.db.execute(query)
-        rows = result.all()
-
         if not rows:
-            raise HTTPException(status_code=404, detail="Agent not found")
+            raise NotFoundError(self.not_found_message)
 
-        agent = rows[0][0]
-        mcp_servers = [
-            AgentMCPServerRead.model_validate(link)
-            for _, link in rows
-            if link is not None
-        ]
-
-        current_user_permission = None
-        if user_id and agent.owner_id == user_id:
-            current_user_permission = "owner"
-        elif user_role == WorkspaceRole.admin:
-            current_user_permission = "admin"
-        elif user_id:
-            perm_result = await self.db.execute(
-                select(AgentUserPermissionDB.permission).where(
-                    AgentUserPermissionDB.agent_id == agent_id,
-                    AgentUserPermissionDB.user_id == user_id,
-                )
-            )
-            perm = perm_result.scalar_one_or_none()
-            if perm:
-                current_user_permission = perm.value
-
-        subagents = await self.subagent_service.load_subagents(agent_id)
-        is_subagent = await self.subagent_service.repository.is_subagent(agent_id)
-
-        return AgentRead(
-            **agent.model_dump(),
-            mcp_servers=mcp_servers,
-            subagents=subagents,
-            is_subagent=is_subagent,
-            current_user_permission=current_user_permission,
+        agents_map, mcp_map, permissions_map = self._group_rows(rows, user_id)
+        responses = await self._assemble(
+            list(agents_map.values()),
+            mcp_map,
+            permissions_map,
+            user_id,
+            user_role,
         )
+        return responses[0]
 
     async def list_agents(
         self,
         user_id: UUID | None = None,
         user_role: WorkspaceRole | None = None,
-    ) -> list[AgentRead]:
-        is_workspace_admin = user_role == WorkspaceRole.admin
-
-        if user_id and not is_workspace_admin:
-            query = (
-                select(
-                    AgentDB, AgentMCPServerDB, AgentUserPermissionDB.permission
-                )
-                .outerjoin(
-                    AgentMCPServerDB,
-                    AgentDB.id == AgentMCPServerDB.agent_id,
-                )
-                .outerjoin(
-                    AgentUserPermissionDB,
-                    (AgentDB.id == AgentUserPermissionDB.agent_id)
-                    & (AgentUserPermissionDB.user_id == user_id),
-                )
-                .where(AgentDB.is_archived == False)  # noqa: E712
-                .order_by(AgentDB.created_at.asc())
-            )
-        else:
-            query = (
-                select(AgentDB, AgentMCPServerDB)
-                .outerjoin(
-                    AgentMCPServerDB,
-                    AgentDB.id == AgentMCPServerDB.agent_id,
-                )
-                .where(AgentDB.is_archived == False)  # noqa: E712
-                .order_by(AgentDB.created_at.asc())
-            )
-
-        result = await self.db.execute(query)
-        rows = result.all()
-
-        agents_map: dict[UUID, AgentDB] = {}
-        mcp_map: dict[UUID, list[AgentMCPServerRead]] = defaultdict(list)
-        permissions_map: dict[UUID, str] = {}
-
-        for row in rows:
-            agent = row[0]
-            link = row[1]
-            agents_map[agent.id] = agent
-
-            if link is not None:
-                mcp_map[agent.id].append(
-                    AgentMCPServerRead.model_validate(link)
-                )
-
-            if user_id and agent.owner_id == user_id:
-                permissions_map[agent.id] = "owner"
-            elif is_workspace_admin:
-                permissions_map[agent.id] = "admin"
-            elif user_id:
-                permission = row[2]
-                if permission and agent.id not in permissions_map:
-                    permissions_map[agent.id] = permission.value
-
-        agent_ids = list(agents_map.keys())
-        subagents_map, is_subagent_ids = (
-            await self.subagent_service.load_all_subagent_data(agent_ids)
+    ) -> list[AgentResponse]:
+        rows = await self.repository.list_with_permissions(
+            user_id=user_id, user_role=user_role
         )
-
-        return [
-            AgentRead(
-                **agent.model_dump(),
-                mcp_servers=mcp_map.get(agent.id, []),
-                subagents=subagents_map.get(agent.id, []),
-                is_subagent=agent.id in is_subagent_ids,
-                current_user_permission=permissions_map.get(agent.id),
-            )
-            for agent in agents_map.values()
-        ]
+        agents_map, mcp_map, permissions_map = self._group_rows(rows, user_id)
+        return await self._assemble(
+            list(agents_map.values()),
+            mcp_map,
+            permissions_map,
+            user_id,
+            user_role,
+        )
 
     async def update_agent(
         self,
         agent_id: UUID,
-        data: AgentUpdate,
+        data: AgentPatch,
         user_id: UUID | None = None,
         user_role: WorkspaceRole | None = None,
-    ) -> AgentRead:
-        agent = await self.repository.get(agent_id)
-        if not agent:
-            raise HTTPException(status_code=404, detail="Agent not found")
-        update_data = data.model_dump(exclude_unset=True)
-        await self.repository.update(agent, update_data)
+    ) -> AgentResponse:
+        agent = await self.get_or_404(agent_id)
+        await self.repository.update(agent, data)
         return await self.get_agent(agent_id, user_id=user_id, user_role=user_role)
 
     async def delete_agent(self, agent_id: UUID) -> None:
-        agent = await self.repository.get(agent_id)
-        if not agent:
-            raise HTTPException(status_code=404, detail="Agent not found")
+        agent = await self.get_or_404(agent_id)
         await self.subagent_service.delete_all_for_agent(agent_id)
         await self.repository.archive(agent)
 
@@ -207,7 +165,7 @@ class AgentService:
         return await self.repository.get_permissions(agent_id)
 
     async def set_permissions(
-        self, agent_id: UUID, permissions: list[AgentPermissionWrite]
+        self, agent_id: UUID, permissions: list[AgentPermissionCreate]
     ) -> list[AgentUserPermissionDB]:
         return await self.repository.set_permissions(agent_id, permissions)
 
@@ -231,10 +189,9 @@ class AgentService:
         )
         servers = list(result.scalars().all())
 
-        disconnected = []
+        disconnected: list[str] = []
         for server in servers:
-            connected = await check_mcp_server_connected(server, user_id)
-            if not connected:
+            if not await check_mcp_server_connected(server, user_id):
                 disconnected.append(str(server.id))
 
         return {

@@ -45,7 +45,7 @@ dev = [
 
 [tool.ruff]
 indent-width = 4
-target-version = "py310"
+target-version = "py311"
 exclude = ["alembic"]
 
 [tool.ruff.lint]
@@ -65,6 +65,7 @@ ignore = [
     "B008",  # do not perform function calls in argument defaults
     "W191",  # indentation contains tabs
     "B904",  # Allow raising exceptions without from e, for HTTPException
+    "UP042", # StrEnum has subtly different __str__ behavior; keep (str, Enum)
 ]
 
 fixable = ["ALL"]
@@ -90,7 +91,7 @@ langchain-ai-sdk-adapter = { git = "https://github.com/keurcien/langchain-ai-sdk
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]
-known-third-party = ["fastapi", "sqlmodel", "psycopg", "redis", "langchain", "langgraph", "langfuse", "langchain-anthropic", "langchain-google-genai", "langchain-mcp-adapters", "langchain-openai", "langchain-deepseek", "langchain-google-genai", "langchain-mcp-adapters", "langchain-openai", "langchain-deepseek", "langchain-google-genai", "langchain-mcp-adapters", "langchain-openai", "langchain-deepseek"]
+known-third-party = ["fastapi", "sqlmodel", "psycopg", "redis", "langchain", "langgraph", "langfuse", "langchain-anthropic", "langchain-google-genai", "langchain-mcp-adapters", "langchain-openai", "langchain-deepseek"]
 combine-as-imports = true
 force-single-line = false
 lines-after-imports = 2

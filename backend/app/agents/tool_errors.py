@@ -12,10 +12,10 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from langchain.agents.middleware.types import AgentMiddleware, ToolCallRequest
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool
 from langchain_core.tools.base import ToolException
-from langchain.agents.middleware.types import AgentMiddleware, ToolCallRequest
 from langgraph.types import Command
 
 

@@ -11,7 +11,7 @@ class InviteCreate(BaseModel):
     role: WorkspaceRole = WorkspaceRole.member
 
 
-class InviteRead(BaseModel):
+class InviteResponse(BaseModel):
     id: UUID
     email: str
     role: str

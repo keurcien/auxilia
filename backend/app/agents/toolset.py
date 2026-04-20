@@ -8,7 +8,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from app.agents.models import AgentMCPServerRead
+from app.agents.schemas import AgentMCPServerResponse
 from app.mcp.client.factory import MCPClientConfigFactory
 from app.mcp.client.tools import inject_ui_metadata_into_tool, wrap_mcp_tool_errors
 from app.mcp.servers.models import MCPServerDB
@@ -142,7 +142,7 @@ class Toolset:
     @classmethod
     async def resolve(
         cls,
-        agent_mcp_servers: list[AgentMCPServerRead],
+        agent_mcp_servers: list[AgentMCPServerResponse],
         db: AsyncSession,
         user_id: str,
     ) -> "Toolset":
