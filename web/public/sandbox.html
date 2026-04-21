@@ -11,32 +11,106 @@
 				padding: 0;
 				width: 100%;
 				height: 100%;
+				overflow: hidden;
+				background: transparent;
+			}
+
+			#mcp-app-frame {
+				width: 100%;
+				height: 100%;
+				border: 0;
+				background: transparent;
 			}
 		</style>
 	</head>
 	<body>
+		<iframe
+			id="mcp-app-frame"
+			title="MCP App"
+			sandbox="allow-scripts allow-same-origin allow-forms"
+		></iframe>
 		<script>
-			window.addEventListener("message", (event) => {
-				const data = event.data;
-				if (!data || typeof data !== "object") return;
+			(() => {
+				const SANDBOX_PROXY_READY = "ui/notifications/sandbox-proxy-ready";
+				const SANDBOX_RESOURCE_READY =
+					"ui/notifications/sandbox-resource-ready";
 
-				if (data.method === "ui/notifications/sandbox-resource-ready") {
-					const html = data.params && data.params.html;
-					if (typeof html === "string") {
-						document.open();
-						document.write(html);
-						document.close();
-					}
+				const frame = document.getElementById("mcp-app-frame");
+				if (!(frame instanceof HTMLIFrameElement)) {
+					return;
 				}
-			});
 
-			window.parent.postMessage(
-				{
-					method: "ui/notifications/sandbox-proxy-ready",
+				const postToParent = (data) => {
+					window.parent.postMessage(data, "*");
+				};
+
+				const postToApp = (data) => {
+					if (!frame.contentWindow) {
+						return;
+					}
+					frame.contentWindow.postMessage(data, "*");
+				};
+
+				const loadResource = (params) => {
+					if (
+						!params ||
+						typeof params !== "object" ||
+						typeof params.html !== "string"
+					) {
+						return;
+					}
+
+					const sandboxPermissions =
+						typeof params.sandbox === "string" && params.sandbox.trim()
+							? params.sandbox
+							: "allow-scripts allow-same-origin allow-forms";
+					frame.setAttribute("sandbox", sandboxPermissions);
+					frame.srcdoc = params.html;
+				};
+
+				// @mcp-ui/client has a 10s hardcoded timeout waiting for
+				// SANDBOX_PROXY_READY and no retry. One-shot posts race against
+				// the library attaching its listener (React strict-mode
+				// double-mount, dev HMR, slow boot). Re-announce every 100ms
+				// until the parent responds with SANDBOX_RESOURCE_READY, then
+				// stop. Safety cap at 15s keeps us from posting forever.
+				const readyMessage = {
+					jsonrpc: "2.0",
+					method: SANDBOX_PROXY_READY,
 					params: {},
-				},
-				"*",
-			);
+				};
+				const postReady = () => postToParent(readyMessage);
+
+				postReady();
+				const readyInterval = setInterval(postReady, 100);
+				const readyTimeout = setTimeout(
+					() => clearInterval(readyInterval),
+					15000,
+				);
+
+				window.addEventListener("message", (event) => {
+					if (event.source === window.parent) {
+						const message = event.data;
+						if (!message || typeof message !== "object") {
+							return;
+						}
+
+						if (message.method === SANDBOX_RESOURCE_READY) {
+							clearInterval(readyInterval);
+							clearTimeout(readyTimeout);
+							loadResource(message.params);
+							return;
+						}
+
+						postToApp(message);
+						return;
+					}
+
+					if (event.source === frame.contentWindow) {
+						postToParent(event.data);
+					}
+				});
+			})();
 		</script>
 	</body>
 </html>
