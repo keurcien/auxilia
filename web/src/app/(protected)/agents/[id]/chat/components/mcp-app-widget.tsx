@@ -101,22 +101,15 @@ export const McpAppWidget = ({
 
 	const serverId = appToolInfo.serverId;
 
-	// Parents typically rebuild `input` / `output` / `structuredContent` on every
-	// render (e.g. page.tsx runs JSON.parse on each pass via getToolOutputContent),
-	// so ref-based memo keys invalidate every tick. Use string keys derived from
-	// the content so the memoized objects stay stable across no-op re-renders —
-	// otherwise AppRenderer re-syncs the sandboxed iframe on every tick and
-	// floods the console with "Ignoring message from unknown source" and the
-	// widget keeps re-measuring.
-	const inputKey = input ? stableKey(input) : "";
+	// toCallToolResult(...) allocates a fresh wrapper, and page.tsx rebuilds
+	// `output` / `structuredContent` on every render (JSON.parse runs per pass
+	// in getToolOutputContent). AppRenderer tracks toolResult by reference
+	// identity, so without this memo it would re-sync the sandboxed iframe on
+	// every tick — flooding the console with "Ignoring message from unknown
+	// source" and keeping the widget re-measuring. Key by a content hash so
+	// upstream ref-churn can't invalidate us.
 	const outputKey = output === undefined ? "" : stableKey(output);
 	const structuredKey = structuredContent ? stableKey(structuredContent) : "";
-
-	const toolInput = useMemo(
-		() => input,
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-		[inputKey],
-	);
 
 	const toolResult = useMemo(
 		() => toCallToolResult(output, errorText, structuredContent),
@@ -190,7 +183,7 @@ export const McpAppWidget = ({
 				toolResourceUri={appToolInfo.resourceUri}
 				sandbox={sandboxConfig}
 				hostContext={hostContext}
-				toolInput={toolInput}
+				toolInput={input}
 				toolResult={toolResult}
 				onReadResource={onReadResource}
 				onCallTool={onCallTool}
