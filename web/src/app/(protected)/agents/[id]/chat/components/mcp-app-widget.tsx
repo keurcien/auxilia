@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { AppRenderer } from "@mcp-ui/client";
 import { api } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
@@ -46,6 +46,18 @@ const hasStructuredContent = (
 	"structuredContent" in output &&
 	isRecord(output.structuredContent);
 
+// Content hash used to keep useMemo stable across parent re-renders that
+// rebuild the same value into a fresh reference.
+const stableKey = (value: unknown): string => {
+	if (value === null || value === undefined) return "";
+	if (typeof value === "string") return value;
+	try {
+		return JSON.stringify(value);
+	} catch {
+		return String(value);
+	}
+};
+
 const toCallToolResult = (
 	output: unknown,
 	errorText: string | undefined,
@@ -87,6 +99,74 @@ export const McpAppWidget = ({
 		[],
 	);
 
+	const serverId = appToolInfo.serverId;
+
+	// Parents typically rebuild `input` / `output` / `structuredContent` on every
+	// render (e.g. page.tsx runs JSON.parse on each pass via getToolOutputContent),
+	// so ref-based memo keys invalidate every tick. Use string keys derived from
+	// the content so the memoized objects stay stable across no-op re-renders —
+	// otherwise AppRenderer re-syncs the sandboxed iframe on every tick and
+	// floods the console with "Ignoring message from unknown source" and the
+	// widget keeps re-measuring.
+	const inputKey = input ? stableKey(input) : "";
+	const outputKey = output === undefined ? "" : stableKey(output);
+	const structuredKey = structuredContent ? stableKey(structuredContent) : "";
+
+	const toolInput = useMemo(
+		() => input,
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+		[inputKey],
+	);
+
+	const toolResult = useMemo(
+		() => toCallToolResult(output, errorText, structuredContent),
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+		[outputKey, errorText, structuredKey],
+	);
+
+	const onReadResource = useCallback(
+		async ({ uri }: { uri: string }) => {
+			const response = await api.post(
+				`/mcp-servers/${serverId}/app/read-resource`,
+				{ uri },
+			);
+			return response.data;
+		},
+		[serverId],
+	);
+
+	const onCallTool = useCallback(
+		async ({
+			name,
+			arguments: args,
+		}: {
+			name: string;
+			arguments?: Record<string, unknown> | null;
+		}) => {
+			const response = await api.post(
+				`/mcp-servers/${serverId}/app/call-tool`,
+				{ toolName: name, arguments: args ?? null },
+			);
+
+			const data = response.data;
+
+			if (data.content) {
+				data.content = data.content.map((block: Record<string, unknown>) => {
+					const cleaned = { ...block };
+					if (cleaned.annotations === null) delete cleaned.annotations;
+					if (cleaned.Meta === null) delete cleaned.Meta;
+					if (cleaned._meta === null) delete cleaned._meta;
+					return cleaned;
+				});
+			}
+			if (data._meta === null) delete data._meta;
+			if (data.Meta === null) delete data.Meta;
+
+			return data;
+		},
+		[serverId],
+	);
+
 	if (typeof window === "undefined") {
 		return null;
 	}
@@ -94,7 +174,14 @@ export const McpAppWidget = ({
 	return (
 		<div
 			className={cn(
-				"mt-2 w-full min-w-0 overflow-hidden [&_iframe]:w-full! [&_iframe]:max-w-full!",
+				"mt-2 w-full min-w-0 overflow-hidden",
+				// AppRenderer has no autoResize option and writes iframe.style.height
+				// directly in response to `onsizechange`. When the app's body uses
+				// `height: 100%`, that resize reflows content, which re-measures and
+				// posts again — an unbounded growth loop. Cap the iframe height with
+				// !important so the library's inline style can't actually grow the
+				// element; the handshake settles after one frame.
+				"[&_iframe]:w-full! [&_iframe]:max-w-full! [&_iframe]:max-h-[70vh]!",
 				className,
 			)}
 		>
@@ -103,42 +190,10 @@ export const McpAppWidget = ({
 				toolResourceUri={appToolInfo.resourceUri}
 				sandbox={sandboxConfig}
 				hostContext={hostContext}
-				toolInput={input}
-				toolResult={toCallToolResult(output, errorText, structuredContent)}
-				onReadResource={async ({ uri }) => {
-					const response = await api.post(
-						`/mcp-servers/${appToolInfo.serverId}/app/read-resource`,
-						{ uri },
-					);
-					return response.data;
-				}}
-				onCallTool={async ({ name, arguments: args }) => {
-					const response = await api.post(
-						`/mcp-servers/${appToolInfo.serverId}/app/call-tool`,
-						{
-							toolName: name,
-							arguments: args ?? null,
-						},
-					);
-
-					const data = response.data;
-
-					if (data.content) {
-						data.content = data.content.map(
-							(block: Record<string, unknown>) => {
-								const cleaned = { ...block };
-								if (cleaned.annotations === null) delete cleaned.annotations;
-								if (cleaned.Meta === null) delete cleaned.Meta;
-								if (cleaned._meta === null) delete cleaned._meta;
-								return cleaned;
-							},
-						);
-					}
-					if (data._meta === null) delete data._meta;
-					if (data.Meta === null) delete data.Meta;
-
-					return data;
-				}}
+				toolInput={toolInput}
+				toolResult={toolResult}
+				onReadResource={onReadResource}
+				onCallTool={onCallTool}
 			/>
 		</div>
 	);
