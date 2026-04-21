@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import type { McpUiHostContext, McpUiStyles } from "@modelcontextprotocol/ext-apps";
 
 /**
@@ -95,14 +95,19 @@ export function useMcpHostContext(): McpUiHostContext {
 		() => "light" as const,
 	);
 
-	const variables = resolveStyleVariables();
-
-	return {
-		theme,
-		styles: {
-			variables: variables as McpUiStyles,
-		},
-		platform: "web",
-		deviceCapabilities: { touch: false, hover: true },
-	};
+	// Memoize by theme — style variables only change with the theme class flip.
+	// Without this, every parent re-render produces a new hostContext object,
+	// which makes AppRenderer re-sync to the sandboxed iframe on every tick and
+	// floods the console with "Ignoring message from unknown source" warnings.
+	return useMemo<McpUiHostContext>(
+		() => ({
+			theme,
+			styles: {
+				variables: resolveStyleVariables() as McpUiStyles,
+			},
+			platform: "web",
+			deviceCapabilities: { touch: false, hover: true },
+		}),
+		[theme],
+	);
 }
