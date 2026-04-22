@@ -1,0 +1,69 @@
+# Sandbox Setup
+
+The sandbox runtime is external — **auxilia** is a client of it. You can run [OpenSandbox](https://github.com/langchain-ai/opensandbox) alongside **auxilia** or point **auxilia** at a managed OpenSandbox instance.
+
+## 1. Run OpenSandbox
+
+Follow the [OpenSandbox installation guide](https://github.com/langchain-ai/opensandbox) to run the controller. The simplest setup is a Docker container on the same host or VPC as your **auxilia** backend.
+
+Once it's running, note:
+
+- The **domain** (e.g. `localhost:8083` in dev, or a private DNS name in prod)
+- An **API key** if the controller is configured to require one
+
+## 2. Configure auxilia
+
+Set these environment variables on the backend:
+
+```env
+# Required: where OpenSandbox is reachable
+OPEN_SANDBOX_DOMAIN=localhost:8083
+
+# Optional: API key if your controller requires one
+OPEN_SANDBOX_API_KEY=your-key
+
+# Connect through the OpenSandbox server's proxy (recommended)
+OPEN_SANDBOX_USE_SERVER_PROXY=true
+```
+
+As soon as `OPEN_SANDBOX_DOMAIN` is set, the backend's `/sandbox/status` endpoint reports `{"enabled": true}` and agents with **Code execution** turned on will use the sandbox. If the variable is missing, the integration is silently disabled and the toggle on agents has no effect.
+
+## 3. Tune the runtime (optional)
+
+The remaining variables let you shape the default container:
+
+```env
+# Base image — whatever OpenSandbox supports; defaults to python:3.12-slim
+OPEN_SANDBOX_DEFAULT_IMAGE=python:3.12-slim
+
+# Packages installed via pip on first boot
+# (comma-separated or list syntax, depending on your loader)
+OPEN_SANDBOX_DEFAULT_PACKAGES=["pandas","matplotlib","duckdb"]
+
+# Per-command timeout (seconds). Default: 1800 (30 minutes)
+OPEN_SANDBOX_TIMEOUT=1800
+
+# Volume mounts — host_path:sandbox_path[:ro], comma-separated
+OPEN_SANDBOX_VOLUME_MOUNTS=/srv/shared:/workspace:ro,/tmp/auxilia:/mnt/scratch
+```
+
+All settings live in `app/sandbox/settings.py` and use the `OPEN_SANDBOX_` prefix.
+
+## 4. Enable on an agent
+
+1. Open the agent's configuration page
+2. Scroll to **Code execution**
+3. Toggle it on
+
+The next message you send will expose `create_sandbox` / `connect_sandbox` (plus the file-ops toolset) to the LLM. The agent decides when to spin up the container — usually right before it needs to run code.
+
+## Check the status
+
+From the backend, you can confirm the runtime is reachable:
+
+```bash
+curl -H "Cookie: auth_token=..." https://your-auxilia.example.com/api/backend/sandbox/status
+# {"enabled": true}
+```
+
+If you get `{"enabled": false}`, `OPEN_SANDBOX_DOMAIN` is not set. If the flag is `true` but `create_sandbox` fails at runtime, check the OpenSandbox controller logs.

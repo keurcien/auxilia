@@ -5,59 +5,123 @@ This guide walks you through running **auxilia** locally with Docker Compose.
 ## Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) and Docker Compose
-- At least one LLM API key (OpenAI, Anthropic, Google, or DeepSeek)
+- At least one LLM API key (Anthropic, OpenAI, Google, or DeepSeek)
 
-## Clone the Repository
+## 1. Clone the repository
 
 ```bash
 git clone https://github.com/keurcien/auxilia.git
 cd auxilia
 ```
 
-## Configure Environment
+## 2. Configure environment
 
-Copy the example environment file and fill in your API keys:
+Copy the example environment file:
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` with your configuration:
+The minimum configuration you need is a database URL, a JWT secret, an MCP encryption salt, and at least one LLM API key:
 
 ```env
-# Required: at least one LLM provider
-OPENAI_API_KEY=sk-...
+# Database
+DATABASE_URL=postgresql+psycopg://auxilia:auxilia@localhost:5432/auxilia
+
+# Redis
+REDIS_HOST=localhost
+REDIS_PORT=6379
+
+# At least one LLM provider
 ANTHROPIC_API_KEY=sk-ant-...
+OPENAI_API_KEY=sk-...
 GOOGLE_API_KEY=...
 DEEPSEEK_API_KEY=...
+
+# Auth
+JWT_SECRET_KEY=change-me-in-production
+COOKIE_SECURE=false
+FRONTEND_URL=http://localhost:3000
+
+# MCP API-key encryption
+SALT=changeme
+
+# Backend URL — used by the Next.js proxy (server-side only)
+BACKEND_URL=http://localhost:8000
 ```
 
-## Start the Stack
+Optional:
 
-For development with hot-reloading:
+```env
+# Google OAuth sign-in
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REDIRECT_URI=http://localhost:8000/auth/google/callback
+
+# Code-execution sandbox (see /docs/sandbox)
+OPEN_SANDBOX_DOMAIN=localhost:8083
+OPEN_SANDBOX_API_KEY=your-key
+OPEN_SANDBOX_USE_SERVER_PROXY=true
+
+# Langfuse observability (see /docs/integrations/langfuse)
+LANGFUSE_PUBLIC_KEY=pk-...
+LANGFUSE_SECRET_KEY=sk-...
+LANGFUSE_BASE_URL=https://cloud.langfuse.com
+
+# Slack integration (see /docs/integrations/slack)
+SLACK_SIGNING_SECRET=
+SLACK_BOT_TOKEN=xoxb-...
+```
+
+## 3. Start the stack
+
+The fastest way to get everything running with hot reload:
 
 ```bash
 make dev
 ```
 
-Or using Docker Compose directly:
+This starts PostgreSQL, Redis, the FastAPI backend (with Alembic migrations) and the Next.js frontend in parallel.
+
+Equivalent individual commands:
 
 ```bash
-docker compose -f docker-compose.dev.yml up
+make dev-stack       # docker compose -f docker-compose.dev.yml up (postgres, redis)
+make dev-backend     # alembic upgrade head + uvicorn with reload
+make dev-frontend    # next dev
 ```
 
-For production:
+For production (Docker Compose):
 
 ```bash
-docker compose up -d
+make build           # or: docker compose build
+make up              # docker compose up -d
 ```
 
-## Access the App
+## 4. Create the first admin account
 
-Open [http://localhost:3000](http://localhost:3000) in your browser. Create an account with email and password to get started.
+Open [http://localhost:3000](http://localhost:3000). The first account you create becomes the workspace **admin**. After that, new accounts require an invite from an admin.
 
-## Next Steps
+## 5. Add an MCP server
 
-1. **[Add MCP Servers](/docs/mcp-servers)** — Register remote MCP servers for your workspace
-2. **[Create an Agent](/docs/agents/configuration)** — Set up your first AI assistant
-3. **[Configure Tools](/docs/tools/settings)** — Control which tools your agents can use
+Navigate to **MCP Servers** in the sidebar and either:
+
+- Click **Install** on one of the official servers (Notion, Linear, GitHub, HubSpot, BigQuery, …), or
+- Click **Add MCP Server** to register any remote MCP server by URL.
+
+See [MCP Servers](/docs/mcp-servers) for the full registration flow and auth options.
+
+## 6. Create an agent
+
+1. Go to **Agents** → **Create Agent**
+2. Set a name, emoji, and color
+3. Write a system prompt (instructions)
+4. Bind one or more MCP servers
+5. Open a chat and send a message
+
+## Next steps
+
+- **[Agents](/docs/agents)** — full configuration, permissions, subagents
+- **[Tool Settings](/docs/tools/settings)** — approval rules per tool
+- **[Sandbox](/docs/sandbox)** — enable code execution for an agent
+- **[Deployment](/docs/deployment)** — move from local to production

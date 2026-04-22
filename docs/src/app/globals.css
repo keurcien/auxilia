@@ -1,8 +1,150 @@
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Geist+Mono:wght@100..900&display=swap");
+
+/* ---------------------------------------------------------------- *
+ * Auxilia design tokens — kept in sync with web/src/app/globals.css
+ * ---------------------------------------------------------------- */
 :root {
-  --nextra-primary-hue: 0deg;
-  --nextra-primary-saturation: 0%;
+  /* Sage green (same hex as --sidebar-primary: #4ca882) */
+  --auxilia-primary: #4ca882;
+  --auxilia-primary-hover: #3d8b63;
+
+  --auxilia-fg: #1e2d28;           /* foreground text */
+  --auxilia-muted: #6b7f76;        /* muted foreground */
+
+  --auxilia-surface: #f1f6f4;      /* app --surface */
+  --auxilia-sidebar: #ffffff;
+  --auxilia-sidebar-accent: #edf4f0;
+  --auxilia-sidebar-border: #e8efe9;
+  --auxilia-sidebar-hover: #f8faf9;
+
+  --auxilia-border: #e0e8e4;
+  --auxilia-border-strong: #c9d6cf;
+  --auxilia-card: #ffffff;
+  --auxilia-inner-card: #fafcfb;
+
+  /* Rounded scale — matches app (radius base = 0.625rem) */
+  --auxilia-radius: 0.625rem;
+  --auxilia-radius-lg: 1rem;
+  --auxilia-radius-xl: 1.25rem;
+  --auxilia-radius-full: 9999px;
+
+  /* Nextra primary colour wheel → sage green
+   * primary-hue + primary-saturation + primary-lightness is the HSL base
+   * Nextra interpolates all highlight/link shades from this triplet. */
+  --nextra-primary-hue: 154deg;
+  --nextra-primary-saturation: 38%;
+  --nextra-primary-lightness: 48%;
+
+  /* Body background (RGB channels — Nextra uses rgb(var(--nextra-bg))) */
+  --nextra-bg: 255, 255, 255; /* #FFFFFF */
 }
 
+.dark {
+  --auxilia-primary: #5abf94;
+  --auxilia-primary-hover: #4ca882;
+
+  --auxilia-fg: #e6efea;
+  --auxilia-muted: #94a69d;
+
+  --auxilia-surface: #1a2420;
+  --auxilia-sidebar: #161f1b;
+  --auxilia-sidebar-accent: #1f2a26;
+  --auxilia-sidebar-border: #243029;
+  --auxilia-sidebar-hover: #1d2722;
+
+  --auxilia-border: #243029;
+  --auxilia-border-strong: #2e3c36;
+  --auxilia-card: #1a2420;
+  --auxilia-inner-card: #1e2823;
+
+  --nextra-primary-hue: 154deg;
+  --nextra-primary-saturation: 42%;
+  --nextra-primary-lightness: 55%;
+
+  --nextra-bg: 20, 28, 25; /* a touch darker than --auxilia-surface */
+}
+
+/* ---------------------------------------------------------------- *
+ * Typography
+ * ---------------------------------------------------------------- */
+html {
+  font-family:
+    "Plus Jakarta Sans",
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    "Helvetica Neue",
+    Arial,
+    sans-serif;
+  font-feature-settings: "ss01", "cv11";
+  color: var(--auxilia-fg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code,
+pre,
+kbd,
+samp,
+.nextra-code {
+  font-family:
+    "Geist Mono",
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    "Liberation Mono",
+    "Courier New",
+    monospace;
+  font-feature-settings: "calt" 1, "ss02" 1;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  letter-spacing: -0.015em;
+  color: var(--auxilia-fg);
+}
+
+h1 {
+  font-weight: 700;
+  letter-spacing: -0.035em;
+}
+
+h2 {
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  border-bottom: 1px solid var(--auxilia-border);
+  padding-bottom: 0.4em;
+}
+
+h3 {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.dark h1,
+.dark h2,
+.dark h3,
+.dark h4,
+.dark h5,
+.dark h6 {
+  color: var(--auxilia-fg);
+}
+
+/* ---------------------------------------------------------------- *
+ * Logo swap
+ * ---------------------------------------------------------------- */
 .logo-dark {
   display: none;
 }
@@ -15,16 +157,294 @@ html.dark .logo-dark {
   display: block;
 }
 
-html {
-  font-family:
-    'Geist',
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    Roboto,
-    'Helvetica Neue',
-    Arial,
-    sans-serif;
+/* ---------------------------------------------------------------- *
+ * Navbar — translucent sage-tinted pill, matches the app chrome
+ * ---------------------------------------------------------------- */
+.nextra-navbar-blur {
+  background-color: rgb(255 255 255 / 0.72) !important;
+  backdrop-filter: saturate(180%) blur(14px);
+  border-bottom: 1px solid var(--auxilia-sidebar-border) !important;
+}
+
+.dark .nextra-navbar-blur {
+  background-color: rgb(22 31 27 / 0.75) !important;
+  border-bottom-color: var(--auxilia-sidebar-border) !important;
+}
+
+/* ---------------------------------------------------------------- *
+ * Navbar-hosted ThemeSwitch — compact button that matches search
+ * ---------------------------------------------------------------- */
+.nextra-navbar nav > :last-child [title="Change theme"] {
+  /* Strip the default select chrome so the theme switch looks like an icon button. */
+  background: transparent !important;
+  border: 1px solid var(--auxilia-sidebar-border) !important;
+  color: var(--auxilia-muted) !important;
+  border-radius: var(--auxilia-radius) !important;
+  padding: 0.375rem 0.5rem !important;
+  transition: background-color 0.15s ease, color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.nextra-navbar nav > :last-child [title="Change theme"]:hover {
+  background-color: var(--auxilia-sidebar-accent) !important;
+  color: var(--auxilia-primary-hover) !important;
+  border-color: var(--auxilia-border) !important;
+}
+
+.dark .nextra-navbar nav > :last-child [title="Change theme"]:hover {
+  color: var(--auxilia-primary) !important;
+}
+
+/* ---------------------------------------------------------------- *
+ * Sidebar — sage-tinted border, rounded hover chips
+ * ---------------------------------------------------------------- */
+.nextra-sidebar,
+.nextra-mobile-nav {
+  --tw-bg-opacity: 1;
+}
+
+.nextra-sidebar a,
+.nextra-sidebar button {
+  border-radius: var(--auxilia-radius) !important;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.nextra-sidebar a:hover:not([aria-current="page"]),
+.nextra-sidebar button:hover {
+  background-color: var(--auxilia-sidebar-accent) !important;
+  color: var(--auxilia-fg) !important;
+}
+
+.nextra-sidebar a[aria-current="page"] {
+  background-color: var(--auxilia-sidebar-accent) !important;
+  color: var(--auxilia-primary-hover) !important;
+  font-weight: 600;
+}
+
+.dark .nextra-sidebar a[aria-current="page"] {
+  color: var(--auxilia-primary) !important;
+}
+
+/* Hide the sidebar footer — the theme switch lives in the navbar now. */
+.nextra-sidebar-footer {
+  display: none !important;
+}
+
+/* The vertical active-section rail Nextra paints — re-tint it. */
+.nextra-sidebar [class*="border-l"] {
+  border-color: var(--auxilia-sidebar-border) !important;
+}
+
+/* ---------------------------------------------------------------- *
+ * TOC
+ * ---------------------------------------------------------------- */
+.nextra-toc a {
+  border-radius: var(--auxilia-radius);
+  transition: color 0.15s ease;
+}
+
+.nextra-toc a:hover {
+  color: var(--auxilia-primary-hover) !important;
+}
+
+.dark .nextra-toc a:hover {
+  color: var(--auxilia-primary) !important;
+}
+
+/* ---------------------------------------------------------------- *
+ * Links in prose
+ * ---------------------------------------------------------------- */
+article a:not(.nextra-copy-icon):not(.nextra-focus) {
+  color: var(--auxilia-primary-hover);
+  text-decoration-color: color-mix(in srgb, var(--auxilia-primary) 35%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.15em;
+  transition: color 0.15s ease, text-decoration-color 0.15s ease;
+}
+
+article a:not(.nextra-copy-icon):not(.nextra-focus):hover {
+  color: var(--auxilia-primary);
+  text-decoration-color: var(--auxilia-primary);
+}
+
+.dark article a:not(.nextra-copy-icon):not(.nextra-focus) {
+  color: var(--auxilia-primary);
+}
+
+/* ---------------------------------------------------------------- *
+ * Inline code
+ * ---------------------------------------------------------------- */
+article :not(pre) > code {
+  background-color: color-mix(in srgb, var(--auxilia-primary) 10%, var(--auxilia-surface)) !important;
+  border: 1px solid var(--auxilia-sidebar-border) !important;
+  color: var(--auxilia-fg) !important;
+  border-radius: calc(var(--auxilia-radius) - 2px) !important;
+  padding: 0.12em 0.38em !important;
+  font-size: 0.875em;
+}
+
+.dark article :not(pre) > code {
+  background-color: color-mix(in srgb, var(--auxilia-primary) 14%, var(--auxilia-surface)) !important;
+  border-color: var(--auxilia-border) !important;
+  color: var(--auxilia-fg) !important;
+}
+
+/* ---------------------------------------------------------------- *
+ * Code blocks — rounded sage card
+ * ---------------------------------------------------------------- */
+article pre.nextra-code,
+.nextra-code pre {
+  border-radius: var(--auxilia-radius-lg) !important;
+  border: 1.5px solid var(--auxilia-border) !important;
+  background-color: var(--auxilia-inner-card) !important;
+}
+
+.dark article pre.nextra-code,
+.dark .nextra-code pre {
+  background-color: color-mix(in srgb, #000 30%, var(--auxilia-surface)) !important;
+  border-color: var(--auxilia-border) !important;
+}
+
+.nextra-code > pre {
+  padding: 1rem 1.25rem !important;
+}
+
+/* Filename tag above code blocks */
+.nextra-code [data-filename],
+.nextra-code [data-language] {
+  border-top-left-radius: var(--auxilia-radius-lg) !important;
+  border-top-right-radius: var(--auxilia-radius-lg) !important;
+  background-color: color-mix(in srgb, var(--auxilia-primary) 8%, var(--auxilia-surface)) !important;
+  border-color: var(--auxilia-border) !important;
+}
+
+.nextra-copy-icon {
+  border-radius: calc(var(--auxilia-radius) - 2px) !important;
+}
+
+.nextra-copy-icon:hover {
+  background-color: var(--auxilia-sidebar-accent) !important;
+  color: var(--auxilia-primary-hover) !important;
+}
+
+/* ---------------------------------------------------------------- *
+ * Callouts
+ * ---------------------------------------------------------------- */
+.nextra-callout {
+  border-radius: var(--auxilia-radius-lg) !important;
+  border-width: 1.5px !important;
+}
+
+/* ---------------------------------------------------------------- *
+ * Tables — clean sage-bordered, no zebra stripes
+ * ---------------------------------------------------------------- */
+article table {
+  /* Nextra wraps tables in display:block for horizontal scroll, which
+   * leaves the outer border floating past narrow cells. Force a real
+   * table with width:100% so cells always fill the container. */
+  display: table !important;
+  width: 100% !important;
+  border-collapse: separate !important;
+  border-spacing: 0;
+  border: 1.5px solid var(--auxilia-border);
+  border-radius: var(--auxilia-radius-lg);
+  overflow: hidden;
+  margin: 1.25em 0;
+}
+
+article table th,
+article table td {
+  border: none !important;
+  padding: 0.625rem 1rem !important;
+  background-color: transparent;
+}
+
+article table th {
+  background-color: var(--auxilia-sidebar-accent) !important;
+  color: var(--auxilia-fg) !important;
+  font-weight: 600 !important;
+  text-align: left;
+  border-bottom: 1px solid var(--auxilia-border) !important;
+}
+
+/* Every body row: plain white/card background, no zebra striping. */
+article table tr {
+  background-color: var(--auxilia-card) !important;
+}
+
+/* Row separators — everything except the last row. */
+article table tbody tr:not(:last-child) td {
+  border-bottom: 1px solid var(--auxilia-border) !important;
+}
+
+.dark article table tr {
+  background-color: var(--auxilia-card) !important;
+}
+
+/* ---------------------------------------------------------------- *
+ * Blockquotes
+ * ---------------------------------------------------------------- */
+article blockquote {
+  border-left: 3px solid var(--auxilia-primary) !important;
+  background: color-mix(in srgb, var(--auxilia-primary) 6%, transparent);
+  border-top-right-radius: var(--auxilia-radius);
+  border-bottom-right-radius: var(--auxilia-radius);
+  padding: 0.25rem 1rem;
+  color: var(--auxilia-fg);
+  font-style: normal;
+}
+
+/* ---------------------------------------------------------------- *
+ * Horizontal rule
+ * ---------------------------------------------------------------- */
+article hr,
+.nextra-border {
+  border-color: var(--auxilia-border) !important;
+}
+
+/* ---------------------------------------------------------------- *
+ * Body background — softly tinted surface like the app
+ * ---------------------------------------------------------------- */
+body {
+  background-color: rgb(var(--nextra-bg));
+  color: var(--auxilia-fg);
+}
+
+/* ---------------------------------------------------------------- *
+ * Focus ring — sage, not blue
+ * ---------------------------------------------------------------- */
+.nextra-focus:focus-visible,
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgb(var(--nextra-bg)),
+    0 0 0 4px var(--auxilia-primary);
+  border-radius: calc(var(--auxilia-radius) - 2px);
+}
+
+/* ---------------------------------------------------------------- *
+ * Scrollbar — thin sage
+ * ---------------------------------------------------------------- */
+.nextra-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--auxilia-border-strong) transparent;
+}
+
+.nextra-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.nextra-scrollbar::-webkit-scrollbar-thumb {
+  background-color: var(--auxilia-border-strong);
+  border-radius: 9999px;
+}
+
+/* ---------------------------------------------------------------- *
+ * Steps — match the rounded sage feel
+ * ---------------------------------------------------------------- */
+.nextra-steps h3::before,
+.nextra-steps h4::before {
+  background-color: var(--auxilia-sidebar-accent) !important;
+  border-color: var(--auxilia-border) !important;
+  color: var(--auxilia-primary-hover) !important;
 }

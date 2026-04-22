@@ -1,26 +1,34 @@
 # Tools
 
-Tools are the actions an agent can perform through MCP servers. Each MCP server exposes a set of tools — functions the agent can call during a conversation to fetch data, create records, or perform actions in external systems.
+Tools are the actions an agent can perform. Most tools come from MCP servers bound to the agent; a few additional ones come from the [sandbox](/docs/sandbox) when code execution is enabled.
 
-## How Tools Work
+## How tools flow through the runtime
 
-1. **auxilia** connects to an MCP server and discovers its available tools
-2. Each tool has a name, description, and input schema
-3. The LLM decides when to call a tool based on the conversation context
-4. **auxilia** executes the tool call against the MCP server
-5. The result is returned to the LLM to incorporate into its response
+1. The backend connects to every MCP server bound to the agent
+2. For each server it calls `tools/list` and receives the tool schemas
+3. It filters the list using the agent's [tool settings](/docs/tools/settings) (disabled tools are removed; "needs approval" tools are marked as HITL interrupts)
+4. If the sandbox is on, it appends `create_sandbox`, `connect_sandbox`, and the standard file-ops tools (`ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `execute`)
+5. If subagents are attached, it wraps each one as a tool
+6. The resulting toolset is handed to the LLM via LangGraph
 
-## Tool Discovery
+## Tool discovery
 
-When you bind an MCP server to an agent, **auxilia** fetches the list of tools from the server. These appear in the agent's configuration with their names and descriptions.
+Tool schemas are fetched from the MCP server when you bind or **Sync tools** on an agent-server binding. They are **not** re-fetched on every message — this avoids the ~15 s deadlock some servers exhibit when they hold the Streamable HTTP GET stream open before responding to `tools/list`.
 
-Tools are refreshed each time the agent handles a message, so new tools added to an MCP server are picked up automatically.
+Use **Sync tools** on the agent page whenever the underlying MCP server publishes new tools or changes descriptions.
 
-## Tool Execution in Chat
+## Tool calls in chat
 
-During a conversation, tool calls appear in the chat as expandable blocks showing:
+Every tool call appears in the thread as an expandable block showing:
 
-- The **tool name** and which MCP server it belongs to
-- The **input parameters** sent to the tool
-- The **result** returned by the tool
-- Whether the call was **auto-approved** or required **manual approval**
+- The **tool name** and the MCP server it belongs to
+- The **input arguments** the LLM passed
+- The **result** the server returned (or the error, if it failed)
+- Whether the call was **auto-approved** or **user-approved**
+
+Errors are surfaced inline. The LLM sees the error string as the tool result and decides whether to retry, call a different tool, or explain the problem to the user.
+
+## Next
+
+- [Tool Settings](/docs/tools/settings) — per-tool approval rules
+- [Sandbox](/docs/sandbox) — the code-execution toolset

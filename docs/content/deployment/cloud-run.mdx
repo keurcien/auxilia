@@ -6,11 +6,9 @@ This guide walks through deploying **auxilia** on Google Cloud Run with Cloud SQ
 
 - A Google Cloud project with billing enabled
 - [gcloud CLI](https://cloud.google.com/sdk/docs/install) installed and authenticated
-- Docker installed locally
+- Docker installed locally (or use Cloud Build as shown below)
 
-## 1. Set Up Cloud SQL
-
-Create a PostgreSQL instance:
+## 1. Set up Cloud SQL
 
 ```bash
 gcloud sql instances create auxilia-db \
@@ -26,7 +24,7 @@ gcloud sql users set-password postgres \
   --password=YOUR_DB_PASSWORD
 ```
 
-## 2. Set Up Memorystore (Redis)
+## 2. Set up Memorystore (Redis)
 
 ```bash
 gcloud redis instances create auxilia-redis \
@@ -35,25 +33,22 @@ gcloud redis instances create auxilia-redis \
   --redis-version=redis_7_0
 ```
 
-Note the IP address from the output — you'll need it for `REDIS_HOST`.
+Note the IP address from the output — you'll use it for `REDIS_HOST`.
 
-## 3. Build and Push Images
+## 3. Build and push images
 
 ```bash
-# Set your project
 export PROJECT_ID=your-project-id
 export REGION=us-central1
 
-# Build and push backend
 gcloud builds submit backend/ \
   --tag ${REGION}-docker.pkg.dev/${PROJECT_ID}/auxilia/backend
 
-# Build and push web
 gcloud builds submit web/ \
   --tag ${REGION}-docker.pkg.dev/${PROJECT_ID}/auxilia/web
 ```
 
-## 4. Deploy Backend
+## 4. Deploy the backend
 
 ```bash
 gcloud run deploy auxilia-backend \
@@ -64,16 +59,18 @@ gcloud run deploy auxilia-backend \
   --set-env-vars "DATABASE_URL=postgresql+psycopg://postgres:YOUR_DB_PASSWORD@/auxilia?host=/cloudsql/${PROJECT_ID}:${REGION}:auxilia-db" \
   --set-env-vars "REDIS_HOST=REDIS_IP" \
   --set-env-vars "REDIS_PORT=6379" \
-  --set-env-vars "JWT_SECRET_KEY=your-secret-key" \
+  --set-env-vars "JWT_SECRET_KEY=your-jwt-secret" \
+  --set-env-vars "SALT=your-encryption-salt" \
   --set-env-vars "COOKIE_SECURE=true" \
   --set-env-vars "FRONTEND_URL=https://auxilia-web-HASH.run.app" \
-  --set-env-vars "MCP_API_KEY_ENCRYPTION_SALT=your-encryption-salt" \
-  --set-env-vars "OPENAI_API_KEY=sk-..." \
+  --set-env-vars "ANTHROPIC_API_KEY=sk-ant-..." \
   --add-cloudsql-instances ${PROJECT_ID}:${REGION}:auxilia-db \
-  --vpc-connector your-vpc-connector
+  --vpc-connector auxilia-connector
 ```
 
-## 5. Deploy Web
+Migrations (`alembic upgrade head`) run automatically when the container starts.
+
+## 5. Deploy the web
 
 ```bash
 gcloud run deploy auxilia-web \
@@ -84,9 +81,9 @@ gcloud run deploy auxilia-web \
   --set-env-vars "BACKEND_URL=https://auxilia-backend-HASH.run.app"
 ```
 
-## 6. Configure VPC Connector
+## 6. VPC connector
 
-Both Cloud Run services need to access Memorystore through a VPC connector:
+Both services need network access to Memorystore through a VPC connector:
 
 ```bash
 gcloud compute networks vpc-access connectors create auxilia-connector \
@@ -94,9 +91,9 @@ gcloud compute networks vpc-access connectors create auxilia-connector \
   --range 10.8.0.0/28
 ```
 
-Update both Cloud Run services to use `--vpc-connector auxilia-connector`.
+Attach `--vpc-connector auxilia-connector` to both services.
 
-## Custom Domain
+## 7. Custom domain
 
 Map a custom domain to the web service:
 
@@ -107,4 +104,10 @@ gcloud run domain-mappings create \
   --region ${REGION}
 ```
 
-Update `FRONTEND_URL` on the backend service to match.
+Update `FRONTEND_URL` on the backend to the new domain.
+
+## Notes on Cloud Run sizing
+
+- The backend keeps a persistent OAuth token cache in Redis, so you can scale instances to zero safely
+- LangGraph checkpoints live in Postgres, not in process memory, so scaling up horizontally is fine
+- Remember that Cloud Run request timeout caps streaming responses — use at least `--timeout=3600` if you expect long agent runs

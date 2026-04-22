@@ -1,30 +1,44 @@
 # MCP Servers
 
-**auxilia** connects to remote [Model Context Protocol](https://modelcontextprotocol.io/) servers to give agents access to external tools and data sources. Unlike desktop MCP clients, **auxilia** only supports **remote MCP servers** — it connects over HTTP with Server-Sent Events (SSE), not local stdio processes.
+**auxilia** connects to remote [Model Context Protocol](https://modelcontextprotocol.io/) servers to give agents access to external tools and data sources. Unlike desktop MCP clients, **auxilia** only supports **remote MCP servers** — it talks to them over HTTP using the [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http) transport, not local stdio processes.
 
-## How It Works
+## How it works
 
 ```
-┌──────────────┐           HTTPS           ┌──────────────────┐
-│   auxilia    │ ◀──────────────────────▶  │   Remote MCP     │
-│   Backend    │    Tool calls + Results   │   Server         │
-└──────────────┘                           └──────────────────┘
+┌──────────────┐        Streamable HTTP       ┌──────────────────┐
+│   auxilia    │ ◀──────────────────────────▶ │   Remote MCP     │
+│   Backend    │   tools/list + tools/call    │   Server         │
+└──────────────┘                              └──────────────────┘
 ```
 
-When an agent runs, **auxilia**'s backend establishes connections to all MCP servers bound to that agent. It discovers available tools, filters them based on [tool settings](/docs/tools/settings), and makes them available to the LLM.
+When an agent runs, the backend opens a fresh MCP session for each server bound to the agent, authenticates (API key or per-user OAuth tokens), discovers the available tools, filters them by the agent's [tool settings](/docs/tools/settings), and hands them to the LLM.
 
-## Workspace-Level Registration
+## Workspace-level registration
 
-MCP servers are registered at the **workspace level**. Once added, any agent in the workspace can be configured to use them. This avoids duplicate setup across agents.
+![MCP servers page](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/mcp_servers.png)
 
-## Adding an MCP Server
+MCP servers are registered at the **workspace level** by an admin. Once registered, any agent in the workspace can bind them. This avoids duplicate setup across agents and centralizes credential management.
 
-Navigate to the **MCP Servers** page from the sidebar. You can:
+Only users with the **admin** role can add, edit, or delete MCP servers. Editors and members can see which servers exist and bind them to agents they own.
 
-1. **Install an official server** — Choose from pre-configured servers like HubSpot, GitHub, Notion, and more
-2. **Add a custom server** — Enter the URL and credentials for any remote MCP server
+## Adding an MCP server
 
-## Next Steps
+Navigate to **MCP Servers** in the sidebar. You have two options:
+
+1. **Set up an official server** — a pre-configured server from the built-in catalog (Notion, Linear, GitHub, Sentry, Stripe, HubSpot, BigQuery, …). Click **Install** and, if required, supply OAuth client credentials.
+2. **Add a custom server** — any remote MCP server. Click **Add MCP Server** and supply the URL, a display name, and the authentication method.
+
+![MCP servers page](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/mcp_servers_dialog.png)
+
+See [Official vs Custom](/docs/mcp-servers/official-vs-custom) for the difference between the two.
+
+## Per-user connections
+
+Registering a server at the workspace level does **not** connect it for everyone automatically. OAuth-based servers require each user to click **Connect** on the server card and complete the consent flow. Tokens are stored per-user in Redis.
+
+API-key servers share a single encrypted key across the workspace.
+
+## Next
 
 - [Official vs Custom servers](/docs/mcp-servers/official-vs-custom)
 - [Authentication methods](/docs/mcp-servers/authentication)

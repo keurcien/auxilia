@@ -1,25 +1,34 @@
 # auxilia
 
-**auxilia** is an open-source web MCP client for hosting MCP-powered AI assistants. Built for enterprise deployment, it lets teams share AI agents backed by remote [Model Context Protocol](https://modelcontextprotocol.io/) servers.
+**auxilia** is an open-source web MCP client for teams. It lets you host AI assistants backed by remote [Model Context Protocol](https://modelcontextprotocol.io/) servers, share them across your organization, and keep every integration — tools, credentials, observability — under your own infrastructure.
 
-## Why auxilia?
+## Why auxilia
 
 Most MCP clients today are desktop apps tied to a single user. **auxilia** is different:
 
-- **Web-based** — accessible from any browser, no desktop app required
-- **Multi-user** — share agents across teams and organization members
-- **Remote MCP only** — designed for production server-to-server MCP connections, not local stdio processes
-- **Self-hosted** — deploy on your own infrastructure
+- **Web-based** — accessible from any browser, no desktop app to install
+- **Multi-user** — workspace admins register MCP servers once; every teammate can bind them to agents
+- **Remote MCP only** — designed for server-to-server MCP connections over Streamable HTTP, not local stdio processes
+- **Self-hosted** — runs on your own infrastructure, keeps credentials and conversation data in your database
+- **MCP-native** — everything the LLM sees (tools, skills, resources) flows through MCP, so the core stays small
+
+## What you can build
+
+- A CRM agent that queries HubSpot and drafts Slack replies
+- A data analyst that runs BigQuery, produces charts in a sandbox, and posts results to a thread
+- An on-call assistant that reads Sentry issues, searches Linear, and opens pull requests via GitHub
+- A workspace-wide coordinator agent that dispatches work to specialized subagents
 
 ## Architecture
 
-**auxilia** is composed of three services:
+**auxilia** is composed of three services plus an optional sandbox runtime:
 
-| Service      | Technology          | Purpose                        |
-| ------------ | ------------------- | ------------------------------ |
-| **Backend**  | FastAPI + LangGraph | Agent runtime, MCP client, API |
-| **Web**      | Next.js + React     | User interface                 |
-| **Database** | PostgreSQL + Redis  | Persistence and token storage  |
+| Service      | Technology                    | Purpose                                       |
+| ------------ | ----------------------------- | --------------------------------------------- |
+| **Backend**  | FastAPI + LangGraph           | Agent runtime, MCP client, auth, API          |
+| **Web**      | Next.js 16 + React 19         | User interface and backend proxy              |
+| **Database** | PostgreSQL 17 + Redis 7       | Persistence, checkpoints, OAuth token storage |
+| **Sandbox**  | OpenSandbox (optional)        | Isolated code execution for agents            |
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌──────────────────┐
@@ -27,32 +36,58 @@ Most MCP clients today are desktop apps tied to a single user. **auxilia** is di
 │   (React)   │◀────│   (proxy)   │◀────│   (LangGraph)    │
 └─────────────┘     └─────────────┘     └────────┬─────────┘
                                                  │
-                                        ┌────────▼─────────┐
-                                        │  Remote MCP      │
-                                        │  Servers         │
-                                        └──────────────────┘
+                                    ┌────────────┼────────────┐
+                                    │            │            │
+                         ┌──────────▼──┐ ┌───────▼──────┐ ┌───▼──────────┐
+                         │ Remote MCP  │ │  PostgreSQL  │ │  OpenSandbox │
+                         │  Servers    │ │  + Redis     │ │  (optional)  │
+                         └─────────────┘ └──────────────┘ └──────────────┘
 ```
 
-## Key Concepts
+## Key concepts
 
 ### Agents
 
-An agent is an AI assistant configured with a system prompt and a set of MCP server bindings. Each agent can use tools from multiple MCP servers simultaneously.
+An **agent** is defined by a system prompt, an avatar (emoji + color), a set of MCP server bindings, and optional subagents. Each agent can use tools from multiple MCP servers at once.
 
-### MCP Servers
+### MCP servers
 
-**auxilia** connects to remote MCP servers over HTTP. You can register **official** pre-configured servers or add **custom** ones with your own URLs and credentials.
+**auxilia** connects to **remote** MCP servers over HTTP (Streamable HTTP transport). Servers are registered at the **workspace level** by admins and can be bound to any agent.
 
-### Tool Settings
+### Tools
 
-Each tool exposed by an MCP server can be configured per-agent with one of three states: **always allow**, **needs approval**, or **disabled**.
+Each tool exposed by an MCP server can be set to one of three states per agent: **always allow**, **needs approval**, or **disabled**. Approvals happen inline in the chat (or in Slack).
 
-## Supported LLM Providers
+### Sandbox
 
-| Provider  | Models                       |
-| --------- | ---------------------------- |
-| Anthropic | Claude Haiku / Sonnet / Opus |
-| OpenAI    | GPT-4o mini                  |
-| Google    | Gemini 3 Flash / Pro         |
-| DeepSeek  | DeepSeek Chat / Reasoner     |
-| LiteLLM   | Any model via proxy          |
+Turn on the **sandbox** for an agent to give it a Linux code-execution environment with `ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`, and `execute`. Useful for data analysis, scripting, and file manipulation tasks.
+
+### Workspace roles
+
+- **admin** — manage MCP servers, invites, personal access tokens, agent permissions
+- **editor** — create and edit agents
+- **member** — chat with agents the admin has shared with them
+
+## Supported LLM providers
+
+| Provider  | Models                                                        |
+| --------- | ------------------------------------------------------------- |
+| Anthropic | Claude Haiku 4.5, Sonnet 4.6, Opus 4.6                        |
+| OpenAI    | GPT-4o mini                                                   |
+| Google    | Gemini 3 Flash Preview, Gemini 3 Pro Preview                  |
+| DeepSeek  | DeepSeek Chat, DeepSeek Reasoner                              |
+
+Configure one or more providers via environment variables. At least one is required.
+
+## Integrations
+
+- **[Slack](/docs/integrations/slack)** — invoke workspace agents, approve tool calls, and stream responses from Slack threads
+- **[Langfuse](/docs/integrations/langfuse)** — trace LLM calls, tool calls, and costs per agent and user
+
+## Next steps
+
+- **[Get Started](/docs/get-started)** — run **auxilia** locally with Docker Compose
+- **[Deployment](/docs/deployment)** — deploy on Google Cloud Run or any Docker host
+- **[MCP Servers](/docs/mcp-servers)** — register workspace MCP servers
+- **[Agents](/docs/agents)** — create and configure agents
+- **[Sandbox](/docs/sandbox)** — enable code execution for an agent

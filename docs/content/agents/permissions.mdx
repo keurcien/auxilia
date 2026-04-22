@@ -1,0 +1,54 @@
+# Agent Permissions
+
+Agents are not automatically visible to everyone in the workspace. Access is governed by the user's **workspace role** and by explicit **per-agent grants**.
+
+## Workspace roles
+
+| Role     | Can create agents | Can see unshared agents | Can manage MCP servers, invites, PATs |
+| -------- | ----------------- | ----------------------- | ------------------------------------- |
+| `admin`  | yes               | yes (all agents)        | yes                                   |
+| `editor` | yes               | only own + explicitly shared | no                                |
+| `member` | no                | only explicitly shared  | no                                    |
+
+## Per-agent permission levels
+
+On top of the workspace role, each agent can grant users one of three levels:
+
+| Level    | What it allows                                                   |
+| -------- | ---------------------------------------------------------------- |
+| `user`   | Chat with the agent                                              |
+| `editor` | Chat + edit the agent's configuration and MCP bindings           |
+| `admin`  | Chat + edit + manage permissions for the agent                   |
+
+A fourth virtual level, `owner`, is derived from `AgentDB.owner_id` — the user who created the agent. Owners have full control and cannot be removed.
+
+## How **auxilia** resolves the effective level
+
+For each `(agent, user)` pair, the backend returns the first match from:
+
+1. **Owner** (`agent.owner_id == user.id`) → `owner`
+2. **Workspace admin** (`user.role == "admin"`) → `admin`
+3. **Explicit grant** in the agent permissions table → `user` / `editor` / `admin`
+4. Otherwise → `None`
+
+If the effective level is `None`, the agent doesn't appear in the user's agent list and they cannot open a thread on it.
+
+## Managing permissions
+
+From an agent's configuration page, admins (workspace admins, agent owners, or users with `admin` on the agent) can:
+
+- Grant new users one of the three levels
+- Change an existing user's level
+- Revoke a grant
+
+Admins of the workspace always see every agent — even unshared ones — so they can audit, share, or archive them.
+
+## Invites and new users
+
+Only workspace admins can invite new users. From **Settings → Users**:
+
+1. Click **Invite user**
+2. Enter the email address and pick a role (`admin`, `editor`, or `member`)
+3. **auxilia** returns a one-time invite URL — share it with the person you're inviting
+
+The first account created on a fresh install automatically becomes an `admin`.

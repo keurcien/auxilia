@@ -1,17 +1,17 @@
 # GitHub MCP Server
 
-This guide walks through connecting the GitHub MCP server to **auxilia**. GitHub uses **static OAuth credentials**, requiring you to create a GitHub OAuth App or GitHub App.
+This guide walks through connecting the GitHub MCP server to **auxilia**. GitHub uses **static OAuth credentials**, so you need to create a GitHub OAuth App first.
 
-## 1. Create a GitHub OAuth App
+## 1. Create a GitHub OAuth app
 
 1. Go to [GitHub Developer Settings](https://github.com/settings/developers)
-2. Click **OAuth Apps** → **New OAuth App**
-3. Fill in the details:
-   - **Application name**: **auxilia** MCP
-   - **Homepage URL**: `https://your-auxilia-domain.com`
+2. **OAuth Apps** → **New OAuth App**
+3. Fill in:
+   - **Application name**: auxilia MCP
+   - **Homepage URL**: your deployment URL, e.g. `https://auxilia.example.com`
    - **Authorization callback URL**:
      ```
-     https://your-auxilia-domain.com/api/backend/mcp-servers/oauth/callback
+     <FRONTEND_URL>/api/backend/mcp-servers/oauth/callback
      ```
      For local development:
      ```
@@ -21,49 +21,33 @@ This guide walks through connecting the GitHub MCP server to **auxilia**. GitHub
 5. Copy the **Client ID**
 6. Click **Generate a new client secret** and copy it
 
-## 2. Install the GitHub MCP Server
+## 2. Install the GitHub MCP server
 
 In **auxilia**, navigate to **MCP Servers**:
 
 1. Find **GitHub** in the official servers list
 2. Click **Install**
-3. Enter the credentials from your GitHub OAuth App:
-   - **Client ID**: Your GitHub app's client ID
-   - **Client Secret**: Your GitHub app's client secret
+3. Enter the **Client ID** and **Client Secret**
 
-## 3. Connect Your Account
+## 3. Connect your account
 
-1. Click the **Connect** button on the GitHub server card
-2. You'll be redirected to GitHub's authorization page
-3. Review the permissions and click **Authorize**
-4. You'll be redirected back to **auxilia**
+1. Click **Connect** on the GitHub server card
+2. Review the permissions on GitHub's authorization page and click **Authorize**
+3. You're redirected back to **auxilia**
 
-## 4. Add to an Agent
+## 4. Add to an agent
 
-1. Navigate to an agent's configuration page
-2. Click **Add MCP Server**
-3. Select **GitHub** from the list
-4. Configure [tool settings](/docs/tools/settings) as needed
+1. Open an agent's configuration page
+2. Click **Add MCP Server** → **GitHub**
+3. Set [tool permissions](/docs/tools/settings) — PR / issue creation and commit-writing tools are good candidates for **needs approval**
 
-## Available Tools
+## Alternative: personal access token
 
-The GitHub MCP server typically provides tools for:
-
-- Searching repositories, issues, and pull requests
-- Reading file contents and repository structure
-- Creating and updating issues
-- Managing pull requests
-- Working with GitHub Actions
-- Accessing organization and user data
-
-## Alternative: Personal Access Token
-
-If you prefer not to set up OAuth, you can also connect using a GitHub Personal Access Token:
+If you'd rather skip OAuth, connect with a GitHub PAT instead:
 
 1. Go to [GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens](https://github.com/settings/tokens?type=beta)
-2. Click **Generate new token**
-3. Select the repositories and permissions your agent needs
-4. Copy the token
-5. In **auxilia**, add the GitHub MCP server as a **custom server** with auth type **API Key** and paste your token
+2. **Generate new token** → pick the repositories and permissions the agent needs
+3. Copy the token
+4. In **auxilia**, **Add MCP Server** as a **custom** server, auth type **API key**, URL `https://api.githubcopilot.com/mcp`, token pasted into the **API key** field
 
-This approach is simpler but the token is tied to a single user account and has a fixed expiration.
+The PAT is tied to a single GitHub account and has a fixed expiration, but it's simpler than OAuth for personal or single-user workspaces.

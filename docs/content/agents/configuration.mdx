@@ -1,59 +1,68 @@
 # Agent Configuration
 
-This page covers the details of configuring an agent in **auxilia**.
+Every field on an agent can be edited at any time. Changes take effect on the next message — existing threads are not recomputed.
 
-## System Prompt (Instructions)
+## Instructions (system prompt)
 
-The instructions field is the system prompt sent to the LLM on every message. It defines the agent's personality, behavior, and constraints.
+The instructions field is the system prompt prepended to every conversation. It defines the agent's role, tone, and constraints.
 
-Tips for writing effective instructions:
+Tips for effective instructions:
 
-- Be specific about the agent's role and domain
-- List what the agent should and shouldn't do
-- Mention which tools to prefer for specific tasks
-- Include formatting preferences for responses
+- Be specific about the agent's domain and the audience
+- Tell it which tools (and MCP servers) to prefer for which tasks
+- List formatting rules, e.g. "always cite the HubSpot contact ID"
+- Say what to do when a tool fails or data is missing — otherwise the LLM will guess
 
-**Example:**
+Example:
 
+```text
+You are a CRM assistant for the sales team. Use the HubSpot MCP tools to look up
+contacts, deals, and companies.
+
+When reporting on a contact, always include: email, company, deal stage, and the
+last-activity date. Format monetary values with currency symbols. If a record
+cannot be found, say so plainly rather than guessing.
 ```
-You are a CRM assistant for the sales team. Use the HubSpot tools to look up
-contacts, deals, and company information.
 
-When asked about a contact, always include their email, company, and deal stage.
-Format monetary values with currency symbols. If you can't find a record,
-say so clearly rather than guessing.
-```
+## Avatar
 
-## Emoji Avatar
+Agents have a two-part avatar:
 
-Each agent has an emoji avatar displayed in the agent list and chat header. Click the emoji in the agent editor to open the picker.
+- **Emoji** — picked via the emoji picker in the agent editor
+- **Color** — a hex color used as the badge background in the sidebar and chat header
 
-## MCP Server Bindings
+## Description
 
-After creating an agent, bind MCP servers to give it access to tools:
+A short description shown on the agent card in the **Agents** list. Keep it to one sentence — users pick agents by skimming this.
 
-1. Click **Add MCP Server** in the agent configuration
-2. Select a server from the workspace's registered servers
-3. The server's tools will appear with their default status
+## MCP server bindings
 
-Each binding tracks:
+After the agent exists, bind one or more workspace MCP servers from the agent's configuration page:
 
-- **Enabled tools** — which tools from this server are available
-- **Tool statuses** — per-tool permission level (see [Tool Settings](/docs/tools/settings))
+1. Click **Add MCP Server**
+2. Pick a server from the workspace catalog
+3. **auxilia** fetches the server's tools and adds them to the binding
 
-## Editing an Agent
+Each binding carries:
 
-All agent properties can be modified at any time:
+- **Tools** — the list discovered at bind time, each one with a status (`always allow`, `needs approval`, `disabled`). See [Tool Settings](/docs/tools/settings).
+- **Sync tools** — re-fetches the tool list from the MCP server. Use this when the server publishes new tools or changes descriptions.
 
-- Changes to **instructions** take effect on the next message
-- Changes to **MCP server bindings** take effect on the next message
-- Changes to **tool settings** take effect on the next message
-- Existing chat threads are not affected by historical changes — they use the current configuration
+## Code execution (sandbox)
 
-## Deleting an Agent
+Toggle **Code execution** on the agent page to give the agent a Linux sandbox with shell, file, and search tools. See [Sandbox](/docs/sandbox) for the full toolset and security model.
 
-Deleting an agent removes:
+## Subagents
 
-- The agent configuration
+Admins can attach **subagents** — specialized agents that the coordinator agent can call as tools. See [Subagents](/docs/agents/subagents).
+
+## Archiving and deleting
+
+Agents can be **archived** (hidden from the default list but preserved with their threads) or **deleted** outright. Deleting an agent removes:
+
+- The agent config
 - All MCP server bindings for that agent
-- All chat threads associated with the agent
+- All subagent links to or from it
+- All threads and checkpoints associated with it
+
+Archived agents remain queryable; deleted agents don't.

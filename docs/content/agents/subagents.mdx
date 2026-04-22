@@ -1,0 +1,55 @@
+# Subagents
+
+A **subagent** is an agent exposed as a tool to another agent. The caller — the **coordinator** — decides when to hand off a question to the subagent, receives the subagent's answer as a tool result, and uses it in its own response.
+
+This lets you build specialized agents (one great at SQL, one great at Slack-drafting, one great at investigation) and have a single entry-point agent dispatch work across them without the user having to pick the right tool.
+
+## How it works
+
+When a coordinator has subagents attached, **auxilia** builds it as a [deep agent](https://github.com/langchain-ai/deepagents) and wraps each subagent as a tool:
+
+```
+┌──────────────────┐
+│  Coordinator     │  ask_sql("top 10 customers by MRR")
+│   (LLM + tools)  │ ─────────────────────────────────────┐
+└──────────────────┘                                       │
+         │                                                 ▼
+         │                                      ┌──────────────────┐
+         │                                      │  SQL subagent    │
+         │                                      │   (LLM + tools)  │
+         │                                      └──────────────────┘
+         │                                                 │
+         │          result                                 │
+         │◀────────────────────────────────────────────────┘
+         ▼
+    final message
+```
+
+Subagents run in their own LangGraph invocation; their tool calls, approvals, and messages are rolled up into the coordinator's stream.
+
+## Constraints
+
+**auxilia** enforces two structural rules at bind time:
+
+- An agent that has subagents cannot itself be used as a subagent
+- An agent that is already a subagent cannot have subagents
+
+In other words, the subagent graph is one level deep — no nested coordinators. This keeps reasoning and HITL flows predictable.
+
+## Managing subagents
+
+Only workspace **admins** can add or remove subagent links. From an agent's configuration page:
+
+1. Open the **Subagents** section
+2. Click **Add subagent** and pick an agent from the workspace
+3. **auxilia** creates the coordinator → subagent binding
+
+Removing a subagent unlinks it; both agents continue to exist.
+
+## Picking good subagents
+
+Subagents shine when each one has a narrow, well-described purpose. The coordinator picks between subagents the same way an LLM picks between tools — based on names and descriptions — so:
+
+- Give each subagent a **clear description** (it becomes the tool description)
+- Make their instructions **specific** so they stay on task
+- Bind each subagent to the **minimum set of MCP servers** it needs

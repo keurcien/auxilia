@@ -1,0 +1,57 @@
+# Sandbox Security
+
+The sandbox lets an LLM run arbitrary shell commands against a filesystem. That is a powerful capability and worth thinking about carefully.
+
+## Isolation model
+
+Every sandbox is a short-lived container managed by [OpenSandbox](https://github.com/langchain-ai/opensandbox). Containers:
+
+- Are **per-conversation** — the sandbox tied to thread A cannot be reached from thread B
+- Have a **TTL** (default 30 minutes); after expiry they are destroyed and any state inside is lost
+- Are created **on demand** when the LLM calls `create_sandbox` — no idle containers sit around
+
+The **auxilia** backend never executes commands itself — it always delegates to the OpenSandbox controller. So the blast radius of a malicious prompt is whatever your OpenSandbox deployment allows the container to do.
+
+## Volume mounts
+
+You can mount host paths into every sandbox via `OPEN_SANDBOX_VOLUME_MOUNTS`:
+
+```env
+OPEN_SANDBOX_VOLUME_MOUNTS=/srv/shared:/workspace:ro,/tmp/auxilia:/mnt/scratch
+```
+
+Format: `host_path:sandbox_path[:ro]`, comma-separated.
+
+- Each entry becomes a volume on every sandbox spun up by this backend
+- The `:ro` suffix mounts read-only
+- Host paths that don't exist are skipped with a warning at startup
+- Host paths with `~` are expanded to the backend's home directory
+
+Treat the host paths you mount as **public** to any agent with the sandbox enabled. If you mount `/srv/data` read-only, every sandboxed agent can read it. If you mount `/tmp/auxilia` read-write, every sandbox can write to it — it is a shared scratch space.
+
+## Timeouts
+
+Two timeouts apply:
+
+- **Per-command timeout** — `OPEN_SANDBOX_TIMEOUT` (default 1800s). If a single `execute` call doesn't finish in this window, **auxilia** cancels it and returns `exit_code=124`.
+- **Container TTL** — default 30 minutes; renewed each time `connect_sandbox` is called.
+
+Keep the per-command timeout tight. Long-running commands are rare in practice and chew up OpenSandbox capacity.
+
+## Authentication
+
+The OpenSandbox controller authenticates requests with the `OPEN_SANDBOX_API_KEY`. Put the controller on a private network (VPC, internal DNS) and only let the **auxilia** backend reach it.
+
+Setting `OPEN_SANDBOX_USE_SERVER_PROXY=true` routes the agent's file reads/writes through the OpenSandbox server rather than direct container ports, which is simpler in firewalled environments.
+
+## Recommended posture
+
+A safe default for most teams:
+
+- Run OpenSandbox on an **internal-only** host or VPC
+- **Never mount** sensitive host paths — let the sandbox stay ephemeral
+- Keep the per-command timeout at 30 min or less
+- Turn **Code execution** on only for agents whose owners trust the LLM to run code against the configured image
+- Use **tool approvals** on non-sandbox write tools (HubSpot writes, GitHub PRs) to keep a human in the loop even when the agent is autonomous inside the sandbox
+
+If you need stronger guarantees, gate the sandbox toggle behind a workspace-admin-only agent, and use the [permissions model](/docs/agents/permissions) to restrict who can chat with it.
