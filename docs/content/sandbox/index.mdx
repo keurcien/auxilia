@@ -1,0 +1,70 @@
+# Sandbox
+
+The **sandbox** gives an agent a private, isolated Linux environment for executing code, reading and writing files, searching, and running shell commands. It turns any agent into a lightweight data-analysis or scripting agent without handing it access to the host.
+
+## Why a sandbox
+
+MCP servers cover most structured actions (query HubSpot, search Sentry, open a PR in GitHub). But some tasks don't fit that shape — they need a **scratch environment** with a filesystem and a Python shell:
+
+- Analyze a CSV the user uploads and produce a chart
+- Write, lint, and run a Python script against live data
+- Iterate on a SQL query using `bq` or `psql`
+- Transform a payload with `jq` before feeding it to another tool
+
+The sandbox provides that environment and exposes it to the agent as a toolset.
+
+## How it works
+
+**auxilia**'s sandbox integration is built on [OpenSandbox](https://github.com/langchain-ai/opensandbox), an open-source sandbox runtime that spawns short-lived Linux containers on demand. The wiring:
+
+```
+┌─────────────────────┐      create_sandbox()      ┌────────────────────┐
+│  Agent (LangGraph)  │ ───────────────────────▶   │   OpenSandbox      │
+│                     │ ◀───── sandbox_id ──────── │   controller       │
+└─────────────────────┘                            └─────────┬──────────┘
+         │                                                   │
+         │  execute("python script.py")                      │
+         │  read_file("/tmp/out.json")                       │
+         │  …                                                ▼
+         │                                        ┌──────────────────────┐
+         │                                        │   Container          │
+         └──────────────────────────────────────▶ │   (python:3.12-slim) │
+                                                  └──────────────────────┘
+```
+
+The sandbox is **lazy**: it is not created when an agent starts. The LLM decides when (and whether) to call `create_sandbox`, and only then does a container come up. A default container has a **30-minute TTL** that can be renewed via `connect_sandbox`.
+
+Inside a conversation, the agent can create one sandbox, keep reusing it across turns, and reconnect to it after a browser refresh.
+
+## Enable it for an agent
+
+1. Configure the sandbox runtime (see [Setup](/docs/sandbox/setup))
+2. On the agent's configuration page, toggle **Code execution** on
+
+When the toggle is on (and `OPEN_SANDBOX_DOMAIN` is configured on the backend), the agent is built with LangGraph's `create_deep_agent` — which layers in the sandbox management tools plus the standard file-ops tools.
+
+If the runtime is **not** configured, the toggle is still visible but has no effect — the backend only enables the sandbox branch when `OPEN_SANDBOX_DOMAIN` is set.
+
+## What the agent can do
+
+Once the agent calls `create_sandbox`, it gets this toolset automatically:
+
+| Tool              | What it does                                                        |
+| ----------------- | ------------------------------------------------------------------- |
+| `create_sandbox`  | Spin up a new container (lazy; first call only)                     |
+| `connect_sandbox` | Reconnect to an existing container by ID and renew its TTL          |
+| `ls`              | List files in a directory with metadata (size, mtime)               |
+| `read_file`       | Read a file with line numbers; supports offset/limit for big files  |
+| `write_file`      | Create a new file                                                   |
+| `edit_file`       | Exact string replacement in an existing file (with global mode)     |
+| `glob`            | Find files matching a pattern (`**/*.py`)                           |
+| `grep`            | Search file contents; outputs files-only, content, or counts        |
+| `execute`         | Run a shell command                                                 |
+
+See [Tools](/docs/sandbox/tools) for details.
+
+## Next
+
+- **[Setup](/docs/sandbox/setup)** — run OpenSandbox and point **auxilia** at it
+- **[Tools](/docs/sandbox/tools)** — details on every sandbox tool
+- **[Security](/docs/sandbox/security)** — isolation, volume mounts, timeouts

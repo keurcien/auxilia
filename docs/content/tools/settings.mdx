@@ -1,58 +1,54 @@
 # Tool Settings
 
-Every tool bound to an agent can be configured with one of three permission states. This gives you fine-grained control over what actions an agent can take autonomously versus what requires human oversight.
+Each tool on an agent-server binding has one of three statuses. This is how you give an agent tight, read-only access to one server and full write access to another — without having to juggle separate agents.
 
-## The Three States
+## The three states
 
-### Always Allow
+### Always allow
 
-The tool executes immediately when the LLM decides to call it. No user intervention is needed.
+The tool runs immediately when the LLM calls it. No prompt, no interrupt.
 
-**Use for:** Read-only tools, low-risk actions, tools you trust completely.
+**Use for:** read-only tools, low-risk actions, tools you trust completely.
 
-### Needs Approval
+### Needs approval
 
-When the LLM calls this tool, execution pauses and the user is shown an approval prompt in the chat. The user can review the tool name and input parameters, then approve or reject the call.
+When the LLM calls the tool, the LangGraph run hits a [HITL interrupt](https://langchain-ai.github.io/langgraph/concepts/human_in_the_loop/). The chat shows an approval card with the tool name and the exact arguments. The user can:
 
-**Use for:** Write operations, actions with side effects, tools that modify external data, or any tool where you want human oversight.
+- **Approve** — the call proceeds and the agent resumes
+- **Reject** — the tool returns a rejection message to the LLM, which decides what to do next
 
-**How it works:**
+In Slack, approvals are posted as Block Kit messages with **Approve** and **Reject** buttons.
 
-1. The LLM decides to call the tool
-2. **auxilia** pauses the agent execution
-3. The chat shows the pending tool call with its parameters
-4. The user clicks **Approve** or **Reject**
-5. If approved, the tool executes and the agent continues
-6. If rejected, the agent is informed and adjusts its response
+**Use for:** write operations, actions with side effects, tools that modify external data.
 
 ### Disabled
 
-The tool is completely excluded from the agent's toolset. The LLM doesn't know the tool exists and can't call it.
+The tool is stripped from the toolset the LLM sees. The model cannot call it and does not know it exists.
 
-**Use for:** Tools that are irrelevant to the agent's purpose, or tools you want to temporarily turn off.
+**Use for:** tools that are off-topic for the agent, or tools you want to temporarily kill-switch.
 
-## Configuring Tool Settings
+## Changing tool settings
 
 1. Open the agent's configuration page
-2. Find the MCP server section
-3. Each tool shows a three-state toggle:
+2. In the MCP server section, click through the tool list
+3. Cycle each tool through the three states
 
 ```
-   ✓  Always Allow
-   ⏸  Needs Approval
-   ✗  Disabled
+✓  Always allow
+⏸  Needs approval
+✗  Disabled
 ```
 
-4. Click the toggle to cycle between states
+## Defaults
 
-## Default Behavior
+When an MCP server is first bound to an agent, every tool defaults to **Always allow**. Review the list and tighten writes before exposing the agent to users.
 
-When an MCP server is first bound to an agent, all tools default to **Always Allow**. Review the tool list and adjust permissions based on your needs.
+## Per-agent, per-server
 
-## Per-Agent Configuration
+Tool settings live on the agent-server binding, so the same MCP server can have different permissions on different agents:
 
-Tool settings are scoped to each agent-server binding. The same MCP server can have different tool permissions across different agents. For example:
+- A **Read-only CRM Agent** might have every HubSpot write tool **disabled**
+- A **Sales Assistant** might have HubSpot writes set to **needs approval**
+- An **Automation Agent** owned by an admin might have everything **always allow**
 
-- A "Read-Only CRM Agent" might have all HubSpot write tools **disabled**
-- A "Sales Assistant" might have HubSpot write tools set to **needs approval**
-- An "Automation Agent" might have all tools set to **always allow**
+Changing settings takes effect on the next message — existing thread checkpoints are unaffected.

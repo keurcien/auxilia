@@ -1,26 +1,28 @@
 # Langfuse
 
-[Langfuse](https://langfuse.com/) is an open-source LLM observability platform. Integrating Langfuse with **auxilia** allows you to trace agent executions, monitor token usage, and debug tool calls.
+[Langfuse](https://langfuse.com/) is an open-source LLM observability platform. **auxilia** ships with a built-in Langfuse callback that traces every agent run — model calls, tool invocations, token counts, latency, and cost — without any code changes.
 
-> This integration is **planned** and not yet available. This page documents the intended setup.
+## What you get
 
-## What Langfuse Provides
+- **Traces** — per-message traces showing LLM calls, MCP tool calls, latencies, and token usage
+- **Cost tracking** — token and cost breakdowns per agent, user, or thread
+- **Evaluation** — score and annotate agent responses in the Langfuse UI
+- **Prompt versioning** — manage and compare system prompts across agents
 
-- **Tracing** — See the full execution flow of each agent interaction, including LLM calls, tool invocations, and response times
-- **Cost tracking** — Monitor token usage and estimated costs per agent, user, or thread
-- **Evaluation** — Score and annotate agent responses for quality monitoring
-- **Prompt management** — Version and manage system prompts centrally
+## Enable it
 
-## Planned Configuration
-
-The integration will use the LangChain callback handler for Langfuse. Configuration will be done via environment variables:
+Set these three environment variables on the backend:
 
 ```env
-LANGFUSE_PUBLIC_KEY=pk-...
-LANGFUSE_SECRET_KEY=sk-...
-LANGFUSE_HOST=https://cloud.langfuse.com  # or self-hosted URL
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_BASE_URL=https://cloud.langfuse.com  # or your self-hosted URL
 ```
 
-## Self-Hosted Langfuse
+On startup, the backend instantiates a shared `Langfuse` client and attaches a `CallbackHandler` to every LangGraph invocation. If any of the three variables is missing, the integration is silently disabled.
 
-Langfuse can be self-hosted alongside **auxilia** for full data control. See the [Langfuse self-hosting guide](https://langfuse.com/docs/deployment/self-host) for setup instructions.
+See `app/integrations/langfuse/callback.py` for the wiring.
+
+## Self-hosted Langfuse
+
+Langfuse is itself open source. You can run it alongside **auxilia** for full data ownership — follow the [Langfuse self-hosting guide](https://langfuse.com/self-hosting) and point `LANGFUSE_BASE_URL` at your instance.

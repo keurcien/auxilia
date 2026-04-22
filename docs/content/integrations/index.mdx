@@ -1,29 +1,38 @@
 # Integrations
 
-**auxilia** can be extended with integrations for observability, notifications, and more.
+**auxilia** ships with two first-party integrations plus a pluggable LLM provider layer.
 
-## Available Integrations
+## First-party integrations
 
-| Integration                             | Purpose                         | Status  |
-| --------------------------------------- | ------------------------------- | ------- |
-| [Langfuse](/docs/integrations/langfuse) | LLM observability and tracing   | Planned |
-| [Slack](/docs/integrations/slack)       | Notifications and bot interface | Planned |
+| Integration                               | Purpose                                            |
+| ----------------------------------------- | -------------------------------------------------- |
+| **[Slack](/docs/integrations/slack)**       | Invoke agents, approve tool calls, and stream responses inside Slack threads |
+| **[Langfuse](/docs/integrations/langfuse)** | Trace LLM calls, tool calls, token costs, and agent runs |
 
-## LLM Providers
+Both integrations are activated by setting environment variables — there is nothing else to install.
 
-**auxilia** supports multiple LLM providers out of the box. Configure API keys in your environment variables:
+## LLM providers
 
-| Provider  | Environment Variable | Models                       |
-| --------- | -------------------- | ---------------------------- |
-| OpenAI    | `OPENAI_API_KEY`     | GPT-4o mini                  |
-| Anthropic | `ANTHROPIC_API_KEY`  | Claude Haiku / Sonnet / Opus |
-| Google    | `GOOGLE_API_KEY`     | Gemini 3 Flash / Pro         |
-| DeepSeek  | `DEEPSEEK_API_KEY`   | DeepSeek Chat / Reasoner     |
-| LiteLLM   | `LITELLM_BASE_URL`   | Any model via proxy          |
+**auxilia** supports multiple providers out of the box. At least one key is required; every configured provider shows up in the model picker.
 
-## Authentication Providers
+| Provider  | Environment Variable | Models                                              |
+| --------- | -------------------- | --------------------------------------------------- |
+| Anthropic | `ANTHROPIC_API_KEY`  | `claude-haiku-4-5`, `claude-sonnet-4-6`, `claude-opus-4-6` |
+| OpenAI    | `OPENAI_API_KEY`     | `gpt-4o-mini`                                       |
+| Google    | `GOOGLE_API_KEY`     | `gemini-3-flash-preview`, `gemini-3-pro-preview`    |
+| DeepSeek  | `DEEPSEEK_API_KEY`   | `deepseek-chat`, `deepseek-reasoner`                |
 
-| Provider       | Environment Variables                                             |
-| -------------- | ----------------------------------------------------------------- |
-| Email/Password | Built-in (no extra config)                                        |
-| Google OAuth   | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` |
+Anthropic models run with thinking enabled by default; Google models run with `include_thoughts=True`. Change the defaults in `app/model_providers/catalog.py`.
+
+## Authentication providers
+
+| Provider       | Environment variables                                                  |
+| -------------- | ---------------------------------------------------------------------- |
+| Email/password | Built-in                                                                |
+| Google OAuth   | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`       |
+
+Set `AUTH_GOOGLE_EXCLUSIVE=true` if you want to disable the email/password path and force Google sign-in.
+
+## Personal access tokens
+
+For headless usage (scripts, CI, external services), workspace admins can mint **personal access tokens** from **Settings → Tokens**. PATs authenticate API calls as the creating admin; they're hashed at rest and shown once at creation time.

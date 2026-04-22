@@ -1,4 +1,6 @@
 export default {
   index: 'Overview',
-  configuration: 'Configuration'
+  configuration: 'Configuration',
+  permissions: 'Permissions',
+  subagents: 'Subagents'
 }

@@ -1,0 +1,67 @@
+# Sandbox Tools
+
+When an agent has **Code execution** enabled, **auxilia** exposes two sandbox-lifecycle tools plus a full file-ops toolset inherited from the OpenSandbox base backend.
+
+## Lifecycle tools
+
+### `create_sandbox(timeout_minutes: int = 30)`
+
+Create a new container for this conversation. Returns the sandbox ID plus the TTL.
+
+The LLM is instructed to call this **before** any code execution. A single sandbox is reused across turns until it expires or the user starts a new thread.
+
+### `connect_sandbox(sandbox_id: str)`
+
+Reconnect to an existing sandbox by ID. Useful when the conversation is resumed after the TTL has started ticking. On success, the TTL is renewed for another 30 minutes.
+
+If the sandbox no longer exists, the tool returns an error and the LLM is expected to call `create_sandbox` instead.
+
+## File-ops tools
+
+All of these operate against the container's filesystem. They come from the [OpenSandbox `BaseSandbox`](https://github.com/langchain-ai/opensandbox) implementation and route through a single `execute()` call under the hood.
+
+### `ls(path)`
+
+List a directory. Returns entries with their size and modification time, suitable for quick inspection.
+
+### `read_file(path, offset=0, limit=2000)`
+
+Read a file with line numbers. For files larger than the default limit, pass `offset` and `limit` to paginate. Good default behavior for the LLM: read what it needs, not the whole file.
+
+### `write_file(path, content)`
+
+Create a new file. Fails if the file already exists — use `edit_file` for updates.
+
+### `edit_file(path, old_string, new_string, replace_all=false)`
+
+Do an exact string replacement inside an existing file. If `old_string` is ambiguous (appears more than once) the tool errors unless `replace_all=true`.
+
+### `glob(pattern)`
+
+Find files matching a glob — e.g. `**/*.py`, `data/*.csv`. Returns paths sorted by mtime.
+
+### `grep(pattern, path=".", mode="files_with_matches")`
+
+Regex search over file contents. Modes:
+
+- `files_with_matches` — only paths
+- `content` — lines that match (supports `-A` / `-B` / `-C` context)
+- `count` — match counts per file
+
+### `execute(command, timeout=None)`
+
+Run an arbitrary shell command. The command runs in the background and is polled until it finishes or hits the timeout (default 30 min). Returns stdout + stderr combined and the exit code.
+
+Timeouts are enforced on the server side — if you pass a very large `timeout`, it is clamped by the OpenSandbox controller's own limits.
+
+## Typical usage pattern
+
+A data-analysis agent's first few turns look like:
+
+1. `create_sandbox()` → sandbox `sb_abc123`, TTL 30 min
+2. `execute("pip install pandas matplotlib")` (only if not in `OPEN_SANDBOX_DEFAULT_PACKAGES`)
+3. `write_file("/tmp/analysis.py", "...")`
+4. `execute("python /tmp/analysis.py")`
+5. `read_file("/tmp/result.json")`
+
+Because the sandbox lives for the length of the conversation, subsequent turns can just `execute` or `read_file` without rebuilding state.

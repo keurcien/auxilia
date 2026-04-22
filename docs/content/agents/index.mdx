@@ -1,54 +1,67 @@
 # Agents
 
-Agents are the core of **auxilia**. An agent is an AI assistant configured with a system prompt (instructions), an emoji avatar, and a set of MCP server bindings that determine which tools it can use.
+Agents are the core of **auxilia**. An agent is an AI assistant defined by:
 
-## How Agents Work
+- A **name**, **emoji**, and **color** (the avatar shown in the sidebar and chat)
+- **Instructions** — the system prompt sent on every message
+- A set of **MCP server bindings** — which tools the agent can reach
+- Optional **subagents** — specialized agents this agent can dispatch work to
+- A **sandbox** flag — whether the agent has access to a Linux code-execution environment
+
+## How agents run
 
 When a user sends a message to an agent, **auxilia**:
 
-1. Loads the agent configuration (instructions, model, MCP servers)
-2. Connects to all bound MCP servers and discovers available tools
-3. Filters tools based on each tool's status (always allow / needs approval / disabled)
-4. Sends the message to the LLM with the system prompt and available tools
-5. Streams the response back, executing tool calls as needed
+1. Loads the agent configuration from Postgres
+2. Opens an MCP session to every bound server (reusing cached OAuth tokens per user)
+3. Discovers each server's tools and filters them by the agent's [tool settings](/docs/tools/settings)
+4. If the **sandbox** is enabled, adds the `create_sandbox` / `connect_sandbox` tools and the standard file-ops toolset
+5. If subagents are configured, wraps them as tools the coordinator can call
+6. Sends the conversation to the LLM via LangGraph with the resolved toolset
+7. Streams tokens back to the UI (or Slack) and executes tool calls as they appear
+8. Persists state as a LangGraph checkpoint in Postgres so the thread can be resumed
 
-## Creating an Agent
+The underlying runtime is LangGraph's `create_agent` (or `create_deep_agent` when the sandbox is on), with middleware for HITL interrupts, tool errors, and optional subagent dispatch.
 
-1. Navigate to the **Agents** page
+## Creating an agent
+
+1. Navigate to **Agents** in the sidebar
 2. Click **Create Agent**
-3. Fill in the agent details:
-   - **Name** — a descriptive name for the agent
-   - **Emoji** — an avatar emoji shown in the agent list and chat
-   - **Instructions** — the system prompt that defines the agent's behavior
+3. Fill in:
+   - **Name** — what users see in the agent list
+   - **Emoji** and **color** — the avatar
+   - **Description** — short summary shown on the agent card
+   - **Instructions** — the system prompt
+4. Save, then open the agent's configuration page to bind MCP servers
 
-## Agent-MCP Server Bindings
+Only users with the **editor** or **admin** role can create agents. The creator becomes the **owner** of the agent.
 
-Each agent can be connected to multiple MCP servers. When you bind an MCP server to an agent, all of that server's tools become available (subject to [tool settings](/docs/tools/settings)).
+## Threads
 
-To add MCP servers to an agent:
+Conversations with an agent are organized into **threads**. Each thread:
 
-1. Open the agent's configuration page
-2. Click **Add MCP Server**
-3. Select from the workspace's registered MCP servers
-4. Configure tool permissions for each server
+- Is tied to one agent and one user
+- Persists its message history via LangGraph Postgres checkpoints
+- Remembers the model selected for that thread (not switchable)
+- Is independent from other threads — each one has its own memory
 
-## Chat Threads
+You can regenerate the last assistant message in a thread; **auxilia** rewinds the LangGraph checkpoint and re-streams.
 
-Conversations with agents are organized into **threads**. Each thread:
+## Available models
 
-- Is tied to a specific agent and user
-- Has its own conversation history (persisted via LangGraph checkpoints)
-- Can use a specific LLM model (selectable per thread)
-- Is independent from other threads with the same agent
+You can pick a different LLM per thread. Only models whose API key is configured in the environment appear in the selector.
 
-## Supported Models
+| Provider  | Models                                                     |
+| --------- | ---------------------------------------------------------- |
+| Anthropic | `claude-haiku-4-5`, `claude-sonnet-4-6`, `claude-opus-4-6` |
+| OpenAI    | `gpt-4o-mini`                                              |
+| Google    | `gemini-3-flash-preview`, `gemini-3-pro-preview`           |
+| DeepSeek  | `deepseek-chat`, `deepseek-reasoner`                       |
 
-You can select a different LLM model for each thread. Available models depend on which API keys are configured:
+## Where to go next
 
-| Provider  | Models                                   |
-| --------- | ---------------------------------------- |
-| Anthropic | Claude Haiku, Claude Sonnet, Claude Opus |
-| OpenAI    | GPT-4o mini                              |
-| Google    | Gemini 3 Flash, Gemini 3 Pro             |
-| DeepSeek  | DeepSeek Chat, DeepSeek Reasoner         |
-| LiteLLM   | Any custom model via LiteLLM proxy       |
+- **[Configuration](/docs/agents/configuration)** — editing instructions, avatar, MCP bindings
+- **[Permissions](/docs/agents/permissions)** — sharing agents across the workspace
+- **[Subagents](/docs/agents/subagents)** — dispatching work to specialized agents
+- **[Sandbox](/docs/sandbox)** — enabling code execution
+- **[Tool Settings](/docs/tools/settings)** — approval rules per tool

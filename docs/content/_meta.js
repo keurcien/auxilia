@@ -8,6 +8,7 @@ export default {
   'mcp-servers': 'MCP Servers',
   agents: 'Agents',
   tools: 'Tools',
+  sandbox: 'Sandbox',
   '----': {
     type: 'separator'
   },

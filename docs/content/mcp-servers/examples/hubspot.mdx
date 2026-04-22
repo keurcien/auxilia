@@ -1,71 +1,67 @@
 # HubSpot MCP Server
 
-This guide walks through connecting the HubSpot MCP server to **auxilia**. HubSpot uses **static OAuth credentials**, so you need to create an OAuth app in HubSpot first.
+This guide walks through connecting the HubSpot MCP server to **auxilia**. HubSpot uses **static OAuth credentials**, so you need to register an OAuth app in HubSpot first.
 
-## 1. Create a HubSpot OAuth App
+## 1. Create a HubSpot OAuth app
 
 1. Go to the [HubSpot Developer Portal](https://developers.hubspot.com/)
-2. Navigate to **Apps** → **Create app**
+2. **Apps** → **Create app**
 3. Fill in the app details:
    - **App name**: auxilia MCP
    - **Description**: MCP integration for auxilia
-4. Go to the **Auth** tab
+4. Open the **Auth** tab
 5. Set the **Redirect URL** to:
    ```
-   https://your-auxilia-domain.com/api/backend/mcp-servers/oauth/callback
+   <FRONTEND_URL>/api/backend/mcp-servers/oauth/callback
+   ```
+   For example:
+   ```
+   https://auxilia.example.com/api/backend/mcp-servers/oauth/callback
    ```
    For local development:
    ```
    http://localhost:3000/api/backend/mcp-servers/oauth/callback
    ```
-6. Under **Scopes**, add the scopes required by the HubSpot MCP server (typically CRM scopes like `crm.objects.contacts.read`, `crm.objects.deals.read`, etc.)
+6. Under **Scopes**, add the scopes required by the HubSpot MCP server (CRM scopes — typically `crm.objects.contacts.read`, `crm.objects.deals.read`, `crm.objects.companies.read`, and the matching write scopes if the agent needs to mutate data)
 7. Click **Create app**
 8. Copy the **Client ID** and **Client Secret** from the Auth tab
 
-## 2. Install the HubSpot MCP Server
+## 2. Install the HubSpot MCP server
 
 In **auxilia**, navigate to **MCP Servers**:
 
 1. Find **HubSpot** in the official servers list
 2. Click **Install**
-3. Enter the credentials from your HubSpot OAuth app:
-   - **Client ID**: Your HubSpot app's client ID
-   - **Client Secret**: Your HubSpot app's client secret
+3. Enter:
+   - **Client ID** — from the HubSpot Auth tab
+   - **Client Secret** — from the HubSpot Auth tab
 
-## 3. Connect Your Account
+## 3. Connect your account
 
-1. Click the **Connect** button on the HubSpot server card
-2. You'll be redirected to HubSpot's authorization page
+1. Click **Connect** on the HubSpot server card
+2. You're redirected to HubSpot's authorization page
 3. Select the HubSpot account to connect
 4. Grant the requested permissions
-5. You'll be redirected back to **auxilia**
+5. You're redirected back to **auxilia**
 
-The server card should now show a connected status.
+The server card now shows as connected.
 
-## 4. Add to an Agent
+## 4. Add to an agent
 
-1. Navigate to an agent's configuration page
-2. Click **Add MCP Server**
-3. Select **HubSpot** from the list
-4. Configure [tool settings](/docs/tools/settings) for each HubSpot tool
-
-## Available Tools
-
-The HubSpot MCP server typically provides tools for:
-
-- Searching and managing contacts
-- Managing deals and pipelines
-- Working with companies
-- Querying HubSpot CRM data
+1. Open an agent's configuration page
+2. Click **Add MCP Server** and pick **HubSpot**
+3. Configure [tool settings](/docs/tools/settings) — for HubSpot, write tools are a good candidate for **needs approval**
 
 ## Troubleshooting
 
-### "Invalid redirect URI" error
+### "Invalid redirect URI"
 
-Make sure the redirect URL in your HubSpot app exactly matches your **auxilia** deployment URL, including the path `/api/backend/mcp-servers/oauth/callback`.
+Make sure the redirect URL in your HubSpot app matches `<FRONTEND_URL>/api/backend/mcp-servers/oauth/callback` exactly — no trailing slash, protocol, or subdomain mismatches.
 
-### "Token exchange failed" error
+### "Token exchange failed"
 
 Verify that:
 
-- Your HubSpot app has the required scopes enabled
+- Your HubSpot app has the scopes the MCP server requests
+- The client secret you entered in **auxilia** matches the one shown in HubSpot
+- The HubSpot app has been fully created (not still in draft)
