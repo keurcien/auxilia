@@ -2,7 +2,7 @@
   <img src="docs/public/logo.svg#gh-light-mode-only" alt="auxilia" height="72" />
   <img src="docs/public/logo-dark.svg#gh-dark-mode-only" alt="auxilia" height="72" />
 
-  <h3>The open-source web MCP client for teams.</h3>
+  <h3>auxilia: the open-source web MCP client for teams.</h3>
 
   <p>
     Host AI assistants backed by remote <a href="https://modelcontextprotocol.io/">Model Context Protocol</a> servers,
@@ -60,11 +60,13 @@ Most MCP clients today are desktop apps tied to a single user. **auxilia** is di
 
 ### 🧪 Code Sandbox
 
-Turn any agent into a lightweight data-analyst with an **isolated Linux environment** powered by [OpenSandbox](https://github.com/langchain-ai/opensandbox):
+Turn any agent into a lightweight data-analyst with an **isolated Linux environment** powered by [OpenSandbox](https://github.com/alibaba/opensandbox):
 
 - Filesystem tools: `ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`
 - Shell access via `execute`
 - Lazy-spawned containers with a 30-minute TTL, reconnectable across browser refreshes
+
+⚠️ To enable code execution, you first need to deploy Opensandbox (either on a simple VM or Kubernetes), and set it up in auxilia.
 
 ### 💬 Slack Integration
 
@@ -111,30 +113,7 @@ make dev
 
 `make dev` starts PostgreSQL, Redis, the FastAPI backend (with migrations applied) and the Next.js frontend in parallel — all with hot reload.
 
-See the [Get Started guide](https://github.com/keurcien/auxilia/blob/main/docs/content/get-started.mdx) for the full walkthrough.
-
-## 🏗 Architecture
-
-```
-┌─────────────┐     ┌─────────────┐     ┌──────────────────┐
-│   Browser   │────▶│   Next.js   │────▶│     FastAPI      │
-│   (React)   │◀────│   (proxy)   │◀────│   (LangGraph)    │
-└─────────────┘     └─────────────┘     └────────┬─────────┘
-                                                 │
-                                    ┌────────────┼────────────┐
-                                    │            │            │
-                         ┌──────────▼──┐ ┌───────▼──────┐ ┌───▼──────────┐
-                         │ Remote MCP  │ │  PostgreSQL  │ │  OpenSandbox │
-                         │  Servers    │ │   + Redis    │ │  (optional)  │
-                         └─────────────┘ └──────────────┘ └──────────────┘
-```
-
-| Service      | Technology              | Purpose                                       |
-| ------------ | ----------------------- | --------------------------------------------- |
-| **Backend**  | FastAPI + LangGraph     | Agent runtime, MCP client, auth, API          |
-| **Web**      | Next.js 16 + React 19   | User interface and backend proxy              |
-| **Database** | PostgreSQL 17 + Redis 7 | Persistence, checkpoints, OAuth token storage |
-| **Sandbox**  | OpenSandbox (optional)  | Isolated code execution for agents            |
+See the [Get Started guide](https://auxilia-docs.vercel.app/get-started) for the full walkthrough.
 
 ## 🤝 Integrations
 
@@ -143,15 +122,15 @@ See the [Get Started guide](https://github.com/keurcien/auxilia/blob/main/docs/c
 | Provider  | Models                                       |
 | --------- | -------------------------------------------- |
 | Anthropic | Claude Haiku 4.5, Sonnet 4.6, Opus 4.6       |
-| OpenAI    | GPT-4o, GPT-4o-mini                          |
+| OpenAI    | GPT-4o-mini                                  |
 | Google    | Gemini 3 Flash Preview, Gemini 3 Pro Preview |
 | DeepSeek  | DeepSeek Chat, DeepSeek Reasoner             |
 
 ### MCP Servers — one-click install
 
-Notion · Linear · GitHub · HubSpot · BigQuery · Slack · Google Drive · Gmail · Google Calendar · Google Sheets · Sentry · Tally · Tavily · n8n
+Notion · Linear · GitHub · HubSpot · BigQuery · Slack · Sentry
 
-Plus any custom remote MCP server — just paste a URL.
+Plus any custom remote MCP server — just paste a URL and your OAuth credentials or API keys.
 
 ### Workspace integrations
 
@@ -162,39 +141,34 @@ Plus any custom remote MCP server — just paste a URL.
 ## 💡 What you can build
 
 - A **CRM agent** that queries HubSpot and drafts Slack replies
-- A **data analyst** that runs BigQuery, produces charts in a sandbox, and posts results to a thread
+- A **data analyst** that runs BigQuery and stores the analysis in a Notion document
 - An **on-call assistant** that reads Sentry issues, searches Linear, and opens PRs via GitHub
 - A **workspace coordinator** that dispatches work to specialized subagents
 
 ## 📚 Documentation
 
-- [Get Started](https://github.com/keurcien/auxilia/blob/main/docs/content/get-started.mdx) — run auxilia locally
-- [Agents](https://github.com/keurcien/auxilia/tree/main/docs/content/agents) — configuration, permissions, subagents
-- [MCP Servers](https://github.com/keurcien/auxilia/tree/main/docs/content/mcp-servers) — registration, auth, examples
-- [Tools](https://github.com/keurcien/auxilia/tree/main/docs/content/tools) — per-tool approval rules
-- [Sandbox](https://github.com/keurcien/auxilia/tree/main/docs/content/sandbox) — enable code execution for an agent
-- [Deployment](https://github.com/keurcien/auxilia/tree/main/docs/content/deployment) — Docker Compose, Google Cloud Run
-- [Integrations](https://github.com/keurcien/auxilia/tree/main/docs/content/integrations) — Slack, Langfuse
+- [Get Started](https://auxilia-docs.vercel.app/get-started) — run auxilia locally
+- [Agents](https://auxilia-docs.vercel.app/agents) — configuration, permissions, subagents
+- [MCP Servers](https://auxilia-docs.vercel.app/mcp-servers) — registration, auth, examples
+- [Tools](https://auxilia-docs.vercel.app/tools) — per-tool approval rules
+- [Sandbox](https://auxilia-docs.vercel.app/sandbox) — enable code execution for an agent
+- [Deployment](https://auxilia-docs.vercel.app/deployment) — Docker Compose, Google Cloud Run
+- [Integrations](https://auxilia-docs.vercel.app/integrations) — Slack, Langfuse
 
-## 🛠 Tech Stack
-
-**Backend** — FastAPI · SQLModel · PostgreSQL · Redis · Alembic · LangChain · LangGraph · MCP SDK · Authlib · pwdlib · uv · Ruff · pytest
-
-**Frontend** — Next.js 16 · React 19 · TypeScript · Tailwind CSS 4 · shadcn/ui · AI Elements · LangGraph SDK · Zustand · Axios
 
 ## 🗺 Roadmap
 
-- [ ] Plugin marketplace for community-curated MCP servers
-- [ ] Fine-grained audit logs per workspace
-- [ ] Per-agent memory store
-- [ ] Multi-workspace / multi-tenant support
+- [ ] Scheduled tasks
+- [ ] Skills
+- [ ] Support for more sandboxes (e.g. Daytona) 
+- [ ] Deployment guides
 - [ ] More SSO providers (Okta, Entra ID)
 
 Have an idea? [Open an issue](https://github.com/keurcien/auxilia/issues/new) or start a discussion.
 
 ## 🤝 Contributing
 
-Contributions are very welcome! Whether it's a bug report, a new MCP server recipe, or a UI improvement:
+Contributions are very welcome! Whether it's a bug report, an agent idea, a new MCP server recipe, or a UI improvement:
 
 1. Fork the repo and create a branch (`git checkout -b feature/my-change`)
 2. Run `make dev` and make sure tests pass (`cd backend && uv run pytest`)
