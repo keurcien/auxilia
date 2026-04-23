@@ -2,7 +2,8 @@
   <img src="docs/public/logo.svg#gh-light-mode-only" alt="auxilia" height="72" />
   <img src="docs/public/logo-dark.svg#gh-dark-mode-only" alt="auxilia" height="72" />
 
-  <h3>auxilia: the open-source web MCP client for teams.</h3>
+  <h1>auxilia</h1>
+  <h3>The open-source web MCP client for teams.</h3>
 
   <p>
     Host AI assistants backed by remote <a href="https://modelcontextprotocol.io/">Model Context Protocol</a> servers,
@@ -40,6 +41,8 @@ Most MCP clients today are desktop apps tied to a single user. **auxilia** is di
 - 🔌 **Remote MCP only** — built for server-to-server Streamable HTTP connections, not local stdio
 - 🏠 **Self-hosted** — runs on your infrastructure; credentials and conversation data stay in your database
 - 🧩 **MCP-native** — tools, skills, and resources all flow through MCP, keeping the core tiny
+
+Learn more about auxilia: https://auxilia-docs.vercel.app/
 
 ## ✨ Features
 
