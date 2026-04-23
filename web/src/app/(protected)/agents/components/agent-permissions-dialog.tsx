@@ -190,9 +190,9 @@ export default function AgentPermissionsDialog({
 					)}
 				</div>
 
-				<div className="flex-1 min-h-0 overflow-hidden">
+				<div className="flex flex-1 flex-col min-h-0">
 					{/* Table header */}
-					<div className="flex items-center py-2 px-5 pl-[58px] font-[family-name:var(--font-dm-sans)]">
+					<div className="flex shrink-0 items-center py-2 px-5 pl-[58px] font-[family-name:var(--font-dm-sans)]">
 						<div className="flex-1 text-[11px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em]">
 							Name
 						</div>
@@ -206,7 +206,7 @@ export default function AgentPermissionsDialog({
 					</div>
 
 					{/* Rows */}
-					<div className="overflow-y-auto max-h-[260px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+					<div className="min-h-0 flex-1 overflow-y-auto pb-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 						{owner && (
 							<div className="flex items-center py-3 px-5 rounded-[16px] transition-all duration-200 hover:bg-[#F8FAF9] dark:hover:bg-white/5">
 								<div className="shrink-0 w-[34px] h-[34px] rounded-full bg-[#F0F3F2] dark:bg-white/10 border-[1.5px] border-[#E0E8E4] dark:border-white/10 flex items-center justify-center text-[12px] font-bold text-[#6B7F76] dark:text-muted-foreground">
