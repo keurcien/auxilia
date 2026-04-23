@@ -3,3 +3,4 @@ node_modules/
 _pagefind/
 public/_pagefind/
 .vercel
+.env*.local
