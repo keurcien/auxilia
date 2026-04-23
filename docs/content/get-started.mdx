@@ -57,11 +57,14 @@ Optional:
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 GOOGLE_REDIRECT_URI=http://localhost:8000/auth/google/callback
+AUTH_GOOGLE_EXCLUSIVE=false    # set to true to disable password signup
 
 # Code-execution sandbox (see /docs/sandbox)
 OPEN_SANDBOX_DOMAIN=localhost:8083
 OPEN_SANDBOX_API_KEY=your-key
 OPEN_SANDBOX_USE_SERVER_PROXY=true
+OPEN_SANDBOX_VOLUME_MOUNTS=    # e.g. "~/.config/gcloud:/root/.config/gcloud:ro"
+OPEN_SANDBOX_DEFAULT_IMAGE=    # e.g. keurcien/opensandbox-sandbox-image:latest
 
 # Langfuse observability (see /docs/integrations/langfuse)
 LANGFUSE_PUBLIC_KEY=pk-...
@@ -71,6 +74,10 @@ LANGFUSE_BASE_URL=https://cloud.langfuse.com
 # Slack integration (see /docs/integrations/slack)
 SLACK_SIGNING_SECRET=
 SLACK_BOT_TOKEN=xoxb-...
+
+# Tuning & debugging
+LOG_LEVEL=INFO                 # set to DEBUG for verbose logs (MCP traces, etc.)
+RECURSION_LIMIT=100            # max LangGraph steps per agent invocation
 ```
 
 ## 3. Start the stack
