@@ -1,4 +1,3 @@
-import requests
 from fastapi import APIRouter
 
 from app.model_providers.models import ModelProviderType
@@ -8,17 +7,6 @@ from .settings import model_provider_settings
 
 
 router = APIRouter(prefix="/model-providers", tags=["model-providers"])
-
-
-def get_litellm_models() -> list[dict]:
-    response = requests.get(
-        f"{model_provider_settings.litellm_api_base}/v1/models",
-        headers={
-            "Authorization": f"Bearer {model_provider_settings.litellm_api_key}",
-            "Content-Type": "application/json"
-        }
-    )
-    return response.json()["data"]
 
 
 @router.get("/", response_model=list[ModelProviderResponse])
@@ -71,16 +59,5 @@ async def get_models() -> list[ModelResponse]:
             ModelResponse(name="Gemini 3 Pro Preview", providers=[
                       ModelProviderType.google], id="gemini-3-pro-preview", chef="Google", chefSlug="google"),
         ])
-    # if model_provider_settings.litellm_api_key:
-    #     if not model_provider_settings.litellm_api_base:
-    #         raise ValueError("LITELLM_API_BASE is not set")
-
-    #     litellm_models = get_litellm_models()
-
-    #     for model in litellm_models:
-    #         _, model_id = model["id"].split("/")
-    #         models.extend([
-    #             ModelResponse(name=model_id, providers=[ModelProviderType.litellm], id=model_id, chef="LiteLLM", chefSlug="litellm")
-    #         ])
 
     return list(models)
