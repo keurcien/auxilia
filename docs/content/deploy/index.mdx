@@ -1,0 +1,47 @@
+# Deploy & Configure
+
+This section is for the **DevOps, IT, and AI engineers** in charge of setting up **auxilia** for a team (or for a solo developer running it on their own infrastructure). Everything a workspace admin needs to get **auxilia** running, connected to your data, and observable lives here.
+
+If you only need a quick local run to try the product, head to **[Get Started](/docs/get-started)**. For how to build and configure agents once **auxilia** is up, see **[Build Agents](/docs/agents)**.
+
+## What "deploying auxilia" actually involves
+
+**auxilia** is composed of four services. You'll decide where each one runs, how they talk to each other, and which external integrations are turned on.
+
+| Service      | Technology                 | Purpose                                       |
+| ------------ | -------------------------- | --------------------------------------------- |
+| **Backend**  | FastAPI + LangGraph        | Agent runtime, MCP client, auth, API          |
+| **Web**      | Next.js 16 + React 19      | User interface and backend proxy              |
+| **Database** | PostgreSQL 17 + Redis 7    | Persistence, checkpoints, OAuth token storage |
+| **Sandbox**  | OpenSandbox (optional)     | Isolated code execution for agents            |
+
+The repository ships with everything you need to build and run these:
+
+```
+backend/Dockerfile       # FastAPI backend
+web/Dockerfile           # Next.js frontend
+docker-compose.yml       # production compose file
+docker-compose.dev.yml   # postgres + redis for local dev
+```
+
+## The full setup checklist
+
+A typical deployment goes through these steps — each one has its own page:
+
+1. **[Environment variables](/docs/deploy/environment-variables)** — pick a database, configure secrets, choose at least one LLM provider
+2. **Deploy the services** — [Cloud Run](/docs/deploy/cloud-run) or [VM / Docker host](/docs/deploy/vm-docker)
+3. **[User management](/docs/deploy/user-management)** — create the first admin, invite teammates, set up Google OAuth, mint personal access tokens
+4. **[MCP servers](/docs/deploy/mcp-servers)** — register the tools (Notion, HubSpot, BigQuery, …) you want agents to use
+5. **[Sandbox](/docs/deploy/sandbox)** — run OpenSandbox if you want agents to execute code
+6. **[Observability (Langfuse)](/docs/deploy/langfuse)** — trace LLM calls and tool calls
+7. **[Slack integration](/docs/deploy/slack)** — connect your Slack workspace
+
+Steps 1–3 are mandatory. Steps 4–7 are additive — enable only what your team needs.
+
+## Migrations
+
+Alembic migrations run automatically at backend startup (`alembic upgrade head` is invoked by the entrypoint). No extra step is needed on deploy — just restart the backend when pulling a new image.
+
+## Reverse proxy / HTTPS
+
+The web container listens on port 3000 and proxies `/api/backend/*` to the backend on port 8000. Put a TLS-terminating reverse proxy in front (Cloud Run, Nginx, Caddy, Cloudflare, …) and set `COOKIE_SECURE=true`, `FRONTEND_URL=https://your-domain`.

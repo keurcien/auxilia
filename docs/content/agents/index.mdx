@@ -14,7 +14,7 @@ When a user sends a message to an agent, **auxilia**:
 
 1. Loads the agent configuration from Postgres
 2. Opens an MCP session to every bound server (reusing cached OAuth tokens per user)
-3. Discovers each server's tools and filters them by the agent's [tool settings](/docs/tools/settings)
+3. Discovers each server's tools and filters them by the agent's [tool settings](/docs/agents/tools)
 4. If the **sandbox** is enabled, adds the `create_sandbox` / `connect_sandbox` tools and the standard file-ops toolset
 5. If subagents are configured, wraps them as tools the coordinator can call
 6. Sends the conversation to the LLM via LangGraph with the resolved toolset
@@ -63,5 +63,5 @@ You can pick a different LLM per thread. Only models whose API key is configured
 - **[Configuration](/docs/agents/configuration)** — editing instructions, avatar, MCP bindings
 - **[Permissions](/docs/agents/permissions)** — sharing agents across the workspace
 - **[Subagents](/docs/agents/subagents)** — dispatching work to specialized agents
-- **[Sandbox](/docs/sandbox)** — enabling code execution
-- **[Tool Settings](/docs/tools/settings)** — approval rules per tool
+- **[Sandbox](/docs/agents/sandbox)** — enabling code execution
+- **[Tool Settings](/docs/agents/tools)** — approval rules per tool

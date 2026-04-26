@@ -1,0 +1,49 @@
+---
+title: Case Studies
+description: Real stories from teams using auxilia — what they built, how they built it, and what surprised them.
+---
+
+# Case Studies
+
+This is where teams and solo builders share what they've actually shipped with **auxilia** — the shape of the agent, the tools they connected, and the outcomes that mattered to them.
+
+If you've built something — whether it's a side-project assistant that saves you ten minutes a day or a production workflow running across your whole company — we'd love to hear about it.
+
+## What makes a good case study
+
+Case studies are most useful when they're **honest and concrete**. The best ones tend to cover:
+
+- **The problem you were trying to solve** — in plain terms, not in product-speak
+- **The agent's shape** — instructions in a few sentences, which MCP servers it uses, whether it uses subagents or the sandbox
+- **How you put it in front of users** — chat UI, Slack, an embedded widget, a scheduled job
+- **What worked and what didn't** — the iteration it took to get useful, the dead ends, the surprises
+- **Measurable impact (if any)** — tickets deflected, hours saved, decisions accelerated
+
+Screenshots, short videos, and snippets of the agent's actual output make these come alive.
+
+## How to submit one
+
+The short version: open a pull request against the docs site.
+
+1. Fork [the auxilia repo](https://github.com/keurcien/auxilia)
+2. Create a new MDX file under `docs/content/case-studies/`, e.g. `my-team-my-agent.mdx`
+3. Start the file with frontmatter:
+   ```md
+   ---
+   title: "How {your team} built {your agent}"
+   description: "One-sentence hook that shows up in the listing"
+   date: "2026-04-24"
+   author: "Your name — Your team"
+   ---
+   ```
+4. Write the story (see [What makes a good case study](#what-makes-a-good-case-study) for a template)
+5. Add an entry for your file to `docs/content/case-studies/_meta.js`
+6. Open a pull request
+
+We review quickly and are happy to help with editing and framing if you want a lighter lift.
+
+Don't feel you need to wait until your setup is "perfect." Honest, early stories are often the most useful for other teams deciding whether **auxilia** is right for them.
+
+## Prefer to tell us privately?
+
+If you'd rather not publish publicly — or want to talk through an idea before committing to a write-up — reach out on the [GitHub issues](https://github.com/keurcien/auxilia/issues) and we'll take it from there.

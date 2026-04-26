@@ -1,8 +1,22 @@
-# Sandbox Tools
+# Using the Sandbox
 
-When an agent has **Code execution** enabled, **auxilia** exposes two sandbox-lifecycle tools plus a full file-ops toolset inherited from the OpenSandbox base backend.
+This page is the **agent-author's view** of the sandbox: how to turn it on for a specific agent, what tools the LLM gains, and a typical usage pattern.
+
+If your workspace doesn't have OpenSandbox running yet, see **[Sandbox — Setup](/docs/deploy/sandbox/setup)** first. Only workspace admins can run the sandbox controller; agent authors just toggle it on.
+
+## Enable code execution on an agent
+
+1. Open the agent's configuration page
+2. Scroll to **Code execution**
+3. Toggle it on
+
+The next message you send exposes the sandbox toolset (below) to the LLM. The agent decides when to spin up the container — usually right before it needs to run code.
+
+If the **auxilia** backend has no sandbox runtime configured (`OPEN_SANDBOX_DOMAIN` unset), the toggle is still visible but has no effect.
 
 ## Lifecycle tools
+
+When code execution is enabled, **auxilia** exposes two sandbox-lifecycle tools plus a full file-ops toolset.
 
 ### `create_sandbox(timeout_minutes: int = 30)`
 
@@ -65,3 +79,9 @@ A data-analysis agent's first few turns look like:
 5. `read_file("/tmp/result.json")`
 
 Because the sandbox lives for the length of the conversation, subsequent turns can just `execute` or `read_file` without rebuilding state.
+
+## Related
+
+- **[Sandbox — Setup](/docs/deploy/sandbox/setup)** — deploying OpenSandbox alongside **auxilia**
+- **[Sandbox — Security](/docs/deploy/sandbox/security)** — isolation model, volume mounts, timeouts
+- **[Tools & Permissions](/docs/agents/tools)** — approval settings for MCP tool calls (separate from sandbox calls)

@@ -1,0 +1,33 @@
+# Deploy on a VM / Docker host
+
+import { Callout } from 'nextra/components'
+
+<Callout type="warning">
+**Work in progress.** A full walkthrough for deploying **auxilia** on a bare VM or generic Docker host is coming. In the meantime, the [Cloud Run guide](/docs/deploy/cloud-run) and the repository's `docker-compose.yml` are the best references.
+</Callout>
+
+## What this page will cover
+
+- Provisioning a VM (size, disk, networking)
+- Installing Docker and Docker Compose
+- Running PostgreSQL and Redis — self-hosted or managed
+- Pulling and running the **auxilia** backend and web images
+- Reverse proxy (Nginx / Caddy / Cloudflare) with TLS
+- Systemd units for auto-start and zero-downtime restarts
+- Backups and log rotation
+
+## In the meantime
+
+The repo ships with a production-ready `docker-compose.yml`. The short version:
+
+```bash
+git clone https://github.com/keurcien/auxilia.git
+cd auxilia
+cp .env.example .env
+# edit .env — see /docs/deploy/environment-variables
+docker compose up -d
+```
+
+Then put your favourite TLS-terminating proxy in front of port 3000 and set `COOKIE_SECURE=true`, `FRONTEND_URL=https://your-domain` in `.env`.
+
+If you've deployed **auxilia** on a VM and want to help write this page, the issue tracker is [here](https://github.com/keurcien/auxilia/issues) — a case study or tutorial submission is very welcome.

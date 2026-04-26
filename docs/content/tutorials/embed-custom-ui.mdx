@@ -1,0 +1,78 @@
+# Embed an agent in a custom UI
+
+Sometimes the right place to talk to an agent isn't the **auxilia** chat app — it's *inside* the tool where the work is already happening. A customer-support agent in your Zendesk console. A data assistant in a Google Sheet. A back-office helper in your admin dashboard.
+
+This tutorial walks through the patterns for doing that. The specifics vary by host system, but the overall shape is the same every time.
+
+## The basic idea
+
+**auxilia** exposes an HTTP endpoint that streams an agent's response as the LLM generates it. Your custom UI:
+
+1. Captures what the user typed
+2. Sends it to the **auxilia** streaming endpoint (authenticated with a personal access token)
+3. Reads the streamed chunks as they arrive and renders them in your UI
+
+The agent itself — its instructions, its tools, its MCP server bindings — lives in **auxilia**. Your custom UI is just a thin chat surface on top.
+
+## When this pattern makes sense
+
+- **Customer support consoles** — the agent drafts replies using the same data the support rep is looking at, without forcing them to switch tabs
+- **Back-office dashboards** — operations or finance team tools embed a "ask a question about this customer" panel
+- **Google Sheets / Excel add-ons** — users select a range, ask the agent a question about it, and the answer streams back into the sidebar
+- **Internal wikis or docs sites** — a floating "ask an expert" widget answers questions about a specific page's topic
+- **Product-specific help widgets** — when the question is narrow and the agent's knowledge is tailored, a widget beats a generic chatbot
+
+## What you'll need
+
+- An **auxilia** deployment reachable from your embedding site (see [Deploy & Configure](/docs/deploy))
+- A **personal access token** (see [User Management](/docs/deploy/user-management))
+- A host UI where you can add a chat input and display streamed text — could be React, a WebView in a native app, a Slack canvas, a Google Apps Script sidebar, etc.
+
+## The streaming endpoint
+
+The path your UI hits is:
+
+```
+POST /api/backend/threads/runs/stream
+```
+
+The request body looks similar to the non-streaming version:
+
+```json
+{
+  "agent_id": "3f8a1c22-9b1e-4f9a-b2f0-cafeface1234",
+  "thread_id": "thr_optional_existing_thread",
+  "message": "What did this customer last ask us about?"
+}
+```
+
+The response is a **Server-Sent Events** stream — your UI reads chunks and appends them to the message being rendered, exactly the way the **auxilia** chat app does.
+
+For one-shot, non-streaming calls (useful for slower-moving surfaces like spreadsheet cells), use `/api/backend/threads/runs/invoke` — see **[Trigger agents over HTTP](/docs/tutorials/http-invoke)**.
+
+## A typical integration plan
+
+A solid implementation usually covers these steps:
+
+1. **Add a chat widget** to your host UI (textarea + message list + submit button)
+2. **Store the PAT on your backend**, not in the browser — otherwise anyone with devtools can extract it
+3. **Proxy requests through your own server** — the user hits your API, your server adds the PAT and forwards to **auxilia**
+4. **Stream the response back** to the browser using the same SSE shape
+5. **Track the thread ID** per user per session so follow-up messages keep context
+6. **Handle approvals** — if the agent calls a tool that needs approval, decide how (or whether) to surface that in your UI
+
+The last step is worth thinking through early. Options:
+
+- **Route approvals back to the web app or Slack** — users get notified and approve elsewhere
+- **Only expose agents with `always allow` tools** — no approvals possible, simpler UX
+- **Build approval UI into your custom app** — more work, but keeps users in one place
+
+## Example setups
+
+Rather than prescribe code, here's the shape of a few concrete integrations teams have built:
+
+- **Google Sheets add-on** — an Apps Script sidebar with a text input. User selects a range, types a question, the add-on serializes the range as CSV, calls **auxilia** via Apps Script's URL fetch, streams the answer into the sidebar. Good for ad-hoc analysis.
+- **Zendesk side panel** — a Zendesk app that, for the currently open ticket, posts the ticket context + the rep's question to the **auxilia** agent and displays the streamed response. The agent has HubSpot and product-docs MCP servers so it can speak to the customer in context.
+- **Internal React dashboard** — a floating chat widget that talks to a "data assistant" agent with BigQuery access. The widget remembers the thread ID in `localStorage` so the user can keep a single conversation across sessions.
+
+When you build one of these, consider sharing it in **[Case Studies](/docs/case-studies)** — it helps other teams figure out the right shape for their own integration.

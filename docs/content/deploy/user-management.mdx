@@ -1,0 +1,85 @@
+# User Management
+
+This page covers everything an admin does to let real humans — and headless scripts — authenticate against their **auxilia** deployment.
+
+## The first admin
+
+The **first account created** on a fresh install automatically becomes the workspace admin. After that, new signups require an invite (or Google OAuth if configured).
+
+To create the first admin:
+
+1. Deploy the stack
+2. Open the public URL (`FRONTEND_URL`)
+3. Sign up with email + password, or sign in with Google (if OAuth is configured)
+4. You're the admin
+
+## Workspace roles
+
+Every user has one of three workspace-level roles:
+
+| Role     | Can create agents | Can see unshared agents       | Can manage MCP servers, invites, PATs |
+| -------- | ----------------- | ----------------------------- | ------------------------------------- |
+| `admin`  | yes               | yes (all agents)              | yes                                   |
+| `editor` | yes               | only own + explicitly shared  | no                                    |
+| `member` | no                | only explicitly shared        | no                                    |
+
+These are the global workspace permissions. Per-agent permissions layer on top — see [Agent Permissions](/docs/agents/permissions).
+
+## Inviting users
+
+From **Settings → Users**:
+
+1. Click **Invite user**
+2. Enter the email address and pick a role (`admin`, `editor`, or `member`)
+3. **auxilia** returns a **one-time invite URL** — share it with the person you're inviting
+
+The invitee opens the URL, signs up (or signs in with Google), and lands in the workspace with the role you selected.
+
+## Google OAuth
+
+To let users sign in with their Google accounts, configure:
+
+```env
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+GOOGLE_REDIRECT_URI=https://your-host/auth/google/callback
+```
+
+Optionally set `AUTH_GOOGLE_EXCLUSIVE=true` to **disable email/password signup entirely** — useful when you want Google as the single identity provider for the workspace.
+
+Create the OAuth client in the Google Cloud Console:
+
+1. **APIs & Services** → **Credentials** → **Create Credentials** → **OAuth client ID**
+2. Application type: **Web application**
+3. Authorized redirect URI: `<FRONTEND_URL>/auth/google/callback`
+4. Copy the Client ID and Secret into the env vars above
+
+Users still need an invite (unless they're the first account). Google OAuth only changes *how* they authenticate, not *whether* they're allowed in.
+
+## Personal access tokens (PATs)
+
+For headless usage — scripts, CI, n8n, Cloud Scheduler — workspace admins can mint **personal access tokens** from **Settings → Tokens**.
+
+- PATs authenticate API calls **as the creating admin** (with that user's role and agent permissions)
+- They are **hashed at rest** in the database
+- The raw token is **shown once** at creation time — copy it immediately
+- Tokens can be revoked any time from the same screen
+
+Use a PAT in the `Authorization` header:
+
+```bash
+curl -H "Authorization: Bearer <PAT>" \
+  https://your-host/api/backend/agents
+```
+
+For tutorials on using PATs to trigger agents from external systems, see [Tutorials](/docs/tutorials).
+
+## Managing existing users
+
+From **Settings → Users**, admins can:
+
+- Change a user's role (`member` ↔ `editor` ↔ `admin`)
+- Revoke a pending invite
+- Deactivate a user (preserves their threads but blocks sign-in)
+
+Deactivated users release their seat immediately. Their owned agents remain but can be transferred or archived by another admin.

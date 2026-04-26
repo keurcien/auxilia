@@ -1,6 +1,8 @@
-# Sandbox
+# Sandbox — Overview
 
 The **sandbox** gives an agent a private, isolated Linux environment for executing code, reading and writing files, searching, and running shell commands. It turns any agent into a lightweight data-analysis or scripting agent without handing it access to the host.
+
+This page is the **operator's view** — what the sandbox is, how it's architected, and what you need to run. For how an agent author enables and uses the sandbox inside an agent, see [Using the sandbox](/docs/agents/sandbox).
 
 ## Why a sandbox
 
@@ -36,35 +38,19 @@ The sandbox is **lazy**: it is not created when an agent starts. The LLM decides
 
 Inside a conversation, the agent can create one sandbox, keep reusing it across turns, and reconnect to it after a browser refresh.
 
-## Enable it for an agent
+## What you need to run it
 
-1. Configure the sandbox runtime (see [Setup](/docs/sandbox/setup))
-2. On the agent's configuration page, toggle **Code execution** on
+The OpenSandbox controller runs **alongside** the **auxilia** backend. **auxilia** is a client of it — the backend never executes shell commands itself.
 
-When the toggle is on (and `OPEN_SANDBOX_DOMAIN` is configured on the backend), the agent is built with LangGraph's `create_deep_agent` — which layers in the sandbox management tools plus the standard file-ops tools.
+You can either:
 
-If the runtime is **not** configured, the toggle is still visible but has no effect — the backend only enables the sandbox branch when `OPEN_SANDBOX_DOMAIN` is set.
+- **Self-host OpenSandbox** — run the controller in a container on the same host, in the same VPC, or on Kubernetes
+- **Point at a managed OpenSandbox instance** — anything reachable over HTTP with an API key
 
-## What the agent can do
-
-Once the agent calls `create_sandbox`, it gets this toolset automatically:
-
-| Tool              | What it does                                                        |
-| ----------------- | ------------------------------------------------------------------- |
-| `create_sandbox`  | Spin up a new container (lazy; first call only)                     |
-| `connect_sandbox` | Reconnect to an existing container by ID and renew its TTL          |
-| `ls`              | List files in a directory with metadata (size, mtime)               |
-| `read_file`       | Read a file with line numbers; supports offset/limit for big files  |
-| `write_file`      | Create a new file                                                   |
-| `edit_file`       | Exact string replacement in an existing file (with global mode)     |
-| `glob`            | Find files matching a pattern (`**/*.py`)                           |
-| `grep`            | Search file contents; outputs files-only, content, or counts        |
-| `execute`         | Run a shell command                                                 |
-
-See [Tools](/docs/sandbox/tools) for details.
+Once the controller is running, configure **auxilia** with `OPEN_SANDBOX_DOMAIN` (and optionally `OPEN_SANDBOX_API_KEY`). The [Setup](/docs/deploy/sandbox/setup) page walks through it.
 
 ## Next
 
-- **[Setup](/docs/sandbox/setup)** — run OpenSandbox and point **auxilia** at it
-- **[Tools](/docs/sandbox/tools)** — details on every sandbox tool
-- **[Security](/docs/sandbox/security)** — isolation, volume mounts, timeouts
+- **[Setup](/docs/deploy/sandbox/setup)** — run OpenSandbox and point **auxilia** at it
+- **[Security](/docs/deploy/sandbox/security)** — isolation, volume mounts, timeouts
+- **[Using the sandbox in an agent](/docs/agents/sandbox)** — the agent-author side: enabling the toggle and the toolset the LLM sees

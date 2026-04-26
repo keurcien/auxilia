@@ -4,13 +4,11 @@ export default {
   '---': {
     type: 'separator'
   },
-  deployment: 'Deployment',
-  'mcp-servers': 'MCP Servers',
-  agents: 'Agents',
-  tools: 'Tools',
-  sandbox: 'Sandbox',
+  deploy: 'Deploy & Configure',
+  agents: 'Build Agents',
   '----': {
     type: 'separator'
   },
-  integrations: 'Integrations'
+  tutorials: 'Tutorials',
+  'case-studies': 'Case Studies'
 }

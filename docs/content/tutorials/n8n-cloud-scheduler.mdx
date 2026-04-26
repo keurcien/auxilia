@@ -1,0 +1,90 @@
+# Use auxilia from n8n & Cloud Scheduler
+
+Agents are most useful when they don't wait for someone to open a chat window. This tutorial shows two common ways to put them into motion automatically: automation platforms (n8n, Zapier, Make) and scheduled jobs (Google Cloud Scheduler, cron).
+
+Both use the same underlying mechanism — a simple HTTP request — so if you haven't already, skim **[Trigger agents over HTTP](/docs/tutorials/http-invoke)** first to understand the shape of the call.
+
+## Pattern 1 — Automation workflows (n8n, Zapier, Make)
+
+Automation tools are ideal for event-driven agents: *when something happens in system A, ask an agent to do something about it, then push the result into system B.*
+
+### Example: auto-respond to HubSpot form submissions
+
+**Goal:** when someone fills in a contact form, have an agent draft a tailored response and post a suggestion in Slack for a sales rep to review.
+
+**The workflow nodes:**
+
+1. **Trigger** — HubSpot "New form submission"
+2. **Action: HTTP Request** — POST to `https://your-auxilia-host/api/backend/threads/runs/invoke`
+   - Header: `Authorization: Bearer <your PAT>`
+   - Body:
+     ```json
+     {
+       "agent_id": "your-crm-agent-id",
+       "message": "A prospect filled out our contact form. Name: {{contact.firstname}} {{contact.lastname}}, company: {{contact.company}}, question: {{form.message}}. Draft a short, friendly response and flag the account priority."
+     }
+     ```
+3. **Action: Slack "Post message"** — post the agent's response to `#sales-inbound`
+
+The whole thing runs in a few seconds and scales however your automation tool scales.
+
+### Good candidates for this pattern
+
+- New support ticket → agent summarizes and suggests a reply
+- New Stripe customer → agent enriches the record from their website and writes it to Salesforce
+- Failed CI run → agent reads the logs, summarizes likely cause, comments on the PR
+- Calendar event ends → agent pulls notes from the doc and updates the CRM
+
+### Tips
+
+- **Give the agent structured data in the prompt** — JSON-like text, template variables. The LLM handles it fine.
+- **Use tool approvals carefully** — if this workflow runs unattended, the agent's tools need to be on **always allow**, or the run will pause waiting for a human
+- **Start with a non-destructive agent** — one that drafts and suggests, then graduate to one that writes back to systems once you trust the output
+
+## Pattern 2 — Scheduled jobs (Cloud Scheduler, cron)
+
+Schedulers are great for *recurring* agent runs: daily summaries, weekly reports, monthly audits. The agent runs on its own clock and posts results somewhere useful.
+
+### Example: daily pipeline report in Slack
+
+**Goal:** every weekday at 8am, have the CRM agent summarize yesterday's deal activity and post it to `#sales-stand-up`.
+
+**Using Google Cloud Scheduler:**
+
+1. Create a Cloud Scheduler job with schedule `0 8 * * 1-5` and timezone `Europe/Paris`
+2. Target: **HTTP**
+   - URL: `https://your-auxilia-host/api/backend/threads/runs/invoke`
+   - HTTP method: `POST`
+   - Auth: Add header `Authorization: Bearer <your PAT>`
+   - Body:
+     ```json
+     {
+       "agent_id": "your-crm-agent-id",
+       "message": "Summarize yesterday's deal activity from HubSpot — new deals, stage changes, closed-won. Post the summary to #sales-stand-up with a one-line highlight at the top."
+     }
+     ```
+
+If the agent has the Slack MCP server bound and the right tools on **always allow**, the posting happens inside the agent — you don't need a second workflow step.
+
+### Good candidates for scheduling
+
+- Daily CRM / pipeline digest
+- Weekly "what shipped" summary from GitHub + Linear
+- Monthly cost roll-up from billing MCP servers
+- Quarterly KPI report to a leadership Slack channel
+
+### Tips
+
+- **Think about time zones** — schedulers normally run in UTC; set the zone explicitly or the 8am job fires at a surprising hour
+- **Use idempotent agents** — if the scheduler retries on failure, you don't want duplicate posts. Tell the agent to check for an existing post before creating a new one.
+- **Monitor through [Langfuse](/docs/deploy/langfuse)** — scheduled runs don't have a human watching, so observability is how you catch regressions
+
+## Combining both
+
+Nothing stops you from mixing patterns. A common one:
+
+1. **Scheduler** wakes up every morning and asks an agent to check for overdue invoices
+2. **Agent** finds the list and calls a **webhook** (via a custom MCP tool or HTTP MCP server) into your **n8n workflow**
+3. **Workflow** does the fan-out: one Slack message per overdue invoice in the right channel, one email per finance contact
+
+This way the agent's "intelligence" lives in **auxilia** (prompt, tools, model choice) and the "plumbing" lives in n8n — each tool doing what it's best at.
