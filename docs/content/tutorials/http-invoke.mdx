@@ -1,0 +1,84 @@
+# Trigger agents over HTTP
+
+**auxilia** agents aren't confined to the chat interface. Every agent can be triggered by a simple web request, which means you can drop them into spreadsheets, automation tools, webhooks, cron jobs, or any other system that can send a message over the internet.
+
+This tutorial walks you through doing that — no custom code needed for the basic version.
+
+## When to use this
+
+- You want an agent to respond to an event in another system (a new support ticket, a form submission, a database row)
+- You want to schedule the agent to run at a specific time (every morning at 9, every Monday, once per quarter)
+- You want to embed the agent's response inside another app without re-hosting the chat UI
+
+## What you'll need
+
+- An **auxilia** deployment that your team can reach (see [Deploy & Configure](/docs/deploy))
+- An agent that already works well in the chat UI — see [Build Agents](/docs/agents) if you haven't set one up yet
+- A **personal access token** (PAT) so the external system can authenticate on your behalf
+
+## Step 1 — Mint a personal access token
+
+A PAT is like a password your tools use to act as you.
+
+1. In **auxilia**, go to **Settings → Tokens**
+2. Click **Create token**, give it a name (e.g. "n8n support automation")
+3. Copy the token the moment it appears — **auxilia** won't show it again
+4. Store it wherever your automation tool keeps secrets (n8n credentials, Google Cloud Secret Manager, a password manager)
+
+Only workspace admins can create PATs. If you're not an admin, ask one to create a token for you.
+
+## Step 2 — Find the agent ID
+
+Every agent has a unique ID. The easiest way to grab it: open the agent in the **auxilia** chat UI and copy the ID from the URL.
+
+```
+https://your-auxilia-host/agents/3f8a1c22-9b1e-4f9a-b2f0-cafeface1234/chat
+                                 └──────────────── this is the agent ID
+```
+
+## Step 3 — Call the agent
+
+Send an HTTP POST request to the invoke endpoint. Here's what it looks like in plain terms:
+
+```bash
+curl -X POST https://your-auxilia-host/api/backend/threads/runs/invoke \
+  -H "Authorization: Bearer YOUR_PAT" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "agent_id": "3f8a1c22-9b1e-4f9a-b2f0-cafeface1234",
+    "message": "Summarize yesterday'\''s HubSpot deals closed over $10k"
+  }'
+```
+
+The response contains the agent's reply, the tools it called along the way, and a thread ID you can use to send follow-up messages.
+
+## Step 4 — Put it somewhere useful
+
+Once you have the request working, you can wire it into almost anything:
+
+- **A Zapier, Make, or n8n workflow** — "when a form is submitted, send the answer to an agent, post the reply to Slack"
+- **A Google Sheets script** — "for each row, ask the agent to classify the customer, write the answer in column D"
+- **A cron job or Cloud Scheduler** — "every Monday at 8am, ask the CRM agent for a deal pipeline summary and email it to the team"
+- **A webhook from your product** — "when a new support ticket arrives, have the agent draft a first-line reply"
+
+See **[Use auxilia from n8n & Cloud Scheduler](/docs/tutorials/n8n-cloud-scheduler)** for a step-by-step for each of those.
+
+## Passing a follow-up message
+
+If you want the agent to remember context across calls, keep the `thread_id` from the first response and pass it back in:
+
+```json
+{
+  "agent_id": "3f8a1c22-9b1e-4f9a-b2f0-cafeface1234",
+  "thread_id": "thr_01hxyz...",
+  "message": "Now break that down by sales rep"
+}
+```
+
+Without a `thread_id`, each call starts a fresh conversation.
+
+## What about approvals?
+
+If your agent has tools set to **needs approval**, calls from HTTP will **wait for a human to approve** before those tools run. This is usually what you want for automation — you can review in the **auxilia** UI or Slack before a write happens.
+
+If you'd rather have the automation run end-to-end without pauses, review the agent's [tool settings](/docs/agents/tools) and switch the relevant tools to **always allow**.

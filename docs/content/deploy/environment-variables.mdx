@@ -1,0 +1,92 @@
+# Environment Variables
+
+Every **auxilia** deployment is configured through environment variables. This page is the complete reference — start here to understand what to set, then follow the [Cloud Run](/docs/deploy/cloud-run) or [VM / Docker host](/docs/deploy/vm-docker) guide for the deployment-specific wiring.
+
+A full example lives in [`.env.example`](https://github.com/keurcien/auxilia/blob/main/.env.example) at the repo root.
+
+## Required variables
+
+These must be set for **auxilia** to start. Missing any of them will fail backend boot.
+
+| Variable                    | Notes                                                                 |
+| --------------------------- | --------------------------------------------------------------------- |
+| `DATABASE_URL`              | `postgresql+psycopg://user:pass@host:5432/dbname` connection string   |
+| `REDIS_HOST` / `REDIS_PORT` | Reachable from the backend (OAuth tokens are cached here)             |
+| `JWT_SECRET_KEY`            | 32+ random characters — used to sign session cookies                  |
+| `SALT`                      | Salt for AES-GCM encryption of stored MCP API keys                    |
+| `FRONTEND_URL`              | Public URL of the web app (used as OAuth redirect base)               |
+| `BACKEND_URL`               | Internal URL the Next.js proxy uses to reach the backend (web only)   |
+| One LLM key                 | See [LLM providers](#llm-providers) — at least one is required        |
+
+In production, also set:
+
+| Variable        | Value  | Why                                                    |
+| --------------- | ------ | ------------------------------------------------------ |
+| `COOKIE_SECURE` | `true` | Forces session cookies to be HTTPS-only (recommended)  |
+
+## LLM providers
+
+At least one provider key is required. Every configured provider shows up in the model picker — configure multiple to give agent authors a choice.
+
+| Provider  | Environment variable | Models                                                     |
+| --------- | -------------------- | ---------------------------------------------------------- |
+| Anthropic | `ANTHROPIC_API_KEY`  | `claude-haiku-4-5`, `claude-sonnet-4-6`, `claude-opus-4-6` |
+| OpenAI    | `OPENAI_API_KEY`     | `gpt-4o-mini`                                              |
+| Google    | `GOOGLE_API_KEY`     | `gemini-3-flash-preview`, `gemini-3-pro-preview`           |
+| DeepSeek  | `DEEPSEEK_API_KEY`   | `deepseek-chat`, `deepseek-reasoner`                       |
+
+Anthropic models run with thinking enabled by default; Google models run with `include_thoughts=True`. Defaults live in `app/model_providers/catalog.py`.
+
+## Authentication
+
+| Variable                 | Notes                                                                 |
+| ------------------------ | --------------------------------------------------------------------- |
+| `GOOGLE_CLIENT_ID`       | OAuth client ID for Google sign-in                                    |
+| `GOOGLE_CLIENT_SECRET`   | OAuth client secret                                                   |
+| `GOOGLE_REDIRECT_URI`    | e.g. `https://your-host/auth/google/callback`                         |
+| `AUTH_GOOGLE_EXCLUSIVE`  | `true` disables email/password signup — Google OAuth only             |
+
+Leaving these unset keeps email/password signup as the only path. See [User Management](/docs/deploy/user-management) for the full flow.
+
+## Sandbox (optional)
+
+If you're running [OpenSandbox](https://github.com/langchain-ai/opensandbox) for agent code execution:
+
+| Variable                         | Notes                                                                      |
+| -------------------------------- | -------------------------------------------------------------------------- |
+| `OPEN_SANDBOX_DOMAIN`            | e.g. `localhost:8083` or a private DNS name                                |
+| `OPEN_SANDBOX_API_KEY`           | If your OpenSandbox controller requires one                                |
+| `OPEN_SANDBOX_USE_SERVER_PROXY`  | `true` routes file ops through the OpenSandbox server (recommended)        |
+| `OPEN_SANDBOX_DEFAULT_IMAGE`     | Base image, e.g. `python:3.12-slim`                                        |
+| `OPEN_SANDBOX_DEFAULT_PACKAGES`  | Pre-installed packages, e.g. `["pandas","matplotlib"]`                     |
+| `OPEN_SANDBOX_TIMEOUT`           | Per-command timeout (seconds). Default `1800`                              |
+| `OPEN_SANDBOX_VOLUME_MOUNTS`     | Host mounts, comma-separated `host:sandbox[:ro]`                           |
+
+If `OPEN_SANDBOX_DOMAIN` is missing, the sandbox toggle on agents is silently disabled. Details: [Sandbox](/docs/deploy/sandbox).
+
+## Observability (optional)
+
+| Variable                | Notes                                                      |
+| ----------------------- | ---------------------------------------------------------- |
+| `LANGFUSE_PUBLIC_KEY`   | Langfuse project public key                                |
+| `LANGFUSE_SECRET_KEY`   | Langfuse project secret key                                |
+| `LANGFUSE_BASE_URL`     | `https://cloud.langfuse.com` or your self-hosted URL       |
+
+All three are required to enable Langfuse; missing any of them disables the integration silently. Details: [Observability (Langfuse)](/docs/deploy/langfuse).
+
+## Slack (optional)
+
+| Variable                | Notes                                                      |
+| ----------------------- | ---------------------------------------------------------- |
+| `SLACK_SIGNING_SECRET`  | From **Basic Information** in your Slack app config        |
+| `SLACK_BOT_TOKEN`       | `xoxb-…` Bot User OAuth Token                              |
+
+Missing values make the Slack endpoints reject all incoming requests. Details: [Slack Integration](/docs/deploy/slack).
+
+## Tuning & debugging
+
+| Variable           | Default  | Notes                                                 |
+| ------------------ | -------- | ----------------------------------------------------- |
+| `LOG_LEVEL`        | `INFO`   | Set to `DEBUG` for verbose logs (MCP traces, etc.)    |
+| `RECURSION_LIMIT`  | `100`    | Max LangGraph steps per agent invocation              |
+| `INVOKE_PROFILING` | `false`  | Emit per-step timing on each agent invocation         |

@@ -1,13 +1,6 @@
-# Slack
+# Slack Integration — Setup
 
-The Slack integration lets your team talk to workspace agents directly from Slack threads. It reuses the same agents, MCP servers, and tool-approval flows as the web app — responses stream token-by-token, tool-call approvals come through as Block Kit messages.
-
-## What it does
-
-- **Agent picker** — mention `@auxilia` in a channel or start an assistant thread; the bot replies with a list of agents the Slack user has access to
-- **Thread-based chat** — each Slack thread maps to a persistent **auxilia** thread, so the agent remembers context across messages
-- **Tool approvals** — tools set to "needs approval" post **Approve / Reject** buttons in the thread
-- **Streaming** — assistant replies are updated in-place as the LLM generates them
+This page covers the one-time **workspace setup** — creating the Slack app, wiring the event URLs, and setting the environment variables. For the day-to-day end-user flow (mentioning the bot, replying in threads, approving tool calls), see the tutorial: **[Trigger agents from Slack](/docs/tutorials/slack)**.
 
 ## How a Slack user is matched to an **auxilia** user
 
@@ -62,10 +55,6 @@ Under **Interactivity & Shortcuts**, enable interactivity and set the **Request 
 
 This is where **Approve / Reject** button clicks are delivered.
 
-## Usage
+## Next
 
-- `@auxilia` in any channel the bot is in → posts an agent picker
-- Pick an agent → starts a thread
-- Send messages in the thread → the agent streams replies and may request tool approvals
-
-To reuse an agent across multiple Slack threads, just start a new thread and pick the same agent — each thread has its own memory.
+Your Slack app is now connected. For the end-user experience — how teammates mention the bot, pick an agent, send messages, and approve tool calls — see **[Trigger agents from Slack](/docs/tutorials/slack)**.

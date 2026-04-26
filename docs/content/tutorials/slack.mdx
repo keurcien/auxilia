@@ -1,0 +1,57 @@
+# Trigger agents from Slack
+
+Once the Slack integration is wired up, your teammates can talk to **auxilia** agents directly from Slack — no web app, no extra logins. This tutorial walks through what the end-user experience looks like and how to make it land well with your team.
+
+**Before you start:** the Slack app must be installed and connected. If it isn't yet, see **[Slack Integration — Setup](/docs/deploy/slack)** (a one-time task for a workspace admin).
+
+## How your team uses it
+
+### Starting a conversation
+
+There are two ways to invoke an agent:
+
+1. **Mention the bot in a channel** — type `@auxilia` in any channel the bot is in. The bot replies with a picker listing the agents you have access to.
+2. **Start an assistant thread** — Slack shows an "Assistants" entry in the sidebar; opening one gives you a private thread with the bot.
+
+Pick an agent from the picker to start a conversation. Every Slack thread maps to a dedicated **auxilia** thread — so the agent remembers the context as the conversation continues.
+
+### Having the conversation
+
+Once the agent is picked, chatting feels like talking to a teammate. Messages stream in as the agent thinks, and any tool it calls (looking up a HubSpot contact, querying BigQuery, searching Linear) is shown inline so you can see what's happening.
+
+Because the Slack thread is persistent, you can come back a day later, ask a follow-up, and the agent will pick up exactly where you left off.
+
+### Approving sensitive actions
+
+If the agent wants to run a tool that you've configured as **needs approval** — say, updating a HubSpot deal or creating a GitHub pull request — it won't just do it. Slack posts a message with **Approve** and **Reject** buttons:
+
+- **Approve** → the agent runs the tool and continues
+- **Reject** → the agent is told no, and decides what to do next (often, explaining it needs a different approach)
+
+This is the same approval flow as in the web UI, just surfaced where the team already lives.
+
+## Who can use it
+
+**Every Slack user needs an auxilia account with the same email address as their Slack profile.** When someone sends a message, **auxilia** looks up their Slack email and matches it to the workspace user directory. If there's no match, the bot replies with a gentle message telling them to sign up in **auxilia** first.
+
+The agent list the user sees is filtered by their [agent permissions](/docs/agents/permissions) — so members only see agents that have been shared with them.
+
+## Good ways to set this up for a team
+
+A few patterns that work well:
+
+- **One general-purpose agent invited to a team channel** — `#sales-help` has an always-on CRM agent; anyone in the channel can ask questions by mentioning it
+- **A curated picker** — admins share a small set of agents with everyone, so the picker only shows the three or four assistants the team actually needs
+- **Private assistant threads for sensitive work** — people use the assistant sidebar for agents that touch private data (their own leads, a specific account)
+
+## Reusing an agent across multiple threads
+
+Each Slack thread has its own memory. To start fresh with the same agent, just open a new thread and pick it again — the two conversations won't share context.
+
+## Troubleshooting
+
+**"I mentioned the bot but nothing happened"** — the bot needs to be invited to the channel (type `/invite @auxilia` or add it from the channel settings).
+
+**"The bot said it doesn't recognize me"** — your Slack email doesn't match an account in **auxilia**. Sign up in the web app with the same email you use in Slack, then try again.
+
+**"I don't see the agent I want in the picker"** — an admin hasn't shared it with you yet. Ask them to grant you access on the agent's permissions page.

@@ -59,19 +59,19 @@ GOOGLE_CLIENT_SECRET=
 GOOGLE_REDIRECT_URI=http://localhost:8000/auth/google/callback
 AUTH_GOOGLE_EXCLUSIVE=false    # set to true to disable password signup
 
-# Code-execution sandbox (see /docs/sandbox)
+# Code-execution sandbox (see /docs/agents/sandbox)
 OPEN_SANDBOX_DOMAIN=localhost:8083
 OPEN_SANDBOX_API_KEY=your-key
 OPEN_SANDBOX_USE_SERVER_PROXY=true
 OPEN_SANDBOX_VOLUME_MOUNTS=    # e.g. "~/.config/gcloud:/root/.config/gcloud:ro"
 OPEN_SANDBOX_DEFAULT_IMAGE=    # e.g. keurcien/opensandbox-sandbox-image:latest
 
-# Langfuse observability (see /docs/integrations/langfuse)
+# Langfuse observability (see /docs/deploy/langfuse)
 LANGFUSE_PUBLIC_KEY=pk-...
 LANGFUSE_SECRET_KEY=sk-...
 LANGFUSE_BASE_URL=https://cloud.langfuse.com
 
-# Slack integration (see /docs/integrations/slack)
+# Slack integration (see /docs/deploy/slack)
 SLACK_SIGNING_SECRET=
 SLACK_BOT_TOKEN=xoxb-...
 
@@ -116,7 +116,7 @@ Navigate to **MCP Servers** in the sidebar and either:
 - Click **Install** on one of the official servers (Notion, Linear, GitHub, HubSpot, BigQuery, …), or
 - Click **Add MCP Server** to register any remote MCP server by URL.
 
-See [MCP Servers](/docs/mcp-servers) for the full registration flow and auth options.
+See [MCP Servers](/docs/deploy/mcp-servers) for the full registration flow and auth options.
 
 ## 6. Create an agent
 
@@ -128,7 +128,6 @@ See [MCP Servers](/docs/mcp-servers) for the full registration flow and auth opt
 
 ## Next steps
 
-- **[Agents](/docs/agents)** — full configuration, permissions, subagents
-- **[Tool Settings](/docs/tools/settings)** — approval rules per tool
-- **[Sandbox](/docs/sandbox)** — enable code execution for an agent
-- **[Deployment](/docs/deployment)** — move from local to production
+- **[Build Agents](/docs/agents)** — configuration, tools & permissions, subagents, sandbox
+- **[Deploy & Configure](/docs/deploy)** — move from local to production, add user management, MCP servers, Slack, Langfuse
+- **[Tutorials](/docs/tutorials)** — trigger agents from Slack, from HTTP, from schedulers, or inside a custom UI

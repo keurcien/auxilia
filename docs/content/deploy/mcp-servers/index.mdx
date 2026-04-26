@@ -11,7 +11,7 @@
 └──────────────┘                              └──────────────────┘
 ```
 
-When an agent runs, the backend opens a fresh MCP session for each server bound to the agent, authenticates (API key or per-user OAuth tokens), discovers the available tools, filters them by the agent's [tool settings](/docs/tools/settings), and hands them to the LLM.
+When an agent runs, the backend opens a fresh MCP session for each server bound to the agent, authenticates (API key or per-user OAuth tokens), discovers the available tools, filters them by the agent's [tool settings](/docs/agents/tools), and hands them to the LLM.
 
 ## Workspace-level registration
 
@@ -30,7 +30,7 @@ Navigate to **MCP Servers** in the sidebar. You have two options:
 
 ![MCP servers page](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/mcp_servers_dialog.png)
 
-See [Official vs Custom](/docs/mcp-servers/official-vs-custom) for the difference between the two.
+See [Official vs Custom](/docs/deploy/mcp-servers/official-vs-custom) for the difference between the two.
 
 ## Per-user connections
 
@@ -40,6 +40,6 @@ API-key servers share a single encrypted key across the workspace.
 
 ## Next
 
-- [Official vs Custom servers](/docs/mcp-servers/official-vs-custom)
-- [Authentication methods](/docs/mcp-servers/authentication)
-- Setup examples: [HubSpot](/docs/mcp-servers/examples/hubspot) · [GitHub](/docs/mcp-servers/examples/github) · [BigQuery](/docs/mcp-servers/examples/bigquery)
+- [Official vs Custom servers](/docs/deploy/mcp-servers/official-vs-custom)
+- [Authentication methods](/docs/deploy/mcp-servers/authentication)
+- Setup examples: [HubSpot](/docs/deploy/mcp-servers/examples/hubspot) · [GitHub](/docs/deploy/mcp-servers/examples/github) · [BigQuery](/docs/deploy/mcp-servers/examples/bigquery)

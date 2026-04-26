@@ -2,15 +2,23 @@
 
 **auxilia** is an open-source web MCP client for teams. It lets you host AI assistants backed by remote [Model Context Protocol](https://modelcontextprotocol.io/) servers, share them across your organization, and keep every integration — tools, credentials, observability — under your own infrastructure.
 
+<video
+  controls
+  playsInline
+  preload="metadata"
+  style={{ width: '100%', borderRadius: '8px', marginTop: '1.5rem', marginBottom: '1.5rem' }}
+  src="https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/auxilia.mp4"
+/>
+
 ## Why auxilia
 
-Most MCP clients today are desktop apps tied to a single user. **auxilia** is different:
+**auxilia** is more than a chat app. It's a place for your team to design AI assistants, see what they can actually do with your company's knowledge and tools, and put them to work wherever they're needed.
 
-- **Web-based** — accessible from any browser, no desktop app to install
-- **Multi-user** — workspace admins register MCP servers once; every teammate can bind them to agents
-- **Remote MCP only** — designed for server-to-server MCP connections over Streamable HTTP, not local stdio processes
-- **Self-hosted** — runs on your own infrastructure, keeps credentials and conversation data in your database
-- **MCP-native** — everything the LLM sees (tools, skills, resources) flows through MCP, so the core stays small
+- **A sandbox for building better assistants** — refine an assistant's instructions, connect it to the right tools and documents (Notion pages, data models, internal guides), and quickly see what it can handle before rolling it out
+- **One source of truth for your team** — when an assistant works well, share it with colleagues so everyone follows the same process instead of each person crafting their own prompts
+- **Works beyond the chat window** — the same assistants can be plugged into automation tools, scheduled jobs, or embedded directly inside your existing products — customer support consoles, internal dashboards, spreadsheets, and more
+- **Freedom to choose the right AI model** — pick the model that fits each assistant's job and budget, and switch providers as the market evolves, without re-doing any of the setup
+- **Your data stays yours** — auxilia runs on your own infrastructure, so conversations, credentials, and business context never leave your control
 
 ## What you can build
 
@@ -81,13 +89,15 @@ Configure one or more providers via environment variables. At least one is requi
 
 ## Integrations
 
-- **[Slack](/docs/integrations/slack)** — invoke workspace agents, approve tool calls, and stream responses from Slack threads
-- **[Langfuse](/docs/integrations/langfuse)** — trace LLM calls, tool calls, and costs per agent and user
+- **[Slack](/docs/deploy/slack)** — invoke workspace agents, approve tool calls, and stream responses from Slack threads
+- **[Langfuse](/docs/deploy/langfuse)** — trace LLM calls, tool calls, and costs per agent and user
 
-## Next steps
+## Where to go next
 
-- **[Get Started](/docs/get-started)** — run **auxilia** locally with Docker Compose
-- **[Deployment](/docs/deployment)** — deploy on Google Cloud Run or any Docker host
-- **[MCP Servers](/docs/mcp-servers)** — register workspace MCP servers
-- **[Agents](/docs/agents)** — create and configure agents
-- **[Sandbox](/docs/sandbox)** — enable code execution for an agent
+Pick the path that matches what you're here for.
+
+- **[Get Started](/docs/get-started)** — developers running **auxilia** locally with Docker Compose
+- **[Deploy & Configure](/docs/deploy)** — DevOps / IT / AI engineers setting up **auxilia** for a team (Cloud Run, VM, environment, user management, MCP, sandbox, Langfuse, Slack)
+- **[Build Agents](/docs/agents)** — agent authors configuring instructions, tools, subagents, and permissions
+- **[Tutorials](/docs/tutorials)** — business-friendly how-tos (HTTP triggers, Slack, custom UIs, schedulers)
+- **[Case Studies](/docs/case-studies)** — real-world stories from teams using **auxilia**
