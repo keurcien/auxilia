@@ -21,22 +21,28 @@ LLM_PROVIDERS: list[ModelProvider] = []
 MODELS: list[Model] = []
 
 if model_provider_settings.openai_api_key:
-    LLM_PROVIDERS.append(ModelProvider(name="openai", api_key=model_provider_settings.openai_api_key))
+    LLM_PROVIDERS.append(ModelProvider(
+        name="openai", api_key=model_provider_settings.openai_api_key))
     MODELS.append(Model(name="gpt-4o-mini", provider="openai"))
 
 if model_provider_settings.deepseek_api_key:
-    LLM_PROVIDERS.append(ModelProvider(name="deepseek", api_key=model_provider_settings.deepseek_api_key))
+    LLM_PROVIDERS.append(ModelProvider(
+        name="deepseek", api_key=model_provider_settings.deepseek_api_key))
+    MODELS.append(Model(name="deepseek-v4-flash", provider="deepseek"))
+    MODELS.append(Model(name="deepseek-v4-pro", provider="deepseek"))
     MODELS.append(Model(name="deepseek-chat", provider="deepseek"))
     MODELS.append(Model(name="deepseek-reasoner", provider="deepseek"))
 
 if model_provider_settings.anthropic_api_key:
-    LLM_PROVIDERS.append(ModelProvider(name="anthropic", api_key=model_provider_settings.anthropic_api_key))
+    LLM_PROVIDERS.append(ModelProvider(
+        name="anthropic", api_key=model_provider_settings.anthropic_api_key))
     MODELS.append(Model(name="claude-haiku-4-5", provider="anthropic"))
     MODELS.append(Model(name="claude-sonnet-4-6", provider="anthropic"))
     MODELS.append(Model(name="claude-opus-4-6", provider="anthropic"))
 
 if model_provider_settings.google_api_key:
-    LLM_PROVIDERS.append(ModelProvider(name="google", api_key=model_provider_settings.google_api_key))
+    LLM_PROVIDERS.append(ModelProvider(
+        name="google", api_key=model_provider_settings.google_api_key))
     MODELS.append(Model(name="gemini-3-flash-preview", provider="google"))
     MODELS.append(Model(name="gemini-3-pro-preview", provider="google"))
 

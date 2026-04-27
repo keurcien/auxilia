@@ -82,7 +82,7 @@ async def get_or_create_thread(
         thread = ThreadDB(
             id=ts,
             agent_id=agent_id,
-            model_id="deepseek-chat",
+            model_id="deepseek-v4-flash",
             first_message_content=question,
             user_id=user_id,
         )
