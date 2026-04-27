@@ -54,7 +54,7 @@ class ChatModelFactory:
             case "openai":
                 return ChatOpenAI(model=model_id, api_key=api_key)
             case "deepseek":
-                return ChatDeepSeek(model=model_id, api_key=api_key)
+                return ChatDeepSeek(model=model_id, api_key=api_key, extra_body={"thinking": {"type": "disabled"}})
             case "anthropic":
                 return ChatAnthropic(
                     model=model_id,
