@@ -47,6 +47,7 @@ import {
 } from "@/components/ai-elements/attachments";
 import { type PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import ChatPromptInput from "../components/prompt-input";
 import { RefreshCcwIcon, CopyIcon, ArchiveIcon } from "lucide-react";
 import {
@@ -67,6 +68,7 @@ import { ThinkingLoader, DotsLoader } from "../components/loader";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { usePendingMessageStore } from "@/stores/pending-message-store";
 import { useAgentReadiness } from "@/hooks/use-agent-readiness";
+import { useHitlApprovals } from "@/hooks/use-hitl-approvals";
 import { useChatHeaderStore } from "@/stores/chat-header-store";
 import {
 	McpAppWidget,
@@ -474,21 +476,20 @@ const ChatPage = () => {
 		);
 	};
 
-	const handleApprove = () => {
-		submit(null, {
-			command: { resume: { decisions: [{ type: "approve" }] } },
-			optimisticValues: { messages },
-			streamSubgraphs: true,
-		});
-	};
+	const pendingToolCalls = useMemo(
+		() =>
+			toolCalls.filter(
+				(tc) => getToolRenderState(tc, isInterrupted) === "approval-requested",
+			),
+		[toolCalls, isInterrupted],
+	);
 
-	const handleReject = () => {
-		submit(null, {
-			command: { resume: { decisions: [{ type: "reject" }] } },
-			optimisticValues: { messages },
-			streamSubgraphs: true,
-		});
-	};
+	const { decisions, recordDecision } = useHitlApprovals({
+		isInterrupted,
+		pendingToolCalls,
+		submit,
+		messages,
+	});
 
 	const handleRegenerate = () => {
 		// Find the last human message and resubmit with regenerate trigger
@@ -755,9 +756,16 @@ const ChatPage = () => {
 											);
 											const output = getToolOutputContent(tc);
 
+											const decided = decisions[tc.id];
+
 											return (
 												<Fragment key={tc.id}>
-													<Tool toolState={toolState}>
+													<Tool
+														toolState={toolState}
+														lockOpen={
+															toolState === "approval-requested" && !decided
+														}
+													>
 														<ToolHeader
 															title={toolName}
 															type={`tool-${tc.call.name}`}
@@ -800,15 +808,27 @@ const ChatPage = () => {
 																<ToolFooter>
 																	<Button
 																		variant="default"
-																		className="cursor-pointer"
-																		onClick={handleApprove}
+																		className={cn(
+																			"cursor-pointer",
+																			decided === "reject" && "opacity-40",
+																		)}
+																		disabled={decided != null}
+																		onClick={() =>
+																			recordDecision(tc.id, "approve")
+																		}
 																	>
 																		Approve
 																	</Button>
 																	<Button
 																		variant="ghost"
-																		className="cursor-pointer"
-																		onClick={handleReject}
+																		className={cn(
+																			"cursor-pointer",
+																			decided === "approve" && "opacity-40",
+																		)}
+																		disabled={decided != null}
+																		onClick={() =>
+																			recordDecision(tc.id, "reject")
+																		}
 																	>
 																		Reject
 																	</Button>
