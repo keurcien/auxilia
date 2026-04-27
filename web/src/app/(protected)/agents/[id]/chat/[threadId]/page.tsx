@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import {
 	MessageActions,
@@ -327,6 +327,7 @@ const ChatPage = () => {
 		string,
 		unknown
 	> | null>(null);
+	const [rehydratedInterrupt, setRehydratedInterrupt] = useState(false);
 
 	const { mcpServers } = useMcpServersStore();
 	const {
@@ -360,9 +361,19 @@ const ChatPage = () => {
 		isLoading,
 		error,
 		interrupt,
-		submit,
+		submit: rawSubmit,
 		stop,
 	} = thread;
+
+	// Once anything is dispatched, the live stream owns interrupt state — drop
+	// the rehydrated fallback so it can't shadow a fresh post-resume answer.
+	const submit = useCallback<typeof rawSubmit>(
+		(input, opts) => {
+			setRehydratedInterrupt(false);
+			return rawSubmit(input, opts);
+		},
+		[rawSubmit],
+	);
 
 	// The custom transport path exposes subagent methods at runtime but
 	// BaseStream types do not include them. Cast to access the API.
@@ -380,7 +391,7 @@ const ChatPage = () => {
 	const messages =
 		streamMessages.length > 0 || isLoading ? streamMessages : initMessages;
 
-	const isInterrupted = interrupt != null;
+	const isInterrupted = interrupt != null || rehydratedInterrupt;
 
 	// Tool calls: use stream tool calls when streaming, else compute from messages
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -581,6 +592,10 @@ const ChatPage = () => {
 
 			if (data.thread.agentArchived) {
 				setAgentArchived(true);
+			}
+
+			if (data.interrupted) {
+				setRehydratedInterrupt(true);
 			}
 
 			const pendingMessage = consumePendingMessage(threadId);

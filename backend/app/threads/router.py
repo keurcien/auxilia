@@ -25,26 +25,38 @@ async def read_thread(
     async with AsyncPostgresSaver.from_conn_string(
         get_psycopg_conn_string()
     ) as checkpointer:
-        checkpoint = await checkpointer.aget(
+        checkpoint_tuple = await checkpointer.aget_tuple(
             config={"configurable": {"thread_id": thread_id}}
         )
 
-        if checkpoint:
-            channel_values = checkpoint["channel_values"]
-            lc_messages = channel_values.get("messages", [])
-            todos = channel_values.get("todos", [])
-            values: dict = {
-                "messages": [_serialize_lc_message(m) for m in lc_messages],
-            }
-            if todos:
-                values["todos"] = todos
+        if checkpoint_tuple is None:
             return {
-                "messages": deserialize_to_ui_messages(lc_messages),
-                "values": values,
+                "messages": [],
+                "values": {"messages": []},
                 "thread": thread_read,
+                "interrupted": False,
             }
-        else:
-            return {"messages": [], "values": {"messages": []}, "thread": thread_read}
+
+        channel_values = checkpoint_tuple.checkpoint["channel_values"]
+        lc_messages = channel_values.get("messages", [])
+        todos = channel_values.get("todos", [])
+        values: dict = {
+            "messages": [_serialize_lc_message(m) for m in lc_messages],
+        }
+        if todos:
+            values["todos"] = todos
+
+        interrupted = any(
+            channel == "__interrupt__"
+            for (_, channel, _) in (checkpoint_tuple.pending_writes or [])
+        )
+
+        return {
+            "messages": deserialize_to_ui_messages(lc_messages),
+            "values": values,
+            "thread": thread_read,
+            "interrupted": interrupted,
+        }
 
 
 @router.get("/{thread_id}/subagents/{tool_call_id}/state")
