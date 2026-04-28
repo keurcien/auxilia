@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import {
 	MessageActions,
@@ -47,6 +47,7 @@ import {
 } from "@/components/ai-elements/attachments";
 import { type PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import ChatPromptInput from "../components/prompt-input";
 import { RefreshCcwIcon, CopyIcon, ArchiveIcon } from "lucide-react";
 import {
@@ -67,6 +68,7 @@ import { ThinkingLoader, DotsLoader } from "../components/loader";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { usePendingMessageStore } from "@/stores/pending-message-store";
 import { useAgentReadiness } from "@/hooks/use-agent-readiness";
+import { useHitlApprovals } from "@/hooks/use-hitl-approvals";
 import { useChatHeaderStore } from "@/stores/chat-header-store";
 import {
 	McpAppWidget,
@@ -325,6 +327,7 @@ const ChatPage = () => {
 		string,
 		unknown
 	> | null>(null);
+	const [rehydratedInterrupt, setRehydratedInterrupt] = useState(false);
 
 	const { mcpServers } = useMcpServersStore();
 	const {
@@ -358,9 +361,19 @@ const ChatPage = () => {
 		isLoading,
 		error,
 		interrupt,
-		submit,
+		submit: rawSubmit,
 		stop,
 	} = thread;
+
+	// Once anything is dispatched, the live stream owns interrupt state — drop
+	// the rehydrated fallback so it can't shadow a fresh post-resume answer.
+	const submit = useCallback<typeof rawSubmit>(
+		(input, opts) => {
+			setRehydratedInterrupt(false);
+			return rawSubmit(input, opts);
+		},
+		[rawSubmit],
+	);
 
 	// The custom transport path exposes subagent methods at runtime but
 	// BaseStream types do not include them. Cast to access the API.
@@ -378,7 +391,7 @@ const ChatPage = () => {
 	const messages =
 		streamMessages.length > 0 || isLoading ? streamMessages : initMessages;
 
-	const isInterrupted = interrupt != null;
+	const isInterrupted = interrupt != null || rehydratedInterrupt;
 
 	// Tool calls: use stream tool calls when streaming, else compute from messages
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -474,21 +487,20 @@ const ChatPage = () => {
 		);
 	};
 
-	const handleApprove = () => {
-		submit(null, {
-			command: { resume: { decisions: [{ type: "approve" }] } },
-			optimisticValues: { messages },
-			streamSubgraphs: true,
-		});
-	};
+	const pendingToolCalls = useMemo(
+		() =>
+			toolCalls.filter(
+				(tc) => getToolRenderState(tc, isInterrupted) === "approval-requested",
+			),
+		[toolCalls, isInterrupted],
+	);
 
-	const handleReject = () => {
-		submit(null, {
-			command: { resume: { decisions: [{ type: "reject" }] } },
-			optimisticValues: { messages },
-			streamSubgraphs: true,
-		});
-	};
+	const { decisions, recordDecision } = useHitlApprovals({
+		isInterrupted,
+		pendingToolCalls,
+		submit,
+		messages,
+	});
 
 	const handleRegenerate = () => {
 		// Find the last human message and resubmit with regenerate trigger
@@ -580,6 +592,10 @@ const ChatPage = () => {
 
 			if (data.thread.agentArchived) {
 				setAgentArchived(true);
+			}
+
+			if (data.interrupted) {
+				setRehydratedInterrupt(true);
 			}
 
 			const pendingMessage = consumePendingMessage(threadId);
@@ -755,9 +771,16 @@ const ChatPage = () => {
 											);
 											const output = getToolOutputContent(tc);
 
+											const decided = decisions[tc.id];
+
 											return (
 												<Fragment key={tc.id}>
-													<Tool toolState={toolState}>
+													<Tool
+														toolState={toolState}
+														lockOpen={
+															toolState === "approval-requested" && !decided
+														}
+													>
 														<ToolHeader
 															title={toolName}
 															type={`tool-${tc.call.name}`}
@@ -800,15 +823,27 @@ const ChatPage = () => {
 																<ToolFooter>
 																	<Button
 																		variant="default"
-																		className="cursor-pointer"
-																		onClick={handleApprove}
+																		className={cn(
+																			"cursor-pointer",
+																			decided === "reject" && "opacity-40",
+																		)}
+																		disabled={decided != null}
+																		onClick={() =>
+																			recordDecision(tc.id, "approve")
+																		}
 																	>
 																		Approve
 																	</Button>
 																	<Button
 																		variant="ghost"
-																		className="cursor-pointer"
-																		onClick={handleReject}
+																		className={cn(
+																			"cursor-pointer",
+																			decided === "approve" && "opacity-40",
+																		)}
+																		disabled={decided != null}
+																		onClick={() =>
+																			recordDecision(tc.id, "reject")
+																		}
 																	>
 																		Reject
 																	</Button>

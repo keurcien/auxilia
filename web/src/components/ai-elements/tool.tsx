@@ -21,15 +21,16 @@ import { CodeBlock } from "./code-block";
 
 export type ToolProps = ComponentProps<typeof Collapsible> & {
 	toolState?: ToolUIPart["state"];
+	lockOpen?: boolean;
 };
 
-export const Tool = ({ className, toolState, ...props }: ToolProps) => {
+export const Tool = ({ className, toolState, lockOpen, ...props }: ToolProps) => {
 	const [userOpenPreference, setUserOpenPreference] = useState<boolean | null>(
 		null,
 	);
 
-	const isOpen =
-		toolState === "approval-requested" ? true : (userOpenPreference ?? false);
+	const shouldLockOpen = lockOpen ?? toolState === "approval-requested";
+	const isOpen = shouldLockOpen ? true : (userOpenPreference ?? false);
 
 	return (
 		<Collapsible
