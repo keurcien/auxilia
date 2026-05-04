@@ -168,9 +168,19 @@ export const McpAppWidget = ({
 		[serverId],
 	);
 
+	// Synthetic anchor activation preserves the user-gesture grant across the
+	// renderer-iframe → sandbox-proxy → host postMessage hops. `window.open`
+	// silently breaks on cross-origin deployments (Chrome's popup blocker)
+	// even though it works on localhost.
 	const onOpenLink = useCallback(async ({ url }: { url: string }) => {
-		const opened = window.open(url, "_blank", "noopener,noreferrer");
-		return { isError: !opened };
+		const a = document.createElement("a");
+		a.href = url;
+		a.target = "_blank";
+		a.rel = "noopener noreferrer";
+		document.body.appendChild(a);
+		a.click();
+		a.remove();
+		return {};
 	}, []);
 
 	if (typeof window === "undefined") {
