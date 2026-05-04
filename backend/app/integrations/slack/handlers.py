@@ -4,7 +4,6 @@
 # (triggered by @auxilia mention).  Subsequent messages in that thread
 # are routed to the configured agent.
 
-import httpx
 from slack_sdk.web.async_client import AsyncWebClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -17,34 +16,11 @@ from app.integrations.slack.blocks import build_tool_approval_blocks
 from app.integrations.slack.commands.chat import post_agent_picker
 from app.integrations.slack.models import SlackEvent, SlackInteractionPayload
 from app.integrations.slack.settings import slack_settings
-from app.integrations.slack.utils import get_user_info
+from app.integrations.slack.utils import get_user_info, resolve_user
 from app.mcp.servers.models import MCPServerDB
 from app.mcp.utils import check_mcp_server_connected
 from app.threads.models import ThreadDB
-from app.users.models import UserDB
 from app.users.repository import UserRepository
-
-
-SLACK_POST_MESSAGE_URL = "https://slack.com/api/chat.postMessage"
-
-
-async def send_slack_message(channel: str, thread_ts: str, text: str) -> None:
-    """Post a message to a Slack channel/thread."""
-    async with httpx.AsyncClient() as client:
-        await client.post(
-            SLACK_POST_MESSAGE_URL,
-            headers={"Authorization": f"Bearer {slack_settings.slack_bot_token}"},
-            json={"channel": channel, "text": text, "thread_ts": thread_ts},
-        )
-
-
-async def resolve_user(slack_user_id: str) -> UserDB | None:
-    """Map a Slack user ID to an internal user via email lookup."""
-    user_info = await get_user_info(slack_user_id)
-    if not user_info or not user_info.profile.email:
-        return None
-    async with AsyncSessionLocal() as db:
-        return await UserRepository(db).get_by_email(user_info.profile.email)
 
 
 async def post_tool_approval_block(

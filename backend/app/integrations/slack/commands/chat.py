@@ -5,9 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.core.service import AgentService
 from app.agents.models import AgentDB
 from app.database import AsyncSessionLocal
-from app.integrations.slack.models import SlackEvent, SlackInteractionPayload
+from app.integrations.slack.models import SlackInteractionPayload
 from app.integrations.slack.settings import slack_settings
-from app.integrations.slack.utils import get_user_info, resolve_user
+from app.integrations.slack.utils import get_user_info
 from app.threads.service import get_or_create_thread
 from app.users.models import WorkspaceRole
 from app.users.repository import UserRepository
@@ -75,24 +75,6 @@ async def post_agent_picker(
         blocks=blocks,
         text="Choose an agent",
     )
-
-
-async def handle_app_mention(event: SlackEvent, **_: object) -> None:
-    """Handle an ``app_mention`` event — post an agent picker in the thread."""
-    thread_ts = event.thread_ts or event.ts
-    if not event.channel or not thread_ts:
-        return
-
-    user = await resolve_user(event.user)
-
-    if not user:
-        return
-
-    async with AsyncSessionLocal() as db:
-        client = AsyncWebClient(token=slack_settings.slack_bot_token)
-        await post_agent_picker(
-            client, event.channel, thread_ts, db, user.id, user_role=user.role,
-        )
 
 
 # ---------------------------------------------------------------------------
