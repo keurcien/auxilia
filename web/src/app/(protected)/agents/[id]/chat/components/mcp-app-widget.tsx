@@ -46,6 +46,12 @@ const hasStructuredContent = (
 	"structuredContent" in output &&
 	isRecord(output.structuredContent);
 
+// When the result already carries a server-rendered view, forwarding
+// `toolInput` causes renderers like Prefab's to re-execute the LLM's `code`
+// argument client-side and overwrite the server view.
+const resultHasView = (result: CallToolResult | undefined): boolean =>
+	isRecord(result?.structuredContent) && "view" in result.structuredContent;
+
 // Content hash used to keep useMemo stable across parent re-renders that
 // rebuild the same value into a fresh reference.
 const stableKey = (value: unknown): string => {
@@ -117,6 +123,8 @@ export const McpAppWidget = ({
 		[outputKey, errorText, structuredKey],
 	);
 
+	const effectiveToolInput = resultHasView(toolResult) ? undefined : input;
+
 	const onReadResource = useCallback(
 		async ({ uri }: { uri: string }) => {
 			const response = await api.post(
@@ -160,6 +168,11 @@ export const McpAppWidget = ({
 		[serverId],
 	);
 
+	const onOpenLink = useCallback(async ({ url }: { url: string }) => {
+		const opened = window.open(url, "_blank", "noopener,noreferrer");
+		return { isError: !opened };
+	}, []);
+
 	if (typeof window === "undefined") {
 		return null;
 	}
@@ -183,10 +196,11 @@ export const McpAppWidget = ({
 				toolResourceUri={appToolInfo.resourceUri}
 				sandbox={sandboxConfig}
 				hostContext={hostContext}
-				toolInput={input}
+				toolInput={effectiveToolInput}
 				toolResult={toolResult}
 				onReadResource={onReadResource}
 				onCallTool={onCallTool}
+				onOpenLink={onOpenLink}
 			/>
 		</div>
 	);
