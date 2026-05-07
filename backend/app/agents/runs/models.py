@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime
+from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Column, Field, SQLModel
 
@@ -31,7 +31,14 @@ class RunDB(TimestampMixin, SQLModel, table=True):
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
 
-    thread_id: str = Field(foreign_key="threads.id", nullable=False, index=True)
+    thread_id: str = Field(
+        sa_column=Column(
+            String,
+            ForeignKey("threads.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        )
+    )
     user_id: UUID = Field(foreign_key="users.id", nullable=False, index=True)
     agent_id: UUID = Field(foreign_key="agents.id", nullable=False)
 

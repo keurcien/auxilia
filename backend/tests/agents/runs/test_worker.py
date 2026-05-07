@@ -232,6 +232,52 @@ class TestPatchAndTransition:
 
 
 @pytest.mark.asyncio
+class TestReaperThresholds:
+    """Regression: PENDING runs must not be reaped 30s after creation just
+    because no worker has dequeued yet. They're queued, not orphaned."""
+
+    async def test_pending_run_under_long_threshold_is_skipped(self, redis):
+        from dataclasses import replace as _replace
+        from datetime import timedelta as _td
+
+        from app.agents.runs.reaper import RunReaper
+
+        reg = RunRegistry(redis)
+        # 5 minutes old PENDING — below the 10-minute pending threshold;
+        # the worker just hasn't gotten to it yet.
+        rec = _record(RunState.PENDING)
+        rec = _replace(rec, created_at=rec.created_at - _td(minutes=5))
+        await reg.create(rec)
+
+        reaper = RunReaper(redis)
+        reaped = await reaper.tick()
+        assert reaped == 0
+        assert (await reg.get(rec.id)).status is RunState.PENDING
+
+    async def test_running_run_with_stale_heartbeat_is_reaped(self, redis):
+        from datetime import timedelta as _td
+
+        from dataclasses import replace as _replace
+
+        from app.agents.runs.reaper import RunReaper
+
+        reg = RunRegistry(redis)
+        rec = _record(RunState.RUNNING)
+        # Started 2 minutes ago, no heartbeat in that time.
+        rec = _replace(
+            rec,
+            started_at=rec.created_at - _td(minutes=2),
+            heartbeat_at=rec.created_at - _td(minutes=2),
+        )
+        await reg.create(rec)
+
+        reaper = RunReaper(redis)
+        reaped = await reaper.tick()
+        assert reaped == 1
+        assert (await reg.get(rec.id)).status is RunState.ERROR
+
+
+@pytest.mark.asyncio
 class TestEmitEnd:
     async def test_terminal_status_sets_stream_ttl(self, redis):
         worker = _worker(redis)

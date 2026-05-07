@@ -40,7 +40,14 @@ logger = logging.getLogger(__name__)
 
 
 REAPER_INTERVAL_SECONDS: float = 30.0
+# Max time a RUNNING worker can go without writing a heartbeat before we treat
+# it as dead. Workers heartbeat every 5s (HEARTBEAT_INTERVAL_SECONDS in
+# worker.py), so 30s is a generous 6x margin.
 HEARTBEAT_TIMEOUT_SECONDS: float = 30.0
+# A PENDING run is just queued — if every worker is busy on a previous run,
+# it sits here legitimately. Only reap PENDING after a *much* longer threshold
+# so a single slow run on a single-worker deploy doesn't poison the queue.
+PENDING_TIMEOUT_SECONDS: float = 10 * 60.0
 
 
 class RunReaper:
@@ -67,21 +74,40 @@ class RunReaper:
         logger.info("RunReaper stopped")
 
     async def tick(self) -> int:
-        """One reaping pass. Returns the number of runs reaped."""
+        """One reaping pass. Returns the number of runs reaped.
+
+        Each active state has its own staleness rule:
+
+        - ``RUNNING``: must heartbeat within ``HEARTBEAT_TIMEOUT_SECONDS``;
+          otherwise the worker is presumed dead.
+        - ``PENDING``: queued, waiting for a worker. Only reaped after
+          ``PENDING_TIMEOUT_SECONDS`` so a single slow run on a single-worker
+          deploy doesn't kill everything behind it.
+        - ``INTERRUPTED``: paused on a human-in-the-loop interrupt. No
+          heartbeat expected; never reaped here. Cleared by the active-run
+          TTL on the thread mutex (30 min) if no resume ever lands.
+        """
         records = await self.registry.scan_active()
         now = utcnow()
-        threshold = timedelta(seconds=HEARTBEAT_TIMEOUT_SECONDS)
+        running_threshold = timedelta(seconds=HEARTBEAT_TIMEOUT_SECONDS)
+        pending_threshold = timedelta(seconds=PENDING_TIMEOUT_SECONDS)
         reaped = 0
         for record in records:
-            # Interrupted runs intentionally have no live heartbeat — they're
-            # paused waiting on user input.
             if record.status == RunState.INTERRUPTED:
                 continue
-            beat = record.heartbeat_at or record.started_at or record.created_at
-            if beat is None:
-                continue
-            if now - beat <= threshold:
-                continue
+            if record.status == RunState.PENDING:
+                age = now - record.created_at if record.created_at else None
+                if age is None or age <= pending_threshold:
+                    continue
+            elif record.status == RunState.RUNNING:
+                # Heartbeat is the only signal we trust here. ``started_at`` is
+                # set when the worker dequeues; if heartbeat is missing the
+                # worker died before the heartbeat loop ran.
+                beat = record.heartbeat_at or record.started_at
+                if beat is None or now - beat <= running_threshold:
+                    continue
+            else:
+                continue  # other states are terminal — registry filtered them
             try:
                 await self._reap(record)
                 reaped += 1
