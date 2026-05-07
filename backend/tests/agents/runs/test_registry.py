@@ -141,6 +141,20 @@ class TestHeartbeatAndScan:
         assert interrupted.id in found_ids
         assert terminal.id not in found_ids
 
+    async def test_scan_active_skips_sub_keys(self, redis):
+        """Regression: run:{id}:events (Stream), run:{id}:control (List), and
+        run:{id}:input (String) all match ``run:*`` but must not be HGETALL-ed."""
+        reg = RunRegistry(redis)
+        record = _make_record(status=RunState.RUNNING)
+        await reg.create(record)
+        # Populate every sub-key the runtime uses.
+        await redis.xadd(f"run:{record.id}:events", {"data": "x"})
+        await redis.rpush(f"run:{record.id}:control", "user")
+        await redis.set(f"run:{record.id}:input", "{}")
+
+        found = await reg.scan_active()
+        assert {r.id for r in found} == {record.id}
+
 
 @pytest.mark.asyncio
 class TestSerialization:

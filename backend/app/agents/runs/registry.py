@@ -200,9 +200,17 @@ class RunRegistry:
         Bounded by Redis key TTL (24h). Used by the reaper to find orphans.
         ``SCAN`` is non-blocking; for higher cardinality, switch to a sorted set
         index keyed by ``heartbeat_at`` — out of scope for V1.
+
+        Note: ``run:*`` also matches sub-keys (``run:{id}:events`` Stream,
+        ``run:{id}:control`` List, ``run:{id}:input`` String). The run hash is
+        exactly ``run:{uuid}`` with one colon; we filter by colon count so
+        ``HGETALL`` never gets handed a non-hash key (which would WRONGTYPE).
         """
         results: list[RunRecord] = []
         async for key in self.redis.scan_iter(match="run:*"):
+            key_str = key.decode() if isinstance(key, bytes) else key
+            if key_str.count(":") != 1:
+                continue
             raw = await self.redis.hgetall(key)
             if not raw:
                 continue
