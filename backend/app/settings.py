@@ -16,6 +16,7 @@ class AppSettings(BaseSettings):
     redis_password: str | None = None
     backend_url: str = "http://localhost:8000"
     log_level: str = "INFO"
+    run_worker_concurrency: int = 1
 
     model_config: ConfigDict = ConfigDict(
         env_file=ROOT_ENV,

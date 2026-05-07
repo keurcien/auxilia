@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from builtins import ExceptionGroup
 from contextlib import asynccontextmanager
@@ -9,6 +10,9 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.agents.router import router as agents_router
+from app.agents.runs.reaper import RunReaper
+from app.agents.runs.router import router as runs_router
+from app.agents.runs.worker import run_worker_pool
 from app.auth.router import router as auth_router
 from app.auth.settings import auth_settings
 from app.auth.tokens.router import router as tokens_router
@@ -41,9 +45,28 @@ async def lifespan(app: FastAPI):
         host=app_settings.redis_host, port=app_settings.redis_port, password=app_settings.redis_password, decode_responses=True)
     app.state.redis = redis_client
 
+    stop_event = asyncio.Event()
+    reaper = RunReaper(redis_client)
+    worker_task = asyncio.create_task(
+        run_worker_pool(
+            redis=redis_client,
+            concurrency=app_settings.run_worker_concurrency,
+            stop_event=stop_event,
+        ),
+        name="run-worker-pool",
+    )
+    reaper_task = asyncio.create_task(
+        reaper.run_forever(stop_event=stop_event),
+        name="run-reaper",
+    )
+
     async with auxilia_mcp.session_manager.run():
-        yield
-        await redis_client.close()
+        try:
+            yield
+        finally:
+            stop_event.set()
+            await asyncio.gather(worker_task, reaper_task, return_exceptions=True)
+            await redis_client.close()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -128,6 +151,7 @@ app.include_router(auth_router)
 app.include_router(tokens_router)
 app.include_router(mcp_apps_router)
 app.include_router(mcp_servers_router)
+app.include_router(runs_router)
 app.include_router(threads_router)
 app.include_router(users_router)
 app.include_router(invites_router)

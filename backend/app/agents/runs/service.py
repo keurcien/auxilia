@@ -1,0 +1,355 @@
+"""Domain operations for runs.
+
+The router only ever talks to this module. Anything that needs to coordinate
+the registry, queue, audit table, and event stream lives here so the layered
+shape stays honest (PRD §5.5).
+"""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import AsyncIterator
+from typing import Any
+from uuid import UUID, uuid4
+
+from fastapi import Depends, Request
+from redis.asyncio import Redis
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.agents.runs.control import RunControl
+from app.agents.runs.events import RunEvents
+from app.agents.runs.models import RunDB
+from app.agents.runs.queue import RunQueue
+from app.agents.runs.registry import RunRegistry
+from app.agents.runs.repository import RunRepository
+from app.agents.runs.schemas import RunCreate, RunResponse
+from app.agents.runs.state import (
+    CancellationReason,
+    MultitaskStrategy,
+    RunRecord,
+    RunState,
+    is_active,
+    is_terminal,
+    utcnow,
+)
+from app.agents.runs.worker import store_input
+from app.database import get_db
+from app.exceptions import (
+    AlreadyExistsError,
+    NotFoundError,
+    PermissionDeniedError,
+    ValidationError,
+)
+from app.service import BaseService
+from app.threads.service import ThreadService
+from app.users.models import UserDB
+
+
+logger = logging.getLogger(__name__)
+
+
+class RunConflictError(AlreadyExistsError):
+    """Another run is already active on this thread and the strategy is reject."""
+
+
+class RunService(BaseService[RunDB, RunRepository]):
+    not_found_message = "Run not found"
+
+    def __init__(self, db: AsyncSession, redis: Redis):
+        super().__init__(db, RunRepository(RunDB, db))
+        self.redis = redis
+        self.registry = RunRegistry(redis)
+        self.events = RunEvents(redis)
+        self.control = RunControl(redis)
+        self.queue = RunQueue(redis)
+
+    # ---- create ----
+
+    async def create_run(
+        self,
+        thread_id: str,
+        current_user: UserDB,
+        body: RunCreate,
+    ) -> RunRecord:
+        """Apply ``multitask_strategy``, persist a new run, enqueue, return record.
+
+        The Postgres audit row is written here, before the worker picks the run
+        up. The Redis live record is the source of truth for in-flight state;
+        the audit row is updated by the worker on terminal transitions.
+        """
+        thread = await ThreadService(self.db).get_thread(thread_id)
+        if thread.user_id != current_user.id:
+            raise PermissionDeniedError("You do not have access to this thread")
+
+        await self._apply_multitask_strategy(thread_id, body.multitask_strategy)
+
+        run_id = uuid4()
+        now = utcnow()
+        record = RunRecord(
+            id=run_id,
+            thread_id=thread_id,
+            user_id=current_user.id,
+            agent_id=thread.agent_id,
+            status=RunState.PENDING,
+            multitask_strategy=body.multitask_strategy,
+            created_at=now,
+            updated_at=now,
+            input_summary=_summarise_input(body),
+            model_id=thread.model_id,
+        )
+
+        # Postgres audit row first — if Redis is down we want to know before
+        # we burn a run id.
+        run_db = RunDB(
+            id=run_id,
+            thread_id=thread_id,
+            user_id=current_user.id,
+            agent_id=thread.agent_id,
+            status=RunState.PENDING,
+            multitask_strategy=body.multitask_strategy,
+            input_summary=record.input_summary,
+            model_id=thread.model_id,
+        )
+        self.db.add(run_db)
+        await self.db.flush()
+
+        # Redis live state.
+        await self.registry.create(record)
+        # Best-effort active-run pointer. If another run set it first, the
+        # multitask_strategy step above would have caught it; in race conditions
+        # we accept the existing value.
+        await self.registry.try_set_active(thread_id, run_id)
+
+        # Stash the body so the worker can resurrect input/command/config.
+        await store_input(
+            self.redis,
+            run_id,
+            {
+                "input": body.input,
+                "command": body.command,
+                "config_overrides": _extract_config_overrides(body.config),
+                "trigger": _extract_trigger(body.config),
+            },
+        )
+
+        await self.queue.enqueue(run_id)
+        return record
+
+    async def _apply_multitask_strategy(
+        self,
+        thread_id: str,
+        strategy: MultitaskStrategy,
+    ) -> None:
+        active_id = await self.registry.get_active(thread_id)
+        if active_id is None:
+            return
+        active = await self.registry.get(active_id)
+        if active is None or not is_active(active.status):
+            await self.registry.clear_active_if_match(thread_id, active_id)
+            return
+
+        if strategy is MultitaskStrategy.REJECT:
+            raise RunConflictError(
+                f"Thread already has an active run {active_id}. Reattach or cancel first."
+            )
+        if strategy is MultitaskStrategy.INTERRUPT:
+            await self.control.signal_cancel(active_id, CancellationReason.REPLACED)
+            await self.registry.clear_active_if_match(thread_id, active_id)
+            return
+        if strategy is MultitaskStrategy.ENQUEUE:
+            # Workers process the queue FIFO; the new run will start when the
+            # current one releases the active-run pointer on terminal state.
+            return
+        if strategy is MultitaskStrategy.ROLLBACK:
+            raise ValidationError(
+                "multitask_strategy=rollback is not yet implemented"
+            )
+
+    # ---- get / list ----
+
+    async def get_run(self, run_id: UUID, current_user: UserDB) -> RunRecord:
+        record = await self.registry.get(run_id)
+        if record is None:
+            db_row = await self.repository.get_for_user(run_id, current_user.id)
+            if db_row is None:
+                raise NotFoundError(self.not_found_message)
+            return _record_from_db(db_row)
+        if record.user_id != current_user.id:
+            raise PermissionDeniedError("You do not have access to this run")
+        return record
+
+    async def list_runs(
+        self, thread_id: str, current_user: UserDB
+    ) -> list[RunResponse]:
+        thread = await ThreadService(self.db).get_thread(thread_id)
+        if thread.user_id != current_user.id:
+            raise PermissionDeniedError("You do not have access to this thread")
+        rows = await self.repository.list_by_thread(thread_id)
+        return [_response_from_db(r) for r in rows]
+
+    async def get_active_run(
+        self, thread_id: str, current_user: UserDB
+    ) -> RunRecord | None:
+        thread = await ThreadService(self.db).get_thread(thread_id)
+        if thread.user_id != current_user.id:
+            raise PermissionDeniedError("You do not have access to this thread")
+        active_id = await self.registry.get_active(thread_id)
+        if active_id is None:
+            return None
+        record = await self.registry.get(active_id)
+        return record if record and is_active(record.status) else None
+
+    # ---- cancel ----
+
+    async def cancel_run(
+        self,
+        run_id: UUID,
+        current_user: UserDB,
+        *,
+        reason: CancellationReason = CancellationReason.USER,
+    ) -> RunRecord:
+        record = await self.get_run(run_id, current_user)
+        if is_terminal(record.status):
+            return record  # idempotent
+        await self.control.signal_cancel(record.id, reason)
+        return record
+
+    # ---- stream ----
+
+    async def stream_events(
+        self,
+        run_id: UUID,
+        current_user: UserDB,
+        *,
+        last_event_id: str = "0",
+    ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
+        await self.get_run(run_id, current_user)  # auth check
+        async for stream_id, event in self.events.read(
+            run_id, last_id=last_event_id
+        ):
+            yield stream_id, event
+            if event.get("type") == "end":
+                return
+
+
+# --- helpers ----------------------------------------------------------------
+
+
+def _summarise_input(body: RunCreate) -> dict[str, Any]:
+    """Cheap, bounded summary of the POST body for debugging/audit.
+
+    Never store the full raw payload here — that goes into ``run:{rid}:input``.
+    The summary lives in Redis ``run:{rid}`` and Postgres ``runs.input_summary``,
+    both of which are read frequently.
+    """
+    if body.command is not None:
+        return {"kind": "resume", "has_decisions": "decisions" in (body.command or {})}
+    msgs = (body.input or {}).get("messages", []) if body.input else []
+    text_preview: str | None = None
+    file_count = 0
+    if msgs:
+        first = msgs[0]
+        content = first.get("content") if isinstance(first, dict) else None
+        if isinstance(content, str):
+            text_preview = content[:200]
+        elif isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict):
+                    if block.get("type") == "text" and text_preview is None:
+                        text_preview = (block.get("text") or "")[:200]
+                    elif block.get("type") in {"file", "image_url"}:
+                        file_count += 1
+    return {
+        "kind": "input",
+        "text_preview": text_preview,
+        "file_count": file_count,
+    }
+
+
+def _extract_trigger(config: dict[str, Any] | None) -> str | None:
+    if not config:
+        return None
+    configurable = config.get("configurable") or {}
+    return configurable.get("trigger")
+
+
+def _extract_config_overrides(config: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not config:
+        return None
+    configurable = dict(config.get("configurable") or {})
+    configurable.pop("trigger", None)
+    configurable.pop("thread_id", None)
+    if not configurable:
+        return None
+    return {**config, "configurable": configurable}
+
+
+def _record_from_db(row: RunDB) -> RunRecord:
+    return RunRecord(
+        id=row.id,
+        thread_id=row.thread_id,
+        user_id=row.user_id,
+        agent_id=row.agent_id,
+        status=row.status,
+        multitask_strategy=row.multitask_strategy,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        started_at=row.started_at,
+        completed_at=row.completed_at,
+        cancellation_reason=row.cancellation_reason,
+        error=row.error,
+        interrupt=row.interrupt,
+        input_summary=row.input_summary,
+        model_id=row.model_id,
+    )
+
+
+def _response_from_db(row: RunDB) -> RunResponse:
+    return RunResponse(
+        run_id=row.id,
+        thread_id=row.thread_id,
+        agent_id=row.agent_id,
+        status=row.status,
+        multitask_strategy=row.multitask_strategy,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        started_at=row.started_at,
+        completed_at=row.completed_at,
+        cancellation_reason=row.cancellation_reason,
+        error=row.error,
+        interrupt=row.interrupt,
+        model_id=row.model_id,
+    )
+
+
+def record_to_response(record: RunRecord) -> RunResponse:
+    return RunResponse(
+        run_id=record.id,
+        thread_id=record.thread_id,
+        agent_id=record.agent_id,
+        status=record.status,
+        multitask_strategy=record.multitask_strategy,
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+        started_at=record.started_at,
+        completed_at=record.completed_at,
+        cancellation_reason=record.cancellation_reason,
+        error=record.error,
+        interrupt=record.interrupt,
+        model_id=record.model_id,
+    )
+
+
+# --- DI ---------------------------------------------------------------------
+
+
+def get_redis(request: Request) -> Redis:
+    """FastAPI dependency exposing the lifespan-owned Redis client."""
+    return request.app.state.redis
+
+
+def get_run_service(
+    db: AsyncSession = Depends(get_db),
+    redis: Redis = Depends(get_redis),
+) -> RunService:
+    return RunService(db, redis)

@@ -12,7 +12,6 @@ A list is overkill for a single-shot signal, but it gives us:
 
 from __future__ import annotations
 
-import asyncio
 from uuid import UUID
 
 from redis.asyncio import Redis
@@ -49,7 +48,7 @@ class RunControl:
         """
         result = await self.redis.blpop([_control_key(run_id)], timeout=timeout)
         if result is None:  # only happens with non-zero timeout
-            raise asyncio.TimeoutError
+            raise TimeoutError
         _key, reason = result
         if isinstance(reason, bytes):
             reason = reason.decode()

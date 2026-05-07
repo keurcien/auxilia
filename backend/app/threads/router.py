@@ -1,5 +1,4 @@
 from fastapi import APIRouter, Body, Depends
-from fastapi.responses import StreamingResponse
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from app.agents.runtime import AgentRuntime
@@ -114,45 +113,9 @@ async def delete_thread(
     await service.delete_thread(thread_id)
 
 
-@router.post("/{thread_id}/runs/stream")
-async def run_stream(
-    thread_id: str,
-    input: dict | None = Body(None, embed=True),
-    command: dict | None = Body(None, embed=True),
-    config: dict | None = Body(None, embed=True),
-    context: dict | None = Body(None, embed=True),  # noqa: ARG001
-    user_id: str = Depends(get_current_user),  # noqa: ARG001
-    service: ThreadService = Depends(get_thread_service),
-    db=Depends(get_db),
-):
-    """LangGraph native streaming endpoint for @langchain/langgraph-sdk useStream."""
-    thread = await service.get_thread(thread_id)
-    runtime = await AgentRuntime.build(thread=thread, db=db)
-
-    # Extract trigger from config.configurable if provided
-    trigger = None
-    config_overrides = None
-    if config and config.get("configurable"):
-        trigger = config["configurable"].pop("trigger", None)
-        # thread_id is already from the URL path, remove it from config
-        config["configurable"].pop("thread_id", None)
-        if config["configurable"]:
-            config_overrides = config
-
-    return StreamingResponse(
-        runtime.stream(
-            input=input,
-            command=command,
-            trigger=trigger,
-            config_overrides=config_overrides,
-        ),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache, no-transform",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
+# NOTE: ``POST /{thread_id}/runs/stream`` is now served by ``app.agents.runs.router``.
+# It creates a durable run, returns its event stream, and survives client disconnects
+# (PRD §5). The frontend SDK reattaches via ``GET /runs/{run_id}/stream`` on reload.
 
 
 @router.post("/{thread_id}/runs/invoke")
