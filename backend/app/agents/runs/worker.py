@@ -41,6 +41,7 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from app.agents.runs.control import RunControl
 from app.agents.runs.events import RunEvents
+from app.agents.runs.models import RunDB
 from app.agents.runs.patch import patch_dangling_tool_calls
 from app.agents.runs.queue import RunQueue
 from app.agents.runs.registry import RunRegistry
@@ -339,6 +340,10 @@ class RunWorker:
                 await self._finalise_clean(run_id, record, graph, config)
         finally:
             await self.control.clear(run_id)
+            # Mirror terminal state to the Postgres audit row before releasing
+            # the active-run mutex, so consumers that hit the audit table after
+            # we drop the mutex never see a stale "running" row.
+            await self._sync_audit_row(run_id)
             await self.registry.clear_active_if_match(record.thread_id, run_id)
 
     async def _finalise_clean(self, run_id: UUID, record, graph, config: dict) -> None:
@@ -393,6 +398,32 @@ class RunWorker:
             **extras,
         )
         await self._emit_end(run_id, new_status, extras=extras)
+
+    async def _sync_audit_row(self, run_id: UUID) -> None:
+        """Mirror the latest Redis record into the Postgres ``runs`` row.
+
+        Called after every finalise step (terminal states *and* interrupted —
+        the latter so admins can see what's blocking a thread). Best-effort:
+        failures are logged but never raised. The Redis hash is the source of
+        truth for live state; Postgres is for billing and admin queries that
+        don't need millisecond freshness.
+        """
+        record = await self.registry.get(run_id)
+        if record is None:
+            return
+        try:
+            async with AsyncSessionLocal() as db:
+                row = await db.get(RunDB, run_id)
+                if row is None:
+                    return
+                row.status = record.status
+                row.completed_at = record.completed_at
+                row.cancellation_reason = record.cancellation_reason
+                row.error = record.error
+                row.interrupt = record.interrupt
+                await db.commit()
+        except Exception:  # noqa: BLE001
+            logger.exception("audit row sync failed for run %s", run_id)
 
     async def _emit_end(
         self,
