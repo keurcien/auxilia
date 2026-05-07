@@ -69,6 +69,7 @@ import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { usePendingMessageStore } from "@/stores/pending-message-store";
 import { useAgentReadiness } from "@/hooks/use-agent-readiness";
 import { useHitlApprovals } from "@/hooks/use-hitl-approvals";
+import { useRunCancel } from "@/hooks/use-run-cancel";
 import { useThrottledValue } from "@/hooks/use-throttled-value";
 import { useChatHeaderStore } from "@/stores/chat-header-store";
 import {
@@ -338,12 +339,16 @@ const ChatPage = () => {
 		refetch: refetchReady,
 	} = useAgentReadiness(agentArchived ? undefined : agentId);
 
+	const { captureFetch, cancel: cancelRun, reset: resetRunId } =
+		useRunCancel(threadId);
+
 	const transport = useMemo(
 		() =>
 			new FetchStreamTransport({
 				apiUrl: `${API_BASE_URL}/threads/${threadId}/runs/stream`,
+				fetch: captureFetch,
 			}),
-		[threadId],
+		[threadId, captureFetch],
 	);
 
 	const thread = useStream<Record<string, unknown>>({
@@ -993,7 +998,14 @@ const ChatPage = () => {
 						onSubmit={handleSubmit}
 						status={isLoading ? "streaming" : "ready"}
 						className="w-full max-w-4xl mx-auto lg:px-10 px-6 py-4"
-						stop={stop}
+						stop={() => {
+							// Fire-and-forget the server-side cancel so the worker
+							// stops burning tokens; tear down the local stream
+							// immediately for a snappy Stop button.
+							cancelRun().catch(() => {});
+							resetRunId();
+							stop();
+						}}
 						selectedModel={threadModel}
 						readOnlyModel={true}
 						agentReady={agentReady}
