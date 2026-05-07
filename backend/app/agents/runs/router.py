@@ -186,6 +186,7 @@ async def _sse(
     The SSE Stream ID is exposed as the SSE ``id:`` field so reconnect can
     resume cleanly.
     """
+    logger.info("subscriber attached to run %s (last_event_id=%s)", run_id, last_event_id)
     try:
         async for stream_id, event in service.stream_events(
             run_id, current_user, last_event_id=last_event_id

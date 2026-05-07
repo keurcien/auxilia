@@ -39,6 +39,25 @@ from app.users.router import router as users_router
 logging.getLogger("app").setLevel(app_settings.log_level.upper())
 
 
+def _log_task_termination(task: asyncio.Task) -> None:
+    """Surface silent task crashes loudly. Without this, a worker pool that
+    raises on startup would die without anyone noticing — runs would just
+    pile up in the queue forever."""
+    if task.cancelled():
+        logging.getLogger("app").info("background task %s cancelled", task.get_name())
+        return
+    exc = task.exception()
+    if exc is None:
+        logging.getLogger("app").warning(
+            "background task %s exited cleanly (unexpected — should run forever)",
+            task.get_name(),
+        )
+        return
+    logging.getLogger("app").error(
+        "background task %s crashed: %s", task.get_name(), exc, exc_info=exc
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     redis_client = redis.Redis(
@@ -59,6 +78,8 @@ async def lifespan(app: FastAPI):
         reaper.run_forever(stop_event=stop_event),
         name="run-reaper",
     )
+    worker_task.add_done_callback(_log_task_termination)
+    reaper_task.add_done_callback(_log_task_termination)
 
     async with auxilia_mcp.session_manager.run():
         try:

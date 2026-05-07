@@ -145,6 +145,7 @@ class RunWorker:
     # ---- per-run pipeline ----
 
     async def _execute(self, run_id: UUID) -> None:
+        logger.info("worker %s dequeued run %s", self.worker_id, run_id)
         record = await self.registry.get(run_id)
         if record is None:
             logger.warning("run %s missing from registry, skipping", run_id)
@@ -158,6 +159,7 @@ class RunWorker:
         # Build the runtime in a short-lived DB session. The session is closed
         # before we open the long-lived checkpointer connection so we don't pin
         # a Postgres pool slot for the whole run.
+        logger.debug("run %s: building runtime", run_id)
         async with AsyncSessionLocal() as db:
             try:
                 thread = await ThreadService(db).get_thread(record.thread_id)
@@ -166,6 +168,7 @@ class RunWorker:
                 await db.commit()
 
         payload = await load_input(self.redis, run_id)
+        logger.debug("run %s: opening checkpointer", run_id)
 
         async with AsyncPostgresSaver.from_conn_string(
             get_psycopg_conn_string()
@@ -282,7 +285,11 @@ class RunWorker:
             stream_mode=["messages", "values", "updates"],
             subgraphs=True,
         )
+        first = True
         async for chunk in adapter.stream(langchain_stream):
+            if first:
+                logger.info("run %s: first chunk emitted", run_id)
+                first = False
             stream_id = await self.events.append(
                 run_id, {"type": "chunk", "data": chunk}
             )
@@ -290,6 +297,8 @@ class RunWorker:
                 f"run:{run_id}",
                 mapping={"last_event_id": stream_id, "heartbeat_at": utcnow().isoformat()},
             )
+        if first:
+            logger.warning("run %s: astream completed without emitting any chunks", run_id)
 
     async def _heartbeat_loop(self, run_id: UUID) -> None:
         try:

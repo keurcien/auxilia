@@ -133,6 +133,12 @@ class RunService(BaseService[RunDB, RunRepository]):
         )
 
         await self.queue.enqueue(run_id)
+        logger.info(
+            "created run %s on thread %s (strategy=%s) — enqueued",
+            run_id,
+            thread_id,
+            body.multitask_strategy.value,
+        )
         return record
 
     async def _apply_multitask_strategy(
