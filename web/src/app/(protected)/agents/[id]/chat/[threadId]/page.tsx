@@ -69,6 +69,7 @@ import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { usePendingMessageStore } from "@/stores/pending-message-store";
 import { useAgentReadiness } from "@/hooks/use-agent-readiness";
 import { useHitlApprovals } from "@/hooks/use-hitl-approvals";
+import { useThrottledValue } from "@/hooks/use-throttled-value";
 import { useChatHeaderStore } from "@/stores/chat-header-store";
 import {
 	McpAppWidget,
@@ -383,8 +384,11 @@ const ChatPage = () => {
 	const streamValues = thread.values as Record<string, unknown>;
 	const coordinatorTodos = (streamValues?.todos ?? []) as Todo[];
 
-	// Messages: use stream messages when available, else initial
-	const streamMessages = thread.messages as LCMessage[];
+	// Messages: use stream messages when available, else initial.
+	// Throttle to ~16Hz so streamed chunks don't trigger per-token re-renders
+	// of the whole conversation (and per-token markdown re-parses).
+	const streamMessagesRaw = thread.messages as LCMessage[];
+	const streamMessages = useThrottledValue(streamMessagesRaw, 60);
 	const initMessages = (
 		initialValues?.messages ?? []
 	) as LCMessage[];
@@ -395,7 +399,8 @@ const ChatPage = () => {
 
 	// Tool calls: use stream tool calls when streaming, else compute from messages
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const streamToolCalls = ((thread as any).toolCalls ?? []) as LocalToolCall[];
+	const streamToolCallsRaw = ((thread as any).toolCalls ?? []) as LocalToolCall[];
+	const streamToolCalls = useThrottledValue(streamToolCallsRaw, 60);
 	const localToolCalls = useMemo(
 		() => computeToolCallsFromMessages(messages),
 		[messages],
@@ -403,15 +408,28 @@ const ChatPage = () => {
 	const toolCalls =
 		streamToolCalls.length > 0 || isLoading ? streamToolCalls : localToolCalls;
 
-	// Get tool calls for a specific AI message, filtering out
-	// incomplete streaming chunks (empty name = partially built tool call)
-	const getToolCallsForMessage = (message: LCMessage) => {
-		return toolCalls.filter(
-			(tc) =>
-				// eslint-disable-next-line @typescript-eslint/no-explicit-any
-				(tc.aiMessage as any)?.id === message.id && tc.call.name,
-		);
-	};
+	// Index tool calls by AI message id once per render, so the inner map can
+	// look them up in O(1) instead of filtering the full list per message.
+	const toolCallsByMessageId = useMemo(() => {
+		const map = new Map<string, LocalToolCall[]>();
+		for (const tc of toolCalls) {
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const id = (tc.aiMessage as any)?.id as string | undefined;
+			if (!id || !tc.call.name) continue;
+			const existing = map.get(id);
+			if (existing) existing.push(tc);
+			else map.set(id, [tc]);
+		}
+		return map;
+	}, [toolCalls]);
+
+	const getToolCallsForMessage = useCallback(
+		(message: LCMessage) => {
+			if (!message.id) return [];
+			return toolCallsByMessageId.get(message.id) ?? [];
+		},
+		[toolCallsByMessageId],
+	);
 
 	// Loading state detection
 	const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
