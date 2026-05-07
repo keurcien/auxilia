@@ -69,7 +69,7 @@ import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { usePendingMessageStore } from "@/stores/pending-message-store";
 import { useAgentReadiness } from "@/hooks/use-agent-readiness";
 import { useHitlApprovals } from "@/hooks/use-hitl-approvals";
-import { useRunCancel } from "@/hooks/use-run-cancel";
+import { REATTACH_RUN_ID_KEY, useRunCancel } from "@/hooks/use-run-cancel";
 import { useThrottledValue } from "@/hooks/use-throttled-value";
 import { useChatHeaderStore } from "@/stores/chat-header-store";
 import {
@@ -339,16 +339,20 @@ const ChatPage = () => {
 		refetch: refetchReady,
 	} = useAgentReadiness(agentArchived ? undefined : agentId);
 
-	const { captureFetch, cancel: cancelRun, reset: resetRunId } =
-		useRunCancel(threadId);
+	const {
+		customFetch,
+		cancel: cancelRun,
+		reset: resetRunId,
+		fetchActiveRunId,
+	} = useRunCancel(threadId);
 
 	const transport = useMemo(
 		() =>
 			new FetchStreamTransport({
 				apiUrl: `${API_BASE_URL}/threads/${threadId}/runs/stream`,
-				fetch: captureFetch,
+				fetch: customFetch,
 			}),
-		[threadId, captureFetch],
+		[threadId, customFetch],
 	);
 
 	const thread = useStream<Record<string, unknown>>({
@@ -629,8 +633,22 @@ const ChatPage = () => {
 				setTimeout(() => {
 					handleSubmit(pendingMessage);
 				}, 0);
-			} else {
-				setInitialValues(data.values || { messages: [] });
+				return;
+			}
+
+			setInitialValues(data.values || { messages: [] });
+
+			// If the server has a run still streaming on this thread (because we
+			// navigated away and back), reattach to its Redis event log via the
+			// custom fetch so the live tail resumes — without this the user would
+			// only see the static checkpoint until the run terminates.
+			const activeRunId = await fetchActiveRunId();
+			if (activeRunId) {
+				setTimeout(() => {
+					submit({
+						[REATTACH_RUN_ID_KEY]: activeRunId,
+					} as Record<string, unknown>);
+				}, 0);
 			}
 		};
 
