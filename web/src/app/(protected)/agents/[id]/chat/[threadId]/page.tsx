@@ -606,7 +606,16 @@ const ChatPage = () => {
 		hasInitialized.current = true;
 
 		const initializeChat = async () => {
-			const response = await api.get(`/threads/${threadId}`);
+			// Race the thread fetch and the active-run probe so we know up
+			// front whether we should render the checkpoint or wait for the
+			// live replay. Doing them sequentially produces a visible flicker:
+			// the checkpoint paints, then the replayed message-mode deltas
+			// rebuild the in-flight AI message from "" upwards, briefly
+			// shrinking or replacing the already-rendered text.
+			const [response, activeRunId] = await Promise.all([
+				api.get(`/threads/${threadId}`),
+				fetchActiveRunId(),
+			]);
 			const data = response.data;
 
 			setThreadModel(data.thread.modelId);
@@ -636,20 +645,24 @@ const ChatPage = () => {
 				return;
 			}
 
-			setInitialValues(data.values || { messages: [] });
-
-			// If the server has a run still streaming on this thread (because we
-			// navigated away and back), reattach to its Redis event log via the
-			// custom fetch so the live tail resumes — without this the user would
-			// only see the static checkpoint until the run terminates.
-			const activeRunId = await fetchActiveRunId();
 			if (activeRunId) {
+				// Don't render the checkpoint — the replay from last_event_id=0
+				// emits ``values``-mode events carrying the full graph state
+				// (history + in-flight AI message), so populating from SSE alone
+				// avoids the mid-flight rebuild flicker. We still need
+				// initialValues set so useStream renders something instead of
+				// nothing while the first replay event lands; an empty messages
+				// list is harmless and gets replaced almost immediately.
+				setInitialValues({ messages: [] });
 				setTimeout(() => {
 					submit({
 						[REATTACH_RUN_ID_KEY]: activeRunId,
 					} as Record<string, unknown>);
 				}, 0);
+				return;
 			}
+
+			setInitialValues(data.values || { messages: [] });
 		};
 
 		initializeChat();
