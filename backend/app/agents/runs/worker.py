@@ -440,12 +440,19 @@ async def run_worker_pool(
 
     Used by the FastAPI lifespan so the same Cloud Run instance that serves
     HTTP requests also processes runs (V1 deployment shape per PRD §6.2).
+
+    Each worker independently ``BRPOP``s ``runs:queue``, so the pool is
+    distribution-aware: every Cloud Run instance starts the same loop, and
+    Redis hands the next run to whichever ``BRPOP`` happens to be available
+    across the entire cluster. No leader, no sharding — total capacity is
+    just ``instances × concurrency``.
     """
     registry = RunRegistry(redis)
     events = RunEvents(redis)
     control = RunControl(redis)
     queue = RunQueue(redis)
 
+    logger.info("starting run worker pool: concurrency=%d", concurrency)
     workers = [
         RunWorker(
             redis=redis,
