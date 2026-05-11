@@ -102,7 +102,13 @@ async def load_input(redis, run_id: UUID) -> dict[str, Any]:
 
 
 class RunWorker:
-    """One worker == one asyncio task processing runs serially."""
+    """Executes one run when handed a ``run_id`` by the dispatcher.
+
+    No persistent loop here — the dispatcher (below) does the dequeueing and
+    spawns a fresh ``asyncio.Task`` per run with a new ``RunWorker``. The
+    worker carries just enough state for one execution (``worker_id`` for log
+    correlation) plus the shared Redis-backed dependencies.
+    """
 
     def __init__(
         self,
@@ -120,26 +126,6 @@ class RunWorker:
         self.control = control
         self.queue = queue
         self.worker_id = worker_id or f"{socket.gethostname()}-{uuid4().hex[:8]}"
-
-    # ---- main loop ----
-
-    async def run_forever(self, *, stop_event: asyncio.Event) -> None:
-        logger.info("RunWorker %s starting", self.worker_id)
-        while not stop_event.is_set():
-            run_id = None
-            try:
-                run_id = await self.queue.dequeue(timeout_seconds=2)
-            except Exception:  # noqa: BLE001 — never crash the worker loop
-                logger.exception("dequeue failed")
-                await asyncio.sleep(1)
-                continue
-            if run_id is None:
-                continue
-            try:
-                await self._execute(run_id)
-            except Exception:  # noqa: BLE001
-                logger.exception("execute %s failed", run_id)
-        logger.info("RunWorker %s stopped", self.worker_id)
 
     # ---- per-run pipeline ----
 
@@ -427,60 +413,142 @@ class RunWorker:
         return None
 
 
-# --- worker pool ------------------------------------------------------------
+# --- dispatcher -------------------------------------------------------------
 
 
-async def run_worker_pool(
+class RunDispatcher:
+    """One BRPOP loop, task-per-run, semaphore-capped.
+
+    Replaces the previous "N persistent workers each BRPOP'ing" shape, which
+    capped concurrency at ``N`` and held ``N`` Redis connections at idle.
+    Here a single coroutine pops runs and ``asyncio.create_task``s execution;
+    a semaphore (size ``max_concurrent_runs``) caps how many run concurrently.
+
+    Behaviour at saturation:
+    - All semaphore slots in use → the dispatcher blocks on ``acquire()``,
+      stops popping new runs from the queue.
+    - Other Cloud Run instances continue popping the same queue, so the
+      cluster keeps making progress.
+    - When a local slot frees, the dispatcher resumes popping immediately.
+
+    Behaviour at idle:
+    - One blocked BRPOP, zero in-flight tasks. (vs N idle BRPOPs before.)
+    """
+
+    def __init__(
+        self,
+        *,
+        redis,
+        max_concurrent_runs: int,
+        instance_id: str | None = None,
+    ):
+        self.redis = redis
+        self.max_concurrent_runs = max_concurrent_runs
+        self.instance_id = (
+            instance_id or f"{socket.gethostname()}-{uuid4().hex[:8]}"
+        )
+        self.registry = RunRegistry(redis)
+        self.events = RunEvents(redis)
+        self.control = RunControl(redis)
+        self.queue = RunQueue(redis)
+        self._semaphore = asyncio.Semaphore(max_concurrent_runs)
+        self._in_flight: set[asyncio.Task] = set()
+        self._seq = 0
+
+    async def run_forever(self, *, stop_event: asyncio.Event) -> None:
+        logger.info(
+            "starting run dispatcher: instance=%s max_concurrent=%d",
+            self.instance_id,
+            self.max_concurrent_runs,
+        )
+        try:
+            while not stop_event.is_set():
+                try:
+                    run_id = await self.queue.dequeue(timeout_seconds=2)
+                except Exception:  # noqa: BLE001 — never crash the loop
+                    logger.exception("dequeue failed")
+                    await asyncio.sleep(1)
+                    continue
+                if run_id is None:
+                    continue
+
+                # Block here when saturated. While we wait, no other dequeue
+                # happens *from this instance* — but the run is still in the
+                # queue, so peer instances are free to pop it.
+                await self._semaphore.acquire()
+                if stop_event.is_set():
+                    # We took a run while shutting down — push it back so a
+                    # surviving instance picks it up. ``LPUSH`` keeps queue
+                    # ordering intact since we ``BRPOP`` from the other end.
+                    await self.queue.enqueue(run_id)
+                    self._semaphore.release()
+                    break
+
+                self._seq += 1
+                worker = RunWorker(
+                    redis=self.redis,
+                    registry=self.registry,
+                    events=self.events,
+                    control=self.control,
+                    queue=self.queue,
+                    worker_id=f"{self.instance_id}-{self._seq}",
+                )
+                task = asyncio.create_task(
+                    self._execute_one(worker, run_id), name=f"run:{run_id}"
+                )
+                self._in_flight.add(task)
+                task.add_done_callback(self._in_flight.discard)
+        finally:
+            await self._drain()
+            logger.info(
+                "run dispatcher stopped: instance=%s (drained %d in-flight)",
+                self.instance_id,
+                len(self._in_flight),
+            )
+
+    async def _execute_one(self, worker: RunWorker, run_id: UUID) -> None:
+        try:
+            await worker._execute(run_id)
+        except Exception:  # noqa: BLE001 — never let a single run kill the pool
+            logger.exception("execute %s failed", run_id)
+        finally:
+            self._semaphore.release()
+
+    async def _drain(self) -> None:
+        """Wait for in-flight runs to finish their post-cancel cleanup.
+
+        On SIGTERM, the lifespan flips ``stop_event`` and the dispatcher loop
+        exits. Already-spawned tasks need to settle so ``patch_dangling_tool_calls``
+        gets to write its synthetic ToolMessages (worker uses ``asyncio.shield``
+        around that path). Bounded by the Cloud Run grace period; anything that
+        doesn't finish in time will be picked up by the reaper on the next
+        instance.
+        """
+        if not self._in_flight:
+            return
+        logger.info("draining %d in-flight runs", len(self._in_flight))
+        await asyncio.gather(*self._in_flight, return_exceptions=True)
+
+
+async def run_dispatcher(
     *,
     redis,
-    concurrency: int,
+    max_concurrent_runs: int,
     stop_event: asyncio.Event,
 ) -> None:
-    """Spawn ``concurrency`` workers and wait for the stop signal.
-
-    Used by the FastAPI lifespan so the same Cloud Run instance that serves
-    HTTP requests also processes runs (V1 deployment shape per PRD §6.2).
-
-    Each worker independently ``BRPOP``s ``runs:queue``, so the pool is
-    distribution-aware: every Cloud Run instance starts the same loop, and
-    Redis hands the next run to whichever ``BRPOP`` happens to be available
-    across the entire cluster. No leader, no sharding — total capacity is
-    just ``instances × concurrency``.
-    """
-    registry = RunRegistry(redis)
-    events = RunEvents(redis)
-    control = RunControl(redis)
-    queue = RunQueue(redis)
-
-    logger.info("starting run worker pool: concurrency=%d", concurrency)
-    workers = [
-        RunWorker(
-            redis=redis,
-            registry=registry,
-            events=events,
-            control=control,
-            queue=queue,
-            worker_id=f"worker-{i}",
-        )
-        for i in range(concurrency)
-    ]
-    tasks = [
-        asyncio.create_task(w.run_forever(stop_event=stop_event), name=w.worker_id)
-        for w in workers
-    ]
-    try:
-        await stop_event.wait()
-    finally:
-        for t in tasks:
-            t.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+    """Lifespan entrypoint. Equivalent to ``RunDispatcher(...).run_forever()``."""
+    dispatcher = RunDispatcher(
+        redis=redis,
+        max_concurrent_runs=max_concurrent_runs,
+    )
+    await dispatcher.run_forever(stop_event=stop_event)
 
 
-# Re-export for convenience.
 __all__ = [
+    "RunDispatcher",
     "RunWorker",
     "load_input",
-    "run_worker_pool",
+    "run_dispatcher",
     "store_input",
 ]
 

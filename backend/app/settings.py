@@ -16,13 +16,14 @@ class AppSettings(BaseSettings):
     redis_password: str | None = None
     backend_url: str = "http://localhost:8000"
     log_level: str = "INFO"
-    # Per-instance worker count. Each worker is one asyncio task running a
-    # dequeue→execute loop, so 8 means up to 8 concurrent agent runs in this
-    # process. Horizontal scaling (more Cloud Run instances) multiplies this:
-    # cluster capacity = instances × run_worker_concurrency.
-    # During astream, workers are mostly async-idle waiting on LLM/MCP HTTP,
-    # so the per-instance ceiling can be raised aggressively — tune up if
-    # queue depth grows persistently, down if Postgres connections starve.
+    # Max concurrent agent runs *per instance*. Enforced by a semaphore in
+    # the dispatcher (``app.agents.runs.worker.RunDispatcher``): one BRPOP
+    # loop spawns a task per run up to this ceiling, blocks when saturated,
+    # resumes when a slot frees. Horizontal scaling multiplies this — cluster
+    # capacity = ``instances × run_worker_concurrency``.
+    # Workers are mostly async-idle awaiting LLM/MCP HTTP, so the ceiling
+    # can be raised aggressively; bump up if queue depth grows persistently,
+    # down if Postgres connections starve.
     run_worker_concurrency: int = 8
 
     model_config: ConfigDict = ConfigDict(

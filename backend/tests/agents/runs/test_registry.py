@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
@@ -15,16 +15,16 @@ from app.agents.runs.state import (
 
 def _make_record(**overrides) -> RunRecord:
     now = utcnow()
-    defaults = dict(
-        id=uuid4(),
-        thread_id="thread-1",
-        user_id=uuid4(),
-        agent_id=uuid4(),
-        status=RunState.PENDING,
-        multitask_strategy=MultitaskStrategy.REJECT,
-        created_at=now,
-        updated_at=now,
-    )
+    defaults = {
+        "id": uuid4(),
+        "thread_id": "thread-1",
+        "user_id": uuid4(),
+        "agent_id": uuid4(),
+        "status": RunState.PENDING,
+        "multitask_strategy": MultitaskStrategy.REJECT,
+        "created_at": now,
+        "updated_at": now,
+    }
     defaults.update(overrides)
     return RunRecord(**defaults)
 
@@ -173,7 +173,7 @@ class TestSerialization:
 
     async def test_datetimes_preserve_timezone(self, redis):
         reg = RunRegistry(redis)
-        ts = datetime(2026, 1, 1, 12, 30, 45, tzinfo=timezone.utc)
+        ts = datetime(2026, 1, 1, 12, 30, 45, tzinfo=UTC)
         record = _make_record(created_at=ts, updated_at=ts)
         await reg.create(record)
         loaded = await reg.get(record.id)

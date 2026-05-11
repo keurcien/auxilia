@@ -8,6 +8,7 @@ ones that decide a terminal state given the supervisor's collected context.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
@@ -255,9 +256,8 @@ class TestReaperThresholds:
         assert (await reg.get(rec.id)).status is RunState.PENDING
 
     async def test_running_run_with_stale_heartbeat_is_reaped(self, redis):
-        from datetime import timedelta as _td
-
         from dataclasses import replace as _replace
+        from datetime import timedelta as _td
 
         from app.agents.runs.reaper import RunReaper
 
@@ -275,6 +275,113 @@ class TestReaperThresholds:
         reaped = await reaper.tick()
         assert reaped == 1
         assert (await reg.get(rec.id)).status is RunState.ERROR
+
+
+@pytest.mark.asyncio
+class TestDispatcher:
+    """The dispatcher pops runs and runs up to ``max_concurrent`` concurrently.
+
+    We stub ``RunWorker._execute`` so we don't need a real DB or LangGraph —
+    only the concurrency control is under test here.
+    """
+
+    async def _patched_dispatcher(self, redis, monkeypatch, max_concurrent: int):
+        from app.agents.runs.worker import RunDispatcher, RunWorker
+
+        active = 0
+        peak = 0
+        held: list[asyncio.Event] = []
+
+        async def fake_execute(self, _run_id):  # noqa: ARG001
+            nonlocal active, peak
+            active += 1
+            peak = max(peak, active)
+            evt = asyncio.Event()
+            held.append(evt)
+            try:
+                await evt.wait()
+            finally:
+                active -= 1
+
+        monkeypatch.setattr(RunWorker, "_execute", fake_execute)
+        dispatcher = RunDispatcher(
+            redis=redis,
+            max_concurrent_runs=max_concurrent,
+            instance_id="test",
+        )
+        return dispatcher, held, lambda: peak
+
+    async def test_caps_concurrent_executions_at_semaphore_limit(
+        self, redis, monkeypatch
+    ):
+        dispatcher, held, peak = await self._patched_dispatcher(
+            redis, monkeypatch, max_concurrent=3
+        )
+
+        # Enqueue 5 runs; cap is 3, so only 3 should run at once.
+        for _ in range(5):
+            await dispatcher.queue.enqueue(uuid4())
+
+        stop = asyncio.Event()
+        loop_task = asyncio.create_task(dispatcher.run_forever(stop_event=stop))
+
+        # Wait until the dispatcher has hit the cap.
+        for _ in range(50):
+            await asyncio.sleep(0.02)
+            if peak() >= 3:
+                break
+        assert peak() == 3, f"expected peak=3 (cap), got {peak()}"
+
+        # Release everything; dispatcher drains the remaining 2.
+        for e in list(held):
+            e.set()
+        # Give the loop time to dequeue the rest.
+        for _ in range(50):
+            await asyncio.sleep(0.02)
+            if len(held) >= 5:
+                break
+        for e in list(held):
+            e.set()
+
+        stop.set()
+        await asyncio.wait_for(loop_task, timeout=5)
+        assert len(held) == 5  # all 5 runs eventually executed
+
+    async def test_re_enqueues_run_when_stopping_after_pop(
+        self, redis, monkeypatch
+    ):
+        """If we pop a run but the stop signal fires before we spawn it, the
+        run is pushed back onto the queue so another instance can pick it up.
+
+        Simulated here by acquiring the semaphore externally so the dispatcher
+        blocks at ``await semaphore.acquire()``, then setting the stop event.
+        """
+        from app.agents.runs.worker import RunDispatcher, RunWorker
+
+        async def fake_execute(self, _run_id):  # noqa: ARG001
+            return None
+
+        monkeypatch.setattr(RunWorker, "_execute", fake_execute)
+
+        dispatcher = RunDispatcher(
+            redis=redis, max_concurrent_runs=1, instance_id="test"
+        )
+        # Saturate the semaphore so the dispatcher will block after the pop.
+        await dispatcher._semaphore.acquire()
+        await dispatcher.queue.enqueue(uuid4())
+
+        stop = asyncio.Event()
+        loop_task = asyncio.create_task(dispatcher.run_forever(stop_event=stop))
+
+        # Give the loop time to BRPOP and start waiting on the semaphore.
+        await asyncio.sleep(0.5)
+        stop.set()
+        dispatcher._semaphore.release()  # unblock so the loop sees stop_event
+
+        await asyncio.wait_for(loop_task, timeout=5)
+
+        # The popped run should be back on the queue, unprocessed.
+        assert await dispatcher.queue.length() == 1
 
 
 @pytest.mark.asyncio

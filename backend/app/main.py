@@ -12,7 +12,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.agents.router import router as agents_router
 from app.agents.runs.reaper import RunReaper
 from app.agents.runs.router import router as runs_router
-from app.agents.runs.worker import run_worker_pool
+from app.agents.runs.worker import run_dispatcher
 from app.auth.router import router as auth_router
 from app.auth.settings import auth_settings
 from app.auth.tokens.router import router as tokens_router
@@ -67,12 +67,12 @@ async def lifespan(app: FastAPI):
     stop_event = asyncio.Event()
     reaper = RunReaper(redis_client)
     worker_task = asyncio.create_task(
-        run_worker_pool(
+        run_dispatcher(
             redis=redis_client,
-            concurrency=app_settings.run_worker_concurrency,
+            max_concurrent_runs=app_settings.run_worker_concurrency,
             stop_event=stop_event,
         ),
-        name="run-worker-pool",
+        name="run-dispatcher",
     )
     reaper_task = asyncio.create_task(
         reaper.run_forever(stop_event=stop_event),
