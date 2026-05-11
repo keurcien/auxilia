@@ -142,7 +142,7 @@ const ChatPromptInput = ({
 					"min-h-40 transition-all duration-200",
 					// Sage-style InputGroup container
 					"[&>[data-slot=input-group]]:rounded-[28px]",
-					"[&>[data-slot=input-group]]:border-[1.5px]",
+					"[&>[data-slot=input-group]]:border-[3px]",
 					"[&>[data-slot=input-group]]:border-[#E0E8E4]",
 					"dark:[&>[data-slot=input-group]]:border-white/10",
 					"[&>[data-slot=input-group]]:bg-white",

@@ -42,7 +42,7 @@ export const Tool = ({
 			open={isOpen}
 			onOpenChange={(open) => setUserOpenPreference(open)}
 			className={cn(
-				"not-prose group w-full min-w-0 overflow-hidden rounded-xl bg-white dark:bg-[#1C1C1C] border-[1.5px] border-[#E0E8E4] dark:border-white/10 transition-colors hover:border-[#C8D8CF] dark:hover:border-white/15",
+				"not-prose group w-full min-w-0 overflow-hidden rounded-[20px] bg-white dark:bg-[#1C1C1C] border-[3px] border-[#E0E8E4] dark:border-white/10 transition-colors hover:border-[#C8D8CF] dark:hover:border-white/15",
 				className,
 			)}
 			{...props}
@@ -126,7 +126,7 @@ export const ToolHeader = ({
 	return (
 		<CollapsibleTrigger
 			className={cn(
-				"flex w-full items-center justify-between gap-4 px-4 py-3 cursor-pointer",
+				"flex w-full items-center justify-between gap-4 px-4 py-4 cursor-pointer",
 				className,
 			)}
 			{...props}
