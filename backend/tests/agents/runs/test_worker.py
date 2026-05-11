@@ -233,6 +233,58 @@ class TestPatchAndTransition:
 
 
 @pytest.mark.asyncio
+class TestTimeoutFinalisation:
+    async def test_timed_out_flag_drives_timeout_state_and_reason(
+        self, redis, config
+    ):
+        worker = _worker(redis)
+        record = _record(RunState.RUNNING)
+        await worker.registry.create(record)
+
+        await worker._finalise(
+            run_id=record.id,
+            record=record,
+            graph=_StubGraph(),
+            config=config,
+            cancel_reason=None,
+            run_error=None,
+            timed_out=True,
+        )
+
+        loaded = await worker.registry.get(record.id)
+        assert loaded.status is RunState.TIMEOUT
+        assert loaded.cancellation_reason is CancellationReason.TIMEOUT
+        assert loaded.error is not None
+        assert loaded.error.get("type") == "RunTimeout"
+
+        events = await _drain_events(redis, record.id)
+        assert events[-1]["status"] == "timeout"
+
+    async def test_timeout_takes_precedence_over_cancel_and_error(
+        self, redis, config
+    ):
+        """If cancel/error/timeout all fire near-simultaneously, the worker's
+        ``_supervise`` records ``timed_out=True``; ``_finalise`` should treat
+        timeout as the terminal cause and ignore the others."""
+        worker = _worker(redis)
+        record = _record(RunState.RUNNING)
+        await worker.registry.create(record)
+
+        await worker._finalise(
+            run_id=record.id,
+            record=record,
+            graph=_StubGraph(),
+            config=config,
+            cancel_reason=CancellationReason.USER,  # would otherwise win
+            run_error=RuntimeError("ignore me"),
+            timed_out=True,
+        )
+
+        loaded = await worker.registry.get(record.id)
+        assert loaded.status is RunState.TIMEOUT
+
+
+@pytest.mark.asyncio
 class TestReaperThresholds:
     """Regression: PENDING runs must not be reaped 30s after creation just
     because no worker has dequeued yet. They're queued, not orphaned."""

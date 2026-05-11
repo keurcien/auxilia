@@ -27,6 +27,13 @@ class AppSettings(BaseSettings):
     # ``ge=1`` rejects 0 and negative values — both would crash semaphore
     # init or stall all run execution.
     run_worker_concurrency: int = Field(default=8, ge=1)
+    # Hard wall-clock cap on a single agent run. Workers race a timeout
+    # task against the astream loop; on hit, the run transitions to
+    # ``timeout`` and the user sees a clean end event. ``0`` disables the
+    # cap (not recommended in production — a runaway agent will hold its
+    # dispatcher slot indefinitely). Default 30 min matches the active-run
+    # mutex TTL so the reaper sweeps the same ceiling.
+    run_max_duration_seconds: int = Field(default=30 * 60, ge=0)
 
     model_config: ConfigDict = ConfigDict(
         env_file=ROOT_ENV,

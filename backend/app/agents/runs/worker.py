@@ -56,6 +56,7 @@ from app.agents.runs.state import (
 from app.agents.runtime import AgentRuntime
 from app.agents.stream import LangGraphStreamAdapter
 from app.database import AsyncSessionLocal, get_psycopg_conn_string
+from app.settings import app_settings
 from app.threads.service import ThreadService
 
 
@@ -226,31 +227,53 @@ class RunWorker:
             self._heartbeat_loop(run_id),
             name=f"heartbeat:{run_id}",
         )
+        # Wall-clock cap so a runaway agent doesn't hold its dispatcher
+        # slot indefinitely. ``0`` disables the cap.
+        timeout_seconds = app_settings.run_max_duration_seconds
+        timeout_task: asyncio.Task | None = None
+        if timeout_seconds > 0:
+            timeout_task = asyncio.create_task(
+                asyncio.sleep(timeout_seconds), name=f"timeout:{run_id}"
+            )
+
+        wait_set: set[asyncio.Task] = {astream_task, cancel_task}
+        if timeout_task is not None:
+            wait_set.add(timeout_task)
 
         cancel_reason: CancellationReason | None = None
         run_error: BaseException | None = None
+        timed_out = False
         try:
             done, _pending = await asyncio.wait(
-                {astream_task, cancel_task},
+                wait_set,
                 return_when=asyncio.FIRST_COMPLETED,
             )
-            if cancel_task in done:
+            if timeout_task is not None and timeout_task in done:
+                timed_out = True
+                astream_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await astream_task
+            elif cancel_task in done:
                 cancel_reason = cancel_task.result()
                 astream_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await astream_task
             else:
-                cancel_task.cancel()
                 exc = astream_task.exception()
                 if exc is not None:
                     run_error = exc
         finally:
             heartbeat_task.cancel()
             cancel_task.cancel()
+            if timeout_task is not None:
+                timeout_task.cancel()
             with contextlib.suppress(BaseException):
                 await heartbeat_task
             with contextlib.suppress(BaseException):
                 await cancel_task
+            if timeout_task is not None:
+                with contextlib.suppress(BaseException):
+                    await timeout_task
 
         # asyncio.shield: even if the worker itself is being torn down (e.g.
         # SIGTERM during shutdown), the patch + final-event writes get to run.
@@ -262,6 +285,7 @@ class RunWorker:
                 config=config,
                 cancel_reason=cancel_reason,
                 run_error=run_error,
+                timed_out=timed_out,
             )
         )
 
@@ -320,10 +344,29 @@ class RunWorker:
         config: dict,
         cancel_reason: CancellationReason | None,
         run_error: BaseException | None,
+        timed_out: bool = False,
     ) -> None:
         """Pick a terminal state, patch dangling tools if needed, emit ``end``."""
         try:
-            if cancel_reason is not None:
+            if timed_out:
+                await self._patch_and_transition(
+                    run_id=run_id,
+                    record=record,
+                    graph=graph,
+                    config=config,
+                    event=RunEvent.TIMED_OUT,
+                    extras={
+                        "error": {
+                            "type": "RunTimeout",
+                            "message": (
+                                f"Run exceeded the {app_settings.run_max_duration_seconds}s "
+                                "wall-clock limit."
+                            ),
+                        },
+                        "cancellation_reason": CancellationReason.TIMEOUT,
+                    },
+                )
+            elif cancel_reason is not None:
                 await self._patch_and_transition(
                     run_id=run_id,
                     record=record,
