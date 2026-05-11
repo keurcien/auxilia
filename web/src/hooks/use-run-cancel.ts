@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import { API_BASE_URL, api } from "@/lib/api/client";
 
@@ -30,8 +30,35 @@ export const REATTACH_RUN_ID_KEY = "__reattach_run_id";
 export function useRunCancel(threadId: string) {
 	const runIdRef = useRef<string | null>(null);
 
+	// Per-thread AbortController. We can't trust the SDK to abort its in-flight
+	// fetch on unmount — its threadId effect has no cleanup, so on page
+	// unmount the closure holding the fetch promise keeps the TCP socket open.
+	// Each thread switch leaks one fetch; after ~6 switches the browser's
+	// per-origin HTTP/1.1 connection limit is hit and *every* request (including
+	// sidebar nav clicks) queues forever, looking like a UI freeze.
+	const localCtrlRef = useRef<AbortController | null>(null);
+
+	const getLocalSignal = useCallback((): AbortSignal => {
+		if (!localCtrlRef.current || localCtrlRef.current.signal.aborted) {
+			localCtrlRef.current = new AbortController();
+		}
+		return localCtrlRef.current.signal;
+	}, []);
+
+	useEffect(() => {
+		return () => {
+			// Fires on threadId change AND on unmount. Releases the browser's
+			// connection slot. The worker keeps running server-side because
+			// run execution is decoupled from the SSE consumer.
+			localCtrlRef.current?.abort();
+			localCtrlRef.current = null;
+		};
+	}, [threadId]);
+
 	const customFetch = useCallback<typeof fetch>(
 		async (input, init) => {
+			const signal = combineSignals(init?.signal, getLocalSignal());
+
 			// Reattach intent: the SDK serialised our magic marker into the body.
 			// Redirect to the dedicated GET endpoint and return its SSE stream.
 			if (typeof init?.body === "string") {
@@ -46,7 +73,7 @@ export function useRunCancel(threadId: string) {
 							`${API_BASE_URL}/threads/${threadId}/runs/${reattachRunId}/stream?last_event_id=0`,
 							{
 								method: "GET",
-								signal: init.signal ?? null,
+								signal,
 								headers: { "Cache-Control": "no-cache" },
 							},
 						);
@@ -56,12 +83,12 @@ export function useRunCancel(threadId: string) {
 				}
 			}
 
-			const res = await fetch(input, init);
+			const res = await fetch(input, { ...init, signal });
 			const rid = res.headers.get("X-Run-Id");
 			if (rid) runIdRef.current = rid;
 			return res;
 		},
-		[threadId],
+		[threadId, getLocalSignal],
 	);
 
 	const cancel = useCallback(async (): Promise<void> => {
@@ -104,4 +131,30 @@ export function useRunCancel(threadId: string) {
 	}, []);
 
 	return { runIdRef, customFetch, cancel, fetchActiveRunId, reset };
+}
+
+/**
+ * Returns a signal that aborts when *either* input signal aborts. Uses
+ * ``AbortSignal.any`` where available (Chrome 116+, Firefox 124+, Safari 17.4+)
+ * and falls back to a manual listener otherwise.
+ */
+function combineSignals(
+	external: AbortSignal | undefined | null,
+	local: AbortSignal,
+): AbortSignal {
+	if (!external) return local;
+	const AnySignal = (AbortSignal as unknown as {
+		any?: (signals: AbortSignal[]) => AbortSignal;
+	}).any;
+	if (typeof AnySignal === "function") {
+		return AnySignal([external, local]);
+	}
+	const ctrl = new AbortController();
+	const trip = () => ctrl.abort();
+	if (external.aborted || local.aborted) trip();
+	else {
+		external.addEventListener("abort", trip, { once: true });
+		local.addEventListener("abort", trip, { once: true });
+	}
+	return ctrl.signal;
 }

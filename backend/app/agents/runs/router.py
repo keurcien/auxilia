@@ -187,12 +187,14 @@ async def _sse(
     resume cleanly.
     """
     logger.info("subscriber attached to run %s (last_event_id=%s)", run_id, last_event_id)
+    detach_reason = "stream ended"
     try:
         async for stream_id, event in service.stream_events(
             run_id, current_user, last_event_id=last_event_id
         ):
             if await request.is_disconnected():
                 # Client gave up; the run keeps executing on the worker.
+                detach_reason = "client disconnected"
                 return
             event_type = event.get("type")
             if event_type == "chunk":
@@ -207,7 +209,10 @@ async def _sse(
                 return
     except asyncio.CancelledError:
         # Client disconnected mid-read; don't bubble up — the run survives.
+        detach_reason = "cancelled"
         return
+    finally:
+        logger.info("subscriber detached from run %s (%s)", run_id, detach_reason)
 
 
 def _encode_sse_event(stream_id: str, event_name: str, payload: dict[str, Any]) -> bytes:
