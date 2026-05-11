@@ -24,7 +24,12 @@ export type ToolProps = ComponentProps<typeof Collapsible> & {
 	lockOpen?: boolean;
 };
 
-export const Tool = ({ className, toolState, lockOpen, ...props }: ToolProps) => {
+export const Tool = ({
+	className,
+	toolState,
+	lockOpen,
+	...props
+}: ToolProps) => {
 	const [userOpenPreference, setUserOpenPreference] = useState<boolean | null>(
 		null,
 	);
@@ -37,7 +42,7 @@ export const Tool = ({ className, toolState, lockOpen, ...props }: ToolProps) =>
 			open={isOpen}
 			onOpenChange={(open) => setUserOpenPreference(open)}
 			className={cn(
-				"not-prose group w-full min-w-0 overflow-hidden rounded-xl bg-muted/50 transition-colors hover:bg-muted/70",
+				"not-prose group w-full min-w-0 overflow-hidden rounded-xl bg-white dark:bg-[#1C1C1C] border-[1.5px] border-[#E0E8E4] dark:border-white/10 transition-colors hover:border-[#C8D8CF] dark:hover:border-white/15",
 				className,
 			)}
 			{...props}
@@ -173,7 +178,7 @@ export const ToolContentInner = ({
 }: ToolContentInnerProps) => (
 	<div
 		className={cn(
-			"mx-3 mb-3 min-w-0 space-y-3 rounded-lg bg-background/50 border border-border/30 overflow-hidden",
+			"mx-3 mb-3 min-w-0 space-y-3 rounded-lg bg-background/50 overflow-hidden",
 			className,
 		)}
 		{...props}
@@ -251,10 +256,7 @@ export const ToolOutput = ({
 
 	return (
 		<div
-			className={cn(
-				"min-w-0 space-y-2 overflow-hidden p-3 border-t border-border/30",
-				className,
-			)}
+			className={cn("min-w-0 space-y-2 overflow-hidden p-3", className)}
 			{...props}
 		>
 			<h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
