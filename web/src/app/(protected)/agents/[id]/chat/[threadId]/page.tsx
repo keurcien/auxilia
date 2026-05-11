@@ -322,12 +322,7 @@ const ChatPage = () => {
 	const params = useParams();
 	const agentId = params.id as string;
 	const threadId = params.threadId as string;
-	// Tracks which thread has been initialised. ``useParams`` returns new
-	// values on URL change but the component instance is reused, so a plain
-	// ``useRef(false)`` would lock out every thread after the first — and the
-	// SDK never re-submits, never aborts the old SSE, and after ~5 switches
-	// the browser per-origin connection limit freezes the page.
-	const initializedThreadRef = useRef<string | null>(null);
+	const hasInitialized = useRef(false);
 	const [threadModel, setThreadModel] = useState<string | undefined>(undefined);
 	const [agentArchived, setAgentArchived] = useState(false);
 	const [initialValues, setInitialValues] = useState<Record<
@@ -607,16 +602,8 @@ const ChatPage = () => {
 	}, [clearCurrentChat]);
 
 	useEffect(() => {
-		if (initializedThreadRef.current === threadId) return;
-		initializedThreadRef.current = threadId;
-
-		// Reset per-thread state so the new thread doesn't briefly render the
-		// previous thread's checkpoint while ``initializeChat`` re-fetches.
-		setInitialValues(null);
-		setRehydratedInterrupt(false);
-		setAgentArchived(false);
-		hasFetchedSubagentHistory.current = false;
-		resetRunId();
+		if (hasInitialized.current) return;
+		hasInitialized.current = true;
 
 		const initializeChat = async () => {
 			// Race the thread fetch and the active-run probe so we know up
