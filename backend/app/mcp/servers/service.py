@@ -31,7 +31,8 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
 
     async def create_server(self, data: MCPServerCreate) -> MCPServerDB:
         if data.auth_type == MCPAuthType.api_key and not data.api_key:
-            raise ValidationError("API key is required when auth_type is 'api_key'")
+            raise ValidationError(
+                "API key is required when auth_type is 'api_key'")
 
         db_server = await self.repository.create(data)
 
@@ -69,7 +70,8 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
     async def list_official_servers(self) -> list[OfficialMCPServerResponse]:
         rows = await self.repository.list_official()
         return [
-            OfficialMCPServerResponse(**row[0].model_dump(), is_installed=row[1])
+            OfficialMCPServerResponse(
+                **row[0].model_dump(), is_installed=row[1])
             for row in rows
         ]
 
@@ -196,6 +198,9 @@ async def connect_to_server(mcp_server: MCPServerDB, user_id: str, db: AsyncSess
 
                 if mcp_server.url == "https://bigquery.googleapis.com/mcp":
                     await session.call_tool("list_dataset_ids", {"project_id": os.getenv("GCLOUD_PROJECT")})
+
+                if mcp_server.name == "Gmail":
+                    await session.call_tool("search_threads")
 
                 yield session, tools
             except Exception as e:

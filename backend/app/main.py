@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from builtins import ExceptionGroup
 from contextlib import asynccontextmanager
@@ -9,6 +10,9 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.agents.router import router as agents_router
+from app.agents.runs.reaper import RunReaper
+from app.agents.runs.router import router as runs_router
+from app.agents.runs.worker import run_dispatcher
 from app.auth.router import router as auth_router
 from app.auth.settings import auth_settings
 from app.auth.tokens.router import router as tokens_router
@@ -35,15 +39,55 @@ from app.users.router import router as users_router
 logging.getLogger("app").setLevel(app_settings.log_level.upper())
 
 
+def _log_task_termination(task: asyncio.Task) -> None:
+    """Surface silent task crashes loudly. Without this, a worker pool that
+    raises on startup would die without anyone noticing — runs would just
+    pile up in the queue forever."""
+    if task.cancelled():
+        logging.getLogger("app").info("background task %s cancelled", task.get_name())
+        return
+    exc = task.exception()
+    if exc is None:
+        logging.getLogger("app").warning(
+            "background task %s exited cleanly (unexpected — should run forever)",
+            task.get_name(),
+        )
+        return
+    logging.getLogger("app").error(
+        "background task %s crashed: %s", task.get_name(), exc, exc_info=exc
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     redis_client = redis.Redis(
         host=app_settings.redis_host, port=app_settings.redis_port, password=app_settings.redis_password, decode_responses=True)
     app.state.redis = redis_client
 
+    stop_event = asyncio.Event()
+    reaper = RunReaper(redis_client)
+    worker_task = asyncio.create_task(
+        run_dispatcher(
+            redis=redis_client,
+            max_concurrent_runs=app_settings.run_worker_concurrency,
+            stop_event=stop_event,
+        ),
+        name="run-dispatcher",
+    )
+    reaper_task = asyncio.create_task(
+        reaper.run_forever(stop_event=stop_event),
+        name="run-reaper",
+    )
+    worker_task.add_done_callback(_log_task_termination)
+    reaper_task.add_done_callback(_log_task_termination)
+
     async with auxilia_mcp.session_manager.run():
-        yield
-        await redis_client.close()
+        try:
+            yield
+        finally:
+            stop_event.set()
+            await asyncio.gather(worker_task, reaper_task, return_exceptions=True)
+            await redis_client.close()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -128,6 +172,7 @@ app.include_router(auth_router)
 app.include_router(tokens_router)
 app.include_router(mcp_apps_router)
 app.include_router(mcp_servers_router)
+app.include_router(runs_router)
 app.include_router(threads_router)
 app.include_router(users_router)
 app.include_router(invites_router)

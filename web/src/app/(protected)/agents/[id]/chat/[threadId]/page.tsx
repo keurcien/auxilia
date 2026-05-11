@@ -69,6 +69,7 @@ import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { usePendingMessageStore } from "@/stores/pending-message-store";
 import { useAgentReadiness } from "@/hooks/use-agent-readiness";
 import { useHitlApprovals } from "@/hooks/use-hitl-approvals";
+import { REATTACH_RUN_FIELD, useRunCancel } from "@/hooks/use-run-cancel";
 import { useThrottledValue } from "@/hooks/use-throttled-value";
 import { useChatHeaderStore } from "@/stores/chat-header-store";
 import {
@@ -338,12 +339,20 @@ const ChatPage = () => {
 		refetch: refetchReady,
 	} = useAgentReadiness(agentArchived ? undefined : agentId);
 
+	const {
+		customFetch,
+		cancel: cancelRun,
+		reset: resetRunId,
+		fetchActiveRunId,
+	} = useRunCancel(threadId);
+
 	const transport = useMemo(
 		() =>
 			new FetchStreamTransport({
 				apiUrl: `${API_BASE_URL}/threads/${threadId}/runs/stream`,
+				fetch: customFetch,
 			}),
-		[threadId],
+		[threadId, customFetch],
 	);
 
 	const thread = useStream<Record<string, unknown>>({
@@ -597,7 +606,16 @@ const ChatPage = () => {
 		hasInitialized.current = true;
 
 		const initializeChat = async () => {
-			const response = await api.get(`/threads/${threadId}`);
+			// Race the thread fetch and the active-run probe so we know up
+			// front whether we should render the checkpoint or wait for the
+			// live replay. Doing them sequentially produces a visible flicker:
+			// the checkpoint paints, then the replayed message-mode deltas
+			// rebuild the in-flight AI message from "" upwards, briefly
+			// shrinking or replacing the already-rendered text.
+			const [response, activeRunId] = await Promise.all([
+				api.get(`/threads/${threadId}`),
+				fetchActiveRunId(),
+			]);
 			const data = response.data;
 
 			setThreadModel(data.thread.modelId);
@@ -624,9 +642,27 @@ const ChatPage = () => {
 				setTimeout(() => {
 					handleSubmit(pendingMessage);
 				}, 0);
-			} else {
-				setInitialValues(data.values || { messages: [] });
+				return;
 			}
+
+			if (activeRunId) {
+				// Don't render the checkpoint — the replay from last_event_id=0
+				// emits ``values``-mode events carrying the full graph state
+				// (history + in-flight AI message), so populating from SSE alone
+				// avoids the mid-flight rebuild flicker. We still need
+				// initialValues set so useStream renders something instead of
+				// nothing while the first replay event lands; an empty messages
+				// list is harmless and gets replaced almost immediately.
+				setInitialValues({ messages: [] });
+				setTimeout(() => {
+					submit({
+						[REATTACH_RUN_FIELD]: activeRunId,
+					} as Record<string, unknown>);
+				}, 0);
+				return;
+			}
+
+			setInitialValues(data.values || { messages: [] });
 		};
 
 		initializeChat();
@@ -993,7 +1029,14 @@ const ChatPage = () => {
 						onSubmit={handleSubmit}
 						status={isLoading ? "streaming" : "ready"}
 						className="w-full max-w-4xl mx-auto lg:px-10 px-6 py-4"
-						stop={stop}
+						stop={() => {
+							// Fire-and-forget the server-side cancel so the worker
+							// stops burning tokens; tear down the local stream
+							// immediately for a snappy Stop button.
+							cancelRun().catch(() => {});
+							resetRunId();
+							stop();
+						}}
 						selectedModel={threadModel}
 						readOnlyModel={true}
 						agentReady={agentReady}
