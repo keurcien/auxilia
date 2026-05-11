@@ -69,7 +69,7 @@ import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { usePendingMessageStore } from "@/stores/pending-message-store";
 import { useAgentReadiness } from "@/hooks/use-agent-readiness";
 import { useHitlApprovals } from "@/hooks/use-hitl-approvals";
-import { REATTACH_RUN_ID_KEY, useRunCancel } from "@/hooks/use-run-cancel";
+import { REATTACH_RUN_FIELD, useRunCancel } from "@/hooks/use-run-cancel";
 import { useThrottledValue } from "@/hooks/use-throttled-value";
 import { useChatHeaderStore } from "@/stores/chat-header-store";
 import {
@@ -656,7 +656,7 @@ const ChatPage = () => {
 				setInitialValues({ messages: [] });
 				setTimeout(() => {
 					submit({
-						[REATTACH_RUN_ID_KEY]: activeRunId,
+						[REATTACH_RUN_FIELD]: activeRunId,
 					} as Record<string, unknown>);
 				}, 0);
 				return;
