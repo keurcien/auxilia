@@ -52,6 +52,10 @@ export function useRunCancel(threadId: string) {
 			// run execution is decoupled from the SSE consumer.
 			localCtrlRef.current?.abort();
 			localCtrlRef.current = null;
+			// Don't leak the previous thread's run id into the new thread's
+			// cancel/fetch paths — the new thread will repopulate via the
+			// X-Run-Id header or a fresh reattach.
+			runIdRef.current = null;
 		};
 	}, [threadId]);
 
