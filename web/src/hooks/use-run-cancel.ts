@@ -63,7 +63,8 @@ export function useRunCancel(threadId: string) {
 	}, [threadId]);
 
 	const customFetch = useCallback<typeof fetch>(
-		async (input, init) => {
+		// eslint-disable-next-line @typescript-eslint/no-unused-vars
+		async (_input, init) => {
 			const signal = combineSignals(init?.signal, getLocalSignal());
 
 			// Reattach intent: the SDK serialised our magic marker into the body.
@@ -73,7 +74,7 @@ export function useRunCancel(threadId: string) {
 				if (reattachRunId && isValidRunId(reattachRunId)) {
 					runIdRef.current = reattachRunId;
 					return await fetch(
-						`${API_BASE_URL}/threads/${encodeURIComponent(threadId)}/runs/${encodeURIComponent(reattachRunId)}/stream?last_event_id=0`,
+						buildStreamUrl(threadId, reattachRunId),
 						{
 							method: "GET",
 							signal,
@@ -83,13 +84,12 @@ export function useRunCancel(threadId: string) {
 				}
 			}
 
-			// ``input`` is the SDK's ``apiUrl`` (configured by us in the chat
-			// page's FetchStreamTransport) — not a value from any user input.
-			// We rebind to a fresh RequestInfo to make the trust boundary
-			// explicit for static analysis.
-			const safeInput: RequestInfo | URL =
-				typeof input === "string" || input instanceof URL ? input : input;
-			const res = await fetch(safeInput, { ...init, signal });
+			// We intentionally ignore the SDK-passed ``input`` and rebuild the
+			// URL from our own state so static-analysis sees an entirely
+			// literal-derived target (no "user-controlled URL → fetch" sink).
+			// Behaviour is unchanged — the SDK was configured with exactly
+			// this URL in the chat page's FetchStreamTransport.
+			const res = await fetch(buildSubmitUrl(threadId), { ...init, signal });
 			const rid = res.headers.get("X-Run-Id");
 			if (rid) runIdRef.current = rid;
 			return res;
@@ -191,4 +191,16 @@ const RUN_ID_PATTERN =
 
 function isValidRunId(value: string): boolean {
 	return RUN_ID_PATTERN.test(value);
+}
+
+// URL builders. Kept here so the ``fetch`` call sites pass a target that is
+// entirely literal-derived from ``API_BASE_URL`` + a UUID-validated id,
+// with no chance for an arbitrary string to flow into ``fetch``.
+
+function buildSubmitUrl(threadId: string): string {
+	return `${API_BASE_URL}/threads/${encodeURIComponent(threadId)}/runs/stream`;
+}
+
+function buildStreamUrl(threadId: string, runId: string): string {
+	return `${API_BASE_URL}/threads/${encodeURIComponent(threadId)}/runs/${encodeURIComponent(runId)}/stream?last_event_id=0`;
 }
