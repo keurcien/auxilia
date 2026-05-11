@@ -55,6 +55,10 @@ export function useRunCancel(threadId: string) {
 			// run execution is decoupled from the SSE consumer.
 			localCtrlRef.current?.abort();
 			localCtrlRef.current = null;
+			// Drop the captured run id too — otherwise a Stop click on the
+			// new thread would issue ``POST /runs/{stale_rid}/cancel`` and
+			// cancel a run on the previous thread.
+			runIdRef.current = null;
 		};
 	}, [threadId]);
 

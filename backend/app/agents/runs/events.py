@@ -12,6 +12,7 @@ in ``worker.py`` and ``stream.py``.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import AsyncIterator
 from typing import Any
 from uuid import UUID
@@ -22,6 +23,12 @@ from redis.asyncio import Redis
 DEFAULT_MAX_LEN: int = 5000  # ~ approx, see XADD MAXLEN ~ option
 DEFAULT_TTL_SECONDS: int = 24 * 60 * 60
 DEFAULT_BLOCK_MS: int = 25_000
+
+# Valid Redis Stream IDs: ``ms-seq`` (e.g. ``1700000000000-0``), or the
+# special "from beginning" sentinel ``0`` / ``0-0``. Anything else fed into
+# ``XREAD`` raises a ``redis.exceptions.ResponseError`` that breaks the
+# subscriber loop, so we sanitise at the boundary.
+_STREAM_ID_RE = re.compile(r"^(\d+)(-\d+)?$")
 
 
 def _events_key(run_id: UUID) -> str:
@@ -76,7 +83,14 @@ class RunEvents:
         event (``{"type": "end"}``) and the consumer breaks out of the loop on
         seeing it. Callers that want a hard timeout should wrap with
         ``asyncio.wait_for``.
+
+        Raises ``ValueError`` on a malformed ``last_id`` rather than letting
+        Redis crash the loop with ``WRONGTYPE`` / ``ERR Invalid stream ID``.
         """
+        if not _STREAM_ID_RE.match(last_id):
+            raise ValueError(
+                f"invalid last_event_id {last_id!r}; expected '0' or '<ms>-<seq>'"
+            )
         cursor = last_id
         key = _events_key(run_id)
         while True:

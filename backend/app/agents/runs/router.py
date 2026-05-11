@@ -80,7 +80,12 @@ async def reattach_stream(
     thread_id: str,  # noqa: ARG001 - kept for URL shape; not used in lookup
     run_id: UUID,
     request: Request,
-    last_event_id: str = Query("0", alias="last_event_id"),
+    # Pattern matches Redis Stream IDs (``ms-seq``) plus the "from beginning"
+    # sentinel ``0``. FastAPI returns 422 on mismatch before we ever ask
+    # Redis to interpret it.
+    last_event_id: str = Query(
+        "0", alias="last_event_id", pattern=r"^\d+(-\d+)?$"
+    ),
     current_user: UserDB = Depends(get_current_user),
     service: RunService = Depends(get_run_service),
 ) -> StreamingResponse:

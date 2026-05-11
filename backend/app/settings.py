@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from pydantic import ConfigDict
+from pydantic import ConfigDict, Field
 from pydantic_settings import BaseSettings
 
 
@@ -24,7 +24,9 @@ class AppSettings(BaseSettings):
     # Workers are mostly async-idle awaiting LLM/MCP HTTP, so the ceiling
     # can be raised aggressively; bump up if queue depth grows persistently,
     # down if Postgres connections starve.
-    run_worker_concurrency: int = 8
+    # ``ge=1`` rejects 0 and negative values — both would crash semaphore
+    # init or stall all run execution.
+    run_worker_concurrency: int = Field(default=8, ge=1)
 
     model_config: ConfigDict = ConfigDict(
         env_file=ROOT_ENV,

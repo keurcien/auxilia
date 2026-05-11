@@ -154,50 +154,37 @@ class RunReaper:
         await self.registry.clear_active_if_match(record.thread_id, record.id)
 
     async def _patch_thread(self, record: RunRecord) -> None:
-        """Open a short-lived checkpointer connection just to push the patches."""
+        """Rebuild the agent graph for this thread and run the standard patcher.
+
+        Heavier than the worker's path because we have to recreate the
+        ``AgentRuntime`` from scratch (no shared in-process state) — but the
+        reaper only runs on orphans, which by definition are rare. Using the
+        full graph means the synthetic ``ToolMessage`` ends up at the same
+        checkpoint level as it would have if the worker hadn't died, instead
+        of waiting for the next user turn for ``deepagents`` to patch it.
+        """
+        from app.agents.runtime import AgentRuntime  # local: avoid import cycle
+        from app.database import AsyncSessionLocal
+        from app.threads.service import ThreadService
+
+        async with AsyncSessionLocal() as db:
+            try:
+                thread = await ThreadService(db).get_thread(record.thread_id)
+                runtime = await AgentRuntime.build(thread=thread, db=db)
+            finally:
+                await db.commit()
+
         async with AsyncPostgresSaver.from_conn_string(
             get_psycopg_conn_string()
         ) as checkpointer:
-            # We don't have the original agent graph; the cheapest way to write
-            # synthetic ToolMessages is to reach into the checkpointer directly.
-            # We fall back to "load state, find dangling, append" via the public
-            # checkpointer API: aget_tuple + apput_writes.
-            await _patch_via_checkpointer(checkpointer, record.thread_id)
-
-
-async def _patch_via_checkpointer(checkpointer, thread_id: str) -> int:
-    """Patch dangling tool calls without rebuilding the full agent graph.
-
-    The reaper doesn't have a DB session or the agent config, so it can't go
-    through ``patch_dangling_tool_calls(graph, ...)``. Instead we read the
-    checkpoint directly and write synthetic ToolMessages back via the same
-    saver. This is the one place outside ``patch.py`` that knows about the
-    checkpointer; if it grows, factor into ``patch.py``.
-    """
-    config = {"configurable": {"thread_id": thread_id}}
-    tup = await checkpointer.aget_tuple(config)
-    if tup is None:
-        return 0
-    channel_values = tup.checkpoint.get("channel_values", {})
-    messages = channel_values.get("messages", [])
-    from app.agents.runs.patch import find_dangling_tool_calls  # local import
-
-    patches = find_dangling_tool_calls(messages)
-    if not patches:
-        return 0
-    # We need a graph to call aupdate_state cleanly; fall back to manually
-    # writing a checkpoint update is too invasive. The simplest robust thing
-    # is to schedule a no-op update via the saver's put_writes:
-    # but that requires task ids and channel routing. Practical fix: spin up
-    # a minimal graph just for the update. For V1, log + leave for the next
-    # user turn (deepagents middleware will patch it anyway).
-    logger.info(
-        "reaper detected %d dangling tool calls on thread %s; "
-        "deferring to deepagents PatchToolCallsMiddleware on next turn",
-        len(patches),
-        thread_id,
-    )
-    return len(patches)
-
-
-_ = patch_dangling_tool_calls  # imported for future callers; keep symbol live
+            graph = runtime._build_agent(checkpointer)
+            config = await runtime._resolve_config(
+                graph, trigger=None, config_overrides=None
+            )
+            patched = await patch_dangling_tool_calls(graph, config)
+            if patched:
+                logger.info(
+                    "reaper patched %d dangling tool calls for thread %s",
+                    patched,
+                    record.thread_id,
+                )

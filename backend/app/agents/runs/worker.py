@@ -141,6 +141,22 @@ class RunWorker:
             )
             return
 
+        # Claim the per-thread active-run mutex. If another run is still
+        # holding it (typically because the user submitted with
+        # ``MultitaskStrategy.ENQUEUE`` while a prior run was in flight),
+        # put this one back on the queue and let a worker pick it up after
+        # the predecessor finishes. The ~1 s backoff avoids a hot loop when
+        # the dispatcher is otherwise idle.
+        if not await self.registry.try_set_active(record.thread_id, run_id):
+            logger.debug(
+                "run %s queued behind active run on thread %s; re-enqueuing",
+                run_id,
+                record.thread_id,
+            )
+            await self.queue.enqueue(run_id)
+            await asyncio.sleep(1.0)
+            return
+
         # Build the runtime in a short-lived DB session. The session is closed
         # before we open the long-lived checkpointer connection so we don't pin
         # a Postgres pool slot for the whole run.

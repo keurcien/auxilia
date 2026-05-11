@@ -144,9 +144,16 @@ This is the single highest-leverage decision in the project. It collapses the fr
 - The Redis transport layer (event stream, control signals, run registry).
 - The worker process (producer loop, queue dispatcher, heartbeat).
 - The reaper for orphan detection.
-- The `runs` audit table in Postgres.
 - Cloud Run deployment topology.
 - All the auxilia-specific extensions: MCP server bindings, Slack handlers, agent permissions, Langfuse tracing.
+
+> **Implementation note.** §15 originally specified a Postgres `runs` audit
+> table mirroring the Redis hash. That decision was reversed during the
+> first ship: every column was covered by Langfuse (cost / tokens), the
+> LangGraph checkpoint (conversation state), or the Redis hash itself, and
+> nothing in the codebase read the table. Run state lives in Redis only, with
+> a 24 h TTL as the retention. If long-term run telemetry becomes a real
+> need, route it through Langfuse trace metadata.
 
 These are not provided by `langgraph` core or any LG Server OSS surface. They are what this PRD specifies and what the engineering team will build.
 

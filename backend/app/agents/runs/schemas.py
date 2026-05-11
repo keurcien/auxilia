@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.agents.runs.state import (
     CancellationReason,
@@ -24,7 +24,8 @@ class RunCreate(BaseModel):
     """Body for ``POST /threads/{tid}/runs[/stream]``.
 
     Mirrors the LangGraph Server payload: ``input`` for a fresh turn, or
-    ``command`` for HITL resume. Exactly one of the two should be set.
+    ``command`` for HITL resume. Exactly one of the two must be set —
+    enforced below so downstream code can rely on it.
     ``config.configurable`` may carry our ``trigger=regenerate-message`` flag.
     """
 
@@ -33,6 +34,17 @@ class RunCreate(BaseModel):
     config: dict[str, Any] | None = None
     context: dict[str, Any] | None = None
     multitask_strategy: MultitaskStrategy = MultitaskStrategy.REJECT
+
+    @model_validator(mode="after")
+    def _exactly_one_of_input_or_command(self) -> RunCreate:
+        has_input = self.input is not None
+        has_command = self.command is not None
+        if has_input == has_command:
+            raise ValueError(
+                "Exactly one of 'input' (new turn) or 'command' (resume from "
+                "interrupt) must be provided."
+            )
+        return self
 
 
 class RunResponse(BaseModel):

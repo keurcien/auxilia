@@ -152,11 +152,16 @@ class RunRegistry:
         if current is None:
             raise KeyError(run_id)
         updated = replace(current, updated_at=utcnow(), **changes)
-        # Re-encode the full record. HSET is idempotent and partial keys would
-        # leave stale values from a prior status if we didn't.
-        await self.redis.delete(_run_key(run_id))
-        await self.redis.hset(_run_key(run_id), mapping=_encode(updated))
-        await self.redis.expire(_run_key(run_id), self.DEFAULT_RUN_TTL_SECONDS)
+        # Re-encode the full record inside a MULTI/EXEC so the key never
+        # observably disappears between DEL and HSET. Without the pipeline,
+        # a concurrent ``HGETALL`` could land in the window and return ``{}``;
+        # the reaper or any subscriber would treat that as "run vanished".
+        key = _run_key(run_id)
+        async with self.redis.pipeline(transaction=True) as pipe:
+            pipe.delete(key)
+            pipe.hset(key, mapping=_encode(updated))
+            pipe.expire(key, self.DEFAULT_RUN_TTL_SECONDS)
+            await pipe.execute()
         return updated
 
     async def heartbeat(self, run_id: UUID) -> None:
@@ -212,8 +217,11 @@ class RunRegistry:
                 continue
             try:
                 results.append(_decode(raw))
-            except (ValueError, KeyError):
-                continue  # forward-compat: skip malformed
+            except (ValueError, KeyError, TypeError):
+                # forward-compat: a future schema change might add a required
+                # field that an in-flight hash predates. Skip rather than crash
+                # the whole scan; the reaper retries on its next tick.
+                continue
         return results
 
     async def scan_active(self) -> list[RunRecord]:

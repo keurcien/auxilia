@@ -105,10 +105,12 @@ class RunService:
         )
 
         await self.registry.create(record)
-        # Best-effort active-run pointer. If another run set it first, the
-        # multitask_strategy step above would have caught it; in race conditions
-        # we accept the existing value.
-        await self.registry.try_set_active(thread_id, run_id)
+        # We don't claim the active-run mutex here. The worker claims it when
+        # it actually starts executing the run. That's what makes
+        # ``MultitaskStrategy.ENQUEUE`` actually serialise: if a prior run on
+        # this thread still owns the mutex, the new run's worker will
+        # re-enqueue itself and retry until the slot frees, instead of
+        # silently running concurrently against the same checkpoint.
 
         # Stash the body so the worker can resurrect input/command/config.
         await store_input(
