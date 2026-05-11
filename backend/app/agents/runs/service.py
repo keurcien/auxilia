@@ -1,8 +1,16 @@
 """Domain operations for runs.
 
 The router only ever talks to this module. Anything that needs to coordinate
-the registry, queue, audit table, and event stream lives here so the layered
-shape stays honest (PRD §5.5).
+the registry, queue, and event stream lives here so the layered shape stays
+honest (PRD §5.5).
+
+State is Redis-only. We used to mirror every run into a Postgres ``runs``
+audit table, but in practice every column was either covered by Langfuse
+(cost / token usage), the LangGraph checkpoint (conversation state), or the
+Redis hash itself (live status, error, interrupt). The audit table was
+synchronised but never read by any production path, so it was deleted along
+with its migration in commit history. If long-term run telemetry becomes a
+real need, pipe it through Langfuse metadata rather than reviving the table.
 """
 
 from __future__ import annotations
@@ -18,10 +26,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.runs.control import RunControl
 from app.agents.runs.events import RunEvents
-from app.agents.runs.models import RunDB
 from app.agents.runs.queue import RunQueue
 from app.agents.runs.registry import RunRegistry
-from app.agents.runs.repository import RunRepository
 from app.agents.runs.schemas import RunCreate, RunResponse
 from app.agents.runs.state import (
     CancellationReason,
@@ -40,7 +46,6 @@ from app.exceptions import (
     PermissionDeniedError,
     ValidationError,
 )
-from app.service import BaseService
 from app.threads.service import ThreadService
 from app.users.models import UserDB
 
@@ -52,11 +57,17 @@ class RunConflictError(AlreadyExistsError):
     """Another run is already active on this thread and the strategy is reject."""
 
 
-class RunService(BaseService[RunDB, RunRepository]):
+class RunService:
+    """Live run operations. Backed entirely by Redis.
+
+    Takes ``db`` because thread permission checks go through ``ThreadService``;
+    it is not used to persist any run state of its own.
+    """
+
     not_found_message = "Run not found"
 
     def __init__(self, db: AsyncSession, redis: Redis):
-        super().__init__(db, RunRepository(RunDB, db))
+        self.db = db
         self.redis = redis
         self.registry = RunRegistry(redis)
         self.events = RunEvents(redis)
@@ -71,12 +82,7 @@ class RunService(BaseService[RunDB, RunRepository]):
         current_user: UserDB,
         body: RunCreate,
     ) -> RunRecord:
-        """Apply ``multitask_strategy``, persist a new run, enqueue, return record.
-
-        The Postgres audit row is written here, before the worker picks the run
-        up. The Redis live record is the source of truth for in-flight state;
-        the audit row is updated by the worker on terminal transitions.
-        """
+        """Apply ``multitask_strategy``, persist a Redis record, enqueue."""
         thread = await ThreadService(self.db).get_thread(thread_id)
         if thread.user_id != current_user.id:
             raise PermissionDeniedError("You do not have access to this thread")
@@ -98,22 +104,6 @@ class RunService(BaseService[RunDB, RunRepository]):
             model_id=thread.model_id,
         )
 
-        # Postgres audit row first — if Redis is down we want to know before
-        # we burn a run id.
-        run_db = RunDB(
-            id=run_id,
-            thread_id=thread_id,
-            user_id=current_user.id,
-            agent_id=thread.agent_id,
-            status=RunState.PENDING,
-            multitask_strategy=body.multitask_strategy,
-            input_summary=record.input_summary,
-            model_id=thread.model_id,
-        )
-        self.db.add(run_db)
-        await self.db.flush()
-
-        # Redis live state.
         await self.registry.create(record)
         # Best-effort active-run pointer. If another run set it first, the
         # multitask_strategy step above would have caught it; in race conditions
@@ -176,10 +166,9 @@ class RunService(BaseService[RunDB, RunRepository]):
     async def get_run(self, run_id: UUID, current_user: UserDB) -> RunRecord:
         record = await self.registry.get(run_id)
         if record is None:
-            db_row = await self.repository.get_for_user(run_id, current_user.id)
-            if db_row is None:
-                raise NotFoundError(self.not_found_message)
-            return _record_from_db(db_row)
+            # Redis TTL is 24h — runs older than that are gone. If you need
+            # long-term run history, route telemetry through Langfuse.
+            raise NotFoundError(self.not_found_message)
         if record.user_id != current_user.id:
             raise PermissionDeniedError("You do not have access to this run")
         return record
@@ -190,8 +179,8 @@ class RunService(BaseService[RunDB, RunRepository]):
         thread = await ThreadService(self.db).get_thread(thread_id)
         if thread.user_id != current_user.id:
             raise PermissionDeniedError("You do not have access to this thread")
-        rows = await self.repository.list_by_thread(thread_id)
-        return [_response_from_db(r) for r in rows]
+        records = await self.registry.list_by_thread(thread_id)
+        return [record_to_response(r) for r in records]
 
     async def get_active_run(
         self, thread_id: str, current_user: UserDB
@@ -242,11 +231,10 @@ class RunService(BaseService[RunDB, RunRepository]):
 
 
 def _summarise_input(body: RunCreate) -> dict[str, Any]:
-    """Cheap, bounded summary of the POST body for debugging/audit.
+    """Cheap, bounded summary of the POST body for debugging.
 
     Never store the full raw payload here — that goes into ``run:{rid}:input``.
-    The summary lives in Redis ``run:{rid}`` and Postgres ``runs.input_summary``,
-    both of which are read frequently.
+    The summary lives in Redis ``run:{rid}`` and gets surfaced by the runs API.
     """
     if body.command is not None:
         return {"kind": "resume", "has_decisions": "decisions" in (body.command or {})}
@@ -288,44 +276,6 @@ def _extract_config_overrides(config: dict[str, Any] | None) -> dict[str, Any] |
     if not configurable:
         return None
     return {**config, "configurable": configurable}
-
-
-def _record_from_db(row: RunDB) -> RunRecord:
-    return RunRecord(
-        id=row.id,
-        thread_id=row.thread_id,
-        user_id=row.user_id,
-        agent_id=row.agent_id,
-        status=row.status,
-        multitask_strategy=row.multitask_strategy,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-        started_at=row.started_at,
-        completed_at=row.completed_at,
-        cancellation_reason=row.cancellation_reason,
-        error=row.error,
-        interrupt=row.interrupt,
-        input_summary=row.input_summary,
-        model_id=row.model_id,
-    )
-
-
-def _response_from_db(row: RunDB) -> RunResponse:
-    return RunResponse(
-        run_id=row.id,
-        thread_id=row.thread_id,
-        agent_id=row.agent_id,
-        status=row.status,
-        multitask_strategy=row.multitask_strategy,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-        started_at=row.started_at,
-        completed_at=row.completed_at,
-        cancellation_reason=row.cancellation_reason,
-        error=row.error,
-        interrupt=row.interrupt,
-        model_id=row.model_id,
-    )
 
 
 def record_to_response(record: RunRecord) -> RunResponse:

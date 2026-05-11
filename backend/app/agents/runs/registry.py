@@ -194,12 +194,8 @@ class RunRegistry:
 
     # ---- reaper support ----
 
-    async def scan_active(self) -> list[RunRecord]:
-        """Iterate every run hash currently in Redis and return the active ones.
-
-        Bounded by Redis key TTL (24h). Used by the reaper to find orphans.
-        ``SCAN`` is non-blocking; for higher cardinality, switch to a sorted set
-        index keyed by ``heartbeat_at`` — out of scope for V1.
+    async def _scan_all(self) -> list[RunRecord]:
+        """Yield every ``RunRecord`` currently stored in Redis (TTL: 24h).
 
         Note: ``run:*`` also matches sub-keys (``run:{id}:events`` Stream,
         ``run:{id}:control`` List, ``run:{id}:input`` String). The run hash is
@@ -215,9 +211,24 @@ class RunRegistry:
             if not raw:
                 continue
             try:
-                record = _decode(raw)
+                results.append(_decode(raw))
             except (ValueError, KeyError):
                 continue  # forward-compat: skip malformed
-            if is_active(record.status):
-                results.append(record)
         return results
+
+    async def scan_active(self) -> list[RunRecord]:
+        """Active runs only. Used by the reaper to find orphans."""
+        return [r for r in await self._scan_all() if is_active(r.status)]
+
+    async def list_by_thread(
+        self, thread_id: str, *, limit: int = 50
+    ) -> list[RunRecord]:
+        """All runs (active or terminal) for a thread, newest first.
+
+        Bounded by Redis key TTL (24h) — older runs are gone, which is the
+        intended retention. ``SCAN`` is non-blocking; for higher cardinality,
+        switch to a per-thread sorted set index — out of scope for V1.
+        """
+        matches = [r for r in await self._scan_all() if r.thread_id == thread_id]
+        matches.sort(key=lambda r: r.created_at, reverse=True)
+        return matches[:limit]

@@ -12,10 +12,12 @@ first-class, observable, resumable entity:
 - ``worker``      — the producer loop
 - ``reaper``      — orphan detection
 - ``service``     — domain operations (consumed by router)
-- ``repository``  — Postgres ``runs`` audit table CRUD
-- ``models``      — SQLModel for the audit table
 - ``schemas``     — request/response DTOs
 - ``router``      — FastAPI HTTP surface, LangGraph-Server-compatible
+
+All run state lives in Redis with a 24 h TTL. Cost telemetry goes through
+Langfuse; conversation history is the LangGraph checkpoint. We deliberately
+do not keep a Postgres audit table — there was no consumer for it.
 
 Layering rules (see PRD §5.5):
 - ``router`` only imports ``service``.
