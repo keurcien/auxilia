@@ -57,8 +57,8 @@ export const MessageContent = ({
 		<div
 			onCopy={handleCopy}
 			className={cn(
-				"is-user:dark flex w-fit flex-col gap-2 overflow-hidden text-base leading-7",
-				"group-[.is-user]:ml-auto group-[.is-user]:rounded-3xl group-[.is-user]:bg-secondary group-[.is-user]:px-4 group-[.is-user]:py-3 group-[.is-user]:text-foreground md:group-[.is-user]:max-w-[60%] group-[.is-user]:max-w-[80%]",
+				"flex w-fit flex-col gap-2 overflow-hidden text-base leading-7",
+				"group-[.is-user]:ml-auto group-[.is-user]:rounded-3xl group-[.is-user]:bg-[#F3F8F5] dark:group-[.is-user]:bg-[#1E2D28]/40 group-[.is-user]:px-4 group-[.is-user]:py-3 group-[.is-user]:text-[#1E2D28] dark:group-[.is-user]:text-white md:group-[.is-user]:max-w-[60%] group-[.is-user]:max-w-[80%]",
 				"group-[.is-assistant]:text-foreground group-[.is-assistant]:w-full",
 				className,
 			)}

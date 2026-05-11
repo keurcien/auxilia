@@ -1,18 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import {
-	ModelSelector,
-	ModelSelectorContent,
-	ModelSelectorEmpty,
-	ModelSelectorGroup,
-	ModelSelectorInput,
-	ModelSelectorItem,
-	ModelSelectorList,
-	ModelSelectorLogo,
-	ModelSelectorName,
-	ModelSelectorTrigger,
-} from "@/components/ai-elements/model-selector";
+import { ModelSelectorLogo } from "@/components/ai-elements/model-selector";
 import {
 	PromptInput,
 	PromptInputAddAttachmentButton,
@@ -32,6 +21,29 @@ import { useModelsStore } from "@/stores/models-store";
 import { Model } from "@/types/models";
 import { MCPServer } from "@/types/mcp-servers";
 import { ConnectServersDialog } from "./connect-servers-dialog";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+	Dialog,
+	DialogContent,
+	DialogTitle,
+	DialogTrigger,
+} from "@/components/ui/dialog";
+import { SearchBar } from "@/components/ui/search-bar";
+
+const sagePromptToolButtonClass = cn(
+	"h-9 px-3 gap-2 rounded-full",
+	"font-[family-name:var(--font-dm-sans)] text-[13px] font-medium",
+	"text-[#1E2D28] dark:text-white/90",
+	"bg-[#F5F8F6] dark:bg-white/5",
+	"hover:bg-[#EDF4F0] dark:hover:bg-white/10",
+	"data-[state=open]:bg-[#EDF4F0] dark:data-[state=open]:bg-white/10",
+	"disabled:opacity-60 disabled:cursor-not-allowed",
+	"transition-colors",
+);
 
 interface ChatPromptInputProps {
 	onSubmit: (message: PromptInputMessage) => void;
@@ -63,10 +75,12 @@ const ChatPromptInput = ({
 	const fetchModels = useModelsStore((state) => state.fetchModels);
 	const [model, setModel] = useState<string | undefined>(undefined);
 	const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
+	const [modelSearch, setModelSearch] = useState("");
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 
 	const currentModel = externalSelectedModel ?? model;
 	const selectedModelData = models.find((m) => m.id === currentModel);
+	const isDeepseek = selectedModelData?.chefSlug === "deepseek";
 
 	const handleModelChange = (modelId: string) => {
 		setModel(modelId);
@@ -74,7 +88,15 @@ const ChatPromptInput = ({
 	};
 
 	const groupedModels = useMemo(() => {
-		return models.reduce(
+		const q = modelSearch.trim().toLowerCase();
+		const filtered = q
+			? models.filter(
+					(m) =>
+						m.name.toLowerCase().includes(q) ||
+						m.chef.toLowerCase().includes(q),
+				)
+			: models;
+		return filtered.reduce(
 			(acc, model) => {
 				acc[model.chef] = acc[model.chef] || [];
 				acc[model.chef].push(model);
@@ -82,7 +104,14 @@ const ChatPromptInput = ({
 			},
 			{} as Record<string, Model[]>,
 		);
-	}, [models]);
+	}, [models, modelSearch]);
+
+	const hasModelResults = Object.keys(groupedModels).length > 0;
+
+	const handleModelSelectorOpenChange = (open: boolean) => {
+		setModelSelectorOpen(open);
+		if (!open) setModelSearch("");
+	};
 
 	const handleSubmit = (message: PromptInputMessage) => {
 		if (!message) return;
@@ -109,91 +138,180 @@ const ChatPromptInput = ({
 				globalDrop
 				multiple
 				onSubmit={handleSubmit}
-				className={cn("min-h-40 transition-all duration-200", className)}
+				className={cn(
+					"min-h-40 transition-all duration-200",
+					// Sage-style InputGroup container
+					"[&>[data-slot=input-group]]:rounded-[28px]",
+					"[&>[data-slot=input-group]]:border-[3px]",
+					"[&>[data-slot=input-group]]:border-[#E0E8E4]",
+					"dark:[&>[data-slot=input-group]]:border-white/10",
+					"[&>[data-slot=input-group]]:bg-white",
+					"dark:[&>[data-slot=input-group]]:bg-[#1C1C1C]",
+					"[&>[data-slot=input-group]]:shadow-[0_8px_24px_-12px_rgba(30,45,40,0.08)]",
+					"dark:[&>[data-slot=input-group]]:shadow-[0_8px_24px_-12px_rgba(0,0,0,0.3)]",
+					"[&>[data-slot=input-group]]:transition-colors",
+					"[&>[data-slot=input-group]:focus-within]:border-[#4CA882]",
+					"dark:[&>[data-slot=input-group]:focus-within]:border-[#4CA882]",
+					// Remove default focus ring
+					"[&>[data-slot=input-group]]:has-[[data-slot=input-group-control]:focus-visible]:ring-0",
+					className,
+				)}
 			>
-				<PromptInputAttachments>
+				<PromptInputAttachments className="px-5 pt-4">
 					{(attachment) => <PromptInputAttachment data={attachment} />}
 				</PromptInputAttachments>
 				<PromptInputBody>
-					<PromptInputTextarea ref={textareaRef} disabled={agentReady === false} />
+					<PromptInputTextarea
+						ref={textareaRef}
+						disabled={agentReady === false}
+						className={cn(
+							"font-[family-name:var(--font-dm-sans)]",
+							"text-[15px] font-medium leading-relaxed",
+							"text-[#1E2D28] dark:text-white",
+							"placeholder:text-[#A3B5AD] dark:placeholder:text-white/30",
+							"px-5 pt-5 pb-2",
+						)}
+					/>
 				</PromptInputBody>
-				<PromptInputFooter>
-					<PromptInputTools>
-						<PromptInputAddAttachmentButton disabled={agentReady === false} />
+				<PromptInputFooter className="px-4 pb-4">
+					<PromptInputTools className="gap-1.5">
+						{isDeepseek ? (
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span>
+										<PromptInputAddAttachmentButton
+											disabled
+											className={sagePromptToolButtonClass}
+										/>
+									</span>
+								</TooltipTrigger>
+								<TooltipContent>
+									DeepSeek models do not support attachments.
+								</TooltipContent>
+							</Tooltip>
+						) : (
+							<PromptInputAddAttachmentButton
+								disabled={agentReady === false}
+								className={sagePromptToolButtonClass}
+							/>
+						)}
 						{/* <PromptInputSpeechButton textareaRef={textareaRef} />
 						<PromptInputButton>
 							<GlobeIcon size={16} />
 							<span>Search</span>
 						</PromptInputButton> */}
 						{readOnlyModel ? (
-							<PromptInputButton disabled>
+							<PromptInputButton
+								disabled
+								className={sagePromptToolButtonClass}
+							>
 								{selectedModelData?.chefSlug && (
 									<ModelSelectorLogo provider={selectedModelData.chefSlug} />
 								)}
 								{selectedModelData?.name && (
-									<ModelSelectorName>
+									<span className="truncate text-left">
 										{selectedModelData.name}
-									</ModelSelectorName>
+									</span>
 								)}
 							</PromptInputButton>
 						) : (
-							<ModelSelector
-								onOpenChange={setModelSelectorOpen}
+							<Dialog
 								open={modelSelectorOpen}
+								onOpenChange={handleModelSelectorOpenChange}
 							>
-								<ModelSelectorTrigger asChild>
-									<PromptInputButton>
+								<DialogTrigger asChild>
+									<PromptInputButton className={sagePromptToolButtonClass}>
 										{selectedModelData ? (
 											<>
 												<ModelSelectorLogo
 													provider={selectedModelData.chefSlug}
 												/>
-												<ModelSelectorName>
+												<span className="truncate text-left">
 													{selectedModelData.name}
-												</ModelSelectorName>
+												</span>
 											</>
 										) : (
-											<>
-												<ModelSelectorName className="text-muted-foreground">
-													Select model
-												</ModelSelectorName>
-											</>
+											<span className="truncate text-left text-[#8FA89E] dark:text-white/40">
+												Select model
+											</span>
 										)}
 									</PromptInputButton>
-								</ModelSelectorTrigger>
-								<ModelSelectorContent>
-									<ModelSelectorInput placeholder="Search models..." />
-									<ModelSelectorList>
-										<ModelSelectorEmpty>No models found.</ModelSelectorEmpty>
+								</DialogTrigger>
+								<DialogContent
+									className="sm:max-w-[480px] rounded-[28px] p-0 gap-0 overflow-hidden"
+									showCloseButton={false}
+								>
+									<div className="flex items-start justify-between px-7 pt-6 pb-4">
+										<div>
+											<DialogTitle className="font-[family-name:var(--font-jakarta-sans)] text-[20px] font-extrabold text-[#111111] dark:text-white tracking-[-0.02em]">
+												Select a model
+											</DialogTitle>
+											<p className="font-[family-name:var(--font-dm-sans)] text-[13px] text-[#8FA89E] dark:text-muted-foreground font-medium mt-1">
+												Choose the model powering this chat
+											</p>
+										</div>
+									</div>
 
-										{Object.entries(groupedModels).map(
-											([chefName, chefModels]) => (
-												<ModelSelectorGroup heading={chefName} key={chefName}>
-													{chefModels.map((m) => (
-														<ModelSelectorItem
-															key={m.id}
-															onSelect={() => {
-																handleModelChange(m.id);
-																setModelSelectorOpen(false);
-															}}
-															value={m.id}
-														>
-															<ModelSelectorLogo provider={m.chefSlug} />
-															<ModelSelectorName>{m.name}</ModelSelectorName>
+									<div className="px-7 pb-3">
+										<SearchBar
+											placeholder="Search models..."
+											value={modelSearch}
+											onChange={setModelSearch}
+										/>
+									</div>
 
-															{currentModel === m.id ? (
-																<CheckIcon className="ml-auto size-4" />
-															) : (
-																<div className="ml-auto size-4" />
-															)}
-														</ModelSelectorItem>
-													))}
-												</ModelSelectorGroup>
-											),
+									<div className="px-4 pb-5 max-h-[55vh] overflow-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+										{!hasModelResults ? (
+											<div className="font-[family-name:var(--font-dm-sans)] px-4 py-8 text-center text-[13px] text-[#A3B5AD] dark:text-muted-foreground">
+												No models found.
+											</div>
+										) : (
+											Object.entries(groupedModels).map(
+												([chefName, chefModels]) => (
+													<div key={chefName} className="px-2 pt-2">
+														<div className="font-[family-name:var(--font-dm-sans)] px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8FA89E] dark:text-muted-foreground">
+															{chefName}
+														</div>
+														<div className="flex flex-col gap-0.5">
+															{chefModels.map((m) => {
+																const isActive = currentModel === m.id;
+																return (
+																	<button
+																		key={m.id}
+																		type="button"
+																		onClick={() => {
+																			handleModelChange(m.id);
+																			handleModelSelectorOpenChange(false);
+																		}}
+																		className={cn(
+																			"flex w-full items-center gap-3 px-3 py-2.5 rounded-[14px] cursor-pointer transition-colors text-left outline-none",
+																			"font-[family-name:var(--font-dm-sans)] text-[14px] font-medium",
+																			isActive
+																				? "bg-[#F8FAF9] dark:bg-white/5 text-[#1E2D28] dark:text-white"
+																				: "text-[#1E2D28] dark:text-white/90 hover:bg-[#F8FAF9] dark:hover:bg-white/5",
+																		)}
+																	>
+																		<ModelSelectorLogo provider={m.chefSlug} />
+																		<span className="flex-1 truncate">
+																			{m.name}
+																		</span>
+																		{isActive && (
+																			<CheckIcon
+																				className="ml-auto size-4 shrink-0 text-[#4CA882]"
+																				strokeWidth={3}
+																			/>
+																		)}
+																	</button>
+																);
+															})}
+														</div>
+													</div>
+												),
+											)
 										)}
-									</ModelSelectorList>
-								</ModelSelectorContent>
-							</ModelSelector>
+									</div>
+								</DialogContent>
+							</Dialog>
 						)}
 					</PromptInputTools>
 					{agentReady === false ? (
@@ -238,8 +356,8 @@ const SubmitButton = ({
 			className={cn(
 				"flex items-center justify-center rounded-full w-10 h-10 transition-all",
 				isDisabled
-					? "bg-gray-200 dark:bg-gray-800 text-gray-400 dark:text-gray-600 cursor-not-allowed"
-					: "bg-black dark:bg-white text-white font-bold dark:text-black hover:scale-105 cursor-pointer",
+					? "bg-[#EDF4F0] dark:bg-white/5 text-[#A3B5AD] dark:text-white/30 cursor-not-allowed"
+					: "bg-[#4CA882] text-white hover:bg-[#3F8F70] hover:scale-105 cursor-pointer shadow-[0_4px_12px_-4px_rgba(76,168,130,0.4)]",
 			)}
 		>
 			{isStreaming ? (
@@ -274,7 +392,9 @@ const ConnectButton = ({ onClick }: { onClick: () => void }) => {
 			onClick={onClick}
 			className={cn(
 				"flex items-center gap-2 rounded-full px-4 h-10 transition-all cursor-pointer",
-				"bg-black text-white font-medium hover:bg-gray-800",
+				"font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold",
+				"bg-[#4CA882] text-white hover:bg-[#3F8F70]",
+				"shadow-[0_4px_12px_-4px_rgba(76,168,130,0.4)]",
 			)}
 		>
 			<PlugIcon size={16} />

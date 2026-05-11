@@ -51,7 +51,7 @@ const lineNumberTransformer: ShikiTransformer = {
 export async function highlightCode(
 	code: string,
 	language: BundledLanguage,
-	showLineNumbers = false
+	showLineNumbers = false,
 ) {
 	const transformers: ShikiTransformer[] = showLineNumbers
 		? [lineNumberTransformer]
@@ -101,8 +101,8 @@ export const CodeBlock = ({
 		<CodeBlockContext.Provider value={{ code }}>
 			<div
 				className={cn(
-					"group relative min-w-0 w-full max-w-full overflow-hidden rounded-md border bg-background text-foreground",
-					className
+					"group relative min-w-0 w-full max-w-full overflow-hidden rounded-md border border-border/30 text-foreground",
+					className,
 				)}
 				{...props}
 			>

@@ -1,6 +1,13 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	Fragment,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import Image from "next/image";
 import {
 	MessageActions,
@@ -149,7 +156,9 @@ function getFileAttachments(message: LCMessage): AttachmentData[] {
 
 		// File blocks: {"type": "file", "mime_type"/"mimeType": "...", "base64": "...", "filename": "..."}
 		if (block.type === "file") {
-			const mimeType = (block.mime_type ?? block.mimeType ?? "application/octet-stream") as string;
+			const mimeType = (block.mime_type ??
+				block.mimeType ??
+				"application/octet-stream") as string;
 			const base64 = (block.base64 ?? "") as string;
 			const filename = (block.filename ?? "file") as string;
 			const dataUrl = `data:${mimeType};base64,${base64}`;
@@ -284,13 +293,17 @@ function getMcpAppInfoFromToolCall(tc: LocalToolCall): McpAppToolInfo | null {
 	if (!artifact || typeof artifact !== "object") return null;
 	const a = artifact as Record<string, unknown>;
 	// Handle both camelCase (Axios/history) and snake_case (stream)
-	const resourceUri = (a.mcpAppResourceUri ?? a.mcp_app_resource_uri) as string | undefined;
+	const resourceUri = (a.mcpAppResourceUri ?? a.mcp_app_resource_uri) as
+		| string
+		| undefined;
 	const serverId = (a.mcpServerId ?? a.mcp_server_id) as string | undefined;
 	if (!resourceUri || !serverId) return null;
 	return { resourceUri, serverId };
 }
 
-function getStructuredContentFromToolCall(tc: LocalToolCall): Record<string, unknown> | undefined {
+function getStructuredContentFromToolCall(
+	tc: LocalToolCall,
+): Record<string, unknown> | undefined {
 	const artifact = tc.result?.artifact;
 	if (!artifact || typeof artifact !== "object") return undefined;
 	const a = artifact as Record<string, unknown>;
@@ -358,13 +371,7 @@ const ChatPage = () => {
 		},
 	} as Parameters<typeof useStream<Record<string, unknown>>>[0]);
 
-	const {
-		isLoading,
-		error,
-		interrupt,
-		submit: rawSubmit,
-		stop,
-	} = thread;
+	const { isLoading, error, interrupt, submit: rawSubmit, stop } = thread;
 
 	// Once anything is dispatched, the live stream owns interrupt state — drop
 	// the rehydrated fallback so it can't shadow a fresh post-resume answer.
@@ -389,9 +396,7 @@ const ChatPage = () => {
 	// of the whole conversation (and per-token markdown re-parses).
 	const streamMessagesRaw = thread.messages as LCMessage[];
 	const streamMessages = useThrottledValue(streamMessagesRaw, 60);
-	const initMessages = (
-		initialValues?.messages ?? []
-	) as LCMessage[];
+	const initMessages = (initialValues?.messages ?? []) as LCMessage[];
 	const messages =
 		streamMessages.length > 0 || isLoading ? streamMessages : initMessages;
 
@@ -399,7 +404,8 @@ const ChatPage = () => {
 
 	// Tool calls: use stream tool calls when streaming, else compute from messages
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const streamToolCallsRaw = ((thread as any).toolCalls ?? []) as LocalToolCall[];
+	const streamToolCallsRaw = ((thread as any).toolCalls ??
+		[]) as LocalToolCall[];
 	const streamToolCalls = useThrottledValue(streamToolCallsRaw, 60);
 	const localToolCalls = useMemo(
 		() => computeToolCallsFromMessages(messages),
@@ -499,7 +505,12 @@ const ChatPage = () => {
 		submit(
 			{ messages: [{ type: "human", content }] },
 			{
-				optimisticValues: { messages: [...messages, { type: "human", content, id: crypto.randomUUID() }] },
+				optimisticValues: {
+					messages: [
+						...messages,
+						{ type: "human", content, id: crypto.randomUUID() },
+					],
+				},
 				streamSubgraphs: true,
 			},
 		);
@@ -550,7 +561,9 @@ const ChatPage = () => {
 
 		// Find subagents that were reconstructed but have no internal messages
 		const toFetch = [...subagentApi.subagents.entries()].filter(
-			([, s]) => s.messages.length === 0 && (s.status === "complete" || s.status === "error"),
+			([, s]) =>
+				s.messages.length === 0 &&
+				(s.status === "complete" || s.status === "error"),
 		);
 		if (toFetch.length === 0) return;
 
@@ -559,7 +572,8 @@ const ChatPage = () => {
 		// Access the private subagentManager to call updateSubagentFromSubgraphState
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const streamManager = thread as any;
-		const subagentManager = streamManager.subagentManager ?? streamManager._subagentManager;
+		const subagentManager =
+			streamManager.subagentManager ?? streamManager._subagentManager;
 
 		Promise.all(
 			toFetch.map(async ([toolCallId]) => {
@@ -639,7 +653,7 @@ const ChatPage = () => {
 		<div className="h-full flex flex-col w-full overflow-hidden">
 			<div className="h-full relative flex flex-1 flex-col min-h-0 w-full">
 				<Conversation>
-					<ConversationContent className="max-w-4xl mx-auto w-full lg:px-10 px-6">
+					<ConversationContent className="max-w-4xl mx-auto w-full lg:px-10 sm:px-6 px-2">
 						{coordinatorTodos.length > 0 && (
 							<TodoList
 								todos={coordinatorTodos}
@@ -651,10 +665,7 @@ const ChatPage = () => {
 							if (message.type === "tool") return null;
 
 							// ---- Human message ----
-							if (
-								message.type === "human" ||
-								message.type === "user"
-							) {
+							if (message.type === "human" || message.type === "user") {
 								const text = getTextContent(message);
 								const attachments = getFileAttachments(message);
 
@@ -664,8 +675,7 @@ const ChatPage = () => {
 											<div className="flex justify-end">
 												<Attachments variant="inline">
 													{attachments.map((attachment) => {
-														const mediaCategory =
-															getMediaCategory(attachment);
+														const mediaCategory = getMediaCategory(attachment);
 														const label = getAttachmentLabel(attachment);
 														return (
 															<AttachmentHoverCard key={attachment.id}>
@@ -689,9 +699,7 @@ const ChatPage = () => {
 																						alt={label}
 																						className="object-contain"
 																						height={200}
-																						src={
-																							attachment.url as string
-																						}
+																						src={attachment.url as string}
 																						width={200}
 																					/>
 																				</div>
@@ -721,10 +729,7 @@ const ChatPage = () => {
 							}
 
 							// ---- AI message ----
-							if (
-								message.type === "ai" ||
-								message.type === "assistant"
-							) {
+							if (message.type === "ai" || message.type === "assistant") {
 								const text = getTextContent(message);
 								const reasoning = getReasoningContent(message);
 								const msgToolCalls = getToolCallsForMessage(message);
@@ -742,9 +747,7 @@ const ChatPage = () => {
 										{reasoning && (
 											<Reasoning
 												className="w-full"
-												isStreaming={
-													assistantIsStreaming && isLastMessage
-												}
+												isStreaming={assistantIsStreaming && isLastMessage}
 											>
 												<ReasoningTrigger />
 												<ReasoningContent>{reasoning}</ReasoningContent>
@@ -806,8 +809,7 @@ const ChatPage = () => {
 															mcpServerName={serverName}
 															mcpServerIcon={
 																mcpServers.find(
-																	(server) =>
-																		server.name === serverName,
+																	(server) => server.name === serverName,
 																)?.iconUrl
 															}
 														/>
@@ -820,24 +822,19 @@ const ChatPage = () => {
 																	tc.state === "error" ||
 																	tc.state === "pending") && (
 																	<ToolOutput
-																		output={
-																			output as React.ReactNode
-																		}
+																		output={output as React.ReactNode}
 																		errorText={
-																			tc.state === "error" &&
-																			tc.result
-																				? (typeof tc.result
-																						.content === "string"
-																						? tc.result.content
-																						: "Tool execution failed")
+																			tc.state === "error" && tc.result
+																				? typeof tc.result.content === "string"
+																					? tc.result.content
+																					: "Tool execution failed"
 																				: undefined
 																		}
 																	/>
 																)}
 															</ToolContentInner>
 															{/* HITL Approval UI */}
-															{toolState ===
-																"approval-requested" && (
+															{toolState === "approval-requested" && (
 																<ToolFooter>
 																	<Button
 																		variant="default"
@@ -876,7 +873,9 @@ const ChatPage = () => {
 															<McpAppWidget
 																input={tc.call.args}
 																output={getToolOutputContent(tc)}
-																structuredContent={getStructuredContentFromToolCall(tc)}
+																structuredContent={getStructuredContentFromToolCall(
+																	tc,
+																)}
 																errorText={
 																	tc.state === "error" && tc.result
 																		? typeof tc.result.content === "string"
@@ -903,7 +902,11 @@ const ChatPage = () => {
 												<div className="space-y-2 mt-1">
 													<SubAgentProgress subagents={turnSubagents} />
 													{turnSubagents.map((sub) => (
-														<SubAgentCard key={sub.id} subagent={sub} mcpServers={mcpServers} />
+														<SubAgentCard
+															key={sub.id}
+															subagent={sub}
+															mcpServers={mcpServers}
+														/>
 													))}
 													<SynthesisIndicator
 														subagents={turnSubagents}
@@ -969,7 +972,7 @@ const ChatPage = () => {
 			</div>
 			<div className="w-full shrink-0 bg-background">
 				{agentArchived ? (
-					<div className="w-full max-w-4xl mx-auto lg:px-10 px-6 py-6">
+					<div className="w-full max-w-4xl mx-auto lg:px-10 sm:px-6 px-3 py-6">
 						<div className="flex items-center gap-3 rounded-lg border border-border bg-muted/50 px-4 py-3">
 							<ArchiveIcon className="size-5 shrink-0 text-muted-foreground" />
 							<p className="text-sm text-muted-foreground">
@@ -980,7 +983,7 @@ const ChatPage = () => {
 						</div>
 					</div>
 				) : agentStatus === "not_configured" ? (
-					<div className="w-full max-w-4xl mx-auto lg:px-10 px-6 py-4">
+					<div className="w-full max-w-4xl mx-auto lg:px-10 sm:px-6 px-3 py-4">
 						<div className="w-full flex items-center justify-center border border-red-200 bg-red-50 rounded-lg px-4 py-8">
 							<p className="text-md text-center text-red-700">
 								Agent is not configured yet. Contact agent owner to configure it
@@ -992,7 +995,7 @@ const ChatPage = () => {
 					<ChatPromptInput
 						onSubmit={handleSubmit}
 						status={isLoading ? "streaming" : "ready"}
-						className="w-full max-w-4xl mx-auto lg:px-10 px-6 py-4"
+						className="w-full max-w-4xl mx-auto lg:px-10 sm:px-6 px-3 py-4"
 						stop={stop}
 						selectedModel={threadModel}
 						readOnlyModel={true}

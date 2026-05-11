@@ -59,7 +59,7 @@ class ChatModelFactory:
                 return ChatAnthropic(
                     model=model_id,
                     temperature=1,
-                    max_tokens=2048,
+                    max_tokens=16384,
                     streaming=True,
                     timeout=None,
                     thinking={"type": "enabled", "budget_tokens": 1024},
