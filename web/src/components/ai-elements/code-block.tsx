@@ -121,7 +121,7 @@ export const CodeBlock = ({
 			>
 				<div className="relative min-w-0 max-w-full">
 					{!html ? (
-						<div className="min-w-0 max-w-full overflow-x-auto [&>pre]:m-0 [&>pre]:bg-background! [&>pre]:p-4 [&>pre]:text-foreground! [&>pre]:text-sm [&_code]:font-mono [&_code]:text-sm">
+						<div className="min-w-0 max-w-full overflow-x-auto bg-background [&>pre]:m-0 [&>pre]:bg-background! [&>pre]:p-4 [&>pre]:text-foreground! [&>pre]:text-sm [&_code]:font-mono [&_code]:text-sm">
 							<pre>
 								<code>{code}</code>
 							</pre>
@@ -129,12 +129,12 @@ export const CodeBlock = ({
 					) : (
 						<>
 							<div
-								className="min-w-0 max-w-full overflow-x-auto dark:hidden [&>pre]:m-0 [&>pre]:bg-background! [&>pre]:p-4 [&>pre]:text-foreground! [&>pre]:text-sm [&_code]:font-mono [&_code]:text-sm"
+								className="min-w-0 max-w-full overflow-x-auto bg-background dark:hidden [&>pre]:m-0 [&>pre]:bg-background! [&>pre]:p-4 [&>pre]:text-foreground! [&>pre]:text-sm [&_code]:font-mono [&_code]:text-sm"
 								// biome-ignore lint/security/noDangerouslySetInnerHtml: "this is needed."
 								dangerouslySetInnerHTML={{ __html: html }}
 							/>
 							<div
-								className="hidden min-w-0 max-w-full overflow-x-auto dark:block [&>pre]:m-0 [&>pre]:bg-background! [&>pre]:p-4 [&>pre]:text-foreground! [&>pre]:text-sm [&_code]:font-mono [&_code]:text-sm"
+								className="hidden min-w-0 max-w-full overflow-x-auto bg-background dark:block [&>pre]:m-0 [&>pre]:bg-background! [&>pre]:p-4 [&>pre]:text-foreground! [&>pre]:text-sm [&_code]:font-mono [&_code]:text-sm"
 								// biome-ignore lint/security/noDangerouslySetInnerHtml: "this is needed."
 								dangerouslySetInnerHTML={{ __html: darkHtml }}
 							/>
