@@ -71,6 +71,11 @@ export async function highlightCode(
 	]);
 }
 
+// Above this size, Shiki's regex tokenizer + the resulting highlighted DOM
+// freeze the main thread and bog down scrolling. Stay on the plain <pre>
+// fallback for these — indentation is preserved, only syntax colors are lost.
+export const SHIKI_MAX_CHARS = 30_000;
+
 export const CodeBlock = ({
 	code,
 	language,
@@ -83,6 +88,14 @@ export const CodeBlock = ({
 	const [darkHtml, setDarkHtml] = useState<string>("");
 
 	useEffect(() => {
+		if (code.length > SHIKI_MAX_CHARS) {
+			// Reset in case the same CodeBlock instance just shrank/grew across the
+			// threshold; otherwise stale highlighted HTML would linger.
+			setHtml("");
+			setDarkHtml("");
+			return;
+		}
+
 		let isMounted = true;
 
 		highlightCode(code, language, showLineNumbers).then(([light, dark]) => {
