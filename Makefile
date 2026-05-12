@@ -8,7 +8,7 @@ dev-backend:
 	cd backend && uv run uvicorn app.main:app --reload
 
 dev-frontend:
-	cd web && npm run dev
+	cd web && npm i && npm run dev
 
 dev:
 	make -j 3 dev-stack dev-backend dev-frontend
