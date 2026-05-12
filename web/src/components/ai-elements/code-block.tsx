@@ -71,6 +71,11 @@ export async function highlightCode(
 	]);
 }
 
+// Above this size, Shiki's regex tokenizer + the resulting highlighted DOM
+// freeze the main thread and bog down scrolling. Stay on the plain <pre>
+// fallback for these — indentation is preserved, only syntax colors are lost.
+export const SHIKI_MAX_CHARS = 30_000;
+
 export const CodeBlock = ({
 	code,
 	language,
@@ -83,6 +88,14 @@ export const CodeBlock = ({
 	const [darkHtml, setDarkHtml] = useState<string>("");
 
 	useEffect(() => {
+		if (code.length > SHIKI_MAX_CHARS) {
+			// Reset in case the same CodeBlock instance just shrank/grew across the
+			// threshold; otherwise stale highlighted HTML would linger.
+			setHtml("");
+			setDarkHtml("");
+			return;
+		}
+
 		let isMounted = true;
 
 		highlightCode(code, language, showLineNumbers).then(([light, dark]) => {
@@ -108,7 +121,7 @@ export const CodeBlock = ({
 			>
 				<div className="relative min-w-0 max-w-full">
 					{!html ? (
-						<div className="min-w-0 max-w-full overflow-x-auto [&>pre]:m-0 [&>pre]:bg-background! [&>pre]:p-4 [&>pre]:text-foreground! [&>pre]:text-sm [&_code]:font-mono [&_code]:text-sm">
+						<div className="min-w-0 max-w-full overflow-x-auto bg-background [&>pre]:m-0 [&>pre]:bg-background! [&>pre]:p-4 [&>pre]:text-foreground! [&>pre]:text-sm [&_code]:font-mono [&_code]:text-sm">
 							<pre>
 								<code>{code}</code>
 							</pre>
@@ -116,12 +129,12 @@ export const CodeBlock = ({
 					) : (
 						<>
 							<div
-								className="min-w-0 max-w-full overflow-x-auto dark:hidden [&>pre]:m-0 [&>pre]:bg-background! [&>pre]:p-4 [&>pre]:text-foreground! [&>pre]:text-sm [&_code]:font-mono [&_code]:text-sm"
+								className="min-w-0 max-w-full overflow-x-auto bg-background dark:hidden [&>pre]:m-0 [&>pre]:bg-background! [&>pre]:p-4 [&>pre]:text-foreground! [&>pre]:text-sm [&_code]:font-mono [&_code]:text-sm"
 								// biome-ignore lint/security/noDangerouslySetInnerHtml: "this is needed."
 								dangerouslySetInnerHTML={{ __html: html }}
 							/>
 							<div
-								className="hidden min-w-0 max-w-full overflow-x-auto dark:block [&>pre]:m-0 [&>pre]:bg-background! [&>pre]:p-4 [&>pre]:text-foreground! [&>pre]:text-sm [&_code]:font-mono [&_code]:text-sm"
+								className="hidden min-w-0 max-w-full overflow-x-auto bg-background dark:block [&>pre]:m-0 [&>pre]:bg-background! [&>pre]:p-4 [&>pre]:text-foreground! [&>pre]:text-sm [&_code]:font-mono [&_code]:text-sm"
 								// biome-ignore lint/security/noDangerouslySetInnerHtml: "this is needed."
 								dangerouslySetInnerHTML={{ __html: darkHtml }}
 							/>

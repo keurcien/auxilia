@@ -17,7 +17,7 @@ import {
 import Image from "next/image";
 import type { ComponentProps, ReactNode } from "react";
 import { isValidElement, useState } from "react";
-import { CodeBlock } from "./code-block";
+import { CodeBlock, SHIKI_MAX_CHARS } from "./code-block";
 
 export type ToolProps = ComponentProps<typeof Collapsible> & {
 	toolState?: ToolUIPart["state"];
@@ -236,19 +236,17 @@ export const ToolOutput = ({
 	const content = errorText ?? output;
 
 	let Output: ReactNode = null;
+	let highlightingDisabled = false;
 
 	if (content != null) {
 		if (typeof content === "object" && !isValidElement(content)) {
-			Output = (
-				<CodeBlock
-					code={JSON.stringify(content, null, 2).replace(/\\n/g, "\n")}
-					language="json"
-				/>
-			);
+			const code = JSON.stringify(content, null, 2).replace(/\\n/g, "\n");
+			highlightingDisabled = code.length > SHIKI_MAX_CHARS;
+			Output = <CodeBlock code={code} language="json" />;
 		} else if (typeof content === "string") {
-			Output = (
-				<CodeBlock code={content.replace(/\\n/g, "\n")} language="json" />
-			);
+			const code = content.replace(/\\n/g, "\n");
+			highlightingDisabled = code.length > SHIKI_MAX_CHARS;
+			Output = <CodeBlock code={code} language="json" />;
 		} else {
 			Output = <div>{content as ReactNode}</div>;
 		}
@@ -259,9 +257,17 @@ export const ToolOutput = ({
 			className={cn("min-w-0 space-y-2 overflow-hidden p-3", className)}
 			{...props}
 		>
-			<h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-				Result
-			</h4>
+			<div className="flex items-baseline gap-2">
+				<h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
+					Result
+				</h4>
+				{highlightingDisabled && (
+					<span className="text-muted-foreground/70 text-xs">
+						— syntax highlighting is disabled for outputs exceeding{" "}
+						{SHIKI_MAX_CHARS.toLocaleString()} characters
+					</span>
+				)}
+			</div>
 			<div className="min-w-0 overflow-x-auto rounded-md bg-muted/60 text-foreground text-xs [&_table]:w-full max-h-80 overflow-y-auto">
 				{Output}
 			</div>
