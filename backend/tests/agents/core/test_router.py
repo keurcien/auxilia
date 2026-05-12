@@ -111,7 +111,7 @@ def test_get_agent(client: TestClient, mock_db, current_user):
     assert data["name"] == agent.name
 
 
-def test_get_agent_not_found(client: TestClient, mock_db):
+def test_get_agent_not_found(client: TestClient, mock_db, _current_user):
     """Test getting a non-existent agent returns 404."""
     fake_id = uuid4()
 
@@ -122,6 +122,12 @@ def test_get_agent_not_found(client: TestClient, mock_db):
     response = client.get(f"/agents/{fake_id}")
     assert response.status_code == 404
     assert response.json()["detail"] == "Agent not found"
+
+
+def test_get_agent_requires_auth(client: TestClient):
+    """Test that GET /agents/{id} returns 401 without auth."""
+    response = client.get(f"/agents/{uuid4()}")
+    assert response.status_code == 401
 
 
 def test_update_agent(client: TestClient, mock_db, current_user):
@@ -145,10 +151,10 @@ def test_update_agent(client: TestClient, mock_db, current_user):
         return r
 
     mock_db.execute.side_effect = [
-        make_result(scalar=agent),         # repository.get
-        make_result(rows=[(agent, None)]), # get_agent reload
-        make_result(scalars_list=[]),       # load_subagents → get_for_coordinator
-        make_result(scalar=None),          # is_subagent
+        make_result(scalar=agent),  # repository.get
+        make_result(rows=[(agent, None)]),  # get_agent reload
+        make_result(scalars_list=[]),  # load_subagents → get_for_coordinator
+        make_result(scalar=None),  # is_subagent
     ]
 
     update_data = {
@@ -165,7 +171,7 @@ def test_update_agent(client: TestClient, mock_db, current_user):
     assert data["mcp_servers"] == []
 
 
-def test_update_agent_not_found(client: TestClient, mock_db, current_user):
+def test_update_agent_not_found(client: TestClient, mock_db, _current_user):
     """Test updating a non-existent agent returns 404."""
     fake_id = uuid4()
 
@@ -179,7 +185,7 @@ def test_update_agent_not_found(client: TestClient, mock_db, current_user):
     assert response.json()["detail"] == "Agent not found"
 
 
-def test_delete_agent(client: TestClient, mock_db):
+def test_delete_agent(client: TestClient, mock_db, _current_user):
     """Test deleting an agent."""
     agent_id = uuid4()
     owner_id = uuid4()
@@ -201,7 +207,7 @@ def test_delete_agent(client: TestClient, mock_db):
     assert agent.is_archived is True
 
 
-def test_delete_agent_not_found(client: TestClient, mock_db):
+def test_delete_agent_not_found(client: TestClient, mock_db, _current_user):
     """Test deleting a non-existent agent returns 404."""
     fake_id = uuid4()
 
@@ -212,3 +218,9 @@ def test_delete_agent_not_found(client: TestClient, mock_db):
     response = client.delete(f"/agents/{fake_id}")
     assert response.status_code == 404
     assert response.json()["detail"] == "Agent not found"
+
+
+def test_delete_agent_requires_auth(client: TestClient):
+    """Test that DELETE /agents/{id} returns 401 without auth."""
+    response = client.delete(f"/agents/{uuid4()}")
+    assert response.status_code == 401
