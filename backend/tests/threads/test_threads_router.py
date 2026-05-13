@@ -2,9 +2,10 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
-from app.threads.models import ThreadDB
+from app.threads.models import ThreadDB, ThreadSource
 
 
 def test_create_thread(client: TestClient, mock_db, current_user):
@@ -36,6 +37,10 @@ def test_create_thread(client: TestClient, mock_db, current_user):
     assert "id" in data
     assert "created_at" in data
     assert "updated_at" in data
+    # TestClient defaults to no cookies/bearer, but get_current_user is
+    # overridden, so detect_auth_method falls through to "bearer" and the
+    # server tags the thread as API-created.
+    assert data["source"] == ThreadSource.api.value
 
 
 def test_create_thread_without_first_message(client: TestClient, mock_db, current_user):
@@ -99,14 +104,13 @@ def test_get_threads(client: TestClient, mock_db, current_user):
 
 
 @patch("app.threads.router.AsyncPostgresSaver.from_conn_string")
-def test_get_thread(mock_checkpointer, client: TestClient, mock_db):
-    """Test getting a single thread by ID."""
+def test_get_thread(mock_checkpointer, client: TestClient, mock_db, current_user):
+    """Owner can read their own thread."""
     thread_id = str(uuid4())
-    user_id = uuid4()
     agent_id = uuid4()
     thread = ThreadDB(
         id=thread_id,
-        user_id=user_id,
+        user_id=current_user.id,
         agent_id=agent_id,
         first_message_content="Test thread",
         created_at=datetime.now(),
@@ -114,12 +118,12 @@ def test_get_thread(mock_checkpointer, client: TestClient, mock_db):
     )
 
     mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = thread
     mock_result.one_or_none.return_value = (thread, "Test Agent", "🤖", None, False)
     mock_db.execute.return_value = mock_result
 
-    # Mock the checkpointer context manager
     mock_saver_instance = AsyncMock()
-    mock_saver_instance.aget = AsyncMock(return_value=None)
+    mock_saver_instance.aget_tuple = AsyncMock(return_value=None)
     mock_checkpointer.return_value.__aenter__ = AsyncMock(
         return_value=mock_saver_instance
     )
@@ -132,13 +136,41 @@ def test_get_thread(mock_checkpointer, client: TestClient, mock_db):
     assert "messages" in data
     assert data["thread"]["id"] == thread_id
     assert data["messages"] == []
+    assert data["viewer_role"] is None
 
 
+@pytest.mark.usefixtures("current_user")
+def test_get_thread_forbidden_for_non_owner(client: TestClient, mock_db):
+    """A non-owner without admin access gets a 403."""
+    thread_id = str(uuid4())
+    agent_id = uuid4()
+    other_user_id = uuid4()
+    thread = ThreadDB(
+        id=thread_id,
+        user_id=other_user_id,
+        agent_id=agent_id,
+        first_message_content="Someone else's thread",
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = thread
+    # The agent permission lookup returns no rows for a regular member.
+    mock_result.all.return_value = []
+    mock_db.execute.return_value = mock_result
+
+    response = client.get(f"/threads/{thread_id}")
+    assert response.status_code in (403, 404)
+
+
+@pytest.mark.usefixtures("current_user")
 def test_get_thread_not_found(client: TestClient, mock_db):
     """Test getting a non-existent thread returns 404."""
     fake_id = uuid4()
 
     mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = None
     mock_result.one_or_none.return_value = None
     mock_db.execute.return_value = mock_result
 
@@ -148,14 +180,13 @@ def test_get_thread_not_found(client: TestClient, mock_db):
 
 
 @patch("app.threads.router.AsyncPostgresSaver.from_conn_string")
-def test_delete_thread(mock_checkpointer, client: TestClient, mock_db):
+def test_delete_thread(mock_checkpointer, client: TestClient, mock_db, current_user):
     """Test deleting a thread."""
     thread_id = str(uuid4())
-    user_id = uuid4()
     agent_id = uuid4()
     thread = ThreadDB(
         id=thread_id,
-        user_id=user_id,
+        user_id=current_user.id,
         agent_id=agent_id,
         first_message_content="Thread to delete",
         created_at=datetime.now(),
@@ -179,6 +210,7 @@ def test_delete_thread(mock_checkpointer, client: TestClient, mock_db):
     mock_db.delete.assert_called_once()
 
 
+@pytest.mark.usefixtures("current_user")
 @patch("app.threads.router.AsyncPostgresSaver.from_conn_string")
 def test_delete_thread_not_found(mock_checkpointer, client: TestClient, mock_db):
     """Test deleting a non-existent thread returns 404."""

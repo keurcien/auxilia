@@ -56,7 +56,7 @@ import { type PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import ChatPromptInput from "../components/prompt-input";
-import { RefreshCcwIcon, CopyIcon, ArchiveIcon } from "lucide-react";
+import { RefreshCcwIcon, CopyIcon, ArchiveIcon, ShieldCheck } from "lucide-react";
 import {
 	useStream,
 	FetchStreamTransport,
@@ -356,6 +356,7 @@ const ChatPage = () => {
 	const hasInitialized = useRef(false);
 	const [threadModel, setThreadModel] = useState<string | undefined>(undefined);
 	const [agentArchived, setAgentArchived] = useState(false);
+	const [viewerRole, setViewerRole] = useState<"admin" | null>(null);
 	const [initialValues, setInitialValues] = useState<Record<
 		string,
 		unknown
@@ -661,6 +662,10 @@ const ChatPage = () => {
 
 			if (data.thread.agentArchived) {
 				setAgentArchived(true);
+			}
+
+			if (data.viewerRole === "admin") {
+				setViewerRole("admin");
 			}
 
 			if (data.interrupted) {
@@ -1015,7 +1020,17 @@ const ChatPage = () => {
 				<div className="pointer-events-none absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-background to-transparent z-10" />
 			</div>
 			<div className="w-full shrink-0 bg-background">
-				{agentArchived ? (
+				{viewerRole === "admin" ? (
+					<div className="w-full max-w-4xl mx-auto lg:px-10 sm:px-6 px-3 py-6">
+						<div className="flex items-center gap-3 rounded-lg border border-border bg-muted/50 px-4 py-3">
+							<ShieldCheck className="size-5 shrink-0 text-muted-foreground" />
+							<p className="text-sm text-muted-foreground">
+								Viewing as admin — this thread belongs to another user and is
+								read-only.
+							</p>
+						</div>
+					</div>
+				) : agentArchived ? (
 					<div className="w-full max-w-4xl mx-auto lg:px-10 sm:px-6 px-3 py-6">
 						<div className="flex items-center gap-3 rounded-lg border border-border bg-muted/50 px-4 py-3">
 							<ArchiveIcon className="size-5 shrink-0 text-muted-foreground" />

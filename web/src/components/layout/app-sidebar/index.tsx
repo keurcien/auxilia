@@ -182,7 +182,7 @@ export function AppSidebar() {
 																: thread.agentName}
 														</div>
 													</div>
-													{thread.id.includes(".") && (
+													{thread.source === "slack" && (
 														<Image
 															src="https://storage.googleapis.com/choose-assets/slack.png"
 															alt="Slack"

@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from typing import Literal
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request, status
@@ -119,3 +120,17 @@ def require_role(minimum_role: WorkspaceRole) -> Callable:
 
 require_admin = require_role(WorkspaceRole.admin)
 require_editor = require_role(WorkspaceRole.editor)
+
+
+def detect_auth_method(request: Request) -> Literal["cookie", "bearer"]:
+    """Return how the current request was authenticated.
+
+    Mirrors the precedence in ``get_current_user``: cookie wins when present
+    and valid; everything else falls through to bearer. A stale/invalid cookie
+    sent alongside a valid bearer counts as bearer auth, since that's the path
+    ``get_current_user`` would have taken.
+    """
+    cookie_token = request.cookies.get(auth_settings.COOKIE_NAME)
+    if cookie_token and decode_access_token(cookie_token) is not None:
+        return "cookie"
+    return "bearer"

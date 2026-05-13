@@ -6,9 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import AsyncSessionLocal, get_db
 from app.exceptions import NotFoundError
 from app.service import BaseService
-from app.threads.models import ThreadDB
+from app.threads.models import ThreadDB, ThreadSource
 from app.threads.repository import ThreadRepository
-from app.threads.schemas import ThreadCreate, ThreadResponse
+from app.threads.schemas import AgentThreadResponse, ThreadCreate, ThreadResponse
 
 
 def _thread_with_agent(
@@ -25,6 +25,28 @@ def _thread_with_agent(
             "agent_emoji": agent_emoji,
             "agent_color": agent_color,
             "agent_archived": agent_archived,
+        },
+    )
+
+
+def _agent_thread(
+    thread: ThreadDB,
+    agent_name: str | None,
+    agent_emoji: str | None,
+    agent_color: str | None,
+    agent_archived: bool,
+    user_email: str | None,
+    user_name: str | None,
+) -> AgentThreadResponse:
+    return AgentThreadResponse.model_validate(
+        thread,
+        update={
+            "agent_name": agent_name,
+            "agent_emoji": agent_emoji,
+            "agent_color": agent_color,
+            "agent_archived": agent_archived,
+            "user_email": user_email,
+            "user_name": user_name,
         },
     )
 
@@ -48,10 +70,22 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
         rows = await self.repository.list_for_user(user_id)
         return [_thread_with_agent(*row) for row in rows]
 
-    async def create_thread(self, data: ThreadCreate, user_id: UUID) -> ThreadResponse:
+    async def list_threads_for_agent(
+        self, agent_id: UUID
+    ) -> list[AgentThreadResponse]:
+        rows = await self.repository.list_for_agent(agent_id)
+        return [_agent_thread(*row) for row in rows]
+
+    async def create_thread(
+        self,
+        data: ThreadCreate,
+        user_id: UUID,
+        source: ThreadSource,
+    ) -> ThreadResponse:
         thread = ThreadDB(
             **data.model_dump(exclude_none=True),
             user_id=user_id,
+            source=source,
         )
         self.db.add(thread)
         await self.db.flush()
@@ -85,6 +119,7 @@ async def get_or_create_thread(
             model_id="deepseek-v4-flash",
             first_message_content=question,
             user_id=user_id,
+            source=ThreadSource.slack,
         )
         db.add(thread)
         await db.commit()

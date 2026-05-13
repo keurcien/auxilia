@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from sqlmodel import SQLModel
@@ -26,3 +27,14 @@ class ThreadResponse(ThreadBase):
     agent_emoji: str | None = None
     agent_color: str | None = None
     agent_archived: bool = False
+
+
+class AgentThreadResponse(ThreadResponse):
+    user_email: str | None = None
+    user_name: str | None = None
+
+
+# Set when the requester is reading a thread they do not own but have admin
+# access. Drives read-only mode on the chat page. `None` means the requester
+# owns the thread (no special role).
+ViewerRole = Literal["admin"]

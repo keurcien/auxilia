@@ -25,6 +25,9 @@ from app.auth.dependencies import (
     require_admin,
     require_editor,
 )
+from app.exceptions import PermissionDeniedError
+from app.threads.schemas import AgentThreadResponse
+from app.threads.service import ThreadService, get_thread_service
 from app.users.models import UserDB
 
 
@@ -191,3 +194,20 @@ async def is_ready(
     service: AgentService = Depends(get_agent_service),
 ):
     return await service.check_ready(agent_id, str(current_user.id))
+
+
+@router.get("/{agent_id}/threads", response_model=list[AgentThreadResponse])
+async def list_agent_threads(
+    agent_id: UUID,
+    current_user: UserDB = Depends(get_current_user),
+    agent_service: AgentService = Depends(get_agent_service),
+    thread_service: ThreadService = Depends(get_thread_service),
+) -> list[AgentThreadResponse]:
+    """List all threads for an agent across users. Restricted to agent owners
+    and admins (workspace or agent-level)."""
+    agent = await agent_service.get_agent(
+        agent_id, user_id=current_user.id, user_role=current_user.role
+    )
+    if agent.current_user_permission not in ("owner", "admin"):
+        raise PermissionDeniedError("Not authorized to view this agent's threads")
+    return await thread_service.list_threads_for_agent(agent_id)
