@@ -33,7 +33,7 @@ export default function MCPServerCard({ server, onClick }: MCPServerCardProps) {
 					alt={server.name}
 					width={48}
 					height={48}
-					className="shrink-0 rounded-xl bg-muted transition-transform duration-300 group-hover:rotate-[-8deg] group-hover:scale-110"
+					className="shrink-0 rounded-xl transition-transform duration-300 group-hover:rotate-[-8deg] group-hover:scale-110"
 				/>
 				<div className="min-w-0">
 					<h3 className="font-[family-name:var(--font-jakarta-sans)] text-[16px] font-bold text-[#1a1a2e] dark:text-foreground tracking-tight leading-tight truncate">
