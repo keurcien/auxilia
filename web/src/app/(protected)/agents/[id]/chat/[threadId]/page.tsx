@@ -280,12 +280,31 @@ type ToolRenderState =
 function getToolRenderState(
 	tc: LocalToolCall,
 	isInterrupted: boolean,
+	hitlToolNames?: Set<string> | null,
 ): ToolRenderState {
 	if (tc.state === "completed") return "output-available";
 	if (tc.state === "error") return "output-error";
 	// pending
-	if (isInterrupted) return "approval-requested";
+	if (isInterrupted && (!hitlToolNames || hitlToolNames.has(tc.call.name))) {
+		return "approval-requested";
+	}
 	return "input-available";
+}
+
+// Extracts the set of tool names that require human approval from an HITL
+// interrupt payload. Tolerates both snake_case (live SSE) and camelCase
+// (rehydrated via the axios interceptor) shapes.
+function extractHitlToolNames(value: unknown): Set<string> | null {
+	if (!value || typeof value !== "object") return null;
+	const v = value as Record<string, unknown>;
+	const arr = (v.action_requests ?? v.actionRequests) as
+		| Array<{ name?: string }>
+		| undefined;
+	if (!Array.isArray(arr)) return null;
+	const names = arr
+		.map((r) => (r && typeof r.name === "string" ? r.name : null))
+		.filter((n): n is string => n != null);
+	return new Set(names);
 }
 
 function getMcpAppInfoFromToolCall(tc: LocalToolCall): McpAppToolInfo | null {
@@ -342,6 +361,8 @@ const ChatPage = () => {
 		unknown
 	> | null>(null);
 	const [rehydratedInterrupt, setRehydratedInterrupt] = useState(false);
+	const [rehydratedInterruptValue, setRehydratedInterruptValue] =
+		useState<unknown>(null);
 
 	const { mcpServers } = useMcpServersStore();
 	const {
@@ -378,6 +399,7 @@ const ChatPage = () => {
 	const submit = useCallback<typeof rawSubmit>(
 		(input, opts) => {
 			setRehydratedInterrupt(false);
+			setRehydratedInterruptValue(null);
 			return rawSubmit(input, opts);
 		},
 		[rawSubmit],
@@ -401,6 +423,19 @@ const ChatPage = () => {
 		streamMessages.length > 0 || isLoading ? streamMessages : initMessages;
 
 	const isInterrupted = interrupt != null || rehydratedInterrupt;
+
+	// The HITL middleware only "hangs" tool calls whose name is in interrupt_on.
+	// Other parallel tool calls in the same AI message auto-execute on resume.
+	// Scope approval UI and decisions to the hanging subset so the decision count
+	// matches the backend's hanging count.
+	const hitlToolNames = useMemo(() => {
+		const liveValue = (interrupt as { value?: unknown } | null | undefined)
+			?.value;
+		return (
+			extractHitlToolNames(liveValue) ??
+			extractHitlToolNames(rehydratedInterruptValue)
+		);
+	}, [interrupt, rehydratedInterruptValue]);
 
 	// Tool calls: use stream tool calls when streaming, else compute from messages
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -519,9 +554,11 @@ const ChatPage = () => {
 	const pendingToolCalls = useMemo(
 		() =>
 			toolCalls.filter(
-				(tc) => getToolRenderState(tc, isInterrupted) === "approval-requested",
+				(tc) =>
+					getToolRenderState(tc, isInterrupted, hitlToolNames) ===
+					"approval-requested",
 			),
-		[toolCalls, isInterrupted],
+		[toolCalls, isInterrupted, hitlToolNames],
 	);
 
 	const { decisions, recordDecision } = useHitlApprovals({
@@ -628,6 +665,9 @@ const ChatPage = () => {
 
 			if (data.interrupted) {
 				setRehydratedInterrupt(true);
+				if (data.interruptValue !== undefined) {
+					setRehydratedInterruptValue(data.interruptValue);
+				}
 			}
 
 			const pendingMessage = consumePendingMessage(threadId);
@@ -785,7 +825,11 @@ const ChatPage = () => {
 
 										{/* Tool calls */}
 										{msgToolCalls.map((tc) => {
-											const toolState = getToolRenderState(tc, isInterrupted);
+											const toolState = getToolRenderState(
+												tc,
+												isInterrupted,
+												hitlToolNames,
+											);
 											const { serverName, toolName } = getToolMetadata(
 												tc.call.name,
 												knownServerNames,
