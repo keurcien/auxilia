@@ -46,16 +46,23 @@ async def read_thread(
         if todos:
             values["todos"] = todos
 
-        interrupted = any(
-            channel == "__interrupt__"
-            for (_, channel, _) in (checkpoint_tuple.pending_writes or [])
-        )
+        interrupt_value = None
+        for _, channel, value in checkpoint_tuple.pending_writes or []:
+            if channel != "__interrupt__":
+                continue
+            batch = value if isinstance(value, (list, tuple)) else [value]
+            if not batch:
+                continue
+            first = batch[0]
+            interrupt_value = getattr(first, "value", first)
+            break
 
         return {
             "messages": deserialize_to_ui_messages(lc_messages),
             "values": values,
             "thread": thread_read,
-            "interrupted": interrupted,
+            "interrupted": interrupt_value is not None,
+            "interrupt_value": interrupt_value,
         }
 
 
