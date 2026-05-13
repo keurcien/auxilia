@@ -2,6 +2,7 @@ from datetime import datetime
 from unittest.mock import MagicMock
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.agents.models import AgentDB
@@ -111,7 +112,8 @@ def test_get_agent(client: TestClient, mock_db, current_user):
     assert data["name"] == agent.name
 
 
-def test_get_agent_not_found(client: TestClient, mock_db, _current_user):
+@pytest.mark.usefixtures("current_user")
+def test_get_agent_not_found(client: TestClient, mock_db):
     """Test getting a non-existent agent returns 404."""
     fake_id = uuid4()
 
@@ -131,7 +133,7 @@ def test_get_agent_requires_auth(client: TestClient):
 
 
 def test_update_agent(client: TestClient, mock_db, current_user):
-    """Test updating an agent."""
+    """Test updating an agent (owner)."""
     agent_id = uuid4()
     owner_id = current_user.id
     agent = AgentDB(
@@ -151,10 +153,11 @@ def test_update_agent(client: TestClient, mock_db, current_user):
         return r
 
     mock_db.execute.side_effect = [
-        make_result(scalar=agent),  # repository.get
-        make_result(rows=[(agent, None)]),  # get_agent reload
-        make_result(scalars_list=[]),  # load_subagents → get_for_coordinator
-        make_result(scalar=None),  # is_subagent
+        make_result(rows=[(agent, None)]),  # get_agent (auth): list_with_permissions
+        make_result(scalars_list=[]),  # get_agent (auth): load_all_subagent_data
+        make_result(scalar=agent),  # get_or_404: repository.get
+        make_result(rows=[(agent, None)]),  # get_agent (return): list_with_permissions
+        make_result(scalars_list=[]),  # get_agent (return): load_all_subagent_data
     ]
 
     update_data = {
@@ -171,12 +174,13 @@ def test_update_agent(client: TestClient, mock_db, current_user):
     assert data["mcp_servers"] == []
 
 
-def test_update_agent_not_found(client: TestClient, mock_db, _current_user):
+@pytest.mark.usefixtures("current_user")
+def test_update_agent_not_found(client: TestClient, mock_db):
     """Test updating a non-existent agent returns 404."""
     fake_id = uuid4()
 
     mock_result = MagicMock()
-    mock_result.scalar_one_or_none.return_value = None
+    mock_result.all.return_value = []
     mock_db.execute.return_value = mock_result
 
     update_data = {"name": "Updated Name"}
@@ -185,15 +189,45 @@ def test_update_agent_not_found(client: TestClient, mock_db, _current_user):
     assert response.json()["detail"] == "Agent not found"
 
 
-def test_delete_agent(client: TestClient, mock_db, _current_user):
-    """Test deleting an agent."""
+def test_update_agent_forbidden_for_non_owner(
+    client: TestClient, mock_db, current_user
+):
+    """A member who is neither owner nor admin cannot update an agent."""
     agent_id = uuid4()
-    owner_id = uuid4()
+    other_owner = uuid4()
+    assert other_owner != current_user.id
+    agent = AgentDB(
+        id=agent_id,
+        name="Someone Else's Agent",
+        instructions="...",
+        owner_id=other_owner,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+
+    def make_result(*, rows=None, scalars_list=None):
+        r = MagicMock()
+        r.all.return_value = rows or []
+        r.scalars.return_value.all.return_value = scalars_list or []
+        return r
+
+    mock_db.execute.side_effect = [
+        make_result(rows=[(agent, None, None)]),  # list_with_permissions: no grant
+        make_result(scalars_list=[]),  # load_all_subagent_data
+    ]
+
+    response = client.patch(f"/agents/{agent_id}", json={"name": "Pwned"})
+    assert response.status_code == 403
+
+
+def test_delete_agent(client: TestClient, mock_db, current_user):
+    """Owner can delete their own agent."""
+    agent_id = uuid4()
     agent = AgentDB(
         id=agent_id,
         name="Agent to Delete",
         instructions="This agent will be deleted",
-        owner_id=owner_id,
+        owner_id=current_user.id,
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )
@@ -207,7 +241,8 @@ def test_delete_agent(client: TestClient, mock_db, _current_user):
     assert agent.is_archived is True
 
 
-def test_delete_agent_not_found(client: TestClient, mock_db, _current_user):
+@pytest.mark.usefixtures("current_user")
+def test_delete_agent_not_found(client: TestClient, mock_db):
     """Test deleting a non-existent agent returns 404."""
     fake_id = uuid4()
 
@@ -218,6 +253,52 @@ def test_delete_agent_not_found(client: TestClient, mock_db, _current_user):
     response = client.delete(f"/agents/{fake_id}")
     assert response.status_code == 404
     assert response.json()["detail"] == "Agent not found"
+
+
+def test_delete_agent_forbidden_for_non_owner(
+    client: TestClient, mock_db, current_user
+):
+    """A member who is neither owner nor admin cannot delete an agent."""
+    other_owner = uuid4()
+    assert other_owner != current_user.id
+    agent = AgentDB(
+        id=uuid4(),
+        name="Someone Else's Agent",
+        instructions="...",
+        owner_id=other_owner,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = agent
+    mock_db.execute.return_value = mock_result
+
+    response = client.delete(f"/agents/{agent.id}")
+    assert response.status_code == 403
+    assert agent.is_archived is False
+
+
+def test_delete_agent_allows_workspace_admin(client: TestClient, mock_db, admin_user):
+    """Workspace admin can delete any agent."""
+    other_owner = uuid4()
+    assert other_owner != admin_user.id
+    agent = AgentDB(
+        id=uuid4(),
+        name="Other User's Agent",
+        instructions="...",
+        owner_id=other_owner,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = agent
+    mock_db.execute.return_value = mock_result
+
+    response = client.delete(f"/agents/{agent.id}")
+    assert response.status_code == 204
+    assert agent.is_archived is True
 
 
 def test_delete_agent_requires_auth(client: TestClient):

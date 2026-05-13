@@ -80,10 +80,12 @@ async def update_agent(
 @router.delete("/{agent_id}", status_code=204)
 async def delete_agent(
     agent_id: UUID,
-    _: UserDB = Depends(get_current_user),
+    current_user: UserDB = Depends(get_current_user),
     service: AgentService = Depends(get_agent_service),
 ) -> None:
-    await service.delete_agent(agent_id)
+    await service.delete_agent(
+        agent_id, user_id=current_user.id, user_role=current_user.role
+    )
 
 
 @router.get("/{agent_id}/permissions", response_model=list[AgentPermissionResponse])
