@@ -138,7 +138,7 @@ async def create_thread(
 ) -> ThreadResponse:
     source = (
         ThreadSource.web
-        if detect_auth_method(request) == "cookie"
+        if detect_auth_method(request, current_user) == "cookie"
         else ThreadSource.api
     )
     return await service.create_thread(thread_data, current_user.id, source)
