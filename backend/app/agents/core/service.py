@@ -20,7 +20,7 @@ from app.agents.schemas import (
 )
 from app.agents.subagents.service import SubagentService
 from app.database import get_db
-from app.exceptions import NotFoundError
+from app.exceptions import NotFoundError, PermissionDeniedError
 from app.mcp.servers.models import MCPServerDB
 from app.mcp.utils import check_mcp_server_connected
 from app.service import BaseService
@@ -59,9 +59,10 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         user_role: WorkspaceRole | None,
     ) -> list[AgentResponse]:
         agent_ids = [a.id for a in agents]
-        subagents_map, is_subagent_ids = (
-            await self.subagent_service.load_all_subagent_data(agent_ids)
-        )
+        (
+            subagents_map,
+            is_subagent_ids,
+        ) = await self.subagent_service.load_all_subagent_data(agent_ids)
         return [
             AgentResponse(
                 **agent.model_dump(),
@@ -152,12 +153,22 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         user_id: UUID | None = None,
         user_role: WorkspaceRole | None = None,
     ) -> AgentResponse:
+        existing = await self.get_agent(agent_id, user_id=user_id, user_role=user_role)
+        if existing.current_user_permission not in ("owner", "admin", "editor"):
+            raise PermissionDeniedError("Not authorized to edit this agent")
         agent = await self.get_or_404(agent_id)
         await self.repository.update(agent, data)
         return await self.get_agent(agent_id, user_id=user_id, user_role=user_role)
 
-    async def delete_agent(self, agent_id: UUID) -> None:
+    async def delete_agent(
+        self,
+        agent_id: UUID,
+        user_id: UUID | None = None,
+        user_role: WorkspaceRole | None = None,
+    ) -> None:
         agent = await self.get_or_404(agent_id)
+        if agent.owner_id != user_id and user_role != WorkspaceRole.admin:
+            raise PermissionDeniedError("Not authorized to delete this agent")
         await self.subagent_service.delete_all_for_agent(agent_id)
         await self.repository.archive(agent)
 

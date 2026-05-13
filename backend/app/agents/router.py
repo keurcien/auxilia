@@ -22,7 +22,6 @@ from app.agents.schemas import (
 from app.agents.subagents.service import SubagentService, get_subagent_service
 from app.auth.dependencies import (
     get_current_user,
-    get_current_user_optional,
     require_admin,
     require_editor,
 )
@@ -56,13 +55,13 @@ async def get_agents(
 @router.get("/{agent_id}", response_model=AgentResponse, response_model_by_alias=True)
 async def get_agent(
     agent_id: UUID,
-    current_user: UserDB | None = Depends(get_current_user_optional),
+    current_user: UserDB = Depends(get_current_user),
     service: AgentService = Depends(get_agent_service),
 ) -> AgentResponse:
     return await service.get_agent(
         agent_id,
-        user_id=current_user.id if current_user else None,
-        user_role=current_user.role if current_user else None,
+        user_id=current_user.id,
+        user_role=current_user.role,
     )
 
 
@@ -81,9 +80,12 @@ async def update_agent(
 @router.delete("/{agent_id}", status_code=204)
 async def delete_agent(
     agent_id: UUID,
+    current_user: UserDB = Depends(get_current_user),
     service: AgentService = Depends(get_agent_service),
 ) -> None:
-    await service.delete_agent(agent_id)
+    await service.delete_agent(
+        agent_id, user_id=current_user.id, user_role=current_user.role
+    )
 
 
 @router.get("/{agent_id}/permissions", response_model=list[AgentPermissionResponse])
@@ -129,6 +131,7 @@ async def update_mcp_server(
     agent_id: UUID,
     server_id: UUID,
     data: AgentMCPServerPatch,
+    _: UserDB = Depends(get_current_user),
     service: AgentMCPServerService = Depends(get_agent_mcp_server_service),
 ) -> AgentMCPServerResponse:
     return await service.update(agent_id, server_id, data)
@@ -138,6 +141,7 @@ async def update_mcp_server(
 async def delete_mcp_server(
     agent_id: UUID,
     server_id: UUID,
+    _: UserDB = Depends(get_current_user),
     service: AgentMCPServerService = Depends(get_agent_mcp_server_service),
 ) -> None:
     await service.delete(agent_id, server_id)
