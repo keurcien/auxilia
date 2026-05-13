@@ -69,7 +69,7 @@ export default function AgentThreadsPage() {
 				setIsLoading(false);
 			}
 		};
-		fetch();
+		void fetch();
 	}, [agentId]);
 
 	return (
@@ -87,7 +87,9 @@ export default function AgentThreadsPage() {
 			<div className="flex items-start gap-4 my-8">
 				<button
 					type="button"
-					onClick={() => router.push(`/agents/${agentId}`)}
+					onClick={() => {
+						router.push(`/agents/${agentId}`);
+					}}
 					className="shrink-0 w-10 h-10 rounded-full bg-[#F5F8F6] dark:bg-white/10 flex items-center justify-center cursor-pointer transition-colors hover:bg-[#EDF4F0] dark:hover:bg-white/15"
 					aria-label="Back to agent"
 				>

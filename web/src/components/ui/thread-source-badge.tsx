@@ -5,11 +5,16 @@ import type { ThreadSource } from "@/types/threads";
 const SLACK_ICON_SRC =
 	"https://storage.googleapis.com/choose-assets/slack.png";
 
-const LABELS: Record<ThreadSource, string> = {
-	web: "In-app",
-	slack: "Slack",
-	api: "External",
-};
+function getLabel(source: ThreadSource): string {
+	switch (source) {
+		case "web":
+			return "In-app";
+		case "slack":
+			return "Slack";
+		case "api":
+			return "External";
+	}
+}
 
 interface ThreadSourceBadgeProps {
 	source: ThreadSource;
@@ -22,7 +27,7 @@ export function ThreadSourceBadge({
 	withLabel = true,
 	className = "",
 }: ThreadSourceBadgeProps) {
-	const label = LABELS[source];
+	const label = getLabel(source);
 	const icon =
 		source === "slack" ? (
 			<Image
