@@ -119,10 +119,7 @@ export default function AgentThreadsPage() {
 						</div>
 					) : (
 						<>
-							<div className="flex items-center py-3 pl-[76px] pr-5 mb-1 font-[family-name:var(--font-dm-sans)] animate-in fade-in duration-300">
-								<div className="w-[220px] shrink-0 text-[11px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em]">
-									User
-								</div>
+							<div className="flex items-center py-3 pl-5 pr-5 mb-1 font-[family-name:var(--font-dm-sans)] animate-in fade-in duration-300">
 								<div className="w-[440px] shrink-0 text-[11px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em]">
 									First message
 								</div>
@@ -145,19 +142,6 @@ export default function AgentThreadsPage() {
 											animationFillMode: "both",
 										}}
 									>
-										<div className="shrink-0 w-[42px] h-[42px] rounded-full bg-[#F0F3F2] dark:bg-white/10 border-[1.5px] border-[#E0E8E4] dark:border-white/10 flex items-center justify-center text-[13.5px] font-bold text-[#6B7F76] dark:text-muted-foreground transition-transform duration-300 group-hover:scale-105">
-											{initials(thread.userName, thread.userEmail)}
-										</div>
-
-										<div className="w-[220px] shrink-0 min-w-0 ml-3.5 font-[family-name:var(--font-dm-sans)]">
-											<div className="text-[14px] font-semibold text-[#1E2D28] dark:text-foreground truncate">
-												{thread.userName || "Unnamed"}
-											</div>
-											<div className="text-[12px] text-[#8FA89E] dark:text-muted-foreground font-medium truncate mt-0.5">
-												{thread.userEmail}
-											</div>
-										</div>
-
 										<div className="w-[440px] shrink-0 min-w-0 pr-4 font-[family-name:var(--font-dm-sans)] text-[13.5px] text-[#3F524B] dark:text-foreground/80 font-medium truncate">
 											{thread.firstMessageContent || (
 												<span className="italic text-[#A3B5AD]">
