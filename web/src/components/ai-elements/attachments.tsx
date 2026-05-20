@@ -1,6 +1,5 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
 import {
   HoverCard,
   HoverCardContent,
@@ -15,7 +14,6 @@ import {
   Music2Icon,
   PaperclipIcon,
   VideoIcon,
-  XIcon,
 } from "lucide-react";
 import type { ComponentProps, HTMLAttributes, ReactNode } from "react";
 import { createContext, useContext, useMemo } from "react";
@@ -99,10 +97,10 @@ const AttachmentContext = createContext<AttachmentContextValue | null>(null);
 // Hooks
 // ============================================================================
 
-export const useAttachmentsContext = () =>
+const useAttachmentsContext = () =>
   useContext(AttachmentsContext) ?? { variant: "grid" as const };
 
-export const useAttachmentContext = () => {
+const useAttachmentContext = () => {
   const ctx = useContext(AttachmentContext);
   if (!ctx) {
     throw new Error("Attachment components must be used within <Attachment>");
@@ -308,59 +306,6 @@ export const AttachmentInfo = ({
 };
 
 // ============================================================================
-// AttachmentRemove - Remove button
-// ============================================================================
-
-export type AttachmentRemoveProps = ComponentProps<typeof Button> & {
-  label?: string;
-};
-
-export const AttachmentRemove = ({
-  label = "Remove",
-  className,
-  children,
-  ...props
-}: AttachmentRemoveProps) => {
-  const { onRemove, variant } = useAttachmentContext();
-
-  if (!onRemove) {
-    return null;
-  }
-
-  return (
-    <Button
-      aria-label={label}
-      className={cn(
-        variant === "grid" && [
-          "absolute top-2 right-2 size-6 rounded-full p-0",
-          "bg-background/80 backdrop-blur-sm",
-          "opacity-0 transition-opacity group-hover:opacity-100",
-          "hover:bg-background",
-          "[&>svg]:size-3",
-        ],
-        variant === "inline" && [
-          "size-5 rounded p-0",
-          "opacity-0 transition-opacity group-hover:opacity-100",
-          "[&>svg]:size-2.5",
-        ],
-        variant === "list" && ["size-8 shrink-0 rounded p-0", "[&>svg]:size-4"],
-        className
-      )}
-      onClick={(e) => {
-        e.stopPropagation();
-        onRemove();
-      }}
-      type="button"
-      variant="ghost"
-      {...props}
-    >
-      {children ?? <XIcon />}
-      <span className="sr-only">{label}</span>
-    </Button>
-  );
-};
-
-// ============================================================================
 // AttachmentHoverCard - Hover preview
 // ============================================================================
 
@@ -396,26 +341,4 @@ export const AttachmentHoverCardContent = ({
     className={cn("w-auto p-2", className)}
     {...props}
   />
-);
-
-// ============================================================================
-// AttachmentEmpty - Empty state
-// ============================================================================
-
-export type AttachmentEmptyProps = HTMLAttributes<HTMLDivElement>;
-
-export const AttachmentEmpty = ({
-  className,
-  children,
-  ...props
-}: AttachmentEmptyProps) => (
-  <div
-    className={cn(
-      "flex items-center justify-center p-4 text-muted-foreground text-sm",
-      className
-    )}
-    {...props}
-  >
-    {children ?? "No attachments"}
-  </div>
 );
