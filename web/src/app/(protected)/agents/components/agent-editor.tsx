@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
 import { AGENT_COLORS, agentColorBackground } from "@/lib/colors";
 import { useTheme } from "next-themes";
-import { ShieldCheck, ArrowRight, ArchiveIcon } from "lucide-react";
+import { ShieldCheck, ArrowRight, ArchiveIcon, History } from "lucide-react";
 import { Agent } from "@/types/agents";
 import AgentToolList from "../[id]/components/agent-tool-list";
 import AgentSubagentList from "../[id]/components/agent-subagent-list";
@@ -100,6 +100,14 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 	const handleManagePermissions = () => {
 		setPermissionsOpen(true);
 	};
+
+	const handleViewThreads = () => {
+		router.push(`/agents/${agent.id}/threads`);
+	};
+
+	const canManageAgent =
+		liveAgent.currentUserPermission === "owner" ||
+		liveAgent.currentUserPermission === "admin";
 
 	const handleDeleteAgent = async () => {
 		if (
@@ -261,8 +269,13 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 					{/* More menu */}
 					<SageDropdownMenu
 						items={[
-							{ label: "Manage permissions", icon: <ShieldCheck />, onClick: handleManagePermissions },
-							{ separator: true },
+							...(canManageAgent
+								? [
+									{ label: "View thread history", icon: <History />, onClick: handleViewThreads },
+									{ label: "Manage permissions", icon: <ShieldCheck />, onClick: handleManagePermissions },
+									{ separator: true as const },
+								]
+								: []),
 							{ label: "Archive agent", icon: <ArchiveIcon />, destructive: true, onClick: handleDeleteAgent },
 						]}
 					/>

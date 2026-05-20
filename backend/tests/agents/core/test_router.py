@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.agents.models import AgentDB
+from app.threads.models import ThreadDB, ThreadSource
 
 
 def test_create_agent(client: TestClient, mock_db, editor_user):
@@ -304,4 +305,149 @@ def test_delete_agent_allows_workspace_admin(client: TestClient, mock_db, admin_
 def test_delete_agent_requires_auth(client: TestClient):
     """Test that DELETE /agents/{id} returns 401 without auth."""
     response = client.delete(f"/agents/{uuid4()}")
+    assert response.status_code == 401
+
+
+def _make_thread(*, agent_id, user_id, source=ThreadSource.web) -> ThreadDB:
+    return ThreadDB(
+        id=str(uuid4()),
+        agent_id=agent_id,
+        user_id=user_id,
+        first_message_content="hi",
+        source=source,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+
+
+def test_list_agent_threads_as_owner(client: TestClient, mock_db, current_user):
+    """An agent owner can list every thread for that agent."""
+    agent_id = uuid4()
+    agent = AgentDB(
+        id=agent_id,
+        name="Owned Agent",
+        instructions="...",
+        owner_id=current_user.id,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+    thread = _make_thread(
+        agent_id=agent_id,
+        user_id=uuid4(),
+        source=ThreadSource.slack,
+    )
+
+    def make_result(*, rows=None, scalars_list=None):
+        r = MagicMock()
+        r.all.return_value = rows or []
+        r.scalars.return_value.all.return_value = scalars_list or []
+        return r
+
+    mock_db.execute.side_effect = [
+        # get_agent: list_with_permissions returns the agent owned by current_user
+        make_result(rows=[(agent, None, None)]),
+        # get_agent: load_all_subagent_data
+        make_result(scalars_list=[]),
+        # ThreadRepository.list_for_agent
+        make_result(
+            rows=[
+                (
+                    thread,
+                    "Owned Agent",
+                    None,
+                    None,
+                    False,
+                    "viewer@test.com",
+                    "Viewer Name",
+                )
+            ]
+        ),
+    ]
+
+    response = client.get(f"/agents/{agent_id}/threads")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["user_email"] == "viewer@test.com"
+    assert data[0]["source"] == ThreadSource.slack.value
+
+
+def test_list_agent_threads_forbidden_for_member(
+    client: TestClient, mock_db, current_user
+):
+    """A workspace member with no agent permission gets a 403."""
+    agent_id = uuid4()
+    other_owner = uuid4()
+    assert other_owner != current_user.id
+    agent = AgentDB(
+        id=agent_id,
+        name="Other agent",
+        instructions="...",
+        owner_id=other_owner,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+
+    def make_result(*, rows=None, scalars_list=None):
+        r = MagicMock()
+        r.all.return_value = rows or []
+        r.scalars.return_value.all.return_value = scalars_list or []
+        return r
+
+    mock_db.execute.side_effect = [
+        # list_with_permissions returns the agent but no permission grant
+        make_result(rows=[(agent, None, None)]),
+        make_result(scalars_list=[]),
+    ]
+
+    response = client.get(f"/agents/{agent_id}/threads")
+    assert response.status_code == 403
+
+
+@pytest.mark.usefixtures("admin_user")
+def test_list_agent_threads_as_workspace_admin(client: TestClient, mock_db):
+    """Workspace admins see threads on any agent."""
+    agent_id = uuid4()
+    other_owner = uuid4()
+    agent = AgentDB(
+        id=agent_id,
+        name="Some agent",
+        instructions="...",
+        owner_id=other_owner,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+    thread = _make_thread(agent_id=agent_id, user_id=other_owner)
+
+    def make_result(*, rows=None, scalars_list=None):
+        r = MagicMock()
+        r.all.return_value = rows or []
+        r.scalars.return_value.all.return_value = scalars_list or []
+        return r
+
+    mock_db.execute.side_effect = [
+        make_result(rows=[(agent, None, None)]),
+        make_result(scalars_list=[]),
+        make_result(
+            rows=[
+                (
+                    thread,
+                    "Some agent",
+                    None,
+                    None,
+                    False,
+                    "creator@test.com",
+                    "Creator",
+                )
+            ]
+        ),
+    ]
+
+    response = client.get(f"/agents/{agent_id}/threads")
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+
+
+def test_list_agent_threads_requires_auth(client: TestClient):
+    response = client.get(f"/agents/{uuid4()}/threads")
     assert response.status_code == 401
