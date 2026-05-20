@@ -120,7 +120,7 @@ export default function AgentThreadsPage() {
 					) : (
 						<>
 							<div className="flex items-center py-3 pl-5 pr-5 mb-1 font-[family-name:var(--font-dm-sans)] animate-in fade-in duration-300">
-								<div className="w-[440px] shrink-0 text-[11px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em]">
+								<div className="flex-1 min-w-0 pr-4 text-[11px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em]">
 									First message
 								</div>
 								<div className="w-[120px] shrink-0 text-[11px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em]">
@@ -142,7 +142,7 @@ export default function AgentThreadsPage() {
 											animationFillMode: "both",
 										}}
 									>
-										<div className="w-[440px] shrink-0 min-w-0 pr-4 font-[family-name:var(--font-dm-sans)] text-[13.5px] text-[#3F524B] dark:text-foreground/80 font-medium truncate">
+										<div className="flex-1 min-w-0 pr-4 font-[family-name:var(--font-dm-sans)] text-[13.5px] text-[#3F524B] dark:text-foreground/80 font-medium truncate">
 											{thread.firstMessageContent || (
 												<span className="italic text-[#A3B5AD]">
 													No message
