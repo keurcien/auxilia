@@ -45,6 +45,7 @@ export default function AgentThreadsPage() {
 	const [threads, setThreads] = useState<AgentThread[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [forbiddenOpen, setForbiddenOpen] = useState(false);
+	const [hasError, setHasError] = useState(false);
 
 	useEffect(() => {
 		const fetch = async () => {
@@ -64,6 +65,7 @@ export default function AgentThreadsPage() {
 					setForbiddenOpen(true);
 				} else {
 					console.error("Error fetching agent threads:", error);
+					setHasError(true);
 				}
 			} finally {
 				setIsLoading(false);
@@ -113,7 +115,11 @@ export default function AgentThreadsPage() {
 						)}
 					</div>
 
-					{isLoading ? null : threads.length === 0 ? (
+					{isLoading ? null : hasError ? (
+						<div className="text-center py-16 text-[14px] text-[#A3B5AD] dark:text-muted-foreground font-medium">
+							Failed to load threads. Please try again.
+						</div>
+					) : threads.length === 0 ? (
 						<div className="text-center py-16 text-[14px] text-[#A3B5AD] dark:text-muted-foreground font-medium">
 							No threads yet for this agent.
 						</div>
