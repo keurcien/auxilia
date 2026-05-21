@@ -38,29 +38,6 @@ function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
 	);
 }
 
-function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
-	return (
-		<div
-			data-slot="card-description"
-			className={cn("text-muted-foreground text-sm", className)}
-			{...props}
-		/>
-	);
-}
-
-function CardAction({ className, ...props }: React.ComponentProps<"div">) {
-	return (
-		<div
-			data-slot="card-action"
-			className={cn(
-				"col-start-2 row-span-2 row-start-1 self-start justify-self-end",
-				className
-			)}
-			{...props}
-		/>
-	);
-}
-
 function CardContent({ className, ...props }: React.ComponentProps<"div">) {
 	return (
 		<div
@@ -86,7 +63,5 @@ export {
 	CardHeader,
 	CardFooter,
 	CardTitle,
-	CardAction,
-	CardDescription,
 	CardContent,
 };

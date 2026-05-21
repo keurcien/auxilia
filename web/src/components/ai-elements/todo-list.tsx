@@ -86,5 +86,5 @@ const TodoList = memo(({ todos, className }: TodoListProps) => {
 
 TodoList.displayName = "TodoList";
 
-export { TodoList, TodoItem, TodoProgressBar };
+export { TodoList };
 export type { Todo };
