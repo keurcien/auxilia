@@ -1,7 +1,5 @@
 export type ThreadSource = "web" | "slack" | "api";
 
-export type ViewerRole = "admin";
-
 export interface Thread {
 	id: string;
 	agentId: string;
