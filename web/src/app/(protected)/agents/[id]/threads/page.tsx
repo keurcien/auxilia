@@ -129,10 +129,10 @@ export default function AgentThreadsPage() {
 								<div className="flex-1 min-w-0 pr-4 text-[11px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em]">
 									First message
 								</div>
-								<div className="w-[120px] shrink-0 text-[11px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em]">
+								<div className="w-[120px] shrink-0 text-right text-[11px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em]">
 									Source
 								</div>
-								<div className="w-[110px] shrink-0 text-[11px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em]">
+								<div className="w-[110px] shrink-0 text-right text-[11px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em]">
 									Created
 								</div>
 							</div>
@@ -156,11 +156,11 @@ export default function AgentThreadsPage() {
 											)}
 										</div>
 
-										<div className="w-[120px] shrink-0">
+										<div className="w-[120px] shrink-0 flex justify-end">
 											<ThreadSourceBadge source={thread.source} />
 										</div>
 
-										<div className="w-[110px] shrink-0 font-[family-name:var(--font-dm-sans)] text-[13px] text-[#8FA89E] dark:text-muted-foreground font-medium">
+										<div className="w-[110px] shrink-0 text-right font-[family-name:var(--font-dm-sans)] text-[13px] text-[#8FA89E] dark:text-muted-foreground font-medium">
 											{formatDate(thread.createdAt)}
 										</div>
 									</Link>
