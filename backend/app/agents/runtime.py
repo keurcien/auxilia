@@ -1,8 +1,10 @@
 import logging
 from dataclasses import dataclass
+from uuid import uuid4
 
 from deepagents import create_deep_agent
 from deepagents.backends import StateBackend
+from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.subagents import CompiledSubAgent, SubAgentMiddleware
 from langchain.agents import create_agent
 from langchain.agents.middleware import (
@@ -17,13 +19,18 @@ from langchain_core.messages import (
     ToolMessage,
 )
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from langgraph.errors import GraphRecursionError
 from langgraph.types import Command
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.core.service import AgentService
 from app.agents.schemas import AgentResponse
 from app.agents.settings import agent_settings
-from app.agents.stream import LangGraphStreamAdapter, SlackStreamAdapter
+from app.agents.stream import (
+    LangGraphStreamAdapter,
+    SlackStreamAdapter,
+    encode_synthetic_ai_message_sse,
+)
 from app.agents.tool_errors import ToolErrorMiddleware
 from app.agents.toolset import Toolset, sanitize_tool_name
 from app.database import get_psycopg_conn_string
@@ -34,6 +41,12 @@ from app.threads.models import ThreadDB
 
 
 logger = logging.getLogger(__name__)
+
+
+RECURSION_LIMIT_MESSAGE = (
+    "I reached my step limit for this turn. Send any follow-up message "
+    "(e.g. \"continue\") and I'll pick up where I left off."
+)
 
 
 async def get_regeneration_checkpoint_id(agent, config: dict) -> str | None:
@@ -162,8 +175,12 @@ class AgentRuntime:
             provider.name, thread.model_id, provider.api_key
         )
 
-        # Build middleware stack
+        # Build middleware stack.
+        # PatchToolCallsMiddleware runs first so that any dangling tool_calls
+        # left by a previous aborted turn (recursion limit, cancelled stream,
+        # etc.) get synthetic ToolMessage responses before the model sees them.
         middleware = [
+            PatchToolCallsMiddleware(),
             ToolCallLimitMiddleware(run_limit=(
                 agent_settings.recursion_limit - 1) // 2, exit_behavior="end"),
             HumanInTheLoopMiddleware(
@@ -275,8 +292,22 @@ class AgentRuntime:
                 )
                 adapter = LangGraphStreamAdapter(subgraphs=True)
 
-            async for chunk in adapter.stream(langchain_stream):
-                yield chunk
+            try:
+                async for chunk in adapter.stream(langchain_stream):
+                    yield chunk
+            except GraphRecursionError:
+                logger.info("Graph recursion limit reached; emitting synthetic AI message")
+                ai_msg = AIMessage(
+                    content=RECURSION_LIMIT_MESSAGE,
+                    id=str(uuid4()),
+                )
+                await agent.aupdate_state(config, {"messages": [ai_msg]})
+                if stream_adapter == "slack":
+                    yield {"type": "text", "content": ai_msg.content}
+                else:
+                    state = await agent.aget_state(config)
+                    for sse in encode_synthetic_ai_message_sse(ai_msg, state.values):
+                        yield sse
 
     async def invoke(
         self,
@@ -293,7 +324,16 @@ class AgentRuntime:
             agent_input = self._resolve_input(input, command)
             config = await self._resolve_config(agent, trigger, config_overrides)
 
-            result = await agent.ainvoke(agent_input, config=config)
+            try:
+                result = await agent.ainvoke(agent_input, config=config)
+            except GraphRecursionError:
+                logger.info("Graph recursion limit reached in invoke; appending synthetic AI message")
+                ai_msg = AIMessage(
+                    content=RECURSION_LIMIT_MESSAGE,
+                    id=str(uuid4()),
+                )
+                await agent.aupdate_state(config, {"messages": [ai_msg]})
+                return {"content": ai_msg.content}
 
             messages = result.get("messages", [])
             last = messages[-1] if messages else None
