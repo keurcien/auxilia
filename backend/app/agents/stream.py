@@ -13,6 +13,7 @@ from typing import Any
 
 from langchain_ai_sdk_adapter import to_ui_message_stream
 from langchain_core.messages import BaseMessage
+from langgraph.errors import GraphRecursionError
 from langgraph.types import Overwrite
 
 
@@ -231,9 +232,31 @@ class LangGraphStreamAdapter:
                 elif mode == "updates":
                     yield self._serialize_updates_event(data, namespace)
 
+        except GraphRecursionError:
+            # Let the caller (runtime) catch this and surface a synthetic AI
+            # message; the checkpoint state is intact at this point so the
+            # next turn can pick up where we left off.
+            raise
         except Exception as e:
             logger.exception("Stream processing error")
             yield _encode_lg_sse("error", {"message": str(e), "status_code": 500})
+
+
+def encode_synthetic_ai_message_sse(
+    message: BaseMessage, state_values: dict[str, Any]
+) -> list[str]:
+    """SSE chunks that surface a synthetic AI message after the stream stopped.
+
+    Used when the graph aborts mid-run (e.g. recursion limit) and the runtime
+    persists a fallback assistant turn — these chunks make the JS SDK render
+    it without a special-case code path.
+    """
+    serialized = _serialize_lc_message(message)
+    return [
+        _encode_lg_sse("messages", [serialized, {}]),
+        _encode_lg_sse("updates", {"agent": {"messages": [serialized]}}),
+        _encode_lg_sse("values", _serialize_state(state_values)),
+    ]
 
 
 class SlackStreamAdapter:
@@ -256,6 +279,9 @@ class SlackStreamAdapter:
             async for chunk in to_ui_message_stream(langchain_stream):
                 for event in self._process(chunk):
                     yield event
+        except GraphRecursionError:
+            # Surfaced by the runtime as a synthetic AI message text event.
+            raise
         except Exception as e:
             body = getattr(e, "body", None)
             msg = (body.get("message") if isinstance(body, dict) else None) or str(e)
