@@ -53,7 +53,7 @@ export type AttachmentsContext = {
 	fileInputRef: RefObject<HTMLInputElement | null>;
 };
 
-export type TextInputContext = {
+type TextInputContext = {
 	value: string;
 	setInput: (v: string) => void;
 	clear: () => void;

@@ -5,7 +5,7 @@ import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { Check, MoreVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type SageDropdownItem =
+type SageDropdownItem =
 	| {
 			label: string;
 			icon?: React.ReactNode;
