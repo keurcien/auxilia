@@ -74,11 +74,27 @@ class Agent:
         return cls(config=config, toolset=toolset)
 
     def compile(self, model) -> CompiledSubAgent:
-        """Compile into a CompiledSubAgent runnable (for subagent use)."""
-        return CompiledSubAgent(
-            name=sanitize_tool_name(self.config.name),
-            description=f"{self.config.name}: {self.config.description or self.config.name}",
-            runnable=create_agent(
+        """Compile into a CompiledSubAgent runnable (for subagent use).
+
+        Subagent-level HITL is intentionally not wired here: CompiledSubAgent
+        runnables don't inherit the parent's checkpointer, and HumanInTheLoopMiddleware
+        needs one. Approval gates on subagent tools are silently dropped today.
+        """
+        if self.config.sandbox and sandbox_settings.enabled:
+            from app.sandbox.lazy import LazySandboxBackend
+            from app.sandbox.tools import create_sandbox_tools
+
+            lazy_backend = LazySandboxBackend()
+            sandbox_tools = create_sandbox_tools(lazy_backend)
+            runnable = create_deep_agent(
+                model=model,
+                tools=[*self.toolset.all, *sandbox_tools],
+                system_prompt=self.config.instructions or "",
+                backend=lazy_backend,
+                middleware=[ToolErrorMiddleware()],
+            )
+        else:
+            runnable = create_agent(
                 model=model,
                 tools=self.toolset.all,
                 system_prompt=SystemMessage(
@@ -86,7 +102,12 @@ class Agent:
                         {"type": "text", "text": self.config.instructions or ""}
                     ]
                 ),
-            ),
+            )
+
+        return CompiledSubAgent(
+            name=sanitize_tool_name(self.config.name),
+            description=f"{self.config.name}: {self.config.description or self.config.name}",
+            runnable=runnable,
         )
 
 
@@ -98,12 +119,14 @@ class AgentRuntime:
         model,
         middleware: list,
         callbacks: list,
+        subagents: list[Agent],
     ):
         self.thread = thread
         self.agent = agent
         self.model = model
         self.middleware = middleware
         self.callbacks = callbacks
+        self.subagents = subagents
 
     @property
     def metadata(self) -> dict:
@@ -149,16 +172,10 @@ class AgentRuntime:
             )
         ]
 
-        subagents = []
+        subagents: list[Agent] = []
         if agent.config.subagents:
             for sub in agent.config.subagents:
                 subagents.append(await Agent.resolve(sub.id, db, user_id))
-
-        if subagents:
-            compiled = [s.compile(model) for s in subagents]
-            middleware.append(
-                SubAgentMiddleware(backend=StateBackend, subagents=compiled)
-            )
 
         callbacks = (
             [langfuse_callback_handler] if langfuse_callback_handler is not None else []
@@ -170,18 +187,27 @@ class AgentRuntime:
             model=model,
             middleware=middleware,
             callbacks=callbacks,
+            subagents=subagents,
         )
 
     def _build_agent(self, checkpointer):
         """Build the LangGraph agent (deep or standard) with the given checkpointer."""
         if self.agent.config.sandbox and sandbox_settings.enabled:
             return self._build_deep_agent(checkpointer)
+
+        middleware = list(self.middleware)
+        if self.subagents:
+            compiled = [s.compile(self.model) for s in self.subagents]
+            middleware.append(
+                SubAgentMiddleware(backend=StateBackend, subagents=compiled)
+            )
+
         return create_agent(
             model=self.model,
             tools=self.agent.toolset.all,
             system_prompt=SystemMessage(self.agent.config.instructions),
             checkpointer=checkpointer,
-            middleware=self.middleware,
+            middleware=middleware,
         )
 
     def _resolve_input(self, input: dict | None, command: dict | None):
@@ -285,13 +311,17 @@ class AgentRuntime:
         lazy_backend = LazySandboxBackend()
         sandbox_tools = create_sandbox_tools(lazy_backend)
 
+        compiled_subagents = (
+            [s.compile(self.model) for s in self.subagents] if self.subagents else None
+        )
+
         return create_deep_agent(
             model=self.model,
             tools=[*self.agent.toolset.all, *sandbox_tools],
             system_prompt=self.agent.config.instructions or "",
             backend=lazy_backend,
-            interrupt_on=self.agent.toolset.interrupt_on,
-            middleware=[ToolErrorMiddleware()],
+            middleware=[*self.middleware, ToolErrorMiddleware()],
+            subagents=compiled_subagents,
             checkpointer=checkpointer,
         )
 
