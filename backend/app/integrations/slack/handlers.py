@@ -42,7 +42,7 @@ async def _stream_and_collect_approvals(
     agent_runtime: AgentRuntime,
     streamer,
     *,
-    input: dict | None = None,
+    agent_input: dict | None = None,
     command: dict | None = None,
 ) -> list[dict]:
     """Stream the agent response, forwarding text to the streamer.
@@ -53,7 +53,7 @@ async def _stream_and_collect_approvals(
     approval_requests: list[dict] = []
 
     async for ev in agent_runtime.stream(
-        input=input, command=command, stream_adapter="slack",
+        agent_input=agent_input, command=command, stream_adapter="slack",
     ):
         if ev["type"] == "text":
             await streamer.append(markdown_text=ev["content"])
@@ -79,7 +79,7 @@ async def _run_slack_turn(
     *,
     recipient_user_id: str,
     recipient_team_id: str | None = None,
-    input: dict | None = None,
+    agent_input: dict | None = None,
     command: dict | None = None,
 ) -> None:
     """Build the agent runtime, stream the response, and post follow-ups.
@@ -97,7 +97,7 @@ async def _run_slack_turn(
 
     agent_runtime = await AgentRuntime.build(thread=thread, db=db)
     approval_requests = await _stream_and_collect_approvals(
-        agent_runtime, streamer, input=input, command=command,
+        agent_runtime, streamer, agent_input=agent_input, command=command,
     )
 
     for req in approval_requests:
@@ -250,7 +250,7 @@ async def stream_agent_response(
         thread_ts=event.thread_ts or event.ts,
         recipient_user_id=event.user,
         recipient_team_id=team_id,
-        input={"messages": [{"type": "human", "content": question}]},
+        agent_input={"messages": [{"type": "human", "content": question}]},
     )
 
 

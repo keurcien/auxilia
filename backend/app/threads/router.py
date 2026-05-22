@@ -174,7 +174,7 @@ async def delete_thread(
 @router.post("/{thread_id}/runs/stream")
 async def run_stream(
     thread_id: str,
-    input: dict | None = Body(None, embed=True),
+    agent_input: dict | None = Body(None, embed=True, alias="input"),
     command: dict | None = Body(None, embed=True),
     config: dict | None = Body(None, embed=True),
     context: dict | None = Body(None, embed=True),  # noqa: ARG001
@@ -191,7 +191,7 @@ async def run_stream(
 
     return StreamingResponse(
         runtime.stream(
-            input=input,
+            agent_input=agent_input,
             command=command,
             trigger=trigger,
             config_overrides=config_overrides,
@@ -208,7 +208,7 @@ async def run_stream(
 @router.post("/{thread_id}/runs/invoke")
 async def run_invoke(
     thread_id: str,
-    input: dict | None = Body(None, embed=True),
+    agent_input: dict | None = Body(None, embed=True, alias="input"),
     command: dict | None = Body(None, embed=True),
     config: dict | None = Body(None, embed=True),
     context: dict | None = Body(None, embed=True),  # noqa: ARG001
@@ -224,7 +224,7 @@ async def run_invoke(
     trigger, config_overrides = _parse_run_config(config)
 
     return await runtime.invoke(
-        input=input,
+        agent_input=agent_input,
         command=command,
         trigger=trigger,
         config_overrides=config_overrides,

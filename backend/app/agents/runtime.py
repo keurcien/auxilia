@@ -235,12 +235,12 @@ class AgentRuntime:
             middleware=middleware,
         )
 
-    def _resolve_input(self, input: dict | None, command: dict | None):
+    def _resolve_input(self, agent_input: dict | None, command: dict | None):
         """Resolve raw input/command dicts into the value to pass to the agent."""
         if command is not None:
             return Command(resume=command.get("resume"))
         lc_messages = _dicts_to_lc_messages(
-            input.get("messages", []) if input else []
+            agent_input.get("messages", []) if agent_input else []
         )
         return {"messages": lc_messages}
 
@@ -263,12 +263,12 @@ class AgentRuntime:
     @asynccontextmanager
     async def _setup(
         self,
-        input: dict | None,
+        agent_input: dict | None,
         command: dict | None,
         trigger: str | None,
         config_overrides: dict | None,
     ):
-        """Open a checkpointer scope and yield (agent, agent_input, config).
+        """Open a checkpointer scope and yield (agent, resolved_input, config).
 
         Shared scaffolding for `stream` and `invoke`: opens the AsyncPostgresSaver,
         builds the LangGraph agent against it, and resolves the request input and
@@ -276,9 +276,9 @@ class AgentRuntime:
         """
         async with get_checkpointer() as checkpointer:
             agent = self._build_agent(checkpointer)
-            agent_input = self._resolve_input(input, command)
+            resolved_input = self._resolve_input(agent_input, command)
             config = await self._resolve_config(agent, trigger, config_overrides)
-            yield agent, agent_input, config
+            yield agent, resolved_input, config
 
     async def _persist_recursion_fallback(self, agent, config) -> AIMessage:
         """Persist a synthetic AI message after a GraphRecursionError so the
@@ -290,7 +290,7 @@ class AgentRuntime:
 
     async def stream(
         self,
-        input: dict | None = None,
+        agent_input: dict | None = None,
         command: dict | None = None,
         trigger: str | None = None,
         config_overrides: dict | None = None,
@@ -299,13 +299,13 @@ class AgentRuntime:
         """Stream using the native LangGraph SSE protocol.
 
         Args:
-            input: Graph input dict (e.g. {"messages": [{"type": "human", ...}]}) or None for resume.
+            agent_input: Graph input dict (e.g. {"messages": [{"type": "human", ...}]}) or None for resume.
             command: LangGraph Command dict (e.g. {"resume": {...}}) for HITL resume.
             trigger: Optional trigger ("regenerate-message") for regeneration.
             config_overrides: Optional config dict with configurable overrides.
             stream_adapter: Which stream adapter to use ("langgraph" or "slack").
         """
-        async with self._setup(input, command, trigger, config_overrides) as (
+        async with self._setup(agent_input, command, trigger, config_overrides) as (
             agent,
             stream_input,
             config,
@@ -340,19 +340,19 @@ class AgentRuntime:
 
     async def invoke(
         self,
-        input: dict | None = None,
+        agent_input: dict | None = None,
         command: dict | None = None,
         trigger: str | None = None,
         config_overrides: dict | None = None,
     ) -> dict:
         """Run the agent to completion and return the text of the last AI message."""
-        async with self._setup(input, command, trigger, config_overrides) as (
+        async with self._setup(agent_input, command, trigger, config_overrides) as (
             agent,
-            agent_input,
+            resolved_input,
             config,
         ):
             try:
-                result = await agent.ainvoke(agent_input, config=config)
+                result = await agent.ainvoke(resolved_input, config=config)
             except GraphRecursionError:
                 ai_msg = await self._persist_recursion_fallback(agent, config)
                 return {"content": ai_msg.content}
