@@ -377,12 +377,18 @@ class AgentRuntime:
             [s.compile(self.model) for s in self.subagents] if self.subagents else None
         )
 
+        # create_deep_agent injects its own PatchToolCallsMiddleware; passing
+        # ours through would trigger langchain's duplicate-middleware assertion.
+        extra_middleware = [
+            m for m in self.middleware if not isinstance(m, PatchToolCallsMiddleware)
+        ]
+
         return create_deep_agent(
             model=self.model,
             tools=[*self.agent.toolset.all, *sandbox_tools],
             system_prompt=self.agent.config.instructions or "",
             backend=lazy_backend,
-            middleware=[*self.middleware, ToolErrorMiddleware()],
+            middleware=[*extra_middleware, ToolErrorMiddleware()],
             subagents=compiled_subagents,
             checkpointer=checkpointer,
         )
