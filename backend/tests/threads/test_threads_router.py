@@ -103,7 +103,7 @@ def test_get_threads(client: TestClient, mock_db, current_user):
     assert len(data) == 2
 
 
-@patch("app.threads.router.AsyncPostgresSaver.from_conn_string")
+@patch("app.threads.router.get_checkpointer")
 def test_get_thread(mock_checkpointer, client: TestClient, mock_db, current_user):
     """Owner can read their own thread."""
     thread_id = str(uuid4())
@@ -179,7 +179,7 @@ def test_get_thread_not_found(client: TestClient, mock_db):
     assert response.json()["detail"] == "Thread not found"
 
 
-@patch("app.threads.router.AsyncPostgresSaver.from_conn_string")
+@patch("app.threads.router.get_checkpointer")
 def test_delete_thread(mock_checkpointer, client: TestClient, mock_db, current_user):
     """Test deleting a thread."""
     thread_id = str(uuid4())
@@ -211,7 +211,7 @@ def test_delete_thread(mock_checkpointer, client: TestClient, mock_db, current_u
 
 
 @pytest.mark.usefixtures("current_user")
-@patch("app.threads.router.AsyncPostgresSaver.from_conn_string")
+@patch("app.threads.router.get_checkpointer")
 def test_delete_thread_not_found(mock_checkpointer, client: TestClient, mock_db):
     """Test deleting a non-existent thread returns 404."""
     fake_id = uuid4()
