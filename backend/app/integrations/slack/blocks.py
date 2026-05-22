@@ -48,16 +48,33 @@ def _format_tool_input(obj: Any, indent: int = 0) -> str:
     return "  " * indent + str(obj)
 
 
+def _split_tool_name(tool_name: str) -> tuple[str, str]:
+    """Split a `prefix_suffix_parts` tool name into (prefix, suffix)."""
+    parts = tool_name.split("_")
+    return parts[0], "_".join(parts[1:])
+
+
+def format_tool_streamer_label(tool_name: str) -> str:
+    """Format a tool call as Slack markdown text for the streaming chat surface.
+
+    Returns a block with leading and trailing newlines so it slots cleanly into
+    a streamer that's appending chunks of markdown.
+    """
+    prefix, suffix = _split_tool_name(tool_name)
+    return f"\n\n:{prefix.lower()}:  **{prefix}**  ›  `{suffix}`\n\n"
+
+
 def _tool_context_block(tool_name: str) -> dict:
     """Build the context block header for a tool name."""
+    prefix, suffix = _split_tool_name(tool_name)
     return {
         "type": "context",
         "elements": [
             {
                 "type": "mrkdwn",
-                "text": f":{tool_name.split('_')[0]}:  *{tool_name.split('_')[0]}*  ›  `{'_'.join(tool_name.split('_')[1:])}`"
+                "text": f":{prefix}:  *{prefix}*  ›  `{suffix}`",
             }
-        ]
+        ],
     }
 
 

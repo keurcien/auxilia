@@ -12,7 +12,10 @@ from app.agents.core.service import AgentService
 from app.agents.runtime import AgentRuntime
 from app.auth.settings import auth_settings
 from app.database import AsyncSessionLocal
-from app.integrations.slack.blocks import build_tool_approval_blocks
+from app.integrations.slack.blocks import (
+    build_tool_approval_blocks,
+    format_tool_streamer_label,
+)
 from app.integrations.slack.commands.chat import post_agent_picker
 from app.integrations.slack.models import SlackEvent, SlackInteractionPayload
 from app.integrations.slack.settings import slack_settings
@@ -39,7 +42,7 @@ async def _stream_and_collect_approvals(
     agent_runtime: AgentRuntime,
     streamer,
     *,
-    input: dict | None = None,
+    agent_input: dict | None = None,
     command: dict | None = None,
 ) -> list[dict]:
     """Stream the agent response, forwarding text to the streamer.
@@ -50,13 +53,14 @@ async def _stream_and_collect_approvals(
     approval_requests: list[dict] = []
 
     async for ev in agent_runtime.stream(
-        input=input, command=command, stream_adapter="slack",
+        agent_input=agent_input, command=command, stream_adapter="slack",
     ):
         if ev["type"] == "text":
             await streamer.append(markdown_text=ev["content"])
         elif ev["type"] == "tool_start":
-            tool_name = ev["tool_name"]
-            await streamer.append(markdown_text=f"\n\n:{tool_name.split('_')[0].lower()}:  **{tool_name.split('_')[0]}**  ›  `{'_'.join(tool_name.split('_')[1:])}`\n\n")
+            await streamer.append(
+                markdown_text=format_tool_streamer_label(ev["tool_name"])
+            )
         elif ev["type"] == "tool_approval_request":
             approval_requests.append(ev)
         elif ev["type"] == "error":
@@ -64,6 +68,43 @@ async def _stream_and_collect_approvals(
 
     await streamer.stop()
     return approval_requests
+
+
+async def _run_slack_turn(
+    client: AsyncWebClient,
+    thread: ThreadDB,
+    db: AsyncSession,
+    channel_id: str,
+    thread_ts: str,
+    *,
+    recipient_user_id: str,
+    recipient_team_id: str | None = None,
+    agent_input: dict | None = None,
+    command: dict | None = None,
+) -> None:
+    """Build the agent runtime, stream the response, and post follow-ups.
+
+    Shared by initial messages and HITL resume: opens the chat streamer,
+    runs the agent, then either posts approval blocks for any pending
+    tool calls or the auxilia link when the turn completes cleanly.
+    """
+    streamer = await client.chat_stream(
+        channel=channel_id,
+        thread_ts=thread_ts,
+        recipient_team_id=recipient_team_id,
+        recipient_user_id=recipient_user_id,
+    )
+
+    agent_runtime = await AgentRuntime.build(thread=thread, db=db)
+    approval_requests = await _stream_and_collect_approvals(
+        agent_runtime, streamer, agent_input=agent_input, command=command,
+    )
+
+    for req in approval_requests:
+        await post_tool_approval_block(client, channel_id, thread_ts, req)
+
+    if not approval_requests:
+        await _post_auxilia_link(client, channel_id, thread_ts, thread)
 
 
 async def _post_auxilia_link(
@@ -200,27 +241,17 @@ async def stream_agent_response(
     *,
     team_id: str | None = None,
 ) -> None:
-    """Build the agent runtime, stream the response, and close the streamer."""
-    streamer = await client.chat_stream(
-        channel=event.channel,
+    """Stream an initial agent response to a user message in a Slack thread."""
+    await _run_slack_turn(
+        client=client,
+        thread=thread,
+        db=db,
+        channel_id=event.channel,
         thread_ts=event.thread_ts or event.ts,
-        recipient_team_id=team_id,
         recipient_user_id=event.user,
+        recipient_team_id=team_id,
+        agent_input={"messages": [{"type": "human", "content": question}]},
     )
-    thread_ts = event.thread_ts or event.ts
-
-    agent_runtime = await AgentRuntime.build(thread=thread, db=db)
-
-    approval_requests = await _stream_and_collect_approvals(
-        agent_runtime, streamer,
-        input={"messages": [{"type": "human", "content": question}]},
-    )
-
-    for req in approval_requests:
-        await post_tool_approval_block(client, event.channel, thread_ts, req)
-
-    if not approval_requests:
-        await _post_auxilia_link(client, event.channel, thread_ts, thread)
 
 
 async def handle_assistant_thread_started(event: SlackEvent) -> None:
@@ -338,8 +369,7 @@ async def handle_message(event: SlackEvent, *, team_id: str | None = None) -> No
     client = AsyncWebClient(token=slack_settings.slack_bot_token)
 
     # Look up the existing thread (created when the user picked an agent)
-    db = AsyncSessionLocal()
-    try:
+    async with AsyncSessionLocal() as db:
         thread = await db.get(ThreadDB, thread_ts)
 
         if not thread:
@@ -391,8 +421,6 @@ async def handle_message(event: SlackEvent, *, team_id: str | None = None) -> No
         await stream_agent_response(
             thread, db, question, event, client, team_id=team_id,
         )
-    finally:
-        await db.close()
 
 
 async def handle_interaction(payload: SlackInteractionPayload) -> None:
@@ -469,8 +497,7 @@ async def _resume_agent(
     if not user:
         return
 
-    db = AsyncSessionLocal()
-    try:
+    async with AsyncSessionLocal() as db:
         thread = await db.get(ThreadDB, thread_ts)
         if not thread:
             return
@@ -479,23 +506,12 @@ async def _resume_agent(
             channel_id=channel_id, thread_ts=thread_ts, status="is typing...",
         )
 
-        agent_runtime = await AgentRuntime.build(thread=thread, db=db)
-
-        streamer = await client.chat_stream(
-            channel=channel_id,
+        await _run_slack_turn(
+            client=client,
+            thread=thread,
+            db=db,
+            channel_id=channel_id,
             thread_ts=thread_ts,
             recipient_user_id=slack_user_id,
-        )
-
-        approval_requests = await _stream_and_collect_approvals(
-            agent_runtime, streamer,
             command={"resume": {"decisions": [{"type": cmd} for cmd in commands]}},
         )
-
-        for req in approval_requests:
-            await post_tool_approval_block(client, channel_id, thread_ts, req)
-
-        if not approval_requests:
-            await _post_auxilia_link(client, channel_id, thread_ts, thread)
-    finally:
-        await db.close()

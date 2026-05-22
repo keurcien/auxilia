@@ -1,4 +1,5 @@
 import logging
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from uuid import uuid4
 
@@ -18,7 +19,6 @@ from langchain_core.messages import (
     SystemMessage,
     ToolMessage,
 )
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.errors import GraphRecursionError
 from langgraph.types import Command
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,7 +33,8 @@ from app.agents.stream import (
 )
 from app.agents.tool_errors import ToolErrorMiddleware
 from app.agents.toolset import Toolset, sanitize_tool_name
-from app.database import get_psycopg_conn_string
+from app.database import get_checkpointer
+from app.exceptions import ValidationError
 from app.integrations.langfuse.callback import langfuse_callback_handler
 from app.model_providers.catalog import LLM_PROVIDERS, MODELS, ChatModelFactory
 from app.sandbox.settings import sandbox_settings
@@ -168,9 +169,16 @@ class AgentRuntime:
 
         agent = await Agent.resolve(thread.agent_id, db, user_id, is_parent=True)
 
-        model_entry = next(m for m in MODELS if m.name == thread.model_id)
-        provider = next(p for p in LLM_PROVIDERS if p.name ==
-                        model_entry.provider)
+        model_entry = next((m for m in MODELS if m.name == thread.model_id), None)
+        if model_entry is None:
+            raise ValidationError(f"Unknown model: {thread.model_id}")
+        provider = next(
+            (p for p in LLM_PROVIDERS if p.name == model_entry.provider), None
+        )
+        if provider is None:
+            raise ValidationError(
+                f"Unknown provider {model_entry.provider!r} for model {thread.model_id}"
+            )
         model = ChatModelFactory().create(
             provider.name, thread.model_id, provider.api_key
         )
@@ -227,12 +235,12 @@ class AgentRuntime:
             middleware=middleware,
         )
 
-    def _resolve_input(self, input: dict | None, command: dict | None):
+    def _resolve_input(self, agent_input: dict | None, command: dict | None):
         """Resolve raw input/command dicts into the value to pass to the agent."""
         if command is not None:
             return Command(resume=command.get("resume"))
         lc_messages = _dicts_to_lc_messages(
-            input.get("messages", []) if input else []
+            agent_input.get("messages", []) if agent_input else []
         )
         return {"messages": lc_messages}
 
@@ -252,9 +260,37 @@ class AgentRuntime:
                 config["configurable"]["checkpoint_id"] = checkpoint_id
         return config
 
+    @asynccontextmanager
+    async def _setup(
+        self,
+        agent_input: dict | None,
+        command: dict | None,
+        trigger: str | None,
+        config_overrides: dict | None,
+    ):
+        """Open a checkpointer scope and yield (agent, resolved_input, config).
+
+        Shared scaffolding for `stream` and `invoke`: opens the AsyncPostgresSaver,
+        builds the LangGraph agent against it, and resolves the request input and
+        run config in one place.
+        """
+        async with get_checkpointer() as checkpointer:
+            agent = self._build_agent(checkpointer)
+            resolved_input = self._resolve_input(agent_input, command)
+            config = await self._resolve_config(agent, trigger, config_overrides)
+            yield agent, resolved_input, config
+
+    async def _persist_recursion_fallback(self, agent, config) -> AIMessage:
+        """Persist a synthetic AI message after a GraphRecursionError so the
+        next turn can pick up where we left off. Returns the message."""
+        logger.info("Graph recursion limit reached; persisting synthetic AI message")
+        ai_msg = AIMessage(content=RECURSION_LIMIT_MESSAGE, id=str(uuid4()))
+        await agent.aupdate_state(config, {"messages": [ai_msg]})
+        return ai_msg
+
     async def stream(
         self,
-        input: dict | None = None,
+        agent_input: dict | None = None,
         command: dict | None = None,
         trigger: str | None = None,
         config_overrides: dict | None = None,
@@ -263,19 +299,17 @@ class AgentRuntime:
         """Stream using the native LangGraph SSE protocol.
 
         Args:
-            input: Graph input dict (e.g. {"messages": [{"type": "human", ...}]}) or None for resume.
+            agent_input: Graph input dict (e.g. {"messages": [{"type": "human", ...}]}) or None for resume.
             command: LangGraph Command dict (e.g. {"resume": {...}}) for HITL resume.
             trigger: Optional trigger ("regenerate-message") for regeneration.
             config_overrides: Optional config dict with configurable overrides.
             stream_adapter: Which stream adapter to use ("langgraph" or "slack").
         """
-        async with AsyncPostgresSaver.from_conn_string(
-            get_psycopg_conn_string()
-        ) as checkpointer:
-            agent = self._build_agent(checkpointer)
-            stream_input = self._resolve_input(input, command)
-            config = await self._resolve_config(agent, trigger, config_overrides)
-
+        async with self._setup(agent_input, command, trigger, config_overrides) as (
+            agent,
+            stream_input,
+            config,
+        ):
             if stream_adapter == "slack":
                 langchain_stream = agent.astream(
                     stream_input,
@@ -296,12 +330,7 @@ class AgentRuntime:
                 async for chunk in adapter.stream(langchain_stream):
                     yield chunk
             except GraphRecursionError:
-                logger.info("Graph recursion limit reached; emitting synthetic AI message")
-                ai_msg = AIMessage(
-                    content=RECURSION_LIMIT_MESSAGE,
-                    id=str(uuid4()),
-                )
-                await agent.aupdate_state(config, {"messages": [ai_msg]})
+                ai_msg = await self._persist_recursion_fallback(agent, config)
                 if stream_adapter == "slack":
                     yield {"type": "text", "content": ai_msg.content}
                 else:
@@ -311,28 +340,21 @@ class AgentRuntime:
 
     async def invoke(
         self,
-        input: dict | None = None,
+        agent_input: dict | None = None,
         command: dict | None = None,
         trigger: str | None = None,
         config_overrides: dict | None = None,
     ) -> dict:
         """Run the agent to completion and return the text of the last AI message."""
-        async with AsyncPostgresSaver.from_conn_string(
-            get_psycopg_conn_string()
-        ) as checkpointer:
-            agent = self._build_agent(checkpointer)
-            agent_input = self._resolve_input(input, command)
-            config = await self._resolve_config(agent, trigger, config_overrides)
-
+        async with self._setup(agent_input, command, trigger, config_overrides) as (
+            agent,
+            resolved_input,
+            config,
+        ):
             try:
-                result = await agent.ainvoke(agent_input, config=config)
+                result = await agent.ainvoke(resolved_input, config=config)
             except GraphRecursionError:
-                logger.info("Graph recursion limit reached in invoke; appending synthetic AI message")
-                ai_msg = AIMessage(
-                    content=RECURSION_LIMIT_MESSAGE,
-                    id=str(uuid4()),
-                )
-                await agent.aupdate_state(config, {"messages": [ai_msg]})
+                ai_msg = await self._persist_recursion_fallback(agent, config)
                 return {"content": ai_msg.content}
 
             messages = result.get("messages", [])

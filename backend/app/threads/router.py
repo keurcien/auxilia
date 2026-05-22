@@ -1,12 +1,11 @@
 from fastapi import APIRouter, Body, Depends, Request
 from fastapi.responses import StreamingResponse
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from app.agents.core.service import AgentService, get_agent_service
 from app.agents.runtime import AgentRuntime
 from app.agents.stream import _serialize_lc_message
 from app.auth.dependencies import detect_auth_method, get_current_user
-from app.database import get_db, get_psycopg_conn_string
+from app.database import get_checkpointer, get_db
 from app.exceptions import PermissionDeniedError
 from app.threads.models import ThreadDB, ThreadSource
 from app.threads.schemas import ThreadCreate, ThreadResponse, ViewerRole
@@ -16,6 +15,23 @@ from app.users.models import UserDB
 
 
 router = APIRouter(prefix="/threads", tags=["threads"])
+
+
+def _parse_run_config(
+    config: dict | None,
+) -> tuple[str | None, dict | None]:
+    """Pull `trigger` and `config_overrides` out of a /runs request body config.
+
+    Mutates the input dict: consumes `trigger` and `thread_id` from
+    `config["configurable"]`. Returns `(trigger, config_overrides)` where
+    `config_overrides` is the remaining config (or None if empty).
+    """
+    if not config or not config.get("configurable"):
+        return None, None
+    trigger = config["configurable"].pop("trigger", None)
+    config["configurable"].pop("thread_id", None)
+    config_overrides = config if config["configurable"] else None
+    return trigger, config_overrides
 
 
 async def _resolve_viewer_role(
@@ -50,9 +66,7 @@ async def read_thread(
     viewer_role = await _resolve_viewer_role(thread, current_user, agent_service)
     thread_read = await service.get_thread_with_agent(thread_id)
 
-    async with AsyncPostgresSaver.from_conn_string(
-        get_psycopg_conn_string()
-    ) as checkpointer:
+    async with get_checkpointer() as checkpointer:
         checkpoint_tuple = await checkpointer.aget_tuple(
             config={"configurable": {"thread_id": thread_id}}
         )
@@ -99,9 +113,7 @@ async def read_thread(
 @router.get("/{thread_id}/subagents/{tool_call_id}/state")
 async def get_subagent_state(thread_id: str, tool_call_id: str) -> dict:
     """Fetch a subagent's checkpoint state (its internal messages) by tool call ID."""
-    async with AsyncPostgresSaver.from_conn_string(
-        get_psycopg_conn_string()
-    ) as checkpointer:
+    async with get_checkpointer() as checkpointer:
         checkpoint = await checkpointer.aget(
             config={
                 "configurable": {
@@ -153,9 +165,7 @@ async def delete_thread(
     thread = await service.get_thread(thread_id)
     if thread.user_id != current_user.id:
         raise PermissionDeniedError("Not authorized to delete this thread")
-    async with AsyncPostgresSaver.from_conn_string(
-        get_psycopg_conn_string()
-    ) as checkpointer:
+    async with get_checkpointer() as checkpointer:
         await checkpointer.adelete_thread(thread_id=thread_id)
 
     await service.delete_thread(thread_id)
@@ -164,7 +174,7 @@ async def delete_thread(
 @router.post("/{thread_id}/runs/stream")
 async def run_stream(
     thread_id: str,
-    input: dict | None = Body(None, embed=True),
+    agent_input: dict | None = Body(None, embed=True, alias="input"),
     command: dict | None = Body(None, embed=True),
     config: dict | None = Body(None, embed=True),
     context: dict | None = Body(None, embed=True),  # noqa: ARG001
@@ -177,20 +187,11 @@ async def run_stream(
     if thread.user_id != current_user.id:
         raise PermissionDeniedError("Not authorized to run this thread")
     runtime = await AgentRuntime.build(thread=thread, db=db)
-
-    # Extract trigger from config.configurable if provided
-    trigger = None
-    config_overrides = None
-    if config and config.get("configurable"):
-        trigger = config["configurable"].pop("trigger", None)
-        # thread_id is already from the URL path, remove it from config
-        config["configurable"].pop("thread_id", None)
-        if config["configurable"]:
-            config_overrides = config
+    trigger, config_overrides = _parse_run_config(config)
 
     return StreamingResponse(
         runtime.stream(
-            input=input,
+            agent_input=agent_input,
             command=command,
             trigger=trigger,
             config_overrides=config_overrides,
@@ -207,7 +208,7 @@ async def run_stream(
 @router.post("/{thread_id}/runs/invoke")
 async def run_invoke(
     thread_id: str,
-    input: dict | None = Body(None, embed=True),
+    agent_input: dict | None = Body(None, embed=True, alias="input"),
     command: dict | None = Body(None, embed=True),
     config: dict | None = Body(None, embed=True),
     context: dict | None = Body(None, embed=True),  # noqa: ARG001
@@ -220,17 +221,10 @@ async def run_invoke(
     if thread.user_id != current_user.id:
         raise PermissionDeniedError("Not authorized to run this thread")
     runtime = await AgentRuntime.build(thread=thread, db=db)
-
-    trigger = None
-    config_overrides = None
-    if config and config.get("configurable"):
-        trigger = config["configurable"].pop("trigger", None)
-        config["configurable"].pop("thread_id", None)
-        if config["configurable"]:
-            config_overrides = config
+    trigger, config_overrides = _parse_run_config(config)
 
     return await runtime.invoke(
-        input=input,
+        agent_input=agent_input,
         command=command,
         trigger=trigger,
         config_overrides=config_overrides,
