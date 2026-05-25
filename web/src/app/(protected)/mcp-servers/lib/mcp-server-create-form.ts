@@ -33,24 +33,26 @@ export function validateMCPServerCreateForm(
 	officialServer: OfficialMCPServer | null,
 ): MCPServerCreateFormErrors {
 	const errors: MCPServerCreateFormErrors = {};
+	const oauthClientId = form.oauthClientId.trim();
+	const oauthClientSecret = form.oauthClientSecret.trim();
 
 	if (!form.name.trim()) errors.name = "Name is required.";
 	if (!form.url.trim()) errors.url = "Server address is required.";
 
-	if (
-		form.authType === "oauth2" &&
-		form.oauthClientSecret &&
-		!form.oauthClientId
-	) {
+	if (form.authType === "oauth2" && oauthClientSecret && !oauthClientId) {
 		errors.oauthClientId =
 			"Client ID is required when providing a Client Secret.";
 	}
+	if (form.authType === "oauth2" && oauthClientId && !oauthClientSecret) {
+		errors.oauthClientSecret =
+			"Client Secret is required when providing a Client ID.";
+	}
 
 	if (requiresStaticOAuthCredentials(officialServer)) {
-		if (!form.oauthClientId.trim()) {
+		if (!oauthClientId) {
 			errors.oauthClientId = "Client ID is required.";
 		}
-		if (!form.oauthClientSecret.trim()) {
+		if (!oauthClientSecret) {
 			errors.oauthClientSecret = "Client Secret is required.";
 		}
 	}

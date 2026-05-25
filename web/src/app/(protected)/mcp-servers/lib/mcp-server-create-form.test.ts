@@ -53,4 +53,20 @@ describe("validateMCPServerCreateForm", () => {
 				"Client ID is required when providing a Client Secret.",
 		});
 	});
+
+	it("requires a client secret when a custom OAuth server provides a client ID", () => {
+		const errors = validateMCPServerCreateForm(
+			{
+				...validForm,
+				authType: "oauth2",
+				oauthClientId: "client-id",
+			},
+			null,
+		);
+
+		expect(errors).toEqual({
+			oauthClientSecret:
+				"Client Secret is required when providing a Client ID.",
+		});
+	});
 });
