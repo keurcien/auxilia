@@ -63,14 +63,20 @@ export function validateMCPServerCreateForm(
 export function buildMCPServerCreatePayload(
 	form: MCPServerCreateFormValues,
 ): MCPServerCreate {
+	const apiKey = form.authType === "api_key" ? form.apiKey || undefined : undefined;
+	const oauthClientId =
+		form.authType === "oauth2" ? form.oauthClientId || undefined : undefined;
+	const oauthClientSecret =
+		form.authType === "oauth2" ? form.oauthClientSecret || undefined : undefined;
+
 	return {
 		name: form.name,
 		url: form.url,
 		authType: form.authType,
 		description: form.description || undefined,
 		iconUrl: form.iconUrl || undefined,
-		apiKey: form.apiKey || undefined,
-		oauthClientId: form.oauthClientId || undefined,
-		oauthClientSecret: form.oauthClientSecret || undefined,
+		apiKey,
+		oauthClientId,
+		oauthClientSecret,
 	};
 }

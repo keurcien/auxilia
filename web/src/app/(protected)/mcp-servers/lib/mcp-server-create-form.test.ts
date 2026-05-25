@@ -35,6 +35,47 @@ describe("buildMCPServerCreatePayload", () => {
 			oauthClientSecret: undefined,
 		});
 	});
+
+	it("omits stale OAuth credentials when auth type is not oauth2", () => {
+		const payload = buildMCPServerCreatePayload({
+			...validForm,
+			authType: "none",
+			oauthClientId: "stale-client-id",
+			oauthClientSecret: "stale-client-secret",
+		});
+
+		expect(payload).toEqual({
+			name: "Internal Search",
+			url: "https://search.example.com/mcp",
+			authType: "none",
+			description: undefined,
+			iconUrl: undefined,
+			apiKey: undefined,
+			oauthClientId: undefined,
+			oauthClientSecret: undefined,
+		});
+	});
+
+	it("omits stale API key when auth type is not api_key", () => {
+		const payload = buildMCPServerCreatePayload({
+			...validForm,
+			authType: "oauth2",
+			apiKey: "stale-api-key",
+			oauthClientId: "client-id",
+			oauthClientSecret: "client-secret",
+		});
+
+		expect(payload).toEqual({
+			name: "Internal Search",
+			url: "https://search.example.com/mcp",
+			authType: "oauth2",
+			description: undefined,
+			iconUrl: undefined,
+			apiKey: undefined,
+			oauthClientId: "client-id",
+			oauthClientSecret: "client-secret",
+		});
+	});
 });
 
 describe("validateMCPServerCreateForm", () => {
