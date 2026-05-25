@@ -5,7 +5,6 @@ import { api } from "@/lib/api/client";
 import {
 	MCPAuthType,
 	MCPServer,
-	MCPServerCreate,
 	MCPServerUpdate,
 	OfficialMCPServer,
 } from "@/types/mcp-servers";
@@ -18,6 +17,13 @@ import { SageInput, SageTextarea } from "@/components/ui/sage-input";
 import { SageButton } from "@/components/ui/sage-button";
 import { SageDropdownMenu } from "@/components/ui/sage-dropdown-menu";
 import { SearchBar } from "@/components/ui/search-bar";
+import {
+	buildMCPServerCreatePayload,
+	MCPServerCreateFormErrors,
+	MCPServerCreateFormValues,
+	requiresStaticOAuthCredentials,
+	validateMCPServerCreateForm,
+} from "../lib/mcp-server-create-form";
 
 const DEFAULT_ICON = "https://storage.googleapis.com/choose-assets/mcp.png";
 const GCS_HOST = "storage.googleapis.com";
@@ -34,18 +40,7 @@ interface MCPServerDialogProps {
 	server?: MCPServer | null;
 }
 
-interface FormState {
-	name: string;
-	url: string;
-	description: string;
-	authType: MCPAuthType;
-	apiKey: string;
-	oauthClientId: string;
-	oauthClientSecret: string;
-	iconUrl: string;
-}
-
-const emptyForm: FormState = {
+const emptyForm: MCPServerCreateFormValues = {
 	name: "",
 	url: "",
 	description: "",
@@ -65,8 +60,8 @@ export default function MCPServerDialog({
 		useMcpServersStore();
 	const isEditMode = !!server;
 
-	const [form, setForm] = useState<FormState>(emptyForm);
-	const [errors, setErrors] = useState<Record<string, string>>({});
+	const [form, setForm] = useState<MCPServerCreateFormValues>(emptyForm);
+	const [errors, setErrors] = useState<MCPServerCreateFormErrors>({});
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [isResetting, setIsResetting] = useState(false);
 
@@ -119,11 +114,12 @@ export default function MCPServerDialog({
 	}, [officialServers, searchQuery]);
 
 	// Whether the selected official server requires non-DCR credentials
-	const isNonDcrOAuth =
-		selectedOfficial?.supportsDcr === false &&
-		selectedOfficial?.authType === "oauth2";
+	const isNonDcrOAuth = requiresStaticOAuthCredentials(selectedOfficial);
 
-	const handleFormChange = (field: keyof FormState, value: string) => {
+	const handleFormChange = (
+		field: keyof MCPServerCreateFormValues,
+		value: string,
+	) => {
 		setForm((prev) => ({ ...prev, [field]: value }));
 		if (errors[field]) {
 			setErrors((prev) => {
@@ -158,49 +154,14 @@ export default function MCPServerDialog({
 		setErrors({});
 	};
 
-	const validate = (): boolean => {
-		const newErrors: Record<string, string> = {};
-
-		if (!form.name.trim()) newErrors.name = "Name is required.";
-		if (!form.url.trim()) newErrors.url = "Server address is required.";
-
-		if (
-			form.authType === "oauth2" &&
-			form.oauthClientSecret &&
-			!form.oauthClientId
-		) {
-			newErrors.oauthClientId =
-				"Client ID is required when providing a Client Secret.";
-		}
-
-		// Non-DCR OAuth: client ID and secret are required
-		if (isNonDcrOAuth) {
-			if (!form.oauthClientId.trim())
-				newErrors.oauthClientId = "Client ID is required.";
-			if (!form.oauthClientSecret.trim())
-				newErrors.oauthClientSecret = "Client Secret is required.";
-		}
-
-		setErrors(newErrors);
-		return Object.keys(newErrors).length === 0;
-	};
-
 	const handleCreate = async () => {
-		if (!validate()) return;
+		const newErrors = validateMCPServerCreateForm(form, selectedOfficial);
+		setErrors(newErrors);
+		if (Object.keys(newErrors).length > 0) return;
 
 		setIsSubmitting(true);
 		try {
-			const payload: MCPServerCreate = {
-				name: form.name,
-				url: form.url,
-				authType: form.authType,
-				description: form.description || undefined,
-				iconUrl: form.iconUrl || undefined,
-				apiKey: form.apiKey || undefined,
-				oauthClientId: form.oauthClientId || undefined,
-				oauthClientSecret: form.oauthClientSecret || undefined,
-			};
-
+			const payload = buildMCPServerCreatePayload(form);
 			const response = await api.post("/mcp-servers", payload);
 			addMcpServer(response.data);
 			onOpenChange(false);
@@ -213,7 +174,7 @@ export default function MCPServerDialog({
 
 	const handleUpdate = async () => {
 		if (!server) return;
-		const newErrors: Record<string, string> = {};
+		const newErrors: MCPServerCreateFormErrors = {};
 		if (!form.name.trim()) newErrors.name = "Name is required.";
 		if (!form.url.trim()) newErrors.url = "Server address is required.";
 		setErrors(newErrors);
