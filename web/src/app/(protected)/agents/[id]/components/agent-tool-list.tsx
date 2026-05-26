@@ -44,7 +44,7 @@ export default function AgentToolList({
 		return allMCPServers.filter((server) => enabledIds.has(server.id));
 	}, [allMCPServers, agent.mcpServers]);
 
-	const hasTools = agent.sandbox || enabledServers.length > 0;
+	const hasTools = agent.hasCodeInterpreter || enabledServers.length > 0;
 
 	return (
 		<div className="flex flex-col min-h-0">
@@ -63,7 +63,7 @@ export default function AgentToolList({
 			<div className="flex-1 overflow-y-auto rounded-[22px] border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-white dark:bg-card min-h-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 				{hasTools ? (
 					<>
-						{agent.sandbox && (
+						{agent.hasCodeInterpreter && (
 							<AgentCodeExecution
 								agent={agent}
 								onUpdate={refreshAgent}

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 from contextlib import asynccontextmanager
 from uuid import UUID
@@ -9,7 +11,7 @@ from mcp.shared.auth import OAuthClientInformationFull
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.exceptions import DomainError, NotFoundError, ValidationError
+from app.exceptions import DomainError, DomainValidationError, NotFoundError
 from app.mcp.client.auth import WebOAuthClientProvider, build_oauth_client_metadata
 from app.mcp.client.storage import TokenStorageFactory
 from app.mcp.servers.encryption import decrypt_value as decrypt_api_key
@@ -29,21 +31,21 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
     def __init__(self, db: AsyncSession):
         super().__init__(db, MCPServerRepository(db))
 
-    async def create_server(self, data: MCPServerCreate) -> MCPServerDB:
+    async def create(self, data: MCPServerCreate) -> MCPServerDB:
         if data.auth_type == MCPAuthType.api_key and not data.api_key:
-            raise ValidationError("API key is required when auth_type is 'api_key'")
+            raise DomainValidationError("API key is required when auth_type is 'api_key'")
 
         db_server = await self.repository.create(data)
 
         if data.auth_type == MCPAuthType.api_key and data.api_key:
-            await self.repository.save_api_key(db_server.id, data.api_key)
+            await self.repository.create_or_update_api_key(db_server.id, data.api_key)
 
         if (
             data.auth_type == MCPAuthType.oauth2
             and data.oauth_client_id
             and data.oauth_client_secret
         ):
-            await self.repository.save_oauth_credentials(
+            await self.repository.create_or_update_oauth_credentials(
                 db_server.id,
                 data.oauth_client_id,
                 data.oauth_client_secret,
@@ -52,29 +54,29 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
 
         return db_server
 
-    async def get_server(self, server_id: UUID) -> MCPServerDB:
+    async def get(self, server_id: UUID) -> MCPServerDB:
         return await self.get_or_404(server_id)
 
-    async def list_servers(self) -> list[MCPServerDB]:
+    async def list(self) -> list[MCPServerDB]:
         return await self.repository.list()
 
-    async def update_server(self, server_id: UUID, data: MCPServerPatch) -> MCPServerDB:
+    async def update(self, server_id: UUID, data: MCPServerPatch) -> MCPServerDB:
         server = await self.get_or_404(server_id)
         return await self.repository.update(server, data)
 
-    async def delete_server(self, server_id: UUID) -> None:
+    async def delete(self, server_id: UUID) -> None:
         server = await self.get_or_404(server_id)
         await self.repository.delete(server)
 
-    async def list_official_servers(self) -> list[OfficialMCPServerResponse]:
+    async def list_official(self) -> list[OfficialMCPServerResponse]:
         rows = await self.repository.list_official()
         return [
             OfficialMCPServerResponse(**row[0].model_dump(), is_installed=row[1])
             for row in rows
         ]
 
-    async def reset_server(self, server_id: UUID) -> dict:
-        await self.get_server(server_id)
+    async def reset(self, server_id: UUID) -> dict:
+        await self.get(server_id)
         factory = TokenStorageFactory()
         deleted = await factory.clear_server_data(str(server_id))
         return {"deleted_keys": deleted}
@@ -84,7 +86,7 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         result = await storage_factory.get_storage_from_state(state)
 
         if not result:
-            raise ValidationError("Invalid or expired OAuth state")
+            raise DomainValidationError("Invalid or expired OAuth state")
 
         storage, state_data = result
 

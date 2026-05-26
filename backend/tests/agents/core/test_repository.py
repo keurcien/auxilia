@@ -48,7 +48,7 @@ def make_permission(agent_id=None, **kwargs):
         id=uuid4(),
         agent_id=agent_id or uuid4(),
         user_id=uuid4(),
-        permission=PermissionLevel.user,
+        permission=PermissionLevel.member,
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )
@@ -306,7 +306,7 @@ async def test_set_permissions_refreshes_each_new_permission(repo, mock_db):
     mock_db.execute.return_value = mock_result
 
     writes = [
-        AgentPermissionCreate(user_id=uuid4(), permission=PermissionLevel.user),
+        AgentPermissionCreate(user_id=uuid4(), permission=PermissionLevel.member),
         AgentPermissionCreate(user_id=uuid4(), permission=PermissionLevel.editor),
     ]
     result = await repo.set_permissions(agent_id, writes)

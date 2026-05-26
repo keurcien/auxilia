@@ -49,8 +49,8 @@ def mock_repo():
 @pytest.fixture
 def mock_subagent_service():
     svc = MagicMock()
-    svc.load_subagents = AsyncMock(return_value=[])
-    svc.load_all_subagent_data = AsyncMock(return_value=({}, set()))
+    svc.list_subagents = AsyncMock(return_value=[])
+    svc.list_all_subagent_data = AsyncMock(return_value=({}, set()))
     svc.delete_all_for_agent = AsyncMock()
     svc.repository = MagicMock()
     svc.repository.is_subagent = AsyncMock(return_value=False)
@@ -108,7 +108,7 @@ async def test_create_agent_delegates_to_repository(service, mock_repo):
     mock_repo.create.return_value = agent
     data = AgentCreateDB(name="X", instructions="Y", owner_id=uuid4())
 
-    result = await service.create_agent(data)
+    result = await service.create(data)
 
     mock_repo.create.assert_awaited_once_with(data)
     assert result is agent
@@ -123,7 +123,7 @@ async def test_get_agent_returns_agent_read(service, mock_repo):
     agent = make_agent()
     mock_repo.list_with_permissions.return_value = [(agent, None)]
 
-    result = await service.get_agent(agent.id)
+    result = await service.get(agent.id)
 
     assert isinstance(result, AgentResponse)
     assert result.id == agent.id
@@ -136,7 +136,7 @@ async def test_get_agent_raises_404_when_not_found(service, mock_repo):
     mock_repo.list_with_permissions.return_value = []
 
     with pytest.raises(NotFoundError) as exc_info:
-        await service.get_agent(uuid4())
+        await service.get(uuid4())
 
     assert exc_info.value.detail == "Agent not found"
 
@@ -146,7 +146,7 @@ async def test_get_agent_sets_owner_permission(service, mock_repo):
     agent = make_agent(owner_id=owner_id)
     mock_repo.list_with_permissions.return_value = [(agent, None)]
 
-    result = await service.get_agent(agent.id, user_id=owner_id)
+    result = await service.get(agent.id, user_id=owner_id)
 
     assert result.current_user_permission == "owner"
 
@@ -155,7 +155,7 @@ async def test_get_agent_sets_admin_permission(service, mock_repo):
     agent = make_agent()
     mock_repo.list_with_permissions.return_value = [(agent, None)]
 
-    result = await service.get_agent(agent.id, user_role=WorkspaceRole.admin)
+    result = await service.get(agent.id, user_role=WorkspaceRole.admin)
 
     assert result.current_user_permission == "admin"
 
@@ -174,7 +174,7 @@ async def test_get_agent_includes_mcp_servers_from_bindings(service, mock_repo):
     )
     mock_repo.list_with_permissions.return_value = [(agent, binding)]
 
-    result = await service.get_agent(agent.id)
+    result = await service.get(agent.id)
 
     assert len(result.mcp_servers) == 1
     assert result.mcp_servers[0].mcp_server_id == server_id
@@ -185,7 +185,7 @@ async def test_get_agent_skips_null_bindings(service, mock_repo):
     agent = make_agent()
     mock_repo.list_with_permissions.return_value = [(agent, None)]
 
-    result = await service.get_agent(agent.id)
+    result = await service.get(agent.id)
 
     assert result.mcp_servers == []
 
@@ -198,7 +198,7 @@ async def test_get_agent_skips_null_bindings(service, mock_repo):
 async def test_list_agents_returns_empty_when_no_agents(service, mock_repo):
     mock_repo.list_with_permissions.return_value = []
 
-    result = await service.list_agents()
+    result = await service.list()
 
     assert result == []
 
@@ -207,7 +207,7 @@ async def test_list_agents_returns_one_per_agent(service, mock_repo):
     agent = make_agent()
     mock_repo.list_with_permissions.return_value = [(agent, None)]
 
-    result = await service.list_agents()
+    result = await service.list()
 
     assert len(result) == 1
     assert result[0].id == agent.id
@@ -236,7 +236,7 @@ async def test_list_agents_deduplicates_multiple_bindings_per_agent(service, moc
         (agent, binding2),
     ]
 
-    result = await service.list_agents(user_role=WorkspaceRole.admin)
+    result = await service.list(user_role=WorkspaceRole.admin)
 
     assert len(result) == 1
     assert len(result[0].mcp_servers) == 2
@@ -247,7 +247,7 @@ async def test_list_agents_owner_gets_owner_permission(service, mock_repo):
     agent = make_agent(owner_id=owner_id)
     mock_repo.list_with_permissions.return_value = [(agent, None, None)]
 
-    result = await service.list_agents(user_id=owner_id, user_role=WorkspaceRole.member)
+    result = await service.list(user_id=owner_id, user_role=WorkspaceRole.member)
 
     assert result[0].current_user_permission == "owner"
 
@@ -256,7 +256,7 @@ async def test_list_agents_admin_gets_admin_permission(service, mock_repo):
     agent = make_agent()
     mock_repo.list_with_permissions.return_value = [(agent, None)]
 
-    result = await service.list_agents(user_role=WorkspaceRole.admin)
+    result = await service.list(user_role=WorkspaceRole.admin)
 
     assert result[0].current_user_permission == "admin"
 
@@ -268,7 +268,7 @@ async def test_list_agents_granted_permission_from_row(service, mock_repo):
         (agent, None, PermissionLevel.editor)
     ]
 
-    result = await service.list_agents(
+    result = await service.list(
         user_id=non_owner_id, user_role=WorkspaceRole.member
     )
 
@@ -280,7 +280,7 @@ async def test_list_agents_no_permission_when_not_granted(service, mock_repo):
     non_owner_id = uuid4()
     mock_repo.list_with_permissions.return_value = [(agent, None, None)]
 
-    result = await service.list_agents(
+    result = await service.list(
         user_id=non_owner_id, user_role=WorkspaceRole.member
     )
 
@@ -293,7 +293,7 @@ async def test_list_agents_no_user_returns_agents_with_no_permission(
     agent = make_agent()
     mock_repo.list_with_permissions.return_value = [(agent, None)]
 
-    result = await service.list_agents()
+    result = await service.list()
 
     assert result[0].current_user_permission is None
 
@@ -308,7 +308,7 @@ async def test_update_agent_delegates_to_repository(service, mock_repo):
     mock_repo.get.return_value = agent
     mock_repo.list_with_permissions.return_value = [(agent, None)]
 
-    result = await service.update_agent(
+    result = await service.update(
         agent.id, AgentPatch(name="Updated"), user_id=agent.owner_id
     )
 
@@ -327,7 +327,7 @@ async def test_update_agent_passes_only_set_fields(service, mock_repo):
     mock_repo.get.return_value = agent
     mock_repo.list_with_permissions.return_value = [(agent, None)]
 
-    await service.update_agent(
+    await service.update(
         agent.id, AgentPatch(name="New Name"), user_id=agent.owner_id
     )
 
@@ -340,7 +340,7 @@ async def test_update_agent_raises_404_when_not_found(service, mock_repo):
     mock_repo.list_with_permissions.return_value = []
 
     with pytest.raises(NotFoundError) as exc_info:
-        await service.update_agent(uuid4(), AgentPatch(name="X"))
+        await service.update(uuid4(), AgentPatch(name="X"))
 
     assert exc_info.value.detail == "Agent not found"
     mock_repo.update.assert_not_called()
@@ -351,7 +351,7 @@ async def test_update_agent_raises_403_when_no_permission(service, mock_repo):
     mock_repo.list_with_permissions.return_value = [(agent, None)]
 
     with pytest.raises(PermissionDeniedError):
-        await service.update_agent(agent.id, AgentPatch(name="X"), user_id=uuid4())
+        await service.update(agent.id, AgentPatch(name="X"), user_id=uuid4())
 
     mock_repo.get.assert_not_called()
     mock_repo.update.assert_not_called()
@@ -362,7 +362,7 @@ async def test_update_agent_allows_workspace_admin(service, mock_repo):
     mock_repo.get.return_value = agent
     mock_repo.list_with_permissions.return_value = [(agent, None)]
 
-    await service.update_agent(
+    await service.update(
         agent.id,
         AgentPatch(name="Renamed"),
         user_id=uuid4(),
@@ -383,7 +383,7 @@ async def test_delete_agent_delegates_to_repository(
     agent = make_agent()
     mock_repo.get.return_value = agent
 
-    await service.delete_agent(agent.id, user_id=agent.owner_id)
+    await service.delete(agent.id, user_id=agent.owner_id)
 
     mock_repo.get.assert_awaited_once_with(agent.id)
     mock_subagent_service.delete_all_for_agent.assert_awaited_once_with(agent.id)
@@ -394,7 +394,7 @@ async def test_delete_agent_raises_404_when_not_found(service, mock_repo):
     mock_repo.get.return_value = None
 
     with pytest.raises(NotFoundError) as exc_info:
-        await service.delete_agent(uuid4())
+        await service.delete(uuid4())
 
     assert exc_info.value.detail == "Agent not found"
     mock_repo.archive.assert_not_called()
@@ -407,7 +407,7 @@ async def test_delete_agent_raises_403_for_non_owner(
     mock_repo.get.return_value = agent
 
     with pytest.raises(PermissionDeniedError):
-        await service.delete_agent(agent.id, user_id=uuid4())
+        await service.delete(agent.id, user_id=uuid4())
 
     mock_subagent_service.delete_all_for_agent.assert_not_called()
     mock_repo.archive.assert_not_called()
@@ -419,7 +419,7 @@ async def test_delete_agent_allows_workspace_admin(
     agent = make_agent()
     mock_repo.get.return_value = agent
 
-    await service.delete_agent(agent.id, user_id=uuid4(), user_role=WorkspaceRole.admin)
+    await service.delete(agent.id, user_id=uuid4(), user_role=WorkspaceRole.admin)
 
     mock_subagent_service.delete_all_for_agent.assert_awaited_once_with(agent.id)
     mock_repo.archive.assert_awaited_once_with(agent)
@@ -434,7 +434,7 @@ async def test_check_ready_returns_ready_when_no_mcp_servers(service, mock_repo)
     agent = make_agent()
     mock_repo.list_with_permissions.return_value = [(agent, None)]
 
-    result = await service.check_ready(agent.id, "user-id")
+    result = await service.describe_readiness(agent.id, "user-id")
 
     assert result["ready"] is True
     assert result["status"] == "ready"
@@ -456,7 +456,7 @@ async def test_check_ready_returns_not_configured_when_tools_is_none(
     )
     mock_repo.list_with_permissions.return_value = [(agent, binding)]
 
-    result = await service.check_ready(agent.id, "user-id")
+    result = await service.describe_readiness(agent.id, "user-id")
 
     assert result["ready"] is False
     assert result["status"] == "not_configured"
@@ -482,10 +482,10 @@ async def test_check_ready_returns_ready_when_all_servers_connected(
     mock_db.execute.return_value = _make_mock_execute_result(scalars_list=[mcp_server])
 
     with patch(
-        "app.agents.core.service.check_mcp_server_connected",
+        "app.agents.core.service.probe_mcp_server",
         new=AsyncMock(return_value=True),
     ):
-        result = await service.check_ready(agent.id, "user-id")
+        result = await service.describe_readiness(agent.id, "user-id")
 
     assert result["ready"] is True
     assert result["disconnected_servers"] == []
@@ -511,10 +511,10 @@ async def test_check_ready_returns_not_ready_when_server_disconnected(
     mock_db.execute.return_value = _make_mock_execute_result(scalars_list=[mcp_server])
 
     with patch(
-        "app.agents.core.service.check_mcp_server_connected",
+        "app.agents.core.service.probe_mcp_server",
         new=AsyncMock(return_value=False),
     ):
-        result = await service.check_ready(agent.id, "user-id")
+        result = await service.describe_readiness(agent.id, "user-id")
 
     assert result["ready"] is False
     assert str(server_id) in result["disconnected_servers"]
@@ -538,10 +538,10 @@ async def test_check_ready_disconnected_status_label(service, mock_db, mock_repo
     mock_db.execute.return_value = _make_mock_execute_result(scalars_list=[mcp_server])
 
     with patch(
-        "app.agents.core.service.check_mcp_server_connected",
+        "app.agents.core.service.probe_mcp_server",
         new=AsyncMock(return_value=False),
     ):
-        result = await service.check_ready(agent.id, "user-id")
+        result = await service.describe_readiness(agent.id, "user-id")
 
     assert result["status"] == "disconnected"
 

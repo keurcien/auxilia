@@ -14,7 +14,7 @@ import { SearchBar } from "@/components/ui/search-bar";
 import { SageButton } from "@/components/ui/sage-button";
 import { SageDropdownMenu } from "@/components/ui/sage-dropdown-menu";
 
-type PermissionLevel = "user" | "editor" | "admin";
+type PermissionLevel = "member" | "editor" | "admin";
 
 interface User {
 	id: string;
@@ -37,7 +37,7 @@ interface AgentPermissionsDialogProps {
 const PERMISSION_LABELS: Record<PermissionLevel, string> = {
 	admin: "Admin",
 	editor: "Editor",
-	user: "User",
+	member: "Member",
 };
 
 function getInitials(name: string | null): string {
@@ -109,7 +109,7 @@ export default function AgentPermissionsDialog({
 	}, [search, allUsers, permissions, ownerId]);
 
 	const addUser = (userId: string) => {
-		setPermissions((prev) => [...prev, { userId, permission: "user" }]);
+		setPermissions((prev) => [...prev, { userId, permission: "member" }]);
 		setSearch("");
 	};
 
@@ -256,7 +256,7 @@ export default function AgentPermissionsDialog({
 										items={[
 											{ label: "Admin", onClick: () => updatePermission(user.id, "admin"), active: user.permission === "admin" },
 											{ label: "Editor", onClick: () => updatePermission(user.id, "editor"), active: user.permission === "editor" },
-											{ label: "User", onClick: () => updatePermission(user.id, "user"), active: user.permission === "user" },
+											{ label: "Member", onClick: () => updatePermission(user.id, "member"), active: user.permission === "member" },
 										]}
 									/>
 								</div>

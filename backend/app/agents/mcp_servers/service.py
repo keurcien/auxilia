@@ -9,7 +9,7 @@ from app.agents.models import AgentMCPServerBase, AgentMCPServerDB
 from app.agents.schemas import AgentMCPServerCreate, AgentMCPServerPatch
 from app.database import get_db
 from app.exceptions import NotFoundError
-from app.mcp.client.connectivity import check_oauth_connected
+from app.mcp.client.connectivity import is_oauth_connected
 from app.mcp.servers.models import MCPAuthType, MCPServerDB
 from app.mcp.servers.repository import MCPServerRepository
 from app.mcp.servers.service import connect_to_server
@@ -28,13 +28,13 @@ class AgentMCPServerService(
         super().__init__(db, AgentMCPServerRepository(db))
         self._servers = MCPServerRepository(db)
 
-    async def _require_server(self, server_id: UUID) -> MCPServerDB:
+    async def _ensure_server(self, server_id: UUID) -> MCPServerDB:
         server = await self._servers.get(server_id)
         if not server:
             raise NotFoundError("MCP server not found")
         return server
 
-    async def _fetch_and_save_tools(
+    async def _sync_tools(
         self,
         db_link: AgentMCPServerDB,
         mcp_server: MCPServerDB,
@@ -56,7 +56,7 @@ class AgentMCPServerService(
         data: AgentMCPServerCreate,
         user_id: str,
     ) -> AgentMCPServerDB:
-        mcp_server = await self._require_server(server_id)
+        mcp_server = await self._ensure_server(server_id)
 
         existing = await self.repository.get(agent_id, server_id)
         if existing:
@@ -80,10 +80,10 @@ class AgentMCPServerService(
             MCPAuthType.api_key,
         ) or (
             mcp_server.auth_type == MCPAuthType.oauth2
-            and await check_oauth_connected(mcp_server, user_id)
+            and await is_oauth_connected(mcp_server, user_id)
         )
         if should_fetch:
-            await self._fetch_and_save_tools(db_link, mcp_server, user_id)
+            await self._sync_tools(db_link, mcp_server, user_id)
 
         return db_link
 
@@ -109,11 +109,11 @@ class AgentMCPServerService(
     async def sync_tools(
         self, agent_id: UUID, server_id: UUID, user_id: str
     ) -> AgentMCPServerDB:
-        mcp_server = await self._require_server(server_id)
+        mcp_server = await self._ensure_server(server_id)
         link = await self.repository.get(agent_id, server_id)
         if not link:
             raise NotFoundError(self.not_found_message)
-        await self._fetch_and_save_tools(link, mcp_server, user_id)
+        await self._sync_tools(link, mcp_server, user_id)
         return link
 
 

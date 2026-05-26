@@ -2,7 +2,7 @@ from fastapi import APIRouter, Body, Depends, Request
 from fastapi.responses import StreamingResponse
 
 from app.agents.core.service import AgentService, get_agent_service
-from app.agents.runtime import AgentRuntime
+from app.agents.runtime import Agent
 from app.agents.stream import _serialize_lc_message
 from app.auth.dependencies import detect_auth_method, get_current_user
 from app.database import get_checkpointer, get_db
@@ -47,7 +47,7 @@ async def _resolve_viewer_role(
     """
     if thread.user_id == current_user.id:
         return None
-    agent = await agent_service.get_agent(
+    agent = await agent_service.get(
         thread.agent_id, user_id=current_user.id, user_role=current_user.role
     )
     if agent.current_user_permission in ("owner", "admin"):
@@ -62,9 +62,9 @@ async def read_thread(
     service: ThreadService = Depends(get_thread_service),
     agent_service: AgentService = Depends(get_agent_service),
 ) -> dict:
-    thread = await service.get_thread(thread_id)
+    thread = await service.get(thread_id)
     viewer_role = await _resolve_viewer_role(thread, current_user, agent_service)
-    thread_read = await service.get_thread_with_agent(thread_id)
+    thread_read = await service.get_with_agent(thread_id)
 
     async with get_checkpointer() as checkpointer:
         checkpoint_tuple = await checkpointer.aget_tuple(
@@ -138,7 +138,7 @@ async def get_threads(
     current_user: UserDB = Depends(get_current_user),
     service: ThreadService = Depends(get_thread_service),
 ) -> list[ThreadResponse]:
-    return await service.list_threads(current_user.id)
+    return await service.list(current_user.id)
 
 
 @router.post("/")
@@ -153,7 +153,7 @@ async def create_thread(
         if detect_auth_method(request, current_user) == "cookie"
         else ThreadSource.api
     )
-    return await service.create_thread(thread_data, current_user.id, source)
+    return await service.create(thread_data, current_user.id, source)
 
 
 @router.delete("/{thread_id}", status_code=204)
@@ -162,13 +162,13 @@ async def delete_thread(
     current_user: UserDB = Depends(get_current_user),
     service: ThreadService = Depends(get_thread_service),
 ) -> None:
-    thread = await service.get_thread(thread_id)
+    thread = await service.get(thread_id)
     if thread.user_id != current_user.id:
         raise PermissionDeniedError("Not authorized to delete this thread")
     async with get_checkpointer() as checkpointer:
         await checkpointer.adelete_thread(thread_id=thread_id)
 
-    await service.delete_thread(thread_id)
+    await service.delete(thread_id)
 
 
 @router.post("/{thread_id}/runs/stream")
@@ -183,14 +183,14 @@ async def run_stream(
     db=Depends(get_db),
 ):
     """LangGraph native streaming endpoint for @langchain/langgraph-sdk useStream."""
-    thread = await service.get_thread(thread_id)
+    thread = await service.get(thread_id)
     if thread.user_id != current_user.id:
         raise PermissionDeniedError("Not authorized to run this thread")
-    runtime = await AgentRuntime.build(thread=thread, db=db)
+    agent = await Agent.build(thread=thread, db=db)
     trigger, config_overrides = _parse_run_config(config)
 
     return StreamingResponse(
-        runtime.stream(
+        agent.stream(
             agent_input=agent_input,
             command=command,
             trigger=trigger,
@@ -217,13 +217,13 @@ async def run_invoke(
     db=Depends(get_db),
 ):
     """Non-streaming invoke endpoint. Returns the final agent response as JSON."""
-    thread = await service.get_thread(thread_id)
+    thread = await service.get(thread_id)
     if thread.user_id != current_user.id:
         raise PermissionDeniedError("Not authorized to run this thread")
-    runtime = await AgentRuntime.build(thread=thread, db=db)
+    agent = await Agent.build(thread=thread, db=db)
     trigger, config_overrides = _parse_run_config(config)
 
-    return await runtime.invoke(
+    return await agent.invoke(
         agent_input=agent_input,
         command=command,
         trigger=trigger,

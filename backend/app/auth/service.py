@@ -16,20 +16,14 @@ from app.database import get_db
 from app.exceptions import (
     AlreadyExistsError,
     DomainError,
+    DomainValidationError,
+    InvalidCredentialsError,
+    NoInviteError,
     PermissionDeniedError,
-    ValidationError,
 )
 from app.invites.models import InviteStatus
 from app.invites.service import InviteService
 from app.users.models import OAuthAccountDB, UserDB, WorkspaceRole
-
-
-class InvalidCredentialsError(DomainError):
-    """Signin failed (wrong email/password, or password auth disabled)."""
-
-
-class NoInviteError(DomainError):
-    """OAuth signup attempted with no matching invite."""
 
 
 class AuthService:
@@ -41,28 +35,29 @@ class AuthService:
         result = await self.db.execute(select(func.count()).select_from(UserDB))
         return result.scalar_one()
 
-    def _require_password_auth(self) -> None:
+    def _ensure_password_auth(self) -> None:
         if not auth_settings.password_enabled:
             raise PermissionDeniedError("Password authentication is disabled")
 
-    def _issue_token(self, user: UserDB) -> tuple[UserDB, str]:
+    def build_jwt_for_user(self, user: UserDB) -> tuple[UserDB, str]:
         return user, create_access_token(user.id)
 
-    async def _email_exists(self, email: str) -> bool:
+    async def _ensure_email_available(self, email: str) -> None:
         result = await self.db.execute(select(UserDB).where(UserDB.email == email))
-        return result.scalar_one_or_none() is not None
+        if result.scalar_one_or_none() is not None:
+            raise AlreadyExistsError("Email already registered")
 
     async def signin(self, data: SigninRequest) -> tuple[UserDB, str]:
-        self._require_password_auth()
+        self._ensure_password_auth()
         result = await self.db.execute(
             select(UserDB).where(UserDB.email == data.email)
         )
         user = result.scalar_one_or_none()
-        if user is None or user.hashed_password is None:
+        if user is None or user.password_hash is None:
             raise InvalidCredentialsError("Invalid email or password")
-        if not verify_password(data.password, user.hashed_password):
+        if not verify_password(data.password, user.password_hash):
             raise InvalidCredentialsError("Invalid email or password")
-        return self._issue_token(user)
+        return self.build_jwt_for_user(user)
 
     async def setup(self, data: SignupRequest) -> tuple[UserDB, str]:
         if await self.count_users() > 0:
@@ -70,26 +65,25 @@ class AuthService:
         user = UserDB(
             email=data.email,
             name=data.name,
-            hashed_password=get_password_hash(data.password),
+            password_hash=get_password_hash(data.password),
             role=WorkspaceRole.admin,
         )
         self.db.add(user)
         await self.db.flush()
         await self.db.refresh(user)
-        return self._issue_token(user)
+        return self.build_jwt_for_user(user)
 
     async def accept_invite(self, data: InviteAcceptRequest) -> tuple[UserDB, str]:
-        self._require_password_auth()
-        invite = await self.invites.validate_invite(data.token)
+        self._ensure_password_auth()
+        invite = await self.invites.get_by_token(data.token)
         if not invite:
-            raise ValidationError("Invalid or expired invite")
-        if await self._email_exists(invite.email):
-            raise AlreadyExistsError("Email already registered")
+            raise DomainValidationError("Invalid or expired invite")
+        await self._ensure_email_available(invite.email)
 
         user = UserDB(
             email=invite.email,
             name=data.name,
-            hashed_password=get_password_hash(data.password),
+            password_hash=get_password_hash(data.password),
             role=WorkspaceRole(invite.role),
         )
         self.db.add(user)
@@ -97,7 +91,7 @@ class AuthService:
         self.db.add(invite)
         await self.db.flush()
         await self.db.refresh(user)
-        return self._issue_token(user)
+        return self.build_jwt_for_user(user)
 
     async def google_signin_or_link(
         self,
@@ -130,7 +124,7 @@ class AuthService:
             user = result.scalar_one_or_none()
             if not user:
                 raise DomainError("Linked user not found")
-            return self._issue_token(user)
+            return self.build_jwt_for_user(user)
 
         result = await self.db.execute(select(UserDB).where(UserDB.email == email))
         user = result.scalar_one_or_none()
@@ -140,11 +134,11 @@ class AuthService:
                 provider="google", sub_id=google_sub, user_id=user.id,
             ))
             await self.db.flush()
-            return self._issue_token(user)
+            return self.build_jwt_for_user(user)
 
         invite = None
         if invite_token:
-            invite = await self.invites.validate_invite(invite_token)
+            invite = await self.invites.get_by_token(invite_token)
         if not invite:
             invite = await self.invites.get_pending_by_email(email)
         if not invite:
@@ -165,7 +159,7 @@ class AuthService:
         self.db.add(invite)
         await self.db.flush()
         await self.db.refresh(user)
-        return self._issue_token(user)
+        return self.build_jwt_for_user(user)
 
 
 def get_auth_service(db: AsyncSession = Depends(get_db)) -> AuthService:

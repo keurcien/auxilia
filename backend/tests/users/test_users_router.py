@@ -12,7 +12,7 @@ def test_create_user(client: TestClient, mock_db, admin_user):
     user_data = {
         "name": "Test User",
         "email": "test@example.com",
-        "hashed_password": "hashed_password",
+        "password_hash": "hashed_password",
         "role": "member",
     }
 
@@ -44,7 +44,7 @@ def test_create_user_duplicate_email(client: TestClient, mock_db, admin_user):
     user_data = {
         "name": "Test User",
         "email": "duplicate@example.com",
-        "hashed_password": "hashed_password",
+        "password_hash": "hashed_password",
     }
 
     existing_user = UserDB(

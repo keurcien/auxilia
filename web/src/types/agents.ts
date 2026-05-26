@@ -7,7 +7,7 @@ interface AgentMCPServer extends MCPServer {
 	tools: Record<string, ToolStatus> | null;
 }
 
-export type AgentPermission = "owner" | "admin" | "editor" | "user";
+export type AgentPermission = "owner" | "admin" | "editor" | "member";
 
 interface SubagentInfo {
 	id: string;
@@ -25,7 +25,7 @@ export interface Agent {
 	emoji?: string | null;
 	color?: string | null;
 	description?: string | null;
-	sandbox: boolean;
+	hasCodeInterpreter: boolean;
 	mcpServers: AgentMCPServer[];
 	subagents: SubagentInfo[];
 	isSubagent: boolean;

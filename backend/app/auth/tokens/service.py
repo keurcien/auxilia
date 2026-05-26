@@ -33,7 +33,7 @@ class PersonalAccessTokenService(
         token_hash = get_password_hash(plaintext)
         return plaintext, token_hash, prefix
 
-    async def create_token(
+    async def create(
         self, user_id: UUID, name: str
     ) -> tuple[PersonalAccessTokenDB, str]:
         plaintext, token_hash, prefix = self._generate_token()
@@ -46,17 +46,17 @@ class PersonalAccessTokenService(
         pat = await self.repository.create(data)
         return pat, plaintext
 
-    async def list_tokens(self, user_id: UUID) -> list[PersonalAccessTokenDB]:
+    async def list(self, user_id: UUID) -> list[PersonalAccessTokenDB]:
         return await self.repository.list_by_user(user_id)
 
-    async def delete_token(self, token_id: UUID, user_id: UUID) -> None:
+    async def delete(self, token_id: UUID, user_id: UUID) -> None:
         pat = await self.get_or_404(token_id)
         if pat.user_id != user_id:
             raise NotFoundError(self.not_found_message)
         await self.repository.delete(pat)
 
-    async def resolve_token(self, plaintext: str) -> PersonalAccessTokenDB | None:
-        return await self.repository.resolve_token(plaintext)
+    async def get_by_token(self, plaintext: str) -> PersonalAccessTokenDB | None:
+        return await self.repository.get_by_token(plaintext)
 
 
 def get_pat_service(db: AsyncSession = Depends(get_db)) -> PersonalAccessTokenService:

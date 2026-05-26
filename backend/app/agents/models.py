@@ -20,7 +20,7 @@ ALLOWED_COLORS = {
 
 
 class PermissionLevel(str, Enum):
-    user = "user"
+    member = "member"
     editor = "editor"
     admin = "admin"
 
@@ -61,7 +61,7 @@ class AgentDB(AgentBase, BaseDBModel, table=True):
         default=False,
         sa_column=Column(Boolean, nullable=False, server_default="false"),
     )
-    sandbox: bool = Field(
+    has_code_interpreter: bool = Field(
         default=False,
         sa_column=Column(Boolean, nullable=False, server_default="false"),
     )
@@ -82,11 +82,11 @@ class AgentSubagentDB(BaseDBModel, table=True):
     __tablename__ = "agent_subagents"
     __table_args__ = (
         UniqueConstraint(
-            "coordinator_id",
+            "supervisor_id",
             "subagent_id",
             name="uq_agent_subagent",
         ),
     )
 
-    coordinator_id: UUID = Field(foreign_key="agents.id", nullable=False)
+    supervisor_id: UUID = Field(foreign_key="agents.id", nullable=False)
     subagent_id: UUID = Field(foreign_key="agents.id", nullable=False)

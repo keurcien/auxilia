@@ -14,9 +14,17 @@ class AlreadyExistsError(DomainError):
     pass
 
 
-class ValidationError(DomainError):
-    pass
+class DomainValidationError(DomainError):
+    """Business-rule violation. Distinct from Pydantic's parse-time ValidationError."""
 
 
 class PermissionDeniedError(DomainError):
     pass
+
+
+class InvalidCredentialsError(DomainError):
+    """Signin failed (wrong email/password, or password auth disabled)."""
+
+
+class NoInviteError(DomainError):
+    """OAuth signup attempted with no matching invite."""

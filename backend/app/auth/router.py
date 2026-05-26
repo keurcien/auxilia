@@ -12,13 +12,9 @@ from app.auth.schemas import (
     SigninRequest,
     SignupRequest,
 )
-from app.auth.service import (
-    AuthService,
-    InvalidCredentialsError,
-    NoInviteError,
-    get_auth_service,
-)
+from app.auth.service import AuthService, get_auth_service
 from app.auth.settings import auth_settings
+from app.exceptions import NoInviteError
 from app.invites.service import InviteService, get_invite_service
 from app.users.models import UserDB
 from app.users.schemas import UserResponse
@@ -92,13 +88,7 @@ async def signin(
     signin_data: SigninRequest,
     service: AuthService = Depends(get_auth_service),
 ) -> JSONResponse:
-    try:
-        user, token = await service.signin(signin_data)
-    except InvalidCredentialsError as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=e.detail,
-        ) from e
+    user, token = await service.signin(signin_data)
     return _auth_response(user, token)
 
 
@@ -123,7 +113,7 @@ async def get_invite_info(
     token: str,
     service: InviteService = Depends(get_invite_service),
 ) -> InviteInfoResponse:
-    invite = await service.validate_invite(token)
+    invite = await service.get_by_token(token)
     if not invite:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

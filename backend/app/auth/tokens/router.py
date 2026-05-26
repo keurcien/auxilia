@@ -21,7 +21,7 @@ async def create_token(
     current_user: UserDB = Depends(require_admin),
     service: PersonalAccessTokenService = Depends(get_pat_service),
 ) -> PersonalAccessTokenCreatedResponse:
-    pat, plaintext = await service.create_token(current_user.id, data.name)
+    pat, plaintext = await service.create(current_user.id, data.name)
     return PersonalAccessTokenCreatedResponse(
         id=pat.id,
         name=pat.name,
@@ -36,7 +36,7 @@ async def list_tokens(
     current_user: UserDB = Depends(require_admin),
     service: PersonalAccessTokenService = Depends(get_pat_service),
 ) -> list[PersonalAccessTokenResponse]:
-    pats = await service.list_tokens(current_user.id)
+    pats = await service.list(current_user.id)
     return [PersonalAccessTokenResponse.model_validate(pat) for pat in pats]
 
 
@@ -46,4 +46,4 @@ async def delete_token(
     current_user: UserDB = Depends(require_admin),
     service: PersonalAccessTokenService = Depends(get_pat_service),
 ) -> None:
-    await service.delete_token(token_id, current_user.id)
+    await service.delete(token_id, current_user.id)

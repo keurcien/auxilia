@@ -8,13 +8,13 @@ call sites.
 from app.mcp.client.auth import WebOAuthClientProvider, build_oauth_client_metadata
 from app.mcp.client.storage import TokenStorageFactory
 from app.mcp.servers.models import MCPAuthType, MCPServerDB
-from app.mcp.utils import check_mcp_server_connected
+from app.mcp.utils import probe_mcp_server
 
 
-async def check_oauth_connected(server: MCPServerDB, user_id: str) -> bool:
+async def is_oauth_connected(server: MCPServerDB, user_id: str) -> bool:
     """Return True when an OAuth MCP server has stored tokens for the user.
 
-    Does **not** attempt a refresh. Use :func:`check_connectivity_with_refresh`
+    Does **not** attempt a refresh. Use :func:`probe_connectivity_with_refresh`
     for probes where an expired-but-refreshable token should still count as
     connected.
     """
@@ -30,17 +30,17 @@ async def check_oauth_connected(server: MCPServerDB, user_id: str) -> bool:
     return tokens is not None
 
 
-async def check_connectivity(server: MCPServerDB, user_id: str) -> bool:
+async def probe_connectivity(server: MCPServerDB, user_id: str) -> bool:
     """Lightweight probe: servers without auth are always connected, OAuth
     servers count as connected if a token exists (no refresh attempted)."""
     if server.auth_type in (MCPAuthType.none, MCPAuthType.api_key):
         return True
-    return await check_oauth_connected(server, user_id)
+    return await is_oauth_connected(server, user_id)
 
 
-async def check_connectivity_with_refresh(
+async def probe_connectivity_with_refresh(
     server: MCPServerDB, user_id: str
 ) -> bool:
     """Probe that also attempts a token refresh when the stored token is
-    expired. Delegates to :func:`app.mcp.utils.check_mcp_server_connected`."""
-    return await check_mcp_server_connected(server, user_id)
+    expired. Delegates to :func:`app.mcp.utils.probe_mcp_server`."""
+    return await probe_mcp_server(server, user_id)

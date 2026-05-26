@@ -7,7 +7,7 @@ from app.mcp.client.storage import TokenStorageFactory
 from app.mcp.servers.models import MCPAuthType, MCPServerDB
 
 
-async def check_mcp_server_connected(
+async def probe_mcp_server(
     mcp_server: MCPServerDB,
     user_id: str,
 ) -> bool:

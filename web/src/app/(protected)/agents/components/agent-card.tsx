@@ -14,7 +14,7 @@ interface AgentCardProps {
 }
 
 const PERMISSION_HIERARCHY: Record<AgentPermission, number> = {
-	user: 0,
+	member: 0,
 	editor: 1,
 	admin: 2,
 	owner: 3,
@@ -42,8 +42,8 @@ const ROLE_BADGE_CONFIG: Record<
 		text: "text-[#9A7B3C] dark:text-amber-300",
 		dot: "bg-[#C4A04E] dark:bg-amber-400",
 	},
-	user: {
-		label: "User",
+	member: {
+		label: "Member",
 		bg: "bg-[#EDEEE9] dark:bg-stone-800",
 		text: "text-[#7D8077] dark:text-stone-400",
 		dot: "bg-[#A3A79C] dark:bg-stone-500",
@@ -80,7 +80,7 @@ export default function AgentCard({ agent }: AgentCardProps) {
 	}, [agent.mcpServers, mcpServers]);
 
 	const handleChat = () => {
-		if (!hasPermission(agent.currentUserPermission, "user")) {
+		if (!hasPermission(agent.currentUserPermission, "member")) {
 			alert("You don't have permission to chat with this agent.");
 			return;
 		}
