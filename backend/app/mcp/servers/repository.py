@@ -46,12 +46,22 @@ class MCPServerRepository(BaseRepository[MCPServerDB]):
 
     async def create_or_update_api_key(self, server_id: UUID, api_key: str) -> None:
         encrypted_key = encrypt_api_key(api_key)
-        api_key_record = MCPServerAPIKeyDB(
-            mcp_server_id=server_id,
-            key_encrypted=encrypted_key,
-            created_by=None,
+        stmt = select(MCPServerAPIKeyDB).where(
+            MCPServerAPIKeyDB.mcp_server_id == server_id
         )
-        self.db.add(api_key_record)
+        result = await self.db.execute(stmt)
+        api_key_record = result.scalar_one_or_none()
+        if api_key_record:
+            api_key_record.key_encrypted = encrypted_key
+        else:
+            self.db.add(
+                MCPServerAPIKeyDB(
+                    mcp_server_id=server_id,
+                    key_encrypted=encrypted_key,
+                    created_by=None,
+                )
+            )
+        await self.db.flush()
 
     async def get_oauth_credentials(self, server_id: UUID) -> MCPServerOAuthCredentialsDB | None:
         stmt = select(MCPServerOAuthCredentialsDB).where(
@@ -68,14 +78,22 @@ class MCPServerRepository(BaseRepository[MCPServerDB]):
         auth_method: str | None,
     ) -> None:
         encrypted_secret = encrypt_api_key(client_secret)
-        oauth_credentials = MCPServerOAuthCredentialsDB(
-            mcp_server_id=server_id,
-            client_id=client_id,
-            client_secret_encrypted=encrypted_secret,
-            token_endpoint_auth_method=auth_method,
-            created_by=None,
-        )
-        self.db.add(oauth_credentials)
+        oauth_credentials = await self.get_oauth_credentials(server_id)
+        if oauth_credentials:
+            oauth_credentials.client_id = client_id
+            oauth_credentials.client_secret_encrypted = encrypted_secret
+            oauth_credentials.token_endpoint_auth_method = auth_method
+        else:
+            self.db.add(
+                MCPServerOAuthCredentialsDB(
+                    mcp_server_id=server_id,
+                    client_id=client_id,
+                    client_secret_encrypted=encrypted_secret,
+                    token_endpoint_auth_method=auth_method,
+                    created_by=None,
+                )
+            )
+        await self.db.flush()
 
     async def list_official(self) -> list[tuple[OfficialMCPServerDB, bool]]:
         stmt = (
