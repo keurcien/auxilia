@@ -8,7 +8,7 @@ from app.database import AsyncSessionLocal
 from app.integrations.slack.models import SlackInteractionPayload
 from app.integrations.slack.settings import slack_settings
 from app.integrations.slack.utils import get_user_info
-from app.threads.service import get_or_create_thread
+from app.threads.service import ThreadService
 from app.users.models import WorkspaceRole
 from app.users.repository import UserRepository
 
@@ -63,7 +63,7 @@ async def post_agent_picker(
     db: AsyncSession, user_id: str, user_role: WorkspaceRole | None = None,
 ) -> None:
     """Post an agent picker in the thread."""
-    all_agents = await AgentService(db).list_agents(user_id=user_id, user_role=user_role)
+    all_agents = await AgentService(db).list(user_id=user_id, user_role=user_role)
     agents = [a for a in all_agents if a.current_user_permission is not None]
     if not agents:
         return
@@ -121,12 +121,14 @@ async def handle_agent_selection(payload: SlackInteractionPayload) -> None:
     # Create the thread bound to this agent.
     # first_message_content is left None here; it will be set (and the Slack
     # thread title updated) when the user sends their first real message.
-    await get_or_create_thread(
-        ts=thread_ts,
-        agent_id=str(agent.id),
-        question=None,
-        user_id=str(user.id),
-    )
+    async with AsyncSessionLocal() as db:
+        await ThreadService(db).get_or_create(
+            ts=thread_ts,
+            agent_id=str(agent.id),
+            question=None,
+            user_id=str(user.id),
+        )
+        await db.commit()
 
     # Replace the picker message with a confirmation
     client = AsyncWebClient(token=slack_settings.slack_bot_token)

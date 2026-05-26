@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 from collections import defaultdict
 from uuid import UUID
@@ -22,7 +24,7 @@ from app.agents.subagents.service import SubagentService
 from app.database import get_db
 from app.exceptions import NotFoundError, PermissionDeniedError
 from app.mcp.servers.models import MCPServerDB
-from app.mcp.utils import check_mcp_server_connected
+from app.mcp.utils import probe_mcp_server
 from app.service import BaseService
 from app.users.models import WorkspaceRole
 
@@ -62,7 +64,7 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         (
             subagents_map,
             is_subagent_ids,
-        ) = await self.subagent_service.load_all_subagent_data(agent_ids)
+        ) = await self.subagent_service.list_all_subagent_data(agent_ids)
         return [
             AgentResponse(
                 **agent.model_dump(),
@@ -100,10 +102,10 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
                     permissions_map[agent.id] = permission.value
         return agents_map, mcp_map, permissions_map
 
-    async def create_agent(self, data: AgentCreateDB) -> AgentDB:
+    async def create(self, data: AgentCreateDB) -> AgentDB:
         return await self.repository.create(data)
 
-    async def get_agent(
+    async def get(
         self,
         agent_id: UUID,
         user_id: UUID | None = None,
@@ -129,7 +131,7 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         )
         return responses[0]
 
-    async def list_agents(
+    async def list(
         self,
         user_id: UUID | None = None,
         user_role: WorkspaceRole | None = None,
@@ -146,21 +148,21 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
             user_role,
         )
 
-    async def update_agent(
+    async def update(
         self,
         agent_id: UUID,
         data: AgentPatch,
         user_id: UUID | None = None,
         user_role: WorkspaceRole | None = None,
     ) -> AgentResponse:
-        existing = await self.get_agent(agent_id, user_id=user_id, user_role=user_role)
+        existing = await self.get(agent_id, user_id=user_id, user_role=user_role)
         if existing.current_user_permission not in ("owner", "admin", "editor"):
             raise PermissionDeniedError("Not authorized to edit this agent")
         agent = await self.get_or_404(agent_id)
         await self.repository.update(agent, data)
-        return await self.get_agent(agent_id, user_id=user_id, user_role=user_role)
+        return await self.get(agent_id, user_id=user_id, user_role=user_role)
 
-    async def delete_agent(
+    async def delete(
         self,
         agent_id: UUID,
         user_id: UUID | None = None,
@@ -180,8 +182,8 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
     ) -> list[AgentUserPermissionDB]:
         return await self.repository.set_permissions(agent_id, permissions)
 
-    async def check_ready(self, agent_id: UUID, user_id: str) -> dict:
-        agent = await self.get_agent(agent_id, include_archived=True)
+    async def describe_readiness(self, agent_id: UUID, user_id: str) -> dict:
+        agent = await self.get(agent_id, include_archived=True)
 
         if not agent.mcp_servers:
             return {"ready": True, "disconnected_servers": [], "status": "ready"}
@@ -202,7 +204,7 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
 
         disconnected: list[str] = []
         for server in servers:
-            if not await check_mcp_server_connected(server, user_id):
+            if not await probe_mcp_server(server, user_id):
                 disconnected.append(str(server.id))
 
         return {

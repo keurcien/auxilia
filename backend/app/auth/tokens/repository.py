@@ -21,7 +21,7 @@ class PersonalAccessTokenRepository(BaseRepository[PersonalAccessTokenDB]):
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
-    async def resolve_token(self, plaintext: str) -> PersonalAccessTokenDB | None:
+    async def get_by_token(self, plaintext: str) -> PersonalAccessTokenDB | None:
         """Find the PAT matching a plaintext token by prefix, then verify hash."""
         prefix = plaintext[:12]
         stmt = select(PersonalAccessTokenDB).where(

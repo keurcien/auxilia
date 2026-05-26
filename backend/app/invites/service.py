@@ -11,6 +11,7 @@ from app.database import get_db
 from app.exceptions import AlreadyExistsError
 from app.invites.models import InviteCreateDB, InviteDB, InviteStatus
 from app.invites.repository import InviteRepository
+from app.invites.schemas import InviteResponse
 from app.service import BaseService
 from app.users.models import UserDB
 
@@ -24,6 +25,24 @@ class InviteService(BaseService[InviteDB, InviteRepository]):
     def build_invite_url(self, token: str) -> str:
         return f"{auth_settings.FRONTEND_URL}/invite/{token}"
 
+    def _to_response(
+        self,
+        invite: InviteDB,
+        include_url: bool = False,
+        invited_by_name: str | None = None,
+    ) -> InviteResponse:
+        return InviteResponse(
+            id=invite.id,
+            email=invite.email,
+            role=invite.role,
+            status=invite.status.value,
+            invite_url=self.build_invite_url(invite.token) if include_url else None,
+            invited_by=invite.invited_by,
+            invited_by_name=invited_by_name,
+            expires_at=invite.expires_at,
+            created_at=invite.created_at,
+        )
+
     @staticmethod
     def _is_usable(invite: InviteDB | None) -> bool:
         return (
@@ -32,7 +51,7 @@ class InviteService(BaseService[InviteDB, InviteRepository]):
             and invite.expires_at >= datetime.now(UTC)
         )
 
-    async def create_invite(self, email: str, role: str, invited_by: UUID) -> InviteDB:
+    async def create(self, email: str, role: str, invited_by: UUID) -> InviteDB:
         """Create a new invite, revoking any existing pending invite for the same email."""
         result = await self.db.execute(select(UserDB).where(UserDB.email == email))
         if result.scalar_one_or_none():
@@ -47,7 +66,7 @@ class InviteService(BaseService[InviteDB, InviteRepository]):
         )
         return await self.repository.create(data)
 
-    async def validate_invite(self, token: str) -> InviteDB | None:
+    async def get_by_token(self, token: str) -> InviteDB | None:
         invite = await self.repository.get_by_token(token)
         return invite if self._is_usable(invite) else None
 

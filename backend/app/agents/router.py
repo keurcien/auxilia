@@ -40,7 +40,7 @@ async def create_agent(
     current_user: UserDB = Depends(require_editor),
     service: AgentService = Depends(get_agent_service),
 ) -> AgentResponse:
-    return await service.create_agent(
+    return await service.create(
         AgentCreateDB(**data.model_dump(), owner_id=current_user.id)
     )
 
@@ -50,7 +50,7 @@ async def get_agents(
     current_user: UserDB = Depends(get_current_user),
     service: AgentService = Depends(get_agent_service),
 ) -> list[AgentResponse]:
-    return await service.list_agents(
+    return await service.list(
         user_id=current_user.id, user_role=current_user.role
     )
 
@@ -61,7 +61,7 @@ async def get_agent(
     current_user: UserDB = Depends(get_current_user),
     service: AgentService = Depends(get_agent_service),
 ) -> AgentResponse:
-    return await service.get_agent(
+    return await service.get(
         agent_id,
         user_id=current_user.id,
         user_role=current_user.role,
@@ -75,7 +75,7 @@ async def update_agent(
     current_user: UserDB = Depends(get_current_user),
     service: AgentService = Depends(get_agent_service),
 ) -> AgentResponse:
-    return await service.update_agent(
+    return await service.update(
         agent_id, agent_update, user_id=current_user.id, user_role=current_user.role
     )
 
@@ -86,7 +86,7 @@ async def delete_agent(
     current_user: UserDB = Depends(get_current_user),
     service: AgentService = Depends(get_agent_service),
 ) -> None:
-    await service.delete_agent(
+    await service.delete(
         agent_id, user_id=current_user.id, user_role=current_user.role
     )
 
@@ -174,7 +174,7 @@ async def create_subagent(
     _: UserDB = Depends(require_admin),
     service: SubagentService = Depends(get_subagent_service),
 ) -> AgentSubagentResponse:
-    return await service.create(agent_id, subagent_id)
+    return await service.create_or_update(agent_id, subagent_id)
 
 
 @router.delete("/{agent_id}/subagents/{subagent_id}", status_code=204)
@@ -193,7 +193,7 @@ async def is_ready(
     current_user: UserDB = Depends(get_current_user),
     service: AgentService = Depends(get_agent_service),
 ):
-    return await service.check_ready(agent_id, str(current_user.id))
+    return await service.describe_readiness(agent_id, str(current_user.id))
 
 
 @router.get("/{agent_id}/threads", response_model=list[AgentThreadResponse])
@@ -205,9 +205,9 @@ async def list_agent_threads(
 ) -> list[AgentThreadResponse]:
     """List all threads for an agent across users. Restricted to agent owners
     and admins (workspace or agent-level)."""
-    agent = await agent_service.get_agent(
+    agent = await agent_service.get(
         agent_id, user_id=current_user.id, user_role=current_user.role
     )
     if agent.current_user_permission not in ("owner", "admin"):
         raise PermissionDeniedError("Not authorized to view this agent's threads")
-    return await thread_service.list_threads_for_agent(agent_id)
+    return await thread_service.list_for_agent(agent_id)

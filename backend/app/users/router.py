@@ -17,7 +17,7 @@ async def create_user(
     _: UserDB = Depends(require_admin),
     service: UserService = Depends(get_user_service),
 ) -> UserResponse:
-    return await service.create_user(user)
+    return await service.create(user)
 
 
 @router.get("/", response_model=list[UserResponse])
@@ -25,7 +25,7 @@ async def get_users(
     role: WorkspaceRole | None = None,
     service: UserService = Depends(get_user_service),
 ) -> list[UserResponse]:
-    return await service.list_users(role=role)
+    return await service.list(role=role)
 
 
 @router.get("/{user_id}", response_model=UserResponse)
@@ -33,15 +33,15 @@ async def get_user(
     user_id: UUID,
     service: UserService = Depends(get_user_service),
 ) -> UserResponse:
-    return await service.get_user(user_id)
+    return await service.get(user_id)
 
 
 @router.get("/email/{email}", response_model=UserResponse)
-async def get_user_by_email_route(
+async def get_user_by_email(
     email: str,
     service: UserService = Depends(get_user_service),
 ) -> UserResponse:
-    return await service.get_user_by_email(email)
+    return await service.get_by_email(email)
 
 
 @router.patch("/{user_id}", response_model=UserResponse)
@@ -50,7 +50,7 @@ async def update_user(
     user_update: UserPatch,
     service: UserService = Depends(get_user_service),
 ) -> UserResponse:
-    return await service.update_user(user_id, user_update)
+    return await service.update(user_id, user_update)
 
 
 @router.patch("/{user_id}/role", response_model=UserResponse)
@@ -59,7 +59,7 @@ async def update_user_role(
     role_update: UserRolePatch,
     service: UserService = Depends(get_user_service),
 ) -> UserResponse:
-    return await service.update_user_role(user_id, role_update)
+    return await service.update_role(user_id, role_update)
 
 
 @router.delete("/{user_id}", status_code=204)
@@ -68,4 +68,4 @@ async def delete_user(
     _: UserDB = Depends(require_admin),
     service: UserService = Depends(get_user_service),
 ) -> None:
-    await service.delete_user(user_id)
+    await service.delete(user_id)

@@ -44,7 +44,7 @@ class MCPServerRepository(BaseRepository[MCPServerDB]):
             return decrypt_api_key(api_key_record.key_encrypted)
         return None
 
-    async def save_api_key(self, server_id: UUID, api_key: str) -> None:
+    async def create_or_update_api_key(self, server_id: UUID, api_key: str) -> None:
         encrypted_key = encrypt_api_key(api_key)
         api_key_record = MCPServerAPIKeyDB(
             mcp_server_id=server_id,
@@ -60,7 +60,7 @@ class MCPServerRepository(BaseRepository[MCPServerDB]):
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def save_oauth_credentials(
+    async def create_or_update_oauth_credentials(
         self,
         server_id: UUID,
         client_id: str,

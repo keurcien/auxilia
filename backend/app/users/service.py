@@ -21,24 +21,24 @@ class UserService(BaseService[UserDB, UserRepository]):
         if await self.repository.get_by_email(email):
             raise AlreadyExistsError("Email already registered")
 
-    async def create_user(self, data: UserCreate) -> UserDB:
+    async def create(self, data: UserCreate) -> UserDB:
         if data.email:
             await self._ensure_email_available(data.email)
         return await self.repository.create(data)
 
-    async def get_user(self, user_id: UUID) -> UserDB:
+    async def get(self, user_id: UUID) -> UserDB:
         return await self.get_or_404(user_id)
 
-    async def get_user_by_email(self, email: str) -> UserDB:
+    async def get_by_email(self, email: str) -> UserDB:
         user = await self.repository.get_by_email(email)
         if not user:
             raise NotFoundError(self.not_found_message)
         return user
 
-    async def list_users(self, role: WorkspaceRole | None = None) -> list[UserDB]:
+    async def list(self, role: WorkspaceRole | None = None) -> list[UserDB]:
         return await self.repository.list(role=role)
 
-    async def update_user(self, user_id: UUID, data: UserPatch) -> UserDB:
+    async def update(self, user_id: UUID, data: UserPatch) -> UserDB:
         user = await self.get_or_404(user_id)
         update_data = data.model_dump(exclude_unset=True)
         new_email = update_data.get("email")
@@ -46,11 +46,11 @@ class UserService(BaseService[UserDB, UserRepository]):
             await self._ensure_email_available(new_email)
         return await self.repository.update(user, data)
 
-    async def update_user_role(self, user_id: UUID, data: UserRolePatch) -> UserDB:
+    async def update_role(self, user_id: UUID, data: UserRolePatch) -> UserDB:
         user = await self.get_or_404(user_id)
         return await self.repository.update(user, data)
 
-    async def delete_user(self, user_id: UUID) -> None:
+    async def delete(self, user_id: UUID) -> None:
         user = await self.get_or_404(user_id)
         await self.repository.delete(user)
 
