@@ -12,25 +12,25 @@ class SubagentRepository:
         self.db = db
 
     async def get(
-        self, coordinator_id: UUID, subagent_id: UUID
+        self, supervisor_id: UUID, subagent_id: UUID
     ) -> AgentSubagentDB | None:
         stmt = select(AgentSubagentDB).where(
-            AgentSubagentDB.coordinator_id == coordinator_id,
+            AgentSubagentDB.supervisor_id == supervisor_id,
             AgentSubagentDB.subagent_id == subagent_id,
         )
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_for_coordinator(
-        self, coordinator_id: UUID
+    async def list_for_supervisor(
+        self, supervisor_id: UUID
     ) -> list[AgentSubagentDB]:
         stmt = select(AgentSubagentDB).where(
-            AgentSubagentDB.coordinator_id == coordinator_id
+            AgentSubagentDB.supervisor_id == supervisor_id
         )
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_coordinator(
+    async def get_supervisor(
         self, subagent_id: UUID
     ) -> AgentSubagentDB | None:
         stmt = (
@@ -44,7 +44,7 @@ class SubagentRepository:
     async def has_subagents(self, agent_id: UUID) -> bool:
         stmt = (
             select(AgentSubagentDB.id)
-            .where(AgentSubagentDB.coordinator_id == agent_id)
+            .where(AgentSubagentDB.supervisor_id == agent_id)
             .limit(1)
         )
         result = await self.db.execute(stmt)
@@ -59,11 +59,14 @@ class SubagentRepository:
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none() is not None
 
-    async def create(
-        self, coordinator_id: UUID, subagent_id: UUID
+    async def create_or_update(
+        self, supervisor_id: UUID, subagent_id: UUID
     ) -> AgentSubagentDB:
+        existing = await self.get(supervisor_id, subagent_id)
+        if existing:
+            return existing
         link = AgentSubagentDB(
-            coordinator_id=coordinator_id,
+            supervisor_id=supervisor_id,
             subagent_id=subagent_id,
         )
         self.db.add(link)
@@ -78,7 +81,7 @@ class SubagentRepository:
     async def delete_all_for_agent(self, agent_id: UUID) -> None:
         stmt = select(AgentSubagentDB).where(
             or_(
-                AgentSubagentDB.coordinator_id == agent_id,
+                AgentSubagentDB.supervisor_id == agent_id,
                 AgentSubagentDB.subagent_id == agent_id,
             )
         )

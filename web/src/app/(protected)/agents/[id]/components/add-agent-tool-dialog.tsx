@@ -97,7 +97,7 @@ function BuiltInCapabilities({
 	onSaving?: () => void;
 	onSaved?: () => void;
 }) {
-	const [sandboxEnabled, setSandboxEnabled] = useState(agent.sandbox);
+	const [sandboxEnabled, setSandboxEnabled] = useState(agent.hasCodeInterpreter);
 
 	if (!sandboxAvailable) return null;
 
@@ -105,7 +105,7 @@ function BuiltInCapabilities({
 		setSandboxEnabled(checked);
 		onSaving?.();
 		try {
-			await api.patch(`/agents/${agent.id}`, { sandbox: checked });
+			await api.patch(`/agents/${agent.id}`, { hasCodeInterpreter: checked });
 			onSandboxToggled?.();
 			onSaved?.();
 		} catch (error) {

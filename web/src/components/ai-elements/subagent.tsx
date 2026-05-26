@@ -50,7 +50,7 @@ function getTextFromMessage(msg: any): string {
 
 /**
  * Parse a tool name into server + tool parts.
- * Same fallback logic as the coordinator chat page.
+ * Same fallback logic as the supervisor chat page.
  */
 function parseToolName(name: string): { serverName: string; toolName: string } {
 	const sep = name.indexOf("_");
@@ -82,7 +82,7 @@ type ToolRenderState =
 
 /**
  * Renders the subagent's conversation as a mini log:
- * AI text paragraphs + Tool cards (same as coordinator).
+ * AI text paragraphs + Tool cards (same as supervisor).
  */
 interface MCPServerInfo {
 	name: string;
@@ -124,7 +124,7 @@ const SubAgentConversation = memo(({ messages, isStreaming, mcpServers }: { mess
 				);
 			}
 
-			// Render tool calls with the same Tool components as the coordinator
+			// Render tool calls with the same Tool components as the supervisor
 			{/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
 			toolCalls.forEach((tc: any, j: number) => {
 				const tcId = tc.id ?? `${msg.id}-tc-${j}`;
@@ -384,7 +384,7 @@ export const SubAgentProgress = memo(({ subagents }: SubAgentProgressProps) => {
 SubAgentProgress.displayName = "SubAgentProgress";
 
 // ---------------------------------------------------------------------------
-// SynthesisIndicator: shown while coordinator synthesizes after subagents
+// SynthesisIndicator: shown while supervisor synthesizes after subagents
 // ---------------------------------------------------------------------------
 
 interface SynthesisIndicatorProps {

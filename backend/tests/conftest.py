@@ -43,7 +43,7 @@ def current_user():
         name="Test User",
         email="test@test.com",
         role=WorkspaceRole.member,
-        hashed_password="hashed_password"
+        password_hash="hashed_password"
     )
     app.dependency_overrides[get_current_user] = lambda: user
     yield user
@@ -58,7 +58,7 @@ def editor_user():
         name="Editor User",
         email="editor@test.com",
         role=WorkspaceRole.editor,
-        hashed_password="hashed_password"
+        password_hash="hashed_password"
     )
     app.dependency_overrides[get_current_user] = lambda: user
     app.dependency_overrides[require_editor] = lambda: user
@@ -74,7 +74,7 @@ def admin_user():
         name="Admin User",
         email="admin@test.com",
         role=WorkspaceRole.admin,
-        hashed_password="hashed_password"
+        password_hash="hashed_password"
     )
     app.dependency_overrides[get_current_user] = lambda: user
     app.dependency_overrides[require_editor] = lambda: user

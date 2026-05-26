@@ -15,7 +15,7 @@ class WorkspaceRole(str, Enum):
 class UserBase(SQLModel):
     name: str | None = Field(default=None, max_length=255)
     email: str | None = Field(default=None, max_length=255, unique=True, index=True)
-    hashed_password: str | None = Field(default=None)
+    password_hash: str | None = Field(default=None)
     role: WorkspaceRole = Field(default=WorkspaceRole.member, nullable=False)
 
 
