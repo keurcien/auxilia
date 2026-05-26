@@ -5,7 +5,6 @@ import { api } from "@/lib/api/client";
 import {
 	MCPAuthType,
 	MCPServer,
-	MCPServerCreate,
 	MCPServerUpdate,
 	OfficialMCPServer,
 } from "@/types/mcp-servers";
@@ -18,6 +17,13 @@ import { SageInput, SageTextarea } from "@/components/ui/sage-input";
 import { SageButton } from "@/components/ui/sage-button";
 import { SageDropdownMenu } from "@/components/ui/sage-dropdown-menu";
 import { SearchBar } from "@/components/ui/search-bar";
+import {
+	buildMCPServerCreatePayload,
+	MCPServerCreateFormErrors,
+	MCPServerCreateFormValues,
+	requiresStaticOAuthCredentials,
+	validateMCPServerCreateForm,
+} from "../lib/mcp-server-create-form";
 
 const DEFAULT_ICON = "https://storage.googleapis.com/choose-assets/mcp.png";
 const GCS_HOST = "storage.googleapis.com";
@@ -34,18 +40,7 @@ interface MCPServerDialogProps {
 	server?: MCPServer | null;
 }
 
-interface FormState {
-	name: string;
-	url: string;
-	description: string;
-	authType: MCPAuthType;
-	apiKey: string;
-	oauthClientId: string;
-	oauthClientSecret: string;
-	iconUrl: string;
-}
-
-const emptyForm: FormState = {
+const emptyForm: MCPServerCreateFormValues = {
 	name: "",
 	url: "",
 	description: "",
@@ -65,8 +60,8 @@ export default function MCPServerDialog({
 		useMcpServersStore();
 	const isEditMode = !!server;
 
-	const [form, setForm] = useState<FormState>(emptyForm);
-	const [errors, setErrors] = useState<Record<string, string>>({});
+	const [form, setForm] = useState<MCPServerCreateFormValues>(emptyForm);
+	const [errors, setErrors] = useState<MCPServerCreateFormErrors>({});
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [isResetting, setIsResetting] = useState(false);
 
@@ -119,11 +114,12 @@ export default function MCPServerDialog({
 	}, [officialServers, searchQuery]);
 
 	// Whether the selected official server requires non-DCR credentials
-	const isNonDcrOAuth =
-		selectedOfficial?.supportsDcr === false &&
-		selectedOfficial?.authType === "oauth2";
+	const isNonDcrOAuth = requiresStaticOAuthCredentials(selectedOfficial);
 
-	const handleFormChange = (field: keyof FormState, value: string) => {
+	const handleFormChange = (
+		field: keyof MCPServerCreateFormValues,
+		value: string,
+	) => {
 		setForm((prev) => ({ ...prev, [field]: value }));
 		if (errors[field]) {
 			setErrors((prev) => {
@@ -158,49 +154,14 @@ export default function MCPServerDialog({
 		setErrors({});
 	};
 
-	const validate = (): boolean => {
-		const newErrors: Record<string, string> = {};
-
-		if (!form.name.trim()) newErrors.name = "Name is required.";
-		if (!form.url.trim()) newErrors.url = "Server address is required.";
-
-		if (
-			form.authType === "oauth2" &&
-			form.oauthClientSecret &&
-			!form.oauthClientId
-		) {
-			newErrors.oauthClientId =
-				"Client ID is required when providing a Client Secret.";
-		}
-
-		// Non-DCR OAuth: client ID and secret are required
-		if (isNonDcrOAuth) {
-			if (!form.oauthClientId.trim())
-				newErrors.oauthClientId = "Client ID is required.";
-			if (!form.oauthClientSecret.trim())
-				newErrors.oauthClientSecret = "Client Secret is required.";
-		}
-
-		setErrors(newErrors);
-		return Object.keys(newErrors).length === 0;
-	};
-
 	const handleCreate = async () => {
-		if (!validate()) return;
+		const newErrors = validateMCPServerCreateForm(form, selectedOfficial);
+		setErrors(newErrors);
+		if (Object.keys(newErrors).length > 0) return;
 
 		setIsSubmitting(true);
 		try {
-			const payload: MCPServerCreate = {
-				name: form.name,
-				url: form.url,
-				authType: form.authType,
-				description: form.description || undefined,
-				iconUrl: form.iconUrl || undefined,
-				apiKey: form.apiKey || undefined,
-				oauthClientId: form.oauthClientId || undefined,
-				oauthClientSecret: form.oauthClientSecret || undefined,
-			};
-
+			const payload = buildMCPServerCreatePayload(form);
 			const response = await api.post("/mcp-servers", payload);
 			addMcpServer(response.data);
 			onOpenChange(false);
@@ -213,7 +174,7 @@ export default function MCPServerDialog({
 
 	const handleUpdate = async () => {
 		if (!server) return;
-		const newErrors: Record<string, string> = {};
+		const newErrors: MCPServerCreateFormErrors = {};
 		if (!form.name.trim()) newErrors.name = "Name is required.";
 		if (!form.url.trim()) newErrors.url = "Server address is required.";
 		setErrors(newErrors);
@@ -440,17 +401,29 @@ export default function MCPServerDialog({
 					<div className="space-y-[22px] mb-4">
 						{/* Name */}
 						<div>
-							<label className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-2">
+							<label
+								htmlFor="mcp-server-name"
+								className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-2"
+							>
 								Name
 							</label>
 							<SageInput
+								id="mcp-server-name"
 								placeholder="Server Name"
 								value={form.name}
 								onChange={(e) => handleFormChange("name", e.target.value)}
 								error={!!errors.name}
+								aria-required="true"
+								aria-invalid={!!errors.name}
+								aria-describedby={
+									errors.name ? "mcp-server-name-error" : undefined
+								}
 							/>
 							{errors.name && (
-								<p className="font-[family-name:var(--font-dm-sans)] text-[13px] text-[#D45B45] mt-1.5">
+								<p
+									id="mcp-server-name-error"
+									className="font-[family-name:var(--font-dm-sans)] text-[13px] text-[#D45B45] mt-1.5"
+								>
 									{errors.name}
 								</p>
 							)}
@@ -458,18 +431,30 @@ export default function MCPServerDialog({
 
 						{/* URL */}
 						<div>
-							<label className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-2">
+							<label
+								htmlFor="mcp-server-url"
+								className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-2"
+							>
 								Remote Server Address
 								<span className="text-[#D45B45] ml-0.5">*</span>
 							</label>
 							<SageInput
+								id="mcp-server-url"
 								placeholder="https://mcp.example.com/mcp"
 								value={form.url}
 								onChange={(e) => handleFormChange("url", e.target.value)}
 								error={!!errors.url}
+								aria-required="true"
+								aria-invalid={!!errors.url}
+								aria-describedby={
+									errors.url ? "mcp-server-url-error" : undefined
+								}
 							/>
 							{errors.url && (
-								<p className="font-[family-name:var(--font-dm-sans)] text-[13px] text-[#D45B45] mt-1.5">
+								<p
+									id="mcp-server-url-error"
+									className="font-[family-name:var(--font-dm-sans)] text-[13px] text-[#D45B45] mt-1.5"
+								>
 									{errors.url}
 								</p>
 							)}
@@ -477,10 +462,14 @@ export default function MCPServerDialog({
 
 						{/* Icon URL */}
 						<div>
-							<label className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-2">
+							<label
+								htmlFor="mcp-server-icon-url"
+								className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-2"
+							>
 								Icon URL
 							</label>
 							<SageInput
+								id="mcp-server-icon-url"
 								placeholder="https://example.com/icon.png"
 								value={form.iconUrl}
 								onChange={(e) => handleFormChange("iconUrl", e.target.value)}
@@ -489,10 +478,14 @@ export default function MCPServerDialog({
 
 						{/* Description */}
 						<div>
-							<label className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-2">
+							<label
+								htmlFor="mcp-server-description"
+								className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-2"
+							>
 								Description
 							</label>
 							<SageTextarea
+								id="mcp-server-description"
 								placeholder="Description"
 								value={form.description}
 								onChange={(e) =>
@@ -505,12 +498,19 @@ export default function MCPServerDialog({
 						{/* Auth Method */}
 						{!isEditMode ? (
 							<div>
-								<label className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-2">
+								<label
+									htmlFor="mcp-server-auth-type"
+									className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-2"
+								>
 									Authentication Method
 								</label>
 								<SageDropdownMenu
 									trigger={
-										<button className="w-full rounded-full border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-[#FAFCFB] dark:bg-white/5 text-[14px] font-medium font-[family-name:var(--font-dm-sans)] text-[#1E2D28] dark:text-foreground h-auto py-3 px-[18px] flex items-center justify-between cursor-pointer hover:border-[#A3B5AD] focus:border-[#4CA882] transition-colors outline-none">
+										<button
+											id="mcp-server-auth-type"
+											type="button"
+											className="w-full rounded-full border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-[#FAFCFB] dark:bg-white/5 text-[14px] font-medium font-[family-name:var(--font-dm-sans)] text-[#1E2D28] dark:text-foreground h-auto py-3 px-[18px] flex items-center justify-between cursor-pointer hover:border-[#A3B5AD] focus:border-[#4CA882] transition-colors outline-none"
+										>
 											<span>{AUTH_TYPE_LABELS[form.authType]}</span>
 											<ChevronDown className="size-4 text-[#8FA89E] shrink-0" />
 										</button>
@@ -538,9 +538,9 @@ export default function MCPServerDialog({
 							</div>
 						) : (
 							<div>
-								<label className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-1">
+								<p className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-1">
 									Authentication Method
-								</label>
+								</p>
 								<p className="font-[family-name:var(--font-dm-sans)] text-[14px] text-[#8FA89E] dark:text-muted-foreground font-medium">
 									{server?.authType === "none"
 										? "None"
@@ -554,10 +554,14 @@ export default function MCPServerDialog({
 						{/* API Key field (create only) */}
 						{!isEditMode && form.authType === "api_key" && (
 							<div>
-								<label className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-2">
+								<label
+									htmlFor="mcp-server-api-key"
+									className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-2"
+								>
 									API Key
 								</label>
 								<SageInput
+									id="mcp-server-api-key"
 									type="password"
 									placeholder="Enter your API Key"
 									value={form.apiKey}
@@ -575,28 +579,46 @@ export default function MCPServerDialog({
 										: "Leave empty to use Dynamic Client Registration (DCR). Only fill these if your MCP server requires static credentials."}
 								</p>
 								<div>
-									<label className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-2">
+									<label
+										htmlFor="mcp-server-oauth-client-id"
+										className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-2"
+									>
 										Client ID{isNonDcrOAuth ? "" : " (optional)"}
 									</label>
 									<SageInput
+										id="mcp-server-oauth-client-id"
 										placeholder="Enter your OAuth client ID"
 										value={form.oauthClientId}
 										onChange={(e) =>
 											handleFormChange("oauthClientId", e.target.value)
 										}
 										error={!!errors.oauthClientId}
+										aria-required={isNonDcrOAuth}
+										aria-invalid={!!errors.oauthClientId}
+										aria-describedby={
+											errors.oauthClientId
+												? "mcp-server-oauth-client-id-error"
+												: undefined
+										}
 									/>
 									{errors.oauthClientId && (
-										<p className="font-[family-name:var(--font-dm-sans)] text-[13px] text-[#D45B45] mt-1.5">
+										<p
+											id="mcp-server-oauth-client-id-error"
+											className="font-[family-name:var(--font-dm-sans)] text-[13px] text-[#D45B45] mt-1.5"
+										>
 											{errors.oauthClientId}
 										</p>
 									)}
 								</div>
 								<div>
-									<label className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-2">
+									<label
+										htmlFor="mcp-server-oauth-client-secret"
+										className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-2"
+									>
 										Client Secret{isNonDcrOAuth ? "" : " (optional)"}
 									</label>
 									<SageInput
+										id="mcp-server-oauth-client-secret"
 										type="password"
 										placeholder="Enter your OAuth client secret"
 										value={form.oauthClientSecret}
@@ -604,9 +626,19 @@ export default function MCPServerDialog({
 											handleFormChange("oauthClientSecret", e.target.value)
 										}
 										error={!!errors.oauthClientSecret}
+										aria-required={isNonDcrOAuth}
+										aria-invalid={!!errors.oauthClientSecret}
+										aria-describedby={
+											errors.oauthClientSecret
+												? "mcp-server-oauth-client-secret-error"
+												: undefined
+										}
 									/>
 									{errors.oauthClientSecret && (
-										<p className="font-[family-name:var(--font-dm-sans)] text-[13px] text-[#D45B45] mt-1.5">
+										<p
+											id="mcp-server-oauth-client-secret-error"
+											className="font-[family-name:var(--font-dm-sans)] text-[13px] text-[#D45B45] mt-1.5"
+										>
 											{errors.oauthClientSecret}
 										</p>
 									)}
