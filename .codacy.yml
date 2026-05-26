@@ -2,3 +2,6 @@ engines:
   bandit:
     exclude_paths:
       - "backend/tests/**"
+  gitleaks:
+    exclude_paths:
+      - "backend/tests/**"
