@@ -155,10 +155,10 @@ def test_update_agent(client: TestClient, mock_db, current_user):
 
     mock_db.execute.side_effect = [
         make_result(rows=[(agent, None)]),  # get_agent (auth): list_with_permissions
-        make_result(scalars_list=[]),  # get_agent (auth): load_all_subagent_data
+        make_result(scalars_list=[]),  # get_agent (auth): list_all_subagent_data
         make_result(scalar=agent),  # get_or_404: repository.get
         make_result(rows=[(agent, None)]),  # get_agent (return): list_with_permissions
-        make_result(scalars_list=[]),  # get_agent (return): load_all_subagent_data
+        make_result(scalars_list=[]),  # get_agent (return): list_all_subagent_data
     ]
 
     update_data = {
@@ -214,7 +214,7 @@ def test_update_agent_forbidden_for_non_owner(
 
     mock_db.execute.side_effect = [
         make_result(rows=[(agent, None, None)]),  # list_with_permissions: no grant
-        make_result(scalars_list=[]),  # load_all_subagent_data
+        make_result(scalars_list=[]),  # list_all_subagent_data
     ]
 
     response = client.patch(f"/agents/{agent_id}", json={"name": "Pwned"})
@@ -346,7 +346,7 @@ def test_list_agent_threads_as_owner(client: TestClient, mock_db, current_user):
     mock_db.execute.side_effect = [
         # get_agent: list_with_permissions returns the agent owned by current_user
         make_result(rows=[(agent, None, None)]),
-        # get_agent: load_all_subagent_data
+        # get_agent: list_all_subagent_data
         make_result(scalars_list=[]),
         # ThreadRepository.list_for_agent
         make_result(

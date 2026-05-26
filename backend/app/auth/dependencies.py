@@ -39,7 +39,7 @@ async def _resolve_from_bearer(
     """Resolve a Bearer token to a user — supports PATs and JWTs."""
     if token.startswith(TOKEN_PREFIX):
         repo = PersonalAccessTokenRepository(db)
-        pat = await repo.resolve_token(token)
+        pat = await repo.get_by_token(token)
         if pat is None:
             return None
         return await _resolve_user_by_id(db, pat.user_id)

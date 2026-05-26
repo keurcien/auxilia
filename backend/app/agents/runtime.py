@@ -34,7 +34,7 @@ from app.agents.stream import (
 from app.agents.tool_errors import ToolErrorMiddleware
 from app.agents.toolset import Toolset, sanitize_tool_name
 from app.database import get_checkpointer
-from app.exceptions import ValidationError
+from app.exceptions import DomainValidationError
 from app.integrations.langfuse.callback import langfuse_callback_handler
 from app.model_providers.catalog import LLM_PROVIDERS, MODELS, ChatModelFactory
 from app.sandbox.settings import sandbox_settings
@@ -66,7 +66,7 @@ async def get_regeneration_checkpoint_id(agent, config: dict) -> str | None:
 
 
 @dataclass
-class Agent:
+class ResolvedAgent:
     """An agent config with its resolved toolset. Used for both parent and subagents."""
 
     config: AgentResponse
@@ -80,8 +80,8 @@ class Agent:
         user_id: str,
         *,
         is_parent: bool = False,
-    ) -> "Agent":
-        config = await AgentService(db).get_agent(agent_id, include_archived=True)
+    ) -> "ResolvedAgent":
+        config = await AgentService(db).get(agent_id, include_archived=True)
         toolset = await Toolset.resolve(config.mcp_servers, db, user_id)
         if is_parent:
             toolset.apply_ui_metadata()
@@ -94,7 +94,7 @@ class Agent:
         runnables don't inherit the parent's checkpointer, and HumanInTheLoopMiddleware
         needs one. Approval gates on subagent tools are silently dropped today.
         """
-        if self.config.sandbox and sandbox_settings.enabled:
+        if self.config.has_code_interpreter and sandbox_settings.enabled:
             from app.sandbox.lazy import LazySandboxBackend
             from app.sandbox.tools import create_sandbox_tools
 
@@ -125,15 +125,15 @@ class Agent:
         )
 
 
-class AgentRuntime:
+class Agent:
     def __init__(
         self,
         thread: ThreadDB,
-        agent: Agent,
+        agent: ResolvedAgent,
         model,
         middleware: list,
         callbacks: list,
-        subagents: list[Agent],
+        subagents: list[ResolvedAgent],
     ):
         self.thread = thread
         self.agent = agent
@@ -164,19 +164,19 @@ class AgentRuntime:
         cls,
         thread: ThreadDB,
         db: AsyncSession,
-    ) -> "AgentRuntime":
+    ) -> "Agent":
         user_id = str(thread.user_id)
 
-        agent = await Agent.resolve(thread.agent_id, db, user_id, is_parent=True)
+        agent = await ResolvedAgent.resolve(thread.agent_id, db, user_id, is_parent=True)
 
         model_entry = next((m for m in MODELS if m.name == thread.model_id), None)
         if model_entry is None:
-            raise ValidationError(f"Unknown model: {thread.model_id}")
+            raise DomainValidationError(f"Unknown model: {thread.model_id}")
         provider = next(
             (p for p in LLM_PROVIDERS if p.name == model_entry.provider), None
         )
         if provider is None:
-            raise ValidationError(
+            raise DomainValidationError(
                 f"Unknown provider {model_entry.provider!r} for model {thread.model_id}"
             )
         model = ChatModelFactory().create(
@@ -197,10 +197,10 @@ class AgentRuntime:
             )
         ]
 
-        subagents: list[Agent] = []
+        subagents: list[ResolvedAgent] = []
         if agent.config.subagents:
             for sub in agent.config.subagents:
-                subagents.append(await Agent.resolve(sub.id, db, user_id))
+                subagents.append(await ResolvedAgent.resolve(sub.id, db, user_id))
 
         callbacks = (
             [langfuse_callback_handler] if langfuse_callback_handler is not None else []
@@ -217,7 +217,7 @@ class AgentRuntime:
 
     def _build_agent(self, checkpointer):
         """Build the LangGraph agent (deep or standard) with the given checkpointer."""
-        if self.agent.config.sandbox and sandbox_settings.enabled:
+        if self.agent.config.has_code_interpreter and sandbox_settings.enabled:
             return self._build_deep_agent(checkpointer)
 
         middleware = list(self.middleware)

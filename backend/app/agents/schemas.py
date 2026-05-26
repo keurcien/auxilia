@@ -17,7 +17,7 @@ class AgentCreate(SQLModel):
     instructions: str
     emoji: str | None = None
     color: str | None = None
-    sandbox: bool = False
+    has_code_interpreter: bool = False
 
     @field_validator("color")
     @classmethod
@@ -33,7 +33,7 @@ class AgentCreateDB(SQLModel):
     owner_id: UUID
     emoji: str | None = None
     color: str | None = None
-    sandbox: bool = False
+    has_code_interpreter: bool = False
 
     @field_validator("color")
     @classmethod
@@ -49,7 +49,7 @@ class AgentPatch(SQLModel):
     emoji: str | None = None
     color: str | None = None
     description: str | None = None
-    sandbox: bool | None = None
+    has_code_interpreter: bool | None = None
 
     @field_validator("color")
     @classmethod
@@ -85,7 +85,7 @@ class AgentPermissionCreate(SQLModel):
 
 class AgentSubagentResponse(SQLModel):
     id: UUID
-    coordinator_id: UUID
+    supervisor_id: UUID
     subagent_id: UUID
     created_at: datetime
     updated_at: datetime
@@ -107,7 +107,7 @@ class AgentResponse(SQLModel):
     emoji: str | None
     color: str | None
     description: str | None
-    sandbox: bool
+    has_code_interpreter: bool
     created_at: datetime
     updated_at: datetime
     mcp_servers: list[AgentMCPServerResponse] | None = None

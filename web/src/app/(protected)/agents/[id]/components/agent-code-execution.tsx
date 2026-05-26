@@ -36,7 +36,7 @@ export default function AgentCodeExecution({
 	const handleDisable = async () => {
 		onSaving?.();
 		try {
-			await api.patch(`/agents/${agent.id}`, { sandbox: false });
+			await api.patch(`/agents/${agent.id}`, { hasCodeInterpreter: false });
 			onUpdate?.();
 			onSaved?.();
 		} catch (error) {

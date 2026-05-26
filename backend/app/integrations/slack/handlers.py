@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.agents.core.service import AgentService
-from app.agents.runtime import AgentRuntime
+from app.agents.runtime import Agent
 from app.auth.settings import auth_settings
 from app.database import AsyncSessionLocal
 from app.integrations.slack.blocks import (
@@ -21,7 +21,7 @@ from app.integrations.slack.models import SlackEvent, SlackInteractionPayload
 from app.integrations.slack.settings import slack_settings
 from app.integrations.slack.utils import get_user_info, resolve_user
 from app.mcp.servers.models import MCPServerDB
-from app.mcp.utils import check_mcp_server_connected
+from app.mcp.utils import probe_mcp_server
 from app.threads.models import ThreadDB
 from app.users.repository import UserRepository
 
@@ -39,7 +39,7 @@ async def post_tool_approval_block(
 
 
 async def _stream_and_collect_approvals(
-    agent_runtime: AgentRuntime,
+    agent: Agent,
     streamer,
     *,
     agent_input: dict | None = None,
@@ -52,7 +52,7 @@ async def _stream_and_collect_approvals(
     """
     approval_requests: list[dict] = []
 
-    async for ev in agent_runtime.stream(
+    async for ev in agent.stream(
         agent_input=agent_input, command=command, stream_adapter="slack",
     ):
         if ev["type"] == "text":
@@ -95,9 +95,9 @@ async def _run_slack_turn(
         recipient_user_id=recipient_user_id,
     )
 
-    agent_runtime = await AgentRuntime.build(thread=thread, db=db)
+    agent = await Agent.build(thread=thread, db=db)
     approval_requests = await _stream_and_collect_approvals(
-        agent_runtime, streamer, agent_input=agent_input, command=command,
+        agent, streamer, agent_input=agent_input, command=command,
     )
 
     for req in approval_requests:
@@ -292,7 +292,7 @@ async def handle_assistant_thread_started(event: SlackEvent) -> None:
         return
 
     async with AsyncSessionLocal() as db:
-        all_agents = await AgentService(db).list_agents(user_id=user.id, user_role=user.role)
+        all_agents = await AgentService(db).list(user_id=user.id, user_role=user.role)
     agents = [a for a in all_agents if a.current_user_permission is not None]
 
     if not agents:
@@ -333,7 +333,7 @@ async def _is_agent_ready(agent_id: str, user_id: str, db: AsyncSession) -> bool
     """Mirror the /is-ready endpoint: return True only when all bound MCP servers
     are connected for this user."""
     from uuid import UUID
-    agent = await AgentService(db).get_agent(UUID(agent_id))
+    agent = await AgentService(db).get(UUID(agent_id))
 
     if not agent.mcp_servers:
         return True
@@ -347,7 +347,7 @@ async def _is_agent_ready(agent_id: str, user_id: str, db: AsyncSession) -> bool
     servers = result.scalars().all()
 
     for server in servers:
-        if not await check_mcp_server_connected(server, user_id):
+        if not await probe_mcp_server(server, user_id):
             return False
 
     return True

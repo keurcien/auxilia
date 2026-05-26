@@ -19,7 +19,7 @@ const TABS = [
 		filter: (a: Agent) =>
 			a.currentUserPermission === "admin" ||
 			a.currentUserPermission === "editor" ||
-			a.currentUserPermission === "user",
+			a.currentUserPermission === "member",
 	},
 	{
 		key: "discover",

@@ -232,7 +232,7 @@ async def test_create_or_update_creates_and_fetches_tools_for_no_auth(
     mock_repo.get.return_value = None
     mock_repo.create.return_value = link
 
-    with patch.object(service, "_fetch_and_save_tools", new=AsyncMock()) as mock_fetch:
+    with patch.object(service, "_sync_tools", new=AsyncMock()) as mock_fetch:
         await service.create_or_update(
             uuid4(), server.id, AgentMCPServerCreate(), "user-id"
         )
@@ -250,7 +250,7 @@ async def test_create_or_update_creates_and_fetches_tools_for_api_key(
     mock_repo.get.return_value = None
     mock_repo.create.return_value = link
 
-    with patch.object(service, "_fetch_and_save_tools", new=AsyncMock()) as mock_fetch:
+    with patch.object(service, "_sync_tools", new=AsyncMock()) as mock_fetch:
         await service.create_or_update(
             uuid4(), server.id, AgentMCPServerCreate(), "user-id"
         )
@@ -269,10 +269,10 @@ async def test_create_or_update_oauth_fetches_tools_when_connected(
 
     with (
         patch(
-            "app.agents.mcp_servers.service.check_oauth_connected",
+            "app.agents.mcp_servers.service.is_oauth_connected",
             new=AsyncMock(return_value=True),
         ),
-        patch.object(service, "_fetch_and_save_tools", new=AsyncMock()) as mock_fetch,
+        patch.object(service, "_sync_tools", new=AsyncMock()) as mock_fetch,
     ):
         await service.create_or_update(
             uuid4(), server.id, AgentMCPServerCreate(), "user-id"
@@ -292,10 +292,10 @@ async def test_create_or_update_oauth_skips_fetch_when_not_connected(
 
     with (
         patch(
-            "app.agents.mcp_servers.service.check_oauth_connected",
+            "app.agents.mcp_servers.service.is_oauth_connected",
             new=AsyncMock(return_value=False),
         ),
-        patch.object(service, "_fetch_and_save_tools", new=AsyncMock()) as mock_fetch,
+        patch.object(service, "_sync_tools", new=AsyncMock()) as mock_fetch,
     ):
         await service.create_or_update(
             uuid4(), server.id, AgentMCPServerCreate(), "user-id"
@@ -336,7 +336,7 @@ async def test_sync_tools_calls_fetch_and_save_and_returns_link(
     mock_db.execute.return_value = make_mock_execute_result(scalar=server)
     mock_repo.get.return_value = link
 
-    with patch.object(service, "_fetch_and_save_tools", new=AsyncMock()) as mock_fetch:
+    with patch.object(service, "_sync_tools", new=AsyncMock()) as mock_fetch:
         result = await service.sync_tools(uuid4(), server.id, "user-id")
 
     mock_fetch.assert_awaited_once_with(link, server, "user-id")

@@ -15,9 +15,10 @@ from app.auth.tokens.router import router as tokens_router
 from app.exceptions import (
     AlreadyExistsError,
     DomainError,
+    DomainValidationError,
+    InvalidCredentialsError,
     NotFoundError,
     PermissionDeniedError,
-    ValidationError,
 )
 from app.integrations.slack.router import router as slack_router
 from app.invites.router import router as invites_router
@@ -89,17 +90,26 @@ async def not_found_handler(_request: Request, exc: NotFoundError):
 
 @app.exception_handler(AlreadyExistsError)
 async def already_exists_handler(_request: Request, exc: AlreadyExistsError):
-    return JSONResponse(status_code=409, content={"detail": exc.detail})
+    return JSONResponse(status_code=400, content={"detail": exc.detail})
 
 
-@app.exception_handler(ValidationError)
-async def validation_error_handler(_request: Request, exc: ValidationError):
+@app.exception_handler(DomainValidationError)
+async def domain_validation_error_handler(
+    _request: Request, exc: DomainValidationError
+):
     return JSONResponse(status_code=400, content={"detail": exc.detail})
 
 
 @app.exception_handler(PermissionDeniedError)
 async def permission_denied_handler(_request: Request, exc: PermissionDeniedError):
     return JSONResponse(status_code=403, content={"detail": exc.detail})
+
+
+@app.exception_handler(InvalidCredentialsError)
+async def invalid_credentials_handler(
+    _request: Request, exc: InvalidCredentialsError
+):
+    return JSONResponse(status_code=401, content={"detail": exc.detail})
 
 
 @app.exception_handler(DomainError)

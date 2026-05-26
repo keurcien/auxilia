@@ -1,6 +1,6 @@
 # Backend Naming Conventions
 
-This document is the source of truth for how to name things in the FastAPI backend (`backend/`). It complements `CLAUDE.md`, which describes the *architecture* (router → service → repository → model). This one is about *names*.
+This document is the source of truth for how to name things in the FastAPI backend (`backend/`). It complements `CLAUDE.md`, which describes the _architecture_ (router → service → repository → model). This one is about _names_.
 
 If anything in this doc conflicts with code in the repo today, the code is wrong — see `CONVENTIONS_RENAMES.md` for the punch list of changes needed to bring the codebase into compliance.
 
@@ -12,14 +12,14 @@ If anything in this doc conflicts with code in the repo today, the code is wrong
 
 The bare noun is the concept. Specific classes always wear a suffix that says what stage / representation they are.
 
-| Concept | Suffix family |
-| --- | --- |
-| `User` | `UserDB`, `UserCreate`, `UserPatch`, `UserResponse` |
-| `Agent` | `AgentDB`, `AgentCreate`, `AgentCreateDB`, `AgentPatch`, `AgentResponse`, `ResolvedAgent`, `Agent` (the runnable — see §4) |
-| `Thread` | `ThreadDB`, `ThreadCreate`, `ThreadPatch`, `ThreadResponse` |
-| `MCPServer` | `MCPServerDB`, `MCPServerCreate`, `MCPServerPatch`, `MCPServerResponse` |
-| `Invite` | `InviteDB`, `InviteCreate`, `InviteCreateDB`, `InviteResponse` |
-| `PersonalAccessToken` (PAT) | `PersonalAccessTokenDB`, `PersonalAccessTokenCreate`, `PersonalAccessTokenCreateDB`, `PersonalAccessTokenResponse` |
+| Concept                     | Suffix family                                                                                                              |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `User`                      | `UserDB`, `UserCreate`, `UserPatch`, `UserResponse`                                                                        |
+| `Agent`                     | `AgentDB`, `AgentCreate`, `AgentCreateDB`, `AgentPatch`, `AgentResponse`, `ResolvedAgent`, `Agent` (the runnable — see §4) |
+| `Thread`                    | `ThreadDB`, `ThreadCreate`, `ThreadPatch`, `ThreadResponse`                                                                |
+| `MCPServer`                 | `MCPServerDB`, `MCPServerCreate`, `MCPServerPatch`, `MCPServerResponse`                                                    |
+| `Invite`                    | `InviteDB`, `InviteCreate`, `InviteCreateDB`, `InviteResponse`                                                             |
+| `PersonalAccessToken` (PAT) | `PersonalAccessTokenDB`, `PersonalAccessTokenCreate`, `PersonalAccessTokenCreateDB`, `PersonalAccessTokenResponse`         |
 
 Rule: **never define a class with the bare noun** (`User`, `Thread`, `MCPServer`). The bare noun is reserved for prose. `Agent` is the deliberate exception — it names the runnable runtime class (§4).
 
@@ -29,23 +29,23 @@ A parent agent that orchestrates other agents is the **supervisor**. The orchest
 
 ### Class suffix catalogue
 
-| Suffix | Meaning | Used by |
-| --- | --- | --- |
-| `*DB` | SQLModel table (`table=True`) | `UserDB`, `AgentDB`, … |
-| `*Base` | Shared column set mixed into the table + create schema | `UserBase`, `AgentBase` |
-| `*Create` | Client-supplied create payload | `UserCreate`, `AgentCreate` |
-| `*CreateDB` | Server-side create payload — adds fields the client can't set (`owner_id`, `token_hash`, `expires_at`) | `AgentCreateDB`, `InviteCreateDB`, `PersonalAccessTokenCreateDB` |
-| `*Patch` | Partial update payload (all fields nullable, consumed with `model_dump(exclude_unset=True)`) | `UserPatch`, `AgentPatch` |
-| `*Response` | API response shape | `UserResponse`, `AgentResponse` |
-| `*Service` | Business logic class — owns the `db`, raises domain exceptions | `UserService`, `AgentService` |
-| `*Repository` | Data access class — one method per query shape | `UserRepository`, `AgentRepository` |
-| `*Settings` | `pydantic_settings.BaseSettings` config class | `AppSettings`, `AgentSettings` |
-| `*Factory` | Builds objects from inputs | `ChatModelFactory`, `MCPClientConfigFactory` |
-| `*Provider` | Provides a service or capability (OAuth, auth, …) | `WebOAuthClientProvider` |
-| `*Middleware` | LangChain middleware | `ToolErrorMiddleware`, `SubAgentMiddleware` |
-| `*Adapter` | Adapts one interface to another (e.g. stream protocols) | `LangGraphStreamAdapter`, `SlackStreamAdapter` |
-| `*Error` | Domain exception (see §8) | `NotFoundError`, `DomainValidationError` |
-| `*Mixin` | SQLModel column mixin | `UUIDMixin`, `TimestampMixin` |
+| Suffix        | Meaning                                                                                                | Used by                                                          |
+| ------------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------- |
+| `*DB`         | SQLModel table (`table=True`)                                                                          | `UserDB`, `AgentDB`, …                                           |
+| `*Base`       | Shared column set mixed into the table + create schema                                                 | `UserBase`, `AgentBase`                                          |
+| `*Create`     | Client-supplied create payload                                                                         | `UserCreate`, `AgentCreate`                                      |
+| `*CreateDB`   | Server-side create payload — adds fields the client can't set (`owner_id`, `token_hash`, `expires_at`) | `AgentCreateDB`, `InviteCreateDB`, `PersonalAccessTokenCreateDB` |
+| `*Patch`      | Partial update payload (all fields nullable, consumed with `model_dump(exclude_unset=True)`)           | `UserPatch`, `AgentPatch`                                        |
+| `*Response`   | API response shape                                                                                     | `UserResponse`, `AgentResponse`                                  |
+| `*Service`    | Business logic class — owns the `db`, raises domain exceptions                                         | `UserService`, `AgentService`                                    |
+| `*Repository` | Data access class — one method per query shape                                                         | `UserRepository`, `AgentRepository`                              |
+| `*Settings`   | `pydantic_settings.BaseSettings` config class                                                          | `AppSettings`, `AgentSettings`                                   |
+| `*Factory`    | Builds objects from inputs                                                                             | `ChatModelFactory`, `MCPClientConfigFactory`                     |
+| `*Provider`   | Provides a service or capability (OAuth, auth, …)                                                      | `WebOAuthClientProvider`                                         |
+| `*Middleware` | LangChain middleware                                                                                   | `ToolErrorMiddleware`, `SubAgentMiddleware`                      |
+| `*Adapter`    | Adapts one interface to another (e.g. stream protocols)                                                | `LangGraphStreamAdapter`, `SlackStreamAdapter`                   |
+| `*Error`      | Domain exception (see §8)                                                                              | `NotFoundError`, `DomainValidationError`                         |
+| `*Mixin`      | SQLModel column mixin                                                                                  | `UUIDMixin`, `TimestampMixin`                                    |
 
 **Do not use**: `*Update` (we use `*Patch`), `*Schema`, `*Model`, `*DTO`, `*Payload`, `*Exception` (use `*Error`), `*Handler`, `*Manager`.
 
@@ -53,7 +53,7 @@ A parent agent that orchestrates other agents is the **supervisor**. The orchest
 
 ### Enum values
 
-Enum values are lowercase snake_case. Multi-word values use `_` (`always_allow`), compound technical terms stay as one word (`oauth2`, `api_key` — but write `api_key` consistently with `_` for any token-like compound).
+Enum values are lowercase snake*case. Multi-word values use `*` (`always*allow`), compound technical terms stay as one word (`oauth2`, `api_key`— but write`api_key`consistently with`*` for any token-like compound).
 
 Shared role values across enums are kept in sync. `PermissionLevel` (per-agent) and `WorkspaceRole` (per-workspace) both use `member` / `editor` / `admin` — never `user` for the lowest level.
 
@@ -65,14 +65,14 @@ This is the canonical verb for each kind of method/function. Any other verb mean
 
 ### Read
 
-| Operation | Verb | Returns | Example |
-| --- | --- | --- | --- |
-| Fetch one by PK | `get(id)` (base repo), `get_by_*` (by field) | `Entity \| None` (repo) | `repo.get(user_id)`, `repo.get_by_email(email)` |
-| Fetch one or raise 404 | `get_or_404(id)` | `Entity` (raises `NotFoundError`) | `service.get_or_404(id)` |
-| Fetch by credential (token, hash, ...) | `get_by_token`, `get_by_hash`, … | `Entity \| None` | `repo.get_by_token(plaintext)` |
-| Fetch many | `list(...)`, `list_for_*`, `list_with_*`, `list_pending` | `list[Entity]` | `repo.list()`, `repo.list_for_user(user_id)` |
-| Count | `count_*` | `int` | `service.count_users()` |
-| Fetch-or-create | `get_or_create_*` | `(Entity, bool)` or `Entity` | `service.get_or_create_thread(...)` |
+| Operation                              | Verb                                                     | Returns                           | Example                                         |
+| -------------------------------------- | -------------------------------------------------------- | --------------------------------- | ----------------------------------------------- |
+| Fetch one by PK                        | `get(id)` (base repo), `get_by_*` (by field)             | `Entity \| None` (repo)           | `repo.get(user_id)`, `repo.get_by_email(email)` |
+| Fetch one or raise 404                 | `get_or_404(id)`                                         | `Entity` (raises `NotFoundError`) | `service.get_or_404(id)`                        |
+| Fetch by credential (token, hash, ...) | `get_by_token`, `get_by_hash`, …                         | `Entity \| None`                  | `repo.get_by_token(plaintext)`                  |
+| Fetch many                             | `list(...)`, `list_for_*`, `list_with_*`, `list_pending` | `list[Entity]`                    | `repo.list()`, `repo.list_for_user(user_id)`    |
+| Count                                  | `count_*`                                                | `int`                             | `service.count_users()`                         |
+| Fetch-or-create                        | `get_or_create_*`                                        | `(Entity, bool)` or `Entity`      | `service.get_or_create_thread(...)`             |
 
 **Reserved — do not use**: `load_*`, `fetch_*`, `resolve_*` (for DB lookups), `find_*`, `query_*`, `retrieve_*`, `select_*`.
 
@@ -80,23 +80,23 @@ This is the canonical verb for each kind of method/function. Any other verb mean
 
 ### Create / update / delete
 
-| Operation | Verb | Notes |
-| --- | --- | --- |
-| Create | `create(...)`, `create_*` | Adds row(s); raises `AlreadyExistsError` on conflict |
-| Update (partial) | `update(...)`, `update_*` | Consumes `*Patch`; uses `model_dump(exclude_unset=True)` |
-| Upsert | `create_or_update(...)`, `create_or_update_*` | Spelled out — never hidden behind `save_*` or `set_*` |
-| Delete (hard) | `delete(...)`, `delete_*` | Row removed |
-| Delete many | `delete_all_for_*` | E.g. `delete_all_for_agent(agent_id)` |
-| Replace a collection | `set_*` (e.g. `set_permissions`) | Bulk-replace semantics, *not* an upsert of single rows |
-| Soft delete (invite-status flip) | `revoke(...)` | Invite-specific; transitions `pending → revoked` |
-| Soft delete (agent flag) | `archive(...)` | Agent-specific; sets `is_archived = True` |
-| Wipe + keep row | `reset_*` (e.g. `reset_server`) | Clears credentials/state, row stays |
+| Operation                        | Verb                                          | Notes                                                    |
+| -------------------------------- | --------------------------------------------- | -------------------------------------------------------- |
+| Create                           | `create(...)`, `create_*`                     | Adds row(s); raises `AlreadyExistsError` on conflict     |
+| Update (partial)                 | `update(...)`, `update_*`                     | Consumes `*Patch`; uses `model_dump(exclude_unset=True)` |
+| Upsert                           | `create_or_update(...)`, `create_or_update_*` | Spelled out — never hidden behind `save_*` or `set_*`    |
+| Delete (hard)                    | `delete(...)`, `delete_*`                     | Row removed                                              |
+| Delete many                      | `delete_all_for_*`                            | E.g. `delete_all_for_agent(agent_id)`                    |
+| Replace a collection             | `set_*` (e.g. `set_permissions`)              | Bulk-replace semantics, _not_ an upsert of single rows   |
+| Soft delete (invite-status flip) | `revoke(...)`                                 | Invite-specific; transitions `pending → revoked`         |
+| Soft delete (agent flag)         | `archive(...)`                                | Agent-specific; sets `is_archived = True`                |
+| Wipe + keep row                  | `reset_*` (e.g. `reset_server`)               | Clears credentials/state, row stays                      |
 
 **Reserved — do not use**: `save_*`, `store_*`, `persist_*` (use `create` / `update` / `create_or_update`), `remove_*` / `destroy_*` (use `delete`), `modify_*` / `edit_*` / `change_*` (use `update`), `make_*` (use `build_*`), `add_*` (use `create_*`).
 
 ### Service methods drop the entity noun
 
-Repositories and services already name their entity through the class name. Methods do *not* repeat it.
+Repositories and services already name their entity through the class name. Methods do _not_ repeat it.
 
 ```python
 # GOOD
@@ -119,25 +119,25 @@ Relationship and filter qualifiers stay (`list_for_user`, `list_for_supervisor`,
 
 ### Predicates and assertions
 
-| Shape | Verb | Returns | Example |
-| --- | --- | --- | --- |
-| Pure bool — state | `is_*` | `bool` | `is_archived`, `is_sandboxed`, `is_subagent` |
-| Pure bool — possession | `has_*` | `bool` | `has_subagents`, `has_permission` |
-| Pure bool — capability | `can_*` | `bool` | `can_edit` |
-| Assert / guard | `_ensure_*` (private) | `None` or the asserted object; raises on failure | `_ensure_email_available`, `_ensure_server` |
-| I/O probe (network call, returns diagnostics) | `probe_*` | `dict` / status payload | `probe_connectivity`, `probe_mcp_server` |
-| Structured status | `describe_*` or `get_*_status` | `dict` | `describe_readiness`, `get_oauth_status` |
+| Shape                                         | Verb                           | Returns                                          | Example                                      |
+| --------------------------------------------- | ------------------------------ | ------------------------------------------------ | -------------------------------------------- |
+| Pure bool — state                             | `is_*`                         | `bool`                                           | `is_archived`, `is_sandboxed`, `is_subagent` |
+| Pure bool — possession                        | `has_*`                        | `bool`                                           | `has_subagents`, `has_permission`            |
+| Pure bool — capability                        | `can_*`                        | `bool`                                           | `can_edit`                                   |
+| Assert / guard                                | `_ensure_*` (private)          | `None` or the asserted object; raises on failure | `_ensure_email_available`, `_ensure_server`  |
+| I/O probe (network call, returns diagnostics) | `probe_*`                      | `dict` / status payload                          | `probe_connectivity`, `probe_mcp_server`     |
+| Structured status                             | `describe_*` or `get_*_status` | `dict`                                           | `describe_readiness`, `get_oauth_status`     |
 
 **Reserved — do not use**: `check_*` (ambiguous between predicate, assertion, and probe — pick one of the above), `validate_*` (use `_ensure_*` or `is_*`), `verify_*`, `_require_*` (use `_ensure_*`).
 
 ### Constructors of new artifacts
 
-| Operation | Verb | Notes |
-| --- | --- | --- |
-| Deterministic compose | `build_*` | `build_invite_url`, `build_oauth_client_metadata`, `build_jwt_for_user`. Pure function-y. |
-| Entropy / cryptographic | `_generate_*` (private) | `_generate_token` — anything that calls `secrets.token_*` or pulls randomness. |
-| DB lookup + hydrate (factory) | `resolve(...)` (classmethod) | `ResolvedAgent.resolve(agent_id, db, user_id)`, `Toolset.resolve(...)` |
-| Orchestrate multiple resolves | `build(...)` (classmethod) | `Agent.build(thread, db)` — composes multiple `resolve` calls + middleware/callbacks |
+| Operation                     | Verb                         | Notes                                                                                     |
+| ----------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------- |
+| Deterministic compose         | `build_*`                    | `build_invite_url`, `build_oauth_client_metadata`, `build_jwt_for_user`. Pure function-y. |
+| Entropy / cryptographic       | `_generate_*` (private)      | `_generate_token` — anything that calls `secrets.token_*` or pulls randomness.            |
+| DB lookup + hydrate (factory) | `resolve(...)` (classmethod) | `ResolvedAgent.resolve(agent_id, db, user_id)`, `Toolset.resolve(...)`                    |
+| Orchestrate multiple resolves | `build(...)` (classmethod)   | `Agent.build(thread, db)` — composes multiple `resolve` calls + middleware/callbacks      |
 
 **Reserved — do not use**: `make_*`, `_issue_*` (use `build_*`), `new_*`, `from_*` (use `resolve` / `build`; future `from_spec(dict)` is allowed as a deliberate exception).
 
@@ -178,10 +178,10 @@ A router never instantiates a repository directly; only services do.
 
 Because agents have a persistent-store side and a runtime-execution side, two classes exist:
 
-| Class | What it holds | Methods | Typical caller |
-| --- | --- | --- | --- |
-| `ResolvedAgent` (in `app/agents/runtime.py`) | `config: AgentResponse` + `toolset: Toolset` | `.resolve(...)` (classmethod factory), `.compile(model)` | Internal: subagent compilation, `Agent.build()` |
-| `Agent` (in `app/agents/runtime.py`) | `thread`, `model`, `middleware`, `callbacks`, the resolved parent agent, `list[ResolvedAgent]` subagents | `.build(thread, db)` (classmethod factory), `.invoke(...)`, `.stream(...)` | Public: routers, integrations |
+| Class                                        | What it holds                                                                                            | Methods                                                                    | Typical caller                                  |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------- |
+| `ResolvedAgent` (in `app/agents/runtime.py`) | `config: AgentResponse` + `toolset: Toolset`                                                             | `.resolve(...)` (classmethod factory), `.compile(model)`                   | Internal: subagent compilation, `Agent.build()` |
+| `Agent` (in `app/agents/runtime.py`)         | `thread`, `model`, `middleware`, `callbacks`, the resolved parent agent, `list[ResolvedAgent]` subagents | `.build(thread, db)` (classmethod factory), `.invoke(...)`, `.stream(...)` | Public: routers, integrations                   |
 
 Public API reads:
 
@@ -210,7 +210,7 @@ Do not introduce `from_*` factory names unless you're deliberately exposing a Py
 
 - **Default**: `{entity}_id` (`user_id`, `agent_id`, `mcp_server_id`, `thread_id`).
 - **Semantic noun role**: `{role}_id` (`owner_id`, `supervisor_id`, `subagent_id`).
-- **Verb-form (past participle) role**: no suffix (`created_by`, `invited_by`). This is the *only* time an FK column doesn't end in `_id`.
+- **Verb-form (past participle) role**: no suffix (`created_by`, `invited_by`). This is the _only_ time an FK column doesn't end in `_id`.
 
 Rule of thumb: ask "is the column a noun describing the relationship, or a past-tense verb describing how the row came to be?" Nouns get `_id`; verbs don't.
 
@@ -262,19 +262,19 @@ Column name is the plural of the contents (`tools` for a list of tool descriptor
 
 ### Path parameters
 
-Always prefixed (see §4): `{user_id}`, `{agent_id}`, `{server_id}`. Consistency *within a single router* is mandatory.
+Always prefixed (see §4): `{user_id}`, `{agent_id}`, `{server_id}`. Consistency _within a single router_ is mandatory.
 
 ### Verbs in paths
 
 Allowed only when CRUD doesn't fit. When allowed, the verb segment is kebab-case:
 
-| When allowed | Examples |
-| --- | --- |
-| State transition that isn't a PATCH | `POST /agents/{agent_id}/mcp-servers/{server_id}/sync-tools` |
-| Non-idempotent action | `POST /mcp-servers/{server_id}/reset`, `POST /invites/accept` |
-| Streaming / RPC | `POST /threads/{thread_id}/runs/stream`, `POST /threads/{thread_id}/runs/invoke` |
-| Predicate (mirrors an `is_*` helper) | `GET /agents/{agent_id}/is-ready`, `GET /mcp-servers/{server_id}/is-connected` |
-| Auth-flow verbs at root | `POST /auth/signin`, `POST /auth/signout`, `POST /auth/setup` |
+| When allowed                         | Examples                                                                         |
+| ------------------------------------ | -------------------------------------------------------------------------------- |
+| State transition that isn't a PATCH  | `POST /agents/{agent_id}/mcp-servers/{server_id}/sync-tools`                     |
+| Non-idempotent action                | `POST /mcp-servers/{server_id}/reset`, `POST /invites/accept`                    |
+| Streaming / RPC                      | `POST /threads/{thread_id}/runs/stream`, `POST /threads/{thread_id}/runs/invoke` |
+| Predicate (mirrors an `is_*` helper) | `GET /agents/{agent_id}/is-ready`, `GET /mcp-servers/{server_id}/is-connected`   |
+| Auth-flow verbs at root              | `POST /auth/signin`, `POST /auth/signout`, `POST /auth/setup`                    |
 
 Otherwise, stick to CRUD on the resource.
 
@@ -317,10 +317,10 @@ Trailing slashes match what's already in the router. If the router defines `POST
 
 Two acceptable styles, chosen by what's in the file:
 
-| Style | When | Examples |
-| --- | --- | --- |
-| **Verb / abstract noun** | The file is a collection of pure helper functions on a topic | `serialization.py`, `encryption.py`, `connectivity.py` |
-| **Concrete noun** (often a class name in lowercase) | The file is centered on one class | `toolset.py` (`Toolset`), `runtime.py` (`Agent`, `ResolvedAgent`), `factory.py` (`*Factory`), `repository.py`, `service.py`, `router.py`, `models.py`, `schemas.py` |
+| Style                                               | When                                                         | Examples                                                                                                                                                            |
+| --------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Verb / abstract noun**                            | The file is a collection of pure helper functions on a topic | `serialization.py`, `encryption.py`, `connectivity.py`                                                                                                              |
+| **Concrete noun** (often a class name in lowercase) | The file is centered on one class                            | `toolset.py` (`Toolset`), `runtime.py` (`Agent`, `ResolvedAgent`), `factory.py` (`*Factory`), `repository.py`, `service.py`, `router.py`, `models.py`, `schemas.py` |
 
 Don't create `utils.py` catch-alls. If a helper has a topic, name the file after the topic.
 
@@ -337,17 +337,17 @@ All domain exceptions:
 
 Current map:
 
-| Exception | HTTP status |
-| --- | --- |
-| `NotFoundError` | 404 |
-| `AlreadyExistsError` | 400 |
-| `DomainValidationError` | 400 |
-| `PermissionDeniedError` | 403 |
-| `InvalidCredentialsError` | 401 |
-| `NoInviteError` | 302 (special — redirect in the OAuth callback router) |
-| `DomainError` (base) | 500 |
+| Exception                 | HTTP status                                           |
+| ------------------------- | ----------------------------------------------------- |
+| `NotFoundError`           | 404                                                   |
+| `AlreadyExistsError`      | 400                                                   |
+| `DomainValidationError`   | 400                                                   |
+| `PermissionDeniedError`   | 403                                                   |
+| `InvalidCredentialsError` | 401                                                   |
+| `NoInviteError`           | 302 (special — redirect in the OAuth callback router) |
+| `DomainError` (base)      | 500                                                   |
 
-`DomainValidationError` — not `ValidationError`. Pydantic's `ValidationError` exists for *parse-time* failures at the HTTP boundary; ours is for *business-rule* violations inside services. The `Domain` prefix removes the import-time ambiguity.
+`DomainValidationError` — not `ValidationError`. Pydantic's `ValidationError` exists for _parse-time_ failures at the HTTP boundary; ours is for _business-rule_ violations inside services. The `Domain` prefix removes the import-time ambiguity.
 
 Routers never catch domain exceptions — the global handler does the HTTP translation. The only acceptable router-level `try/except` is when a different HTTP shape is needed (e.g. the OAuth callback catching `NoInviteError` to emit a 302 redirect).
 
@@ -357,30 +357,30 @@ Routers never catch domain exceptions — the global handler does the HTTP trans
 
 A "don't" list, with the corrected version:
 
-| Don't | Do |
-| --- | --- |
-| `def get_users(...)` returning a list | `def list(...)` (and on the repo, `list_*`) |
-| `def get_for_agent(...)` returning a list | `def list_for_agent(...)` |
-| `def load_subagents(...)` | `def list_subagents(...)` |
-| `def validate_invite(token)` returning the invite | `def get_by_token(token)` + `is_*` / `_ensure_*` if needed |
-| `def resolve_token(plaintext)` (in PAT) | `def get_by_token(plaintext)` |
-| `def get_user_by_email(...)` on `UserService` | `def get_by_email(...)` |
-| `def save_api_key(...)` (silent upsert) | `def create_or_update_api_key(...)` |
-| `def check_ready(...)` returning a dict | `def describe_readiness(...)` (or `is_ready` if bool) |
-| `def check_connectivity(...)` | `def probe_connectivity(...)` |
-| `def _require_server(...)` | `def _ensure_server(...)` |
-| `def _issue_token(user)` | `def build_jwt_for_user(user)` |
-| `sandbox: bool` column | `is_sandboxed: bool` |
-| `hashed_password: str` column | `password_hash: str` |
-| `coordinator_id` FK | `supervisor_id` |
-| `PermissionLevel.user` | `PermissionLevel.member` |
-| `ValidationError` (custom) | `DomainValidationError` |
-| `class Agent` for the runtime dataclass + `class AgentRuntime` for the runner | `class ResolvedAgent` + `class Agent` (runner) |
-| `{mcp_server_id}` and `{server_id}` in the same router | `{server_id}` consistently |
-| Handler `create_invite_endpoint(...)` | Handler `create_invite(...)` |
-| Handler `get_user_by_email_route(...)` | Handler `get_user_by_email(...)` |
-| `_endpoint` / `_route` suffix on any handler | No suffix |
-| `utils.py` catch-all module | Topic-named file (`encryption.py`, `serialization.py`, …) |
+| Don't                                                                         | Do                                                         |
+| ----------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `def get_users(...)` returning a list                                         | `def list(...)` (and on the repo, `list_*`)                |
+| `def get_for_agent(...)` returning a list                                     | `def list_for_agent(...)`                                  |
+| `def load_subagents(...)`                                                     | `def list_subagents(...)`                                  |
+| `def validate_invite(token)` returning the invite                             | `def get_by_token(token)` + `is_*` / `_ensure_*` if needed |
+| `def resolve_token(plaintext)` (in PAT)                                       | `def get_by_token(plaintext)`                              |
+| `def get_user_by_email(...)` on `UserService`                                 | `def get_by_email(...)`                                    |
+| `def save_api_key(...)` (silent upsert)                                       | `def create_or_update_api_key(...)`                        |
+| `def check_ready(...)` returning a dict                                       | `def describe_readiness(...)` (or `is_ready` if bool)      |
+| `def check_connectivity(...)`                                                 | `def probe_connectivity(...)`                              |
+| `def _require_server(...)`                                                    | `def _ensure_server(...)`                                  |
+| `def _issue_token(user)`                                                      | `def build_jwt_for_user(user)`                             |
+| `sandbox: bool` column                                                        | `is_sandboxed: bool`                                       |
+| `hashed_password: str` column                                                 | `password_hash: str`                                       |
+| `coordinator_id` FK                                                           | `supervisor_id`                                            |
+| `PermissionLevel.user`                                                        | `PermissionLevel.member`                                   |
+| `ValidationError` (custom)                                                    | `DomainValidationError`                                    |
+| `class Agent` for the runtime dataclass + `class AgentRuntime` for the runner | `class ResolvedAgent` + `class Agent` (runner)             |
+| `{mcp_server_id}` and `{server_id}` in the same router                        | `{server_id}` consistently                                 |
+| Handler `create_invite_endpoint(...)`                                         | Handler `create_invite(...)`                               |
+| Handler `get_user_by_email_route(...)`                                        | Handler `get_user_by_email(...)`                           |
+| `_endpoint` / `_route` suffix on any handler                                  | No suffix                                                  |
+| `utils.py` catch-all module                                                   | Topic-named file (`encryption.py`, `serialization.py`, …)  |
 
 ---
 

@@ -24,7 +24,7 @@ interface AddAgentSubagentDialogProps {
 
 interface AgentCandidateCardProps {
 	candidate: Agent;
-	coordinatorId: string;
+	supervisorId: string;
 	onAdd: (subagentId: string) => void;
 	disabled: boolean;
 	disabledReason?: string;
@@ -34,7 +34,7 @@ interface AgentCandidateCardProps {
 
 function AgentCandidateCard({
 	candidate,
-	coordinatorId,
+	supervisorId,
 	onAdd,
 	disabled,
 	disabledReason,
@@ -48,7 +48,7 @@ function AgentCandidateCard({
 		onSaving?.();
 		try {
 			await api.post(
-				`/agents/${coordinatorId}/subagents/${candidate.id}`,
+				`/agents/${supervisorId}/subagents/${candidate.id}`,
 				{},
 			);
 			onAdd(candidate.id);
@@ -161,7 +161,7 @@ export default function AddAgentSubagentDialog({
 								<AgentCandidateCard
 									key={candidate.id}
 									candidate={candidate}
-									coordinatorId={agent.id}
+									supervisorId={agent.id}
 									onAdd={handleSubagentAdded}
 									disabled={disabled}
 									disabledReason={disabledReason}

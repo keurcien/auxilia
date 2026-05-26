@@ -410,9 +410,9 @@ const ChatPage = () => {
 	// BaseStream types do not include them. Cast to access the API.
 	const subagentApi = thread as unknown as SubagentApi;
 
-	// Coordinator todos from stream values
+	// Supervisor todos from stream values
 	const streamValues = thread.values as Record<string, unknown>;
-	const coordinatorTodos = (streamValues?.todos ?? []) as Todo[];
+	const supervisorTodos = (streamValues?.todos ?? []) as Todo[];
 
 	// Messages: use stream messages when available, else initial.
 	// Throttle to ~16Hz so streamed chunks don't trigger per-token re-renders
@@ -699,9 +699,9 @@ const ChatPage = () => {
 			<div className="h-full relative flex flex-1 flex-col min-h-0 w-full">
 				<Conversation>
 					<ConversationContent className="max-w-4xl mx-auto w-full lg:px-10 sm:px-6 px-2">
-						{coordinatorTodos.length > 0 && (
+						{supervisorTodos.length > 0 && (
 							<TodoList
-								todos={coordinatorTodos}
+								todos={supervisorTodos}
 								className="mb-4 rounded-lg border border-border/50 bg-muted/30 p-4"
 							/>
 						)}

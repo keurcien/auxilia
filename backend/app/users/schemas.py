@@ -9,14 +9,14 @@ from app.users.models import OAuthAccountBase, WorkspaceRole
 class UserCreate(SQLModel):
     name: str | None = Field(default=None, max_length=255)
     email: str | None = Field(default=None, max_length=255)
-    hashed_password: str | None = None
+    password_hash: str | None = None
     role: WorkspaceRole = WorkspaceRole.member
 
 
 class UserPatch(SQLModel):
     name: str | None = Field(default=None, max_length=255)
     email: str | None = Field(default=None, max_length=255)
-    hashed_password: str | None = None
+    password_hash: str | None = None
 
 
 class UserRolePatch(SQLModel):

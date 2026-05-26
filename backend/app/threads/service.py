@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 from uuid import UUID
 
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import AsyncSessionLocal, get_db
+from app.database import get_db
 from app.exceptions import NotFoundError
 from app.service import BaseService
 from app.threads.models import ThreadDB, ThreadSource
@@ -57,26 +59,26 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
     def __init__(self, db: AsyncSession):
         super().__init__(db, ThreadRepository(db))
 
-    async def get_thread(self, thread_id: str) -> ThreadDB:
+    async def get(self, thread_id: str) -> ThreadDB:
         return await self.get_or_404(thread_id)
 
-    async def get_thread_with_agent(self, thread_id: str) -> ThreadResponse:
+    async def get_with_agent(self, thread_id: str) -> ThreadResponse:
         row = await self.repository.get_with_agent(thread_id)
         if not row:
             raise NotFoundError(self.not_found_message)
         return _thread_with_agent(*row)
 
-    async def list_threads(self, user_id: UUID) -> list[ThreadResponse]:
+    async def list(self, user_id: UUID) -> list[ThreadResponse]:
         rows = await self.repository.list_for_user(user_id)
         return [_thread_with_agent(*row) for row in rows]
 
-    async def list_threads_for_agent(
+    async def list_for_agent(
         self, agent_id: UUID
     ) -> list[AgentThreadResponse]:
         rows = await self.repository.list_for_agent(agent_id)
         return [_agent_thread(*row) for row in rows]
 
-    async def create_thread(
+    async def create(
         self,
         data: ThreadCreate,
         user_id: UUID,
@@ -92,36 +94,37 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
         await self.db.refresh(thread)
         return ThreadResponse.model_validate(thread)
 
-    async def delete_thread(self, thread_id: str) -> ThreadDB:
+    async def delete(self, thread_id: str) -> ThreadDB:
         thread = await self.get_or_404(thread_id)
         await self.db.delete(thread)
+        return thread
+
+    async def get_or_create(
+        self,
+        ts: str,
+        agent_id: str,
+        question: str | None,
+        user_id: str,
+    ) -> ThreadDB:
+        """Return the existing thread or create a new Slack-sourced thread.
+
+        Caller (Slack handler) owns the session lifecycle and the final commit.
+        """
+        thread = await self.db.get(ThreadDB, ts)
+        if thread is None:
+            thread = ThreadDB(
+                id=ts,
+                agent_id=agent_id,
+                model_id="deepseek-v4-flash",
+                first_message_content=question,
+                user_id=user_id,
+                source=ThreadSource.slack,
+            )
+            self.db.add(thread)
+            await self.db.flush()
+            await self.db.refresh(thread)
         return thread
 
 
 def get_thread_service(db: AsyncSession = Depends(get_db)) -> ThreadService:
     return ThreadService(db)
-
-
-async def get_or_create_thread(
-    ts: str, agent_id: str, question: str, user_id: str,
-) -> tuple[ThreadDB, AsyncSession]:
-    """Slack-side helper: open a dedicated session and return/persist the thread.
-
-    Uses its own session because Slack event handlers don't run inside a FastAPI
-    request, so they can't rely on the request-scoped ``get_db``.
-    """
-    db = AsyncSessionLocal()
-    thread = await db.get(ThreadDB, ts)
-    if thread is None:
-        thread = ThreadDB(
-            id=ts,
-            agent_id=agent_id,
-            model_id="deepseek-v4-flash",
-            first_message_content=question,
-            user_id=user_id,
-            source=ThreadSource.slack,
-        )
-        db.add(thread)
-        await db.commit()
-        await db.refresh(thread)
-    return thread, db
