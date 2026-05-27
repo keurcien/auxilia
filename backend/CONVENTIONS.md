@@ -119,14 +119,14 @@ Relationship and filter qualifiers stay (`list_for_user`, `list_for_supervisor`,
 
 ### Predicates and assertions
 
-| Shape                                         | Verb                           | Returns                                          | Example                                      |
-| --------------------------------------------- | ------------------------------ | ------------------------------------------------ | -------------------------------------------- |
-| Pure bool — state                             | `is_*`                         | `bool`                                           | `is_archived`, `is_sandboxed`, `is_subagent` |
-| Pure bool — possession                        | `has_*`                        | `bool`                                           | `has_subagents`, `has_permission`            |
-| Pure bool — capability                        | `can_*`                        | `bool`                                           | `can_edit`                                   |
-| Assert / guard                                | `_ensure_*` (private)          | `None` or the asserted object; raises on failure | `_ensure_email_available`, `_ensure_server`  |
-| I/O probe (network call, returns diagnostics) | `probe_*`                      | `dict` / status payload                          | `probe_connectivity`, `probe_mcp_server`     |
-| Structured status                             | `describe_*` or `get_*_status` | `dict`                                           | `describe_readiness`, `get_oauth_status`     |
+| Shape                                         | Verb                           | Returns                                          | Example                                                   |
+| --------------------------------------------- | ------------------------------ | ------------------------------------------------ | --------------------------------------------------------- |
+| Pure bool — state                             | `is_*`                         | `bool`                                           | `is_archived`, `is_subagent`                              |
+| Pure bool — possession                        | `has_*`                        | `bool`                                           | `has_subagents`, `has_permission`, `has_code_interpreter` |
+| Pure bool — capability                        | `can_*`                        | `bool`                                           | `can_edit`                                                |
+| Assert / guard                                | `_ensure_*` (private)          | `None` or the asserted object; raises on failure | `_ensure_email_available`, `_ensure_server`               |
+| I/O probe (network call, returns diagnostics) | `probe_*`                      | `dict` / status payload                          | `probe_connectivity`, `probe_mcp_server`                  |
+| Structured status                             | `describe_*` or `get_*_status` | `dict`                                           | `describe_readiness`, `get_oauth_status`                  |
 
 **Reserved — do not use**: `check_*` (ambiguous between predicate, assertion, and probe — pick one of the above), `validate_*` (use `_ensure_*` or `is_*`), `verify_*`, `_require_*` (use `_ensure_*`).
 
@@ -221,14 +221,14 @@ Every boolean column and every helper returning `bool` starts with **`is_`**, **
 ```python
 # GOOD
 is_archived: bool
-is_sandboxed: bool
 has_subagents: bool
+has_code_interpreter: bool
 can_edit: bool
 
 # BAD
-sandbox: bool       # is_sandboxed
-archived: bool      # is_archived
-admin: bool         # is_admin
+code_interpreter: bool  # has_code_interpreter
+archived: bool          # is_archived
+admin: bool             # is_admin
 ```
 
 Module-level helpers and method names follow the same rule.
@@ -370,7 +370,7 @@ A "don't" list, with the corrected version:
 | `def check_connectivity(...)`                                                 | `def probe_connectivity(...)`                              |
 | `def _require_server(...)`                                                    | `def _ensure_server(...)`                                  |
 | `def _issue_token(user)`                                                      | `def build_jwt_for_user(user)`                             |
-| `sandbox: bool` column                                                        | `is_sandboxed: bool`                                       |
+| `code_interpreter: bool` column                                               | `has_code_interpreter: bool`                               |
 | `hashed_password: str` column                                                 | `password_hash: str`                                       |
 | `coordinator_id` FK                                                           | `supervisor_id`                                            |
 | `PermissionLevel.user`                                                        | `PermissionLevel.member`                                   |
@@ -387,5 +387,4 @@ A "don't" list, with the corrected version:
 ## 9. When in doubt
 
 1. Check the verb table (§2). If your verb isn't on it, you're using the wrong one.
-2. Check the punch list in `CONVENTIONS_RENAMES.md` — your case may already be flagged.
-3. If you genuinely need a new verb, add it to this doc with a short rationale before using it. Don't introduce vocabulary silently.
+2. If you genuinely need a new verb, add it to this doc with a short rationale before using it. Don't introduce vocabulary silently.
