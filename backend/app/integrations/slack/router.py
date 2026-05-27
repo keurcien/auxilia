@@ -12,7 +12,10 @@ from urllib.parse import parse_qs
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
-from app.integrations.slack.commands.chat import handle_agent_selection
+from app.integrations.slack.commands.chat import (
+    handle_agent_selection,
+    handle_load_more_agents,
+)
 from app.integrations.slack.handlers import (
     handle_assistant_thread_started,
     handle_interaction,
@@ -76,6 +79,8 @@ async def slack_interactions(body: bytes = Depends(verify_slack_signature)):
         action = payload.actions[0] if payload.actions else None
         if action and action.action_id.startswith("select_agent:"):
             asyncio.create_task(handle_agent_selection(payload))
+        elif action and action.action_id.startswith("load_more_agents:"):
+            asyncio.create_task(handle_load_more_agents(payload))
         elif action and action.action_id in ("tool_approve", "tool_reject"):
             asyncio.create_task(handle_interaction(payload))
 
