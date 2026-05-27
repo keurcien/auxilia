@@ -7,3 +7,4 @@ class ModelProviderType(str, Enum):
     anthropic = "anthropic"
     google = "google"
     ollama = "ollama"
+    xiaomi = "xiaomi"
