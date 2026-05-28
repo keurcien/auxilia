@@ -46,6 +46,13 @@ if model_provider_settings.google_api_key:
     MODELS.append(Model(name="gemini-3-flash-preview", provider="google"))
     MODELS.append(Model(name="gemini-3-pro-preview", provider="google"))
 
+if model_provider_settings.xiaomi_api_key:
+    LLM_PROVIDERS.append(ModelProvider(
+        name="xiaomi", api_key=model_provider_settings.xiaomi_api_key
+    ))
+    MODELS.append(Model(name="mimo-v2.5-pro", provider="xiaomi"))
+    MODELS.append(Model(name="mimo-v2.5", provider="xiaomi"))
+
 
 class ChatModelFactory:
 
@@ -77,6 +84,12 @@ class ChatModelFactory:
                     include_thoughts=True,
                     thinking_budget=-1,
                     api_key=api_key,
+                )
+            case "xiaomi":
+                return ChatOpenAI(
+                    base_url="https://api.xiaomimimo.com/v1",
+                    model=model_id,
+                    api_key=api_key
                 )
             case _:
                 raise ValueError(f"Provider {provider} not supported")

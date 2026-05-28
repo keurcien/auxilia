@@ -13,6 +13,7 @@ class ModelProviderSettings(BaseSettings):
     deepseek_api_key: str | None = None
     anthropic_api_key: str | None = None
     google_api_key: str | None = None
+    xiaomi_api_key: str | None = None
 
     model_config: ConfigDict = ConfigDict(
         env_file=ROOT_ENV,

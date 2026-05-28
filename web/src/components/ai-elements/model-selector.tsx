@@ -64,6 +64,7 @@ export type ModelSelectorLogoProps = Omit<
 		| "scaleway"
 		| "amazon-bedrock"
 		| "cerebras"
+		| "xiaomi"
 		| (string & {});
 };
 
