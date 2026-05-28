@@ -16,7 +16,11 @@ from app.integrations.slack.blocks import (
     build_tool_approval_blocks,
     format_tool_streamer_label,
 )
-from app.integrations.slack.commands.chat import post_agent_picker
+from app.integrations.slack.commands.chat import (
+    build_agent_picker_blocks,
+    list_pickable_agents,
+    post_agent_picker,
+)
 from app.integrations.slack.models import SlackEvent, SlackInteractionPayload
 from app.integrations.slack.settings import slack_settings
 from app.integrations.slack.utils import get_user_info, resolve_user
@@ -292,8 +296,7 @@ async def handle_assistant_thread_started(event: SlackEvent) -> None:
         return
 
     async with AsyncSessionLocal() as db:
-        all_agents = await AgentService(db).list(user_id=user.id, user_role=user.role)
-    agents = [a for a in all_agents if a.current_user_permission is not None]
+        agents = await list_pickable_agents(db, user.id, user.role)
 
     if not agents:
         await client.chat_postMessage(
@@ -303,28 +306,14 @@ async def handle_assistant_thread_started(event: SlackEvent) -> None:
         )
         return
 
-    buttons = [
-        {
-            "type": "button",
-            "text": {"type": "plain_text", "text": f"{a.emoji or ''} {a.name}".strip()},
-            "action_id": f"select_agent:{a.id}",
-            "value": str(a.id),
-        }
-        for a in agents
-    ]
+    blocks = build_agent_picker_blocks(
+        agents,
+        header_text=f"Hi {display_name}! Select an agent to begin a conversation:",
+    )
     await client.chat_postMessage(
         channel=channel_id,
         thread_ts=thread_ts,
-        blocks=[
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"Hi {display_name}! Select an agent to begin a conversation:",
-                },
-            },
-            {"type": "actions", "elements": buttons},
-        ],
+        blocks=blocks,
         text=f"Hi {display_name}! Select an agent to begin a conversation.",
     )
 
