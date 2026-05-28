@@ -63,5 +63,12 @@ async def get_models() -> list[ModelResponse]:
             ModelResponse(name="Gemini 3 Pro Preview", providers=[
                 ModelProviderType.google], id="gemini-3-pro-preview", chef="Google", chefSlug="google"),
         ])
+    if model_provider_settings.xiaomi_api_key:
+        models.extend([
+            ModelResponse(name="MiMo-V2.5-Pro", providers=[
+                      ModelProviderType.xiaomi], id="mimo-v2.5-pro", chef="Xiaomi", chefSlug="xiaomi"),
+            ModelResponse(name="MiMo-V2.5", providers=[
+                ModelProviderType.xiaomi], id="mimo-v2.5", chef="Xiaomi", chefSlug="xiaomi"),
+        ])
 
     return list(models)
