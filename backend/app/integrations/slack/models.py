@@ -48,10 +48,16 @@ class SlackEventPayload(BaseModel):
     event: SlackEvent | None = None
 
 
+class SlackSelectedOption(BaseModel):
+    """The option chosen from a static_select / overflow / radio interaction."""
+    value: str
+
+
 class SlackAction(BaseModel):
     """A single action from a block_actions interaction payload."""
     action_id: str
     value: str | None = None
+    selected_option: SlackSelectedOption | None = None
 
 
 class SlackInteractionChannel(BaseModel):

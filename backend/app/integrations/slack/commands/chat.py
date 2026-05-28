@@ -17,11 +17,12 @@ from app.users.models import WorkspaceRole
 from app.users.repository import UserRepository
 
 
-# Slack caps an `actions` block at 25 elements, so each page shows at most 24
-# agent buttons and keeps the 25th slot free for the "Show more" button.
-PAGE_SIZE = 24
+# Slack caps a static_select at 100 options. Past that we'd need option groups
+# or an external_select; treat it as a soft ceiling and surface the truncation.
+MAX_OPTIONS = 100
 
 DEFAULT_PICKER_HEADER = "Choose an agent for this thread:"
+SELECT_AGENT_ACTION_ID = "select_agent"
 
 
 # ---------------------------------------------------------------------------
@@ -31,11 +32,7 @@ DEFAULT_PICKER_HEADER = "Choose an agent for this thread:"
 async def list_pickable_agents(
     db: AsyncSession, user_id: UUID, user_role: WorkspaceRole | None = None,
 ) -> list[AgentResponse]:
-    """Return the agents this user may pick, in a stable, paginated order.
-
-    Sorting by (name, id) keeps the order identical across the initial render
-    and every subsequent "Show more" click, so pagination stays consistent.
-    """
+    """Return the agents this user may pick, sorted by name."""
     all_agents = await AgentService(db).list(user_id=user_id, user_role=user_role)
     agents = [a for a in all_agents if a.current_user_permission is not None]
     agents.sort(key=lambda a: ((a.name or "").lower(), str(a.id)))
@@ -46,11 +43,9 @@ async def list_pickable_agents(
 # Block Kit builders
 # ---------------------------------------------------------------------------
 
-def _agent_button(agent: AgentResponse) -> dict:
+def _agent_option(agent: AgentResponse) -> dict:
     return {
-        "type": "button",
         "text": {"type": "plain_text", "text": f"{agent.emoji or ''} {agent.name}".strip()},
-        "action_id": f"select_agent:{agent.id}",
         "value": str(agent.id),
     }
 
@@ -58,35 +53,34 @@ def _agent_button(agent: AgentResponse) -> dict:
 def build_agent_picker_blocks(
     agents: list[AgentResponse],
     *,
-    shown: int = PAGE_SIZE,
     header_text: str = DEFAULT_PICKER_HEADER,
 ) -> list[dict]:
-    """Build the agent picker, revealing the first ``shown`` agents.
+    """Build the picker as a single static_select.
 
-    Agent buttons are chunked into ``actions`` blocks of ``PAGE_SIZE`` (Slack
-    caps each block at 25 elements). When more agents remain, a trailing
-    "Show more" button reveals the next ``PAGE_SIZE`` via the
-    ``load_more_agents:<count>`` action — each click accumulates onto the
-    agents already shown rather than replacing them.
+    A dropdown scrolls/filters natively and sidesteps Slack's button-overflow
+    UI (the "+ N more" chip that fights a paginated button grid in the
+    AI-assistant thread view). Slack caps options at ``MAX_OPTIONS``; beyond
+    that we render the first N and append a truncation note.
     """
-    visible = agents[:shown]
+    options = [_agent_option(a) for a in agents[:MAX_OPTIONS]]
     blocks: list[dict] = [
         {"type": "section", "text": {"type": "mrkdwn", "text": header_text}},
-    ]
-    for start in range(0, len(visible), PAGE_SIZE):
-        batch = visible[start:start + PAGE_SIZE]
-        blocks.append({"type": "actions", "elements": [_agent_button(a) for a in batch]})
-
-    if shown < len(agents):
-        next_shown = min(shown + PAGE_SIZE, len(agents))
-        remaining = len(agents) - shown
-        blocks.append({
+        {
             "type": "actions",
             "elements": [{
-                "type": "button",
-                "text": {"type": "plain_text", "text": f"➕ Show {remaining} more"},
-                "action_id": f"load_more_agents:{next_shown}",
-                "value": str(next_shown),
+                "type": "static_select",
+                "action_id": SELECT_AGENT_ACTION_ID,
+                "placeholder": {"type": "plain_text", "text": "Pick an agent…"},
+                "options": options,
+            }],
+        },
+    ]
+    if len(agents) > MAX_OPTIONS:
+        blocks.append({
+            "type": "context",
+            "elements": [{
+                "type": "mrkdwn",
+                "text": f"_Showing the first {MAX_OPTIONS} of {len(agents)} agents._",
             }],
         })
     return blocks
@@ -129,20 +123,23 @@ async def post_agent_picker(
 
 
 # ---------------------------------------------------------------------------
-# Interaction handler (agent button click)
+# Interaction handler (dropdown selection)
 # ---------------------------------------------------------------------------
 
 async def handle_agent_selection(payload: SlackInteractionPayload) -> None:
-    """Process an agent-selection button click.
+    """Process an agent-selection dropdown choice.
 
     Creates (or retrieves) the thread and replaces the picker message
     with a confirmation showing the chosen agent.
     """
     action = payload.actions[0]
-    agent_id = action.value
-
-    if not action.action_id.startswith("select_agent:"):
+    if action.action_id != SELECT_AGENT_ACTION_ID:
         return
+
+    selected = action.selected_option
+    if not selected:
+        return
+    agent_id = selected.value
 
     channel_id = (
         payload.channel.id if payload.channel
@@ -189,66 +186,3 @@ async def handle_agent_selection(payload: SlackInteractionPayload) -> None:
             channel=channel_id, ts=message_ts,
             blocks=blocks, text=f"{agent.emoji or ''} *{agent.name}*\n\nAsk me anything to begin.",
         )
-
-
-# ---------------------------------------------------------------------------
-# Interaction handler ("Show more" button click)
-# ---------------------------------------------------------------------------
-
-def _extract_header_text(payload: SlackInteractionPayload) -> str | None:
-    """Recover the picker's original header so re-renders keep the same greeting."""
-    blocks = payload.message.blocks if payload.message else []
-    for block in blocks:
-        if block.get("type") == "section":
-            text = block.get("text")
-            if isinstance(text, dict):
-                return text.get("text")
-    return None
-
-
-async def handle_load_more_agents(payload: SlackInteractionPayload) -> None:
-    """Reveal the next page of agents in-place when "Show more" is clicked.
-
-    Re-fetches the (permission-scoped, stably ordered) agent list and rebuilds
-    the picker showing the first ``shown`` agents — the count encoded in the
-    button — then updates the message so previously shown agents stay visible.
-    """
-    action = payload.actions[0]
-    if not action.action_id.startswith("load_more_agents:"):
-        return
-
-    try:
-        shown = int(action.value)
-    except (TypeError, ValueError):
-        return
-
-    channel_id = (
-        payload.channel.id if payload.channel
-        else payload.container.channel_id if payload.container
-        else None
-    )
-    message_ts = payload.container.message_ts if payload.container else None
-    if not channel_id or not message_ts:
-        return
-
-    # Resolve Slack user → internal user (the agent list is permission-scoped)
-    user_info = await get_user_info(payload.user.id)
-    if not user_info or not user_info.profile.email:
-        return
-    async with AsyncSessionLocal() as db:
-        user = await UserRepository(db).get_by_email(user_info.profile.email)
-    if not user:
-        return
-
-    async with AsyncSessionLocal() as db:
-        agents = await list_pickable_agents(db, user.id, user.role)
-    if not agents:
-        return
-
-    header_text = _extract_header_text(payload) or DEFAULT_PICKER_HEADER
-    blocks = build_agent_picker_blocks(agents, shown=shown, header_text=header_text)
-
-    client = AsyncWebClient(token=slack_settings.slack_bot_token)
-    await client.chat_update(
-        channel=channel_id, ts=message_ts, blocks=blocks, text="Choose an agent",
-    )

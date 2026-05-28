@@ -1,9 +1,13 @@
-"""Unit tests for the paginated Slack agent picker (``build_agent_picker_blocks``)."""
+"""Unit tests for the Slack agent picker (``build_agent_picker_blocks``)."""
 
 from types import SimpleNamespace
 from uuid import uuid4
 
-from app.integrations.slack.commands.chat import PAGE_SIZE, build_agent_picker_blocks
+from app.integrations.slack.commands.chat import (
+    MAX_OPTIONS,
+    SELECT_AGENT_ACTION_ID,
+    build_agent_picker_blocks,
+)
 
 
 def _agents(n: int) -> list[SimpleNamespace]:
@@ -13,71 +17,62 @@ def _agents(n: int) -> list[SimpleNamespace]:
     ]
 
 
-def _action_blocks(blocks: list[dict]) -> list[dict]:
-    return [b for b in blocks if b["type"] == "actions"]
+def _select_element(blocks: list[dict]) -> dict:
+    for block in blocks:
+        if block.get("type") != "actions":
+            continue
+        for el in block.get("elements", []):
+            if el.get("type") == "static_select":
+                return el
+    raise AssertionError("no static_select found in blocks")
 
 
-def _elements(blocks: list[dict]) -> list[dict]:
-    return [el for b in _action_blocks(blocks) for el in b["elements"]]
+def _context_blocks(blocks: list[dict]) -> list[dict]:
+    return [b for b in blocks if b.get("type") == "context"]
 
 
-def _select_buttons(blocks: list[dict]) -> list[dict]:
-    return [
-        el for el in _elements(blocks) if el["action_id"].startswith("select_agent:")
-    ]
+def test_builds_one_static_select_with_one_option_per_agent():
+    blocks = build_agent_picker_blocks(_agents(7))
+
+    select = _select_element(blocks)
+    assert select["action_id"] == SELECT_AGENT_ACTION_ID
+    assert len(select["options"]) == 7
 
 
-def _show_more(blocks: list[dict]) -> dict | None:
-    more = [
-        el for el in _elements(blocks) if el["action_id"].startswith("load_more_agents:")
-    ]
-    return more[0] if more else None
+def test_option_value_is_agent_id():
+    agents = _agents(3)
+    options = _select_element(build_agent_picker_blocks(agents))["options"]
+
+    assert [o["value"] for o in options] == [str(a.id) for a in agents]
 
 
-def test_first_page_shows_one_batch_with_show_more_when_more_exist():
-    blocks = build_agent_picker_blocks(_agents(25))
+def test_option_text_includes_emoji_and_name():
+    agents = [SimpleNamespace(id=uuid4(), name="Bug-Data", emoji="🐛")]
+    options = _select_element(build_agent_picker_blocks(agents))["options"]
 
-    assert len(_select_buttons(blocks)) == PAGE_SIZE
-    more = _show_more(blocks)
-    assert more is not None
-    # Encodes the new cumulative count to reveal next.
-    assert more["action_id"] == f"load_more_agents:{PAGE_SIZE + 1}"
-    assert more["value"] == str(PAGE_SIZE + 1)
+    assert options[0]["text"]["text"] == "🐛 Bug-Data"
 
 
-def test_no_show_more_when_everything_fits_on_first_page():
-    blocks = build_agent_picker_blocks(_agents(PAGE_SIZE))
+def test_options_capped_at_slack_limit():
+    # Regression guard: Slack rejects a static_select with more than 100 options.
+    blocks = build_agent_picker_blocks(_agents(MAX_OPTIONS + 25))
 
-    assert len(_select_buttons(blocks)) == PAGE_SIZE
-    assert _show_more(blocks) is None
-
-
-def test_no_actions_block_exceeds_slack_limit():
-    # Regression guard: the original picker crammed every agent into a single
-    # actions block, which Slack rejects past 25 elements (the >25 agents bug).
-    blocks = build_agent_picker_blocks(_agents(120), shown=120)
-
-    for block in _action_blocks(blocks):
-        assert len(block["elements"]) <= 25
+    assert len(_select_element(blocks)["options"]) == MAX_OPTIONS
 
 
-def test_accumulates_previously_shown_agents():
-    blocks = build_agent_picker_blocks(_agents(100), shown=2 * PAGE_SIZE)
+def test_truncation_note_added_when_over_cap():
+    blocks = build_agent_picker_blocks(_agents(MAX_OPTIONS + 5))
 
-    # All agents revealed so far stay visible, not just the latest batch.
-    assert len(_select_buttons(blocks)) == 2 * PAGE_SIZE
-    more = _show_more(blocks)
-    assert more is not None
-    assert more["action_id"] == f"load_more_agents:{3 * PAGE_SIZE}"
+    notes = _context_blocks(blocks)
+    assert len(notes) == 1
+    assert f"{MAX_OPTIONS}" in notes[0]["elements"][0]["text"]
+    assert f"{MAX_OPTIONS + 5}" in notes[0]["elements"][0]["text"]
 
 
-def test_next_count_is_capped_at_total():
-    blocks = build_agent_picker_blocks(_agents(30), shown=PAGE_SIZE)
+def test_no_truncation_note_when_within_cap():
+    blocks = build_agent_picker_blocks(_agents(MAX_OPTIONS))
 
-    more = _show_more(blocks)
-    assert more is not None
-    assert more["action_id"] == "load_more_agents:30"
-    assert "6 more" in more["text"]["text"]
+    assert _context_blocks(blocks) == []
 
 
 def test_header_text_is_rendered():
