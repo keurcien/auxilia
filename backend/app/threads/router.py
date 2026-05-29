@@ -156,8 +156,12 @@ async def get_subagent_state(thread_id: str, tool_call_id: str) -> dict:
 
         # alist() with only thread_id walks every namespace's checkpoints
         # newest-first; the first time we see a namespace is its latest checkpoint.
+        # The subagent's seed message is `HumanMessage(content=description)`, so it
+        # equals the task call's description exactly — match strictly. A substring
+        # match would risk picking the wrong subagent when one description contains
+        # another.
         lc_messages: list = []
-        if description is not None:
+        if description:
             seen_ns: set[str] = set()
             async for ct in checkpointer.alist(
                 config={"configurable": {"thread_id": thread_id}}
@@ -167,8 +171,7 @@ async def get_subagent_state(thread_id: str, tool_call_id: str) -> dict:
                     continue
                 seen_ns.add(ns)
                 ns_messages = ct.checkpoint["channel_values"].get("messages", [])
-                seed = _seed_human_content(ns_messages)
-                if seed is not None and (seed == description or description in seed):
+                if _seed_human_content(ns_messages) == description:
                     lc_messages = ns_messages
                     break
 
