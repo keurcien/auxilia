@@ -110,27 +110,85 @@ async def read_thread(
         }
 
 
+def _task_description(messages: list, tool_call_id: str) -> str | None:
+    """Return the ``description`` arg of the ``task`` tool call with this id.
+
+    The subagent is seeded with a ``HumanMessage(content=description)``, so the
+    description is what links a parent tool call to its subgraph checkpoint.
+    """
+    for msg in messages:
+        for tc in getattr(msg, "tool_calls", None) or []:
+            if tc.get("id") == tool_call_id:
+                return (tc.get("args") or {}).get("description")
+    return None
+
+
+def _seed_human_content(messages: list) -> str | None:
+    """Return the text content of a subgraph's seed (first) message, if any."""
+    if not messages:
+        return None
+    content = getattr(messages[0], "content", None)
+    return content if isinstance(content, str) else None
+
+
 @router.get("/{thread_id}/subagents/{tool_call_id}/state")
 async def get_subagent_state(thread_id: str, tool_call_id: str) -> dict:
-    """Fetch a subagent's checkpoint state (its internal messages) by tool call ID."""
+    """Fetch a subagent's checkpoint state (its internal messages) by tool call ID.
+
+    A subagent runs as a Pregel subgraph whose checkpoint namespace is keyed by an
+    internal task id — not the ``tool_call_id`` used to invoke it. So we can't look
+    it up directly. Instead we resolve the namespace the way the frontend SDK does
+    while streaming: match the ``task`` tool call's ``description`` against each
+    subgraph checkpoint's seed message.
+    """
     async with get_checkpointer() as checkpointer:
-        checkpoint = await checkpointer.aget(
-            config={
-                "configurable": {
-                    "thread_id": thread_id,
-                    "checkpoint_ns": f"tools:{tool_call_id}",
-                }
-            }
+        # The task call's description lives in the parent (root-namespace) state.
+        parent = await checkpointer.aget_tuple(
+            config={"configurable": {"thread_id": thread_id, "checkpoint_ns": ""}}
+        )
+        description = (
+            _task_description(
+                parent.checkpoint["channel_values"].get("messages", []), tool_call_id
+            )
+            if parent
+            else None
         )
 
-        if not checkpoint:
-            return {"messages": [], "values": {}}
+        # alist() with only thread_id walks every namespace's checkpoints
+        # newest-first; the first time we see a namespace is its latest checkpoint.
+        # The subagent's seed message is `HumanMessage(content=description)`, so it
+        # equals the task call's description exactly — match strictly. A substring
+        # match would risk picking the wrong subagent when one description contains
+        # another.
+        lc_messages: list = []
+        if description:
+            seen_ns: set[str] = set()
+            async for ct in checkpointer.alist(
+                config={"configurable": {"thread_id": thread_id}}
+            ):
+                ns = ct.config["configurable"].get("checkpoint_ns") or ""
+                if not ns or ns in seen_ns:
+                    continue
+                seen_ns.add(ns)
+                ns_messages = ct.checkpoint["channel_values"].get("messages", [])
+                if _seed_human_content(ns_messages) == description:
+                    lc_messages = ns_messages
+                    break
 
-        channel_values = checkpoint["channel_values"]
-        lc_messages = channel_values.get("messages", [])
-        return {
-            "messages": [_serialize_lc_message(m) for m in lc_messages],
-        }
+        # Legacy fallback: threads that stored state under tools:{tool_call_id}.
+        if not lc_messages:
+            checkpoint = await checkpointer.aget(
+                config={
+                    "configurable": {
+                        "thread_id": thread_id,
+                        "checkpoint_ns": f"tools:{tool_call_id}",
+                    }
+                }
+            )
+            if checkpoint:
+                lc_messages = checkpoint["channel_values"].get("messages", [])
+
+        return {"messages": [_serialize_lc_message(m) for m in lc_messages]}
 
 
 @router.get("/")
