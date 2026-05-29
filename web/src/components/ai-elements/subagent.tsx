@@ -239,9 +239,14 @@ interface SubAgentCardProps {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	subagent: SubagentStreamInterface<any, any, any>;
 	mcpServers?: MCPServerInfo[];
+	// Internal conversation restored from the subgraph checkpoint on refresh.
+	// The SDK can't inject these into the (reconstructed) subagent via the custom
+	// transport, so the page fetches them separately and passes them here.
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	fallbackMessages?: any[];
 }
 
-export const SubAgentCard = memo(({ subagent, mcpServers }: SubAgentCardProps) => {
+export const SubAgentCard = memo(({ subagent, mcpServers, fallbackMessages }: SubAgentCardProps) => {
 	const { status, toolCall, result, startedAt, completedAt, messages, values } =
 		subagent;
 	const isStreaming = status === "running";
@@ -265,7 +270,9 @@ export const SubAgentCard = memo(({ subagent, mcpServers }: SubAgentCardProps) =
 		if (isStreaming) setIsOpen(true);
 	}, [isStreaming, setIsOpen]);
 
-	const hasConversation = messages && messages.length > 0;
+	const convoMessages =
+		messages && messages.length > 0 ? messages : (fallbackMessages ?? []);
+	const hasConversation = convoMessages.length > 0;
 	const hasBody =
 		description || todos.length > 0 || hasConversation || result || isError;
 
@@ -320,7 +327,7 @@ export const SubAgentCard = memo(({ subagent, mcpServers }: SubAgentCardProps) =
 							{todos.length > 0 && <TodoList todos={todos} />}
 							{hasConversation && (
 								<SubAgentConversation
-									messages={messages}
+									messages={convoMessages}
 									isStreaming={isStreaming}
 									mcpServers={mcpServers}
 								/>

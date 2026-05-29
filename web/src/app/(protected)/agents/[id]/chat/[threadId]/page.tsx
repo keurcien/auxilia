@@ -220,6 +220,47 @@ type LocalToolCall = {
 	state: "pending" | "completed" | "error";
 };
 
+// The LangGraph SDK reconstructs subagent containers from history, but it reads
+// LangChain's snake_case keys (`tool_calls`, `tool_call_id`, `args.subagent_type`).
+// Our axios response interceptor camelCases API payloads, so messages loaded via
+// GET /threads/{id} arrive as `toolCalls` / `toolCallId` / `args.subagentType` and
+// the SDK builds zero subagents. Restore the snake_case shape the SDK expects
+// before handing it the initial values. Streaming is unaffected (SSE bypasses the
+// interceptor and is already snake_case).
+function toSdkMessages(messages: LCMessage[]): LCMessage[] {
+	return messages.map((msg) => {
+		const m = msg as unknown as Record<string, unknown>;
+		const out: Record<string, unknown> = { ...m };
+
+		if ("toolCallId" in out) {
+			out.tool_call_id = out.toolCallId;
+			delete out.toolCallId;
+		}
+
+		const toolCalls = (m.toolCalls ?? m.tool_calls) as
+			| Array<Record<string, unknown>>
+			| undefined;
+		if (Array.isArray(toolCalls)) {
+			out.tool_calls = toolCalls.map((tc) => {
+				// Subagent (task) args carry `subagent_type`; the interceptor
+				// camelCased it to `subagentType`. Restore it so the SDK's
+				// isValidSubagentType() check passes during reconstruction.
+				if (tc.name === "task" && tc.args && typeof tc.args === "object") {
+					const args = tc.args as Record<string, unknown>;
+					return {
+						...tc,
+						args: { ...args, subagent_type: args.subagent_type ?? args.subagentType },
+					};
+				}
+				return tc;
+			});
+			delete out.toolCalls;
+		}
+
+		return out as unknown as LCMessage;
+	});
+}
+
 function computeToolCallsFromMessages(messages: LCMessage[]): LocalToolCall[] {
 	// Axios camelCase interceptor converts snake_case keys from the API:
 	//   tool_call_id → toolCallId, tool_calls → toolCalls
@@ -364,6 +405,13 @@ const ChatPage = () => {
 	const [rehydratedInterrupt, setRehydratedInterrupt] = useState(false);
 	const [rehydratedInterruptValue, setRehydratedInterruptValue] =
 		useState<unknown>(null);
+	// Subagent internal conversations restored from subgraph checkpoints on
+	// refresh, keyed by tool_call_id. The SDK's custom transport doesn't expose a
+	// way to inject these into the reconstructed subagents, so we hold them here
+	// and pass them to SubAgentCard as a fallback.
+	const [subagentMessages, setSubagentMessages] = useState<
+		Record<string, unknown[]>
+	>({});
 
 	const { mcpServers } = useMcpServersStore();
 	const {
@@ -607,12 +655,6 @@ const ChatPage = () => {
 
 		hasFetchedSubagentHistory.current = true;
 
-		// Access the private subagentManager to call updateSubagentFromSubgraphState
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const streamManager = thread as any;
-		const subagentManager =
-			streamManager.subagentManager ?? streamManager._subagentManager;
-
 		Promise.all(
 			toFetch.map(async ([toolCallId]) => {
 				try {
@@ -621,16 +663,7 @@ const ChatPage = () => {
 					);
 					const msgs = res.data?.messages;
 					if (!Array.isArray(msgs) || msgs.length === 0) return;
-
-					if (subagentManager?.updateSubagentFromSubgraphState) {
-						subagentManager.updateSubagentFromSubgraphState(toolCallId, msgs);
-					} else {
-						// Fallback: mutate the subagent entry directly
-						const sub = subagentApi.getSubagent(toolCallId);
-						if (sub && sub.messages.length === 0) {
-							sub.messages = msgs;
-						}
-					}
+					setSubagentMessages((prev) => ({ ...prev, [toolCallId]: msgs }));
 				} catch {
 					// Subgraph checkpoint may not exist — ignore
 				}
@@ -675,16 +708,23 @@ const ChatPage = () => {
 				}
 			}
 
+			const values = data.values || { messages: [] };
+			// Restore snake_case message keys so the SDK can reconstruct subagents.
+			const normalizedValues = {
+				...values,
+				messages: toSdkMessages((values.messages ?? []) as LCMessage[]),
+			};
+
 			const pendingMessage = consumePendingMessage(threadId);
 			if (pendingMessage) {
 				// Set initial values first so submit has proper history base
-				setInitialValues(data.values || { messages: [] });
+				setInitialValues(normalizedValues);
 				// Defer submit to next tick so initialValues takes effect
 				setTimeout(() => {
 					handleSubmit(pendingMessage);
 				}, 0);
 			} else {
-				setInitialValues(data.values || { messages: [] });
+				setInitialValues(normalizedValues);
 			}
 		};
 
@@ -955,6 +995,7 @@ const ChatPage = () => {
 															key={sub.id}
 															subagent={sub}
 															mcpServers={mcpServers}
+															fallbackMessages={subagentMessages[sub.id]}
 														/>
 													))}
 													<SynthesisIndicator
