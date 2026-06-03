@@ -148,6 +148,7 @@ class Agent:
             "user_id": self.thread.user_id,
             "thread_id": self.thread.id,
             "agent_id": self.thread.agent_id,
+            "langfuse_session_id": self.thread.id
         }
 
     @property
@@ -169,7 +170,8 @@ class Agent:
 
         agent = await ResolvedAgent.resolve(thread.agent_id, db, user_id, is_parent=True)
 
-        model_entry = next((m for m in MODELS if m.name == thread.model_id), None)
+        model_entry = next(
+            (m for m in MODELS if m.name == thread.model_id), None)
         if model_entry is None:
             raise DomainValidationError(f"Unknown model: {thread.model_id}")
         provider = next(
@@ -283,7 +285,8 @@ class Agent:
     async def _persist_recursion_fallback(self, agent, config) -> AIMessage:
         """Persist a synthetic AI message after a GraphRecursionError so the
         next turn can pick up where we left off. Returns the message."""
-        logger.info("Graph recursion limit reached; persisting synthetic AI message")
+        logger.info(
+            "Graph recursion limit reached; persisting synthetic AI message")
         ai_msg = AIMessage(content=RECURSION_LIMIT_MESSAGE, id=str(uuid4()))
         await agent.aupdate_state(config, {"messages": [ai_msg]})
         return ai_msg
@@ -374,7 +377,8 @@ class Agent:
         sandbox_tools = create_sandbox_tools(lazy_backend)
 
         compiled_subagents = (
-            [s.compile(self.model) for s in self.subagents] if self.subagents else None
+            [s.compile(self.model)
+             for s in self.subagents] if self.subagents else None
         )
 
         # create_deep_agent injects its own PatchToolCallsMiddleware; passing

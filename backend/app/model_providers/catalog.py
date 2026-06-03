@@ -17,6 +17,13 @@ class Model(BaseModel):
     provider: str
 
 
+# Models that require adaptive thinking (`{"type": "adaptive"}` + `effort`).
+# Opus 4.7+ dropped manual extended thinking and return a 400 for the legacy
+# `{"type": "enabled", "budget_tokens": ...}` format. Everything else uses
+# the legacy `enabled` format.
+ADAPTIVE_THINKING_MODELS: frozenset[str] = frozenset(
+    {"claude-opus-4-6", "claude-opus-4-8"})
+
 LLM_PROVIDERS: list[ModelProvider] = []
 MODELS: list[Model] = []
 
@@ -30,8 +37,6 @@ if model_provider_settings.deepseek_api_key:
         name="deepseek", api_key=model_provider_settings.deepseek_api_key))
     MODELS.append(Model(name="deepseek-v4-flash", provider="deepseek"))
     MODELS.append(Model(name="deepseek-v4-pro", provider="deepseek"))
-    MODELS.append(Model(name="deepseek-chat", provider="deepseek"))
-    MODELS.append(Model(name="deepseek-reasoner", provider="deepseek"))
 
 if model_provider_settings.anthropic_api_key:
     LLM_PROVIDERS.append(ModelProvider(
@@ -39,6 +44,7 @@ if model_provider_settings.anthropic_api_key:
     MODELS.append(Model(name="claude-haiku-4-5", provider="anthropic"))
     MODELS.append(Model(name="claude-sonnet-4-6", provider="anthropic"))
     MODELS.append(Model(name="claude-opus-4-6", provider="anthropic"))
+    MODELS.append(Model(name="claude-opus-4-8", provider="anthropic"))
 
 if model_provider_settings.google_api_key:
     LLM_PROVIDERS.append(ModelProvider(
@@ -63,15 +69,22 @@ class ChatModelFactory:
             case "deepseek":
                 return ChatDeepSeek(model=model_id, api_key=api_key, extra_body={"thinking": {"type": "disabled"}})
             case "anthropic":
+                kwargs: dict = {}
+                if model_id in ADAPTIVE_THINKING_MODELS:
+                    kwargs["thinking"] = {"type": "adaptive"}
+                    kwargs["effort"] = "medium"
+                else:
+                    kwargs["thinking"] = {
+                        "type": "enabled", "budget_tokens": 1024}
                 return ChatAnthropic(
                     model=model_id,
                     temperature=1,
                     max_tokens=16384,
                     streaming=True,
                     timeout=None,
-                    thinking={"type": "enabled", "budget_tokens": 1024},
                     max_retries=2,
                     api_key=api_key,
+                    **kwargs,
                 )
             case "google":
                 return ChatGoogleGenerativeAI(

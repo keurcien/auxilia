@@ -42,10 +42,6 @@ async def get_models() -> list[ModelResponse]:
                 ModelProviderType.deepseek], id="deepseek-v4-flash", chef="DeepSeek", chefSlug="deepseek"),
             ModelResponse(name="DeepSeek v4 Pro", providers=[
                 ModelProviderType.deepseek], id="deepseek-v4-pro", chef="DeepSeek", chefSlug="deepseek"),
-            ModelResponse(name="DeepSeek Chat", providers=[
-                ModelProviderType.deepseek], id="deepseek-chat", chef="DeepSeek", chefSlug="deepseek"),
-            ModelResponse(name="DeepSeek Reasoner", providers=[
-                ModelProviderType.deepseek], id="deepseek-reasoner", chef="DeepSeek", chefSlug="deepseek"),
         ])
     if model_provider_settings.anthropic_api_key:
         models.extend([
@@ -55,6 +51,8 @@ async def get_models() -> list[ModelResponse]:
                 ModelProviderType.anthropic], id="claude-sonnet-4-6", chef="Anthropic", chefSlug="anthropic"),
             ModelResponse(name="Claude Opus 4.6", providers=[
                 ModelProviderType.anthropic], id="claude-opus-4-6", chef="Anthropic", chefSlug="anthropic"),
+            ModelResponse(name="Claude Opus 4.8", providers=[
+                ModelProviderType.anthropic], id="claude-opus-4-8", chef="Anthropic", chefSlug="anthropic"),
         ])
     if model_provider_settings.google_api_key:
         models.extend([
