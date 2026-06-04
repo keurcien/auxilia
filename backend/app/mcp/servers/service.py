@@ -11,7 +11,12 @@ from mcp.shared.auth import OAuthClientInformationFull
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.exceptions import DomainError, DomainValidationError, NotFoundError
+from app.exceptions import (
+    AlreadyExistsError,
+    DomainError,
+    DomainValidationError,
+    NotFoundError,
+)
 from app.mcp.client.auth import WebOAuthClientProvider, build_oauth_client_metadata
 from app.mcp.client.storage import TokenStorageFactory
 from app.mcp.servers.encryption import decrypt_value as decrypt_api_key
@@ -32,6 +37,9 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         super().__init__(db, MCPServerRepository(db))
 
     async def create(self, data: MCPServerCreate) -> MCPServerDB:
+        if await self.repository.get_by_url(data.url):
+            raise AlreadyExistsError("An MCP server with this URL already exists")
+
         if data.auth_type == MCPAuthType.api_key and not data.api_key:
             raise DomainValidationError("API key is required when auth_type is 'api_key'")
 
