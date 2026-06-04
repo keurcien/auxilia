@@ -24,6 +24,7 @@ from langgraph.types import Command
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.core.service import AgentService
+from app.agents.invalid_tool_calls import RepairInvalidToolCallsMiddleware
 from app.agents.schemas import AgentResponse
 from app.agents.settings import agent_settings
 from app.agents.stream import (
@@ -189,6 +190,10 @@ class Agent:
         # PatchToolCallsMiddleware runs first so that any dangling tool_calls
         # left by a previous aborted turn (recursion limit, cancelled stream,
         # etc.) get synthetic ToolMessage responses before the model sees them.
+        # RepairInvalidToolCallsMiddleware is last in the list so its after_model
+        # hook runs first (after_model nodes execute last-to-first), letting it
+        # convert malformed tool-call arguments into a tool error and jump back
+        # to the model before HITL/limit hooks act on the broken call.
         middleware = [
             PatchToolCallsMiddleware(),
             ToolCallLimitMiddleware(run_limit=(
@@ -196,7 +201,8 @@ class Agent:
             HumanInTheLoopMiddleware(
                 interrupt_on=agent.toolset.interrupt_on,
                 description_prefix="Tool execution pending approval",
-            )
+            ),
+            RepairInvalidToolCallsMiddleware(),
         ]
 
         subagents: list[ResolvedAgent] = []
