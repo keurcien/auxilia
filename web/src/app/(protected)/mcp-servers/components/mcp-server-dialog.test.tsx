@@ -98,7 +98,7 @@ describe("MCPServerDialog create mode", () => {
 		const user = userEvent.setup();
 		const onOpenChange = vi.fn();
 		vi.mocked(api.post).mockRejectedValue({
-			status: 400,
+			status: 409,
 			response: { data: { detail: "An MCP server with this URL already exists" } },
 		});
 
