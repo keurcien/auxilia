@@ -9,7 +9,7 @@ an error ToolMessage and loops back to the model.
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.messages.tool import invalid_tool_call, tool_call
 
-from app.agents.invalid_tool_calls import (
+from app.agents.tool_errors import (
     MAX_ECHOED_ARGS_CHARS,
     RepairInvalidToolCallsMiddleware,
 )

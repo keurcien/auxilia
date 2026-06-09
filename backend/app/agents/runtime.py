@@ -24,7 +24,6 @@ from langgraph.types import Command
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.core.service import AgentService
-from app.agents.invalid_tool_calls import RepairInvalidToolCallsMiddleware
 from app.agents.schemas import AgentResponse
 from app.agents.settings import agent_settings
 from app.agents.stream import (
@@ -32,7 +31,7 @@ from app.agents.stream import (
     SlackStreamAdapter,
     encode_synthetic_ai_message_sse,
 )
-from app.agents.tool_errors import ToolErrorMiddleware
+from app.agents.tool_errors import RepairInvalidToolCallsMiddleware, ToolErrorMiddleware
 from app.agents.toolset import Toolset, sanitize_tool_name
 from app.database import get_checkpointer
 from app.exceptions import DomainValidationError
