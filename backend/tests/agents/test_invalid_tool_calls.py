@@ -53,8 +53,9 @@ def test_invalid_tool_call_becomes_error_tool_message():
 
     result = _run([HumanMessage(content="make a page", id="h1"), ai])
 
-    # Loops back to the model so it can read the error and retry.
-    assert result["jump_to"] == "model"
+    # No forced route: the normal model→tools edge handles it (here, no pending
+    # calls remain, so it loops back to the model to read the error and retry).
+    assert "jump_to" not in result
 
     repaired_ai, tool_msg = result["messages"]
 
@@ -91,7 +92,10 @@ def test_preserves_valid_calls_alongside_invalid():
     repaired_ai = result["messages"][0]
     ids = {tc["id"] for tc in repaired_ai.tool_calls}
     assert ids == {"ok", "bad"}
-    # One error tool message, for the invalid call only.
+    # One error tool message, for the invalid call only — the valid call is left
+    # unanswered so the model→tools edge still executes it (we must NOT force a
+    # jump to the model, which would skip it).
+    assert "jump_to" not in result
     tool_msgs = [m for m in result["messages"] if isinstance(m, ToolMessage)]
     assert len(tool_msgs) == 1
     assert tool_msgs[0].tool_call_id == "bad"

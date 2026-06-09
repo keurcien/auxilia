@@ -190,19 +190,20 @@ class Agent:
         # PatchToolCallsMiddleware runs first so that any dangling tool_calls
         # left by a previous aborted turn (recursion limit, cancelled stream,
         # etc.) get synthetic ToolMessage responses before the model sees them.
-        # RepairInvalidToolCallsMiddleware is last in the list so its after_model
-        # hook runs first (after_model nodes execute last-to-first), letting it
-        # convert malformed tool-call arguments into a tool error and jump back
-        # to the model before HITL/limit hooks act on the broken call.
+        # RepairInvalidToolCallsMiddleware is placed *before* HITL so it runs
+        # *after* it (after_model hooks execute last-to-first): HITL must see only
+        # the genuine tool_calls and gate those, while the malformed calls stay in
+        # invalid_tool_calls (invisible to HITL) until Repair promotes them into
+        # tool_calls answered by error ToolMessages.
         middleware = [
             PatchToolCallsMiddleware(),
             ToolCallLimitMiddleware(run_limit=(
                 agent_settings.recursion_limit - 1) // 2, exit_behavior="end"),
+            RepairInvalidToolCallsMiddleware(),
             HumanInTheLoopMiddleware(
                 interrupt_on=agent.toolset.interrupt_on,
                 description_prefix="Tool execution pending approval",
             ),
-            RepairInvalidToolCallsMiddleware(),
         ]
 
         subagents: list[ResolvedAgent] = []

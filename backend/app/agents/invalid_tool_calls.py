@@ -8,9 +8,22 @@ provider integration routes the call to ``invalid_tool_calls`` instead of
 learns its arguments were malformed, and the user just sees a silent stop.
 
 ``RepairInvalidToolCallsMiddleware`` runs after the model: it promotes each
-invalid call to a well-formed (empty-argument) tool call, answers it with an
-error ``ToolMessage`` describing the failure, and jumps back to the model so it
-can read the error and try again with valid JSON.
+invalid call to a well-formed (empty-argument) tool call and answers it with an
+error ``ToolMessage`` describing the failure. It does *not* force a route — it
+just returns the state update and lets the agent's normal model→tools edge take
+over:
+
+- Any genuinely valid tool calls in the same turn stay pending (they have no
+  answer yet) and get executed normally; the promoted-invalid calls already have
+  their error ``ToolMessage`` so they're skipped.
+- When every call was invalid, there are no pending calls left, so the edge
+  routes back to the model — which reads the errors and retries with valid JSON.
+
+This middleware must run *after* ``HumanInTheLoopMiddleware`` (i.e. placed before
+it in the middleware list, since ``after_model`` hooks execute last-to-first).
+HITL gates calls by name without checking whether they already have a response,
+so it must see only the real ``tool_calls`` — the invalid calls are still in
+``invalid_tool_calls`` (invisible to HITL) until this middleware promotes them.
 """
 
 from __future__ import annotations
@@ -19,7 +32,7 @@ import logging
 from typing import Any
 from uuid import uuid4
 
-from langchain.agents.middleware import AgentMiddleware, AgentState, hook_config
+from langchain.agents.middleware import AgentMiddleware, AgentState
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.messages.tool import tool_call as create_tool_call
 from langgraph.runtime import Runtime
@@ -52,7 +65,6 @@ class RepairInvalidToolCallsMiddleware(AgentMiddleware):
     """Turn unparseable tool-call arguments into an error the model can recover
     from, instead of letting the agent exit the loop silently."""
 
-    @hook_config(can_jump_to=["model"])
     def after_model(
         self,
         state: AgentState,
@@ -65,8 +77,9 @@ class RepairInvalidToolCallsMiddleware(AgentMiddleware):
         if not isinstance(last, AIMessage) or not last.invalid_tool_calls:
             return None
 
-        # Keep any valid tool calls from the same turn, and promote each invalid
-        # one to an empty-argument call so the assistant turn is a well-formed
+        # Keep any valid tool calls from the same turn (they stay pending and the
+        # model→tools edge will still execute them), and promote each invalid one
+        # to an empty-argument call so the assistant turn is a well-formed
         # tool_use that the matching error ToolMessage can answer. (Anthropic's
         # _format_messages dedupes tool_use blocks by id, so the original
         # malformed payload in the message content is dropped on the round-trip.)
@@ -96,4 +109,7 @@ class RepairInvalidToolCallsMiddleware(AgentMiddleware):
         repaired_ai = last.model_copy(
             update={"tool_calls": repaired_calls, "invalid_tool_calls": []}
         )
-        return {"messages": [repaired_ai, *tool_messages], "jump_to": "model"}
+        # No explicit jump: the normal model→tools edge runs any still-pending
+        # (valid) calls, then loops back to the model; if every call was invalid
+        # there's nothing pending so it routes straight back to the model.
+        return {"messages": [repaired_ai, *tool_messages]}
