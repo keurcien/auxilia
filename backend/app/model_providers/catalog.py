@@ -79,7 +79,7 @@ class ChatModelFactory:
                 return ChatAnthropic(
                     model=model_id,
                     temperature=1,
-                    max_tokens=16384,
+                    max_tokens=32768,
                     streaming=True,
                     timeout=None,
                     max_retries=2,

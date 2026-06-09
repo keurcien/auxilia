@@ -24,6 +24,8 @@ def build_oauth_client_metadata(mcp_server: dict) -> OAuthClientMetadata:
         scope = "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/gmail.modify"
     elif mcp_server.name == "Google Sheets":
         scope = "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive"
+    elif mcp_server.name == "Calendar":
+        scope = "openid https://www.googleapis.com/auth/calendar.calendarlist.readonly https://www.googleapis.com/auth/calendar.events.freebusy https://www.googleapis.com/auth/calendar.events.readonly"
     else:
         scope = "user"
 
