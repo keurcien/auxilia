@@ -8,6 +8,7 @@ from app.agents.mcp_servers.service import (
     get_agent_mcp_server_service,
 )
 from app.agents.schemas import (
+    AgentConfig,
     AgentCreate,
     AgentCreateDB,
     AgentMCPServerCreate,
@@ -77,6 +78,18 @@ async def update_agent(
 ) -> AgentResponse:
     return await service.update(
         agent_id, agent_update, user_id=current_user.id, user_role=current_user.role
+    )
+
+
+@router.put("/{agent_id}/config", response_model=AgentResponse)
+async def set_agent_config(
+    agent_id: UUID,
+    config: AgentConfig,
+    current_user: UserDB = Depends(get_current_user),
+    service: AgentService = Depends(get_agent_service),
+) -> AgentResponse:
+    return await service.set_config(
+        agent_id, config, user_id=current_user.id, user_role=current_user.role
     )
 
 

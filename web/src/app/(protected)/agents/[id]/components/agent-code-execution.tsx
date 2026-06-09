@@ -3,10 +3,8 @@
 import { useState } from "react";
 import Image from "next/image";
 import { ChevronRight } from "lucide-react";
-import { Agent } from "@/types/agents";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { api } from "@/lib/api/client";
 
 const SANDBOX_TOOLS = [
 	{ name: "ls", description: "List files in a directory with metadata (size, modified time)" },
@@ -19,31 +17,15 @@ const SANDBOX_TOOLS = [
 ];
 
 interface AgentCodeExecutionProps {
-	agent: Agent;
-	onUpdate?: () => void;
-	onSaving?: () => void;
-	onSaved?: () => void;
+	isEditing: boolean;
+	onDisable: () => void;
 }
 
 export default function AgentCodeExecution({
-	agent,
-	onUpdate,
-	onSaving,
-	onSaved,
+	isEditing,
+	onDisable,
 }: AgentCodeExecutionProps) {
 	const [isExpanded, setIsExpanded] = useState(false);
-
-	const handleDisable = async () => {
-		onSaving?.();
-		try {
-			await api.patch(`/agents/${agent.id}`, { hasCodeInterpreter: false });
-			onUpdate?.();
-			onSaved?.();
-		} catch (error) {
-			console.error("Failed to disable code execution:", error);
-			onSaved?.();
-		}
-	};
 
 	return (
 		<div className="border-b last:border-b-0">
@@ -107,16 +89,18 @@ export default function AgentCodeExecution({
 							))}
 						</div>
 					</div>
-					<div className="flex w-full justify-center">
-						<Button
-							variant="ghost"
-							size="sm"
-							className="text-destructive cursor-pointer hover:text-destructive/80"
-							onClick={handleDisable}
-						>
-							Disable Code execution
-						</Button>
-					</div>
+					{isEditing && (
+						<div className="flex w-full justify-center">
+							<Button
+								variant="ghost"
+								size="sm"
+								className="text-destructive cursor-pointer hover:text-destructive/80"
+								onClick={onDisable}
+							>
+								Disable Code execution
+							</Button>
+						</div>
+					)}
 				</div>
 			)}
 		</div>

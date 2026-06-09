@@ -59,6 +59,29 @@ class AgentPatch(SQLModel):
         return v
 
 
+class AgentMCPServerConfig(SQLModel):
+    mcp_server_id: UUID
+    tools: dict[str, ToolStatus] | None = None
+
+
+class AgentConfig(SQLModel):
+    name: str
+    instructions: str
+    description: str | None = None
+    emoji: str | None = None
+    color: str | None = None
+    has_code_interpreter: bool = False
+    mcp_servers: list[AgentMCPServerConfig] = []
+    subagent_ids: list[UUID] = []
+
+    @field_validator("color")
+    @classmethod
+    def validate_color(cls, v: str | None) -> str | None:
+        if v is not None and v not in ALLOWED_COLORS:
+            raise ValueError(f"color must be one of {sorted(ALLOWED_COLORS)}")
+        return v
+
+
 class AgentMCPServerCreate(SQLModel):
     tools: dict[str, ToolStatus] | None = None
 

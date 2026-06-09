@@ -9,11 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.agents.core.repository import AgentRepository
+from app.agents.mcp_servers.service import AgentMCPServerService
 from app.agents.models import (
     AgentDB,
     AgentUserPermissionDB,
 )
 from app.agents.schemas import (
+    AgentConfig,
     AgentCreateDB,
     AgentMCPServerResponse,
     AgentPatch,
@@ -38,6 +40,7 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
     def __init__(self, db: AsyncSession):
         super().__init__(db, AgentRepository(db))
         self.subagent_service = SubagentService(db)
+        self.mcp_server_service = AgentMCPServerService(db)
 
     @staticmethod
     def _resolve_permission(
@@ -160,6 +163,36 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
             raise PermissionDeniedError("Not authorized to edit this agent")
         agent = await self.get_or_404(agent_id)
         await self.repository.update(agent, data)
+        return await self.get(agent_id, user_id=user_id, user_role=user_role)
+
+    async def set_config(
+        self,
+        agent_id: UUID,
+        config: AgentConfig,
+        user_id: UUID | None = None,
+        user_role: WorkspaceRole | None = None,
+    ) -> AgentResponse:
+        """Bulk-replace the whole agent config (scalars, MCP bindings,
+        subagents) atomically — one Save from the editor, one transaction."""
+        existing = await self.get(agent_id, user_id=user_id, user_role=user_role)
+        if existing.current_user_permission not in ("owner", "admin", "editor"):
+            raise PermissionDeniedError("Not authorized to edit this agent")
+        agent = await self.get_or_404(agent_id)
+        await self.repository.update(
+            agent,
+            AgentPatch(
+                name=config.name,
+                instructions=config.instructions,
+                description=config.description,
+                emoji=config.emoji,
+                color=config.color,
+                has_code_interpreter=config.has_code_interpreter,
+            ),
+        )
+        await self.mcp_server_service.set_for_agent(agent_id, config.mcp_servers)
+        await self.subagent_service.set_for_supervisor(
+            agent_id, config.subagent_ids, user_role=user_role
+        )
         return await self.get(agent_id, user_id=user_id, user_role=user_role)
 
     async def delete(

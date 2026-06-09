@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Image from "next/image";
 import { MCPServer } from "@/types/mcp-servers";
-import { Agent } from "@/types/agents";
+import { ToolStatus } from "@/types/agents";
 import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,11 +11,16 @@ import AgentMCPTool from "./agent-mcp-tool";
 import { api } from "@/lib/api/client";
 
 interface AgentMCPServerProps {
-	agent: Agent;
+	agentId: string;
 	server: MCPServer;
-	onUpdate?: () => void;
-	onSaving?: () => void;
-	onSaved?: () => void;
+	tools: Record<string, ToolStatus> | null;
+	isEditing: boolean;
+	onToolStatusChange: (toolName: string, status: ToolStatus) => void;
+	onDetach: () => void;
+	// Connecting (OAuth) and tool discovery are resource provisioning, not
+	// config — they run immediately, outside the draft. After a successful
+	// connect + sync, the parent gets the discovered tool names.
+	onToolsSynced: (toolNames: string[]) => void;
 }
 
 interface MCPServerTool {
@@ -24,17 +29,16 @@ interface MCPServerTool {
 }
 
 export default function AgentMCPServer({
-	agent,
+	agentId,
 	server,
-	onUpdate,
-	onSaving,
-	onSaved,
+	tools,
+	isEditing,
+	onToolStatusChange,
+	onDetach,
+	onToolsSynced,
 }: AgentMCPServerProps) {
-	const initialAttached =
-		agent.mcpServers?.some((s) => s.mcpServerId === server.id) || false;
-	const [isAttached, setIsAttached] = useState(initialAttached);
 	const [isExpanded, setIsExpanded] = useState(false);
-	const [tools, setTools] = useState<MCPServerTool[]>([]);
+	const [serverTools, setServerTools] = useState<MCPServerTool[]>([]);
 	const [isLoading, setIsLoading] = useState(false);
 	const [toolsFetched, setToolsFetched] = useState(false);
 	const [isConnected, setIsConnected] = useState(false);
@@ -47,34 +51,6 @@ export default function AgentMCPServer({
 		}
 	}, [isCheckingConnection, isConnected]);
 
-	const handleToggleServer = async (serverId: string, isEnabled: boolean) => {
-		setIsAttached(isEnabled);
-		onSaving?.();
-
-		try {
-			if (isEnabled) {
-				await api.post(`/agents/${agent.id}/mcp-servers/${serverId}`, {});
-
-				// Notify parent to update
-				onUpdate?.();
-
-				if (!toolsFetched) {
-					await fetchTools();
-				}
-			} else {
-				await api.delete(`/agents/${agent.id}/mcp-servers/${serverId}`);
-
-				// Notify parent to update
-				onUpdate?.();
-			}
-			onSaved?.();
-		} catch (error) {
-			console.error("Failed to toggle server:", error);
-			setIsAttached(!isEnabled);
-			onSaved?.();
-		}
-	};
-
 	const handleToggleExpand = () => {
 		setIsExpanded(!isExpanded);
 	};
@@ -84,7 +60,7 @@ export default function AgentMCPServer({
 		try {
 			const res = await api.get(`/mcp-servers/${server.id}/list-tools`);
 			const fetchedTools = res.data;
-			setTools(fetchedTools);
+			setServerTools(fetchedTools);
 			setToolsFetched(true);
 		} catch (error: unknown) {
 			// Check if this is an OAuth authorization required error
@@ -115,24 +91,23 @@ export default function AgentMCPServer({
 						if (statusData.connected) {
 							clearInterval(pollInterval);
 							setIsConnected(true);
-							setIsAttached(true);
 
 							// Sync tools to the agent MCP server (saves with always_allow)
 							await api.post(
-								`/agents/${agent.id}/mcp-servers/${server.id}/sync-tools`,
+								`/agents/${agentId}/mcp-servers/${server.id}/sync-tools`,
 							);
 
 							// Fetch tools for display
 							const retryRes = await api.get(
 								`/mcp-servers/${server.id}/list-tools`,
 							);
-							const fetchedTools = retryRes.data;
-							setTools(fetchedTools);
+							const fetchedTools: MCPServerTool[] = retryRes.data;
+							setServerTools(fetchedTools);
 							setToolsFetched(true);
 							setIsLoading(false);
 
-							// Notify parent to refresh agent data with updated tools
-							onUpdate?.();
+							// Let the parent refresh the agent / seed the draft
+							onToolsSynced(fetchedTools.map((tool) => tool.name));
 
 							if (popup && !popup.closed) {
 								popup.close();
@@ -152,11 +127,11 @@ export default function AgentMCPServer({
 			}
 
 			console.error("Failed to fetch tools:", error);
-			setTools([]);
+			setServerTools([]);
 		} finally {
 			setIsLoading(false);
 		}
-	}, [server.id, agent.id, onUpdate]);
+	}, [server.id, agentId, onToolsSynced]);
 
 	const handleConnect = async () => {
 		await fetchTools();
@@ -178,12 +153,12 @@ export default function AgentMCPServer({
 			});
 	}, [server.id]);
 
-	// Fetch tools on initial load if server is already attached
+	// Fetch tools on initial load
 	useEffect(() => {
-		if (isAttached && !toolsFetched && isConnected) {
+		if (!toolsFetched && isConnected) {
 			fetchTools();
 		}
-	}, [isAttached, toolsFetched, isConnected, fetchTools]);
+	}, [toolsFetched, isConnected, fetchTools]);
 
 	return (
 		<div className="border-b last:border-b-0">
@@ -285,18 +260,18 @@ export default function AgentMCPServer({
 							<div className="text-sm text-muted-foreground py-2">
 								Loading tools...
 							</div>
-						) : tools && tools.length > 0 ? (
+						) : serverTools && serverTools.length > 0 ? (
 							<div className="space-y-2">
-								{tools.map((tool) => (
+								{serverTools.map((tool) => (
 									<AgentMCPTool
 										key={tool.name}
-										agent={agent}
-										serverId={server.id}
 										toolName={tool.name}
 										toolDescription={tool.description}
-										onUpdate={onUpdate}
-										onSaving={onSaving}
-										onSaved={onSaved}
+										status={tools?.[tool.name] ?? "always_allow"}
+										isEditing={isEditing}
+										onStatusChange={(status) =>
+											onToolStatusChange(tool.name, status)
+										}
 									/>
 								))}
 							</div>
@@ -306,16 +281,18 @@ export default function AgentMCPServer({
 							</div>
 						)}
 					</div>
-					<div className="flex w-full justify-center">
-						<Button
-							variant="ghost"
-							size="sm"
-							className="text-destructive cursor-pointer hover:text-destructive/80"
-							onClick={() => handleToggleServer(server.id, false)}
-						>
-							Disable {server.name}
-						</Button>
-					</div>
+					{isEditing && (
+						<div className="flex w-full justify-center">
+							<Button
+								variant="ghost"
+								size="sm"
+								className="text-destructive cursor-pointer hover:text-destructive/80"
+								onClick={onDetach}
+							>
+								Disable {server.name}
+							</Button>
+						</div>
+					)}
 				</div>
 			)}
 		</div>
