@@ -20,6 +20,7 @@ import {
 } from "@/types/agents";
 import AgentToolList from "../[id]/components/agent-tool-list";
 import AgentSubagentList from "../[id]/components/agent-subagent-list";
+import { Streamdown } from "streamdown";
 import { api } from "@/lib/api/client";
 import { useAgentsStore } from "@/stores/agents-store";
 import { useThreadsStore } from "@/stores/threads-store";
@@ -358,18 +359,31 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 						<label className="block text-[12px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em] mb-2.5">
 							Instructions
 						</label>
-						<textarea
-							className="flex-1 w-full h-full px-5 py-4.5 rounded-[22px] border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-[#FAFCFB] dark:bg-white/5 text-[14px] font-medium text-[#1E2D28] dark:text-white leading-relaxed placeholder:text-[#A3B5AD] dark:placeholder:text-white/30 resize-vertical focus:outline-none focus:border-[#4CA882] transition-colors read-only:focus:border-[#E0E8E4] dark:read-only:focus:border-white/10 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-							value={view.instructions}
-							readOnly={!isEditing}
-							onChange={(e) =>
-								handleDraftChange((prev) => ({
-									...prev,
-									instructions: e.target.value,
-								}))
-							}
-							placeholder="Enter instructions for your agent..."
-						/>
+						{isEditing ? (
+							<textarea
+								className="flex-1 w-full h-full px-5 py-4.5 rounded-[22px] border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-[#FAFCFB] dark:bg-white/5 text-[14px] font-medium text-[#1E2D28] dark:text-white leading-relaxed placeholder:text-[#A3B5AD] dark:placeholder:text-white/30 resize-vertical focus:outline-none focus:border-[#4CA882] transition-colors [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+								value={view.instructions}
+								onChange={(e) =>
+									handleDraftChange((prev) => ({
+										...prev,
+										instructions: e.target.value,
+									}))
+								}
+								placeholder="Enter instructions for your agent..."
+							/>
+						) : (
+							<div className="flex-1 w-full min-h-0 overflow-y-auto px-5 py-4.5 rounded-[22px] border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-[#FAFCFB] dark:bg-white/5 text-[14px] font-medium text-[#1E2D28] dark:text-white leading-relaxed [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+								{view.instructions.trim() ? (
+									<Streamdown className="size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+										{view.instructions}
+									</Streamdown>
+								) : (
+									<span className="text-[#A3B5AD] dark:text-white/30">
+										No instructions yet.
+									</span>
+								)}
+							</div>
+						)}
 					</div>
 				</div>
 
