@@ -71,7 +71,15 @@ class ChatModelFactory:
             case "anthropic":
                 kwargs: dict = {}
                 if model_id in ADAPTIVE_THINKING_MODELS:
-                    kwargs["thinking"] = {"type": "adaptive"}
+                    # `display` defaults to "omitted" on Opus 4.7+, which returns
+                    # thinking blocks with an empty `thinking` field. langchain
+                    # then drops the field when round-tripping the block after a
+                    # tool call, and the API rejects it with
+                    # `content.0.thinking.thinking: Field required`. Requesting
+                    # "summarized" keeps the field populated so it survives the
+                    # round-trip (and surfaces reasoning to the UI).
+                    kwargs["thinking"] = {
+                        "type": "adaptive", "display": "summarized"}
                     kwargs["effort"] = "medium"
                 else:
                     kwargs["thinking"] = {
