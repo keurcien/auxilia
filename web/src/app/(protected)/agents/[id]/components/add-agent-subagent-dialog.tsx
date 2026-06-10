@@ -12,6 +12,7 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { SearchBar } from "@/components/ui/search-bar";
 
 interface AddAgentSubagentDialogProps {
 	open: boolean;
@@ -108,6 +109,7 @@ export default function AddAgentSubagentDialog({
 	onSaved,
 }: AddAgentSubagentDialogProps) {
 	const allAgents = useAgentsStore((state) => state.agents);
+	const [search, setSearch] = useState("");
 
 	const alreadyBoundIds = useMemo(
 		() => new Set(agent.subagents?.map((s) => s.id) || []),
@@ -116,8 +118,14 @@ export default function AddAgentSubagentDialog({
 
 	// Candidates: all agents except self, already-bound, and archived
 	const candidates = useMemo(() => {
+		const term = search.toLowerCase();
 		return allAgents
-			.filter((a) => a.id !== agent.id && !alreadyBoundIds.has(a.id))
+			.filter(
+				(a) =>
+					a.id !== agent.id &&
+					!alreadyBoundIds.has(a.id) &&
+					(!term || a.name.toLowerCase().includes(term)),
+			)
 			.map((a) => {
 				let disabled = false;
 				let disabledReason: string | undefined;
@@ -137,7 +145,7 @@ export default function AddAgentSubagentDialog({
 				if (a.disabled !== b.disabled) return a.disabled ? 1 : -1;
 				return a.agent.name.localeCompare(b.agent.name);
 			});
-	}, [allAgents, agent.id, alreadyBoundIds]);
+	}, [allAgents, agent.id, alreadyBoundIds, search]);
 
 	const handleSubagentAdded = (subagentId: string) => {
 		onSubagentAdded?.(subagentId);
@@ -154,7 +162,12 @@ export default function AddAgentSubagentDialog({
 				<DialogHeader>
 					<DialogTitle>Add Subagent</DialogTitle>
 				</DialogHeader>
-				<div className="py-4 overflow-y-auto">
+				<div className="py-4 flex flex-col gap-4 overflow-y-auto">
+					<SearchBar
+						placeholder="Search agents..."
+						value={search}
+						onChange={setSearch}
+					/>
 					{candidates.length > 0 ? (
 						<div className="max-h-[400px] flex flex-col gap-2 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 							{candidates.map(({ agent: candidate, disabled, disabledReason }) => (
