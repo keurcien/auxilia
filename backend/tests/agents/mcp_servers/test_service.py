@@ -6,7 +6,11 @@ import pytest
 
 from app.agents.mcp_servers.service import AgentMCPServerService
 from app.agents.models import AgentMCPServerDB, ToolStatus
-from app.agents.schemas import AgentMCPServerCreate, AgentMCPServerPatch
+from app.agents.schemas import (
+    AgentMCPServerConfig,
+    AgentMCPServerCreate,
+    AgentMCPServerPatch,
+)
 from app.exceptions import NotFoundError
 from app.mcp.servers.models import MCPAuthType
 
@@ -33,6 +37,7 @@ def mock_repo():
     repo.create = AsyncMock()
     repo.update = AsyncMock()
     repo.delete = AsyncMock()
+    repo.list_for_agent = AsyncMock(return_value=[])
     return repo
 
 
@@ -302,6 +307,65 @@ async def test_create_or_update_oauth_skips_fetch_when_not_connected(
         )
 
     mock_fetch.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# set_for_agent
+# ---------------------------------------------------------------------------
+
+
+async def test_set_for_agent_replaces_tools_on_existing(service, mock_repo):
+    link = make_link(tools={"old": ToolStatus.always_allow})
+    mock_repo.list_for_agent.return_value = [link]
+    new_tools = {"search": ToolStatus.needs_approval}
+
+    await service.set_for_agent(
+        link.agent_id,
+        [AgentMCPServerConfig(mcp_server_id=link.mcp_server_id, tools=new_tools)],
+    )
+
+    # Whole-map replace, not a merge — "old" is gone
+    assert link.tools == new_tools
+    mock_repo.create.assert_not_awaited()
+    mock_repo.delete.assert_not_awaited()
+
+
+async def test_set_for_agent_creates_missing_binding(service, mock_repo, mock_db):
+    server = make_mcp_server()
+    mock_db.execute.return_value = make_mock_execute_result(scalar=server)
+    agent_id = uuid4()
+    tools = {"search": ToolStatus.always_allow}
+
+    await service.set_for_agent(
+        agent_id, [AgentMCPServerConfig(mcp_server_id=server.id, tools=tools)]
+    )
+
+    created = mock_repo.create.call_args[0][0]
+    assert created.agent_id == agent_id
+    assert created.mcp_server_id == server.id
+    assert created.tools == tools
+
+
+async def test_set_for_agent_raises_404_for_unknown_server(
+    service, mock_repo, mock_db
+):
+    mock_db.execute.return_value = make_mock_execute_result(scalar=None)
+
+    with pytest.raises(NotFoundError):
+        await service.set_for_agent(
+            uuid4(), [AgentMCPServerConfig(mcp_server_id=uuid4())]
+        )
+
+    mock_repo.create.assert_not_awaited()
+
+
+async def test_set_for_agent_deletes_unwanted_bindings(service, mock_repo):
+    link = make_link()
+    mock_repo.list_for_agent.return_value = [link]
+
+    await service.set_for_agent(link.agent_id, [])
+
+    mock_repo.delete.assert_awaited_once_with(link)
 
 
 # ---------------------------------------------------------------------------

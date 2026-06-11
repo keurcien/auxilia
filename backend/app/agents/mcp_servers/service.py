@@ -6,7 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.mcp_servers.repository import AgentMCPServerRepository
 from app.agents.models import AgentMCPServerBase, AgentMCPServerDB
-from app.agents.schemas import AgentMCPServerCreate, AgentMCPServerPatch
+from app.agents.schemas import (
+    AgentMCPServerConfig,
+    AgentMCPServerCreate,
+    AgentMCPServerPatch,
+)
 from app.database import get_db
 from app.exceptions import NotFoundError
 from app.mcp.client.connectivity import is_oauth_connected
@@ -105,6 +109,37 @@ class AgentMCPServerService(
         if not link:
             raise NotFoundError(self.not_found_message)
         await self.repository.delete(link)
+
+    async def set_for_agent(
+        self, agent_id: UUID, configs: list[AgentMCPServerConfig]
+    ) -> None:
+        """Bulk-replace the agent's MCP server bindings.
+
+        Pure DB reconcile — tool maps are written as provided (whole-map
+        replace, no merge) and no server connection is opened.
+        """
+        existing = await self.repository.list_for_agent(agent_id)
+        by_server = {link.mcp_server_id: link for link in existing}
+        wanted = {config.mcp_server_id for config in configs}
+
+        for config in configs:
+            link = by_server.get(config.mcp_server_id)
+            if link:
+                link.tools = config.tools
+                self.db.add(link)
+            else:
+                await self._ensure_server(config.mcp_server_id)
+                await self.repository.create(
+                    AgentMCPServerBase(
+                        agent_id=agent_id,
+                        mcp_server_id=config.mcp_server_id,
+                        tools=config.tools,
+                    )
+                )
+        for server_id, link in by_server.items():
+            if server_id not in wanted:
+                await self.repository.delete(link)
+        await self.db.flush()
 
     async def sync_tools(
         self, agent_id: UUID, server_id: UUID, user_id: str

@@ -83,12 +83,14 @@ const iconMap = {
 interface ThreeStateToggleProps {
 	value: ToggleState;
 	onChange: (value: ToggleState) => void;
+	disabled?: boolean;
 	className?: string;
 }
 
 export function ThreeStateToggle({
 	value,
 	onChange,
+	disabled = false,
 	className,
 }: ThreeStateToggleProps) {
 	const selectedIndex = states.findIndex((s) => s.id === value);
@@ -116,13 +118,17 @@ export function ThreeStateToggle({
 					<React.Fragment key={state.id}>
 						<button
 							type="button"
+							disabled={disabled}
 							onClick={() => onChange(state.id)}
 							className={cn(
 								"relative z-10 w-10 h-8 flex items-center justify-center rounded-full",
-								"transition-colors duration-200 cursor-pointer",
+								"transition-colors duration-200",
+								disabled ? "cursor-default" : "cursor-pointer",
 								isSelected
 									? "text-gray-800 dark:text-gray-100"
-									: "text-gray-400 dark:text-gray-500 hover:text-gray-500 dark:hover:text-gray-400",
+									: disabled
+										? "text-gray-400 dark:text-gray-500"
+										: "text-gray-400 dark:text-gray-500 hover:text-gray-500 dark:hover:text-gray-400",
 							)}
 							aria-label={state.label}
 							aria-pressed={isSelected}

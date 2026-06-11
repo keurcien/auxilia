@@ -11,7 +11,13 @@ from app.agents.models import (
     PermissionLevel,
     ToolStatus,
 )
-from app.agents.schemas import AgentCreateDB, AgentPatch, AgentResponse
+from app.agents.schemas import (
+    AgentConfig,
+    AgentCreateDB,
+    AgentMCPServerConfig,
+    AgentPatch,
+    AgentResponse,
+)
 from app.exceptions import NotFoundError, PermissionDeniedError
 from app.users.models import WorkspaceRole
 
@@ -52,16 +58,25 @@ def mock_subagent_service():
     svc.list_subagents = AsyncMock(return_value=[])
     svc.list_all_subagent_data = AsyncMock(return_value=({}, set()))
     svc.delete_all_for_agent = AsyncMock()
+    svc.set_for_supervisor = AsyncMock()
     svc.repository = MagicMock()
     svc.repository.is_subagent = AsyncMock(return_value=False)
     return svc
 
 
 @pytest.fixture
-def service(mock_db, mock_repo, mock_subagent_service):
+def mock_mcp_server_service():
+    svc = MagicMock()
+    svc.set_for_agent = AsyncMock()
+    return svc
+
+
+@pytest.fixture
+def service(mock_db, mock_repo, mock_subagent_service, mock_mcp_server_service):
     svc = AgentService(mock_db)
     svc.repository = mock_repo
     svc.subagent_service = mock_subagent_service
+    svc.mcp_server_service = mock_mcp_server_service
     return svc
 
 
@@ -367,6 +382,93 @@ async def test_update_agent_allows_workspace_admin(service, mock_repo):
         AgentPatch(name="Renamed"),
         user_id=uuid4(),
         user_role=WorkspaceRole.admin,
+    )
+
+    mock_repo.update.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# set_config
+# ---------------------------------------------------------------------------
+
+
+def make_config(**kwargs):
+    defaults = {"name": "Configured", "instructions": "Do things"}
+    return AgentConfig(**{**defaults, **kwargs})
+
+
+async def test_set_config_updates_scalars_and_reconciles(
+    service, mock_repo, mock_subagent_service, mock_mcp_server_service
+):
+    agent = make_agent()
+    subagent_id = uuid4()
+    mock_repo.get.return_value = agent
+    mock_repo.list_with_permissions.return_value = [(agent, None)]
+    config = make_config(
+        description="desc",
+        has_code_interpreter=True,
+        mcp_servers=[
+            AgentMCPServerConfig(
+                mcp_server_id=uuid4(),
+                tools={"search": ToolStatus.needs_approval},
+            )
+        ],
+        subagent_ids=[subagent_id],
+    )
+
+    result = await service.set_config(agent.id, config, user_id=agent.owner_id)
+
+    update_schema = mock_repo.update.call_args[0][1]
+    assert isinstance(update_schema, AgentPatch)
+    assert update_schema.model_dump(exclude_unset=True) == {
+        "name": "Configured",
+        "instructions": "Do things",
+        "description": "desc",
+        "emoji": None,
+        "color": None,
+        "has_code_interpreter": True,
+    }
+    mock_mcp_server_service.set_for_agent.assert_awaited_once_with(
+        agent.id, config.mcp_servers
+    )
+    mock_subagent_service.set_for_supervisor.assert_awaited_once_with(
+        agent.id, [subagent_id], user_role=None
+    )
+    assert isinstance(result, AgentResponse)
+    assert result.id == agent.id
+
+
+async def test_set_config_raises_404_when_not_found(service, mock_repo):
+    mock_repo.list_with_permissions.return_value = []
+
+    with pytest.raises(NotFoundError):
+        await service.set_config(uuid4(), make_config())
+
+    mock_repo.update.assert_not_called()
+
+
+async def test_set_config_raises_403_when_no_permission(
+    service, mock_repo, mock_mcp_server_service
+):
+    agent = make_agent()
+    mock_repo.list_with_permissions.return_value = [(agent, None)]
+
+    with pytest.raises(PermissionDeniedError):
+        await service.set_config(agent.id, make_config(), user_id=uuid4())
+
+    mock_repo.update.assert_not_called()
+    mock_mcp_server_service.set_for_agent.assert_not_awaited()
+
+
+async def test_set_config_allows_granted_editor(service, mock_repo):
+    agent = make_agent()
+    mock_repo.get.return_value = agent
+    mock_repo.list_with_permissions.return_value = [
+        (agent, None, PermissionLevel.editor)
+    ]
+
+    await service.set_config(
+        agent.id, make_config(), user_id=uuid4(), user_role=WorkspaceRole.member
     )
 
     mock_repo.update.assert_awaited_once()

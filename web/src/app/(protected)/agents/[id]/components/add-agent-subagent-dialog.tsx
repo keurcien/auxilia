@@ -1,9 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useMemo } from "react";
 import { Plus } from "lucide-react";
-import { api } from "@/lib/api/client";
-import { Agent } from "@/types/agents";
+import { Agent, SubagentInfo } from "@/types/agents";
 import { useAgentsStore } from "@/stores/agents-store";
 import {
 	Dialog,
@@ -16,49 +15,32 @@ import { Button } from "@/components/ui/button";
 interface AddAgentSubagentDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	agent: Agent;
-	onSubagentAdded?: (subagentId: string) => void;
-	onSaving?: () => void;
-	onSaved?: () => void;
+	agentId: string;
+	boundSubagentIds: string[];
+	onAdd: (subagent: SubagentInfo) => void;
 }
 
 interface AgentCandidateCardProps {
 	candidate: Agent;
-	supervisorId: string;
-	onAdd: (subagentId: string) => void;
+	onAdd: (subagent: SubagentInfo) => void;
 	disabled: boolean;
 	disabledReason?: string;
-	onSaving?: () => void;
-	onSaved?: () => void;
 }
 
 function AgentCandidateCard({
 	candidate,
-	supervisorId,
 	onAdd,
 	disabled,
 	disabledReason,
-	onSaving,
-	onSaved,
 }: AgentCandidateCardProps) {
-	const [isAdding, setIsAdding] = useState(false);
-
-	const handleAdd = async () => {
-		setIsAdding(true);
-		onSaving?.();
-		try {
-			await api.post(
-				`/agents/${supervisorId}/subagents/${candidate.id}`,
-				{},
-			);
-			onAdd(candidate.id);
-			onSaved?.();
-		} catch (error) {
-			console.error("Failed to add subagent:", error);
-			onSaved?.();
-		} finally {
-			setIsAdding(false);
-		}
+	const handleAdd = () => {
+		onAdd({
+			id: candidate.id,
+			name: candidate.name,
+			emoji: candidate.emoji,
+			color: candidate.color,
+			description: candidate.description,
+		});
 	};
 
 	return (
@@ -91,7 +73,7 @@ function AgentCandidateCard({
 				size="icon"
 				className="cursor-pointer shrink-0"
 				onClick={handleAdd}
-				disabled={disabled || isAdding}
+				disabled={disabled}
 			>
 				<Plus className="w-4 h-4" />
 			</Button>
@@ -102,22 +84,21 @@ function AgentCandidateCard({
 export default function AddAgentSubagentDialog({
 	open,
 	onOpenChange,
-	agent,
-	onSubagentAdded,
-	onSaving,
-	onSaved,
+	agentId,
+	boundSubagentIds,
+	onAdd,
 }: AddAgentSubagentDialogProps) {
 	const allAgents = useAgentsStore((state) => state.agents);
 
 	const alreadyBoundIds = useMemo(
-		() => new Set(agent.subagents?.map((s) => s.id) || []),
-		[agent.subagents],
+		() => new Set(boundSubagentIds),
+		[boundSubagentIds],
 	);
 
 	// Candidates: all agents except self, already-bound, and archived
 	const candidates = useMemo(() => {
 		return allAgents
-			.filter((a) => a.id !== agent.id && !alreadyBoundIds.has(a.id))
+			.filter((a) => a.id !== agentId && !alreadyBoundIds.has(a.id))
 			.map((a) => {
 				let disabled = false;
 				let disabledReason: string | undefined;
@@ -137,10 +118,10 @@ export default function AddAgentSubagentDialog({
 				if (a.disabled !== b.disabled) return a.disabled ? 1 : -1;
 				return a.agent.name.localeCompare(b.agent.name);
 			});
-	}, [allAgents, agent.id, alreadyBoundIds]);
+	}, [allAgents, agentId, alreadyBoundIds]);
 
-	const handleSubagentAdded = (subagentId: string) => {
-		onSubagentAdded?.(subagentId);
+	const handleAdd = (subagent: SubagentInfo) => {
+		onAdd(subagent);
 		// Close if no more eligible candidates
 		const eligibleCount = candidates.filter((c) => !c.disabled).length;
 		if (eligibleCount <= 1) {
@@ -161,12 +142,9 @@ export default function AddAgentSubagentDialog({
 								<AgentCandidateCard
 									key={candidate.id}
 									candidate={candidate}
-									supervisorId={agent.id}
-									onAdd={handleSubagentAdded}
+									onAdd={handleAdd}
 									disabled={disabled}
 									disabledReason={disabledReason}
-									onSaving={onSaving}
-									onSaved={onSaved}
 								/>
 							))}
 						</div>

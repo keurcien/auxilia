@@ -2,56 +2,43 @@
 
 import { useState } from "react";
 import { Plus, X, Info } from "lucide-react";
-import { Agent } from "@/types/agents";
-import { api } from "@/lib/api/client";
-import { useAgentsStore } from "@/stores/agents-store";
+import {
+	Agent,
+	AgentDraft,
+	AgentDraftUpdater,
+	SubagentInfo,
+} from "@/types/agents";
 import AddAgentSubagentDialog from "./add-agent-subagent-dialog";
 
 interface AgentSubagentListProps {
 	agent: Agent;
-	onSaving?: () => void;
-	onSaved?: () => void;
+	draft: AgentDraft | null;
+	onDraftChange: (update: AgentDraftUpdater) => void;
 }
 
 export default function AgentSubagentList({
-	agent: initialAgent,
-	onSaving,
-	onSaved,
+	agent,
+	draft,
+	onDraftChange,
 }: AgentSubagentListProps) {
-	const updateAgent = useAgentsStore((state) => state.updateAgent);
-	const [agent, setAgent] = useState<Agent>(initialAgent);
 	const [dialogOpen, setDialogOpen] = useState(false);
-	const [removingId, setRemovingId] = useState<string | null>(null);
 
-	const refreshAgent = async (affectedSubagentId?: string) => {
-		const [coordRes] = await Promise.all([
-			api.get(`/agents/${agent.id}`),
-			// Also refresh the affected subagent so its isSubagent flag updates in the store
-			...(affectedSubagentId
-				? [
-						api.get(`/agents/${affectedSubagentId}`).then((res) => {
-							updateAgent(affectedSubagentId, res.data);
-						}),
-					]
-				: []),
-		]);
-		setAgent(coordRes.data);
-		updateAgent(agent.id, coordRes.data);
+	const isEditing = draft !== null;
+	const subagents = draft ? draft.subagents : agent.subagents || [];
+
+	const handleRemove = (subagentId: string) => {
+		onDraftChange((prev) => ({
+			...prev,
+			subagents: prev.subagents.filter((s) => s.id !== subagentId),
+		}));
 	};
 
-	const handleRemove = async (subagentId: string) => {
-		setRemovingId(subagentId);
-		onSaving?.();
-		try {
-			await api.delete(`/agents/${agent.id}/subagents/${subagentId}`);
-			await refreshAgent(subagentId);
-			onSaved?.();
-		} catch (error) {
-			console.error("Failed to remove subagent:", error);
-			onSaved?.();
-		} finally {
-			setRemovingId(null);
-		}
+	const handleAdd = (subagent: SubagentInfo) => {
+		onDraftChange((prev) =>
+			prev.subagents.some((s) => s.id === subagent.id)
+				? prev
+				: { ...prev, subagents: [...prev.subagents, subagent] },
+		);
 	};
 
 	// If this agent is used as a subagent elsewhere, show info banner instead
@@ -77,21 +64,23 @@ export default function AgentSubagentList({
 				<span className="text-[12px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em] font-[family-name:var(--font-dm-sans)]">
 					Subagents
 				</span>
-				<button
-					className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-white dark:bg-transparent font-[family-name:var(--font-dm-sans)] text-[12.5px] font-semibold text-[#6B7F76] dark:text-muted-foreground cursor-pointer transition-all hover:border-[#A3B5AD]"
-					onClick={() => setDialogOpen(true)}
-				>
-					<Plus className="w-[13px] h-[13px] text-[#8FA89E]" />
-					Add Subagent
-				</button>
+				{isEditing && (
+					<button
+						className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-white dark:bg-transparent font-[family-name:var(--font-dm-sans)] text-[12.5px] font-semibold text-[#6B7F76] dark:text-muted-foreground cursor-pointer transition-all hover:border-[#A3B5AD]"
+						onClick={() => setDialogOpen(true)}
+					>
+						<Plus className="w-[13px] h-[13px] text-[#8FA89E]" />
+						Add Subagent
+					</button>
+				)}
 			</div>
 			<div className="rounded-[22px] border-[1.5px] border-[#E0E8E4] dark:border-white/10 overflow-hidden min-h-0">
-				{agent.subagents && agent.subagents.length > 0 ? (
-					agent.subagents.map((sub, i) => (
+				{subagents.length > 0 ? (
+					subagents.map((sub, i) => (
 						<div
 							key={sub.id}
 							className={`group flex items-center px-4.5 py-3.5 cursor-default transition-colors hover:bg-[#F8FAF9] dark:hover:bg-white/5 ${
-								i < agent.subagents!.length - 1 ? "border-b border-[#F0F3F2] dark:border-white/5" : ""
+								i < subagents.length - 1 ? "border-b border-[#F0F3F2] dark:border-white/5" : ""
 							}`}
 						>
 							<div
@@ -106,13 +95,14 @@ export default function AgentSubagentList({
 							<span className="font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold text-[#1E2D28] dark:text-foreground flex-1 truncate">
 								{sub.name}
 							</span>
-							<button
-								className="w-[30px] h-[30px] rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all hover:bg-[#F0F3F2] dark:hover:bg-white/10 cursor-pointer"
-								onClick={() => handleRemove(sub.id)}
-								disabled={removingId === sub.id}
-							>
-								<X className="w-[14px] h-[14px] text-[#A3B5AD]" />
-							</button>
+							{isEditing && (
+								<button
+									className="w-[30px] h-[30px] rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all hover:bg-[#F0F3F2] dark:hover:bg-white/10 cursor-pointer"
+									onClick={() => handleRemove(sub.id)}
+								>
+									<X className="w-[14px] h-[14px] text-[#A3B5AD]" />
+								</button>
+							)}
 						</div>
 					))
 				) : (
@@ -125,10 +115,9 @@ export default function AgentSubagentList({
 			<AddAgentSubagentDialog
 				open={dialogOpen}
 				onOpenChange={setDialogOpen}
-				agent={agent}
-				onSubagentAdded={(subagentId) => refreshAgent(subagentId)}
-				onSaving={onSaving}
-				onSaved={onSaved}
+				agentId={agent.id}
+				boundSubagentIds={subagents.map((s) => s.id)}
+				onAdd={handleAdd}
 			/>
 		</div>
 	);
