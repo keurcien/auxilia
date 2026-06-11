@@ -101,9 +101,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 
 			// Refresh agents whose subagent status changed so their
 			// isSubagent flag stays accurate in the store.
-			const before = new Set(
-				(liveAgent.subagents || []).map((s) => s.id),
-			);
+			const before = new Set((liveAgent.subagents || []).map((s) => s.id));
 			const after = new Set(draft.subagents.map((s) => s.id));
 			const affected = [...new Set([...before, ...after])].filter(
 				(id) => before.has(id) !== after.has(id),
@@ -176,11 +174,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 	};
 
 	const handleDeleteAgent = async () => {
-		if (
-			!confirm(
-				"Are you sure you want to archive this agent?",
-			)
-		) {
+		if (!confirm("Are you sure you want to archive this agent?")) {
 			return;
 		}
 
@@ -198,7 +192,10 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 	return (
 		<div className="h-full flex flex-col font-[family-name:var(--font-dm-sans)] animate-in fade-in duration-300">
 			{/* Top bar */}
-			<div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4 px-8 py-6 shrink-0 z-10 animate-in fade-in slide-in-from-bottom-3 duration-400" style={{ animationDelay: "0ms", animationFillMode: "both" }}>
+			<div
+				className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4 px-8 py-6 shrink-0 z-10 animate-in fade-in slide-in-from-bottom-3 duration-400"
+				style={{ animationDelay: "0ms", animationFillMode: "both" }}
+			>
 				<div className="flex items-center gap-4 flex-1 min-w-0">
 					<div className="relative">
 						<div
@@ -311,12 +308,25 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 								items={[
 									...(canManageAgent
 										? [
-											{ label: "View thread history", icon: <History />, onClick: handleViewThreads },
-											{ label: "Manage permissions", icon: <ShieldCheck />, onClick: handleManagePermissions },
-											{ separator: true as const },
-										]
+												{
+													label: "View thread history",
+													icon: <History />,
+													onClick: handleViewThreads,
+												},
+												{
+													label: "Manage permissions",
+													icon: <ShieldCheck />,
+													onClick: handleManagePermissions,
+												},
+												{ separator: true as const },
+											]
 										: []),
-									{ label: "Archive agent", icon: <ArchiveIcon />, destructive: true, onClick: handleDeleteAgent },
+									{
+										label: "Archive agent",
+										icon: <ArchiveIcon />,
+										destructive: true,
+										onClick: handleDeleteAgent,
+									},
 								]}
 							/>
 						</>
@@ -327,7 +337,10 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 			{/* Two column layout */}
 			<div className="relative flex flex-col md:flex-row flex-1 min-h-0 px-8 gap-8">
 				{/* Left: Description + Instructions */}
-				<div className="h-full w-full md:flex-1 flex flex-col min-w-0 animate-in fade-in slide-in-from-bottom-3 duration-400" style={{ animationDelay: "50ms", animationFillMode: "both" }}>
+				<div
+					className="h-full w-full md:flex-1 flex flex-col min-w-0 animate-in fade-in slide-in-from-bottom-3 duration-400"
+					style={{ animationDelay: "50ms", animationFillMode: "both" }}
+				>
 					<div className="shrink-0 mb-7">
 						<div className="flex items-center min-h-[34px] mb-2.5">
 							<label className="text-[12px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em]">
@@ -337,7 +350,11 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 						<input
 							type="text"
 							maxLength={255}
-							className="w-full px-5 py-3.5 rounded-[18px] border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-[#FAFCFB] dark:bg-white/5 text-[14px] font-medium text-[#1E2D28] dark:text-white placeholder:text-[#A3B5AD] dark:placeholder:text-white/30 focus:outline-none focus:border-[#4CA882] transition-colors read-only:focus:border-[#E0E8E4] dark:read-only:focus:border-white/10"
+							className={`w-full text-[14px] font-medium text-[#1E2D28] dark:text-white placeholder:text-[#A3B5AD] dark:placeholder:text-white/30 focus:outline-none transition-colors ${
+								isEditing
+									? "px-5 py-3.5 rounded-[18px] border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-[#FAFCFB] dark:bg-white/5 focus:border-[#4CA882]"
+									: "p-0 border-none bg-transparent"
+							}`}
 							value={view.description}
 							readOnly={!isEditing}
 							onChange={(e) =>
@@ -348,7 +365,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 							}
 							placeholder="A short description of your agent..."
 						/>
-						{view.description.length > 240 && (
+						{isEditing && view.description.length > 240 && (
 							<p className="text-xs text-[#B8C8C0] mt-1 text-right">
 								{view.description.length}/255
 							</p>
@@ -372,7 +389,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 								placeholder="Enter instructions for your agent..."
 							/>
 						) : (
-							<div className="flex-1 w-full min-h-0 overflow-y-auto px-5 py-4.5 rounded-[22px] border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-[#FAFCFB] dark:bg-white/5 text-[14px] font-medium text-[#1E2D28] dark:text-white leading-relaxed [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+							<div className="flex-1 w-full min-h-0 overflow-y-auto text-[14px] font-medium text-[#1E2D28] dark:text-white leading-relaxed [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 								{view.instructions.trim() ? (
 									<Streamdown className="size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
 										{view.instructions}
@@ -388,8 +405,11 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 				</div>
 
 				{/* Right: Tools + Subagents */}
-				<div className="h-full w-full md:w-1/2 flex flex-col min-h-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden animate-in fade-in slide-in-from-bottom-3 duration-400" style={{ animationDelay: "100ms", animationFillMode: "both" }}>
-						<AgentToolList
+				<div
+					className="h-full w-full md:w-1/2 flex flex-col min-h-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden animate-in fade-in slide-in-from-bottom-3 duration-400"
+					style={{ animationDelay: "100ms", animationFillMode: "both" }}
+				>
+					<AgentToolList
 						agent={liveAgent}
 						draft={draft}
 						onDraftChange={handleDraftChange}
