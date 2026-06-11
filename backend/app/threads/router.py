@@ -270,11 +270,16 @@ async def run_invoke(
     command: dict | None = Body(None, embed=True),
     config: dict | None = Body(None, embed=True),
     context: dict | None = Body(None, embed=True),  # noqa: ARG001
+    output_schema: dict | None = Body(None, embed=True),
     current_user: UserDB = Depends(get_current_user),
     service: ThreadService = Depends(get_thread_service),
     db=Depends(get_db),
 ):
-    """Non-streaming invoke endpoint. Returns the final agent response as JSON."""
+    """Non-streaming invoke endpoint. Returns the final agent response as JSON.
+
+    When `output_schema` (a JSON Schema object) is provided, the agent's final
+    answer is constrained to it and returned under `structured_response`.
+    """
     thread = await service.get(thread_id)
     if thread.user_id != current_user.id:
         raise PermissionDeniedError("Not authorized to run this thread")
@@ -286,4 +291,5 @@ async def run_invoke(
         command=command,
         trigger=trigger,
         config_overrides=config_overrides,
+        output_schema=output_schema,
     )

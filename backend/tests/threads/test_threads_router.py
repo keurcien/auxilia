@@ -210,6 +210,85 @@ def test_delete_thread(mock_checkpointer, client: TestClient, mock_db, current_u
     mock_db.delete.assert_called_once()
 
 
+@patch("app.threads.router.Agent")
+def test_run_invoke_forwards_output_schema(
+    mock_agent_cls, client: TestClient, mock_db, current_user
+):
+    """`output_schema` from the request body reaches Agent.invoke."""
+    thread_id = str(uuid4())
+    thread = ThreadDB(
+        id=thread_id,
+        user_id=current_user.id,
+        agent_id=uuid4(),
+        first_message_content="Structured run",
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = thread
+    mock_db.execute.return_value = mock_result
+
+    mock_agent = AsyncMock()
+    mock_agent.invoke.return_value = {
+        "content": '{"answer": 42}',
+        "structured_response": {"answer": 42},
+    }
+    mock_agent_cls.build = AsyncMock(return_value=mock_agent)
+
+    output_schema = {
+        "title": "answer",
+        "type": "object",
+        "properties": {"answer": {"type": "integer"}},
+        "required": ["answer"],
+    }
+    response = client.post(
+        f"/threads/{thread_id}/runs/invoke",
+        json={
+            "input": {"messages": [{"type": "human", "content": "hi"}]},
+            "output_schema": output_schema,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["structured_response"] == {"answer": 42}
+    mock_agent.invoke.assert_awaited_once()
+    assert mock_agent.invoke.await_args.kwargs["output_schema"] == output_schema
+
+
+@patch("app.threads.router.Agent")
+def test_run_invoke_without_output_schema(
+    mock_agent_cls, client: TestClient, mock_db, current_user
+):
+    """Omitting `output_schema` invokes the agent with None (unchanged behavior)."""
+    thread_id = str(uuid4())
+    thread = ThreadDB(
+        id=thread_id,
+        user_id=current_user.id,
+        agent_id=uuid4(),
+        first_message_content="Plain run",
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = thread
+    mock_db.execute.return_value = mock_result
+
+    mock_agent = AsyncMock()
+    mock_agent.invoke.return_value = {"content": "hello", "structured_response": None}
+    mock_agent_cls.build = AsyncMock(return_value=mock_agent)
+
+    response = client.post(
+        f"/threads/{thread_id}/runs/invoke",
+        json={"input": {"messages": [{"type": "human", "content": "hi"}]}},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["content"] == "hello"
+    assert mock_agent.invoke.await_args.kwargs["output_schema"] is None
+
+
 @pytest.mark.usefixtures("current_user")
 @patch("app.threads.router.get_checkpointer")
 def test_delete_thread_not_found(mock_checkpointer, client: TestClient, mock_db):

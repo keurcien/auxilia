@@ -223,10 +223,16 @@ class Agent:
             subagents=subagents,
         )
 
-    def _build_agent(self, checkpointer):
-        """Build the LangGraph agent (deep or standard) with the given checkpointer."""
+    def _build_agent(self, checkpointer, output_schema: dict | None = None):
+        """Build the LangGraph agent (deep or standard) with the given checkpointer.
+
+        `output_schema` is a raw JSON Schema dict passed to langchain as
+        `response_format`: the provider's native structured output is used when
+        the model supports it, with a forced tool call as fallback. The parsed
+        result surfaces in the run state under `structured_response`.
+        """
         if self.agent.config.has_code_interpreter and sandbox_settings.enabled:
-            return self._build_deep_agent(checkpointer)
+            return self._build_deep_agent(checkpointer, output_schema)
 
         middleware = list(self.middleware)
         if self.subagents:
@@ -241,6 +247,7 @@ class Agent:
             system_prompt=SystemMessage(self.agent.config.instructions),
             checkpointer=checkpointer,
             middleware=middleware,
+            response_format=output_schema,
         )
 
     def _resolve_input(self, agent_input: dict | None, command: dict | None):
@@ -275,6 +282,7 @@ class Agent:
         command: dict | None,
         trigger: str | None,
         config_overrides: dict | None,
+        output_schema: dict | None = None,
     ):
         """Open a checkpointer scope and yield (agent, resolved_input, config).
 
@@ -283,7 +291,7 @@ class Agent:
         run config in one place.
         """
         async with get_checkpointer() as checkpointer:
-            agent = self._build_agent(checkpointer)
+            agent = self._build_agent(checkpointer, output_schema)
             resolved_input = self._resolve_input(agent_input, command)
             config = await self._resolve_config(agent, trigger, config_overrides)
             yield agent, resolved_input, config
@@ -353,9 +361,16 @@ class Agent:
         command: dict | None = None,
         trigger: str | None = None,
         config_overrides: dict | None = None,
+        output_schema: dict | None = None,
     ) -> dict:
-        """Run the agent to completion and return the text of the last AI message."""
-        async with self._setup(agent_input, command, trigger, config_overrides) as (
+        """Run the agent to completion and return the text of the last AI message.
+
+        With `output_schema`, the final answer is also returned as a parsed
+        object under `structured_response`.
+        """
+        async with self._setup(
+            agent_input, command, trigger, config_overrides, output_schema
+        ) as (
             agent,
             resolved_input,
             config,
@@ -364,13 +379,16 @@ class Agent:
                 result = await agent.ainvoke(resolved_input, config=config)
             except GraphRecursionError:
                 ai_msg = await self._persist_recursion_fallback(agent, config)
-                return {"content": ai_msg.content}
+                return {"content": ai_msg.content, "structured_response": None}
 
             messages = result.get("messages", [])
             last = messages[-1] if messages else None
-            return {"content": _extract_text(last) if last else ""}
+            return {
+                "content": _extract_text(last) if last else "",
+                "structured_response": result.get("structured_response"),
+            }
 
-    def _build_deep_agent(self, checkpointer):
+    def _build_deep_agent(self, checkpointer, output_schema: dict | None = None):
         """Build a deep agent with lazy sandbox backend for code execution.
 
         The sandbox is not created here — the LLM calls create_sandbox or
@@ -401,6 +419,7 @@ class Agent:
             middleware=[*extra_middleware, ToolErrorMiddleware()],
             subagents=compiled_subagents,
             checkpointer=checkpointer,
+            response_format=output_schema,
         )
 
 
