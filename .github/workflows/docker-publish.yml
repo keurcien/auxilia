@@ -1,0 +1,40 @@
+name: Publish Docker images
+
+on:
+  push:
+    tags:
+      - "backend-v*"
+      - "web-v*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse component and version from tag
+        id: parse
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          echo "component=${tag%-v*}" >> "$GITHUB_OUTPUT"
+          echo "version=${tag##*-v}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ steps.parse.outputs.component }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            keurcien/auxilia-${{ steps.parse.outputs.component }}:${{ steps.parse.outputs.version }}
+            keurcien/auxilia-${{ steps.parse.outputs.component }}:latest
+          cache-from: type=gha,scope=${{ steps.parse.outputs.component }}
+          cache-to: type=gha,mode=max,scope=${{ steps.parse.outputs.component }}
