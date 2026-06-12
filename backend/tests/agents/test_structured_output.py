@@ -72,6 +72,37 @@ async def test_loop_turn_runs_unconstrained():
     assert calls[0].response_format is None
 
 
+async def test_invalid_tool_calls_keep_the_loop_going():
+    """Malformed tool calls are not a final answer: the response passes through
+    untouched so RepairInvalidToolCallsMiddleware (keyed on messages[-1]) can
+    feed the error back for a retry instead of formatting a failed attempt."""
+    middleware = DeferredStructuredOutputMiddleware()
+    request = _make_request()
+    invalid_response = ModelResponse(
+        result=[
+            AIMessage(
+                "",
+                invalid_tool_calls=[
+                    {
+                        "name": "search",
+                        "args": '{"q": truncated',
+                        "id": "call_1",
+                        "error": "Invalid JSON",
+                    }
+                ],
+            )
+        ]
+    )
+    calls: list[ModelRequest] = []
+
+    response = await middleware.awrap_model_call(
+        request, _handler_recording([invalid_response], calls)
+    )
+
+    assert response is invalid_response
+    assert len(calls) == 1
+
+
 async def test_final_turn_adds_constrained_formatting_call():
     """The final answer triggers one extra call with response_format restored."""
     middleware = DeferredStructuredOutputMiddleware()

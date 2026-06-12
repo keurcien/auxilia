@@ -54,11 +54,16 @@ class DeferredStructuredOutputMiddleware(AgentMiddleware):
             return await handler(request)
 
         # Loop turn: run unconstrained so the model can freely call tools.
+        # invalid_tool_calls also keep the loop going: the message must stay
+        # last in state so RepairInvalidToolCallsMiddleware (after_model, keyed
+        # on messages[-1]) can answer it with an error ToolMessage and the
+        # model can retry — formatting waits for a clean final answer.
         response = await handler(request.override(response_format=None))
-        has_tool_calls = any(
-            isinstance(m, AIMessage) and m.tool_calls for m in response.result
+        loop_continues = any(
+            isinstance(m, AIMessage) and (m.tool_calls or m.invalid_tool_calls)
+            for m in response.result
         )
-        if has_tool_calls:
+        if loop_continues:
             return response
 
         # Final answer reached: one constrained call formats it. The original
