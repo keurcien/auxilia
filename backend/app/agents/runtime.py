@@ -31,6 +31,7 @@ from app.agents.stream import (
     SlackStreamAdapter,
     encode_synthetic_ai_message_sse,
 )
+from app.agents.structured_output import DeferredStructuredOutputMiddleware
 from app.agents.tool_errors import RepairInvalidToolCallsMiddleware, ToolErrorMiddleware
 from app.agents.toolset import Toolset, sanitize_tool_name
 from app.database import get_checkpointer
@@ -46,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 RECURSION_LIMIT_MESSAGE = (
     "I reached my step limit for this turn. Send any follow-up message "
-    "(e.g. \"continue\") and I'll pick up where I left off."
+    '(e.g. "continue") and I\'ll pick up where I left off.'
 )
 
 
@@ -112,9 +113,7 @@ class ResolvedAgent:
                 model=model,
                 tools=self.toolset.all,
                 system_prompt=SystemMessage(
-                    content=[
-                        {"type": "text", "text": self.config.instructions or ""}
-                    ]
+                    content=[{"type": "text", "text": self.config.instructions or ""}]
                 ),
             )
 
@@ -148,7 +147,7 @@ class Agent:
             "user_id": self.thread.user_id,
             "thread_id": self.thread.id,
             "agent_id": self.thread.agent_id,
-            "langfuse_session_id": self.thread.id
+            "langfuse_session_id": self.thread.id,
         }
 
     @property
@@ -168,10 +167,11 @@ class Agent:
     ) -> "Agent":
         user_id = str(thread.user_id)
 
-        agent = await ResolvedAgent.resolve(thread.agent_id, db, user_id, is_parent=True)
+        agent = await ResolvedAgent.resolve(
+            thread.agent_id, db, user_id, is_parent=True
+        )
 
-        model_entry = next(
-            (m for m in MODELS if m.name == thread.model_id), None)
+        model_entry = next((m for m in MODELS if m.name == thread.model_id), None)
         if model_entry is None:
             raise DomainValidationError(f"Unknown model: {thread.model_id}")
         provider = next(
@@ -196,8 +196,9 @@ class Agent:
         # tool_calls answered by error ToolMessages.
         middleware = [
             PatchToolCallsMiddleware(),
-            ToolCallLimitMiddleware(run_limit=(
-                agent_settings.recursion_limit - 1) // 2, exit_behavior="end"),
+            ToolCallLimitMiddleware(
+                run_limit=(agent_settings.recursion_limit - 1) // 2, exit_behavior="end"
+            ),
             RepairInvalidToolCallsMiddleware(),
             HumanInTheLoopMiddleware(
                 interrupt_on=agent.toolset.interrupt_on,
@@ -227,9 +228,9 @@ class Agent:
         """Build the LangGraph agent (deep or standard) with the given checkpointer.
 
         `output_schema` is a raw JSON Schema dict passed to langchain as
-        `response_format`: the provider's native structured output is used when
-        the model supports it, with a forced tool call as fallback. The parsed
-        result surfaces in the run state under `structured_response`.
+        `response_format`. DeferredStructuredOutputMiddleware keeps the schema
+        off the tool-calling loop and applies it on one final formatting turn;
+        the parsed result surfaces in the run state under `structured_response`.
         """
         if self.agent.config.has_code_interpreter and sandbox_settings.enabled:
             return self._build_deep_agent(checkpointer, output_schema)
@@ -240,6 +241,8 @@ class Agent:
             middleware.append(
                 SubAgentMiddleware(backend=StateBackend, subagents=compiled)
             )
+        if output_schema is not None:
+            middleware.append(DeferredStructuredOutputMiddleware())
 
         return create_agent(
             model=self.model,
@@ -299,8 +302,7 @@ class Agent:
     async def _persist_recursion_fallback(self, agent, config) -> AIMessage:
         """Persist a synthetic AI message after a GraphRecursionError so the
         next turn can pick up where we left off. Returns the message."""
-        logger.info(
-            "Graph recursion limit reached; persisting synthetic AI message")
+        logger.info("Graph recursion limit reached; persisting synthetic AI message")
         ai_msg = AIMessage(content=RECURSION_LIMIT_MESSAGE, id=str(uuid4()))
         await agent.aupdate_state(config, {"messages": [ai_msg]})
         return ai_msg
@@ -401,8 +403,7 @@ class Agent:
         sandbox_tools = create_sandbox_tools(lazy_backend)
 
         compiled_subagents = (
-            [s.compile(self.model)
-             for s in self.subagents] if self.subagents else None
+            [s.compile(self.model) for s in self.subagents] if self.subagents else None
         )
 
         # create_deep_agent injects its own PatchToolCallsMiddleware; passing
@@ -410,6 +411,8 @@ class Agent:
         extra_middleware = [
             m for m in self.middleware if not isinstance(m, PatchToolCallsMiddleware)
         ]
+        if output_schema is not None:
+            extra_middleware.append(DeferredStructuredOutputMiddleware())
 
         return create_deep_agent(
             model=self.model,
