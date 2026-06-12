@@ -31,7 +31,10 @@ from app.agents.stream import (
     SlackStreamAdapter,
     encode_synthetic_ai_message_sse,
 )
-from app.agents.structured_output import DeferredStructuredOutputMiddleware
+from app.agents.structured_output import (
+    DeferredStructuredOutputMiddleware,
+    is_structured_output_artifact,
+)
 from app.agents.tool_errors import RepairInvalidToolCallsMiddleware, ToolErrorMiddleware
 from app.agents.toolset import Toolset, sanitize_tool_name
 from app.database import get_checkpointer
@@ -383,8 +386,16 @@ class Agent:
                 ai_msg = await self._persist_recursion_fallback(agent, config)
                 return {"content": ai_msg.content, "structured_response": None}
 
-            messages = result.get("messages", [])
-            last = messages[-1] if messages else None
+            # Skip formatting-turn artifacts so `content` is the prose answer
+            # on every provider path (the parsed object has its own field).
+            last = next(
+                (
+                    m
+                    for m in reversed(result.get("messages", []))
+                    if not is_structured_output_artifact(m)
+                ),
+                None,
+            )
             return {
                 "content": _extract_text(last) if last else "",
                 "structured_response": result.get("structured_response"),

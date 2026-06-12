@@ -4,6 +4,7 @@ from fastapi.responses import StreamingResponse
 from app.agents.core.service import AgentService, get_agent_service
 from app.agents.runtime import Agent
 from app.agents.stream import _serialize_lc_message
+from app.agents.structured_output import is_structured_output_artifact
 from app.auth.dependencies import detect_auth_method, get_current_user
 from app.database import get_checkpointer, get_db
 from app.exceptions import PermissionDeniedError
@@ -81,13 +82,22 @@ async def read_thread(
             }
 
         channel_values = checkpoint_tuple.checkpoint["channel_values"]
-        lc_messages = channel_values.get("messages", [])
+        # Formatting-turn artifacts (raw-JSON message or synthetic tool-call
+        # pair) are chat-history noise: the parsed object is exposed under
+        # values["structured_response"] instead.
+        lc_messages = [
+            m
+            for m in channel_values.get("messages", [])
+            if not is_structured_output_artifact(m)
+        ]
         todos = channel_values.get("todos", [])
         values: dict = {
             "messages": [_serialize_lc_message(m) for m in lc_messages],
         }
         if todos:
             values["todos"] = todos
+        if (structured := channel_values.get("structured_response")) is not None:
+            values["structured_response"] = structured
 
         interrupt_value = None
         for _, channel, value in checkpoint_tuple.pending_writes or []:

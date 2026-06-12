@@ -21,18 +21,25 @@ The synthetic formatting instruction is only part of the model request, never
 of the returned messages, so it does not pollute the thread history. The
 agent must still be built with ``response_format`` set — that is what registers
 the structured-output machinery this middleware re-enables on the last turn.
+
+Every message the formatting turn produces is tagged with
+``STRUCTURED_OUTPUT_FLAG`` in ``response_metadata`` (checkpointed, but never
+sent back to the provider), so read paths can recognize formatting artifacts —
+the raw-JSON message on the provider-native path, the synthetic tool-call pair
+on the ToolStrategy path — and keep them out of the rendered chat history.
 """
 
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 from langchain.agents.middleware.types import (
     AgentMiddleware,
     ModelRequest,
     ModelResponse,
 )
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
 
 FORMAT_INSTRUCTION = (
@@ -40,6 +47,25 @@ FORMAT_INSTRUCTION = (
     "structured format. Use only information from this conversation; do not "
     "invent values."
 )
+
+STRUCTURED_OUTPUT_FLAG = "auxilia_structured_output"
+
+
+def is_structured_output_artifact(message: Any) -> bool:
+    """True for messages produced by the formatting turn (chat-history noise)."""
+    metadata = getattr(message, "response_metadata", None) or {}
+    return bool(metadata.get(STRUCTURED_OUTPUT_FLAG))
+
+
+def _tag(message: BaseMessage) -> BaseMessage:
+    return message.model_copy(
+        update={
+            "response_metadata": {
+                **message.response_metadata,
+                STRUCTURED_OUTPUT_FLAG: True,
+            }
+        }
+    )
 
 
 class DeferredStructuredOutputMiddleware(AgentMiddleware):
@@ -78,6 +104,6 @@ class DeferredStructuredOutputMiddleware(AgentMiddleware):
         )
         format_response = await handler(format_request)
         return ModelResponse(
-            result=[*response.result, *format_response.result],
+            result=[*response.result, *(_tag(m) for m in format_response.result)],
             structured_response=format_response.structured_response,
         )

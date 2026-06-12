@@ -4,7 +4,9 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from langchain_core.messages import AIMessage, HumanMessage
 
+from app.agents.structured_output import STRUCTURED_OUTPUT_FLAG
 from app.threads.models import ThreadDB, ThreadSource
 
 
@@ -137,6 +139,59 @@ def test_get_thread(mock_checkpointer, client: TestClient, mock_db, current_user
     assert data["thread"]["id"] == thread_id
     assert data["messages"] == []
     assert data["viewer_role"] is None
+
+
+@patch("app.threads.router.get_checkpointer")
+def test_get_thread_hides_structured_output_artifacts(
+    mock_checkpointer, client: TestClient, mock_db, current_user
+):
+    """Formatting-turn messages are filtered out of both message payloads and
+    the parsed object is exposed under values.structured_response instead."""
+    thread_id = str(uuid4())
+    thread = ThreadDB(
+        id=thread_id,
+        user_id=current_user.id,
+        agent_id=uuid4(),
+        first_message_content="Test thread",
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = thread
+    mock_result.one_or_none.return_value = (thread, "Test Agent", "🤖", None, False)
+    mock_db.execute.return_value = mock_result
+
+    checkpoint_tuple = MagicMock()
+    checkpoint_tuple.checkpoint = {
+        "channel_values": {
+            "messages": [
+                HumanMessage("What is 2 + 2?"),
+                AIMessage("2 + 2 = 4"),
+                AIMessage(
+                    '{"answer": 4}',
+                    response_metadata={STRUCTURED_OUTPUT_FLAG: True},
+                ),
+            ],
+            "structured_response": {"answer": 4},
+        }
+    }
+    checkpoint_tuple.pending_writes = []
+    mock_saver_instance = AsyncMock()
+    mock_saver_instance.aget_tuple = AsyncMock(return_value=checkpoint_tuple)
+    mock_checkpointer.return_value.__aenter__ = AsyncMock(
+        return_value=mock_saver_instance
+    )
+    mock_checkpointer.return_value.__aexit__ = AsyncMock(return_value=None)
+
+    response = client.get(f"/threads/{thread_id}")
+    assert response.status_code == 200
+    data = response.json()
+
+    raw_messages = data["values"]["messages"]
+    assert len(raw_messages) == 2
+    assert all('{"answer": 4}' not in str(m.get("content")) for m in raw_messages)
+    assert data["values"]["structured_response"] == {"answer": 4}
 
 
 @pytest.mark.usefixtures("current_user")

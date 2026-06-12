@@ -6,6 +6,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from app.agents.structured_output import (
     FORMAT_INSTRUCTION,
     DeferredStructuredOutputMiddleware,
+    is_structured_output_artifact,
 )
 
 
@@ -130,5 +131,11 @@ async def test_final_turn_adds_constrained_formatting_call():
     assert calls[1].response_format == SCHEMA
     assert calls[1].messages[-2:] == [final_answer, HumanMessage(FORMAT_INSTRUCTION)]
     # Combined response: both AI messages land in state, parsed object included.
-    assert response.result == [final_answer, formatted]
     assert response.structured_response == {"answer": 4}
+    prose, structured = response.result
+    assert prose == final_answer
+    assert structured.content == formatted.content
+    # The formatting artifact is tagged so read paths can hide it from the
+    # rendered chat history; the prose answer is not.
+    assert is_structured_output_artifact(structured)
+    assert not is_structured_output_artifact(prose)
