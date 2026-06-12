@@ -48,7 +48,7 @@ FORMAT_INSTRUCTION = (
     "invent values."
 )
 
-STRUCTURED_OUTPUT_FLAG = "auxilia_structured_output"
+STRUCTURED_OUTPUT_FLAG = "structured_output"
 
 
 def is_structured_output_artifact(message: Any) -> bool:
