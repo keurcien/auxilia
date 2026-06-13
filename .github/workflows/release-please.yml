@@ -11,7 +11,31 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    outputs:
+      backend_released: ${{ steps.release.outputs['backend--release_created'] }}
+      backend_version: ${{ steps.release.outputs['backend--version'] }}
+      web_released: ${{ steps.release.outputs['web--release_created'] }}
+      web_version: ${{ steps.release.outputs['web--version'] }}
     steps:
       - uses: googleapis/release-please-action@v4
+        id: release
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-backend:
+    needs: release-please
+    if: needs.release-please.outputs.backend_released == 'true'
+    uses: ./.github/workflows/docker-publish.yml
+    secrets: inherit
+    with:
+      component: backend
+      version: ${{ needs.release-please.outputs.backend_version }}
+
+  publish-web:
+    needs: release-please
+    if: needs.release-please.outputs.web_released == 'true'
+    uses: ./.github/workflows/docker-publish.yml
+    secrets: inherit
+    with:
+      component: web
+      version: ${{ needs.release-please.outputs.web_version }}

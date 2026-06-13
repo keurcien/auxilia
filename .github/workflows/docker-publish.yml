@@ -1,23 +1,33 @@
-name: Publish Docker images
+name: Publish Docker image
 
 on:
-  push:
-    tags:
-      - "backend-v*"
-      - "web-v*"
+  workflow_call:
+    inputs:
+      component:
+        description: "backend or web"
+        required: true
+        type: string
+      version:
+        description: "Version tag, e.g. 0.4.0"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      component:
+        description: "backend or web"
+        required: true
+        type: choice
+        options: [backend, web]
+      version:
+        description: "Version tag, e.g. 0.4.0"
+        required: true
+        type: string
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Parse component and version from tag
-        id: parse
-        run: |
-          tag="${GITHUB_REF_NAME}"
-          echo "component=${tag%-v*}" >> "$GITHUB_OUTPUT"
-          echo "version=${tag##*-v}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-qemu-action@v3
 
@@ -30,11 +40,11 @@ jobs:
 
       - uses: docker/build-push-action@v6
         with:
-          context: ${{ steps.parse.outputs.component }}
+          context: ${{ inputs.component }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            keurcien/auxilia-${{ steps.parse.outputs.component }}:${{ steps.parse.outputs.version }}
-            keurcien/auxilia-${{ steps.parse.outputs.component }}:latest
-          cache-from: type=gha,scope=${{ steps.parse.outputs.component }}
-          cache-to: type=gha,mode=max,scope=${{ steps.parse.outputs.component }}
+            keurcien/auxilia-${{ inputs.component }}:${{ inputs.version }}
+            keurcien/auxilia-${{ inputs.component }}:latest
+          cache-from: type=gha,scope=${{ inputs.component }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.component }}
