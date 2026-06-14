@@ -182,7 +182,7 @@ export function AppSidebar() {
 											>
 												<Link
 													href={`/agents/${thread.agentId}/chat/${thread.id}`}
-													className="h-full px-3 flex items-center gap-2.5 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:justify-center"
+													className="h-full pl-1 pr-3 flex items-center gap-2.5 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:justify-center"
 												>
 													<AgentAvatar
 														color={thread.agentColor}
