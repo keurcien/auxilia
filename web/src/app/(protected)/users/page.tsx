@@ -37,6 +37,20 @@ const ROLE_LABELS: Record<Role, string> = {
 	member: "Member",
 };
 
+// Only the dot is tinted; the role-control chrome stays neutral.
+const ROLE_DOT: Record<Role, string> = {
+	admin: "#2f6f4e",
+	editor: "#9a7b3c",
+	member: "#6f7670",
+};
+
+const ROLE_FILTERS: { key: "all" | Role; label: string }[] = [
+	{ key: "all", label: "All" },
+	{ key: "admin", label: "Admins" },
+	{ key: "editor", label: "Editors" },
+	{ key: "member", label: "Members" },
+];
+
 function getInitials(name: string | null | undefined): string {
 	if (!name) return "U";
 	const parts = name.trim().split(" ");
@@ -68,6 +82,7 @@ export default function UsersPage() {
 	const [users, setUsers] = useState<User[]>([]);
 	const [invites, setInvites] = useState<Invite[]>([]);
 	const [search, setSearch] = useState("");
+	const [roleFilter, setRoleFilter] = useState<"all" | Role>("all");
 	const [isLoading, setIsLoading] = useState(true);
 	const [errorDialogOpen, setErrorDialogOpen] = useState(false);
 	const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
@@ -119,15 +134,29 @@ export default function UsersPage() {
 		}
 	};
 
+	const roleCounts = useMemo(
+		() => ({
+			all: users.length,
+			admin: users.filter((u) => u.role === "admin").length,
+			editor: users.filter((u) => u.role === "editor").length,
+			member: users.filter((u) => u.role === "member").length,
+		}),
+		[users],
+	);
+
 	const filteredUsers = useMemo(() => {
-		if (!search.trim()) return users;
-		const query = search.toLowerCase();
-		return users.filter(
-			(user) =>
-				user.name?.toLowerCase().includes(query) ||
-				user.email?.toLowerCase().includes(query),
-		);
-	}, [users, search]);
+		let list = users;
+		if (roleFilter !== "all") list = list.filter((u) => u.role === roleFilter);
+		const query = search.trim().toLowerCase();
+		if (query) {
+			list = list.filter(
+				(user) =>
+					user.name?.toLowerCase().includes(query) ||
+					user.email?.toLowerCase().includes(query),
+			);
+		}
+		return list;
+	}, [users, search, roleFilter]);
 
 	const handleRoleChange = async (userId: string, newRole: Role) => {
 		try {
@@ -183,180 +212,224 @@ export default function UsersPage() {
 				onOpenChange={setInviteDialogOpen}
 				onInviteCreated={(invite) => setInvites((prev) => [...prev, invite])}
 			/>
-			<div className="flex items-center justify-between my-8 mb-7">
-				<h1 className="font-[family-name:var(--font-jakarta-sans)] font-extrabold text-[32px] tracking-[-0.03em] text-[#111111] dark:text-white">
-					Users
-				</h1>
-				<Button
-					className="flex items-center gap-2 !px-6 !py-3 !h-auto bg-[#111111] dark:bg-white dark:text-[#111111] text-[14px] font-semibold font-[family-name:var(--font-dm-sans)] text-white rounded-full hover:bg-[#222222] dark:hover:bg-gray-100 transition-all cursor-pointer shadow-[0_4px_12px_-2px_rgba(0,0,0,0.15)] border-none"
-					onClick={() => setInviteDialogOpen(true)}
-				>
-					<Plus className="w-4 h-4" />
-					Invite user
-				</Button>
+			<div className="flex flex-col gap-5 my-8 sm:flex-row sm:items-start sm:justify-between">
+				<div className="min-w-0">
+					<h1 className="font-[family-name:var(--font-jakarta-sans)] font-extrabold text-[32px] tracking-[-0.03em] text-[#111111] dark:text-white">
+						Users
+					</h1>
+					<p className="mt-1.5 font-[family-name:var(--font-dm-sans)] text-[15px] font-medium text-[#6B7F76] dark:text-muted-foreground">
+						Manage who&apos;s in your workspace and what they can do.
+					</p>
+				</div>
+
+				<div className="flex items-center gap-3 shrink-0">
+					<SearchBar
+						placeholder="Search users..."
+						value={search}
+						onChange={setSearch}
+						hint="⌘K"
+						className="w-full sm:w-72"
+					/>
+					<Button
+						className="flex items-center gap-2 px-6! py-3! h-auto! bg-[#111111] dark:bg-white dark:text-[#111111] text-[14px] font-semibold font-[family-name:var(--font-dm-sans)] text-white rounded-full hover:bg-[#222222] dark:hover:bg-gray-100 transition-all cursor-pointer shadow-[0_4px_12px_-2px_rgba(0,0,0,0.15)] border-none whitespace-nowrap"
+						onClick={() => setInviteDialogOpen(true)}
+					>
+						<Plus className="w-4 h-4" />
+						Invite user
+					</Button>
+				</div>
 			</div>
 
-			{isLoading ? null : (<>
-			<SearchBar
-				placeholder="Search users..."
-				value={search}
-				onChange={setSearch}
-				className="mb-6 md:max-w-xs w-full"
-			/>
-
-			{/* Table header */}
-			<div className="flex items-center py-3 pl-[76px] pr-5 mb-1 font-[family-name:var(--font-dm-sans)] animate-in fade-in duration-300">
-				<div className="flex-1 text-[11px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em]">
-					Name
-				</div>
-				<div className="flex-[1.2] text-[11px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em]">
-					Email
-				</div>
-				<div className="min-w-[100px] text-[11px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em]">
-					Role
-				</div>
-				<div className="w-[52px]" />
-			</div>
-
-			{/* User rows */}
-			<div>
-				{filteredUsers.length === 0 ? (
-					<div className="text-center py-12 text-[14px] text-[#A3B5AD] dark:text-muted-foreground font-medium">
-						{search ? "No users match your search" : "No members in this workspace."}
-					</div>
-				) : (
-					filteredUsers.map((user, i) => {
-						const isCurrentUser = user.id === currentUser?.id;
-
-						return (
-							<div
-								key={user.id}
-								className="group flex items-center py-3.5 px-5 rounded-[18px] mb-1 transition-all duration-200 hover:bg-[#F8FAF9] dark:hover:bg-white/5 hover:translate-x-1 animate-in fade-in slide-in-from-bottom-3 duration-400"
-								style={{ animationDelay: `${i * 40}ms`, animationFillMode: "both" }}
-							>
-								{/* Avatar */}
-								<div className="shrink-0 w-[42px] h-[42px] rounded-full bg-[#F0F3F2] dark:bg-white/10 border-[1.5px] border-[#E0E8E4] dark:border-white/10 flex items-center justify-center text-[13.5px] font-bold text-[#6B7F76] dark:text-muted-foreground transition-transform duration-300 group-hover:scale-105">
-									{getInitials(user.name)}
-								</div>
-
-								{/* Name */}
-								<div className="flex-1 min-w-0 ml-3.5 font-[family-name:var(--font-dm-sans)]">
-									<div className="flex items-center gap-2 text-[14.5px] font-semibold text-[#1E2D28] dark:text-foreground">
-										<span className="truncate">{user.name || "Unnamed"}</span>
-										{isCurrentUser && (
-											<span className="shrink-0 text-[10px] font-bold text-[#8FB5A3] bg-[#EDF4F0] dark:bg-white/10 dark:text-emerald-400 px-2 py-0.5 rounded-full uppercase tracking-[0.04em]">
-												You
-											</span>
-										)}
-									</div>
-								</div>
-
-								{/* Email */}
-								<div className="flex-[1.2] min-w-0 font-[family-name:var(--font-dm-sans)] text-[13.5px] text-[#8FA89E] dark:text-muted-foreground font-medium truncate">
-									{user.email}
-								</div>
-
-								{/* Role */}
-								<div className="min-w-[100px]">
-									{isCurrentUser ? (
-										<span className="font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#6B7F76] dark:text-muted-foreground px-4 py-1.5">
-											{ROLE_LABELS[user.role]}
-										</span>
-									) : (
-										<SageDropdownMenu
-											trigger={
-												<button className="w-[116px] rounded-full border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-white dark:bg-transparent text-[13px] font-semibold font-[family-name:var(--font-dm-sans)] text-[#1E2D28] dark:text-foreground h-auto py-1.5 px-4 flex items-center justify-between gap-1 cursor-pointer hover:border-[#A3B5AD] transition-colors">
-													<span>{ROLE_LABELS[user.role]}</span>
-													<ChevronDown className="size-3.5 text-[#8FA89E] shrink-0" />
-												</button>
-											}
-											items={[
-												{ label: "Admin", onClick: () => handleRoleChange(user.id, "admin"), active: user.role === "admin" },
-												{ label: "Editor", onClick: () => handleRoleChange(user.id, "editor"), active: user.role === "editor" },
-												{ label: "Member", onClick: () => handleRoleChange(user.id, "member"), active: user.role === "member" },
-											]}
-										/>
-									)}
-								</div>
-
-								{/* Delete */}
-								<div className="w-[52px] flex justify-center">
-									{!isCurrentUser && (
-										<button
-											className="w-9 h-9 rounded-xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-[#F0F3F2] dark:hover:bg-white/10 cursor-pointer"
-											onClick={() => handleRemoveUser(user.id, user.name)}
-										>
-											<Trash2 className="h-[15px] w-[15px] text-[#A3B5AD]" />
-										</button>
-									)}
-								</div>
-							</div>
-						);
-					})
-				)}
-			</div>
-
-			{invites.length > 0 && (
-				<div className="py-10">
-					<h2 className="font-[family-name:var(--font-jakarta-sans)] font-bold text-lg tracking-tight text-[#111111] dark:text-white mb-2">
-						Pending invites
-					</h2>
-					<div>
-						{invites.map((invite) => (
-							<div
-								key={invite.id}
-								className="group flex items-center py-3.5 px-5 rounded-[18px] mb-1 transition-all duration-200 hover:bg-[#F8FAF9] dark:hover:bg-white/5 hover:translate-x-1"
-							>
-								{/* Mail icon avatar */}
-								<div className="shrink-0 w-[42px] h-[42px] rounded-full bg-[#F0F3F2] dark:bg-white/10 border-[1.5px] border-dashed border-[#E0E8E4] dark:border-white/10 flex items-center justify-center">
-									<Mail className="h-4 w-4 text-[#A3B5AD]" />
-								</div>
-
-								{/* Email + meta */}
-								<div className="flex-1 min-w-0 ml-3.5 font-[family-name:var(--font-dm-sans)]">
-									<div className="text-[14.5px] font-semibold text-[#1E2D28] dark:text-foreground truncate">
-										{invite.email}
-									</div>
-									<div className="text-[12px] text-[#B8C8C0] dark:text-muted-foreground font-medium mt-0.5">
-										Invited by {getInviterShortName(invite.invitedByName)} · {timeAgo(invite.createdAt)}
-									</div>
-								</div>
-
-								{/* Role */}
-								<span className="shrink-0 font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#6B7F76] dark:text-muted-foreground border-[1.5px] border-[#E0E8E4] dark:border-white/10 rounded-full px-4 py-1.5 text-center min-w-[80px]">
-									{ROLE_LABELS[invite.role as Role] ?? invite.role}
-								</span>
-
-								{/* Copy link */}
+			{isLoading ? null : (
+				<>
+					{/* Role filter chips */}
+					<div className="flex flex-wrap items-center gap-2 mb-5">
+						{ROLE_FILTERS.map((filter) => {
+							const active = roleFilter === filter.key;
+							return (
 								<button
-									className={`shrink-0 flex items-center gap-1.5 ml-2.5 px-4 py-1.5 rounded-full border-[1.5px] border-[#E0E8E4] dark:border-white/10 font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold cursor-pointer transition-all duration-200 ${
-										copiedInviteId === invite.id
-											? "bg-[#EDF4F0] dark:bg-white/10 text-[#3D8B63] dark:text-emerald-400 border-[#3D8B63]/20"
-											: "bg-white dark:bg-transparent text-[#6B7F76] dark:text-muted-foreground hover:border-[#A3B5AD]"
+									key={filter.key}
+									onClick={() => setRoleFilter(filter.key)}
+									className={`inline-flex items-center gap-2 rounded-full px-[13px] py-1.5 text-[12px] font-[family-name:var(--font-dm-sans)] cursor-pointer transition-colors ${
+										active
+											? "bg-[#e7f0eb] text-[#3d8b63] font-semibold dark:bg-emerald-950 dark:text-emerald-300"
+											: "border border-[#e1ebe6] text-[#5f7068] hover:bg-[#f8faf9] dark:border-white/10 dark:text-muted-foreground dark:hover:bg-white/5"
 									}`}
-									onClick={() => handleCopyInviteLink(invite)}
 								>
-									{copiedInviteId === invite.id ? (
-										<Check className="h-3.5 w-3.5" />
-									) : (
-										<Copy className="h-3.5 w-3.5" />
-									)}
-									{copiedInviteId === invite.id ? "Copied!" : "Copy link"}
+									{filter.label}
+									<span className="font-mono text-[10.5px] opacity-70">
+										{roleCounts[filter.key]}
+									</span>
 								</button>
-
-								{/* Delete invite */}
-								<button
-									className="w-9 h-9 rounded-xl flex items-center justify-center ml-2 opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-[#F0F3F2] dark:hover:bg-white/10 cursor-pointer"
-									onClick={() => handleDeleteInvite(invite.id)}
-								>
-									<Trash2 className="h-[15px] w-[15px] text-[#A3B5AD]" />
-								</button>
-							</div>
-						))}
+							);
+						})}
 					</div>
-				</div>
+
+					{/* Member list panel */}
+					<div className="overflow-hidden rounded-[14px] border border-[#e1ebe6] bg-white dark:border-white/10 dark:bg-card">
+						<div className="grid grid-cols-[1fr_230px_130px_34px] items-center gap-4 border-b border-[#edf2ef] px-[18px] py-[11px] dark:border-white/5">
+							<span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#94a59d]">
+								Name
+							</span>
+							<span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#94a59d]">
+								Email
+							</span>
+							<span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#94a59d]">
+								Role
+							</span>
+							<span />
+						</div>
+
+						{filteredUsers.length === 0 ? (
+							<div className="px-[18px] py-12 text-center text-[14px] font-medium text-[#A3B5AD] dark:text-muted-foreground">
+								{search || roleFilter !== "all"
+									? "No users match your filters."
+									: "No members in this workspace."}
+							</div>
+						) : (
+							filteredUsers.map((user) => {
+								const isCurrentUser = user.id === currentUser?.id;
+								return (
+									<div
+										key={user.id}
+										className="group grid grid-cols-[1fr_230px_130px_34px] items-center gap-4 border-b border-[#edf2ef] px-[18px] py-[11px] transition-colors duration-[110ms] last:border-b-0 hover:bg-[#eff4f1] dark:border-white/5 dark:hover:bg-white/5"
+									>
+										{/* Identity */}
+										<div className="flex min-w-0 items-center gap-3">
+											<span className="flex size-[34px] shrink-0 items-center justify-center rounded-full bg-[#e7f0eb] font-[family-name:var(--font-jakarta-sans)] text-[11.5px] font-bold text-[#3d8b63] dark:bg-emerald-950 dark:text-emerald-300">
+												{getInitials(user.name)}
+											</span>
+											<span className="truncate font-[family-name:var(--font-jakarta-sans)] text-[13.5px] font-semibold tracking-[-0.01em] text-[#1e2d28] dark:text-foreground">
+												{user.name || "Unnamed"}
+											</span>
+											{isCurrentUser && (
+												<span className="shrink-0 rounded-[5px] bg-[#e7f0eb] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-[0.06em] text-[#3d8b63] dark:bg-emerald-950 dark:text-emerald-300">
+													You
+												</span>
+											)}
+										</div>
+
+										{/* Email */}
+										<span className="truncate font-mono text-[12px] text-[#5f7068] dark:text-muted-foreground">
+											{user.email}
+										</span>
+
+										{/* Role */}
+										<div className="min-w-0">
+											{isCurrentUser ? (
+												<span className="inline-flex items-center gap-2 font-[family-name:var(--font-dm-sans)] text-[13px] font-medium text-[#5f7068] dark:text-muted-foreground">
+													<span
+														className="size-1.5 rounded-full"
+														style={{ background: ROLE_DOT[user.role] }}
+													/>
+													{ROLE_LABELS[user.role]}
+												</span>
+											) : (
+												<SageDropdownMenu
+													trigger={
+														<button className="inline-flex items-center gap-2 rounded-lg border border-[#e1ebe6] bg-white px-2.5 py-[5px] font-[family-name:var(--font-dm-sans)] text-[13px] font-medium text-[#1e2d28] cursor-pointer transition-colors hover:border-[#A3B5AD] dark:border-white/10 dark:bg-transparent dark:text-foreground">
+															<span
+																className="size-1.5 rounded-full"
+																style={{ background: ROLE_DOT[user.role] }}
+															/>
+															{ROLE_LABELS[user.role]}
+															<ChevronDown className="size-3.5 text-[#94a59d]" />
+														</button>
+													}
+													items={[
+														{ label: "Admin", onClick: () => handleRoleChange(user.id, "admin"), active: user.role === "admin" },
+														{ label: "Editor", onClick: () => handleRoleChange(user.id, "editor"), active: user.role === "editor" },
+														{ label: "Member", onClick: () => handleRoleChange(user.id, "member"), active: user.role === "member" },
+													]}
+												/>
+											)}
+										</div>
+
+										{/* Remove */}
+										<div className="flex justify-center">
+											{!isCurrentUser && (
+												<button
+													className="flex size-7 items-center justify-center rounded-[7px] text-[#94a59d] opacity-0 transition-all group-hover:opacity-100 hover:bg-[#fbe5e3] hover:text-[#b03a30] cursor-pointer dark:hover:bg-rose-950"
+													onClick={() => handleRemoveUser(user.id, user.name)}
+												>
+													<Trash2 className="size-[15px]" />
+												</button>
+											)}
+										</div>
+									</div>
+								);
+							})
+						)}
+					</div>
+
+					{/* Pending invites */}
+					{invites.length > 0 && (
+						<>
+							<div className="flex items-baseline gap-2.5 pt-6 pb-3">
+								<span className="font-[family-name:var(--font-jakarta-sans)] text-[14px] font-bold tracking-[-0.01em] text-[#1e2d28] dark:text-foreground">
+									Pending invites
+								</span>
+								<span className="text-[11.5px] text-[#94a59d]">
+									{invites.length}
+								</span>
+								<span className="h-px flex-1 self-center bg-[#e1ebe6] dark:bg-white/10" />
+							</div>
+
+							<div className="overflow-hidden rounded-[14px] border border-[#e1ebe6] bg-white dark:border-white/10 dark:bg-card">
+								{invites.map((invite) => (
+									<div
+										key={invite.id}
+										className="grid grid-cols-[1fr_140px_auto] items-center gap-4 border-b border-[#edf2ef] px-[18px] py-[11px] last:border-b-0 dark:border-white/5"
+									>
+										{/* Envelope + email + meta */}
+										<div className="flex min-w-0 items-center gap-3">
+											<span className="flex size-[34px] shrink-0 items-center justify-center rounded-full border border-dashed border-[#e1ebe6] bg-surface text-[#94a59d] dark:border-white/10 dark:bg-white/5">
+												<Mail className="size-[15px]" />
+											</span>
+											<div className="min-w-0">
+												<div className="truncate font-mono text-[12.5px] font-medium text-[#1e2d28] dark:text-foreground">
+													{invite.email}
+												</div>
+												<div className="truncate text-[11px] text-[#94a59d] mt-0.5">
+													Invited {timeAgo(invite.createdAt)} · by{" "}
+													{getInviterShortName(invite.invitedByName)}
+												</div>
+											</div>
+										</div>
+
+										{/* Status pill */}
+										<span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-[#fbf2da] px-2.5 py-1 text-[11px] font-semibold text-[#9a7b14] dark:bg-amber-950 dark:text-amber-300">
+											<span className="size-[5px] rounded-full bg-[#d4a017]" />
+											{ROLE_LABELS[invite.role as Role] ?? invite.role} invite
+										</span>
+
+										{/* Actions */}
+										<div className="flex items-center gap-1.5">
+											<button
+												className="flex items-center gap-1.5 rounded-lg border border-[#e1ebe6] px-3 py-1.5 font-[family-name:var(--font-dm-sans)] text-[12px] font-medium text-[#5f7068] cursor-pointer transition-colors hover:bg-[#f8faf9] dark:border-white/10 dark:text-muted-foreground dark:hover:bg-white/5"
+												onClick={() => handleCopyInviteLink(invite)}
+											>
+												{copiedInviteId === invite.id ? (
+													<Check className="size-3.5" />
+												) : (
+													<Copy className="size-3.5" />
+												)}
+												{copiedInviteId === invite.id ? "Copied!" : "Copy link"}
+											</button>
+											<button
+												className="rounded-lg border border-[#e1ebe6] px-3 py-1.5 font-[family-name:var(--font-dm-sans)] text-[12px] font-medium text-[#b03a30] cursor-pointer transition-colors hover:bg-[#fbe5e3] dark:border-white/10 dark:hover:bg-rose-950"
+												onClick={() => handleDeleteInvite(invite.id)}
+											>
+												Revoke
+											</button>
+										</div>
+									</div>
+								))}
+							</div>
+						</>
+					)}
+				</>
 			)}
-			</>)}
 		</PageContainer>
 	);
 }
