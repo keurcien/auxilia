@@ -14,16 +14,18 @@ export default async function ProtectedLayout({
 	const defaultOpen = cookieStore.get("sidebar_state")?.value === "true";
 
 	return (
-		<SidebarProvider defaultOpen={defaultOpen}>
+		<SidebarProvider defaultOpen={defaultOpen} className="bg-surface">
 			<StoreInitializer />
 			<AppSidebar />
-			<main className="flex-1 flex flex-col h-screen w-full">
-				<div className="flex items-center gap-2 p-4 shrink-0">
-					<SidebarTrigger className="cursor-pointer" />
-					<ChatHeader />
-				</div>
-				<div className="flex flex-1 flex-col gap-4 lg:px-8 px-4 py-4 pt-0 min-h-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-					{children}
+			<main className="flex-1 min-w-0 flex h-svh p-2 pl-0">
+				<div className="flex-1 min-w-0 flex flex-col rounded-2xl border border-border bg-card shadow-[0_1px_3px_rgba(30,45,40,0.05)] overflow-hidden">
+					<div className="flex items-center gap-2 px-5 h-14 shrink-0 border-b border-border">
+						<SidebarTrigger className="cursor-pointer" />
+						<ChatHeader />
+					</div>
+					<div className="flex flex-1 flex-col gap-4 lg:px-8 px-4 py-5 min-h-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+						{children}
+					</div>
 				</div>
 			</main>
 		</SidebarProvider>

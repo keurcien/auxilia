@@ -97,9 +97,9 @@ export function AppSidebar() {
 	};
 	return (
 		<>
-			<Sidebar variant="floating">
+			<Sidebar variant="floating" collapsible="icon">
 				<SidebarHeader>
-					<div className="flex items-center gap-1 px-2 py-2">
+					<div className="flex items-center gap-1 px-2 py-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
 						<div className="flex size-8 items-center justify-center rounded-lg text-primary-foreground">
 							<Image
 								src="/logo.svg"
@@ -116,7 +116,7 @@ export function AppSidebar() {
 								className="hidden dark:block"
 							/>
 						</div>
-						<div className="flex flex-col">
+						<div className="flex flex-col group-data-[collapsible=icon]:hidden">
 							<span className="font-sans text-base font-semibold">auxilia</span>
 						</div>
 					</div>
@@ -124,7 +124,7 @@ export function AppSidebar() {
 
 				<SidebarContent>
 					<SidebarGroup>
-						<div className="px-3">
+						<div className="px-3 group-data-[collapsible=icon]:px-0">
 							<button
 								onClick={() => {
 									if (agents.length > 0) {
@@ -135,10 +135,13 @@ export function AppSidebar() {
 									}
 								}}
 								disabled={agents.length === 0}
-								className="w-full py-2.5 px-4 rounded-full border-none bg-[#111111] dark:bg-white text-[13.5px] font-semibold font-(family-name:--font-dm-sans) text-white dark:text-[#111111] flex items-center justify-center gap-2 cursor-pointer hover:opacity-90 transition-all shadow-[0_4px_12px_-2px_rgba(0,0,0,0.15)] disabled:opacity-50 disabled:cursor-not-allowed"
+								title="New thread"
+								className="w-full py-2.5 px-4 rounded-full border-none bg-[#111111] dark:bg-white text-[13.5px] font-semibold font-(family-name:--font-dm-sans) text-white dark:text-[#111111] flex items-center justify-center gap-2 cursor-pointer hover:opacity-90 transition-all shadow-[0_4px_12px_-2px_rgba(0,0,0,0.15)] disabled:opacity-50 disabled:cursor-not-allowed group-data-[collapsible=icon]:size-[38px] group-data-[collapsible=icon]:w-[38px] group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:rounded-[11px] group-data-[collapsible=icon]:mx-auto"
 							>
-								<SquarePen className="size-4" />
-								New thread
+								<SquarePen className="size-4 shrink-0" />
+								<span className="group-data-[collapsible=icon]:hidden">
+									New thread
+								</span>
 							</button>
 						</div>
 					</SidebarGroup>
@@ -159,18 +162,23 @@ export function AppSidebar() {
 												asChild
 												isActive={isActive}
 												tooltip={thread.firstMessageContent}
-												className="h-auto rounded-2xl transition-all duration-200 hover:translate-x-1 hover:bg-sidebar-hover data-[active=true]:bg-sidebar-accent"
+												className="h-auto rounded-2xl transition-all duration-200 hover:translate-x-1 hover:bg-sidebar-hover data-[active=true]:bg-sidebar-accent group-data-[collapsible=icon]:size-10! group-data-[collapsible=icon]:p-0! group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:rounded-full group-data-[collapsible=icon]:hover:translate-x-0 group-data-[collapsible=icon]:data-[active=true]:bg-transparent"
 											>
 												<Link
 													href={`/agents/${thread.agentId}/chat/${thread.id}`}
-													className="px-3 py-2.5 flex items-center gap-2.5"
+													className="px-3 py-2.5 flex items-center gap-2.5 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:py-0 group-data-[collapsible=icon]:justify-center"
 												>
 													<AgentAvatar
 														color={thread.agentColor}
 														emoji={thread.agentEmoji}
 														size="sm"
+														className={
+															isActive
+																? "group-data-[collapsible=icon]:ring-2 group-data-[collapsible=icon]:ring-sidebar-primary"
+																: undefined
+														}
 													/>
-													<div className="flex-1 min-w-0 text-left">
+													<div className="flex-1 min-w-0 text-left group-data-[collapsible=icon]:hidden">
 														<div
 															className={`font-[family-name:var(--font-dm-sans)] text-[14px] truncate leading-[1.45] ${isActive ? "font-semibold" : "font-medium"} text-sidebar-foreground`}
 														>
@@ -188,7 +196,7 @@ export function AppSidebar() {
 															alt="Slack"
 															height={16}
 															width={16}
-															className="h-4 w-4 shrink-0"
+															className="h-4 w-4 shrink-0 group-data-[collapsible=icon]:hidden"
 															title="Thread initiated in Slack"
 														/>
 													)}
@@ -243,7 +251,7 @@ export function AppSidebar() {
 														size={17}
 													/>
 													<span
-														className={`font-[family-name:var(--font-dm-sans)] text-[13.5px] ${isNavActive ? "font-semibold text-sidebar-foreground" : "font-medium text-sidebar-muted"}`}
+														className={`font-[family-name:var(--font-dm-sans)] text-[13.5px] group-data-[collapsible=icon]:hidden ${isNavActive ? "font-semibold text-sidebar-foreground" : "font-medium text-sidebar-muted"}`}
 													>
 														{item.title}
 													</span>
@@ -264,14 +272,15 @@ export function AppSidebar() {
 								trigger={
 									<SidebarMenuButton
 										size="lg"
-										className="rounded-[18px] bg-sidebar-hover data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground cursor-pointer px-3 py-2.5"
+										tooltip={user?.name || "User"}
+										className="rounded-[18px] bg-sidebar-hover data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground cursor-pointer px-3 py-2.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:size-10! group-data-[collapsible=icon]:p-0! group-data-[collapsible=icon]:mx-auto"
 									>
 										<Avatar className="h-9 w-9 rounded-full">
 											<AvatarFallback className="rounded-full bg-[#111111] dark:bg-white text-white dark:text-[#111111] text-xs font-bold">
 												{getInitials(user?.name ?? undefined)}
 											</AvatarFallback>
 										</Avatar>
-										<div className="grid flex-1 text-left leading-tight min-w-0">
+										<div className="grid flex-1 text-left leading-tight min-w-0 group-data-[collapsible=icon]:hidden">
 											<span className="font-[family-name:var(--font-dm-sans)] truncate text-[13px] font-semibold text-sidebar-foreground">
 												{user?.name || "User"}
 											</span>
