@@ -103,7 +103,7 @@ export default function SettingsPage() {
 				}
 			/>
 
-			<div className="flex items-center justify-between my-8">
+			<div className="flex items-center justify-between mb-8">
 				<h1 className="font-primary font-extrabold text-2xl md:text-4xl tracking-tighter text-[#2A2F2D] dark:text-white">
 					Settings
 				</h1>
