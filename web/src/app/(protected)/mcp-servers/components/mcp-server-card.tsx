@@ -15,31 +15,31 @@ export default function MCPServerCard({ server, onClick }: MCPServerCardProps) {
 			onClick={onClick}
 		>
 			{/* Head: logo tile · name / URL */}
-			<div className="flex min-w-0 items-center gap-3.5">
-				<span className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white dark:bg-white/10 shadow-[0_2px_6px_rgba(30,45,40,0.14)]">
+			<div className="flex min-w-0 items-center gap-3">
+				<span className="flex size-[42px] shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white dark:bg-white/10 shadow-[0_2px_6px_rgba(30,45,40,0.14)]">
 					<Image
 						src={
 							server.iconUrl ??
 							"https://storage.googleapis.com/choose-assets/mcp.png"
 						}
 						alt={server.name}
-						width={48}
-						height={48}
+						width={42}
+						height={42}
 						className="size-full object-cover"
 					/>
 				</span>
 				<div className="min-w-0 flex-1">
-					<div className="truncate font-[family-name:var(--font-jakarta-sans)] text-[16px] font-bold tracking-[-0.01em] text-[#1e2d28] dark:text-foreground">
+					<div className="truncate font-[family-name:var(--font-jakarta-sans)] text-[15px] font-bold tracking-[-0.01em] text-[#1e2d28] dark:text-foreground">
 						{server.name}
 					</div>
-					<div className="mt-0.5 truncate font-mono text-[11px] text-[#94a59d] dark:text-muted-foreground">
+					<div className="mt-px truncate font-mono text-[10.5px] text-[#94a59d] dark:text-muted-foreground">
 						{server.url}
 					</div>
 				</div>
 			</div>
 
 			{/* Description — 2-line clamp, reserves height so rows align */}
-			<p className="mt-4 min-h-[44px] flex-1 font-[family-name:var(--font-dm-sans)] text-[13.5px] leading-relaxed text-[#5f7068] dark:text-muted-foreground line-clamp-2">
+			<p className="mt-4 min-h-[42px] flex-1 font-[family-name:var(--font-dm-sans)] text-[13px] leading-[1.55] text-[#5f7068] dark:text-muted-foreground line-clamp-2">
 				{server.description || "No description provided."}
 			</p>
 		</div>
