@@ -86,7 +86,7 @@ export default function AgentThreadsPage() {
 				message="You don't have permission to view this agent's threads."
 			/>
 
-			<div className="flex items-start gap-4 mb-8">
+			<div className="flex items-start gap-4 my-8">
 				<button
 					type="button"
 					onClick={() => {

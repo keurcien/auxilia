@@ -29,7 +29,7 @@ export default function MCPServersPage() {
 
 	return (
 		<PageContainer>
-			<div className="flex items-center justify-between mb-7">
+			<div className="flex items-center justify-between my-8 mb-7">
 				<h1 className="font-[family-name:var(--font-jakarta-sans)] font-extrabold text-[32px] tracking-[-0.03em] text-[#111111] dark:text-white">
 					MCP servers
 				</h1>

@@ -57,7 +57,7 @@ export default function AgentsPage() {
 				title="Insufficient privileges"
 				message="You need at least editor permissions to create agents."
 			/>
-			<div className="flex items-center justify-between mb-7">
+			<div className="flex items-center justify-between my-8 mb-7">
 				<h1 className="font-[family-name:var(--font-jakarta-sans)] font-extrabold text-[32px] tracking-[-0.03em] text-[#111111] dark:text-white">
 					Agents
 				</h1>
