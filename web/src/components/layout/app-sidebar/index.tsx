@@ -103,7 +103,7 @@ export function AppSidebar() {
 		<>
 			<Sidebar variant="floating" collapsible="icon">
 				<SidebarHeader>
-					<div className="flex items-center gap-2 px-2 py-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
+					<div className="flex h-10 items-center gap-2 px-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
 						<button
 							onClick={toggleSidebar}
 							title="Toggle sidebar"
@@ -152,7 +152,7 @@ export function AppSidebar() {
 								}}
 								disabled={agents.length === 0}
 								title="New thread"
-								className="w-full py-2.5 px-4 rounded-full border-none bg-[#111111] dark:bg-white text-[13.5px] font-semibold font-(family-name:--font-dm-sans) text-white dark:text-[#111111] flex items-center justify-center gap-2 cursor-pointer hover:opacity-90 transition-all shadow-[0_4px_12px_-2px_rgba(0,0,0,0.15)] disabled:opacity-50 disabled:cursor-not-allowed group-data-[collapsible=icon]:size-[38px] group-data-[collapsible=icon]:w-[38px] group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:rounded-[11px] group-data-[collapsible=icon]:mx-auto"
+								className="w-full h-10 px-4 rounded-full border-none bg-[#111111] dark:bg-white text-[13.5px] font-semibold font-(family-name:--font-dm-sans) text-white dark:text-[#111111] flex items-center justify-center gap-2 cursor-pointer hover:opacity-90 transition-all shadow-[0_4px_12px_-2px_rgba(0,0,0,0.15)] disabled:opacity-50 disabled:cursor-not-allowed group-data-[collapsible=icon]:w-10 group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:mx-auto"
 							>
 								<SquarePen className="size-4 shrink-0" />
 								<span className="group-data-[collapsible=icon]:hidden">
@@ -178,11 +178,11 @@ export function AppSidebar() {
 												asChild
 												isActive={isActive}
 												tooltip={thread.firstMessageContent}
-												className="h-auto rounded-2xl transition-all duration-200 hover:translate-x-1 hover:bg-sidebar-hover data-[active=true]:bg-sidebar-accent group-data-[collapsible=icon]:size-10! group-data-[collapsible=icon]:p-0! group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:rounded-full group-data-[collapsible=icon]:hover:translate-x-0 group-data-[collapsible=icon]:data-[active=true]:bg-transparent"
+												className="h-12! rounded-2xl transition-all duration-200 hover:translate-x-1 hover:bg-sidebar-hover data-[active=true]:bg-sidebar-accent group-data-[collapsible=icon]:w-10! group-data-[collapsible=icon]:p-0! group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:hover:translate-x-0 group-data-[collapsible=icon]:data-[active=true]:bg-transparent"
 											>
 												<Link
 													href={`/agents/${thread.agentId}/chat/${thread.id}`}
-													className="px-3 py-2.5 flex items-center gap-2.5 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:py-0 group-data-[collapsible=icon]:justify-center"
+													className="h-full px-3 flex items-center gap-2.5 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:justify-center"
 												>
 													<AgentAvatar
 														color={thread.agentColor}
