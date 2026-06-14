@@ -57,7 +57,7 @@ export default function MCPServerList({ onServerClick }: MCPServerListProps) {
 	}
 
 	return (
-		<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-in fade-in duration-300">
+		<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-in fade-in duration-300">
 			{mcpServers.map((server, i) => (
 				<div
 					key={server.id}
