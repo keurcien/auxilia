@@ -11,40 +11,35 @@ export interface MCPServerCardProps {
 export default function MCPServerCard({ server, onClick }: MCPServerCardProps) {
 	return (
 		<div
-			className="group flex flex-col gap-4 p-7 rounded-3xl h-full bg-white dark:bg-card cursor-pointer transition-all duration-300"
-			style={{ boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}
-			onMouseEnter={(e) => {
-				e.currentTarget.style.transform = "translateY(-6px) scale(1.02)";
-				e.currentTarget.style.boxShadow =
-					"0 20px 40px -12px rgba(0,0,0,0.08), 0 0 0 2px rgba(0,0,0,0.04)";
-			}}
-			onMouseLeave={(e) => {
-				e.currentTarget.style.transform = "";
-				e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.06)";
-			}}
+			className="group flex h-full flex-col rounded-[14px] border border-[#e1ebe6] dark:border-white/10 bg-white dark:bg-card p-4 cursor-pointer transition-[border-color,box-shadow,transform] duration-[130ms] ease-out hover:-translate-y-px hover:border-[#cfe0d8] dark:hover:border-white/20 hover:shadow-[0_6px_18px_rgba(30,45,40,0.08)]"
 			onClick={onClick}
 		>
-			<div className="flex items-center gap-3.5 min-w-0">
-				<Image
-					src={
-						server.iconUrl ??
-						"https://storage.googleapis.com/choose-assets/mcp.png"
-					}
-					alt={server.name}
-					width={48}
-					height={48}
-					className="shrink-0 rounded-xl transition-transform duration-300 group-hover:rotate-[-8deg] group-hover:scale-110"
-				/>
-				<div className="min-w-0">
-					<h3 className="font-[family-name:var(--font-jakarta-sans)] text-[16px] font-bold text-[#1a1a2e] dark:text-foreground tracking-tight leading-tight truncate">
+			{/* Head: logo tile · name / URL */}
+			<div className="flex min-w-0 items-center gap-3">
+				<span className="flex size-[42px] shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white dark:bg-white/10 shadow-[0_2px_6px_rgba(30,45,40,0.14)]">
+					<Image
+						src={
+							server.iconUrl ??
+							"https://storage.googleapis.com/choose-assets/mcp.png"
+						}
+						alt={server.name}
+						width={42}
+						height={42}
+						className="size-full object-cover"
+					/>
+				</span>
+				<div className="min-w-0 flex-1">
+					<div className="truncate font-[family-name:var(--font-jakarta-sans)] text-[15px] font-bold tracking-[-0.01em] text-[#1e2d28] dark:text-foreground">
 						{server.name}
-					</h3>
-					<p className="font-[family-name:var(--font-dm-sans)] text-[13px] text-[#999] dark:text-muted-foreground font-medium mt-0.5 truncate">
+					</div>
+					<div className="mt-px truncate font-mono text-[10.5px] text-[#94a59d] dark:text-muted-foreground">
 						{server.url}
-					</p>
+					</div>
 				</div>
 			</div>
-			<p className="font-[family-name:var(--font-dm-sans)] text-[14px] leading-relaxed text-[#666] dark:text-muted-foreground line-clamp-2 flex-1">
+
+			{/* Description — 2-line clamp, reserves height so rows align */}
+			<p className="mt-3 min-h-[38px] flex-1 font-[family-name:var(--font-dm-sans)] text-[12.5px] leading-[1.5] text-[#5f7068] dark:text-muted-foreground line-clamp-2">
 				{server.description || "No description provided."}
 			</p>
 		</div>

@@ -1,15 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { MCPServer } from "@/types/mcp-servers";
 import MCPServerCard from "./mcp-server-card";
 
 interface MCPServerListProps {
+	search?: string;
 	onServerClick?: (server: MCPServer) => void;
 }
 
-export default function MCPServerList({ onServerClick }: MCPServerListProps) {
+export default function MCPServerList({
+	search = "",
+	onServerClick,
+}: MCPServerListProps) {
 	const { mcpServers, fetchMcpServers, isInitialized } = useMcpServersStore();
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
@@ -35,6 +39,16 @@ export default function MCPServerList({ onServerClick }: MCPServerListProps) {
 		loadServers();
 	}, [fetchMcpServers, isInitialized]);
 
+	const filtered = useMemo(() => {
+		if (!search) return mcpServers;
+		const query = search.toLowerCase();
+		return mcpServers.filter(
+			(server) =>
+				server.name.toLowerCase().includes(query) ||
+				server.url.toLowerCase().includes(query),
+		);
+	}, [mcpServers, search]);
+
 	if (loading) return null;
 
 	if (error) {
@@ -49,8 +63,18 @@ export default function MCPServerList({ onServerClick }: MCPServerListProps) {
 		return (
 			<div className="flex items-center justify-center p-12 border border-border rounded-lg animate-in fade-in duration-300">
 				<div className="text-muted-foreground">
-					No MCP servers configured. Click the &quot;Add MCP Server&quot; button
+					No MCP servers configured. Click the &quot;Add MCP server&quot; button
 					to get started.
+				</div>
+			</div>
+		);
+	}
+
+	if (filtered.length === 0) {
+		return (
+			<div className="flex items-center justify-center p-12 animate-in fade-in duration-300">
+				<div className="text-muted-foreground">
+					No servers match your search.
 				</div>
 			</div>
 		);
@@ -58,7 +82,7 @@ export default function MCPServerList({ onServerClick }: MCPServerListProps) {
 
 	return (
 		<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-in fade-in duration-300">
-			{mcpServers.map((server, i) => (
+			{filtered.map((server, i) => (
 				<div
 					key={server.id}
 					className="h-full animate-in fade-in slide-in-from-bottom-3 duration-400"
