@@ -140,7 +140,7 @@ export function AppSidebar() {
 
 				<SidebarContent>
 					<SidebarGroup>
-						<div className="px-3 group-data-[collapsible=icon]:px-0">
+						<div className="px-1 group-data-[collapsible=icon]:px-0">
 							<button
 								onClick={() => {
 									if (agents.length > 0) {
@@ -152,7 +152,7 @@ export function AppSidebar() {
 								}}
 								disabled={agents.length === 0}
 								title="New thread"
-								className="w-full h-10 px-4 rounded-xl border-none bg-[#111111] dark:bg-white text-[13.5px] font-semibold font-(family-name:--font-dm-sans) text-white dark:text-[#111111] flex items-center justify-center gap-2 cursor-pointer hover:opacity-90 transition-all shadow-[0_4px_12px_-2px_rgba(0,0,0,0.15)] disabled:opacity-50 disabled:cursor-not-allowed group-data-[collapsible=icon]:w-10 group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:mx-auto"
+								className="w-full h-10 px-2 rounded-xl border-none bg-[#111111] dark:bg-white text-[13.5px] font-semibold font-(family-name:--font-dm-sans) text-white dark:text-[#111111] flex items-center justify-start gap-2 cursor-pointer hover:opacity-90 transition-all shadow-[0_4px_12px_-2px_rgba(0,0,0,0.15)] disabled:opacity-50 disabled:cursor-not-allowed group-data-[collapsible=icon]:w-10 group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:justify-center"
 							>
 								<SquarePen className="size-4 shrink-0" />
 								<span className="group-data-[collapsible=icon]:hidden">
@@ -255,7 +255,7 @@ export function AppSidebar() {
 												asChild
 												isActive={isNavActive}
 												tooltip={item.title}
-												className="rounded-[14px] transition-all duration-200 hover:translate-x-0.5 hover:bg-sidebar-hover data-[active=true]:bg-sidebar-accent"
+												className="rounded-[14px] pl-3 transition-all duration-200 hover:translate-x-0.5 hover:bg-sidebar-hover data-[active=true]:bg-sidebar-accent group-data-[collapsible=icon]:mx-auto"
 											>
 												<Link href={item.href}>
 													<item.icon
