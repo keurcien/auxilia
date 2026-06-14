@@ -9,7 +9,7 @@ export function ChatHeader() {
 	if (!agentName) return null;
 
 	return (
-		<div className="w-full flex items-center justify-center gap-2">
+		<div className="flex h-14 shrink-0 items-center justify-center gap-2 border-b border-border px-5">
 			<AgentAvatar color={agentColor} emoji={agentEmoji} size="xs" />
 			<span className="font-[family-name:var(--font-dm-sans)] font-semibold text-[14px] text-[#1E2D28] dark:text-foreground">
 				{agentName}

@@ -17,6 +17,7 @@ import {
 	Users,
 	Moon,
 	Sun,
+	PanelLeftOpen,
 } from "lucide-react";
 import {
 	Sidebar,
@@ -30,6 +31,8 @@ import {
 	SidebarMenuButton,
 	SidebarMenuItem,
 	SidebarMenuAction,
+	SidebarTrigger,
+	useSidebar,
 } from "@/components/ui/sidebar";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { SageDropdownMenu } from "@/components/ui/sage-dropdown-menu";
@@ -74,6 +77,7 @@ export function AppSidebar() {
 	const { threads, fetchThreads, removeThread } = useThreadsStore();
 	const { user, fetchUser, logout } = useUserStore();
 	const { resolvedTheme, setTheme } = useTheme();
+	const { toggleSidebar } = useSidebar();
 
 	useEffect(() => {
 		fetchUser();
@@ -99,26 +103,38 @@ export function AppSidebar() {
 		<>
 			<Sidebar variant="floating" collapsible="icon">
 				<SidebarHeader>
-					<div className="flex items-center gap-1 px-2 py-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
-						<div className="flex size-8 items-center justify-center rounded-lg text-primary-foreground">
-							<Image
-								src="/logo.svg"
-								alt="auxilia"
-								height={24}
-								width={24}
-								className="dark:hidden"
-							/>
-							<Image
-								src="/logo-dark.svg"
-								alt="auxilia"
-								height={24}
-								width={24}
-								className="hidden dark:block"
-							/>
-						</div>
-						<div className="flex flex-col group-data-[collapsible=icon]:hidden">
-							<span className="font-sans text-base font-semibold">auxilia</span>
-						</div>
+					<div className="flex items-center gap-2 px-2 py-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
+						<button
+							onClick={toggleSidebar}
+							title="Toggle sidebar"
+							className="group/brand relative size-[26px] shrink-0 cursor-pointer"
+						>
+							{/* Logo at rest; fades out on hover only when collapsed. */}
+							<span className="absolute inset-0 grid place-items-center rounded-md transition-opacity duration-[140ms] group-data-[collapsible=icon]:group-hover/brand:opacity-0">
+								<Image
+									src="/logo.svg"
+									alt="auxilia"
+									height={24}
+									width={24}
+									className="dark:hidden"
+								/>
+								<Image
+									src="/logo-dark.svg"
+									alt="auxilia"
+									height={24}
+									width={24}
+									className="hidden dark:block"
+								/>
+							</span>
+							{/* Expand glyph; revealed on hover only when collapsed. */}
+							<span className="absolute inset-0 grid place-items-center rounded-md bg-sidebar-accent text-sidebar-active-icon opacity-0 transition-opacity duration-[140ms] group-data-[collapsible=icon]:group-hover/brand:opacity-100">
+								<PanelLeftOpen className="size-4" />
+							</span>
+						</button>
+						<span className="font-sans text-base font-semibold group-data-[collapsible=icon]:hidden">
+							auxilia
+						</span>
+						<SidebarTrigger className="ml-auto cursor-pointer group-data-[collapsible=icon]:hidden" />
 					</div>
 				</SidebarHeader>
 
