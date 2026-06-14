@@ -6,6 +6,7 @@ import { Plus } from "lucide-react";
 import AgentList from "@/app/(protected)/agents/components/agent-list";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import { Button } from "@/components/ui/button";
+import { SearchBar } from "@/components/ui/search-bar";
 import { api } from "@/lib/api/client";
 import { randomAgentColor } from "@/lib/colors";
 import { PageContainer } from "@/components/layout/page-container";
@@ -19,6 +20,7 @@ export default function AgentsPage() {
 	const addAgent = useAgentsStore((state) => state.addAgent);
 	const [isCreating, setIsCreating] = useState(false);
 	const [errorDialogOpen, setErrorDialogOpen] = useState(false);
+	const [search, setSearch] = useState("");
 
 	const handleCreateAgent = async () => {
 		if (!user) return;
@@ -57,21 +59,40 @@ export default function AgentsPage() {
 				title="Insufficient privileges"
 				message="You need at least editor permissions to create agents."
 			/>
-			<div className="flex items-center justify-between my-8 mb-7">
-				<h1 className="font-[family-name:var(--font-jakarta-sans)] font-extrabold text-[32px] tracking-[-0.03em] text-[#111111] dark:text-white">
-					Agents
-				</h1>
+			<div className="flex flex-col gap-5 my-8 sm:flex-row sm:items-start sm:justify-between">
+				<div className="min-w-0">
+					<h1 className="font-[family-name:var(--font-jakarta-sans)] font-extrabold text-[32px] tracking-[-0.03em] text-[#111111] dark:text-white">
+						Agents
+					</h1>
+					<p className="mt-1.5 font-[family-name:var(--font-dm-sans)] text-[15px] font-medium text-[#6B7F76] dark:text-muted-foreground">
+						Everything you can chat with — yours, and what the team shares with
+						you.
+					</p>
+				</div>
 
-				<Button
-					className="flex items-center gap-2 px-6! py-3! h-auto! bg-[#111111] dark:bg-white dark:text-[#111111] text-[14px] font-semibold font-[family-name:var(--font-dm-sans)] text-white rounded-full hover:bg-[#222222] dark:hover:bg-gray-100 transition-all cursor-pointer shadow-[0_4px_12px_-2px_rgba(0,0,0,0.15)] border-none"
-					onClick={handleCreateAgent}
-					disabled={isCreating}
-				>
-					<Plus className="w-4 h-4" />
-					{isCreating ? "Creating..." : "Create an agent"}
-				</Button>
+				<div className="flex items-center gap-3 shrink-0">
+					<SearchBar
+						placeholder="Search agents..."
+						value={search}
+						onChange={setSearch}
+						hint="⌘K"
+						className="w-full sm:w-72"
+					/>
+					<Button
+						className="flex items-center gap-2 px-6! py-3! h-auto! bg-[#111111] dark:bg-white dark:text-[#111111] text-[14px] font-semibold font-[family-name:var(--font-dm-sans)] text-white rounded-full hover:bg-[#222222] dark:hover:bg-gray-100 transition-all cursor-pointer shadow-[0_4px_12px_-2px_rgba(0,0,0,0.15)] border-none whitespace-nowrap"
+						onClick={handleCreateAgent}
+						disabled={isCreating}
+					>
+						<Plus className="w-4 h-4" />
+						{isCreating ? "Creating..." : "Create an agent"}
+					</Button>
+				</div>
 			</div>
-			<AgentList onCreateAgent={handleCreateAgent} />
+			<AgentList
+				search={search}
+				onClearSearch={() => setSearch("")}
+				onCreateAgent={handleCreateAgent}
+			/>
 		</PageContainer>
 	);
 }
