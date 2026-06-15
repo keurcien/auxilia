@@ -61,6 +61,7 @@ function AvailableMCPServerCard({
 	return (
 		<div className="flex items-center gap-3 px-4 py-3 rounded-2xl border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-white dark:bg-white/5 hover:bg-sidebar-hover transition-colors">
 			<Image
+				unoptimized
 				src={
 					server.iconUrl ??
 					"https://storage.googleapis.com/choose-assets/mcp.png"

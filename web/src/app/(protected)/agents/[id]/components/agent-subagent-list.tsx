@@ -58,12 +58,12 @@ export default function AgentSubagentList({
 	if (agent.isSubagent) {
 		return (
 			<div className="flex flex-col mt-8">
-				<span className="text-[12px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em] font-[family-name:var(--font-dm-sans)] mb-3.5">
+				<span className="text-[10.5px] font-bold text-[#94a59d] dark:text-muted-foreground uppercase tracking-[0.12em] font-[family-name:var(--font-dm-sans)] mb-2.5">
 					Subagents
 				</span>
-				<div className="flex items-start gap-2 rounded-[18px] border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-[#FAFCFB] dark:bg-white/5 p-3.5">
-					<Info className="w-4 h-4 text-[#8FA89E] mt-0.5 shrink-0" />
-					<p className="font-[family-name:var(--font-dm-sans)] text-[13px] text-[#6B7F76] dark:text-muted-foreground">
+				<div className="flex items-start gap-2.5 rounded-[12px] border border-[#e1ebe6] dark:border-white/10 bg-white dark:bg-card shadow-[0_1px_3px_rgba(33,36,31,0.04)] px-4 py-3.5">
+					<Info className="w-4 h-4 text-[#94a59d] mt-0.5 shrink-0" />
+					<p className="font-[family-name:var(--font-dm-sans)] text-[12.5px] text-[#5f7068] dark:text-muted-foreground">
 						This agent is already used as a subagent, it cannot have subagents.
 					</p>
 				</div>
@@ -74,18 +74,18 @@ export default function AgentSubagentList({
 	return (
 		<div className="flex flex-col mt-8">
 			<div className="flex items-center justify-between mb-3.5 shrink-0">
-				<span className="text-[12px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em] font-[family-name:var(--font-dm-sans)]">
+				<span className="text-[10.5px] font-bold text-[#94a59d] dark:text-muted-foreground uppercase tracking-[0.12em] font-[family-name:var(--font-dm-sans)]">
 					Subagents
 				</span>
 				<button
-					className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-white dark:bg-transparent font-[family-name:var(--font-dm-sans)] text-[12.5px] font-semibold text-[#6B7F76] dark:text-muted-foreground cursor-pointer transition-all hover:border-[#A3B5AD]"
+					className="flex items-center gap-1.5 px-[13px] py-1.5 rounded-[9px] border border-[#e1ebe6] dark:border-white/10 bg-white dark:bg-card shadow-[0_1px_3px_rgba(33,36,31,0.05)] font-[family-name:var(--font-dm-sans)] text-[12px] font-medium normal-case tracking-normal text-[#1e2d28] dark:text-foreground cursor-pointer transition-colors hover:border-[#A3B5AD]"
 					onClick={() => setDialogOpen(true)}
 				>
-					<Plus className="w-[13px] h-[13px] text-[#8FA89E]" />
-					Add Subagent
+					<Plus className="w-3 h-3 text-[#6b7f76] dark:text-muted-foreground" />
+					Add subagent
 				</button>
 			</div>
-			<div className="rounded-[22px] border-[1.5px] border-[#E0E8E4] dark:border-white/10 overflow-hidden min-h-0">
+			<div className="rounded-[14px] border border-[#e1ebe6] dark:border-white/10 bg-white dark:bg-card shadow-[0_1px_3px_rgba(33,36,31,0.04)] overflow-hidden min-h-0">
 				{agent.subagents && agent.subagents.length > 0 ? (
 					agent.subagents.map((sub, i) => (
 						<div

@@ -304,6 +304,7 @@ export default function MCPServerDialog({
 							{selectedOfficial ? (
 								<div className="flex items-center gap-3 rounded-[18px] border-[1.5px] border-[#E0E8E4] dark:border-white/10 px-4 py-3">
 									<Image
+										unoptimized
 										src={selectedOfficial.iconUrl ?? DEFAULT_ICON}
 										alt={selectedOfficial.name}
 										width={24}
@@ -346,6 +347,7 @@ export default function MCPServerDialog({
 												className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-[#F8FAF9] dark:hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer first:rounded-t-[16px] last:rounded-b-[16px]"
 											>
 												<Image
+													unoptimized
 													src={s.iconUrl ?? DEFAULT_ICON}
 													alt={s.name}
 													width={24}
@@ -373,6 +375,7 @@ export default function MCPServerDialog({
 					{isEditMode && server && (
 						<div className="flex items-center gap-3.5 p-4 rounded-[18px] bg-[#F5F8F6] dark:bg-white/5 mb-7">
 							<Image
+								unoptimized
 								src={server.iconUrl ?? DEFAULT_ICON}
 								alt={server.name}
 								width={44}
