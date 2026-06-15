@@ -255,7 +255,7 @@ export function AppSidebar() {
 												asChild
 												isActive={isNavActive}
 												tooltip={item.title}
-												className="rounded-[14px] pl-3 transition-all duration-200 hover:translate-x-0.5 hover:bg-sidebar-hover data-[active=true]:bg-sidebar-accent group-data-[collapsible=icon]:mx-auto"
+												className="rounded-[14px] pl-3 transition-all duration-200 hover:translate-x-0.5 hover:bg-sidebar-hover data-[active=true]:bg-sidebar-accent group-data-[collapsible=icon]:w-full! group-data-[collapsible=icon]:pl-3! group-data-[collapsible=icon]:hover:translate-x-0"
 											>
 												<Link href={item.href}>
 													<item.icon
@@ -281,7 +281,7 @@ export function AppSidebar() {
 					</SidebarGroup>
 				</SidebarContent>
 
-				<SidebarFooter className="px-3 pb-3">
+				<SidebarFooter className="px-2 pb-3">
 					<SidebarMenu>
 						<SidebarMenuItem>
 							<SageDropdownMenu
@@ -289,7 +289,7 @@ export function AppSidebar() {
 									<SidebarMenuButton
 										size="lg"
 										tooltip={user?.name || "User"}
-										className="rounded-[18px] bg-sidebar-hover data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground cursor-pointer px-3 py-2.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:size-10! group-data-[collapsible=icon]:p-0! group-data-[collapsible=icon]:mx-auto"
+										className="rounded-[18px] bg-sidebar-hover data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground cursor-pointer pl-0.5 pr-3 group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:w-full! group-data-[collapsible=icon]:h-12! group-data-[collapsible=icon]:p-0! group-data-[collapsible=icon]:pl-0.5!"
 									>
 										<Avatar className="h-9 w-9 rounded-full">
 											<AvatarFallback className="rounded-full bg-[#111111] dark:bg-white text-white dark:text-[#111111] text-xs font-bold">
