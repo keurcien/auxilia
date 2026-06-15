@@ -153,19 +153,39 @@ export default function AgentList({
 		return agents.filter((agent) => agent.name.toLowerCase().includes(query));
 	}, [agents, search]);
 
-	const sections = useMemo(
+	const grouped = useMemo(
 		() =>
 			GROUPS.map((group) => ({
 				...group,
 				items: matches.filter(group.filter),
-			})).filter((group) => group.items.length > 0),
+			})),
 		[matches],
 	);
 
 	if (isLoading) return null;
 
+	// Empty workspace — no agents at all.
+	if (agents.length === 0) {
+		return (
+			<EmptyState
+				icon={<Zap className="size-[22px] text-[#4CA882]" />}
+				title="Create your first agent"
+				subtitle="Agents help your team automate tasks and access your data tools."
+				action={
+					onCreateAgent
+						? {
+								label: "Create an agent",
+								icon: <Plus className="size-[15px] text-[#4CA882]" />,
+								onClick: onCreateAgent,
+							}
+						: undefined
+				}
+			/>
+		);
+	}
+
 	// Search returned nothing.
-	if (search && sections.length === 0) {
+	if (search && matches.length === 0) {
 		return (
 			<EmptyState
 				icon={<Search className="size-[22px] text-[#4CA882]" />}
@@ -184,25 +204,13 @@ export default function AgentList({
 		);
 	}
 
-	// Empty workspace — no agents at all.
-	if (sections.length === 0) {
-		return (
-			<EmptyState
-				icon={<Zap className="size-[22px] text-[#4CA882]" />}
-				title="Create your first agent"
-				subtitle="Agents help your team automate tasks and access your data tools."
-				action={
-					onCreateAgent
-						? {
-								label: "Create an agent",
-								icon: <Plus className="size-[15px] text-[#4CA882]" />,
-								onClick: onCreateAgent,
-							}
-						: undefined
-				}
-			/>
-		);
-	}
+	// "Your agents" / "Shared with you" always render so the page structure
+	// stays consistent even at zero; "Discover" only appears when it has agents.
+	// While searching, drop empty sections so only matches show.
+	const sections = grouped.filter(
+		(group) =>
+			group.items.length > 0 || (!search && group.key !== "discover"),
+	);
 
 	return (
 		<div className="w-full animate-in fade-in duration-300">
