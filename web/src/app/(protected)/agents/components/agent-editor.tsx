@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
-import { AGENT_COLORS, PASTEL_MAP } from "@/lib/colors";
+import { AGENT_COLORS, agentPastel } from "@/lib/colors";
 import { useTheme } from "next-themes";
 import { ShieldCheck, ArrowRight, ArchiveIcon, History } from "lucide-react";
 import { Agent } from "@/types/agents";
@@ -190,7 +190,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 						<div
 							onClick={() => setShowEmojiPicker(!showEmojiPicker)}
 							style={{
-								background: (PASTEL_MAP[color] || PASTEL_MAP["#9E9E9E"]).pill,
+								background: agentPastel(color).pill,
 							}}
 							className="flex items-center justify-center shrink-0 size-[46px] rounded-[13px] text-[23px] cursor-pointer transition-opacity hover:opacity-80"
 						>

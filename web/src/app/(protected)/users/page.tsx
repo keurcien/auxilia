@@ -400,7 +400,10 @@ export default function UsersPage() {
 										{/* Status pill */}
 										<span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-[#fbf2da] px-2.5 py-1 text-[11px] font-semibold text-[#9a7b14] dark:bg-amber-950 dark:text-amber-300">
 											<span className="size-[5px] rounded-full bg-[#d4a017]" />
-											{ROLE_LABELS[invite.role as Role] ?? invite.role} invite
+											{invite.role in ROLE_LABELS
+												? ROLE_LABELS[invite.role as Role]
+												: invite.role}{" "}
+											invite
 										</span>
 
 										{/* Actions */}

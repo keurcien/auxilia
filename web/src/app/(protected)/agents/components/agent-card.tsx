@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Pencil, X } from "lucide-react";
 import { Agent, AgentPermission } from "@/types/agents";
-import { agentColorBackground, PASTEL_MAP } from "@/lib/colors";
+import { agentColorBackground, agentPastel } from "@/lib/colors";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import Image from "next/image";
 
@@ -93,7 +93,7 @@ export default function AgentCard({ agent }: AgentCardProps) {
 	};
 
 	const color = agent.color || "#9E9E9E";
-	const pastel = PASTEL_MAP[color] || PASTEL_MAP["#9E9E9E"];
+	const pastel = agentPastel(color);
 
 	return (
 		<>
