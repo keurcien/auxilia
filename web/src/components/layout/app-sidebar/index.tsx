@@ -131,7 +131,10 @@ export function AppSidebar() {
 								<PanelLeftOpen className="size-4" />
 							</span>
 						</button>
-						<span className="font-sans text-base font-semibold group-data-[collapsible=icon]:hidden">
+						<span
+							className="font-sans text-base font-semibold group-data-[collapsible=icon]:hidden animate-in fade-in duration-200"
+							style={{ animationDelay: "250ms", animationFillMode: "both" }}
+						>
 							auxilia
 						</span>
 						<SidebarTrigger className="ml-auto cursor-pointer group-data-[collapsible=icon]:hidden" />
@@ -152,7 +155,7 @@ export function AppSidebar() {
 								}}
 								disabled={agents.length === 0}
 								title="New thread"
-								className="w-full h-8 px-2 rounded-xl border-none bg-[#111111] dark:bg-white text-[13.5px] font-semibold font-(family-name:--font-dm-sans) text-white dark:text-[#111111] flex items-center justify-start gap-2 cursor-pointer hover:opacity-90 transition-all shadow-[0_4px_12px_-2px_rgba(0,0,0,0.15)] disabled:opacity-50 disabled:cursor-not-allowed"
+								className="w-full h-8 px-2 rounded-xl border-none bg-[#111111] dark:bg-white text-[13.5px] font-semibold font-(family-name:--font-dm-sans) text-white dark:text-[#111111] flex items-center justify-start gap-4 cursor-pointer hover:opacity-90 transition-all shadow-[0_4px_12px_-2px_rgba(0,0,0,0.15)] disabled:opacity-50 disabled:cursor-not-allowed"
 							>
 								<SquarePen className="size-4 shrink-0" />
 								<span className="group-data-[collapsible=icon]:hidden">
@@ -172,7 +175,10 @@ export function AppSidebar() {
 										<SidebarMenuItem
 											key={thread.id}
 											className="animate-in fade-in slide-in-from-bottom-3 duration-400"
-											style={{ animationDelay: `${i * 50}ms`, animationFillMode: "both" }}
+											style={{
+												animationDelay: `${i * 50}ms`,
+												animationFillMode: "both",
+											}}
 										>
 											<SidebarMenuButton
 												asChild
@@ -231,7 +237,12 @@ export function AppSidebar() {
 												side="right"
 												align="start"
 												items={[
-													{ label: "Delete", icon: <Trash2 />, destructive: true, onClick: () => handleDeleteThread(thread.id) },
+													{
+														label: "Delete",
+														icon: <Trash2 />,
+														destructive: true,
+														onClick: () => handleDeleteThread(thread.id),
+													},
 												]}
 											/>
 										</SidebarMenuItem>
@@ -311,11 +322,31 @@ export function AppSidebar() {
 								sideOffset={4}
 								className="w-(--radix-dropdown-menu-trigger-width) min-w-56"
 								items={[
-									{ label: "Settings", icon: <Settings />, onClick: () => router.push("/settings") },
-									{ label: "Documentation", icon: <BookOpen />, onClick: () => window.open("https://auxilia-docs.vercel.app/", "_blank") },
-									{ label: resolvedTheme === "dark" ? "Light mode" : "Dark mode", icon: resolvedTheme === "dark" ? <Sun /> : <Moon />, onClick: () => setTheme(resolvedTheme === "dark" ? "light" : "dark") },
+									{
+										label: "Settings",
+										icon: <Settings />,
+										onClick: () => router.push("/settings"),
+									},
+									{
+										label: "Documentation",
+										icon: <BookOpen />,
+										onClick: () =>
+											window.open("https://auxilia-docs.vercel.app/", "_blank"),
+									},
+									{
+										label:
+											resolvedTheme === "dark" ? "Light mode" : "Dark mode",
+										icon: resolvedTheme === "dark" ? <Sun /> : <Moon />,
+										onClick: () =>
+											setTheme(resolvedTheme === "dark" ? "light" : "dark"),
+									},
 									{ separator: true },
-									{ label: "Log out", icon: <LogOut />, destructive: true, onClick: handleLogout },
+									{
+										label: "Log out",
+										icon: <LogOut />,
+										destructive: true,
+										onClick: handleLogout,
+									},
 								]}
 							/>
 						</SidebarMenuItem>
