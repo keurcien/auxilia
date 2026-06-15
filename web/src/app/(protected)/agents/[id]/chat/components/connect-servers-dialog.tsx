@@ -157,6 +157,7 @@ export function ConnectServersDialog({
 							>
 								<div className="w-8 h-8 rounded-md flex items-center justify-center overflow-hidden relative shrink-0">
 									<Image
+										unoptimized
 										width={32}
 										height={32}
 										src={

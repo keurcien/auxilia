@@ -149,6 +149,7 @@ export default function AgentCard({ agent }: AgentCardProps) {
 									className="-ml-1.5 flex size-5 items-center justify-center overflow-hidden rounded-full border border-[#e1ebe6] bg-surface first:ml-0 dark:border-white/10 dark:bg-white/5"
 								>
 									<Image
+										unoptimized
 										src={
 											server.iconUrl ??
 											"https://storage.googleapis.com/choose-assets/mcp.png"
@@ -220,6 +221,7 @@ export default function AgentCard({ agent }: AgentCardProps) {
 								<div className="flex flex-wrap gap-2">
 									{resolvedServers.map((server) => (
 										<Image
+											unoptimized
 											key={server.id}
 											src={
 												server.iconUrl ??

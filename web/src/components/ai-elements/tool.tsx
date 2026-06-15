@@ -134,6 +134,7 @@ export const ToolHeader = ({
 			<div className="flex items-center gap-3">
 				{mcpServerIcon ? (
 					<Image
+						unoptimized
 						src={mcpServerIcon}
 						alt={mcpServerName}
 						width={20}

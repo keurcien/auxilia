@@ -18,6 +18,7 @@ export default function MCPServerCard({ server, onClick }: MCPServerCardProps) {
 			<div className="flex min-w-0 items-center gap-3">
 				<span className="flex size-[42px] shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white dark:bg-white/10 shadow-[0_2px_6px_rgba(30,45,40,0.14)]">
 					<Image
+						unoptimized
 						src={
 							server.iconUrl ??
 							"https://storage.googleapis.com/choose-assets/mcp.png"
