@@ -107,6 +107,7 @@ export function AppSidebar() {
 						<button
 							onClick={toggleSidebar}
 							title="Toggle sidebar"
+							aria-label="Toggle sidebar"
 							className="group/brand relative size-[26px] shrink-0 cursor-pointer"
 						>
 							{/* Logo at rest; fades out on hover only when collapsed. */}
