@@ -152,7 +152,7 @@ export function AppSidebar() {
 								}}
 								disabled={agents.length === 0}
 								title="New thread"
-								className="w-full h-10 px-2 rounded-xl border-none bg-[#111111] dark:bg-white text-[13.5px] font-semibold font-(family-name:--font-dm-sans) text-white dark:text-[#111111] flex items-center justify-start gap-2 cursor-pointer hover:opacity-90 transition-all shadow-[0_4px_12px_-2px_rgba(0,0,0,0.15)] disabled:opacity-50 disabled:cursor-not-allowed"
+								className="w-full h-8 px-2 rounded-xl border-none bg-[#111111] dark:bg-white text-[13.5px] font-semibold font-(family-name:--font-dm-sans) text-white dark:text-[#111111] flex items-center justify-start gap-2 cursor-pointer hover:opacity-90 transition-all shadow-[0_4px_12px_-2px_rgba(0,0,0,0.15)] disabled:opacity-50 disabled:cursor-not-allowed"
 							>
 								<SquarePen className="size-4 shrink-0" />
 								<span className="group-data-[collapsible=icon]:hidden">
@@ -182,7 +182,7 @@ export function AppSidebar() {
 											>
 												<Link
 													href={`/agents/${thread.agentId}/chat/${thread.id}`}
-													className="h-full pl-1 pr-3 flex items-center gap-2.5 group-data-[collapsible=icon]:pl-1!"
+													className="h-full pl-[3px] pr-3 flex items-center gap-2.5 group-data-[collapsible=icon]:pl-[3px]!"
 												>
 													<AgentAvatar
 														color={thread.agentColor}
