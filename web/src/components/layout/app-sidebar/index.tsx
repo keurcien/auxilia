@@ -103,7 +103,7 @@ export function AppSidebar() {
 		<>
 			<Sidebar variant="floating" collapsible="icon">
 				<SidebarHeader>
-					<div className="flex h-10 items-center gap-2 px-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
+					<div className="flex h-10 items-center gap-2 px-2">
 						<button
 							onClick={toggleSidebar}
 							title="Toggle sidebar"
@@ -133,7 +133,7 @@ export function AppSidebar() {
 						</button>
 						<span
 							className="font-sans text-base font-semibold group-data-[collapsible=icon]:hidden animate-in fade-in duration-200"
-							style={{ animationDelay: "250ms", animationFillMode: "both" }}
+							style={{ animationDelay: "100ms", animationFillMode: "both" }}
 						>
 							auxilia
 						</span>
