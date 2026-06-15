@@ -256,7 +256,7 @@ export function AppSidebar() {
 					</SidebarGroup>
 
 					<SidebarGroup className="mt-auto">
-						<SidebarGroupLabel className="font-[family-name:var(--font-dm-sans)] text-[10.5px] font-semibold uppercase tracking-[0.06em] text-sidebar-section-label">
+						<SidebarGroupLabel className="font-[family-name:var(--font-dm-sans)] text-[10.5px] font-semibold uppercase tracking-[0.06em] text-sidebar-section-label group-data-[collapsible=icon]:mt-0">
 							Workspace
 						</SidebarGroupLabel>
 						<SidebarGroupContent>
