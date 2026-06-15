@@ -40,8 +40,8 @@ export default function MCPServerList({
 	}, [fetchMcpServers, isInitialized]);
 
 	const filtered = useMemo(() => {
-		if (!search) return mcpServers;
-		const query = search.toLowerCase();
+		const query = search.trim().toLowerCase();
+		if (!query) return mcpServers;
 		return mcpServers.filter(
 			(server) =>
 				server.name.toLowerCase().includes(query) ||
