@@ -242,7 +242,9 @@ export function AppSidebar() {
 														label: "Delete",
 														icon: <Trash2 />,
 														destructive: true,
-														onClick: () => handleDeleteThread(thread.id),
+														onClick: () => {
+														handleDeleteThread(thread.id);
+													},
 													},
 												]}
 											/>
@@ -326,7 +328,9 @@ export function AppSidebar() {
 									{
 										label: "Settings",
 										icon: <Settings />,
-										onClick: () => router.push("/settings"),
+										onClick: () => {
+											router.push("/settings");
+										},
 									},
 									{
 										label: "Documentation",
@@ -338,8 +342,9 @@ export function AppSidebar() {
 										label:
 											resolvedTheme === "dark" ? "Light mode" : "Dark mode",
 										icon: resolvedTheme === "dark" ? <Sun /> : <Moon />,
-										onClick: () =>
-											setTheme(resolvedTheme === "dark" ? "light" : "dark"),
+										onClick: () => {
+											setTheme(resolvedTheme === "dark" ? "light" : "dark");
+										},
 									},
 									{ separator: true },
 									{

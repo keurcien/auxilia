@@ -90,7 +90,9 @@ export default function AgentsPage() {
 			</div>
 			<AgentList
 				search={search}
-				onClearSearch={() => setSearch("")}
+				onClearSearch={() => {
+					setSearch("");
+				}}
 				onCreateAgent={handleCreateAgent}
 			/>
 		</PageContainer>

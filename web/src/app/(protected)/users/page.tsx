@@ -249,7 +249,9 @@ export default function UsersPage() {
 							return (
 								<button
 									key={filter.key}
-									onClick={() => setRoleFilter(filter.key)}
+									onClick={() => {
+									setRoleFilter(filter.key);
+								}}
 									className={`inline-flex items-center gap-2 rounded-full px-[13px] py-1.5 text-[12px] font-[family-name:var(--font-dm-sans)] cursor-pointer transition-colors ${
 										active
 											? "bg-[#e7f0eb] text-[#3d8b63] font-semibold dark:bg-emerald-950 dark:text-emerald-300"

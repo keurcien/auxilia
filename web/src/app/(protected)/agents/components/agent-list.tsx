@@ -99,7 +99,9 @@ function AgentSection({
 				<div className="flex-1 h-px bg-[#E8EFE9] dark:bg-white/10" />
 				{hasMore && (
 					<button
-						onClick={() => setExpanded((v) => !v)}
+						onClick={() => {
+						setExpanded((v) => !v);
+					}}
 						className="flex items-center gap-1 font-[family-name:var(--font-dm-sans)] text-[13px] font-medium text-[#8FA89E] dark:text-muted-foreground whitespace-nowrap cursor-pointer transition-colors hover:text-[#1E2D28] dark:hover:text-foreground"
 					>
 						{expanded ? "Show less" : "See all"}
