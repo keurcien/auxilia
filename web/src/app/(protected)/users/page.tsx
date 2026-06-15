@@ -267,11 +267,11 @@ export default function UsersPage() {
 
 					{/* Member list panel */}
 					<div className="overflow-hidden rounded-[14px] border border-[#e1ebe6] bg-white dark:border-white/10 dark:bg-card">
-						<div className="grid grid-cols-[1fr_230px_130px_34px] items-center gap-4 border-b border-[#edf2ef] px-[18px] py-[11px] dark:border-white/5">
+						<div className="grid grid-cols-[1fr_auto_34px] md:grid-cols-[1fr_230px_130px_34px] items-center gap-4 border-b border-[#edf2ef] px-[18px] py-[11px] dark:border-white/5">
 							<span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#94a59d]">
 								Name
 							</span>
-							<span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#94a59d]">
+							<span className="hidden md:block text-[10px] font-semibold uppercase tracking-[0.1em] text-[#94a59d]">
 								Email
 							</span>
 							<span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#94a59d]">
@@ -292,25 +292,33 @@ export default function UsersPage() {
 								return (
 									<div
 										key={user.id}
-										className="group grid grid-cols-[1fr_230px_130px_34px] items-center gap-4 border-b border-[#edf2ef] px-[18px] py-[11px] transition-colors duration-[110ms] last:border-b-0 hover:bg-[#eff4f1] dark:border-white/5 dark:hover:bg-white/5"
+										className="group grid grid-cols-[1fr_auto_34px] md:grid-cols-[1fr_230px_130px_34px] items-center gap-4 border-b border-[#edf2ef] px-[18px] py-[11px] transition-colors duration-[110ms] last:border-b-0 hover:bg-[#eff4f1] dark:border-white/5 dark:hover:bg-white/5"
 									>
 										{/* Identity */}
 										<div className="flex min-w-0 items-center gap-3">
 											<span className="flex size-[34px] shrink-0 items-center justify-center rounded-full bg-[#e7f0eb] font-[family-name:var(--font-jakarta-sans)] text-[11.5px] font-bold text-[#3d8b63] dark:bg-emerald-950 dark:text-emerald-300">
 												{getInitials(user.name)}
 											</span>
-											<span className="truncate font-[family-name:var(--font-jakarta-sans)] text-[13.5px] font-semibold tracking-[-0.01em] text-[#1e2d28] dark:text-foreground">
-												{user.name || "Unnamed"}
-											</span>
-											{isCurrentUser && (
-												<span className="shrink-0 rounded-[5px] bg-[#e7f0eb] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-[0.06em] text-[#3d8b63] dark:bg-emerald-950 dark:text-emerald-300">
-													You
+											<div className="min-w-0">
+												<div className="flex min-w-0 items-center gap-2">
+													<span className="truncate font-[family-name:var(--font-jakarta-sans)] text-[13.5px] font-semibold tracking-[-0.01em] text-[#1e2d28] dark:text-foreground">
+														{user.name || "Unnamed"}
+													</span>
+													{isCurrentUser && (
+														<span className="shrink-0 rounded-[5px] bg-[#e7f0eb] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-[0.06em] text-[#3d8b63] dark:bg-emerald-950 dark:text-emerald-300">
+															You
+														</span>
+													)}
+												</div>
+												{/* Email folds under the name on mobile; own column on md+ */}
+												<span className="block truncate font-mono text-[11px] text-[#94a59d] dark:text-muted-foreground md:hidden">
+													{user.email}
 												</span>
-											)}
+											</div>
 										</div>
 
-										{/* Email */}
-										<span className="truncate font-mono text-[12px] text-[#5f7068] dark:text-muted-foreground">
+										{/* Email (column on md+) */}
+										<span className="hidden truncate font-mono text-[12px] text-[#5f7068] md:block dark:text-muted-foreground">
 											{user.email}
 										</span>
 
@@ -349,7 +357,7 @@ export default function UsersPage() {
 										<div className="flex justify-center">
 											{!isCurrentUser && (
 												<button
-													className="flex size-7 items-center justify-center rounded-[7px] text-[#94a59d] opacity-0 transition-all group-hover:opacity-100 hover:bg-[#fbe5e3] hover:text-[#b03a30] cursor-pointer dark:hover:bg-rose-950"
+													className="flex size-7 items-center justify-center rounded-[7px] text-[#94a59d] opacity-100 transition-all hover:bg-[#fbe5e3] hover:text-[#b03a30] cursor-pointer md:opacity-0 md:group-hover:opacity-100 dark:hover:bg-rose-950"
 													onClick={() => handleRemoveUser(user.id, user.name)}
 												>
 													<Trash2 className="size-[15px]" />
@@ -379,7 +387,7 @@ export default function UsersPage() {
 								{invites.map((invite) => (
 									<div
 										key={invite.id}
-										className="grid grid-cols-[1fr_140px_auto] items-center gap-4 border-b border-[#edf2ef] px-[18px] py-[11px] last:border-b-0 dark:border-white/5"
+										className="flex flex-col gap-3 border-b border-[#edf2ef] px-[18px] py-[11px] last:border-b-0 md:grid md:grid-cols-[1fr_140px_auto] md:items-center md:gap-4 dark:border-white/5"
 									>
 										{/* Envelope + email + meta */}
 										<div className="flex min-w-0 items-center gap-3">
