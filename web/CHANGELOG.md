@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/keurcien/auxilia/compare/web-v0.4.0...web-v0.5.0) (2026-06-15)
+
+
+### Features
+
+* **web:** Studio shell redesign — floating sidebar, page specs & smooth collapse ([#119](https://github.com/keurcien/auxilia/issues/119)) ([301c3ff](https://github.com/keurcien/auxilia/commit/301c3ffdaa0681c6b20f19634c47ec71a667eb88))
+
 ## [0.4.0](https://github.com/keurcien/auxilia/compare/web-v0.3.0...web-v0.4.0) (2026-06-12)
 
 
