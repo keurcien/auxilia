@@ -1,0 +1,169 @@
+# Create your first agent
+
+This tutorial walks through building an **auxilia** agent end to end — from naming it to chatting with it. We'll build a concrete example: a **Sales Research Assistant** that looks up CRM records and drafts outreach. The same steps apply to any agent you want to build.
+
+You don't need to be a developer to follow along, but an admin may need to register MCP servers for you first (see [MCP Servers](/docs/deploy/mcp-servers)).
+
+## What you'll build
+
+An agent that can:
+
+- Look up contacts, companies, and deals in HubSpot
+- Research a prospect's company on the web
+- Draft a short, personalized outreach email for a human to review
+
+By the end you'll understand the four things that define every agent: **identity**, **tools**, **permissions**, and **instructions**.
+
+## Before you start
+
+- You need the **editor** or **admin** role. The person who creates an agent becomes its **owner**.
+- At least one MCP server should be registered in your workspace. For this example we'll use **HubSpot** (see the [HubSpot setup guide](/docs/deploy/mcp-servers/examples/hubspot)) and a web-search server.
+
+## Step 1 — Create the agent and give it an identity
+
+Navigate to **Agents** in the sidebar and click **Create Agent**.
+
+![Create agent dialog](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/agent_create.png)
+
+Fill in the identity fields:
+
+- **Name** — what users see in the agent list. Keep it short and descriptive: `Sales Research Assistant`.
+- **Emoji** — pick one from the emoji picker. It becomes the agent's avatar in the sidebar and chat header. A 🔭 or 💼 works well here.
+- **Avatar background color** — choose a hex color for the badge behind the emoji. Pick a color that helps users tell this agent apart from others at a glance — give each team's agents a consistent color, for example.
+- **Description** — one sentence shown on the agent card. Users pick agents by skimming this, so make it concrete: *"Researches prospects and drafts outreach using HubSpot and the web."*
+
+The name, emoji, color, and description are all editable later — none of them affect how the agent behaves, only how people find and recognize it.
+
+Save the agent. You'll land on its configuration page, where the real work happens.
+
+## Step 2 — Add MCP servers
+
+Tools are what turn a chatbot into an agent. They come from **MCP servers** bound to the agent.
+
+On the configuration page, click **Add MCP Server** and pick a server from the workspace catalog. For our example, add two:
+
+- **HubSpot** — for CRM lookups
+- A **web-search** server — for company research
+
+![Add MCP server to agent](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/agent_add_mcp_server.png)
+
+When you add a server, **auxilia** fetches its tool list and attaches it to the agent.
+
+### Connect OAuth servers once
+
+Some MCP servers — HubSpot, Notion, Linear, Google services, and most other account-based integrations — require **OAuth**. Registering the server at the workspace level is not enough: **each user must connect their own account once** before the agent can use those tools on their behalf.
+
+If you see a **Connect** prompt on the server card:
+
+1. Click **Connect**
+2. You're redirected to the provider's consent screen
+3. Approve the requested permissions
+4. You're redirected back to **auxilia**, and the card shows as connected
+
+![Connect an OAuth MCP server](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/agent_connect_oauth.png)
+
+Your tokens are stored privately and scoped to you — a teammate using the same agent connects with their own account. API-key servers (and bearer-token servers like [n8n](/docs/deploy/mcp-servers/examples/n8n)) skip this step because they share one workspace credential. See [MCP Server Authentication](/docs/deploy/mcp-servers/authentication) for the full picture.
+
+## Step 3 — Select and configure tools
+
+Just because a server exposes 30 tools doesn't mean your agent should have all 30. A focused toolset makes the agent faster, cheaper, and more predictable.
+
+Expand each bound server to see its tools. Every tool has one of three states:
+
+| State | Icon | Behavior | Use for |
+| --- | --- | --- | --- |
+| **Always allow** | ✓ | Runs instantly when the agent calls it | Read-only and low-risk tools |
+| **Needs approval** | ⏸ | Pauses and asks a human before running | Writes and anything with side effects |
+| **Disabled** | ✗ | Hidden from the agent entirely | Off-topic or risky tools |
+
+![Tool settings on an agent](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/agent_tool_settings.png)
+
+For the Sales Research Assistant, a sensible setup:
+
+- HubSpot **read** tools (get contact, search deals, get company) → **Always allow**
+- HubSpot **write** tools (create note, update contact) → **Needs approval** — we want a human to see exactly what gets written to the CRM
+- HubSpot tools the agent doesn't need (bulk delete, admin settings) → **Disabled**
+- Web-search tool → **Always allow**
+
+> When you first bind a server, every tool defaults to **Always allow**. Always review the list and tighten writes before sharing the agent — this is the single most important safety step. See [Tools & Permissions](/docs/agents/tools) for the full model.
+
+Tool settings live on the agent–server binding, so the *same* HubSpot server can be read-only on this agent and fully writable on an automation agent. You're not configuring HubSpot globally — only what *this* agent can do with it.
+
+## Step 4 — Write the instructions
+
+The **instructions** are the system prompt sent on every message. This is where you turn a generic model with tools into *your* assistant. Good instructions cover four things: who the agent is, which tools to use when, how to format output, and what to do when something fails.
+
+Here's a complete example for our agent:
+
+```text
+You are a Sales Research Assistant for the revenue team. Your job is to research
+prospects and draft outreach — not to send anything yourself.
+
+Tools:
+- Use the HubSpot tools to look up contacts, companies, and deals. Always start
+  from HubSpot before searching the web, so you don't contradict the CRM.
+- Use web search to enrich what HubSpot doesn't have: recent company news,
+  funding, headcount, product launches.
+
+When researching a prospect, gather: the contact's role, the company's industry
+and size, the current deal stage (if any), and one recent, specific hook from
+the web (a launch, a hire, a press mention).
+
+When drafting outreach:
+- Keep it under 120 words, friendly and specific. Reference the hook you found.
+- Never invent facts. If you can't verify something, leave it out.
+- Present the draft for review. Do not create or send anything until a human
+  approves the write.
+
+Formatting: always cite the HubSpot contact ID you used. Format deal values with
+a currency symbol.
+
+If a HubSpot record can't be found, say so plainly and ask for the correct name
+or ID — don't guess.
+```
+
+Notice what this does:
+
+- **Sets boundaries** — "research and draft, don't send" keeps the agent in a safe lane, reinforced by the **needs approval** setting on writes.
+- **Orders the tools** — HubSpot first, web second, so the agent doesn't drift.
+- **Defines done** — exactly what a good research result contains.
+- **Handles failure** — what to do when a lookup comes up empty, so the model doesn't hallucinate.
+
+Save your instructions. Changes take effect on the next message; existing chat threads aren't recomputed. See [Configuration](/docs/agents/configuration) for more prompt-writing tips.
+
+## Step 5 — Test the agent in Chat
+
+Open a chat with the agent (the **Chat** button on the agent, or pick it from the **Agents** list) and try a realistic request:
+
+```text
+Research Maria Gomez at Northwind Logistics and draft a follow-up email.
+```
+
+![Chatting with the agent](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/agent_chat.png)
+
+Watch what happens:
+
+- **Tool calls appear inline** as expandable blocks showing the tool name, the arguments the agent passed, and the result it got back. This is how you verify the agent is reaching for the *right* tools with the *right* inputs.
+- **Approval cards** appear for any **needs approval** tool. When the agent tries to write a note back to HubSpot, you'll get an **Approve / Reject** card showing the exact payload — approve it and the run continues, reject it and the agent adapts.
+- **Pick a model** for the thread from the model selector. Different models trade off cost, speed, and reasoning depth.
+
+### Iterate
+
+Testing in Chat is where you tune the agent. Common adjustments:
+
+- The agent used a tool you didn't expect → set it to **needs approval** or **disabled** in Step 3.
+- The agent guessed instead of asking → tighten the failure-handling line in the instructions.
+- The drafts are too long or off-tone → add a concrete formatting rule and re-test.
+- The agent ignored HubSpot and went straight to the web → make the tool ordering explicit in the prompt.
+
+Each change takes effect on your next message, so the loop is fast: chat, observe the tool calls, adjust, chat again.
+
+## You're done
+
+You now have a working agent. From here you can:
+
+- **[Share it with your workspace](/docs/agents/permissions)** — grant teammates `user`, `editor`, or `admin` access
+- **[Trigger it over HTTP](/docs/tutorials/http-invoke)** — call it from scripts, webhooks, or spreadsheets
+- **[Trigger it from Slack](/docs/tutorials/slack)** — let the team talk to it in threads
+- **[Run it on a schedule](/docs/tutorials/n8n-cloud-scheduler)** — daily digests and recurring reports
+- **[Add subagents](/docs/agents/subagents)** or the **[sandbox](/docs/agents/sandbox)** for more advanced agents

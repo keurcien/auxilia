@@ -1,0 +1,88 @@
+# n8n MCP Server
+
+This guide connects an [n8n](https://n8n.io/) workflow to **auxilia** as an MCP server. Once connected, an agent can trigger your n8n workflows the same way it calls any other tool.
+
+## Why connect n8n?
+
+n8n already integrates with hundreds of apps (Google Workspace, HubSpot, Stripe, internal HTTP APIs, databases, and more). Rather than building a custom MCP server for each of those, you can:
+
+- **Expose existing automations as agent tools** — wrap a multi-step n8n workflow ("create a Jira ticket, notify the owner in Slack, log it to a sheet") behind a single tool the agent can call
+- **Reuse logic you already trust** — the workflow keeps running in n8n, with its own credentials, retries, and error handling; the agent just decides *when* to fire it
+- **Reach systems that don't have an MCP server yet** — if n8n can talk to it, your agent can too
+
+This is the inverse of the [n8n & Cloud Scheduler tutorial](/docs/tutorials/n8n-cloud-scheduler), where n8n *calls* auxilia. Here, the agent *calls n8n*.
+
+## How it works
+
+n8n's **MCP Server Trigger** node turns a workflow into a remote MCP server. Each **Tool** sub-node you attach to it becomes a tool the agent can discover and call. n8n publishes a stable URL for that server, which you register in **auxilia** as a custom MCP server.
+
+```
+┌──────────┐   tools/call    ┌────────────────────┐   runs    ┌──────────────┐
+│ auxilia  │ ──────────────▶ │ n8n MCP Server      │ ────────▶ │ your apps    │
+│ agent    │                 │ Trigger workflow    │           │ (Slack, CRM) │
+└──────────┘                 └────────────────────┘           └──────────────┘
+```
+
+## 1. Build the MCP server workflow in n8n
+
+1. In n8n, create a new workflow
+2. Add an **MCP Server Trigger** node as the entry point
+3. Attach one or more **Tool** sub-nodes to the trigger — each becomes a tool exposed to the agent. Give every tool a clear **name** and **description**; the agent picks tools based on these, so write them the way you'd describe the action to a teammate.
+4. Build the rest of the workflow downstream (the actual automation)
+
+## 2. Choose the transport and authentication
+
+In the MCP Server Trigger node:
+
+- **Transport** — choose **HTTP Streamable**. **auxilia** speaks the [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http) transport only; the older SSE transport is not supported.
+- **Authentication** — choose **Bearer Auth** (recommended). n8n lets you set a bearer token credential; **auxilia** will send it on every request. You can also use **None** for a quick test, but never leave a write-capable workflow unauthenticated.
+
+Copy two things from the node:
+
+- The **Production URL** (not the Test URL — the test URL only works while you have the n8n editor open with "Listen" active)
+- The **bearer token** you configured
+
+## 3. Activate the workflow
+
+Toggle the workflow to **Active** in n8n. The Production MCP URL only responds when the workflow is active.
+
+## 4. Register the server in auxilia
+
+In **auxilia**, navigate to **MCP Servers** (admin only):
+
+1. Click **Add MCP Server**
+2. Fill in:
+   - **Name** — e.g. `n8n Automations`
+   - **URL** — the Production MCP URL from the trigger node
+   - **Authentication** — **API Key**, and paste the bearer token
+
+   See [Authentication methods](/docs/deploy/mcp-servers/authentication) for how the key is encrypted and sent.
+3. Save
+
+Because n8n uses a shared bearer token (not per-user OAuth), there's no **Connect** step — the workspace shares one key. **auxilia** fetches the tool list from your MCP Server Trigger node immediately.
+
+## 5. Add it to an agent
+
+1. Open an agent's configuration page
+2. Click **Add MCP Server** and pick **n8n Automations**
+3. Review the discovered tools and set [tool settings](/docs/agents/tools). Workflows that write to other systems are good candidates for **needs approval** until you trust the agent's judgment.
+
+If you later add or rename Tool sub-nodes in n8n, click **Sync tools** on the agent-server binding so **auxilia** picks up the changes.
+
+## Troubleshooting
+
+### No tools appear after adding the server
+
+- Confirm the workflow is **Active** and you used the **Production URL**, not the Test URL
+- Confirm the transport is **HTTP Streamable**, not SSE
+- Confirm each Tool sub-node has a name and description
+
+### "Unauthorized" or 401
+
+The bearer token in **auxilia** must match the one configured on the MCP Server Trigger node. Re-copy it and re-save the server.
+
+### Intermittent failures behind a load balancer
+
+If you self-host n8n in **queue mode** with multiple webhook replicas, MCP connections must be routed to a single dedicated webhook replica — Streamable HTTP relies on persistent connections to one instance. A single webhook replica works without any extra routing.
+
+Sources: [MCP Server Trigger node — n8n Docs](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-langchain.mcptrigger/)
