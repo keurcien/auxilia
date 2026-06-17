@@ -1,5 +1,6 @@
 export default {
   index: 'Overview',
+  'create-an-agent': 'Create your first agent',
   'http-invoke': 'Trigger agents over HTTP',
   slack: 'Trigger agents from Slack',
   'embed-custom-ui': 'Embed an agent in a custom UI',
