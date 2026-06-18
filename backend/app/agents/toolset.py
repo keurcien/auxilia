@@ -10,7 +10,7 @@ from sqlmodel import select
 
 from app.agents.schemas import AgentMCPServerResponse
 from app.mcp.client.factory import MCPClientConfigFactory
-from app.mcp.client.tools import inject_ui_metadata_into_tool, wrap_mcp_tool_errors
+from app.mcp.client.tools import inject_ui_metadata_into_tool
 from app.mcp.servers.models import MCPServerDB
 
 
@@ -146,7 +146,7 @@ class Toolset:
         db: AsyncSession,
         user_id: str,
     ) -> "Toolset":
-        """Full pipeline: DB lookup -> MCP config -> fetch -> filter -> sanitize -> wrap errors -> build metadata."""
+        """Full pipeline: DB lookup -> MCP config -> fetch -> filter -> sanitize -> build metadata."""
         if not agent_mcp_servers:
             return cls(tools=[])
 
@@ -215,10 +215,10 @@ class Toolset:
 
         _sanitize_tools_in_place(all_lc_tools)
 
-        # 6. Wrap errors
-        for at in agent_tools:
-            wrap_mcp_tool_errors(at.tool)
-
+        # MCP tool execution errors (isError=True) are surfaced as
+        # ToolMessage(status="error") natively by langchain-mcp-adapters>=0.3.0
+        # (handle_tool_errors defaults to True). Transport/protocol failures still
+        # raise and are caught globally by ToolErrorMiddleware.
         return cls(tools=agent_tools)
 
     def apply_ui_metadata(self) -> None:

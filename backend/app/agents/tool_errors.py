@@ -1,14 +1,14 @@
 """Turn tool-call problems into ToolMessages the model can recover from.
 
-Three mechanisms, all so a tool failure feeds back to the LLM instead of
+Two mechanisms, both so a tool failure feeds back to the LLM instead of
 crashing the stream or silently ending the run:
 
-1. ``wrap_tool_errors(tool)`` — wraps a single tool in-place (for tools we own),
-   surfacing execution exceptions as a ToolMessage.
-2. ``ToolErrorMiddleware`` — catches execution exceptions from ALL tool calls,
+1. ``ToolErrorMiddleware`` — catches execution exceptions from ALL tool calls,
    including tools registered by other middleware (e.g. deepagents filesystem
-   tools).
-3. ``RepairInvalidToolCallsMiddleware`` — handles the case *before* execution,
+   tools) and transport/protocol failures from MCP tools. (MCP *tool execution*
+   errors — ``isError=True`` — are surfaced as ``ToolMessage(status="error")``
+   natively by langchain-mcp-adapters>=0.3.0, so they never reach here.)
+2. ``RepairInvalidToolCallsMiddleware`` — handles the case *before* execution,
    where the model emitted arguments that aren't valid JSON: it answers each
    such call with an error ToolMessage so the model can retry with valid JSON.
 """
@@ -27,8 +27,6 @@ from langchain.agents.middleware.types import (
 )
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.messages.tool import tool_call as create_tool_call
-from langchain_core.tools import BaseTool
-from langchain_core.tools.base import ToolException
 from langgraph.runtime import Runtime
 from langgraph.types import Command
 
@@ -158,40 +156,6 @@ class RepairInvalidToolCallsMiddleware(AgentMiddleware):
         # (valid) calls, then loops back to the model; if every call was invalid
         # there's nothing pending so it routes straight back to the model.
         return {"messages": [repaired_ai, *tool_messages]}
-
-
-def wrap_tool_errors(tool: BaseTool) -> None:
-    """Wrap a tool in-place so any exception is surfaced as a ToolMessage."""
-
-    if tool.coroutine is not None:
-        original_coroutine = tool.coroutine
-
-        async def safe_coroutine(*args, **kwargs):
-            try:
-                return await original_coroutine(*args, **kwargs)
-            except ToolException:
-                raise
-            except BaseException as exc:
-                inner = _unwrap(exc)
-                raise ToolException(str(inner)) from inner
-
-        tool.coroutine = safe_coroutine
-
-    if tool.func is not None:
-        original_func = tool.func
-
-        def safe_func(*args, **kwargs):
-            try:
-                return original_func(*args, **kwargs)
-            except ToolException:
-                raise
-            except BaseException as exc:
-                inner = _unwrap(exc)
-                raise ToolException(str(inner)) from inner
-
-        tool.func = safe_func
-
-    tool.handle_tool_error = True
 
 
 def _unwrap(exc: BaseException) -> BaseException:
