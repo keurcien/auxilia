@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/keurcien/auxilia/compare/web-v0.5.0...web-v0.5.1) (2026-06-18)
+
+
+### Features
+
+* add search bar to Add Subagent dialog ([#111](https://github.com/keurcien/auxilia/issues/111)) ([5e7b60e](https://github.com/keurcien/auxilia/commit/5e7b60e5d306ce7fb0a70be755605a101206f775))
+
 ## [0.5.0](https://github.com/keurcien/auxilia/compare/web-v0.4.0...web-v0.5.0) (2026-06-15)
 
 
