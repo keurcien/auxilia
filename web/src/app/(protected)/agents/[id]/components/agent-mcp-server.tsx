@@ -190,6 +190,7 @@ export default function AgentMCPServer({
 			<div className="flex items-center p-3 hover:bg-[#F8FAF9] dark:hover:bg-white/5 transition-colors">
 				<div className="w-6 h-6 rounded-sm flex items-center justify-center text-white font-semibold mr-3 overflow-hidden relative">
 					<Image
+						unoptimized
 						width={24}
 						height={24}
 						src={

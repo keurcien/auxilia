@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
-import { AGENT_COLORS, agentColorBackground } from "@/lib/colors";
+import { AGENT_COLORS, agentPastel } from "@/lib/colors";
 import { useTheme } from "next-themes";
 import { ShieldCheck, ArrowRight, ArchiveIcon, History } from "lucide-react";
 import { Agent } from "@/types/agents";
@@ -190,10 +190,9 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 						<div
 							onClick={() => setShowEmojiPicker(!showEmojiPicker)}
 							style={{
-								background: agentColorBackground(color),
-								border: `1.5px solid ${color}18`,
+								background: agentPastel(color).pill,
 							}}
-							className="flex items-center justify-center shrink-0 w-14 h-14 rounded-full text-[28px] cursor-pointer transition-colors hover:opacity-80"
+							className="flex items-center justify-center shrink-0 size-[46px] rounded-[13px] text-[23px] cursor-pointer transition-opacity hover:opacity-80"
 						>
 							{emoji}
 						</div>
@@ -230,9 +229,9 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 							value={name}
 							onChange={(e) => setName(e.target.value)}
 							placeholder="Agent name"
-							className="font-[family-name:var(--font-jakarta-sans)] text-[24px] font-extrabold text-[#1E2D28] dark:text-foreground leading-tight tracking-[-0.03em] truncate w-full bg-transparent border-none focus:outline-none focus:ring-0 p-0"
+							className="font-[family-name:var(--font-jakarta-sans)] text-[22px] font-bold text-[#1E2D28] dark:text-foreground leading-tight tracking-[-0.025em] truncate w-full bg-transparent border-none focus:outline-none focus:ring-0 p-0"
 						/>
-						<p className="text-[14px] text-[#A3B5AD] dark:text-muted-foreground font-medium mt-0.5 truncate w-full">
+						<p className="font-mono text-[11.5px] text-[#94a59d] dark:text-muted-foreground mt-0.5 truncate w-full">
 							@{name.toLowerCase().replace(/\s+/g, "_") || "agent_name"}
 						</p>
 					</div>
@@ -288,14 +287,14 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 				<div className="h-full w-full md:flex-1 flex flex-col min-w-0 animate-in fade-in slide-in-from-bottom-3 duration-400" style={{ animationDelay: "50ms", animationFillMode: "both" }}>
 					<div className="shrink-0 mb-7">
 						<div className="flex items-center min-h-[34px] mb-2.5">
-							<label className="text-[12px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em]">
+							<label className="text-[10.5px] font-bold text-[#94a59d] dark:text-muted-foreground uppercase tracking-[0.12em]">
 								Description
 							</label>
 						</div>
 						<input
 							type="text"
 							maxLength={255}
-							className="w-full px-5 py-3.5 rounded-[18px] border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-[#FAFCFB] dark:bg-white/5 text-[14px] font-medium text-[#1E2D28] dark:text-white placeholder:text-[#A3B5AD] dark:placeholder:text-white/30 focus:outline-none focus:border-[#4CA882] transition-colors"
+							className="w-full px-[17px] py-[15px] rounded-[14px] border border-[#e1ebe6] dark:border-white/10 bg-white dark:bg-card text-[13.5px] font-medium text-[#1E2D28] dark:text-white leading-[1.5] placeholder:text-[#A3B5AD] dark:placeholder:text-white/30 shadow-[0_1px_3px_rgba(33,36,31,0.04)] focus:outline-none focus:border-[#4CA882] transition-colors"
 							value={description}
 							onChange={(e) => setDescription(e.target.value)}
 							placeholder="A short description of your agent..."
@@ -308,11 +307,11 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 					</div>
 
 					<div className="flex-1 flex flex-col min-h-0">
-						<label className="block text-[12px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em] mb-2.5">
+						<label className="block text-[10.5px] font-bold text-[#94a59d] dark:text-muted-foreground uppercase tracking-[0.12em] mb-2.5">
 							Instructions
 						</label>
 						<textarea
-							className="flex-1 w-full h-full px-5 py-4.5 rounded-[22px] border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-[#FAFCFB] dark:bg-white/5 text-[14px] font-medium text-[#1E2D28] dark:text-white leading-relaxed placeholder:text-[#A3B5AD] dark:placeholder:text-white/30 resize-vertical focus:outline-none focus:border-[#4CA882] transition-colors [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+							className="flex-1 w-full h-full p-5 rounded-[14px] border border-[#e1ebe6] dark:border-white/10 bg-white dark:bg-card text-[13px] font-medium text-[#1E2D28] dark:text-white leading-[1.65] placeholder:text-[#A3B5AD] dark:placeholder:text-white/30 resize-none shadow-[0_1px_3px_rgba(33,36,31,0.04)] focus:outline-none focus:border-[#4CA882] transition-colors [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
 							value={instructions}
 							onChange={(e) => setInstructions(e.target.value)}
 							placeholder="Enter instructions for your agent..."

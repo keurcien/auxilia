@@ -31,6 +31,10 @@ from app.agents.stream import (
     SlackStreamAdapter,
     encode_synthetic_ai_message_sse,
 )
+from app.agents.structured_output import (
+    DeferredStructuredOutputMiddleware,
+    is_structured_output_artifact,
+)
 from app.agents.tool_errors import RepairInvalidToolCallsMiddleware, ToolErrorMiddleware
 from app.agents.toolset import Toolset, sanitize_tool_name
 from app.database import get_checkpointer
@@ -46,7 +50,7 @@ logger = logging.getLogger(__name__)
 
 RECURSION_LIMIT_MESSAGE = (
     "I reached my step limit for this turn. Send any follow-up message "
-    "(e.g. \"continue\") and I'll pick up where I left off."
+    '(e.g. "continue") and I\'ll pick up where I left off.'
 )
 
 
@@ -112,9 +116,7 @@ class ResolvedAgent:
                 model=model,
                 tools=self.toolset.all,
                 system_prompt=SystemMessage(
-                    content=[
-                        {"type": "text", "text": self.config.instructions or ""}
-                    ]
+                    content=[{"type": "text", "text": self.config.instructions or ""}]
                 ),
             )
 
@@ -148,7 +150,7 @@ class Agent:
             "user_id": self.thread.user_id,
             "thread_id": self.thread.id,
             "agent_id": self.thread.agent_id,
-            "langfuse_session_id": self.thread.id
+            "langfuse_session_id": self.thread.id,
         }
 
     @property
@@ -168,10 +170,11 @@ class Agent:
     ) -> "Agent":
         user_id = str(thread.user_id)
 
-        agent = await ResolvedAgent.resolve(thread.agent_id, db, user_id, is_parent=True)
+        agent = await ResolvedAgent.resolve(
+            thread.agent_id, db, user_id, is_parent=True
+        )
 
-        model_entry = next(
-            (m for m in MODELS if m.name == thread.model_id), None)
+        model_entry = next((m for m in MODELS if m.name == thread.model_id), None)
         if model_entry is None:
             raise DomainValidationError(f"Unknown model: {thread.model_id}")
         provider = next(
@@ -196,8 +199,9 @@ class Agent:
         # tool_calls answered by error ToolMessages.
         middleware = [
             PatchToolCallsMiddleware(),
-            ToolCallLimitMiddleware(run_limit=(
-                agent_settings.recursion_limit - 1) // 2, exit_behavior="end"),
+            ToolCallLimitMiddleware(
+                run_limit=(agent_settings.recursion_limit - 1) // 2, exit_behavior="end"
+            ),
             RepairInvalidToolCallsMiddleware(),
             HumanInTheLoopMiddleware(
                 interrupt_on=agent.toolset.interrupt_on,
@@ -223,10 +227,16 @@ class Agent:
             subagents=subagents,
         )
 
-    def _build_agent(self, checkpointer):
-        """Build the LangGraph agent (deep or standard) with the given checkpointer."""
+    def _build_agent(self, checkpointer, output_schema: dict | None = None):
+        """Build the LangGraph agent (deep or standard) with the given checkpointer.
+
+        `output_schema` is a raw JSON Schema dict passed to langchain as
+        `response_format`. DeferredStructuredOutputMiddleware keeps the schema
+        off the tool-calling loop and applies it on one final formatting turn;
+        the parsed result surfaces in the run state under `structured_response`.
+        """
         if self.agent.config.has_code_interpreter and sandbox_settings.enabled:
-            return self._build_deep_agent(checkpointer)
+            return self._build_deep_agent(checkpointer, output_schema)
 
         middleware = list(self.middleware)
         if self.subagents:
@@ -234,6 +244,8 @@ class Agent:
             middleware.append(
                 SubAgentMiddleware(backend=StateBackend, subagents=compiled)
             )
+        if output_schema is not None:
+            middleware.append(DeferredStructuredOutputMiddleware())
 
         return create_agent(
             model=self.model,
@@ -241,6 +253,7 @@ class Agent:
             system_prompt=SystemMessage(self.agent.config.instructions),
             checkpointer=checkpointer,
             middleware=middleware,
+            response_format=output_schema,
         )
 
     def _resolve_input(self, agent_input: dict | None, command: dict | None):
@@ -275,6 +288,7 @@ class Agent:
         command: dict | None,
         trigger: str | None,
         config_overrides: dict | None,
+        output_schema: dict | None = None,
     ):
         """Open a checkpointer scope and yield (agent, resolved_input, config).
 
@@ -283,7 +297,7 @@ class Agent:
         run config in one place.
         """
         async with get_checkpointer() as checkpointer:
-            agent = self._build_agent(checkpointer)
+            agent = self._build_agent(checkpointer, output_schema)
             resolved_input = self._resolve_input(agent_input, command)
             config = await self._resolve_config(agent, trigger, config_overrides)
             yield agent, resolved_input, config
@@ -291,8 +305,7 @@ class Agent:
     async def _persist_recursion_fallback(self, agent, config) -> AIMessage:
         """Persist a synthetic AI message after a GraphRecursionError so the
         next turn can pick up where we left off. Returns the message."""
-        logger.info(
-            "Graph recursion limit reached; persisting synthetic AI message")
+        logger.info("Graph recursion limit reached; persisting synthetic AI message")
         ai_msg = AIMessage(content=RECURSION_LIMIT_MESSAGE, id=str(uuid4()))
         await agent.aupdate_state(config, {"messages": [ai_msg]})
         return ai_msg
@@ -353,9 +366,16 @@ class Agent:
         command: dict | None = None,
         trigger: str | None = None,
         config_overrides: dict | None = None,
+        output_schema: dict | None = None,
     ) -> dict:
-        """Run the agent to completion and return the text of the last AI message."""
-        async with self._setup(agent_input, command, trigger, config_overrides) as (
+        """Run the agent to completion and return the text of the last AI message.
+
+        With `output_schema`, the final answer is also returned as a parsed
+        object under `structured_response`.
+        """
+        async with self._setup(
+            agent_input, command, trigger, config_overrides, output_schema
+        ) as (
             agent,
             resolved_input,
             config,
@@ -364,13 +384,24 @@ class Agent:
                 result = await agent.ainvoke(resolved_input, config=config)
             except GraphRecursionError:
                 ai_msg = await self._persist_recursion_fallback(agent, config)
-                return {"content": ai_msg.content}
+                return {"content": ai_msg.content, "structured_response": None}
 
-            messages = result.get("messages", [])
-            last = messages[-1] if messages else None
-            return {"content": _extract_text(last) if last else ""}
+            # Skip formatting-turn artifacts so `content` is the prose answer
+            # on every provider path (the parsed object has its own field).
+            last = next(
+                (
+                    m
+                    for m in reversed(result.get("messages", []))
+                    if not is_structured_output_artifact(m)
+                ),
+                None,
+            )
+            return {
+                "content": _extract_text(last) if last else "",
+                "structured_response": result.get("structured_response"),
+            }
 
-    def _build_deep_agent(self, checkpointer):
+    def _build_deep_agent(self, checkpointer, output_schema: dict | None = None):
         """Build a deep agent with lazy sandbox backend for code execution.
 
         The sandbox is not created here — the LLM calls create_sandbox or
@@ -383,8 +414,7 @@ class Agent:
         sandbox_tools = create_sandbox_tools(lazy_backend)
 
         compiled_subagents = (
-            [s.compile(self.model)
-             for s in self.subagents] if self.subagents else None
+            [s.compile(self.model) for s in self.subagents] if self.subagents else None
         )
 
         # create_deep_agent injects its own PatchToolCallsMiddleware; passing
@@ -392,6 +422,8 @@ class Agent:
         extra_middleware = [
             m for m in self.middleware if not isinstance(m, PatchToolCallsMiddleware)
         ]
+        if output_schema is not None:
+            extra_middleware.append(DeferredStructuredOutputMiddleware())
 
         return create_deep_agent(
             model=self.model,
@@ -401,6 +433,7 @@ class Agent:
             middleware=[*extra_middleware, ToolErrorMiddleware()],
             subagents=compiled_subagents,
             checkpointer=checkpointer,
+            response_format=output_schema,
         )
 
 
