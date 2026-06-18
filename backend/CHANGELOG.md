@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/keurcien/auxilia/compare/backend-v0.4.0...backend-v0.4.1) (2026-06-18)
+
+
+### Code Refactoring
+
+* **agents:** drop custom MCP tool-error wrapping for native handling ([#122](https://github.com/keurcien/auxilia/issues/122)) ([fc52af4](https://github.com/keurcien/auxilia/commit/fc52af4feca37f8ad8fd50d5d5c74b4a60bb3cc9))
+
 ## [0.4.0](https://github.com/keurcien/auxilia/compare/backend-v0.3.0...backend-v0.4.0) (2026-06-12)
 
 
