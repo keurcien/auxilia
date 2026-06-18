@@ -116,16 +116,11 @@ export default function AddAgentSubagentDialog({
 		[agent.subagents],
 	);
 
-	// Candidates: all agents except self, already-bound, and archived
-	const candidates = useMemo(() => {
-		const term = search.toLowerCase();
+	// All addable candidates: every agent except self and already-bound.
+	// Not search-filtered, so eligibility counts reflect the full set.
+	const allCandidates = useMemo(() => {
 		return allAgents
-			.filter(
-				(a) =>
-					a.id !== agent.id &&
-					!alreadyBoundIds.has(a.id) &&
-					(!term || a.name.toLowerCase().includes(term)),
-			)
+			.filter((a) => a.id !== agent.id && !alreadyBoundIds.has(a.id))
 			.map((a) => {
 				let disabled = false;
 				let disabledReason: string | undefined;
@@ -145,12 +140,22 @@ export default function AddAgentSubagentDialog({
 				if (a.disabled !== b.disabled) return a.disabled ? 1 : -1;
 				return a.agent.name.localeCompare(b.agent.name);
 			});
-	}, [allAgents, agent.id, alreadyBoundIds, search]);
+	}, [allAgents, agent.id, alreadyBoundIds]);
+
+	// Display list, narrowed by the search term (display only).
+	const candidates = useMemo(() => {
+		const term = search.toLowerCase();
+		if (!term) return allCandidates;
+		return allCandidates.filter((c) =>
+			c.agent.name.toLowerCase().includes(term),
+		);
+	}, [allCandidates, search]);
 
 	const handleSubagentAdded = (subagentId: string) => {
 		onSubagentAdded?.(subagentId);
-		// Close if no more eligible candidates
-		const eligibleCount = candidates.filter((c) => !c.disabled).length;
+		// Close if no more eligible candidates (across the full set, not the
+		// search-filtered view — otherwise a narrow search closes prematurely).
+		const eligibleCount = allCandidates.filter((c) => !c.disabled).length;
 		if (eligibleCount <= 1) {
 			onOpenChange(false);
 		}
