@@ -6,7 +6,8 @@
     "backend": {
       "release-type": "python",
       "package-name": "auxilia-backend",
-      "component": "backend"
+      "component": "backend",
+      "release-as": "0.4.1"
     },
     "web": {
       "release-type": "node",
