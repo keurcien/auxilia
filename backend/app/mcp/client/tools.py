@@ -1,8 +1,6 @@
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import Tool
 
-from app.agents.tool_errors import wrap_tool_errors
-
 
 def inject_ui_metadata_into_tool(tool: Tool, ui_metadata: dict) -> None:
     """Wrap a tool's coroutine in-place to persist MCP app UI metadata in ToolMessage artifacts.
@@ -11,8 +9,6 @@ def inject_ui_metadata_into_tool(tool: Tool, ui_metadata: dict) -> None:
     mcp_server_id into the returned ToolMessage.artifact dict. Because LangGraph
     persists ToolMessage objects in its checkpoint, this data is available when
     loading thread history, allowing widgets to be re-rendered on page refresh.
-
-    Must be called AFTER wrap_mcp_tool_errors so exceptions are already handled.
     """
     resource_uri = ui_metadata.get("mcp_app_resource_uri")
     server_id = ui_metadata.get("mcp_server_id")
@@ -43,12 +39,3 @@ def inject_ui_metadata_into_tool(tool: Tool, ui_metadata: dict) -> None:
         return result
 
     tool.coroutine = augmented_coroutine
-
-
-def wrap_mcp_tool_errors(tool: Tool) -> None:
-    """Wrap a tool in-place so uncaught exceptions become ToolMessages.
-
-    Delegates to the generic ``wrap_tool_errors`` helper which handles both
-    sync/async and unwraps BaseExceptionGroup chains.
-    """
-    wrap_tool_errors(tool)
