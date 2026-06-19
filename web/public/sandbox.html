@@ -51,6 +51,8 @@
 					frame.contentWindow.postMessage(data, "*");
 				};
 
+				let currentBlobUrl = null;
+
 				const loadResource = (params) => {
 					if (
 						!params ||
@@ -65,6 +67,34 @@
 							? params.sandbox
 							: "allow-scripts allow-same-origin allow-forms";
 					frame.setAttribute("sandbox", sandboxPermissions);
+
+					// Prefer a blob: URL so the app gets a real `location.origin`
+					// (this page's origin). A `srcdoc` iframe reports
+					// `location.origin === "null"`, and `new URL(path, "null")`
+					// throws — which breaks embeds that build request URLs from
+					// `location.origin` (e.g. Metabase's /api/dataset). `allow-
+					// same-origin` (set above) is required for the blob frame to
+					// keep a real origin. Fall back to srcdoc if blob: is
+					// unavailable.
+					try {
+						if (
+							typeof Blob === "function" &&
+							typeof URL !== "undefined" &&
+							URL.createObjectURL
+						) {
+							if (currentBlobUrl) {
+								URL.revokeObjectURL(currentBlobUrl);
+							}
+							currentBlobUrl = URL.createObjectURL(
+								new Blob([params.html], { type: "text/html" }),
+							);
+							frame.removeAttribute("srcdoc");
+							frame.src = currentBlobUrl;
+							return;
+						}
+					} catch (_err) {
+						// fall through to srcdoc
+					}
 					frame.srcdoc = params.html;
 				};
 

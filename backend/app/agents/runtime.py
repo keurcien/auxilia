@@ -1,5 +1,5 @@
 import logging
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from uuid import uuid4
 
@@ -36,7 +36,7 @@ from app.agents.structured_output import (
     is_structured_output_artifact,
 )
 from app.agents.tool_errors import RepairInvalidToolCallsMiddleware, ToolErrorMiddleware
-from app.agents.toolset import Toolset, sanitize_tool_name
+from app.agents.toolset import PreparedToolset, Toolset, sanitize_tool_name
 from app.database import get_checkpointer
 from app.exceptions import DomainValidationError
 from app.integrations.langfuse.callback import langfuse_callback_handler
@@ -71,10 +71,16 @@ async def get_regeneration_checkpoint_id(agent, config: dict) -> str | None:
 
 @dataclass
 class ResolvedAgent:
-    """An agent config with its resolved toolset. Used for both parent and subagents."""
+    """An agent config with its prepared toolset. Used for both parent and subagents.
+
+    ``prepared`` is built at request scope (all DB work). ``live`` is populated
+    inside the streaming scope (``Agent._setup``) with tools bound to a persistent
+    per-server MCP session, and is the toolset actually handed to the LLM.
+    """
 
     config: AgentResponse
-    toolset: Toolset
+    prepared: PreparedToolset
+    live: Toolset | None = None
 
     @classmethod
     async def resolve(
@@ -86,10 +92,10 @@ class ResolvedAgent:
         is_parent: bool = False,
     ) -> "ResolvedAgent":
         config = await AgentService(db).get(agent_id, include_archived=True)
-        toolset = await Toolset.resolve(config.mcp_servers, db, user_id)
-        if is_parent:
-            toolset.apply_ui_metadata()
-        return cls(config=config, toolset=toolset)
+        prepared = await Toolset.prepare(
+            config.mcp_servers, db, user_id, apply_ui=is_parent
+        )
+        return cls(config=config, prepared=prepared)
 
     def compile(self, model) -> CompiledSubAgent:
         """Compile into a CompiledSubAgent runnable (for subagent use).
@@ -106,7 +112,7 @@ class ResolvedAgent:
             sandbox_tools = create_sandbox_tools(lazy_backend)
             runnable = create_deep_agent(
                 model=model,
-                tools=[*self.toolset.all, *sandbox_tools],
+                tools=[*self.live.all, *sandbox_tools],
                 system_prompt=self.config.instructions or "",
                 backend=lazy_backend,
                 middleware=[ToolErrorMiddleware()],
@@ -114,7 +120,7 @@ class ResolvedAgent:
         else:
             runnable = create_agent(
                 model=model,
-                tools=self.toolset.all,
+                tools=self.live.all,
                 system_prompt=SystemMessage(
                     content=[{"type": "text", "text": self.config.instructions or ""}]
                 ),
@@ -204,7 +210,7 @@ class Agent:
             ),
             RepairInvalidToolCallsMiddleware(),
             HumanInTheLoopMiddleware(
-                interrupt_on=agent.toolset.interrupt_on,
+                interrupt_on=agent.prepared.interrupt_on,
                 description_prefix="Tool execution pending approval",
             ),
         ]
@@ -249,7 +255,7 @@ class Agent:
 
         return create_agent(
             model=self.model,
-            tools=self.agent.toolset.all,
+            tools=self.agent.live.all,
             system_prompt=SystemMessage(self.agent.config.instructions),
             checkpointer=checkpointer,
             middleware=middleware,
@@ -292,11 +298,18 @@ class Agent:
     ):
         """Open a checkpointer scope and yield (agent, resolved_input, config).
 
-        Shared scaffolding for `stream` and `invoke`: opens the AsyncPostgresSaver,
-        builds the LangGraph agent against it, and resolves the request input and
+        Shared scaffolding for `stream` and `invoke`: opens one persistent MCP
+        session per server (parent + subagents) on an AsyncExitStack that lives for
+        the whole astream/ainvoke loop, opens the AsyncPostgresSaver, builds the
+        LangGraph agent against the live tools, and resolves the request input and
         run config in one place.
         """
-        async with get_checkpointer() as checkpointer:
+        async with AsyncExitStack() as stack, get_checkpointer() as checkpointer:
+            self.agent.live = await stack.enter_async_context(
+                Toolset.open(self.agent.prepared)
+            )
+            for sub in self.subagents:
+                sub.live = await stack.enter_async_context(Toolset.open(sub.prepared))
             agent = self._build_agent(checkpointer, output_schema)
             resolved_input = self._resolve_input(agent_input, command)
             config = await self._resolve_config(agent, trigger, config_overrides)
@@ -427,7 +440,7 @@ class Agent:
 
         return create_deep_agent(
             model=self.model,
-            tools=[*self.agent.toolset.all, *sandbox_tools],
+            tools=[*self.agent.live.all, *sandbox_tools],
             system_prompt=self.agent.config.instructions or "",
             backend=lazy_backend,
             middleware=[*extra_middleware, ToolErrorMiddleware()],

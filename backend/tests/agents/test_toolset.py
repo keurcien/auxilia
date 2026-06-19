@@ -309,13 +309,21 @@ class TestApplyUiMetadata:
 
 
 # ---------------------------------------------------------------------------
-# Toolset.resolve — empty bindings
+# Toolset.prepare / open — empty bindings
 # ---------------------------------------------------------------------------
 
 
-class TestToolsetResolveEmpty:
+class TestToolsetPrepareEmpty:
     @pytest.mark.asyncio
-    async def test_empty_bindings_returns_empty_toolset(self):
-        ts = await Toolset.resolve([], db=None, user_id="u1")
-        assert ts.tools == []
-        assert ts.all == []
+    async def test_empty_bindings_prepare(self):
+        prepared = await Toolset.prepare([], db=None, user_id="u1", apply_ui=True)
+        assert prepared.server_names == []
+        assert prepared.interrupt_on == {}
+        assert prepared.client is None
+
+    @pytest.mark.asyncio
+    async def test_empty_bindings_open_yields_empty_toolset(self):
+        prepared = await Toolset.prepare([], db=None, user_id="u1", apply_ui=True)
+        async with Toolset.open(prepared) as ts:
+            assert ts.tools == []
+            assert ts.all == []

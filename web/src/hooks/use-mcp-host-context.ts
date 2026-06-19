@@ -72,6 +72,28 @@ function subscribeToTheme(callback: () => void): () => void {
 	return () => observer.disconnect();
 }
 
+// MCP apps embed parsers that can't read CSS Color 4 (`oklch()` / `lab()`), and
+// our Tailwind v4 theme tokens are authored in `oklch()`. `getComputedStyle`
+// doesn't downconvert (Chrome re-serializes to `lab()`), so round-trip each color
+// through a canvas 2D context, which parses CSS Color 4 and serializes back to a
+// legacy `rgb()`/`#hex` every parser understands.
+let _colorCanvasCtx: CanvasRenderingContext2D | null | undefined;
+
+function normalizeColor(value: string): string {
+	if (typeof document === "undefined") return value;
+	if (_colorCanvasCtx === undefined) {
+		_colorCanvasCtx = document.createElement("canvas").getContext("2d");
+	}
+	if (!_colorCanvasCtx) return value;
+	// Assigning an unparseable value leaves fillStyle unchanged; seed a sentinel
+	// so we can detect that and fall back to the original string.
+	const sentinel = "#000001";
+	_colorCanvasCtx.fillStyle = sentinel;
+	_colorCanvasCtx.fillStyle = value;
+	const normalized = _colorCanvasCtx.fillStyle;
+	return normalized === sentinel && value !== sentinel ? value : normalized;
+}
+
 function resolveStyleVariables(): Partial<McpUiStyles> {
 	if (typeof document === "undefined") return {};
 
@@ -81,7 +103,9 @@ function resolveStyleVariables(): Partial<McpUiStyles> {
 	for (const [mcpKey, auxiliaToken] of TOKEN_MAP) {
 		const value = computed.getPropertyValue(auxiliaToken).trim();
 		if (value) {
-			variables[mcpKey] = value;
+			variables[mcpKey] = mcpKey.startsWith("--color-")
+				? normalizeColor(value)
+				: value;
 		}
 	}
 

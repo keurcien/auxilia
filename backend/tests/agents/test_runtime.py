@@ -8,7 +8,7 @@ def _make_agent() -> Agent:
     resolved = MagicMock()
     resolved.config.has_code_interpreter = False
     resolved.config.instructions = "You are a test agent"
-    resolved.toolset.all = []
+    resolved.live.all = []
     return Agent(
         thread=MagicMock(),
         agent=resolved,
