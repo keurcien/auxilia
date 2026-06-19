@@ -221,6 +221,11 @@ export const McpAppWidget = ({
 				className,
 			)}
 		>
+			{/* Dev-only gotcha: React StrictMode (Next dev default) double-mounts,
+			    and @mcp-ui/client 7.1.1 can't survive it — AppRenderer tears down its
+			    host↔app transport mid-connect, surfacing protocol.ts "Not connected"
+			    and leaving the app stuck on Metabase's "press Run" state. Renders fine
+			    in production builds; tracked upstream. */}
 			<AppRenderer
 				toolName={toolName}
 				toolResourceUri={appToolInfo.resourceUri}
