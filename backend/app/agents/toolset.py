@@ -1,10 +1,12 @@
 import asyncio
 import logging
 import re
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 
 from langchain_core.tools import Tool
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_mcp_adapters.tools import load_mcp_tools
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -125,6 +127,68 @@ class AgentTool:
     ui_metadata: dict[str, str] | None = None
 
 
+@dataclass
+class PreparedToolset:
+    """DB-derived spec needed to (re)bind MCP tools onto a live session.
+
+    Built at agent-build time (request scope, with the request DB), it carries
+    everything required to open sessions and assemble tools later during the
+    streaming response — without touching the DB. ``interrupt_on`` is computed
+    here so HITL middleware can be wired at build time.
+    """
+
+    client: MultiServerMCPClient | None
+    server_names: list[str]  # config keys (== MCP server names), in a fixed order
+    tool_settings: dict[str, dict]
+    server_id_by_name: dict[str, str]
+    interrupt_on: dict[str, bool]  # sanitized tool name -> True
+    apply_ui: bool
+
+
+def _assemble_agent_tools(
+    tools_by_server: list[tuple[str, list[Tool]]],
+    tool_settings: dict[str, dict],
+    server_id_by_name: dict[str, str],
+) -> list[AgentTool]:
+    """Filter -> build UI metadata -> sanitize, shared by prepare() and open().
+
+    ``tools_by_server`` must be in the SAME server order (and each server's tools
+    in the SAME order) across both call sites: ``_sanitize_tools_in_place`` is
+    order-sensitive (dedup suffixes), so identical ordering is what guarantees the
+    sanitized names computed at build (for ``interrupt_on``) match the names of the
+    live tools opened at stream time.
+    """
+    server_names = list(server_id_by_name.keys())
+    agent_tools: list[AgentTool] = []
+    for server_id, lc_tools in tools_by_server:
+        settings = tool_settings.get(str(server_id), {})
+        allowed_names = {
+            server_id + "_" + t
+            for t, status in settings.items()
+            if status == "always_allow"
+        }
+        approval_names = {
+            server_id + "_" + t
+            for t, status in settings.items()
+            if status == "needs_approval"
+        }
+        for tool in lc_tools:
+            if tool.name in allowed_names:
+                agent_tools.append(AgentTool(tool=tool, requires_approval=False))
+            elif tool.name in approval_names:
+                agent_tools.append(AgentTool(tool=tool, requires_approval=True))
+            # disabled or unknown tools are excluded
+
+    # Build UI metadata before sanitization (uses original prefixed names).
+    for at in agent_tools:
+        at.ui_metadata = _build_tool_ui_metadata(
+            at.tool, server_id_by_name, server_names
+        )
+
+    _sanitize_tools_in_place([at.tool for at in agent_tools])
+    return agent_tools
+
+
 class Toolset:
     """Resolved, ready-to-use tools from MCP servers."""
 
@@ -140,15 +204,31 @@ class Toolset:
         return {t.tool.name: True for t in self.tools if t.requires_approval}
 
     @classmethod
-    async def resolve(
+    async def prepare(
         cls,
         agent_mcp_servers: list[AgentMCPServerResponse],
         db: AsyncSession,
         user_id: str,
-    ) -> "Toolset":
-        """Full pipeline: DB lookup -> MCP config -> fetch -> filter -> sanitize -> build metadata."""
+        *,
+        apply_ui: bool,
+    ) -> PreparedToolset:
+        """Build-time phase: DB lookup -> configs -> discover tools -> interrupt_on.
+
+        All DB access happens here (request scope). Tools are fetched once to learn
+        their names/approval flags/UI metadata so ``interrupt_on`` is known at build
+        time; the discovered tool objects are discarded — execution uses the
+        persistent session opened by :meth:`open`.
+        """
+        empty = PreparedToolset(
+            client=None,
+            server_names=[],
+            tool_settings={},
+            server_id_by_name={},
+            interrupt_on={},
+            apply_ui=apply_ui,
+        )
         if not agent_mcp_servers:
-            return cls(tools=[])
+            return empty
 
         # 1. Load MCP server records from DB
         server_ids = [s.mcp_server_id for s in agent_mcp_servers]
@@ -157,7 +237,9 @@ class Toolset:
         )
         mcp_servers = list(result.scalars().all())
 
-        # 2. Build MCP client configs
+        # 2. Build MCP client configs (resolves auth to Redis/header values — no
+        #    live SQL handle is retained, so the client is safe to use later during
+        #    streaming, after the request DB session has closed).
         mcp_factory = MCPClientConfigFactory(db=db, user_id=user_id)
         configs = {
             server.name: await mcp_factory.build(server) for server in mcp_servers
@@ -169,57 +251,58 @@ class Toolset:
             for b in agent_mcp_servers
         }
 
-        # 4. Fetch & filter tools per server, building AgentTool objects
+        server_id_by_name = {server.name: str(server.id) for server in mcp_servers}
+        server_names = list(configs.keys())
+
+        # 4. Discover tools (one session per server, just to learn names/metadata).
         client = MultiServerMCPClient(configs, tool_name_prefix=True)
-
-        async def fetch_and_wrap(server_id: str) -> list[AgentTool]:
-            lc_tools = await client.get_tools(server_name=server_id)
-
-            settings = tool_settings.get(str(server_id))
-            allowed_names = {
-                server_id + "_" + t
-                for t, status in settings.items()
-                if status == "always_allow"
-            }
-            approval_names = {
-                server_id + "_" + t
-                for t, status in settings.items()
-                if status == "needs_approval"
-            }
-
-            agent_tools = []
-            for tool in lc_tools:
-                if tool.name in allowed_names:
-                    agent_tools.append(AgentTool(tool=tool, requires_approval=False))
-                elif tool.name in approval_names:
-                    agent_tools.append(AgentTool(tool=tool, requires_approval=True))
-                # disabled or unknown tools are excluded
-            return agent_tools
-
         results = await asyncio.gather(
-            *[fetch_and_wrap(sid) for sid in configs.keys()]
+            *[client.get_tools(server_name=name) for name in server_names]
+        )
+        tools_by_server = list(zip(server_names, results, strict=True))
+        agent_tools = _assemble_agent_tools(
+            tools_by_server, tool_settings, server_id_by_name
         )
 
-        agent_tools = [at for batch in results for at in batch]
+        return PreparedToolset(
+            client=client,
+            server_names=server_names,
+            tool_settings=tool_settings,
+            server_id_by_name=server_id_by_name,
+            interrupt_on={
+                at.tool.name: True for at in agent_tools if at.requires_approval
+            },
+            apply_ui=apply_ui,
+        )
 
-        # 5. Sanitize tool names
-        all_lc_tools = [at.tool for at in agent_tools]
-        server_id_by_name = {server.name: str(server.id) for server in mcp_servers}
-        server_names = list(server_id_by_name.keys())
+    @classmethod
+    @asynccontextmanager
+    async def open(cls, prepared: PreparedToolset):
+        """Stream-time phase: hold ONE live session per server and bind tools to it.
 
-        # Build UI metadata before sanitization (uses original names for prefix matching)
-        for at in agent_tools:
-            at.ui_metadata = _build_tool_ui_metadata(
-                at.tool, server_id_by_name, server_names
+        The sessions stay open for the whole ``async with`` block, so a handle
+        minted by one tool call (e.g. Metabase ``construct_query``'s
+        ``query_handle``) survives to the next call (``visualize_query``). MCP tool
+        execution errors (isError=True) are surfaced as ToolMessage(status="error")
+        natively by langchain-mcp-adapters; transport/protocol failures raise and
+        are caught globally by ToolErrorMiddleware.
+        """
+        async with AsyncExitStack() as stack:
+            tools_by_server: list[tuple[str, list[Tool]]] = []
+            for name in prepared.server_names:
+                session = await stack.enter_async_context(prepared.client.session(name))
+                lc_tools = await load_mcp_tools(
+                    session, server_name=name, tool_name_prefix=True
+                )
+                tools_by_server.append((name, lc_tools))
+
+            agent_tools = _assemble_agent_tools(
+                tools_by_server, prepared.tool_settings, prepared.server_id_by_name
             )
-
-        _sanitize_tools_in_place(all_lc_tools)
-
-        # MCP tool execution errors (isError=True) are surfaced as
-        # ToolMessage(status="error") natively by langchain-mcp-adapters>=0.3.0
-        # (handle_tool_errors defaults to True). Transport/protocol failures still
-        # raise and are caught globally by ToolErrorMiddleware.
-        return cls(tools=agent_tools)
+            toolset = cls(tools=agent_tools)
+            if prepared.apply_ui:
+                toolset.apply_ui_metadata()
+            yield toolset
 
     def apply_ui_metadata(self) -> None:
         """Inject UI metadata into tool coroutines.

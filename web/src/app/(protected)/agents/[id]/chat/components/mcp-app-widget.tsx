@@ -90,6 +90,16 @@ const toCallToolResult = (
 	return result;
 };
 
+// Stable (module-level) references so AppRenderer doesn't re-sync the iframe on
+// every render. Advertise the capabilities the host actually proxies: tool calls
+// (onCallTool), resource reads (onReadResource) and link opening (onOpenLink).
+const HOST_INFO = { name: "auxilia", version: "1.0.0" };
+const HOST_CAPABILITIES = {
+	serverTools: {},
+	serverResources: {},
+	openLinks: {},
+};
+
 export const McpAppWidget = ({
 	input,
 	output,
@@ -123,7 +133,17 @@ export const McpAppWidget = ({
 		[outputKey, errorText, structuredKey],
 	);
 
-	const effectiveToolInput = resultHasView(toolResult) ? undefined : input;
+	// Memoize like toolResult: AppRenderer tracks toolInput by reference identity,
+	// so re-sending a fresh-but-equal object after the result arrives makes apps
+	// (e.g. Metabase) reset to their "edited query — press Run" draft state. Key by
+	// a content hash so parent re-renders can't churn the reference.
+	const hasView = resultHasView(toolResult);
+	const inputKey = input === undefined ? "" : stableKey(input);
+	const effectiveToolInput = useMemo(
+		() => (hasView ? undefined : input),
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+		[inputKey, hasView],
+	);
 
 	const onReadResource = useCallback(
 		async ({ uri }: { uri: string }) => {
@@ -201,11 +221,18 @@ export const McpAppWidget = ({
 				className,
 			)}
 		>
+			{/* Dev-only gotcha: React StrictMode (Next dev default) double-mounts,
+			    and @mcp-ui/client 7.1.1 can't survive it — AppRenderer tears down its
+			    host↔app transport mid-connect, surfacing protocol.ts "Not connected"
+			    and leaving the app stuck on Metabase's "press Run" state. Renders fine
+			    in production builds; tracked upstream. */}
 			<AppRenderer
 				toolName={toolName}
 				toolResourceUri={appToolInfo.resourceUri}
 				sandbox={sandboxConfig}
 				hostContext={hostContext}
+				hostInfo={HOST_INFO}
+				hostCapabilities={HOST_CAPABILITIES}
 				toolInput={effectiveToolInput}
 				toolResult={toolResult}
 				onReadResource={onReadResource}

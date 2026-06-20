@@ -127,8 +127,45 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
             return [{"name": tool.name, "description": tool.description} for tool in tools]
 
 
+# Safety bound for tools/list pagination. A well-behaved server eventually returns
+# a falsy nextCursor; this caps a misbehaving one that emits endless new cursors.
+MAX_TOOL_LIST_PAGES = 1000
+
+
+async def _list_all_tools(session: ClientSession) -> list:
+    """Page through ``tools/list``, guarding against a server that never ends
+    pagination. A repeated or cyclic ``nextCursor`` is detected and a runaway page
+    count is capped — otherwise the loop would spin forever, accumulating tools.
+    """
+    tools = []
+    cursor: str | None = None
+    seen_cursors: set[str] = set()
+    for _ in range(MAX_TOOL_LIST_PAGES):
+        response = await session.list_tools(cursor=cursor)
+        tools.extend(response.tools)
+        cursor = response.nextCursor
+        if not cursor:
+            return tools
+        if cursor in seen_cursors:
+            raise DomainError(
+                "MCP server returned a repeated tools/list cursor; "
+                "aborting to avoid an infinite pagination loop."
+            )
+        seen_cursors.add(cursor)
+    raise DomainError(
+        f"MCP server exceeded {MAX_TOOL_LIST_PAGES} tools/list pages; "
+        "aborting to avoid an unbounded pagination loop."
+    )
+
+
 @asynccontextmanager
-async def connect_to_server(mcp_server: MCPServerDB, user_id: str, db: AsyncSession):
+async def connect_to_server(
+    mcp_server: MCPServerDB,
+    user_id: str,
+    db: AsyncSession,
+    *,
+    terminate_on_close: bool = True,
+):
     """Connect to an MCP server and initialize session.
 
     Similar to the pattern from https://modelcontextprotocol.info/docs/tutorials/building-a-client/
@@ -138,6 +175,10 @@ async def connect_to_server(mcp_server: MCPServerDB, user_id: str, db: AsyncSess
         mcp_server: MCP server configuration
         user_id: The current user's ID
         db: Database session
+        terminate_on_close: When False, the session is NOT DELETEd on exit and is
+            left to expire by the server's TTL. MCP App paths need this because
+            Metabase binds artifacts (the embedded ``sessionToken``) to the MCP
+            session — DELETEing it kills the token before the browser uses it.
 
     Yields:
         tuple: (session, tools) - Initialized session and available tools
@@ -189,14 +230,14 @@ async def connect_to_server(mcp_server: MCPServerDB, user_id: str, db: AsyncSess
     else:
         client_args = {"url": mcp_server.url}
 
-    async with streamablehttp_client(**client_args) as (read, write, _):
+    async with streamablehttp_client(
+        **client_args, terminate_on_close=terminate_on_close
+    ) as (read, write, _):
         async with ClientSession(read, write) as session:
             await session.initialize()
 
             try:
-                response = await session.list_tools()
-
-                tools = response.tools
+                tools = await _list_all_tools(session)
 
                 if mcp_server.url == "https://bigquery.googleapis.com/mcp":
                     await session.call_tool("list_dataset_ids", {"project_id": os.getenv("GCLOUD_PROJECT")})
