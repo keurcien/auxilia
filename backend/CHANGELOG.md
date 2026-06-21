@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.2](https://github.com/keurcien/auxilia/compare/backend-v0.4.1...backend-v0.4.2) (2026-06-20)
+
+
+### Bug Fixes
+
+* **mcp:** render Metabase interactive visualize_query MCP App ([#128](https://github.com/keurcien/auxilia/issues/128)) ([2bbc28c](https://github.com/keurcien/auxilia/commit/2bbc28c8ac9febaf291f7d35e52227df49347ed2))
+
 ## [0.4.1](https://github.com/keurcien/auxilia/compare/backend-v0.4.0...backend-v0.4.1) (2026-06-18)
 
 

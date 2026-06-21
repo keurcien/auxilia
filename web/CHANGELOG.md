@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.2](https://github.com/keurcien/auxilia/compare/web-v0.5.1...web-v0.5.2) (2026-06-20)
+
+
+### Bug Fixes
+
+* **mcp:** render Metabase interactive visualize_query MCP App ([#128](https://github.com/keurcien/auxilia/issues/128)) ([2bbc28c](https://github.com/keurcien/auxilia/commit/2bbc28c8ac9febaf291f7d35e52227df49347ed2))
+
 ## [0.5.1](https://github.com/keurcien/auxilia/compare/web-v0.5.0...web-v0.5.1) (2026-06-18)
 
 
