@@ -34,7 +34,8 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
     async def create(self, data: MCPServerCreate) -> MCPServerDB:
         if data.auth_type == MCPAuthType.api_key and not data.api_key:
             raise DomainValidationError(
-                "API key is required when auth_type is 'api_key'")
+                "API key is required when auth_type is 'api_key'"
+            )
 
         db_server = await self.repository.create(data)
 
@@ -72,8 +73,7 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
     async def list_official(self) -> list[OfficialMCPServerResponse]:
         rows = await self.repository.list_official()
         return [
-            OfficialMCPServerResponse(
-                **row[0].model_dump(), is_installed=row[1])
+            OfficialMCPServerResponse(**row[0].model_dump(), is_installed=row[1])
             for row in rows
         ]
 
@@ -113,7 +113,9 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         await provider._initialize()
 
         if mcp_server.url == "https://mcp.supabase.com/mcp":
-            provider.context.client_metadata.token_endpoint_auth_method = "client_secret_post"
+            provider.context.client_metadata.token_endpoint_auth_method = (
+                "client_secret_post"
+            )
 
         await provider.manual_exchange(code, state)
 
@@ -124,7 +126,9 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
 
     async def list_tools(self, server: MCPServerDB, user_id: str) -> list[dict]:
         async with connect_to_server(server, user_id, self.db) as (_, tools):
-            return [{"name": tool.name, "description": tool.description} for tool in tools]
+            return [
+                {"name": tool.name, "description": tool.description} for tool in tools
+            ]
 
 
 # Safety bound for tools/list pagination. A well-behaved server eventually returns
@@ -196,8 +200,7 @@ async def connect_to_server(
 
         if oauth_credentials:
             client_id = oauth_credentials.client_id
-            client_secret = decrypt_api_key(
-                oauth_credentials.client_secret_encrypted)
+            client_secret = decrypt_api_key(oauth_credentials.client_secret_encrypted)
 
             client_metadata.token_endpoint_auth_method = (
                 oauth_credentials.token_endpoint_auth_method or "client_secret_post"
@@ -225,8 +228,10 @@ async def connect_to_server(
         client_args = {"url": mcp_server.url, "auth": provider}
     elif mcp_server.auth_type == MCPAuthType.api_key:
         api_key = await repository.get_api_key(mcp_server.id)
-        client_args = {"url": mcp_server.url, "headers": {
-            "Authorization": f"Bearer {api_key}"}}
+        client_args = {
+            "url": mcp_server.url,
+            "headers": {"Authorization": f"Bearer {api_key}"},
+        }
     else:
         client_args = {"url": mcp_server.url}
 
@@ -240,9 +245,15 @@ async def connect_to_server(
                 tools = await _list_all_tools(session)
 
                 if mcp_server.url == "https://bigquery.googleapis.com/mcp":
-                    await session.call_tool("list_dataset_ids", {"project_id": os.getenv("GCLOUD_PROJECT")})
+                    await session.call_tool(
+                        "list_dataset_ids", {"project_id": os.getenv("GCLOUD_PROJECT")}
+                    )
                 elif mcp_server.url == "https://calendarmcp.googleapis.com/mcp/v1":
                     await session.call_tool("list_calendars", {})
+                elif mcp_server.url == "https://drivemcp.googleapis.com/mcp/v1":
+                    await session.call_tool("list_recent_files", {})
+                elif mcp_server.url == "https://gmailmcp.googleapis.com/mcp/v1":
+                    await session.call_tool("list_labels", {})
                 yield session, tools
 
             except Exception as e:
