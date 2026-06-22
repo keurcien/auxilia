@@ -26,6 +26,8 @@ def build_oauth_client_metadata(mcp_server: dict) -> OAuthClientMetadata:
         scope = "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive"
     elif mcp_server.name == "Calendar":
         scope = "openid https://www.googleapis.com/auth/calendar.calendarlist.readonly https://www.googleapis.com/auth/calendar.events.freebusy https://www.googleapis.com/auth/calendar.events.readonly"
+    elif mcp_server.name == "Drive":
+        scope = "openid https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file"
     else:
         scope = "user"
 
@@ -44,7 +46,13 @@ def build_oauth_client_metadata(mcp_server: dict) -> OAuthClientMetadata:
 class WebOAuthClientProvider(OAuthClientProvider):
     """Web OAuth client provider for MCP servers. Idea is to stick as close as possible to the official MCP SDK."""
 
-    def __init__(self, *args, client_id: str | None = None, client_secret: str | None = None, **kwargs):
+    def __init__(
+        self,
+        *args,
+        client_id: str | None = None,
+        client_secret: str | None = None,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self._client_id = client_id
         self._client_secret = client_secret
@@ -55,18 +63,27 @@ class WebOAuthClientProvider(OAuthClientProvider):
         self.context.client_info = await self.context.storage.get_client_info()
 
         if not self.context.oauth_metadata:
-            self.context.oauth_metadata = await self.context.storage.get_oauth_metadata()
+            self.context.oauth_metadata = (
+                await self.context.storage.get_oauth_metadata()
+            )
 
-        if self.context.oauth_metadata and self.context.oauth_metadata.issuer == AnyHttpUrl("https://api.supabase.com/"):
-            logger.debug(
-                "Setting token endpoint auth method to client_secret_post")
+        if (
+            self.context.oauth_metadata
+            and self.context.oauth_metadata.issuer
+            == AnyHttpUrl("https://api.supabase.com/")
+        ):
+            logger.debug("Setting token endpoint auth method to client_secret_post")
             self.context.client_info.token_endpoint_auth_method = "client_secret_post"
 
-        if not self.context.client_info and self.context.client_metadata and self._client_id:
+        if (
+            not self.context.client_info
+            and self.context.client_metadata
+            and self._client_id
+        ):
             self.context.client_info = OAuthClientInformationFull(
                 client_id=self._client_id,
                 client_secret=self._client_secret,
-                **self.context.client_metadata.model_dump()
+                **self.context.client_metadata.model_dump(),
             )
 
         if self.context.current_tokens:
@@ -80,7 +97,8 @@ class WebOAuthClientProvider(OAuthClientProvider):
             body = await response.aread()  # pragma: no cover
             body_text = body.decode("utf-8")  # pragma: no cover
             raise OAuthTokenError(
-                f"Token exchange failed ({response.status_code}): {body_text}")  # pragma: no cover
+                f"Token exchange failed ({response.status_code}): {body_text}"
+            )  # pragma: no cover
 
         # Parse and validate response with scope validation
         token_response = await handle_token_response_scopes(response)
@@ -108,8 +126,7 @@ class WebOAuthClientProvider(OAuthClientProvider):
             self.context.oauth_metadata
             and self.context.oauth_metadata.authorization_endpoint
         ):
-            auth_endpoint = str(
-                self.context.oauth_metadata.authorization_endpoint)
+            auth_endpoint = str(self.context.oauth_metadata.authorization_endpoint)
         else:
             auth_base_url = self.context.get_authorization_base_url(
                 self.context.server_url
@@ -134,7 +151,9 @@ class WebOAuthClientProvider(OAuthClientProvider):
             "code_challenge_method": "S256",
         }
 
-        if self.context.oauth_metadata.issuer == AnyHttpUrl("https://accounts.google.com/"):
+        if self.context.oauth_metadata.issuer == AnyHttpUrl(
+            "https://accounts.google.com/"
+        ):
             auth_params["access_type"] = "offline"
             auth_params["prompt"] = "consent"
 
@@ -162,7 +181,9 @@ class WebOAuthClientProvider(OAuthClientProvider):
             raise OAuthFlowError("Client info not found in storage")
 
         if not self.context.oauth_metadata:
-            self.context.oauth_metadata = await self.context.storage.get_oauth_metadata()
+            self.context.oauth_metadata = (
+                await self.context.storage.get_oauth_metadata()
+            )
 
         # Recover Verifier
         verifier = await self.context.storage.get_verifier(state)
