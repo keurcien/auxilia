@@ -150,13 +150,14 @@ export default function AgentList({
 	useEffect(() => {
 		api
 			.get<Agent[]>(archived ? "/agents?archived=true" : "/agents")
-			.then((response) => setAgents(response.data))
+			.then((response) => { setAgents(response.data); })
 			.catch(console.error)
-			.finally(() => setIsLoading(false));
+			.finally(() => { setIsLoading(false); });
 	}, [archived]);
 
-	const handleRemoved = (agentId: string) =>
+	const handleRemoved = (agentId: string) => {
 		setAgents((prev) => prev.filter((a) => a.id !== agentId));
+	};
 
 	const matches = useMemo(() => {
 		if (!search) return agents;

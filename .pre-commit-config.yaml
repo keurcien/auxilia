@@ -5,3 +5,16 @@ repos:
       - id: ruff-check
         args: [--fix]
       - id: ruff-format
+  - repo: local
+    hooks:
+      - id: eslint-web
+        name: eslint (web)
+        # Lints only the changed web files (like ruff). Runs from web/ so the
+        # type-aware parser resolves tsconfig/node_modules; strips the leading
+        # "web/" from the repo-relative paths pre-commit passes in. Uses the
+        # stricter eslint.precommit.mjs (type-aware rules) so async-handler /
+        # void-expression mistakes are caught at commit time on touched files.
+        entry: bash -c 'cd web && args=(); for f in "$@"; do args+=("${f#web/}"); done; exec npx eslint --config eslint.precommit.mjs "${args[@]}"' --
+        language: system
+        files: ^web/.*\.(ts|tsx)$
+        pass_filenames: true

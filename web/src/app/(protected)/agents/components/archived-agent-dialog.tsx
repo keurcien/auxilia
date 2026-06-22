@@ -52,11 +52,13 @@ export default function ArchivedAgentDialog({
 	return createPortal(
 		<div
 			className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(30,45,40,0.2)] backdrop-blur-[4px] animate-in fade-in duration-200"
-			onClick={() => !busy && onClose()}
+			onClick={() => {
+				if (!busy) onClose();
+			}}
 		>
 			<div
 				className="bg-white dark:bg-card rounded-[28px] p-8 w-[440px] max-w-[90vw] shadow-[0_24px_48px_-12px_rgba(0,0,0,0.12)] animate-in slide-in-from-bottom-4 zoom-in-[0.97] duration-300"
-				onClick={(e) => e.stopPropagation()}
+				onClick={(e) => { e.stopPropagation(); }}
 			>
 				{/* Avatar + Name + Close */}
 				<div className="flex items-center gap-4 mb-6">
@@ -78,7 +80,9 @@ export default function ArchivedAgentDialog({
 						</div>
 					</div>
 					<button
-						onClick={() => !busy && onClose()}
+						onClick={() => {
+							if (!busy) onClose();
+						}}
 						className="shrink-0 self-start w-9 h-9 rounded-full bg-[#F5F8F6] dark:bg-white/10 flex items-center justify-center cursor-pointer transition-colors hover:bg-[#EDF4F0] dark:hover:bg-white/15"
 					>
 						<X className="h-4 w-4 text-[#6B7F76]" />
@@ -98,7 +102,7 @@ export default function ArchivedAgentDialog({
 							<button
 								disabled={busy}
 								className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-full border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-white dark:bg-transparent font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold text-[#1E2D28] dark:text-foreground cursor-pointer transition-all hover:border-[#A3B5AD] disabled:opacity-50"
-								onClick={() => setConfirmingDelete(false)}
+								onClick={() => { setConfirmingDelete(false); }}
 							>
 								Cancel
 							</button>
@@ -124,7 +128,7 @@ export default function ArchivedAgentDialog({
 							<button
 								disabled={busy}
 								className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-full border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-white dark:bg-transparent font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold text-[#C0455A] cursor-pointer transition-all hover:border-[#C0455A]/40 disabled:opacity-50"
-								onClick={() => setConfirmingDelete(true)}
+								onClick={() => { setConfirmingDelete(true); }}
 							>
 								<Trash2 className="size-[15px]" />
 								Delete permanently

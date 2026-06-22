@@ -81,7 +81,9 @@ export default function AgentsPage() {
 					/>
 					<Button
 						className="flex items-center gap-2 px-6! py-3! h-auto! bg-[#111111] dark:bg-white dark:text-[#111111] text-[14px] font-semibold font-[family-name:var(--font-dm-sans)] text-white rounded-full hover:bg-[#222222] dark:hover:bg-gray-100 transition-all cursor-pointer shadow-[0_4px_12px_-2px_rgba(0,0,0,0.15)] border-none whitespace-nowrap"
-						onClick={handleCreateAgent}
+						onClick={() => {
+							void handleCreateAgent();
+						}}
 						disabled={isCreating}
 					>
 						<Plus className="w-4 h-4" />
@@ -117,7 +119,9 @@ export default function AgentsPage() {
 				onClearSearch={() => {
 					setSearch("");
 				}}
-				onCreateAgent={handleCreateAgent}
+				onCreateAgent={() => {
+					void handleCreateAgent();
+				}}
 				archived={view === "archived"}
 			/>
 		</PageContainer>
