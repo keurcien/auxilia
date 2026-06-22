@@ -30,8 +30,10 @@ const GROUPS = [
 	},
 ];
 
-// How many cards a section shows before "See all" reveals the rest.
-const SECTION_CAP = 6;
+// How many cards a section shows before "See all" reveals the rest. The 8th
+// grid cell holds an inline "See all" tile, so a collapsed section fills two
+// clean rows on the 4-column grid.
+const SECTION_CAP = 7;
 
 function EmptyState({
 	icon,
@@ -80,14 +82,39 @@ function AgentSection({
 	note,
 	archived,
 	onRemoved,
+	storageKey,
 }: {
 	label: string;
 	agents: Agent[];
 	note?: React.ReactNode;
 	archived?: boolean;
 	onRemoved?: (agentId: string) => void;
+	storageKey: string;
 }) {
-	const [expanded, setExpanded] = useState(false);
+	// Sections only mount client-side, after AgentList's fetch resolves (it
+	// renders null while loading), so reading localStorage in the initializer is
+	// safe — there's no server render to mismatch against.
+	const [expanded, setExpanded] = useState(() => {
+		try {
+			return localStorage.getItem(storageKey) === "1";
+		} catch {
+			// localStorage unavailable (e.g. private mode) — default to collapsed.
+			return false;
+		}
+	});
+
+	const toggle = () => {
+		setExpanded((v) => {
+			const next = !v;
+			try {
+				localStorage.setItem(storageKey, next ? "1" : "0");
+			} catch {
+				// Ignore persistence failures; the toggle still works in-session.
+			}
+			return next;
+		});
+	};
+
 	const hasMore = agents.length > SECTION_CAP;
 	const shown = expanded ? agents : agents.slice(0, SECTION_CAP);
 
@@ -101,22 +128,20 @@ function AgentSection({
 					{agents.length}
 				</span>
 				<div className="flex-1 h-px bg-[#E8EFE9] dark:bg-white/10" />
-				{hasMore && (
+				{hasMore && expanded && (
 					<button
-						onClick={() => {
-						setExpanded((v) => !v);
-					}}
+						onClick={toggle}
 						className="flex items-center gap-1 font-[family-name:var(--font-dm-sans)] text-[13px] font-medium text-[#8FA89E] dark:text-muted-foreground whitespace-nowrap cursor-pointer transition-colors hover:text-[#1E2D28] dark:hover:text-foreground"
 					>
-						{expanded ? "Show less" : "See all"}
-						<ArrowRight className="size-3.5" />
+						Show less
+						<ArrowRight className="size-3.5 -rotate-90" />
 					</button>
 				)}
 			</div>
 
 			{note}
 
-			<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+			<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
 				{shown.map((agent, i) => (
 					<div
 						key={agent.id}
@@ -126,6 +151,20 @@ function AgentSection({
 						<AgentCard agent={agent} archived={archived} onRemoved={onRemoved} />
 					</div>
 				))}
+				{hasMore && !expanded && (
+					<button
+						onClick={toggle}
+						className="group flex h-full min-h-[120px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-[#cfe0d8] dark:border-white/15 bg-transparent text-[#8FA89E] dark:text-muted-foreground transition-colors duration-[130ms] ease-out cursor-pointer hover:border-[#4CA882] hover:text-[#1E2D28] dark:hover:border-[#4CA882] dark:hover:text-foreground"
+					>
+						<span className="flex items-center gap-1 font-[family-name:var(--font-jakarta-sans)] text-[14px] font-bold tracking-[-0.01em]">
+							See all
+							<ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
+						</span>
+						<span className="font-[family-name:var(--font-dm-sans)] text-[12.5px] font-medium">
+							+{agents.length - SECTION_CAP} more
+						</span>
+					</button>
+				)}
 			</div>
 		</section>
 	);
@@ -244,6 +283,7 @@ export default function AgentList({
 					agents={group.items}
 					archived={archived}
 					onRemoved={handleRemoved}
+					storageKey={`agents:section:${archived ? "archived:" : ""}${group.key}:expanded`}
 					note={
 						group.key === "discover" ? (
 							<div className="flex items-center gap-2.5 px-4 py-3 mb-5 rounded-xl bg-primary/10 text-primary text-[13.5px]">
