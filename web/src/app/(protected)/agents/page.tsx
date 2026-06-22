@@ -91,7 +91,7 @@ export default function AgentsPage() {
 					</Button>
 				</div>
 			</div>
-			<div className="mb-2 flex items-center gap-1 border-b border-[#E8EFE9] dark:border-white/10">
+			<div className="mb-6 inline-flex items-center gap-1 rounded-full bg-[#F0F4F2] dark:bg-white/5 p-1">
 				{(
 					[
 						{ key: "active", label: "Active" },
@@ -103,10 +103,10 @@ export default function AgentsPage() {
 						onClick={() => {
 							setView(tab.key);
 						}}
-						className={`relative -mb-px px-4 py-2.5 font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold cursor-pointer transition-colors ${
+						className={`rounded-full px-4 py-1.5 font-[family-name:var(--font-dm-sans)] text-[13.5px] font-semibold cursor-pointer transition-colors ${
 							view === tab.key
-								? "text-[#1E2D28] dark:text-foreground border-b-2 border-[#111111] dark:border-white"
-								: "text-[#8FA89E] dark:text-muted-foreground border-b-2 border-transparent hover:text-[#1E2D28] dark:hover:text-foreground"
+								? "bg-white dark:bg-white/10 text-[#1E2D28] dark:text-foreground shadow-[0_1px_2px_rgba(30,45,40,0.08)]"
+								: "text-[#8FA89E] dark:text-muted-foreground hover:text-[#1E2D28] dark:hover:text-foreground"
 						}`}
 					>
 						{tab.label}
