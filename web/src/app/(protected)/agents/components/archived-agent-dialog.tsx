@@ -105,7 +105,9 @@ export default function ArchivedAgentDialog({
 							<button
 								disabled={busy}
 								className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-full bg-[#C0455A] font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold text-white cursor-pointer shadow-[0_4px_12px_-2px_rgba(192,69,90,0.3)] transition-all hover:opacity-90 disabled:opacity-50"
-								onClick={handleDelete}
+								onClick={() => {
+									void handleDelete();
+								}}
 							>
 								<Trash2 className="size-[15px]" />
 								{busy ? "Deleting..." : "Delete permanently"}
@@ -130,7 +132,9 @@ export default function ArchivedAgentDialog({
 							<button
 								disabled={busy}
 								className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-full bg-[#111111] dark:bg-white font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold text-white dark:text-[#111111] cursor-pointer shadow-[0_4px_12px_-2px_rgba(0,0,0,0.15)] transition-all hover:opacity-90 disabled:opacity-50"
-								onClick={handleRestore}
+								onClick={() => {
+									void handleRestore();
+								}}
 							>
 								<ArchiveRestore className="size-[15px]" />
 								{busy ? "Restoring..." : "Restore"}

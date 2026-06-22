@@ -98,7 +98,9 @@ export default function AgentsPage() {
 				).map((tab) => (
 					<button
 						key={tab.key}
-						onClick={() => setView(tab.key)}
+						onClick={() => {
+							setView(tab.key);
+						}}
 						className={`relative -mb-px px-4 py-2.5 font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold cursor-pointer transition-colors ${
 							view === tab.key
 								? "text-[#1E2D28] dark:text-foreground border-b-2 border-[#111111] dark:border-white"
