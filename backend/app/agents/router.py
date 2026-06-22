@@ -47,11 +47,12 @@ async def create_agent(
 
 @router.get("/", response_model=list[AgentResponse])
 async def get_agents(
+    archived: bool = False,
     current_user: UserDB = Depends(get_current_user),
     service: AgentService = Depends(get_agent_service),
 ) -> list[AgentResponse]:
     return await service.list(
-        user_id=current_user.id, user_role=current_user.role
+        user_id=current_user.id, user_role=current_user.role, archived=archived
     )
 
 
@@ -87,6 +88,28 @@ async def delete_agent(
     service: AgentService = Depends(get_agent_service),
 ) -> None:
     await service.delete(
+        agent_id, user_id=current_user.id, user_role=current_user.role
+    )
+
+
+@router.post("/{agent_id}/restore", response_model=AgentResponse)
+async def restore_agent(
+    agent_id: UUID,
+    current_user: UserDB = Depends(get_current_user),
+    service: AgentService = Depends(get_agent_service),
+) -> AgentResponse:
+    return await service.restore(
+        agent_id, user_id=current_user.id, user_role=current_user.role
+    )
+
+
+@router.delete("/{agent_id}/permanent", status_code=204)
+async def delete_agent_permanently(
+    agent_id: UUID,
+    current_user: UserDB = Depends(get_current_user),
+    service: AgentService = Depends(get_agent_service),
+) -> None:
+    await service.delete_permanently(
         agent_id, user_id=current_user.id, user_role=current_user.role
     )
 

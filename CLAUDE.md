@@ -272,6 +272,18 @@ See **Backend conventions** above for the full layered architecture, naming rule
 - **Zustand stores** for client state (agents, threads, MCP servers, user)
 - **Axios interceptors** handle camelCase ↔ snake_case conversion automatically; the `tools` JSONB field is preserved as-is
 - **shadcn/ui** components in `components/ui/`; feature-specific components live next to their page
+- **Never pass an async/Promise-returning function directly to a void event handler** (`onClick`, `onChange`, `onSubmit`, etc.) — ESLint's `@typescript-eslint/no-misused-promises` flags it. Wrap the call so the handler returns void:
+
+  ```tsx
+  // BAD
+  <button onClick={handleRestore}>      // handleRestore is async
+  <button onClick={() => handleSave()}> // also flagged: arrow returns the Promise
+
+  // GOOD
+  <button onClick={() => { void handleRestore(); }}>
+  ```
+
+  The same rule flags any arrow with an implicit non-void return in a void slot, so prefer a block body (`onClick={() => { setView(tab.key); }}`) over an expression body when the call's return value isn't `void`.
 
 ### Agent Permissions
 

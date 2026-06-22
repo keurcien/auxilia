@@ -24,12 +24,16 @@ class AgentRepository(BaseRepository[AgentDB]):
         user_role: WorkspaceRole | None,
         agent_id: UUID | None = None,
         include_archived: bool = False,
+        archived_only: bool = False,
     ) -> list:
         """Join agent ↔ MCP links ↔ user permission in one shot.
 
         When ``user_id`` is set and the user is not a workspace admin, the
         query includes a third tuple element: the user's permission row (or
         ``None``). Otherwise rows are ``(AgentDB, AgentMCPServerDB | None)``.
+
+        ``archived_only`` restricts the result to archived agents (for the
+        Archived view); it takes precedence over ``include_archived``.
         """
         is_workspace_admin = user_role == WorkspaceRole.admin
         include_permissions = bool(user_id) and not is_workspace_admin
@@ -49,7 +53,9 @@ class AgentRepository(BaseRepository[AgentDB]):
             )
         if agent_id is not None:
             stmt = stmt.where(AgentDB.id == agent_id)
-        if not include_archived:
+        if archived_only:
+            stmt = stmt.where(AgentDB.is_archived == True)  # noqa: E712
+        elif not include_archived:
             stmt = stmt.where(AgentDB.is_archived == False)  # noqa: E712
         stmt = stmt.order_by(AgentDB.created_at.asc())
 
@@ -60,6 +66,18 @@ class AgentRepository(BaseRepository[AgentDB]):
         agent.is_archived = True
         self.db.add(agent)
         await self.db.flush()
+
+    async def restore(self, agent: AgentDB) -> None:
+        agent.is_archived = False
+        self.db.add(agent)
+        await self.db.flush()
+
+    async def delete_all_permissions(self, agent_id: UUID) -> None:
+        existing = await self.get_permissions(agent_id)
+        for perm in existing:
+            await self.db.delete(perm)
+        if existing:
+            await self.db.flush()
 
     async def get_permissions(self, agent_id: UUID) -> list[AgentUserPermissionDB]:
         stmt = select(AgentUserPermissionDB).where(

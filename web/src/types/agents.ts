@@ -26,6 +26,7 @@ export interface Agent {
 	color?: string | null;
 	description?: string | null;
 	hasCodeInterpreter: boolean;
+	isArchived: boolean;
 	mcpServers: AgentMCPServer[];
 	subagents: SubagentInfo[];
 	isSubagent: boolean;
