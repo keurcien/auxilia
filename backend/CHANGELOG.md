@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.4](https://github.com/keurcien/auxilia/compare/backend-v0.4.3...backend-v0.4.4) (2026-06-22)
+
+
+### Bug Fixes
+
+* lint ([bbd9ab3](https://github.com/keurcien/auxilia/commit/bbd9ab3f69199c336e29ce0997ac5a385c8e8188))
+
 ## [0.4.3](https://github.com/keurcien/auxilia/compare/backend-v0.4.2...backend-v0.4.3) (2026-06-22)
 
 

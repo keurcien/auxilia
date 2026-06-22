@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.4](https://github.com/keurcien/auxilia/compare/web-v0.5.3...web-v0.5.4) (2026-06-22)
+
+
+### Features
+
+* **agents:** improve agents list navigation and tabs ([#133](https://github.com/keurcien/auxilia/issues/133)) ([05e9ed3](https://github.com/keurcien/auxilia/commit/05e9ed30d37a3138e716ce1f8ffca48cefde4b44))
+
 ## [0.5.3](https://github.com/keurcien/auxilia/compare/web-v0.5.2...web-v0.5.3) (2026-06-22)
 
 
