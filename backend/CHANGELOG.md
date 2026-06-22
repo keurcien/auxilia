@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.3](https://github.com/keurcien/auxilia/compare/backend-v0.4.2...backend-v0.4.3) (2026-06-22)
+
+
+### Features
+
+* **agents:** add Archived tab with restore and permanent delete ([#130](https://github.com/keurcien/auxilia/issues/130)) ([f6bed78](https://github.com/keurcien/auxilia/commit/f6bed781c46120fa90cdabff86a51c485598aecf))
+
+
+### Bug Fixes
+
+* lint ([#132](https://github.com/keurcien/auxilia/issues/132)) ([9b5d502](https://github.com/keurcien/auxilia/commit/9b5d5026224659d2a4707659235286428f7daa72))
+
 ## [0.4.2](https://github.com/keurcien/auxilia/compare/backend-v0.4.1...backend-v0.4.2) (2026-06-20)
 
 
