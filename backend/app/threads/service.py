@@ -72,9 +72,7 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
         rows = await self.repository.list_for_user(user_id)
         return [_thread_with_agent(*row) for row in rows]
 
-    async def list_for_agent(
-        self, agent_id: UUID
-    ) -> list[AgentThreadResponse]:
+    async def list_for_agent(self, agent_id: UUID) -> list[AgentThreadResponse]:
         rows = await self.repository.list_for_agent(agent_id)
         return [_agent_thread(*row) for row in rows]
 
@@ -99,20 +97,31 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
         await self.db.delete(thread)
         return thread
 
-    async def delete_all_for_agent(self, agent_id: UUID) -> None:
-        """Delete every thread belonging to an agent along with its LangGraph
-        checkpoints. Used when an agent is permanently deleted."""
+    async def delete_rows_for_agent(self, agent_id: UUID) -> list[str]:
+        """Bulk-delete an agent's thread rows (one statement) and return their
+        ids so the caller can purge LangGraph checkpoints afterwards.
+
+        Checkpoint deletion is intentionally NOT done here: it is an external,
+        non-transactional side effect and must run only after all DB deletes
+        have succeeded — see ``purge_checkpoints``."""
         thread_ids = await self.repository.list_ids_for_agent(agent_id)
+        if thread_ids:
+            await self.repository.delete_for_agent(agent_id)
+            await self.db.flush()
+        return thread_ids
+
+    async def purge_checkpoints(self, thread_ids: list[str]) -> None:
+        """Delete the LangGraph checkpoints for the given threads.
+
+        This writes to a separate, auto-committed connection (the checkpointer),
+        so it cannot be rolled back with the request transaction. Callers must
+        run it last — once every DB delete has succeeded — to avoid leaving
+        threads in Postgres without their checkpoints."""
         if not thread_ids:
             return
         async with get_checkpointer() as checkpointer:
             for thread_id in thread_ids:
                 await checkpointer.adelete_thread(thread_id=thread_id)
-        for thread_id in thread_ids:
-            thread = await self.repository.get(thread_id)
-            if thread is not None:
-                await self.db.delete(thread)
-        await self.db.flush()
 
     async def get_or_create(
         self,

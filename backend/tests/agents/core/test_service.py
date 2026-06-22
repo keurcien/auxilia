@@ -52,7 +52,8 @@ def mock_repo():
 @pytest.fixture
 def mock_thread_service():
     svc = MagicMock()
-    svc.delete_all_for_agent = AsyncMock()
+    svc.delete_rows_for_agent = AsyncMock(return_value=["t1", "t2"])
+    svc.purge_checkpoints = AsyncMock()
     return svc
 
 
@@ -96,16 +97,16 @@ def service(
 
 
 def make_agent(**kwargs):
-    defaults = dict(
-        id=uuid4(),
-        name="Test Agent",
-        instructions="Be helpful",
-        owner_id=uuid4(),
-        emoji=None,
-        description=None,
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
-    )
+    defaults = {
+        "id": uuid4(),
+        "name": "Test Agent",
+        "instructions": "Be helpful",
+        "owner_id": uuid4(),
+        "emoji": None,
+        "description": None,
+        "created_at": datetime.now(),
+        "updated_at": datetime.now(),
+    }
     return AgentDB(**{**defaults, **kwargs})
 
 
@@ -293,9 +294,7 @@ async def test_list_agents_granted_permission_from_row(service, mock_repo):
         (agent, None, PermissionLevel.editor)
     ]
 
-    result = await service.list(
-        user_id=non_owner_id, user_role=WorkspaceRole.member
-    )
+    result = await service.list(user_id=non_owner_id, user_role=WorkspaceRole.member)
 
     assert result[0].current_user_permission == "editor"
 
@@ -305,9 +304,7 @@ async def test_list_agents_no_permission_when_not_granted(service, mock_repo):
     non_owner_id = uuid4()
     mock_repo.list_with_permissions.return_value = [(agent, None, None)]
 
-    result = await service.list(
-        user_id=non_owner_id, user_role=WorkspaceRole.member
-    )
+    result = await service.list(user_id=non_owner_id, user_role=WorkspaceRole.member)
 
     assert result[0].current_user_permission is None
 
@@ -352,9 +349,7 @@ async def test_update_agent_passes_only_set_fields(service, mock_repo):
     mock_repo.get.return_value = agent
     mock_repo.list_with_permissions.return_value = [(agent, None)]
 
-    await service.update(
-        agent.id, AgentPatch(name="New Name"), user_id=agent.owner_id
-    )
+    await service.update(agent.id, AgentPatch(name="New Name"), user_id=agent.owner_id)
 
     update_schema = mock_repo.update.call_args[0][1]
     assert isinstance(update_schema, AgentPatch)
@@ -470,9 +465,7 @@ async def test_restore_agent_allows_workspace_admin(service, mock_repo):
     mock_repo.get.return_value = agent
     mock_repo.list_with_permissions.return_value = [(agent, None)]
 
-    await service.restore(
-        agent.id, user_id=uuid4(), user_role=WorkspaceRole.admin
-    )
+    await service.restore(agent.id, user_id=uuid4(), user_role=WorkspaceRole.admin)
 
     mock_repo.restore.assert_awaited_once_with(agent)
 
@@ -509,9 +502,29 @@ async def test_delete_permanently_cascades_for_owner(
 
     mock_subagent_service.delete_all_for_agent.assert_awaited_once_with(agent.id)
     mock_agent_mcp_repo.delete_all_for_agent.assert_awaited_once_with(agent.id)
-    mock_thread_service.delete_all_for_agent.assert_awaited_once_with(agent.id)
+    mock_thread_service.delete_rows_for_agent.assert_awaited_once_with(agent.id)
     mock_repo.delete_all_permissions.assert_awaited_once_with(agent.id)
     mock_repo.delete.assert_awaited_once_with(agent)
+    # Checkpoints are purged last, after every DB delete has run.
+    mock_thread_service.purge_checkpoints.assert_awaited_once_with(["t1", "t2"])
+
+
+async def test_delete_permanently_purges_checkpoints_after_db_deletes(
+    service, mock_repo, mock_thread_service
+):
+    """Checkpoint purge (non-rollbackable) must run after the agent row delete."""
+    agent = make_agent(is_archived=True)
+    mock_repo.get.return_value = agent
+    mock_repo.list_with_permissions.return_value = [(agent, None)]
+
+    manager = MagicMock()
+    manager.attach_mock(mock_repo.delete, "delete_agent")
+    manager.attach_mock(mock_thread_service.purge_checkpoints, "purge_checkpoints")
+
+    await service.delete_permanently(agent.id, user_id=agent.owner_id)
+
+    ordered = [name for name, _, _ in manager.mock_calls]
+    assert ordered.index("delete_agent") < ordered.index("purge_checkpoints")
 
 
 async def test_delete_permanently_denied_for_editor(

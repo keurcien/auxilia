@@ -1,5 +1,6 @@
 from uuid import UUID
 
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -22,6 +23,10 @@ class ThreadRepository(BaseRepository[ThreadDB]):
         stmt = select(ThreadDB.id).where(ThreadDB.agent_id == agent_id)
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
+
+    async def delete_for_agent(self, agent_id: UUID) -> None:
+        stmt = delete(ThreadDB).where(ThreadDB.agent_id == agent_id)
+        await self.db.execute(stmt)
 
     async def get_with_agent(self, thread_id: str):
         stmt = (

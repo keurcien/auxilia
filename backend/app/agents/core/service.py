@@ -219,11 +219,16 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
                 "Not authorized to permanently delete this agent"
             )
         agent = await self.get_or_404(agent_id)
+        # Delete every DB row that references the agent first (threads must go
+        # before the agent row due to the FK), then purge checkpoints last.
+        thread_ids = await self.thread_service.delete_rows_for_agent(agent_id)
         await self.subagent_service.delete_all_for_agent(agent_id)
         await self.mcp_server_repository.delete_all_for_agent(agent_id)
-        await self.thread_service.delete_all_for_agent(agent_id)
         await self.repository.delete_all_permissions(agent_id)
         await self.repository.delete(agent)
+        # Checkpoints live on a separate auto-committed connection and can't be
+        # rolled back, so purge them only after all DB deletes have succeeded.
+        await self.thread_service.purge_checkpoints(thread_ids)
 
     async def get_permissions(self, agent_id: UUID) -> list[AgentUserPermissionDB]:
         return await self.repository.get_permissions(agent_id)
