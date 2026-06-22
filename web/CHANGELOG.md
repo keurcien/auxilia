@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.3](https://github.com/keurcien/auxilia/compare/web-v0.5.2...web-v0.5.3) (2026-06-22)
+
+
+### Features
+
+* **agents:** add Archived tab with restore and permanent delete ([#130](https://github.com/keurcien/auxilia/issues/130)) ([f6bed78](https://github.com/keurcien/auxilia/commit/f6bed781c46120fa90cdabff86a51c485598aecf))
+
 ## [0.5.2](https://github.com/keurcien/auxilia/compare/web-v0.5.1...web-v0.5.2) (2026-06-20)
 
 
