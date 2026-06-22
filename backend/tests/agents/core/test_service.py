@@ -40,9 +40,26 @@ def mock_repo():
     repo.create = AsyncMock()
     repo.update = AsyncMock()
     repo.archive = AsyncMock()
+    repo.restore = AsyncMock()
+    repo.delete = AsyncMock()
+    repo.delete_all_permissions = AsyncMock()
     repo.get_permissions = AsyncMock()
     repo.set_permissions = AsyncMock()
     repo.list_with_permissions = AsyncMock(return_value=[])
+    return repo
+
+
+@pytest.fixture
+def mock_thread_service():
+    svc = MagicMock()
+    svc.delete_all_for_agent = AsyncMock()
+    return svc
+
+
+@pytest.fixture
+def mock_agent_mcp_repo():
+    repo = MagicMock()
+    repo.delete_all_for_agent = AsyncMock()
     return repo
 
 
@@ -58,10 +75,18 @@ def mock_subagent_service():
 
 
 @pytest.fixture
-def service(mock_db, mock_repo, mock_subagent_service):
+def service(
+    mock_db,
+    mock_repo,
+    mock_subagent_service,
+    mock_thread_service,
+    mock_agent_mcp_repo,
+):
     svc = AgentService(mock_db)
     svc.repository = mock_repo
     svc.subagent_service = mock_subagent_service
+    svc.thread_service = mock_thread_service
+    svc.mcp_server_repository = mock_agent_mcp_repo
     return svc
 
 
@@ -423,6 +448,85 @@ async def test_delete_agent_allows_workspace_admin(
 
     mock_subagent_service.delete_all_for_agent.assert_awaited_once_with(agent.id)
     mock_repo.archive.assert_awaited_once_with(agent)
+
+
+# ---------------------------------------------------------------------------
+# restore
+# ---------------------------------------------------------------------------
+
+
+async def test_restore_agent_sets_unarchived_for_owner(service, mock_repo):
+    agent = make_agent(is_archived=True)
+    mock_repo.get.return_value = agent
+    mock_repo.list_with_permissions.return_value = [(agent, None)]
+
+    await service.restore(agent.id, user_id=agent.owner_id)
+
+    mock_repo.restore.assert_awaited_once_with(agent)
+
+
+async def test_restore_agent_allows_workspace_admin(service, mock_repo):
+    agent = make_agent(is_archived=True)
+    mock_repo.get.return_value = agent
+    mock_repo.list_with_permissions.return_value = [(agent, None)]
+
+    await service.restore(
+        agent.id, user_id=uuid4(), user_role=WorkspaceRole.admin
+    )
+
+    mock_repo.restore.assert_awaited_once_with(agent)
+
+
+async def test_restore_agent_denied_for_editor(service, mock_repo):
+    agent = make_agent(is_archived=True)
+    mock_repo.list_with_permissions.return_value = [
+        (agent, None, PermissionLevel.editor)
+    ]
+
+    with pytest.raises(PermissionDeniedError):
+        await service.restore(agent.id, user_id=uuid4())
+
+    mock_repo.restore.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# delete_permanently
+# ---------------------------------------------------------------------------
+
+
+async def test_delete_permanently_cascades_for_owner(
+    service,
+    mock_repo,
+    mock_subagent_service,
+    mock_thread_service,
+    mock_agent_mcp_repo,
+):
+    agent = make_agent(is_archived=True)
+    mock_repo.get.return_value = agent
+    mock_repo.list_with_permissions.return_value = [(agent, None)]
+
+    await service.delete_permanently(agent.id, user_id=agent.owner_id)
+
+    mock_subagent_service.delete_all_for_agent.assert_awaited_once_with(agent.id)
+    mock_agent_mcp_repo.delete_all_for_agent.assert_awaited_once_with(agent.id)
+    mock_thread_service.delete_all_for_agent.assert_awaited_once_with(agent.id)
+    mock_repo.delete_all_permissions.assert_awaited_once_with(agent.id)
+    mock_repo.delete.assert_awaited_once_with(agent)
+
+
+async def test_delete_permanently_denied_for_editor(
+    service, mock_repo, mock_agent_mcp_repo
+):
+    agent = make_agent(is_archived=True)
+    mock_repo.list_with_permissions.return_value = [
+        (agent, None, PermissionLevel.editor)
+    ]
+
+    with pytest.raises(PermissionDeniedError):
+        await service.delete_permanently(agent.id, user_id=uuid4())
+
+    mock_agent_mcp_repo.delete_all_for_agent.assert_not_called()
+    mock_repo.delete.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

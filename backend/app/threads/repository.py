@@ -18,6 +18,11 @@ class ThreadRepository(BaseRepository[ThreadDB]):
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def list_ids_for_agent(self, agent_id: UUID) -> list[str]:
+        stmt = select(ThreadDB.id).where(ThreadDB.agent_id == agent_id)
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
     async def get_with_agent(self, thread_id: str):
         stmt = (
             select(

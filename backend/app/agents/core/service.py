@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.agents.core.repository import AgentRepository
+from app.agents.mcp_servers.repository import AgentMCPServerRepository
 from app.agents.models import (
     AgentDB,
     AgentUserPermissionDB,
@@ -26,6 +27,7 @@ from app.exceptions import NotFoundError, PermissionDeniedError
 from app.mcp.servers.models import MCPServerDB
 from app.mcp.utils import probe_mcp_server
 from app.service import BaseService
+from app.threads.service import ThreadService
 from app.users.models import WorkspaceRole
 
 
@@ -38,6 +40,8 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
     def __init__(self, db: AsyncSession):
         super().__init__(db, AgentRepository(db))
         self.subagent_service = SubagentService(db)
+        self.thread_service = ThreadService(db)
+        self.mcp_server_repository = AgentMCPServerRepository(db)
 
     @staticmethod
     def _resolve_permission(
@@ -135,9 +139,10 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         self,
         user_id: UUID | None = None,
         user_role: WorkspaceRole | None = None,
+        archived: bool = False,
     ) -> list[AgentResponse]:
         rows = await self.repository.list_with_permissions(
-            user_id=user_id, user_role=user_role
+            user_id=user_id, user_role=user_role, archived_only=archived
         )
         agents_map, mcp_map, permissions_map = self._group_rows(rows, user_id)
         return await self._assemble(
@@ -173,6 +178,52 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
             raise PermissionDeniedError("Not authorized to delete this agent")
         await self.subagent_service.delete_all_for_agent(agent_id)
         await self.repository.archive(agent)
+
+    async def restore(
+        self,
+        agent_id: UUID,
+        user_id: UUID | None = None,
+        user_role: WorkspaceRole | None = None,
+    ) -> AgentResponse:
+        existing = await self.get(
+            agent_id,
+            user_id=user_id,
+            user_role=user_role,
+            include_archived=True,
+        )
+        if existing.current_user_permission not in ("owner", "admin"):
+            raise PermissionDeniedError("Not authorized to restore this agent")
+        agent = await self.get_or_404(agent_id)
+        await self.repository.restore(agent)
+        return await self.get(
+            agent_id,
+            user_id=user_id,
+            user_role=user_role,
+            include_archived=True,
+        )
+
+    async def delete_permanently(
+        self,
+        agent_id: UUID,
+        user_id: UUID | None = None,
+        user_role: WorkspaceRole | None = None,
+    ) -> None:
+        existing = await self.get(
+            agent_id,
+            user_id=user_id,
+            user_role=user_role,
+            include_archived=True,
+        )
+        if existing.current_user_permission not in ("owner", "admin"):
+            raise PermissionDeniedError(
+                "Not authorized to permanently delete this agent"
+            )
+        agent = await self.get_or_404(agent_id)
+        await self.subagent_service.delete_all_for_agent(agent_id)
+        await self.mcp_server_repository.delete_all_for_agent(agent_id)
+        await self.thread_service.delete_all_for_agent(agent_id)
+        await self.repository.delete_all_permissions(agent_id)
+        await self.repository.delete(agent)
 
     async def get_permissions(self, agent_id: UUID) -> list[AgentUserPermissionDB]:
         return await self.repository.get_permissions(agent_id)

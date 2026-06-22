@@ -7,10 +7,15 @@ import { ArrowRight, Pencil, X } from "lucide-react";
 import { Agent, AgentPermission } from "@/types/agents";
 import { agentColorBackground, agentPastel } from "@/lib/colors";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
+import ArchivedAgentDialog from "@/app/(protected)/agents/components/archived-agent-dialog";
 import Image from "next/image";
 
 interface AgentCardProps {
 	agent: Agent;
+	// In the Archived view the card opens a restore/delete dialog instead of
+	// the edit/chat modal, and only manage-capable users can open it.
+	archived?: boolean;
+	onRemoved?: (agentId: string) => void;
 }
 
 const PERMISSION_HIERARCHY: Record<AgentPermission, number> = {
@@ -60,11 +65,20 @@ const NO_ACCESS_BADGE = {
 	text: "text-[#A35462] dark:text-rose-300",
 };
 
-export default function AgentCard({ agent }: AgentCardProps) {
+export default function AgentCard({
+	agent,
+	archived = false,
+	onRemoved,
+}: AgentCardProps) {
 	const router = useRouter();
 	const [open, setOpen] = useState(false);
 	const mcpServers = useMcpServersStore((state) => state.mcpServers);
-	const hasAccess = !!agent.currentUserPermission;
+	// Only the agent owner/admin (or workspace admin, which resolves to "admin")
+	// may manage an archived agent.
+	const canManage =
+		agent.currentUserPermission === "owner" ||
+		agent.currentUserPermission === "admin";
+	const hasAccess = archived ? canManage : !!agent.currentUserPermission;
 
 	const resolvedServers = useMemo(() => {
 		if (!agent.mcpServers) return [];
@@ -166,7 +180,15 @@ export default function AgentCard({ agent }: AgentCardProps) {
 				)}
 			</div>
 
-			{open && createPortal(
+			{open && archived && (
+				<ArchivedAgentDialog
+					agent={agent}
+					onClose={() => setOpen(false)}
+					onRemoved={(id) => onRemoved?.(id)}
+				/>
+			)}
+
+			{open && !archived && createPortal(
 				<div
 					className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(30,45,40,0.2)] backdrop-blur-[4px] animate-in fade-in duration-200"
 					onClick={() => setOpen(false)}

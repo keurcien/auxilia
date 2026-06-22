@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db
+from app.database import get_checkpointer, get_db
 from app.exceptions import NotFoundError
 from app.service import BaseService
 from app.threads.models import ThreadDB, ThreadSource
@@ -98,6 +98,21 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
         thread = await self.get_or_404(thread_id)
         await self.db.delete(thread)
         return thread
+
+    async def delete_all_for_agent(self, agent_id: UUID) -> None:
+        """Delete every thread belonging to an agent along with its LangGraph
+        checkpoints. Used when an agent is permanently deleted."""
+        thread_ids = await self.repository.list_ids_for_agent(agent_id)
+        if not thread_ids:
+            return
+        async with get_checkpointer() as checkpointer:
+            for thread_id in thread_ids:
+                await checkpointer.adelete_thread(thread_id=thread_id)
+        for thread_id in thread_ids:
+            thread = await self.repository.get(thread_id)
+            if thread is not None:
+                await self.db.delete(thread)
+        await self.db.flush()
 
     async def get_or_create(
         self,

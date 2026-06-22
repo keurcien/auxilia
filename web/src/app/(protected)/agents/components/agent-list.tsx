@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { ArrowRight, Info, Plus, Search, Zap } from "lucide-react";
+import { Archive, ArrowRight, Info, Plus, Search, Zap } from "lucide-react";
 import { Agent } from "@/types/agents";
 import AgentCard from "@/app/(protected)/agents/components/agent-card";
 import { api } from "@/lib/api/client";
@@ -78,10 +78,14 @@ function AgentSection({
 	label,
 	agents,
 	note,
+	archived,
+	onRemoved,
 }: {
 	label: string;
 	agents: Agent[];
 	note?: React.ReactNode;
+	archived?: boolean;
+	onRemoved?: (agentId: string) => void;
 }) {
 	const [expanded, setExpanded] = useState(false);
 	const hasMore = agents.length > SECTION_CAP;
@@ -119,7 +123,7 @@ function AgentSection({
 						className="h-full animate-in fade-in slide-in-from-bottom-3 duration-400"
 						style={{ animationDelay: `${i * 40}ms`, animationFillMode: "both" }}
 					>
-						<AgentCard agent={agent} />
+						<AgentCard agent={agent} archived={archived} onRemoved={onRemoved} />
 					</div>
 				))}
 			</div>
@@ -131,23 +135,28 @@ interface AgentListProps {
 	search: string;
 	onClearSearch?: () => void;
 	onCreateAgent?: () => void;
+	archived?: boolean;
 }
 
 export default function AgentList({
 	search,
 	onClearSearch,
 	onCreateAgent,
+	archived = false,
 }: AgentListProps) {
 	const [agents, setAgents] = useState<Agent[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
 
 	useEffect(() => {
 		api
-			.get<Agent[]>("/agents")
+			.get<Agent[]>(archived ? "/agents?archived=true" : "/agents")
 			.then((response) => setAgents(response.data))
 			.catch(console.error)
 			.finally(() => setIsLoading(false));
-	}, []);
+	}, [archived]);
+
+	const handleRemoved = (agentId: string) =>
+		setAgents((prev) => prev.filter((a) => a.id !== agentId));
 
 	const matches = useMemo(() => {
 		if (!search) return agents;
@@ -165,6 +174,17 @@ export default function AgentList({
 	);
 
 	if (isLoading) return null;
+
+	// Empty archived view.
+	if (archived && agents.length === 0) {
+		return (
+			<EmptyState
+				icon={<Archive className="size-[22px] text-[#4CA882]" />}
+				title="No archived agents"
+				subtitle="Agents you archive show up here, where they can be restored or deleted permanently."
+			/>
+		);
+	}
 
 	// Empty workspace — no agents at all.
 	if (agents.length === 0) {
@@ -221,6 +241,8 @@ export default function AgentList({
 					key={group.key}
 					label={group.label}
 					agents={group.items}
+					archived={archived}
+					onRemoved={handleRemoved}
 					note={
 						group.key === "discover" ? (
 							<div className="flex items-center gap-2.5 px-4 py-3 mb-5 rounded-xl bg-primary/10 text-primary text-[13.5px]">

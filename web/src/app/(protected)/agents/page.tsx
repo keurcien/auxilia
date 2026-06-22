@@ -21,6 +21,7 @@ export default function AgentsPage() {
 	const [isCreating, setIsCreating] = useState(false);
 	const [errorDialogOpen, setErrorDialogOpen] = useState(false);
 	const [search, setSearch] = useState("");
+	const [view, setView] = useState<"active" | "archived">("active");
 
 	const handleCreateAgent = async () => {
 		if (!user) return;
@@ -88,12 +89,34 @@ export default function AgentsPage() {
 					</Button>
 				</div>
 			</div>
+			<div className="mb-2 flex items-center gap-1 border-b border-[#E8EFE9] dark:border-white/10">
+				{(
+					[
+						{ key: "active", label: "Active" },
+						{ key: "archived", label: "Archived" },
+					] as const
+				).map((tab) => (
+					<button
+						key={tab.key}
+						onClick={() => setView(tab.key)}
+						className={`relative -mb-px px-4 py-2.5 font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold cursor-pointer transition-colors ${
+							view === tab.key
+								? "text-[#1E2D28] dark:text-foreground border-b-2 border-[#111111] dark:border-white"
+								: "text-[#8FA89E] dark:text-muted-foreground border-b-2 border-transparent hover:text-[#1E2D28] dark:hover:text-foreground"
+						}`}
+					>
+						{tab.label}
+					</button>
+				))}
+			</div>
 			<AgentList
+				key={view}
 				search={search}
 				onClearSearch={() => {
 					setSearch("");
 				}}
 				onCreateAgent={handleCreateAgent}
+				archived={view === "archived"}
 			/>
 		</PageContainer>
 	);
