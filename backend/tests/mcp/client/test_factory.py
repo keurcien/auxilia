@@ -24,9 +24,7 @@ async def test_no_auth():
 
 @pytest.mark.asyncio
 async def test_api_key_auth():
-    with patch(
-        "app.mcp.client.factory.MCPServerRepository"
-    ) as mock_repo_cls:
+    with patch("app.mcp.client.factory.MCPServerRepository") as mock_repo_cls:
         repo = MagicMock()
         repo.get_api_key = AsyncMock(return_value="secret")
         mock_repo_cls.return_value = repo
@@ -38,7 +36,10 @@ async def test_api_key_auth():
 
 @pytest.mark.asyncio
 @patch("app.mcp.client.factory.WebOAuthClientProvider")
-@patch("app.mcp.client.factory.build_oauth_client_metadata", return_value={"client_id": "abc"})
+@patch(
+    "app.mcp.client.factory.build_oauth_client_metadata",
+    return_value={"client_id": "abc"},
+)
 @patch("app.mcp.client.factory.TokenStorageFactory")
 async def test_oauth_auth(mock_storage_factory_cls, mock_metadata, mock_provider):
     storage = MagicMock()
@@ -48,6 +49,7 @@ async def test_oauth_auth(mock_storage_factory_cls, mock_metadata, mock_provider
     result = await factory.build(_config(MCPAuthType.oauth2))
 
     assert "auth" in result
+    mock_metadata.assert_called_once_with()
     mock_provider.assert_called_once_with(
         server_url="https://mcp.example.com",
         client_metadata={"client_id": "abc"},

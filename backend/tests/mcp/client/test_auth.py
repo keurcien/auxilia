@@ -1,0 +1,200 @@
+"""Tests for WebOAuthClientProvider.initiate_authorization.
+
+The provider replaces the old "call a dummy tool to provoke a 401" probe: it
+discovers OAuth metadata explicitly (RFC 9728 PRM + RFC 8414/OIDC AS metadata),
+applies the discovered scopes, and raises OAuthAuthorizationRequired with the
+authorize URL — all on the plain request stack (no MCP session / task group).
+"""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock
+from urllib.parse import parse_qs, urlparse
+
+import httpx
+import pytest
+from mcp.shared.auth import (
+    OAuthClientInformationFull,
+    OAuthMetadata,
+    ProtectedResourceMetadata,
+)
+
+from app.mcp.client import auth as auth_module
+from app.mcp.client.auth import WebOAuthClientProvider, build_oauth_client_metadata
+from app.mcp.client.exceptions import OAuthAuthorizationRequired
+
+
+BIGQUERY_URL = "https://bigquery.googleapis.com/mcp"
+GOOGLE_AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
+
+
+class _FakeStorage:
+    """Minimal TokenStorage: unauthenticated, records what gets persisted."""
+
+    def __init__(self):
+        self.client_info = None
+
+    async def get_tokens(self):
+        return None
+
+    async def get_client_info(self):
+        return self.client_info
+
+    async def set_client_info(self, client_info):
+        self.client_info = client_info
+
+    async def get_oauth_metadata(self):
+        return None
+
+    async def set_oauth_metadata(self, metadata):
+        self.oauth_metadata = metadata
+
+    async def set_verifier(self, state, verifier):
+        self.verifier = (state, verifier)
+
+
+def _make_provider() -> WebOAuthClientProvider:
+    return WebOAuthClientProvider(
+        server_url=BIGQUERY_URL,
+        client_metadata=build_oauth_client_metadata(),
+        storage=_FakeStorage(),
+        client_id="client-123",
+        client_secret="secret-xyz",
+    )
+
+
+def _asm() -> OAuthMetadata:
+    return OAuthMetadata(
+        issuer="https://accounts.google.com/",
+        authorization_endpoint=GOOGLE_AUTH_ENDPOINT,
+        token_endpoint="https://oauth2.googleapis.com/token",
+    )
+
+
+def _patch_discovery(monkeypatch, prm, asm_result):
+    """Stub the network: send() returns a sentinel, and the SDK parse helpers
+    return the canned PRM / AS-metadata regardless of the response."""
+    monkeypatch.setattr(httpx.AsyncClient, "send", AsyncMock(return_value=object()))
+    monkeypatch.setattr(
+        auth_module, "handle_protected_resource_response", AsyncMock(return_value=prm)
+    )
+    monkeypatch.setattr(
+        auth_module, "handle_auth_metadata_response", AsyncMock(return_value=asm_result)
+    )
+
+
+async def test_uses_scopes_discovered_from_prm(monkeypatch):
+    # The scope advertised by the PRM must end up in the authorize URL.
+    prm = ProtectedResourceMetadata(
+        resource=BIGQUERY_URL,
+        authorization_servers=["https://accounts.google.com"],
+        scopes_supported=["https://www.googleapis.com/auth/bigquery.readonly"],
+    )
+    _patch_discovery(monkeypatch, prm, (True, _asm()))
+
+    provider = _make_provider()
+    with pytest.raises(OAuthAuthorizationRequired) as exc_info:
+        await provider.initiate_authorization()
+
+    # client_info must be persisted so the OAuth callback — a separate request
+    # with a fresh provider — can recover the client_id/secret from storage.
+    assert provider.context.storage.client_info is not None
+    assert provider.context.storage.client_info.client_id == "client-123"
+
+    parsed = urlparse(exc_info.value.url)
+    query = parse_qs(parsed.query)
+
+    # Authorize endpoint comes from discovered AS metadata, not server_url/authorize.
+    assert f"{parsed.scheme}://{parsed.netloc}{parsed.path}" == GOOGLE_AUTH_ENDPOINT
+    # Discovery overrides the hardcoded scope.
+    assert query["scope"] == ["https://www.googleapis.com/auth/bigquery.readonly"]
+    # RFC 8707 resource param fires because PRM is present (C.3).
+    assert query["resource"] == [BIGQUERY_URL]
+    # PKCE + Google offline-consent params.
+    assert query["code_challenge_method"] == ["S256"]
+    assert query["access_type"] == ["offline"]
+    assert query["prompt"] == ["consent"]
+    assert query["client_id"] == ["client-123"]
+    assert query["response_type"] == ["code"]
+
+
+async def test_omits_scope_param_when_prm_has_no_scopes(monkeypatch):
+    # No hardcoded fallback anymore: if the PRM advertises no scopes (and there
+    # is no WWW-Authenticate scope), the authorize request omits scope entirely.
+    prm = ProtectedResourceMetadata(
+        resource=BIGQUERY_URL,
+        authorization_servers=["https://accounts.google.com"],
+        scopes_supported=None,
+    )
+    _patch_discovery(monkeypatch, prm, (True, _asm()))
+
+    with pytest.raises(OAuthAuthorizationRequired) as exc_info:
+        await _make_provider().initiate_authorization()
+
+    query = parse_qs(urlparse(exc_info.value.url).query)
+    assert "scope" not in query
+
+
+async def test_no_attribute_error_when_as_metadata_discovery_fails(monkeypatch):
+    # AS metadata discovery yields nothing -> context.oauth_metadata stays None.
+    # The hardened issuer guard must not raise AttributeError.
+    prm = ProtectedResourceMetadata(
+        resource=BIGQUERY_URL,
+        authorization_servers=["https://accounts.google.com"],
+        scopes_supported=["https://www.googleapis.com/auth/bigquery"],
+    )
+    _patch_discovery(monkeypatch, prm, (False, None))
+
+    with pytest.raises(OAuthAuthorizationRequired) as exc_info:
+        await _make_provider().initiate_authorization()
+
+    query = parse_qs(urlparse(exc_info.value.url).query)
+    # With no AS metadata, Google-specific params are skipped (guard short-circuits).
+    assert "access_type" not in query
+    # resource param still present (PRM available).
+    assert query["resource"] == [BIGQUERY_URL]
+
+
+async def test_dynamic_client_registration_when_no_static_creds(monkeypatch):
+    # A server with no pre-registered credentials (e.g. Notion) must register
+    # dynamically (RFC 7591) before the authorize URL can be built.
+    notion_url = "https://mcp.notion.com/mcp"
+    prm = ProtectedResourceMetadata(
+        resource=notion_url,
+        authorization_servers=["https://mcp.notion.com"],
+        scopes_supported=None,
+    )
+    asm = OAuthMetadata(
+        issuer="https://mcp.notion.com/",
+        authorization_endpoint="https://mcp.notion.com/authorize",
+        token_endpoint="https://mcp.notion.com/token",
+        registration_endpoint="https://mcp.notion.com/register",
+    )
+    _patch_discovery(monkeypatch, prm, (True, asm))
+    monkeypatch.setattr(
+        auth_module,
+        "handle_registration_response",
+        AsyncMock(
+            return_value=OAuthClientInformationFull(
+                client_id="dcr-client-id",
+                redirect_uris=["https://app.example/cb"],
+            )
+        ),
+    )
+
+    # No client_id/secret -> forces dynamic registration.
+    provider = WebOAuthClientProvider(
+        server_url=notion_url,
+        client_metadata=build_oauth_client_metadata(),
+        storage=_FakeStorage(),
+    )
+
+    with pytest.raises(OAuthAuthorizationRequired) as exc_info:
+        await provider.initiate_authorization()
+
+    # The dynamically-registered client_id is used and persisted for the callback.
+    assert provider.context.storage.client_info.client_id == "dcr-client-id"
+    query = parse_qs(urlparse(exc_info.value.url).query)
+    assert query["client_id"] == ["dcr-client-id"]
+    # Notion advertises no scopes -> none requested.
+    assert "scope" not in query

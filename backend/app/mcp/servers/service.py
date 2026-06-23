@@ -1,19 +1,17 @@
 from __future__ import annotations
 
-import os
 from contextlib import asynccontextmanager
 from uuid import UUID
 
 from fastapi import Depends
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
-from mcp.shared.auth import OAuthClientInformationFull
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.exceptions import DomainError, DomainValidationError, NotFoundError
 from app.mcp.client.auth import WebOAuthClientProvider, build_oauth_client_metadata
-from app.mcp.client.storage import TokenStorageFactory
+from app.mcp.client.storage import RedisTokenStorage, TokenStorageFactory
 from app.mcp.servers.encryption import decrypt_value as decrypt_api_key
 from app.mcp.servers.models import MCPAuthType, MCPServerDB
 from app.mcp.servers.repository import MCPServerRepository
@@ -22,7 +20,34 @@ from app.mcp.servers.schemas import (
     MCPServerPatch,
     OfficialMCPServerResponse,
 )
+from app.mcp.utils import probe_mcp_server
 from app.service import BaseService
+
+
+async def _build_oauth_provider(
+    mcp_server: MCPServerDB,
+    storage: RedisTokenStorage,
+    repository: MCPServerRepository,
+) -> WebOAuthClientProvider:
+    """Build a WebOAuthClientProvider for an OAuth2 MCP server, loading and
+    decrypting any stored static client credentials. Servers without stored
+    credentials register dynamically (DCR) during the authorization flow."""
+    client_metadata = build_oauth_client_metadata()
+    oauth_credentials = await repository.get_oauth_credentials(mcp_server.id)
+    client_id = client_secret = None
+    if oauth_credentials:
+        client_id = oauth_credentials.client_id
+        client_secret = decrypt_api_key(oauth_credentials.client_secret_encrypted)
+        client_metadata.token_endpoint_auth_method = (
+            oauth_credentials.token_endpoint_auth_method or "client_secret_post"
+        )
+    return WebOAuthClientProvider(
+        server_url=mcp_server.url,
+        client_metadata=client_metadata,
+        storage=storage,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
 
 
 class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
@@ -96,19 +121,7 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         if not mcp_server:
             raise NotFoundError("MCP server not found")
 
-        client_metadata = build_oauth_client_metadata(mcp_server)
-
-        oauth_credentials = await self.repository.get_oauth_credentials(mcp_server.id)
-        if oauth_credentials:
-            client_metadata.token_endpoint_auth_method = (
-                oauth_credentials.token_endpoint_auth_method or "client_secret_post"
-            )
-
-        provider = WebOAuthClientProvider(
-            server_url=mcp_server.url,
-            client_metadata=client_metadata,
-            storage=storage,
-        )
+        provider = await _build_oauth_provider(mcp_server, storage, self.repository)
 
         await provider._initialize()
 
@@ -125,10 +138,25 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         }
 
     async def list_tools(self, server: MCPServerDB, user_id: str) -> list[dict]:
+        if server.auth_type == MCPAuthType.oauth2 and not await probe_mcp_server(
+            server, user_id
+        ):
+            # Not connected: discover OAuth metadata and raise
+            # OAuthAuthorizationRequired (translated globally to
+            # 401 {oauth_required, auth_url}). No business tool is called.
+            await self._initiate_oauth(server, user_id)
+
         async with connect_to_server(server, user_id, self.db) as (_, tools):
             return [
                 {"name": tool.name, "description": tool.description} for tool in tools
             ]
+
+    async def _initiate_oauth(self, server: MCPServerDB, user_id: str) -> None:
+        """Build the OAuth provider and start authorization via metadata
+        discovery. Raises OAuthAuthorizationRequired with the authorize URL."""
+        storage = TokenStorageFactory().get_storage(user_id, str(server.id))
+        provider = await _build_oauth_provider(server, storage, self.repository)
+        await provider.initiate_authorization()
 
 
 # Safety bound for tools/list pagination. A well-behaved server eventually returns
@@ -194,37 +222,8 @@ async def connect_to_server(
     storage = TokenStorageFactory().get_storage(user_id, str(mcp_server.id))
 
     if mcp_server.auth_type == MCPAuthType.oauth2:
-        client_metadata = build_oauth_client_metadata(mcp_server)
-
-        oauth_credentials = await repository.get_oauth_credentials(mcp_server.id)
-
-        if oauth_credentials:
-            client_id = oauth_credentials.client_id
-            client_secret = decrypt_api_key(oauth_credentials.client_secret_encrypted)
-
-            client_metadata.token_endpoint_auth_method = (
-                oauth_credentials.token_endpoint_auth_method or "client_secret_post"
-            )
-
-            await storage.set_client_info(
-                OAuthClientInformationFull(
-                    client_id=client_id,
-                    client_secret=client_secret,
-                    **client_metadata.model_dump(),
-                )
-            )
-        else:
-            client_id = None
-            client_secret = None
-
-        provider = WebOAuthClientProvider(
-            server_url=mcp_server.url,
-            client_metadata=client_metadata,
-            storage=storage,
-            client_id=client_id,
-            client_secret=client_secret,
-        )
-
+        provider = await _build_oauth_provider(mcp_server, storage, repository)
+        await provider.persist_client_info()
         client_args = {"url": mcp_server.url, "auth": provider}
     elif mcp_server.auth_type == MCPAuthType.api_key:
         api_key = await repository.get_api_key(mcp_server.id)
@@ -243,19 +242,7 @@ async def connect_to_server(
 
             try:
                 tools = await _list_all_tools(session)
-
-                if mcp_server.url == "https://bigquery.googleapis.com/mcp":
-                    await session.call_tool(
-                        "list_dataset_ids", {"project_id": os.getenv("GCLOUD_PROJECT")}
-                    )
-                elif mcp_server.url == "https://calendarmcp.googleapis.com/mcp/v1":
-                    await session.call_tool("list_calendars", {})
-                elif mcp_server.url == "https://drivemcp.googleapis.com/mcp/v1":
-                    await session.call_tool("list_recent_files", {})
-                elif mcp_server.url == "https://gmailmcp.googleapis.com/mcp/v1":
-                    await session.call_tool("list_labels", {})
                 yield session, tools
-
             except Exception as e:
                 raise DomainError(str(e)) from e
 
