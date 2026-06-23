@@ -92,6 +92,21 @@ class WebOAuthClientProvider(OAuthClientProvider):
 
         self._initialized = True
 
+    async def persist_client_info(self) -> None:
+        """Persist static client registration to storage so the OAuth callback
+        and the refresh path — separate requests with fresh providers — can
+        recover client_id/secret. No-op when there are no static credentials
+        (such servers register dynamically and persist during authorization)."""
+        if not self._client_id:
+            return
+        await self.context.storage.set_client_info(
+            OAuthClientInformationFull(
+                client_id=self._client_id,
+                client_secret=self._client_secret,
+                **self.context.client_metadata.model_dump(),
+            )
+        )
+
     async def initiate_authorization(self) -> None:
         """Start the OAuth flow explicitly, without calling a business tool to
         provoke a 401.

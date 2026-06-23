@@ -6,13 +6,12 @@ from uuid import UUID
 from fastapi import Depends
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
-from mcp.shared.auth import OAuthClientInformationFull
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.exceptions import DomainError, DomainValidationError, NotFoundError
 from app.mcp.client.auth import WebOAuthClientProvider, build_oauth_client_metadata
-from app.mcp.client.storage import TokenStorageFactory
+from app.mcp.client.storage import RedisTokenStorage, TokenStorageFactory
 from app.mcp.servers.encryption import decrypt_value as decrypt_api_key
 from app.mcp.servers.models import MCPAuthType, MCPServerDB
 from app.mcp.servers.repository import MCPServerRepository
@@ -23,6 +22,32 @@ from app.mcp.servers.schemas import (
 )
 from app.mcp.utils import probe_mcp_server
 from app.service import BaseService
+
+
+async def _build_oauth_provider(
+    mcp_server: MCPServerDB,
+    storage: RedisTokenStorage,
+    repository: MCPServerRepository,
+) -> WebOAuthClientProvider:
+    """Build a WebOAuthClientProvider for an OAuth2 MCP server, loading and
+    decrypting any stored static client credentials. Servers without stored
+    credentials register dynamically (DCR) during the authorization flow."""
+    client_metadata = build_oauth_client_metadata()
+    oauth_credentials = await repository.get_oauth_credentials(mcp_server.id)
+    client_id = client_secret = None
+    if oauth_credentials:
+        client_id = oauth_credentials.client_id
+        client_secret = decrypt_api_key(oauth_credentials.client_secret_encrypted)
+        client_metadata.token_endpoint_auth_method = (
+            oauth_credentials.token_endpoint_auth_method or "client_secret_post"
+        )
+    return WebOAuthClientProvider(
+        server_url=mcp_server.url,
+        client_metadata=client_metadata,
+        storage=storage,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
 
 
 class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
@@ -96,19 +121,7 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         if not mcp_server:
             raise NotFoundError("MCP server not found")
 
-        client_metadata = build_oauth_client_metadata()
-
-        oauth_credentials = await self.repository.get_oauth_credentials(mcp_server.id)
-        if oauth_credentials:
-            client_metadata.token_endpoint_auth_method = (
-                oauth_credentials.token_endpoint_auth_method or "client_secret_post"
-            )
-
-        provider = WebOAuthClientProvider(
-            server_url=mcp_server.url,
-            client_metadata=client_metadata,
-            storage=storage,
-        )
+        provider = await _build_oauth_provider(mcp_server, storage, self.repository)
 
         await provider._initialize()
 
@@ -142,24 +155,7 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         """Build the OAuth provider and start authorization via metadata
         discovery. Raises OAuthAuthorizationRequired with the authorize URL."""
         storage = TokenStorageFactory().get_storage(user_id, str(server.id))
-        client_metadata = build_oauth_client_metadata()
-
-        oauth_credentials = await self.repository.get_oauth_credentials(server.id)
-        client_id = client_secret = None
-        if oauth_credentials:
-            client_id = oauth_credentials.client_id
-            client_secret = decrypt_api_key(oauth_credentials.client_secret_encrypted)
-            client_metadata.token_endpoint_auth_method = (
-                oauth_credentials.token_endpoint_auth_method or "client_secret_post"
-            )
-
-        provider = WebOAuthClientProvider(
-            server_url=server.url,
-            client_metadata=client_metadata,
-            storage=storage,
-            client_id=client_id,
-            client_secret=client_secret,
-        )
+        provider = await _build_oauth_provider(server, storage, self.repository)
         await provider.initiate_authorization()
 
 
@@ -226,37 +222,8 @@ async def connect_to_server(
     storage = TokenStorageFactory().get_storage(user_id, str(mcp_server.id))
 
     if mcp_server.auth_type == MCPAuthType.oauth2:
-        client_metadata = build_oauth_client_metadata()
-
-        oauth_credentials = await repository.get_oauth_credentials(mcp_server.id)
-
-        if oauth_credentials:
-            client_id = oauth_credentials.client_id
-            client_secret = decrypt_api_key(oauth_credentials.client_secret_encrypted)
-
-            client_metadata.token_endpoint_auth_method = (
-                oauth_credentials.token_endpoint_auth_method or "client_secret_post"
-            )
-
-            await storage.set_client_info(
-                OAuthClientInformationFull(
-                    client_id=client_id,
-                    client_secret=client_secret,
-                    **client_metadata.model_dump(),
-                )
-            )
-        else:
-            client_id = None
-            client_secret = None
-
-        provider = WebOAuthClientProvider(
-            server_url=mcp_server.url,
-            client_metadata=client_metadata,
-            storage=storage,
-            client_id=client_id,
-            client_secret=client_secret,
-        )
-
+        provider = await _build_oauth_provider(mcp_server, storage, repository)
+        await provider.persist_client_info()
         client_args = {"url": mcp_server.url, "auth": provider}
     elif mcp_server.auth_type == MCPAuthType.api_key:
         api_key = await repository.get_api_key(mcp_server.id)
