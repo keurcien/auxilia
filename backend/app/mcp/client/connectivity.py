@@ -19,7 +19,7 @@ async def is_oauth_connected(server: MCPServerDB, user_id: str) -> bool:
     connected.
     """
     storage = TokenStorageFactory().get_storage(user_id, str(server.id))
-    client_metadata = build_oauth_client_metadata(server)
+    client_metadata = build_oauth_client_metadata()
     provider = WebOAuthClientProvider(
         server_url=server.url,
         client_metadata=client_metadata,
@@ -38,9 +38,7 @@ async def probe_connectivity(server: MCPServerDB, user_id: str) -> bool:
     return await is_oauth_connected(server, user_id)
 
 
-async def probe_connectivity_with_refresh(
-    server: MCPServerDB, user_id: str
-) -> bool:
+async def probe_connectivity_with_refresh(server: MCPServerDB, user_id: str) -> bool:
     """Probe that also attempts a token refresh when the stored token is
     expired. Delegates to :func:`app.mcp.utils.probe_mcp_server`."""
     return await probe_mcp_server(server, user_id)
