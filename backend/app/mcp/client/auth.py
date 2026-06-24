@@ -4,7 +4,6 @@ from urllib.parse import urlencode, urljoin
 
 import httpx
 from mcp.client.auth import OAuthClientProvider, OAuthFlowError, PKCEParameters
-from mcp.client.auth.exceptions import OAuthTokenError
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
@@ -14,7 +13,6 @@ from mcp.client.auth.utils import (
     handle_auth_metadata_response,
     handle_protected_resource_response,
     handle_registration_response,
-    handle_token_response_scopes,
 )
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata
 from pydantic import AnyHttpUrl, AnyUrl
@@ -121,6 +119,12 @@ class WebOAuthClientProvider(OAuthClientProvider):
         The discovery GETs run on a plain ``httpx.AsyncClient`` (no MCP
         session, no anyio task group), so the resulting exception propagates
         on the normal request stack instead of wrapped in an ``ExceptionGroup``.
+
+        Mirrors the 401 branch of ``OAuthClientProvider.async_auth_flow``
+        (PRM -> AS metadata -> scope selection -> DCR -> authorize). The SDK
+        only exposes that sequence as inlined generator code plus the public
+        helpers in ``mcp.client.auth.utils``, so this rebuilds the orchestration
+        on those helpers; keep it in sync with the SDK flow on upgrades.
         """
         if not self._initialized:
             await self._initialize()
