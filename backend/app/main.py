@@ -93,7 +93,7 @@ async def not_found_handler(_request: Request, exc: NotFoundError):
 
 @app.exception_handler(AlreadyExistsError)
 async def already_exists_handler(_request: Request, exc: AlreadyExistsError):
-    return JSONResponse(status_code=400, content={"detail": exc.detail})
+    return JSONResponse(status_code=409, content={"detail": exc.detail})
 
 
 @app.exception_handler(DomainValidationError)

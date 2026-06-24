@@ -16,7 +16,9 @@ import Image from "next/image";
 import { SageInput, SageTextarea } from "@/components/ui/sage-input";
 import { SageButton } from "@/components/ui/sage-button";
 import { SageDropdownMenu } from "@/components/ui/sage-dropdown-menu";
+import { SageAlert } from "@/components/ui/sage-alert";
 import { SearchBar } from "@/components/ui/search-bar";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import {
 	buildMCPServerCreatePayload,
 	MCPServerCreateFormErrors,
@@ -56,12 +58,17 @@ export default function MCPServerDialog({
 	onOpenChange,
 	server,
 }: MCPServerDialogProps) {
-	const { addMcpServer, updateMcpServer, removeMcpServer } =
-		useMcpServersStore();
+	const {
+		createMcpServer,
+		updateMcpServer,
+		deleteMcpServer,
+		resetMcpServerConnections,
+	} = useMcpServersStore();
 	const isEditMode = !!server;
 
 	const [form, setForm] = useState<MCPServerCreateFormValues>(emptyForm);
 	const [errors, setErrors] = useState<MCPServerCreateFormErrors>({});
+	const [submitError, setSubmitError] = useState<string | null>(null);
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [isResetting, setIsResetting] = useState(false);
 
@@ -103,6 +110,7 @@ export default function MCPServerDialog({
 			setSearchQuery("");
 		}
 		setErrors({});
+		setSubmitError(null);
 	}, [open, isEditMode, server]);
 
 	// Filter official servers: exclude installed, then apply search query
@@ -159,14 +167,14 @@ export default function MCPServerDialog({
 		setErrors(newErrors);
 		if (Object.keys(newErrors).length > 0) return;
 
+		setSubmitError(null);
 		setIsSubmitting(true);
 		try {
 			const payload = buildMCPServerCreatePayload(form);
-			const response = await api.post("/mcp-servers", payload);
-			addMcpServer(response.data);
+			await createMcpServer(payload);
 			onOpenChange(false);
-		} catch {
-			console.error("Failed to create MCP server");
+		} catch (error) {
+			setSubmitError(getApiErrorMessage(error, "Failed to create MCP server."));
 		} finally {
 			setIsSubmitting(false);
 		}
@@ -180,6 +188,7 @@ export default function MCPServerDialog({
 		setErrors(newErrors);
 		if (Object.keys(newErrors).length > 0) return;
 
+		setSubmitError(null);
 		setIsSubmitting(true);
 		try {
 			const payload: MCPServerUpdate = {
@@ -188,11 +197,10 @@ export default function MCPServerDialog({
 				description: form.description || undefined,
 				iconUrl: form.iconUrl || undefined,
 			};
-			const response = await api.patch(`/mcp-servers/${server.id}`, payload);
-			updateMcpServer(server.id, response.data);
+			await updateMcpServer(server.id, payload);
 			onOpenChange(false);
-		} catch {
-			console.error("Failed to update MCP server");
+		} catch (error) {
+			setSubmitError(getApiErrorMessage(error, "Failed to update MCP server."));
 		} finally {
 			setIsSubmitting(false);
 		}
@@ -203,10 +211,10 @@ export default function MCPServerDialog({
 		if (!window.confirm("Are you sure you want to delete this MCP server?"))
 			return;
 
+		setSubmitError(null);
 		setIsSubmitting(true);
 		try {
-			await api.delete(`/mcp-servers/${server.id}`);
-			removeMcpServer(server.id);
+			await deleteMcpServer(server.id);
 			onOpenChange(false);
 		} catch (error: unknown) {
 			if (
@@ -216,7 +224,9 @@ export default function MCPServerDialog({
 			) {
 				setErrorDialogOpen(true);
 			} else {
-				console.error("Failed to delete MCP server");
+				setSubmitError(
+					getApiErrorMessage(error, "Failed to delete MCP server."),
+				);
 			}
 		} finally {
 			setIsSubmitting(false);
@@ -232,9 +242,10 @@ export default function MCPServerDialog({
 		)
 			return;
 
+		setSubmitError(null);
 		setIsResetting(true);
 		try {
-			await api.post(`/mcp-servers/${server.id}/reset`);
+			await resetMcpServerConnections(server.id);
 		} catch (error: unknown) {
 			if (
 				error instanceof Object &&
@@ -243,7 +254,9 @@ export default function MCPServerDialog({
 			) {
 				setErrorDialogOpen(true);
 			} else {
-				console.error("Failed to reset MCP server connections");
+				setSubmitError(
+					getApiErrorMessage(error, "Failed to reset MCP server connections."),
+				);
 			}
 		} finally {
 			setIsResetting(false);
@@ -256,6 +269,7 @@ export default function MCPServerDialog({
 			setSelectedOfficial(null);
 			setSearchQuery("");
 			setErrors({});
+			setSubmitError(null);
 		}
 		onOpenChange(newOpen);
 	};
@@ -650,6 +664,13 @@ export default function MCPServerDialog({
 						)}
 					</div>
 				</div>
+
+				{/* Submission error */}
+				{submitError && (
+					<div className="px-8 pt-1 pb-2">
+						<SageAlert key={submitError} variant="error" message={submitError} />
+					</div>
+				)}
 
 				{/* Footer */}
 				<div className="flex items-center px-8 pt-5 pb-6 border-t border-[#F0F3F2] dark:border-white/5">
