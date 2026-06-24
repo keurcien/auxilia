@@ -26,7 +26,8 @@ const ShimmerComponent = ({
   duration = 2,
   spread = 2,
 }: TextShimmerProps) => {
-  const MotionComponent = motionComponents[Component];
+  const MotionComponent =
+    Component === "span" ? motionComponents.span : motionComponents.p;
 
   const dynamicSpread = useMemo(
     () => (children?.length ?? 0) * spread,

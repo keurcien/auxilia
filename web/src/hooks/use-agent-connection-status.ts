@@ -53,10 +53,12 @@ export function useAgentConnectionStatus(agentId: string | undefined): AgentRead
 
 		let ignore = false;
 
-		loadAgentConnectionStatus(agentId).then((snapshot) => {
-			if (ignore) return;
-			applySnapshot(snapshot);
-		});
+		loadAgentConnectionStatus(agentId)
+			.then((snapshot) => {
+				if (ignore) return;
+				applySnapshot(snapshot);
+			})
+			.catch(console.error);
 
 		return () => {
 			ignore = true;
