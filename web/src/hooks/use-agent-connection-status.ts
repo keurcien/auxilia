@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { api } from "@/lib/api/client";
 
 type AgentReadyStatus = "ready" | "not_configured" | "disconnected" | null;
@@ -35,6 +35,8 @@ export function useAgentConnectionStatus(agentId: string | undefined): AgentRead
 	const [ready, setReady] = useState<boolean | null>(null);
 	const [disconnectedServers, setDisconnectedServers] = useState<string[]>([]);
 	const [status, setStatus] = useState<AgentReadyStatus>(null);
+	const mountedRef = useRef(false);
+	const requestIdRef = useRef(0);
 
 	const applySnapshot = useCallback((snapshot: AgentConnectionSnapshot) => {
 		setReady(snapshot.ready);
@@ -42,27 +44,44 @@ export function useAgentConnectionStatus(agentId: string | undefined): AgentRead
 		setStatus(snapshot.status);
 	}, []);
 
+	useEffect(() => {
+		mountedRef.current = true;
+
+		return () => {
+			mountedRef.current = false;
+			requestIdRef.current += 1;
+		};
+	}, []);
+
 	const refetch = useCallback(() => {
 		if (!agentId) return;
+		const requestId = requestIdRef.current + 1;
+		requestIdRef.current = requestId;
 		loadAgentConnectionStatus(agentId)
-			.then(applySnapshot)
+			.then((snapshot) => {
+				if (!mountedRef.current || requestId !== requestIdRef.current) return;
+				applySnapshot(snapshot);
+			})
 			.catch(console.error);
 	}, [agentId, applySnapshot]);
 
 	useEffect(() => {
 		if (!agentId) return;
 
-		let ignore = false;
+		const requestId = requestIdRef.current + 1;
+		requestIdRef.current = requestId;
 
 		loadAgentConnectionStatus(agentId)
 			.then((snapshot) => {
-				if (ignore) return;
+				if (!mountedRef.current || requestId !== requestIdRef.current) return;
 				applySnapshot(snapshot);
 			})
 			.catch(console.error);
 
 		return () => {
-			ignore = true;
+			if (requestId === requestIdRef.current) {
+				requestIdRef.current += 1;
+			}
 		};
 	}, [agentId, applySnapshot]);
 
