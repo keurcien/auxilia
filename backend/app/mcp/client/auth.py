@@ -194,6 +194,104 @@ class WebOAuthClientProvider(OAuthClientProvider):
         # is True and the RFC 8707 resource param is included.
         await self._perform_authorization_code_grant()
 
+    async def _handle_token_response(self, response: httpx.Response) -> None:
+        """Handle token exchange response."""
+        if response.status_code not in {200, 201}:
+            body = await response.aread()  # pragma: no cover
+            body_text = body.decode("utf-8")  # pragma: no cover
+            raise OAuthTokenError(
+                f"Token exchange failed ({response.status_code}): {body_text}"
+            )  # pragma: no cover
+
+    async def initiate_authorization(self) -> None:
+        """Start the OAuth flow explicitly, without calling a business tool to
+        provoke a 401.
+
+        Discovers OAuth metadata the same way the SDK's ``async_auth_flow``
+        does on a 401 — RFC 9728 Protected Resource Metadata, then RFC 8414 /
+        OIDC Authorization Server Metadata — applies the discovered scopes,
+        then builds the authorization URL (which raises
+        ``OAuthAuthorizationRequired`` via the overridden
+        ``_perform_authorization_code_grant``).
+
+        The discovery GETs run on a plain ``httpx.AsyncClient`` (no MCP
+        session, no anyio task group), so the resulting exception propagates
+        on the normal request stack instead of wrapped in an ``ExceptionGroup``.
+
+        Mirrors the 401 branch of ``OAuthClientProvider.async_auth_flow``
+        (PRM -> AS metadata -> scope selection -> DCR -> authorize). The SDK
+        only exposes that sequence as inlined generator code plus the public
+        helpers in ``mcp.client.auth.utils``, so this rebuilds the orchestration
+        on those helpers; keep it in sync with the SDK flow on upgrades.
+        """
+        if not self._initialized:
+            await self._initialize()
+
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            # Step 1: Protected Resource Metadata (path-based then root well-known).
+            for url in build_protected_resource_metadata_discovery_urls(
+                None, self.context.server_url
+            ):
+                response = await client.send(create_oauth_metadata_request(url))
+                prm = await handle_protected_resource_response(response)
+                if prm:
+                    self.context.protected_resource_metadata = prm
+                    self.context.auth_server_url = str(prm.authorization_servers[0])
+                    break
+
+            # Step 2: Authorization Server Metadata (RFC 8414 / OIDC fallbacks).
+            for url in build_oauth_authorization_server_metadata_discovery_urls(
+                self.context.auth_server_url, self.context.server_url
+            ):
+                response = await client.send(create_oauth_metadata_request(url))
+                ok, asm = await handle_auth_metadata_response(response)
+                if ok and asm:
+                    self.context.oauth_metadata = asm
+                    break
+                if not ok:
+                    break
+
+            # Step 3: scope selection — PRM scopes_supported if advertised,
+            # otherwise no scope param (the server omits it, e.g. Notion).
+            discovered_scopes = get_client_metadata_scopes(
+                None,
+                self.context.protected_resource_metadata,
+                self.context.oauth_metadata,
+            )
+            if discovered_scopes:
+                self.context.client_metadata.scope = discovered_scopes
+
+            # Step 4: ensure a registered client. Static credentials (e.g.
+            # Google) are loaded into client_info by _initialize; otherwise
+            # register dynamically per RFC 7591 (e.g. Notion).
+            if not self.context.client_info:
+                registration_response = await client.send(
+                    create_client_registration_request(
+                        self.context.oauth_metadata,
+                        self.context.client_metadata,
+                        self.context.get_authorization_base_url(
+                            self.context.server_url
+                        ),
+                    )
+                )
+                self.context.client_info = await handle_registration_response(
+                    registration_response
+                )
+
+        if not self.context.client_info:
+            raise OAuthFlowError("No client info available for authorization")
+
+        # Persist client_info so the OAuth callback (a separate HTTP request with
+        # a fresh provider) and the refresh path (probe_mcp_server) can recover
+        # the client_id/secret from storage. connect_to_server persists it on its
+        # own path; the explicit flow skips connect_to_server, so persist it here.
+        await self.context.storage.set_client_info(self.context.client_info)
+
+        # Builds the authorization URL and raises OAuthAuthorizationRequired.
+        # protected_resource_metadata is set, so should_include_resource_param()
+        # is True and the RFC 8707 resource param is included.
+        await self._perform_authorization_code_grant()
+
     async def _perform_authorization_code_grant(self) -> tuple[str, str]:
         """
         Overrides the SDK method to support serverless flows.
