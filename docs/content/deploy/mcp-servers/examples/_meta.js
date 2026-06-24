@@ -1,5 +1,6 @@
 export default {
   hubspot: 'HubSpot',
   github: 'GitHub',
-  bigquery: 'BigQuery'
+  bigquery: 'BigQuery',
+  n8n: 'n8n'
 }

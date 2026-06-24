@@ -14,7 +14,6 @@ class MCPClientConfigFactory:
         self._servers = MCPServerRepository(db)
 
     async def build(self, config: MCPServerDB) -> dict:
-
         base_config = {
             "transport": "http",
             "url": config.url,
@@ -32,7 +31,7 @@ class MCPClientConfigFactory:
                 **base_config,
                 "auth": WebOAuthClientProvider(
                     server_url=config.url,
-                    client_metadata=build_oauth_client_metadata(config),
+                    client_metadata=build_oauth_client_metadata(),
                     storage=self._token_storage_factory.get_storage(
                         self._user_id, config.id
                     ),

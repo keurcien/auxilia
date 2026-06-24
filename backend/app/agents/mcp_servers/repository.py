@@ -20,3 +20,14 @@ class AgentMCPServerRepository(BaseRepository[AgentMCPServerDB]):
         )
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def delete_all_for_agent(self, agent_id: UUID) -> None:
+        stmt = select(AgentMCPServerDB).where(
+            AgentMCPServerDB.agent_id == agent_id
+        )
+        result = await self.db.execute(stmt)
+        links = result.scalars().all()
+        for link in links:
+            await self.db.delete(link)
+        if links:
+            await self.db.flush()

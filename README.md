@@ -174,8 +174,16 @@ Have an idea? [Open an issue](https://github.com/keurcien/auxilia/issues/new) or
 Contributions are very welcome! Whether it's a bug report, an agent idea, a new MCP server recipe, or a UI improvement:
 
 1. Fork the repo and create a branch (`git checkout -b feature/my-change`)
-2. Run `make dev` and make sure tests pass (`cd backend && uv run pytest`)
-3. Open a pull request
+2. Enable the git hooks once per clone: `pre-commit install` (install [pre-commit](https://pre-commit.com/#install) first if needed)
+3. Run `make dev` and make sure tests pass (`cd backend && uv run pytest`)
+4. Open a pull request
+
+### Pre-commit hooks
+
+`pre-commit install` wires up the hooks defined in `.pre-commit-config.yaml`, which run automatically on `git commit` against your changed files:
+
+- **ruff** (`ruff-check --fix`, `ruff-format`) — lints and formats changed Python.
+- **eslint (web)** — lints changed `web/` TypeScript using `web/eslint.precommit.mjs`, a stricter, type-aware config that catches mistakes the default `npm run lint` doesn't — e.g. `@typescript-eslint/no-misused-promises` (passing an `async` function to an `onClick`) and `@typescript-eslint/no-confusing-void-expression` (a void-returning arrow shorthand). `npm run lint` and `next build` are unaffected, so you only fix these in files you touch.
 
 Please read `CLAUDE.md` in the root of the repo — it documents the backend's layered architecture (router → service → repository → model) and naming conventions.
 

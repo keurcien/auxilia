@@ -24,6 +24,7 @@ from app.integrations.slack.router import router as slack_router
 from app.invites.router import router as invites_router
 from app.mcp.apps.router import router as mcp_apps_router
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
+from app.mcp.client.initialize import apply_mcp_client_patches
 from app.mcp.router import auxilia_mcp
 from app.mcp.servers.router import router as mcp_servers_router
 from app.model_providers.router import router as model_providers_router
@@ -38,6 +39,8 @@ logging.getLogger("app").setLevel(app_settings.log_level.upper())
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    apply_mcp_client_patches()
+
     redis_client = redis.Redis(
         host=app_settings.redis_host, port=app_settings.redis_port, password=app_settings.redis_password, decode_responses=True)
     app.state.redis = redis_client

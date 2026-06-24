@@ -123,3 +123,32 @@ async def test_delete_calls_delete_and_flushes(repo, mock_db):
 
     mock_db.delete.assert_awaited_once_with(link)
     mock_db.flush.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# delete_all_for_agent
+# ---------------------------------------------------------------------------
+
+
+async def test_delete_all_for_agent_deletes_every_link(repo, mock_db):
+    agent_id = uuid4()
+    links = [make_link(agent_id=agent_id), make_link(agent_id=agent_id)]
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = links
+    mock_db.execute.return_value = mock_result
+
+    await repo.delete_all_for_agent(agent_id)
+
+    assert mock_db.delete.await_count == 2
+    mock_db.flush.assert_awaited_once()
+
+
+async def test_delete_all_for_agent_noop_when_no_links(repo, mock_db):
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = []
+    mock_db.execute.return_value = mock_result
+
+    await repo.delete_all_for_agent(uuid4())
+
+    mock_db.delete.assert_not_called()
+    mock_db.flush.assert_not_called()

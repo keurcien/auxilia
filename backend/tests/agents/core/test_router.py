@@ -308,6 +308,82 @@ def test_delete_agent_requires_auth(client: TestClient):
     assert response.status_code == 401
 
 
+def test_get_agents_archived_passthrough(client: TestClient, mock_db, current_user):
+    """GET /agents?archived=true returns the archived list."""
+    agent = AgentDB(
+        id=uuid4(),
+        name="Archived Agent",
+        instructions="...",
+        owner_id=current_user.id,
+        is_archived=True,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+    mock_result = MagicMock()
+    mock_result.all.return_value = [(agent, None, None)]
+    mock_db.execute.return_value = mock_result
+
+    response = client.get("/agents/?archived=true")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["is_archived"] is True
+
+
+def test_restore_agent_as_owner(client: TestClient, mock_db, current_user):
+    """Owner can restore an archived agent."""
+    agent = AgentDB(
+        id=uuid4(),
+        name="Archived Agent",
+        instructions="...",
+        owner_id=current_user.id,
+        is_archived=True,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+    mock_result = MagicMock()
+    mock_result.all.return_value = [(agent, None)]
+    mock_result.scalar_one_or_none.return_value = agent
+    mock_db.execute.return_value = mock_result
+
+    response = client.post(f"/agents/{agent.id}/restore")
+    assert response.status_code == 200
+    assert agent.is_archived is False
+
+
+def test_restore_agent_requires_auth(client: TestClient):
+    response = client.post(f"/agents/{uuid4()}/restore")
+    assert response.status_code == 401
+
+
+def test_delete_agent_permanently_requires_auth(client: TestClient):
+    response = client.delete(f"/agents/{uuid4()}/permanent")
+    assert response.status_code == 401
+
+
+def test_delete_agent_permanently_forbidden_for_non_manager(
+    client: TestClient, mock_db, current_user
+):
+    """A user without owner/admin permission cannot permanently delete."""
+    other_owner = uuid4()
+    assert other_owner != current_user.id
+    agent = AgentDB(
+        id=uuid4(),
+        name="Someone Else's Agent",
+        instructions="...",
+        owner_id=other_owner,
+        is_archived=True,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+    mock_result = MagicMock()
+    mock_result.all.return_value = [(agent, None)]
+    mock_db.execute.return_value = mock_result
+
+    response = client.delete(f"/agents/{agent.id}/permanent")
+    assert response.status_code == 403
+
+
 def _make_thread(*, agent_id, user_id, source=ThreadSource.web) -> ThreadDB:
     return ThreadDB(
         id=str(uuid4()),

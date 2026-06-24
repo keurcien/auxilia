@@ -12,6 +12,7 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { SearchBar } from "@/components/ui/search-bar";
 
 interface AddAgentSubagentDialogProps {
 	open: boolean;
@@ -108,14 +109,16 @@ export default function AddAgentSubagentDialog({
 	onSaved,
 }: AddAgentSubagentDialogProps) {
 	const allAgents = useAgentsStore((state) => state.agents);
+	const [search, setSearch] = useState("");
 
 	const alreadyBoundIds = useMemo(
 		() => new Set(agent.subagents?.map((s) => s.id) || []),
 		[agent.subagents],
 	);
 
-	// Candidates: all agents except self, already-bound, and archived
-	const candidates = useMemo(() => {
+	// All addable candidates: every agent except self and already-bound.
+	// Not search-filtered, so eligibility counts reflect the full set.
+	const allCandidates = useMemo(() => {
 		return allAgents
 			.filter((a) => a.id !== agent.id && !alreadyBoundIds.has(a.id))
 			.map((a) => {
@@ -139,10 +142,20 @@ export default function AddAgentSubagentDialog({
 			});
 	}, [allAgents, agent.id, alreadyBoundIds]);
 
+	// Display list, narrowed by the search term (display only).
+	const candidates = useMemo(() => {
+		const term = search.toLowerCase();
+		if (!term) return allCandidates;
+		return allCandidates.filter((c) =>
+			c.agent.name.toLowerCase().includes(term),
+		);
+	}, [allCandidates, search]);
+
 	const handleSubagentAdded = (subagentId: string) => {
 		onSubagentAdded?.(subagentId);
-		// Close if no more eligible candidates
-		const eligibleCount = candidates.filter((c) => !c.disabled).length;
+		// Close if no more eligible candidates (across the full set, not the
+		// search-filtered view — otherwise a narrow search closes prematurely).
+		const eligibleCount = allCandidates.filter((c) => !c.disabled).length;
 		if (eligibleCount <= 1) {
 			onOpenChange(false);
 		}
@@ -154,7 +167,12 @@ export default function AddAgentSubagentDialog({
 				<DialogHeader>
 					<DialogTitle>Add Subagent</DialogTitle>
 				</DialogHeader>
-				<div className="py-4 overflow-y-auto">
+				<div className="py-4 flex flex-col gap-4 overflow-y-auto">
+					<SearchBar
+						placeholder="Search agents..."
+						value={search}
+						onChange={setSearch}
+					/>
 					{candidates.length > 0 ? (
 						<div className="max-h-[400px] flex flex-col gap-2 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 							{candidates.map(({ agent: candidate, disabled, disabledReason }) => (
