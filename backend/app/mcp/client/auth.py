@@ -119,6 +119,12 @@ class WebOAuthClientProvider(OAuthClientProvider):
         The discovery GETs run on a plain ``httpx.AsyncClient`` (no MCP
         session, no anyio task group), so the resulting exception propagates
         on the normal request stack instead of wrapped in an ``ExceptionGroup``.
+
+        Mirrors the 401 branch of ``OAuthClientProvider.async_auth_flow``
+        (PRM -> AS metadata -> scope selection -> DCR -> authorize). The SDK
+        only exposes that sequence as inlined generator code plus the public
+        helpers in ``mcp.client.auth.utils``, so this rebuilds the orchestration
+        on those helpers; keep it in sync with the SDK flow on upgrades.
         """
         if not self._initialized:
             await self._initialize()
