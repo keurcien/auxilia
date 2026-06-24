@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
-import { fileURLToPath } from "node:url";
+import path from "node:path";
 
-const logoPath = fileURLToPath(new URL("../public/logo.svg", import.meta.url));
+const logoPath = path.join(process.cwd(), "public", "logo.svg");
 
 test("auth page matches the sign-in visual baseline", async ({ page }) => {
 	await page.emulateMedia({ colorScheme: "light" });
