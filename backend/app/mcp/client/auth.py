@@ -4,7 +4,6 @@ from urllib.parse import urlencode, urljoin
 
 import httpx
 from mcp.client.auth import OAuthClientProvider, OAuthFlowError, PKCEParameters
-from mcp.client.auth.exceptions import OAuthTokenError
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
@@ -14,7 +13,6 @@ from mcp.client.auth.utils import (
     handle_auth_metadata_response,
     handle_protected_resource_response,
     handle_registration_response,
-    handle_token_response_scopes,
 )
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata
 from pydantic import AnyHttpUrl, AnyUrl
@@ -189,23 +187,6 @@ class WebOAuthClientProvider(OAuthClientProvider):
         # protected_resource_metadata is set, so should_include_resource_param()
         # is True and the RFC 8707 resource param is included.
         await self._perform_authorization_code_grant()
-
-    async def _handle_token_response(self, response: httpx.Response) -> None:
-        """Handle token exchange response."""
-        if response.status_code not in {200, 201}:
-            body = await response.aread()  # pragma: no cover
-            body_text = body.decode("utf-8")  # pragma: no cover
-            raise OAuthTokenError(
-                f"Token exchange failed ({response.status_code}): {body_text}"
-            )  # pragma: no cover
-
-        # Parse and validate response with scope validation
-        token_response = await handle_token_response_scopes(response)
-
-        # Store tokens in context
-        self.context.current_tokens = token_response
-        self.context.update_token_expiry(token_response)
-        await self.context.storage.set_tokens(token_response)
 
     async def _perform_authorization_code_grant(self) -> tuple[str, str]:
         """
