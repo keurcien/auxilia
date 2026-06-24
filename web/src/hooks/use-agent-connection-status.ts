@@ -42,10 +42,11 @@ export function useAgentConnectionStatus(agentId: string | undefined): AgentRead
 		setStatus(snapshot.status);
 	}, []);
 
-	const refetch = useCallback(async () => {
+	const refetch = useCallback(() => {
 		if (!agentId) return;
-		const snapshot = await loadAgentConnectionStatus(agentId);
-		applySnapshot(snapshot);
+		loadAgentConnectionStatus(agentId)
+			.then(applySnapshot)
+			.catch(console.error);
 	}, [agentId, applySnapshot]);
 
 	useEffect(() => {
