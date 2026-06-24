@@ -108,6 +108,7 @@ class AgentResponse(SQLModel):
     color: str | None
     description: str | None
     has_code_interpreter: bool
+    is_archived: bool = False
     created_at: datetime
     updated_at: datetime
     mcp_servers: list[AgentMCPServerResponse] | None = None

@@ -49,18 +49,18 @@ export default function AgentToolList({
 	return (
 		<div className="flex flex-col min-h-0">
 			<div className="flex items-center justify-between min-h-[34px] mb-2.5 shrink-0">
-				<span className="text-[12px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em] font-[family-name:var(--font-dm-sans)]">
+				<span className="text-[10.5px] font-bold text-[#94a59d] dark:text-muted-foreground uppercase tracking-[0.12em] font-[family-name:var(--font-dm-sans)]">
 					Tools
 				</span>
 				<button
-					className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-white dark:bg-transparent font-[family-name:var(--font-dm-sans)] text-[12.5px] font-semibold text-[#6B7F76] dark:text-muted-foreground cursor-pointer transition-all hover:border-[#A3B5AD]"
+					className="flex items-center gap-1.5 px-[13px] py-1.5 rounded-[9px] border border-[#e1ebe6] dark:border-white/10 bg-white dark:bg-card shadow-[0_1px_3px_rgba(33,36,31,0.05)] font-[family-name:var(--font-dm-sans)] text-[12px] font-medium normal-case tracking-normal text-[#1e2d28] dark:text-foreground cursor-pointer transition-colors hover:border-[#A3B5AD]"
 					onClick={() => setDialogOpen(true)}
 				>
-					<Plus className="w-[13px] h-[13px] text-[#8FA89E]" />
+					<Plus className="w-3 h-3 text-[#6b7f76] dark:text-muted-foreground" />
 					Add tool
 				</button>
 			</div>
-			<div className="flex-1 overflow-y-auto rounded-[22px] border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-white dark:bg-card min-h-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+			<div className="flex-1 overflow-y-auto rounded-[14px] border border-[#e1ebe6] dark:border-white/10 bg-white dark:bg-card shadow-[0_1px_3px_rgba(33,36,31,0.04)] min-h-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 				{hasTools ? (
 					<>
 						{agent.hasCodeInterpreter && (

@@ -36,7 +36,12 @@ async def read_mcp_app_resource(
     service: MCPServerService = Depends(get_mcp_server_service),
 ):
     mcp_server = await service.get_or_404(server_id)
-    async with connect_to_server(mcp_server, str(current_user.id), db) as (session, _):
+    # terminate_on_close=False: the resource HTML embeds a sessionToken bound to
+    # this MCP session; DELETEing the session would kill the token before the
+    # browser uses it. Let the server expire it by TTL instead.
+    async with connect_to_server(
+        mcp_server, str(current_user.id), db, terminate_on_close=False
+    ) as (session, _):
         return await session.read_resource(body.uri)
 
 
@@ -49,5 +54,9 @@ async def call_mcp_app_tool(
     service: MCPServerService = Depends(get_mcp_server_service),
 ):
     mcp_server = await service.get_or_404(server_id)
-    async with connect_to_server(mcp_server, str(current_user.id), db) as (session, _):
+    # terminate_on_close=False: keep the session alive for the App's follow-up
+    # data requests; it expires by the server's TTL.
+    async with connect_to_server(
+        mcp_server, str(current_user.id), db, terminate_on_close=False
+    ) as (session, _):
         return await session.call_tool(body.tool_name, body.arguments)

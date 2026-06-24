@@ -10,11 +10,19 @@ export const PASTEL_MAP: Record<string, { pill: string; text: string }> = {
 
 export const AGENT_COLORS = Object.keys(PASTEL_MAP);
 
+// Map-based lookup so callers don't index the object with a dynamic key.
+const PASTELS = new Map(Object.entries(PASTEL_MAP));
+const DEFAULT_PASTEL = PASTEL_MAP["#9E9E9E"];
+
+export function agentPastel(color?: string | null): { pill: string; text: string } {
+	return (color ? PASTELS.get(color) : undefined) ?? DEFAULT_PASTEL;
+}
+
 export function randomAgentColor(): string {
 	return AGENT_COLORS[Math.floor(Math.random() * AGENT_COLORS.length)];
 }
 
 export function agentColorBackground(color: string): string {
-	const accent = PASTEL_MAP[color]?.text ?? color;
+	const accent = (color ? PASTELS.get(color) : undefined)?.text ?? color;
 	return `linear-gradient(145deg, ${color}14, ${accent}10)`;
 }
