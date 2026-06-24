@@ -1,4 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+
+const getCurrentTime = () =>
+	typeof performance !== "undefined" ? performance.now() : Date.now();
 
 export function useThrottledValue<T>(value: T, intervalMs = 60): T {
 	const [throttled, setThrottled] = useState(value);
@@ -6,27 +9,25 @@ export function useThrottledValue<T>(value: T, intervalMs = 60): T {
 	const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const latestRef = useRef(value);
 
-	latestRef.current = value;
+	useLayoutEffect(() => {
+		latestRef.current = value;
+	}, [value]);
 
 	useEffect(() => {
-		const now =
-			typeof performance !== "undefined" ? performance.now() : Date.now();
+		const now = getCurrentTime();
 		const elapsed = now - lastEmitRef.current;
 
-		if (elapsed >= intervalMs) {
-			lastEmitRef.current = now;
-			setThrottled(value);
-			return;
+		if (timerRef.current != null) {
+			if (elapsed < intervalMs) return;
+			clearTimeout(timerRef.current);
 		}
 
-		if (timerRef.current != null) return;
-
+		const delay = Math.max(intervalMs - elapsed, 0);
 		timerRef.current = setTimeout(() => {
 			timerRef.current = null;
-			lastEmitRef.current =
-				typeof performance !== "undefined" ? performance.now() : Date.now();
+			lastEmitRef.current = getCurrentTime();
 			setThrottled(latestRef.current);
-		}, intervalMs - elapsed);
+		}, delay);
 	}, [value, intervalMs]);
 
 	useEffect(() => {

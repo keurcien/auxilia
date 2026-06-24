@@ -31,6 +31,32 @@ export function ConnectServersDialog({
 	const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+	const clearConnectionTimers = useCallback(() => {
+		if (pollRef.current) {
+			clearInterval(pollRef.current);
+			pollRef.current = null;
+		}
+		if (timeoutRef.current) {
+			clearTimeout(timeoutRef.current);
+			timeoutRef.current = null;
+		}
+	}, []);
+
+	const resetConnectionAttempt = useCallback(() => {
+		clearConnectionTimers();
+		setConnectingId(null);
+	}, [clearConnectionTimers]);
+
+	const handleOpenChange = useCallback(
+		(nextOpen: boolean) => {
+			if (!nextOpen) {
+				resetConnectionAttempt();
+			}
+			onOpenChange(nextOpen);
+		},
+		[onOpenChange, resetConnectionAttempt],
+	);
+
 	const remainingServers = disconnectedServers.filter(
 		(s) => !connectedIds.has(s.id),
 	);
@@ -42,10 +68,12 @@ export function ConnectServersDialog({
 			disconnectedServers.length > 0 &&
 			remainingServers.length === 0
 		) {
+			clearConnectionTimers();
 			onAllConnected();
 			onOpenChange(false);
 		}
 	}, [
+		clearConnectionTimers,
 		remainingServers.length,
 		disconnectedServers.length,
 		open,
@@ -53,80 +81,81 @@ export function ConnectServersDialog({
 		onOpenChange,
 	]);
 
-	// Cleanup on unmount or close
+	// Cleanup timers on unmount or external close.
 	useEffect(() => {
 		if (!open) {
-			if (pollRef.current) clearInterval(pollRef.current);
-			if (timeoutRef.current) clearTimeout(timeoutRef.current);
-			setConnectingId(null);
+			clearConnectionTimers();
 		}
-	}, [open]);
+		return clearConnectionTimers;
+	}, [open, clearConnectionTimers]);
 
-	const handleConnect = useCallback(async (server: MCPServer) => {
-		setConnectingId(server.id);
+	const handleConnect = useCallback(
+		async (server: MCPServer) => {
+			setConnectingId(server.id);
 
-		try {
-			// Trigger the list-tools call which will return 401 with auth_url for OAuth servers
-			await api.get(`/mcp-servers/${server.id}/list-tools`);
-			// If it succeeds without error, server is already connected
-			setConnectedIds((prev) => new Set(prev).add(server.id));
-			setConnectingId(null);
-		} catch (error: unknown) {
-			if (
-				error &&
-				typeof error === "object" &&
-				"response" in error &&
-				error.response &&
-				typeof error.response === "object" &&
-				"status" in error.response &&
-				error.response.status === 401 &&
-				"data" in error.response &&
-				error.response.data &&
-				typeof error.response.data === "object" &&
-				"auth_url" in error.response.data
-			) {
-				const authUrl = error.response.data.auth_url as string;
-				const popup = window.open(authUrl, "_blank", "width=600,height=700");
-
-				// Poll is-connected-v2 until connected
-				pollRef.current = setInterval(async () => {
-					try {
-						const res = await api.get(
-							`/mcp-servers/${server.id}/is-connected-v2`,
-						);
-						if (res.data.connected) {
-							if (pollRef.current) clearInterval(pollRef.current);
-							if (timeoutRef.current) clearTimeout(timeoutRef.current);
-
-							setConnectedIds((prev) => new Set(prev).add(server.id));
-							setConnectingId(null);
-
-							if (popup && !popup.closed) {
-								popup.close();
-							}
-						}
-					} catch {
-						// continue polling
-					}
-				}, 2000);
-
-				// Timeout after 60s
-				timeoutRef.current = setTimeout(() => {
-					if (pollRef.current) clearInterval(pollRef.current);
-					setConnectingId(null);
-				}, 60000);
-			} else {
-				console.error("Failed to connect:", error);
+			try {
+				// Trigger the list-tools call which will return 401 with auth_url for OAuth servers
+				await api.get(`/mcp-servers/${server.id}/list-tools`);
+				// If it succeeds without error, server is already connected
+				setConnectedIds((prev) => new Set(prev).add(server.id));
 				setConnectingId(null);
+			} catch (error: unknown) {
+				if (
+					error &&
+					typeof error === "object" &&
+					"response" in error &&
+					error.response &&
+					typeof error.response === "object" &&
+					"status" in error.response &&
+					error.response.status === 401 &&
+					"data" in error.response &&
+					error.response.data &&
+					typeof error.response.data === "object" &&
+					"auth_url" in error.response.data
+				) {
+					const authUrl = error.response.data.auth_url as string;
+					const popup = window.open(authUrl, "_blank", "width=600,height=700");
+
+					// Poll is-connected-v2 until connected
+					pollRef.current = setInterval(async () => {
+						try {
+							const res = await api.get(
+								`/mcp-servers/${server.id}/is-connected-v2`,
+							);
+							if (res.data.connected) {
+								clearConnectionTimers();
+
+								setConnectedIds((prev) => new Set(prev).add(server.id));
+								setConnectingId(null);
+
+								if (popup && !popup.closed) {
+									popup.close();
+								}
+							}
+						} catch {
+							// continue polling
+						}
+					}, 2000);
+
+					// Timeout after 60s
+					timeoutRef.current = setTimeout(() => {
+						clearConnectionTimers();
+						setConnectingId(null);
+					}, 60000);
+				} else {
+					console.error("Failed to connect:", error);
+					setConnectingId(null);
+				}
 			}
-		}
-	}, []);
+		},
+		[clearConnectionTimers],
+	);
 
 	const currentServer =
 		remainingServers.length > 0 ? remainingServers[0] : null;
 
 	return (
-		<Dialog open={open} onOpenChange={onOpenChange}>
+		<Dialog open={open} onOpenChange={handleOpenChange}>
 			<DialogContent className="sm:max-w-[480px]">
 				<DialogHeader>
 					<DialogTitle className="text-xl">Authentication Required</DialogTitle>
