@@ -15,6 +15,7 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
+import { shouldCloseAddToolDialogAfterServerAdded } from "../lib/mcp-server-assignment";
 
 interface AddAgentToolDialogProps {
 	open: boolean;
@@ -29,7 +30,7 @@ interface AddAgentToolDialogProps {
 interface AvailableMCPServerCardProps {
 	server: MCPServer;
 	agentId: string;
-	onAdd: () => void;
+	onAdd: (serverId: string) => void;
 	onSaving?: () => void;
 	onSaved?: () => void;
 }
@@ -48,7 +49,7 @@ function AvailableMCPServerCard({
 		onSaving?.();
 		try {
 			await api.post(`/agents/${agentId}/mcp-servers/${server.id}`, {});
-			onAdd();
+			onAdd(server.id);
 			onSaved?.();
 		} catch (error) {
 			console.error("Failed to add MCP server to agent:", error);
@@ -78,6 +79,7 @@ function AvailableMCPServerCard({
 				className="w-8 h-8 rounded-full bg-white dark:bg-white/10 border-[1.5px] border-[#E0E8E4] dark:border-white/10 flex items-center justify-center cursor-pointer transition-colors hover:bg-[#EDF4F0] dark:hover:bg-white/15 disabled:opacity-50"
 				onClick={() => void handleAdd()}
 				disabled={isAdding}
+				aria-label={`Add ${server.name}`}
 			>
 				<Plus className="w-3.5 h-3.5 text-[#6B7F76]" />
 			</button>
@@ -149,11 +151,13 @@ function BuiltInCapabilities({
 
 function MCPServerSection({
 	agent,
+	onOpenChange,
 	onServerAdded,
 	onSaving,
 	onSaved,
 }: {
 	agent: Agent;
+	onOpenChange: (open: boolean) => void;
 	onServerAdded?: () => void;
 	onSaving?: () => void;
 	onSaved?: () => void;
@@ -176,8 +180,19 @@ function MCPServerSection({
 		return allServers.filter((server) => !enabledIds.has(server.id));
 	}, [allServers, agent.mcpServers]);
 
-	const handleServerAdded = () => {
+	const handleServerAdded = (addedServerId: string) => {
 		onServerAdded?.();
+
+		if (
+			shouldCloseAddToolDialogAfterServerAdded(
+				availableServers.map((server) => server.id),
+				addedServerId,
+			)
+		) {
+			onOpenChange(false);
+			return;
+		}
+
 		api.get("/mcp-servers").then((res) => {
 			setAllServers(res.data);
 		});
@@ -278,6 +293,7 @@ export default function AddAgentToolDialog({
 				<div className="overflow-y-auto max-h-[450px] space-y-7 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 					<MCPServerSection
 						agent={agent}
+						onOpenChange={onOpenChange}
 						onServerAdded={onServerAdded}
 						onSaving={onSaving}
 						onSaved={onSaved}

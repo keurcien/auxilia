@@ -1,14 +1,19 @@
 import { create } from "zustand";
-import { MCPServer } from "@/types/mcp-servers";
+import {
+	MCPServer,
+	MCPServerCreate,
+	MCPServerUpdate,
+} from "@/types/mcp-servers";
 import { api } from "@/lib/api/client";
 
 interface McpServersState {
 	mcpServers: MCPServer[];
 	isInitialized: boolean;
 	fetchMcpServers: () => Promise<void>;
-	addMcpServer: (mcpServer: MCPServer) => void;
-	updateMcpServer: (mcpServerId: string, mcpServer: MCPServer) => void;
-	removeMcpServer: (mcpServerId: string) => void;
+	createMcpServer: (payload: MCPServerCreate) => Promise<MCPServer>;
+	updateMcpServer: (id: string, payload: MCPServerUpdate) => Promise<MCPServer>;
+	deleteMcpServer: (id: string) => Promise<void>;
+	resetMcpServerConnections: (id: string) => Promise<void>;
 }
 
 export const useMcpServersStore = create<McpServersState>((set, get) => ({
@@ -28,18 +33,29 @@ export const useMcpServersStore = create<McpServersState>((set, get) => ({
 			throw error;
 		}
 	},
-	addMcpServer: (mcpServer) =>
-		set((state) => ({ mcpServers: [mcpServer, ...state.mcpServers] })),
-	updateMcpServer: (mcpServerId, mcpServer) =>
+	createMcpServer: async (payload) => {
+		const response = await api.post("/mcp-servers", payload);
+		const created: MCPServer = response.data;
+		set((state) => ({ mcpServers: [created, ...state.mcpServers] }));
+		return created;
+	},
+	updateMcpServer: async (id, payload) => {
+		const response = await api.patch(`/mcp-servers/${id}`, payload);
+		const updated: MCPServer = response.data;
 		set((state) => ({
 			mcpServers: state.mcpServers.map((server) =>
-				server.id === mcpServerId ? mcpServer : server,
+				server.id === id ? updated : server,
 			),
-		})),
-	removeMcpServer: (mcpServerId) =>
+		}));
+		return updated;
+	},
+	deleteMcpServer: async (id) => {
+		await api.delete(`/mcp-servers/${id}`);
 		set((state) => ({
-			mcpServers: state.mcpServers.filter(
-				(server) => server.id !== mcpServerId,
-			),
-		})),
+			mcpServers: state.mcpServers.filter((server) => server.id !== id),
+		}));
+	},
+	resetMcpServerConnections: async (id) => {
+		await api.post(`/mcp-servers/${id}/reset`);
+	},
 }));

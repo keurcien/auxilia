@@ -67,11 +67,10 @@ describe("MCPServerDialog create mode", () => {
 		expect(onOpenChange).toHaveBeenCalledWith(false);
 	});
 
-	it("keeps the dialog open and does not publish a server when creation fails", async () => {
+	it("surfaces a fallback error, keeps the dialog open, and does not publish on failure", async () => {
 		const user = userEvent.setup();
 		const onOpenChange = vi.fn();
-		vi.spyOn(console, "error").mockImplementation(() => {});
-		vi.mocked(api.post).mockRejectedValue(new Error("creation failed"));
+		vi.mocked(api.post).mockRejectedValue(new Error("network down"));
 
 		render(<MCPServerDialog open onOpenChange={onOpenChange} />);
 
@@ -83,6 +82,9 @@ describe("MCPServerDialog create mode", () => {
 		await user.click(screen.getByRole("button", { name: "Create server" }));
 
 		await waitFor(() => expect(api.post).toHaveBeenCalled());
+		expect(
+			await screen.findByText("Failed to create MCP server."),
+		).toBeInTheDocument();
 		await waitFor(() =>
 			expect(
 				screen.getByRole("button", { name: "Create server" }),
@@ -90,5 +92,53 @@ describe("MCPServerDialog create mode", () => {
 		);
 		expect(useMcpServersStore.getState().mcpServers).toEqual([]);
 		expect(onOpenChange).not.toHaveBeenCalledWith(false);
+	});
+
+	it("surfaces the backend error detail when creation is rejected", async () => {
+		const user = userEvent.setup();
+		const onOpenChange = vi.fn();
+		vi.mocked(api.post).mockRejectedValue({
+			status: 409,
+			response: { data: { detail: "An MCP server with this URL already exists" } },
+		});
+
+		render(<MCPServerDialog open onOpenChange={onOpenChange} />);
+
+		await user.type(screen.getByLabelText("Name"), "Internal Search");
+		await user.type(
+			screen.getByLabelText(/Remote Server Address/),
+			"https://search.example.com/mcp",
+		);
+		await user.click(screen.getByRole("button", { name: "Create server" }));
+
+		expect(
+			await screen.findByText("An MCP server with this URL already exists"),
+		).toBeInTheDocument();
+		expect(onOpenChange).not.toHaveBeenCalledWith(false);
+	});
+
+	it("hides 5xx detail and shows the generic fallback instead", async () => {
+		const user = userEvent.setup();
+		const onOpenChange = vi.fn();
+		vi.mocked(api.post).mockRejectedValue({
+			status: 500,
+			response: { data: { detail: "psycopg.errors.UndefinedColumn: ..." } },
+		});
+
+		render(<MCPServerDialog open onOpenChange={onOpenChange} />);
+
+		await user.type(screen.getByLabelText("Name"), "Internal Search");
+		await user.type(
+			screen.getByLabelText(/Remote Server Address/),
+			"https://search.example.com/mcp",
+		);
+		await user.click(screen.getByRole("button", { name: "Create server" }));
+
+		expect(
+			await screen.findByText("Failed to create MCP server."),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByText(/psycopg/),
+		).not.toBeInTheDocument();
 	});
 });
