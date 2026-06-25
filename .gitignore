@@ -34,6 +34,8 @@ node_modules
 
 # testing
 coverage
+web/playwright-report/
+web/test-results/
 
 # next.js
 .next/
