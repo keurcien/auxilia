@@ -36,6 +36,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Use Node.js 20
         uses: actions/setup-node@v4
@@ -47,8 +49,22 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Lint frontend
-        run: npm run lint
+      - name: Lint changed frontend files
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha || 'origin/main' }}"
+
+          mapfile -t files < <(
+            git -C "$GITHUB_WORKSPACE" diff --name-only --diff-filter=ACMRT "$BASE_SHA...HEAD" -- web \
+              | grep -E '^web/.*\.(js|jsx|ts|tsx)$' \
+              | sed 's#^web/##'
+          )
+
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No changed frontend files to lint."
+            exit 0
+          fi
+
+          npm run lint -- "${files[@]}"
 
       - name: Build frontend
         run: npm run build
