@@ -47,7 +47,7 @@ jobs:
           cache-dependency-path: web/package-lock.json
 
       - name: Install frontend dependencies
-        run: npm ci
+        run: npm ci --include=optional
 
       - name: Lint changed frontend files
         shell: bash
