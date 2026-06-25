@@ -121,6 +121,12 @@ class WebOAuthClientProvider(OAuthClientProvider):
         The discovery GETs run on a plain ``httpx.AsyncClient`` (no MCP
         session, no anyio task group), so the resulting exception propagates
         on the normal request stack instead of wrapped in an ``ExceptionGroup``.
+
+        Mirrors the 401 branch of ``OAuthClientProvider.async_auth_flow``
+        (PRM -> AS metadata -> scope selection -> DCR -> authorize). The SDK
+        only exposes that sequence as inlined generator code plus the public
+        helpers in ``mcp.client.auth.utils``, so this rebuilds the orchestration
+        on those helpers; keep it in sync with the SDK flow on upgrades.
         """
         if not self._initialized:
             await self._initialize()
@@ -191,7 +197,13 @@ class WebOAuthClientProvider(OAuthClientProvider):
         await self._perform_authorization_code_grant()
 
     async def _handle_token_response(self, response: httpx.Response) -> None:
-        """Handle token exchange response."""
+        """Handle token exchange response.
+
+        Overrides the SDK parent to accept HTTP 201 in addition to 200 — some
+        servers return 201 from the token endpoint — then reuses the SDK's
+        ``handle_token_response_scopes`` for parsing/scope validation and
+        persists the token to storage so the next request is authenticated.
+        """
         if response.status_code not in {200, 201}:
             body = await response.aread()  # pragma: no cover
             body_text = body.decode("utf-8")  # pragma: no cover

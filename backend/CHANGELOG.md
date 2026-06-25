@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.4.5](https://github.com/keurcien/auxilia/compare/backend-v0.4.4...backend-v0.4.5) (2026-06-25)
+
+
+### Features
+
+* **mcp:** discover OAuth scopes via PRM, drop tool-call 401 probe ([#135](https://github.com/keurcien/auxilia/issues/135)) ([a986e5f](https://github.com/keurcien/auxilia/commit/a986e5fbf3599b3008b4863d3e44ea5d9e8c13ff))
+
+
+### Bug Fixes
+
+* **mcp:** persist OAuth tokens after authorization-code grant ([#141](https://github.com/keurcien/auxilia/issues/141)) ([65c8029](https://github.com/keurcien/auxilia/commit/65c8029b1d640b4ac6e38eb0603f77bd2c468e9e))
+
+
+### Code Refactoring
+
+* **mcp:** tighten WebOAuthClientProvider toward the SDK ([#139](https://github.com/keurcien/auxilia/issues/139)) ([0d8a037](https://github.com/keurcien/auxilia/commit/0d8a037b69b86dc1f9b34b1584949e3787a6d6ce))
+
 ## [0.4.4](https://github.com/keurcien/auxilia/compare/backend-v0.4.3...backend-v0.4.4) (2026-06-22)
 
 
