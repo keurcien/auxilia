@@ -28,11 +28,6 @@ class MCPServerRepository(BaseRepository[MCPServerDB]):
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_by_url(self, url: str) -> MCPServerDB | None:
-        stmt = select(MCPServerDB).where(MCPServerDB.url == url)
-        result = await self.db.execute(stmt)
-        return result.scalar_one_or_none()
-
     async def create(self, data: MCPServerCreate) -> MCPServerDB:
         db_server = MCPServerDB.model_validate(data)
         self.db.add(db_server)

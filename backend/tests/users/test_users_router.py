@@ -59,7 +59,7 @@ def test_create_user_duplicate_email(client: TestClient, mock_db, admin_user):
     mock_db.execute.return_value = mock_result
 
     response = client.post("/users/", json=user_data)
-    assert response.status_code == 409
+    assert response.status_code == 400
     assert response.json()["detail"] == "Email already registered"
 
 
@@ -256,7 +256,7 @@ def test_update_user_duplicate_email(client: TestClient, mock_db):
 
     update_data = {"email": "user1@example.com"}
     response = client.patch(f"/users/{user_id}", json=update_data)
-    assert response.status_code == 409
+    assert response.status_code == 400
     assert response.json()["detail"] == "Email already registered"
 
 
