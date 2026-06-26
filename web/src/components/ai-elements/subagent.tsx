@@ -19,6 +19,7 @@ import {
 } from "@/components/ai-elements/tool";
 import { TodoList } from "@/components/ai-elements/todo-list";
 import type { Todo } from "@/components/ai-elements/todo-list";
+import { extractToolErrorText } from "@/lib/utils/tool-content";
 import type { SubagentStreamInterface } from "@langchain/langgraph-sdk/ui";
 
 // ---------------------------------------------------------------------------
@@ -171,9 +172,7 @@ const SubAgentConversation = memo(({ messages, isStreaming, mcpServers }: { mess
 										output={output as React.ReactNode}
 										errorText={
 											isError && toolMsg
-												? typeof toolMsg.content === "string"
-													? toolMsg.content
-													: "Tool execution failed"
+												? extractToolErrorText(toolMsg.content)
 												: undefined
 										}
 									/>
