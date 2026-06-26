@@ -69,6 +69,73 @@ async def get_regeneration_checkpoint_id(agent, config: dict) -> str | None:
     return None
 
 
+def build_runnable(
+    *,
+    model,
+    tools,
+    system_prompt,
+    sandbox: bool,
+    base_middleware=(),
+    subagents=None,
+    checkpointer=None,
+    output_schema: dict | None = None,
+):
+    """Build a LangGraph runnable, dispatching on whether a sandbox is needed.
+
+    Single construction path for both the parent agent and subagents. The
+    no-sandbox branch uses a plain ``create_agent`` (so simple agents avoid
+    deepagents' always-on filesystem/todo/patch scaffolding); the sandbox branch
+    uses ``create_deep_agent`` with a lazy sandbox backend (the sandbox itself is
+    created on first tool call, not here).
+
+    ``base_middleware`` is the caller's middleware stack — the parent passes its
+    full stack; subagents pass nothing. ``DeferredStructuredOutputMiddleware`` is
+    appended whenever an ``output_schema`` is given (it keeps the schema off the
+    tool-calling loop and applies it on one final formatting turn). On the
+    sandbox path ``ToolErrorMiddleware`` is appended and the caller's
+    ``PatchToolCallsMiddleware`` is dropped, since ``create_deep_agent`` injects
+    its own and langchain asserts against duplicates.
+
+    ``subagents`` (already-compiled ``CompiledSubAgent`` runnables) wire in via
+    ``SubAgentMiddleware`` on the no-sandbox path and via the ``subagents=`` arg
+    on the sandbox path.
+    """
+    if sandbox:
+        from app.sandbox.lazy import LazySandboxBackend
+        from app.sandbox.tools import create_sandbox_tools
+
+        lazy_backend = LazySandboxBackend()
+        middleware = [
+            m for m in base_middleware if not isinstance(m, PatchToolCallsMiddleware)
+        ]
+        if output_schema is not None:
+            middleware.append(DeferredStructuredOutputMiddleware())
+        return create_deep_agent(
+            model=model,
+            tools=[*tools, *create_sandbox_tools(lazy_backend)],
+            system_prompt=system_prompt,
+            backend=lazy_backend,
+            middleware=[*middleware, ToolErrorMiddleware()],
+            subagents=subagents,
+            checkpointer=checkpointer,
+            response_format=output_schema,
+        )
+
+    middleware = list(base_middleware)
+    if subagents:
+        middleware.append(SubAgentMiddleware(backend=StateBackend, subagents=subagents))
+    if output_schema is not None:
+        middleware.append(DeferredStructuredOutputMiddleware())
+    return create_agent(
+        model=model,
+        tools=tools,
+        system_prompt=system_prompt,
+        checkpointer=checkpointer,
+        middleware=middleware,
+        response_format=output_schema,
+    )
+
+
 @dataclass
 class ResolvedAgent:
     """An agent config with its prepared toolset. Used for both parent and subagents.
@@ -104,28 +171,20 @@ class ResolvedAgent:
         runnables don't inherit the parent's checkpointer, and HumanInTheLoopMiddleware
         needs one. Approval gates on subagent tools are silently dropped today.
         """
-        if self.config.has_code_interpreter and sandbox_settings.enabled:
-            from app.sandbox.lazy import LazySandboxBackend
-            from app.sandbox.tools import create_sandbox_tools
-
-            lazy_backend = LazySandboxBackend()
-            sandbox_tools = create_sandbox_tools(lazy_backend)
-            runnable = create_deep_agent(
-                model=model,
-                tools=[*self.live.all, *sandbox_tools],
-                system_prompt=self.config.instructions or "",
-                backend=lazy_backend,
-                middleware=[ToolErrorMiddleware()],
+        sandbox = self.config.has_code_interpreter and sandbox_settings.enabled
+        system_prompt = (
+            self.config.instructions or ""
+            if sandbox
+            else SystemMessage(
+                content=[{"type": "text", "text": self.config.instructions or ""}]
             )
-        else:
-            runnable = create_agent(
-                model=model,
-                tools=self.live.all,
-                system_prompt=SystemMessage(
-                    content=[{"type": "text", "text": self.config.instructions or ""}]
-                ),
-            )
-
+        )
+        runnable = build_runnable(
+            model=model,
+            tools=self.live.all,
+            system_prompt=system_prompt,
+            sandbox=sandbox,
+        )
         return CompiledSubAgent(
             name=sanitize_tool_name(self.config.name),
             description=f"{self.config.name}: {self.config.description or self.config.name}",
@@ -241,25 +300,26 @@ class Agent:
         off the tool-calling loop and applies it on one final formatting turn;
         the parsed result surfaces in the run state under `structured_response`.
         """
-        if self.agent.config.has_code_interpreter and sandbox_settings.enabled:
-            return self._build_deep_agent(checkpointer, output_schema)
-
-        middleware = list(self.middleware)
-        if self.subagents:
-            compiled = [s.compile(self.model) for s in self.subagents]
-            middleware.append(
-                SubAgentMiddleware(backend=StateBackend, subagents=compiled)
-            )
-        if output_schema is not None:
-            middleware.append(DeferredStructuredOutputMiddleware())
-
-        return create_agent(
+        sandbox = self.agent.config.has_code_interpreter and sandbox_settings.enabled
+        compiled = (
+            [s.compile(self.model) for s in self.subagents] if self.subagents else None
+        )
+        # Deep agents take the raw instruction string; create_agent takes a
+        # SystemMessage. Keep each form as-is to avoid a prompt-shape change.
+        system_prompt = (
+            self.agent.config.instructions or ""
+            if sandbox
+            else SystemMessage(self.agent.config.instructions)
+        )
+        return build_runnable(
             model=self.model,
             tools=self.agent.live.all,
-            system_prompt=SystemMessage(self.agent.config.instructions),
+            system_prompt=system_prompt,
+            sandbox=sandbox,
+            base_middleware=self.middleware,
+            subagents=compiled,
             checkpointer=checkpointer,
-            middleware=middleware,
-            response_format=output_schema,
+            output_schema=output_schema,
         )
 
     def _resolve_input(self, agent_input: dict | None, command: dict | None):
@@ -413,41 +473,6 @@ class Agent:
                 "content": _extract_text(last) if last else "",
                 "structured_response": result.get("structured_response"),
             }
-
-    def _build_deep_agent(self, checkpointer, output_schema: dict | None = None):
-        """Build a deep agent with lazy sandbox backend for code execution.
-
-        The sandbox is not created here — the LLM calls create_sandbox or
-        connect_sandbox as its first tool call, which wires the lazy backend.
-        """
-        from app.sandbox.lazy import LazySandboxBackend
-        from app.sandbox.tools import create_sandbox_tools
-
-        lazy_backend = LazySandboxBackend()
-        sandbox_tools = create_sandbox_tools(lazy_backend)
-
-        compiled_subagents = (
-            [s.compile(self.model) for s in self.subagents] if self.subagents else None
-        )
-
-        # create_deep_agent injects its own PatchToolCallsMiddleware; passing
-        # ours through would trigger langchain's duplicate-middleware assertion.
-        extra_middleware = [
-            m for m in self.middleware if not isinstance(m, PatchToolCallsMiddleware)
-        ]
-        if output_schema is not None:
-            extra_middleware.append(DeferredStructuredOutputMiddleware())
-
-        return create_deep_agent(
-            model=self.model,
-            tools=[*self.agent.live.all, *sandbox_tools],
-            system_prompt=self.agent.config.instructions or "",
-            backend=lazy_backend,
-            middleware=[*extra_middleware, ToolErrorMiddleware()],
-            subagents=compiled_subagents,
-            checkpointer=checkpointer,
-            response_format=output_schema,
-        )
 
 
 def _extract_text(message: BaseMessage) -> str:

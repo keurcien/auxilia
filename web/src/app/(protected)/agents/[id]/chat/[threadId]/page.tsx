@@ -53,6 +53,7 @@ import {
 	Attachments,
 } from "@/components/ai-elements/attachments";
 import { type PromptInputMessage } from "@/components/ai-elements/prompt-input";
+import { extractToolErrorText } from "@/lib/utils/tool-content";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import ChatPromptInput from "../components/prompt-input";
@@ -914,9 +915,7 @@ const ChatPage = () => {
 																		output={output as React.ReactNode}
 																		errorText={
 																			tc.state === "error" && tc.result
-																				? typeof tc.result.content === "string"
-																					? tc.result.content
-																					: "Tool execution failed"
+																				? extractToolErrorText(tc.result.content)
 																				: undefined
 																		}
 																	/>
@@ -967,9 +966,7 @@ const ChatPage = () => {
 																)}
 																errorText={
 																	tc.state === "error" && tc.result
-																		? typeof tc.result.content === "string"
-																			? tc.result.content
-																			: "Tool execution failed"
+																		? extractToolErrorText(tc.result.content)
 																		: undefined
 																}
 																toolName={toolName}
