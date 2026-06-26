@@ -1,19 +1,22 @@
 from unittest.mock import MagicMock, patch
 
+from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
+
 from app.agents.runtime import Agent
 from app.agents.structured_output import DeferredStructuredOutputMiddleware
+from app.agents.tool_errors import ToolErrorMiddleware
 
 
-def _make_agent() -> Agent:
+def _build_agent(*, has_code_interpreter: bool = False, middleware=None) -> Agent:
     resolved = MagicMock()
-    resolved.config.has_code_interpreter = False
+    resolved.config.has_code_interpreter = has_code_interpreter
     resolved.config.instructions = "You are a test agent"
     resolved.live.all = []
     return Agent(
         thread=MagicMock(),
         agent=resolved,
         model=MagicMock(),
-        middleware=[],
+        middleware=middleware if middleware is not None else [],
         callbacks=[],
         subagents=[],
     )
@@ -22,7 +25,7 @@ def _make_agent() -> Agent:
 @patch("app.agents.runtime.create_agent")
 def test_build_agent_forwards_output_schema(mock_create_agent):
     """An output schema is passed to create_agent as response_format."""
-    agent = _make_agent()
+    agent = _build_agent()
     schema = {
         "title": "answer",
         "type": "object",
@@ -36,15 +39,13 @@ def test_build_agent_forwards_output_schema(mock_create_agent):
     # The schema must be deferred off the tool-calling loop, otherwise the
     # model skips tools and fabricates values to satisfy the constraint.
     middleware = mock_create_agent.call_args.kwargs["middleware"]
-    assert any(
-        isinstance(m, DeferredStructuredOutputMiddleware) for m in middleware
-    )
+    assert any(isinstance(m, DeferredStructuredOutputMiddleware) for m in middleware)
 
 
 @patch("app.agents.runtime.create_agent")
 def test_build_agent_without_output_schema(mock_create_agent):
     """Without an output schema, response_format stays None."""
-    agent = _make_agent()
+    agent = _build_agent()
 
     agent._build_agent(checkpointer=None)
 
@@ -53,3 +54,27 @@ def test_build_agent_without_output_schema(mock_create_agent):
     assert not any(
         isinstance(m, DeferredStructuredOutputMiddleware) for m in middleware
     )
+
+
+@patch("app.sandbox.tools.create_sandbox_tools", return_value=[])
+@patch("app.agents.runtime.create_deep_agent")
+@patch("app.agents.runtime.sandbox_settings")
+def test_build_agent_sandbox_dispatches_to_deep_agent(
+    mock_settings, mock_create_deep_agent, _mock_tools
+):
+    """With a code interpreter + sandbox enabled, the build goes through
+    create_deep_agent: ToolErrorMiddleware is appended and the caller's
+    PatchToolCallsMiddleware is dropped (deepagents injects its own)."""
+    mock_settings.enabled = True
+    agent = _build_agent(
+        has_code_interpreter=True,
+        middleware=[PatchToolCallsMiddleware(), DeferredStructuredOutputMiddleware()],
+    )
+
+    agent._build_agent(checkpointer=None)
+
+    middleware = mock_create_deep_agent.call_args.kwargs["middleware"]
+    # Our PatchToolCallsMiddleware is filtered out (deepagents adds its own).
+    assert not any(isinstance(m, PatchToolCallsMiddleware) for m in middleware)
+    # ToolErrorMiddleware is appended last so tool failures feed back as messages.
+    assert isinstance(middleware[-1], ToolErrorMiddleware)
