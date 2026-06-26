@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.6](https://github.com/keurcien/auxilia/compare/backend-v0.4.5...backend-v0.4.6) (2026-06-26)
+
+
+### Bug Fixes
+
+* **web:** surface real tool error text; refactor(agents): collapse agent construction ([#144](https://github.com/keurcien/auxilia/issues/144)) ([e7fdc8e](https://github.com/keurcien/auxilia/commit/e7fdc8e0b82fcb0d52cf8b3c62bd02b4c5e0084e))
+
 ## [0.4.5](https://github.com/keurcien/auxilia/compare/backend-v0.4.4...backend-v0.4.5) (2026-06-25)
 
 
