@@ -1,14 +1,18 @@
+import asyncio
 import logging
 from builtins import ExceptionGroup
 from contextlib import asynccontextmanager
 
-import redis.asyncio as redis
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.agents.router import router as agents_router
+from app.agents.runs.reaper import RunReaper
+from app.agents.runs.router import router as runs_router
+from app.agents.runs.settings import run_settings
+from app.agents.runs.worker import RunDispatcher
 from app.auth.router import router as auth_router
 from app.auth.settings import auth_settings
 from app.auth.tokens.router import router as tokens_router
@@ -28,26 +32,59 @@ from app.mcp.client.initialize import apply_mcp_client_patches
 from app.mcp.router import auxilia_mcp
 from app.mcp.servers.router import router as mcp_servers_router
 from app.model_providers.router import router as model_providers_router
+from app.redis_client import close_redis, get_redis
 from app.sandbox.router import router as sandbox_router
 from app.settings import app_settings
 from app.threads.router import router as threads_router
 from app.users.router import router as users_router
 
 
-logging.getLogger("app").setLevel(app_settings.log_level.upper())
+logger = logging.getLogger("app")
+logger.setLevel(app_settings.log_level.upper())
+
+
+def _log_background_crash(task: asyncio.Task) -> None:
+    """Surface a crashed background loop as a single ERROR line (a swallowed
+    exception would otherwise silently stop the dispatcher or reaper)."""
+    if task.cancelled():
+        return
+    if exc := task.exception():
+        logger.error("Background task %s crashed: %r", task.get_name(), exc)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     apply_mcp_client_patches()
+    app.state.redis = get_redis()
 
-    redis_client = redis.Redis(
-        host=app_settings.redis_host, port=app_settings.redis_port, password=app_settings.redis_password, decode_responses=True)
-    app.state.redis = redis_client
+    # The dispatcher + reaper are background loops; they need an always-on
+    # instance with CPU allocated (Cloud Run: --no-cpu-throttling, min-instances>=1).
+    # Set RUN_DISPATCHER_ENABLED=false on request-only instances.
+    background: list[asyncio.Task] = []
+    dispatcher: RunDispatcher | None = None
+    reaper: RunReaper | None = None
+    if run_settings.dispatcher_enabled:
+        dispatcher = RunDispatcher()
+        reaper = RunReaper()
+        background = [
+            asyncio.create_task(dispatcher.run(), name="run-dispatcher"),
+            asyncio.create_task(reaper.run(), name="run-reaper"),
+        ]
+        for task in background:
+            task.add_done_callback(_log_background_crash)
 
     async with auxilia_mcp.session_manager.run():
-        yield
-        await redis_client.close()
+        try:
+            yield
+        finally:
+            if dispatcher is not None:
+                await dispatcher.stop()
+            if reaper is not None:
+                reaper.stop()
+            for task in background:
+                task.cancel()
+            await asyncio.gather(*background, return_exceptions=True)
+            await close_redis()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -77,8 +114,7 @@ async def oauth_exception_handler(_request: Request, exc: Exception):
             first_match = matching_group.exceptions[0]
             return JSONResponse(
                 status_code=401,
-                content={"error": "oauth_required",
-                         "auth_url": first_match.url},
+                content={"error": "oauth_required", "auth_url": first_match.url},
             )
 
     # 3. If it's an ExceptionGroup that doesn't contain our error,
@@ -109,9 +145,7 @@ async def permission_denied_handler(_request: Request, exc: PermissionDeniedErro
 
 
 @app.exception_handler(InvalidCredentialsError)
-async def invalid_credentials_handler(
-    _request: Request, exc: InvalidCredentialsError
-):
+async def invalid_credentials_handler(_request: Request, exc: InvalidCredentialsError):
     return JSONResponse(status_code=401, content={"detail": exc.detail})
 
 
@@ -137,6 +171,7 @@ app.add_middleware(
 )
 
 app.include_router(agents_router)
+app.include_router(runs_router)
 app.include_router(auth_router)
 app.include_router(tokens_router)
 app.include_router(mcp_apps_router)

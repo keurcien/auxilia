@@ -1,0 +1,165 @@
+"""HTTP surface for the durable runtime, nested under a thread.
+
+`POST /stream` (create + subscribe) preserves the exact SSE wire shape the
+frontend already consumes — it just adds an `X-Run-Id` header and the run now
+outlives the request. `GET /{run_id}/stream` reattaches to a live or finished run
+by replaying its event log from a cursor.
+"""
+
+from fastapi import APIRouter, Body, Depends, Query
+from fastapi.responses import StreamingResponse
+
+from app.agents.runs.schemas import RunCreate, RunResponse
+from app.agents.runs.service import RunService
+from app.auth.dependencies import get_current_user
+from app.exceptions import NotFoundError, PermissionDeniedError
+from app.redis_client import get_redis
+from app.threads.router import _parse_run_config
+from app.threads.schemas import ThreadResponse
+from app.threads.service import ThreadService, get_thread_service
+from app.users.models import UserDB
+
+
+router = APIRouter(prefix="/threads/{thread_id}/runs", tags=["runs"])
+
+_SSE_HEADERS = {
+    "Cache-Control": "no-cache, no-transform",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
+
+
+def get_run_service() -> RunService:
+    return RunService(get_redis())
+
+
+async def authorize_thread(
+    thread_id: str,
+    current_user: UserDB = Depends(get_current_user),
+    service: ThreadService = Depends(get_thread_service),
+) -> ThreadResponse:
+    """Load the thread and require the caller to own it (404 if missing, 403 if not)."""
+    thread = await service.get(thread_id)
+    if thread.user_id != current_user.id:
+        raise PermissionDeniedError("Not authorized to access this thread")
+    return thread
+
+
+def _ensure_run_on_thread(record, thread_id: str) -> None:
+    """A run id from another thread must not leak across the nested route."""
+    if record.thread_id != thread_id:
+        raise NotFoundError("Run not found")
+
+
+@router.post("/stream")
+async def create_run_stream(
+    thread_id: str,
+    agent_input: dict | None = Body(None, embed=True, alias="input"),
+    command: dict | None = Body(None, embed=True),
+    config: dict | None = Body(None, embed=True),
+    context: dict | None = Body(None, embed=True),  # noqa: ARG001
+    thread: ThreadResponse = Depends(authorize_thread),
+    runs: RunService = Depends(get_run_service),
+):
+    """Create a run and stream it. Same SSE protocol as before; durable underneath."""
+    trigger, config_overrides = _parse_run_config(config)
+    record = await runs.create(
+        thread_id=thread_id,
+        user_id=str(thread.user_id),
+        input=agent_input,
+        command=command,
+        trigger=trigger,
+        config_overrides=config_overrides,
+    )
+    return StreamingResponse(
+        runs.stream(record.id),
+        media_type="text/event-stream",
+        headers={**_SSE_HEADERS, "X-Run-Id": record.id},
+    )
+
+
+@router.post("", status_code=201)
+async def create_run(
+    thread_id: str,
+    body: RunCreate,
+    thread: ThreadResponse = Depends(authorize_thread),
+    runs: RunService = Depends(get_run_service),
+) -> RunResponse:
+    """Create a run without subscribing (caller streams later via `/{run_id}/stream`)."""
+    trigger, config_overrides = _parse_run_config(body.config)
+    record = await runs.create(
+        thread_id=thread_id,
+        user_id=str(thread.user_id),
+        input=body.input,
+        command=body.command,
+        trigger=trigger,
+        config_overrides=config_overrides,
+        multitask_strategy=body.multitask_strategy,
+    )
+    return RunResponse.from_record(record)
+
+
+@router.get("")
+async def list_runs(
+    thread_id: str,
+    _: ThreadResponse = Depends(authorize_thread),
+    runs: RunService = Depends(get_run_service),
+) -> list[RunResponse]:
+    return [RunResponse.from_record(r) for r in await runs.list_for_thread(thread_id)]
+
+
+@router.get("/active")
+async def get_active_run(
+    thread_id: str,
+    _: ThreadResponse = Depends(authorize_thread),
+    runs: RunService = Depends(get_run_service),
+) -> RunResponse | None:
+    record = await runs.get_active(thread_id)
+    return RunResponse.from_record(record) if record else None
+
+
+@router.get("/{run_id}")
+async def read_run(
+    thread_id: str,
+    run_id: str,
+    _: ThreadResponse = Depends(authorize_thread),
+    runs: RunService = Depends(get_run_service),
+) -> RunResponse:
+    record = await runs.get(run_id)
+    _ensure_run_on_thread(record, thread_id)
+    return RunResponse.from_record(record)
+
+
+@router.get("/{run_id}/stream")
+async def stream_run(
+    thread_id: str,
+    run_id: str,
+    last_event_id: str = Query("0"),
+    _: ThreadResponse = Depends(authorize_thread),
+    runs: RunService = Depends(get_run_service),
+):
+    """Reattach to a run, replaying its event log from `last_event_id`.
+
+    `last_event_id=0` replays the whole turn; the SDK passes the last Redis
+    stream id it saw to resume after a reconnect. Works on a finished run too —
+    the log (including the `end` sentinel) is replayed in full.
+    """
+    record = await runs.get(run_id)
+    _ensure_run_on_thread(record, thread_id)
+    return StreamingResponse(
+        runs.stream(run_id, last_event_id),
+        media_type="text/event-stream",
+        headers={**_SSE_HEADERS, "X-Run-Id": run_id},
+    )
+
+
+@router.post("/{run_id}/cancel")
+async def cancel_run(
+    thread_id: str,
+    run_id: str,
+    _: ThreadResponse = Depends(authorize_thread),
+    runs: RunService = Depends(get_run_service),
+) -> RunResponse:
+    record = await runs.get(run_id)
+    _ensure_run_on_thread(record, thread_id)
+    return RunResponse.from_record(await runs.cancel(run_id))
