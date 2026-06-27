@@ -78,6 +78,7 @@ import { usePendingMessageStore } from "@/stores/pending-message-store";
 import { useAgentReadiness } from "@/hooks/use-agent-readiness";
 import { useHitlApprovals } from "@/hooks/use-hitl-approvals";
 import { useThrottledValue } from "@/hooks/use-throttled-value";
+import { useDurableRun, REATTACH_RUN_FIELD } from "@/hooks/use-durable-run";
 import { useChatHeaderStore } from "@/stores/chat-header-store";
 import {
 	McpAppWidget,
@@ -422,12 +423,15 @@ const ChatPage = () => {
 		refetch: refetchReady,
 	} = useAgentReadiness(agentArchived ? undefined : agentId);
 
+	const { customFetch, cancel, fetchActiveRunId } = useDurableRun(threadId);
+
 	const transport = useMemo(
 		() =>
 			new FetchStreamTransport({
 				apiUrl: `${API_BASE_URL}/threads/${threadId}/runs/stream`,
+				fetch: customFetch,
 			}),
-		[threadId],
+		[threadId, customFetch],
 	);
 
 	const thread = useStream<Record<string, unknown>>({
@@ -454,6 +458,12 @@ const ChatPage = () => {
 		},
 		[rawSubmit],
 	);
+
+	// Stop both server-side (the run outlives this request) and locally.
+	const handleStop = useCallback(() => {
+		void cancel();
+		stop();
+	}, [cancel, stop]);
 
 	// The custom transport path exposes subagent methods at runtime but
 	// BaseStream types do not include them. Cast to access the API.
@@ -614,7 +624,9 @@ const ChatPage = () => {
 	const { decisions, recordDecision } = useHitlApprovals({
 		isInterrupted,
 		pendingToolCalls,
-		submit,
+		submit: (input, opts) => {
+			void submit(input, opts);
+		},
 		messages,
 	});
 
@@ -675,7 +687,9 @@ const ChatPage = () => {
 	// ---- Initialization ----
 
 	useEffect(() => {
-		return () => clearCurrentChat();
+		return () => {
+			clearCurrentChat();
+		};
 	}, [clearCurrentChat]);
 
 	useEffect(() => {
@@ -707,6 +721,24 @@ const ChatPage = () => {
 				if (data.interruptValue !== undefined) {
 					setRehydratedInterruptValue(data.interruptValue);
 				}
+			}
+
+			// If a run is still in flight for this thread, reattach to its live
+			// stream rather than rendering the (incomplete) checkpoint. The
+			// values replay rebuilds the full conversation, so start from empty
+			// to avoid a mid-flight rebuild flicker.
+			const activeRunId = await fetchActiveRunId();
+			if (activeRunId) {
+				setInitialValues({ messages: [] });
+				setTimeout(() => {
+					rawSubmit(
+						{
+							[REATTACH_RUN_FIELD]: activeRunId,
+						} as Parameters<typeof rawSubmit>[0],
+						{ streamSubgraphs: true } as Parameters<typeof rawSubmit>[1],
+					);
+				}, 0);
+				return;
 			}
 
 			const values = data.values || { messages: [] };
@@ -857,9 +889,9 @@ const ChatPage = () => {
 															<RefreshCcwIcon className="size-3" />
 														</MessageAction>
 														<MessageAction
-															onClick={() =>
-																navigator.clipboard.writeText(text)
-															}
+															onClick={() => {
+																void navigator.clipboard.writeText(text);
+															}}
 															label="Copy"
 														>
 															<CopyIcon className="size-3" />
@@ -931,9 +963,7 @@ const ChatPage = () => {
 																			decided === "reject" && "opacity-40",
 																		)}
 																		disabled={decided != null}
-																		onClick={() =>
-																			recordDecision(tc.id, "approve")
-																		}
+																		onClick={() => { recordDecision(tc.id, "approve"); }}
 																	>
 																		Approve
 																	</Button>
@@ -944,9 +974,7 @@ const ChatPage = () => {
 																			decided === "approve" && "opacity-40",
 																		)}
 																		disabled={decided != null}
-																		onClick={() =>
-																			recordDecision(tc.id, "reject")
-																		}
+																		onClick={() => { recordDecision(tc.id, "reject"); }}
 																	>
 																		Reject
 																	</Button>
@@ -1093,7 +1121,7 @@ const ChatPage = () => {
 						onSubmit={handleSubmit}
 						status={isLoading ? "streaming" : "ready"}
 						className="w-full max-w-4xl mx-auto lg:px-10 sm:px-6 px-3 py-4"
-						stop={stop}
+						stop={handleStop}
 						selectedModel={threadModel}
 						readOnlyModel={true}
 						agentReady={agentReady}
