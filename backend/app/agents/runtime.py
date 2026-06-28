@@ -358,7 +358,7 @@ class Agent:
     ):
         """Open a checkpointer scope and yield (agent, resolved_input, config).
 
-        Shared scaffolding for `stream` and `invoke`: opens one persistent MCP
+        Scaffolding for `stream`: opens one persistent MCP
         session per server (parent + subagents) on an AsyncExitStack that lives for
         the whole astream/ainvoke loop, opens the AsyncPostgresSaver, builds the
         LangGraph agent against the live tools, and resolves the request input and
@@ -389,6 +389,7 @@ class Agent:
         command: dict | None = None,
         trigger: str | None = None,
         config_overrides: dict | None = None,
+        output_schema: dict | None = None,
         stream_adapter: str = "langgraph",
     ):
         """Stream using the native LangGraph SSE protocol.
@@ -398,9 +399,13 @@ class Agent:
             command: LangGraph Command dict (e.g. {"resume": {...}}) for HITL resume.
             trigger: Optional trigger ("regenerate-message") for regeneration.
             config_overrides: Optional config dict with configurable overrides.
+            output_schema: Optional JSON Schema; when set, the run produces a
+                `structured_response` in its final state (read via `read_run_result`).
             stream_adapter: Which stream adapter to use ("langgraph" or "slack").
         """
-        async with self._setup(agent_input, command, trigger, config_overrides) as (
+        async with self._setup(
+            agent_input, command, trigger, config_overrides, output_schema
+        ) as (
             agent,
             stream_input,
             config,
@@ -433,46 +438,44 @@ class Agent:
                     for sse in encode_synthetic_ai_message_sse(ai_msg, state.values):
                         yield sse
 
-    async def invoke(
-        self,
-        agent_input: dict | None = None,
-        command: dict | None = None,
-        trigger: str | None = None,
-        config_overrides: dict | None = None,
-        output_schema: dict | None = None,
-    ) -> dict:
-        """Run the agent to completion and return the text of the last AI message.
 
-        With `output_schema`, the final answer is also returned as a parsed
-        object under `structured_response`.
-        """
-        async with self._setup(
-            agent_input, command, trigger, config_overrides, output_schema
-        ) as (
-            agent,
-            resolved_input,
-            config,
-        ):
-            try:
-                result = await agent.ainvoke(resolved_input, config=config)
-            except GraphRecursionError:
-                ai_msg = await self._persist_recursion_fallback(agent, config)
-                return {"content": ai_msg.content, "structured_response": None}
+def extract_invoke_result(
+    messages: list, structured_response: dict | None = None
+) -> dict:
+    """Project a turn's final messages into the invoke response shape.
 
-            # Skip formatting-turn artifacts so `content` is the prose answer
-            # on every provider path (the parsed object has its own field).
-            last = next(
-                (
-                    m
-                    for m in reversed(result.get("messages", []))
-                    if not is_structured_output_artifact(m)
-                ),
-                None,
-            )
-            return {
-                "content": _extract_text(last) if last else "",
-                "structured_response": result.get("structured_response"),
-            }
+    Skips formatting-turn artifacts so `content` is the prose answer on every
+    provider path; the parsed object travels in its own field. Used by the
+    durable path's `read_run_result`.
+    """
+    last = next(
+        (m for m in reversed(messages) if not is_structured_output_artifact(m)),
+        None,
+    )
+    return {
+        "content": _extract_text(last) if last else "",
+        "structured_response": structured_response,
+    }
+
+
+async def read_run_result(thread_id: str) -> dict:
+    """Read a thread's final-turn result from its checkpoint (out-of-request).
+
+    The durable runtime streams a run to its event log rather than returning a
+    value, so the synchronous `/runs/invoke` consumer reads the answer back from
+    the LangGraph checkpoint once the run is terminal.
+    """
+    async with get_checkpointer() as checkpointer:
+        checkpoint = await checkpointer.aget_tuple(
+            config={"configurable": {"thread_id": thread_id}}
+        )
+    if checkpoint is None:
+        return {"content": "", "structured_response": None}
+    channel_values = checkpoint.checkpoint["channel_values"]
+    return extract_invoke_result(
+        channel_values.get("messages", []),
+        channel_values.get("structured_response"),
+    )
 
 
 def _extract_text(message: BaseMessage) -> str:

@@ -99,6 +99,24 @@ def _convert_part(
     return None
 
 
+def pending_interrupt(checkpoint_tuple: Any) -> Any | None:
+    """Return the pending HITL interrupt value from a checkpoint tuple, or None.
+
+    A graph paused on `HumanInTheLoopMiddleware` leaves an `__interrupt__` entry
+    in the checkpoint's `pending_writes`; this extracts its value. Shared by the
+    thread read endpoint and the durable runtime's terminal-status detection.
+    """
+    for _, channel, value in getattr(checkpoint_tuple, "pending_writes", None) or []:
+        if channel != "__interrupt__":
+            continue
+        batch = value if isinstance(value, (list, tuple)) else [value]
+        if not batch:
+            continue
+        first = batch[0]
+        return getattr(first, "value", first)
+    return None
+
+
 def deserialize_to_ui_messages(langgraph_messages: list) -> list[Message]:
     """Convert LangGraph checkpoint messages to auxilia UI messages.
 
