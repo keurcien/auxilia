@@ -108,9 +108,10 @@ auxilia/
 │   │   ├── agents/                    # Agent management & LangGraph runtime
 │   │   │   ├── core/                  # AgentService + repository (CRUD, permissions)
 │   │   │   ├── mcp_servers/           # AgentMCPServerService (agent↔MCP bindings, tool sync)
-│   │   │   ├── subagents/             # SubagentService (coordinator/subagent links)
+│   │   │   ├── subagents/             # SubagentService (supervisor/subagent links)
+│   │   │   ├── runs/                  # Durable run runtime — Redis-backed runs, queue, worker, reaper (see runs/SPEC.md)
 │   │   │   ├── hitl.py                # HITL approval extraction from UI messages
-│   │   │   ├── runtime.py             # AgentRuntime — LangGraph invocation & tool orchestration
+│   │   │   ├── runtime.py             # Agent runtime — Agent.build / .stream / .invoke (LangGraph)
 │   │   │   ├── stream.py              # AI SDK SSE & Slack stream adapters
 │   │   │   ├── toolset.py             # Tool binding for the agent
 │   │   │   ├── tool_errors.py         # ToolException middleware
@@ -137,10 +138,11 @@ auxilia/
 │   │   ├── sandbox/                   # Sandboxed code execution
 │   │   ├── threads/                   # Chat thread management
 │   │   │   ├── serialization.py       # LangGraph checkpoint → UI message conversion
-│   │   │   └── router.py              # Thread CRUD & history + /runs/stream & /runs/invoke
+│   │   │   └── router.py              # Thread CRUD, history & subagent state (runs live in agents/runs/)
 │   │   ├── users/                     # User management
 │   │   ├── utils/                     # RequestTimer and other shared helpers
 │   │   ├── database.py                # Async engine + request-scoped get_db
+│   │   ├── redis_client.py            # Shared async Redis client (durable runtime, out-of-request)
 │   │   ├── exceptions.py              # DomainError hierarchy (NotFoundError, ValidationError, …)
 │   │   ├── main.py                    # FastAPI app + global exception handlers
 │   │   ├── models.py                  # BaseDBModel, UUIDMixin, TimestampMixin, AI SDK Message

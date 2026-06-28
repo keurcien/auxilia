@@ -9,6 +9,7 @@ FastAPI backend for the auxilia project with MCP (Model Context Protocol) server
 - **Redis Pub/Sub**: Real-time communication for OAuth callbacks
 - **LangGraph Integration**: Agent-based conversation management
 - **Thread Management**: Persistent conversation threads with checkpointing
+- **Durable Agent Runtime**: Redis-backed runs that outlive the HTTP request — reattachable streams, server-side cancel, and orphan recovery, distributed across instances via a shared queue. The `/threads/{thread_id}/runs/*` API (stream, invoke, reattach, cancel) is served by `app/agents/runs/`; see [`app/agents/runs/SPEC.md`](app/agents/runs/SPEC.md).
 
 ## Prerequisites
 
