@@ -37,7 +37,10 @@ class RunControl:
 
     async def wait_for_cancel(self, *, poll_seconds: float = 1.0) -> bool:
         """Return True once a cancel signal is present, polling until then."""
+        # Guard against a misconfigured 0/negative interval turning this into a
+        # tight Redis loop on every running worker.
+        interval = poll_seconds if poll_seconds > 0 else 1.0
         while True:
             if await self.redis.lpop(self._key) is not None:
                 return True
-            await asyncio.sleep(poll_seconds)
+            await asyncio.sleep(interval)

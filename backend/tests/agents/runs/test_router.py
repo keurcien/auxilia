@@ -123,3 +123,21 @@ def test_invoke_failed_run_is_500(client: TestClient, mock_db, current_user):
 
     assert response.status_code == 500
     assert response.json()["detail"] == "boom"
+
+
+def test_invoke_non_success_terminal_is_500(client: TestClient, mock_db, current_user):
+    """A cancelled/interrupted run must not return partial checkpoint data as success."""
+    thread = _owned_thread(current_user)
+    _mock_thread_lookup(mock_db, thread)
+    fake = _FakeRunService(terminal=RunStatus.cancelled)
+    app.dependency_overrides[get_run_service] = lambda: fake
+
+    try:
+        response = client.post(
+            f"/threads/{thread.id}/runs/invoke",
+            json={"input": {"messages": [{"type": "human", "content": "hi"}]}},
+        )
+    finally:
+        app.dependency_overrides.pop(get_run_service, None)
+
+    assert response.status_code == 500

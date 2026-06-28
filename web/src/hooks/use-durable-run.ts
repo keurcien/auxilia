@@ -22,9 +22,11 @@ type DurableRun = {
 function extractReattachRunId(body: BodyInit | null | undefined): string | null {
   if (typeof body !== "string") return null;
   try {
-    // The marker is set by us (REATTACH_RUN_FIELD) on the submit input; read it
-    // through a typed shape with static access. The key is a constant, not user
-    // input, so there's no object-injection vector.
+    // The marker is set by us (REATTACH_RUN_FIELD) on the submit input. Read it
+    // via static access (the key is a constant, not user input — no
+    // object-injection vector). NOTE: the literal `__reattach_run_id` here must
+    // stay in sync with REATTACH_RUN_FIELD; it's spelled out so the static key
+    // satisfies the object-injection lint.
     const parsed = JSON.parse(body) as {
       input?: { __reattach_run_id?: unknown };
     };
@@ -52,9 +54,12 @@ export function useDurableRun(threadId: string): DurableRun {
     async (_input, init) => {
       const controller = new AbortController();
       abortRef.current = controller;
-      const signal = init?.signal
-        ? AbortSignal.any([init.signal, controller.signal])
-        : controller.signal;
+      // Combine the SDK's signal with ours when AbortSignal.any is available;
+      // fall back to ours alone on older browsers that lack it.
+      const signal =
+        init?.signal && typeof AbortSignal.any === "function"
+          ? AbortSignal.any([init.signal, controller.signal])
+          : controller.signal;
 
       // Build the target ourselves from the constant, same-origin base and
       // encoded path segments — never forward the SDK's opaque `input` — so no

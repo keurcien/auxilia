@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -15,7 +16,7 @@ class RunCreate(BaseModel):
     input: dict | None = None
     command: dict | None = None
     config: dict | None = None
-    multitask_strategy: str = "reject"
+    multitask_strategy: Literal["reject", "enqueue"] = "reject"
 
 
 class RunResponse(BaseModel):

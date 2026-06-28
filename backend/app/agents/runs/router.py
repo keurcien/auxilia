@@ -120,8 +120,12 @@ async def invoke_run(
         output_schema=output_schema,
     )
     record = await runs.wait_for_terminal(record.id)
-    if record.status in (RunStatus.error, RunStatus.timeout):
-        raise DomainError(record.error or "Run failed")
+    # Only a clean success yields a result. cancelled/interrupted/error/timeout
+    # would otherwise return stale or partial checkpoint data as if it succeeded.
+    if record.status is not RunStatus.success:
+        raise DomainError(
+            record.error or f"Run did not complete ({record.status.value})"
+        )
     return await read_run_result(thread_id)
 
 

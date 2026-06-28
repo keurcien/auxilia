@@ -155,6 +155,17 @@ async def test_create_rejects_when_thread_has_active_run(redis):
         await service.create(thread_id="t9", user_id="u1", input={})
 
 
+async def test_create_rejects_both_input_and_command(redis):
+    service = RunService(redis)
+    with pytest.raises(DomainValidationError):
+        await service.create(
+            thread_id="tx",
+            user_id="u1",
+            input={"messages": []},
+            command={"resume": "x"},
+        )
+
+
 async def test_cancel_pending_run_finalizes_immediately(redis):
     service = RunService(redis)
     record = await service.create(thread_id="t4", user_id="u1", input={})

@@ -81,11 +81,26 @@ class RunWorker:
         if not done:  # wall-clock cap elapsed
             await self._stop(stream_task)
             return RunStatus.timeout, None
-        if cancel_watch in done and not cancel_watch.cancelled():
+
+        # A genuine cancel: the watcher completed cleanly with a signal. A failed
+        # watcher (e.g. a transient Redis error) must NOT cancel a healthy run.
+        if (
+            cancel_watch in done
+            and not cancel_watch.cancelled()
+            and cancel_watch.exception() is None
+        ):
             await self._stop(stream_task)
             return RunStatus.cancelled, None
+        if cancel_watch in done and cancel_watch.exception() is not None:
+            logger.warning(
+                "Cancel watcher failed for run %s; continuing: %r",
+                record.id,
+                cancel_watch.exception(),
+            )
 
-        # The stream finished on its own.
+        # The stream is the source of truth — make sure it has finished.
+        if not stream_task.done():
+            await stream_task
         exc = stream_task.exception()
         if exc is not None:
             return RunStatus.error, str(exc)
@@ -190,7 +205,17 @@ class RunDispatcher:
             self._semaphore.release()
 
     async def stop(self, *, drain_timeout: float = 10.0) -> None:
-        """Stop accepting work and wait for in-flight runs to drain."""
+        """Stop accepting work, drain in-flight runs, then cancel stragglers.
+
+        Cancelling the leftovers (before the caller closes Redis) lets them
+        unwind deterministically rather than failing mid-finalize against a
+        closed connection; the reaper recovers anything left non-terminal.
+        """
         self._stopping.set()
-        if self._tasks:
-            await asyncio.wait(self._tasks, timeout=drain_timeout)
+        if not self._tasks:
+            return
+        _, pending = await asyncio.wait(self._tasks, timeout=drain_timeout)
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)

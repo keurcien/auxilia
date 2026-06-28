@@ -48,6 +48,8 @@ class RunService:
         With the default `reject` strategy, creating a run while the thread has an
         active one raises `DomainValidationError`.
         """
+        if input is not None and command is not None:
+            raise DomainValidationError("Provide either input or command, not both.")
         if multitask_strategy == "reject" and await self.registry.get_active_id(
             thread_id
         ):

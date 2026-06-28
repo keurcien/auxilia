@@ -730,12 +730,14 @@ const ChatPage = () => {
 			const activeRunId = await fetchActiveRunId();
 			if (activeRunId) {
 				setInitialValues({ messages: [] });
+				// Use the `submit` wrapper (not rawSubmit) so any rehydrated HITL
+				// state is cleared before the live replayed run owns it.
 				setTimeout(() => {
-					rawSubmit(
+					submit(
 						{
 							[REATTACH_RUN_FIELD]: activeRunId,
-						} as Parameters<typeof rawSubmit>[0],
-						{ streamSubgraphs: true } as Parameters<typeof rawSubmit>[1],
+						} as Parameters<typeof submit>[0],
+						{ streamSubgraphs: true } as Parameters<typeof submit>[1],
 					);
 				}, 0);
 				return;

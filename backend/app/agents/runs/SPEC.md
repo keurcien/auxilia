@@ -68,7 +68,7 @@ Redis primitives playing the "repository" role:
 | `keys.py`     | every Redis key builder — the one place the key schema is written down                 |
 | `registry.py` | `RunRegistry` — `RunRecord` hash CRUD, active-run mutex (Lua), `list_for_thread`       |
 | `events.py`   | `RunEventStream` — Redis Streams: `publish(sse)` / `subscribe(last_event_id)`          |
-| `control.py`  | `RunControl` — cancel signal (Redis list + `BLPOP`)                                    |
+| `control.py`  | `RunControl` — cancel signal (Redis list, polled via non-blocking `LPOP`)              |
 | `queue.py`    | `RunQueue` — FIFO dispatch: `enqueue(run_id)` / `dequeue()` (`BRPOP`)                   |
 | `worker.py`   | `RunWorker` (executes one run) + `RunDispatcher` (BRPOP loop, semaphore, task-per-run) |
 | `reaper.py`   | `RunReaper` — periodic orphan recovery                                                 |
@@ -92,8 +92,9 @@ composes them. Documented here so the deviation is intentional, not drift.
 | -------------------------------- | ------ | ----------------------------------------------------- | ---- |
 | `run:{run_id}`                   | hash   | serialized `RunRecord`                                | 24h  |
 | `run:{run_id}:events`            | stream | append-only SSE chunks (`{"data": "<sse>"}`)          | 24h  |
-| `run:{run_id}:control`           | list   | cancel signal (`BLPOP` target)                        | 24h  |
+| `run:{run_id}:control`           | list   | cancel signal (polled via non-blocking `LPOP`)        | 24h  |
 | `runs:queue`                     | list   | FIFO of `run_id`s awaiting a dispatcher (`BRPOP`)     | —    |
+| `runs:active`                    | set    | run_ids in a non-terminal state — the reaper's worklist | live |
 | `thread:{thread_id}:active_run`  | string | the active `run_id` — the per-thread mutex (`SET NX`) | live |
 | `thread:{thread_id}:runs`        | zset   | `run_id`s by `created_at` (for `list_for_thread`)     | 24h  |
 
@@ -116,8 +117,10 @@ finished run replays the whole log including the sentinel.
 ## Execution flow
 
 1. `RunService.create(thread_id, input|command)` → build `RunRecord(status=pending)`,
-   `registry.create`, `thread.runs` zset add, `queue.enqueue(run_id)`. Returns the
-   record (HTTP layer captures `run_id` → `X-Run-Id`).
+   `registry.create` (writes the hash, adds to the `thread.runs` zset and the
+   `runs:active` set), `queue.enqueue(run_id)`. Returns the record (HTTP layer
+   captures `run_id` → `X-Run-Id`). `set_status` removes from `runs:active` on a
+   terminal transition.
 2. A `RunDispatcher` (one per process, started in `lifespan`) `BRPOP`s `runs:queue`,
    and for each id spawns a task on a `Semaphore(RUN_WORKER_CONCURRENCY)`.
 3. `RunWorker.run(run_id)`:
