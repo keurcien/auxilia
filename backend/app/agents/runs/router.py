@@ -73,7 +73,6 @@ async def create_run_stream(
     agent_input: dict | None = Body(None, embed=True, alias="input"),
     command: dict | None = Body(None, embed=True),
     config: dict | None = Body(None, embed=True),
-    context: dict | None = Body(None, embed=True),  # noqa: ARG001
     thread: ThreadResponse = Depends(authorize_thread),
     runs: RunService = Depends(get_run_service),
 ):
@@ -100,7 +99,6 @@ async def invoke_run(
     agent_input: dict | None = Body(None, embed=True, alias="input"),
     command: dict | None = Body(None, embed=True),
     config: dict | None = Body(None, embed=True),
-    context: dict | None = Body(None, embed=True),  # noqa: ARG001
     output_schema: dict | None = Body(None, embed=True),
     thread: ThreadResponse = Depends(authorize_thread),
     runs: RunService = Depends(get_run_service),

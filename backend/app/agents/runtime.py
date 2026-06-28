@@ -358,7 +358,7 @@ class Agent:
     ):
         """Open a checkpointer scope and yield (agent, resolved_input, config).
 
-        Shared scaffolding for `stream` and `invoke`: opens one persistent MCP
+        Scaffolding for `stream`: opens one persistent MCP
         session per server (parent + subagents) on an AsyncExitStack that lives for
         the whole astream/ainvoke loop, opens the AsyncPostgresSaver, builds the
         LangGraph agent against the live tools, and resolves the request input and
@@ -438,36 +438,6 @@ class Agent:
                     for sse in encode_synthetic_ai_message_sse(ai_msg, state.values):
                         yield sse
 
-    async def invoke(
-        self,
-        agent_input: dict | None = None,
-        command: dict | None = None,
-        trigger: str | None = None,
-        config_overrides: dict | None = None,
-        output_schema: dict | None = None,
-    ) -> dict:
-        """Run the agent to completion and return the text of the last AI message.
-
-        With `output_schema`, the final answer is also returned as a parsed
-        object under `structured_response`.
-        """
-        async with self._setup(
-            agent_input, command, trigger, config_overrides, output_schema
-        ) as (
-            agent,
-            resolved_input,
-            config,
-        ):
-            try:
-                result = await agent.ainvoke(resolved_input, config=config)
-            except GraphRecursionError:
-                ai_msg = await self._persist_recursion_fallback(agent, config)
-                return {"content": ai_msg.content, "structured_response": None}
-
-            return extract_invoke_result(
-                result.get("messages", []), result.get("structured_response")
-            )
-
 
 def extract_invoke_result(
     messages: list, structured_response: dict | None = None
@@ -475,8 +445,8 @@ def extract_invoke_result(
     """Project a turn's final messages into the invoke response shape.
 
     Skips formatting-turn artifacts so `content` is the prose answer on every
-    provider path; the parsed object travels in its own field. Shared by
-    `Agent.invoke` and the durable path's `read_run_result`.
+    provider path; the parsed object travels in its own field. Used by the
+    durable path's `read_run_result`.
     """
     last = next(
         (m for m in reversed(messages) if not is_structured_output_artifact(m)),
