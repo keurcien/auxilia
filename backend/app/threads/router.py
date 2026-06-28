@@ -1,11 +1,10 @@
-from fastapi import APIRouter, Body, Depends, Request
+from fastapi import APIRouter, Depends, Request
 
 from app.agents.core.service import AgentService, get_agent_service
-from app.agents.runtime import Agent
 from app.agents.stream import _serialize_lc_message
 from app.agents.structured_output import is_structured_output_artifact
 from app.auth.dependencies import detect_auth_method, get_current_user
-from app.database import get_checkpointer, get_db
+from app.database import get_checkpointer
 from app.exceptions import PermissionDeniedError
 from app.threads.models import ThreadDB, ThreadSource
 from app.threads.schemas import ThreadCreate, ThreadResponse, ViewerRole
@@ -15,23 +14,6 @@ from app.users.models import UserDB
 
 
 router = APIRouter(prefix="/threads", tags=["threads"])
-
-
-def _parse_run_config(
-    config: dict | None,
-) -> tuple[str | None, dict | None]:
-    """Pull `trigger` and `config_overrides` out of a /runs request body config.
-
-    Mutates the input dict: consumes `trigger` and `thread_id` from
-    `config["configurable"]`. Returns `(trigger, config_overrides)` where
-    `config_overrides` is the remaining config (or None if empty).
-    """
-    if not config or not config.get("configurable"):
-        return None, None
-    trigger = config["configurable"].pop("trigger", None)
-    config["configurable"].pop("thread_id", None)
-    config_overrides = config if config["configurable"] else None
-    return trigger, config_overrides
 
 
 async def _resolve_viewer_role(
@@ -227,35 +209,3 @@ async def delete_thread(
         await checkpointer.adelete_thread(thread_id=thread_id)
 
     await service.delete(thread_id)
-
-
-@router.post("/{thread_id}/runs/invoke")
-async def run_invoke(
-    thread_id: str,
-    agent_input: dict | None = Body(None, embed=True, alias="input"),
-    command: dict | None = Body(None, embed=True),
-    config: dict | None = Body(None, embed=True),
-    context: dict | None = Body(None, embed=True),  # noqa: ARG001
-    output_schema: dict | None = Body(None, embed=True),
-    current_user: UserDB = Depends(get_current_user),
-    service: ThreadService = Depends(get_thread_service),
-    db=Depends(get_db),
-):
-    """Non-streaming invoke endpoint. Returns the final agent response as JSON.
-
-    When `output_schema` (a JSON Schema object) is provided, the agent's final
-    answer is constrained to it and returned under `structured_response`.
-    """
-    thread = await service.get(thread_id)
-    if thread.user_id != current_user.id:
-        raise PermissionDeniedError("Not authorized to run this thread")
-    agent = await Agent.build(thread=thread, db=db)
-    trigger, config_overrides = _parse_run_config(config)
-
-    return await agent.invoke(
-        agent_input=agent_input,
-        command=command,
-        trigger=trigger,
-        config_overrides=config_overrides,
-        output_schema=output_schema,
-    )

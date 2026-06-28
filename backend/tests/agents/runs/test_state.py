@@ -17,11 +17,13 @@ def test_record_redis_round_trip():
         user_id="u1",
         input={"messages": [{"type": "human", "content": "hi"}]},
         trigger="regenerate-message",
+        output_schema={"type": "object", "properties": {"x": {"type": "number"}}},
     )
     back = RunRecord.from_redis(record.to_redis())
     assert back.id == "r1"
     assert back.input == record.input
     assert back.trigger == "regenerate-message"
+    assert back.output_schema == record.output_schema
     assert back.status == RunStatus.pending
 
 

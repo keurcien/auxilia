@@ -109,6 +109,7 @@ class RunWorker:
                 command=record.command,
                 trigger=record.trigger,
                 config_overrides=record.config_overrides,
+                output_schema=record.output_schema,
             ):
                 if sse.startswith(_ERROR_EVENT_PREFIX):
                     error_seen = True

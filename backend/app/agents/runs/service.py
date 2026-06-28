@@ -40,6 +40,7 @@ class RunService:
         command: dict | None = None,
         trigger: str | None = None,
         config_overrides: dict | None = None,
+        output_schema: dict | None = None,
         multitask_strategy: str = "reject",
     ) -> RunRecord:
         """Create + enqueue a run. Caller has already authorized the thread.
@@ -59,6 +60,7 @@ class RunService:
             command=command,
             trigger=trigger,
             config_overrides=config_overrides,
+            output_schema=output_schema,
             multitask_strategy=multitask_strategy,
         )
         await self.registry.create(record, ttl=run_settings.ttl_seconds)
@@ -97,6 +99,16 @@ class RunService:
         """Relay a run's SSE event log from `last_event_id` until it ends."""
         async for sse in RunEventStream(run_id, self.redis).subscribe(last_event_id):
             yield sse
+
+    async def wait_for_terminal(self, run_id: str) -> RunRecord:
+        """Block until the run reaches a terminal state, then return its record.
+
+        The synchronous `/runs/invoke` consumer: it rides the event log's blocking
+        read (no polling) and discards the chunks — it only needs to know the run
+        finished, then reads the result back from the checkpoint."""
+        async for _ in RunEventStream(run_id, self.redis).subscribe():
+            pass  # drain to the end sentinel
+        return await self.get(run_id)
 
     async def finalize(
         self, run_id: str, status: RunStatus, *, error: str | None = None

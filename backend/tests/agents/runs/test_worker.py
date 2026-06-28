@@ -113,6 +113,41 @@ async def test_cancel_mid_run_stops_and_releases(redis, monkeypatch):
     assert await service.get_active("t5") is None
 
 
+@pytest.mark.usefixtures("patch_agent")
+async def test_wait_for_terminal_returns_terminal_record(redis):
+    service = RunService(redis)
+    record = await service.create(thread_id="t6", user_id="u1", input={"messages": []})
+    await RunWorker(redis).run(record.id)
+    # Run already finished; wait_for_terminal drains the log and returns at once.
+    final = await service.wait_for_terminal(record.id)
+    assert final.status == RunStatus.success
+
+
+async def test_worker_forwards_output_schema_to_agent(redis, monkeypatch):
+    captured: dict = {}
+
+    class _RecordingAgent(_FakeAgent):
+        async def stream(self, **kwargs):
+            captured.update(kwargs)
+            yield "event: messages\ndata: {}\n\n"
+
+    monkeypatch.setattr(worker_mod, "Agent", _RecordingAgent)
+    monkeypatch.setattr(worker_mod, "AsyncSessionLocal", lambda: _FakeSession())
+
+    async def _no_interrupt(*_):
+        return False
+
+    monkeypatch.setattr(RunWorker, "_is_interrupted", _no_interrupt)
+
+    service = RunService(redis)
+    schema = {"type": "object"}
+    record = await service.create(
+        thread_id="t7", user_id="u1", input={"messages": []}, output_schema=schema
+    )
+    await RunWorker(redis).run(record.id)
+    assert captured.get("output_schema") == schema
+
+
 async def test_create_rejects_when_thread_has_active_run(redis):
     service = RunService(redis)
     await service.registry.claim_active("t9", "other-run", ttl=30)

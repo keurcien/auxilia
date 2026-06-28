@@ -101,6 +101,8 @@ class RunRecord(BaseModel):
     command: dict | None = None
     trigger: str | None = None
     config_overrides: dict | None = None
+    # JSON Schema for a structured final answer (the invoke consumer reads it back).
+    output_schema: dict | None = None
 
     # Terminal error text, when status is `error`/`timeout`.
     error: str | None = None
