@@ -234,6 +234,77 @@ def test_get_thread_not_found(client: TestClient, mock_db):
     assert response.json()["detail"] == "Thread not found"
 
 
+def test_update_thread(client: TestClient, mock_db, current_user):
+    """Owner can rename their own thread (updates first_message_content only)."""
+    thread_id = str(uuid4())
+    agent_id = uuid4()
+    thread = ThreadDB(
+        id=thread_id,
+        user_id=current_user.id,
+        agent_id=agent_id,
+        first_message_content="Old title",
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = thread
+    mock_result.one_or_none.return_value = (thread, "Test Agent", "🤖", None, False)
+    mock_db.execute.return_value = mock_result
+
+    async def mock_refresh(obj):
+        pass
+
+    mock_db.refresh = mock_refresh
+
+    response = client.patch(
+        f"/threads/{thread_id}", json={"first_message_content": "New title"}
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["first_message_content"] == "New title"
+    assert thread.first_message_content == "New title"
+
+
+@pytest.mark.usefixtures("current_user")
+def test_update_thread_forbidden_for_non_owner(client: TestClient, mock_db):
+    """A non-owner cannot rename a thread."""
+    thread_id = str(uuid4())
+    thread = ThreadDB(
+        id=thread_id,
+        user_id=uuid4(),
+        agent_id=uuid4(),
+        first_message_content="Someone else's thread",
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = thread
+    mock_db.execute.return_value = mock_result
+
+    response = client.patch(
+        f"/threads/{thread_id}", json={"first_message_content": "Hijacked"}
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.usefixtures("current_user")
+def test_update_thread_not_found(client: TestClient, mock_db):
+    """Renaming a non-existent thread returns 404."""
+    fake_id = uuid4()
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = None
+    mock_db.execute.return_value = mock_result
+
+    response = client.patch(
+        f"/threads/{fake_id}", json={"first_message_content": "New title"}
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Thread not found"
+
+
 @patch("app.threads.router.get_checkpointer")
 def test_delete_thread(mock_checkpointer, client: TestClient, mock_db, current_user):
     """Test deleting a thread."""

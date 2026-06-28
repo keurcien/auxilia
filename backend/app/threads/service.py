@@ -10,7 +10,12 @@ from app.exceptions import NotFoundError
 from app.service import BaseService
 from app.threads.models import ThreadDB, ThreadSource
 from app.threads.repository import ThreadRepository
-from app.threads.schemas import AgentThreadResponse, ThreadCreate, ThreadResponse
+from app.threads.schemas import (
+    AgentThreadResponse,
+    ThreadCreate,
+    ThreadPatch,
+    ThreadResponse,
+)
 
 
 def _thread_with_agent(
@@ -91,6 +96,11 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
         await self.db.flush()
         await self.db.refresh(thread)
         return ThreadResponse.model_validate(thread)
+
+    async def update(self, thread_id: str, data: ThreadPatch) -> ThreadResponse:
+        thread = await self.get_or_404(thread_id)
+        await self.repository.update(thread, data)
+        return await self.get_with_agent(thread_id)
 
     async def delete(self, thread_id: str) -> ThreadDB:
         thread = await self.get_or_404(thread_id)

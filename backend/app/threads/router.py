@@ -7,7 +7,7 @@ from app.auth.dependencies import detect_auth_method, get_current_user
 from app.database import get_checkpointer
 from app.exceptions import PermissionDeniedError
 from app.threads.models import ThreadDB, ThreadSource
-from app.threads.schemas import ThreadCreate, ThreadResponse, ViewerRole
+from app.threads.schemas import ThreadCreate, ThreadPatch, ThreadResponse, ViewerRole
 from app.threads.serialization import deserialize_to_ui_messages, pending_interrupt
 from app.threads.service import ThreadService, get_thread_service
 from app.users.models import UserDB
@@ -194,6 +194,19 @@ async def create_thread(
         else ThreadSource.api
     )
     return await service.create(thread_data, current_user.id, source)
+
+
+@router.patch("/{thread_id}")
+async def update_thread(
+    thread_id: str,
+    data: ThreadPatch,
+    current_user: UserDB = Depends(get_current_user),
+    service: ThreadService = Depends(get_thread_service),
+) -> ThreadResponse:
+    thread = await service.get(thread_id)
+    if thread.user_id != current_user.id:
+        raise PermissionDeniedError("Not authorized to edit this thread")
+    return await service.update(thread_id, data)
 
 
 @router.delete("/{thread_id}", status_code=204)

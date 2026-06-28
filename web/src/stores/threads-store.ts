@@ -7,6 +7,7 @@ interface ThreadsState {
 	fetchThreads: () => Promise<void>;
 	addThread: (thread: Thread) => void;
 	removeThread: (threadId: string) => void;
+	renameThread: (threadId: string, firstMessageContent: string) => void;
 	markAgentArchived: (agentId: string) => void;
 }
 
@@ -20,18 +21,28 @@ export const useThreadsStore = create<ThreadsState>((set) => ({
 			console.error("Error fetching threads:", error);
 		}
 	},
-	addThread: (thread) =>
-		set((state) => ({ threads: [thread, ...state.threads] })),
-	removeThread: (threadId) =>
+	addThread: (thread) => {
+		set((state) => ({ threads: [thread, ...state.threads] }));
+	},
+	removeThread: (threadId) => {
 		set((state) => ({
 			threads: state.threads.filter((thread) => thread.id !== threadId),
-		})),
-	markAgentArchived: (agentId) =>
+		}));
+	},
+	renameThread: (threadId, firstMessageContent) => {
+		set((state) => ({
+			threads: state.threads.map((thread) =>
+				thread.id === threadId ? { ...thread, firstMessageContent } : thread,
+			),
+		}));
+	},
+	markAgentArchived: (agentId) => {
 		set((state) => ({
 			threads: state.threads.map((thread) =>
 				thread.agentId === agentId
 					? { ...thread, agentArchived: true, agentName: null }
 					: thread,
 			),
-		})),
+		}));
+	},
 }));
