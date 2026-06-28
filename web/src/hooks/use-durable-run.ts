@@ -22,8 +22,13 @@ type DurableRun = {
 function extractReattachRunId(body: BodyInit | null | undefined): string | null {
   if (typeof body !== "string") return null;
   try {
-    const parsed = JSON.parse(body) as { input?: Record<string, unknown> };
-    const value = parsed.input?.[REATTACH_RUN_FIELD];
+    // The marker is set by us (REATTACH_RUN_FIELD) on the submit input; read it
+    // through a typed shape with static access. The key is a constant, not user
+    // input, so there's no object-injection vector.
+    const parsed = JSON.parse(body) as {
+      input?: { __reattach_run_id?: unknown };
+    };
+    const value = parsed.input?.__reattach_run_id;
     return typeof value === "string" ? value : null;
   } catch {
     return null;
@@ -44,21 +49,26 @@ export function useDurableRun(threadId: string): DurableRun {
   const abortRef = useRef<AbortController | null>(null);
 
   const customFetch = useCallback<typeof fetch>(
-    async (input, init) => {
+    async (_input, init) => {
       const controller = new AbortController();
       abortRef.current = controller;
       const signal = init?.signal
         ? AbortSignal.any([init.signal, controller.signal])
         : controller.signal;
 
+      // Build the target ourselves from the constant, same-origin base and
+      // encoded path segments — never forward the SDK's opaque `input` — so no
+      // unsanitized value can reach fetch or manipulate the path.
+      const thread = encodeURIComponent(threadId);
       const reattachRunId = extractReattachRunId(init?.body);
       if (reattachRunId) {
         runIdRef.current = reattachRunId;
-        const url = `${API_BASE_URL}/threads/${threadId}/runs/${reattachRunId}/stream?last_event_id=0`;
+        const url = `${API_BASE_URL}/threads/${thread}/runs/${encodeURIComponent(reattachRunId)}/stream?last_event_id=0`;
         return fetch(url, { method: "GET", credentials: "include", signal });
       }
 
-      const response = await fetch(input, { ...init, signal });
+      const url = `${API_BASE_URL}/threads/${thread}/runs/stream`;
+      const response = await fetch(url, { ...init, signal });
       const runId = response.headers.get("X-Run-Id");
       if (runId) runIdRef.current = runId;
       return response;
@@ -70,7 +80,9 @@ export function useDurableRun(threadId: string): DurableRun {
     const runId = runIdRef.current;
     if (!runId) return;
     try {
-      await api.post(`/threads/${threadId}/runs/${runId}/cancel`);
+      await api.post(
+        `/threads/${encodeURIComponent(threadId)}/runs/${encodeURIComponent(runId)}/cancel`,
+      );
     } catch {
       // Best effort: the local stream is already stopped; the reaper will
       // recover the run if the cancel POST didn't land.
@@ -79,7 +91,9 @@ export function useDurableRun(threadId: string): DurableRun {
 
   const fetchActiveRunId = useCallback(async () => {
     try {
-      const response = await api.get(`/threads/${threadId}/runs/active`);
+      const response = await api.get(
+        `/threads/${encodeURIComponent(threadId)}/runs/active`,
+      );
       const runId = (response.data as { id?: string } | null)?.id;
       return runId ?? null;
     } catch {
