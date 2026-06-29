@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.9](https://github.com/keurcien/auxilia/compare/backend-v0.4.8...backend-v0.4.9) (2026-06-29)
+
+
+### Features
+
+* **slack:** run Slack agent turns through the durable runtime ([#161](https://github.com/keurcien/auxilia/issues/161)) ([de4e017](https://github.com/keurcien/auxilia/commit/de4e01745ad538e826c39a95a1516804ed9f9167))
+
 ## [0.4.8](https://github.com/keurcien/auxilia/compare/backend-v0.4.7...backend-v0.4.8) (2026-06-29)
 
 
