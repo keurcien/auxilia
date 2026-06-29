@@ -149,7 +149,7 @@ event log and relays each chunk to the channel.
 
 - A run carries an opaque `delivery` descriptor (`RunRecord.delivery`); `None`
   means pull. The schema is owned by the channel (Slack writes
-  `{"channel": "slack", "channel_id", "thread_ts", "slack_user_id", "team_id"}`),
+  `{"channel": "slack", "channel_id": "C…", "thread_ts": "…", "slack_user_id": "U…", "team_id": "T…"}`),
   not by this module — `app/agents/runs` never imports `app/integrations`.
 - The composition root (`main.py`) injects a `DeliveryFactory` into
   `RunDispatcher` → `RunWorker`. After the run goes `running`, the worker builds a

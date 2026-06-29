@@ -76,10 +76,19 @@ class RunWorker:
             await delivery  # the sentinel is published; let the consumer finish
 
     def _start_delivery(self, record: RunRecord) -> asyncio.Task | None:
-        """Spawn the push-delivery consumer for this run, if one applies."""
+        """Spawn the push-delivery consumer for this run, if one applies.
+
+        Building the consumer is best-effort: a factory that raises must not abort
+        the run before it executes/finalizes (which would leave the mutex held and
+        the heartbeat orphaned), so failures are logged and treated as no delivery.
+        """
         if self._delivery_factory is None:
             return None
-        consumer = self._delivery_factory(record)
+        try:
+            consumer = self._delivery_factory(record)
+        except Exception:  # noqa: BLE001 — delivery is best-effort
+            logger.exception("Delivery factory failed for run %s", record.id)
+            return None
         if consumer is None:
             return None
         return asyncio.create_task(self._deliver(record.id, consumer))

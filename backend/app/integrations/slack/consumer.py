@@ -76,23 +76,28 @@ class SlackRunConsumer(DeliveryConsumer):
         )
         adapter = SlackStreamAdapter()
         status: str | None = None
-        async for event in adapter.stream(
-            RunService(self.redis).stream(self.record.id)
-        ):
-            kind = event["type"]
-            if kind == "text":
-                await streamer.append(markdown_text=event["content"])
-            elif kind == "tool_start":
-                await streamer.append(
-                    markdown_text=format_tool_streamer_label(event["tool_name"])
-                )
-            elif kind == "error":
-                await streamer.append(
-                    markdown_text=f"**`Error: {event['content']}`**\n\n"
-                )
-            elif kind == "end":
-                status = event["status"]
-        await streamer.stop()
+        # Always close the streaming message: a transient Redis/SSE or Slack
+        # append error must not leave an in-progress Slack message open, even
+        # though the worker treats delivery as best-effort.
+        try:
+            async for event in adapter.stream(
+                RunService(self.redis).stream(self.record.id)
+            ):
+                kind = event["type"]
+                if kind == "text":
+                    await streamer.append(markdown_text=event["content"])
+                elif kind == "tool_start":
+                    await streamer.append(
+                        markdown_text=format_tool_streamer_label(event["tool_name"])
+                    )
+                elif kind == "error":
+                    await streamer.append(
+                        markdown_text=f"**`Error: {event['content']}`**\n\n"
+                    )
+                elif kind == "end":
+                    status = event["status"]
+        finally:
+            await streamer.stop()
 
         if status == RunStatus.interrupted.value:
             await self._post_approvals(channel_id, thread_ts)

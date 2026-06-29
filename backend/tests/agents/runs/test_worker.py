@@ -193,6 +193,25 @@ async def test_worker_skips_delivery_for_plain_records(redis):
 
 
 @pytest.mark.usefixtures("patch_agent")
+async def test_worker_succeeds_when_delivery_factory_raises(redis):
+    def factory(_record):
+        raise RuntimeError("factory boom")
+
+    service = RunService(redis)
+    record = await service.create(
+        thread_id="td4",
+        user_id="u1",
+        input={"messages": []},
+        delivery={"channel": "slack"},
+    )
+    await RunWorker(redis, delivery_factory=factory).run(record.id)
+
+    # A factory crash must not abort the run before finalize/cleanup.
+    assert (await service.get(record.id)).status == RunStatus.success
+    assert await service.get_active("td4") is None
+
+
+@pytest.mark.usefixtures("patch_agent")
 async def test_worker_succeeds_when_delivery_consumer_crashes(redis):
     class _BoomConsumer:
         def __init__(self, record):
