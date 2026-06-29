@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.11](https://github.com/keurcien/auxilia/compare/backend-v0.4.10...backend-v0.4.11) (2026-06-29)
+
+
+### Bug Fixes
+
+* **slack:** de-duplicate HITL tool header; keep quote bar on multi-line args ([#165](https://github.com/keurcien/auxilia/issues/165)) ([b1500bf](https://github.com/keurcien/auxilia/commit/b1500bf870842ca8ef31c3b271cf94605a235d50))
+
 ## [0.4.10](https://github.com/keurcien/auxilia/compare/backend-v0.4.9...backend-v0.4.10) (2026-06-29)
 
 

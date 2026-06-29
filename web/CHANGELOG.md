@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.8](https://github.com/keurcien/auxilia/compare/web-v0.5.7...web-v0.5.8) (2026-06-29)
+
+
+### Bug Fixes
+
+* **slack:** de-duplicate HITL tool header; keep quote bar on multi-line args ([#165](https://github.com/keurcien/auxilia/issues/165)) ([b1500bf](https://github.com/keurcien/auxilia/commit/b1500bf870842ca8ef31c3b271cf94605a235d50))
+
 ## [0.5.7](https://github.com/keurcien/auxilia/compare/web-v0.5.6...web-v0.5.7) (2026-06-29)
 
 
