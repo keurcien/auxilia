@@ -266,6 +266,38 @@ def test_update_thread(client: TestClient, mock_db, current_user):
     assert thread.first_message_content == "New title"
 
 
+def test_update_thread_ignores_model_id(client: TestClient, mock_db, current_user):
+    """Rename is cosmetic: a `model_id` in the body must not mutate the thread."""
+    thread_id = str(uuid4())
+    thread = ThreadDB(
+        id=thread_id,
+        user_id=current_user.id,
+        agent_id=uuid4(),
+        model_id="claude-opus-4-8",
+        first_message_content="Old title",
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = thread
+    mock_result.one_or_none.return_value = (thread, "Test Agent", "🤖", None, False)
+    mock_db.execute.return_value = mock_result
+
+    async def mock_refresh(obj):
+        pass
+
+    mock_db.refresh = mock_refresh
+
+    response = client.patch(
+        f"/threads/{thread_id}",
+        json={"first_message_content": "New title", "model_id": "bogus-model"},
+    )
+    assert response.status_code == 200
+    assert thread.first_message_content == "New title"
+    assert thread.model_id == "claude-opus-4-8"
+
+
 @pytest.mark.usefixtures("current_user")
 def test_update_thread_forbidden_for_non_owner(client: TestClient, mock_db):
     """A non-owner cannot rename a thread."""

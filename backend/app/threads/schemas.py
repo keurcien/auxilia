@@ -15,7 +15,10 @@ class ThreadCreate(SQLModel):
 
 
 class ThreadPatch(SQLModel):
-    model_id: str | None = None
+    # Rename only: the PATCH endpoint is a cosmetic rename of the thread's
+    # display title. `model_id` is deliberately not patchable here — letting
+    # callers set it to an arbitrary value would break later runs for the
+    # thread ("Unknown model").
     first_message_content: str | None = None
 
 
