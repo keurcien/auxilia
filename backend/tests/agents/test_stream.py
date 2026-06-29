@@ -140,6 +140,24 @@ async def test_slack_tool_start_emitted_once():
     # The consumer derives approvals from the checkpoint, not the stream.
     assert all(e["type"] != "tool_approval_request" for e in events)
 
+    # The model's final answer streams as text...
+    streamed = "".join(e["content"] for e in events if e["type"] == "text")
+    assert "The weather in Paris is 22°C." in streamed
+    # ...but the raw tool-result ToolMessage must NOT be dumped as text.
+    assert "temperature" not in streamed
+
+
+async def test_slack_tool_message_content_is_not_streamed():
+    """A ToolMessage in the messages stream is not surfaced as assistant text."""
+    tool_sse = (
+        "event: messages\n"
+        'data: [{"type": "tool", "content": "{\\"secret\\": 42}", '
+        '"id": "tm-1", "tool_call_id": "call_1"}, {}]\n\n'
+    )
+    events = await _collect(SlackStreamAdapter().stream(_async_gen([tool_sse])))
+
+    assert events == []
+
 
 async def test_slack_end_event_carries_status():
     """The terminal sentinel is surfaced as an `end` event with its status."""

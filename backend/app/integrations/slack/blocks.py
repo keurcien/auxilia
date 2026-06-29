@@ -64,26 +64,31 @@ def format_tool_streamer_label(tool_name: str) -> str:
     return f"\n\n:{prefix.lower()}:  **{prefix}**  ›  `{suffix}`\n\n"
 
 
-def _tool_context_block(tool_name: str) -> dict:
-    """Build the context block header for a tool name."""
+def _tool_header_block(tool_name: str) -> dict:
+    """Build the section header for a tool name.
+
+    A `section` (not a `context`) block so the approval card's tool header
+    renders at the same body size as the streamed `format_tool_streamer_label`
+    — a `context` block renders smaller/greyer and looked inconsistent.
+    """
     prefix, suffix = _split_tool_name(tool_name)
     return {
-        "type": "context",
-        "elements": [
-            {
-                "type": "mrkdwn",
-                "text": f":{prefix}:  *{prefix}*  ›  `{suffix}`",
-            }
-        ],
+        "type": "section",
+        "text": {
+            "type": "mrkdwn",
+            "text": f":{prefix}:  *{prefix}*  ›  `{suffix}`",
+        },
     }
 
 
 def build_tool_approval_blocks(
-    tool_call_id: str, tool_name: str, tool_input: dict,
+    tool_call_id: str,
+    tool_name: str,
+    tool_input: dict,
 ) -> list[dict]:
     """Build Block Kit blocks for a tool approval request with Approve/Reject buttons."""
     return [
-        _tool_context_block(tool_name),
+        _tool_header_block(tool_name),
         {
             "type": "section",
             "text": {"type": "mrkdwn", "text": _format_tool_input(tool_input)},
