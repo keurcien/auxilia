@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.10](https://github.com/keurcien/auxilia/compare/backend-v0.4.9...backend-v0.4.10) (2026-06-29)
+
+
+### Bug Fixes
+
+* **slack:** durable-delivery follow-ups (tool output, errors, HITL header) ([#163](https://github.com/keurcien/auxilia/issues/163)) ([4e8b6fd](https://github.com/keurcien/auxilia/commit/4e8b6fdc004537e71adbc5680db1af33fe516728))
+
 ## [0.4.9](https://github.com/keurcien/auxilia/compare/backend-v0.4.8...backend-v0.4.9) (2026-06-29)
 
 
