@@ -33,13 +33,6 @@ logger = logging.getLogger(__name__)
 
 SLACK_CHANNEL = "slack"
 
-# Terminal statuses that didn't produce a clean answer. The agent may emit no
-# `error` SSE at all (an exception in build/stream finalizes the run as `error`
-# without publishing one), so the consumer must surface these itself or the
-# Slack thread goes silent.
-_FAILURE_STATUSES = frozenset({RunStatus.error.value, RunStatus.timeout.value})
-_FAILURE_NOTICE = "\n\n⚠️ _Something went wrong while generating a response._"
-
 
 def build_slack_run_consumer(record: RunRecord) -> "SlackRunConsumer | None":
     """The `DeliveryFactory` for Slack: build a consumer iff the run is Slack-bound."""
@@ -74,7 +67,42 @@ class SlackRunConsumer(DeliveryConsumer):
     async def run(self) -> None:
         channel_id = self.delivery["channel_id"]
         thread_ts = self.delivery["thread_ts"]
+        logger.info(
+            "Slack delivery starting for run %s (channel=%s, thread_ts=%s)",
+            self.record.id,
+            channel_id,
+            thread_ts,
+        )
+        try:
+            status, text_chars = await self._stream_to_slack(channel_id, thread_ts)
+        except Exception:  # noqa: BLE001 — never leave the thread silent
+            logger.exception("Slack delivery crashed for run %s", self.record.id)
+            await self._post_failure_notice(channel_id, thread_ts)
+            return
 
+        logger.info(
+            "Slack delivery for run %s ended: status=%s text_chars=%s",
+            self.record.id,
+            status,
+            text_chars,
+        )
+        if status == RunStatus.interrupted.value:
+            await self._post_approvals(channel_id, thread_ts)
+        elif status == RunStatus.success.value:
+            await self._post_auxilia_link(channel_id, thread_ts)
+        elif status in (RunStatus.error.value, RunStatus.timeout.value):
+            await self._post_failure_notice(channel_id, thread_ts)
+
+    async def _stream_to_slack(
+        self, channel_id: str, thread_ts: str
+    ) -> tuple[str | None, int]:
+        """Relay the event log into a Slack streaming message.
+
+        Returns the run's terminal status and how many characters of text were
+        streamed (0 is the tell-tale of an empty/never-answered turn). Always
+        closes the streaming message — a mid-stream error must not leave an
+        in-progress Slack message open.
+        """
         streamer = await self.client.chat_stream(
             channel=channel_id,
             thread_ts=thread_ts,
@@ -83,15 +111,14 @@ class SlackRunConsumer(DeliveryConsumer):
         )
         adapter = SlackStreamAdapter()
         status: str | None = None
-        # Always close the streaming message: a transient Redis/SSE or Slack
-        # append error must not leave an in-progress Slack message open, even
-        # though the worker treats delivery as best-effort.
+        text_chars = 0
         try:
             async for event in adapter.stream(
                 RunService(self.redis).stream(self.record.id)
             ):
                 kind = event["type"]
                 if kind == "text":
+                    text_chars += len(event["content"])
                     await streamer.append(markdown_text=event["content"])
                 elif kind == "tool_start":
                     await streamer.append(
@@ -103,16 +130,20 @@ class SlackRunConsumer(DeliveryConsumer):
                     )
                 elif kind == "end":
                     status = event["status"]
-                    if status in _FAILURE_STATUSES:
-                        # Append before the stream is finalized in `finally`.
-                        await streamer.append(markdown_text=_FAILURE_NOTICE)
         finally:
             await streamer.stop()
+        return status, text_chars
 
-        if status == RunStatus.interrupted.value:
-            await self._post_approvals(channel_id, thread_ts)
-        elif status == RunStatus.success.value:
-            await self._post_auxilia_link(channel_id, thread_ts)
+    async def _post_failure_notice(self, channel_id: str, thread_ts: str) -> None:
+        """Tell the user the turn failed, so the thread is never left blank."""
+        await self.client.chat_postMessage(
+            channel=channel_id,
+            thread_ts=thread_ts,
+            text=(
+                "Sorry — something went wrong while generating a response. "
+                "Please try again."
+            ),
+        )
 
     async def _post_approvals(self, channel_id: str, thread_ts: str) -> None:
         """Post a Block Kit approve/reject message per pending tool call."""
