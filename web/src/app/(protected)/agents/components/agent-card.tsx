@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Pencil } from "lucide-react";
 import { Agent, AgentPermission } from "@/types/agents";
-import { agentPastel } from "@/lib/colors";
+import { agentPastel, agentColorBackground } from "@/lib/colors";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import ArchivedAgentDialog from "@/app/(protected)/agents/components/archived-agent-dialog";
 import AgentDialogShell from "@/app/(protected)/agents/components/agent-dialog-shell";
@@ -158,9 +158,9 @@ export default function AgentCard({
 					{agent.description || "No description provided."}
 				</p>
 
-				{/* Meta — real MCP server icons */}
-				{resolvedServers.length > 0 && (
-					<div className="flex items-center border-t border-[#edf2ef] dark:border-white/5 py-2.5">
+				{/* Meta — MCP server icons (left) · subagents (right) */}
+				{(resolvedServers.length > 0 || agent.subagents?.length > 0) && (
+					<div className="flex items-center justify-between border-t border-[#edf2ef] dark:border-white/5 py-2.5">
 						<div className="flex items-center">
 							{resolvedServers.map((server) => (
 								<span
@@ -182,6 +182,38 @@ export default function AgentCard({
 								</span>
 							))}
 						</div>
+						{agent.subagents?.length > 0 && (
+							<div className="flex items-center">
+								{agent.subagents.slice(0, 4).map((sub) => (
+									<span
+										key={sub.id}
+										title={sub.name}
+										style={
+											sub.color
+												? {
+														background: agentColorBackground(sub.color),
+														border: `1px solid ${sub.color}18`,
+													}
+												: undefined
+										}
+										className="-ml-1.5 flex size-5 items-center justify-center rounded-full border border-[#e1ebe6] bg-surface text-[13px] leading-none first:ml-0 dark:border-white/10 dark:bg-white/5"
+									>
+										{sub.emoji || "🤖"}
+									</span>
+								))}
+								{agent.subagents.length > 4 && (
+									<span
+										title={agent.subagents
+											.slice(4)
+											.map((s) => s.name)
+											.join(", ")}
+										className="-ml-1.5 flex size-5 items-center justify-center rounded-full border border-[#e1ebe6] bg-surface text-[9px] font-semibold text-[#7d8077] first:ml-0 dark:border-white/10 dark:bg-white/5 dark:text-muted-foreground"
+									>
+										+{agent.subagents.length - 4}
+									</span>
+								)}
+							</div>
+						)}
 					</div>
 				)}
 			</div>
