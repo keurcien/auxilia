@@ -12,6 +12,7 @@ import logging
 from contextlib import suppress
 
 from app.agents.runs.control import RunControl
+from app.agents.runs.delivery import DeliveryFactory
 from app.agents.runs.events import RunEventStream
 from app.agents.runs.service import RunService
 from app.agents.runs.settings import run_settings
@@ -32,10 +33,11 @@ _ERROR_EVENT_PREFIX = "event: error"
 class RunWorker:
     """Executes a single run end to end."""
 
-    def __init__(self, redis=None):
+    def __init__(self, redis=None, delivery_factory: DeliveryFactory | None = None):
         self.service = RunService(redis)
         self.registry = self.service.registry
         self.redis = self.service.redis
+        self._delivery_factory = delivery_factory
 
     async def run(self, run_id: str) -> None:
         record = await self.registry.get(run_id)
@@ -56,6 +58,10 @@ class RunWorker:
                 poll_seconds=run_settings.cancel_poll_seconds
             )
         )
+        # A push consumer (e.g. Slack) relays the event log concurrently; it reads
+        # from id 0, so there's no race with the chunks we publish below, and it
+        # ends when `finalize` writes the sentinel.
+        delivery = self._start_delivery(record)
         status, error = RunStatus.success, None
         try:
             status, error = await self._execute(record, events, cancel_watch)
@@ -66,6 +72,34 @@ class RunWorker:
             await self._stop(heartbeat)
             await self._stop(cancel_watch)
         await self.service.finalize(run_id, status, error=error)
+        if delivery is not None:
+            await delivery  # the sentinel is published; let the consumer finish
+
+    def _start_delivery(self, record: RunRecord) -> asyncio.Task | None:
+        """Spawn the push-delivery consumer for this run, if one applies.
+
+        Building the consumer is best-effort: a factory that raises must not abort
+        the run before it executes/finalizes (which would leave the mutex held and
+        the heartbeat orphaned), so failures are logged and treated as no delivery.
+        """
+        if self._delivery_factory is None:
+            return None
+        try:
+            consumer = self._delivery_factory(record)
+        except Exception:  # noqa: BLE001 — delivery is best-effort
+            logger.exception("Delivery factory failed for run %s", record.id)
+            return None
+        if consumer is None:
+            return None
+        return asyncio.create_task(self._deliver(record.id, consumer))
+
+    @staticmethod
+    async def _deliver(run_id: str, consumer) -> None:
+        """Run a delivery consumer; a delivery failure never fails the run."""
+        try:
+            await consumer.run()
+        except Exception:  # noqa: BLE001 — delivery is best-effort
+            logger.exception("Delivery failed for run %s", run_id)
 
     async def _execute(
         self, record: RunRecord, events: RunEventStream, cancel_watch: asyncio.Task
@@ -169,8 +203,8 @@ class RunDispatcher:
     """Pulls run_ids off the shared queue and runs them, capped at
     `RUN_WORKER_CONCURRENCY` concurrent runs per process."""
 
-    def __init__(self, redis=None):
-        self.worker = RunWorker(redis)
+    def __init__(self, redis=None, delivery_factory: DeliveryFactory | None = None):
+        self.worker = RunWorker(redis, delivery_factory=delivery_factory)
         self.queue = self.worker.service.queue
         self._semaphore = asyncio.Semaphore(run_settings.worker_concurrency)
         self._stopping = asyncio.Event()

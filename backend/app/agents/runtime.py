@@ -28,7 +28,6 @@ from app.agents.schemas import AgentResponse
 from app.agents.settings import agent_settings
 from app.agents.stream import (
     LangGraphStreamAdapter,
-    SlackStreamAdapter,
     encode_synthetic_ai_message_sse,
 )
 from app.agents.structured_output import (
@@ -390,7 +389,6 @@ class Agent:
         trigger: str | None = None,
         config_overrides: dict | None = None,
         output_schema: dict | None = None,
-        stream_adapter: str = "langgraph",
     ):
         """Stream using the native LangGraph SSE protocol.
 
@@ -401,7 +399,6 @@ class Agent:
             config_overrides: Optional config dict with configurable overrides.
             output_schema: Optional JSON Schema; when set, the run produces a
                 `structured_response` in its final state (read via `read_run_result`).
-            stream_adapter: Which stream adapter to use ("langgraph" or "slack").
         """
         async with self._setup(
             agent_input, command, trigger, config_overrides, output_schema
@@ -410,33 +407,22 @@ class Agent:
             stream_input,
             config,
         ):
-            if stream_adapter == "slack":
-                langchain_stream = agent.astream(
-                    stream_input,
-                    config=config,
-                    stream_mode=["messages", "values"],
-                )
-                adapter = SlackStreamAdapter()
-            else:
-                langchain_stream = agent.astream(
-                    stream_input,
-                    config=config,
-                    stream_mode=["messages", "values", "updates"],
-                    subgraphs=True,
-                )
-                adapter = LangGraphStreamAdapter(subgraphs=True)
+            langchain_stream = agent.astream(
+                stream_input,
+                config=config,
+                stream_mode=["messages", "values", "updates"],
+                subgraphs=True,
+            )
+            adapter = LangGraphStreamAdapter(subgraphs=True)
 
             try:
                 async for chunk in adapter.stream(langchain_stream):
                     yield chunk
             except GraphRecursionError:
                 ai_msg = await self._persist_recursion_fallback(agent, config)
-                if stream_adapter == "slack":
-                    yield {"type": "text", "content": ai_msg.content}
-                else:
-                    state = await agent.aget_state(config)
-                    for sse in encode_synthetic_ai_message_sse(ai_msg, state.values):
-                        yield sse
+                state = await agent.aget_state(config)
+                for sse in encode_synthetic_ai_message_sse(ai_msg, state.values):
+                    yield sse
 
 
 def extract_invoke_result(

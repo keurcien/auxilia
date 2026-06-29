@@ -117,6 +117,79 @@ def pending_interrupt(checkpoint_tuple: Any) -> Any | None:
     return None
 
 
+def pending_approval_requests(checkpoint_tuple: Any) -> list[dict[str, Any]]:
+    """Return the tool calls awaiting human approval on a paused checkpoint.
+
+    `HumanInTheLoopMiddleware` interrupts with a `HITLRequest` whose
+    `action_requests` carry only `name`/`args` (no id), and resume `decisions`
+    are positional. We re-attach each request to the originating tool call (by
+    name+args, falling back to position) so callers get a stable
+    `tool_call_id` for the approve/reject UI. Returns `[]` when not interrupted.
+    """
+    interrupt_value = pending_interrupt(checkpoint_tuple)
+    requests = (
+        (interrupt_value or {}).get("action_requests")
+        if (isinstance(interrupt_value, dict))
+        else None
+    )
+    if not requests:
+        return []
+
+    channel_values = getattr(checkpoint_tuple, "checkpoint", {}).get(
+        "channel_values", {}
+    )
+    tool_calls = _last_pending_tool_calls(channel_values.get("messages", []))
+
+    approvals: list[dict[str, Any]] = []
+    used: set[int] = set()
+    for index, request in enumerate(requests):
+        match = _match_tool_call(request, tool_calls, used)
+        approvals.append(
+            {
+                "tool_call_id": (match or {}).get("id") or f"approval-{index}",
+                "tool_name": request.get("name", "unknown"),
+                "input": request.get("args", {}),
+            }
+        )
+    return approvals
+
+
+def _last_pending_tool_calls(messages: list) -> list[dict[str, Any]]:
+    """Tool calls on the last AI message that have no result yet."""
+    resulted = {
+        getattr(m, "tool_call_id", None) for m in messages if isinstance(m, ToolMessage)
+    }
+    for msg in reversed(messages):
+        tool_calls = getattr(msg, "tool_calls", None)
+        if tool_calls:
+            return [tc for tc in tool_calls if tc.get("id") not in resulted]
+    return []
+
+
+def _match_tool_call(
+    request: dict, tool_calls: list[dict], used: set[int]
+) -> dict | None:
+    """Find the unused tool call for an action request.
+
+    Prefers an exact name+args match; falls back to the first unused call with
+    the same name (covers two calls to the same tool with identical args).
+    """
+    candidates = [
+        (i, tc)
+        for i, tc in enumerate(tool_calls)
+        if i not in used and tc.get("name") == request.get("name")
+    ]
+    if not candidates:
+        return None
+    for i, tc in candidates:
+        if tc.get("args") == request.get("args"):
+            used.add(i)
+            return tc
+    i, tc = candidates[0]
+    used.add(i)
+    return tc
+
+
 def deserialize_to_ui_messages(langgraph_messages: list) -> list[Message]:
     """Convert LangGraph checkpoint messages to auxilia UI messages.
 

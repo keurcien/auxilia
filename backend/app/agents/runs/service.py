@@ -41,12 +41,17 @@ class RunService:
         trigger: str | None = None,
         config_overrides: dict | None = None,
         output_schema: dict | None = None,
+        delivery: dict | None = None,
         multitask_strategy: str = "reject",
     ) -> RunRecord:
         """Create + enqueue a run. Caller has already authorized the thread.
 
         With the default `reject` strategy, creating a run while the thread has an
         active one raises `DomainValidationError`.
+
+        `delivery` is an opaque push-target descriptor (e.g. Slack channel/thread)
+        the worker hands to a delivery consumer; `None` means a pull subscriber
+        rides the event log instead.
         """
         if input is not None and command is not None:
             raise DomainValidationError("Provide either input or command, not both.")
@@ -63,6 +68,7 @@ class RunService:
             trigger=trigger,
             config_overrides=config_overrides,
             output_schema=output_schema,
+            delivery=delivery,
             multitask_strategy=multitask_strategy,
         )
         await self.registry.create(record, ttl=run_settings.ttl_seconds)
