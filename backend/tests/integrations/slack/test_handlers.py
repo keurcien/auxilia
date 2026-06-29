@@ -16,20 +16,25 @@ class _RecordingClient:
         self.updated = kwargs
 
 
-def _header_text(blocks: list[dict]) -> str:
-    return next(b["text"]["text"] for b in blocks if b.get("type") == "section")
+def _context_text(blocks: list[dict]) -> str:
+    return " ".join(
+        el.get("text", "")
+        for b in blocks
+        if b.get("type") == "context"
+        for el in b.get("elements", [])
+    )
 
 
-async def test_approval_header_is_a_section_block():
-    # The tool header must be a body-size section, not a small context block,
-    # so it matches the streamed tool label.
-    blocks = build_tool_approval_blocks("call_1", "BigQuery_execute_sql", {"a": 1})
-    assert blocks[0]["type"] == "section"
+async def test_approval_card_has_no_tool_header():
+    # The streamed tool label already shows the tool name above the card, so the
+    # card must not repeat it — and a pending card carries no decision marker.
+    blocks = build_tool_approval_blocks("call_1", {"a": 1})
     assert all(b.get("type") != "context" for b in blocks)
+    assert any(b.get("type") == "actions" for b in blocks)
 
 
-async def test_approval_decision_round_trips_through_section_header():
-    blocks = build_tool_approval_blocks("call_1", "BigQuery_execute_sql", {"a": 1})
+async def test_approval_decision_round_trips_through_context_block():
+    blocks = build_tool_approval_blocks("call_1", {"a": 1})
     msg = {"blocks": blocks}
     # Pending: no decision yet, buttons present.
     assert _extract_decision(msg) is None
@@ -38,8 +43,8 @@ async def test_approval_decision_round_trips_through_section_header():
     await handlers_mod._update_approval_message(client, "C1", "111.1", blocks, True)
     updated = client.updated["blocks"]
 
-    # Decision lands on the header section; the input section is untouched.
-    assert ":white_check_mark:" in _header_text(updated)
+    # Decision lands in a context block; the buttons are gone.
+    assert ":white_check_mark:" in _context_text(updated)
     assert not any(b.get("type") == "actions" for b in updated)
     assert _extract_decision({"blocks": updated}) == "approve"
 

@@ -153,7 +153,7 @@ class SlackRunConsumer(DeliveryConsumer):
             )
         for request in pending_approval_requests(checkpoint):
             blocks = build_tool_approval_blocks(
-                request["tool_call_id"], request["tool_name"], request["input"]
+                request["tool_call_id"], request["input"]
             )
             await self.client.chat_postMessage(
                 channel=channel_id,
