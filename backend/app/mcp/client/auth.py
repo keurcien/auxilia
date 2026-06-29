@@ -159,7 +159,7 @@ class WebOAuthClientProvider(OAuthClientProvider):
             # otherwise PRM scopes_supported if advertised, otherwise no scope
             # param (the server omits it, e.g. Notion).
             # TODO: Handle scopes automatically
-            if "gmailmcp.googleapis.com" in str(self.context.server_url):
+            if str(self.context.server_url) == "https://gmailmcp.googleapis.com/mcp/v1":
                 self.context.client_metadata.scope = (
                     "openid "
                     "https://www.googleapis.com/auth/userinfo.email "
