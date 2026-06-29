@@ -144,7 +144,8 @@ async def test_consumer_posts_approval_blocks_on_interrupt(monkeypatch):
     assert "tool_reject" in action_ids
 
 
-async def test_consumer_posts_failure_notice_on_error(monkeypatch):
+async def test_consumer_surfaces_run_error(monkeypatch):
+    """A run that finalizes `error` (no error SSE) still tells the user something."""
     monkeypatch.setattr(
         consumer_mod.RunService,
         "stream",
@@ -157,23 +158,9 @@ async def test_consumer_posts_failure_notice_on_error(monkeypatch):
     await consumer.run()
 
     assert fake.streamer.stopped
-    assert len(fake.posts) == 1
-    assert "something went wrong" in fake.posts[0]["text"].lower()
-
-
-async def test_consumer_posts_failure_notice_when_stream_crashes(monkeypatch):
-    def _boom(*_args, **_kwargs):
-        raise RuntimeError("redis gone")
-
-    monkeypatch.setattr(consumer_mod.RunService, "stream", _boom)
-
-    consumer = SlackRunConsumer(_record(_slack_delivery()))
-    fake = _FakeClient()
-    consumer.client = fake
-    # A crash mid-delivery is handled: the thread gets a notice, not silence.
-    await consumer.run()
-
-    assert any("something went wrong" in p["text"].lower() for p in fake.posts)
+    assert any("went wrong" in text for text in fake.streamer.appended)
+    # No success/interrupt follow-ups on an error.
+    assert fake.posts == []
 
 
 async def _async(value):

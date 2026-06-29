@@ -311,6 +311,12 @@ class SlackStreamAdapter:
         chunk = data[0]
         if not isinstance(chunk, dict):
             return []
+        # `stream_mode="messages"` yields every node's messages, including the
+        # `ToolMessage` from the tools node whose `content` is the raw tool-result
+        # payload. Only AI output is user-facing text / tool calls — surfacing a
+        # ToolMessage's content would dump the raw tool result into the chat.
+        if chunk.get("type") not in ("AIMessageChunk", "ai", "AIMessage"):
+            return []
 
         events: list[dict[str, Any]] = []
         for tc in chunk.get("tool_call_chunks") or chunk.get("tool_calls") or []:
