@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.7](https://github.com/keurcien/auxilia/compare/web-v0.5.6...web-v0.5.7) (2026-06-29)
+
+
+### Features
+
+* **threads:** rename threads from the sidebar ([#156](https://github.com/keurcien/auxilia/issues/156)) ([9f60eef](https://github.com/keurcien/auxilia/commit/9f60eef660d6faf67ce98d734d01b6171e50f5ea))
+
 ## [0.5.6](https://github.com/keurcien/auxilia/compare/web-v0.5.5...web-v0.5.6) (2026-06-28)
 
 
