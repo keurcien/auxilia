@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.6](https://github.com/keurcien/auxilia/compare/web-v0.5.5...web-v0.5.6) (2026-06-28)
+
+
+### Features
+
+* **web:** durable run wiring — run-id capture, server Stop, reattach ([#153](https://github.com/keurcien/auxilia/issues/153)) ([4a1cf3a](https://github.com/keurcien/auxilia/commit/4a1cf3ac7173b7c563c2593436998c4567fae6dd))
+
 ## [0.5.5](https://github.com/keurcien/auxilia/compare/web-v0.5.4...web-v0.5.5) (2026-06-26)
 
 

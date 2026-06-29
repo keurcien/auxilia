@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.7](https://github.com/keurcien/auxilia/compare/backend-v0.4.6...backend-v0.4.7) (2026-06-28)
+
+
+### Features
+
+* **agents:** durable Redis-backed agent runtime ([#153](https://github.com/keurcien/auxilia/issues/153)) ([72e6686](https://github.com/keurcien/auxilia/commit/72e668685d02c9746bc67fa60d4697f8289b4c91))
+
 ## [0.4.6](https://github.com/keurcien/auxilia/compare/backend-v0.4.5...backend-v0.4.6) (2026-06-26)
 
 
