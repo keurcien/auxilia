@@ -155,15 +155,26 @@ class WebOAuthClientProvider(OAuthClientProvider):
                 if not ok:
                     break
 
-            # Step 3: scope selection — PRM scopes_supported if advertised,
-            # otherwise no scope param (the server omits it, e.g. Notion).
-            discovered_scopes = get_client_metadata_scopes(
-                None,
-                self.context.protected_resource_metadata,
-                self.context.oauth_metadata,
-            )
-            if discovered_scopes:
-                self.context.client_metadata.scope = discovered_scopes
+            # Step 3: scope selection — hardcoded per-server (e.g. Gmail),
+            # otherwise PRM scopes_supported if advertised, otherwise no scope
+            # param (the server omits it, e.g. Notion).
+            # TODO: Handle scopes automatically
+            if str(self.context.server_url) == "https://gmailmcp.googleapis.com/mcp/v1":
+                self.context.client_metadata.scope = (
+                    "openid "
+                    "https://www.googleapis.com/auth/userinfo.email "
+                    "https://www.googleapis.com/auth/gmail.readonly "
+                    "https://www.googleapis.com/auth/gmail.compose "
+                    "https://www.googleapis.com/auth/gmail.modify"
+                )
+            else:
+                discovered_scopes = get_client_metadata_scopes(
+                    None,
+                    self.context.protected_resource_metadata,
+                    self.context.oauth_metadata,
+                )
+                if discovered_scopes:
+                    self.context.client_metadata.scope = discovered_scopes
 
             # Step 4: ensure a registered client. Static credentials (e.g.
             # Google) are loaded into client_info by _initialize; otherwise
