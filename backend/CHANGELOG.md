@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.8](https://github.com/keurcien/auxilia/compare/backend-v0.4.7...backend-v0.4.8) (2026-06-29)
+
+
+### Features
+
+* **mcp:** hardcode Gmail OAuth scopes instead of PRM discovery ([#160](https://github.com/keurcien/auxilia/issues/160)) ([a4c719b](https://github.com/keurcien/auxilia/commit/a4c719b460dca8881fd1ef453b74384894707844))
+* **threads:** rename threads from the sidebar ([#156](https://github.com/keurcien/auxilia/issues/156)) ([9f60eef](https://github.com/keurcien/auxilia/commit/9f60eef660d6faf67ce98d734d01b6171e50f5ea))
+
+
+### Bug Fixes
+
+* **threads:** restrict rename endpoint to title only ([#158](https://github.com/keurcien/auxilia/issues/158)) ([9183619](https://github.com/keurcien/auxilia/commit/9183619167f371962997f04b349cdd8f8ed03a8f))
+
 ## [0.4.7](https://github.com/keurcien/auxilia/compare/backend-v0.4.6...backend-v0.4.7) (2026-06-28)
 
 
