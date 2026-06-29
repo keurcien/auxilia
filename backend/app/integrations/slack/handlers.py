@@ -86,18 +86,17 @@ def _is_pending(msg: dict) -> bool:
 def _extract_decision(msg: dict) -> str | None:
     """Extract the decision from a decided approval message.
 
-    The decision is appended to the tool-header `section` block (the first
-    section of the approval card); only that block carries the status emoji.
+    The decision lives in the `context` block that `_update_approval_message`
+    swaps in for the buttons; that block is the only one carrying the status emoji.
     """
     for block in msg.get("blocks", []):
-        if block.get("type") != "section":
+        if block.get("type") != "context":
             continue
-        text = (block.get("text") or {}).get("text", "")
+        text = " ".join(el.get("text", "") for el in block.get("elements", []))
         if ":white_check_mark:" in text:
             return "approve"
         if ":no_entry_sign:" in text:
             return "reject"
-        return None  # only the first (header) section carries the decision
     return None
 
 
@@ -146,35 +145,25 @@ async def _update_approval_message(
     blocks: list[dict],
     approved: bool,
 ) -> None:
-    """Update the approval message: append decision to header, remove buttons, add divider."""
+    """Record the decision: drop the buttons and append a status context block.
+
+    The card no longer carries a tool-name header (the streamed label above it
+    already shows it), so the decision marker lives in its own `context` block.
+    That block is load-bearing, not cosmetic: the stateless batch-resume logic
+    (`_extract_decision`) recovers each card's decision by reading this emoji
+    back from the thread.
+    """
     status_emoji = ":white_check_mark:" if approved else ":no_entry_sign:"
     status_label = "Approved" if approved else "Rejected"
 
-    updated_blocks: list[dict] = []
-    header_done = False
-    for block in blocks:
-        if block.get("type") == "actions":
-            continue
-
-        # The tool-header section is the first mrkdwn section; append the
-        # decision there (and never to the input section that follows it).
-        text_obj = block.get("text") or {}
-        if (
-            not header_done
-            and block.get("type") == "section"
-            and text_obj.get("type") == "mrkdwn"
-        ):
-            header_done = True
-            text = text_obj.get("text", "")
-            if ":white_check_mark:" not in text and ":no_entry_sign:" not in text:
-                block = {
-                    **block,
-                    "text": {
-                        **text_obj,
-                        "text": f"{text}  ›  {status_emoji} {status_label}",
-                    },
-                }
-        updated_blocks.append(block)
+    marker = {
+        "type": "context",
+        "elements": [{"type": "mrkdwn", "text": f"{status_emoji} {status_label}"}],
+    }
+    # Replace the Approve/Reject buttons in place with the decision marker, so it
+    # sits where the buttons were (above the trailing divider). A card that's
+    # already decided has no actions block to replace, so it's left untouched.
+    updated_blocks = [marker if b.get("type") == "actions" else b for b in blocks]
 
     await client.chat_update(
         channel=channel_id,

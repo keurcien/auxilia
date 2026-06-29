@@ -3,6 +3,16 @@
 from typing import Any
 
 
+def _quote_lines(lines: list[str]) -> str:
+    """Join entries as a Slack blockquote, prefixing *every physical line*.
+
+    An entry may itself span several lines (a multi-line value like formatted
+    SQL, or an already-quoted nested block), so we split on newlines before
+    prefixing — otherwise the quote bar drops off after the first line.
+    """
+    return "\n".join(f"> {physical}" for line in lines for physical in line.split("\n"))
+
+
 def _format_tool_input(obj: Any, indent: int = 0) -> str:
     """Convert a JSON-compatible object into a clean YAML-like string."""
 
@@ -30,7 +40,7 @@ def _format_tool_input(obj: Any, indent: int = 0) -> str:
             else:
                 lines.append("  " * indent + "- " + str(item))
 
-        return "\n".join(f"> {line}" for line in lines)
+        return _quote_lines(lines)
 
     if isinstance(obj, dict):
         if not obj:
@@ -43,7 +53,7 @@ def _format_tool_input(obj: Any, indent: int = 0) -> str:
             else:
                 val_str = _format_tool_input(value, 0).strip()
                 lines.append("  " * indent + "*" + key + "*: " + val_str)
-        return "\n".join(f"> {line}" for line in lines)
+        return _quote_lines(lines)
 
     return "  " * indent + str(obj)
 
@@ -64,31 +74,17 @@ def format_tool_streamer_label(tool_name: str) -> str:
     return f"\n\n:{prefix.lower()}:  **{prefix}**  ›  `{suffix}`\n\n"
 
 
-def _tool_header_block(tool_name: str) -> dict:
-    """Build the section header for a tool name.
-
-    A `section` (not a `context`) block so the approval card's tool header
-    renders at the same body size as the streamed `format_tool_streamer_label`
-    — a `context` block renders smaller/greyer and looked inconsistent.
-    """
-    prefix, suffix = _split_tool_name(tool_name)
-    return {
-        "type": "section",
-        "text": {
-            "type": "mrkdwn",
-            "text": f":{prefix}:  *{prefix}*  ›  `{suffix}`",
-        },
-    }
-
-
 def build_tool_approval_blocks(
     tool_call_id: str,
-    tool_name: str,
     tool_input: dict,
 ) -> list[dict]:
-    """Build Block Kit blocks for a tool approval request with Approve/Reject buttons."""
+    """Build Block Kit blocks for a tool approval request with Approve/Reject buttons.
+
+    The tool name is intentionally *not* repeated here: the streamed tool label
+    (`format_tool_streamer_label`) already shows it immediately above this card,
+    so a header would be redundant.
+    """
     return [
-        _tool_header_block(tool_name),
         {
             "type": "section",
             "text": {"type": "mrkdwn", "text": _format_tool_input(tool_input)},
