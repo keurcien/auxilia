@@ -84,16 +84,20 @@ def _is_pending(msg: dict) -> bool:
 
 
 def _extract_decision(msg: dict) -> str | None:
-    """Extract the decision from a decided approval message."""
+    """Extract the decision from a decided approval message.
+
+    The decision is appended to the tool-header `section` block (the first
+    section of the approval card); only that block carries the status emoji.
+    """
     for block in msg.get("blocks", []):
-        if block.get("type") != "context":
+        if block.get("type") != "section":
             continue
-        for el in block.get("elements", []):
-            text = el.get("text", "")
-            if ":white_check_mark:" in text:
-                return "approve"
-            if ":no_entry_sign:" in text:
-                return "reject"
+        text = (block.get("text") or {}).get("text", "")
+        if ":white_check_mark:" in text:
+            return "approve"
+        if ":no_entry_sign:" in text:
+            return "reject"
+        return None  # only the first (header) section carries the decision
     return None
 
 
@@ -147,25 +151,28 @@ async def _update_approval_message(
     status_label = "Approved" if approved else "Rejected"
 
     updated_blocks: list[dict] = []
+    header_done = False
     for block in blocks:
         if block.get("type") == "actions":
             continue
 
-        if block.get("type") == "context" and not any(
-            status in el.get("text", "")
-            for el in block.get("elements", [])
-            for status in (":white_check_mark:", ":no_entry_sign:")
+        # The tool-header section is the first mrkdwn section; append the
+        # decision there (and never to the input section that follows it).
+        text_obj = block.get("text") or {}
+        if (
+            not header_done
+            and block.get("type") == "section"
+            and text_obj.get("type") == "mrkdwn"
         ):
-            elements = block.get("elements", [])
-            if elements and elements[0].get("type") == "mrkdwn":
+            header_done = True
+            text = text_obj.get("text", "")
+            if ":white_check_mark:" not in text and ":no_entry_sign:" not in text:
                 block = {
                     **block,
-                    "elements": [
-                        {
-                            **elements[0],
-                            "text": f"{elements[0]['text']}  ›  {status_emoji} {status_label}",
-                        }
-                    ],
+                    "text": {
+                        **text_obj,
+                        "text": f"{text}  ›  {status_emoji} {status_label}",
+                    },
                 }
         updated_blocks.append(block)
 
