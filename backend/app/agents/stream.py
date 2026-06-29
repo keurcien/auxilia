@@ -11,50 +11,12 @@ import logging
 from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Any
 
-from langchain_ai_sdk_adapter import to_ui_message_stream
 from langchain_core.messages import BaseMessage
 from langgraph.errors import GraphRecursionError
 from langgraph.types import Overwrite
 
 
 logger = logging.getLogger(__name__)
-
-
-def _normalize_tool_output(output: Any) -> Any:
-    """Normalize tool output to a clean JSON value or string.
-
-    Handles two cases:
-    1. Library-wrapped structured content: {"_text": raw, "structuredContent": {...}}
-       → normalizes the _text value, preserves the wrapper.
-    2. Raw MCP content parts: [{"type": "text", "text": "{...}"}]
-       → extracts the actual value.
-    """
-    if isinstance(output, dict) and "structuredContent" in output:
-        output["_text"] = _normalize_raw_tool_output(output.get("_text"))
-        return output
-    return _normalize_raw_tool_output(output)
-
-
-def _normalize_raw_tool_output(output: Any) -> Any:
-    """Normalize raw MCP tool content to a clean JSON value or string.
-
-    MCP tools via langchain-mcp-adapters return content as a list of
-    content parts like [{"type": "text", "text": "{...}"}]. This extracts
-    the actual value.
-    """
-    if isinstance(output, list) and len(output) > 0:
-        output = output[0]
-    if isinstance(output, dict) and "text" in output:
-        try:
-            return json.loads(output["text"])
-        except (json.JSONDecodeError, TypeError):
-            return output.get("text", output)
-    if isinstance(output, str):
-        try:
-            return json.loads(output)
-        except (json.JSONDecodeError, TypeError):
-            pass
-    return output
 
 
 # ---------------------------------------------------------------------------
@@ -259,128 +221,107 @@ def encode_synthetic_ai_message_sse(
     ]
 
 
-class SlackStreamAdapter:
-    """Converts a LangGraph stream to typed Slack event dicts.
+def _decode_sse_blocks(sse: str) -> list[tuple[str, Any]]:
+    """Parse one published SSE string into `(event, data)` pairs.
 
-    Yields structured dicts:
+    Each chunk in the run event log is `event: <name>\\ndata: <json>\\n\\n`
+    (one event per publish, but we split defensively). Data lines are joined
+    and JSON-decoded; non-JSON data is returned as a raw string.
+    """
+    pairs: list[tuple[str, Any]] = []
+    for block in sse.split("\n\n"):
+        if not block.strip():
+            continue
+        event = ""
+        data_lines: list[str] = []
+        for line in block.splitlines():
+            if line.startswith("event:"):
+                event = line[len("event:") :].strip()
+            elif line.startswith("data:"):
+                data_lines.append(line[len("data:") :].strip())
+        if not event:
+            continue
+        raw = "\n".join(data_lines)
+        try:
+            pairs.append((event, json.loads(raw)))
+        except (json.JSONDecodeError, TypeError):
+            pairs.append((event, raw))
+    return pairs
+
+
+def _chunk_text(content: Any) -> str:
+    """Extract streamable text from an AI message chunk's `content`.
+
+    Providers send either a plain string delta or a list of content blocks;
+    only `text` blocks are surfaced (reasoning/other blocks are skipped)."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            part.get("text", "")
+            for part in content
+            if isinstance(part, dict) and part.get("type") == "text"
+        )
+    return ""
+
+
+class SlackStreamAdapter:
+    """Adapts the run's LangGraph SSE event log to typed Slack event dicts.
+
+    Reads the same byte-identical SSE the HTTP `/runs/stream` consumer relays
+    (so the worker publishes one canonical format) and yields:
     - {"type": "text", "content": "..."}
     - {"type": "tool_start", "tool_call_id": "...", "tool_name": "..."}
-    - {"type": "tool_end", "tool_call_id": "...", "tool_name": "...", "input": {...}, "output": ...}
-    - {"type": "tool_approval_request", "tool_call_id": "...", "tool_name": "...", "input": {...}}
+    - {"type": "error", "content": "..."}
+    - {"type": "end", "status": "success" | "interrupted" | ...}
+
+    Only top-level (non-namespaced) `messages` events are surfaced — subagent
+    tokens stream under a `messages|<ns>` event and are intentionally skipped.
+    Approval requests are *not* derived here: when an `end` event reports
+    `interrupted`, the consumer reads them from the checkpoint
+    (`pending_approval_requests`), which carries the real tool-call ids.
     """
 
     def __init__(self):
-        self._tool_info: dict[str, dict[str, Any]] = {}
+        self._tools_started: set[str] = set()
 
     async def stream(
-        self, langchain_stream: AsyncIterator[Any]
+        self, sse_stream: AsyncIterator[str]
     ) -> AsyncGenerator[dict[str, Any], None]:
-        try:
-            async for chunk in to_ui_message_stream(langchain_stream):
-                for event in self._process(chunk):
-                    yield event
-        except GraphRecursionError:
-            # Surfaced by the runtime as a synthetic AI message text event.
-            raise
-        except Exception as e:
-            body = getattr(e, "body", None)
-            msg = (body.get("message") if isinstance(body, dict) else None) or str(e)
-            yield {"type": "error", "content": msg}
+        async for sse in sse_stream:
+            for event, data in _decode_sse_blocks(sse):
+                for out in self._process(event, data):
+                    yield out
 
-    def _process(self, chunk: dict[str, Any]) -> list[dict[str, Any]]:
-        event_type = chunk.get("type")
-
-        if event_type == "text-delta":
-            delta = chunk.get("delta", "")
-            if delta:
-                return [{"type": "text", "content": delta}]
-            return []
-
-        if event_type == "tool-input-start":
-            tc_id = chunk.get("toolCallId")
-            tool_name = chunk.get("toolName")
-            if tc_id and tool_name:
-                self._tool_info[tc_id] = {
-                    "name": tool_name,
-                    "input": {},
-                    "args_buffer": "",
-                }
-            return [
-                {
-                    "type": "tool_start",
-                    "tool_call_id": tc_id,
-                    "tool_name": tool_name,
-                }
-            ]
-
-        if event_type == "tool-input-delta":
-            tc_id = chunk.get("toolCallId")
-            args_delta = chunk.get("inputTextDelta", "")
-            if tc_id in self._tool_info and args_delta:
-                self._tool_info[tc_id]["args_buffer"] += args_delta
-            return []
-
-        if event_type == "tool-input-available":
-            tc_id = chunk.get("toolCallId")
-            tool_input = chunk.get("input", {})
-            if tc_id in self._tool_info:
-                self._tool_info[tc_id]["input"] = tool_input
-            return []
-
-        if event_type == "tool-output-available":
-            tc_id = chunk.get("toolCallId")
-            output = _normalize_tool_output(chunk.get("output"))
-            info = self._tool_info.get(tc_id, {})
-            tool_name = info.get("name", "unknown")
-            tool_input = info.get("input", {})
-
-            if not tool_input and info.get("args_buffer"):
-                try:
-                    tool_input = json.loads(info["args_buffer"])
-                except (json.JSONDecodeError, TypeError):
-                    tool_input = {"raw": info["args_buffer"]}
-
-            return [
-                {
-                    "type": "tool_end",
-                    "tool_call_id": tc_id,
-                    "tool_name": tool_name,
-                    "input": tool_input,
-                    "output": output,
-                }
-            ]
-
-        if event_type == "tool-output-error":
-            tc_id = chunk.get("toolCallId")
-            info = self._tool_info.get(tc_id, {})
-            return [
-                {
-                    "type": "tool_end",
-                    "tool_call_id": tc_id,
-                    "tool_name": info.get("name", "unknown"),
-                    "input": info.get("input", {}),
-                    "output": chunk.get("errorText", "Tool execution failed"),
-                }
-            ]
-
-        if event_type == "tool-approval-request":
-            tc_id = chunk.get("toolCallId")
-            info = self._tool_info.get(tc_id, {})
-            return [
-                {
-                    "type": "tool_approval_request",
-                    "tool_call_id": tc_id,
-                    "tool_name": info.get("name", "unknown"),
-                    "input": info.get("input", {}),
-                }
-            ]
-
-        if event_type == "error":
-            return [
-                {
-                    "type": "error",
-                    "content": chunk.get("errorText", "Unknown error"),
-                }
-            ]
-
+    def _process(self, event: str, data: Any) -> list[dict[str, Any]]:
+        if event == "messages":
+            return self._process_message(data)
+        if event == "error":
+            message = data.get("message") if isinstance(data, dict) else str(data)
+            return [{"type": "error", "content": message or "Unknown error"}]
+        if event == "end":
+            status = data.get("status") if isinstance(data, dict) else None
+            return [{"type": "end", "status": status}]
         return []
+
+    def _process_message(self, data: Any) -> list[dict[str, Any]]:
+        """Turn a top-level `messages` event ([chunk, metadata]) into events."""
+        if not isinstance(data, list) or not data:
+            return []
+        chunk = data[0]
+        if not isinstance(chunk, dict):
+            return []
+
+        events: list[dict[str, Any]] = []
+        for tc in chunk.get("tool_call_chunks") or chunk.get("tool_calls") or []:
+            tc_id, name = tc.get("id"), tc.get("name")
+            if tc_id and name and tc_id not in self._tools_started:
+                self._tools_started.add(tc_id)
+                events.append(
+                    {"type": "tool_start", "tool_call_id": tc_id, "tool_name": name}
+                )
+
+        text = _chunk_text(chunk.get("content", ""))
+        if text:
+            events.append({"type": "text", "content": text})
+        return events

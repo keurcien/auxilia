@@ -148,6 +148,72 @@ async def test_worker_forwards_output_schema_to_agent(redis, monkeypatch):
     assert captured.get("output_schema") == schema
 
 
+@pytest.mark.usefixtures("patch_agent")
+async def test_worker_invokes_delivery_consumer_for_delivery_records(redis):
+    seen: list[str] = []
+
+    class _Consumer:
+        def __init__(self, record):
+            self.record = record
+
+        async def run(self):
+            # The sentinel is published by finalize before the worker awaits us,
+            # so a real consumer would drain the log here.
+            seen.append(self.record.id)
+
+    def factory(record):
+        return _Consumer(record) if record.delivery else None
+
+    service = RunService(redis)
+    record = await service.create(
+        thread_id="td1",
+        user_id="u1",
+        input={"messages": []},
+        delivery={"channel": "slack", "channel_id": "C"},
+    )
+    await RunWorker(redis, delivery_factory=factory).run(record.id)
+
+    assert seen == [record.id]
+    assert (await service.get(record.id)).status == RunStatus.success
+
+
+@pytest.mark.usefixtures("patch_agent")
+async def test_worker_skips_delivery_for_plain_records(redis):
+    seen: list[str] = []
+
+    def factory(record):
+        seen.append(record.id)  # called, but returns None for pull runs
+        return None
+
+    service = RunService(redis)
+    record = await service.create(thread_id="td2", user_id="u1", input={"messages": []})
+    await RunWorker(redis, delivery_factory=factory).run(record.id)
+
+    assert (await service.get(record.id)).status == RunStatus.success
+
+
+@pytest.mark.usefixtures("patch_agent")
+async def test_worker_succeeds_when_delivery_consumer_crashes(redis):
+    class _BoomConsumer:
+        def __init__(self, record):
+            pass
+
+        async def run(self):
+            raise RuntimeError("delivery boom")
+
+    service = RunService(redis)
+    record = await service.create(
+        thread_id="td3",
+        user_id="u1",
+        input={"messages": []},
+        delivery={"channel": "slack"},
+    )
+    await RunWorker(redis, delivery_factory=_BoomConsumer).run(record.id)
+
+    # Delivery is best-effort: a crash must not change the run's terminal status.
+    assert (await service.get(record.id)).status == RunStatus.success
+
+
 async def test_create_rejects_when_thread_has_active_run(redis):
     service = RunService(redis)
     await service.registry.claim_active("t9", "other-run", ttl=30)

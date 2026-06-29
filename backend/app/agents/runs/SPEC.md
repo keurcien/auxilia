@@ -71,6 +71,7 @@ Redis primitives playing the "repository" role:
 | `control.py`  | `RunControl` — cancel signal (Redis list, polled via non-blocking `LPOP`)              |
 | `queue.py`    | `RunQueue` — FIFO dispatch: `enqueue(run_id)` / `dequeue()` (`BRPOP`)                   |
 | `worker.py`   | `RunWorker` (executes one run) + `RunDispatcher` (BRPOP loop, semaphore, task-per-run) |
+| `delivery.py` | `DeliveryConsumer` protocol + `DeliveryFactory` type — the push-delivery seam      |
 | `reaper.py`   | `RunReaper` — periodic orphan recovery                                                 |
 | `service.py`  | `RunService` — orchestrates the primitives; the public API                             |
 | `schemas.py`  | `RunResponse`, `RunCreate` — DTOs                                                       |
@@ -138,6 +139,28 @@ finished run replays the whole log including the sentinel.
 Distribution: the shared `runs:queue` means any instance's dispatcher can run any
 run; the per-thread mutex keeps a thread to one active run at a time. Cluster
 capacity = `instances × RUN_WORKER_CONCURRENCY`.
+
+## Push delivery (sources with no client connection)
+
+Most consumers **pull**: an HTTP request rides the event log (`/runs/stream`) and
+can drop without affecting the run. Slack has no client connection to ride, so it
+is **pushed**: the worker spawns a `DeliveryConsumer` that subscribes to the run's
+event log and relays each chunk to the channel.
+
+- A run carries an opaque `delivery` descriptor (`RunRecord.delivery`); `None`
+  means pull. The schema is owned by the channel (Slack writes
+  `{"channel": "slack", "channel_id", "thread_ts", "slack_user_id", "team_id"}`),
+  not by this module — `app/agents/runs` never imports `app/integrations`.
+- The composition root (`main.py`) injects a `DeliveryFactory` into
+  `RunDispatcher` → `RunWorker`. After the run goes `running`, the worker builds a
+  consumer from the record (if the factory returns one) and runs it concurrently
+  with the stream, awaiting it after `finalize` publishes the `end` sentinel.
+- Delivery is best-effort: a consumer crash is logged and never changes the run's
+  terminal status.
+- The Slack consumer (`app/integrations/slack/consumer.py`) parses the canonical
+  LangGraph SSE log via `SlackStreamAdapter`, streams text/tool labels through
+  `chat.startStream`/`appendStream`/`stopStream`, and on the terminal event posts
+  approval blocks (interrupted) or the auxilia link (success).
 
 ## Multitask strategy (per thread)
 

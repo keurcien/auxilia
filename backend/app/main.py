@@ -24,6 +24,7 @@ from app.exceptions import (
     NotFoundError,
     PermissionDeniedError,
 )
+from app.integrations.slack.consumer import build_slack_run_consumer
 from app.integrations.slack.router import router as slack_router
 from app.invites.router import router as invites_router
 from app.mcp.apps.router import router as mcp_apps_router
@@ -64,7 +65,7 @@ async def lifespan(app: FastAPI):
     dispatcher: RunDispatcher | None = None
     reaper: RunReaper | None = None
     if run_settings.dispatcher_enabled:
-        dispatcher = RunDispatcher()
+        dispatcher = RunDispatcher(delivery_factory=build_slack_run_consumer)
         reaper = RunReaper()
         background = [
             asyncio.create_task(dispatcher.run(), name="run-dispatcher"),

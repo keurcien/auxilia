@@ -104,6 +104,11 @@ class RunRecord(BaseModel):
     # JSON Schema for a structured final answer (the invoke consumer reads it back).
     output_schema: dict | None = None
 
+    # Opaque push-delivery descriptor. `None` = pull (an HTTP subscriber rides
+    # the event log). A push channel (e.g. Slack) sets it so the worker spawns a
+    # delivery consumer; the schema is owned by that channel, not by this module.
+    delivery: dict | None = None
+
     # Terminal error text, when status is `error`/`timeout`.
     error: str | None = None
 

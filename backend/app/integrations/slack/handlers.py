@@ -1,26 +1,27 @@
 # Handlers contain the business logic for each Slack event type.
 #
 # Threads are created when the user picks an agent via the agent picker
-# (triggered by @auxilia mention).  Subsequent messages in that thread
-# are routed to the configured agent.
+# (triggered by @auxilia mention). Subsequent messages in that thread are
+# routed to the configured agent by *enqueuing a durable run* — the web tier
+# never executes the agent itself (see `app/agents/runs/` and `consumer.py`).
+
+import logging
 
 from slack_sdk.web.async_client import AsyncWebClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.agents.core.service import AgentService
-from app.agents.runtime import Agent
+from app.agents.runs.service import RunService
 from app.auth.settings import auth_settings
 from app.database import AsyncSessionLocal
-from app.integrations.slack.blocks import (
-    build_tool_approval_blocks,
-    format_tool_streamer_label,
-)
+from app.exceptions import DomainValidationError
 from app.integrations.slack.commands.chat import (
     build_agent_picker_blocks,
     list_pickable_agents,
     post_agent_picker,
 )
+from app.integrations.slack.consumer import build_slack_delivery
 from app.integrations.slack.models import SlackEvent, SlackInteractionPayload
 from app.integrations.slack.settings import slack_settings
 from app.integrations.slack.utils import get_user_info, resolve_user
@@ -30,108 +31,46 @@ from app.threads.models import ThreadDB
 from app.users.repository import UserRepository
 
 
-async def post_tool_approval_block(
-    client: AsyncWebClient, channel: str, thread_ts: str, ev: dict,
-) -> None:
-    """Post a tool approval request as a Block Kit message with Approve/Reject buttons."""
-    blocks = build_tool_approval_blocks(
-        ev["tool_call_id"], ev["tool_name"], ev["input"])
-    await client.chat_postMessage(
-        channel=channel, thread_ts=thread_ts,
-        blocks=blocks, text=f"Approve {ev['tool_name']}?",
-    )
+logger = logging.getLogger(__name__)
 
 
-async def _stream_and_collect_approvals(
-    agent: Agent,
-    streamer,
+async def _enqueue_slack_run(
     *,
-    agent_input: dict | None = None,
-    command: dict | None = None,
-) -> list[dict]:
-    """Stream the agent response, forwarding text to the streamer.
-
-    Returns a list of ``tool_approval_request`` events collected during
-    the stream (empty when none were emitted).
-    """
-    approval_requests: list[dict] = []
-
-    async for ev in agent.stream(
-        agent_input=agent_input, command=command, stream_adapter="slack",
-    ):
-        if ev["type"] == "text":
-            await streamer.append(markdown_text=ev["content"])
-        elif ev["type"] == "tool_start":
-            await streamer.append(
-                markdown_text=format_tool_streamer_label(ev["tool_name"])
-            )
-        elif ev["type"] == "tool_approval_request":
-            approval_requests.append(ev)
-        elif ev["type"] == "error":
-            await streamer.append(markdown_text=f"**`Error: {ev['content']}`**\n\n")
-
-    await streamer.stop()
-    return approval_requests
-
-
-async def _run_slack_turn(
-    client: AsyncWebClient,
-    thread: ThreadDB,
-    db: AsyncSession,
+    thread_id: str,
+    user_id: str,
     channel_id: str,
-    thread_ts: str,
-    *,
-    recipient_user_id: str,
-    recipient_team_id: str | None = None,
-    agent_input: dict | None = None,
+    slack_user_id: str,
+    team_id: str | None,
+    input: dict | None = None,
     command: dict | None = None,
 ) -> None:
-    """Build the agent runtime, stream the response, and post follow-ups.
+    """Create a durable run for a Slack turn; the worker executes + delivers it.
 
-    Shared by initial messages and HITL resume: opens the chat streamer,
-    runs the agent, then either posts approval blocks for any pending
-    tool calls or the auxilia link when the turn completes cleanly.
+    A duplicate that slips the webhook dedup races the per-thread mutex and is
+    rejected at create time — swallowed here so Slack still gets a clean ack.
     """
-    streamer = await client.chat_stream(
-        channel=channel_id,
-        thread_ts=thread_ts,
-        recipient_team_id=recipient_team_id,
-        recipient_user_id=recipient_user_id,
+    delivery = build_slack_delivery(
+        channel_id=channel_id,
+        thread_ts=thread_id,
+        slack_user_id=slack_user_id,
+        team_id=team_id,
     )
-
-    agent = await Agent.build(thread=thread, db=db)
-    approval_requests = await _stream_and_collect_approvals(
-        agent, streamer, agent_input=agent_input, command=command,
-    )
-
-    for req in approval_requests:
-        await post_tool_approval_block(client, channel_id, thread_ts, req)
-
-    if not approval_requests:
-        await _post_auxilia_link(client, channel_id, thread_ts, thread)
-
-
-async def _post_auxilia_link(
-    client: AsyncWebClient, channel: str, thread_ts: str, thread: ThreadDB,
-) -> None:
-    """Post a divider + 'Open in auxilia' link as a Block Kit message."""
-    url = f"{auth_settings.FRONTEND_URL}/agents/{thread.agent_id}/chat/{thread.id}"
-    await client.chat_postMessage(
-        channel=channel,
-        thread_ts=thread_ts,
-        blocks=[
-            {"type": "divider"},
-            {
-                "type": "context",
-                "elements": [{"type": "mrkdwn", "text": f"<{url}|*View in auxilia*>"}],
-            },
-        ],
-    )
+    try:
+        await RunService().create(
+            thread_id=thread_id,
+            user_id=user_id,
+            input=input,
+            command=command,
+            delivery=delivery,
+        )
+    except DomainValidationError:
+        logger.info("Slack run for thread %s skipped: active run exists", thread_id)
 
 
 # ---------------------------------------------------------------------------
 # Approval-message introspection  (stateless — reads from the thread itself)
 # ---------------------------------------------------------------------------
+
 
 def _is_pending(msg: dict) -> bool:
     """Check if a message still has approval action buttons."""
@@ -192,14 +131,16 @@ def _collect_batch_decisions(thread_messages: list[dict]) -> list[str] | None:
     if any(_is_pending(msg) for msg in batch):
         return None
 
-    commands = [d for msg in batch if (
-        d := _extract_decision(msg)) is not None]
+    commands = [d for msg in batch if (d := _extract_decision(msg)) is not None]
     return commands or None
 
 
 async def _update_approval_message(
-    client: AsyncWebClient, channel_id: str, message_ts: str,
-    blocks: list[dict], approved: bool,
+    client: AsyncWebClient,
+    channel_id: str,
+    message_ts: str,
+    blocks: list[dict],
+    approved: bool,
 ) -> None:
     """Update the approval message: append decision to header, remove buttons, add divider."""
     status_emoji = ":white_check_mark:" if approved else ":no_entry_sign:"
@@ -219,43 +160,26 @@ async def _update_approval_message(
             if elements and elements[0].get("type") == "mrkdwn":
                 block = {
                     **block,
-                    "elements": [{
-                        **elements[0],
-                        "text": f"{elements[0]['text']}  ›  {status_emoji} {status_label}",
-                    }],
+                    "elements": [
+                        {
+                            **elements[0],
+                            "text": f"{elements[0]['text']}  ›  {status_emoji} {status_label}",
+                        }
+                    ],
                 }
         updated_blocks.append(block)
 
     await client.chat_update(
-        channel=channel_id, ts=message_ts,
-        blocks=updated_blocks, text=status_label,
+        channel=channel_id,
+        ts=message_ts,
+        blocks=updated_blocks,
+        text=status_label,
     )
 
 
 # ---------------------------------------------------------------------------
 # Top-level event handlers
 # ---------------------------------------------------------------------------
-
-async def stream_agent_response(
-    thread: ThreadDB,
-    db: AsyncSession,
-    question: str,
-    event: SlackEvent,
-    client: AsyncWebClient,
-    *,
-    team_id: str | None = None,
-) -> None:
-    """Stream an initial agent response to a user message in a Slack thread."""
-    await _run_slack_turn(
-        client=client,
-        thread=thread,
-        db=db,
-        channel_id=event.channel,
-        thread_ts=event.thread_ts or event.ts,
-        recipient_user_id=event.user,
-        recipient_team_id=team_id,
-        agent_input={"messages": [{"type": "human", "content": question}]},
-    )
 
 
 async def handle_assistant_thread_started(event: SlackEvent) -> None:
@@ -274,12 +198,13 @@ async def handle_assistant_thread_started(event: SlackEvent) -> None:
 
     client = AsyncWebClient(token=slack_settings.slack_bot_token)
     await client.assistant_threads_setStatus(
-        channel_id=channel_id, thread_ts=thread_ts, status="is typing...",
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        status="is typing...",
     )
 
     user_info = await get_user_info(slack_user_id)
-    display_name = (
-        user_info.real_name or user_info.name) if user_info else "there"
+    display_name = (user_info.real_name or user_info.name) if user_info else "there"
 
     # Resolve Slack identity → internal user
     user = None
@@ -322,6 +247,7 @@ async def _is_agent_ready(agent_id: str, user_id: str, db: AsyncSession) -> bool
     """Mirror the /is-ready endpoint: return True only when all bound MCP servers
     are connected for this user."""
     from uuid import UUID
+
     agent = await AgentService(db).get(UUID(agent_id))
 
     if not agent.mcp_servers:
@@ -343,7 +269,7 @@ async def _is_agent_ready(agent_id: str, user_id: str, db: AsyncSession) -> bool
 
 
 async def handle_message(event: SlackEvent, *, team_id: str | None = None) -> None:
-    """Route a Slack message to the configured agent for this thread."""
+    """Route a Slack message to the configured agent by enqueuing a durable run."""
     thread_ts = event.thread_ts or event.ts
 
     question = (event.text or "").strip()
@@ -362,7 +288,9 @@ async def handle_message(event: SlackEvent, *, team_id: str | None = None) -> No
         thread = await db.get(ThreadDB, thread_ts)
 
         if not thread:
-            await post_agent_picker(client, event.channel, thread_ts, db, user.id, user_role=user.role)
+            await post_agent_picker(
+                client, event.channel, thread_ts, db, user.id, user_role=user.role
+            )
             return
 
         if not await _is_agent_ready(str(thread.agent_id), str(user.id), db):
@@ -383,7 +311,10 @@ async def handle_message(event: SlackEvent, *, team_id: str | None = None) -> No
                         "elements": [
                             {
                                 "type": "button",
-                                "text": {"type": "plain_text", "text": "Connect on auxilia"},
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "Connect on auxilia",
+                                },
                                 "url": connect_url,
                                 "style": "primary",
                             }
@@ -394,7 +325,9 @@ async def handle_message(event: SlackEvent, *, team_id: str | None = None) -> No
             return
 
         await client.assistant_threads_setStatus(
-            channel_id=event.channel, thread_ts=thread_ts, status="is typing...",
+            channel_id=event.channel,
+            thread_ts=thread_ts,
+            status="is typing...",
         )
 
         # Set the Slack thread title to the first real user message.
@@ -407,17 +340,22 @@ async def handle_message(event: SlackEvent, *, team_id: str | None = None) -> No
                 title=question[:255],
             )
 
-        await stream_agent_response(
-            thread, db, question, event, client, team_id=team_id,
-        )
+    await _enqueue_slack_run(
+        thread_id=thread_ts,
+        user_id=str(user.id),
+        channel_id=event.channel,
+        slack_user_id=event.user,
+        team_id=team_id,
+        input={"messages": [{"type": "human", "content": question}]},
+    )
 
 
 async def handle_interaction(payload: SlackInteractionPayload) -> None:
     """Handle a Slack block_actions interaction (Approve/Reject buttons).
 
     Uses ``conversations.replies`` to derive approval state from the thread
-    itself — no external state store needed.  The agent is only resumed
-    once every pending tool call has been decided.
+    itself — no external state store needed. The agent is resumed (via a new
+    durable run) only once every pending tool call has been decided.
     """
     if not payload.actions:
         return
@@ -437,7 +375,11 @@ async def handle_interaction(payload: SlackInteractionPayload) -> None:
     if message_ts:
         original_blocks = payload.message.blocks if payload.message else []
         await _update_approval_message(
-            client, channel_id, message_ts, original_blocks, approved,
+            client,
+            channel_id,
+            message_ts,
+            original_blocks,
+            approved,
         )
 
     # Check whether the latest batch of approvals is fully decided
@@ -445,8 +387,8 @@ async def handle_interaction(payload: SlackInteractionPayload) -> None:
     if commands is None:
         return
 
-    # All decided — resume the agent
-    await _resume_agent(client, payload.user.id, channel_id, thread_ts, commands)
+    # All decided — resume the agent via a new run
+    await _resume_agent(client, payload, channel_id, thread_ts, commands)
 
 
 def _extract_interaction_context(
@@ -454,8 +396,10 @@ def _extract_interaction_context(
 ) -> tuple[str | None, str | None, str | None]:
     """Extract channel_id, thread_ts, and message_ts from an interaction payload."""
     channel_id = (
-        payload.channel.id if payload.channel
-        else payload.container.channel_id if payload.container
+        payload.channel.id
+        if payload.channel
+        else payload.container.channel_id
+        if payload.container
         else None
     )
     thread_ts = payload.container.thread_ts if payload.container else None
@@ -464,11 +408,14 @@ def _extract_interaction_context(
 
 
 async def _fetch_and_resolve_decisions(
-    client: AsyncWebClient, channel_id: str, thread_ts: str,
+    client: AsyncWebClient,
+    channel_id: str,
+    thread_ts: str,
 ) -> list[str] | None:
     """Fetch thread replies and return decisions if the latest batch is complete."""
     result = await client.conversations_replies(
-        channel=channel_id, ts=thread_ts,
+        channel=channel_id,
+        ts=thread_ts,
     )
     thread_messages = result.get("messages", [])
     return _collect_batch_decisions(thread_messages)
@@ -476,31 +423,32 @@ async def _fetch_and_resolve_decisions(
 
 async def _resume_agent(
     client: AsyncWebClient,
-    slack_user_id: str,
+    payload: SlackInteractionPayload,
     channel_id: str,
     thread_ts: str,
     commands: list[str],
 ) -> None:
-    """Look up the thread, build the agent runtime, and resume with *commands*."""
-    user = await resolve_user(slack_user_id)
+    """Look up the thread and enqueue a HITL-resume run with *commands*."""
+    user = await resolve_user(payload.user.id)
     if not user:
         return
 
     async with AsyncSessionLocal() as db:
         thread = await db.get(ThreadDB, thread_ts)
-        if not thread:
-            return
+    if not thread:
+        return
 
-        await client.assistant_threads_setStatus(
-            channel_id=channel_id, thread_ts=thread_ts, status="is typing...",
-        )
+    await client.assistant_threads_setStatus(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        status="is typing...",
+    )
 
-        await _run_slack_turn(
-            client=client,
-            thread=thread,
-            db=db,
-            channel_id=channel_id,
-            thread_ts=thread_ts,
-            recipient_user_id=slack_user_id,
-            command={"resume": {"decisions": [{"type": cmd} for cmd in commands]}},
-        )
+    await _enqueue_slack_run(
+        thread_id=thread_ts,
+        user_id=str(user.id),
+        channel_id=channel_id,
+        slack_user_id=payload.user.id,
+        team_id=(payload.team or {}).get("id"),
+        command={"resume": {"decisions": [{"type": cmd} for cmd in commands]}},
+    )
