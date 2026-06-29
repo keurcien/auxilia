@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -10,6 +10,7 @@ import {
 	Server,
 	SquarePen,
 	MoreVertical,
+	Pencil,
 	Trash2,
 	LogOut,
 	BookOpen,
@@ -41,6 +42,8 @@ import { useUserStore } from "@/stores/user-store";
 import { useAgentsStore } from "@/stores/agents-store";
 import { api } from "@/lib/api/client";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
+import { RenameThreadDialog } from "@/components/layout/app-sidebar/rename-thread-dialog";
+import { Thread } from "@/types/threads";
 import { useTheme } from "next-themes";
 
 const navItems = [
@@ -78,6 +81,7 @@ export function AppSidebar() {
 	const { user, fetchUser, logout } = useUserStore();
 	const { resolvedTheme, setTheme } = useTheme();
 	const { toggleSidebar } = useSidebar();
+	const [renamingThread, setRenamingThread] = useState<Thread | null>(null);
 
 	useEffect(() => {
 		fetchUser();
@@ -239,12 +243,19 @@ export function AppSidebar() {
 												align="start"
 												items={[
 													{
+														label: "Rename",
+														icon: <Pencil />,
+														onClick: () => {
+															setRenamingThread(thread);
+														},
+													},
+													{
 														label: "Delete",
 														icon: <Trash2 />,
 														destructive: true,
 														onClick: () => {
-														handleDeleteThread(thread.id);
-													},
+															handleDeleteThread(thread.id);
+														},
 													},
 												]}
 											/>
@@ -359,6 +370,12 @@ export function AppSidebar() {
 					</SidebarMenu>
 				</SidebarFooter>
 			</Sidebar>
+			<RenameThreadDialog
+				thread={renamingThread}
+				onOpenChange={(open) => {
+					if (!open) setRenamingThread(null);
+				}}
+			/>
 		</>
 	);
 }
