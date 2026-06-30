@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.9](https://github.com/keurcien/auxilia/compare/web-v0.5.8...web-v0.5.9) (2026-06-30)
+
+
+### Features
+
+* teams for agent access ([#173](https://github.com/keurcien/auxilia/issues/173)) ([30552b7](https://github.com/keurcien/auxilia/commit/30552b79e49e170c88d2418bc9a1b77fe2b75b17))
+* **web:** show subagent avatars in agent card footer ([#171](https://github.com/keurcien/auxilia/issues/171)) ([8e50338](https://github.com/keurcien/auxilia/commit/8e503380e9c1a91c2cdc827047cdb1f093636b00))
+
 ## [0.5.8](https://github.com/keurcien/auxilia/compare/web-v0.5.7...web-v0.5.8) (2026-06-29)
 
 
