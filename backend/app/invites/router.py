@@ -23,6 +23,7 @@ async def create_invite(
         email=data.email,
         role=data.role.value,
         invited_by=current_user.id,
+        team_id=data.team_id,
     )
     return service._to_response(invite, include_url=True)
 

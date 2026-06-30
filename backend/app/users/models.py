@@ -22,6 +22,13 @@ class UserBase(SQLModel):
 class UserDB(UserBase, BaseDBModel, table=True):
     __tablename__ = "users"
 
+    team_id: UUID | None = Field(
+        default=None,
+        foreign_key="teams.id",
+        ondelete="SET NULL",
+        nullable=True,
+    )
+
     oauth_accounts: list["OAuthAccountDB"] = Relationship(back_populates="user")
 
 

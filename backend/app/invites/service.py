@@ -8,11 +8,12 @@ from sqlmodel import select
 
 from app.auth.settings import auth_settings
 from app.database import get_db
-from app.exceptions import AlreadyExistsError
+from app.exceptions import AlreadyExistsError, NotFoundError
 from app.invites.models import InviteCreateDB, InviteDB, InviteStatus
 from app.invites.repository import InviteRepository
 from app.invites.schemas import InviteResponse
 from app.service import BaseService
+from app.teams.repository import TeamRepository
 from app.users.models import UserDB
 
 
@@ -39,6 +40,7 @@ class InviteService(BaseService[InviteDB, InviteRepository]):
             invite_url=self.build_invite_url(invite.token) if include_url else None,
             invited_by=invite.invited_by,
             invited_by_name=invited_by_name,
+            team_id=invite.team_id,
             expires_at=invite.expires_at,
             created_at=invite.created_at,
         )
@@ -51,11 +53,19 @@ class InviteService(BaseService[InviteDB, InviteRepository]):
             and invite.expires_at >= datetime.now(UTC)
         )
 
-    async def create(self, email: str, role: str, invited_by: UUID) -> InviteDB:
+    async def create(
+        self,
+        email: str,
+        role: str,
+        invited_by: UUID,
+        team_id: UUID | None = None,
+    ) -> InviteDB:
         """Create a new invite, revoking any existing pending invite for the same email."""
         result = await self.db.execute(select(UserDB).where(UserDB.email == email))
         if result.scalar_one_or_none():
             raise AlreadyExistsError("Email already registered")
+        if team_id is not None and not await TeamRepository(self.db).get(team_id):
+            raise NotFoundError("Team not found")
         await self.repository.revoke_pending_by_email(email)
         data = InviteCreateDB(
             email=email,
@@ -63,6 +73,7 @@ class InviteService(BaseService[InviteDB, InviteRepository]):
             token=secrets.token_urlsafe(32),
             invited_by=invited_by,
             expires_at=datetime.now(UTC) + timedelta(days=7),
+            team_id=team_id,
         )
         return await self.repository.create(data)
 

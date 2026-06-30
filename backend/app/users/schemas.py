@@ -23,11 +23,16 @@ class UserRolePatch(SQLModel):
     role: WorkspaceRole
 
 
+class UserTeamPatch(SQLModel):
+    team_id: UUID | None = None
+
+
 class UserResponse(SQLModel):
     id: UUID
     name: str | None
     email: str | None
     role: WorkspaceRole
+    team_id: UUID | None = None
     created_at: datetime
     updated_at: datetime
 

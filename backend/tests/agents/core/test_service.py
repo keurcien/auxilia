@@ -45,6 +45,9 @@ def mock_repo():
     repo.delete_all_permissions = AsyncMock()
     repo.get_permissions = AsyncMock()
     repo.set_permissions = AsyncMock()
+    repo.get_team_ids = AsyncMock(return_value=[])
+    repo.set_teams = AsyncMock(return_value=[])
+    repo.delete_all_teams = AsyncMock()
     repo.list_with_permissions = AsyncMock(return_value=[])
     return repo
 
@@ -717,3 +720,117 @@ def test_resolve_permission_returns_none_when_no_user(service):
     result = service._resolve_permission(agent, None, None, {})
 
     assert result is None
+
+
+def test_resolve_permission_returns_member_when_team_granted(service):
+    agent = make_agent()
+
+    result = service._resolve_permission(
+        agent, uuid4(), WorkspaceRole.member, {}, {agent.id}
+    )
+
+    assert result == "member"
+
+
+def test_resolve_permission_explicit_grant_beats_team(service):
+    agent = make_agent()
+    granted = {agent.id: "editor"}
+
+    result = service._resolve_permission(
+        agent, uuid4(), WorkspaceRole.member, granted, {agent.id}
+    )
+
+    assert result == "editor"
+
+
+def test_resolve_permission_no_team_grant_when_agent_not_in_set(service):
+    agent = make_agent()
+
+    result = service._resolve_permission(
+        agent, uuid4(), WorkspaceRole.member, {}, {uuid4()}
+    )
+
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# team grants through list (4-tuple rows carry the team match)
+# ---------------------------------------------------------------------------
+
+
+async def test_list_agents_team_member_gets_member(service, mock_repo):
+    agent = make_agent()
+    team_id = uuid4()
+    # 4th element = matching agent↔team link's team_id
+    mock_repo.list_with_permissions.return_value = [(agent, None, None, team_id)]
+
+    result = await service.list(
+        user_id=uuid4(), user_role=WorkspaceRole.member, user_team_id=team_id
+    )
+
+    assert result[0].current_user_permission == "member"
+
+
+async def test_list_agents_explicit_editor_beats_team(service, mock_repo):
+    agent = make_agent()
+    team_id = uuid4()
+    mock_repo.list_with_permissions.return_value = [
+        (agent, None, PermissionLevel.editor, team_id)
+    ]
+
+    result = await service.list(
+        user_id=uuid4(), user_role=WorkspaceRole.member, user_team_id=team_id
+    )
+
+    assert result[0].current_user_permission == "editor"
+
+
+async def test_list_agents_no_team_match_stays_none(service, mock_repo):
+    agent = make_agent()
+    mock_repo.list_with_permissions.return_value = [(agent, None, None, None)]
+
+    result = await service.list(
+        user_id=uuid4(), user_role=WorkspaceRole.member, user_team_id=uuid4()
+    )
+
+    assert result[0].current_user_permission is None
+
+
+# ---------------------------------------------------------------------------
+# agent team bindings
+# ---------------------------------------------------------------------------
+
+
+async def test_get_team_ids_delegates(service, mock_repo):
+    agent_id = uuid4()
+    team_ids = [uuid4(), uuid4()]
+    mock_repo.get_team_ids = AsyncMock(return_value=team_ids)
+
+    result = await service.get_team_ids(agent_id)
+
+    mock_repo.get_team_ids.assert_awaited_once_with(agent_id)
+    assert result == team_ids
+
+
+async def test_set_teams_delegates(service, mock_repo):
+    agent_id = uuid4()
+    team_ids = [uuid4()]
+    mock_repo.set_teams = AsyncMock(return_value=team_ids)
+
+    result = await service.set_teams(agent_id, team_ids)
+
+    mock_repo.set_teams.assert_awaited_once_with(agent_id, team_ids)
+    assert result == team_ids
+
+
+async def test_delete_permanently_cleans_team_links(
+    service, mock_repo, mock_subagent_service
+):
+    agent = make_agent(is_archived=True)
+    mock_repo.get.return_value = agent
+    mock_repo.list_with_permissions.return_value = [(agent, None)]
+    mock_repo.delete_all_teams = AsyncMock()
+
+    await service.delete_permanently(agent.id, user_id=agent.owner_id)
+
+    mock_repo.delete_all_teams.assert_awaited_once_with(agent.id)

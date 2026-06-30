@@ -49,9 +49,7 @@ class AuthService:
 
     async def signin(self, data: SigninRequest) -> tuple[UserDB, str]:
         self._ensure_password_auth()
-        result = await self.db.execute(
-            select(UserDB).where(UserDB.email == data.email)
-        )
+        result = await self.db.execute(select(UserDB).where(UserDB.email == data.email))
         user = result.scalar_one_or_none()
         if user is None or user.password_hash is None:
             raise InvalidCredentialsError("Invalid email or password")
@@ -85,6 +83,7 @@ class AuthService:
             name=data.name,
             password_hash=get_password_hash(data.password),
             role=WorkspaceRole(invite.role),
+            team_id=invite.team_id,
         )
         self.db.add(user)
         invite.status = InviteStatus.accepted
@@ -130,9 +129,13 @@ class AuthService:
         user = result.scalar_one_or_none()
 
         if user:
-            self.db.add(OAuthAccountDB(
-                provider="google", sub_id=google_sub, user_id=user.id,
-            ))
+            self.db.add(
+                OAuthAccountDB(
+                    provider="google",
+                    sub_id=google_sub,
+                    user_id=user.id,
+                )
+            )
             await self.db.flush()
             return self.build_jwt_for_user(user)
 
@@ -148,13 +151,18 @@ class AuthService:
             email=email,
             name=name,
             role=WorkspaceRole(invite.role),
+            team_id=invite.team_id,
         )
         self.db.add(user)
         await self.db.flush()
 
-        self.db.add(OAuthAccountDB(
-            provider="google", sub_id=google_sub, user_id=user.id,
-        ))
+        self.db.add(
+            OAuthAccountDB(
+                provider="google",
+                sub_id=google_sub,
+                user_id=user.id,
+            )
+        )
         invite.status = InviteStatus.accepted
         self.db.add(invite)
         await self.db.flush()

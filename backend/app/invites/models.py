@@ -19,6 +19,7 @@ class InviteCreateDB(SQLModel):
     token: str
     invited_by: UUID
     expires_at: datetime
+    team_id: UUID | None = None
 
 
 class InviteDB(BaseDBModel, table=True):
@@ -31,4 +32,10 @@ class InviteDB(BaseDBModel, table=True):
     invited_by: UUID = Field(foreign_key="users.id", nullable=False)
     expires_at: datetime = Field(
         sa_column=Column(DateTime(timezone=True), nullable=False)
+    )
+    team_id: UUID | None = Field(
+        default=None,
+        foreign_key="teams.id",
+        ondelete="SET NULL",
+        nullable=True,
     )

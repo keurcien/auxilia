@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Copy, Check, X } from "lucide-react";
 import { api } from "@/lib/api/client";
+import { type Team } from "./new-team-dialog";
 
 type Role = "member" | "editor" | "admin";
 
@@ -18,16 +19,19 @@ interface Invite {
 interface InviteDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	teams: Team[];
 	onInviteCreated?: (invite: Invite) => void;
 }
 
 export default function InviteDialog({
 	open,
 	onOpenChange,
+	teams,
 	onInviteCreated,
 }: InviteDialogProps) {
 	const [email, setEmail] = useState("");
 	const [role, setRole] = useState<Role>("member");
+	const [teamId, setTeamId] = useState("");
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [inviteUrl, setInviteUrl] = useState<string | null>(null);
@@ -39,7 +43,11 @@ export default function InviteDialog({
 		setIsLoading(true);
 
 		try {
-			const response = await api.post("/invites/", { email, role });
+			const response = await api.post("/invites/", {
+				email,
+				role,
+				teamId: teamId || null,
+			});
 			setInviteUrl(response.data.inviteUrl);
 			onInviteCreated?.(response.data);
 		} catch (err: unknown) {
@@ -60,12 +68,13 @@ export default function InviteDialog({
 		if (!inviteUrl) return;
 		await navigator.clipboard.writeText(inviteUrl);
 		setCopied(true);
-		setTimeout(() => setCopied(false), 2000);
+		setTimeout(() => { setCopied(false); }, 2000);
 	};
 
 	const handleClose = () => {
 		setEmail("");
 		setRole("member");
+		setTeamId("");
 		setError(null);
 		setInviteUrl(null);
 		setCopied(false);
@@ -81,7 +90,7 @@ export default function InviteDialog({
 		>
 			<div
 				className="bg-white dark:bg-card rounded-[28px] p-8 w-[420px] max-w-[90vw] shadow-[0_24px_48px_-12px_rgba(0,0,0,0.12)] animate-in slide-in-from-bottom-4 zoom-in-[0.97] duration-300"
-				onClick={(e) => e.stopPropagation()}
+				onClick={(e) => { e.stopPropagation(); }}
 			>
 				{/* Header */}
 				<div className="flex items-center justify-between mb-7">
@@ -112,7 +121,7 @@ export default function InviteDialog({
 								className="flex-1 min-w-0 px-4.5 py-3 rounded-full border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-[#FAFCFB] dark:bg-white/5 font-[family-name:var(--font-dm-sans)] text-[14px] font-medium text-[#1E2D28] dark:text-white truncate focus:outline-none"
 							/>
 							<button
-								onClick={handleCopy}
+								onClick={() => { void handleCopy(); }}
 								className={`shrink-0 flex items-center gap-1.5 px-4 py-3 rounded-full border-[1.5px] font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold cursor-pointer transition-all duration-200 ${
 									copied
 										? "bg-[#EDF4F0] dark:bg-white/10 text-[#3D8B63] dark:text-emerald-400 border-[#3D8B63]/20"
@@ -135,7 +144,7 @@ export default function InviteDialog({
 						</button>
 					</div>
 				) : (
-					<form onSubmit={handleSubmit}>
+					<form onSubmit={(e) => { void handleSubmit(e); }}>
 						{error && (
 							<div className="mb-5 p-3.5 rounded-2xl bg-red-50 dark:bg-red-950/30 text-[13px] font-medium text-red-600 dark:text-red-400 font-[family-name:var(--font-dm-sans)]">
 								{error}
@@ -151,25 +160,45 @@ export default function InviteDialog({
 								type="email"
 								placeholder="colleague@example.com"
 								value={email}
-								onChange={(e) => setEmail(e.target.value)}
+								onChange={(e) => { setEmail(e.target.value); }}
 								required
 								className="w-full px-4.5 py-3 rounded-full border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-[#FAFCFB] dark:bg-white/5 font-[family-name:var(--font-dm-sans)] text-[14px] font-medium text-[#1E2D28] dark:text-white placeholder:text-[#A3B5AD] dark:placeholder:text-white/30 focus:outline-none focus:border-[#4CA882] transition-colors"
 							/>
 						</div>
 
 						{/* Role */}
-						<div className="mb-7">
+						<div className="mb-5">
 							<label className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-2">
 								Role
 							</label>
 							<select
 								value={role}
-								onChange={(e) => setRole(e.target.value as Role)}
+								onChange={(e) => { setRole(e.target.value as Role); }}
 								className="w-auto px-4.5 py-3 pr-9 rounded-full border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-[#FAFCFB] dark:bg-white/5 font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold text-[#1E2D28] dark:text-white cursor-pointer appearance-none focus:outline-none focus:border-[#4CA882] transition-colors bg-[url('data:image/svg+xml,%3Csvg%20width%3D%2712%27%20height%3D%2712%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%238FA89E%27%20stroke-width%3D%272%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%3E%3Cpolyline%20points%3D%276%209%2012%2015%2018%209%27/%3E%3C/svg%3E')] bg-no-repeat bg-[right_14px_center]"
 							>
 								<option value="member">Member</option>
 								<option value="editor">Editor</option>
 								<option value="admin">Admin</option>
+							</select>
+						</div>
+
+						{/* Team */}
+						<div className="mb-7">
+							<label className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-2">
+								Team{" "}
+								<span className="font-medium text-[#A3B5AD]">(optional)</span>
+							</label>
+							<select
+								value={teamId}
+								onChange={(e) => { setTeamId(e.target.value); }}
+								className="w-auto px-4.5 py-3 pr-9 rounded-full border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-[#FAFCFB] dark:bg-white/5 font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold text-[#1E2D28] dark:text-white cursor-pointer appearance-none focus:outline-none focus:border-[#4CA882] transition-colors bg-[url('data:image/svg+xml,%3Csvg%20width%3D%2712%27%20height%3D%2712%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%238FA89E%27%20stroke-width%3D%272%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%3E%3Cpolyline%20points%3D%276%209%2012%2015%2018%209%27/%3E%3C/svg%3E')] bg-no-repeat bg-[right_14px_center]"
+							>
+								<option value="">No team</option>
+								{teams.map((t) => (
+									<option key={t.id} value={t.id}>
+										{t.name}
+									</option>
+								))}
 							</select>
 						</div>
 

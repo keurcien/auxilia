@@ -1,9 +1,19 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { Trash2, Plus, Copy, Check, Mail, ChevronDown } from "lucide-react";
+import {
+	Trash2,
+	Plus,
+	Copy,
+	Check,
+	Mail,
+	ChevronDown,
+	MoreVertical,
+	Pencil,
+} from "lucide-react";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import InviteDialog from "./invite-dialog";
+import NewTeamDialog, { type Team } from "./new-team-dialog";
 import { SearchBar } from "@/components/ui/search-bar";
 import { Button } from "@/components/ui/button";
 import { PageContainer } from "@/components/layout/page-container";
@@ -16,6 +26,7 @@ interface User {
 	name: string | null;
 	email: string | null;
 	role: "member" | "editor" | "admin";
+	teamId: string | null;
 	createdAt: string;
 	updatedAt: string;
 }
@@ -81,11 +92,15 @@ export default function UsersPage() {
 	const currentUser = useUserStore((state) => state.user);
 	const [users, setUsers] = useState<User[]>([]);
 	const [invites, setInvites] = useState<Invite[]>([]);
+	const [teams, setTeams] = useState<Team[]>([]);
 	const [search, setSearch] = useState("");
 	const [roleFilter, setRoleFilter] = useState<"all" | Role>("all");
 	const [isLoading, setIsLoading] = useState(true);
 	const [errorDialogOpen, setErrorDialogOpen] = useState(false);
 	const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
+	const [newTeamDialogOpen, setNewTeamDialogOpen] = useState(false);
+	const [pendingTeamUserId, setPendingTeamUserId] = useState<string | null>(null);
+	const [editingTeam, setEditingTeam] = useState<Team | null>(null);
 	const [copiedInviteId, setCopiedInviteId] = useState<string | null>(null);
 
 	useEffect(() => {
@@ -107,14 +122,28 @@ export default function UsersPage() {
 				console.error("Error fetching invites:", error);
 			}
 		};
-		fetchUsers();
-		fetchInvites();
+		const fetchTeams = async () => {
+			try {
+				const response = await api.get("/teams/");
+				setTeams(response.data);
+			} catch (error) {
+				console.error("Error fetching teams:", error);
+			}
+		};
+		void fetchUsers();
+		void fetchInvites();
+		void fetchTeams();
 	}, []);
+
+	const teamsById = useMemo(
+		() => new Map(teams.map((t) => [t.id, t])),
+		[teams],
+	);
 
 	const handleCopyInviteLink = async (invite: Invite) => {
 		await navigator.clipboard.writeText(invite.inviteUrl);
 		setCopiedInviteId(invite.id);
-		setTimeout(() => setCopiedInviteId(null), 2000);
+		setTimeout(() => { setCopiedInviteId(null); }, 2000);
 	};
 
 	const handleDeleteInvite = async (inviteId: string) => {
@@ -177,6 +206,92 @@ export default function UsersPage() {
 		}
 	};
 
+	const handleTeamChange = async (userId: string, teamId: string | null) => {
+		try {
+			await api.patch(`/users/${userId}/team`, { teamId });
+			setUsers((prev) =>
+				prev.map((u) => (u.id === userId ? { ...u, teamId } : u)),
+			);
+		} catch (error: unknown) {
+			if (
+				error instanceof Object &&
+				"status" in error &&
+				error.status === 403
+			) {
+				setErrorDialogOpen(true);
+			} else {
+				console.error("Error updating team:", error);
+			}
+		}
+	};
+
+	const handleOpenNewTeam = (userId: string) => {
+		setEditingTeam(null);
+		setPendingTeamUserId(userId);
+		setNewTeamDialogOpen(true);
+	};
+
+	const handleTeamCreated = (team: Team) => {
+		setTeams((prev) =>
+			[...prev, team].sort((a, b) => a.name.localeCompare(b.name)),
+		);
+		if (pendingTeamUserId) {
+			void handleTeamChange(pendingTeamUserId, team.id);
+			setPendingTeamUserId(null);
+		}
+	};
+
+	const handleTeamUpdated = (team: Team) => {
+		setTeams((prev) =>
+			prev
+				.map((t) => (t.id === team.id ? team : t))
+				.sort((a, b) => a.name.localeCompare(b.name)),
+		);
+	};
+
+	const openCreateTeam = () => {
+		setEditingTeam(null);
+		setPendingTeamUserId(null);
+		setNewTeamDialogOpen(true);
+	};
+
+	const openEditTeam = (team: Team) => {
+		setEditingTeam(team);
+		setPendingTeamUserId(null);
+		setNewTeamDialogOpen(true);
+	};
+
+	const handleDeleteTeam = async (team: Team) => {
+		const memberCount = users.filter((u) => u.teamId === team.id).length;
+		const confirmed = window.confirm(
+			`Delete "${team.name}"?${
+				memberCount > 0
+					? ` ${memberCount} member${memberCount === 1 ? "" : "s"} will be unassigned`
+					: ""
+			} and its agent links will be removed.`,
+		);
+		if (!confirmed) return;
+
+		try {
+			await api.delete(`/teams/${team.id}`);
+			setTeams((prev) => prev.filter((t) => t.id !== team.id));
+			// Mirror the DB's ON DELETE SET NULL so the table reflects reality.
+			setUsers((prev) =>
+				prev.map((u) => (u.teamId === team.id ? { ...u, teamId: null } : u)),
+			);
+		} catch (error: unknown) {
+			if (
+				error instanceof Object &&
+				"status" in error &&
+				error.status === 403
+			) {
+				setErrorDialogOpen(true);
+			} else {
+				console.error("Error deleting team:", error);
+			}
+		}
+	};
+
 	const handleRemoveUser = async (userId: string, userName: string | null) => {
 		const confirmed = window.confirm(
 			`Are you sure you want to remove ${userName || "this user"} from the workspace?`,
@@ -210,7 +325,21 @@ export default function UsersPage() {
 			<InviteDialog
 				open={inviteDialogOpen}
 				onOpenChange={setInviteDialogOpen}
-				onInviteCreated={(invite) => setInvites((prev) => [...prev, invite])}
+				teams={teams}
+				onInviteCreated={(invite) => { setInvites((prev) => [...prev, invite]); }}
+			/>
+			<NewTeamDialog
+				open={newTeamDialogOpen}
+				onOpenChange={(open) => {
+					setNewTeamDialogOpen(open);
+					if (!open) {
+						setPendingTeamUserId(null);
+						setEditingTeam(null);
+					}
+				}}
+				team={editingTeam}
+				onTeamCreated={handleTeamCreated}
+				onTeamUpdated={handleTeamUpdated}
 			/>
 			<div className="flex flex-col gap-5 my-8 sm:flex-row sm:items-start sm:justify-between">
 				<div className="min-w-0">
@@ -232,7 +361,7 @@ export default function UsersPage() {
 					/>
 					<Button
 						className="flex items-center gap-2 px-6! py-3! h-auto! bg-[#111111] dark:bg-white dark:text-[#111111] text-[14px] font-semibold font-[family-name:var(--font-dm-sans)] text-white rounded-full hover:bg-[#222222] dark:hover:bg-gray-100 transition-all cursor-pointer shadow-[0_4px_12px_-2px_rgba(0,0,0,0.15)] border-none whitespace-nowrap"
-						onClick={() => setInviteDialogOpen(true)}
+						onClick={() => { setInviteDialogOpen(true); }}
 					>
 						<Plus className="w-4 h-4" />
 						Invite user
@@ -269,7 +398,7 @@ export default function UsersPage() {
 
 					{/* Member list panel */}
 					<div className="overflow-hidden rounded-[14px] border border-[#e1ebe6] bg-white dark:border-white/10 dark:bg-card">
-						<div className="grid grid-cols-[1fr_auto_34px] md:grid-cols-[1fr_230px_130px_34px] items-center gap-4 border-b border-[#edf2ef] px-[18px] py-[11px] dark:border-white/5">
+						<div className="grid grid-cols-[1fr_auto_34px] md:grid-cols-[1fr_200px_120px_150px_34px] items-center gap-4 border-b border-[#edf2ef] px-[18px] py-[11px] dark:border-white/5">
 							<span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#94a59d]">
 								Name
 							</span>
@@ -278,6 +407,9 @@ export default function UsersPage() {
 							</span>
 							<span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#94a59d]">
 								Role
+							</span>
+							<span className="hidden md:block text-[10px] font-semibold uppercase tracking-[0.1em] text-[#94a59d]">
+								Team
 							</span>
 							<span />
 						</div>
@@ -294,7 +426,7 @@ export default function UsersPage() {
 								return (
 									<div
 										key={user.id}
-										className="group grid grid-cols-[1fr_auto_34px] md:grid-cols-[1fr_230px_130px_34px] items-center gap-4 border-b border-[#edf2ef] px-[18px] py-[11px] transition-colors duration-[110ms] last:border-b-0 hover:bg-[#eff4f1] dark:border-white/5 dark:hover:bg-white/5"
+										className="group grid grid-cols-[1fr_auto_34px] md:grid-cols-[1fr_200px_120px_150px_34px] items-center gap-4 border-b border-[#edf2ef] px-[18px] py-[11px] transition-colors duration-[110ms] last:border-b-0 hover:bg-[#eff4f1] dark:border-white/5 dark:hover:bg-white/5"
 									>
 										{/* Identity */}
 										<div className="flex min-w-0 items-center gap-3">
@@ -347,12 +479,75 @@ export default function UsersPage() {
 														</button>
 													}
 													items={[
-														{ label: "Admin", onClick: () => handleRoleChange(user.id, "admin"), active: user.role === "admin" },
-														{ label: "Editor", onClick: () => handleRoleChange(user.id, "editor"), active: user.role === "editor" },
-														{ label: "Member", onClick: () => handleRoleChange(user.id, "member"), active: user.role === "member" },
+														{ label: "Admin", onClick: () => { void handleRoleChange(user.id, "admin"); }, active: user.role === "admin" },
+														{ label: "Editor", onClick: () => { void handleRoleChange(user.id, "editor"); }, active: user.role === "editor" },
+														{ label: "Member", onClick: () => { void handleRoleChange(user.id, "member"); }, active: user.role === "member" },
 													]}
 												/>
 											)}
+										</div>
+
+										{/* Team */}
+										<div className="hidden md:block min-w-0">
+											{(() => {
+												const team = user.teamId
+													? teamsById.get(user.teamId)
+													: undefined;
+												return (
+													<SageDropdownMenu
+														align="start"
+														trigger={
+															team ? (
+																<button className="inline-flex max-w-full items-center gap-2 rounded-lg border border-[#e1ebe6] bg-white px-2.5 py-[5px] font-[family-name:var(--font-dm-sans)] text-[13px] font-medium text-[#1e2d28] cursor-pointer transition-colors hover:border-[#A3B5AD] dark:border-white/10 dark:bg-transparent dark:text-foreground">
+																	<span
+																		className="size-1.5 shrink-0 rounded-full"
+																		style={{ background: team.color ?? "#9E9E9E" }}
+																	/>
+																	<span className="truncate">{team.name}</span>
+																	<ChevronDown className="size-3.5 shrink-0 text-[#94a59d]" />
+																</button>
+															) : (
+																<button className="inline-flex items-center gap-2 rounded-lg border border-dashed border-[#d8e3dd] bg-transparent px-2.5 py-[5px] font-[family-name:var(--font-dm-sans)] text-[13px] font-medium text-[#94a59d] cursor-pointer transition-colors hover:border-[#A3B5AD] hover:text-[#5f7068] dark:border-white/15">
+																	<span className="size-1.5 shrink-0 rounded-full border border-[#c3d2cb] dark:border-white/20" />
+																	No team
+																	<ChevronDown className="size-3.5 shrink-0 text-[#94a59d]" />
+																</button>
+															)
+														}
+														items={[
+															{
+																label: "No team",
+																icon: (
+																	<span className="block size-2 rounded-full border border-[#c3d2cb] dark:border-white/25" />
+																),
+																onClick: () => {
+													void handleTeamChange(user.id, null);
+												},
+																active: !user.teamId,
+															},
+															...teams.map((t) => ({
+																label: t.name,
+																icon: (
+																	<span
+																		className="block size-2 rounded-full"
+																		style={{ background: t.color ?? "#9E9E9E" }}
+																	/>
+																),
+																onClick: () => {
+													void handleTeamChange(user.id, t.id);
+												},
+																active: user.teamId === t.id,
+															})),
+															{ separator: true as const },
+															{
+																label: "New team",
+																icon: <Plus />,
+																onClick: () => { handleOpenNewTeam(user.id); },
+															},
+														]}
+													/>
+												);
+											})()}
 										</div>
 
 										{/* Remove */}
@@ -360,7 +555,7 @@ export default function UsersPage() {
 											{!isCurrentUser && (
 												<button
 													className="flex size-7 items-center justify-center rounded-[7px] text-[#94a59d] opacity-100 transition-all hover:bg-[#fbe5e3] hover:text-[#b03a30] cursor-pointer md:opacity-0 md:group-hover:opacity-100 dark:hover:bg-rose-950"
-													onClick={() => handleRemoveUser(user.id, user.name)}
+													onClick={() => { void handleRemoveUser(user.id, user.name); }}
 												>
 													<Trash2 className="size-[15px]" />
 												</button>
@@ -371,6 +566,77 @@ export default function UsersPage() {
 							})
 						)}
 					</div>
+
+					{/* Teams */}
+					<div className="flex items-baseline gap-2.5 pt-6 pb-3">
+						<span className="font-[family-name:var(--font-jakarta-sans)] text-[14px] font-bold tracking-[-0.01em] text-[#1e2d28] dark:text-foreground">
+							Teams
+						</span>
+						<span className="text-[11.5px] text-[#94a59d]">
+							{teams.length}
+						</span>
+						<span className="h-px flex-1 self-center bg-[#e1ebe6] dark:bg-white/10" />
+						<button
+							onClick={openCreateTeam}
+							className="inline-flex items-center gap-1.5 rounded-lg border border-[#e1ebe6] px-3 py-1.5 font-[family-name:var(--font-dm-sans)] text-[12px] font-medium text-[#5f7068] cursor-pointer transition-colors hover:bg-[#f8faf9] dark:border-white/10 dark:text-muted-foreground dark:hover:bg-white/5"
+						>
+							<Plus className="size-3.5" />
+							New team
+						</button>
+					</div>
+
+					{teams.length === 0 ? (
+						<div className="rounded-[14px] border border-dashed border-[#d8e3dd] bg-transparent px-[18px] py-8 text-center text-[14px] font-medium text-[#A3B5AD] dark:border-white/10 dark:text-muted-foreground">
+							No teams yet. Create one to group members.
+						</div>
+					) : (
+						<div className="overflow-hidden rounded-[14px] border border-[#e1ebe6] bg-white dark:border-white/10 dark:bg-card">
+							{teams.map((team) => {
+								const memberCount = users.filter(
+									(u) => u.teamId === team.id,
+								).length;
+								return (
+									<div
+										key={team.id}
+										className="group flex items-center gap-3 border-b border-[#edf2ef] px-[18px] py-[11px] transition-colors duration-[110ms] last:border-b-0 hover:bg-[#eff4f1] dark:border-white/5 dark:hover:bg-white/5"
+									>
+										<span
+											className="block size-2.5 shrink-0 rounded-full"
+											style={{ background: team.color ?? "#9E9E9E" }}
+										/>
+										<span className="flex-1 truncate font-[family-name:var(--font-jakarta-sans)] text-[13.5px] font-semibold tracking-[-0.01em] text-[#1e2d28] dark:text-foreground">
+											{team.name}
+										</span>
+										<span className="shrink-0 text-[11.5px] text-[#94a59d]">
+											{memberCount} member{memberCount > 1 ? "s" : ""}
+										</span>
+										<SageDropdownMenu
+											trigger={
+												<button className="flex size-7 items-center justify-center rounded-[7px] text-[#94a59d] cursor-pointer transition-all hover:bg-[#edf2ef] md:opacity-0 md:group-hover:opacity-100 dark:hover:bg-white/10">
+													<MoreVertical className="size-[18px]" />
+												</button>
+											}
+											items={[
+												{
+													label: "Rename",
+													icon: <Pencil />,
+													onClick: () => { openEditTeam(team); },
+												},
+												{
+													label: "Delete",
+													icon: <Trash2 />,
+													destructive: true,
+													onClick: () => {
+														void handleDeleteTeam(team);
+													},
+												},
+											]}
+										/>
+									</div>
+								);
+							})}
+						</div>
+					)}
 
 					{/* Pending invites */}
 					{invites.length > 0 && (
@@ -420,7 +686,7 @@ export default function UsersPage() {
 										<div className="flex items-center gap-1.5">
 											<button
 												className="flex items-center gap-1.5 rounded-lg border border-[#e1ebe6] px-3 py-1.5 font-[family-name:var(--font-dm-sans)] text-[12px] font-medium text-[#5f7068] cursor-pointer transition-colors hover:bg-[#f8faf9] dark:border-white/10 dark:text-muted-foreground dark:hover:bg-white/5"
-												onClick={() => handleCopyInviteLink(invite)}
+												onClick={() => { void handleCopyInviteLink(invite); }}
 											>
 												{copiedInviteId === invite.id ? (
 													<Check className="size-3.5" />
@@ -431,7 +697,7 @@ export default function UsersPage() {
 											</button>
 											<button
 												className="rounded-lg border border-[#e1ebe6] px-3 py-1.5 font-[family-name:var(--font-dm-sans)] text-[12px] font-medium text-[#b03a30] cursor-pointer transition-colors hover:bg-[#fbe5e3] dark:border-white/10 dark:hover:bg-rose-950"
-												onClick={() => handleDeleteInvite(invite.id)}
+												onClick={() => { void handleDeleteInvite(invite.id); }}
 											>
 												Revoke
 											</button>

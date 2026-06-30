@@ -18,6 +18,8 @@ from app.agents.schemas import (
     AgentPermissionResponse,
     AgentResponse,
     AgentSubagentResponse,
+    AgentTeamsResponse,
+    AgentTeamsSet,
 )
 from app.agents.subagents.service import SubagentService, get_subagent_service
 from app.auth.dependencies import (
@@ -52,7 +54,10 @@ async def get_agents(
     service: AgentService = Depends(get_agent_service),
 ) -> list[AgentResponse]:
     return await service.list(
-        user_id=current_user.id, user_role=current_user.role, archived=archived
+        user_id=current_user.id,
+        user_role=current_user.role,
+        user_team_id=current_user.team_id,
+        archived=archived,
     )
 
 
@@ -66,6 +71,7 @@ async def get_agent(
         agent_id,
         user_id=current_user.id,
         user_role=current_user.role,
+        user_team_id=current_user.team_id,
     )
 
 
@@ -77,7 +83,11 @@ async def update_agent(
     service: AgentService = Depends(get_agent_service),
 ) -> AgentResponse:
     return await service.update(
-        agent_id, agent_update, user_id=current_user.id, user_role=current_user.role
+        agent_id,
+        agent_update,
+        user_id=current_user.id,
+        user_role=current_user.role,
+        user_team_id=current_user.team_id,
     )
 
 
@@ -87,9 +97,7 @@ async def delete_agent(
     current_user: UserDB = Depends(get_current_user),
     service: AgentService = Depends(get_agent_service),
 ) -> None:
-    await service.delete(
-        agent_id, user_id=current_user.id, user_role=current_user.role
-    )
+    await service.delete(agent_id, user_id=current_user.id, user_role=current_user.role)
 
 
 @router.post("/{agent_id}/restore", response_model=AgentResponse)
@@ -99,7 +107,10 @@ async def restore_agent(
     service: AgentService = Depends(get_agent_service),
 ) -> AgentResponse:
     return await service.restore(
-        agent_id, user_id=current_user.id, user_role=current_user.role
+        agent_id,
+        user_id=current_user.id,
+        user_role=current_user.role,
+        user_team_id=current_user.team_id,
     )
 
 
@@ -110,7 +121,10 @@ async def delete_agent_permanently(
     service: AgentService = Depends(get_agent_service),
 ) -> None:
     await service.delete_permanently(
-        agent_id, user_id=current_user.id, user_role=current_user.role
+        agent_id,
+        user_id=current_user.id,
+        user_role=current_user.role,
+        user_team_id=current_user.team_id,
     )
 
 
@@ -131,6 +145,43 @@ async def set_agent_permissions(
     service: AgentService = Depends(get_agent_service),
 ) -> list[AgentPermissionResponse]:
     return await service.set_permissions(agent_id, permissions)
+
+
+async def _require_agent_editor(
+    agent_id: UUID, current_user: UserDB, service: AgentService
+) -> None:
+    """Allow only owner / workspace-admin / agent-editor to read or edit the
+    agent's team bindings (team grants confer Member access, so binding them is
+    an edit of the agent)."""
+    agent = await service.get(
+        agent_id,
+        user_id=current_user.id,
+        user_role=current_user.role,
+        user_team_id=current_user.team_id,
+    )
+    if agent.current_user_permission not in ("owner", "admin", "editor"):
+        raise PermissionDeniedError("Not authorized to manage this agent's teams")
+
+
+@router.get("/{agent_id}/teams", response_model=AgentTeamsResponse)
+async def get_agent_teams(
+    agent_id: UUID,
+    current_user: UserDB = Depends(get_current_user),
+    service: AgentService = Depends(get_agent_service),
+) -> AgentTeamsResponse:
+    await _require_agent_editor(agent_id, current_user, service)
+    return AgentTeamsResponse(team_ids=await service.get_team_ids(agent_id))
+
+
+@router.put("/{agent_id}/teams", response_model=AgentTeamsResponse)
+async def set_agent_teams(
+    agent_id: UUID,
+    data: AgentTeamsSet,
+    current_user: UserDB = Depends(get_current_user),
+    service: AgentService = Depends(get_agent_service),
+) -> AgentTeamsResponse:
+    await _require_agent_editor(agent_id, current_user, service)
+    return AgentTeamsResponse(team_ids=await service.set_teams(agent_id, data.team_ids))
 
 
 @router.post(
@@ -229,7 +280,10 @@ async def list_agent_threads(
     """List all threads for an agent across users. Restricted to agent owners
     and admins (workspace or agent-level)."""
     agent = await agent_service.get(
-        agent_id, user_id=current_user.id, user_role=current_user.role
+        agent_id,
+        user_id=current_user.id,
+        user_role=current_user.role,
+        user_team_id=current_user.team_id,
     )
     if agent.current_user_permission not in ("owner", "admin"):
         raise PermissionDeniedError("Not authorized to view this agent's threads")

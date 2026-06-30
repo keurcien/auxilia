@@ -9,6 +9,7 @@ from app.users.models import WorkspaceRole
 class InviteCreate(BaseModel):
     email: EmailStr
     role: WorkspaceRole = WorkspaceRole.member
+    team_id: UUID | None = None
 
 
 class InviteResponse(BaseModel):
@@ -19,5 +20,6 @@ class InviteResponse(BaseModel):
     invite_url: str | None = None
     invited_by: UUID
     invited_by_name: str | None = None
+    team_id: UUID | None = None
     expires_at: datetime
     created_at: datetime

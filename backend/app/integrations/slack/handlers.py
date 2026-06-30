@@ -217,7 +217,7 @@ async def handle_assistant_thread_started(event: SlackEvent) -> None:
         return
 
     async with AsyncSessionLocal() as db:
-        agents = await list_pickable_agents(db, user.id, user.role)
+        agents = await list_pickable_agents(db, user.id, user.role, user.team_id)
 
     if not agents:
         await client.chat_postMessage(
@@ -285,7 +285,13 @@ async def handle_message(event: SlackEvent, *, team_id: str | None = None) -> No
 
         if not thread:
             await post_agent_picker(
-                client, event.channel, thread_ts, db, user.id, user_role=user.role
+                client,
+                event.channel,
+                thread_ts,
+                db,
+                user.id,
+                user_role=user.role,
+                user_team_id=user.team_id,
             )
             return
 
