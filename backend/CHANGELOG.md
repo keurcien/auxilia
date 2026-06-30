@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.12](https://github.com/keurcien/auxilia/compare/backend-v0.4.11...backend-v0.4.12) (2026-06-30)
+
+
+### Features
+
+* teams for agent access ([#173](https://github.com/keurcien/auxilia/issues/173)) ([30552b7](https://github.com/keurcien/auxilia/commit/30552b79e49e170c88d2418bc9a1b77fe2b75b17))
+
 ## [0.4.11](https://github.com/keurcien/auxilia/compare/backend-v0.4.10...backend-v0.4.11) (2026-06-29)
 
 
