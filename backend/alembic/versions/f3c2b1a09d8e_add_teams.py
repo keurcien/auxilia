@@ -43,6 +43,9 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint('id'),
         sa.UniqueConstraint('agent_id', 'team_id', name='uq_agent_team'),
     )
+    # The unique constraint leads with agent_id; team-grant lookups and the
+    # team-delete cascade filter by team_id, so index that column too.
+    op.create_index(op.f('ix_agent_teams_team_id'), 'agent_teams', ['team_id'], unique=False)
 
     op.add_column('users', sa.Column('team_id', sa.Uuid(), nullable=True))
     op.create_foreign_key(

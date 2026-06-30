@@ -147,12 +147,29 @@ async def set_agent_permissions(
     return await service.set_permissions(agent_id, permissions)
 
 
+async def _require_agent_editor(
+    agent_id: UUID, current_user: UserDB, service: AgentService
+) -> None:
+    """Allow only owner / workspace-admin / agent-editor to read or edit the
+    agent's team bindings (team grants confer Member access, so binding them is
+    an edit of the agent)."""
+    agent = await service.get(
+        agent_id,
+        user_id=current_user.id,
+        user_role=current_user.role,
+        user_team_id=current_user.team_id,
+    )
+    if agent.current_user_permission not in ("owner", "admin", "editor"):
+        raise PermissionDeniedError("Not authorized to manage this agent's teams")
+
+
 @router.get("/{agent_id}/teams", response_model=AgentTeamsResponse)
 async def get_agent_teams(
     agent_id: UUID,
-    _: UserDB = Depends(get_current_user),
+    current_user: UserDB = Depends(get_current_user),
     service: AgentService = Depends(get_agent_service),
 ) -> AgentTeamsResponse:
+    await _require_agent_editor(agent_id, current_user, service)
     return AgentTeamsResponse(team_ids=await service.get_team_ids(agent_id))
 
 
@@ -160,9 +177,10 @@ async def get_agent_teams(
 async def set_agent_teams(
     agent_id: UUID,
     data: AgentTeamsSet,
-    _: UserDB = Depends(get_current_user),
+    current_user: UserDB = Depends(get_current_user),
     service: AgentService = Depends(get_agent_service),
 ) -> AgentTeamsResponse:
+    await _require_agent_editor(agent_id, current_user, service)
     return AgentTeamsResponse(team_ids=await service.set_teams(agent_id, data.team_ids))
 
 

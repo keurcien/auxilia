@@ -78,6 +78,11 @@ export default function AgentPermissionsDialog({
 		setIsLoading(true);
 		setSearch("");
 		setView("people");
+		// Clear prior agent's data so stale teams/permissions can't linger or be
+		// saved if this load is slow or fails.
+		setPermissions([]);
+		setAllTeams([]);
+		setSelectedTeamIds([]);
 		Promise.all([
 			api.get("/users"),
 			api.get(`/agents/${agentId}/permissions`),

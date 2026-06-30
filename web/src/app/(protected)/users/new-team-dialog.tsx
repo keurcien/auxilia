@@ -97,6 +97,7 @@ export default function NewTeamDialog({
 						</div>
 						<button
 							type="button"
+							aria-label="Close"
 							onClick={() => {
 								onOpenChange(false);
 							}}
@@ -138,6 +139,9 @@ export default function NewTeamDialog({
 								<button
 									key={c}
 									type="button"
+									aria-label={`Color ${c}`}
+									aria-pressed={color === c}
+									title={c}
 									onClick={() => {
 										setColor(c);
 									}}

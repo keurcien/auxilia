@@ -64,8 +64,8 @@ def test_create_user_duplicate_email(client: TestClient, mock_db, admin_user):
     assert response.json()["detail"] == "Email already registered"
 
 
-def test_get_users(client: TestClient, mock_db):
-    """Test getting all users."""
+def test_get_users(client: TestClient, mock_db, current_user):
+    """Test getting all users (requires authentication)."""
     user1 = UserDB(
         id=uuid4(),
         name="User 1",
@@ -95,7 +95,7 @@ def test_get_users(client: TestClient, mock_db):
     assert len(data) == 2
 
 
-def test_get_user(client: TestClient, mock_db):
+def test_get_user(client: TestClient, mock_db, current_user):
     """Test getting a single user by ID."""
     user_id = uuid4()
     user = UserDB(
@@ -118,7 +118,7 @@ def test_get_user(client: TestClient, mock_db):
     assert data["email"] == user.email
 
 
-def test_get_user_not_found(client: TestClient, mock_db):
+def test_get_user_not_found(client: TestClient, mock_db, current_user):
     """Test getting a non-existent user returns 404."""
     fake_id = uuid4()
 
@@ -131,7 +131,7 @@ def test_get_user_not_found(client: TestClient, mock_db):
     assert response.json()["detail"] == "User not found"
 
 
-def test_get_user_by_email(client: TestClient, mock_db):
+def test_get_user_by_email(client: TestClient, mock_db, current_user):
     """Test getting a user by email."""
     user = UserDB(
         id=uuid4(),
@@ -153,7 +153,7 @@ def test_get_user_by_email(client: TestClient, mock_db):
     assert data["name"] == user.name
 
 
-def test_get_user_by_email_not_found(client: TestClient, mock_db):
+def test_get_user_by_email_not_found(client: TestClient, mock_db, current_user):
     """Test getting a non-existent user by email returns 404."""
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = None

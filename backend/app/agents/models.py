@@ -83,7 +83,9 @@ class AgentTeamDB(BaseDBModel, table=True):
     __table_args__ = (UniqueConstraint("agent_id", "team_id", name="uq_agent_team"),)
 
     agent_id: UUID = Field(foreign_key="agents.id", ondelete="CASCADE", nullable=False)
-    team_id: UUID = Field(foreign_key="teams.id", ondelete="CASCADE", nullable=False)
+    team_id: UUID = Field(
+        foreign_key="teams.id", ondelete="CASCADE", index=True, nullable=False
+    )
 
 
 class AgentSubagentDB(BaseDBModel, table=True):

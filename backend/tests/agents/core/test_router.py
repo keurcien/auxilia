@@ -527,3 +527,85 @@ def test_list_agent_threads_as_workspace_admin(client: TestClient, mock_db):
 def test_list_agent_threads_requires_auth(client: TestClient):
     response = client.get(f"/agents/{uuid4()}/threads")
     assert response.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# agent team bindings — authorization
+# ---------------------------------------------------------------------------
+
+
+def _agent_response(permission):
+    from app.agents.schemas import AgentResponse
+
+    return AgentResponse(
+        id=uuid4(),
+        name="A",
+        instructions="x",
+        owner_id=uuid4(),
+        emoji=None,
+        color=None,
+        description=None,
+        has_code_interpreter=False,
+        is_archived=False,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+        current_user_permission=permission,
+    )
+
+
+def test_set_agent_teams_forbidden_for_non_editor(
+    client: TestClient, mock_db, current_user
+):
+    from unittest.mock import AsyncMock
+
+    from app.agents.core.service import get_agent_service
+    from app.main import app
+
+    svc = MagicMock()
+    svc.get = AsyncMock(return_value=_agent_response(None))  # no access
+    svc.set_teams = AsyncMock()
+    app.dependency_overrides[get_agent_service] = lambda: svc
+    try:
+        response = client.put(f"/agents/{uuid4()}/teams", json={"team_ids": []})
+        assert response.status_code == 403
+        svc.set_teams.assert_not_called()
+    finally:
+        app.dependency_overrides.pop(get_agent_service, None)
+
+
+def test_set_agent_teams_allows_editor(client: TestClient, mock_db, current_user):
+    from unittest.mock import AsyncMock
+
+    from app.agents.core.service import get_agent_service
+    from app.main import app
+
+    svc = MagicMock()
+    svc.get = AsyncMock(return_value=_agent_response("editor"))
+    svc.set_teams = AsyncMock(return_value=[])
+    app.dependency_overrides[get_agent_service] = lambda: svc
+    try:
+        response = client.put(f"/agents/{uuid4()}/teams", json={"team_ids": []})
+        assert response.status_code == 200
+        svc.set_teams.assert_awaited_once()
+    finally:
+        app.dependency_overrides.pop(get_agent_service, None)
+
+
+def test_get_agent_teams_forbidden_for_non_editor(
+    client: TestClient, mock_db, current_user
+):
+    from unittest.mock import AsyncMock
+
+    from app.agents.core.service import get_agent_service
+    from app.main import app
+
+    svc = MagicMock()
+    svc.get = AsyncMock(return_value=_agent_response(None))
+    svc.get_team_ids = AsyncMock(return_value=[])
+    app.dependency_overrides[get_agent_service] = lambda: svc
+    try:
+        response = client.get(f"/agents/{uuid4()}/teams")
+        assert response.status_code == 403
+        svc.get_team_ids.assert_not_called()
+    finally:
+        app.dependency_overrides.pop(get_agent_service, None)

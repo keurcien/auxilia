@@ -4,7 +4,11 @@ from uuid import uuid4
 
 import pytest
 
-from app.exceptions import AlreadyExistsError, NotFoundError
+from app.exceptions import (
+    AlreadyExistsError,
+    DomainValidationError,
+    NotFoundError,
+)
 from app.teams.models import TeamDB
 from app.teams.schemas import TeamCreate, TeamPatch
 from app.teams.service import TeamService
@@ -102,6 +106,23 @@ async def test_update_color_only_skips_name_check(service, mock_repo):
 
     mock_repo.get_by_name.assert_not_called()
     mock_repo.update.assert_awaited_once()
+
+
+async def test_update_rejects_empty_name(service, mock_repo):
+    team = make_team(name="Marketing")
+    mock_repo.get.return_value = team
+
+    with pytest.raises(DomainValidationError):
+        await service.update(team.id, TeamPatch(name="   "))
+
+    mock_repo.update.assert_not_called()
+
+
+async def test_create_rejects_empty_name(service, mock_repo):
+    with pytest.raises(DomainValidationError):
+        await service.create(TeamCreate(name="  "))
+
+    mock_repo.create.assert_not_called()
 
 
 async def test_get_raises_404_when_missing(service, mock_repo):

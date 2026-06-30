@@ -8,11 +8,12 @@ from sqlmodel import select
 
 from app.auth.settings import auth_settings
 from app.database import get_db
-from app.exceptions import AlreadyExistsError
+from app.exceptions import AlreadyExistsError, NotFoundError
 from app.invites.models import InviteCreateDB, InviteDB, InviteStatus
 from app.invites.repository import InviteRepository
 from app.invites.schemas import InviteResponse
 from app.service import BaseService
+from app.teams.repository import TeamRepository
 from app.users.models import UserDB
 
 
@@ -63,6 +64,8 @@ class InviteService(BaseService[InviteDB, InviteRepository]):
         result = await self.db.execute(select(UserDB).where(UserDB.email == email))
         if result.scalar_one_or_none():
             raise AlreadyExistsError("Email already registered")
+        if team_id is not None and not await TeamRepository(self.db).get(team_id):
+            raise NotFoundError("Team not found")
         await self.repository.revoke_pending_by_email(email)
         data = InviteCreateDB(
             email=email,
