@@ -130,9 +130,9 @@ export default function UsersPage() {
 				console.error("Error fetching teams:", error);
 			}
 		};
-		fetchUsers();
-		fetchInvites();
-		fetchTeams();
+		void fetchUsers();
+		void fetchInvites();
+		void fetchTeams();
 	}, []);
 
 	const teamsById = useMemo(
