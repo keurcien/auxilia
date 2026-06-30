@@ -78,6 +78,14 @@ class AgentUserPermissionDB(BaseDBModel, table=True):
     permission: PermissionLevel = Field(nullable=False)
 
 
+class AgentTeamDB(BaseDBModel, table=True):
+    __tablename__ = "agent_teams"
+    __table_args__ = (UniqueConstraint("agent_id", "team_id", name="uq_agent_team"),)
+
+    agent_id: UUID = Field(foreign_key="agents.id", ondelete="CASCADE", nullable=False)
+    team_id: UUID = Field(foreign_key="teams.id", ondelete="CASCADE", nullable=False)
+
+
 class AgentSubagentDB(BaseDBModel, table=True):
     __tablename__ = "agent_subagents"
     __table_args__ = (

@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
+from app.teams.models import TeamDB
 from app.users.models import UserDB, WorkspaceRole
 
 
@@ -163,8 +164,8 @@ def test_get_user_by_email_not_found(client: TestClient, mock_db):
     assert response.json()["detail"] == "User not found"
 
 
-def test_update_user(client: TestClient, mock_db):
-    """Test updating a user."""
+def test_update_user(client: TestClient, mock_db, admin_user):
+    """Test updating a user (admin only)."""
     user_id = uuid4()
     user = UserDB(
         id=user_id,
@@ -226,7 +227,7 @@ def test_update_user_role_not_found(client: TestClient, mock_db, admin_user):
     assert response.json()["detail"] == "User not found"
 
 
-def test_update_user_duplicate_email(client: TestClient, mock_db):
+def test_update_user_duplicate_email(client: TestClient, mock_db, admin_user):
     """Test updating a user with an email that already exists fails."""
     user_id = uuid4()
     user = UserDB(
@@ -260,7 +261,7 @@ def test_update_user_duplicate_email(client: TestClient, mock_db):
     assert response.json()["detail"] == "Email already registered"
 
 
-def test_update_user_not_found(client: TestClient, mock_db):
+def test_update_user_not_found(client: TestClient, mock_db, admin_user):
     """Test updating a non-existent user returns 404."""
     fake_id = uuid4()
 
@@ -306,3 +307,86 @@ def test_delete_user_not_found(client: TestClient, mock_db, admin_user):
     response = client.delete(f"/users/{fake_id}")
     assert response.status_code == 404
     assert response.json()["detail"] == "User not found"
+
+
+def test_update_user_team(client: TestClient, mock_db, admin_user):
+    """Admin can assign a user to an existing team."""
+    user_id = uuid4()
+    team_id = uuid4()
+    user = UserDB(
+        id=user_id,
+        name="Test User",
+        email="teamuser@example.com",
+        role=WorkspaceRole.member,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+    team = TeamDB(
+        id=team_id,
+        name="Marketing",
+        color=None,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+
+    user_result = MagicMock()
+    user_result.scalar_one_or_none.return_value = user
+    team_result = MagicMock()
+    team_result.scalar_one_or_none.return_value = team
+    mock_db.execute.side_effect = [user_result, team_result]
+
+    response = client.patch(f"/users/{user_id}/team", json={"team_id": str(team_id)})
+
+    assert response.status_code == 200
+    assert response.json()["team_id"] == str(team_id)
+
+
+def test_update_user_team_unassign(client: TestClient, mock_db, admin_user):
+    """Passing a null team_id clears the user's team."""
+    user_id = uuid4()
+    user = UserDB(
+        id=user_id,
+        name="Test User",
+        email="teamuser@example.com",
+        role=WorkspaceRole.member,
+        team_id=uuid4(),
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+    user_result = MagicMock()
+    user_result.scalar_one_or_none.return_value = user
+    mock_db.execute.return_value = user_result
+
+    response = client.patch(f"/users/{user_id}/team", json={"team_id": None})
+
+    assert response.status_code == 200
+    assert response.json()["team_id"] is None
+
+
+def test_update_user_team_team_not_found(client: TestClient, mock_db, admin_user):
+    """Assigning a non-existent team returns 404."""
+    user_id = uuid4()
+    user = UserDB(
+        id=user_id,
+        name="Test User",
+        email="teamuser@example.com",
+        role=WorkspaceRole.member,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+    user_result = MagicMock()
+    user_result.scalar_one_or_none.return_value = user
+    team_result = MagicMock()
+    team_result.scalar_one_or_none.return_value = None
+    mock_db.execute.side_effect = [user_result, team_result]
+
+    response = client.patch(f"/users/{user_id}/team", json={"team_id": str(uuid4())})
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Team not found"
+
+
+def test_update_user_team_requires_admin(client: TestClient, mock_db):
+    """The team endpoint is admin-gated."""
+    response = client.patch(f"/users/{uuid4()}/team", json={"team_id": None})
+    assert response.status_code in (401, 403)

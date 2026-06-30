@@ -6,9 +6,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.exceptions import AlreadyExistsError, NotFoundError
 from app.service import BaseService
+from app.teams.repository import TeamRepository
 from app.users.models import UserDB, WorkspaceRole
 from app.users.repository import UserRepository
-from app.users.schemas import UserCreate, UserPatch, UserRolePatch
+from app.users.schemas import UserCreate, UserPatch, UserRolePatch, UserTeamPatch
 
 
 class UserService(BaseService[UserDB, UserRepository]):
@@ -16,6 +17,7 @@ class UserService(BaseService[UserDB, UserRepository]):
 
     def __init__(self, db: AsyncSession):
         super().__init__(db, UserRepository(db))
+        self.team_repository = TeamRepository(db)
 
     async def _ensure_email_available(self, email: str) -> None:
         if await self.repository.get_by_email(email):
@@ -48,6 +50,14 @@ class UserService(BaseService[UserDB, UserRepository]):
 
     async def update_role(self, user_id: UUID, data: UserRolePatch) -> UserDB:
         user = await self.get_or_404(user_id)
+        return await self.repository.update(user, data)
+
+    async def update_team(self, user_id: UUID, data: UserTeamPatch) -> UserDB:
+        user = await self.get_or_404(user_id)
+        if data.team_id is not None and not await self.team_repository.get(
+            data.team_id
+        ):
+            raise NotFoundError("Team not found")
         return await self.repository.update(user, data)
 
     async def delete(self, user_id: UUID) -> None:

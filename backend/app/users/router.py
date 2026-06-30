@@ -4,7 +4,13 @@ from fastapi import APIRouter, Depends
 
 from app.auth.dependencies import require_admin
 from app.users.models import UserDB, WorkspaceRole
-from app.users.schemas import UserCreate, UserPatch, UserResponse, UserRolePatch
+from app.users.schemas import (
+    UserCreate,
+    UserPatch,
+    UserResponse,
+    UserRolePatch,
+    UserTeamPatch,
+)
 from app.users.service import UserService, get_user_service
 
 
@@ -48,6 +54,7 @@ async def get_user_by_email(
 async def update_user(
     user_id: UUID,
     user_update: UserPatch,
+    _: UserDB = Depends(require_admin),
     service: UserService = Depends(get_user_service),
 ) -> UserResponse:
     return await service.update(user_id, user_update)
@@ -57,9 +64,20 @@ async def update_user(
 async def update_user_role(
     user_id: UUID,
     role_update: UserRolePatch,
+    _: UserDB = Depends(require_admin),
     service: UserService = Depends(get_user_service),
 ) -> UserResponse:
     return await service.update_role(user_id, role_update)
+
+
+@router.patch("/{user_id}/team", response_model=UserResponse)
+async def update_user_team(
+    user_id: UUID,
+    team_update: UserTeamPatch,
+    _: UserDB = Depends(require_admin),
+    service: UserService = Depends(get_user_service),
+) -> UserResponse:
+    return await service.update_team(user_id, team_update)
 
 
 @router.delete("/{user_id}", status_code=204)

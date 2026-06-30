@@ -83,6 +83,14 @@ class AgentPermissionCreate(SQLModel):
     permission: PermissionLevel
 
 
+class AgentTeamsSet(SQLModel):
+    team_ids: list[UUID]
+
+
+class AgentTeamsResponse(SQLModel):
+    team_ids: list[UUID]
+
+
 class AgentSubagentResponse(SQLModel):
     id: UUID
     supervisor_id: UUID

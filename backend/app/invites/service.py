@@ -39,6 +39,7 @@ class InviteService(BaseService[InviteDB, InviteRepository]):
             invite_url=self.build_invite_url(invite.token) if include_url else None,
             invited_by=invite.invited_by,
             invited_by_name=invited_by_name,
+            team_id=invite.team_id,
             expires_at=invite.expires_at,
             created_at=invite.created_at,
         )
@@ -51,7 +52,13 @@ class InviteService(BaseService[InviteDB, InviteRepository]):
             and invite.expires_at >= datetime.now(UTC)
         )
 
-    async def create(self, email: str, role: str, invited_by: UUID) -> InviteDB:
+    async def create(
+        self,
+        email: str,
+        role: str,
+        invited_by: UUID,
+        team_id: UUID | None = None,
+    ) -> InviteDB:
         """Create a new invite, revoking any existing pending invite for the same email."""
         result = await self.db.execute(select(UserDB).where(UserDB.email == email))
         if result.scalar_one_or_none():
@@ -63,6 +70,7 @@ class InviteService(BaseService[InviteDB, InviteRepository]):
             token=secrets.token_urlsafe(32),
             invited_by=invited_by,
             expires_at=datetime.now(UTC) + timedelta(days=7),
+            team_id=team_id,
         )
         return await self.repository.create(data)
 

@@ -29,11 +29,17 @@ SELECT_AGENT_ACTION_ID = "select_agent"
 # Agent fetching
 # ---------------------------------------------------------------------------
 
+
 async def list_pickable_agents(
-    db: AsyncSession, user_id: UUID, user_role: WorkspaceRole | None = None,
+    db: AsyncSession,
+    user_id: UUID,
+    user_role: WorkspaceRole | None = None,
+    user_team_id: UUID | None = None,
 ) -> list[AgentResponse]:
     """Return the agents this user may pick, sorted by name."""
-    all_agents = await AgentService(db).list(user_id=user_id, user_role=user_role)
+    all_agents = await AgentService(db).list(
+        user_id=user_id, user_role=user_role, user_team_id=user_team_id
+    )
     agents = [a for a in all_agents if a.current_user_permission is not None]
     agents.sort(key=lambda a: ((a.name or "").lower(), str(a.id)))
     return agents
@@ -43,9 +49,13 @@ async def list_pickable_agents(
 # Block Kit builders
 # ---------------------------------------------------------------------------
 
+
 def _agent_option(agent: AgentResponse) -> dict:
     return {
-        "text": {"type": "plain_text", "text": f"{agent.emoji or ''} {agent.name}".strip()},
+        "text": {
+            "type": "plain_text",
+            "text": f"{agent.emoji or ''} {agent.name}".strip(),
+        },
         "value": str(agent.id),
     }
 
@@ -67,22 +77,28 @@ def build_agent_picker_blocks(
         {"type": "section", "text": {"type": "mrkdwn", "text": header_text}},
         {
             "type": "actions",
-            "elements": [{
-                "type": "static_select",
-                "action_id": SELECT_AGENT_ACTION_ID,
-                "placeholder": {"type": "plain_text", "text": "Pick an agent…"},
-                "options": options,
-            }],
+            "elements": [
+                {
+                    "type": "static_select",
+                    "action_id": SELECT_AGENT_ACTION_ID,
+                    "placeholder": {"type": "plain_text", "text": "Pick an agent…"},
+                    "options": options,
+                }
+            ],
         },
     ]
     if len(agents) > MAX_OPTIONS:
-        blocks.append({
-            "type": "context",
-            "elements": [{
-                "type": "mrkdwn",
-                "text": f"_Showing the first {MAX_OPTIONS} of {len(agents)} agents._",
-            }],
-        })
+        blocks.append(
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"_Showing the first {MAX_OPTIONS} of {len(agents)} agents._",
+                    }
+                ],
+            }
+        )
     return blocks
 
 
@@ -104,12 +120,18 @@ def _build_agent_selected_blocks(agent: AgentDB) -> list[dict]:
 # Post agent picker
 # ---------------------------------------------------------------------------
 
+
 async def post_agent_picker(
-    client: AsyncWebClient, channel_id: str, thread_ts: str,
-    db: AsyncSession, user_id: UUID, user_role: WorkspaceRole | None = None,
+    client: AsyncWebClient,
+    channel_id: str,
+    thread_ts: str,
+    db: AsyncSession,
+    user_id: UUID,
+    user_role: WorkspaceRole | None = None,
+    user_team_id: UUID | None = None,
 ) -> None:
     """Post an agent picker in the thread."""
-    agents = await list_pickable_agents(db, user_id, user_role)
+    agents = await list_pickable_agents(db, user_id, user_role, user_team_id)
     if not agents:
         return
 
@@ -125,6 +147,7 @@ async def post_agent_picker(
 # ---------------------------------------------------------------------------
 # Interaction handler (dropdown selection)
 # ---------------------------------------------------------------------------
+
 
 async def handle_agent_selection(payload: SlackInteractionPayload) -> None:
     """Process an agent-selection dropdown choice.
@@ -142,8 +165,10 @@ async def handle_agent_selection(payload: SlackInteractionPayload) -> None:
     agent_id = selected.value
 
     channel_id = (
-        payload.channel.id if payload.channel
-        else payload.container.channel_id if payload.container
+        payload.channel.id
+        if payload.channel
+        else payload.container.channel_id
+        if payload.container
         else None
     )
     thread_ts = payload.container.thread_ts if payload.container else None
@@ -183,6 +208,8 @@ async def handle_agent_selection(payload: SlackInteractionPayload) -> None:
     blocks = _build_agent_selected_blocks(agent)
     if message_ts:
         await client.chat_update(
-            channel=channel_id, ts=message_ts,
-            blocks=blocks, text=f"{agent.emoji or ''} *{agent.name}*\n\nAsk me anything to begin.",
+            channel=channel_id,
+            ts=message_ts,
+            blocks=blocks,
+            text=f"{agent.emoji or ''} *{agent.name}*\n\nAsk me anything to begin.",
         )
