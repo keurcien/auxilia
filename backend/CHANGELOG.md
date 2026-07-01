@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.13](https://github.com/keurcien/auxilia/compare/backend-v0.4.12...backend-v0.4.13) (2026-07-01)
+
+
+### Features
+
+* **model-providers:** disable Claude Opus models ([#174](https://github.com/keurcien/auxilia/issues/174)) ([f2afc5b](https://github.com/keurcien/auxilia/commit/f2afc5bdadbe9196e2f86765a22685741beefde1))
+
 ## [0.4.12](https://github.com/keurcien/auxilia/compare/backend-v0.4.11...backend-v0.4.12) (2026-06-30)
 
 
