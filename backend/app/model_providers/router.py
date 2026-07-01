@@ -77,6 +77,13 @@ async def get_models() -> list[ModelResponse]:
                     chef="Anthropic",
                     chefSlug="anthropic",
                 ),
+                ModelResponse(
+                    name="Claude Sonnet 5",
+                    providers=[ModelProviderType.anthropic],
+                    id="claude-sonnet-5",
+                    chef="Anthropic",
+                    chefSlug="anthropic",
+                ),
                 # Claude Opus temporarily disabled.
                 # ModelResponse(name="Claude Opus 4.6", providers=[
                 #     ModelProviderType.anthropic], id="claude-opus-4-6", chef="Anthropic", chefSlug="anthropic"),

@@ -22,7 +22,7 @@ class Model(BaseModel):
 # `{"type": "enabled", "budget_tokens": ...}` format. Everything else uses
 # the legacy `enabled` format.
 ADAPTIVE_THINKING_MODELS: frozenset[str] = frozenset(
-    {"claude-opus-4-6", "claude-opus-4-8"}
+    {"claude-opus-4-6", "claude-opus-4-8", "claude-sonnet-5"}
 )
 
 LLM_PROVIDERS: list[ModelProvider] = []
@@ -49,6 +49,7 @@ if model_provider_settings.anthropic_api_key:
     )
     MODELS.append(Model(name="claude-haiku-4-5", provider="anthropic"))
     MODELS.append(Model(name="claude-sonnet-4-6", provider="anthropic"))
+    MODELS.append(Model(name="claude-sonnet-5", provider="anthropic"))
     # Claude Opus temporarily disabled.
     # MODELS.append(Model(name="claude-opus-4-6", provider="anthropic"))
     # MODELS.append(Model(name="claude-opus-4-8", provider="anthropic"))
