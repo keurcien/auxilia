@@ -22,52 +22,63 @@ class Model(BaseModel):
 # `{"type": "enabled", "budget_tokens": ...}` format. Everything else uses
 # the legacy `enabled` format.
 ADAPTIVE_THINKING_MODELS: frozenset[str] = frozenset(
-    {"claude-opus-4-6", "claude-opus-4-8"})
+    {"claude-opus-4-6", "claude-opus-4-8"}
+)
 
 LLM_PROVIDERS: list[ModelProvider] = []
 MODELS: list[Model] = []
 
 if model_provider_settings.openai_api_key:
-    LLM_PROVIDERS.append(ModelProvider(
-        name="openai", api_key=model_provider_settings.openai_api_key))
+    LLM_PROVIDERS.append(
+        ModelProvider(name="openai", api_key=model_provider_settings.openai_api_key)
+    )
     MODELS.append(Model(name="gpt-4o-mini", provider="openai"))
 
 if model_provider_settings.deepseek_api_key:
-    LLM_PROVIDERS.append(ModelProvider(
-        name="deepseek", api_key=model_provider_settings.deepseek_api_key))
+    LLM_PROVIDERS.append(
+        ModelProvider(name="deepseek", api_key=model_provider_settings.deepseek_api_key)
+    )
     MODELS.append(Model(name="deepseek-v4-flash", provider="deepseek"))
     MODELS.append(Model(name="deepseek-v4-pro", provider="deepseek"))
 
 if model_provider_settings.anthropic_api_key:
-    LLM_PROVIDERS.append(ModelProvider(
-        name="anthropic", api_key=model_provider_settings.anthropic_api_key))
+    LLM_PROVIDERS.append(
+        ModelProvider(
+            name="anthropic", api_key=model_provider_settings.anthropic_api_key
+        )
+    )
     MODELS.append(Model(name="claude-haiku-4-5", provider="anthropic"))
     MODELS.append(Model(name="claude-sonnet-4-6", provider="anthropic"))
-    MODELS.append(Model(name="claude-opus-4-6", provider="anthropic"))
-    MODELS.append(Model(name="claude-opus-4-8", provider="anthropic"))
+    # Claude Opus temporarily disabled.
+    # MODELS.append(Model(name="claude-opus-4-6", provider="anthropic"))
+    # MODELS.append(Model(name="claude-opus-4-8", provider="anthropic"))
 
 if model_provider_settings.google_api_key:
-    LLM_PROVIDERS.append(ModelProvider(
-        name="google", api_key=model_provider_settings.google_api_key))
+    LLM_PROVIDERS.append(
+        ModelProvider(name="google", api_key=model_provider_settings.google_api_key)
+    )
     MODELS.append(Model(name="gemini-3-flash-preview", provider="google"))
     MODELS.append(Model(name="gemini-3-pro-preview", provider="google"))
 
 if model_provider_settings.xiaomi_api_key:
-    LLM_PROVIDERS.append(ModelProvider(
-        name="xiaomi", api_key=model_provider_settings.xiaomi_api_key
-    ))
+    LLM_PROVIDERS.append(
+        ModelProvider(name="xiaomi", api_key=model_provider_settings.xiaomi_api_key)
+    )
     MODELS.append(Model(name="mimo-v2.5-pro", provider="xiaomi"))
     MODELS.append(Model(name="mimo-v2.5", provider="xiaomi"))
 
 
 class ChatModelFactory:
-
     def create(self, provider: str, model_id: str, api_key: str):
         match provider:
             case "openai":
                 return ChatOpenAI(model=model_id, api_key=api_key)
             case "deepseek":
-                return ChatDeepSeek(model=model_id, api_key=api_key, extra_body={"thinking": {"type": "disabled"}})
+                return ChatDeepSeek(
+                    model=model_id,
+                    api_key=api_key,
+                    extra_body={"thinking": {"type": "disabled"}},
+                )
             case "anthropic":
                 kwargs: dict = {}
                 if model_id in ADAPTIVE_THINKING_MODELS:
@@ -78,12 +89,10 @@ class ChatModelFactory:
                     # `content.0.thinking.thinking: Field required`. Requesting
                     # "summarized" keeps the field populated so it survives the
                     # round-trip (and surfaces reasoning to the UI).
-                    kwargs["thinking"] = {
-                        "type": "adaptive", "display": "summarized"}
+                    kwargs["thinking"] = {"type": "adaptive", "display": "summarized"}
                     kwargs["effort"] = "medium"
                 else:
-                    kwargs["thinking"] = {
-                        "type": "enabled", "budget_tokens": 1024}
+                    kwargs["thinking"] = {"type": "enabled", "budget_tokens": 1024}
                 return ChatAnthropic(
                     model=model_id,
                     temperature=1,
@@ -110,7 +119,7 @@ class ChatModelFactory:
                 return ChatOpenAI(
                     base_url="https://api.xiaomimimo.com/v1",
                     model=model_id,
-                    api_key=api_key
+                    api_key=api_key,
                 )
             case _:
                 raise ValueError(f"Provider {provider} not supported")
