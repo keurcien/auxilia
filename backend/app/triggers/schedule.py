@@ -36,7 +36,7 @@ def compute_next_run_at(
     return next_local.astimezone(UTC)
 
 
-def list_next_run_ats(
+def compute_next_run_ats(
     cron_expression: str, timezone: str, after: datetime, count: int
 ) -> list[datetime]:
     """The next ``count`` occurrences after ``after``, in UTC (for previews)."""

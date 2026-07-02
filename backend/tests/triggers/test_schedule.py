@@ -5,8 +5,8 @@ import pytest
 from app.exceptions import DomainValidationError
 from app.triggers.schedule import (
     compute_next_run_at,
+    compute_next_run_ats,
     ensure_valid_schedule,
-    list_next_run_ats,
 )
 
 
@@ -44,10 +44,10 @@ class TestComputeNextRunAt:
         assert result == datetime(2026, 7, 15, 9, 0, tzinfo=UTC)
 
 
-class TestListNextRunAts:
+class TestComputeNextRunAts:
     def test_returns_count_increasing_occurrences(self):
         after = datetime(2026, 7, 15, 0, 0, tzinfo=UTC)
-        results = list_next_run_ats("*/15 * * * *", "UTC", after, count=4)
+        results = compute_next_run_ats("*/15 * * * *", "UTC", after, count=4)
         assert len(results) == 4
         assert results == sorted(results)
         assert results[0] == datetime(2026, 7, 15, 0, 15, tzinfo=UTC)

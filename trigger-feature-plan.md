@@ -65,7 +65,7 @@ planner (top-up job), re-planning on every schedule edit, and GC. None of that i
   `threads.trigger_id` set, and the run's status lives in the runtime's `RunRecord`.
 - **Upcoming occurrences for the UI** don't need persistence at all: they're a pure function of
   `(cron, tz, now)`. `GET /triggers/schedule/preview?cron_expression=...&timezone=...&count=5`
-  computes them on demand (`app/triggers/schedule.py::list_next_run_ats`). The backend plans
+  computes them on demand (`app/triggers/schedule.py::compute_next_run_ats`). The backend plans
   **exactly one** run ahead per trigger; the UI can *display* as many future occurrences as it
   likes for free.
 
@@ -230,7 +230,7 @@ request-scoped transaction** — only from the scanner (or a test) over a dedica
 `AsyncSessionLocal()`, the same out-of-request pattern as Slack handlers.
 
 Pure schedule math lives out of the service in `schedule.py` (`ensure_valid_schedule`,
-`compute_next_run_at`, `list_next_run_ats`), per the "pure helpers stay out of services" rule.
+`compute_next_run_at`, `compute_next_run_ats`), per the "pure helpers stay out of services" rule.
 Tunables in `settings.py` (`TRIGGER_SCANNER_ENABLED`, `TRIGGER_SCAN_INTERVAL_SECONDS=20`,
 `TRIGGER_CLAIM_BATCH_SIZE=50`).
 

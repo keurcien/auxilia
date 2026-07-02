@@ -4,7 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 
 from app.auth.dependencies import get_current_user, require_editor
-from app.triggers.schedule import ensure_valid_schedule, list_next_run_ats
+from app.triggers.schedule import compute_next_run_ats, ensure_valid_schedule
 from app.triggers.schemas import (
     SchedulePreviewResponse,
     TriggerCreate,
@@ -46,7 +46,7 @@ async def preview_schedule(
     backs the schedule designer's "next runs" preview."""
     ensure_valid_schedule(cron_expression, timezone)
     return SchedulePreviewResponse(
-        next_run_ats=list_next_run_ats(
+        next_run_ats=compute_next_run_ats(
             cron_expression, timezone, after=datetime.now(UTC), count=count
         )
     )
