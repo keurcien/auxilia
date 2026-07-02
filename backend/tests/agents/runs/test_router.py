@@ -107,6 +107,38 @@ def test_invoke_without_output_schema(
     assert fake.create_kwargs["output_schema"] is None
 
 
+@patch("app.agents.runs.router.read_run_result", new_callable=AsyncMock)
+def test_invoke_schema_violating_result_is_500(
+    mock_read, client: TestClient, mock_db, current_user
+):
+    """A run that ends success without a schema-valid structured response must
+    error out, not hand the caller an empty/stale object."""
+    thread = _owned_thread(current_user)
+    _mock_thread_lookup(mock_db, thread)
+    mock_read.return_value = {"content": "prose", "structured_response": {}}
+    fake = _FakeRunService()
+    app.dependency_overrides[get_run_service] = lambda: fake
+
+    schema = {
+        "type": "object",
+        "properties": {"answer": {"type": "integer"}},
+        "required": ["answer"],
+    }
+    try:
+        response = client.post(
+            f"/threads/{thread.id}/runs/invoke",
+            json={
+                "input": {"messages": [{"type": "human", "content": "hi"}]},
+                "output_schema": schema,
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_run_service, None)
+
+    assert response.status_code == 500
+    assert "valid structured response" in response.json()["detail"]
+
+
 def test_invoke_failed_run_is_500(client: TestClient, mock_db, current_user):
     thread = _owned_thread(current_user)
     _mock_thread_lookup(mock_db, thread)

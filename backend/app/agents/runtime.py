@@ -407,6 +407,13 @@ class Agent:
             stream_input,
             config,
         ):
+            if output_schema is not None and command is None:
+                # `structured_response` is a persistent channel: if this turn's
+                # formatting never runs (e.g. recursion fallback), a previous
+                # turn's value would otherwise be read back as this run's result.
+                state = await agent.aget_state(config)
+                if state.values.get("structured_response") is not None:
+                    await agent.aupdate_state(config, {"structured_response": None})
             langchain_stream = agent.astream(
                 stream_input,
                 config=config,

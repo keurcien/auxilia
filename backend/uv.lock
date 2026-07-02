@@ -269,7 +269,7 @@ wheels = [
 
 [[package]]
 name = "backend"
-version = "0.4.12"
+version = "0.4.13"
 source = { virtual = "." }
 dependencies = [
     { name = "aiohttp" },
@@ -280,6 +280,7 @@ dependencies = [
     { name = "greenlet" },
     { name = "h2" },
     { name = "itsdangerous" },
+    { name = "jsonschema" },
     { name = "langchain" },
     { name = "langchain-ai-sdk-adapter" },
     { name = "langchain-anthropic" },
@@ -320,6 +321,7 @@ requires-dist = [
     { name = "greenlet", specifier = ">=3.1.1" },
     { name = "h2", specifier = ">=4.3.0" },
     { name = "itsdangerous", specifier = ">=2.2.0" },
+    { name = "jsonschema", specifier = ">=4.26.0" },
     { name = "langchain", specifier = ">=1.2.6" },
     { name = "langchain-ai-sdk-adapter", git = "https://github.com/keurcien/langchain-ai-sdk-adapter.git" },
     { name = "langchain-anthropic", specifier = ">=1.4.3" },

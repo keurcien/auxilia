@@ -28,3 +28,7 @@ class InvalidCredentialsError(DomainError):
 
 class NoInviteError(DomainError):
     """OAuth signup attempted with no matching invite."""
+
+
+class StructuredOutputError(DomainError):
+    """A run with an output schema failed to produce a valid structured response."""

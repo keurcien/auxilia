@@ -32,6 +32,7 @@ dependencies = [
     "langchain-ai-sdk-adapter",
     "deepagents>=0.5.6",
     "opensandbox>=0.1.6",
+    "jsonschema>=4.26.0",
 ]
 
 [dependency-groups]
