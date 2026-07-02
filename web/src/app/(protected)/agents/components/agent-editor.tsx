@@ -111,6 +111,9 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 		liveAgent.currentUserPermission === "owner" ||
 		liveAgent.currentUserPermission === "admin";
 
+	const canEditAgent =
+		canManageAgent || liveAgent.currentUserPermission === "editor";
+
 	const handleDeleteAgent = async () => {
 		if (
 			!confirm(
@@ -274,6 +277,10 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 								? [
 									{ label: "View thread history", icon: <History />, onClick: handleViewThreads },
 									{ label: "Manage permissions", icon: <ShieldCheck />, onClick: handleManagePermissions },
+								]
+								: []),
+							...(canEditAgent
+								? [
 									{ label: "Assign tag", icon: <Tag />, onClick: () => { setTagsOpen(true); } },
 									{ separator: true as const },
 								]

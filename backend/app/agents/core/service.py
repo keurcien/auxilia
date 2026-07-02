@@ -206,6 +206,8 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         try:
             await self.repository.update(agent, data)
         except IntegrityError as exc:
+            if "fk_agents_tag_id_tags" not in str(getattr(exc, "orig", exc)):
+                raise
             # The tag existed at validation time but was deleted before the
             # flush — surface the same 404 the validation would have raised.
             raise NotFoundError("Tag not found") from exc
