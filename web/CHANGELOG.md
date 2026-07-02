@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.10](https://github.com/keurcien/auxilia/compare/web-v0.5.9...web-v0.5.10) (2026-07-02)
+
+
+### Features
+
+* organize agents list with tags ([#176](https://github.com/keurcien/auxilia/issues/176)) ([648e6ea](https://github.com/keurcien/auxilia/commit/648e6ea4fb4ee19fd4ac89db3df71bfcfa7a77c6))
+
+
+### Bug Fixes
+
+* address Cubic review comments from [#176](https://github.com/keurcien/auxilia/issues/176) ([#178](https://github.com/keurcien/auxilia/issues/178)) ([efc35d6](https://github.com/keurcien/auxilia/commit/efc35d69eea28ac3a1f8dca0650010b6bcd06500))
+
 ## [0.5.9](https://github.com/keurcien/auxilia/compare/web-v0.5.8...web-v0.5.9) (2026-06-30)
 
 
