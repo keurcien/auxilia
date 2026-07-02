@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
 import { AGENT_COLORS, agentPastel } from "@/lib/colors";
 import { useTheme } from "next-themes";
-import { ShieldCheck, ArrowRight, ArchiveIcon, History } from "lucide-react";
+import { ShieldCheck, ArrowRight, ArchiveIcon, History, Tag } from "lucide-react";
 import { Agent } from "@/types/agents";
 import AgentToolList from "../[id]/components/agent-tool-list";
 import AgentSubagentList from "../[id]/components/agent-subagent-list";
@@ -15,6 +15,7 @@ import { useThreadsStore } from "@/stores/threads-store";
 import { useUserStore } from "@/stores/user-store";
 import { SageDropdownMenu } from "@/components/ui/sage-dropdown-menu";
 import AgentPermissionsDialog from "./agent-permissions-dialog";
+import AgentTagsDialog from "./agent-tags-dialog";
 
 interface AgentEditorProps {
 	agent: Agent;
@@ -41,6 +42,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 	const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 	const [saveStatus, setSaveStatus] = useState<"saved" | "saving">("saved");
 	const [permissionsOpen, setPermissionsOpen] = useState(false);
+	const [tagsOpen, setTagsOpen] = useState(false);
 	const savingTimerRef = useRef<NodeJS.Timeout | undefined>(undefined);
 	const emojiPickerRef = useRef<HTMLDivElement>(null);
 	const nameTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
@@ -89,7 +91,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 				const updatedAgent: Agent = response.data;
 				updateAgent(agent.id, updatedAgent);
 				if (savingTimerRef.current) clearTimeout(savingTimerRef.current);
-				savingTimerRef.current = setTimeout(() => setSaveStatus("saved"), 500);
+				savingTimerRef.current = setTimeout(() => { setSaveStatus("saved"); }, 500);
 			} catch (error) {
 				console.error("Error saving agent:", error);
 			}
@@ -188,7 +190,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 				<div className="flex items-center gap-4 flex-1 min-w-0">
 					<div className="relative">
 						<div
-							onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+							onClick={() => { setShowEmojiPicker(!showEmojiPicker); }}
 							style={{
 								background: agentPastel(color).pill,
 							}}
@@ -209,7 +211,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 										<button
 											key={c}
 											type="button"
-											onClick={() => handleColorClick(c)}
+											onClick={() => { handleColorClick(c); }}
 											style={{ backgroundColor: c }}
 											className={`w-7 h-7 rounded-full cursor-pointer transition-transform hover:scale-110 ${
 												color === c
@@ -227,7 +229,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 						<input
 							type="text"
 							value={name}
-							onChange={(e) => setName(e.target.value)}
+							onChange={(e) => { setName(e.target.value); }}
 							placeholder="Agent name"
 							className="font-[family-name:var(--font-jakarta-sans)] text-[22px] font-bold text-[#1E2D28] dark:text-foreground leading-tight tracking-[-0.025em] truncate w-full bg-transparent border-none focus:outline-none focus:ring-0 p-0"
 						/>
@@ -259,7 +261,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 					{/* Chat button */}
 					<button
 						className="flex items-center gap-2 px-5.5 py-2.5 rounded-full bg-[#111111] dark:bg-white text-white dark:text-[#111111] text-[14px] font-semibold cursor-pointer shadow-[0_4px_12px_-2px_rgba(0,0,0,0.15)] transition-all hover:opacity-90"
-						onClick={() => router.push(`/agents/${agent.id}/chat`)}
+						onClick={() => { router.push(`/agents/${agent.id}/chat`); }}
 					>
 						Chat
 						<ArrowRight className="size-[15px]" />
@@ -272,10 +274,11 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 								? [
 									{ label: "View thread history", icon: <History />, onClick: handleViewThreads },
 									{ label: "Manage permissions", icon: <ShieldCheck />, onClick: handleManagePermissions },
+									{ label: "Assign tag", icon: <Tag />, onClick: () => { setTagsOpen(true); } },
 									{ separator: true as const },
 								]
 								: []),
-							{ label: "Archive agent", icon: <ArchiveIcon />, destructive: true, onClick: handleDeleteAgent },
+							{ label: "Archive agent", icon: <ArchiveIcon />, destructive: true, onClick: () => { void handleDeleteAgent(); } },
 						]}
 					/>
 				</div>
@@ -296,7 +299,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 							maxLength={255}
 							className="w-full px-[17px] py-[15px] rounded-[14px] border border-[#e1ebe6] dark:border-white/10 bg-white dark:bg-card text-[13.5px] font-medium text-[#1E2D28] dark:text-white leading-[1.5] placeholder:text-[#A3B5AD] dark:placeholder:text-white/30 shadow-[0_1px_3px_rgba(33,36,31,0.04)] focus:outline-none focus:border-[#4CA882] transition-colors"
 							value={description}
-							onChange={(e) => setDescription(e.target.value)}
+							onChange={(e) => { setDescription(e.target.value); }}
 							placeholder="A short description of your agent..."
 						/>
 						{description.length > 240 && (
@@ -313,7 +316,7 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 						<textarea
 							className="flex-1 w-full h-full p-5 rounded-[14px] border border-[#e1ebe6] dark:border-white/10 bg-white dark:bg-card text-[13px] font-medium text-[#1E2D28] dark:text-white leading-[1.65] placeholder:text-[#A3B5AD] dark:placeholder:text-white/30 resize-none shadow-[0_1px_3px_rgba(33,36,31,0.04)] focus:outline-none focus:border-[#4CA882] transition-colors [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
 							value={instructions}
-							onChange={(e) => setInstructions(e.target.value)}
+							onChange={(e) => { setInstructions(e.target.value); }}
 							placeholder="Enter instructions for your agent..."
 						/>
 					</div>
@@ -323,11 +326,11 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 				<div className="h-full w-full md:w-1/2 flex flex-col min-h-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden animate-in fade-in slide-in-from-bottom-3 duration-400" style={{ animationDelay: "100ms", animationFillMode: "both" }}>
 					<AgentToolList
 						agent={liveAgent}
-						onSaving={() => setSaveStatus("saving")}
+						onSaving={() => { setSaveStatus("saving"); }}
 						onSaved={() => {
 							if (savingTimerRef.current) clearTimeout(savingTimerRef.current);
 							savingTimerRef.current = setTimeout(
-								() => setSaveStatus("saved"),
+								() => { setSaveStatus("saved"); },
 								400,
 							);
 						}}
@@ -335,11 +338,11 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 					{isAdmin && (
 						<AgentSubagentList
 							agent={liveAgent}
-							onSaving={() => setSaveStatus("saving")}
+							onSaving={() => { setSaveStatus("saving"); }}
 							onSaved={() => {
 								if (savingTimerRef.current) clearTimeout(savingTimerRef.current);
 								savingTimerRef.current = setTimeout(
-									() => setSaveStatus("saved"),
+									() => { setSaveStatus("saved"); },
 									400,
 								);
 							}}
@@ -353,6 +356,12 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 				onOpenChange={setPermissionsOpen}
 				agentId={agent.id}
 				ownerId={liveAgent.ownerId}
+			/>
+
+			<AgentTagsDialog
+				open={tagsOpen}
+				onOpenChange={setTagsOpen}
+				agent={liveAgent}
 			/>
 		</div>
 	);

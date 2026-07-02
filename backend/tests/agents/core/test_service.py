@@ -13,6 +13,7 @@ from app.agents.models import (
 )
 from app.agents.schemas import AgentCreateDB, AgentPatch, AgentResponse
 from app.exceptions import NotFoundError, PermissionDeniedError
+from app.tags.models import TagDB
 from app.users.models import WorkspaceRole
 
 
@@ -79,17 +80,27 @@ def mock_subagent_service():
 
 
 @pytest.fixture
+def mock_tag_service():
+    svc = MagicMock()
+    svc.get = AsyncMock()
+    svc.list_by_ids = AsyncMock(return_value=[])
+    return svc
+
+
+@pytest.fixture
 def service(
     mock_db,
     mock_repo,
     mock_subagent_service,
     mock_thread_service,
+    mock_tag_service,
     mock_agent_mcp_repo,
 ):
     svc = AgentService(mock_db)
     svc.repository = mock_repo
     svc.subagent_service = mock_subagent_service
     svc.thread_service = mock_thread_service
+    svc.tag_service = mock_tag_service
     svc.mcp_server_repository = mock_agent_mcp_repo
     return svc
 
@@ -323,6 +334,37 @@ async def test_list_agents_no_user_returns_agents_with_no_permission(
     assert result[0].current_user_permission is None
 
 
+async def test_list_attaches_tag(service, mock_repo, mock_tag_service):
+    tag_id = uuid4()
+    agent = make_agent(tag_id=tag_id)
+    mock_repo.list_with_permissions.return_value = [(agent, None)]
+    mock_tag_service.list_by_ids.return_value = [
+        TagDB(
+            id=tag_id,
+            name="Data",
+            created_at=datetime.now(),
+            updated_at=datetime.now(),
+        )
+    ]
+
+    result = await service.list()
+
+    mock_tag_service.list_by_ids.assert_awaited_once_with([tag_id])
+    assert result[0].tag is not None
+    assert result[0].tag.id == tag_id
+    assert result[0].tag.name == "Data"
+
+
+async def test_list_untagged_agents_attach_no_tag(service, mock_repo, mock_tag_service):
+    agent = make_agent()
+    mock_repo.list_with_permissions.return_value = [(agent, None)]
+
+    result = await service.list()
+
+    mock_tag_service.list_by_ids.assert_awaited_once_with([])
+    assert result[0].tag is None
+
+
 # ---------------------------------------------------------------------------
 # update_agent
 # ---------------------------------------------------------------------------
@@ -393,6 +435,48 @@ async def test_update_agent_allows_workspace_admin(service, mock_repo):
     )
 
     mock_repo.update.assert_awaited_once()
+
+
+async def test_update_agent_validates_tag_exists(service, mock_repo, mock_tag_service):
+    agent = make_agent()
+    mock_repo.get.return_value = agent
+    mock_repo.list_with_permissions.return_value = [(agent, None)]
+    tag_id = uuid4()
+
+    await service.update(agent.id, AgentPatch(tag_id=tag_id), user_id=agent.owner_id)
+
+    mock_tag_service.get.assert_awaited_once_with(tag_id)
+    mock_repo.update.assert_awaited_once()
+
+
+async def test_update_agent_raises_404_for_unknown_tag(
+    service, mock_repo, mock_tag_service
+):
+    agent = make_agent()
+    mock_repo.list_with_permissions.return_value = [(agent, None)]
+    mock_tag_service.get.side_effect = NotFoundError("Tag not found")
+
+    with pytest.raises(NotFoundError) as exc_info:
+        await service.update(
+            agent.id, AgentPatch(tag_id=uuid4()), user_id=agent.owner_id
+        )
+
+    assert exc_info.value.detail == "Tag not found"
+    mock_repo.update.assert_not_called()
+
+
+async def test_update_agent_untag_skips_tag_lookup(
+    service, mock_repo, mock_tag_service
+):
+    agent = make_agent()
+    mock_repo.get.return_value = agent
+    mock_repo.list_with_permissions.return_value = [(agent, None)]
+
+    await service.update(agent.id, AgentPatch(tag_id=None), user_id=agent.owner_id)
+
+    mock_tag_service.get.assert_not_called()
+    update_schema = mock_repo.update.call_args[0][1]
+    assert update_schema.model_dump(exclude_unset=True) == {"tag_id": None}
 
 
 # ---------------------------------------------------------------------------

@@ -65,6 +65,13 @@ class AgentDB(AgentBase, BaseDBModel, table=True):
         default=False,
         sa_column=Column(Boolean, nullable=False, server_default="false"),
     )
+    tag_id: UUID | None = Field(
+        default=None,
+        foreign_key="tags.id",
+        ondelete="SET NULL",
+        index=True,
+        nullable=True,
+    )
 
 
 class AgentUserPermissionDB(BaseDBModel, table=True):

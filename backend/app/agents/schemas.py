@@ -50,6 +50,7 @@ class AgentPatch(SQLModel):
     color: str | None = None
     description: str | None = None
     has_code_interpreter: bool | None = None
+    tag_id: UUID | None = None
 
     @field_validator("color")
     @classmethod
@@ -107,6 +108,11 @@ class SubagentResponse(SQLModel):
     description: str | None = None
 
 
+class TagInfo(SQLModel):
+    id: UUID
+    name: str
+
+
 class AgentResponse(SQLModel):
     id: UUID
     name: str
@@ -121,5 +127,6 @@ class AgentResponse(SQLModel):
     updated_at: datetime
     mcp_servers: list[AgentMCPServerResponse] | None = None
     subagents: list[SubagentResponse] | None = None
+    tag: TagInfo | None = None
     is_subagent: bool = False
     current_user_permission: str | None = None

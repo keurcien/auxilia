@@ -49,7 +49,7 @@ export function SelectAgentDialog({
 					<DialogTitle className="font-[family-name:var(--font-jakarta-sans)] text-[22px] font-extrabold text-[#111111] dark:text-white tracking-[-0.02em]">
 						Chat with an Agent
 					</DialogTitle>
-					<p className="font-[family-name:var(--font-dm-sans)] text-[14px] text-[#8FA89E] dark:text-muted-foreground font-medium mt-1">
+					<p className="font-[family-name:var(--font-dm-sans)] text-[14px] text-[#8FA89E] dark:text-muted-foreground font-medium mt-2 leading-relaxed">
 						Select an agent to start a conversation
 					</p>
 				</div>
@@ -69,7 +69,7 @@ export function SelectAgentDialog({
 						<div
 							key={agent.id}
 							className="flex items-center gap-3.5 px-3 py-2.5 rounded-[16px] hover:bg-[#F8FAF9] dark:hover:bg-white/5 cursor-pointer transition-all duration-200 group"
-							onClick={() => handleSelectAgent(agent)}
+							onClick={() => { handleSelectAgent(agent); }}
 						>
 							<AgentAvatar
 								color={agent.color}
