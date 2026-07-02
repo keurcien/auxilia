@@ -91,13 +91,13 @@ composes them. Documented here so the deviation is intentional, not drift.
 
 | Key                              | Type   | Contents                                              | TTL  |
 | -------------------------------- | ------ | ----------------------------------------------------- | ---- |
-| `run:{run_id}`                   | hash   | serialized `RunRecord`                                | 24h  |
-| `run:{run_id}:events`            | stream | append-only SSE chunks (`{"data": "<sse>"}`)          | 24h  |
-| `run:{run_id}:control`           | list   | cancel signal (polled via non-blocking `LPOP`)        | 24h  |
+| `run:{run_id}`                   | hash   | serialized `RunRecord`                                | 1h   |
+| `run:{run_id}:events`            | stream | append-only SSE chunks (`{"data": "<sse>"}`)          | 1h   |
+| `run:{run_id}:control`           | list   | cancel signal (polled via non-blocking `LPOP`)        | 1h   |
 | `runs:queue`                     | list   | FIFO of `run_id`s awaiting a dispatcher (`BRPOP`)     | —    |
 | `runs:active`                    | set    | run_ids in a non-terminal state — the reaper's worklist | live |
 | `thread:{thread_id}:active_run`  | string | the active `run_id` — the per-thread mutex (`SET NX`) | live |
-| `thread:{thread_id}:runs`        | zset   | `run_id`s by `created_at` (for `list_for_thread`)     | 24h  |
+| `thread:{thread_id}:runs`        | zset   | `run_id`s by `created_at` (for `list_for_thread`)     | 1h   |
 
 The event-stream entry IDs (Redis Stream `XADD` ids) are the **resume cursor**:
 `subscribe(last_event_id)` does `XREAD` from that id, so reattach replays only
@@ -187,7 +187,7 @@ of scope for v1; document if/when added.)
 | `RUN_HEARTBEAT_INTERVAL_SECONDS` | 5     | worker heartbeat cadence                 |
 | `RUN_HEARTBEAT_TIMEOUT_SECONDS`  | 30    | reaper threshold for stale `running`     |
 | `RUN_PENDING_TIMEOUT_SECONDS`  | 600     | reaper threshold for stuck `pending`     |
-| `RUN_TTL_SECONDS`              | 86400   | Redis retention for run keys             |
+| `RUN_TTL_SECONDS`              | 3600    | Redis retention for run keys (> max duration) |
 | `RUN_DISPATCHER_ENABLED`       | true    | run the in-process dispatcher + reaper   |
 
 ## Deployment (portable; Cloud Run focus)
