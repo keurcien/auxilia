@@ -10,10 +10,17 @@ class ThreadSource(str, Enum):
     web = "web"
     slack = "slack"
     api = "api"
+    trigger = "trigger"
 
 
 # Sources considered first-party — surfaced in the user's personal thread list.
-FIRST_PARTY_SOURCES: tuple[ThreadSource, ...] = (ThreadSource.web, ThreadSource.slack)
+# Trigger threads are included: the owner follows (and approves HITL on) their
+# scheduled runs from the sidebar, badged by `source` / `trigger_id`.
+FIRST_PARTY_SOURCES: tuple[ThreadSource, ...] = (
+    ThreadSource.web,
+    ThreadSource.slack,
+    ThreadSource.trigger,
+)
 
 
 class ThreadBase(SQLModel):
@@ -35,4 +42,13 @@ class ThreadDB(ThreadBase, TimestampMixin, table=True):
     id: str = Field(
         default_factory=lambda: str(uuid4()),
         sa_column=Column(String, primary_key=True),
+    )
+    # Set only on trigger-sourced threads — links each firing back to its
+    # trigger for the run-history view. Survives trigger deletion (SET NULL).
+    trigger_id: UUID | None = Field(
+        default=None,
+        foreign_key="triggers.id",
+        ondelete="SET NULL",
+        index=True,
+        nullable=True,
     )

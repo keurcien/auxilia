@@ -86,11 +86,15 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
         data: ThreadCreate,
         user_id: UUID,
         source: ThreadSource,
+        trigger_id: UUID | None = None,
     ) -> ThreadResponse:
+        # `trigger_id` is a keyword (not a ThreadCreate field) so API clients
+        # can't attach arbitrary threads to a trigger — only the scanner sets it.
         thread = ThreadDB(
             **data.model_dump(exclude_none=True),
             user_id=user_id,
             source=source,
+            trigger_id=trigger_id,
         )
         self.db.add(thread)
         await self.db.flush()

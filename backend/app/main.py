@@ -39,6 +39,9 @@ from app.settings import app_settings
 from app.tags.router import router as tags_router
 from app.teams.router import router as teams_router
 from app.threads.router import router as threads_router
+from app.triggers.router import router as triggers_router
+from app.triggers.scanner import TriggerScanner
+from app.triggers.settings import trigger_settings
 from app.users.router import router as users_router
 
 
@@ -66,6 +69,7 @@ async def lifespan(app: FastAPI):
     background: list[asyncio.Task] = []
     dispatcher: RunDispatcher | None = None
     reaper: RunReaper | None = None
+    scanner: TriggerScanner | None = None
     if run_settings.dispatcher_enabled:
         dispatcher = RunDispatcher(delivery_factory=build_slack_run_consumer)
         reaper = RunReaper()
@@ -73,6 +77,13 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(dispatcher.run(), name="run-dispatcher"),
             asyncio.create_task(reaper.run(), name="run-reaper"),
         ]
+        # The scanner enqueues onto the run queue, so it only runs where the
+        # dispatcher does (always-on worker instances).
+        if trigger_settings.scanner_enabled:
+            scanner = TriggerScanner()
+            background.append(
+                asyncio.create_task(scanner.run(), name="trigger-scanner")
+            )
         for task in background:
             task.add_done_callback(_log_background_crash)
 
@@ -84,6 +95,8 @@ async def lifespan(app: FastAPI):
                 await dispatcher.stop()
             if reaper is not None:
                 reaper.stop()
+            if scanner is not None:
+                scanner.stop()
             for task in background:
                 task.cancel()
             await asyncio.gather(*background, return_exceptions=True)
@@ -180,6 +193,7 @@ app.include_router(tokens_router)
 app.include_router(mcp_apps_router)
 app.include_router(mcp_servers_router)
 app.include_router(threads_router)
+app.include_router(triggers_router)
 app.include_router(users_router)
 app.include_router(invites_router)
 app.include_router(teams_router)

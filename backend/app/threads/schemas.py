@@ -24,6 +24,7 @@ class ThreadPatch(SQLModel):
 
 class ThreadResponse(ThreadBase):
     id: str
+    trigger_id: UUID | None = None
     created_at: datetime
     updated_at: datetime
     agent_name: str | None = None
