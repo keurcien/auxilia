@@ -24,8 +24,10 @@ class RunSettings(BaseSettings):
     heartbeat_timeout_seconds: int = 30
     # Reaper threshold: a `pending` run older than this (a queued zombie) is reaped to `error`.
     pending_timeout_seconds: int = 600
-    # Redis retention for run keys (record, events, control).
-    ttl_seconds: int = 86400
+    # Redis retention for run keys (record, events, control). Applied at
+    # creation (crash backstop) and re-applied at finalize, so it must stay
+    # comfortably above `max_duration_seconds` or keys expire mid-run.
+    ttl_seconds: int = 3600
     # How often the reaper sweeps for orphans.
     reaper_interval_seconds: int = 15
     # Whether this process runs the in-process dispatcher + reaper. Set false on
