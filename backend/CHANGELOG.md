@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.13](https://github.com/keurcien/auxilia/compare/backend-v0.4.12...backend-v0.4.13) (2026-07-02)
+
+
+### Features
+
+* **model-providers:** disable Claude Opus models ([#174](https://github.com/keurcien/auxilia/issues/174)) ([f2afc5b](https://github.com/keurcien/auxilia/commit/f2afc5bdadbe9196e2f86765a22685741beefde1))
+* organize agents list with tags ([#176](https://github.com/keurcien/auxilia/issues/176)) ([648e6ea](https://github.com/keurcien/auxilia/commit/648e6ea4fb4ee19fd4ac89db3df71bfcfa7a77c6))
+
+
+### Bug Fixes
+
+* address Cubic review comments from [#176](https://github.com/keurcien/auxilia/issues/176) ([#178](https://github.com/keurcien/auxilia/issues/178)) ([efc35d6](https://github.com/keurcien/auxilia/commit/efc35d69eea28ac3a1f8dca0650010b6bcd06500))
+* **runs:** lower Redis run retention default from 24h to 1h ([#177](https://github.com/keurcien/auxilia/issues/177)) ([0171b50](https://github.com/keurcien/auxilia/commit/0171b50f0a931e61e41cbd884a2eed2d5f935e6e))
+
 ## [0.4.12](https://github.com/keurcien/auxilia/compare/backend-v0.4.11...backend-v0.4.12) (2026-06-30)
 
 
