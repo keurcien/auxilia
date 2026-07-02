@@ -21,7 +21,9 @@ export default function AgentsPage() {
 	const [isCreating, setIsCreating] = useState(false);
 	const [errorDialogOpen, setErrorDialogOpen] = useState(false);
 	const [search, setSearch] = useState("");
-	const [view, setView] = useState<"active" | "archived">("active");
+	const [view, setView] = useState<"available" | "all" | "archived">(
+		"available",
+	);
 
 	const handleCreateAgent = async () => {
 		if (!user) return;
@@ -94,7 +96,8 @@ export default function AgentsPage() {
 			<div className="mb-6 inline-flex items-center gap-1 rounded-full bg-[#F0F4F2] dark:bg-white/5 p-1">
 				{(
 					[
-						{ key: "active", label: "Active" },
+						{ key: "available", label: "Available to you" },
+						{ key: "all", label: "All" },
 						{ key: "archived", label: "Archived" },
 					] as const
 				).map((tab) => (
@@ -114,7 +117,8 @@ export default function AgentsPage() {
 				))}
 			</div>
 			<AgentList
-				key={view}
+				key={view === "archived" ? "archived" : "active"}
+				view={view}
 				search={search}
 				onClearSearch={() => {
 					setSearch("");
@@ -122,7 +126,6 @@ export default function AgentsPage() {
 				onCreateAgent={() => {
 					void handleCreateAgent();
 				}}
-				archived={view === "archived"}
 			/>
 		</PageContainer>
 	);

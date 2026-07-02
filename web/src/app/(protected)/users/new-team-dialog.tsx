@@ -91,7 +91,7 @@ export default function NewTeamDialog({
 							<DialogTitle className="font-[family-name:var(--font-jakarta-sans)] text-[22px] font-extrabold text-[#111111] dark:text-white tracking-[-0.02em]">
 								{isEdit ? "Edit team" : "New team"}
 							</DialogTitle>
-							<p className="font-[family-name:var(--font-dm-sans)] text-[14px] text-[#8FA89E] dark:text-muted-foreground font-medium mt-1">
+							<p className="font-[family-name:var(--font-dm-sans)] text-[14px] text-[#8FA89E] dark:text-muted-foreground font-medium mt-2 leading-relaxed">
 								Group members so they share a set of agents
 							</p>
 						</div>

@@ -86,7 +86,7 @@ export default function MCPServerDialog({
 		if (open && !isEditMode) {
 			api
 				.get("/mcp-servers/official")
-				.then((res) => setOfficialServers(res.data))
+				.then((res) => { setOfficialServers(res.data); })
 				.catch(() => {});
 		}
 	}, [open, isEditMode]);
@@ -295,7 +295,7 @@ export default function MCPServerDialog({
 						<DialogTitle className="font-[family-name:var(--font-jakarta-sans)] text-[22px] font-extrabold text-[#111111] dark:text-white tracking-[-0.02em]">
 							{isEditMode ? "Edit MCP Server" : "Add MCP Server"}
 						</DialogTitle>
-						<p className="font-[family-name:var(--font-dm-sans)] text-[14px] text-[#8FA89E] dark:text-muted-foreground font-medium mt-1">
+						<p className="font-[family-name:var(--font-dm-sans)] text-[14px] text-[#8FA89E] dark:text-muted-foreground font-medium mt-2 leading-relaxed">
 							{isEditMode
 								? "Update your server configuration"
 								: "Connect a new service to your workspace"}
@@ -303,7 +303,7 @@ export default function MCPServerDialog({
 					</div>
 					<button
 						type="button"
-						onClick={() => handleOpenChange(false)}
+						onClick={() => { handleOpenChange(false); }}
 						className="shrink-0 flex items-center justify-center w-9 h-9 rounded-full bg-[#F5F8F6] dark:bg-white/10 text-[#6B7F76] hover:bg-[#EDF4F0] dark:hover:bg-white/15 transition-colors cursor-pointer"
 					>
 						<X className="w-4 h-4" />
@@ -357,7 +357,7 @@ export default function MCPServerDialog({
 												key={s.name}
 												type="button"
 												disabled={s.isInstalled}
-												onClick={() => selectOfficialServer(s)}
+												onClick={() => { selectOfficialServer(s); }}
 												className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-[#F8FAF9] dark:hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer first:rounded-t-[16px] last:rounded-b-[16px]"
 											>
 												<Image
@@ -428,7 +428,7 @@ export default function MCPServerDialog({
 								id="mcp-server-name"
 								placeholder="Server Name"
 								value={form.name}
-								onChange={(e) => handleFormChange("name", e.target.value)}
+								onChange={(e) => { handleFormChange("name", e.target.value); }}
 								error={!!errors.name}
 								aria-required="true"
 								aria-invalid={!!errors.name}
@@ -459,7 +459,7 @@ export default function MCPServerDialog({
 								id="mcp-server-url"
 								placeholder="https://mcp.example.com/mcp"
 								value={form.url}
-								onChange={(e) => handleFormChange("url", e.target.value)}
+								onChange={(e) => { handleFormChange("url", e.target.value); }}
 								error={!!errors.url}
 								aria-required="true"
 								aria-invalid={!!errors.url}
@@ -489,7 +489,7 @@ export default function MCPServerDialog({
 								id="mcp-server-icon-url"
 								placeholder="https://example.com/icon.png"
 								value={form.iconUrl}
-								onChange={(e) => handleFormChange("iconUrl", e.target.value)}
+								onChange={(e) => { handleFormChange("iconUrl", e.target.value); }}
 							/>
 						</div>
 
@@ -506,7 +506,7 @@ export default function MCPServerDialog({
 								placeholder="Description"
 								value={form.description}
 								onChange={(e) =>
-									handleFormChange("description", e.target.value)
+									{ handleFormChange("description", e.target.value); }
 								}
 								rows={4}
 							/>
@@ -537,17 +537,17 @@ export default function MCPServerDialog({
 									items={[
 										{
 											label: "None",
-											onClick: () => handleFormChange("authType", "none"),
+											onClick: () => { handleFormChange("authType", "none"); },
 											active: form.authType === "none",
 										},
 										{
 											label: "API Key",
-											onClick: () => handleFormChange("authType", "api_key"),
+											onClick: () => { handleFormChange("authType", "api_key"); },
 											active: form.authType === "api_key",
 										},
 										{
 											label: "OAuth 2.0",
-											onClick: () => handleFormChange("authType", "oauth2"),
+											onClick: () => { handleFormChange("authType", "oauth2"); },
 											active: form.authType === "oauth2",
 										},
 									]}
@@ -582,7 +582,7 @@ export default function MCPServerDialog({
 									type="password"
 									placeholder="Enter your API Key"
 									value={form.apiKey}
-									onChange={(e) => handleFormChange("apiKey", e.target.value)}
+									onChange={(e) => { handleFormChange("apiKey", e.target.value); }}
 								/>
 							</div>
 						)}
@@ -607,7 +607,7 @@ export default function MCPServerDialog({
 										placeholder="Enter your OAuth client ID"
 										value={form.oauthClientId}
 										onChange={(e) =>
-											handleFormChange("oauthClientId", e.target.value)
+											{ handleFormChange("oauthClientId", e.target.value); }
 										}
 										error={!!errors.oauthClientId}
 										aria-required={isNonDcrOAuth}
@@ -640,7 +640,7 @@ export default function MCPServerDialog({
 										placeholder="Enter your OAuth client secret"
 										value={form.oauthClientSecret}
 										onChange={(e) =>
-											handleFormChange("oauthClientSecret", e.target.value)
+											{ handleFormChange("oauthClientSecret", e.target.value); }
 										}
 										error={!!errors.oauthClientSecret}
 										aria-required={isNonDcrOAuth}
@@ -678,7 +678,7 @@ export default function MCPServerDialog({
 						<>
 							<SageButton
 								color="destructive-ghost"
-								onClick={handleDelete}
+								onClick={() => { void handleDelete(); }}
 								disabled={isSubmitting || isResetting}
 							>
 								Delete
@@ -686,7 +686,7 @@ export default function MCPServerDialog({
 							{server?.authType === "oauth2" && (
 								<SageButton
 									color="ghost"
-									onClick={handleReset}
+									onClick={() => { void handleReset(); }}
 									disabled={isSubmitting || isResetting}
 								>
 									{isResetting ? "Resetting..." : "Reset connections"}
@@ -696,11 +696,11 @@ export default function MCPServerDialog({
 							<div className="flex gap-2.5">
 								<SageButton
 									color="outline"
-									onClick={() => handleOpenChange(false)}
+									onClick={() => { handleOpenChange(false); }}
 								>
 									Cancel
 								</SageButton>
-								<SageButton onClick={handleUpdate} disabled={isSubmitting}>
+								<SageButton onClick={() => { void handleUpdate(); }} disabled={isSubmitting}>
 									{isSubmitting ? "Saving..." : "Save"}
 								</SageButton>
 							</div>
@@ -711,11 +711,11 @@ export default function MCPServerDialog({
 							<div className="flex gap-2.5">
 								<SageButton
 									color="outline"
-									onClick={() => handleOpenChange(false)}
+									onClick={() => { handleOpenChange(false); }}
 								>
 									Cancel
 								</SageButton>
-								<SageButton onClick={handleCreate} disabled={isSubmitting}>
+								<SageButton onClick={() => { void handleCreate(); }} disabled={isSubmitting}>
 									{isSubmitting ? "Creating..." : "Create server"}
 								</SageButton>
 							</div>

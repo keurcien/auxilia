@@ -17,6 +17,11 @@ interface SubagentInfo {
 	description?: string | null;
 }
 
+export interface AgentTag {
+	id: string;
+	name: string;
+}
+
 export interface Agent {
 	id: string;
 	name: string;
@@ -29,6 +34,7 @@ export interface Agent {
 	isArchived: boolean;
 	mcpServers: AgentMCPServer[];
 	subagents: SubagentInfo[];
+	tag?: AgentTag | null;
 	isSubagent: boolean;
 	currentUserPermission?: AgentPermission | null;
 }

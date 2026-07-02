@@ -36,6 +36,7 @@ from app.model_providers.router import router as model_providers_router
 from app.redis_client import close_redis, get_redis
 from app.sandbox.router import router as sandbox_router
 from app.settings import app_settings
+from app.tags.router import router as tags_router
 from app.teams.router import router as teams_router
 from app.threads.router import router as threads_router
 from app.users.router import router as users_router
@@ -182,6 +183,7 @@ app.include_router(threads_router)
 app.include_router(users_router)
 app.include_router(invites_router)
 app.include_router(teams_router)
+app.include_router(tags_router)
 app.include_router(model_providers_router)
 app.include_router(sandbox_router)
 app.include_router(slack_router)

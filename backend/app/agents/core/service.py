@@ -5,6 +5,7 @@ from collections import defaultdict
 from uuid import UUID
 
 from fastapi import Depends
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -20,6 +21,7 @@ from app.agents.schemas import (
     AgentPatch,
     AgentPermissionCreate,
     AgentResponse,
+    TagInfo,
 )
 from app.agents.subagents.service import SubagentService
 from app.database import get_db
@@ -27,6 +29,7 @@ from app.exceptions import NotFoundError, PermissionDeniedError
 from app.mcp.servers.models import MCPServerDB
 from app.mcp.utils import probe_mcp_server
 from app.service import BaseService
+from app.tags.service import TagService
 from app.threads.service import ThreadService
 from app.users.models import WorkspaceRole
 
@@ -41,6 +44,7 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         super().__init__(db, AgentRepository(db))
         self.subagent_service = SubagentService(db)
         self.thread_service = ThreadService(db)
+        self.tag_service = TagService(db)
         self.mcp_server_repository = AgentMCPServerRepository(db)
 
     @staticmethod
@@ -76,11 +80,18 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
             subagents_map,
             is_subagent_ids,
         ) = await self.subagent_service.list_all_subagent_data(agent_ids)
+        tag_ids = list({a.tag_id for a in agents if a.tag_id is not None})
+        tags_by_id = {t.id: t for t in await self.tag_service.list_by_ids(tag_ids)}
         return [
             AgentResponse(
                 **agent.model_dump(),
                 mcp_servers=mcp_map.get(agent.id, []),
                 subagents=subagents_map.get(agent.id, []),
+                tag=(
+                    TagInfo(id=tag.id, name=tag.name)
+                    if (tag := tags_by_id.get(agent.tag_id)) is not None
+                    else None
+                ),
                 is_subagent=agent.id in is_subagent_ids,
                 current_user_permission=self._resolve_permission(
                     agent, user_id, user_role, permissions_map, team_agent_ids
@@ -189,8 +200,15 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         )
         if existing.current_user_permission not in ("owner", "admin", "editor"):
             raise PermissionDeniedError("Not authorized to edit this agent")
+        if data.tag_id is not None:
+            await self.tag_service.get(data.tag_id)
         agent = await self.get_or_404(agent_id)
-        await self.repository.update(agent, data)
+        try:
+            await self.repository.update(agent, data)
+        except IntegrityError as exc:
+            # The tag existed at validation time but was deleted before the
+            # flush — surface the same 404 the validation would have raised.
+            raise NotFoundError("Tag not found") from exc
         return await self.get(
             agent_id, user_id=user_id, user_role=user_role, user_team_id=user_team_id
         )

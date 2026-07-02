@@ -6,50 +6,61 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { SageInput } from "@/components/ui/sage-input";
 import { SageButton } from "@/components/ui/sage-button";
 import { api } from "@/lib/api/client";
-import { useThreadsStore } from "@/stores/threads-store";
-import { Thread } from "@/types/threads";
+import { getApiErrorMessage } from "@/lib/api/errors";
+import { AgentTag } from "@/types/agents";
 
-interface RenameThreadDialogProps {
-	thread: Thread | null;
+interface NewTagDialogProps {
+	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	tag?: AgentTag | null;
+	onTagCreated?: (tag: AgentTag) => void;
+	onTagUpdated?: (tag: AgentTag) => void;
 }
 
-export function RenameThreadDialog({
-	thread,
+export default function NewTagDialog({
+	open,
 	onOpenChange,
-}: RenameThreadDialogProps) {
-	const { renameThread } = useThreadsStore();
-	const [title, setTitle] = useState("");
+	tag,
+	onTagCreated,
+	onTagUpdated,
+}: NewTagDialogProps) {
+	const isEdit = !!tag;
+	const [name, setName] = useState("");
 	const [isSubmitting, setIsSubmitting] = useState(false);
+	const [error, setError] = useState<string | null>(null);
 
 	useEffect(() => {
-		setTitle(thread?.firstMessageContent ?? "");
-	}, [thread]);
+		if (open) {
+			setName(tag?.name ?? "");
+			setError(null);
+			setIsSubmitting(false);
+		}
+	}, [open, tag]);
 
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
-		if (!thread) return;
-		const trimmed = title.trim();
-		if (!trimmed || trimmed === thread.firstMessageContent) {
-			onOpenChange(false);
-			return;
-		}
+		const trimmed = name.trim();
+		if (!trimmed) return;
+		setError(null);
 		setIsSubmitting(true);
 		try {
-			await api.patch(`/threads/${thread.id}`, {
-				firstMessageContent: trimmed,
-			});
-			renameThread(thread.id, trimmed);
+			if (tag) {
+				const response = await api.patch(`/tags/${tag.id}`, { name: trimmed });
+				onTagUpdated?.(response.data as AgentTag);
+			} else {
+				const response = await api.post("/tags/", { name: trimmed });
+				onTagCreated?.(response.data as AgentTag);
+			}
 			onOpenChange(false);
-		} catch (error) {
-			console.error("Error renaming thread: ", error);
+		} catch (err: unknown) {
+			setError(getApiErrorMessage(err, "An error occurred"));
 		} finally {
 			setIsSubmitting(false);
 		}
 	};
 
 	return (
-		<Dialog open={thread !== null} onOpenChange={onOpenChange}>
+		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent
 				className="sm:max-w-[460px] rounded-[28px] p-0 gap-0 overflow-hidden"
 				showCloseButton={false}
@@ -63,14 +74,15 @@ export function RenameThreadDialog({
 					<div className="flex items-start justify-between px-8 pt-7 pb-0">
 						<div>
 							<DialogTitle className="font-[family-name:var(--font-jakarta-sans)] text-[22px] font-extrabold text-[#111111] dark:text-white tracking-[-0.02em]">
-								Rename thread
+								{isEdit ? "Edit tag" : "New tag"}
 							</DialogTitle>
 							<p className="font-[family-name:var(--font-dm-sans)] text-[14px] text-[#8FA89E] dark:text-muted-foreground font-medium mt-2 leading-relaxed">
-								Give this conversation a new title
+								Group agents under a section in the gallery
 							</p>
 						</div>
 						<button
 							type="button"
+							aria-label="Close"
 							onClick={() => {
 								onOpenChange(false);
 							}}
@@ -82,19 +94,25 @@ export function RenameThreadDialog({
 
 					{/* Content */}
 					<div className="px-8 pt-6 pb-2">
+						{error && (
+							<div className="mb-5 p-3.5 rounded-2xl bg-red-50 dark:bg-red-950/30 text-[13px] font-medium text-red-600 dark:text-red-400 font-[family-name:var(--font-dm-sans)]">
+								{error}
+							</div>
+						)}
+
 						<label
-							htmlFor="thread-title"
+							htmlFor="tag-name"
 							className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-2"
 						>
-							Title
+							Name
 						</label>
 						<SageInput
-							id="thread-title"
+							id="tag-name"
 							autoFocus
-							placeholder="Thread title"
-							value={title}
+							placeholder="e.g. Productivity"
+							value={name}
 							onChange={(e) => {
-								setTitle(e.target.value);
+								setName(e.target.value);
 							}}
 						/>
 					</div>
@@ -110,8 +128,8 @@ export function RenameThreadDialog({
 						>
 							Cancel
 						</SageButton>
-						<SageButton type="submit" disabled={isSubmitting}>
-							{isSubmitting ? "Saving..." : "Save"}
+						<SageButton type="submit" disabled={isSubmitting || !name.trim()}>
+							{isSubmitting ? "Saving..." : isEdit ? "Save" : "Create tag"}
 						</SageButton>
 					</div>
 				</form>
