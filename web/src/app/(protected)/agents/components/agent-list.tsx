@@ -1,39 +1,26 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Archive, ArrowRight, Info, Plus, Search, Zap } from "lucide-react";
+import { Archive, ArrowRight, Plus, Search, Users, Zap } from "lucide-react";
 import { Agent } from "@/types/agents";
 import AgentCard from "@/app/(protected)/agents/components/agent-card";
 import { api } from "@/lib/api/client";
 
-// Stacked sections, top to bottom. "Discover" (agents not shared with the
-// user) only renders when it actually has agents, so the common view stays
-// "yours + shared", matching the page's description.
-const GROUPS = [
-	{
-		key: "mine",
-		label: "Your agents",
-		filter: (a: Agent) => a.currentUserPermission === "owner",
-	},
-	{
-		key: "shared",
-		label: "Shared with you",
-		filter: (a: Agent) =>
-			a.currentUserPermission === "admin" ||
-			a.currentUserPermission === "editor" ||
-			a.currentUserPermission === "member",
-	},
-	{
-		key: "discover",
-		label: "Discover",
-		filter: (a: Agent) => !a.currentUserPermission,
-	},
-];
+type View = "available" | "all" | "archived";
+
+// Agents with no tag are collected under this trailing pseudo-group.
+const NO_TAG_ID = "__none__";
 
 // How many cards a section shows before "See all" reveals the rest. The 8th
 // grid cell holds an inline "See all" tile, so a collapsed section fills two
 // clean rows on the 4-column grid.
 const SECTION_CAP = 7;
+
+interface AgentGroup {
+	id: string;
+	label: string;
+	items: Agent[];
+}
 
 function EmptyState({
 	icon,
@@ -79,14 +66,12 @@ function EmptyState({
 function AgentSection({
 	label,
 	agents,
-	note,
 	archived,
 	onRemoved,
 	storageKey,
 }: {
 	label: string;
 	agents: Agent[];
-	note?: React.ReactNode;
 	archived?: boolean;
 	onRemoved?: (agentId: string) => void;
 	storageKey: string;
@@ -139,8 +124,6 @@ function AgentSection({
 				)}
 			</div>
 
-			{note}
-
 			<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
 				{shown.map((agent, i) => (
 					<div
@@ -171,27 +154,32 @@ function AgentSection({
 }
 
 interface AgentListProps {
+	view: View;
 	search: string;
 	onClearSearch?: () => void;
 	onCreateAgent?: () => void;
-	archived?: boolean;
 }
 
 export default function AgentList({
+	view,
 	search,
 	onClearSearch,
 	onCreateAgent,
-	archived = false,
 }: AgentListProps) {
+	const archived = view === "archived";
 	const [agents, setAgents] = useState<Agent[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
 
 	useEffect(() => {
 		api
 			.get<Agent[]>(archived ? "/agents?archived=true" : "/agents")
-			.then((response) => { setAgents(response.data); })
+			.then((response) => {
+				setAgents(response.data);
+			})
 			.catch(console.error)
-			.finally(() => { setIsLoading(false); });
+			.finally(() => {
+				setIsLoading(false);
+			});
 	}, [archived]);
 
 	const handleRemoved = (agentId: string) => {
@@ -204,14 +192,51 @@ export default function AgentList({
 		return agents.filter((agent) => agent.name.toLowerCase().includes(query));
 	}, [agents, search]);
 
-	const grouped = useMemo(
+	// "Available to you" narrows to agents the user can actually use; "All" and
+	// "Archived" show everything the fetch returned.
+	const visible = useMemo(
 		() =>
-			GROUPS.map((group) => ({
-				...group,
-				items: matches.filter(group.filter),
-			})),
-		[matches],
+			view === "available"
+				? matches.filter((a) => a.currentUserPermission)
+				: matches,
+		[matches, view],
 	);
+
+	// Group by tag (each agent has at most one, so every agent appears exactly
+	// once). Untagged agents fall into the trailing "Others" group. Tags are
+	// sorted alphabetically to match the backend ordering.
+	const groups = useMemo<AgentGroup[]>(() => {
+		const byTag = new Map<string, AgentGroup>();
+		const untagged: Agent[] = [];
+		for (const agent of visible) {
+			const tag = agent.tag;
+			if (!tag) {
+				untagged.push(agent);
+				continue;
+			}
+			const existing = byTag.get(tag.id);
+			if (existing) {
+				existing.items.push(agent);
+			} else {
+				byTag.set(tag.id, {
+					id: tag.id,
+					label: tag.name,
+					items: [agent],
+				});
+			}
+		}
+		const ordered = [...byTag.values()].sort((a, b) =>
+			a.label.localeCompare(b.label),
+		);
+		if (untagged.length > 0) {
+			ordered.push({
+				id: NO_TAG_ID,
+				label: "Others",
+				items: untagged,
+			});
+		}
+		return ordered;
+	}, [visible]);
 
 	if (isLoading) return null;
 
@@ -246,8 +271,8 @@ export default function AgentList({
 		);
 	}
 
-	// Search returned nothing.
-	if (search && matches.length === 0) {
+	// Search returned nothing the current view can show.
+	if (search && visible.length === 0) {
 		return (
 			<EmptyState
 				icon={<Search className="size-[22px] text-[#4CA882]" />}
@@ -266,33 +291,30 @@ export default function AgentList({
 		);
 	}
 
-	// "Your agents" / "Shared with you" always render so the page structure
-	// stays consistent even at zero; "Discover" only appears when it has agents.
-	// While searching, drop empty sections so only matches show.
-	const sections = grouped.filter(
-		(group) =>
-			group.items.length > 0 || (!search && group.key !== "discover"),
-	);
+	// "Available to you" is empty even though the workspace has agents.
+	if (view === "available" && visible.length === 0) {
+		return (
+			<EmptyState
+				icon={<Users className="size-[22px] text-[#4CA882]" />}
+				title="Nothing shared with you yet"
+				subtitle="Ask a workspace admin or an agent's owner to give you access — or switch to All to browse everything in your workspace."
+			/>
+		);
+	}
 
 	return (
 		<div className="w-full animate-in fade-in duration-300">
-			{sections.map((group) => (
+			{groups.map((group) => (
 				<AgentSection
-					key={group.key}
+					// Key by view too: the expanded state is read from localStorage in
+					// a useState initializer, so the section must remount when the
+					// view (and thus its storage key) changes.
+					key={`${view}:${group.id}`}
 					label={group.label}
 					agents={group.items}
 					archived={archived}
 					onRemoved={handleRemoved}
-					storageKey={`agents:section:${archived ? "archived:" : ""}${group.key}:expanded`}
-					note={
-						group.key === "discover" ? (
-							<div className="flex items-center gap-2.5 px-4 py-3 mb-5 rounded-xl bg-primary/10 text-primary text-[13.5px]">
-								<Info className="size-4 shrink-0" />
-								These agents exist in your workspace but haven&apos;t been shared
-								with you yet. Contact the owner to request access.
-							</div>
-						) : undefined
-					}
+					storageKey={`agents:section:${view}:${group.id}:expanded`}
 				/>
 			))}
 		</div>

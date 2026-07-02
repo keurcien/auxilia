@@ -153,6 +153,8 @@ def test_update_agent(client: TestClient, mock_db, current_user):
         r.scalars.return_value.all.return_value = scalars_list or []
         return r
 
+    # get_tags_by_ids short-circuits when no agent has a tag_id, so the
+    # untagged agents here consume no extra execute result.
     mock_db.execute.side_effect = [
         make_result(rows=[(agent, None)]),  # get_agent (auth): list_with_permissions
         make_result(scalars_list=[]),  # get_agent (auth): list_all_subagent_data
@@ -473,7 +475,7 @@ def test_list_agent_threads_forbidden_for_member(
     mock_db.execute.side_effect = [
         # list_with_permissions returns the agent but no permission grant
         make_result(rows=[(agent, None, None)]),
-        make_result(scalars_list=[]),
+        make_result(scalars_list=[]),  # list_all_subagent_data
     ]
 
     response = client.get(f"/agents/{agent_id}/threads")
@@ -503,7 +505,7 @@ def test_list_agent_threads_as_workspace_admin(client: TestClient, mock_db):
 
     mock_db.execute.side_effect = [
         make_result(rows=[(agent, None, None)]),
-        make_result(scalars_list=[]),
+        make_result(scalars_list=[]),  # list_all_subagent_data
         make_result(
             rows=[
                 (
