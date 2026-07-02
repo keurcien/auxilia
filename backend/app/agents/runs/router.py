@@ -13,8 +13,14 @@ from app.agents.runs.schemas import RunCreate, RunResponse
 from app.agents.runs.service import RunService
 from app.agents.runs.state import RunStatus
 from app.agents.runtime import read_run_result
+from app.agents.structured_output import validate_structured_response
 from app.auth.dependencies import get_current_user
-from app.exceptions import DomainError, NotFoundError, PermissionDeniedError
+from app.exceptions import (
+    DomainError,
+    NotFoundError,
+    PermissionDeniedError,
+    StructuredOutputError,
+)
 from app.redis_client import get_redis
 from app.threads.schemas import ThreadResponse
 from app.threads.service import ThreadService, get_thread_service
@@ -126,7 +132,18 @@ async def invoke_run(
         raise DomainError(
             record.error or f"Run did not complete ({record.status.value})"
         )
-    return await read_run_result(thread_id)
+    result = await read_run_result(thread_id)
+    # Backstop for paths where the formatting turn never ran (e.g. recursion
+    # fallback): the schema contract must hold on everything returned here.
+    if output_schema is not None and (
+        error := validate_structured_response(
+            result["structured_response"], output_schema
+        )
+    ):
+        raise StructuredOutputError(
+            f"Run completed without a valid structured response: {error}"
+        )
+    return result
 
 
 @router.post("", status_code=201)

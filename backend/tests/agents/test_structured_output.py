@@ -1,13 +1,18 @@
 from unittest.mock import MagicMock
 
+import pytest
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
+from langchain.agents.structured_output import ToolStrategy
 from langchain_core.messages import AIMessage, HumanMessage
+from pydantic import BaseModel
 
 from app.agents.structured_output import (
     FORMAT_INSTRUCTION,
     DeferredStructuredOutputMiddleware,
     is_structured_output_artifact,
+    validate_structured_response,
 )
+from app.exceptions import StructuredOutputError
 
 
 SCHEMA = {
@@ -139,3 +144,86 @@ async def test_final_turn_adds_constrained_formatting_call():
     # rendered chat history; the prose answer is not.
     assert is_structured_output_artifact(structured)
     assert not is_structured_output_artifact(prose)
+
+
+async def test_invalid_formatting_result_retries_with_error_feedback():
+    """An empty structured response (e.g. an empty tool call) triggers one
+    retry whose instruction carries the rejection; the failed attempt's
+    messages never reach state."""
+    middleware = DeferredStructuredOutputMiddleware()
+    request = _make_request()
+    final_answer = AIMessage("2 + 2 = 4")
+    failed_attempt = AIMessage(
+        "", tool_calls=[{"name": "response_format", "args": {}, "id": "call_1"}]
+    )
+    formatted = AIMessage('{"answer": 4}')
+    calls: list[ModelRequest] = []
+
+    response = await middleware.awrap_model_call(
+        request,
+        _handler_recording(
+            [
+                ModelResponse(result=[final_answer]),
+                ModelResponse(result=[failed_attempt], structured_response={}),
+                ModelResponse(result=[formatted], structured_response={"answer": 4}),
+            ],
+            calls,
+        ),
+    )
+
+    assert len(calls) == 3
+    # The retry replaces the plain instruction with one carrying the rejection,
+    # on the same conversation (no trace of the failed attempt).
+    retry_instruction = calls[2].messages[-1]
+    assert "rejected" in retry_instruction.content
+    assert "'answer' is a required property" in retry_instruction.content
+    assert failed_attempt not in calls[2].messages
+    # Only the prose answer and the successful attempt land in state.
+    assert response.structured_response == {"answer": 4}
+    assert failed_attempt not in response.result
+    assert [m.content for m in response.result] == [
+        final_answer.content,
+        formatted.content,
+    ]
+
+
+async def test_invalid_formatting_result_twice_raises():
+    """A second invalid structured response fails the run instead of
+    silently returning garbage to the caller."""
+    middleware = DeferredStructuredOutputMiddleware()
+    request = _make_request()
+    empty = ModelResponse(
+        result=[AIMessage("")],
+        structured_response={},
+    )
+    calls: list[ModelRequest] = []
+
+    with pytest.raises(StructuredOutputError, match="required property"):
+        await middleware.awrap_model_call(
+            request,
+            _handler_recording(
+                [ModelResponse(result=[AIMessage("4")]), empty, empty], calls
+            ),
+        )
+    assert len(calls) == 3
+
+
+class _Answer(BaseModel):
+    answer: int
+
+
+@pytest.mark.parametrize(
+    ("value", "response_format", "is_valid"),
+    [
+        (None, SCHEMA, False),  # formatting turn produced nothing
+        ({}, SCHEMA, False),  # empty tool-call args (the deepseek incident)
+        ({"answer": "four"}, SCHEMA, False),  # wrong type
+        ({"answer": 4}, SCHEMA, True),
+        ({}, ToolStrategy(schema=SCHEMA), False),  # schema wrapped in a strategy
+        ({"answer": 4}, ToolStrategy(schema=SCHEMA), True),
+        ({}, ToolStrategy(schema=_Answer), True),  # pydantic: langchain validates
+    ],
+)
+def test_validate_structured_response(value, response_format, is_valid):
+    error = validate_structured_response(value, response_format)
+    assert (error is None) is is_valid
