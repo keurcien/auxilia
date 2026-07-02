@@ -90,4 +90,4 @@ def test_delete_tag_as_admin(client: TestClient, mock_db, admin_user):
     response = client.delete(f"/tags/{tag.id}")
 
     assert response.status_code == 204
-    mock_db.delete.assert_called_once()
+    mock_db.delete.assert_awaited_once()
