@@ -25,7 +25,7 @@
 
 https://github.com/user-attachments/assets/3236f9da-28c5-44c8-8c2c-4c68199f187c
 
-**auxilia is a web platform for running AI agents as a team.** An admin sets up [MCP](https://modelcontextprotocol.io/) servers and agents once, and the whole workspace shares them — no more everyone configuring their own assistant with their own prompts and credentials. Anyone can create an agent and experiment, zero technical skills required: agents chat in the browser or in Slack, use your internal tools, ask a human for approval before sensitive actions, and run on schedules or in the background. And when an agent proves itself in the playground, you plug it into your own products through the API. You pick the LLM provider (Anthropic, OpenAI, Google, DeepSeek) and can switch anytime — and because it's self-hosted, conversations, credentials, and usage data never leave your infrastructure.
+**auxilia is a web platform for running AI agents as a team.** An admin sets up [MCP](https://modelcontextprotocol.io/) servers and agents once, and the whole workspace shares them — no more everyone configuring their own assistant with their own prompts and credentials. Anyone can create an agent and experiment, zero technical skills required: agents chat in the browser or in Slack, use your internal tools, ask a human for approval before sensitive actions, and run on schedules or in the background. Even the misses are useful — a failing agent points straight at the blind spots in your documentation and tools, and those are quick to fix. That's how agents become reliable; when one proves itself, plug it into your own products through the API. You pick the LLM provider (Anthropic, OpenAI, Google, DeepSeek) and can switch anytime — and because it's self-hosted, conversations, credentials, and usage data never leave your infrastructure.
 
 ## 🤔 Why auxilia
 
@@ -96,7 +96,7 @@ Developing? `make dev` runs PostgreSQL, Redis, the FastAPI backend (migrations a
 
 ## 💡 From playground to production
 
-A few agents we run ourselves. None of them worked on day one — and that turned out to be the value: every miss pointed at a blind spot in our documentation, our tools, or our data. Those gaps are quick to fix, and fixing them is what made these agents reliable.
+A few agents we run ourselves:
 
 **📊 A data analyst that answers with dashboards, not spreadsheets.** Plugged into our BigQuery warehouse, with a custom MCP server that renders interactive charts and dashboards *inside the chat*. "How did sales move after the price change?" used to be a ticket for the data team; now it's a question anyone types and gets answered — with a graph — in seconds.
 
