@@ -96,7 +96,7 @@ Developing? `make dev` runs PostgreSQL, Redis, the FastAPI backend (migrations a
 
 ## 💡 From playground to production
 
-These aren't hypotheticals — they're agents our team prototyped in auxilia and now runs for real:
+A few agents we run ourselves. None of them worked on day one — and that turned out to be the value: every miss pointed at a blind spot in our documentation, our tools, or our data. Those gaps are quick to fix, and fixing them is what made these agents reliable.
 
 **📊 A data analyst that answers with dashboards, not spreadsheets.** Plugged into our BigQuery warehouse, with a custom MCP server that renders interactive charts and dashboards *inside the chat*. "How did sales move after the price change?" used to be a ticket for the data team; now it's a question anyone types and gets answered — with a graph — in seconds.
 
