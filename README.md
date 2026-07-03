@@ -25,7 +25,7 @@
 
 https://github.com/user-attachments/assets/3236f9da-28c5-44c8-8c2c-4c68199f187c
 
-**auxilia is a web platform for running AI agents as a team.** An admin sets up [MCP](https://modelcontextprotocol.io/) servers and agents once, and the whole workspace shares them — no more everyone configuring their own assistant with their own prompts and credentials. Anyone can create an agent and experiment, zero technical skills required: agents chat in the browser or in Slack, use your internal tools, ask a human for approval before sensitive actions, and run on schedules or in the background. An agent is only as good as the environment you give it. That's where auxilia comes in: iterating quickly is how you find what's missing — a tool it needed, a doc that's outdated, data that isn't as clean as you thought. The more gaps you close, the more reliable your agents become; when one proves itself, plug it into your own products through the API. You pick the LLM provider (Anthropic, OpenAI, Google, DeepSeek) and can switch anytime — and because it's self-hosted, conversations, credentials, and usage data never leave your infrastructure. Best of all, there's no lock-in: everything you build to make your agents work — the documentation, the data models, the MCP servers — is yours, and it follows you to any other agentic platform. The only price is running your own infra, and a laptop counts.
+**auxilia is a web platform for running AI agents as a team.** An admin sets up [MCP](https://modelcontextprotocol.io/) servers and agents once, and the whole workspace shares them — no more everyone configuring their own assistant with their own prompts and credentials. Anyone can create an agent and experiment, zero technical skills required: agents chat in the browser or in Slack, use your internal tools, ask a human for approval before sensitive actions, and run on schedules or in the background. An agent is only as good as the environment you give it. That's where auxilia comes in: iterating quickly is how you find what's missing — a tool it needed, a doc that's outdated, data that isn't as clean as you thought. The more gaps you close, the more reliable your agents become; when one proves itself, plug it into your own products through the API. You pick the LLM provider (Anthropic, OpenAI, Google, DeepSeek) and can switch anytime — and because it's self-hosted, conversations, credentials, and usage data never leave your infrastructure. Everything that matters — the documentation, the data models, the MCP servers you build to make your agents work — is yours, and it follows you to any other agentic platform.
 
 ## 🤔 Why auxilia
 
@@ -53,42 +53,42 @@ Open **http://localhost:3000** — the first account you create becomes the work
 
 PostgreSQL and Redis are started and wired up by Docker Compose; every other setting has a working dev default. The `.env` at a glance:
 
-| Variable(s) | When you need it |
-| --- | --- |
-| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_API_KEY` / `DEEPSEEK_API_KEY` | **At least one.** Each key unlocks that provider's models in the model picker. |
-| `SALT`, `JWT_SECRET_KEY`, `COOKIE_SECURE` | **Before production.** Encryption salt for stored MCP API keys, session signing secret, and `COOKIE_SECURE=true` behind HTTPS. Dev defaults work locally. |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Optional — Google OAuth sign-in (SSO). |
-| `SLACK_SIGNING_SECRET` / `SLACK_BOT_TOKEN` | Optional — chat with agents from Slack. |
-| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | Optional — tracing + cost attribution per agent and user. |
-| `OPEN_SANDBOX_*` | Optional — isolated code execution for agents. |
-| `RUN_*` | Tuning for the background run worker (concurrency, timeouts). Defaults are fine. |
+| Variable(s)                                                                    | When you need it                                                                                                                                          |
+| ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_API_KEY` / `DEEPSEEK_API_KEY` | **At least one.** Each key unlocks that provider's models in the model picker.                                                                            |
+| `SALT`, `JWT_SECRET_KEY`, `COOKIE_SECURE`                                      | **Before production.** Encryption salt for stored MCP API keys, session signing secret, and `COOKIE_SECURE=true` behind HTTPS. Dev defaults work locally. |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`                                    | Optional — Google OAuth sign-in (SSO).                                                                                                                    |
+| `SLACK_SIGNING_SECRET` / `SLACK_BOT_TOKEN`                                     | Optional — chat with agents from Slack.                                                                                                                   |
+| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY`                                  | Optional — tracing + cost attribution per agent and user.                                                                                                 |
+| `OPEN_SANDBOX_*`                                                               | Optional — isolated code execution for agents.                                                                                                            |
+| `RUN_*`                                                                        | Tuning for the background run worker (concurrency, timeouts). Defaults are fine.                                                                          |
 
 Developing? `make dev` runs PostgreSQL, Redis, the FastAPI backend (migrations applied) and the Next.js frontend in parallel, all with hot reload. Full walkthrough in the [Get Started guide](https://auxilia-docs.vercel.app/get-started).
 
 ## ✨ Features
 
-| | |
-| --- | --- |
-| 🤖 **Agents** | System prompt, avatar, and bound MCP servers per agent. Coordinator agents dispatch work to **subagents**. Streaming responses with full LangGraph checkpointing. |
-| 👥 **Team management** | Workspace roles (`member`, `editor`, `admin`), private or shared agents, per-agent permissions and team-based access. |
-| 🔧 **Tools & MCP servers** | Register remote MCP servers once at the workspace level. Per-tool rules: **always allow**, **needs approval**, or **disabled**. Connectivity probes with automatic OAuth token refresh. |
-| ✅ **Human-in-the-loop** | Approve sensitive tool calls right from the chat — or from Slack, with Block Kit buttons. |
-| ⏰ **Scheduled triggers** | Give an agent standing instructions on a cron + timezone schedule ("every weekday at 8am"). Each firing runs in the background as its owner and lands in the thread list like any conversation. |
-| ⚙️ **Durable background runs** | Runs are Redis-backed and survive the browser: close the tab mid-answer, reopen the thread, and reattach to the live stream — or cancel it server-side. |
-| 🧪 **Code sandbox** | Give an agent an isolated Linux environment via [OpenSandbox](https://github.com/alibaba/opensandbox) — filesystem tools + shell — and turn it into a data analyst. |
-| 📊 **Observability** | Langfuse tracing on every LLM and tool call, with cost attribution per agent and per user. |
-| 🔐 **Auth & security** | JWT sessions (HttpOnly cookies), Google OAuth SSO, Personal Access Tokens for API access, Argon2 password hashing, AES-GCM encryption of stored API keys, per-user OAuth 2.1 token storage. |
+|                                |                                                                                                                                                                                                 |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 🤖 **Agents**                  | System prompt, avatar, and bound MCP servers per agent. Coordinator agents dispatch work to **subagents**. Streaming responses with full LangGraph checkpointing.                               |
+| 👥 **Team management**         | Workspace roles (`member`, `editor`, `admin`), private or shared agents, per-agent permissions and team-based access.                                                                           |
+| 🔧 **Tools & MCP servers**     | Register remote MCP servers once at the workspace level. Per-tool rules: **always allow**, **needs approval**, or **disabled**. Connectivity probes with automatic OAuth token refresh.         |
+| ✅ **Human-in-the-loop**       | Approve sensitive tool calls right from the chat — or from Slack, with Block Kit buttons.                                                                                                       |
+| ⏰ **Scheduled triggers**      | Give an agent standing instructions on a cron + timezone schedule ("every weekday at 8am"). Each firing runs in the background as its owner and lands in the thread list like any conversation. |
+| ⚙️ **Durable background runs** | Runs are Redis-backed and survive the browser: close the tab mid-answer, reopen the thread, and reattach to the live stream — or cancel it server-side.                                         |
+| 🧪 **Code sandbox**            | Give an agent an isolated Linux environment via [OpenSandbox](https://github.com/alibaba/opensandbox) — filesystem tools + shell — and turn it into a data analyst.                             |
+| 📊 **Observability**           | Langfuse tracing on every LLM and tool call, with cost attribution per agent and per user.                                                                                                      |
+| 🔐 **Auth & security**         | JWT sessions (HttpOnly cookies), Google OAuth SSO, Personal Access Tokens for API access, Argon2 password hashing, AES-GCM encryption of stored API keys, per-user OAuth 2.1 token storage.     |
 
 ## 🤝 Integrations
 
 **LLM providers**
 
-| Provider | Models |
-| --- | --- |
-| Anthropic | Claude Haiku 4.5, Sonnet 4.6, Sonnet 5 |
-| OpenAI | GPT-4o mini |
-| Google | Gemini 3 Flash Preview, Gemini 3 Pro Preview |
-| DeepSeek | DeepSeek v4 Flash, v4 Pro |
+| Provider  | Models                                       |
+| --------- | -------------------------------------------- |
+| Anthropic | Claude Haiku 4.5, Sonnet 4.6, Sonnet 5       |
+| OpenAI    | GPT-4o mini                                  |
+| Google    | Gemini 3 Flash Preview, Gemini 3 Pro Preview |
+| DeepSeek  | DeepSeek v4 Flash, v4 Pro                    |
 
 **MCP servers — one-click install**: Notion · Linear · GitHub · HubSpot · BigQuery · Slack · Sentry — or paste the URL of any custom remote MCP server with its OAuth credentials or API key.
 
@@ -98,7 +98,7 @@ Developing? `make dev` runs PostgreSQL, Redis, the FastAPI backend (migrations a
 
 A few agents we run ourselves:
 
-**📊 A data analyst that answers with dashboards, not spreadsheets.** Plugged into our BigQuery warehouse, with a custom MCP server that renders interactive charts and dashboards *inside the chat*. "How did sales move after the price change?" used to be a ticket for the data team; now it's a question anyone types and gets answered — with a graph — in seconds.
+**📊 A data analyst that answers with dashboards, not spreadsheets.** Plugged into our BigQuery warehouse, with a custom MCP server that renders interactive charts and dashboards _inside the chat_. "How did sales move after the price change?" used to be a ticket for the data team; now it's a question anyone types and gets answered — with a graph — in seconds.
 
 **🎧 A super agent behind our customer support.** One orchestrator dispatches specialized subagents — orders, refunds, logistics — and delivers ready-to-send suggestions straight into our support tool through the invoke API. It was built and tuned like any other workspace agent, then wired into the product without changing a line of it.
 
