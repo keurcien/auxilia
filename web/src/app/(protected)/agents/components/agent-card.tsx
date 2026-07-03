@@ -112,6 +112,7 @@ export default function AgentCard({
 
 	const color = agent.color || "#9E9E9E";
 	const pastel = agentPastel(color);
+	const ownerName = agent.owner?.name || agent.owner?.email;
 
 	return (
 		<>
@@ -135,9 +136,11 @@ export default function AgentCard({
 						<div className="truncate font-[family-name:var(--font-jakarta-sans)] text-[14.5px] font-bold tracking-[-0.01em] text-[#1e2d28] dark:text-foreground">
 							{agent.name}
 						</div>
-						<div className="mt-px truncate font-mono text-[11px] text-[#94a59d] dark:text-muted-foreground">
-							@{agent.name.toLowerCase().replace(/\s+/g, "_")}
-						</div>
+						{ownerName && (
+							<div className="mt-px truncate text-[11px] text-[#94a59d] dark:text-muted-foreground">
+								by {ownerName}
+							</div>
+						)}
 					</div>
 					{(() => {
 						const badge = agent.currentUserPermission
@@ -231,7 +234,7 @@ export default function AgentCard({
 			{open && !archived && (
 				<AgentDialogShell
 					agent={agent}
-					subtitle={`@${agent.name.toLowerCase().replace(/\s+/g, "_")}`}
+					subtitle={ownerName ? `by ${ownerName}` : null}
 					onClose={() => {
 						setOpen(false);
 					}}

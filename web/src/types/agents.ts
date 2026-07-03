@@ -22,6 +22,12 @@ export interface AgentTag {
 	name: string;
 }
 
+export interface AgentOwner {
+	id: string;
+	name?: string | null;
+	email?: string | null;
+}
+
 export interface Agent {
 	id: string;
 	name: string;
@@ -35,6 +41,7 @@ export interface Agent {
 	mcpServers: AgentMCPServer[];
 	subagents: SubagentInfo[];
 	tag?: AgentTag | null;
+	owner?: AgentOwner | null;
 	isSubagent: boolean;
 	currentUserPermission?: AgentPermission | null;
 }

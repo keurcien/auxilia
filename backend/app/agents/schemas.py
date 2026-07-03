@@ -113,6 +113,12 @@ class TagInfo(SQLModel):
     name: str
 
 
+class AgentOwnerInfo(SQLModel):
+    id: UUID
+    name: str | None = None
+    email: str | None = None
+
+
 class AgentResponse(SQLModel):
     id: UUID
     name: str
@@ -128,5 +134,6 @@ class AgentResponse(SQLModel):
     mcp_servers: list[AgentMCPServerResponse] | None = None
     subagents: list[SubagentResponse] | None = None
     tag: TagInfo | None = None
+    owner: AgentOwnerInfo | None = None
     is_subagent: bool = False
     current_user_permission: str | None = None

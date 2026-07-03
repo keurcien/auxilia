@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -8,6 +10,13 @@ from app.users.models import UserDB, WorkspaceRole
 class UserRepository(BaseRepository[UserDB]):
     def __init__(self, db: AsyncSession):
         super().__init__(UserDB, db)
+
+    async def list_by_ids(self, user_ids: list[UUID]) -> list[UserDB]:
+        if not user_ids:
+            return []
+        stmt = select(UserDB).where(UserDB.id.in_(user_ids))
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
 
     async def get_by_email(self, email: str) -> UserDB | None:
         stmt = select(UserDB).where(UserDB.email == email)
