@@ -8,6 +8,7 @@ Core features are MCP and agent management:
 
 - **MCP**: workspace admin users can add MCP servers to workspace. Workspace MCP servers are then available to all users, to be bound to any workspace agent.
 - **Agent**: an agent is defined by instructions and MCP tools. Tools can be individually configured to be disabled or to require user approval (Human-In-The-Loop).
+- **Trigger**: a scheduled agent run — name + instructions bound to one agent and a model, on a cron + timezone schedule. Each firing creates a thread (`source=trigger`) and a background run on the durable runtime, executed as the trigger's owner (their MCP credentials). Owned by a user; created by workspace editors; pause/unpause via `is_active`.
 
 External integrations:
 
@@ -139,6 +140,11 @@ auxilia/
 │   │   ├── threads/                   # Chat thread management
 │   │   │   ├── serialization.py       # LangGraph checkpoint → UI message conversion
 │   │   │   └── router.py              # Thread CRUD, history & subagent state (runs live in agents/runs/)
+│   │   ├── triggers/                  # Scheduled agent runs (see trigger-feature-plan.md)
+│   │   │   ├── scanner.py             # TriggerScanner — due-trigger loop (sibling of runs/reaper)
+│   │   │   ├── schedule.py            # Pure cron/timezone math (croniter): validation, next_run_at
+│   │   │   ├── service.py             # TriggerService — CRUD + claim_and_enqueue (scanner entrypoint)
+│   │   │   └── router.py              # /triggers CRUD + /triggers/schedule/preview
 │   │   ├── users/                     # User management
 │   │   ├── utils/                     # RequestTimer and other shared helpers
 │   │   ├── database.py                # Async engine + request-scoped get_db
@@ -223,6 +229,15 @@ cd backend && uv run pytest tests/agents/test_router.py -k "test_name"  # Run sp
 cd backend && uv run ruff check .         # Lint Python code
 cd backend && uv run ruff format .        # Format Python code
 ```
+
+## Commits & Releases (release-please)
+
+Releases are automated by the **release-please** GitHub Action (`.github/workflows/release-please.yml`), which parses commit messages on `main` — so **every commit that lands on `main` must follow [Conventional Commits](https://www.conventionalcommits.org/)**. PRs are squash-merged: **the PR title becomes the commit on `main`**, so the PR title itself must be conventional (e.g. `feat(triggers): scheduled agent runs`). A non-conventional title means the change never appears in a changelog or version bump.
+
+- Format: `<type>(<optional scope>): <description>`. Common types: `feat`, `fix`, `perf`, `refactor`, `deps`, `revert` (all appear in the changelog); `docs`, `chore`, `test`, `style`, `build`, `ci` (hidden, no bump).
+- Monorepo manifest mode (`release-please-config.json`): two packages, `backend` (python) and `web` (node), versioned independently. Which package bumps is decided by the **file paths** the commit touches, not the scope — the scope is changelog cosmetics.
+- Pre-1.0 bump rules are active (`bump-minor-pre-major` + `bump-patch-for-minor-pre-major`): `feat`/`fix` bump the **patch**, breaking changes (`feat!:` or a `BREAKING CHANGE:` footer) bump the **minor**.
+- On merge, release-please maintains a release PR (`chore: release main`); merging that PR tags the release and triggers the Docker image publish for whichever package was bumped.
 
 ## Technology Stack
 
