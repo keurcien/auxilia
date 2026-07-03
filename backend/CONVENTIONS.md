@@ -150,7 +150,7 @@ These are not generic CRUD; they name a domain action and stay as-is:
 - **Auth**: `signin`, `signout`, `setup`, `accept_invite`, `google_signin_or_link`
 - **MCP / tools**: `sync_tools`, `reset_server`, `list_tools`, `handle_oauth_callback`
 - **Misc**: `encrypt_value` / `decrypt_value`, `sanitize_tool_name`, `wrap_tool_errors`
-- **Scheduling**: `claim_*` (`claim_due`, `claim_and_enqueue`) — atomically lock-and-take due work so concurrent workers partition it (`FOR UPDATE SKIP LOCKED`); a claim both reads and consumes, so neither `list_*` nor `update_*` fits
+- **Scheduling**: `claim_*` (`claim_due`, `claim_and_enqueue`) — atomically lock-and-take due work so concurrent workers partition it (`FOR UPDATE SKIP LOCKED`); a claim both reads and consumes, so neither `list_*` nor `update_*` fits. `run_now` — fire one occurrence of a scheduled entity immediately, bypassing its schedule
 
 ### Serialization helpers
 

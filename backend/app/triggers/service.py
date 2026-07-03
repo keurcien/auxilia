@@ -25,6 +25,7 @@ from app.triggers.schemas import (
     TriggerCreateDB,
     TriggerPatch,
     TriggerResponse,
+    TriggerRunResponse,
 )
 from app.triggers.settings import trigger_settings
 from app.users.models import UserDB, WorkspaceRole
@@ -156,6 +157,44 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         self._ensure_can_manage(trigger, user)
         await self.repository.delete(trigger)
 
+    async def run_now(self, trigger_id: UUID, user: UserDB) -> TriggerRunResponse:
+        """Fire one occurrence immediately — the test path behind a "Run now"
+        button. Works on paused triggers and leaves the schedule untouched
+        (`next_run_at` / `last_run_at` track scheduled fires only).
+
+        The run executes as the trigger *owner* (their MCP credentials), even
+        when an admin presses the button — exactly as a scheduled firing would.
+        Commits before enqueueing, same choreography as ``claim_and_enqueue``:
+        the worker reads the thread from its own session, so the row must be
+        committed before the run is dispatched.
+        """
+        trigger = await self.get_or_404(trigger_id)
+        self._ensure_can_manage(trigger, user)
+        agent = await self.db.get(AgentDB, trigger.agent_id)
+        if agent is None or agent.is_archived:
+            raise DomainValidationError("Trigger agent is archived or deleted")
+        thread = await self._create_fire_thread(trigger)
+        await self.db.commit()
+        record = await RunService().create(
+            thread_id=thread.id,
+            user_id=str(trigger.owner_id),
+            input={"messages": [{"type": "human", "content": trigger.instructions}]},
+        )
+        return TriggerRunResponse(thread_id=thread.id, run_id=record.id)
+
+    async def _create_fire_thread(self, trigger: TriggerDB):
+        """One fresh thread per firing, owned by the trigger owner."""
+        return await self.thread_service.create(
+            ThreadCreate(
+                agent_id=trigger.agent_id,
+                model_id=trigger.model_id,
+                first_message_content=trigger.name,
+            ),
+            user_id=trigger.owner_id,
+            source=ThreadSource.trigger,
+            trigger_id=trigger.id,
+        )
+
     # ------------------------------------------------------------------
     # Scanner entrypoint
     # ------------------------------------------------------------------
@@ -203,16 +242,7 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
                 continue
             trigger.last_run_at = now
             self.db.add(trigger)
-            thread = await self.thread_service.create(
-                ThreadCreate(
-                    agent_id=trigger.agent_id,
-                    model_id=trigger.model_id,
-                    first_message_content=trigger.name,
-                ),
-                user_id=trigger.owner_id,
-                source=ThreadSource.trigger,
-                trigger_id=trigger.id,
-            )
+            thread = await self._create_fire_thread(trigger)
             launches.append((thread.id, str(trigger.owner_id), trigger.instructions))
         await self.db.commit()  # finish the claim, release the row locks
 

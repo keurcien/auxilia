@@ -205,6 +205,7 @@ Schemas (`app/triggers/schemas.py`): `TriggerBase` / `TriggerCreate` / `TriggerC
 | `GET /triggers/schedule/preview` | any user | next N occurrences of `(cron, tz)` — pure computation, powers the schedule designer |
 | `GET /triggers/{id}` | owner or admin | |
 | `PATCH /triggers/{id}` | owner or admin | pause/unpause via `is_active`; schedule edits recompute `next_run_at`; agent change re-checked against the **owner's** permission |
+| `POST /triggers/{id}/run` | owner or admin | manual test fire: creates a thread + run immediately (paused triggers included), schedule state untouched; the run still executes as the owner |
 | `DELETE /triggers/{id}` | owner or admin | hard delete; past threads survive (SET NULL) |
 
 Permission notes:

@@ -10,6 +10,7 @@ from app.triggers.schemas import (
     TriggerCreate,
     TriggerPatch,
     TriggerResponse,
+    TriggerRunResponse,
 )
 from app.triggers.service import TriggerService, get_trigger_service
 from app.users.models import UserDB
@@ -69,6 +70,17 @@ async def update_trigger(
     service: TriggerService = Depends(get_trigger_service),
 ) -> TriggerResponse:
     return await service.update(trigger_id, data, user)
+
+
+@router.post("/{trigger_id}/run", response_model=TriggerRunResponse, status_code=201)
+async def run_trigger(
+    trigger_id: UUID,
+    user: UserDB = Depends(get_current_user),
+    service: TriggerService = Depends(get_trigger_service),
+) -> TriggerRunResponse:
+    """Fire one occurrence now (test run) — paused triggers included; the
+    schedule is untouched. Follow the run via the returned thread's runs API."""
+    return await service.run_now(trigger_id, user)
 
 
 @router.delete("/{trigger_id}", status_code=204)

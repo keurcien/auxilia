@@ -43,3 +43,10 @@ class TriggerResponse(SQLModel):
 
 class SchedulePreviewResponse(SQLModel):
     next_run_ats: list[datetime]
+
+
+class TriggerRunResponse(SQLModel):
+    """A manually fired occurrence: the thread it landed in and its run."""
+
+    thread_id: str
+    run_id: str
