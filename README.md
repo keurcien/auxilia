@@ -25,12 +25,13 @@
 
 https://github.com/user-attachments/assets/3236f9da-28c5-44c8-8c2c-4c68199f187c
 
-**auxilia is a web platform for running AI agents as a team.** Instead of everyone at work configuring their own assistant — their own prompts, their own integrations, their own credentials — an admin sets up [MCP](https://modelcontextprotocol.io/) servers and agents once, and the whole workspace shares them. Agents chat in the browser or in Slack, use your internal tools, ask a human for approval before sensitive actions, and can run on a schedule or in the background. You pick the LLM provider (Anthropic, OpenAI, Google, DeepSeek) and can switch anytime — and because it's self-hosted, conversations, credentials, and usage data never leave your infrastructure.
+**auxilia is a web platform for running AI agents as a team.** An admin sets up [MCP](https://modelcontextprotocol.io/) servers and agents once, and the whole workspace shares them — no more everyone configuring their own assistant with their own prompts and credentials. Anyone can create an agent and experiment, zero technical skills required: agents chat in the browser or in Slack, use your internal tools, ask a human for approval before sensitive actions, and run on schedules or in the background. And when an agent proves itself in the playground, you plug it into your own products through the API. You pick the LLM provider (Anthropic, OpenAI, Google, DeepSeek) and can switch anytime — and because it's self-hosted, conversations, credentials, and usage data never leave your infrastructure.
 
 ## 🤔 Why auxilia
 
 Most MCP clients are desktop apps tied to a single user: every teammate reinvents the same agent, alone, in their own tool. auxilia is the middle ground between "everyone has their own ChatGPT tab" and building a custom AI platform:
 
+- 🧪 **A playground for the whole company** — business users build and test agents themselves, no code. Not every experiment is a keeper — that's the point: everyone gets hands-on intuition for what agents can (and can't) do, cheaply.
 - 👥 **One place, shared agents** — register MCP servers and agents once; the whole team reuses them, with workspace roles and per-agent permissions.
 - 🏠 **Your infra, your data** — self-hosted; conversations, API keys (AES-GCM encrypted at rest) and per-user OAuth tokens stay in your own database and Redis.
 - 🔓 **No provider lock-in** — swap Anthropic, OpenAI, Google, or DeepSeek per agent as pricing and quality shift.
@@ -93,13 +94,15 @@ Developing? `make dev` runs PostgreSQL, Redis, the FastAPI backend (migrations a
 
 **Workspace tools**: Slack, Langfuse, Google OAuth SSO.
 
-## 💡 What you can build
+## 💡 From playground to production
 
-- A **CRM agent** that queries HubSpot and drafts Slack replies
-- A **data analyst** that runs BigQuery and writes the analysis to a Notion doc
-- An **on-call assistant** that reads Sentry issues, checks Linear, and opens GitHub PRs
-- A **morning digest** that runs on a schedule and posts a summary before you're at your desk
-- A **workspace coordinator** that dispatches work across specialized subagents
+These aren't hypotheticals — they're agents our team prototyped in auxilia and now runs for real:
+
+**📊 A data analyst that answers with dashboards, not spreadsheets.** Plugged into our BigQuery warehouse, with a custom MCP server that renders interactive charts and dashboards *inside the chat*. "How did sales move after the price change?" used to be a ticket for the data team; now it's a question anyone types and gets answered — with a graph — in seconds.
+
+**🎧 A super agent behind our customer support.** One orchestrator dispatches specialized subagents — orders, refunds, logistics — and delivers ready-to-send suggestions straight into our support tool through the invoke API. It was built and tuned like any other workspace agent, then wired into the product without changing a line of it.
+
+**💶 A pricing analyst that does the work nobody wants twice.** Hand it a spreadsheet with thousands of messy, wildly inconsistent rows, and it writes and runs its own code in an isolated sandbox to clean, cross-check, and price every one of them. The same sandbox trick stretches surprisingly far — we've used it to train and deploy small ML models.
 
 ## 📚 Documentation
 
