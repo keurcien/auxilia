@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.13](https://github.com/keurcien/auxilia/compare/web-v0.5.12...web-v0.5.13) (2026-07-06)
+
+
+### Code Refactoring
+
+* **triggers:** remove Draft badge from new trigger header ([#184](https://github.com/keurcien/auxilia/issues/184)) ([fd88991](https://github.com/keurcien/auxilia/commit/fd889913414fbc4def3fb49a677cc02557f5cf54))
+
 ## [0.5.12](https://github.com/keurcien/auxilia/compare/web-v0.5.11...web-v0.5.12) (2026-07-06)
 
 
