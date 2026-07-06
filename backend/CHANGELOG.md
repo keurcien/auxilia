@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.14](https://github.com/keurcien/auxilia/compare/backend-v0.4.13...backend-v0.4.14) (2026-07-06)
+
+
+### Features
+
+* **agents:** display agent owner on card and dialog ([#181](https://github.com/keurcien/auxilia/issues/181)) ([b2222cd](https://github.com/keurcien/auxilia/commit/b2222cdc075ec2c2f3ee6de7455c76ac04c4370f))
+
+
+### Bug Fixes
+
+* **agents:** validate structured output instead of returning empty results ([#179](https://github.com/keurcien/auxilia/issues/179)) ([ea59e38](https://github.com/keurcien/auxilia/commit/ea59e386b20ac9bc9cf27b8894584ebd56a2a21a))
+
 ## [0.4.13](https://github.com/keurcien/auxilia/compare/backend-v0.4.12...backend-v0.4.13) (2026-07-02)
 
 

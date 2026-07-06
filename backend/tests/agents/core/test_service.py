@@ -88,12 +88,20 @@ def mock_tag_service():
 
 
 @pytest.fixture
+def mock_user_service():
+    svc = MagicMock()
+    svc.list_by_ids = AsyncMock(return_value=[])
+    return svc
+
+
+@pytest.fixture
 def service(
     mock_db,
     mock_repo,
     mock_subagent_service,
     mock_thread_service,
     mock_tag_service,
+    mock_user_service,
     mock_agent_mcp_repo,
 ):
     svc = AgentService(mock_db)
@@ -101,6 +109,7 @@ def service(
     svc.subagent_service = mock_subagent_service
     svc.thread_service = mock_thread_service
     svc.tag_service = mock_tag_service
+    svc.user_service = mock_user_service
     svc.mcp_server_repository = mock_agent_mcp_repo
     return svc
 

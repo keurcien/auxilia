@@ -236,9 +236,6 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 							placeholder="Agent name"
 							className="font-[family-name:var(--font-jakarta-sans)] text-[22px] font-bold text-[#1E2D28] dark:text-foreground leading-tight tracking-[-0.025em] truncate w-full bg-transparent border-none focus:outline-none focus:ring-0 p-0"
 						/>
-						<p className="font-mono text-[11.5px] text-[#94a59d] dark:text-muted-foreground mt-0.5 truncate w-full">
-							@{name.toLowerCase().replace(/\s+/g, "_") || "agent_name"}
-						</p>
 					</div>
 				</div>
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.11](https://github.com/keurcien/auxilia/compare/web-v0.5.10...web-v0.5.11) (2026-07-06)
+
+
+### Features
+
+* **agents:** display agent owner on card and dialog ([#181](https://github.com/keurcien/auxilia/issues/181)) ([b2222cd](https://github.com/keurcien/auxilia/commit/b2222cdc075ec2c2f3ee6de7455c76ac04c4370f))
+
 ## [0.5.10](https://github.com/keurcien/auxilia/compare/web-v0.5.9...web-v0.5.10) (2026-07-02)
 
 

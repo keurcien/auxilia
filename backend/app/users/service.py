@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from uuid import UUID
 
 from fastapi import Depends
@@ -39,6 +41,9 @@ class UserService(BaseService[UserDB, UserRepository]):
 
     async def list(self, role: WorkspaceRole | None = None) -> list[UserDB]:
         return await self.repository.list(role=role)
+
+    async def list_by_ids(self, user_ids: list[UUID]) -> list[UserDB]:
+        return await self.repository.list_by_ids(user_ids)
 
     async def update(self, user_id: UUID, data: UserPatch) -> UserDB:
         user = await self.get_or_404(user_id)

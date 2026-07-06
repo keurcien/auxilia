@@ -18,6 +18,7 @@ from app.agents.models import (
 from app.agents.schemas import (
     AgentCreateDB,
     AgentMCPServerResponse,
+    AgentOwnerInfo,
     AgentPatch,
     AgentPermissionCreate,
     AgentResponse,
@@ -32,6 +33,7 @@ from app.service import BaseService
 from app.tags.service import TagService
 from app.threads.service import ThreadService
 from app.users.models import WorkspaceRole
+from app.users.service import UserService
 
 
 logger = logging.getLogger(__name__)
@@ -45,6 +47,7 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         self.subagent_service = SubagentService(db)
         self.thread_service = ThreadService(db)
         self.tag_service = TagService(db)
+        self.user_service = UserService(db)
         self.mcp_server_repository = AgentMCPServerRepository(db)
 
     @staticmethod
@@ -82,6 +85,8 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         ) = await self.subagent_service.list_all_subagent_data(agent_ids)
         tag_ids = list({a.tag_id for a in agents if a.tag_id is not None})
         tags_by_id = {t.id: t for t in await self.tag_service.list_by_ids(tag_ids)}
+        owner_ids = list({a.owner_id for a in agents})
+        owners_by_id = {u.id: u for u in await self.user_service.list_by_ids(owner_ids)}
         return [
             AgentResponse(
                 **agent.model_dump(),
@@ -90,6 +95,11 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
                 tag=(
                     TagInfo(id=tag.id, name=tag.name)
                     if (tag := tags_by_id.get(agent.tag_id)) is not None
+                    else None
+                ),
+                owner=(
+                    AgentOwnerInfo(id=owner.id, name=owner.name, email=owner.email)
+                    if (owner := owners_by_id.get(agent.owner_id)) is not None
                     else None
                 ),
                 is_subagent=agent.id in is_subagent_ids,
