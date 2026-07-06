@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.12](https://github.com/keurcien/auxilia/compare/web-v0.5.11...web-v0.5.12) (2026-07-06)
+
+
+### Features
+
+* **triggers:** scheduled agent runs ([#182](https://github.com/keurcien/auxilia/issues/182)) ([d987da9](https://github.com/keurcien/auxilia/commit/d987da917f48fa9c8f63809de5903f261d3eca12))
+
 ## [0.5.11](https://github.com/keurcien/auxilia/compare/web-v0.5.10...web-v0.5.11) (2026-07-06)
 
 
