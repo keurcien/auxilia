@@ -166,7 +166,7 @@ export default function ScheduleBuilder({
 								onClick={() => {
 									timeInputRef.current?.showPicker?.();
 								}}
-								className="flex items-center justify-center w-9.5 self-stretch shrink-0 bg-[#F6F9F7] dark:bg-white/5 text-[#7C8C84] dark:text-muted-foreground cursor-pointer hover:bg-[#EEF3F0] dark:hover:bg-white/10 transition-colors"
+								className="flex items-center justify-center w-9.5 self-stretch shrink-0 bg-transparent text-[#7C8C84] dark:text-muted-foreground cursor-pointer hover:bg-[#EEF3F0] dark:hover:bg-white/10 transition-colors"
 							>
 								<ChevronDown className="size-4 shrink-0" />
 							</button>
