@@ -6,6 +6,7 @@ import { Trigger } from "@/types/triggers";
 import { describeSchedule, parseCronExpression } from "@/lib/triggers/schedule";
 import { useAgentsStore } from "@/stores/agents-store";
 import { useTriggersStore } from "@/stores/triggers-store";
+import { useRunTrigger } from "@/hooks/use-run-trigger";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { SageDropdownMenu } from "@/components/ui/sage-dropdown-menu";
 
@@ -17,11 +18,19 @@ interface TriggerCardProps {
 export default function TriggerCard({ trigger, onDelete }: TriggerCardProps) {
 	const router = useRouter();
 	const updateTrigger = useTriggersStore((state) => state.updateTrigger);
+	const runTrigger = useRunTrigger();
 	const agent = useAgentsStore((state) =>
 		state.agents.find((a) => a.id === trigger.agentId),
 	);
 
 	const frequency = describeSchedule(parseCronExpression(trigger.cronExpression));
+
+	const handleRunNow = () => {
+		runTrigger(trigger).catch((error: unknown) => {
+			console.error("Error running trigger:", error);
+			alert("Failed to run the trigger. Please try again.");
+		});
+	};
 
 	const handleToggleActive = () => {
 		updateTrigger(trigger.id, { isActive: !trigger.isActive }).catch(
@@ -65,6 +74,11 @@ export default function TriggerCard({ trigger, onDelete }: TriggerCardProps) {
 							</button>
 						}
 						items={[
+							{
+								label: "Run now",
+								icon: <Play />,
+								onClick: handleRunNow,
+							},
 							{
 								label: trigger.isActive ? "Pause" : "Resume",
 								icon: trigger.isActive ? <Pause /> : <Play />,
