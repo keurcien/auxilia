@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.15](https://github.com/keurcien/auxilia/compare/backend-v0.4.14...backend-v0.4.15) (2026-07-06)
+
+
+### Features
+
+* **triggers:** scheduled agent runs ([#182](https://github.com/keurcien/auxilia/issues/182)) ([d987da9](https://github.com/keurcien/auxilia/commit/d987da917f48fa9c8f63809de5903f261d3eca12))
+
 ## [0.4.14](https://github.com/keurcien/auxilia/compare/backend-v0.4.13...backend-v0.4.14) (2026-07-06)
 
 
