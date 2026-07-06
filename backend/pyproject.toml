@@ -33,6 +33,7 @@ dependencies = [
     "deepagents>=0.5.6",
     "opensandbox>=0.1.6",
     "jsonschema>=4.26.0",
+    "croniter>=6.2.3",
 ]
 
 [dependency-groups]

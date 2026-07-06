@@ -125,6 +125,7 @@ Relationship and filter qualifiers stay (`list_for_user`, `list_for_supervisor`,
 | Pure bool — possession                        | `has_*`                        | `bool`                                           | `has_subagents`, `has_permission`, `has_code_interpreter` |
 | Pure bool — capability                        | `can_*`                        | `bool`                                           | `can_edit`                                                |
 | Assert / guard                                | `_ensure_*` (private)          | `None` or the asserted object; raises on failure | `_ensure_email_available`, `_ensure_server`               |
+| Assert / guard — shared pure helper           | `ensure_*` (public)            | Same, but exported from a pure-helper module when several layers need the guard | `ensure_valid_schedule` (`app/triggers/schedule.py`)      |
 | I/O probe (network call, returns diagnostics) | `probe_*`                      | `dict` / status payload                          | `probe_connectivity`, `probe_mcp_server`                  |
 | Structured status                             | `describe_*` or `get_*_status` | `dict`                                           | `describe_readiness`, `get_oauth_status`                  |
 
@@ -135,6 +136,7 @@ Relationship and filter qualifiers stay (`list_for_user`, `list_for_supervisor`,
 | Operation                     | Verb                         | Notes                                                                                     |
 | ----------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------- |
 | Deterministic compose         | `build_*`                    | `build_invite_url`, `build_oauth_client_metadata`, `build_jwt_for_user`. Pure function-y. |
+| Pure derivation of a value    | `compute_*`                  | `compute_next_run_at` — arithmetic/temporal math that derives a scalar (or list of them), not an object/artifact. Prefer `build_*` when the result is a composed structure. |
 | Entropy / cryptographic       | `_generate_*` (private)      | `_generate_token` — anything that calls `secrets.token_*` or pulls randomness.            |
 | DB lookup + hydrate (factory) | `resolve(...)` (classmethod) | `ResolvedAgent.resolve(agent_id, db, user_id)`, `Toolset.resolve(...)`                    |
 | Orchestrate multiple resolves | `build(...)` (classmethod)   | `Agent.build(thread, db)` — composes multiple `resolve` calls + middleware/callbacks      |
@@ -148,6 +150,7 @@ These are not generic CRUD; they name a domain action and stay as-is:
 - **Auth**: `signin`, `signout`, `setup`, `accept_invite`, `google_signin_or_link`
 - **MCP / tools**: `sync_tools`, `reset_server`, `list_tools`, `handle_oauth_callback`
 - **Misc**: `encrypt_value` / `decrypt_value`, `sanitize_tool_name`, `wrap_tool_errors`
+- **Scheduling**: `claim_*` (`claim_due`, `claim_and_enqueue`) — atomically lock-and-take due work so concurrent workers partition it (`FOR UPDATE SKIP LOCKED`); a claim both reads and consumes, so neither `list_*` nor `update_*` fits. `run_now` — fire one occurrence of a scheduled entity immediately, bypassing its schedule
 
 ### Serialization helpers
 

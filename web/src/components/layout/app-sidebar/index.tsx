@@ -6,7 +6,9 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+	AlarmClock,
 	Bot,
+	Loader2,
 	Server,
 	SquarePen,
 	MoreVertical,
@@ -19,6 +21,7 @@ import {
 	Moon,
 	Sun,
 	PanelLeftOpen,
+	type LucideIcon,
 } from "lucide-react";
 import {
 	Sidebar,
@@ -41,16 +44,29 @@ import { useThreadsStore } from "@/stores/threads-store";
 import { useUserStore } from "@/stores/user-store";
 import { useAgentsStore } from "@/stores/agents-store";
 import { api } from "@/lib/api/client";
+import { formatRunAt } from "@/lib/triggers/schedule";
+import { useActiveRunThreadIds } from "@/hooks/use-active-runs";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { RenameThreadDialog } from "@/components/layout/app-sidebar/rename-thread-dialog";
 import { Thread } from "@/types/threads";
 import { useTheme } from "next-themes";
 
-const navItems = [
+const navItems: {
+	title: string;
+	href: string;
+	icon: LucideIcon;
+	match?: "prefix";
+}[] = [
 	{
 		title: "Agents",
 		href: "/agents",
 		icon: Bot,
+	},
+	{
+		title: "Triggers",
+		href: "/triggers",
+		icon: AlarmClock,
+		match: "prefix",
 	},
 	{
 		title: "MCP Servers",
@@ -82,6 +98,7 @@ export function AppSidebar() {
 	const { resolvedTheme, setTheme } = useTheme();
 	const { toggleSidebar } = useSidebar();
 	const [renamingThread, setRenamingThread] = useState<Thread | null>(null);
+	const activeRunThreadIds = useActiveRunThreadIds(threads);
 
 	useEffect(() => {
 		fetchUser();
@@ -176,6 +193,21 @@ export function AppSidebar() {
 								{threads.map((thread, i) => {
 									const isActive =
 										pathname === `/agents/${thread.agentId}/chat/${thread.id}`;
+									const isTriggerThread = thread.source === "trigger";
+									// Trigger threads are titled by firing time; the trigger
+									// name (stored as first_message_content) becomes the
+									// subtitle in place of the agent name.
+									const title = isTriggerThread
+										? formatRunAt(
+												thread.createdAt,
+												Intl.DateTimeFormat().resolvedOptions().timeZone,
+											)
+										: thread.firstMessageContent;
+									const subtitle = thread.agentArchived
+										? "Archived agent"
+										: isTriggerThread
+											? thread.firstMessageContent
+											: thread.agentName;
 									return (
 										<SidebarMenuItem
 											key={thread.id}
@@ -188,35 +220,52 @@ export function AppSidebar() {
 											<SidebarMenuButton
 												asChild
 												isActive={isActive}
-												tooltip={thread.firstMessageContent}
+												tooltip={title}
 												className="h-12! rounded-2xl transition-all duration-200 hover:translate-x-1 hover:bg-sidebar-hover data-[active=true]:bg-sidebar-accent group-data-[collapsible=icon]:h-12! group-data-[collapsible=icon]:w-full! group-data-[collapsible=icon]:p-0! group-data-[collapsible=icon]:hover:translate-x-0 group-data-[collapsible=icon]:data-[active=true]:bg-transparent"
 											>
 												<Link
 													href={`/agents/${thread.agentId}/chat/${thread.id}`}
 													className="h-full pl-[3px] pr-3 flex items-center gap-2.5 group-data-[collapsible=icon]:pl-[3px]!"
 												>
-													<AgentAvatar
-														color={thread.agentColor}
-														emoji={thread.agentEmoji}
-														size="sm"
-														className={
-															isActive
-																? "group-data-[collapsible=icon]:ring-2 group-data-[collapsible=icon]:ring-sidebar-primary"
-																: undefined
-														}
-													/>
+													{thread.source === "trigger" ? (
+														<div
+															className={`flex items-center justify-center shrink-0 w-[34px] h-[34px] rounded-full bg-[#EDF4F0] dark:bg-emerald-950/40 ${
+																isActive
+																	? "group-data-[collapsible=icon]:ring-2 group-data-[collapsible=icon]:ring-sidebar-primary"
+																	: ""
+															}`}
+															title="Started by a trigger"
+														>
+															<AlarmClock className="size-4 text-[#3D8B63] dark:text-emerald-400" />
+														</div>
+													) : (
+														<AgentAvatar
+															color={thread.agentColor}
+															emoji={thread.agentEmoji}
+															size="sm"
+															className={
+																isActive
+																	? "group-data-[collapsible=icon]:ring-2 group-data-[collapsible=icon]:ring-sidebar-primary"
+																	: undefined
+															}
+														/>
+													)}
 													<div className="flex-1 min-w-0 text-left group-data-[collapsible=icon]:hidden">
 														<div
 															className={`font-[family-name:var(--font-dm-sans)] text-[14px] truncate leading-[1.45] ${isActive ? "font-semibold" : "font-medium"} text-sidebar-foreground`}
 														>
-															{thread.firstMessageContent}
+															{title}
 														</div>
 														<div className="font-[family-name:var(--font-dm-sans)] text-[12px] text-[#999] dark:text-muted-foreground font-medium truncate mt-0.5 leading-snug">
-															{thread.agentArchived
-																? "Archived agent"
-																: thread.agentName}
+															{subtitle}
 														</div>
 													</div>
+													{activeRunThreadIds.has(thread.id) && (
+														<Loader2
+															aria-label="Running"
+															className="size-4 shrink-0 animate-spin text-[#4CA882] group-data-[collapsible=icon]:hidden"
+														/>
+													)}
 													{thread.source === "slack" && (
 														<Image
 															src="https://storage.googleapis.com/choose-assets/slack.png"
@@ -273,7 +322,10 @@ export function AppSidebar() {
 						<SidebarGroupContent>
 							<SidebarMenu>
 								{navItems.map((item) => {
-									const isNavActive = pathname === item.href;
+									const isNavActive =
+										item.match === "prefix"
+											? pathname.startsWith(item.href)
+											: pathname === item.href;
 									return (
 										<SidebarMenuItem key={item.href}>
 											<SidebarMenuButton

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import Depends
@@ -81,16 +82,25 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
         rows = await self.repository.list_for_agent(agent_id)
         return [_agent_thread(*row) for row in rows]
 
+    async def list_for_trigger(
+        self, trigger_id: UUID, since: datetime | None = None
+    ) -> list[ThreadDB]:
+        return await self.repository.list_for_trigger(trigger_id, since=since)
+
     async def create(
         self,
         data: ThreadCreate,
         user_id: UUID,
         source: ThreadSource,
+        trigger_id: UUID | None = None,
     ) -> ThreadResponse:
+        # `trigger_id` is a keyword (not a ThreadCreate field) so API clients
+        # can't attach arbitrary threads to a trigger — only the scanner sets it.
         thread = ThreadDB(
             **data.model_dump(exclude_none=True),
             user_id=user_id,
             source=source,
+            trigger_id=trigger_id,
         )
         self.db.add(thread)
         await self.db.flush()

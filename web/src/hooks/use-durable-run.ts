@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 
 import { api, API_BASE_URL } from "@/lib/api/client";
+import { useActiveRunsStore } from "@/stores/active-runs-store";
 
 /**
  * Marker field on a `submit({ ... })` input that tells {@link useDurableRun}'s
@@ -65,6 +66,9 @@ export function useDurableRun(threadId: string): DurableRun {
       // encoded path segments — never forward the SDK's opaque `input` — so no
       // unsanitized value can reach fetch or manipulate the path.
       const thread = encodeURIComponent(threadId);
+      // Both paths mean a run is in flight — light the sidebar spinner now
+      // instead of waiting for the next active-runs poll.
+      useActiveRunsStore.getState().markThreadRunning(threadId);
       const reattachRunId = extractReattachRunId(init?.body);
       if (reattachRunId) {
         runIdRef.current = reattachRunId;

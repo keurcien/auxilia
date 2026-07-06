@@ -29,6 +29,9 @@ from app.users.models import UserDB
 
 router = APIRouter(prefix="/threads/{thread_id}/runs", tags=["runs"])
 
+# User-level surface (not nested under a thread).
+user_runs_router = APIRouter(prefix="/runs", tags=["runs"])
+
 _SSE_HEADERS = {
     "Cache-Control": "no-cache, no-transform",
     "Connection": "keep-alive",
@@ -71,6 +74,17 @@ def _ensure_run_on_thread(record, thread_id: str) -> None:
     """A run id from another thread must not leak across the nested route."""
     if record.thread_id != thread_id:
         raise NotFoundError("Run not found")
+
+
+@user_runs_router.get("/active", response_model=list[RunResponse])
+async def list_active_runs(
+    current_user: UserDB = Depends(get_current_user),
+    service: RunService = Depends(get_run_service),
+) -> list[RunResponse]:
+    """The caller's in-flight runs across all threads — one aggregate read
+    backing the sidebar activity indicator (poll this, not per-thread)."""
+    records = await service.list_active_for_user(str(current_user.id))
+    return [RunResponse.from_record(r) for r in records]
 
 
 @router.post("/stream")

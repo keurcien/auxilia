@@ -88,6 +88,11 @@ class RunService:
         run_id = await self.registry.get_active_id(thread_id)
         return await self.registry.get(run_id) if run_id else None
 
+    async def list_active_for_user(self, user_id: str) -> list[RunRecord]:
+        """The user's pending/running runs — backs the sidebar activity poll."""
+        records = await self.registry.list_active()
+        return [r for r in records if r.user_id == user_id]
+
     async def cancel(self, run_id: str) -> RunRecord:
         """Stop a run. A pending run is finalized directly; a running one gets a
         signal its worker picks up. Terminal runs are a no-op."""

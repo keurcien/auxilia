@@ -701,11 +701,20 @@ const ChatPage = () => {
 			const data = response.data;
 
 			setThreadModel(data.thread.modelId);
+			const isTriggerThread = data.thread.source === "trigger";
 			setCurrentChat({
 				agentName: data.thread.agentName ?? null,
 				agentEmoji: data.thread.agentEmoji ?? null,
 				agentColor: data.thread.agentColor ?? null,
 				modelId: data.thread.modelId ?? null,
+				// Trigger firings are titled by their trigger; the header shows
+				// "<trigger name> / <firing time>" instead of the agent.
+				triggerName: isTriggerThread
+					? (data.thread.firstMessageContent ?? null)
+					: null,
+				triggerRunAt: isTriggerThread
+					? (data.thread.createdAt ?? null)
+					: null,
 			});
 
 			if (data.thread.agentArchived) {

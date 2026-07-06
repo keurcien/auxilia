@@ -1,0 +1,57 @@
+"use client";
+
+import { useEffect } from "react";
+import Link from "next/link";
+import { formatRunAt } from "@/lib/triggers/schedule";
+import { useTriggerRunsStore } from "@/stores/trigger-runs-store";
+
+interface RunHistoryCardProps {
+	triggerId: string;
+	timezone: string;
+}
+
+/** Past firings (last 30 days); each row opens the thread it created. */
+export default function RunHistoryCard({
+	triggerId,
+	timezone,
+}: RunHistoryCardProps) {
+	const runs = useTriggerRunsStore(
+		(state) => state.runsByTrigger[triggerId],
+	);
+	const fetchRuns = useTriggerRunsStore((state) => state.fetchRuns);
+
+	useEffect(() => {
+		fetchRuns(triggerId).catch(() => {
+			// logged by the store; the card keeps whatever it has
+		});
+	}, [triggerId, fetchRuns]);
+
+	return (
+		<div className="flex flex-col rounded-[14px] border border-[#e1ebe6] dark:border-white/10 bg-white dark:bg-card px-4.5 py-1.5 shadow-[0_1px_3px_rgba(33,36,31,0.04)]">
+			{runs === undefined && (
+				<p className="py-3.5 font-[family-name:var(--font-dm-sans)] text-[13px] text-[#A3B5AD] dark:text-muted-foreground">
+					Loading…
+				</p>
+			)}
+			{runs !== undefined && runs.length === 0 && (
+				<p className="py-3.5 font-[family-name:var(--font-dm-sans)] text-[13px] text-[#A3B5AD] dark:text-muted-foreground">
+					No runs yet.
+				</p>
+			)}
+			{runs?.map((run) => (
+				<Link
+					key={run.id}
+					href={`/agents/${run.agentId}/chat/${run.id}`}
+					className="group flex items-center gap-3 py-3.5 border-b border-[#F1F5F3] dark:border-white/5 last:border-b-0"
+				>
+					<span className="flex-1 min-w-0 truncate font-[family-name:var(--font-dm-sans)] text-[14px] font-medium text-[#1E2D28] dark:text-white group-hover:text-[#3D8B63] dark:group-hover:text-emerald-400 transition-colors">
+						{formatRunAt(run.createdAt, timezone)}
+					</span>
+					<span className="shrink-0 font-[family-name:var(--font-dm-sans)] text-[12.5px] font-semibold text-[#4CA882] opacity-0 group-hover:opacity-100 transition-opacity">
+						Open thread →
+					</span>
+				</Link>
+			))}
+		</div>
+	);
+}

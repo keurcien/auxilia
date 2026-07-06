@@ -1,4 +1,5 @@
 from app.agents.runs.registry import RunRegistry
+from app.agents.runs.service import RunService
 from app.agents.runs.state import RunRecord, RunStatus
 
 
@@ -31,6 +32,27 @@ async def test_active_mutex_is_exclusive_and_owner_scoped(redis):
     assert await reg.get_active_id("t1") == "r1"
     await reg.release_active("t1", "r1")
     assert await reg.get_active_id("t1") is None
+
+
+async def test_list_active_returns_non_terminal_records(redis):
+    reg = RunRegistry(redis)
+    await reg.create(RunRecord(id="r1", thread_id="t1", user_id="u1"), ttl=3600)
+    await reg.create(RunRecord(id="r2", thread_id="t2", user_id="u2"), ttl=3600)
+    await reg.set_status("r1", RunStatus.running)
+    await reg.set_status("r1", RunStatus.success)
+
+    assert [r.id for r in await reg.list_active()] == ["r2"]
+
+
+async def test_service_list_active_for_user_filters_by_owner(redis):
+    reg = RunRegistry(redis)
+    await reg.create(RunRecord(id="r1", thread_id="t1", user_id="u1"), ttl=3600)
+    await reg.create(RunRecord(id="r2", thread_id="t2", user_id="u2"), ttl=3600)
+
+    service = RunService(redis)
+
+    assert [r.id for r in await service.list_active_for_user("u1")] == ["r1"]
+    assert await service.list_active_for_user("u3") == []
 
 
 async def test_set_status_validates_and_clears_active_set(redis):
