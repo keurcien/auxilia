@@ -99,6 +99,21 @@ class RunRegistry:
         """Run ids currently pending/running (the reaper's worklist)."""
         return list(await self.redis.smembers(keys.ACTIVE_SET_KEY))
 
+    async def list_active(self) -> list[RunRecord]:
+        """Records for all non-terminal runs — one SMEMBERS + pipelined HGETALLs.
+
+        Cost scales with cluster-wide in-flight runs (bounded by worker
+        concurrency), not with threads or history.
+        """
+        run_ids = await self.list_active_ids()
+        if not run_ids:
+            return []
+        async with self.redis.pipeline(transaction=False) as pipe:
+            for run_id in run_ids:
+                pipe.hgetall(keys.run_key(run_id))
+            raws = await pipe.execute()
+        return [RunRecord.from_redis(raw) for raw in raws if raw]
+
     async def discard_active_id(self, run_id: str) -> None:
         """Drop an id from the active set (e.g. a reaped record that TTL'd away)."""
         await self.redis.srem(keys.ACTIVE_SET_KEY, run_id)

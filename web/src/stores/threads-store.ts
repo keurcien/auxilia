@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { Thread } from "@/types/threads";
 import { api } from "@/lib/api/client";
+import { useTriggerRunsStore } from "@/stores/trigger-runs-store";
 
 interface ThreadsState {
 	threads: Thread[];
@@ -25,6 +26,9 @@ export const useThreadsStore = create<ThreadsState>((set) => ({
 		set((state) => ({ threads: [thread, ...state.threads] }));
 	},
 	removeThread: (threadId) => {
+		// A deleted thread is also a deleted trigger firing — keep run
+		// history in sync.
+		useTriggerRunsStore.getState().removeRun(threadId);
 		set((state) => ({
 			threads: state.threads.filter((thread) => thread.id !== threadId),
 		}));

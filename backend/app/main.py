@@ -10,7 +10,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.agents.router import router as agents_router
 from app.agents.runs.reaper import RunReaper
-from app.agents.runs.router import router as runs_router
+from app.agents.runs.router import router as runs_router, user_runs_router
 from app.agents.runs.settings import run_settings
 from app.agents.runs.worker import RunDispatcher
 from app.auth.router import router as auth_router
@@ -188,6 +188,7 @@ app.add_middleware(
 
 app.include_router(agents_router)
 app.include_router(runs_router)
+app.include_router(user_runs_router)
 app.include_router(auth_router)
 app.include_router(tokens_router)
 app.include_router(mcp_apps_router)

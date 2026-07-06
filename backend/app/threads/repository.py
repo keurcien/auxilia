@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import delete
@@ -59,6 +60,19 @@ class ThreadRepository(BaseRepository[ThreadDB]):
         )
         result = await self.db.execute(stmt)
         return result.all()
+
+    async def list_for_trigger(
+        self, trigger_id: UUID, since: datetime | None = None
+    ) -> list[ThreadDB]:
+        stmt = (
+            select(ThreadDB)
+            .where(ThreadDB.trigger_id == trigger_id)
+            .order_by(ThreadDB.created_at.desc())
+        )
+        if since is not None:
+            stmt = stmt.where(ThreadDB.created_at >= since)
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
 
     async def list_for_agent(self, agent_id: UUID):
         stmt = (

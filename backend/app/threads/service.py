@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import Depends
@@ -80,6 +81,11 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
     async def list_for_agent(self, agent_id: UUID) -> list[AgentThreadResponse]:
         rows = await self.repository.list_for_agent(agent_id)
         return [_agent_thread(*row) for row in rows]
+
+    async def list_for_trigger(
+        self, trigger_id: UUID, since: datetime | None = None
+    ) -> list[ThreadDB]:
+        return await self.repository.list_for_trigger(trigger_id, since=since)
 
     async def create(
         self,

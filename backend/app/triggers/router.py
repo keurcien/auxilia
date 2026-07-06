@@ -11,6 +11,7 @@ from app.triggers.schemas import (
     TriggerPatch,
     TriggerResponse,
     TriggerRunResponse,
+    TriggerThreadResponse,
 )
 from app.triggers.service import TriggerService, get_trigger_service
 from app.users.models import UserDB
@@ -51,6 +52,16 @@ async def preview_schedule(
             cron_expression, timezone, after=datetime.now(UTC), count=count
         )
     )
+
+
+@router.get("/{trigger_id}/threads", response_model=list[TriggerThreadResponse])
+async def list_trigger_threads(
+    trigger_id: UUID,
+    user: UserDB = Depends(get_current_user),
+    service: TriggerService = Depends(get_trigger_service),
+) -> list[TriggerThreadResponse]:
+    """Run history: the threads this trigger's firings created (last 30 days)."""
+    return await service.list_threads(trigger_id, user)
 
 
 @router.get("/{trigger_id}", response_model=TriggerResponse)

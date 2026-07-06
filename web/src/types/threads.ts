@@ -1,4 +1,4 @@
-export type ThreadSource = "web" | "slack" | "api";
+export type ThreadSource = "web" | "slack" | "api" | "trigger";
 
 export interface Thread {
 	id: string;
@@ -10,6 +10,7 @@ export interface Thread {
 	agentColor: string | null;
 	agentArchived: boolean;
 	source: ThreadSource;
+	triggerId?: string | null;
 	createdAt: string;
 }
 

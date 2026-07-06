@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from fastapi import Depends
@@ -26,6 +26,7 @@ from app.triggers.schemas import (
     TriggerPatch,
     TriggerResponse,
     TriggerRunResponse,
+    TriggerThreadResponse,
 )
 from app.triggers.settings import trigger_settings
 from app.users.models import UserDB, WorkspaceRole
@@ -91,6 +92,16 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         trigger = await self.get_or_404(trigger_id)
         self._ensure_can_manage(trigger, user)
         return TriggerResponse.model_validate(trigger)
+
+    async def list_threads(
+        self, trigger_id: UUID, user: UserDB
+    ) -> list[TriggerThreadResponse]:
+        """Past firings (one thread per firing), last 30 days, newest first."""
+        trigger = await self.get_or_404(trigger_id)
+        self._ensure_can_manage(trigger, user)
+        since = datetime.now(UTC) - timedelta(days=30)
+        threads = await self.thread_service.list_for_trigger(trigger_id, since=since)
+        return [TriggerThreadResponse.model_validate(t) for t in threads]
 
     async def create(self, data: TriggerCreate, owner: UserDB) -> TriggerResponse:
         ensure_valid_schedule(data.cron_expression, data.timezone)

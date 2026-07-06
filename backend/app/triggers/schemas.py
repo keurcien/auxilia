@@ -50,3 +50,12 @@ class TriggerRunResponse(SQLModel):
 
     thread_id: str
     run_id: str
+
+
+class TriggerThreadResponse(SQLModel):
+    """One past firing of a trigger — the thread it created."""
+
+    id: str
+    agent_id: UUID
+    first_message_content: str | None = None
+    created_at: datetime
