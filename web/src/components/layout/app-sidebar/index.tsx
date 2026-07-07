@@ -229,7 +229,7 @@ export function AppSidebar() {
 												>
 													{thread.source === "trigger" ? (
 														<div
-															className={`flex items-center justify-center shrink-0 w-[34px] h-[34px] rounded-full bg-[#EDF4F0] dark:bg-emerald-950/40 ${
+															className={`flex items-center justify-center shrink-0 w-[34px] h-[34px] rounded-full border border-[#3D8B63]/15 bg-[#EDF4F0] dark:border-emerald-400/15 dark:bg-emerald-950/40 ${
 																isActive
 																	? "group-data-[collapsible=icon]:ring-2 group-data-[collapsible=icon]:ring-sidebar-primary"
 																	: ""
