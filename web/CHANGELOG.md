@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.15](https://github.com/keurcien/auxilia/compare/web-v0.5.14...web-v0.5.15) (2026-07-07)
+
+
+### Features
+
+* **runs:** move run records to Postgres + thread last-run status ([#194](https://github.com/keurcien/auxilia/issues/194)) ([fae7fd0](https://github.com/keurcien/auxilia/commit/fae7fd0696be338b4a83a41f3004360dcc7da56f))
+* **runs:** react to run status changes in sidebar and run history ([#196](https://github.com/keurcien/auxilia/issues/196)) ([023a2e9](https://github.com/keurcien/auxilia/commit/023a2e92f77cae6bc0a13ddc843ffca94fe2d09f))
+
 ## [0.5.14](https://github.com/keurcien/auxilia/compare/web-v0.5.13...web-v0.5.14) (2026-07-07)
 
 

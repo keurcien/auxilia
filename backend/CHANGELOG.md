@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.16](https://github.com/keurcien/auxilia/compare/backend-v0.4.15...backend-v0.4.16) (2026-07-07)
+
+
+### Features
+
+* **runs:** move run records to Postgres + thread last-run status ([#194](https://github.com/keurcien/auxilia/issues/194)) ([fae7fd0](https://github.com/keurcien/auxilia/commit/fae7fd0696be338b4a83a41f3004360dcc7da56f))
+* **runs:** react to run status changes in sidebar and run history ([#196](https://github.com/keurcien/auxilia/issues/196)) ([023a2e9](https://github.com/keurcien/auxilia/commit/023a2e92f77cae6bc0a13ddc843ffca94fe2d09f))
+
+
+### Bug Fixes
+
+* **agents:** bound Redis run memory and retry structured-output forma… ([#193](https://github.com/keurcien/auxilia/issues/193)) ([35e00d0](https://github.com/keurcien/auxilia/commit/35e00d0ff58818abc4a07f7c505f1c489fa8db64))
+
 ## [0.4.15](https://github.com/keurcien/auxilia/compare/backend-v0.4.14...backend-v0.4.15) (2026-07-06)
 
 
