@@ -1,3 +1,12 @@
+def root_cause(exc: BaseException) -> BaseException:
+    """Unwrap nested ExceptionGroups (TaskGroup wrappers) to the first leaf
+    exception, so error reporting shows the actual failure instead of
+    "unhandled errors in a TaskGroup"."""
+    while isinstance(exc, BaseExceptionGroup) and exc.exceptions:
+        exc = exc.exceptions[0]
+    return exc
+
+
 class DomainError(Exception):
     """Base for all domain exceptions."""
 

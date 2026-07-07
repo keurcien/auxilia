@@ -3,6 +3,7 @@ from uuid import UUID
 
 from sqlmodel import SQLModel
 
+from app.agents.runs.state import RunStatus
 from app.triggers.models import TriggerBase
 
 
@@ -58,6 +59,6 @@ class TriggerThreadResponse(SQLModel):
     id: str
     agent_id: UUID
     first_message_content: str | None = None
-    # Outcome of the firing's run (a RunStatus value); None while in flight.
-    last_run_status: str | None = None
+    # Outcome of the firing's run; None while in flight.
+    last_run_status: RunStatus | None = None
     created_at: datetime

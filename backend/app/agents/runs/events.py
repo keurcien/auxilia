@@ -48,6 +48,27 @@ class RunEventStream:
         """Whether the log has any entries (False once the key TTLs away)."""
         return bool(await self.redis.exists(self._key))
 
+    async def read_batch(
+        self, cursor: str, *, block_ms: int = 15000
+    ) -> tuple[str, list[str], bool] | None:
+        """One blocking read from `cursor`: `(new_cursor, chunks, ended)`, or
+        `None` if the block window elapsed with no new entries. Callers own
+        the idle policy (keep waiting, or check the run record)."""
+        result = await self.redis.xread({self._key: cursor}, block=block_ms, count=100)
+        if not result:
+            return None
+        _, entries = result[0]
+        chunks: list[str] = []
+        ended = False
+        for entry_id, fields in entries:
+            cursor = entry_id
+            data = fields.get(_DATA)
+            if data is not None:
+                chunks.append(data)
+            if fields.get(_END):
+                ended = True
+        return cursor, chunks, ended
+
     async def subscribe(
         self, last_event_id: str = "0", *, block_ms: int = 15000
     ) -> AsyncGenerator[str, None]:
@@ -60,16 +81,11 @@ class RunEventStream:
         """
         cursor = last_event_id or "0"
         while True:
-            result = await self.redis.xread(
-                {self._key: cursor}, block=block_ms, count=100
-            )
-            if not result:
+            batch = await self.read_batch(cursor, block_ms=block_ms)
+            if batch is None:
                 continue  # block window elapsed with no new entries — keep waiting
-            _, entries = result[0]
-            for entry_id, fields in entries:
-                cursor = entry_id
-                data = fields.get(_DATA)
-                if data is not None:
-                    yield data
-                if fields.get(_END):
-                    return
+            cursor, chunks, ended = batch
+            for chunk in chunks:
+                yield chunk
+            if ended:
+                return

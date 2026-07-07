@@ -24,6 +24,7 @@ from app.agents.runs.settings import run_settings
 from app.agents.runs.state import RunStatus
 from app.agents.runtime import Agent
 from app.database import AsyncSessionLocal, get_checkpointer
+from app.exceptions import root_cause
 from app.threads.models import ThreadDB
 from app.threads.serialization import pending_interrupt
 
@@ -33,14 +34,6 @@ logger = logging.getLogger(__name__)
 # `LangGraphStreamAdapter` swallows exceptions into an SSE error event rather
 # than raising, so a clean stream that emitted one of these still failed.
 _ERROR_EVENT_PREFIX = "event: error"
-
-
-def _root_cause(exc: BaseException) -> BaseException:
-    """Unwrap nested ExceptionGroups so `record.error` stores the actual
-    failure (e.g. an MCP OAuth error), not "unhandled errors in a TaskGroup"."""
-    while isinstance(exc, BaseExceptionGroup) and exc.exceptions:
-        exc = exc.exceptions[0]
-    return exc
 
 
 class RunWorker:
@@ -73,7 +66,7 @@ class RunWorker:
             status, error = await self._execute(record, events, cancel_watch)
         except Exception as exc:  # noqa: BLE001 — any failure finalizes as error
             logger.exception("Run %s failed", record.id)
-            status, error = RunStatus.error, str(_root_cause(exc))
+            status, error = RunStatus.error, str(root_cause(exc))
         finally:
             await self._stop(heartbeat)
             await self._stop(cancel_watch)
@@ -143,7 +136,7 @@ class RunWorker:
             await stream_task
         exc = stream_task.exception()
         if exc is not None:
-            return RunStatus.error, str(_root_cause(exc))
+            return RunStatus.error, str(root_cause(exc))
         if stream_task.result():  # an error SSE was emitted
             return RunStatus.error, None
         if await self._is_interrupted(record.thread_id):

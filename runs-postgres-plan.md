@@ -112,18 +112,23 @@ ever matters).
 
 ### Cancel
 
-Running run: Redis control channel, unchanged. Pending run: guarded
-`UPDATE ... SET status='cancelled' WHERE id=:id AND status='pending'`.
+Running run: Redis control channel, unchanged. Pending run: routed through
+`finalize(cancelled, expected=pending)` — same transaction as any terminal
+update, so the thread stamp and end sentinel apply; if a dispatcher claimed
+the run between the read and the guarded update, cancel falls through to the
+control-channel path.
 
 ### Finalize — now one transaction
 
-`RunService.finalize(run_id, status, error=None)`:
+`RunService.finalize(run_id, status, error=None, expected=None)`:
 
 1. **One DB transaction**: guarded terminal update
-   (`UPDATE runs SET status, error WHERE id=:id AND status NOT IN (<terminal>)` — idempotent,
-   worker and reaper may both call) **plus** `UPDATE threads SET last_run_status=:status` on
-   the same connection. The run outcome and the thread stamp can no longer disagree — the
-   best-effort gap from the column-only plan is gone.
+   (`UPDATE runs SET status, error WHERE id=:id AND status IN (<legal sources for status>)`,
+   derived from the `state.py` transition table — idempotent, worker and reaper may both
+   call, and a `pending` run can never be reported `success`) **plus**
+   `UPDATE threads SET last_run_status=:status` on the same connection. The run outcome and
+   the thread stamp can no longer disagree — the best-effort gap from the column-only plan
+   is gone.
 2. Then Redis: publish the `end` sentinel, TTL the events/control keys (1h, as today).
 
 All terminal statuses stamp the thread, including `interrupted` (doubles as a
@@ -135,7 +140,9 @@ failure). The old exclusion for contention-rejects is moot — that path no long
 New edge the durable record creates: `GET /{run_id}/stream` on a run whose events have
 TTL'd away (>1h) would block forever waiting for a sentinel on an empty stream. Fix in
 `RunService.stream`: if the run is terminal in Postgres and the events key doesn't exist,
-emit a synthetic `end` sentinel immediately.
+emit a synthetic `end` sentinel immediately. The same backstop runs on every idle block
+window, covering a worker that died between the Postgres commit and publishing the
+sentinel (log exists, no `end` entry).
 
 ## API surface (endpoints unchanged, semantics upgraded)
 

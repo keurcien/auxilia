@@ -10,13 +10,17 @@ running run per thread" is enforced by a partial unique index (see the
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import delete, exists, update
+from sqlalchemy import delete, exists, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 from sqlmodel import select
 
 from app.agents.runs.models import RunDB
-from app.agents.runs.state import TERMINAL_STATUSES, RunStatus
+from app.agents.runs.state import (
+    TERMINAL_STATUSES,
+    RunStatus,
+    legal_source_statuses,
+)
 from app.repository import BaseRepository
 
 
@@ -48,6 +52,16 @@ class RunRepository(BaseRepository[RunDB]):
         )
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
+
+    async def lock_thread_runs(self, thread_id: str) -> None:
+        """Serialize run creation for a thread within this transaction
+        (advisory xact lock, auto-released at commit/rollback) so two
+        concurrent `reject` creates can't both pass the active-run check.
+        No-op outside Postgres (the test suite runs on SQLite)."""
+        if self.db.bind.dialect.name != "postgresql":
+            return
+        stmt = select(func.pg_advisory_xact_lock(func.hashtext(thread_id)))
+        await self.db.execute(stmt)
 
     async def get_active_for_thread(self, thread_id: str) -> RunDB | None:
         """The thread's current non-terminal run (running first, then newest
@@ -120,20 +134,24 @@ class RunRepository(BaseRepository[RunDB]):
         expected: RunStatus | None = None,
     ) -> str | None:
         """Guarded terminal transition. Returns the run's `thread_id` when the
-        update applied, `None` when the run was already terminal (idempotent —
-        worker and reaper may both call) or didn't match `expected`.
+        update applied, `None` when the current status made the transition
+        illegal — already terminal (idempotent — worker and reaper may both
+        call), or a source the transition table forbids (a `pending` run can
+        never be finalized `success`).
 
-        `expected` narrows the guard to one source status (e.g. cancelling a
-        `pending` run must not finalize it if a dispatcher claimed it meanwhile).
+        `expected` narrows the guard to one source status (e.g. cancelling or
+        reaping a `pending` run must not finalize it if a dispatcher claimed
+        it meanwhile).
         """
+        sources = legal_source_statuses(status)
+        if expected is not None:
+            sources = sources & {expected}
         stmt = (
             update(RunDB)
-            .where(RunDB.id == run_id, RunDB.status.not_in(TERMINAL_STATUSES))
+            .where(RunDB.id == run_id, RunDB.status.in_(sources))
             .values(status=status, error=error)
             .returning(RunDB.thread_id)
         )
-        if expected is not None:
-            stmt = stmt.where(RunDB.status == expected)
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 

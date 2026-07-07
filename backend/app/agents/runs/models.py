@@ -7,7 +7,7 @@ Redis. See `SPEC.md`.
 
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, Enum as SAEnum
+from sqlalchemy import JSON, Enum as SAEnum, Index, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Column, Field, SQLModel, String, Text
 
@@ -22,6 +22,29 @@ def _json_column() -> Column:
 
 class RunDB(TimestampMixin, SQLModel, table=True):
     __tablename__ = "runs"
+    # Mirrors the `add_runs_table` migration so autogenerate never reads the
+    # runs indexes as drift. `sqlite_where` keeps the partial semantics in the
+    # (SQLite-backed) test suite too.
+    __table_args__ = (
+        # Run history per thread, newest first.
+        Index("ix_runs_thread_id_created_at", "thread_id", "created_at"),
+        # The per-thread mutex: at most one running run per thread.
+        Index(
+            "uq_runs_one_running_per_thread",
+            "thread_id",
+            unique=True,
+            postgresql_where=text("status = 'running'"),
+            sqlite_where=text("status = 'running'"),
+        ),
+        # The hot set: dispatcher claim + active-runs poll + reaper worklist.
+        Index(
+            "ix_runs_active",
+            "status",
+            "user_id",
+            postgresql_where=text("status IN ('pending', 'running')"),
+            sqlite_where=text("status IN ('pending', 'running')"),
+        ),
+    )
 
     # String ids (uuid4) rather than UUID columns: run ids travel through Redis
     # keys, SSE headers, and URL paths as strings, and `threads.id` is already a

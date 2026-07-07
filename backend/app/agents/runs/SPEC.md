@@ -67,10 +67,11 @@ them), plus `cancelled` for auxilia's explicit Stop:
 \* `interrupted` is terminal *for this run*: resuming creates a **new** run
 (carrying the `Command(resume=...)`), matching how the graph checkpoint works.
 
-The legal-transition table lives in `state.py::transition()` as the readable
-spec; the repository enforces the same shape in SQL (claim:
-`WHERE status='pending'`; finalize: `WHERE status NOT IN (<terminal>)`, plus an
-optional `expected` guard for cancel-vs-claim races).
+The legal-transition table lives in `state.py` as the single source of truth;
+the repository derives its SQL guards from it (claim: `WHERE status='pending'`;
+finalize: `WHERE status IN legal_source_statuses(target)`, so e.g. a `pending`
+run can be reaped to `error` but never reported `success`, plus an optional
+`expected` guard for cancel/reap-vs-claim races).
 
 ## Module layout (`app/agents/runs/`)
 

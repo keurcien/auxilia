@@ -1,4 +1,4 @@
-import { RunStatus } from "@/types/runs";
+import { RunTerminalStatus } from "@/types/runs";
 
 export interface Trigger {
 	id: string;
@@ -50,6 +50,6 @@ export interface TriggerThread {
 	agentId: string;
 	firstMessageContent: string | null;
 	/** Outcome of the firing's run; null while in flight. */
-	lastRunStatus?: RunStatus | null;
+	lastRunStatus?: RunTerminalStatus | null;
 	createdAt: string;
 }

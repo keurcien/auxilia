@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.agents.models import AgentDB
+from app.agents.runs.state import RunStatus
 from app.repository import BaseRepository
 from app.threads.models import FIRST_PARTY_SOURCES, ThreadDB
 from app.users.models import UserDB
@@ -74,7 +75,7 @@ class ThreadRepository(BaseRepository[ThreadDB]):
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
-    async def set_last_run_status(self, thread_id: str, status: str) -> None:
+    async def set_last_run_status(self, thread_id: str, status: RunStatus) -> None:
         """Stamp the outcome of the thread's most recent run (single UPDATE;
         a deleted thread is a harmless 0-row no-op)."""
         stmt = (

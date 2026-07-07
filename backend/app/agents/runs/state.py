@@ -35,9 +35,9 @@ TERMINAL_STATUSES: frozenset[RunStatus] = frozenset(
 )
 
 # Exhaustive transition table. Anything not listed is illegal and raises.
-# The repository enforces this shape in SQL (claim: WHERE status='pending';
-# finalize: WHERE status NOT IN terminal) — this table stays the readable
-# spec and the guard for any in-Python transition.
+# The repository derives its SQL guards from this table (claim: WHERE
+# status='pending'; finalize: WHERE status IN legal_source_statuses(target)),
+# so it is the single source of truth for legality, in Python and in SQL.
 _ALLOWED: dict[RunStatus, frozenset[RunStatus]] = {
     RunStatus.pending: frozenset(
         {RunStatus.running, RunStatus.cancelled, RunStatus.error}
@@ -73,6 +73,15 @@ def transition(current: RunStatus, target: RunStatus) -> RunStatus:
     if target not in _ALLOWED[current]:
         raise InvalidRunTransitionError(current, target)
     return target
+
+
+def legal_source_statuses(target: RunStatus) -> frozenset[RunStatus]:
+    """The statuses from which `target` is a legal transition — the SQL
+    finalize guard (e.g. a `pending` run can be reaped to `error` but can
+    never be reported `success`)."""
+    return frozenset(
+        source for source, targets in _ALLOWED.items() if target in targets
+    )
 
 
 def is_terminal(status: RunStatus) -> bool:

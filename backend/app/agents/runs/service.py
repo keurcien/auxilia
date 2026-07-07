@@ -66,11 +66,14 @@ class RunService:
             raise DomainValidationError("Provide either input or command, not both.")
         async with AsyncSessionLocal() as db:
             repository = RunRepository(db)
-            if (
-                multitask_strategy == "reject"
-                and await repository.get_active_for_thread(thread_id) is not None
-            ):
-                raise DomainValidationError("This thread already has an active run.")
+            if multitask_strategy == "reject":
+                # Serialize concurrent creates on this thread so two reject
+                # requests can't both pass the check (lock ends with the txn).
+                await repository.lock_thread_runs(thread_id)
+                if await repository.get_active_for_thread(thread_id) is not None:
+                    raise DomainValidationError(
+                        "This thread already has an active run."
+                    )
             run = await repository.create(
                 RunDB(
                     thread_id=thread_id,
@@ -135,13 +138,15 @@ class RunService:
         return record
 
     async def stream(
-        self, run_id: str, last_event_id: str = "0"
+        self, run_id: str, last_event_id: str = "0", *, block_ms: int = 15000
     ) -> AsyncGenerator[str, None]:
         """Relay a run's SSE event log from `last_event_id` until it ends.
 
-        A terminal run whose event log has expired (reattach later than the
-        Redis TTL) yields a synthetic end sentinel instead of blocking forever
-        on an empty stream — the record outlives the log now.
+        The Postgres record backstops the Redis log twice over: a terminal run
+        whose log has expired (reattach later than the TTL) yields a synthetic
+        end sentinel immediately, and an idle block window on a terminal run
+        (worker died between the DB commit and publishing the sentinel) does
+        the same instead of waiting forever on a stream that will never end.
         """
         events = RunEventStream(run_id, self.redis)
         if not await events.exists():
@@ -149,8 +154,20 @@ class RunService:
             if is_terminal(record.status):
                 yield end_sentinel(record.status)
                 return
-        async for sse in events.subscribe(last_event_id):
-            yield sse
+        cursor = last_event_id or "0"
+        while True:
+            batch = await events.read_batch(cursor, block_ms=block_ms)
+            if batch is None:
+                record = await self.get(run_id)
+                if is_terminal(record.status):
+                    yield end_sentinel(record.status)
+                    return
+                continue
+            cursor, chunks, ended = batch
+            for sse in chunks:
+                yield sse
+            if ended:
+                return
 
     async def wait_for_terminal(self, run_id: str) -> RunDB:
         """Block until the run reaches a terminal state, then return its record.
@@ -185,7 +202,7 @@ class RunService:
                 run_id, status, error=error, expected=expected
             )
             if thread_id is not None:
-                await ThreadRepository(db).set_last_run_status(thread_id, status.value)
+                await ThreadRepository(db).set_last_run_status(thread_id, status)
             await db.commit()
             record = await repository.get(run_id)
         if thread_id is not None:

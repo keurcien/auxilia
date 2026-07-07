@@ -1,4 +1,4 @@
-import { RunStatus } from "@/types/runs";
+import { RunTerminalStatus } from "@/types/runs";
 
 export type ThreadSource = "web" | "slack" | "api" | "trigger";
 
@@ -15,7 +15,7 @@ export interface Thread {
 	triggerId?: string | null;
 	/** Outcome of the most recent run; null = no finished run. In-flight state
 	 * comes from the active-runs poll, never from this field. */
-	lastRunStatus?: RunStatus | null;
+	lastRunStatus?: RunTerminalStatus | null;
 	createdAt: string;
 }
 

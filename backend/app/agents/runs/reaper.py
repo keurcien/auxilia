@@ -65,8 +65,14 @@ class RunReaper:
         pending_cutoff = now - timedelta(seconds=run_settings.pending_timeout_seconds)
         for record in await self.service.list_stuck_pending(pending_cutoff):
             logger.warning("Reaping stuck pending run %s", record.id)
+            # expected=pending: if a dispatcher claimed it between the list
+            # and this call, the guarded update is a no-op instead of marking
+            # a now-running run "never dispatched".
             await self.service.finalize(
-                record.id, RunStatus.error, error="Run was never dispatched."
+                record.id,
+                RunStatus.error,
+                error="Run was never dispatched.",
+                expected=RunStatus.pending,
             )
         await self._maybe_prune(now)
 
@@ -79,9 +85,11 @@ class RunReaper:
             and time.monotonic() - self._last_prune < _PRUNE_INTERVAL_SECONDS
         ):
             return
-        self._last_prune = time.monotonic()
         cutoff = now - timedelta(days=run_settings.retention_days)
         pruned = await self.service.prune_terminal(cutoff)
+        # Stamped only after the delete succeeds, so a transient failure is
+        # retried on the next sweep instead of waiting out a full day.
+        self._last_prune = time.monotonic()
         if pruned:
             logger.info("Pruned %s terminal runs older than %s", pruned, cutoff)
 

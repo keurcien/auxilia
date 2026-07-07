@@ -136,8 +136,10 @@ async def test_success_overwrites_previous_error_stamp(redis, run_db):
     failed = await service.create(thread_id="t6", user_id=_user(), input={})
     await service.finalize(failed.id, RunStatus.error, error="boom")
     retry = await service.create(thread_id="t6", user_id=_user(), input={})
+    claimed = await service.claim_next()  # success is only legal from running
+    assert claimed.id == retry.id
     await service.finalize(retry.id, RunStatus.success)
-    assert (await _get_thread(run_db, "t6")).last_run_status == "success"
+    assert (await _get_thread(run_db, "t6")).last_run_status == RunStatus.success
 
 
 async def test_finalize_publishes_end_sentinel(redis):
@@ -168,16 +170,49 @@ async def test_cancel_expected_guard_spares_claimed_run(redis):
     assert updated.status == RunStatus.running  # guard held; still running
 
 
+async def test_finalize_refuses_illegal_source_status(redis):
+    """A pending (unclaimed) run can never be reported success/timeout/
+    interrupted — the SQL guard mirrors the transition table."""
+    service = RunService(redis)
+    record = await service.create(thread_id="t9b", user_id=_user(), input={})
+    for illegal in (RunStatus.success, RunStatus.timeout, RunStatus.interrupted):
+        updated = await service.finalize(record.id, illegal)
+        assert updated.status == RunStatus.pending
+    # ...but the legal pending transitions still apply.
+    updated = await service.finalize(record.id, RunStatus.error, error="zombie")
+    assert updated.status == RunStatus.error
+
+
+async def test_stream_missing_sentinel_backstop(redis, run_db):
+    """A worker crash between the Postgres commit and publishing the end
+    sentinel must not hang subscribers: an idle read on a terminal run yields
+    a synthetic end."""
+    service = RunService(redis)
+    record = await service.create(thread_id="t9c", user_id=_user(), input={})
+    claimed = await service.claim_next()
+    from app.agents.runs.events import RunEventStream
+    from app.agents.runs.repository import RunRepository
+
+    await RunEventStream(record.id, redis).publish("event: messages\ndata: {}\n\n")
+    # Simulate the crash: terminal in Postgres, no sentinel in Redis.
+    async with run_db() as db:
+        await RunRepository(db).finalize_run(claimed.id, RunStatus.error, error="x")
+        await db.commit()
+    chunks = [c async for c in service.stream(record.id, "0", block_ms=50)]
+    assert any("event: messages" in c for c in chunks)
+    assert "event: end" in chunks[-1] and "error" in chunks[-1]
+
+
 async def test_stream_expired_events_yields_synthetic_end(redis):
     """Reattaching to a terminal run after the event log TTL'd must terminate
     immediately instead of blocking on an empty stream."""
     service = RunService(redis)
     record = await service.create(thread_id="t10", user_id=_user(), input={})
-    await service.finalize(record.id, RunStatus.success)
+    await service.finalize(record.id, RunStatus.cancelled)
     await redis.flushall()  # simulate the Redis TTL wiping the ephemera
     chunks = [c async for c in service.stream(record.id, "0")]
     assert len(chunks) == 1
-    assert "event: end" in chunks[0] and "success" in chunks[0]
+    assert "event: end" in chunks[0] and "cancelled" in chunks[0]
 
 
 async def test_list_active_for_user(redis):
@@ -186,7 +221,7 @@ async def test_list_active_for_user(redis):
     mine = await service.create(thread_id="t11", user_id=user, input={})
     await service.create(thread_id="t12", user_id=_user(), input={})
     done = await service.create(thread_id="t13", user_id=user, input={})
-    await service.finalize(done.id, RunStatus.success)
+    await service.finalize(done.id, RunStatus.cancelled)
     active = await service.list_active_for_user(user)
     assert [r.id for r in active] == [mine.id]
 
