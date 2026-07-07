@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { Thread } from "@/types/threads";
+import { RunTerminalStatus } from "@/types/runs";
 import { api } from "@/lib/api/client";
 import { useTriggerRunsStore } from "@/stores/trigger-runs-store";
 
@@ -10,6 +11,8 @@ interface ThreadsState {
 	removeThread: (threadId: string) => void;
 	renameThread: (threadId: string, firstMessageContent: string) => void;
 	markAgentArchived: (agentId: string) => void;
+	/** Stamp a run outcome observed by the active-runs poll (sidebar badge). */
+	setLastRunStatus: (threadId: string, status: RunTerminalStatus) => void;
 }
 
 export const useThreadsStore = create<ThreadsState>((set) => ({
@@ -48,5 +51,16 @@ export const useThreadsStore = create<ThreadsState>((set) => ({
 					: thread,
 			),
 		}));
+	},
+	setLastRunStatus: (threadId, status) => {
+		set((state) => {
+			const thread = state.threads.find((t) => t.id === threadId);
+			if (!thread || thread.lastRunStatus === status) return state;
+			return {
+				threads: state.threads.map((t) =>
+					t.id === threadId ? { ...t, lastRunStatus: status } : t,
+				),
+			};
+		});
 	},
 }));

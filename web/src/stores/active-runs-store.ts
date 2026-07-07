@@ -15,6 +15,8 @@ interface ActiveRunsState {
 	markThreadRunning: (threadId: string) => void;
 	/** Record a poll result; prunes optimistic marks older than the poll. */
 	setConfirmed: (threadIds: string[], polledAt: number) => void;
+	/** Ask the poller to refresh now (e.g. a stream just finished). */
+	requestPoll: () => void;
 }
 
 export const useActiveRunsStore = create<ActiveRunsState>((set) => ({
@@ -46,5 +48,8 @@ export const useActiveRunsStore = create<ActiveRunsState>((set) => ({
 			);
 			return { confirmedThreadIds: threadIds, optimisticMarkedAt };
 		});
+	},
+	requestPoll: () => {
+		set((state) => ({ pollEpoch: state.pollEpoch + 1 }));
 	},
 }));

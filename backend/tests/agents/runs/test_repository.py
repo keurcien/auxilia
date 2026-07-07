@@ -6,8 +6,8 @@ reaper worklists, and retention pruning. Locking semantics (`SKIP LOCKED`,
 the partial unique index) are Postgres-only and out of scope here.
 """
 
-from datetime import datetime, timedelta
-from uuid import uuid4
+from datetime import UTC, datetime, timedelta
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -224,6 +224,32 @@ async def test_list_active_for_user(redis):
     await service.finalize(done.id, RunStatus.cancelled)
     active = await service.list_active_for_user(user)
     assert [r.id for r in active] == [mine.id]
+
+
+async def test_list_active_for_user_includes_recently_finished(redis, run_db):
+    """`recent_seconds` widens the poll to freshly-terminal runs (the sidebar
+    error badge / run history), without resurrecting old ones."""
+    service = RunService(redis)
+    user = _user()
+    active = await service.create(thread_id="t11b", user_id=user, input={})
+    failed = await service.create(thread_id="t11c", user_id=user, input={})
+    await service.finalize(failed.id, RunStatus.error, error="boom")
+    theirs = await service.create(thread_id="t11d", user_id=_user(), input={})
+    await service.finalize(theirs.id, RunStatus.error, error="boom")
+    stale = await _add_run(
+        run_db,
+        thread_id="t11e",
+        user_id=UUID(user),
+        status=RunStatus.success,
+        updated_at=datetime.now(UTC) - timedelta(hours=1),
+    )
+
+    runs = await service.list_active_for_user(user, recent_seconds=60)
+    assert {r.id for r in runs} == {active.id, failed.id}
+    assert stale.id not in {r.id for r in runs}
+    # Default stays active-only.
+    runs = await service.list_active_for_user(user)
+    assert [r.id for r in runs] == [active.id]
 
 
 async def test_stuck_pending_excludes_enqueue_waiters(redis, run_db):

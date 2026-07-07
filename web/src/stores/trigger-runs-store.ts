@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { TriggerThread } from "@/types/triggers";
+import { RunTerminalStatus } from "@/types/runs";
 import { api } from "@/lib/api/client";
 
 interface TriggerRunsState {
@@ -8,6 +9,8 @@ interface TriggerRunsState {
 	fetchRuns: (triggerId: string) => Promise<void>;
 	addRun: (triggerId: string, run: TriggerThread) => void;
 	removeRun: (threadId: string) => void;
+	/** Stamp a run outcome observed by the active-runs poll (Failed marker). */
+	setRunStatus: (threadId: string, status: RunTerminalStatus) => void;
 }
 
 export const useTriggerRunsStore = create<TriggerRunsState>((set) => ({
@@ -45,5 +48,22 @@ export const useTriggerRunsStore = create<TriggerRunsState>((set) => ({
 				]),
 			),
 		}));
+	},
+	setRunStatus: (threadId, status) => {
+		set((state) => {
+			// A firing belongs to exactly one trigger — rebuild only that
+			// entry so unrelated run-history cards keep their references.
+			for (const [triggerId, runs] of Object.entries(state.runsByTrigger)) {
+				const index = runs.findIndex((run) => run.id === threadId);
+				if (index === -1) continue;
+				if (runs[index].lastRunStatus === status) return state;
+				const next = runs.slice();
+				next[index] = { ...runs[index], lastRunStatus: status };
+				return {
+					runsByTrigger: { ...state.runsByTrigger, [triggerId]: next },
+				};
+			}
+			return state;
+		});
 	},
 }));
