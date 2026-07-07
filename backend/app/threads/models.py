@@ -52,3 +52,10 @@ class ThreadDB(ThreadBase, TimestampMixin, table=True):
         index=True,
         nullable=True,
     )
+    # Terminal status of the thread's most recent run (a `RunStatus` value),
+    # stamped in the same transaction as the run's terminal update. NULL = no
+    # finished run recorded. Server-stamped only — deliberately not on
+    # ThreadBase so it can't arrive through create/patch payloads.
+    last_run_status: str | None = Field(
+        default=None, sa_column=Column(String, nullable=True)
+    )

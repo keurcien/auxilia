@@ -20,6 +20,12 @@ _DATA = "data"  # the raw SSE chunk
 _END = "end"  # present ("1") only on the terminal sentinel
 
 
+def end_sentinel(status: RunStatus) -> str:
+    """The SSE chunk that terminates a run's stream. Also emitted synthetically
+    when a subscriber attaches to a terminal run whose event log has expired."""
+    return f"event: end\ndata: {json.dumps({'status': status.value})}\n\n"
+
+
 class RunEventStream:
     """The event log for a single run."""
 
@@ -34,8 +40,13 @@ class RunEventStream:
 
     async def publish_end(self, status: RunStatus) -> str:
         """Append the terminal sentinel. Subscribers stop after reading it."""
-        sentinel = f"event: end\ndata: {json.dumps({'status': status.value})}\n\n"
-        return await self.redis.xadd(self._key, {_DATA: sentinel, _END: "1"})
+        return await self.redis.xadd(
+            self._key, {_DATA: end_sentinel(status), _END: "1"}
+        )
+
+    async def exists(self) -> bool:
+        """Whether the log has any entries (False once the key TTLs away)."""
+        return bool(await self.redis.exists(self._key))
 
     async def subscribe(
         self, last_event_id: str = "0", *, block_ms: int = 15000

@@ -25,6 +25,10 @@ class ThreadPatch(SQLModel):
 class ThreadResponse(ThreadBase):
     id: str
     trigger_id: UUID | None = None
+    # Outcome of the most recent run (a RunStatus value); None = no finished
+    # run. "busy" is deliberately not a value here — in-flight state comes
+    # from the /runs/active poll.
+    last_run_status: str | None = None
     created_at: datetime
     updated_at: datetime
     agent_name: str | None = None

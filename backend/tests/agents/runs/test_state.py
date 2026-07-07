@@ -3,35 +3,10 @@ import pytest
 from app.agents.runs.state import (
     TERMINAL_STATUSES,
     InvalidRunTransitionError,
-    RunRecord,
     RunStatus,
     is_terminal,
     transition,
 )
-
-
-def test_record_redis_round_trip():
-    record = RunRecord(
-        id="r1",
-        thread_id="t1",
-        user_id="u1",
-        input={"messages": [{"type": "human", "content": "hi"}]},
-        trigger="regenerate-message",
-        output_schema={"type": "object", "properties": {"x": {"type": "number"}}},
-    )
-    back = RunRecord.from_redis(record.to_redis())
-    assert back.id == "r1"
-    assert back.input == record.input
-    assert back.trigger == "regenerate-message"
-    assert back.output_schema == record.output_schema
-    assert back.status == RunStatus.pending
-
-
-def test_to_redis_omits_none_fields():
-    raw = RunRecord(id="r1", thread_id="t1", user_id="u1").to_redis()
-    assert "error" not in raw
-    assert "command" not in raw
-    assert "last_heartbeat" not in raw
 
 
 @pytest.mark.parametrize(

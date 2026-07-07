@@ -58,4 +58,6 @@ class TriggerThreadResponse(SQLModel):
     id: str
     agent_id: UUID
     first_message_content: str | None = None
+    # Outcome of the firing's run (a RunStatus value); None while in flight.
+    last_run_status: str | None = None
     created_at: datetime

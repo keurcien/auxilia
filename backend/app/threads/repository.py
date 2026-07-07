@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import delete
+from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -73,6 +73,16 @@ class ThreadRepository(BaseRepository[ThreadDB]):
             stmt = stmt.where(ThreadDB.created_at >= since)
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
+
+    async def set_last_run_status(self, thread_id: str, status: str) -> None:
+        """Stamp the outcome of the thread's most recent run (single UPDATE;
+        a deleted thread is a harmless 0-row no-op)."""
+        stmt = (
+            update(ThreadDB)
+            .where(ThreadDB.id == thread_id)
+            .values(last_run_status=status)
+        )
+        await self.db.execute(stmt)
 
     async def list_for_agent(self, agent_id: UUID):
         stmt = (

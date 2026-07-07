@@ -15,9 +15,7 @@ export default function RunHistoryCard({
 	triggerId,
 	timezone,
 }: RunHistoryCardProps) {
-	const runs = useTriggerRunsStore(
-		(state) => state.runsByTrigger[triggerId],
-	);
+	const runs = useTriggerRunsStore((state) => state.runsByTrigger[triggerId]);
 	const fetchRuns = useTriggerRunsStore((state) => state.fetchRuns);
 
 	useEffect(() => {
@@ -47,8 +45,33 @@ export default function RunHistoryCard({
 					<span className="flex-1 min-w-0 truncate font-[family-name:var(--font-dm-sans)] text-[14px] font-medium text-[#1E2D28] dark:text-white group-hover:text-[#3D8B63] dark:group-hover:text-emerald-400 transition-colors">
 						{formatRunAt(run.createdAt, timezone)}
 					</span>
+					{(run.lastRunStatus === "error" ||
+						run.lastRunStatus === "timeout") && (
+						<span className="flex shrink-0 items-center gap-1">
+							<svg
+								width="13"
+								height="13"
+								viewBox="0 0 24 24"
+								xmlns="http://www.w3.org/2000/svg"
+								className="shrink-0"
+								aria-hidden="true"
+							>
+								<path
+									d="M18 6L6 18M6 6l12 12"
+									fill="none"
+									stroke="#CE5B45"
+									strokeWidth="3"
+									strokeLinecap="round"
+									strokeLinejoin="round"
+								/>
+							</svg>
+							<span className="font-[family-name:var(--font-dm-sans)] text-[12.5px]/4 font-semibold text-[#CE5B45]">
+								Failed
+							</span>
+						</span>
+					)}
 					<span className="shrink-0 font-[family-name:var(--font-dm-sans)] text-[12.5px] font-semibold text-[#4CA882] opacity-0 group-hover:opacity-100 transition-opacity">
-						Open thread →
+						Open
 					</span>
 				</Link>
 			))}

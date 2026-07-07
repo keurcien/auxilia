@@ -1,14 +1,11 @@
-"""What a run *is*: its lifecycle, its record, and the legal transitions.
+"""What a run *is*: its lifecycle and the legal transitions.
 
-A run is the execution envelope around one agent turn (see `SPEC.md`). It lives
-in Redis only — durable conversation state stays in the LangGraph checkpoint.
+A run is the execution envelope around one agent turn (see `SPEC.md`). Its
+record is the `RunDB` row in Postgres (`models.py`); durable conversation
+state stays in the LangGraph checkpoint.
 """
 
-import json
-from datetime import UTC, datetime
 from enum import Enum
-
-from pydantic import BaseModel, Field
 
 
 class RunStatus(str, Enum):
@@ -24,8 +21,9 @@ class RunStatus(str, Enum):
     cancelled = "cancelled"
 
 
-# Terminal states release the per-thread mutex and get a TTL. `interrupted` is
-# terminal *for this run* — resuming a HITL interrupt creates a new run.
+# Terminal states stamp `threads.last_run_status` and TTL the run's Redis
+# ephemera. `interrupted` is terminal *for this run* — resuming a HITL
+# interrupt creates a new run.
 TERMINAL_STATUSES: frozenset[RunStatus] = frozenset(
     {
         RunStatus.interrupted,
@@ -37,6 +35,9 @@ TERMINAL_STATUSES: frozenset[RunStatus] = frozenset(
 )
 
 # Exhaustive transition table. Anything not listed is illegal and raises.
+# The repository enforces this shape in SQL (claim: WHERE status='pending';
+# finalize: WHERE status NOT IN terminal) — this table stays the readable
+# spec and the guard for any in-Python transition.
 _ALLOWED: dict[RunStatus, frozenset[RunStatus]] = {
     RunStatus.pending: frozenset(
         {RunStatus.running, RunStatus.cancelled, RunStatus.error}
@@ -76,56 +77,3 @@ def transition(current: RunStatus, target: RunStatus) -> RunStatus:
 
 def is_terminal(status: RunStatus) -> bool:
     return status in TERMINAL_STATUSES
-
-
-def _now() -> datetime:
-    return datetime.now(UTC)
-
-
-class RunRecord(BaseModel):
-    """The operational state of a run, serialized into a Redis hash.
-
-    `input`/`command`/`trigger`/`config_overrides` are the parameters the worker
-    replays into `Agent.stream(...)`. Conversation state is *not* here — it lives
-    in the thread's LangGraph checkpoint.
-    """
-
-    id: str
-    thread_id: str
-    user_id: str
-    status: RunStatus = RunStatus.pending
-    multitask_strategy: str = "reject"
-
-    # Run parameters (mutually: input for a new turn, command for a HITL resume).
-    input: dict | None = None
-    command: dict | None = None
-    trigger: str | None = None
-    config_overrides: dict | None = None
-    # JSON Schema for a structured final answer (the invoke consumer reads it back).
-    output_schema: dict | None = None
-
-    # Opaque push-delivery descriptor. `None` = pull (an HTTP subscriber rides
-    # the event log). A push channel (e.g. Slack) sets it so the worker spawns a
-    # delivery consumer; the schema is owned by that channel, not by this module.
-    delivery: dict | None = None
-
-    # Terminal error text, when status is `error`/`timeout`.
-    error: str | None = None
-
-    created_at: datetime = Field(default_factory=_now)
-    updated_at: datetime = Field(default_factory=_now)
-    last_heartbeat: datetime | None = None
-
-    def to_redis(self) -> dict[str, str]:
-        """Serialize to a flat str→str mapping for HSET. Each field is JSON so
-        reads round-trip uniformly; `None` fields are omitted."""
-        return {
-            key: json.dumps(value)
-            for key, value in self.model_dump(mode="json").items()
-            if value is not None
-        }
-
-    @classmethod
-    def from_redis(cls, raw: dict[str, str]) -> "RunRecord":
-        """Rebuild from a HGETALL mapping written by `to_redis`."""
-        return cls(**{key: json.loads(value) for key, value in raw.items()})
