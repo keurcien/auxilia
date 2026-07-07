@@ -15,7 +15,6 @@ import { useTriggersStore } from "@/stores/triggers-store";
 import { useModelsStore } from "@/stores/models-store";
 import { EditorHeader } from "@/components/editor/editor-header";
 import { EditorSection } from "@/components/editor/editor-section";
-import { StatusPill } from "@/components/editor/status-pill";
 import { SaveActions } from "@/components/editor/save-actions";
 import { AgentPicker } from "@/components/editor/agent-picker";
 import { ModelPickerChip } from "@/components/editor/model-picker-chip";
@@ -161,9 +160,7 @@ export default function TriggerEditor({
 						<span className="font-[family-name:var(--font-dm-sans)] text-[12.5px] font-medium text-[#94A59D] dark:text-muted-foreground">
 							{trigger.name}
 						</span>
-					) : (
-						<StatusPill tone="amber" label="Draft" />
-					)
+					) : undefined
 				}
 				actions={
 					<SaveActions
