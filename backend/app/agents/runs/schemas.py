@@ -3,7 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from app.agents.runs.state import RunRecord, RunStatus
+from app.agents.runs.models import RunDB
+from app.agents.runs.state import RunStatus
 
 
 class RunCreate(BaseModel):
@@ -30,7 +31,7 @@ class RunResponse(BaseModel):
     updated_at: datetime
 
     @classmethod
-    def from_record(cls, record: RunRecord) -> "RunResponse":
+    def from_record(cls, record: RunDB) -> "RunResponse":
         return cls(
             id=record.id,
             thread_id=record.thread_id,

@@ -4,6 +4,7 @@ from uuid import UUID
 
 from sqlmodel import SQLModel
 
+from app.agents.runs.state import RunStatus
 from app.threads.models import ThreadBase
 
 
@@ -25,6 +26,10 @@ class ThreadPatch(SQLModel):
 class ThreadResponse(ThreadBase):
     id: str
     trigger_id: UUID | None = None
+    # Outcome of the most recent run; None = no finished run. "busy" is
+    # deliberately not a value here — in-flight state comes from the
+    # /runs/active poll.
+    last_run_status: RunStatus | None = None
     created_at: datetime
     updated_at: datetime
     agent_name: str | None = None

@@ -1,13 +1,17 @@
 import asyncio
+from uuid import uuid4
 
 import pytest
 
 import app.agents.runs.worker as worker_mod
+from app.agents.runs.models import RunDB
 from app.agents.runs.service import RunService
 from app.agents.runs.settings import run_settings
 from app.agents.runs.state import RunStatus
 from app.agents.runs.worker import RunWorker
-from app.exceptions import DomainValidationError
+
+
+pytestmark = pytest.mark.usefixtures("run_db")
 
 
 class _FakeAgent:
@@ -49,15 +53,24 @@ def patch_agent(monkeypatch):
     monkeypatch.setattr(RunWorker, "_is_interrupted", _no_interrupt)
 
 
+async def _create_and_claim(service: RunService, **kwargs) -> RunDB:
+    """Create a run and claim it, as the dispatcher would before `worker.run`."""
+    kwargs.setdefault("user_id", str(uuid4()))
+    record = await service.create(**kwargs)
+    claimed = await service.claim_next()
+    assert claimed is not None and claimed.id == record.id
+    return claimed
+
+
 @pytest.mark.usefixtures("patch_agent")
-async def test_worker_runs_to_success_and_releases_mutex(redis):
+async def test_worker_runs_to_success_and_frees_thread(redis):
     service = RunService(redis)
-    record = await service.create(
+    record = await _create_and_claim(
+        service,
         thread_id="t1",
-        user_id="u1",
         input={"messages": [{"type": "human", "content": "hi"}]},
     )
-    await RunWorker(redis).run(record.id)
+    await RunWorker(redis).run(record)
 
     assert (await service.get(record.id)).status == RunStatus.success
     chunks = [c async for c in service.stream(record.id, "0")]
@@ -70,9 +83,47 @@ async def test_worker_runs_to_success_and_releases_mutex(redis):
 async def test_worker_marks_error_on_error_event(redis, monkeypatch):
     monkeypatch.setattr(worker_mod, "Agent", _ErrorAgent)
     service = RunService(redis)
-    record = await service.create(thread_id="t2", user_id="u1", input={"messages": []})
-    await RunWorker(redis).run(record.id)
+    record = await _create_and_claim(service, thread_id="t2", input={"messages": []})
+    await RunWorker(redis).run(record)
     assert (await service.get(record.id)).status == RunStatus.error
+
+
+@pytest.mark.usefixtures("patch_agent")
+async def test_worker_marks_error_when_agent_raises(redis, monkeypatch):
+    class _RaisingAgent(_FakeAgent):
+        async def stream(self, **kwargs):
+            raise RuntimeError("model exploded")
+            yield  # pragma: no cover — makes this an async generator
+
+    monkeypatch.setattr(worker_mod, "Agent", _RaisingAgent)
+    service = RunService(redis)
+    record = await _create_and_claim(service, thread_id="t2b", input={"messages": []})
+    await RunWorker(redis).run(record)
+    back = await service.get(record.id)
+    assert back.status == RunStatus.error
+    assert "model exploded" in back.error
+
+
+@pytest.mark.usefixtures("patch_agent")
+async def test_worker_unwraps_exception_groups(redis, monkeypatch):
+    """A TaskGroup-wrapped failure (e.g. MCP OAuth) must store the root cause,
+    not "unhandled errors in a TaskGroup"."""
+
+    class _GroupRaisingAgent(_FakeAgent):
+        async def stream(self, **kwargs):
+            raise ExceptionGroup(
+                "unhandled errors in a TaskGroup",
+                [ExceptionGroup("nested", [RuntimeError("oauth registration 404")])],
+            )
+            yield  # pragma: no cover — makes this an async generator
+
+    monkeypatch.setattr(worker_mod, "Agent", _GroupRaisingAgent)
+    service = RunService(redis)
+    record = await _create_and_claim(service, thread_id="t2c", input={"messages": []})
+    await RunWorker(redis).run(record)
+    back = await service.get(record.id)
+    assert back.status == RunStatus.error
+    assert back.error == "oauth registration 404"
 
 
 @pytest.mark.usefixtures("patch_agent")
@@ -82,29 +133,28 @@ async def test_worker_detects_interrupt(redis, monkeypatch):
 
     monkeypatch.setattr(RunWorker, "_is_interrupted", _interrupted)
     service = RunService(redis)
-    record = await service.create(thread_id="t3", user_id="u1", input={"messages": []})
-    await RunWorker(redis).run(record.id)
+    record = await _create_and_claim(service, thread_id="t3", input={"messages": []})
+    await RunWorker(redis).run(record)
     assert (await service.get(record.id)).status == RunStatus.interrupted
 
 
 @pytest.mark.usefixtures("patch_agent")
-async def test_cancel_mid_run_stops_and_releases(redis, monkeypatch):
+async def test_cancel_mid_run_stops_and_frees_thread(redis, monkeypatch):
+    started = asyncio.Event()
+
     class _SlowAgent(_FakeAgent):
         async def stream(self, **kwargs):
             yield 'event: messages\ndata: {"t": 1}\n\n'
+            started.set()
             await asyncio.sleep(10)  # long-running; cancel should interrupt here
 
     monkeypatch.setattr(worker_mod, "Agent", _SlowAgent)
     monkeypatch.setattr(run_settings, "cancel_poll_seconds", 0.02)
 
     service = RunService(redis)
-    record = await service.create(thread_id="t5", user_id="u1", input={"messages": []})
-    run_task = asyncio.create_task(RunWorker(redis).run(record.id))
-
-    for _ in range(200):  # wait until the worker marks it running
-        await asyncio.sleep(0.01)
-        if (await service.get(record.id)).status == RunStatus.running:
-            break
+    record = await _create_and_claim(service, thread_id="t5", input={"messages": []})
+    run_task = asyncio.create_task(RunWorker(redis).run(record))
+    await asyncio.wait_for(started.wait(), timeout=5)
 
     await service.cancel(record.id)
     await asyncio.wait_for(run_task, timeout=5)
@@ -116,8 +166,8 @@ async def test_cancel_mid_run_stops_and_releases(redis, monkeypatch):
 @pytest.mark.usefixtures("patch_agent")
 async def test_wait_for_terminal_returns_terminal_record(redis):
     service = RunService(redis)
-    record = await service.create(thread_id="t6", user_id="u1", input={"messages": []})
-    await RunWorker(redis).run(record.id)
+    record = await _create_and_claim(service, thread_id="t6", input={"messages": []})
+    await RunWorker(redis).run(record)
     # Run already finished; wait_for_terminal drains the log and returns at once.
     final = await service.wait_for_terminal(record.id)
     assert final.status == RunStatus.success
@@ -141,10 +191,10 @@ async def test_worker_forwards_output_schema_to_agent(redis, monkeypatch):
 
     service = RunService(redis)
     schema = {"type": "object"}
-    record = await service.create(
-        thread_id="t7", user_id="u1", input={"messages": []}, output_schema=schema
+    record = await _create_and_claim(
+        service, thread_id="t7", input={"messages": []}, output_schema=schema
     )
-    await RunWorker(redis).run(record.id)
+    await RunWorker(redis).run(record)
     assert captured.get("output_schema") == schema
 
 
@@ -165,13 +215,13 @@ async def test_worker_invokes_delivery_consumer_for_delivery_records(redis):
         return _Consumer(record) if record.delivery else None
 
     service = RunService(redis)
-    record = await service.create(
+    record = await _create_and_claim(
+        service,
         thread_id="td1",
-        user_id="u1",
         input={"messages": []},
         delivery={"channel": "slack", "channel_id": "C"},
     )
-    await RunWorker(redis, delivery_factory=factory).run(record.id)
+    await RunWorker(redis, delivery_factory=factory).run(record)
 
     assert seen == [record.id]
     assert (await service.get(record.id)).status == RunStatus.success
@@ -179,15 +229,12 @@ async def test_worker_invokes_delivery_consumer_for_delivery_records(redis):
 
 @pytest.mark.usefixtures("patch_agent")
 async def test_worker_skips_delivery_for_plain_records(redis):
-    seen: list[str] = []
-
     def factory(record):
-        seen.append(record.id)  # called, but returns None for pull runs
-        return None
+        return None  # called, but returns None for pull runs
 
     service = RunService(redis)
-    record = await service.create(thread_id="td2", user_id="u1", input={"messages": []})
-    await RunWorker(redis, delivery_factory=factory).run(record.id)
+    record = await _create_and_claim(service, thread_id="td2", input={"messages": []})
+    await RunWorker(redis, delivery_factory=factory).run(record)
 
     assert (await service.get(record.id)).status == RunStatus.success
 
@@ -198,13 +245,13 @@ async def test_worker_succeeds_when_delivery_factory_raises(redis):
         raise RuntimeError("factory boom")
 
     service = RunService(redis)
-    record = await service.create(
+    record = await _create_and_claim(
+        service,
         thread_id="td4",
-        user_id="u1",
         input={"messages": []},
         delivery={"channel": "slack"},
     )
-    await RunWorker(redis, delivery_factory=factory).run(record.id)
+    await RunWorker(redis, delivery_factory=factory).run(record)
 
     # A factory crash must not abort the run before finalize/cleanup.
     assert (await service.get(record.id)).status == RunStatus.success
@@ -221,39 +268,23 @@ async def test_worker_succeeds_when_delivery_consumer_crashes(redis):
             raise RuntimeError("delivery boom")
 
     service = RunService(redis)
-    record = await service.create(
+    record = await _create_and_claim(
+        service,
         thread_id="td3",
-        user_id="u1",
         input={"messages": []},
         delivery={"channel": "slack"},
     )
-    await RunWorker(redis, delivery_factory=_BoomConsumer).run(record.id)
+    await RunWorker(redis, delivery_factory=_BoomConsumer).run(record)
 
     # Delivery is best-effort: a crash must not change the run's terminal status.
     assert (await service.get(record.id)).status == RunStatus.success
 
 
-async def test_create_rejects_when_thread_has_active_run(redis):
+@pytest.mark.usefixtures("patch_agent")
+async def test_worker_clears_liveness_key_on_finish(redis):
+    from app.agents.runs.liveness import RunLiveness
+
     service = RunService(redis)
-    await service.registry.claim_active("t9", "other-run", ttl=30)
-    with pytest.raises(DomainValidationError):
-        await service.create(thread_id="t9", user_id="u1", input={})
-
-
-async def test_create_rejects_both_input_and_command(redis):
-    service = RunService(redis)
-    with pytest.raises(DomainValidationError):
-        await service.create(
-            thread_id="tx",
-            user_id="u1",
-            input={"messages": []},
-            command={"resume": "x"},
-        )
-
-
-async def test_cancel_pending_run_finalizes_immediately(redis):
-    service = RunService(redis)
-    record = await service.create(thread_id="t4", user_id="u1", input={})
-    out = await service.cancel(record.id)
-    assert out.status == RunStatus.cancelled
-    assert await service.get_active("t4") is None
+    record = await _create_and_claim(service, thread_id="t8", input={"messages": []})
+    await RunWorker(redis).run(record)
+    assert not await RunLiveness(record.id, redis).is_alive()

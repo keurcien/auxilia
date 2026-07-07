@@ -31,6 +31,7 @@ from app.agents.models import AgentDB, AgentMCPServerDB, AgentSubagentDB, AgentT
 from app.teams.models import TeamDB  # noqa: F401
 from app.tags.models import TagDB  # noqa: F401
 from app.threads.models import ThreadDB  # noqa: F401
+from app.agents.runs.models import RunDB  # noqa: F401
 from app.triggers.models import TriggerDB  # noqa: F401
 from app.invites.models import InviteDB  # noqa: F401
 from app.auth.tokens.models import PersonalAccessTokenDB  # noqa: F401

@@ -7,6 +7,9 @@ export type RunStatus =
 	| "timeout"
 	| "cancelled";
 
+/** Statuses a finished run can settle on — what `lastRunStatus` fields carry. */
+export type RunTerminalStatus = Exclude<RunStatus, "pending" | "running">;
+
 export interface ActiveRun {
 	id: string;
 	threadId: string;

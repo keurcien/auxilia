@@ -30,6 +30,8 @@ from langchain_core.messages.tool import tool_call as create_tool_call
 from langgraph.runtime import Runtime
 from langgraph.types import Command
 
+from app.exceptions import root_cause
+
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +51,7 @@ class ToolErrorMiddleware(AgentMiddleware):
         try:
             return await handler(request)
         except Exception as exc:
-            inner = _unwrap(exc)
+            inner = root_cause(exc)
             return ToolMessage(
                 content=f"Error: {inner}",
                 tool_call_id=request.tool_call["id"],
@@ -156,10 +158,3 @@ class RepairInvalidToolCallsMiddleware(AgentMiddleware):
         # (valid) calls, then loops back to the model; if every call was invalid
         # there's nothing pending so it routes straight back to the model.
         return {"messages": [repaired_ai, *tool_messages]}
-
-
-def _unwrap(exc: BaseException) -> BaseException:
-    """Unwrap nested ExceptionGroups to get the root cause."""
-    while isinstance(exc, BaseExceptionGroup) and exc.exceptions:
-        exc = exc.exceptions[0]
-    return exc

@@ -15,8 +15,9 @@ from redis.asyncio import Redis
 from slack_sdk.web.async_client import AsyncWebClient
 
 from app.agents.runs.delivery import DeliveryConsumer
+from app.agents.runs.models import RunDB
 from app.agents.runs.service import RunService
-from app.agents.runs.state import RunRecord, RunStatus
+from app.agents.runs.state import RunStatus
 from app.agents.stream import SlackStreamAdapter
 from app.auth.settings import auth_settings
 from app.database import AsyncSessionLocal, get_checkpointer
@@ -34,7 +35,7 @@ logger = logging.getLogger(__name__)
 SLACK_CHANNEL = "slack"
 
 
-def build_slack_run_consumer(record: RunRecord) -> "SlackRunConsumer | None":
+def build_slack_run_consumer(record: RunDB) -> "SlackRunConsumer | None":
     """The `DeliveryFactory` for Slack: build a consumer iff the run is Slack-bound."""
     delivery = record.delivery
     if not delivery or delivery.get("channel") != SLACK_CHANNEL:
@@ -58,7 +59,7 @@ def build_slack_delivery(
 class SlackRunConsumer(DeliveryConsumer):
     """Relays one run's event log to its Slack thread."""
 
-    def __init__(self, record: RunRecord, redis: Redis | None = None):
+    def __init__(self, record: RunDB, redis: Redis | None = None):
         self.record = record
         self.delivery = record.delivery or {}
         self.redis = redis

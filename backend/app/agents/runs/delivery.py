@@ -13,7 +13,7 @@ one), so `app/agents/runs` never imports `app/integrations`.
 from collections.abc import Callable
 from typing import Protocol
 
-from app.agents.runs.state import RunRecord
+from app.agents.runs.models import RunDB
 
 
 class DeliveryConsumer(Protocol):
@@ -24,4 +24,4 @@ class DeliveryConsumer(Protocol):
 
 # Built once per run from its record; returns `None` when the record has no push
 # delivery (the common case — a pull subscriber handles it instead).
-DeliveryFactory = Callable[[RunRecord], DeliveryConsumer | None]
+DeliveryFactory = Callable[[RunDB], DeliveryConsumer | None]

@@ -4,8 +4,9 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
+from app.agents.runs.models import RunDB
 from app.agents.runs.router import get_run_service
-from app.agents.runs.state import RunRecord, RunStatus
+from app.agents.runs.state import RunStatus
 from app.main import app
 from app.threads.models import ThreadDB
 
@@ -31,17 +32,15 @@ class _FakeRunService:
         self._terminal = terminal
         self._error = error
 
-    async def create(self, **kwargs) -> RunRecord:
+    async def create(self, **kwargs) -> RunDB:
         self.create_kwargs = kwargs
-        return RunRecord(
-            id="run1", thread_id=kwargs["thread_id"], user_id=kwargs["user_id"]
-        )
+        return RunDB(id="run1", thread_id=kwargs["thread_id"], user_id=uuid4())
 
-    async def wait_for_terminal(self, run_id: str) -> RunRecord:
-        return RunRecord(
+    async def wait_for_terminal(self, run_id: str) -> RunDB:
+        return RunDB(
             id=run_id,
             thread_id="t1",
-            user_id="u1",
+            user_id=uuid4(),
             status=self._terminal,
             error=self._error,
         )

@@ -7,6 +7,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
 	AlarmClock,
+	AlertCircle,
 	Bot,
 	Loader2,
 	Server,
@@ -260,11 +261,21 @@ export function AppSidebar() {
 															{subtitle}
 														</div>
 													</div>
-													{activeRunThreadIds.has(thread.id) && (
+													{activeRunThreadIds.has(thread.id) ? (
 														<Loader2
 															aria-label="Running"
 															className="size-4 shrink-0 animate-spin text-[#4CA882] group-data-[collapsible=icon]:hidden"
 														/>
+													) : (
+														(thread.lastRunStatus === "error" ||
+															thread.lastRunStatus === "timeout") && (
+															<AlertCircle
+																aria-label="Last run failed"
+																className="size-4 shrink-0 text-destructive group-data-[collapsible=icon]:hidden"
+															>
+																<title>Last run failed</title>
+															</AlertCircle>
+														)
 													)}
 													{thread.source === "slack" && (
 														<Image
