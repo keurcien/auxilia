@@ -31,8 +31,9 @@ class RunEventStream:
 
     async def publish(self, sse: str) -> str:
         """Append an SSE chunk; returns its stream entry id."""
-        # ponytail: approximate MAXLEN drops oldest chunks — a slow reattacher on a
-        # trimmed cursor loses them. Cap is huge (max_events) + 1h TTL, so acceptable.
+        # ponytail: approximate MAXLEN keeps only the recent tail — a slow reattacher
+        # on a trimmed cursor misses intermediate live chunks, but final state is
+        # reconstructable from the checkpoint, so it's safe.
         return await self.redis.xadd(
             self._key, {_DATA: sse}, maxlen=run_settings.max_events, approximate=True
         )

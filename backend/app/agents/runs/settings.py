@@ -28,9 +28,12 @@ class RunSettings(BaseSettings):
     # creation (crash backstop) and re-applied at finalize, so it must stay
     # comfortably above `max_duration_seconds` or keys expire mid-run.
     ttl_seconds: int = 3600
-    # Approx MAXLEN cap on a run's event stream. Bounds the memory a single
-    # runaway/looping run can consume; oldest chunks are trimmed first.
-    max_events: int = 10_000
+    # Reattach tail: how many recent SSE chunks the event stream keeps (approx
+    # MAXLEN). NOT the full run history — that lives in the LangGraph checkpoint
+    # (Postgres), so trimmed chunks are recoverable and this only needs to cover
+    # a reconnecting client's replay gap. Kept small on purpose; tune via
+    # RUN_MAX_EVENTS.
+    max_events: int = 1_000
     # How often the reaper sweeps for orphans.
     reaper_interval_seconds: int = 15
     # Whether this process runs the in-process dispatcher + reaper. Set false on
