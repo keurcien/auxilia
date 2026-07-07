@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.14](https://github.com/keurcien/auxilia/compare/web-v0.5.13...web-v0.5.14) (2026-07-07)
+
+
+### Features
+
+* **triggers:** add "Run now" action to trigger card menu ([#189](https://github.com/keurcien/auxilia/issues/189)) ([076e102](https://github.com/keurcien/auxilia/commit/076e102e62665ce7b06e0571a7a1f8fc7afbdb18))
+* **triggers:** add border to trigger thread icon in sidebar ([#187](https://github.com/keurcien/auxilia/issues/187)) ([f829420](https://github.com/keurcien/auxilia/commit/f829420e6c721de7a6f005f8f9ba0ca0eb4319b1))
+* **triggers:** link trigger name in chat header to trigger detail ([#188](https://github.com/keurcien/auxilia/issues/188)) ([b57c683](https://github.com/keurcien/auxilia/commit/b57c6838fadaa6b8a223a6b28a552cd9105b4998))
+* **triggers:** redesign schedule time field with chevron picker ([#186](https://github.com/keurcien/auxilia/issues/186)) ([9f87279](https://github.com/keurcien/auxilia/commit/9f87279310eaf1f1c6e164158a7fd39604f69245))
+
 ## [0.5.13](https://github.com/keurcien/auxilia/compare/web-v0.5.12...web-v0.5.13) (2026-07-06)
 
 
