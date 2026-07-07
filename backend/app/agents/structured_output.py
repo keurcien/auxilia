@@ -109,6 +109,15 @@ def validate_structured_response(value: Any, response_format: Any) -> str | None
     return None
 
 
+def _payload_shape(value: Any) -> str:
+    """A non-sensitive descriptor of a rejected payload for logs: its keys (a
+    dropped required field is the usual culprit) or type — never the values,
+    which carry customer text / reasoning that must not leak into logs."""
+    if isinstance(value, dict):
+        return f"dict{sorted(value)}"
+    return type(value).__name__
+
+
 def _tag(message: BaseMessage) -> BaseMessage:
     return message.model_copy(
         update={
@@ -169,9 +178,9 @@ class DeferredStructuredOutputMiddleware(AgentMiddleware):
                     structured_response=format_response.structured_response,
                 )
             logger.warning(
-                "structured-output rejected: %s | value=%r",
+                "structured-output rejected: %s | shape=%s",
                 error,
-                format_response.structured_response,
+                _payload_shape(format_response.structured_response),
             )
             instruction = FORMAT_RETRY_INSTRUCTION.format(error=error)
         raise StructuredOutputError(

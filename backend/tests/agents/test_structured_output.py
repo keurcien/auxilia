@@ -214,10 +214,15 @@ async def test_formatting_succeeds_on_final_attempt():
 
 async def test_all_attempts_invalid_raises_and_logs(caplog):
     """Exhausting every formatting attempt fails the run loudly, and each
-    rejection logs the offending value so failures are diagnosable."""
+    rejection is logged for diagnosis — by key shape, never by value, so
+    customer text / reasoning never leaks into logs."""
     middleware = DeferredStructuredOutputMiddleware()
     request = _make_request()
-    empty = ModelResponse(result=[AIMessage("")], structured_response={})
+    # A payload missing the required key but carrying sensitive content.
+    leaky = ModelResponse(
+        result=[AIMessage("")],
+        structured_response={"reply_to_customer": "SENSITIVE-CUSTOMER-TEXT"},
+    )
     calls: list[ModelRequest] = []
 
     with caplog.at_level("WARNING"):
@@ -227,18 +232,21 @@ async def test_all_attempts_invalid_raises_and_logs(caplog):
                 _handler_recording(
                     [
                         ModelResponse(result=[AIMessage("4")]),
-                        *([empty] * MAX_FORMAT_ATTEMPTS),
+                        *([leaky] * MAX_FORMAT_ATTEMPTS),
                     ],
                     calls,
                 ),
             )
     # 1 loop turn + one call per formatting attempt.
     assert len(calls) == 1 + MAX_FORMAT_ATTEMPTS
-    # The rejected value is logged on every failed attempt.
+    # Logged once per failed attempt, with the offending keys...
     rejects = [
         r for r in caplog.records if "structured-output rejected" in r.getMessage()
     ]
     assert len(rejects) == MAX_FORMAT_ATTEMPTS
+    assert "reply_to_customer" in rejects[0].getMessage()
+    # ...but never the values.
+    assert "SENSITIVE-CUSTOMER-TEXT" not in caplog.text
 
 
 class _Answer(BaseModel):
