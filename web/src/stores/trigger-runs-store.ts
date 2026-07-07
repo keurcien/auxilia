@@ -51,20 +51,19 @@ export const useTriggerRunsStore = create<TriggerRunsState>((set) => ({
 	},
 	setRunStatus: (threadId, status) => {
 		set((state) => {
-			let changed = false;
-			const runsByTrigger = Object.fromEntries(
-				Object.entries(state.runsByTrigger).map(([triggerId, runs]) => [
-					triggerId,
-					runs.map((run) => {
-						if (run.id !== threadId || run.lastRunStatus === status) {
-							return run;
-						}
-						changed = true;
-						return { ...run, lastRunStatus: status };
-					}),
-				]),
-			);
-			return changed ? { runsByTrigger } : state;
+			// A firing belongs to exactly one trigger — rebuild only that
+			// entry so unrelated run-history cards keep their references.
+			for (const [triggerId, runs] of Object.entries(state.runsByTrigger)) {
+				const index = runs.findIndex((run) => run.id === threadId);
+				if (index === -1) continue;
+				if (runs[index].lastRunStatus === status) return state;
+				const next = runs.slice();
+				next[index] = { ...runs[index], lastRunStatus: status };
+				return {
+					runsByTrigger: { ...state.runsByTrigger, [triggerId]: next },
+				};
+			}
+			return state;
 		});
 	},
 }));

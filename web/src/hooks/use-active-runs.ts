@@ -15,13 +15,16 @@ const RECENT_TRIGGER_WINDOW_MS = 10 * 60 * 1000;
 /** Padding on the recently-finished window, absorbing request latency and
  * server/client clock drift. */
 const RECENT_MARGIN_S = 30;
-/** Backend cap on `recent_seconds` (tab hidden longer than this misses
- * outcomes until the next `fetchThreads`). */
+/** Backend cap on `recent_seconds`; a gap wider than this (tab hidden for
+ * over an hour) falls back to a full threads refetch instead. */
 const MAX_RECENT_S = 3600;
 
-/** Epoch ms of the last successful poll — sizes the next poll's
+/** Epoch ms of the last applied poll — sizes the next poll's
  * recently-finished window so no terminal transition falls between polls. */
 let lastPolledAt: number | null = null;
+/** Monotonic poll counter — a superseded (older, still in-flight) poll's
+ * response is discarded so it can't overwrite fresher state. */
+let pollSeq = 0;
 
 function isInFlight(run: ActiveRun): boolean {
 	return run.status === "pending" || run.status === "running";
@@ -42,16 +45,25 @@ function applyFinishedRuns(runs: ActiveRun[]): void {
 }
 
 async function pollActiveRuns(): Promise<void> {
+	const seq = ++pollSeq;
 	const polledAt = Date.now();
-	const recentSeconds = Math.min(
+	const elapsedSeconds =
 		lastPolledAt === null
-			? RECENT_MARGIN_S
-			: Math.ceil((polledAt - lastPolledAt) / 1000) + RECENT_MARGIN_S,
+			? 0
+			: Math.max(0, Math.ceil((polledAt - lastPolledAt) / 1000));
+	const recentSeconds = Math.min(
+		elapsedSeconds + RECENT_MARGIN_S,
 		MAX_RECENT_S,
 	);
+	if (elapsedSeconds + RECENT_MARGIN_S > MAX_RECENT_S) {
+		// Gap wider than the window can cover — outcomes may have been
+		// missed, so refresh statuses from the source of truth instead.
+		void useThreadsStore.getState().fetchThreads();
+	}
 	const response = await api.get<ActiveRun[]>("/runs/active", {
 		params: { recentSeconds },
 	});
+	if (seq !== pollSeq) return; // a newer poll supersedes this response
 	lastPolledAt = polledAt;
 	applyFinishedRuns(response.data.filter((run) => !isInFlight(run)));
 	useActiveRunsStore.getState().setConfirmed(
