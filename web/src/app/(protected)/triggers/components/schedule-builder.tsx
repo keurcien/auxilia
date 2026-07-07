@@ -164,7 +164,7 @@ export default function ScheduleBuilder({
 								type="button"
 								aria-label="Open time picker"
 								onClick={() => {
-									timeInputRef.current?.showPicker?.();
+									timeInputRef.current?.showPicker();
 								}}
 								className="flex items-center justify-center w-9.5 self-stretch shrink-0 bg-transparent text-[#7C8C84] dark:text-muted-foreground cursor-pointer hover:bg-[#EEF3F0] dark:hover:bg-white/10 transition-colors"
 							>
