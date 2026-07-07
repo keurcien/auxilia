@@ -1,4 +1,5 @@
 from app.agents.runs.events import RunEventStream
+from app.agents.runs.settings import run_settings
 from app.agents.runs.state import RunStatus
 
 
@@ -13,6 +14,24 @@ async def test_publish_and_full_replay(redis):
     assert "data: 1" in chunks[0]
     assert "event: end" in chunks[-1]
     assert "success" in chunks[-1]
+
+
+async def test_stream_is_capped_at_max_events(redis, monkeypatch):
+    """A runaway run can't grow its event stream without bound — MAXLEN trims it.
+
+    Cap and volume span several Redis stream macro nodes (~100 entries each) so
+    approximate `MAXLEN ~` trimming actually fires on a real server — it evicts
+    whole nodes, not single entries — and not only on fakeredis's exact trim.
+    """
+    monkeypatch.setattr(run_settings, "max_events", 100)
+    events = RunEventStream("r1", redis)
+    for i in range(500):
+        await events.publish(f"data: {i}\n\n")
+
+    length = await redis.xlen(events._key)
+    assert length < 500  # trimming happened
+    # Bounded, but tolerant of node-granular approximate trimming on real Redis.
+    assert length <= run_settings.max_events * 2
 
 
 async def test_subscribe_resumes_after_cursor(redis):

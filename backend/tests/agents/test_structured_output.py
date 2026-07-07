@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from app.agents.structured_output import (
     FORMAT_INSTRUCTION,
+    MAX_FORMAT_ATTEMPTS,
     DeferredStructuredOutputMiddleware,
     is_structured_output_artifact,
     validate_structured_response,
@@ -187,25 +188,65 @@ async def test_invalid_formatting_result_retries_with_error_feedback():
     ]
 
 
-async def test_invalid_formatting_result_twice_raises():
-    """A second invalid structured response fails the run instead of
-    silently returning garbage to the caller."""
+async def test_formatting_succeeds_on_final_attempt():
+    """Validity on a later attempt still succeeds — the retry is a loop, not a
+    single retry. Here the first two formatting turns are empty, the third valid."""
     middleware = DeferredStructuredOutputMiddleware()
     request = _make_request()
-    empty = ModelResponse(
-        result=[AIMessage("")],
-        structured_response={},
+    empty = ModelResponse(result=[AIMessage("")], structured_response={})
+    formatted = ModelResponse(
+        result=[AIMessage('{"answer": 4}')], structured_response={"answer": 4}
     )
     calls: list[ModelRequest] = []
 
-    with pytest.raises(StructuredOutputError, match="required property"):
-        await middleware.awrap_model_call(
-            request,
-            _handler_recording(
-                [ModelResponse(result=[AIMessage("4")]), empty, empty], calls
-            ),
-        )
-    assert len(calls) == 3
+    response = await middleware.awrap_model_call(
+        request,
+        _handler_recording(
+            [ModelResponse(result=[AIMessage("4")]), empty, empty, formatted], calls
+        ),
+    )
+
+    # 1 loop turn + 3 formatting attempts (2 rejected, 3rd accepted).
+    assert len(calls) == 1 + MAX_FORMAT_ATTEMPTS
+    assert MAX_FORMAT_ATTEMPTS >= 3  # the scenario above needs at least 3 attempts
+    assert response.structured_response == {"answer": 4}
+
+
+async def test_all_attempts_invalid_raises_and_logs(caplog):
+    """Exhausting every formatting attempt fails the run loudly, and each
+    rejection is logged for diagnosis — by key shape, never by value, so
+    customer text / reasoning never leaks into logs."""
+    middleware = DeferredStructuredOutputMiddleware()
+    request = _make_request()
+    # A payload missing the required key but carrying sensitive content.
+    leaky = ModelResponse(
+        result=[AIMessage("")],
+        structured_response={"reply_to_customer": "SENSITIVE-CUSTOMER-TEXT"},
+    )
+    calls: list[ModelRequest] = []
+
+    with caplog.at_level("WARNING"):
+        with pytest.raises(StructuredOutputError, match="required property"):
+            await middleware.awrap_model_call(
+                request,
+                _handler_recording(
+                    [
+                        ModelResponse(result=[AIMessage("4")]),
+                        *([leaky] * MAX_FORMAT_ATTEMPTS),
+                    ],
+                    calls,
+                ),
+            )
+    # 1 loop turn + one call per formatting attempt.
+    assert len(calls) == 1 + MAX_FORMAT_ATTEMPTS
+    # Logged once per failed attempt, with the offending keys...
+    rejects = [
+        r for r in caplog.records if "structured-output rejected" in r.getMessage()
+    ]
+    assert len(rejects) == MAX_FORMAT_ATTEMPTS
+    assert "reply_to_customer" in rejects[0].getMessage()
+    # ...but never the values.
+    assert "SENSITIVE-CUSTOMER-TEXT" not in caplog.text
 
 
 class _Answer(BaseModel):

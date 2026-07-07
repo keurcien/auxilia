@@ -33,6 +33,12 @@ class RunSettings(BaseSettings):
     # the reattach/replay window. Run *records* live in Postgres and don't
     # expire; see `retention_days`.
     ttl_seconds: int = 3600
+    # Reattach tail: how many recent SSE chunks the event stream keeps (approx
+    # MAXLEN). NOT the full run history — that lives in the LangGraph checkpoint
+    # (Postgres), so trimmed chunks are recoverable and this only needs to cover
+    # a reconnecting client's replay gap. Kept small on purpose; tune via
+    # RUN_MAX_EVENTS.
+    max_events: int = 1_000
     # How long terminal run rows are kept in Postgres before the daily prune.
     retention_days: int = 90
     # How often the reaper sweeps for orphans.

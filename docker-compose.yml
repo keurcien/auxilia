@@ -86,8 +86,11 @@ services:
       - "6379:6379"
     volumes:
       - redis-data:/data
-    # Enable AOF persistence for durability
-    command: redis-server --appendonly yes
+    # AOF persistence for durability + a memory ceiling so a runaway run can't
+    # exhaust host RAM and wedge writes (noeviction). volatile-lru evicts only
+    # keys with a TTL (run:* have 1h) and never the no-TTL mcp:* OAuth tokens.
+    # Size maxmemory to the host; on GCP Memorystore set the same policy there.
+    command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy volatile-lru
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
