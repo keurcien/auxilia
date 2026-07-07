@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import { ChevronDown, Clock, Repeat } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -98,6 +99,7 @@ export default function ScheduleBuilder({
 	bare,
 }: ScheduleBuilderProps) {
 	const time = value.kind === "raw" ? null : value.time;
+	const timeInputRef = useRef<HTMLInputElement>(null);
 
 	const singleDay =
 		value.kind === "weekly" || value.kind === "biweekly" ? value.day : null;
@@ -143,18 +145,32 @@ export default function ScheduleBuilder({
 						<span className="shrink-0 font-[family-name:var(--font-dm-sans)] text-[14px] font-medium text-[#7C8C84] dark:text-muted-foreground">
 							at
 						</span>
-						<label className={cn(fieldClassName, "shrink-0 gap-1.5")}>
-							<Clock className="size-[15px] shrink-0 text-[#9AA8A1]" />
-							<input
-								type="time"
-								value={time}
-								onChange={(e) => {
-									if (!e.target.value) return;
-									onChange({ ...value, time: e.target.value } as Schedule);
+						<div className="flex items-center shrink-0 h-12 rounded-xl overflow-hidden border border-[#E4EAE7] dark:border-white/10 bg-white dark:bg-transparent font-[family-name:var(--font-dm-sans)] text-[14px] font-medium text-[#1E2D28] dark:text-white transition-colors">
+							<label className="flex items-center gap-1.5 pl-3.5 pr-3 cursor-pointer">
+								<Clock className="size-[15px] shrink-0 text-[#9AA8A1]" />
+								<input
+									ref={timeInputRef}
+									type="time"
+									value={time}
+									onChange={(e) => {
+										if (!e.target.value) return;
+										onChange({ ...value, time: e.target.value } as Schedule);
+									}}
+									className="bg-transparent border-none outline-none font-semibold text-[#1E2D28] dark:text-white cursor-pointer appearance-none [&::-webkit-calendar-picker-indicator]:hidden"
+								/>
+							</label>
+							<span className="w-px self-stretch shrink-0 bg-[#E4EAE7] dark:bg-white/10" />
+							<button
+								type="button"
+								aria-label="Open time picker"
+								onClick={() => {
+									timeInputRef.current?.showPicker();
 								}}
-								className="bg-transparent border-none outline-none font-semibold text-[#1E2D28] dark:text-white cursor-pointer"
-							/>
-						</label>
+								className="flex items-center justify-center w-9.5 self-stretch shrink-0 bg-transparent text-[#7C8C84] dark:text-muted-foreground cursor-pointer hover:bg-[#EEF3F0] dark:hover:bg-white/10 transition-colors"
+							>
+								<ChevronDown className="size-4 shrink-0" />
+							</button>
+						</div>
 					</>
 				)}
 			</div>
