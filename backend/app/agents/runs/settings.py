@@ -20,13 +20,18 @@ class RunSettings(BaseSettings):
     # How often a running worker polls its control channel for a Stop — the
     # upper bound on cancel latency.
     cancel_poll_seconds: float = 1.0
-    # Reaper threshold: a `running` run whose heartbeat is older than this is reaped to `error`.
+    # How often an idle dispatcher polls Postgres for claimable pending runs —
+    # the upper bound on dispatch latency.
+    claim_interval_seconds: float = 0.5
+    # Reaper threshold: a `running` run whose liveness key is gone AND whose
+    # last transition is older than this is reaped to `error`.
     heartbeat_timeout_seconds: int = 30
-    # Reaper threshold: a `pending` run older than this (a queued zombie) is reaped to `error`.
+    # Reaper threshold: a `pending` run older than this whose thread isn't
+    # busy (a never-dispatched zombie) is reaped to `error`.
     pending_timeout_seconds: int = 600
-    # Redis retention for run keys (record, events, control). Applied at
-    # creation (crash backstop) and re-applied at finalize, so it must stay
-    # comfortably above `max_duration_seconds` or keys expire mid-run.
+    # Redis retention for a finished run's ephemera (event log, control key) —
+    # the reattach/replay window. Run *records* live in Postgres and don't
+    # expire; see `retention_days`.
     ttl_seconds: int = 3600
     # Reattach tail: how many recent SSE chunks the event stream keeps (approx
     # MAXLEN). NOT the full run history — that lives in the LangGraph checkpoint
@@ -34,6 +39,8 @@ class RunSettings(BaseSettings):
     # a reconnecting client's replay gap. Kept small on purpose; tune via
     # RUN_MAX_EVENTS.
     max_events: int = 1_000
+    # How long terminal run rows are kept in Postgres before the daily prune.
+    retention_days: int = 90
     # How often the reaper sweeps for orphans.
     reaper_interval_seconds: int = 15
     # Whether this process runs the in-process dispatcher + reaper. Set false on

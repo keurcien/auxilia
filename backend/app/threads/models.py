@@ -1,8 +1,12 @@
 from enum import Enum
 from uuid import UUID, uuid4
 
+from sqlalchemy import Enum as SAEnum
 from sqlmodel import Column, Field, SQLModel, String, Text
 
+# `state` is a leaf module (stdlib-only), so this cannot cycle even though
+# `app.agents.runs` imports thread models elsewhere.
+from app.agents.runs.state import RunStatus
 from app.models import TimestampMixin
 
 
@@ -51,4 +55,16 @@ class ThreadDB(ThreadBase, TimestampMixin, table=True):
         ondelete="SET NULL",
         index=True,
         nullable=True,
+    )
+    # Terminal status of the thread's most recent run, stamped in the same
+    # transaction as the run's terminal update. NULL = no finished run
+    # recorded. Server-stamped only — deliberately not on ThreadBase so it
+    # can't arrive through create/patch payloads. Non-native enum (plain
+    # VARCHAR in the DB) so rows load back as RunStatus members.
+    last_run_status: RunStatus | None = Field(
+        default=None,
+        sa_column=Column(
+            SAEnum(RunStatus, native_enum=False, create_constraint=False),
+            nullable=True,
+        ),
     )

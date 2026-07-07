@@ -2,9 +2,10 @@
 
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
+from uuid import uuid4
 
 import app.integrations.slack.consumer as consumer_mod
-from app.agents.runs.state import RunRecord
+from app.agents.runs.models import RunDB
 from app.integrations.slack.consumer import (
     SlackRunConsumer,
     build_slack_delivery,
@@ -12,8 +13,8 @@ from app.integrations.slack.consumer import (
 )
 
 
-def _record(delivery=None) -> RunRecord:
-    return RunRecord(id="r1", thread_id="t1", user_id="u1", delivery=delivery)
+def _record(delivery=None) -> RunDB:
+    return RunDB(id="r1", thread_id="t1", user_id=uuid4(), delivery=delivery)
 
 
 def _slack_delivery() -> dict:

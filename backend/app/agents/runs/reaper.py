@@ -1,16 +1,20 @@
 """RunReaper — recovers runs orphaned by a worker or instance that died.
 
-Runs periodically (started in `lifespan` alongside the dispatcher). It scans the
-active set rather than `SCAN run:*` so it never trips over the :events/:control
-sub-keys. Finalizing through `RunService` means a reaped run still emits the
-`end` sentinel, so any client subscribed to it stops cleanly.
+Runs periodically (started in `lifespan` alongside the dispatcher). The
+worklist comes from Postgres (`running` / stale `pending` rows); death is
+detected via the Redis liveness key. Finalizing through `RunService` means a
+reaped run still emits the `end` sentinel (so any subscriber stops cleanly)
+and still stamps `threads.last_run_status`. It also owns the daily retention
+prune of terminal run rows.
 """
 
 import asyncio
 import logging
+import time
 from contextlib import suppress
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
+from app.agents.runs.liveness import RunLiveness
 from app.agents.runs.service import RunService
 from app.agents.runs.settings import run_settings
 from app.agents.runs.state import RunStatus
@@ -18,16 +22,20 @@ from app.agents.runs.state import RunStatus
 
 logger = logging.getLogger(__name__)
 
+_PRUNE_INTERVAL_SECONDS = 24 * 3600
+
 
 class RunReaper:
     def __init__(self, redis=None):
         self.service = RunService(redis)
-        self.registry = self.service.registry
         self._stopping = asyncio.Event()
+        self._last_prune: float | None = None
 
     async def run(self) -> None:
         logger.info(
-            "run reaper started: interval=%ss", run_settings.reaper_interval_seconds
+            "run reaper started: interval=%ss retention=%sd",
+            run_settings.reaper_interval_seconds,
+            run_settings.retention_days,
         )
         while not self._stopping.is_set():
             try:
@@ -38,28 +46,52 @@ class RunReaper:
 
     async def _sweep(self) -> None:
         now = datetime.now(UTC)
-        for run_id in await self.registry.list_active_ids():
-            record = await self.registry.get(run_id)
-            if record is None:
-                await self.registry.discard_active_id(run_id)
+        # Dead workers: a running run whose liveness key is gone. The
+        # updated_at grace window covers the claim → first-stamp gap (and any
+        # Redis hiccup shorter than the heartbeat timeout).
+        grace = timedelta(seconds=run_settings.heartbeat_timeout_seconds)
+        for record in await self.service.list_running():
+            if await RunLiveness(record.id, self.service.redis).is_alive():
                 continue
-            if record.status == RunStatus.running:
-                last = record.last_heartbeat or record.updated_at
-                if (
-                    now - last
-                ).total_seconds() > run_settings.heartbeat_timeout_seconds:
-                    logger.warning("Reaping stale running run %s", run_id)
-                    await self.service.finalize(
-                        run_id, RunStatus.error, error="Worker stopped responding."
-                    )
-            elif record.status == RunStatus.pending:
-                if (
-                    now - record.created_at
-                ).total_seconds() > run_settings.pending_timeout_seconds:
-                    logger.warning("Reaping stuck pending run %s", run_id)
-                    await self.service.finalize(
-                        run_id, RunStatus.error, error="Run was never dispatched."
-                    )
+            if now - record.updated_at < grace:
+                continue
+            logger.warning("Reaping stale running run %s", record.id)
+            await self.service.finalize(
+                record.id, RunStatus.error, error="Worker stopped responding."
+            )
+        # Queued zombies: pending past the dispatch timeout with an idle
+        # thread (a pending run behind a running one is a legitimate
+        # `enqueue` waiter and is skipped by the query).
+        pending_cutoff = now - timedelta(seconds=run_settings.pending_timeout_seconds)
+        for record in await self.service.list_stuck_pending(pending_cutoff):
+            logger.warning("Reaping stuck pending run %s", record.id)
+            # expected=pending: if a dispatcher claimed it between the list
+            # and this call, the guarded update is a no-op instead of marking
+            # a now-running run "never dispatched".
+            await self.service.finalize(
+                record.id,
+                RunStatus.error,
+                error="Run was never dispatched.",
+                expected=RunStatus.pending,
+            )
+        await self._maybe_prune(now)
+
+    async def _maybe_prune(self, now: datetime) -> None:
+        """Daily retention pass: drop terminal run rows past `retention_days`.
+        Safe anytime — `threads.last_run_status` is denormalized, so pruning
+        never breaks the thread badge."""
+        if (
+            self._last_prune is not None
+            and time.monotonic() - self._last_prune < _PRUNE_INTERVAL_SECONDS
+        ):
+            return
+        cutoff = now - timedelta(days=run_settings.retention_days)
+        pruned = await self.service.prune_terminal(cutoff)
+        # Stamped only after the delete succeeds, so a transient failure is
+        # retried on the next sweep instead of waiting out a full day.
+        self._last_prune = time.monotonic()
+        if pruned:
+            logger.info("Pruned %s terminal runs older than %s", pruned, cutoff)
 
     async def _sleep(self, seconds: float) -> None:
         """Sleep, but wake early if asked to stop."""
