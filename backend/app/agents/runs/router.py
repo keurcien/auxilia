@@ -78,12 +78,18 @@ def _ensure_run_on_thread(record, thread_id: str) -> None:
 
 @user_runs_router.get("/active", response_model=list[RunResponse])
 async def list_active_runs(
+    recent_seconds: int = Query(0, ge=0, le=3600),
     current_user: UserDB = Depends(get_current_user),
     service: RunService = Depends(get_run_service),
 ) -> list[RunResponse]:
     """The caller's in-flight runs across all threads — one aggregate read
-    backing the sidebar activity indicator (poll this, not per-thread)."""
-    records = await service.list_active_for_user(str(current_user.id))
+    backing the sidebar activity indicator (poll this, not per-thread).
+
+    `recent_seconds` widens the read to runs that finished within that window,
+    letting pollers observe error/success transitions between polls."""
+    records = await service.list_active_for_user(
+        str(current_user.id), recent_seconds=recent_seconds
+    )
     return [RunResponse.from_record(r) for r in records]
 
 

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { TriggerThread } from "@/types/triggers";
+import { RunTerminalStatus } from "@/types/runs";
 import { api } from "@/lib/api/client";
 
 interface TriggerRunsState {
@@ -8,6 +9,8 @@ interface TriggerRunsState {
 	fetchRuns: (triggerId: string) => Promise<void>;
 	addRun: (triggerId: string, run: TriggerThread) => void;
 	removeRun: (threadId: string) => void;
+	/** Stamp a run outcome observed by the active-runs poll (Failed marker). */
+	setRunStatus: (threadId: string, status: RunTerminalStatus) => void;
 }
 
 export const useTriggerRunsStore = create<TriggerRunsState>((set) => ({
@@ -45,5 +48,23 @@ export const useTriggerRunsStore = create<TriggerRunsState>((set) => ({
 				]),
 			),
 		}));
+	},
+	setRunStatus: (threadId, status) => {
+		set((state) => {
+			let changed = false;
+			const runsByTrigger = Object.fromEntries(
+				Object.entries(state.runsByTrigger).map(([triggerId, runs]) => [
+					triggerId,
+					runs.map((run) => {
+						if (run.id !== threadId || run.lastRunStatus === status) {
+							return run;
+						}
+						changed = true;
+						return { ...run, lastRunStatus: status };
+					}),
+				]),
+			);
+			return changed ? { runsByTrigger } : state;
+		});
 	},
 }));

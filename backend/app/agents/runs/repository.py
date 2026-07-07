@@ -10,7 +10,7 @@ running run per thread" is enforced by a partial unique index (see the
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import delete, exists, func, update
+from sqlalchemy import delete, exists, func, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 from sqlmodel import select
@@ -75,10 +75,23 @@ class RunRepository(BaseRepository[RunDB]):
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def list_active_for_user(self, user_id: UUID) -> list[RunDB]:
-        """The user's pending/running runs — backs the sidebar activity poll."""
-        stmt = select(RunDB).where(
-            RunDB.user_id == user_id, RunDB.status.in_(ACTIVE_STATUSES)
+    async def list_active_for_user(
+        self, user_id: UUID, *, finished_after: datetime | None = None
+    ) -> list[RunDB]:
+        """The user's pending/running runs — backs the sidebar activity poll.
+
+        `finished_after` additionally includes runs that reached a terminal
+        status since that instant, so a poller can observe outcomes that
+        would otherwise fall between two polls. Ordered by `updated_at` so
+        the latest outcome per thread comes last.
+        """
+        activity = RunDB.status.in_(ACTIVE_STATUSES)
+        if finished_after is not None:
+            activity = or_(activity, RunDB.updated_at >= finished_after)
+        stmt = (
+            select(RunDB)
+            .where(RunDB.user_id == user_id, activity)
+            .order_by(RunDB.updated_at)
         )
         result = await self.db.execute(stmt)
         return list(result.scalars().all())

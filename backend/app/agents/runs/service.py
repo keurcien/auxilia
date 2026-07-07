@@ -12,7 +12,7 @@ commit before the response starts streaming.
 
 import logging
 from collections.abc import AsyncGenerator
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from redis.asyncio import Redis
@@ -105,10 +105,24 @@ class RunService:
         async with AsyncSessionLocal() as db:
             return await RunRepository(db).get_active_for_thread(thread_id)
 
-    async def list_active_for_user(self, user_id: str) -> list[RunDB]:
-        """The user's pending/running runs — backs the sidebar activity poll."""
+    async def list_active_for_user(
+        self, user_id: str, *, recent_seconds: int = 0
+    ) -> list[RunDB]:
+        """The user's pending/running runs — backs the sidebar activity poll.
+
+        `recent_seconds > 0` also returns runs that finished within that
+        window, so the poller can react to terminal outcomes (error badge,
+        run history) without refetching threads.
+        """
+        finished_after = (
+            datetime.now(UTC) - timedelta(seconds=recent_seconds)
+            if recent_seconds > 0
+            else None
+        )
         async with AsyncSessionLocal() as db:
-            return await RunRepository(db).list_active_for_user(UUID(user_id))
+            return await RunRepository(db).list_active_for_user(
+                UUID(user_id), finished_after=finished_after
+            )
 
     async def claim_next(self) -> RunDB | None:
         """Atomically claim the next dispatchable run (the dispatcher's poll).

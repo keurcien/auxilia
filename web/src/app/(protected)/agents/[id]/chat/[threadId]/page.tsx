@@ -78,6 +78,7 @@ import type { Todo } from "@/components/ai-elements/todo-list";
 import { useParams } from "next/navigation";
 import { api, API_BASE_URL } from "@/lib/api/client";
 import { ThinkingLoader, DotsLoader } from "../components/loader";
+import { useActiveRunsStore } from "@/stores/active-runs-store";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { usePendingMessageStore } from "@/stores/pending-message-store";
 import { useAgentReadiness } from "@/hooks/use-agent-readiness";
@@ -446,6 +447,9 @@ const ChatPage = () => {
     messagesKey: "messages",
     filterSubagentMessages: true,
     onFinish: () => {
+      // Poll now so the sidebar spinner/badge flips with the stream instead
+      // of on the next tick.
+      useActiveRunsStore.getState().requestPoll();
       const audio = new Audio("/success.mp3");
       audio.play().catch(() => {});
     },
