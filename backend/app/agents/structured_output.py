@@ -26,9 +26,10 @@ The formatting turn's result is validated against the JSON schema before it is
 accepted: langchain returns raw-JSON-schema payloads verbatim (no validation),
 so a model that answers the formatting turn with an empty or partial tool call
 would otherwise surface ``{}`` as a successful structured response. An invalid
-result gets one retry with the rejection fed back (the failed attempt's
-messages are discarded); a second failure raises ``StructuredOutputError`` so
-the run fails loudly instead of returning garbage.
+result is retried up to ``MAX_FORMAT_ATTEMPTS`` times with the rejection fed
+back each time (the failed attempt's messages are discarded); exhausting them
+raises ``StructuredOutputError`` so the run fails loudly instead of returning
+garbage.
 
 Every message the formatting turn produces is tagged with
 ``STRUCTURED_OUTPUT_FLAG`` in ``response_metadata`` (checkpointed, but never
@@ -39,6 +40,7 @@ on the ToolStrategy path — and keep them out of the rendered chat history.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -53,6 +55,8 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from app.exceptions import StructuredOutputError
 
 
+logger = logging.getLogger(__name__)
+
 FORMAT_INSTRUCTION = (
     "Based on your answer above, provide the final response in the requested "
     "structured format. Use only information from this conversation; do not "
@@ -65,6 +69,10 @@ FORMAT_RETRY_INSTRUCTION = (
     "every required field, using only information from this conversation; do "
     "not invent values."
 )
+
+# Formatting turns before giving up. Each attempt feeds the prior rejection back,
+# so extra tries cut the tail of transient omissions (e.g. a dropped required key).
+MAX_FORMAT_ATTEMPTS = 3
 
 STRUCTURED_OUTPUT_FLAG = "structured_output"
 
@@ -136,36 +144,36 @@ class DeferredStructuredOutputMiddleware(AgentMiddleware):
         if loop_continues:
             return response
 
-        # Final answer reached: one constrained call formats it. The original
+        # Final answer reached: a constrained call formats it. The original
         # response_format object is passed through untouched so the strategy
         # (and ToolStrategy tool names) resolved at agent setup still apply.
+        # Each failed attempt's messages are dropped entirely — they may carry a
+        # dangling structured-output tool call that must not reach state — and the
+        # rejection is fed back to the next attempt.
         conversation = [*request.messages, *response.result]
-        format_response = await handler(
-            request.override(messages=[*conversation, HumanMessage(FORMAT_INSTRUCTION)])
-        )
-        error = validate_structured_response(
-            format_response.structured_response, request.response_format
-        )
-        if error is not None:
-            # One retry with the rejection fed back. The failed attempt's
-            # messages are dropped entirely — they may carry a dangling
-            # structured-output tool call that must not reach state.
+        instruction = FORMAT_INSTRUCTION
+        error: str | None = None
+        for _ in range(MAX_FORMAT_ATTEMPTS):
             format_response = await handler(
-                request.override(
-                    messages=[
-                        *conversation,
-                        HumanMessage(FORMAT_RETRY_INSTRUCTION.format(error=error)),
-                    ]
-                )
+                request.override(messages=[*conversation, HumanMessage(instruction)])
             )
             error = validate_structured_response(
                 format_response.structured_response, request.response_format
             )
-            if error is not None:
-                raise StructuredOutputError(
-                    f"Model failed to produce a valid structured response: {error}"
+            if error is None:
+                return ModelResponse(
+                    result=[
+                        *response.result,
+                        *(_tag(m) for m in format_response.result),
+                    ],
+                    structured_response=format_response.structured_response,
                 )
-        return ModelResponse(
-            result=[*response.result, *(_tag(m) for m in format_response.result)],
-            structured_response=format_response.structured_response,
+            logger.warning(
+                "structured-output rejected: %s | value=%r",
+                error,
+                format_response.structured_response,
+            )
+            instruction = FORMAT_RETRY_INSTRUCTION.format(error=error)
+        raise StructuredOutputError(
+            f"Model failed to produce a valid structured response: {error}"
         )

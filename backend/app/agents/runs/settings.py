@@ -28,6 +28,9 @@ class RunSettings(BaseSettings):
     # creation (crash backstop) and re-applied at finalize, so it must stay
     # comfortably above `max_duration_seconds` or keys expire mid-run.
     ttl_seconds: int = 3600
+    # Approx MAXLEN cap on a run's event stream. Bounds the memory a single
+    # runaway/looping run can consume; oldest chunks are trimmed first.
+    max_events: int = 10_000
     # How often the reaper sweeps for orphans.
     reaper_interval_seconds: int = 15
     # Whether this process runs the in-process dispatcher + reaper. Set false on

@@ -11,6 +11,7 @@ from collections.abc import AsyncGenerator
 from redis.asyncio import Redis
 
 from app.agents.runs import keys
+from app.agents.runs.settings import run_settings
 from app.agents.runs.state import RunStatus
 from app.redis_client import get_redis
 
@@ -30,12 +31,22 @@ class RunEventStream:
 
     async def publish(self, sse: str) -> str:
         """Append an SSE chunk; returns its stream entry id."""
-        return await self.redis.xadd(self._key, {_DATA: sse})
+        # ponytail: approximate MAXLEN drops oldest chunks — a slow reattacher on a
+        # trimmed cursor loses them. Cap is huge (max_events) + 1h TTL, so acceptable.
+        return await self.redis.xadd(
+            self._key, {_DATA: sse}, maxlen=run_settings.max_events, approximate=True
+        )
 
     async def publish_end(self, status: RunStatus) -> str:
         """Append the terminal sentinel. Subscribers stop after reading it."""
         sentinel = f"event: end\ndata: {json.dumps({'status': status.value})}\n\n"
-        return await self.redis.xadd(self._key, {_DATA: sentinel, _END: "1"})
+        # Sentinel is always the newest entry → MAXLEN never trims it away.
+        return await self.redis.xadd(
+            self._key,
+            {_DATA: sentinel, _END: "1"},
+            maxlen=run_settings.max_events,
+            approximate=True,
+        )
 
     async def subscribe(
         self, last_event_id: str = "0", *, block_ms: int = 15000
