@@ -1,0 +1,26 @@
+backend/app/agents/runs/events.py
+  s_219aaf1f191b15::t_50085a5fa7380c 34-36
+backend/app/agents/runs/settings.py
+  s_219aaf1f191b15::t_8607989cfe1044 31-36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "8221233b6360e95c098582608e71c620513dadb1",
+  "prompts": {},
+  "humans": {
+    "h_df81e42269d667": {
+      "author": "tgensol <thibaut@appchoose.io>"
+    }
+  },
+  "sessions": {
+    "s_219aaf1f191b15": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "14501e95-d622-42e7-8d38-944f56fdd0aa",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}
