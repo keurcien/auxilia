@@ -16,6 +16,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from redis.asyncio import Redis
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.runs import keys
 from app.agents.runs.control import RunControl
@@ -89,6 +90,67 @@ class RunService:
             )
             await db.commit()
         return run
+
+    async def ensure_mcp_authorized(
+        self, db: AsyncSession, agent_id: UUID, user_id: str
+    ) -> None:
+        """Pre-flight gate: raise OAuthAuthorizationRequired(auth_url) if any
+        MCP server the agent OR a subagent uses is an unauthorized OAuth server
+        for this user — the global handler (main.py) turns it into a 401
+        {oauth_required, auth_url} (parsed today by the axios list-tools flows;
+        the chat stream path surfaces it as a plain error).
+
+        Called from the run-creation endpoints (which hold the request `db` and
+        the authorized thread) before launching, so the user connects the
+        server instead of the run failing mid-flight. Not wired into
+        `RunService.create` on purpose: that path is also internal (worker,
+        reaper, seeding) and must not gate.
+
+        Fail-open: if probing or OAuth discovery breaks for infra reasons
+        (provider down, no metadata), the run launches and the failure surfaces
+        in-thread as before — only a confirmed-unauthorized server blocks.
+        """
+        # Local imports avoid an import cycle (runs.service is imported early
+        # by the worker/reaper; AgentService/MCPServerService pull in far more).
+        from sqlmodel import select
+
+        from app.agents.core.service import AgentService
+        from app.mcp.client.exceptions import OAuthAuthorizationRequired
+        from app.mcp.servers.models import MCPAuthType, MCPServerDB
+        from app.mcp.servers.service import MCPServerService
+        from app.mcp.utils import probe_mcp_server
+
+        bindings = await AgentService(db).collect_run_bindings(agent_id)
+        if not bindings:
+            return
+
+        # Auth is per (user, server), so dedupe server ids — a server shared by
+        # the agent and a subagent need only be probed once.
+        server_ids = {b.mcp_server_id for b in bindings}
+        stmt = select(MCPServerDB).where(MCPServerDB.id.in_(server_ids))
+        result = await db.execute(stmt)
+        servers = [
+            s for s in result.scalars().all() if s.auth_type == MCPAuthType.oauth2
+        ]
+        # DB reads done — release the pooled connection before the probes'
+        # network IO (token refresh, OAuth metadata discovery can take
+        # seconds). expire_on_commit=False keeps the loaded rows usable.
+        await db.commit()
+
+        for server in servers:
+            try:
+                if not await probe_mcp_server(server, user_id):
+                    # Raises OAuthAuthorizationRequired(auth_url) for the first
+                    # unauthorized server; the caller connects it and retries.
+                    await MCPServerService(db).initiate_oauth(server, user_id)
+            except OAuthAuthorizationRequired:
+                raise
+            except Exception:
+                logger.warning(
+                    "OAuth pre-flight for MCP server %s failed; letting the run launch",
+                    server.id,
+                    exc_info=True,
+                )
 
     async def get(self, run_id: str) -> RunDB:
         async with AsyncSessionLocal() as db:

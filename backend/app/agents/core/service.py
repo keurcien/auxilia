@@ -308,24 +308,44 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
     async def set_teams(self, agent_id: UUID, team_ids: list[UUID]) -> list[UUID]:
         return await self.repository.set_teams(agent_id, team_ids)
 
-    async def describe_readiness(self, agent_id: UUID, user_id: str) -> dict:
-        agent = await self.get(agent_id, include_archived=True)
+    async def collect_run_bindings(
+        self, agent_id: UUID
+    ) -> list[AgentMCPServerResponse]:
+        """Every MCP binding a run of this agent touches: the agent's own plus
+        each direct subagent's. One level only — matches `Agent.build`, which
+        does not recurse into a subagent's own subagents.
 
-        if not agent.mcp_servers:
+        NOT deduped: `tools` (configuration state) is per binding, so a server
+        configured on the parent but left unconfigured on a subagent must stay
+        visible to the readiness check. Callers doing per-server work (the OAuth
+        probe) dedupe by mcp_server_id themselves."""
+        agent = await self.get(agent_id, include_archived=True)
+        bindings: list[AgentMCPServerResponse] = list(agent.mcp_servers or [])
+        for sub in agent.subagents or []:
+            sub_agent = await self.get(sub.id, include_archived=True)
+            bindings.extend(sub_agent.mcp_servers or [])
+        return bindings
+
+    async def describe_readiness(self, agent_id: UUID, user_id: str) -> dict:
+        # Includes subagents' servers: a subagent's unauthorized OAuth server
+        # must keep the agent "not ready" too, or the run launches and fails
+        # mid-flight when the subagent calls it.
+        bindings = await self.collect_run_bindings(agent_id)
+
+        if not bindings:
             return {"ready": True, "disconnected_servers": [], "status": "ready"}
 
-        for mcp_server in agent.mcp_servers:
-            if mcp_server.tools is None:
+        for binding in bindings:
+            if binding.tools is None:
                 return {
                     "ready": False,
                     "disconnected_servers": [],
                     "status": "not_configured",
                 }
 
-        server_ids = [s.mcp_server_id for s in agent.mcp_servers]
-        result = await self.db.execute(
-            select(MCPServerDB).where(MCPServerDB.id.in_(server_ids))
-        )
+        server_ids = {b.mcp_server_id for b in bindings}  # dedupe for the probe
+        stmt = select(MCPServerDB).where(MCPServerDB.id.in_(server_ids))
+        result = await self.db.execute(stmt)
         servers = list(result.scalars().all())
 
         disconnected: list[str] = []

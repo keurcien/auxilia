@@ -2,7 +2,7 @@
 
 `_build_oauth_provider` is the single place that turns an OAuth2 MCP server into
 a WebOAuthClientProvider (loading + decrypting static credentials); the three
-former copies (handle_oauth_callback / _initiate_oauth / connect_to_server) now
+former copies (handle_oauth_callback / initiate_oauth / connect_to_server) now
 route through it.
 """
 
