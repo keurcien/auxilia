@@ -33,7 +33,7 @@ class MCPClientConfigFactory:
                     server_url=config.url,
                     client_metadata=build_oauth_client_metadata(),
                     storage=self._token_storage_factory.get_storage(
-                        self._user_id, config.id
+                        self._user_id, str(config.id)
                     ),
                 ),
             }
