@@ -16,6 +16,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from redis.asyncio import Redis
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.runs import keys
 from app.agents.runs.control import RunControl
@@ -89,6 +90,44 @@ class RunService:
             )
             await db.commit()
         return run
+
+    async def ensure_mcp_authorized(
+        self, db: AsyncSession, agent_id: UUID, user_id: str
+    ) -> None:
+        """Pre-flight gate: raise OAuthAuthorizationRequired(auth_url) if any
+        MCP server the agent OR a subagent uses is an unauthorized OAuth server
+        for this user — the global handler (main.py) turns it into a 401
+        {oauth_required, auth_url} the frontend already understands.
+
+        Called from the run-creation endpoints (which hold the request `db` and
+        the authorized thread) before launching, so the user connects the
+        server instead of the run failing mid-flight. Not wired into
+        `RunService.create` on purpose: that path is also internal (worker,
+        reaper, seeding) and must not gate.
+        """
+        # Local imports avoid an import cycle (runs.service is imported early
+        # by the worker/reaper; AgentService/MCPServerService pull in far more).
+        from app.agents.core.service import AgentService
+        from app.mcp.servers.models import MCPAuthType
+        from app.mcp.servers.repository import MCPServerRepository
+        from app.mcp.servers.service import MCPServerService
+        from app.mcp.utils import probe_mcp_server
+
+        bindings = await AgentService(db).collect_run_bindings(agent_id)
+        if not bindings:
+            return
+
+        repo = MCPServerRepository(db)
+        for binding in bindings:
+            server = await repo.get(binding.mcp_server_id)
+            if (
+                server is not None
+                and server.auth_type == MCPAuthType.oauth2
+                and not await probe_mcp_server(server, user_id)
+            ):
+                # Raises OAuthAuthorizationRequired(auth_url) for the first
+                # unauthorized server; the caller connects it and retries.
+                await MCPServerService(db).initiate_oauth(server, user_id)
 
     async def get(self, run_id: str) -> RunDB:
         async with AsyncSessionLocal() as db:

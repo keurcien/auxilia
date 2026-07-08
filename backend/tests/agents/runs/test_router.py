@@ -32,6 +32,9 @@ class _FakeRunService:
         self._terminal = terminal
         self._error = error
 
+    async def ensure_mcp_authorized(self, *args, **kwargs) -> None:
+        """No-op: the pre-flight gate is unit-tested in test_gate.py."""
+
     async def create(self, **kwargs) -> RunDB:
         self.create_kwargs = kwargs
         return RunDB(id="run1", thread_id=kwargs["thread_id"], user_id=uuid4())

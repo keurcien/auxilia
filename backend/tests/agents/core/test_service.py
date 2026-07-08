@@ -759,6 +759,60 @@ async def test_check_ready_disconnected_status_label(service, mock_db, mock_repo
     assert result["status"] == "disconnected"
 
 
+def _readiness_resp(mcp_server_ids, *, subagent_ids=(), tools_ok=True):
+    """Duck-typed AgentResponse for readiness/enumeration tests."""
+    resp = MagicMock()
+    resp.mcp_servers = [
+        MagicMock(
+            mcp_server_id=sid,
+            tools=({"x": ToolStatus.always_allow} if tools_ok else None),
+        )
+        for sid in mcp_server_ids
+    ]
+    resp.subagents = [MagicMock(id=sub) for sub in subagent_ids]
+    return resp
+
+
+async def test_describe_readiness_includes_subagent_servers(service, mock_db):
+    # The bug: a subagent's unauthorized OAuth server must keep the agent "not
+    # ready" — otherwise the run launches and fails mid-flight.
+    parent_id, sub_id = uuid4(), uuid4()
+    parent_server, sub_server = uuid4(), uuid4()
+    responses = {
+        parent_id: _readiness_resp([parent_server], subagent_ids=[sub_id]),
+        sub_id: _readiness_resp([sub_server]),
+    }
+    service.get = AsyncMock(side_effect=lambda aid, **_: responses[aid])
+    mock_db.execute.return_value = _make_mock_execute_result(
+        scalars_list=[MagicMock(id=parent_server), MagicMock(id=sub_server)]
+    )
+
+    with patch(
+        "app.agents.core.service.probe_mcp_server",
+        # parent authorized, subagent's server is not
+        new=AsyncMock(side_effect=lambda s, _u: s.id == parent_server),
+    ):
+        result = await service.describe_readiness(parent_id, "user-id")
+
+    assert result["ready"] is False
+    assert str(sub_server) in result["disconnected_servers"]
+    assert str(parent_server) not in result["disconnected_servers"]
+
+
+async def test_collect_run_bindings_dedupes_shared_server(service):
+    parent_id, sub_id = uuid4(), uuid4()
+    shared = uuid4()
+    responses = {
+        parent_id: _readiness_resp([shared], subagent_ids=[sub_id]),
+        sub_id: _readiness_resp([shared]),
+    }
+    service.get = AsyncMock(side_effect=lambda aid, **_: responses[aid])
+
+    bindings = await service.collect_run_bindings(parent_id)
+
+    assert [b.mcp_server_id for b in bindings] == [shared]
+
+
 # ---------------------------------------------------------------------------
 # _resolve_permission (unit tests for the private helper)
 # ---------------------------------------------------------------------------
