@@ -107,8 +107,9 @@ async def create_run_stream(
 ):
     """Create a run and stream it. Same SSE protocol as before; durable underneath."""
     # Pre-flight: refuse to launch if the agent or a subagent needs OAuth
-    # (401 {oauth_required, auth_url}); runs on the held connection before it's
-    # freed, so no run is created when authorization is missing.
+    # (401 {oauth_required, auth_url}); the gate commits/releases the pooled
+    # connection itself before probing, so no run is created when
+    # authorization is missing and no connection is held during network IO.
     await runs.ensure_mcp_authorized(db, thread.agent_id, str(thread.user_id))
     # Auth queries are done — release the pooled connection before anything
     # else (RunService opens its own sessions; holding both risks pool
@@ -148,8 +149,9 @@ async def invoke_run(
     `output_schema` is given) instead of relaying the live stream.
     """
     # Pre-flight: refuse to launch if the agent or a subagent needs OAuth
-    # (401 {oauth_required, auth_url}); runs on the held connection before it's
-    # freed, so no run is created when authorization is missing.
+    # (401 {oauth_required, auth_url}); the gate commits/releases the pooled
+    # connection itself before probing, so no run is created when
+    # authorization is missing and no connection is held during network IO.
     await runs.ensure_mcp_authorized(db, thread.agent_id, str(thread.user_id))
     # Auth queries are done — release the pooled connection before anything
     # else (RunService opens its own sessions; holding both risks pool

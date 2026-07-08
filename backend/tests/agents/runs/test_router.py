@@ -29,15 +29,31 @@ class _FakeRunService:
         self, terminal: RunStatus = RunStatus.success, error: str | None = None
     ):
         self.create_kwargs: dict | None = None
+        self.calls: list[str] = []
+        self.gate_args: tuple | None = None
         self._terminal = terminal
         self._error = error
 
-    async def ensure_mcp_authorized(self, *args, **kwargs) -> None:
-        """No-op: the pre-flight gate is unit-tested in test_gate.py."""
+    async def ensure_mcp_authorized(self, db, agent_id, user_id) -> None:
+        """Records the call: the gate itself is unit-tested in test_gate.py,
+        but the router must invoke it (with the thread's identity) BEFORE
+        creating the run — that wiring is the point of the gate."""
+        self.calls.append("gate")
+        self.gate_args = (agent_id, user_id)
 
     async def create(self, **kwargs) -> RunDB:
+        self.calls.append("create")
         self.create_kwargs = kwargs
-        return RunDB(id="run1", thread_id=kwargs["thread_id"], user_id=uuid4())
+        return RunDB(
+            id="run1",
+            thread_id=kwargs["thread_id"],
+            user_id=uuid4(),
+            created_at=datetime.now(),
+            updated_at=datetime.now(),
+        )
+
+    async def stream(self, run_id: str):
+        yield "data: [DONE]\n\n"
 
     async def wait_for_terminal(self, run_id: str) -> RunDB:
         return RunDB(
@@ -84,6 +100,8 @@ def test_invoke_creates_run_and_returns_result(
     assert response.status_code == 200
     assert response.json()["structured_response"] == {"answer": 42}
     assert fake.create_kwargs["output_schema"] == schema
+    assert fake.calls == ["gate", "create"]
+    assert fake.gate_args == (thread.agent_id, str(thread.user_id))
 
 
 @patch("app.agents.runs.router.read_run_result", new_callable=AsyncMock)
@@ -139,6 +157,45 @@ def test_invoke_schema_violating_result_is_500(
 
     assert response.status_code == 500
     assert "valid structured response" in response.json()["detail"]
+
+
+def test_create_run_gates_before_creating(client: TestClient, mock_db, current_user):
+    thread = _owned_thread(current_user)
+    _mock_thread_lookup(mock_db, thread)
+    fake = _FakeRunService()
+    app.dependency_overrides[get_run_service] = lambda: fake
+
+    try:
+        response = client.post(
+            f"/threads/{thread.id}/runs",
+            json={"input": {"messages": [{"type": "human", "content": "hi"}]}},
+        )
+    finally:
+        app.dependency_overrides.pop(get_run_service, None)
+
+    assert response.status_code == 201
+    assert fake.calls == ["gate", "create"]
+    assert fake.gate_args == (thread.agent_id, str(thread.user_id))
+
+
+def test_stream_gates_before_creating(client: TestClient, mock_db, current_user):
+    thread = _owned_thread(current_user)
+    _mock_thread_lookup(mock_db, thread)
+    fake = _FakeRunService()
+    app.dependency_overrides[get_run_service] = lambda: fake
+
+    try:
+        response = client.post(
+            f"/threads/{thread.id}/runs/stream",
+            json={"input": {"messages": [{"type": "human", "content": "hi"}]}},
+        )
+    finally:
+        app.dependency_overrides.pop(get_run_service, None)
+
+    assert response.status_code == 200
+    assert response.headers["x-run-id"] == "run1"
+    assert fake.calls == ["gate", "create"]
+    assert fake.gate_args == (thread.agent_id, str(thread.user_id))
 
 
 def test_invoke_failed_run_is_500(client: TestClient, mock_db, current_user):
