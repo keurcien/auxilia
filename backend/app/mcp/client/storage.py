@@ -20,6 +20,7 @@ class StoredToken(BaseModel):
 
 class OAuthStateData(BaseModel):
     """Data stored against an OAuth state parameter."""
+
     user_id: str
     mcp_server_id: str
     verifier: str
@@ -39,8 +40,8 @@ class RedisTokenStorage(TokenStorage):
         prefix: str = "mcp",
         redis: Redis | None = None,
     ):
-        self.user_id = user_id
-        self.mcp_server_id = mcp_server_id
+        self.user_id = str(user_id)
+        self.mcp_server_id = str(mcp_server_id)
         self.redis: Redis = redis or Redis(
             host=host, port=port, db=db, decode_responses=True
         )
@@ -75,19 +76,21 @@ class RedisTokenStorage(TokenStorage):
         if not stored:
             logger.debug(
                 "No stored token for user %s and MCP server %s",
-                self.user_id, self.mcp_server_id,
+                self.user_id,
+                self.mcp_server_id,
             )
             return None
 
         if stored.expires_at is not None:
             logger.debug(
                 "Stored token for user %s and MCP server %s expires at %s",
-                self.user_id, self.mcp_server_id, stored.expires_at,
+                self.user_id,
+                self.mcp_server_id,
+                stored.expires_at,
             )
             if stored.token_payload.expires_in is not None:
                 remaining = stored.expires_at - datetime.now(UTC)
-                stored.token_payload.expires_in = max(
-                    0, int(remaining.total_seconds()))
+                stored.token_payload.expires_in = max(0, int(remaining.total_seconds()))
 
         return stored.token_payload
 
@@ -99,15 +102,13 @@ class RedisTokenStorage(TokenStorage):
             existing = await self.get_stored_token()
             if existing and existing.token_payload.refresh_token:
                 tokens = tokens.model_copy(
-                    update={
-                        "refresh_token": existing.token_payload.refresh_token}
+                    update={"refresh_token": existing.token_payload.refresh_token}
                 )
 
         expires_at: datetime | None = None
 
         if tokens.expires_in is not None:
-            expires_at = datetime.now(UTC) + \
-                timedelta(seconds=tokens.expires_in)
+            expires_at = datetime.now(UTC) + timedelta(seconds=tokens.expires_in)
 
         stored_token = StoredToken(token_payload=tokens, expires_at=expires_at)
 
@@ -191,7 +192,9 @@ class TokenStorageFactory:
             return None
         return OAuthStateData.model_validate_json(raw)
 
-    async def get_storage_from_state(self, state: str) -> tuple[RedisTokenStorage, OAuthStateData] | None:
+    async def get_storage_from_state(
+        self, state: str
+    ) -> tuple[RedisTokenStorage, OAuthStateData] | None:
         """
         Recover storage instance from OAuth state parameter.
 
@@ -202,8 +205,7 @@ class TokenStorageFactory:
         if not state_data:
             return None
 
-        storage = self.get_storage(
-            state_data.user_id, state_data.mcp_server_id)
+        storage = self.get_storage(state_data.user_id, state_data.mcp_server_id)
         return storage, state_data
 
     async def clear_server_data(self, mcp_server_id: str) -> int:
