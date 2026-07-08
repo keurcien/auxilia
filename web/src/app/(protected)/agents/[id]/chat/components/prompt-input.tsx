@@ -80,7 +80,12 @@ const ChatPromptInput = ({
 
 	const currentModel = externalSelectedModel ?? model;
 	const selectedModelData = models.find((m) => m.id === currentModel);
-	const isDeepseek = selectedModelData?.chefSlug === "deepseek";
+	// Text-only providers can't take image attachments (DeepSeek, Z.ai/GLM 5.2).
+	// ponytail: chefSlug list, not a per-model capability flag — add a slug when a
+	// text-only provider lands (or switch to id-gating if a vision GLM ships under z-ai).
+	const noAttachments = ["deepseek", "z-ai"].includes(
+		selectedModelData?.chefSlug ?? "",
+	);
 
 	const handleModelChange = (modelId: string) => {
 		setModel(modelId);
@@ -175,7 +180,7 @@ const ChatPromptInput = ({
 				</PromptInputBody>
 				<PromptInputFooter className="px-4 pb-4">
 					<PromptInputTools className="gap-1.5">
-						{isDeepseek ? (
+						{noAttachments ? (
 							<Tooltip>
 								<TooltipTrigger asChild>
 									<span>
@@ -186,7 +191,7 @@ const ChatPromptInput = ({
 									</span>
 								</TooltipTrigger>
 								<TooltipContent>
-									DeepSeek models do not support attachments.
+									This model does not support attachments.
 								</TooltipContent>
 							</Tooltip>
 						) : (
