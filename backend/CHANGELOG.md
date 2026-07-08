@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.19](https://github.com/keurcien/auxilia/compare/backend-v0.4.18...backend-v0.4.19) (2026-07-08)
+
+
+### Bug Fixes
+
+* **agents:** gate runs on unauthorized subagent MCP OAuth before launch ([#203](https://github.com/keurcien/auxilia/issues/203)) ([d82cb75](https://github.com/keurcien/auxilia/commit/d82cb7571877ae5898a54f533f8f64e4425e1fb1))
+
 ## [0.4.18](https://github.com/keurcien/auxilia/compare/backend-v0.4.17...backend-v0.4.18) (2026-07-08)
 
 
