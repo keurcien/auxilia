@@ -16,11 +16,39 @@ jobs:
       backend_version: ${{ steps.release.outputs['backend--version'] }}
       web_released: ${{ steps.release.outputs['web--release_created'] }}
       web_version: ${{ steps.release.outputs['web--version'] }}
+      release_pr: ${{ steps.release.outputs.pr }}
     steps:
       - uses: googleapis/release-please-action@v4
         id: release
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+
+  # release-please bumps the version in backend/pyproject.toml but never
+  # regenerates uv.lock, so main ends up with a stale lockfile that any
+  # local `uv run` dirties. Re-lock on the release PR branch so the merge
+  # lands with both files in sync.
+  sync-uv-lock:
+    needs: release-please
+    if: needs.release-please.outputs.release_pr != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ fromJson(needs.release-please.outputs.release_pr).headBranchName }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: astral-sh/setup-uv@v6
+      - name: Sync uv.lock with bumped version
+        working-directory: backend
+        run: uv lock
+      - name: Commit lockfile if changed
+        run: |
+          if ! git diff --quiet backend/uv.lock; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add backend/uv.lock
+            git commit -m "chore(backend): sync uv.lock with release version"
+            git push
+          fi
 
   publish-backend:
     needs: release-please
