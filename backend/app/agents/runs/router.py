@@ -8,6 +8,7 @@ by replaying its event log from a cursor.
 
 from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import StreamingResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.runs.schemas import RunCreate, RunResponse
 from app.agents.runs.service import RunService
@@ -15,6 +16,7 @@ from app.agents.runs.state import RunStatus
 from app.agents.runtime import read_run_result
 from app.agents.structured_output import validate_structured_response
 from app.auth.dependencies import get_current_user
+from app.database import get_db
 from app.exceptions import (
     DomainError,
     NotFoundError,
@@ -101,8 +103,13 @@ async def create_run_stream(
     config: dict | None = Body(None, embed=True),
     thread: ThreadResponse = Depends(authorize_thread),
     runs: RunService = Depends(get_run_service),
+    db: AsyncSession = Depends(get_db),  # dependency-cached: same session auth used
 ):
     """Create a run and stream it. Same SSE protocol as before; durable underneath."""
+    # Auth queries are done — release the pooled connection before anything
+    # else (RunService opens its own sessions; holding both risks pool
+    # starvation) and before the response streams for the whole run.
+    await db.commit()
     trigger, config_overrides = _parse_run_config(config)
     record = await runs.create(
         thread_id=thread_id,
@@ -128,6 +135,7 @@ async def invoke_run(
     output_schema: dict | None = Body(None, embed=True),
     thread: ThreadResponse = Depends(authorize_thread),
     runs: RunService = Depends(get_run_service),
+    db: AsyncSession = Depends(get_db),  # dependency-cached: same session auth used
 ) -> dict:
     """Create a run and block until it finishes, returning the final answer.
 
@@ -135,6 +143,10 @@ async def invoke_run(
     that awaits the terminal result (and `structured_response`, when
     `output_schema` is given) instead of relaying the live stream.
     """
+    # Auth queries are done — release the pooled connection before anything
+    # else (RunService opens its own sessions; holding both risks pool
+    # starvation) and before blocking for the whole run.
+    await db.commit()
     trigger, config_overrides = _parse_run_config(config)
     record = await runs.create(
         thread_id=thread_id,
@@ -225,6 +237,7 @@ async def stream_run(
     last_event_id: str = Query("0"),
     _: ThreadResponse = Depends(authorize_thread),
     runs: RunService = Depends(get_run_service),
+    db: AsyncSession = Depends(get_db),  # dependency-cached: same session auth used
 ):
     """Reattach to a run, replaying its event log from `last_event_id`.
 
@@ -232,6 +245,10 @@ async def stream_run(
     stream id it saw to resume after a reconnect. Works on a finished run too —
     the log (including the `end` sentinel) is replayed in full.
     """
+    # Auth queries are done — release the pooled connection before anything
+    # else (RunService opens its own sessions; holding both risks pool
+    # starvation) and before the response streams for the whole run.
+    await db.commit()
     record = await runs.get(run_id)
     _ensure_run_on_thread(record, thread_id)
     return StreamingResponse(
