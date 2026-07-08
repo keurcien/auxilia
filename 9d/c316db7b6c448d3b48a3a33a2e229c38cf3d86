@@ -1,0 +1,28 @@
+backend/app/agents/runs/router.py
+  s_83a1d07c3e15bb::t_f821b8e9761ac2 106,118-120
+  s_83a1d07c3e15bb::t_87785d2a59f163 11
+  s_83a1d07c3e15bb::t_defd3902da835a 19
+  s_83a1d07c3e15bb::t_149cebe883d321 137,155-157
+  s_83a1d07c3e15bb::t_dd280fe74a8b11 238,248-250
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "9dc316db7b6c448d3b48a3a33a2e229c38cf3d86",
+  "prompts": {},
+  "humans": {
+    "h_df81e42269d667": {
+      "author": "tgensol <thibaut@appchoose.io>"
+    }
+  },
+  "sessions": {
+    "s_83a1d07c3e15bb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "693583b2-b952-45a2-810b-4a64d5c933ea",
+        "model": "claude-fable-5"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}
