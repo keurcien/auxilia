@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.18](https://github.com/keurcien/auxilia/compare/backend-v0.4.17...backend-v0.4.18) (2026-07-08)
+
+
+### Features
+
+* **model-providers:** add GLM 5.2 via OpenRouter with selectable rea… ([#197](https://github.com/keurcien/auxilia/issues/197)) ([6ec9138](https://github.com/keurcien/auxilia/commit/6ec9138598f00eb9ccb3cbf589f5f5382ae670f9))
+
+
+### Bug Fixes
+
+* **mcp:** pass MCP server id as str to OAuth token storage ([#201](https://github.com/keurcien/auxilia/issues/201)) ([376260e](https://github.com/keurcien/auxilia/commit/376260e415651d098d0930e38c2144d5db2f8687))
+
 ## [0.4.17](https://github.com/keurcien/auxilia/compare/backend-v0.4.16...backend-v0.4.17) (2026-07-08)
 
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.16](https://github.com/keurcien/auxilia/compare/web-v0.5.15...web-v0.5.16) (2026-07-08)
+
+
+### Features
+
+* **model-providers:** add GLM 5.2 via OpenRouter with selectable rea… ([#197](https://github.com/keurcien/auxilia/issues/197)) ([6ec9138](https://github.com/keurcien/auxilia/commit/6ec9138598f00eb9ccb3cbf589f5f5382ae670f9))
+
 ## [0.5.15](https://github.com/keurcien/auxilia/compare/web-v0.5.14...web-v0.5.15) (2026-07-07)
 
 
