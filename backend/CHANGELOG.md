@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.17](https://github.com/keurcien/auxilia/compare/backend-v0.4.16...backend-v0.4.17) (2026-07-08)
+
+
+### Bug Fixes
+
+* **db:** Better handling connection ([#198](https://github.com/keurcien/auxilia/issues/198)) ([eeb08e1](https://github.com/keurcien/auxilia/commit/eeb08e18d6ca8c7fbbf759d7e9acd1ac09484ebb))
+
 ## [0.4.16](https://github.com/keurcien/auxilia/compare/backend-v0.4.15...backend-v0.4.16) (2026-07-07)
 
 
