@@ -389,6 +389,13 @@ def test_delete_agent_permanently_forbidden_for_non_manager(
     assert response.status_code == 403
 
 
+def make_count_result(total: int) -> MagicMock:
+    """Result of the count query BaseRepository.paginate runs before the page."""
+    r = MagicMock()
+    r.scalar_one.return_value = total
+    return r
+
+
 def _make_thread(*, agent_id, user_id, source=ThreadSource.web) -> ThreadDB:
     return ThreadDB(
         id=str(uuid4()),
@@ -431,7 +438,9 @@ def test_list_agent_threads_as_owner(client: TestClient, mock_db, current_user):
         make_result(scalars_list=[]),
         # get_agent: owner list_by_ids
         make_result(scalars_list=[]),
-        # ThreadRepository.list_for_agent
+        # ThreadRepository.list_for_agent: paginate count
+        make_count_result(1),
+        # ThreadRepository.list_for_agent: page rows
         make_result(
             rows=[
                 (
@@ -450,9 +459,10 @@ def test_list_agent_threads_as_owner(client: TestClient, mock_db, current_user):
     response = client.get(f"/agents/{agent_id}/threads")
     assert response.status_code == 200
     data = response.json()
-    assert len(data) == 1
-    assert data[0]["user_email"] == "viewer@test.com"
-    assert data[0]["source"] == ThreadSource.slack.value
+    assert data["total"] == 1
+    assert len(data["items"]) == 1
+    assert data["items"][0]["user_email"] == "viewer@test.com"
+    assert data["items"][0]["source"] == ThreadSource.slack.value
 
 
 def test_list_agent_threads_forbidden_for_member(
@@ -513,6 +523,7 @@ def test_list_agent_threads_as_workspace_admin(client: TestClient, mock_db):
         make_result(rows=[(agent, None, None)]),
         make_result(scalars_list=[]),  # list_all_subagent_data
         make_result(scalars_list=[]),  # owner list_by_ids
+        make_count_result(1),  # list_for_agent: paginate count
         make_result(
             rows=[
                 (
@@ -530,7 +541,7 @@ def test_list_agent_threads_as_workspace_admin(client: TestClient, mock_db):
 
     response = client.get(f"/agents/{agent_id}/threads")
     assert response.status_code == 200
-    assert len(response.json()) == 1
+    assert len(response.json()["items"]) == 1
 
 
 def test_list_agent_threads_requires_auth(client: TestClient):

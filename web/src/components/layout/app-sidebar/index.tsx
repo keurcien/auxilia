@@ -9,6 +9,7 @@ import {
 	AlarmClock,
 	AlertCircle,
 	Bot,
+	ChevronDown,
 	Loader2,
 	Server,
 	SquarePen,
@@ -94,7 +95,15 @@ export function AppSidebar() {
 	const router = useRouter();
 	const pathname = usePathname();
 	const { agents, fetchAgents } = useAgentsStore();
-	const { threads, fetchThreads, removeThread } = useThreadsStore();
+	const {
+		threads,
+		total,
+		isLoadingMore,
+		fetchThreads,
+		loadMoreThreads,
+		removeThread,
+	} = useThreadsStore();
+	const hasMoreThreads = threads.length < total;
 	const { user, fetchUser, logout } = useUserStore();
 	const { resolvedTheme, setTheme } = useTheme();
 	const { toggleSidebar } = useSidebar();
@@ -214,7 +223,7 @@ export function AppSidebar() {
 											key={thread.id}
 											className="animate-in fade-in slide-in-from-bottom-3 duration-400"
 											style={{
-												animationDelay: `${i * 50}ms`,
+												animationDelay: `${Math.min(i, 10) * 50}ms`,
 												animationFillMode: "both",
 											}}
 										>
@@ -322,6 +331,25 @@ export function AppSidebar() {
 										</SidebarMenuItem>
 									);
 								})}
+								{hasMoreThreads && (
+									<SidebarMenuItem className="group-data-[collapsible=icon]:hidden">
+										<button
+											type="button"
+											disabled={isLoadingMore}
+											onClick={() => {
+												void loadMoreThreads();
+											}}
+											className="mt-1 flex h-8 w-full cursor-pointer items-center justify-center gap-2 rounded-xl font-[family-name:var(--font-dm-sans)] text-[12.5px] font-medium text-sidebar-muted transition-colors hover:bg-sidebar-hover hover:text-sidebar-foreground disabled:cursor-default disabled:opacity-60"
+										>
+											{isLoadingMore ? (
+												<Loader2 className="size-3.5 animate-spin" />
+											) : (
+												<ChevronDown className="size-3.5" />
+											)}
+											{isLoadingMore ? "Loading…" : "Show more"}
+										</button>
+									</SidebarMenuItem>
+								)}
 							</SidebarMenu>
 						</SidebarGroupContent>
 					</SidebarGroup>

@@ -1,8 +1,13 @@
 from typing import Generic, TypeVar
 from uuid import UUID
 
+from sqlalchemy import func
+from sqlalchemy.engine import Result
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import Select
 from sqlmodel import SQLModel, select
+
+from app.pagination import PageParams
 
 
 ModelType = TypeVar("ModelType", bound=SQLModel)
@@ -19,6 +24,19 @@ class BaseRepository(Generic[ModelType]):
         stmt = select(self.model).where(self.model.id == id)
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def paginate(self, stmt: Select, page: PageParams) -> tuple[Result, int]:
+        """Execute ``stmt`` with the page's LIMIT/OFFSET applied and return the
+        result together with the unpaginated row count.
+
+        Callers consume the result the same way they would for the unpaginated
+        statement (``.all()`` for multi-column rows, ``.scalars().all()`` for
+        single-entity selects)."""
+        count_stmt = select(func.count()).select_from(stmt.order_by(None).subquery())
+        count_result = await self.db.execute(count_stmt)
+        total = count_result.scalar_one()
+        result = await self.db.execute(stmt.limit(page.limit).offset(page.offset))
+        return result, total
 
     async def create(self, obj_in: SQLModel) -> ModelType:
         db_obj = self.model.model_validate(obj_in)

@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_checkpointer, get_db
 from app.exceptions import NotFoundError
+from app.pagination import Page, PageParams
 from app.service import BaseService
 from app.threads.models import ThreadDB, ThreadSource
 from app.threads.repository import ThreadRepository
@@ -74,13 +75,15 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
             raise NotFoundError(self.not_found_message)
         return _thread_with_agent(*row)
 
-    async def list(self, user_id: UUID) -> list[ThreadResponse]:
-        rows = await self.repository.list_for_user(user_id)
-        return [_thread_with_agent(*row) for row in rows]
+    async def list(self, user_id: UUID, page: PageParams) -> Page[ThreadResponse]:
+        rows, total = await self.repository.list_for_user(user_id, page)
+        return Page.build([_thread_with_agent(*row) for row in rows], total, page)
 
-    async def list_for_agent(self, agent_id: UUID) -> list[AgentThreadResponse]:
-        rows = await self.repository.list_for_agent(agent_id)
-        return [_agent_thread(*row) for row in rows]
+    async def list_for_agent(
+        self, agent_id: UUID, page: PageParams
+    ) -> Page[AgentThreadResponse]:
+        rows, total = await self.repository.list_for_agent(agent_id, page)
+        return Page.build([_agent_thread(*row) for row in rows], total, page)
 
     async def list_for_trigger(
         self, trigger_id: UUID, since: datetime | None = None

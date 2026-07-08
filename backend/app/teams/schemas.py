@@ -37,5 +37,8 @@ class TeamResponse(SQLModel):
     id: UUID
     name: str
     color: str | None
+    # Populated by TeamService.list; endpoints returning a single team leave
+    # it at 0 (create/update responses don't need it).
+    member_count: int = 0
     created_at: datetime
     updated_at: datetime

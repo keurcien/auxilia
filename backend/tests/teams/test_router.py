@@ -74,15 +74,16 @@ def test_list_teams(client: TestClient, mock_db, current_user):
         updated_at=datetime.now(),
     )
     result = MagicMock()
-    scalars = MagicMock()
-    scalars.all.return_value = [team1, team2]
-    result.scalars.return_value = scalars
+    result.all.return_value = [(team1, 3), (team2, 0)]
     mock_db.execute.return_value = result
 
     response = client.get("/teams/")
 
     assert response.status_code == 200
-    assert len(response.json()) == 2
+    data = response.json()
+    assert len(data) == 2
+    assert data[0]["member_count"] == 3
+    assert data[1]["member_count"] == 0
 
 
 def test_delete_team_as_admin(client: TestClient, mock_db, admin_user):
