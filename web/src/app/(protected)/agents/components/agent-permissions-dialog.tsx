@@ -84,13 +84,14 @@ export default function AgentPermissionsDialog({
 		setAllTeams([]);
 		setSelectedTeamIds([]);
 		Promise.all([
-			api.get("/users"),
+			// The picker needs the whole workspace; 200 is the API's max page size.
+			api.get("/users", { params: { limit: 200 } }),
 			api.get(`/agents/${agentId}/permissions`),
 			api.get("/teams/"),
 			api.get(`/agents/${agentId}/teams`),
 		])
 			.then(([usersRes, permsRes, teamsRes, agentTeamsRes]) => {
-				setAllUsers(usersRes.data);
+				setAllUsers((usersRes.data as { items: User[] }).items);
 				setPermissions(
 					(permsRes.data as PermissionRow[]).map((p) => ({
 						userId: p.userId,

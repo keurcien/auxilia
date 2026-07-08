@@ -12,6 +12,8 @@ export interface Team {
 	id: string;
 	name: string;
 	color: string | null;
+	/** Only meaningful on the list endpoint; create/update responses report 0. */
+	memberCount: number;
 }
 
 interface NewTeamDialogProps {

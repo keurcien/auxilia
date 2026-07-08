@@ -92,17 +92,43 @@ def test_get_threads(client: TestClient, mock_db, current_user):
         updated_at=datetime.now(),
     )
 
-    mock_result = MagicMock()
-    mock_result.all.return_value = [
+    count_result = MagicMock()
+    count_result.scalar_one.return_value = 2
+    rows_result = MagicMock()
+    rows_result.all.return_value = [
         (thread2, "Test Agent", "🤖", None, False),
         (thread1, "Test Agent", "🤖", None, False),
     ]
-    mock_db.execute.return_value = mock_result
+    mock_db.execute.side_effect = [count_result, rows_result]
 
     response = client.get("/threads/")
     assert response.status_code == 200
     data = response.json()
-    assert len(data) == 2
+    assert len(data["items"]) == 2
+    assert data["total"] == 2
+    assert data["limit"] == 50
+    assert data["offset"] == 0
+
+
+def test_get_threads_echoes_page_params(client: TestClient, mock_db, current_user):
+    """limit/offset are echoed in the envelope; total is the unpaginated count."""
+    count_result = MagicMock()
+    count_result.scalar_one.return_value = 42
+    rows_result = MagicMock()
+    rows_result.all.return_value = []
+    mock_db.execute.side_effect = [count_result, rows_result]
+
+    response = client.get("/threads/", params={"limit": 10, "offset": 20})
+    assert response.status_code == 200
+    data = response.json()
+    assert data == {"items": [], "total": 42, "limit": 10, "offset": 20}
+
+
+@pytest.mark.usefixtures("current_user")
+def test_get_threads_rejects_invalid_page_params(client: TestClient):
+    assert client.get("/threads/", params={"limit": 0}).status_code == 422
+    assert client.get("/threads/", params={"limit": 201}).status_code == 422
+    assert client.get("/threads/", params={"offset": -1}).status_code == 422
 
 
 @patch("app.threads.router.get_checkpointer")

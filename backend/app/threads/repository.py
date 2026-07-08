@@ -7,6 +7,7 @@ from sqlmodel import select
 
 from app.agents.models import AgentDB
 from app.agents.runs.state import RunStatus
+from app.pagination import PageParams
 from app.repository import BaseRepository
 from app.threads.models import FIRST_PARTY_SOURCES, ThreadDB
 from app.users.models import UserDB
@@ -45,7 +46,7 @@ class ThreadRepository(BaseRepository[ThreadDB]):
         result = await self.db.execute(stmt)
         return result.one_or_none()
 
-    async def list_for_user(self, user_id: UUID):
+    async def list_for_user(self, user_id: UUID, page: PageParams):
         stmt = (
             select(
                 ThreadDB,
@@ -57,10 +58,10 @@ class ThreadRepository(BaseRepository[ThreadDB]):
             .join(AgentDB, ThreadDB.agent_id == AgentDB.id)
             .where(ThreadDB.user_id == user_id)
             .where(ThreadDB.source.in_(FIRST_PARTY_SOURCES))
-            .order_by(ThreadDB.created_at.desc())
+            .order_by(ThreadDB.created_at.desc(), ThreadDB.id)
         )
-        result = await self.db.execute(stmt)
-        return result.all()
+        result, total = await self.paginate(stmt, page)
+        return result.all(), total
 
     async def list_for_trigger(
         self, trigger_id: UUID, since: datetime | None = None
@@ -85,7 +86,7 @@ class ThreadRepository(BaseRepository[ThreadDB]):
         )
         await self.db.execute(stmt)
 
-    async def list_for_agent(self, agent_id: UUID):
+    async def list_for_agent(self, agent_id: UUID, page: PageParams):
         stmt = (
             select(
                 ThreadDB,
@@ -99,7 +100,7 @@ class ThreadRepository(BaseRepository[ThreadDB]):
             .join(AgentDB, ThreadDB.agent_id == AgentDB.id)
             .join(UserDB, ThreadDB.user_id == UserDB.id)
             .where(ThreadDB.agent_id == agent_id)
-            .order_by(ThreadDB.created_at.desc())
+            .order_by(ThreadDB.created_at.desc(), ThreadDB.id)
         )
-        result = await self.db.execute(stmt)
-        return result.all()
+        result, total = await self.paginate(stmt, page)
+        return result.all(), total

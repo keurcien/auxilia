@@ -33,7 +33,7 @@ def mock_repo():
     repo.create = AsyncMock()
     repo.update = AsyncMock()
     repo.delete = AsyncMock()
-    repo.list_all = AsyncMock(return_value=[])
+    repo.list_with_member_counts = AsyncMock(return_value=[])
     repo.get_by_name = AsyncMock(return_value=None)
     return repo
 
@@ -152,10 +152,10 @@ async def test_delete_raises_404_when_missing(service, mock_repo):
     mock_repo.delete.assert_not_called()
 
 
-async def test_list_delegates_to_repository(service, mock_repo):
+async def test_list_projects_member_counts(service, mock_repo):
     teams = [make_team(name="A"), make_team(name="B")]
-    mock_repo.list_all.return_value = teams
+    mock_repo.list_with_member_counts.return_value = [(teams[0], 3), (teams[1], 0)]
 
     result = await service.list()
 
-    assert result == teams
+    assert [(r.name, r.member_count) for r in result] == [("A", 3), ("B", 0)]

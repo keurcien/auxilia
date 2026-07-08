@@ -72,11 +72,14 @@ This is the canonical verb for each kind of method/function. Any other verb mean
 | Fetch by credential (token, hash, ...) | `get_by_token`, `get_by_hash`, …                         | `Entity \| None`                  | `repo.get_by_token(plaintext)`                  |
 | Fetch many                             | `list(...)`, `list_for_*`, `list_with_*`, `list_pending` | `list[Entity]`                    | `repo.list()`, `repo.list_for_user(user_id)`    |
 | Count                                  | `count_*`                                                | `int`                             | `service.count_users()`                         |
+| Fetch one page of many                 | `paginate(stmt, page)` (base repo only)                  | `(Result, int)`                   | `repo.paginate(stmt, page)`                     |
 | Fetch-or-create                        | `get_or_create_*`                                        | `(Entity, bool)` or `Entity`      | `service.get_or_create_thread(...)`             |
 
 **Reserved — do not use**: `load_*`, `fetch_*`, `resolve_*` (for DB lookups), `find_*`, `query_*`, `retrieve_*`, `select_*`.
 
 **Note on plurals**: collection-returning methods always use `list_*`, never `get_*`. `get_for_user` returning a list is a bug; use `list_for_user`.
+
+**Note on pagination**: `paginate` lives only on `BaseRepository` — it executes a select with the `PageParams` LIMIT/OFFSET plus a count query. Paginated `list_*` repository methods take a `PageParams` and return `(items, total)`; the service wraps them in the `Page[T]` envelope (`app/pagination.py`) via `Page.build(items, total, page)`. Routers bind `page: PageParams = Depends()`.
 
 ### Create / update / delete
 
