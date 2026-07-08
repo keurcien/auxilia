@@ -118,8 +118,10 @@ class RunService:
             return
 
         repo = MCPServerRepository(db)
-        for binding in bindings:
-            server = await repo.get(binding.mcp_server_id)
+        # Auth is per (user, server), so dedupe server ids — a server shared by
+        # the agent and a subagent need only be probed once.
+        for server_id in {b.mcp_server_id for b in bindings}:
+            server = await repo.get(server_id)
             if (
                 server is not None
                 and server.auth_type == MCPAuthType.oauth2

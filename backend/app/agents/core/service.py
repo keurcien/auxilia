@@ -313,22 +313,17 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
     ) -> list[AgentMCPServerResponse]:
         """Every MCP binding a run of this agent touches: the agent's own plus
         each direct subagent's. One level only — matches `Agent.build`, which
-        does not recurse into a subagent's own subagents. Deduped by
-        mcp_server_id (an agent and a subagent may share a workspace server)."""
+        does not recurse into a subagent's own subagents.
+
+        NOT deduped: `tools` (configuration state) is per binding, so a server
+        configured on the parent but left unconfigured on a subagent must stay
+        visible to the readiness check. Callers doing per-server work (the OAuth
+        probe) dedupe by mcp_server_id themselves."""
         agent = await self.get(agent_id, include_archived=True)
-        seen: set[UUID] = set()
-        bindings: list[AgentMCPServerResponse] = []
-
-        def _add(items: list[AgentMCPServerResponse] | None) -> None:
-            for b in items or []:
-                if b.mcp_server_id not in seen:
-                    seen.add(b.mcp_server_id)
-                    bindings.append(b)
-
-        _add(agent.mcp_servers)
+        bindings: list[AgentMCPServerResponse] = list(agent.mcp_servers or [])
         for sub in agent.subagents or []:
             sub_agent = await self.get(sub.id, include_archived=True)
-            _add(sub_agent.mcp_servers)
+            bindings.extend(sub_agent.mcp_servers or [])
         return bindings
 
     async def describe_readiness(self, agent_id: UUID, user_id: str) -> dict:
@@ -348,7 +343,7 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
                     "status": "not_configured",
                 }
 
-        server_ids = [b.mcp_server_id for b in bindings]
+        server_ids = {b.mcp_server_id for b in bindings}  # dedupe for the probe
         stmt = select(MCPServerDB).where(MCPServerDB.id.in_(server_ids))
         result = await self.db.execute(stmt)
         servers = list(result.scalars().all())

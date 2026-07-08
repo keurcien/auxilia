@@ -198,6 +198,9 @@ async def create_run(
     # Pre-flight: refuse to launch if the agent or a subagent needs OAuth
     # (401 {oauth_required, auth_url}) before the run is created.
     await runs.ensure_mcp_authorized(db, thread.agent_id, str(thread.user_id))
+    # Release the pooled connection before RunService opens its own session
+    # (holding both risks pool starvation), matching /stream and /invoke.
+    await db.commit()
     trigger, config_overrides = _parse_run_config(body.config)
     record = await runs.create(
         thread_id=thread_id,

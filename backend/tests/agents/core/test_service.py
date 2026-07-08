@@ -799,7 +799,9 @@ async def test_describe_readiness_includes_subagent_servers(service, mock_db):
     assert str(parent_server) not in result["disconnected_servers"]
 
 
-async def test_collect_run_bindings_dedupes_shared_server(service):
+async def test_collect_run_bindings_keeps_shared_server_across_agents(service):
+    # `tools` is per binding, so a server shared by parent + subagent yields
+    # BOTH bindings (not deduped) — the readiness check needs to see each one.
     parent_id, sub_id = uuid4(), uuid4()
     shared = uuid4()
     responses = {
@@ -810,7 +812,25 @@ async def test_collect_run_bindings_dedupes_shared_server(service):
 
     bindings = await service.collect_run_bindings(parent_id)
 
-    assert [b.mcp_server_id for b in bindings] == [shared]
+    assert [b.mcp_server_id for b in bindings] == [shared, shared]
+
+
+async def test_describe_readiness_flags_unconfigured_shared_subagent_binding(service):
+    # Parent configures server X; a subagent binds the SAME X but leaves it
+    # unconfigured (tools=None). Deduping by server id would hide the None and
+    # wrongly report ready — it must be not_configured.
+    parent_id, sub_id = uuid4(), uuid4()
+    shared = uuid4()
+    responses = {
+        parent_id: _readiness_resp([shared], subagent_ids=[sub_id], tools_ok=True),
+        sub_id: _readiness_resp([shared], tools_ok=False),
+    }
+    service.get = AsyncMock(side_effect=lambda aid, **_: responses[aid])
+
+    result = await service.describe_readiness(parent_id, "user-id")
+
+    assert result["ready"] is False
+    assert result["status"] == "not_configured"
 
 
 # ---------------------------------------------------------------------------
