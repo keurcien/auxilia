@@ -81,8 +81,6 @@ const ChatPromptInput = ({
 	const currentModel = externalSelectedModel ?? model;
 	const selectedModelData = models.find((m) => m.id === currentModel);
 	// Text-only providers can't take image attachments (DeepSeek, Z.ai/GLM 5.2).
-	// ponytail: chefSlug list, not a per-model capability flag — add a slug when a
-	// text-only provider lands (or switch to id-gating if a vision GLM ships under z-ai).
 	const noAttachments = ["deepseek", "z-ai"].includes(
 		selectedModelData?.chefSlug ?? "",
 	);
