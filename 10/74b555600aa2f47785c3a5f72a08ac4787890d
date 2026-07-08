@@ -1,0 +1,42 @@
+backend/app/agents/runs/service.py
+  s_af6c3ad0bd9d73::t_86766d398cab8d 94-95,97-100,102-106,108-109,116
+  s_af6c3ad0bd9d73::t_08fffb16ccc1e8 19
+  s_af6c3ad0bd9d73::t_1d8791b587ef0d 96
+  s_af6c3ad0bd9d73::t_6cb3272736b43b 101,107,110-113,115,117-131
+  s_af6c3ad0bd9d73::t_0795eba4601b68 114
+backend/tests/agents/runs/test_router.py
+  s_af6c3ad0bd9d73::t_993e4b034323c4 35-37
+backend/app/agents/runs/router.py
+  s_af6c3ad0bd9d73::t_38d8787a69b9c7 195,198-200
+  s_af6c3ad0bd9d73::t_2fceab0bffd975 109-112
+  s_af6c3ad0bd9d73::t_2d5c48a0bf11e4 150-153
+backend/app/mcp/servers/service.py
+  s_af6c3ad0bd9d73::t_4bb619a5cad0a3 162,164-167
+  s_af6c3ad0bd9d73::t_19d12a9ed9bd6d 155
+backend/app/agents/core/service.py
+  s_af6c3ad0bd9d73::t_52a81095a5bf19 311-317,319-332,334-340,343-344,351-353
+backend/tests/agents/core/test_service.py
+  s_af6c3ad0bd9d73::t_61c6cb4e3230cd 762-815
+backend/tests/agents/runs/test_gate.py
+  s_af6c3ad0bd9d73::t_b41eae4b7ce049 2,4-56,59-80
+  s_af6c3ad0bd9d73::t_10767b531a3f05 1,3,57-58
+backend/tests/mcp/client/test_factory.py
+  s_af6c3ad0bd9d73::t_a6fde0c7a13274 61-83
+  s_af6c3ad0bd9d73::t_7105be183d1e21 60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "1074b555600aa2f47785c3a5f72a08ac4787890d",
+  "prompts": {},
+  "sessions": {
+    "s_af6c3ad0bd9d73": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "eff59b63-deb8-42b2-a4a8-c1936e3224b3",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}
