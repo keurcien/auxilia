@@ -8,6 +8,7 @@ by replaying its event log from a cursor.
 
 from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import StreamingResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.runs.schemas import RunCreate, RunResponse
 from app.agents.runs.service import RunService
@@ -15,6 +16,7 @@ from app.agents.runs.state import RunStatus
 from app.agents.runtime import read_run_result
 from app.agents.structured_output import validate_structured_response
 from app.auth.dependencies import get_current_user
+from app.database import get_db
 from app.exceptions import (
     DomainError,
     NotFoundError,
@@ -101,6 +103,7 @@ async def create_run_stream(
     config: dict | None = Body(None, embed=True),
     thread: ThreadResponse = Depends(authorize_thread),
     runs: RunService = Depends(get_run_service),
+    db: AsyncSession = Depends(get_db),  # dependency-cached: same session auth used
 ):
     """Create a run and stream it. Same SSE protocol as before; durable underneath."""
     trigger, config_overrides = _parse_run_config(config)
@@ -112,6 +115,9 @@ async def create_run_stream(
         trigger=trigger,
         config_overrides=config_overrides,
     )
+    # Release the pooled connection before the response streams for the whole
+    # run — auth queries are done; RunService uses its own short-lived sessions.
+    await db.commit()
     return StreamingResponse(
         runs.stream(record.id),
         media_type="text/event-stream",
@@ -128,6 +134,7 @@ async def invoke_run(
     output_schema: dict | None = Body(None, embed=True),
     thread: ThreadResponse = Depends(authorize_thread),
     runs: RunService = Depends(get_run_service),
+    db: AsyncSession = Depends(get_db),  # dependency-cached: same session auth used
 ) -> dict:
     """Create a run and block until it finishes, returning the final answer.
 
@@ -145,6 +152,9 @@ async def invoke_run(
         config_overrides=config_overrides,
         output_schema=output_schema,
     )
+    # Release the pooled connection before blocking for the whole run — auth
+    # queries are done; RunService uses its own short-lived sessions.
+    await db.commit()
     record = await runs.wait_for_terminal(record.id)
     # Only a clean success yields a result. cancelled/interrupted/error/timeout
     # would otherwise return stale or partial checkpoint data as if it succeeded.
@@ -225,6 +235,7 @@ async def stream_run(
     last_event_id: str = Query("0"),
     _: ThreadResponse = Depends(authorize_thread),
     runs: RunService = Depends(get_run_service),
+    db: AsyncSession = Depends(get_db),  # dependency-cached: same session auth used
 ):
     """Reattach to a run, replaying its event log from `last_event_id`.
 
@@ -234,6 +245,9 @@ async def stream_run(
     """
     record = await runs.get(run_id)
     _ensure_run_on_thread(record, thread_id)
+    # Release the pooled connection before the response streams for the whole
+    # run — auth queries are done; RunService uses its own short-lived sessions.
+    await db.commit()
     return StreamingResponse(
         runs.stream(run_id, last_event_id),
         media_type="text/event-stream",
