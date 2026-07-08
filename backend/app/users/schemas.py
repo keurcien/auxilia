@@ -37,6 +37,15 @@ class UserResponse(SQLModel):
     updated_at: datetime
 
 
+class UserRoleCounts(SQLModel):
+    """Workspace-wide user counts, total and per role (drives filter chips)."""
+
+    total: int
+    member: int = 0
+    editor: int = 0
+    admin: int = 0
+
+
 class OAuthAccountCreate(SQLModel):
     provider: str
     sub_id: str

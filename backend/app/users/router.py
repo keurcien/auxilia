@@ -3,11 +3,13 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 
 from app.auth.dependencies import get_current_user, require_admin
+from app.pagination import Page, PageParams
 from app.users.models import UserDB, WorkspaceRole
 from app.users.schemas import (
     UserCreate,
     UserPatch,
     UserResponse,
+    UserRoleCounts,
     UserRolePatch,
     UserTeamPatch,
 )
@@ -26,13 +28,24 @@ async def create_user(
     return await service.create(user)
 
 
-@router.get("/", response_model=list[UserResponse])
+@router.get("/", response_model=Page[UserResponse])
 async def get_users(
     role: WorkspaceRole | None = None,
+    search: str | None = None,
+    page: PageParams = Depends(),
     _: UserDB = Depends(get_current_user),
     service: UserService = Depends(get_user_service),
-) -> list[UserResponse]:
-    return await service.list(role=role)
+) -> Page[UserResponse]:
+    return await service.list(page, role=role, search=search)
+
+
+# Declared before /{user_id} so "role-counts" is not captured as a user id.
+@router.get("/role-counts", response_model=UserRoleCounts)
+async def count_users_by_role(
+    _: UserDB = Depends(get_current_user),
+    service: UserService = Depends(get_user_service),
+) -> UserRoleCounts:
+    return await service.count_by_role()
 
 
 @router.get("/{user_id}", response_model=UserResponse)

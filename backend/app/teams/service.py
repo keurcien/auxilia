@@ -9,7 +9,7 @@ from app.exceptions import AlreadyExistsError, DomainValidationError
 from app.service import BaseService
 from app.teams.models import TeamDB
 from app.teams.repository import TeamRepository
-from app.teams.schemas import TeamCreate, TeamPatch
+from app.teams.schemas import TeamCreate, TeamPatch, TeamResponse
 
 
 class TeamService(BaseService[TeamDB, TeamRepository]):
@@ -22,8 +22,12 @@ class TeamService(BaseService[TeamDB, TeamRepository]):
         if await self.repository.get_by_name(name):
             raise AlreadyExistsError("Team name already exists")
 
-    async def list(self) -> list[TeamDB]:
-        return await self.repository.list_all()
+    async def list(self) -> list[TeamResponse]:
+        rows = await self.repository.list_with_member_counts()
+        return [
+            TeamResponse.model_validate(team, update={"member_count": count})
+            for team, count in rows
+        ]
 
     async def get(self, team_id: UUID) -> TeamDB:
         return await self.get_or_404(team_id)

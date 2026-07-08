@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import {
 	Trash2,
 	Plus,
@@ -17,9 +17,11 @@ import NewTeamDialog, { type Team } from "./new-team-dialog";
 import { SearchBar } from "@/components/ui/search-bar";
 import { Button } from "@/components/ui/button";
 import { PageContainer } from "@/components/layout/page-container";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { SageDropdownMenu } from "@/components/ui/sage-dropdown-menu";
 import { api } from "@/lib/api/client";
 import { useUserStore } from "@/stores/user-store";
+import type { Paginated } from "@/types/api";
 
 interface User {
 	id: string;
@@ -40,7 +42,16 @@ interface Invite {
 	createdAt: string;
 }
 
+interface RoleCounts {
+	total: number;
+	member: number;
+	editor: number;
+	admin: number;
+}
+
 type Role = "member" | "editor" | "admin";
+
+const PAGE_SIZE = 20;
 
 const ROLE_LABELS: Record<Role, string> = {
 	admin: "Admin",
@@ -91,9 +102,13 @@ function getInviterShortName(name: string | null): string {
 export default function UsersPage() {
 	const currentUser = useUserStore((state) => state.user);
 	const [users, setUsers] = useState<User[]>([]);
+	const [total, setTotal] = useState(0);
+	const [offset, setOffset] = useState(0);
+	const [roleCounts, setRoleCounts] = useState<RoleCounts | null>(null);
 	const [invites, setInvites] = useState<Invite[]>([]);
 	const [teams, setTeams] = useState<Team[]>([]);
 	const [search, setSearch] = useState("");
+	const [debouncedSearch, setDebouncedSearch] = useState("");
 	const [roleFilter, setRoleFilter] = useState<"all" | Role>("all");
 	const [isLoading, setIsLoading] = useState(true);
 	const [errorDialogOpen, setErrorDialogOpen] = useState(false);
@@ -104,16 +119,60 @@ export default function UsersPage() {
 	const [copiedInviteId, setCopiedInviteId] = useState<string | null>(null);
 
 	useEffect(() => {
-		const fetchUsers = async () => {
-			try {
-				const response = await api.get("/users");
-				setUsers(response.data);
-			} catch (error) {
-				console.error("Error fetching users:", error);
-			} finally {
-				setIsLoading(false);
-			}
+		const timeout = setTimeout(() => {
+			setDebouncedSearch(search.trim());
+			setOffset(0);
+		}, 300);
+		return () => {
+			clearTimeout(timeout);
 		};
+	}, [search]);
+
+	const fetchUsers = useCallback(async () => {
+		setIsLoading(true);
+		try {
+			const response = await api.get<Paginated<User>>("/users", {
+				params: {
+					limit: PAGE_SIZE,
+					offset,
+					...(roleFilter !== "all" && { role: roleFilter }),
+					...(debouncedSearch && { search: debouncedSearch }),
+				},
+			});
+			setUsers(response.data.items);
+			setTotal(response.data.total);
+		} catch (error) {
+			console.error("Error fetching users:", error);
+		} finally {
+			setIsLoading(false);
+		}
+	}, [offset, roleFilter, debouncedSearch]);
+
+	const fetchRoleCounts = useCallback(async () => {
+		try {
+			const response = await api.get<RoleCounts>("/users/role-counts");
+			setRoleCounts(response.data);
+		} catch (error) {
+			console.error("Error fetching role counts:", error);
+		}
+	}, []);
+
+	const fetchTeams = useCallback(async () => {
+		try {
+			const response = await api.get<Team[]>("/teams/");
+			setTeams(response.data);
+		} catch (error) {
+			console.error("Error fetching teams:", error);
+		}
+	}, []);
+
+	useEffect(() => {
+		void fetchUsers();
+	}, [fetchUsers]);
+
+	useEffect(() => {
+		void fetchRoleCounts();
+		void fetchTeams();
 		const fetchInvites = async () => {
 			try {
 				const response = await api.get("/invites/");
@@ -122,23 +181,18 @@ export default function UsersPage() {
 				console.error("Error fetching invites:", error);
 			}
 		};
-		const fetchTeams = async () => {
-			try {
-				const response = await api.get("/teams/");
-				setTeams(response.data);
-			} catch (error) {
-				console.error("Error fetching teams:", error);
-			}
-		};
-		void fetchUsers();
 		void fetchInvites();
-		void fetchTeams();
-	}, []);
+	}, [fetchRoleCounts, fetchTeams]);
 
 	const teamsById = useMemo(
 		() => new Map(teams.map((t) => [t.id, t])),
 		[teams],
 	);
+
+	const handleRoleFilterChange = (key: "all" | Role) => {
+		setRoleFilter(key);
+		setOffset(0);
+	};
 
 	const handleCopyInviteLink = async (invite: Invite) => {
 		await navigator.clipboard.writeText(invite.inviteUrl);
@@ -163,36 +217,18 @@ export default function UsersPage() {
 		}
 	};
 
-	const roleCounts = useMemo(
-		() => ({
-			all: users.length,
-			admin: users.filter((u) => u.role === "admin").length,
-			editor: users.filter((u) => u.role === "editor").length,
-			member: users.filter((u) => u.role === "member").length,
-		}),
-		[users],
-	);
-
-	const filteredUsers = useMemo(() => {
-		let list = users;
-		if (roleFilter !== "all") list = list.filter((u) => u.role === roleFilter);
-		const query = search.trim().toLowerCase();
-		if (query) {
-			list = list.filter(
-				(user) =>
-					user.name?.toLowerCase().includes(query) ||
-					user.email?.toLowerCase().includes(query),
-			);
-		}
-		return list;
-	}, [users, search, roleFilter]);
-
 	const handleRoleChange = async (userId: string, newRole: Role) => {
 		try {
 			await api.patch(`/users/${userId}/role`, { role: newRole });
-			setUsers((prev) =>
-				prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u)),
-			);
+			if (roleFilter === "all") {
+				setUsers((prev) =>
+					prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u)),
+				);
+			} else {
+				// The row may no longer match the active filter — resync the page.
+				void fetchUsers();
+			}
+			void fetchRoleCounts();
 		} catch (error: unknown) {
 			if (
 				error instanceof Object &&
@@ -212,6 +248,8 @@ export default function UsersPage() {
 			setUsers((prev) =>
 				prev.map((u) => (u.id === userId ? { ...u, teamId } : u)),
 			);
+			// Team member counts come from the backend — resync them.
+			void fetchTeams();
 		} catch (error: unknown) {
 			if (
 				error instanceof Object &&
@@ -242,9 +280,10 @@ export default function UsersPage() {
 	};
 
 	const handleTeamUpdated = (team: Team) => {
+		// The PATCH response reports memberCount 0 — keep the count we have.
 		setTeams((prev) =>
 			prev
-				.map((t) => (t.id === team.id ? team : t))
+				.map((t) => (t.id === team.id ? { ...team, memberCount: t.memberCount } : t))
 				.sort((a, b) => a.name.localeCompare(b.name)),
 		);
 	};
@@ -262,7 +301,7 @@ export default function UsersPage() {
 	};
 
 	const handleDeleteTeam = async (team: Team) => {
-		const memberCount = users.filter((u) => u.teamId === team.id).length;
+		const memberCount = team.memberCount;
 		const confirmed = window.confirm(
 			`Delete "${team.name}"?${
 				memberCount > 0
@@ -300,7 +339,10 @@ export default function UsersPage() {
 
 		try {
 			await api.delete(`/users/${userId}`);
-			setUsers((prev) => prev.filter((u) => u.id !== userId));
+			// Resync page, counts and team membership from the server.
+			void fetchUsers();
+			void fetchRoleCounts();
+			void fetchTeams();
 		} catch (error: unknown) {
 			if (
 				error instanceof Object &&
@@ -313,6 +355,170 @@ export default function UsersPage() {
 			}
 		}
 	};
+
+	const columns: DataTableColumn<User>[] = [
+		{
+			key: "name",
+			header: "Name",
+			width: "1fr",
+			cell: (user) => {
+				const isCurrentUser = user.id === currentUser?.id;
+				return (
+					<div className="flex min-w-0 items-center gap-3">
+						<span className="flex size-[34px] shrink-0 items-center justify-center rounded-full bg-[#e7f0eb] font-[family-name:var(--font-jakarta-sans)] text-[11.5px] font-bold text-[#3d8b63] dark:bg-emerald-950 dark:text-emerald-300">
+							{getInitials(user.name)}
+						</span>
+						<div className="min-w-0">
+							<div className="flex min-w-0 items-center gap-2">
+								<span className="truncate font-[family-name:var(--font-jakarta-sans)] text-[13.5px] font-semibold tracking-[-0.01em] text-[#1e2d28] dark:text-foreground">
+									{user.name || "Unnamed"}
+								</span>
+								{isCurrentUser && (
+									<span className="shrink-0 rounded-[5px] bg-[#e7f0eb] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-[0.06em] text-[#3d8b63] dark:bg-emerald-950 dark:text-emerald-300">
+										You
+									</span>
+								)}
+							</div>
+							{/* Email folds under the name on mobile; own column on md+ */}
+							<span className="block truncate font-mono text-[11px] text-[#94a59d] dark:text-muted-foreground md:hidden">
+								{user.email}
+							</span>
+						</div>
+					</div>
+				);
+			},
+		},
+		{
+			key: "email",
+			header: "Email",
+			width: "200px",
+			hideBelowMd: true,
+			cell: (user) => (
+				<span className="block truncate font-mono text-[12px] text-[#5f7068] dark:text-muted-foreground">
+					{user.email}
+				</span>
+			),
+		},
+		{
+			key: "role",
+			header: "Role",
+			width: "120px",
+			mobileWidth: "auto",
+			cell: (user) => {
+				const isCurrentUser = user.id === currentUser?.id;
+				return isCurrentUser ? (
+					<span className="inline-flex items-center gap-2 font-[family-name:var(--font-dm-sans)] text-[13px] font-medium text-[#5f7068] dark:text-muted-foreground">
+						<span
+							className="size-1.5 rounded-full"
+							style={{ background: ROLE_DOT[user.role] }}
+						/>
+						{ROLE_LABELS[user.role]}
+					</span>
+				) : (
+					<SageDropdownMenu
+						trigger={
+							<button className="inline-flex items-center gap-2 rounded-lg border border-[#e1ebe6] bg-white px-2.5 py-[5px] font-[family-name:var(--font-dm-sans)] text-[13px] font-medium text-[#1e2d28] cursor-pointer transition-colors hover:border-[#A3B5AD] dark:border-white/10 dark:bg-transparent dark:text-foreground">
+								<span
+									className="size-1.5 rounded-full"
+									style={{ background: ROLE_DOT[user.role] }}
+								/>
+								{ROLE_LABELS[user.role]}
+								<ChevronDown className="size-3.5 text-[#94a59d]" />
+							</button>
+						}
+						items={[
+							{ label: "Admin", onClick: () => { void handleRoleChange(user.id, "admin"); }, active: user.role === "admin" },
+							{ label: "Editor", onClick: () => { void handleRoleChange(user.id, "editor"); }, active: user.role === "editor" },
+							{ label: "Member", onClick: () => { void handleRoleChange(user.id, "member"); }, active: user.role === "member" },
+						]}
+					/>
+				);
+			},
+		},
+		{
+			key: "team",
+			header: "Team",
+			width: "150px",
+			hideBelowMd: true,
+			cell: (user) => {
+				const team = user.teamId ? teamsById.get(user.teamId) : undefined;
+				return (
+					<SageDropdownMenu
+						align="start"
+						trigger={
+							team ? (
+								<button className="inline-flex max-w-full items-center gap-2 rounded-lg border border-[#e1ebe6] bg-white px-2.5 py-[5px] font-[family-name:var(--font-dm-sans)] text-[13px] font-medium text-[#1e2d28] cursor-pointer transition-colors hover:border-[#A3B5AD] dark:border-white/10 dark:bg-transparent dark:text-foreground">
+									<span
+										className="size-1.5 shrink-0 rounded-full"
+										style={{ background: team.color ?? "#9E9E9E" }}
+									/>
+									<span className="truncate">{team.name}</span>
+									<ChevronDown className="size-3.5 shrink-0 text-[#94a59d]" />
+								</button>
+							) : (
+								<button className="inline-flex items-center gap-2 rounded-lg border border-dashed border-[#d8e3dd] bg-transparent px-2.5 py-[5px] font-[family-name:var(--font-dm-sans)] text-[13px] font-medium text-[#94a59d] cursor-pointer transition-colors hover:border-[#A3B5AD] hover:text-[#5f7068] dark:border-white/15">
+									<span className="size-1.5 shrink-0 rounded-full border border-[#c3d2cb] dark:border-white/20" />
+									No team
+									<ChevronDown className="size-3.5 shrink-0 text-[#94a59d]" />
+								</button>
+							)
+						}
+						items={[
+							{
+								label: "No team",
+								icon: (
+									<span className="block size-2 rounded-full border border-[#c3d2cb] dark:border-white/25" />
+								),
+								onClick: () => {
+									void handleTeamChange(user.id, null);
+								},
+								active: !user.teamId,
+							},
+							...teams.map((t) => ({
+								label: t.name,
+								icon: (
+									<span
+										className="block size-2 rounded-full"
+										style={{ background: t.color ?? "#9E9E9E" }}
+									/>
+								),
+								onClick: () => {
+									void handleTeamChange(user.id, t.id);
+								},
+								active: user.teamId === t.id,
+							})),
+							{ separator: true as const },
+							{
+								label: "New team",
+								icon: <Plus />,
+								onClick: () => { handleOpenNewTeam(user.id); },
+							},
+						]}
+					/>
+				);
+			},
+		},
+		{
+			key: "actions",
+			header: "",
+			width: "34px",
+			cell: (user) => {
+				const isCurrentUser = user.id === currentUser?.id;
+				return (
+					<div className="flex justify-center">
+						{!isCurrentUser && (
+							<button
+								className="flex size-7 items-center justify-center rounded-[7px] text-[#94a59d] opacity-100 transition-all hover:bg-[#fbe5e3] hover:text-[#b03a30] cursor-pointer md:opacity-0 md:group-hover:opacity-100 dark:hover:bg-rose-950"
+								onClick={() => { void handleRemoveUser(user.id, user.name); }}
+							>
+								<Trash2 className="size-[15px]" />
+							</button>
+						)}
+					</div>
+				);
+			},
+		},
+	];
 
 	return (
 		<PageContainer>
@@ -369,344 +575,187 @@ export default function UsersPage() {
 				</div>
 			</div>
 
-			{isLoading ? null : (
-				<>
-					{/* Role filter chips */}
-					<div className="flex flex-wrap items-center gap-2 mb-5">
-						{ROLE_FILTERS.map((filter) => {
-							const active = roleFilter === filter.key;
-							return (
-								<button
-									key={filter.key}
-									onClick={() => {
-									setRoleFilter(filter.key);
-								}}
-									className={`inline-flex items-center gap-2 rounded-full px-[13px] py-1.5 text-[12px] font-[family-name:var(--font-dm-sans)] cursor-pointer transition-colors ${
-										active
-											? "bg-[#e7f0eb] text-[#3d8b63] font-semibold dark:bg-emerald-950 dark:text-emerald-300"
-											: "border border-[#e1ebe6] text-[#5f7068] hover:bg-[#f8faf9] dark:border-white/10 dark:text-muted-foreground dark:hover:bg-white/5"
-									}`}
-								>
-									{filter.label}
-									<span className="font-mono text-[10.5px] opacity-70">
-										{roleCounts[filter.key]}
-									</span>
-								</button>
-							);
-						})}
-					</div>
+			{/* Role filter chips */}
+			<div className="flex flex-wrap items-center gap-2 mb-5">
+				{ROLE_FILTERS.map((filter) => {
+					const active = roleFilter === filter.key;
+					const count =
+						filter.key === "all" ? roleCounts?.total : roleCounts?.[filter.key];
+					return (
+						<button
+							key={filter.key}
+							onClick={() => {
+								handleRoleFilterChange(filter.key);
+							}}
+							className={`inline-flex items-center gap-2 rounded-full px-[13px] py-1.5 text-[12px] font-[family-name:var(--font-dm-sans)] cursor-pointer transition-colors ${
+								active
+									? "bg-[#e7f0eb] text-[#3d8b63] font-semibold dark:bg-emerald-950 dark:text-emerald-300"
+									: "border border-[#e1ebe6] text-[#5f7068] hover:bg-[#f8faf9] dark:border-white/10 dark:text-muted-foreground dark:hover:bg-white/5"
+							}`}
+						>
+							{filter.label}
+							{count !== undefined && (
+								<span className="font-mono text-[10.5px] opacity-70">
+									{count}
+								</span>
+							)}
+						</button>
+					);
+				})}
+			</div>
 
-					{/* Member list panel */}
-					<div className="overflow-hidden rounded-[14px] border border-[#e1ebe6] bg-white dark:border-white/10 dark:bg-card">
-						<div className="grid grid-cols-[1fr_auto_34px] md:grid-cols-[1fr_200px_120px_150px_34px] items-center gap-4 border-b border-[#edf2ef] px-[18px] py-[11px] dark:border-white/5">
-							<span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#94a59d]">
-								Name
+			{/* Member list */}
+			<DataTable
+				columns={columns}
+				rows={users}
+				rowKey={(user) => user.id}
+				isLoading={isLoading}
+				emptyMessage={
+					debouncedSearch || roleFilter !== "all"
+						? "No users match your filters."
+						: "No members in this workspace."
+				}
+				pagination={{
+					total,
+					limit: PAGE_SIZE,
+					offset,
+					onOffsetChange: setOffset,
+				}}
+			/>
+
+			{/* Teams */}
+			<div className="flex items-baseline gap-2.5 pt-6 pb-3">
+				<span className="font-[family-name:var(--font-jakarta-sans)] text-[14px] font-bold tracking-[-0.01em] text-[#1e2d28] dark:text-foreground">
+					Teams
+				</span>
+				<span className="text-[11.5px] text-[#94a59d]">
+					{teams.length}
+				</span>
+				<span className="h-px flex-1 self-center bg-[#e1ebe6] dark:bg-white/10" />
+				<button
+					onClick={openCreateTeam}
+					className="inline-flex items-center gap-1.5 rounded-lg border border-[#e1ebe6] px-3 py-1.5 font-[family-name:var(--font-dm-sans)] text-[12px] font-medium text-[#5f7068] cursor-pointer transition-colors hover:bg-[#f8faf9] dark:border-white/10 dark:text-muted-foreground dark:hover:bg-white/5"
+				>
+					<Plus className="size-3.5" />
+					New team
+				</button>
+			</div>
+
+			{teams.length === 0 ? (
+				<div className="rounded-[14px] border border-dashed border-[#d8e3dd] bg-transparent px-[18px] py-8 text-center text-[14px] font-medium text-[#A3B5AD] dark:border-white/10 dark:text-muted-foreground">
+					No teams yet. Create one to group members.
+				</div>
+			) : (
+				<div className="overflow-hidden rounded-[14px] border border-[#e1ebe6] bg-white dark:border-white/10 dark:bg-card">
+					{teams.map((team) => (
+						<div
+							key={team.id}
+							className="group flex items-center gap-3 border-b border-[#edf2ef] px-[18px] py-[11px] transition-colors duration-[110ms] last:border-b-0 hover:bg-[#eff4f1] dark:border-white/5 dark:hover:bg-white/5"
+						>
+							<span
+								className="block size-2.5 shrink-0 rounded-full"
+								style={{ background: team.color ?? "#9E9E9E" }}
+							/>
+							<span className="flex-1 truncate font-[family-name:var(--font-jakarta-sans)] text-[13.5px] font-semibold tracking-[-0.01em] text-[#1e2d28] dark:text-foreground">
+								{team.name}
 							</span>
-							<span className="hidden md:block text-[10px] font-semibold uppercase tracking-[0.1em] text-[#94a59d]">
-								Email
+							<span className="shrink-0 text-[11.5px] text-[#94a59d]">
+								{team.memberCount} member{team.memberCount === 1 ? "" : "s"}
 							</span>
-							<span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#94a59d]">
-								Role
-							</span>
-							<span className="hidden md:block text-[10px] font-semibold uppercase tracking-[0.1em] text-[#94a59d]">
-								Team
-							</span>
-							<span />
+							<SageDropdownMenu
+								trigger={
+									<button className="flex size-7 items-center justify-center rounded-[7px] text-[#94a59d] cursor-pointer transition-all hover:bg-[#edf2ef] md:opacity-0 md:group-hover:opacity-100 dark:hover:bg-white/10">
+										<MoreVertical className="size-[18px]" />
+									</button>
+								}
+								items={[
+									{
+										label: "Rename",
+										icon: <Pencil />,
+										onClick: () => { openEditTeam(team); },
+									},
+									{
+										label: "Delete",
+										icon: <Trash2 />,
+										destructive: true,
+										onClick: () => {
+											void handleDeleteTeam(team);
+										},
+									},
+								]}
+							/>
 						</div>
+					))}
+				</div>
+			)}
 
-						{filteredUsers.length === 0 ? (
-							<div className="px-[18px] py-12 text-center text-[14px] font-medium text-[#A3B5AD] dark:text-muted-foreground">
-								{search || roleFilter !== "all"
-									? "No users match your filters."
-									: "No members in this workspace."}
-							</div>
-						) : (
-							filteredUsers.map((user) => {
-								const isCurrentUser = user.id === currentUser?.id;
-								return (
-									<div
-										key={user.id}
-										className="group grid grid-cols-[1fr_auto_34px] md:grid-cols-[1fr_200px_120px_150px_34px] items-center gap-4 border-b border-[#edf2ef] px-[18px] py-[11px] transition-colors duration-[110ms] last:border-b-0 hover:bg-[#eff4f1] dark:border-white/5 dark:hover:bg-white/5"
-									>
-										{/* Identity */}
-										<div className="flex min-w-0 items-center gap-3">
-											<span className="flex size-[34px] shrink-0 items-center justify-center rounded-full bg-[#e7f0eb] font-[family-name:var(--font-jakarta-sans)] text-[11.5px] font-bold text-[#3d8b63] dark:bg-emerald-950 dark:text-emerald-300">
-												{getInitials(user.name)}
-											</span>
-											<div className="min-w-0">
-												<div className="flex min-w-0 items-center gap-2">
-													<span className="truncate font-[family-name:var(--font-jakarta-sans)] text-[13.5px] font-semibold tracking-[-0.01em] text-[#1e2d28] dark:text-foreground">
-														{user.name || "Unnamed"}
-													</span>
-													{isCurrentUser && (
-														<span className="shrink-0 rounded-[5px] bg-[#e7f0eb] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-[0.06em] text-[#3d8b63] dark:bg-emerald-950 dark:text-emerald-300">
-															You
-														</span>
-													)}
-												</div>
-												{/* Email folds under the name on mobile; own column on md+ */}
-												<span className="block truncate font-mono text-[11px] text-[#94a59d] dark:text-muted-foreground md:hidden">
-													{user.email}
-												</span>
-											</div>
-										</div>
-
-										{/* Email (column on md+) */}
-										<span className="hidden truncate font-mono text-[12px] text-[#5f7068] md:block dark:text-muted-foreground">
-											{user.email}
-										</span>
-
-										{/* Role */}
-										<div className="min-w-0">
-											{isCurrentUser ? (
-												<span className="inline-flex items-center gap-2 font-[family-name:var(--font-dm-sans)] text-[13px] font-medium text-[#5f7068] dark:text-muted-foreground">
-													<span
-														className="size-1.5 rounded-full"
-														style={{ background: ROLE_DOT[user.role] }}
-													/>
-													{ROLE_LABELS[user.role]}
-												</span>
-											) : (
-												<SageDropdownMenu
-													trigger={
-														<button className="inline-flex items-center gap-2 rounded-lg border border-[#e1ebe6] bg-white px-2.5 py-[5px] font-[family-name:var(--font-dm-sans)] text-[13px] font-medium text-[#1e2d28] cursor-pointer transition-colors hover:border-[#A3B5AD] dark:border-white/10 dark:bg-transparent dark:text-foreground">
-															<span
-																className="size-1.5 rounded-full"
-																style={{ background: ROLE_DOT[user.role] }}
-															/>
-															{ROLE_LABELS[user.role]}
-															<ChevronDown className="size-3.5 text-[#94a59d]" />
-														</button>
-													}
-													items={[
-														{ label: "Admin", onClick: () => { void handleRoleChange(user.id, "admin"); }, active: user.role === "admin" },
-														{ label: "Editor", onClick: () => { void handleRoleChange(user.id, "editor"); }, active: user.role === "editor" },
-														{ label: "Member", onClick: () => { void handleRoleChange(user.id, "member"); }, active: user.role === "member" },
-													]}
-												/>
-											)}
-										</div>
-
-										{/* Team */}
-										<div className="hidden md:block min-w-0">
-											{(() => {
-												const team = user.teamId
-													? teamsById.get(user.teamId)
-													: undefined;
-												return (
-													<SageDropdownMenu
-														align="start"
-														trigger={
-															team ? (
-																<button className="inline-flex max-w-full items-center gap-2 rounded-lg border border-[#e1ebe6] bg-white px-2.5 py-[5px] font-[family-name:var(--font-dm-sans)] text-[13px] font-medium text-[#1e2d28] cursor-pointer transition-colors hover:border-[#A3B5AD] dark:border-white/10 dark:bg-transparent dark:text-foreground">
-																	<span
-																		className="size-1.5 shrink-0 rounded-full"
-																		style={{ background: team.color ?? "#9E9E9E" }}
-																	/>
-																	<span className="truncate">{team.name}</span>
-																	<ChevronDown className="size-3.5 shrink-0 text-[#94a59d]" />
-																</button>
-															) : (
-																<button className="inline-flex items-center gap-2 rounded-lg border border-dashed border-[#d8e3dd] bg-transparent px-2.5 py-[5px] font-[family-name:var(--font-dm-sans)] text-[13px] font-medium text-[#94a59d] cursor-pointer transition-colors hover:border-[#A3B5AD] hover:text-[#5f7068] dark:border-white/15">
-																	<span className="size-1.5 shrink-0 rounded-full border border-[#c3d2cb] dark:border-white/20" />
-																	No team
-																	<ChevronDown className="size-3.5 shrink-0 text-[#94a59d]" />
-																</button>
-															)
-														}
-														items={[
-															{
-																label: "No team",
-																icon: (
-																	<span className="block size-2 rounded-full border border-[#c3d2cb] dark:border-white/25" />
-																),
-																onClick: () => {
-													void handleTeamChange(user.id, null);
-												},
-																active: !user.teamId,
-															},
-															...teams.map((t) => ({
-																label: t.name,
-																icon: (
-																	<span
-																		className="block size-2 rounded-full"
-																		style={{ background: t.color ?? "#9E9E9E" }}
-																	/>
-																),
-																onClick: () => {
-													void handleTeamChange(user.id, t.id);
-												},
-																active: user.teamId === t.id,
-															})),
-															{ separator: true as const },
-															{
-																label: "New team",
-																icon: <Plus />,
-																onClick: () => { handleOpenNewTeam(user.id); },
-															},
-														]}
-													/>
-												);
-											})()}
-										</div>
-
-										{/* Remove */}
-										<div className="flex justify-center">
-											{!isCurrentUser && (
-												<button
-													className="flex size-7 items-center justify-center rounded-[7px] text-[#94a59d] opacity-100 transition-all hover:bg-[#fbe5e3] hover:text-[#b03a30] cursor-pointer md:opacity-0 md:group-hover:opacity-100 dark:hover:bg-rose-950"
-													onClick={() => { void handleRemoveUser(user.id, user.name); }}
-												>
-													<Trash2 className="size-[15px]" />
-												</button>
-											)}
-										</div>
-									</div>
-								);
-							})
-						)}
-					</div>
-
-					{/* Teams */}
+			{/* Pending invites */}
+			{invites.length > 0 && (
+				<>
 					<div className="flex items-baseline gap-2.5 pt-6 pb-3">
 						<span className="font-[family-name:var(--font-jakarta-sans)] text-[14px] font-bold tracking-[-0.01em] text-[#1e2d28] dark:text-foreground">
-							Teams
+							Pending invites
 						</span>
 						<span className="text-[11.5px] text-[#94a59d]">
-							{teams.length}
+							{invites.length}
 						</span>
 						<span className="h-px flex-1 self-center bg-[#e1ebe6] dark:bg-white/10" />
-						<button
-							onClick={openCreateTeam}
-							className="inline-flex items-center gap-1.5 rounded-lg border border-[#e1ebe6] px-3 py-1.5 font-[family-name:var(--font-dm-sans)] text-[12px] font-medium text-[#5f7068] cursor-pointer transition-colors hover:bg-[#f8faf9] dark:border-white/10 dark:text-muted-foreground dark:hover:bg-white/5"
-						>
-							<Plus className="size-3.5" />
-							New team
-						</button>
 					</div>
 
-					{teams.length === 0 ? (
-						<div className="rounded-[14px] border border-dashed border-[#d8e3dd] bg-transparent px-[18px] py-8 text-center text-[14px] font-medium text-[#A3B5AD] dark:border-white/10 dark:text-muted-foreground">
-							No teams yet. Create one to group members.
-						</div>
-					) : (
-						<div className="overflow-hidden rounded-[14px] border border-[#e1ebe6] bg-white dark:border-white/10 dark:bg-card">
-							{teams.map((team) => {
-								const memberCount = users.filter(
-									(u) => u.teamId === team.id,
-								).length;
-								return (
-									<div
-										key={team.id}
-										className="group flex items-center gap-3 border-b border-[#edf2ef] px-[18px] py-[11px] transition-colors duration-[110ms] last:border-b-0 hover:bg-[#eff4f1] dark:border-white/5 dark:hover:bg-white/5"
-									>
-										<span
-											className="block size-2.5 shrink-0 rounded-full"
-											style={{ background: team.color ?? "#9E9E9E" }}
-										/>
-										<span className="flex-1 truncate font-[family-name:var(--font-jakarta-sans)] text-[13.5px] font-semibold tracking-[-0.01em] text-[#1e2d28] dark:text-foreground">
-											{team.name}
-										</span>
-										<span className="shrink-0 text-[11.5px] text-[#94a59d]">
-											{memberCount} member{memberCount > 1 ? "s" : ""}
-										</span>
-										<SageDropdownMenu
-											trigger={
-												<button className="flex size-7 items-center justify-center rounded-[7px] text-[#94a59d] cursor-pointer transition-all hover:bg-[#edf2ef] md:opacity-0 md:group-hover:opacity-100 dark:hover:bg-white/10">
-													<MoreVertical className="size-[18px]" />
-												</button>
-											}
-											items={[
-												{
-													label: "Rename",
-													icon: <Pencil />,
-													onClick: () => { openEditTeam(team); },
-												},
-												{
-													label: "Delete",
-													icon: <Trash2 />,
-													destructive: true,
-													onClick: () => {
-														void handleDeleteTeam(team);
-													},
-												},
-											]}
-										/>
-									</div>
-								);
-							})}
-						</div>
-					)}
-
-					{/* Pending invites */}
-					{invites.length > 0 && (
-						<>
-							<div className="flex items-baseline gap-2.5 pt-6 pb-3">
-								<span className="font-[family-name:var(--font-jakarta-sans)] text-[14px] font-bold tracking-[-0.01em] text-[#1e2d28] dark:text-foreground">
-									Pending invites
-								</span>
-								<span className="text-[11.5px] text-[#94a59d]">
-									{invites.length}
-								</span>
-								<span className="h-px flex-1 self-center bg-[#e1ebe6] dark:bg-white/10" />
-							</div>
-
-							<div className="overflow-hidden rounded-[14px] border border-[#e1ebe6] bg-white dark:border-white/10 dark:bg-card">
-								{invites.map((invite) => (
-									<div
-										key={invite.id}
-										className="flex flex-col gap-3 border-b border-[#edf2ef] px-[18px] py-[11px] last:border-b-0 md:grid md:grid-cols-[1fr_140px_auto] md:items-center md:gap-4 dark:border-white/5"
-									>
-										{/* Envelope + email + meta */}
-										<div className="flex min-w-0 items-center gap-3">
-											<span className="flex size-[34px] shrink-0 items-center justify-center rounded-full border border-dashed border-[#e1ebe6] bg-surface text-[#94a59d] dark:border-white/10 dark:bg-white/5">
-												<Mail className="size-[15px]" />
-											</span>
-											<div className="min-w-0">
-												<div className="truncate font-mono text-[12.5px] font-medium text-[#1e2d28] dark:text-foreground">
-													{invite.email}
-												</div>
-												<div className="truncate text-[11px] text-[#94a59d] mt-0.5">
-													Invited {timeAgo(invite.createdAt)} · by{" "}
-													{getInviterShortName(invite.invitedByName)}
-												</div>
-											</div>
+					<div className="overflow-hidden rounded-[14px] border border-[#e1ebe6] bg-white dark:border-white/10 dark:bg-card">
+						{invites.map((invite) => (
+							<div
+								key={invite.id}
+								className="flex flex-col gap-3 border-b border-[#edf2ef] px-[18px] py-[11px] last:border-b-0 md:grid md:grid-cols-[1fr_140px_auto] md:items-center md:gap-4 dark:border-white/5"
+							>
+								{/* Envelope + email + meta */}
+								<div className="flex min-w-0 items-center gap-3">
+									<span className="flex size-[34px] shrink-0 items-center justify-center rounded-full border border-dashed border-[#e1ebe6] bg-surface text-[#94a59d] dark:border-white/10 dark:bg-white/5">
+										<Mail className="size-[15px]" />
+									</span>
+									<div className="min-w-0">
+										<div className="truncate font-mono text-[12.5px] font-medium text-[#1e2d28] dark:text-foreground">
+											{invite.email}
 										</div>
-
-										{/* Status pill */}
-										<span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-[#fbf2da] px-2.5 py-1 text-[11px] font-semibold text-[#9a7b14] dark:bg-amber-950 dark:text-amber-300">
-											<span className="size-[5px] rounded-full bg-[#d4a017]" />
-											{invite.role in ROLE_LABELS
-												? ROLE_LABELS[invite.role as Role]
-												: invite.role}{" "}
-											invite
-										</span>
-
-										{/* Actions */}
-										<div className="flex items-center gap-1.5">
-											<button
-												className="flex items-center gap-1.5 rounded-lg border border-[#e1ebe6] px-3 py-1.5 font-[family-name:var(--font-dm-sans)] text-[12px] font-medium text-[#5f7068] cursor-pointer transition-colors hover:bg-[#f8faf9] dark:border-white/10 dark:text-muted-foreground dark:hover:bg-white/5"
-												onClick={() => { void handleCopyInviteLink(invite); }}
-											>
-												{copiedInviteId === invite.id ? (
-													<Check className="size-3.5" />
-												) : (
-													<Copy className="size-3.5" />
-												)}
-												{copiedInviteId === invite.id ? "Copied!" : "Copy link"}
-											</button>
-											<button
-												className="rounded-lg border border-[#e1ebe6] px-3 py-1.5 font-[family-name:var(--font-dm-sans)] text-[12px] font-medium text-[#b03a30] cursor-pointer transition-colors hover:bg-[#fbe5e3] dark:border-white/10 dark:hover:bg-rose-950"
-												onClick={() => { void handleDeleteInvite(invite.id); }}
-											>
-												Revoke
-											</button>
+										<div className="truncate text-[11px] text-[#94a59d] mt-0.5">
+											Invited {timeAgo(invite.createdAt)} · by{" "}
+											{getInviterShortName(invite.invitedByName)}
 										</div>
 									</div>
-								))}
+								</div>
+
+								{/* Status pill */}
+								<span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-[#fbf2da] px-2.5 py-1 text-[11px] font-semibold text-[#9a7b14] dark:bg-amber-950 dark:text-amber-300">
+									<span className="size-[5px] rounded-full bg-[#d4a017]" />
+									{invite.role in ROLE_LABELS
+										? ROLE_LABELS[invite.role as Role]
+										: invite.role}{" "}
+									invite
+								</span>
+
+								{/* Actions */}
+								<div className="flex items-center gap-1.5">
+									<button
+										className="flex items-center gap-1.5 rounded-lg border border-[#e1ebe6] px-3 py-1.5 font-[family-name:var(--font-dm-sans)] text-[12px] font-medium text-[#5f7068] cursor-pointer transition-colors hover:bg-[#f8faf9] dark:border-white/10 dark:text-muted-foreground dark:hover:bg-white/5"
+										onClick={() => { void handleCopyInviteLink(invite); }}
+									>
+										{copiedInviteId === invite.id ? (
+											<Check className="size-3.5" />
+										) : (
+											<Copy className="size-3.5" />
+										)}
+										{copiedInviteId === invite.id ? "Copied!" : "Copy link"}
+									</button>
+									<button
+										className="rounded-lg border border-[#e1ebe6] px-3 py-1.5 font-[family-name:var(--font-dm-sans)] text-[12px] font-medium text-[#b03a30] cursor-pointer transition-colors hover:bg-[#fbe5e3] dark:border-white/10 dark:hover:bg-rose-950"
+										onClick={() => { void handleDeleteInvite(invite.id); }}
+									>
+										Revoke
+									</button>
+								</div>
 							</div>
-						</>
-					)}
+						))}
+					</div>
 				</>
 			)}
 		</PageContainer>

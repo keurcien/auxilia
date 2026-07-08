@@ -83,16 +83,46 @@ def test_get_users(client: TestClient, mock_db, current_user):
         updated_at=datetime.now(),
     )
 
-    mock_result = MagicMock()
-    mock_scalars = MagicMock()
-    mock_scalars.all.return_value = [user1, user2]
-    mock_result.scalars.return_value = mock_scalars
-    mock_db.execute.return_value = mock_result
+    count_result = MagicMock()
+    count_result.scalar_one.return_value = 2
+    rows_result = MagicMock()
+    rows_result.scalars.return_value.all.return_value = [user1, user2]
+    mock_db.execute.side_effect = [count_result, rows_result]
 
     response = client.get("/users/")
     assert response.status_code == 200
     data = response.json()
-    assert len(data) == 2
+    assert len(data["items"]) == 2
+    assert data["total"] == 2
+    assert data["limit"] == 50
+    assert data["offset"] == 0
+
+
+def test_get_users_echoes_page_params(client: TestClient, mock_db, current_user):
+    """limit/offset are echoed in the envelope; total is the unpaginated count."""
+    count_result = MagicMock()
+    count_result.scalar_one.return_value = 7
+    rows_result = MagicMock()
+    rows_result.scalars.return_value.all.return_value = []
+    mock_db.execute.side_effect = [count_result, rows_result]
+
+    response = client.get("/users/", params={"limit": 5, "offset": 5, "search": "ali"})
+    assert response.status_code == 200
+    assert response.json() == {"items": [], "total": 7, "limit": 5, "offset": 5}
+
+
+def test_count_users_by_role(client: TestClient, mock_db, current_user):
+    """Role counts are aggregated into the UserRoleCounts shape."""
+    mock_result = MagicMock()
+    mock_result.all.return_value = [
+        (WorkspaceRole.member, 3),
+        (WorkspaceRole.admin, 1),
+    ]
+    mock_db.execute.return_value = mock_result
+
+    response = client.get("/users/role-counts")
+    assert response.status_code == 200
+    assert response.json() == {"total": 4, "member": 3, "editor": 0, "admin": 1}
 
 
 def test_get_user(client: TestClient, mock_db, current_user):

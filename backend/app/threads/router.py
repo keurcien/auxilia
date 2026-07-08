@@ -6,6 +6,7 @@ from app.agents.structured_output import is_structured_output_artifact
 from app.auth.dependencies import detect_auth_method, get_current_user
 from app.database import get_checkpointer
 from app.exceptions import PermissionDeniedError
+from app.pagination import Page, PageParams
 from app.threads.models import ThreadDB, ThreadSource
 from app.threads.schemas import ThreadCreate, ThreadPatch, ThreadResponse, ViewerRole
 from app.threads.serialization import deserialize_to_ui_messages, pending_interrupt
@@ -175,10 +176,11 @@ async def get_subagent_state(thread_id: str, tool_call_id: str) -> dict:
 
 @router.get("/")
 async def get_threads(
+    page: PageParams = Depends(),
     current_user: UserDB = Depends(get_current_user),
     service: ThreadService = Depends(get_thread_service),
-) -> list[ThreadResponse]:
-    return await service.list(current_user.id)
+) -> Page[ThreadResponse]:
+    return await service.list(current_user.id, page)
 
 
 @router.post("/")

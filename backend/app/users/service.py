@@ -7,11 +7,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.exceptions import AlreadyExistsError, NotFoundError
+from app.pagination import Page, PageParams
 from app.service import BaseService
 from app.teams.repository import TeamRepository
 from app.users.models import UserDB, WorkspaceRole
 from app.users.repository import UserRepository
-from app.users.schemas import UserCreate, UserPatch, UserRolePatch, UserTeamPatch
+from app.users.schemas import (
+    UserCreate,
+    UserPatch,
+    UserResponse,
+    UserRoleCounts,
+    UserRolePatch,
+    UserTeamPatch,
+)
 
 
 class UserService(BaseService[UserDB, UserRepository]):
@@ -39,8 +47,24 @@ class UserService(BaseService[UserDB, UserRepository]):
             raise NotFoundError(self.not_found_message)
         return user
 
-    async def list(self, role: WorkspaceRole | None = None) -> list[UserDB]:
-        return await self.repository.list(role=role)
+    async def list(
+        self,
+        page: PageParams,
+        role: WorkspaceRole | None = None,
+        search: str | None = None,
+    ) -> Page[UserResponse]:
+        users, total = await self.repository.list(page, role=role, search=search)
+        items = [UserResponse.model_validate(user) for user in users]
+        return Page.build(items, total, page)
+
+    async def count_by_role(self) -> UserRoleCounts:
+        counts = await self.repository.count_by_role()
+        return UserRoleCounts(
+            total=sum(counts.values()),
+            member=counts.get(WorkspaceRole.member, 0),
+            editor=counts.get(WorkspaceRole.editor, 0),
+            admin=counts.get(WorkspaceRole.admin, 0),
+        )
 
     async def list_by_ids(self, user_ids: list[UUID]) -> list[UserDB]:
         return await self.repository.list_by_ids(user_ids)
