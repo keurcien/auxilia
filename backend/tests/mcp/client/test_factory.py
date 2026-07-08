@@ -58,6 +58,30 @@ async def test_oauth_auth(mock_storage_factory_cls, mock_metadata, mock_provider
 
 
 @pytest.mark.asyncio
+@patch("app.mcp.client.factory.WebOAuthClientProvider")
+@patch(
+    "app.mcp.client.factory.build_oauth_client_metadata",
+    return_value={"client_id": "abc"},
+)
+@patch("app.mcp.client.factory.TokenStorageFactory")
+async def test_oauth_passes_server_id_as_str(
+    mock_storage_factory_cls, _mock_metadata, _mock_provider
+):
+    # Regression: config.id is a UUID; get_storage wants a str (pydantic v2
+    # rejects UUID for OAuthStateData.mcp_server_id). The old test used id="s1"
+    # (already a str) so it couldn't catch this.
+    from uuid import uuid4
+
+    get_storage = mock_storage_factory_cls.return_value.get_storage
+    sid = uuid4()
+
+    factory = MCPClientConfigFactory(db=MagicMock(), user_id="u1")
+    await factory.build(_config(MCPAuthType.oauth2, id=sid))
+
+    get_storage.assert_called_once_with("u1", str(sid))
+
+
+@pytest.mark.asyncio
 async def test_unsupported_auth_type_raises():
     factory = MCPClientConfigFactory(db=MagicMock(), user_id="u1")
     with pytest.raises(ValueError, match="Unsupported auth type"):

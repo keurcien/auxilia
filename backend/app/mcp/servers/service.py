@@ -152,16 +152,19 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
             # Not connected: discover OAuth metadata and raise
             # OAuthAuthorizationRequired (translated globally to
             # 401 {oauth_required, auth_url}). No business tool is called.
-            await self._initiate_oauth(server, user_id)
+            await self.initiate_oauth(server, user_id)
 
         async with connect_to_server(server, user_id, self.db) as (_, tools):
             return [
                 {"name": tool.name, "description": tool.description} for tool in tools
             ]
 
-    async def _initiate_oauth(self, server: MCPServerDB, user_id: str) -> None:
+    async def initiate_oauth(self, server: MCPServerDB, user_id: str) -> None:
         """Build the OAuth provider and start authorization via metadata
-        discovery. Raises OAuthAuthorizationRequired with the authorize URL."""
+        discovery. Raises OAuthAuthorizationRequired with the authorize URL.
+
+        Public: the run-start gate (`RunService`) calls this to surface an
+        agent's (or subagent's) unauthorized server as a 401 before launching."""
         storage = TokenStorageFactory().get_storage(user_id, str(server.id))
         provider = await _build_oauth_provider(server, storage, self.repository)
         await provider.initiate_authorization()
