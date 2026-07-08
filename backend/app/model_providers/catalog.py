@@ -25,6 +25,14 @@ ADAPTIVE_THINKING_MODELS: frozenset[str] = frozenset(
     {"claude-opus-4-6", "claude-opus-4-8", "claude-sonnet-5"}
 )
 
+# OpenRouter catalog: our model id -> (OpenRouter slug, GLM `reasoning_effort`).
+# GLM 5.2 exposes two thinking levels; "max" is its deep-reasoning default, "high"
+# is lighter. Each is surfaced to users as its own model.
+OPENROUTER_MODELS: dict[str, tuple[str, str]] = {
+    "glm-5.2-max": ("z-ai/glm-5.2", "max"),
+    "glm-5.2-high": ("z-ai/glm-5.2", "high"),
+}
+
 LLM_PROVIDERS: list[ModelProvider] = []
 MODELS: list[Model] = []
 
@@ -67,6 +75,15 @@ if model_provider_settings.xiaomi_api_key:
     )
     MODELS.append(Model(name="mimo-v2.5-pro", provider="xiaomi"))
     MODELS.append(Model(name="mimo-v2.5", provider="xiaomi"))
+
+if model_provider_settings.openrouter_api_key:
+    LLM_PROVIDERS.append(
+        ModelProvider(
+            name="openrouter", api_key=model_provider_settings.openrouter_api_key
+        )
+    )
+    for _cid in OPENROUTER_MODELS:
+        MODELS.append(Model(name=_cid, provider="openrouter"))
 
 
 class ChatModelFactory:
@@ -121,6 +138,19 @@ class ChatModelFactory:
                     base_url="https://api.xiaomimimo.com/v1",
                     model=model_id,
                     api_key=api_key,
+                )
+            case "openrouter":
+                # OpenAI-compatible gateway. Our model id encodes the GLM thinking
+                # level; pass GLM's native `reasoning_effort` ("high"/"max"). Output
+                # is capped generously (GLM 5.2 max = 32768) since "max" reasoning
+                # produces long chains of thought.
+                slug, effort = OPENROUTER_MODELS[model_id]
+                return ChatOpenAI(
+                    base_url="https://openrouter.ai/api/v1",
+                    model=slug,
+                    api_key=api_key,
+                    max_tokens=32768,
+                    extra_body={"reasoning_effort": effort},
                 )
             case _:
                 raise ValueError(f"Provider {provider} not supported")

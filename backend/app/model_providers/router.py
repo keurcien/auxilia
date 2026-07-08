@@ -21,6 +21,8 @@ async def get_model_providers() -> list[ModelProviderResponse]:
         model_providers.append(ModelProviderResponse(name=ModelProviderType.anthropic))
     if model_provider_settings.google_api_key:
         model_providers.append(ModelProviderResponse(name=ModelProviderType.google))
+    if model_provider_settings.openrouter_api_key:
+        model_providers.append(ModelProviderResponse(name=ModelProviderType.openrouter))
 
     return list(model_providers)
 
@@ -126,6 +128,25 @@ async def get_models() -> list[ModelResponse]:
                     id="mimo-v2.5",
                     chef="Xiaomi",
                     chefSlug="xiaomi",
+                ),
+            ]
+        )
+    if model_provider_settings.openrouter_api_key:
+        models.extend(
+            [
+                ModelResponse(
+                    name="GLM 5.2 (Max reasoning)",
+                    providers=[ModelProviderType.openrouter],
+                    id="glm-5.2-max",
+                    chef="Z.ai",
+                    chefSlug="z-ai",
+                ),
+                ModelResponse(
+                    name="GLM 5.2 (High reasoning)",
+                    providers=[ModelProviderType.openrouter],
+                    id="glm-5.2-high",
+                    chef="Z.ai",
+                    chefSlug="z-ai",
                 ),
             ]
         )
