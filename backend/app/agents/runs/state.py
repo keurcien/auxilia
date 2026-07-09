@@ -21,6 +21,16 @@ class RunStatus(str, Enum):
     cancelled = "cancelled"
 
 
+# Error text the worker stamps on runs it refuses to execute because a bound
+# MCP OAuth server is unauthorized (see worker._mcp_unauthorized). Delivery
+# consumers match on it (exact equality) to show a reconnect affordance
+# instead of a generic failure notice.
+MCP_REAUTH_ERROR = (
+    "MCP authorization required: an MCP server used by this agent (or one of "
+    "its subagents) is no longer connected for this user. Reconnect it from "
+    "the agent's chat page in auxilia, then run again."
+)
+
 # Terminal states stamp `threads.last_run_status` and TTL the run's Redis
 # ephemera. `interrupted` is terminal *for this run* — resuming a HITL
 # interrupt creates a new run.

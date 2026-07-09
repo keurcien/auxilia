@@ -80,6 +80,8 @@ import { api, API_BASE_URL } from "@/lib/api/client";
 import { ThinkingLoader, DotsLoader } from "../components/loader";
 import { useActiveRunsStore } from "@/stores/active-runs-store";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
+import { useAgentsStore } from "@/stores/agents-store";
+import { canConfigureAgent } from "@/types/agents";
 import { usePendingMessageStore } from "@/stores/pending-message-store";
 import { useAgentReadiness } from "@/hooks/use-agent-readiness";
 import { useHitlApprovals } from "@/hooks/use-hitl-approvals";
@@ -422,6 +424,14 @@ const ChatPage = () => {
   >({});
 
   const { mcpServers } = useMcpServersStore();
+  // Sidebar populates the agents store; when this agent is there and the
+  // viewer can edit it, the "not configured" notice points them at the fix
+  // instead of telling them to contact the owner (who may be themselves).
+  const canConfigure = useAgentsStore((s) =>
+    canConfigureAgent(
+      s.agents.find((a) => a.id === agentId)?.currentUserPermission,
+    ),
+  );
   const {
     ready: agentReady,
     status: agentStatus,
@@ -1137,8 +1147,9 @@ const ChatPage = () => {
           <div className="w-full max-w-4xl mx-auto lg:px-10 sm:px-6 px-3 py-4">
             <div className="w-full flex items-center justify-center border border-red-200 bg-red-50 rounded-lg px-4 py-8">
               <p className="text-md text-center text-red-700">
-                Agent is not configured yet. Contact agent owner to configure it
-                first.
+                {canConfigure
+                  ? "This agent's MCP tools aren't configured yet. Configure them in the agent's settings."
+                  : "Agent is not configured yet. Contact agent owner to configure it first."}
               </p>
             </div>
           </div>

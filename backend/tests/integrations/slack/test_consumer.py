@@ -145,12 +145,20 @@ async def test_consumer_posts_approval_blocks_on_interrupt(monkeypatch):
     assert "tool_reject" in action_ids
 
 
+def _patch_run_get(monkeypatch, error: str | None):
+    async def _get(self, run_id):
+        return SimpleNamespace(error=error)
+
+    monkeypatch.setattr(consumer_mod.RunService, "get", _get)
+
+
 async def test_consumer_posts_failure_notice_on_error(monkeypatch):
     monkeypatch.setattr(
         consumer_mod.RunService,
         "stream",
         _sse_stream('event: end\ndata: {"status": "error"}\n\n'),
     )
+    _patch_run_get(monkeypatch, "boom")
 
     consumer = SlackRunConsumer(_record(_slack_delivery()))
     fake = _FakeClient()
@@ -160,6 +168,36 @@ async def test_consumer_posts_failure_notice_on_error(monkeypatch):
     assert fake.streamer.stopped
     assert len(fake.posts) == 1
     assert "something went wrong" in fake.posts[0]["text"].lower()
+
+
+async def test_consumer_posts_connect_prompt_on_reauth_gated_error(monkeypatch):
+    """A run refused by the worker's OAuth pre-flight must surface the
+    Connect button in the Slack thread, not the generic failure notice."""
+    from app.agents.runs.state import MCP_REAUTH_ERROR
+
+    monkeypatch.setattr(
+        consumer_mod.RunService,
+        "stream",
+        _sse_stream('event: end\ndata: {"status": "error"}\n\n'),
+    )
+    _patch_run_get(monkeypatch, MCP_REAUTH_ERROR)
+
+    @asynccontextmanager
+    async def _session():
+        yield SimpleNamespace(
+            get=lambda model, pk: _async(SimpleNamespace(id="t1", agent_id="agent-1"))
+        )
+
+    monkeypatch.setattr(consumer_mod, "AsyncSessionLocal", _session)
+
+    consumer = SlackRunConsumer(_record(_slack_delivery()))
+    fake = _FakeClient()
+    consumer.client = fake
+    await consumer.run()
+
+    assert len(fake.posts) == 1
+    assert "Connect on auxilia" in str(fake.posts[0]["blocks"])
+    assert "agent-1" in str(fake.posts[0]["blocks"])
 
 
 async def test_consumer_posts_failure_notice_when_stream_crashes(monkeypatch):

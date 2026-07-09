@@ -50,7 +50,11 @@ def patch_agent(monkeypatch):
     async def _no_interrupt(*_):
         return False
 
+    async def _authorized(*_):
+        return False
+
     monkeypatch.setattr(RunWorker, "_is_interrupted", _no_interrupt)
+    monkeypatch.setattr(worker_mod, "_mcp_unauthorized", _authorized)
 
 
 async def _create_and_claim(service: RunService, **kwargs) -> RunDB:
@@ -102,6 +106,60 @@ async def test_worker_marks_error_when_agent_raises(redis, monkeypatch):
     back = await service.get(record.id)
     assert back.status == RunStatus.error
     assert "model exploded" in back.error
+
+
+@pytest.mark.usefixtures("patch_agent")
+async def test_worker_gates_unauthorized_mcp_before_building_agent(redis, monkeypatch):
+    """Background-launched runs (trigger scanner, Slack) have no HTTP caller to
+    receive a 401 — the worker must fail them fast with an actionable error
+    instead of building the agent and dying inside the MCP session."""
+
+    class _NeverBuiltAgent(_FakeAgent):
+        @classmethod
+        async def build(cls, *, thread, db):
+            raise AssertionError("Agent.build must not run when MCP is unauthorized")
+
+    gate_args: list = []
+
+    async def _unauthorized(db, thread, user_id):
+        gate_args.append(user_id)
+        return True
+
+    monkeypatch.setattr(worker_mod, "Agent", _NeverBuiltAgent)
+    monkeypatch.setattr(worker_mod, "_mcp_unauthorized", _unauthorized)
+    service = RunService(redis)
+    record = await _create_and_claim(service, thread_id="t2c", input={"messages": []})
+    await RunWorker(redis).run(record)
+    back = await service.get(record.id)
+    assert back.status == RunStatus.error
+    assert "MCP authorization required" in back.error
+    # Probing the wrong identity would authorize against the wrong user.
+    assert gate_args == [str(record.user_id)]
+
+
+async def test_mcp_unauthorized_delegates_to_the_http_preflight(monkeypatch):
+    """One definition of "unauthorized" for every launch path: the helper is
+    True exactly when the HTTP gate would 401."""
+    from types import SimpleNamespace
+
+    from app.mcp.client.exceptions import OAuthAuthorizationRequired
+
+    thread = SimpleNamespace(agent_id="a1")
+    calls: list = []
+
+    async def _raises(db, agent_id, user_id):
+        calls.append((agent_id, user_id))
+        raise OAuthAuthorizationRequired("https://auth.example")
+
+    async def _passes(db, agent_id, user_id):
+        return None
+
+    monkeypatch.setattr(RunService, "ensure_mcp_authorized", _raises)
+    assert await worker_mod._mcp_unauthorized(None, thread, "u1") is True
+    assert calls == [("a1", "u1")]
+
+    monkeypatch.setattr(RunService, "ensure_mcp_authorized", _passes)
+    assert await worker_mod._mcp_unauthorized(None, thread, "u1") is False
 
 
 @pytest.mark.usefixtures("patch_agent")
@@ -173,6 +231,7 @@ async def test_wait_for_terminal_returns_terminal_record(redis):
     assert final.status == RunStatus.success
 
 
+@pytest.mark.usefixtures("patch_agent")
 async def test_worker_forwards_output_schema_to_agent(redis, monkeypatch):
     captured: dict = {}
 
@@ -182,12 +241,6 @@ async def test_worker_forwards_output_schema_to_agent(redis, monkeypatch):
             yield "event: messages\ndata: {}\n\n"
 
     monkeypatch.setattr(worker_mod, "Agent", _RecordingAgent)
-    monkeypatch.setattr(worker_mod, "AsyncSessionLocal", lambda: _FakeSession())
-
-    async def _no_interrupt(*_):
-        return False
-
-    monkeypatch.setattr(RunWorker, "_is_interrupted", _no_interrupt)
 
     service = RunService(redis)
     schema = {"type": "object"}

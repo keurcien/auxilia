@@ -21,6 +21,7 @@ class SlackAssistantThread(BaseModel):
     thread_ts).  In regular message events only action_token is present, so all
     fields are optional.
     """
+
     user_id: str | None = None
     channel_id: str | None = None
     thread_ts: str | None = None
@@ -28,6 +29,7 @@ class SlackAssistantThread(BaseModel):
 
 class SlackEvent(BaseModel):
     """The inner event object inside an event_callback payload."""
+
     type: str
     channel: str | None = None
     user: str | None = None
@@ -41,6 +43,7 @@ class SlackEvent(BaseModel):
 
 class SlackEventPayload(BaseModel):
     """Top-level payload Slack sends to our endpoint."""
+
     type: str
     token: str | None = None
     challenge: str | None = None
@@ -50,11 +53,13 @@ class SlackEventPayload(BaseModel):
 
 class SlackSelectedOption(BaseModel):
     """The option chosen from a static_select / overflow / radio interaction."""
+
     value: str
 
 
 class SlackAction(BaseModel):
     """A single action from a block_actions interaction payload."""
+
     action_id: str
     value: str | None = None
     selected_option: SlackSelectedOption | None = None
@@ -76,6 +81,7 @@ class SlackInteractionContainer(BaseModel):
 
 class SlackInteractionMessage(BaseModel):
     """The original message that contained the interactive component."""
+
     blocks: list[dict] = []
     thread_ts: str | None = None
     ts: str | None = None
@@ -83,6 +89,7 @@ class SlackInteractionMessage(BaseModel):
 
 class SlackInteractionPayload(BaseModel):
     """Payload Slack sends for interactive components and message shortcuts."""
+
     type: str
     user: SlackInteractionUser
     channel: SlackInteractionChannel | None = None
