@@ -16,6 +16,7 @@ import pytest
 from mcp.shared.auth import (
     OAuthClientInformationFull,
     OAuthMetadata,
+    OAuthToken,
     ProtectedResourceMetadata,
 )
 
@@ -198,3 +199,67 @@ async def test_dynamic_client_registration_when_no_static_creds(monkeypatch):
     assert query["client_id"] == ["dcr-client-id"]
     # Notion advertises no scopes -> none requested.
     assert "scope" not in query
+
+
+# ---------------------------------------------------------------------------
+# Token requests for client_secret_basic registrations
+#
+# RFC 6749 §2.3 allows a single client-authentication method per request, but
+# the SDK keeps client_id in the form body alongside the Basic Authorization
+# header; strict servers (e.g. Notion) reject that as multiple authentication
+# methods. The provider strips it so registrations stored as
+# client_secret_basic keep working without re-registration.
+# ---------------------------------------------------------------------------
+
+
+def _provider_with_client_info(auth_method: str) -> WebOAuthClientProvider:
+    provider = _make_provider()
+    provider.context.oauth_metadata = _asm()
+    provider.context.client_info = OAuthClientInformationFull(
+        client_id="client-123",
+        client_secret="secret-xyz",
+        redirect_uris=["https://app.example/cb"],
+        token_endpoint_auth_method=auth_method,
+    )
+    return provider
+
+
+async def test_exchange_request_for_basic_omits_client_id_in_body():
+    provider = _provider_with_client_info("client_secret_basic")
+
+    request = await provider._exchange_token_authorization_code(
+        auth_code="code-abc", code_verifier="verifier"
+    )
+
+    assert request.headers["Authorization"].startswith("Basic ")
+    body = parse_qs(request.content.decode())
+    assert "client_id" not in body
+    assert "client_secret" not in body
+    assert body["code"] == ["code-abc"]
+    assert body["grant_type"] == ["authorization_code"]
+
+
+async def test_exchange_request_for_post_keeps_credentials_in_body():
+    provider = _provider_with_client_info("client_secret_post")
+
+    request = await provider._exchange_token_authorization_code(
+        auth_code="code-abc", code_verifier="verifier"
+    )
+
+    assert "Authorization" not in request.headers
+    body = parse_qs(request.content.decode())
+    assert body["client_id"] == ["client-123"]
+    assert body["client_secret"] == ["secret-xyz"]
+
+
+async def test_refresh_request_for_basic_omits_client_id_in_body():
+    provider = _provider_with_client_info("client_secret_basic")
+    provider.context.current_tokens = OAuthToken(access_token="at", refresh_token="rt")
+
+    request = await provider._refresh_token()
+
+    assert request.headers["Authorization"].startswith("Basic ")
+    body = parse_qs(request.content.decode())
+    assert "client_id" not in body
+    assert body["refresh_token"] == ["rt"]
+    assert body["grant_type"] == ["refresh_token"]
