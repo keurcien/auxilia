@@ -10,11 +10,16 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
 
+import pytest
 from mcp.shared.auth import OAuthClientInformationFull
 
+from app.exceptions import AlreadyExistsError, DomainValidationError
 from app.mcp.servers import service as service_module
-from app.mcp.servers.service import _build_oauth_provider
+from app.mcp.servers.models import MCPAuthType
+from app.mcp.servers.schemas import MCPServerCreate
+from app.mcp.servers.service import MCPServerService, _build_oauth_provider
 
 
 def _repo_with_credentials(**overrides):
@@ -62,6 +67,12 @@ async def test_build_oauth_provider_without_credentials_defers_to_dcr():
 
     assert provider._client_id is None
     assert provider._client_secret is None
+    # Requested explicitly at registration: omitting it lets servers default
+    # to client_secret_basic, whose SDK token request Notion rejects.
+    assert (
+        provider.context.client_metadata.token_endpoint_auth_method
+        == "client_secret_post"
+    )
 
 
 async def test_persist_client_info_writes_when_credentials_present(monkeypatch):
@@ -89,20 +100,12 @@ async def test_persist_client_info_noop_without_credentials():
     await provider.persist_client_info()
 
     storage.set_client_info.assert_not_awaited()
-from unittest.mock import AsyncMock, MagicMock
-from uuid import uuid4
-
-import pytest
-
-from app.exceptions import AlreadyExistsError, DomainValidationError
-from app.mcp.servers.models import MCPAuthType
-from app.mcp.servers.schemas import MCPServerCreate
-from app.mcp.servers.service import MCPServerService
 
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def mock_db():
@@ -141,6 +144,7 @@ def make_mcp_server(**kwargs):
 # ---------------------------------------------------------------------------
 # create
 # ---------------------------------------------------------------------------
+
 
 async def test_create_raises_already_exists_when_url_taken(service, mock_repo):
     mock_repo.get_by_url.return_value = make_mcp_server()

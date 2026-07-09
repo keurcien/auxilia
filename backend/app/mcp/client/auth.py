@@ -32,6 +32,12 @@ def build_oauth_client_metadata() -> OAuthClientMetadata:
     Scopes are intentionally omitted: they are discovered per-server from the
     Protected Resource Metadata (RFC 9728 ``scopes_supported``) during
     authorization, so there is nothing server-specific to configure here.
+
+    ``token_endpoint_auth_method`` is requested explicitly: when omitted,
+    RFC 7591 lets the server default to ``client_secret_basic``, and the SDK's
+    basic-auth token request keeps ``client_id`` in the form body alongside the
+    Basic header — strict servers (e.g. Notion) reject that as multiple
+    authentication methods.
     """
     return OAuthClientMetadata(
         client_name="auxilia",
@@ -40,7 +46,7 @@ def build_oauth_client_metadata() -> OAuthClientMetadata:
         ],
         grant_types=["authorization_code", "refresh_token"],
         response_types=["code"],
-        token_endpoint_auth_method=None,
+        token_endpoint_auth_method="client_secret_post",
     )
 
 
