@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.20](https://github.com/keurcien/auxilia/compare/backend-v0.4.19...backend-v0.4.20) (2026-07-09)
+
+
+### Bug Fixes
+
+* **mcp:** request client_secret_post at dynamic client registration ([#206](https://github.com/keurcien/auxilia/issues/206)) ([a7e2248](https://github.com/keurcien/auxilia/commit/a7e224811de30f79510cb35ce45d05bc590ac095))
+
 ## [0.4.19](https://github.com/keurcien/auxilia/compare/backend-v0.4.18...backend-v0.4.19) (2026-07-08)
 
 
