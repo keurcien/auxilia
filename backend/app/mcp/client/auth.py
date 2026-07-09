@@ -1,6 +1,6 @@
 import logging
 import secrets
-from urllib.parse import urlencode, urljoin
+from urllib.parse import parse_qsl, urlencode, urljoin
 
 import httpx
 from mcp.client.auth import OAuthClientProvider, OAuthFlowError, PKCEParameters
@@ -26,12 +26,42 @@ from app.settings import app_settings
 logger = logging.getLogger(__name__)
 
 
+def strip_client_id_for_basic_auth(request: httpx.Request) -> httpx.Request:
+    """Rebuild a token request without ``client_id`` in the form body when it
+    also carries a Basic ``Authorization`` header.
+
+    RFC 6749 §2.3 allows only one client-authentication method per request,
+    but the SDK's ``_exchange_token_authorization_code`` and ``_refresh_token``
+    always put ``client_id`` in the body, even when ``prepare_token_auth`` has
+    selected ``client_secret_basic``. Strict servers (e.g. Notion) reject the
+    combination with "Client must not use multiple authentication methods".
+    Stripping it here keeps registrations stored as ``client_secret_basic``
+    working without re-registration.
+    """
+    if not request.headers.get("Authorization", "").startswith("Basic "):
+        return request
+    data = dict(parse_qsl(request.content.decode()))
+    if "client_id" not in data:
+        return request
+    del data["client_id"]
+    headers = {
+        k: v for k, v in request.headers.items() if k.lower() != "content-length"
+    }
+    return httpx.Request(request.method, request.url, data=data, headers=headers)
+
+
 def build_oauth_client_metadata() -> OAuthClientMetadata:
     """Static OAuth client-registration metadata for auxilia.
 
     Scopes are intentionally omitted: they are discovered per-server from the
     Protected Resource Metadata (RFC 9728 ``scopes_supported``) during
     authorization, so there is nothing server-specific to configure here.
+
+    ``token_endpoint_auth_method`` is requested explicitly: when omitted,
+    RFC 7591 lets the server default to ``client_secret_basic``, and the SDK's
+    basic-auth token request keeps ``client_id`` in the form body alongside the
+    Basic header — strict servers (e.g. Notion) reject that as multiple
+    authentication methods.
     """
     return OAuthClientMetadata(
         client_name="auxilia",
@@ -40,7 +70,7 @@ def build_oauth_client_metadata() -> OAuthClientMetadata:
         ],
         grant_types=["authorization_code", "refresh_token"],
         response_types=["code"],
-        token_endpoint_auth_method=None,
+        token_endpoint_auth_method="client_secret_post",
     )
 
 
@@ -106,6 +136,16 @@ class WebOAuthClientProvider(OAuthClientProvider):
                 **self.context.client_metadata.model_dump(),
             )
         )
+
+    async def _exchange_token_authorization_code(
+        self, *args, **kwargs
+    ) -> httpx.Request:
+        request = await super()._exchange_token_authorization_code(*args, **kwargs)
+        return strip_client_id_for_basic_auth(request)
+
+    async def _refresh_token(self) -> httpx.Request:
+        request = await super()._refresh_token()
+        return strip_client_id_for_basic_auth(request)
 
     async def initiate_authorization(self) -> None:
         """Start the OAuth flow explicitly, without calling a business tool to
