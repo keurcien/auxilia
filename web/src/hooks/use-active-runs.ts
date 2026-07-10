@@ -178,6 +178,22 @@ export function useActiveRunThreadIds(threads: Thread[]): Set<string> {
 		};
 	}, [hasActiveRuns, latestTriggerThreadAt, pollEpoch]);
 
+	return useActiveRunThreadIdSet();
+}
+
+/**
+ * Read-only view of the in-flight thread ids — client-side marks merged
+ * with the last poll. Polling itself is owned by `useActiveRunThreadIds`
+ * (mounted once, in the sidebar); consumers like the trigger run history
+ * just observe the shared store.
+ */
+export function useActiveRunThreadIdSet(): Set<string> {
+	const confirmedThreadIds = useActiveRunsStore(
+		(state) => state.confirmedThreadIds,
+	);
+	const optimisticMarkedAt = useActiveRunsStore(
+		(state) => state.optimisticMarkedAt,
+	);
 	// Pure union — expired optimistic marks are pruned by the store on
 	// every poll, not at render time.
 	return useMemo(() => {
