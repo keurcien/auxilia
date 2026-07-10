@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { formatRunAt } from "@/lib/triggers/schedule";
@@ -26,6 +26,29 @@ export default function RunHistoryCard({
 			// logged by the store; the card keeps whatever it has
 		});
 	}, [triggerId, fetchRuns]);
+
+	// A scheduled firing while the card is open surfaces as an active thread
+	// id the fetched history doesn't have yet — refetch so its row appears.
+	// Active ids that belong to other threads (e.g. a chat run) can never
+	// show up in this trigger's history, so remember the ids already looked
+	// up and refetch at most once per unknown id.
+	const checkedThreadIdsRef = useRef(new Set<string>());
+	useEffect(() => {
+		if (runs === undefined) return;
+		const known = new Set(runs.map((run) => run.id));
+		let hasUnknown = false;
+		for (const threadId of activeRunThreadIds) {
+			if (known.has(threadId) || checkedThreadIdsRef.current.has(threadId)) {
+				continue;
+			}
+			checkedThreadIdsRef.current.add(threadId);
+			hasUnknown = true;
+		}
+		if (!hasUnknown) return;
+		fetchRuns(triggerId).catch(() => {
+			// logged by the store; the card keeps whatever it has
+		});
+	}, [runs, activeRunThreadIds, triggerId, fetchRuns]);
 
 	return (
 		<div className="flex flex-col rounded-[14px] border border-[#e1ebe6] dark:border-white/10 bg-white dark:bg-card px-4.5 py-1.5 shadow-[0_1px_3px_rgba(33,36,31,0.04)]">
