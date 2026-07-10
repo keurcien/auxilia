@@ -4,12 +4,34 @@ import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { formatRunAt } from "@/lib/triggers/schedule";
+import { TriggerThread } from "@/types/triggers";
 import { useTriggerRunsStore } from "@/stores/trigger-runs-store";
 import { useActiveRunThreadIdSet } from "@/hooks/use-active-runs";
 
 interface RunHistoryCardProps {
 	triggerId: string;
 	timezone: string;
+}
+
+/** Trigger runs execute as the trigger's *owner*, so the viewer's
+ * `/runs/active` poll can't see firings of someone else's trigger (e.g. an
+ * admin watching it). While the card is open, refresh the history itself —
+ * new firings and outcomes then surface regardless of who owns the run. */
+const HISTORY_POLL_MS = 15_000;
+
+/** A firing whose run outcome is missing is in flight — every firing
+ * enqueues a run, and terminal transitions always stamp the thread. Bound
+ * it in time so the rare orphan (enqueue crashed after the thread was
+ * committed) doesn't spin forever; the reaper finalizes real runs long
+ * before this. */
+const MISSING_OUTCOME_RUNNING_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+function isInFlight(run: TriggerThread): boolean {
+	return (
+		!run.lastRunStatus &&
+		Date.now() - new Date(run.createdAt).getTime() <
+			MISSING_OUTCOME_RUNNING_WINDOW_MS
+	);
 }
 
 /** Past firings (last 30 days); each row opens the thread it created. */
@@ -25,6 +47,15 @@ export default function RunHistoryCard({
 		fetchRuns(triggerId).catch(() => {
 			// logged by the store; the card keeps whatever it has
 		});
+		const timer = setInterval(() => {
+			if (document.visibilityState === "hidden") return;
+			fetchRuns(triggerId).catch(() => {
+				// logged by the store; the card keeps whatever it has
+			});
+		}, HISTORY_POLL_MS);
+		return () => {
+			clearInterval(timer);
+		};
 	}, [triggerId, fetchRuns]);
 
 	// A scheduled firing while the card is open surfaces as an active thread
@@ -71,7 +102,7 @@ export default function RunHistoryCard({
 					<span className="flex-1 min-w-0 truncate font-[family-name:var(--font-dm-sans)] text-[14px] font-medium text-[#1E2D28] dark:text-white group-hover:text-[#3D8B63] dark:group-hover:text-emerald-400 transition-colors">
 						{formatRunAt(run.createdAt, timezone)}
 					</span>
-					{activeRunThreadIds.has(run.id) ? (
+					{activeRunThreadIds.has(run.id) || isInFlight(run) ? (
 						<span className="flex shrink-0 items-center gap-1">
 							<Loader2
 								aria-hidden="true"
