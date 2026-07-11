@@ -23,6 +23,8 @@ async def get_model_providers() -> list[ModelProviderResponse]:
         model_providers.append(ModelProviderResponse(name=ModelProviderType.google))
     if model_provider_settings.openrouter_api_key:
         model_providers.append(ModelProviderResponse(name=ModelProviderType.openrouter))
+    if model_provider_settings.metaai_api_key:
+        model_providers.append(ModelProviderResponse(name=ModelProviderType.meta))
 
     return list(model_providers)
 
@@ -129,6 +131,18 @@ async def get_models() -> list[ModelResponse]:
                     chef="Xiaomi",
                     chefSlug="xiaomi",
                 ),
+            ]
+        )
+    if model_provider_settings.metaai_api_key:
+        models.extend(
+            [
+                ModelResponse(
+                    name="Muse Spark 1.1",
+                    providers=[ModelProviderType.meta],
+                    id="muse-spark-1.1",
+                    chef="Meta",
+                    chefSlug="meta",
+                )
             ]
         )
     if model_provider_settings.openrouter_api_key:

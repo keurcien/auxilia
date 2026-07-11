@@ -9,3 +9,4 @@ class ModelProviderType(str, Enum):
     ollama = "ollama"
     xiaomi = "xiaomi"
     openrouter = "openrouter"
+    meta = "meta"
