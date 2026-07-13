@@ -13,7 +13,6 @@ export type AgentPermission = "owner" | "admin" | "editor" | "member";
 export const canConfigureAgent = (permission?: AgentPermission | null): boolean =>
 	permission === "owner" || permission === "admin" || permission === "editor";
 
-interface SubagentInfo {
 export interface SubagentInfo {
 	id: string;
 	name: string;
