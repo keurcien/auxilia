@@ -8,8 +8,7 @@ from app.agents.mcp_servers.service import (
     get_agent_mcp_server_service,
 )
 from app.agents.schemas import (
-    AgentCreate,
-    AgentCreateDB,
+    AgentConfig,
     AgentMCPServerCreate,
     AgentMCPServerPatch,
     AgentMCPServerResponse,
@@ -39,12 +38,17 @@ router = APIRouter(prefix="/agents", tags=["agents"])
 
 @router.post("/", response_model=AgentResponse, status_code=201)
 async def create_agent(
-    data: AgentCreate,
+    config: AgentConfig,
     current_user: UserDB = Depends(require_editor),
     service: AgentService = Depends(get_agent_service),
 ) -> AgentResponse:
-    return await service.create(
-        AgentCreateDB(**data.model_dump(), owner_id=current_user.id)
+    """Create an agent from a full config document (scalars + MCP bindings +
+    subagents) atomically — the create counterpart of PUT /{agent_id}/config."""
+    return await service.create_from_config(
+        config,
+        owner_id=current_user.id,
+        user_role=current_user.role,
+        user_team_id=current_user.team_id,
     )
 
 
@@ -86,6 +90,23 @@ async def update_agent(
     return await service.update(
         agent_id,
         agent_update,
+        user_id=current_user.id,
+        user_role=current_user.role,
+        user_team_id=current_user.team_id,
+    )
+
+
+@router.put("/{agent_id}/config", response_model=AgentResponse)
+async def set_agent_config(
+    agent_id: UUID,
+    config: AgentConfig,
+    current_user: UserDB = Depends(get_current_user),
+    service: AgentService = Depends(get_agent_service),
+) -> AgentResponse:
+    """Atomic whole-config save: scalars + MCP bindings + subagents."""
+    return await service.set_config(
+        agent_id,
+        config,
         user_id=current_user.id,
         user_role=current_user.role,
         user_team_id=current_user.team_id,

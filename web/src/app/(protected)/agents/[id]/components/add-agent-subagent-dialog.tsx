@@ -2,7 +2,6 @@
 
 import { useState, useMemo } from "react";
 import { Plus } from "lucide-react";
-import { api } from "@/lib/api/client";
 import { Agent } from "@/types/agents";
 import { useAgentsStore } from "@/stores/agents-store";
 import {
@@ -17,51 +16,26 @@ import { SearchBar } from "@/components/ui/search-bar";
 interface AddAgentSubagentDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	agent: Agent;
-	onSubagentAdded?: (subagentId: string) => void;
-	onSaving?: () => void;
-	onSaved?: () => void;
+	supervisorId: string;
+	/** Subagents already attached in the draft. */
+	currentSubagentIds: string[];
+	/** Draft update: attach a subagent. */
+	onAdd: (subagentId: string) => void;
 }
 
 interface AgentCandidateCardProps {
 	candidate: Agent;
-	supervisorId: string;
 	onAdd: (subagentId: string) => void;
 	disabled: boolean;
 	disabledReason?: string;
-	onSaving?: () => void;
-	onSaved?: () => void;
 }
 
 function AgentCandidateCard({
 	candidate,
-	supervisorId,
 	onAdd,
 	disabled,
 	disabledReason,
-	onSaving,
-	onSaved,
 }: AgentCandidateCardProps) {
-	const [isAdding, setIsAdding] = useState(false);
-
-	const handleAdd = async () => {
-		setIsAdding(true);
-		onSaving?.();
-		try {
-			await api.post(
-				`/agents/${supervisorId}/subagents/${candidate.id}`,
-				{},
-			);
-			onAdd(candidate.id);
-			onSaved?.();
-		} catch (error) {
-			console.error("Failed to add subagent:", error);
-			onSaved?.();
-		} finally {
-			setIsAdding(false);
-		}
-	};
-
 	return (
 		<div
 			className={`flex items-center justify-between px-4 py-3 rounded-md border ${
@@ -91,8 +65,10 @@ function AgentCandidateCard({
 				variant="ghost"
 				size="icon"
 				className="cursor-pointer shrink-0"
-				onClick={handleAdd}
-				disabled={disabled || isAdding}
+				onClick={() => {
+					onAdd(candidate.id);
+				}}
+				disabled={disabled}
 			>
 				<Plus className="w-4 h-4" />
 			</Button>
@@ -103,24 +79,23 @@ function AgentCandidateCard({
 export default function AddAgentSubagentDialog({
 	open,
 	onOpenChange,
-	agent,
-	onSubagentAdded,
-	onSaving,
-	onSaved,
+	supervisorId,
+	currentSubagentIds,
+	onAdd,
 }: AddAgentSubagentDialogProps) {
 	const allAgents = useAgentsStore((state) => state.agents);
 	const [search, setSearch] = useState("");
 
 	const alreadyBoundIds = useMemo(
-		() => new Set(agent.subagents?.map((s) => s.id) || []),
-		[agent.subagents],
+		() => new Set(currentSubagentIds),
+		[currentSubagentIds],
 	);
 
 	// All addable candidates: every agent except self and already-bound.
 	// Not search-filtered, so eligibility counts reflect the full set.
 	const allCandidates = useMemo(() => {
 		return allAgents
-			.filter((a) => a.id !== agent.id && !alreadyBoundIds.has(a.id))
+			.filter((a) => a.id !== supervisorId && !alreadyBoundIds.has(a.id))
 			.map((a) => {
 				let disabled = false;
 				let disabledReason: string | undefined;
@@ -140,7 +115,7 @@ export default function AddAgentSubagentDialog({
 				if (a.disabled !== b.disabled) return a.disabled ? 1 : -1;
 				return a.agent.name.localeCompare(b.agent.name);
 			});
-	}, [allAgents, agent.id, alreadyBoundIds]);
+	}, [allAgents, supervisorId, alreadyBoundIds]);
 
 	// Display list, narrowed by the search term (display only).
 	const candidates = useMemo(() => {
@@ -152,7 +127,7 @@ export default function AddAgentSubagentDialog({
 	}, [allCandidates, search]);
 
 	const handleSubagentAdded = (subagentId: string) => {
-		onSubagentAdded?.(subagentId);
+		onAdd(subagentId);
 		// Close if no more eligible candidates (across the full set, not the
 		// search-filtered view — otherwise a narrow search closes prematurely).
 		const eligibleCount = allCandidates.filter((c) => !c.disabled).length;
@@ -179,12 +154,9 @@ export default function AddAgentSubagentDialog({
 								<AgentCandidateCard
 									key={candidate.id}
 									candidate={candidate}
-									supervisorId={agent.id}
 									onAdd={handleSubagentAdded}
 									disabled={disabled}
 									disabledReason={disabledReason}
-									onSaving={onSaving}
-									onSaved={onSaved}
 								/>
 							))}
 						</div>

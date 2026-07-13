@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { Agent } from "@/types/agents";
-import AgentEditor from "../components/agent-editor";
+import AgentDetail from "../components/agent-detail";
 import { api } from "@/lib/api/client";
 
 interface AgentPageProps {
@@ -15,5 +15,5 @@ export default async function AgentPage({ params }: AgentPageProps) {
 		headers: { Cookie: cookieStore.toString() },
 	});
 
-	return <AgentEditor agent={agent} />;
+	return <AgentDetail agent={agent} />;
 }

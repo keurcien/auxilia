@@ -74,8 +74,9 @@ If `OPEN_SANDBOX_DOMAIN` is missing, the sandbox toggle on agents is silently di
 | `LANGFUSE_PUBLIC_KEY`   | Langfuse project public key                                |
 | `LANGFUSE_SECRET_KEY`   | Langfuse project secret key                                |
 | `LANGFUSE_BASE_URL`     | `https://cloud.langfuse.com` or your self-hosted URL       |
+| `LANGFUSE_TIMEOUT`      | API request timeout in seconds (positive integer; default `15`) |
 
-All three are required to enable Langfuse; missing any of them disables the integration silently. Details: [Observability (Langfuse)](/docs/deploy/langfuse).
+The public key, secret key, and base URL are required to enable Langfuse; missing any of them disables the integration silently. The timeout is optional. Details: [Observability (Langfuse)](/docs/deploy/langfuse).
 
 ## Slack (optional)
 

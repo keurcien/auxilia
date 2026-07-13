@@ -6,7 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.mcp_servers.repository import AgentMCPServerRepository
 from app.agents.models import AgentMCPServerBase, AgentMCPServerDB
-from app.agents.schemas import AgentMCPServerCreate, AgentMCPServerPatch
+from app.agents.schemas import (
+    AgentMCPServerConfig,
+    AgentMCPServerCreate,
+    AgentMCPServerPatch,
+)
 from app.database import get_db
 from app.exceptions import NotFoundError
 from app.mcp.client.connectivity import is_oauth_connected
@@ -19,9 +23,7 @@ from app.service import BaseService
 logger = logging.getLogger(__name__)
 
 
-class AgentMCPServerService(
-    BaseService[AgentMCPServerDB, AgentMCPServerRepository]
-):
+class AgentMCPServerService(BaseService[AgentMCPServerDB, AgentMCPServerRepository]):
     not_found_message = "Agent MCP server not found"
 
     def __init__(self, db: AsyncSession):
@@ -99,6 +101,36 @@ class AgentMCPServerService(
             data = AgentMCPServerPatch(tools={**existing_tools, **data.tools})
 
         return await self.repository.update(link, data)
+
+    async def set_for_agent(
+        self, agent_id: UUID, configs: list[AgentMCPServerConfig]
+    ) -> None:
+        """Whole-set replace of an agent's MCP bindings: upsert the wanted
+        links and delete the rest. `tools` is written exactly as provided —
+        the caller owns the complete map, so no discovery and no merge."""
+        existing = await self.repository.list_for_agent(agent_id)
+        by_server = {link.mcp_server_id: link for link in existing}
+        wanted = {config.mcp_server_id for config in configs}
+
+        for config in configs:
+            link = by_server.get(config.mcp_server_id)
+            if link:
+                if link.tools != config.tools:
+                    link.tools = config.tools
+                    self.db.add(link)
+            else:
+                await self._ensure_server(config.mcp_server_id)
+                await self.repository.create(
+                    AgentMCPServerBase(
+                        agent_id=agent_id,
+                        mcp_server_id=config.mcp_server_id,
+                        tools=config.tools,
+                    )
+                )
+        for server_id, link in by_server.items():
+            if server_id not in wanted:
+                await self.repository.delete(link)
+        await self.db.flush()
 
     async def delete(self, agent_id: UUID, server_id: UUID) -> None:
         link = await self.repository.get(agent_id, server_id)

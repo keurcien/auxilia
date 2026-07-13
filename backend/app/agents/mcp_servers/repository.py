@@ -11,9 +11,7 @@ class AgentMCPServerRepository(BaseRepository[AgentMCPServerDB]):
     def __init__(self, db: AsyncSession):
         super().__init__(AgentMCPServerDB, db)
 
-    async def get(
-        self, agent_id: UUID, server_id: UUID
-    ) -> AgentMCPServerDB | None:
+    async def get(self, agent_id: UUID, server_id: UUID) -> AgentMCPServerDB | None:
         stmt = select(AgentMCPServerDB).where(
             AgentMCPServerDB.agent_id == agent_id,
             AgentMCPServerDB.mcp_server_id == server_id,
@@ -21,10 +19,13 @@ class AgentMCPServerRepository(BaseRepository[AgentMCPServerDB]):
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def list_for_agent(self, agent_id: UUID) -> list[AgentMCPServerDB]:
+        stmt = select(AgentMCPServerDB).where(AgentMCPServerDB.agent_id == agent_id)
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
     async def delete_all_for_agent(self, agent_id: UUID) -> None:
-        stmt = select(AgentMCPServerDB).where(
-            AgentMCPServerDB.agent_id == agent_id
-        )
+        stmt = select(AgentMCPServerDB).where(AgentMCPServerDB.agent_id == agent_id)
         result = await self.db.execute(stmt)
         links = result.scalars().all()
         for link in links:
