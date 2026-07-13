@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.21](https://github.com/keurcien/auxilia/compare/backend-v0.4.20...backend-v0.4.21) (2026-07-11)
+
+
+### Features
+
+* **model:** add muse from meta ([#211](https://github.com/keurcien/auxilia/issues/211)) ([0771ba6](https://github.com/keurcien/auxilia/commit/0771ba6edc055420ef45e29f4e47fdb13d5a50bc))
+
 ## [0.4.20](https://github.com/keurcien/auxilia/compare/backend-v0.4.19...backend-v0.4.20) (2026-07-09)
 
 

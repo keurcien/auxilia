@@ -3,7 +3,8 @@
 dev-stack:
 	docker compose -f docker-compose.dev.yml up -d --remove-orphans
 
-dev-backend:
+dev-backend: dev-stack
+	until docker exec auxilia-postgres pg_isready -q; do sleep 0.5; done
 	cd backend && uv run alembic upgrade head
 	cd backend && uv run uvicorn app.main:app --reload
 

@@ -65,6 +65,7 @@ export type ModelSelectorLogoProps = Omit<
 		| "amazon-bedrock"
 		| "cerebras"
 		| "xiaomi"
+		| "meta"
 		| (string & {});
 };
 

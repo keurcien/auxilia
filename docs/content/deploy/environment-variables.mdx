@@ -30,11 +30,13 @@ At least one provider key is required. Every configured provider shows up in the
 
 | Provider  | Environment variable | Models                                                     |
 | --------- | -------------------- | ---------------------------------------------------------- |
-| Anthropic | `ANTHROPIC_API_KEY`  | `claude-haiku-4-5`, `claude-sonnet-4-6`, `claude-opus-4-6` |
+| Anthropic | `ANTHROPIC_API_KEY`  | `claude-haiku-4-5`, `claude-sonnet-4-6`, `claude-sonnet-5` |
 | OpenAI    | `OPENAI_API_KEY`     | `gpt-4o-mini`                                              |
 | Google    | `GOOGLE_API_KEY`     | `gemini-3-flash-preview`, `gemini-3-pro-preview`           |
-| DeepSeek  | `DEEPSEEK_API_KEY`   | `deepseek-chat`, `deepseek-reasoner`                       |
+| DeepSeek  | `DEEPSEEK_API_KEY`   | `deepseek-v4-flash`, `deepseek-v4-pro`                     |
+| Xiaomi    | `XIAOMI_API_KEY`     | `mimo-v2.5-pro`, `mimo-v2.5`                               |
 | OpenRouter | `OPENROUTER_API_KEY` | `glm-5.2-max`, `glm-5.2-high` |
+| Meta      | `METAAI_API_KEY`     | `muse-spark-1.1`                                           |
 
 Anthropic models run with thinking enabled by default; Google models run with `include_thoughts=True`. Defaults live in `app/model_providers/catalog.py`.
 

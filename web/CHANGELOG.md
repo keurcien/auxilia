@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.17](https://github.com/keurcien/auxilia/compare/web-v0.5.16...web-v0.5.17) (2026-07-11)
+
+
+### Features
+
+* **model:** add muse from meta ([#211](https://github.com/keurcien/auxilia/issues/211)) ([0771ba6](https://github.com/keurcien/auxilia/commit/0771ba6edc055420ef45e29f4e47fdb13d5a50bc))
+
+
+### Bug Fixes
+
+* **triggers:** show running state in trigger run history ([#209](https://github.com/keurcien/auxilia/issues/209)) ([83c114f](https://github.com/keurcien/auxilia/commit/83c114fed296d26311018fd98ae70f101ce011fc))
+
 ## [0.5.16](https://github.com/keurcien/auxilia/compare/web-v0.5.15...web-v0.5.16) (2026-07-08)
 
 
