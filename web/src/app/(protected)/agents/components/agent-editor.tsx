@@ -1,53 +1,66 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useMemo, useRef, useEffect } from "react";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
 import { AGENT_COLORS, agentPastel } from "@/lib/colors";
 import { useTheme } from "next-themes";
-import { ShieldCheck, ArrowRight, ArchiveIcon, History, Tag } from "lucide-react";
 import { Agent } from "@/types/agents";
 import AgentToolList from "../[id]/components/agent-tool-list";
 import AgentSubagentList from "../[id]/components/agent-subagent-list";
 import { api } from "@/lib/api/client";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { useAgentsStore } from "@/stores/agents-store";
-import { useThreadsStore } from "@/stores/threads-store";
 import { useUserStore } from "@/stores/user-store";
-import { SageDropdownMenu } from "@/components/ui/sage-dropdown-menu";
-import AgentPermissionsDialog from "./agent-permissions-dialog";
-import AgentTagsDialog from "./agent-tags-dialog";
+import { EditorHeader } from "@/components/editor/editor-header";
+import { EditorSection } from "@/components/editor/editor-section";
+import { SaveActions } from "@/components/editor/save-actions";
+import {
+	AgentFormState,
+	defaultAgentForm,
+	fromAgent,
+	isFormDirty,
+	toPayload,
+} from "../lib/agent-form";
 
 interface AgentEditorProps {
-	agent: Agent;
+	/** Undefined = create mode (`/agents/new` draft). */
+	agent?: Agent;
+	onSaved: (agent: Agent) => void;
+	onCancel: () => void;
 }
 
-export default function AgentEditor({ agent }: AgentEditorProps) {
-	const router = useRouter();
+export default function AgentEditor({
+	agent,
+	onSaved,
+	onCancel,
+}: AgentEditorProps) {
 	const { resolvedTheme } = useTheme();
 	const updateAgent = useAgentsStore((state) => state.updateAgent);
-	const removeAgent = useAgentsStore((state) => state.removeAgent);
-	const markAgentArchived = useThreadsStore((state) => state.markAgentArchived);
+	const addAgent = useAgentsStore((state) => state.addAgent);
 	const user = useUserStore((state) => state.user);
 	const isAdmin = user?.role === "admin";
 
-	const liveAgent = useAgentsStore(
-		(state) => state.agents.find((a) => a.id === agent.id) ?? agent,
+	// Snapshot taken on entering edit mode — the dirty baseline. Deliberately
+	// NOT re-derived from the store mid-edit.
+	const initialForm = useMemo(
+		() => (agent ? fromAgent(agent) : defaultAgentForm()),
+		[agent],
 	);
-
-	const [name, setName] = useState(agent.name || "");
-	const [instructions, setInstructions] = useState(agent.instructions || "");
-	const [description, setDescription] = useState(agent.description || "");
-	const [emoji, setEmoji] = useState(agent.emoji || "🤖");
-	const [color, setColor] = useState(agent.color || AGENT_COLORS[0]);
+	const [form, setForm] = useState<AgentFormState>(initialForm);
+	const [isSaving, setIsSaving] = useState(false);
+	const [error, setError] = useState<string | null>(null);
 	const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-	const [saveStatus, setSaveStatus] = useState<"saved" | "saving">("saved");
-	const [permissionsOpen, setPermissionsOpen] = useState(false);
-	const [tagsOpen, setTagsOpen] = useState(false);
-	const savingTimerRef = useRef<NodeJS.Timeout | undefined>(undefined);
 	const emojiPickerRef = useRef<HTMLDivElement>(null);
-	const nameTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
-	const instructionsTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
-	const descriptionTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
+
+	const setField = <K extends keyof AgentFormState>(
+		key: K,
+		value: AgentFormState[K],
+	) => {
+		setForm((prev) => ({ ...prev, [key]: value }));
+	};
+
+	const isDirty = isFormDirty(form, initialForm);
+	const canSave = Boolean(form.name.trim() && form.instructions.trim());
 
 	useEffect(() => {
 		const handleClickOutside = (event: MouseEvent) => {
@@ -68,305 +81,200 @@ export default function AgentEditor({ agent }: AgentEditorProps) {
 		};
 	}, [showEmojiPicker]);
 
+	// Warn before leaving the page with unsaved changes.
+	useEffect(() => {
+		if (!isDirty) return;
+		const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+			event.preventDefault();
+		};
+		window.addEventListener("beforeunload", handleBeforeUnload);
+		return () => {
+			window.removeEventListener("beforeunload", handleBeforeUnload);
+		};
+	}, [isDirty]);
+
 	const handleEmojiClick = (emojiData: EmojiClickData) => {
-		setEmoji(emojiData.emoji);
+		setField("emoji", emojiData.emoji);
 		setShowEmojiPicker(false);
-		saveAgent({ emoji: emojiData.emoji });
 	};
 
-	const handleColorClick = (c: string) => {
-		setColor(c);
-		saveAgent({ color: c });
-	};
-
-	const saveAgent = useCallback(
-		async (
-			updates: Partial<
-				Pick<Agent, "name" | "instructions" | "emoji" | "color" | "description">
-			>,
-		) => {
-			setSaveStatus("saving");
-			try {
-				const response = await api.patch(`/agents/${agent.id}`, updates);
-				const updatedAgent: Agent = response.data;
-				updateAgent(agent.id, updatedAgent);
-				if (savingTimerRef.current) clearTimeout(savingTimerRef.current);
-				savingTimerRef.current = setTimeout(() => { setSaveStatus("saved"); }, 500);
-			} catch (error) {
-				console.error("Error saving agent:", error);
+	const handleSave = async () => {
+		if (!canSave) return;
+		setIsSaving(true);
+		setError(null);
+		try {
+			const response = agent
+				? await api.put(`/agents/${agent.id}/config`, toPayload(form))
+				: await api.post("/agents", toPayload(form));
+			const saved: Agent = response.data;
+			if (agent) {
+				updateAgent(agent.id, saved);
+			} else {
+				addAgent(saved);
 			}
-		},
-		[agent.id, updateAgent],
-	);
 
-	const handleManagePermissions = () => {
-		setPermissionsOpen(true);
+			// Refresh agents whose isSubagent flag changed with this save.
+			const before = new Set(initialForm.subagentIds);
+			const after = new Set(form.subagentIds);
+			const affected = [
+				...form.subagentIds.filter((id) => !before.has(id)),
+				...initialForm.subagentIds.filter((id) => !after.has(id)),
+			];
+			await Promise.all(
+				affected.map((id) =>
+					api
+						.get(`/agents/${id}`)
+						.then((res) => {
+							updateAgent(id, res.data);
+						})
+						.catch(() => {}),
+				),
+			);
+
+			onSaved(saved);
+		} catch (err) {
+			setError(getApiErrorMessage(err, "Failed to save the agent."));
+		} finally {
+			setIsSaving(false);
+		}
 	};
 
-	const handleViewThreads = () => {
-		router.push(`/agents/${agent.id}/threads`);
-	};
-
-	const canManageAgent =
-		liveAgent.currentUserPermission === "owner" ||
-		liveAgent.currentUserPermission === "admin";
-
-	const canEditAgent =
-		canManageAgent || liveAgent.currentUserPermission === "editor";
-
-	const handleDeleteAgent = async () => {
-		if (
-			!confirm(
-				"Are you sure you want to archive this agent?",
-			)
-		) {
+	const handleCancel = () => {
+		if (isDirty && !confirm("Discard unsaved changes?")) {
 			return;
 		}
-
-		try {
-			await api.delete(`/agents/${agent.id}`);
-			removeAgent(agent.id);
-			markAgentArchived(agent.id);
-			router.push("/agents");
-		} catch (error) {
-			console.error("Error deleting agent:", error);
-			alert("Failed to delete agent. Please try again.");
-		}
+		onCancel();
 	};
-
-	// Auto-save name changes with 300ms debounce
-	useEffect(() => {
-		if (!name.trim() || name === liveAgent.name) return;
-
-		if (nameTimeoutRef.current) clearTimeout(nameTimeoutRef.current);
-		nameTimeoutRef.current = setTimeout(() => {
-			saveAgent({ name: name.trim() });
-		}, 300);
-
-		return () => {
-			if (nameTimeoutRef.current) clearTimeout(nameTimeoutRef.current);
-		};
-	}, [name, liveAgent.name, saveAgent]);
-
-	// Auto-save instructions with debounce
-	useEffect(() => {
-		if (instructionsTimeoutRef.current) {
-			clearTimeout(instructionsTimeoutRef.current);
-		}
-
-		instructionsTimeoutRef.current = setTimeout(() => {
-			if (instructions !== liveAgent.instructions) {
-				saveAgent({ instructions: instructions.trim() });
-			}
-		}, 600);
-
-		return () => {
-			if (instructionsTimeoutRef.current) {
-				clearTimeout(instructionsTimeoutRef.current);
-			}
-		};
-	}, [instructions, liveAgent.instructions, saveAgent]);
-
-	// Auto-save description with debounce
-	useEffect(() => {
-		if (descriptionTimeoutRef.current) {
-			clearTimeout(descriptionTimeoutRef.current);
-		}
-
-		descriptionTimeoutRef.current = setTimeout(() => {
-			if (description !== (liveAgent.description || "")) {
-				saveAgent({ description: description.trim() });
-			}
-		}, 600);
-
-		return () => {
-			if (descriptionTimeoutRef.current) {
-				clearTimeout(descriptionTimeoutRef.current);
-			}
-		};
-	}, [description, liveAgent.description, saveAgent]);
 
 	return (
 		<div className="h-full flex flex-col font-[family-name:var(--font-dm-sans)] animate-in fade-in duration-300">
-			{/* Top bar */}
-			<div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4 px-8 py-6 shrink-0 z-10 animate-in fade-in slide-in-from-bottom-3 duration-400" style={{ animationDelay: "0ms", animationFillMode: "both" }}>
-				<div className="flex items-center gap-4 flex-1 min-w-0">
-					<div className="relative">
-						<div
-							onClick={() => { setShowEmojiPicker(!showEmojiPicker); }}
-							style={{
-								background: agentPastel(color).pill,
-							}}
-							className="flex items-center justify-center shrink-0 size-[46px] rounded-[13px] text-[23px] cursor-pointer transition-opacity hover:opacity-80"
-						>
-							{emoji}
-						</div>
-						{showEmojiPicker && (
-							<div ref={emojiPickerRef} className="absolute top-full mt-2 z-50">
-								<EmojiPicker
-									onEmojiClick={handleEmojiClick}
-									theme={resolvedTheme === "dark" ? Theme.DARK : Theme.LIGHT}
-									skinTonesDisabled
-									previewConfig={{ showPreview: false }}
-								/>
-								<div className="flex items-center justify-center gap-2 px-3 py-2 bg-white dark:bg-[#222] rounded-b-lg border-t border-gray-100 dark:border-gray-700">
-									{AGENT_COLORS.map((c) => (
-										<button
-											key={c}
-											type="button"
-											onClick={() => { handleColorClick(c); }}
-											style={{ backgroundColor: c }}
-											className={`w-7 h-7 rounded-full cursor-pointer transition-transform hover:scale-110 ${
-												color === c
-													? "ring-2 ring-offset-2 ring-gray-400 dark:ring-offset-[#222]"
-													: ""
-											}`}
-										/>
-									))}
-								</div>
+			<div className="px-8 py-6 shrink-0 z-10">
+				<EditorHeader
+					icon={
+						<div className="relative size-full">
+							<div
+								onClick={() => { setShowEmojiPicker(!showEmojiPicker); }}
+								style={{ background: agentPastel(form.color).pill }}
+								className="flex items-center justify-center size-full rounded-[13px] text-[23px] cursor-pointer transition-opacity hover:opacity-80"
+							>
+								{form.emoji}
 							</div>
-						)}
-					</div>
-
-					<div className="flex flex-col overflow-hidden flex-1">
-						<input
-							type="text"
-							value={name}
-							onChange={(e) => { setName(e.target.value); }}
-							placeholder="Agent name"
-							className="font-[family-name:var(--font-jakarta-sans)] text-[22px] font-bold text-[#1E2D28] dark:text-foreground leading-tight tracking-[-0.025em] truncate w-full bg-transparent border-none focus:outline-none focus:ring-0 p-0"
+							{showEmojiPicker && (
+								<div ref={emojiPickerRef} className="absolute top-full left-0 mt-2 z-50">
+									<EmojiPicker
+										onEmojiClick={handleEmojiClick}
+										theme={resolvedTheme === "dark" ? Theme.DARK : Theme.LIGHT}
+										skinTonesDisabled
+										previewConfig={{ showPreview: false }}
+									/>
+									<div className="flex items-center justify-center gap-2 px-3 py-2 bg-white dark:bg-[#222] rounded-b-lg border-t border-gray-100 dark:border-gray-700">
+										{AGENT_COLORS.map((c) => (
+											<button
+												key={c}
+												type="button"
+												onClick={() => { setField("color", c); }}
+												style={{ backgroundColor: c }}
+												className={`w-7 h-7 rounded-full cursor-pointer transition-transform hover:scale-110 ${
+													form.color === c
+														? "ring-2 ring-offset-2 ring-gray-400 dark:ring-offset-[#222]"
+														: ""
+												}`}
+											/>
+										))}
+									</div>
+								</div>
+							)}
+						</div>
+					}
+					title={agent ? "Edit agent" : "New agent"}
+					subtitle={
+						agent?.name ? (
+							<span className="font-[family-name:var(--font-dm-sans)] text-[12.5px] font-medium text-[#94A59D] dark:text-muted-foreground truncate">
+								{agent.name}
+							</span>
+						) : undefined
+					}
+					actions={
+						<SaveActions
+							isDirty={isDirty}
+							isSaving={isSaving}
+							canSave={canSave}
+							onSave={() => {
+								void handleSave();
+							}}
+							onCancel={handleCancel}
+							saveLabel={agent ? "Save changes" : "Create agent"}
 						/>
+					}
+				/>
+
+				{error && (
+					<div className="mt-5 rounded-[14px] bg-[#FFF5F3] dark:bg-[#D45B45]/10 px-4 py-3 text-[13.5px] font-medium text-[#D45B45]">
+						{error}
 					</div>
-				</div>
-
-				<div className="flex items-center gap-2.5">
-					{/* Save status pill */}
-					<div
-						className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[13px] font-semibold transition-all duration-300 ${
-							saveStatus === "saving"
-								? "bg-[#FFF5CC] dark:bg-amber-950/40 text-[#D4A832] dark:text-amber-400"
-								: "bg-[#EDF4F0] dark:bg-emerald-950/40 text-[#3D8B63] dark:text-emerald-400"
-						}`}
-					>
-						<span
-							className={`block w-[7px] h-[7px] rounded-full transition-all duration-300 ${
-								saveStatus === "saving"
-									? "bg-[#FDCB6E] animate-pulse-dot"
-									: "bg-[#4CA882]"
-							}`}
-						/>
-						{saveStatus === "saving" ? "Saving..." : "Saved"}
-					</div>
-
-					{/* Chat button */}
-					<button
-						className="flex items-center gap-2 px-5.5 py-2.5 rounded-full bg-[#111111] dark:bg-white text-white dark:text-[#111111] text-[14px] font-semibold cursor-pointer shadow-[0_4px_12px_-2px_rgba(0,0,0,0.15)] transition-all hover:opacity-90"
-						onClick={() => { router.push(`/agents/${agent.id}/chat`); }}
-					>
-						Chat
-						<ArrowRight className="size-[15px]" />
-					</button>
-
-					{/* More menu */}
-					<SageDropdownMenu
-						items={[
-							...(canManageAgent
-								? [
-									{ label: "View thread history", icon: <History />, onClick: handleViewThreads },
-									{ label: "Manage permissions", icon: <ShieldCheck />, onClick: handleManagePermissions },
-								]
-								: []),
-							...(canEditAgent
-								? [
-									{ label: "Assign tag", icon: <Tag />, onClick: () => { setTagsOpen(true); } },
-									{ separator: true as const },
-								]
-								: []),
-							{ label: "Archive agent", icon: <ArchiveIcon />, destructive: true, onClick: () => { void handleDeleteAgent(); } },
-						]}
-					/>
-				</div>
+				)}
 			</div>
 
 			{/* Two column layout */}
 			<div className="relative flex flex-col md:flex-row flex-1 min-h-0 px-8 gap-8">
-				{/* Left: Description + Instructions */}
-				<div className="h-full w-full md:flex-1 flex flex-col min-w-0 animate-in fade-in slide-in-from-bottom-3 duration-400" style={{ animationDelay: "50ms", animationFillMode: "both" }}>
-					<div className="shrink-0 mb-7">
-						<div className="flex items-center min-h-[34px] mb-2.5">
-							<label className="text-[10.5px] font-bold text-[#94a59d] dark:text-muted-foreground uppercase tracking-[0.12em]">
-								Description
-							</label>
-						</div>
+				{/* Left: Name + Description + Instructions */}
+				<div className="h-full w-full md:flex-1 flex flex-col min-w-0">
+					<EditorSection label="Agent name" className="shrink-0 mb-7">
+						<input
+							type="text"
+							maxLength={255}
+							value={form.name}
+							onChange={(e) => { setField("name", e.target.value); }}
+							placeholder="What is this agent called?"
+							className="w-full px-[17px] py-[15px] rounded-[14px] border border-[#e1ebe6] dark:border-white/10 bg-white dark:bg-card text-[15px] font-semibold text-[#1E2D28] dark:text-white leading-[1.5] placeholder:text-[#A3B5AD] dark:placeholder:text-white/30 shadow-[0_1px_3px_rgba(33,36,31,0.04)] focus:outline-none focus:border-[#4CA882] transition-colors"
+						/>
+					</EditorSection>
+
+					<EditorSection label="Description" className="shrink-0 mb-7">
 						<input
 							type="text"
 							maxLength={255}
 							className="w-full px-[17px] py-[15px] rounded-[14px] border border-[#e1ebe6] dark:border-white/10 bg-white dark:bg-card text-[13.5px] font-medium text-[#1E2D28] dark:text-white leading-[1.5] placeholder:text-[#A3B5AD] dark:placeholder:text-white/30 shadow-[0_1px_3px_rgba(33,36,31,0.04)] focus:outline-none focus:border-[#4CA882] transition-colors"
-							value={description}
-							onChange={(e) => { setDescription(e.target.value); }}
+							value={form.description}
+							onChange={(e) => { setField("description", e.target.value); }}
 							placeholder="A short description of your agent..."
 						/>
-						{description.length > 240 && (
+						{form.description.length > 240 && (
 							<p className="text-xs text-[#B8C8C0] mt-1 text-right">
-								{description.length}/255
+								{form.description.length}/255
 							</p>
 						)}
-					</div>
+					</EditorSection>
 
-					<div className="flex-1 flex flex-col min-h-0">
-						<label className="block text-[10.5px] font-bold text-[#94a59d] dark:text-muted-foreground uppercase tracking-[0.12em] mb-2.5">
-							Instructions
-						</label>
+					<EditorSection label="Instructions" className="flex-1 min-h-0">
 						<textarea
 							className="flex-1 w-full h-full p-5 rounded-[14px] border border-[#e1ebe6] dark:border-white/10 bg-white dark:bg-card text-[13px] font-medium text-[#1E2D28] dark:text-white leading-[1.65] placeholder:text-[#A3B5AD] dark:placeholder:text-white/30 resize-none shadow-[0_1px_3px_rgba(33,36,31,0.04)] focus:outline-none focus:border-[#4CA882] transition-colors [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-							value={instructions}
-							onChange={(e) => { setInstructions(e.target.value); }}
+							value={form.instructions}
+							onChange={(e) => { setField("instructions", e.target.value); }}
 							placeholder="Enter instructions for your agent..."
 						/>
-					</div>
+					</EditorSection>
 				</div>
 
 				{/* Right: Tools + Subagents */}
-				<div className="h-full w-full md:w-1/2 flex flex-col min-h-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden animate-in fade-in slide-in-from-bottom-3 duration-400" style={{ animationDelay: "100ms", animationFillMode: "both" }}>
+				<div className="h-full w-full md:w-1/2 flex flex-col min-h-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 					<AgentToolList
-						agent={liveAgent}
-						onSaving={() => { setSaveStatus("saving"); }}
-						onSaved={() => {
-							if (savingTimerRef.current) clearTimeout(savingTimerRef.current);
-							savingTimerRef.current = setTimeout(
-								() => { setSaveStatus("saved"); },
-								400,
-							);
-						}}
+						mcpServers={form.mcpServers}
+						hasCodeInterpreter={form.hasCodeInterpreter}
+						onMcpServersChange={(mcpServers) => { setField("mcpServers", mcpServers); }}
+						onHasCodeInterpreterChange={(enabled) => { setField("hasCodeInterpreter", enabled); }}
 					/>
 					{isAdmin && (
 						<AgentSubagentList
-							agent={liveAgent}
-							onSaving={() => { setSaveStatus("saving"); }}
-							onSaved={() => {
-								if (savingTimerRef.current) clearTimeout(savingTimerRef.current);
-								savingTimerRef.current = setTimeout(
-									() => { setSaveStatus("saved"); },
-									400,
-								);
-							}}
+							agentId={agent?.id ?? ""}
+							isSubagent={agent?.isSubagent ?? false}
+							subagentIds={form.subagentIds}
+							fallbackSubagents={agent?.subagents ?? []}
+							onChange={(subagentIds) => { setField("subagentIds", subagentIds); }}
 						/>
 					)}
 				</div>
 			</div>
-
-			<AgentPermissionsDialog
-				open={permissionsOpen}
-				onOpenChange={setPermissionsOpen}
-				agentId={agent.id}
-				ownerId={liveAgent.ownerId}
-			/>
-
-			<AgentTagsDialog
-				open={tagsOpen}
-				onOpenChange={setTagsOpen}
-				agent={liveAgent}
-			/>
 		</div>
 	);
 }

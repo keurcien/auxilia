@@ -12,27 +12,13 @@ from app.agents.models import (
 )
 
 
-class AgentCreate(SQLModel):
-    name: str
-    instructions: str
-    emoji: str | None = None
-    color: str | None = None
-    has_code_interpreter: bool = False
-
-    @field_validator("color")
-    @classmethod
-    def validate_color(cls, v: str | None) -> str | None:
-        if v is not None and v not in ALLOWED_COLORS:
-            raise ValueError(f"color must be one of {sorted(ALLOWED_COLORS)}")
-        return v
-
-
 class AgentCreateDB(SQLModel):
     name: str
     instructions: str
     owner_id: UUID
     emoji: str | None = None
     color: str | None = None
+    description: str | None = None
     has_code_interpreter: bool = False
 
     @field_validator("color")
@@ -57,6 +43,43 @@ class AgentPatch(SQLModel):
     def validate_color(cls, v: str | None) -> str | None:
         if v is not None and v not in ALLOWED_COLORS:
             raise ValueError(f"color must be one of {sorted(ALLOWED_COLORS)}")
+        return v
+
+
+class AgentMCPServerConfig(SQLModel):
+    mcp_server_id: UUID
+    tools: dict[str, ToolStatus] | None = None
+
+
+class AgentConfig(SQLModel):
+    """The whole agent config as one document — the payload of the unified
+    PUT /agents/{id}/config save. Full replace semantics: `tools` is the
+    complete per-tool map (or None = never synced), not a merge patch."""
+
+    name: str
+    instructions: str
+    description: str | None = None
+    emoji: str | None = None
+    color: str | None = None
+    has_code_interpreter: bool = False
+    mcp_servers: list[AgentMCPServerConfig] = []
+    subagent_ids: list[UUID] = []
+
+    @field_validator("color")
+    @classmethod
+    def validate_color(cls, v: str | None) -> str | None:
+        if v is not None and v not in ALLOWED_COLORS:
+            raise ValueError(f"color must be one of {sorted(ALLOWED_COLORS)}")
+        return v
+
+    @field_validator("mcp_servers")
+    @classmethod
+    def validate_unique_servers(
+        cls, v: list[AgentMCPServerConfig]
+    ) -> list[AgentMCPServerConfig]:
+        server_ids = [c.mcp_server_id for c in v]
+        if len(server_ids) != len(set(server_ids)):
+            raise ValueError("mcp_servers contains duplicate mcp_server_id entries")
         return v
 
 

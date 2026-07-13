@@ -10,19 +10,35 @@ from app.threads.models import ThreadDB, ThreadSource
 
 
 def test_create_agent(client: TestClient, mock_db, editor_user):
-    """Test creating a new agent (editor or above)."""
+    """Test creating a new agent (editor or above) from a config document."""
     agent_data = {
         "name": "Test Agent",
         "instructions": "You are a helpful assistant.",
     }
+
+    created: dict = {}
 
     # Mock refresh to populate the created agent with generated fields
     async def mock_refresh(obj):
         obj.id = uuid4()
         obj.created_at = datetime.now()
         obj.updated_at = datetime.now()
+        created["agent"] = obj
 
     mock_db.refresh = mock_refresh
+
+    # One result shape serves every post-create query: the binding/subagent
+    # lookups consume .scalars().all() (empty), the final get consumes .all()
+    # (the created agent row).
+    def execute_side_effect(*_args, **_kwargs):
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = []
+        result.all.return_value = (
+            [(created["agent"], None, None)] if "agent" in created else []
+        )
+        return result
+
+    mock_db.execute.side_effect = execute_side_effect
 
     response = client.post("/agents/", json=agent_data)
 

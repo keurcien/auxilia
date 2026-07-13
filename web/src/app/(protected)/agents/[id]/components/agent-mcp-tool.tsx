@@ -1,67 +1,23 @@
 "use client";
 
-import { useState } from "react";
-import { Agent, ToolStatus } from "@/types/agents";
-import { api } from "@/lib/api/client";
-import {
-	ThreeStateToggle,
-	ToggleState,
-} from "@/components/ui/three-state-toggle";
+import { ToolStatus } from "@/types/agents";
+import { ThreeStateToggle } from "@/components/ui/three-state-toggle";
 
 interface AgentMCPToolProps {
-	agent: Agent;
-	serverId: string;
 	toolName: string;
 	toolDescription?: string;
-	onUpdate?: () => void;
-	onSaving?: () => void;
-	onSaved?: () => void;
+	status: ToolStatus;
+	readOnly?: boolean;
+	onStatusChange?: (status: ToolStatus) => void;
 }
 
 export default function AgentMCPTool({
-	agent,
-	serverId,
 	toolName,
 	toolDescription,
-	onUpdate,
-	onSaving,
-	onSaved,
+	status,
+	readOnly,
+	onStatusChange,
 }: AgentMCPToolProps) {
-	const agentServer = agent.mcpServers?.find((s) => s.mcpServerId === serverId);
-
-	const getInitialStatus = (): ToolStatus => {
-		if (agentServer?.tools && toolName in agentServer.tools) {
-			return agentServer.tools[toolName];
-		}
-		return "always_allow";
-	};
-
-	const [toolStatus, setToolStatus] = useState<ToolStatus>(getInitialStatus);
-
-	const handleStatusChange = async (newStatus: ToggleState) => {
-		const previousStatus = toolStatus;
-		setToolStatus(newStatus);
-		onSaving?.();
-
-		try {
-			const toolsUpdate: Record<string, ToolStatus> = {
-				[toolName]: newStatus,
-			};
-
-			await api.patch(`/agents/${agent.id}/mcp-servers/${serverId}`, {
-				tools: toolsUpdate,
-			});
-
-			// Notify parent to refresh/update
-			onUpdate?.();
-			onSaved?.();
-		} catch (error) {
-			console.error("Failed to update tool status:", error);
-			setToolStatus(previousStatus);
-			onSaved?.();
-		}
-	};
-
 	return (
 		<div className="flex items-center p-3 bg-[#FAFCFB] rounded-2xl hover:bg-sidebar-hover border-[1.5px] border-[#E0E8E4] dark:border-white/10">
 			<div className="w-8 h-8 bg-white rounded-full flex items-center justify-center text-muted-foreground text-xs font-semibold mr-3 shrink-0 border-[1.5px] border-[#E0E8E4] dark:border-white/10">
@@ -79,8 +35,17 @@ export default function AgentMCPTool({
 				)}
 			</div>
 
-			<div className="flex items-center shrink-0">
-				<ThreeStateToggle value={toolStatus} onChange={handleStatusChange} />
+			<div
+				className={`flex items-center shrink-0 ${
+					readOnly ? "opacity-60 pointer-events-none" : ""
+				}`}
+			>
+				<ThreeStateToggle
+					value={status}
+					onChange={(value) => {
+						if (!readOnly) onStatusChange?.(value);
+					}}
+				/>
 			</div>
 		</div>
 	);

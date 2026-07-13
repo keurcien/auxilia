@@ -3,19 +3,22 @@
 import { useState, useEffect, useCallback } from "react";
 import Image from "next/image";
 import { MCPServer } from "@/types/mcp-servers";
-import { Agent } from "@/types/agents";
+import { ToolStatus } from "@/types/agents";
 import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import AgentMCPTool from "./agent-mcp-tool";
+import { AgentMCPServerForm } from "../../lib/agent-form";
 import { api } from "@/lib/api/client";
 
 interface AgentMCPServerProps {
-	agent: Agent;
 	server: MCPServer;
-	onUpdate?: () => void;
-	onSaving?: () => void;
-	onSaved?: () => void;
+	binding: AgentMCPServerForm;
+	readOnly?: boolean;
+	/** Draft update: the complete per-tool map for this server. */
+	onToolsChange?: (tools: Record<string, ToolStatus>) => void;
+	/** Draft update: detach this server. */
+	onRemove?: () => void;
 }
 
 interface MCPServerTool {
@@ -24,15 +27,12 @@ interface MCPServerTool {
 }
 
 export default function AgentMCPServer({
-	agent,
 	server,
-	onUpdate,
-	onSaving,
-	onSaved,
+	binding,
+	readOnly,
+	onToolsChange,
+	onRemove,
 }: AgentMCPServerProps) {
-	const initialAttached =
-		agent.mcpServers?.some((s) => s.mcpServerId === server.id) || false;
-	const [isAttached, setIsAttached] = useState(initialAttached);
 	const [isExpanded, setIsExpanded] = useState(false);
 	const [tools, setTools] = useState<MCPServerTool[]>([]);
 	const [isLoading, setIsLoading] = useState(false);
@@ -47,43 +47,40 @@ export default function AgentMCPServer({
 		}
 	}, [isCheckingConnection, isConnected]);
 
-	const handleToggleServer = async (serverId: string, isEnabled: boolean) => {
-		setIsAttached(isEnabled);
-		onSaving?.();
-
-		try {
-			if (isEnabled) {
-				await api.post(`/agents/${agent.id}/mcp-servers/${serverId}`, {});
-
-				// Notify parent to update
-				onUpdate?.();
-
-				if (!toolsFetched) {
-					await fetchTools();
-				}
-			} else {
-				await api.delete(`/agents/${agent.id}/mcp-servers/${serverId}`);
-
-				// Notify parent to update
-				onUpdate?.();
-			}
-			onSaved?.();
-		} catch (error) {
-			console.error("Failed to toggle server:", error);
-			setIsAttached(!isEnabled);
-			onSaved?.();
-		}
-	};
-
 	const handleToggleExpand = () => {
 		setIsExpanded(!isExpanded);
+	};
+
+	const statusFor = (toolName: string): ToolStatus => {
+		if (binding.tools && toolName in binding.tools) {
+			return binding.tools[toolName];
+		}
+		return "always_allow";
+	};
+
+	// The complete-map rule: the draft's tools map stays null until the user
+	// actually edits, then it materializes from the fetched tool list so a
+	// Save never sends a partial map (the backend does whole-map replace).
+	const materializeTools = useCallback(
+		(fetchedTools: MCPServerTool[]): Record<string, ToolStatus> => {
+			const full: Record<string, ToolStatus> = Object.fromEntries(
+				fetchedTools.map((tool) => [tool.name, "always_allow" as ToolStatus]),
+			);
+			return { ...full, ...(binding.tools ?? {}) };
+		},
+		[binding.tools],
+	);
+
+	const handleStatusChange = (toolName: string, status: ToolStatus) => {
+		if (readOnly) return;
+		onToolsChange?.({ ...materializeTools(tools), [toolName]: status });
 	};
 
 	const fetchTools = useCallback(async () => {
 		setIsLoading(true);
 		try {
 			const res = await api.get(`/mcp-servers/${server.id}/list-tools`);
-			const fetchedTools = res.data;
+			const fetchedTools = res.data as MCPServerTool[];
 			setTools(fetchedTools);
 			setToolsFetched(true);
 		} catch (error: unknown) {
@@ -105,7 +102,7 @@ export default function AgentMCPServer({
 
 				const popup = window.open(authUrl, "_blank", "width=600,height=700");
 
-				const pollInterval = setInterval(async () => {
+				const poll = async () => {
 					try {
 						const statusRes = await api.get(
 							`/mcp-servers/${server.id}/is-connected-v2`,
@@ -115,24 +112,28 @@ export default function AgentMCPServer({
 						if (statusData.connected) {
 							clearInterval(pollInterval);
 							setIsConnected(true);
-							setIsAttached(true);
 
-							// Sync tools to the agent MCP server (saves with always_allow)
-							await api.post(
-								`/agents/${agent.id}/mcp-servers/${server.id}/sync-tools`,
-							);
-
-							// Fetch tools for display
+							// Fetch tools for display; connecting is a deliberate
+							// action, so it also seeds the draft's tool map when
+							// the binding was never synced.
 							const retryRes = await api.get(
 								`/mcp-servers/${server.id}/list-tools`,
 							);
-							const fetchedTools = retryRes.data;
+							const fetchedTools = retryRes.data as MCPServerTool[];
 							setTools(fetchedTools);
 							setToolsFetched(true);
 							setIsLoading(false);
 
-							// Notify parent to refresh agent data with updated tools
-							onUpdate?.();
+							if (!readOnly && binding.tools === null) {
+								onToolsChange?.(
+									Object.fromEntries(
+										fetchedTools.map((tool) => [
+											tool.name,
+											"always_allow" as ToolStatus,
+										]),
+									),
+								);
+							}
 
 							if (popup && !popup.closed) {
 								popup.close();
@@ -141,6 +142,9 @@ export default function AgentMCPServer({
 					} catch (pollError) {
 						console.error("Error polling connection status:", pollError);
 					}
+				};
+				const pollInterval = setInterval(() => {
+					void poll();
 				}, 2000);
 
 				setTimeout(() => {
@@ -156,7 +160,7 @@ export default function AgentMCPServer({
 		} finally {
 			setIsLoading(false);
 		}
-	}, [server.id, agent.id, onUpdate]);
+	}, [server.id, readOnly, binding.tools, onToolsChange]);
 
 	const handleConnect = async () => {
 		await fetchTools();
@@ -178,12 +182,12 @@ export default function AgentMCPServer({
 			});
 	}, [server.id]);
 
-	// Fetch tools on initial load if server is already attached
+	// Fetch tools on initial load if the server is connected
 	useEffect(() => {
-		if (isAttached && !toolsFetched && isConnected) {
+		if (!toolsFetched && isConnected) {
 			fetchTools();
 		}
-	}, [isAttached, toolsFetched, isConnected, fetchTools]);
+	}, [toolsFetched, isConnected, fetchTools]);
 
 	return (
 		<div className="border-b last:border-b-0">
@@ -277,7 +281,9 @@ export default function AgentMCPServer({
 								</p>
 								<button
 									className="px-5 py-2.5 bg-[#111111] dark:bg-white text-white dark:text-[#111111] font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold rounded-full hover:opacity-90 transition-all cursor-pointer"
-									onClick={handleConnect}
+									onClick={() => {
+										void handleConnect();
+									}}
 								>
 									Connect
 								</button>
@@ -291,13 +297,13 @@ export default function AgentMCPServer({
 								{tools.map((tool) => (
 									<AgentMCPTool
 										key={tool.name}
-										agent={agent}
-										serverId={server.id}
 										toolName={tool.name}
 										toolDescription={tool.description}
-										onUpdate={onUpdate}
-										onSaving={onSaving}
-										onSaved={onSaved}
+										status={statusFor(tool.name)}
+										readOnly={readOnly}
+										onStatusChange={(status) => {
+											handleStatusChange(tool.name, status);
+										}}
 									/>
 								))}
 							</div>
@@ -307,16 +313,20 @@ export default function AgentMCPServer({
 							</div>
 						)}
 					</div>
-					<div className="flex w-full justify-center">
-						<Button
-							variant="ghost"
-							size="sm"
-							className="text-destructive cursor-pointer hover:text-destructive/80"
-							onClick={() => handleToggleServer(server.id, false)}
-						>
-							Disable {server.name}
-						</Button>
-					</div>
+					{!readOnly && (
+						<div className="flex w-full justify-center">
+							<Button
+								variant="ghost"
+								size="sm"
+								className="text-destructive cursor-pointer hover:text-destructive/80"
+								onClick={() => {
+									onRemove?.();
+								}}
+							>
+								Disable {server.name}
+							</Button>
+						</div>
+					)}
 				</div>
 			)}
 		</div>
