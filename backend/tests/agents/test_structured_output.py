@@ -24,10 +24,11 @@ SCHEMA = {
 }
 
 
-def _make_request(response_format=SCHEMA) -> ModelRequest:
+def _make_request(response_format=SCHEMA, tools=None) -> ModelRequest:
     return ModelRequest(
         model=MagicMock(),
         messages=[HumanMessage("What is 2 + 2?")],
+        tools=tools or [],
         response_format=response_format,
     )
 
@@ -113,7 +114,8 @@ async def test_invalid_tool_calls_keep_the_loop_going():
 async def test_final_turn_adds_constrained_formatting_call():
     """The final answer triggers one extra call with response_format restored."""
     middleware = DeferredStructuredOutputMiddleware()
-    request = _make_request()
+    business_tool = MagicMock(name="business_tool")
+    request = _make_request(tools=[business_tool])
     final_answer = AIMessage("2 + 2 = 4")
     formatted = AIMessage('{"answer": 4}')
     calls: list[ModelRequest] = []
@@ -133,9 +135,15 @@ async def test_final_turn_adds_constrained_formatting_call():
     # Loop turn: schema stripped.
     assert calls[0].response_format is None
     # Formatting turn: original schema restored, conversation extended with the
-    # final answer and the formatting instruction (instruction stays out of state).
+    # final answer and schema-aware formatting instruction (instruction stays out
+    # of state). Business tools are removed so only LangChain's synthetic output
+    # tool can be selected.
     assert calls[1].response_format == SCHEMA
-    assert calls[1].messages[-2:] == [final_answer, HumanMessage(FORMAT_INSTRUCTION)]
+    assert calls[1].tools == []
+    assert calls[1].messages[-2] == final_answer
+    assert FORMAT_INSTRUCTION in calls[1].messages[-1].content
+    assert "JSON Schema" in calls[1].messages[-1].content
+    assert '"answer"' in calls[1].messages[-1].content
     # Combined response: both AI messages land in state, parsed object included.
     assert response.structured_response == {"answer": 4}
     prose, structured = response.result
@@ -174,11 +182,15 @@ async def test_invalid_formatting_result_retries_with_error_feedback():
 
     assert len(calls) == 3
     # The retry replaces the plain instruction with one carrying the rejection,
-    # on the same conversation (no trace of the failed attempt).
+    # schema, and rejected object on the same conversation. The failed tool-call
+    # message itself is still absent, so there is no dangling tool call.
     retry_instruction = calls[2].messages[-1]
     assert "rejected" in retry_instruction.content
     assert "'answer' is a required property" in retry_instruction.content
+    assert "Rejected response:\n{}" in retry_instruction.content
+    assert "JSON Schema" in retry_instruction.content
     assert failed_attempt not in calls[2].messages
+    assert calls[2].tools == []
     # Only the prose answer and the successful attempt land in state.
     assert response.structured_response == {"answer": 4}
     assert failed_attempt not in response.result
@@ -209,6 +221,10 @@ async def test_formatting_succeeds_on_final_attempt():
     # 1 loop turn + 3 formatting attempts (2 rejected, 3rd accepted).
     assert len(calls) == 1 + MAX_FORMAT_ATTEMPTS
     assert MAX_FORMAT_ATTEMPTS >= 3  # the scenario above needs at least 3 attempts
+    # The last attempt bypasses the provider/tool strategy and asks for plain
+    # JSON, which the middleware parses and validates locally.
+    assert calls[-1].response_format is None
+    assert calls[-1].tools == []
     assert response.structured_response == {"answer": 4}
 
 
@@ -223,6 +239,9 @@ async def test_all_attempts_invalid_raises_and_logs(caplog):
         result=[AIMessage("")],
         structured_response={"reply_to_customer": "SENSITIVE-CUSTOMER-TEXT"},
     )
+    leaky_json_fallback = ModelResponse(
+        result=[AIMessage('{"reply_to_customer": "SENSITIVE-CUSTOMER-TEXT"}')]
+    )
     calls: list[ModelRequest] = []
 
     with caplog.at_level("WARNING"):
@@ -232,7 +251,8 @@ async def test_all_attempts_invalid_raises_and_logs(caplog):
                 _handler_recording(
                     [
                         ModelResponse(result=[AIMessage("4")]),
-                        *([leaky] * MAX_FORMAT_ATTEMPTS),
+                        *([leaky] * (MAX_FORMAT_ATTEMPTS - 1)),
+                        leaky_json_fallback,
                     ],
                     calls,
                 ),

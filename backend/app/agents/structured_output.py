@@ -10,12 +10,11 @@ fabricated values.
 
 1. Every model call runs with ``response_format`` stripped, so the model calls
    tools and reasons exactly as it would without a schema.
-2. When a call produces no tool calls (the final answer), one extra model call
-   is made — same conversation plus a formatting instruction — with the
-   original ``response_format`` restored. langchain's strategy resolution
-   (provider-native vs. forced tool call) applies only to that turn, and the
-   parsed result flows through the normal ``structured_response`` channel, so
-   it is checkpointed and returned in the run state like any other update.
+2. When a call produces no tool calls (the final answer), formatting calls are
+   made with the business tools removed and the original ``response_format``
+   restored. langchain's strategy resolution (provider-native vs. forced tool
+   call) applies only to those turns. A final JSON-only fallback escapes a
+   provider that deterministically repeats an invalid structured tool call.
 
 The synthetic formatting instruction is only part of the model request, never
 of the returned messages, so it does not pollute the thread history. The
@@ -26,10 +25,10 @@ The formatting turn's result is validated against the JSON schema before it is
 accepted: langchain returns raw-JSON-schema payloads verbatim (no validation),
 so a model that answers the formatting turn with an empty or partial tool call
 would otherwise surface ``{}`` as a successful structured response. An invalid
-result is retried up to ``MAX_FORMAT_ATTEMPTS`` times with the rejection fed
-back each time (the failed attempt's messages are discarded); exhausting them
-raises ``StructuredOutputError`` so the run fails loudly instead of returning
-garbage.
+result is retried up to ``MAX_FORMAT_ATTEMPTS`` times with the schema and
+rejected candidate fed back each time (the failed attempt's messages are
+discarded); exhausting them raises ``StructuredOutputError`` so the run fails
+loudly instead of returning garbage.
 
 Every message the formatting turn produces is tagged with
 ``STRUCTURED_OUTPUT_FLAG`` in ``response_metadata`` (checkpointed, but never
@@ -40,6 +39,7 @@ on the ToolStrategy path — and keep them out of the rendered chat history.
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -59,19 +59,20 @@ logger = logging.getLogger(__name__)
 
 FORMAT_INSTRUCTION = (
     "Based on your answer above, provide the final response in the requested "
-    "structured format. Use only information from this conversation; do not "
-    "invent values."
+    "structured format. Return every required field. Use only information from "
+    "this conversation; do not invent values."
 )
 
 FORMAT_RETRY_INSTRUCTION = (
-    "Based on your answer above, provide the final response in the requested "
-    "structured format. Your previous attempt was rejected: {error}. Fill in "
-    "every required field, using only information from this conversation; do "
-    "not invent values."
+    "Correct the rejected structured response below. It failed validation: "
+    "{error}. Preserve its valid information and fill in every required field, "
+    "using only information from this conversation; do not invent values."
 )
 
-# Formatting turns before giving up. Each attempt feeds the prior rejection back,
-# so extra tries cut the tail of transient omissions (e.g. a dropped required key).
+# Formatting turns before giving up. The final attempt deliberately switches from
+# the provider/tool structured-output strategy to a JSON-only response that we
+# parse and validate locally. This escapes providers that deterministically emit
+# the same incomplete tool call on every constrained retry.
 MAX_FORMAT_ATTEMPTS = 3
 
 STRUCTURED_OUTPUT_FLAG = "structured_output"
@@ -95,11 +96,7 @@ def validate_structured_response(value: Any, response_format: Any) -> str | None
     """
     if value is None:
         return "no structured response was produced"
-    schema = (
-        response_format
-        if isinstance(response_format, dict)
-        else getattr(response_format, "schema", None)
-    )
+    schema = _response_schema(response_format)
     if not isinstance(schema, dict):
         return None
     try:
@@ -107,6 +104,82 @@ def validate_structured_response(value: Any, response_format: Any) -> str | None
     except jsonschema.ValidationError as exc:
         return exc.message
     return None
+
+
+def _response_schema(response_format: Any) -> dict[str, Any] | None:
+    schema = (
+        response_format
+        if isinstance(response_format, dict)
+        else getattr(response_format, "schema", None)
+    )
+    return schema if isinstance(schema, dict) else None
+
+
+def _prompt_json(value: Any) -> str:
+    """Serialize schema/candidate data for a request-only repair prompt.
+
+    Values may contain customer data, so this output must never be logged. It is
+    sent only back to the same model that produced/consumed the data already.
+    """
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+
+
+def _format_instruction(response_format: Any) -> str:
+    schema = _response_schema(response_format)
+    if schema is None:
+        return FORMAT_INSTRUCTION
+    required = schema.get("required", [])
+    return (
+        f"{FORMAT_INSTRUCTION}\n\n"
+        f"Required fields: {_prompt_json(required)}\n"
+        f"JSON Schema:\n{_prompt_json(schema)}"
+    )
+
+
+def _retry_instruction(error: str, response_format: Any, candidate: Any) -> str:
+    schema = _response_schema(response_format)
+    schema_text = _prompt_json(schema) if schema is not None else "unavailable"
+    return (
+        f"{FORMAT_RETRY_INSTRUCTION.format(error=error)}\n\n"
+        f"Rejected response:\n{_prompt_json(candidate)}\n\n"
+        f"JSON Schema:\n{schema_text}\n\n"
+        "Return only the corrected JSON value."
+    )
+
+
+def _message_text(message: BaseMessage) -> str:
+    content = message.content
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    return "".join(
+        str(block.get("text", block.get("content", "")))
+        for block in content
+        if isinstance(block, dict)
+        and isinstance(block.get("text", block.get("content", "")), str)
+    )
+
+
+def _parse_json_response(response: ModelResponse) -> tuple[Any, str | None]:
+    """Parse a JSON-only fallback response, tolerating a fenced JSON block."""
+    message = next(
+        (m for m in reversed(response.result) if isinstance(m, AIMessage)), None
+    )
+    text = _message_text(message).strip() if message is not None else ""
+    candidates = [text]
+    if text.startswith("```") and text.endswith("```"):
+        first_newline = text.find("\n")
+        if first_newline != -1:
+            candidates.insert(0, text[first_newline + 1 : -3].strip())
+    last_error: json.JSONDecodeError | None = None
+    for candidate in candidates:
+        try:
+            return json.loads(candidate), None
+        except json.JSONDecodeError as exc:
+            last_error = exc
+    detail = last_error.msg if last_error is not None else "empty model response"
+    return None, f"JSON-only fallback did not return valid JSON: {detail}"
 
 
 def _payload_shape(value: Any) -> str:
@@ -160,29 +233,50 @@ class DeferredStructuredOutputMiddleware(AgentMiddleware):
         # dangling structured-output tool call that must not reach state — and the
         # rejection is fed back to the next attempt.
         conversation = [*request.messages, *response.result]
-        instruction = FORMAT_INSTRUCTION
+        instruction = _format_instruction(request.response_format)
         error: str | None = None
-        for _ in range(MAX_FORMAT_ATTEMPTS):
+        for attempt in range(MAX_FORMAT_ATTEMPTS):
+            # Local fallback validation is defined only for raw JSON Schema.
+            # Pydantic/dataclass strategies remain constrained so LangChain can
+            # construct and validate their typed result.
+            is_json_fallback = (
+                attempt == MAX_FORMAT_ATTEMPTS - 1
+                and _response_schema(request.response_format) is not None
+            )
             format_response = await handler(
-                request.override(messages=[*conversation, HumanMessage(instruction)])
+                request.override(
+                    messages=[*conversation, HumanMessage(instruction)],
+                    # Formatting must not call business tools. LangChain re-adds
+                    # its synthetic response tool for ToolStrategy, making it the
+                    # only possible tool on constrained attempts.
+                    tools=[],
+                    response_format=(
+                        None if is_json_fallback else request.response_format
+                    ),
+                )
             )
-            error = validate_structured_response(
-                format_response.structured_response, request.response_format
-            )
+            if is_json_fallback:
+                candidate, parse_error = _parse_json_response(format_response)
+                error = parse_error or validate_structured_response(
+                    candidate, request.response_format
+                )
+            else:
+                candidate = format_response.structured_response
+                error = validate_structured_response(candidate, request.response_format)
             if error is None:
                 return ModelResponse(
                     result=[
                         *response.result,
                         *(_tag(m) for m in format_response.result),
                     ],
-                    structured_response=format_response.structured_response,
+                    structured_response=candidate,
                 )
             logger.warning(
                 "structured-output rejected: %s | shape=%s",
                 error,
-                _payload_shape(format_response.structured_response),
+                _payload_shape(candidate),
             )
-            instruction = FORMAT_RETRY_INSTRUCTION.format(error=error)
+            instruction = _retry_instruction(error, request.response_format, candidate)
         raise StructuredOutputError(
             f"Model failed to produce a valid structured response: {error}"
         )
