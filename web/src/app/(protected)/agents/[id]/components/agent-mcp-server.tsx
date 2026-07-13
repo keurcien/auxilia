@@ -52,7 +52,9 @@ export default function AgentMCPServer({
 	};
 
 	const statusFor = (toolName: string): ToolStatus => {
-		if (binding.tools && toolName in binding.tools) {
+		// Object.hasOwn (not `in`) so a tool literally named "toString" etc.
+		// can't match an inherited prototype member and return a non-status.
+		if (binding.tools && Object.hasOwn(binding.tools, toolName)) {
 			return binding.tools[toolName];
 		}
 		return "always_allow";
