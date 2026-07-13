@@ -17,11 +17,12 @@ from slack_sdk.web.async_client import AsyncWebClient
 from app.agents.runs.delivery import DeliveryConsumer
 from app.agents.runs.models import RunDB
 from app.agents.runs.service import RunService
-from app.agents.runs.state import RunStatus
+from app.agents.runs.state import MCP_REAUTH_ERROR, RunStatus
 from app.agents.stream import SlackStreamAdapter
 from app.auth.settings import auth_settings
 from app.database import AsyncSessionLocal, get_checkpointer
 from app.integrations.slack.blocks import (
+    build_connect_prompt_blocks,
     build_tool_approval_blocks,
     format_tool_streamer_label,
 )
@@ -92,7 +93,8 @@ class SlackRunConsumer(DeliveryConsumer):
         elif status == RunStatus.success.value:
             await self._post_auxilia_link(channel_id, thread_ts)
         elif status in (RunStatus.error.value, RunStatus.timeout.value):
-            await self._post_failure_notice(channel_id, thread_ts)
+            if not await self._post_reauth_prompt_if_gated(channel_id, thread_ts):
+                await self._post_failure_notice(channel_id, thread_ts)
 
     async def _stream_to_slack(
         self, channel_id: str, thread_ts: str
@@ -134,6 +136,36 @@ class SlackRunConsumer(DeliveryConsumer):
         finally:
             await streamer.stop()
         return status, text_chars
+
+    async def _post_reauth_prompt_if_gated(
+        self, channel_id: str, thread_ts: str
+    ) -> bool:
+        """When the worker's OAuth pre-flight refused the run (a token expired
+        between the enqueue-time check and execution), post the Connect button
+        instead of the generic failure notice. Best-effort: False on any
+        doubt, so the caller falls back to the notice."""
+        try:
+            record = await RunService(self.redis).get(self.record.id)
+            if record.error != MCP_REAUTH_ERROR:
+                return False
+            async with AsyncSessionLocal() as db:
+                thread = await db.get(ThreadDB, self.record.thread_id)
+            if thread is None:
+                return False
+            connect_url = f"{auth_settings.FRONTEND_URL}/agents/{thread.agent_id}/chat"
+            await self.client.chat_postMessage(
+                channel=channel_id,
+                thread_ts=thread_ts,
+                blocks=build_connect_prompt_blocks(connect_url),
+                text="Please reconnect this agent's MCP servers on auxilia.",
+            )
+            return True
+        except Exception:  # noqa: BLE001 — fall back to the generic notice
+            logger.exception(
+                "Reauth prompt failed for run %s; posting generic notice",
+                self.record.id,
+            )
+            return False
 
     async def _post_failure_notice(self, channel_id: str, thread_ts: str) -> None:
         """Tell the user the turn failed, so the thread is never left blank."""

@@ -12,6 +12,7 @@ from app.agents.models import AgentDB
 from app.agents.runs.service import RunService
 from app.database import get_db
 from app.exceptions import DomainValidationError, PermissionDeniedError
+from app.mcp.client.exceptions import OAuthAuthorizationRequired
 from app.model_providers.catalog import MODELS
 from app.service import BaseService
 from app.threads.models import ThreadSource
@@ -184,6 +185,20 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         agent = await self.db.get(AgentDB, trigger.agent_id)
         if agent is None or agent.is_archived:
             raise DomainValidationError("Trigger agent is archived or deleted")
+        # Probe the OWNER's credentials (the run executes as them, even when an
+        # admin presses the button) via the shared pre-flight gate, so a broken
+        # OAuth fails the request with an actionable message instead of a
+        # doomed run. Scheduled firings get the same protection from the
+        # worker's pre-flight (`_mcp_unauthorized`).
+        try:
+            await RunService.ensure_mcp_authorized(
+                self.db, trigger.agent_id, str(trigger.owner_id)
+            )
+        except OAuthAuthorizationRequired as exc:
+            raise DomainValidationError(
+                "The trigger owner must reconnect this agent's MCP servers "
+                "(from the agent's chat page) before it can run."
+            ) from exc
         thread = await self._create_fire_thread(trigger)
         await self.db.commit()
         record = await RunService().create(

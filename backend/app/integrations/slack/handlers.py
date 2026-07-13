@@ -9,13 +9,13 @@ import logging
 
 from slack_sdk.web.async_client import AsyncWebClient
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
 
 from app.agents.core.service import AgentService
 from app.agents.runs.service import RunService
 from app.auth.settings import auth_settings
 from app.database import AsyncSessionLocal
 from app.exceptions import DomainValidationError
+from app.integrations.slack.blocks import build_connect_prompt_blocks
 from app.integrations.slack.commands.chat import (
     build_agent_picker_blocks,
     list_pickable_agents,
@@ -25,8 +25,6 @@ from app.integrations.slack.consumer import build_slack_delivery
 from app.integrations.slack.models import SlackEvent, SlackInteractionPayload
 from app.integrations.slack.settings import slack_settings
 from app.integrations.slack.utils import get_user_info, resolve_user
-from app.mcp.servers.models import MCPServerDB
-from app.mcp.utils import probe_mcp_server
 from app.threads.models import ThreadDB
 from app.users.repository import UserRepository
 
@@ -240,28 +238,36 @@ async def handle_assistant_thread_started(event: SlackEvent) -> None:
 
 
 async def _is_agent_ready(agent_id: str, user_id: str, db: AsyncSession) -> bool:
-    """Mirror the /is-ready endpoint: return True only when all bound MCP servers
-    are connected for this user."""
+    """Mirror the /is-ready endpoint (including subagents' servers): True only
+    when every bound MCP server is configured and connected for this user.
+
+    Fail-open: these handlers run as fire-and-forget tasks (Slack is already
+    acked), so an infra error here (Redis blip, DB hiccup) must not kill the
+    task silently — let the run launch and fail visibly instead."""
     from uuid import UUID
 
-    agent = await AgentService(db).get(UUID(agent_id))
-
-    if not agent.mcp_servers:
+    try:
+        readiness = await AgentService(db).describe_readiness(UUID(agent_id), user_id)
+    except Exception:
+        logger.warning(
+            "Slack readiness check for agent %s failed; letting the run proceed",
+            agent_id,
+            exc_info=True,
+        )
         return True
+    return readiness["ready"]
 
-    for mcp_server in agent.mcp_servers:
-        if mcp_server.tools is None:
-            return False
 
-    server_ids = [s.id for s in agent.mcp_servers]
-    result = await db.execute(select(MCPServerDB).where(MCPServerDB.id.in_(server_ids)))
-    servers = result.scalars().all()
-
-    for server in servers:
-        if not await probe_mcp_server(server, user_id):
-            return False
-
-    return True
+async def _post_connect_prompt(
+    client: AsyncWebClient, channel: str, thread_ts: str, agent_id
+) -> None:
+    """Tell the Slack user to (re)connect the agent's MCP servers on auxilia."""
+    connect_url = f"{auth_settings.FRONTEND_URL}/agents/{agent_id}/chat"
+    await client.chat_postMessage(
+        channel=channel,
+        thread_ts=thread_ts,
+        blocks=build_connect_prompt_blocks(connect_url),
+    )
 
 
 async def handle_message(event: SlackEvent, *, team_id: str | None = None) -> None:
@@ -296,33 +302,8 @@ async def handle_message(event: SlackEvent, *, team_id: str | None = None) -> No
             return
 
         if not await _is_agent_ready(str(thread.agent_id), str(user.id), db):
-            connect_url = f"{auth_settings.FRONTEND_URL}/agents/{thread.agent_id}/chat"
-            await client.chat_postMessage(
-                channel=event.channel,
-                thread_ts=thread_ts,
-                blocks=[
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": "Agent is not configured or agent requires authentication on your behalf. Please sign in to auxilia to continue.",
-                        },
-                    },
-                    {
-                        "type": "actions",
-                        "elements": [
-                            {
-                                "type": "button",
-                                "text": {
-                                    "type": "plain_text",
-                                    "text": "Connect on auxilia",
-                                },
-                                "url": connect_url,
-                                "style": "primary",
-                            }
-                        ],
-                    },
-                ],
+            await _post_connect_prompt(
+                client, event.channel, thread_ts, thread.agent_id
             )
             return
 
@@ -437,8 +418,13 @@ async def _resume_agent(
 
     async with AsyncSessionLocal() as db:
         thread = await db.get(ThreadDB, thread_ts)
-    if not thread:
-        return
+        if not thread:
+            return
+        # Same gate as handle_message: an approval clicked after the user's
+        # OAuth expired must prompt a reconnect, not enqueue a doomed run.
+        if not await _is_agent_ready(str(thread.agent_id), str(user.id), db):
+            await _post_connect_prompt(client, channel_id, thread_ts, thread.agent_id)
+            return
 
     await client.assistant_threads_setStatus(
         channel_id=channel_id,

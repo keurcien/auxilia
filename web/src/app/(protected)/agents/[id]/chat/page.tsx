@@ -14,7 +14,7 @@ import { usePendingMessageStore } from "@/stores/pending-message-store";
 import { useModelsStore } from "@/stores/models-store";
 import { api } from "@/lib/api/client";
 import { ChevronDown } from "lucide-react";
-import { Agent } from "@/types/agents";
+import { Agent, canConfigureAgent } from "@/types/agents";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { SageAlert } from "@/components/ui/sage-alert";
 import { getDefaultModel } from "@/lib/utils/get-default-model";
@@ -153,7 +153,11 @@ const StarterChatPage = () => {
 					{status === "not_configured" ? (
 						<SageAlert
 							variant="error"
-							message="Agent is not configured yet. Contact agent owner to configure it first."
+							message={
+								canConfigureAgent(agent?.currentUserPermission)
+									? "This agent's MCP tools aren't configured yet. Configure them in the agent's settings."
+									: "Agent is not configured yet. Contact agent owner to configure it first."
+							}
 							dismissible={false}
 						/>
 					) : (

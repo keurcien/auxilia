@@ -91,8 +91,9 @@ class RunService:
             await db.commit()
         return run
 
+    @staticmethod
     async def ensure_mcp_authorized(
-        self, db: AsyncSession, agent_id: UUID, user_id: str
+        db: AsyncSession, agent_id: UUID, user_id: str
     ) -> None:
         """Pre-flight gate: raise OAuthAuthorizationRequired(auth_url) if any
         MCP server the agent OR a subagent uses is an unauthorized OAuth server
@@ -100,11 +101,12 @@ class RunService:
         {oauth_required, auth_url} (parsed today by the axios list-tools flows;
         the chat stream path surfaces it as a plain error).
 
-        Called from the run-creation endpoints (which hold the request `db` and
-        the authorized thread) before launching, so the user connects the
-        server instead of the run failing mid-flight. Not wired into
-        `RunService.create` on purpose: that path is also internal (worker,
-        reaper, seeding) and must not gate.
+        The single definition of "unauthorized" for every launch path: the run
+        endpoints 401 with it, the worker fails background runs fast with it,
+        and TriggerService.run_now rejects with it. Static — it needs no run
+        state, only the caller's session. Not wired into `RunService.create`
+        on purpose: that path is also internal (worker, reaper, seeding) and
+        the worker gates itself.
 
         Fail-open: if probing or OAuth discovery breaks for infra reasons
         (provider down, no metadata), the run launches and the failure surfaces

@@ -108,6 +108,100 @@ async def test_enqueue_passes_resume_command(monkeypatch):
     assert captured["input"] is None
 
 
+async def test_is_agent_ready_delegates_to_describe_readiness(monkeypatch):
+    """The gate's contract: project readiness['ready'] for the given user.
+    Its hand-rolled predecessor was always-ready because of an untested bug."""
+    from uuid import uuid4
+
+    agent_id = uuid4()
+    seen: list = []
+
+    async def _readiness(self, aid, user_id):
+        seen.append((aid, user_id))
+        return {"ready": False, "disconnected_servers": ["s"], "status": "disconnected"}
+
+    monkeypatch.setattr(handlers_mod.AgentService, "__init__", lambda self, db: None)
+    monkeypatch.setattr(handlers_mod.AgentService, "describe_readiness", _readiness)
+    assert await handlers_mod._is_agent_ready(str(agent_id), "u1", None) is False
+    # str agent_id converted to UUID; probed for the given user.
+    assert seen == [(agent_id, "u1")]
+
+
+async def test_is_agent_ready_fails_open_on_infra_errors(monkeypatch):
+    async def _boom(self, aid, user_id):
+        raise ConnectionError("redis down")
+
+    monkeypatch.setattr(handlers_mod.AgentService, "describe_readiness", _boom)
+    monkeypatch.setattr(handlers_mod.AgentService, "__init__", lambda self, db: None)
+    from uuid import uuid4
+
+    assert await handlers_mod._is_agent_ready(str(uuid4()), "u1", None) is True
+
+
+def _resume_fixture(monkeypatch, *, ready: bool):
+    thread = SimpleNamespace(agent_id="a1")
+
+    class _Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def get(self, model, pk):
+            return thread
+
+    prompts: list = []
+    enqueued: list = []
+
+    async def _user(_):
+        return SimpleNamespace(id="u1")
+
+    async def _ready(*_):
+        return ready
+
+    async def _prompt(client, channel, thread_ts, agent_id):
+        prompts.append(agent_id)
+
+    async def _enqueue(**kwargs):
+        enqueued.append(kwargs)
+
+    async def _noop_status(**kwargs):
+        return None
+
+    monkeypatch.setattr(handlers_mod, "resolve_user", _user)
+    monkeypatch.setattr(handlers_mod, "AsyncSessionLocal", lambda: _Session())
+    monkeypatch.setattr(handlers_mod, "_is_agent_ready", _ready)
+    monkeypatch.setattr(handlers_mod, "_post_connect_prompt", _prompt)
+    monkeypatch.setattr(handlers_mod, "_enqueue_slack_run", _enqueue)
+    client = SimpleNamespace(assistant_threads_setStatus=_noop_status)
+    return client, prompts, enqueued
+
+
+async def test_resume_agent_prompts_reconnect_when_mcp_unauthorized(monkeypatch):
+    """An approval clicked after the user's OAuth expired must post the
+    connect prompt, not enqueue a doomed run."""
+    client, prompts, enqueued = _resume_fixture(monkeypatch, ready=False)
+    payload = SimpleNamespace(user=SimpleNamespace(id="U1"), team=None)
+
+    await handlers_mod._resume_agent(client, payload, "C1", "111.1", ["approve"])
+
+    assert prompts == ["a1"]
+    assert enqueued == []
+
+
+async def test_resume_agent_enqueues_resume_when_ready(monkeypatch):
+    client, prompts, enqueued = _resume_fixture(monkeypatch, ready=True)
+    payload = SimpleNamespace(user=SimpleNamespace(id="U1"), team={"id": "T1"})
+
+    await handlers_mod._resume_agent(client, payload, "C1", "111.1", ["approve"])
+
+    assert prompts == []
+    assert len(enqueued) == 1
+    assert enqueued[0]["command"] == {"resume": {"decisions": [{"type": "approve"}]}}
+    assert enqueued[0]["team_id"] == "T1"
+
+
 async def test_enqueue_swallows_active_run_conflict(monkeypatch):
     _patch_run_service(monkeypatch, raises=DomainValidationError("active run"))
 

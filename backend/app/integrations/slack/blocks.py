@@ -74,6 +74,33 @@ def format_tool_streamer_label(tool_name: str) -> str:
     return f"\n\n:{prefix.lower()}:  **{prefix}**  ›  `{suffix}`\n\n"
 
 
+def build_connect_prompt_blocks(connect_url: str) -> list[dict]:
+    """Blocks telling the user to (re)connect the agent's MCP servers on
+    auxilia. Used by the pre-enqueue gates (handlers) and by the delivery
+    consumer when the worker's OAuth pre-flight refused an already-enqueued
+    run."""
+    return [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "Agent is not configured or agent requires authentication on your behalf. Please sign in to auxilia to continue.",
+            },
+        },
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Connect on auxilia"},
+                    "url": connect_url,
+                    "style": "primary",
+                }
+            ],
+        },
+    ]
+
+
 def build_tool_approval_blocks(
     tool_call_id: str,
     tool_input: dict,

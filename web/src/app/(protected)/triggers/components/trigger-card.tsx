@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { Clock, MoreVertical, Pause, Pencil, Play, Trash2 } from "lucide-react";
 import { Trigger } from "@/types/triggers";
 import { describeSchedule, parseCronExpression } from "@/lib/triggers/schedule";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { useAgentsStore } from "@/stores/agents-store";
 import { useTriggersStore } from "@/stores/triggers-store";
 import { useRunTrigger } from "@/hooks/use-run-trigger";
@@ -28,7 +29,7 @@ export default function TriggerCard({ trigger, onDelete }: TriggerCardProps) {
 	const handleRunNow = () => {
 		runTrigger(trigger).catch((error: unknown) => {
 			console.error("Error running trigger:", error);
-			alert("Failed to run the trigger. Please try again.");
+			alert(getApiErrorMessage(error, "Failed to run the trigger. Please try again."));
 		});
 	};
 

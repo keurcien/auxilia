@@ -21,10 +21,11 @@ from app.agents.runs.liveness import RunLiveness
 from app.agents.runs.models import RunDB
 from app.agents.runs.service import RunService
 from app.agents.runs.settings import run_settings
-from app.agents.runs.state import RunStatus
+from app.agents.runs.state import MCP_REAUTH_ERROR, RunStatus
 from app.agents.runtime import Agent
 from app.database import AsyncSessionLocal, get_checkpointer
 from app.exceptions import root_cause
+from app.mcp.client.exceptions import OAuthAuthorizationRequired
 from app.threads.models import ThreadDB
 from app.threads.serialization import pending_interrupt
 
@@ -34,6 +35,24 @@ logger = logging.getLogger(__name__)
 # `LangGraphStreamAdapter` swallows exceptions into an SSE error event rather
 # than raising, so a clean stream that emitted one of these still failed.
 _ERROR_EVENT_PREFIX = "event: error"
+
+
+async def _mcp_unauthorized(db, thread: ThreadDB, user_id: str) -> bool:
+    """Pre-flight for background-launched runs (trigger scanner, Slack, HITL
+    resume): True when a bound OAuth server is confirmed unauthorized for this
+    user. HTTP run creation already 401s before the run exists; this is the
+    net under every path that can't receive a 401 — the run fails fast with an
+    actionable error instead of burning an MCP session build.
+
+    Delegates to the HTTP preflight so every launch path shares one definition
+    of "unauthorized": probes all OAuth servers regardless of tools state,
+    fails open on infra errors, and commits to release the connection before
+    its network IO."""
+    try:
+        await RunService.ensure_mcp_authorized(db, thread.agent_id, user_id)
+    except OAuthAuthorizationRequired:
+        return True
+    return False
 
 
 class RunWorker:
@@ -151,6 +170,8 @@ class RunWorker:
             thread = await db.get(ThreadDB, record.thread_id)
             if thread is None:
                 raise RuntimeError(f"Thread {record.thread_id} not found")
+            if await _mcp_unauthorized(db, thread, str(record.user_id)):
+                raise RuntimeError(MCP_REAUTH_ERROR)
             agent = await Agent.build(thread=thread, db=db)
             async for sse in agent.stream(
                 agent_input=record.input,

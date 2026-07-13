@@ -72,7 +72,8 @@ async def get_user_info(user_id: str) -> SlackUserInfo | None:
         except httpx.HTTPStatusError as e:
             logger.warning(
                 "HTTP error calling Slack API (users.info): %s - %s",
-                e.response.status_code, e.response.text,
+                e.response.status_code,
+                e.response.text,
             )
             return None
         except Exception:
