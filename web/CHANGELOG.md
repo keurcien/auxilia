@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.18](https://github.com/keurcien/auxilia/compare/web-v0.5.17...web-v0.5.18) (2026-07-13)
+
+
+### Features
+
+* **agents:** explicit save with read/edit agent page ([#215](https://github.com/keurcien/auxilia/issues/215)) ([375e259](https://github.com/keurcien/auxilia/commit/375e25939668661aea8e3f69e11bafc050d68444))
+
+
+### Bug Fixes
+
+* **agents:** fail background runs fast on unauthorized MCP OAuth ([#208](https://github.com/keurcien/auxilia/issues/208)) ([e2e8a6a](https://github.com/keurcien/auxilia/commit/e2e8a6a223f31f3dd5d8b01d3536b5b2287b11d5))
+* proper dark mode styling for code blocks ([#212](https://github.com/keurcien/auxilia/issues/212)) ([c213d77](https://github.com/keurcien/auxilia/commit/c213d77eb927851f330e45da20f2c202fa3853de))
+
 ## [0.5.17](https://github.com/keurcien/auxilia/compare/web-v0.5.16...web-v0.5.17) (2026-07-11)
 
 
