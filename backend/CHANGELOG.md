@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.22](https://github.com/keurcien/auxilia/compare/backend-v0.4.21...backend-v0.4.22) (2026-07-13)
+
+
+### Features
+
+* **agents:** explicit save with read/edit agent page ([#215](https://github.com/keurcien/auxilia/issues/215)) ([375e259](https://github.com/keurcien/auxilia/commit/375e25939668661aea8e3f69e11bafc050d68444))
+
+
+### Bug Fixes
+
+* **agents:** fail background runs fast on unauthorized MCP OAuth ([#208](https://github.com/keurcien/auxilia/issues/208)) ([e2e8a6a](https://github.com/keurcien/auxilia/commit/e2e8a6a223f31f3dd5d8b01d3536b5b2287b11d5))
+* **observability:** make Langfuse timeout configurable ([#214](https://github.com/keurcien/auxilia/issues/214)) ([bf7e077](https://github.com/keurcien/auxilia/commit/bf7e077fc7b4dfc9530a58f68badb23907f077d4))
+
 ## [0.4.21](https://github.com/keurcien/auxilia/compare/backend-v0.4.20...backend-v0.4.21) (2026-07-11)
 
 
