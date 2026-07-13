@@ -76,6 +76,12 @@ if model_provider_settings.xiaomi_api_key:
     MODELS.append(Model(name="mimo-v2.5-pro", provider="xiaomi"))
     MODELS.append(Model(name="mimo-v2.5", provider="xiaomi"))
 
+if model_provider_settings.metaai_api_key:
+    LLM_PROVIDERS.append(
+        ModelProvider(name="meta", api_key=model_provider_settings.metaai_api_key)
+    )
+    MODELS.append(Model(name="muse-spark-1.1", provider="meta"))
+
 if model_provider_settings.openrouter_api_key:
     LLM_PROVIDERS.append(
         ModelProvider(
@@ -151,6 +157,15 @@ class ChatModelFactory:
                     api_key=api_key,
                     max_tokens=32768,
                     extra_body={"reasoning_effort": effort},
+                )
+            case "meta":
+                # Meta Model API — OpenAI-compatible Chat Completions.
+                # ponytail: minimal config; add reasoning_effort / max_tokens
+                # only if Muse Spark reasoning output needs tuning.
+                return ChatOpenAI(
+                    base_url="https://api.meta.ai/v1",
+                    model=model_id,
+                    api_key=api_key,
                 )
             case _:
                 raise ValueError(f"Provider {provider} not supported")

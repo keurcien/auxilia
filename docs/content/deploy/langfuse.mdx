@@ -11,15 +11,16 @@
 
 ## Enable it
 
-Set these three environment variables on the backend:
+Set the three required environment variables on the backend. You can also tune the optional request timeout:
 
 ```env
 LANGFUSE_PUBLIC_KEY=pk-lf-...
 LANGFUSE_SECRET_KEY=sk-lf-...
 LANGFUSE_BASE_URL=https://cloud.langfuse.com  # or your self-hosted URL
+LANGFUSE_TIMEOUT=15                           # request timeout in seconds
 ```
 
-On startup, the backend instantiates a shared `Langfuse` client and attaches a `CallbackHandler` to every LangGraph invocation. If any of the three variables is missing, the integration is silently disabled.
+On startup, the backend instantiates a shared `Langfuse` client and attaches a `CallbackHandler` to every LangGraph invocation. If any of the three credential/URL variables is missing, the integration is silently disabled. `LANGFUSE_TIMEOUT` is optional, defaults to 15 seconds, and must be a positive integer.
 
 See `app/integrations/langfuse/callback.py` for the wiring.
 

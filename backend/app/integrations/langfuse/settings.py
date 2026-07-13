@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from pydantic import ConfigDict
+from pydantic import ConfigDict, PositiveInt
 from pydantic_settings import BaseSettings
 
 
@@ -12,10 +12,11 @@ class LangfuseSettings(BaseSettings):
     langfuse_public_key: str | None = None
     langfuse_secret_key: str | None = None
     langfuse_base_url: str | None = None
+    langfuse_timeout: PositiveInt = 15
 
     model_config: ConfigDict = ConfigDict(
         env_file=ROOT_ENV,
-        extra="ignore"
+        extra="ignore",
     )
 
 

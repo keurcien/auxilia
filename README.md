@@ -55,7 +55,7 @@ PostgreSQL and Redis are started and wired up by Docker Compose; every other set
 
 | Variable(s)                                                                    | When you need it                                                                                                                                          |
 | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_API_KEY` / `DEEPSEEK_API_KEY` / `OPENROUTER_API_KEY` | **At least one.** Each key unlocks that provider's models in the model picker.                                                                            |
+| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_API_KEY` / `DEEPSEEK_API_KEY` / `OPENROUTER_API_KEY` / `XIAOMI_API_KEY` / `METAAI_API_KEY` | **At least one.** Each key unlocks that provider's models in the model picker.                                                                            |
 | `SALT`, `JWT_SECRET_KEY`, `COOKIE_SECURE`                                      | **Before production.** Encryption salt for stored MCP API keys, session signing secret, and `COOKIE_SECURE=true` behind HTTPS. Dev defaults work locally. |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`                                    | Optional — Google OAuth sign-in (SSO).                                                                                                                    |
 | `SLACK_SIGNING_SECRET` / `SLACK_BOT_TOKEN`                                     | Optional — chat with agents from Slack.                                                                                                                   |
@@ -89,6 +89,9 @@ Developing? `make dev` runs PostgreSQL, Redis, the FastAPI backend (migrations a
 | OpenAI    | GPT-4o mini                                  |
 | Google    | Gemini 3 Flash Preview, Gemini 3 Pro Preview |
 | DeepSeek  | DeepSeek v4 Flash, v4 Pro                    |
+| Meta      | Muse Spark 1.1                               |
+| Xiaomi    | MiMo-V2.5-Pro, MiMo-V2.5                     |
+| OpenRouter | GLM 5.2 (Max), GLM 5.2 (High)              |
 
 **MCP servers — one-click install**: Notion · Linear · GitHub · HubSpot · BigQuery · Slack · Sentry — or paste the URL of any custom remote MCP server with its OAuth credentials or API key.
 
