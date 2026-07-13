@@ -6,7 +6,6 @@ import Image from "next/image";
 import { Plus } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { MCPServer } from "@/types/mcp-servers";
-import { Agent } from "@/types/agents";
 import {
 	Dialog,
 	DialogContent,
@@ -20,45 +19,21 @@ import { shouldCloseAddToolDialogAfterServerAdded } from "../lib/mcp-server-assi
 interface AddAgentToolDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	agent: Agent;
-	onServerAdded?: () => void;
-	onSandboxToggled?: () => void;
-	onSaving?: () => void;
-	onSaved?: () => void;
+	/** Servers already attached in the draft. */
+	attachedServerIds: string[];
+	hasCodeInterpreter: boolean;
+	/** Draft update: attach a server (tools stay null until synced/edited). */
+	onAddServer: (serverId: string) => void;
+	/** Draft update: toggle the code interpreter. */
+	onSandboxToggle: (enabled: boolean) => void;
 }
 
 interface AvailableMCPServerCardProps {
 	server: MCPServer;
-	agentId: string;
 	onAdd: (serverId: string) => void;
-	onSaving?: () => void;
-	onSaved?: () => void;
 }
 
-function AvailableMCPServerCard({
-	server,
-	agentId,
-	onAdd,
-	onSaving,
-	onSaved,
-}: AvailableMCPServerCardProps) {
-	const [isAdding, setIsAdding] = useState(false);
-
-	const handleAdd = async () => {
-		setIsAdding(true);
-		onSaving?.();
-		try {
-			await api.post(`/agents/${agentId}/mcp-servers/${server.id}`, {});
-			onAdd(server.id);
-			onSaved?.();
-		} catch (error) {
-			console.error("Failed to add MCP server to agent:", error);
-			onSaved?.();
-		} finally {
-			setIsAdding(false);
-		}
-	};
-
+function AvailableMCPServerCard({ server, onAdd }: AvailableMCPServerCardProps) {
 	return (
 		<div className="flex items-center gap-3 px-4 py-3 rounded-2xl border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-white dark:bg-white/5 hover:bg-sidebar-hover transition-colors">
 			<Image
@@ -76,9 +51,10 @@ function AvailableMCPServerCard({
 				<h3 className="font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold text-[#1E2D28] dark:text-foreground truncate">{server.name}</h3>
 			</div>
 			<button
-				className="w-8 h-8 rounded-full bg-white dark:bg-white/10 border-[1.5px] border-[#E0E8E4] dark:border-white/10 flex items-center justify-center cursor-pointer transition-colors hover:bg-[#EDF4F0] dark:hover:bg-white/15 disabled:opacity-50"
-				onClick={() => void handleAdd()}
-				disabled={isAdding}
+				className="w-8 h-8 rounded-full bg-white dark:bg-white/10 border-[1.5px] border-[#E0E8E4] dark:border-white/10 flex items-center justify-center cursor-pointer transition-colors hover:bg-[#EDF4F0] dark:hover:bg-white/15"
+				onClick={() => {
+					onAdd(server.id);
+				}}
 				aria-label={`Add ${server.name}`}
 			>
 				<Plus className="w-3.5 h-3.5 text-[#6B7F76]" />
@@ -88,35 +64,15 @@ function AvailableMCPServerCard({
 }
 
 function BuiltInCapabilities({
-	agent,
+	hasCodeInterpreter,
 	sandboxAvailable,
-	onSandboxToggled,
-	onSaving,
-	onSaved,
+	onSandboxToggle,
 }: {
-	agent: Agent;
+	hasCodeInterpreter: boolean;
 	sandboxAvailable: boolean;
-	onSandboxToggled?: () => void;
-	onSaving?: () => void;
-	onSaved?: () => void;
+	onSandboxToggle: (enabled: boolean) => void;
 }) {
-	const [sandboxEnabled, setSandboxEnabled] = useState(agent.hasCodeInterpreter);
-
 	if (!sandboxAvailable) return null;
-
-	const handleSandboxToggle = async (checked: boolean) => {
-		setSandboxEnabled(checked);
-		onSaving?.();
-		try {
-			await api.patch(`/agents/${agent.id}`, { hasCodeInterpreter: checked });
-			onSandboxToggled?.();
-			onSaved?.();
-		} catch (error) {
-			console.error("Failed to toggle sandbox:", error);
-			setSandboxEnabled(!checked);
-			onSaved?.();
-		}
-	};
 
 	return (
 		<div>
@@ -141,8 +97,8 @@ function BuiltInCapabilities({
 				</div>
 				<Switch
 					className="cursor-pointer"
-					checked={sandboxEnabled}
-					onCheckedChange={handleSandboxToggle}
+					checked={hasCodeInterpreter}
+					onCheckedChange={onSandboxToggle}
 				/>
 			</div>
 		</div>
@@ -150,17 +106,13 @@ function BuiltInCapabilities({
 }
 
 function MCPServerSection({
-	agent,
+	attachedServerIds,
 	onOpenChange,
-	onServerAdded,
-	onSaving,
-	onSaved,
+	onAddServer,
 }: {
-	agent: Agent;
+	attachedServerIds: string[];
 	onOpenChange: (open: boolean) => void;
-	onServerAdded?: () => void;
-	onSaving?: () => void;
-	onSaved?: () => void;
+	onAddServer: (serverId: string) => void;
 }) {
 	const router = useRouter();
 	const [allServers, setAllServers] = useState<MCPServer[]>([]);
@@ -174,14 +126,12 @@ function MCPServerSection({
 	}, []);
 
 	const availableServers = useMemo(() => {
-		const enabledIds = new Set(
-			agent.mcpServers?.map((s) => s.mcpServerId) || [],
-		);
+		const enabledIds = new Set(attachedServerIds);
 		return allServers.filter((server) => !enabledIds.has(server.id));
-	}, [allServers, agent.mcpServers]);
+	}, [allServers, attachedServerIds]);
 
 	const handleServerAdded = (addedServerId: string) => {
-		onServerAdded?.();
+		onAddServer(addedServerId);
 
 		if (
 			shouldCloseAddToolDialogAfterServerAdded(
@@ -190,12 +140,7 @@ function MCPServerSection({
 			)
 		) {
 			onOpenChange(false);
-			return;
 		}
-
-		api.get("/mcp-servers").then((res) => {
-			setAllServers(res.data);
-		});
 	};
 
 	if (isLoading) {
@@ -228,10 +173,7 @@ function MCPServerSection({
 						>
 							<AvailableMCPServerCard
 								server={server}
-								agentId={agent.id}
 								onAdd={handleServerAdded}
-								onSaving={onSaving}
-								onSaved={onSaved}
 							/>
 						</div>
 					))}
@@ -246,7 +188,7 @@ function MCPServerSection({
 							</p>
 							<button
 								className="font-[family-name:var(--font-dm-sans)] px-5 py-2.5 rounded-full border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-white dark:bg-transparent text-[13px] font-semibold text-[#6B7F76] dark:text-muted-foreground cursor-pointer transition-colors hover:border-[#A3B5AD]"
-								onClick={() => router.push("/mcp-servers")}
+								onClick={() => { router.push("/mcp-servers"); }}
 							>
 								Add MCP Server
 							</button>
@@ -265,11 +207,10 @@ function MCPServerSection({
 export default function AddAgentToolDialog({
 	open,
 	onOpenChange,
-	agent,
-	onServerAdded,
-	onSandboxToggled,
-	onSaving,
-	onSaved,
+	attachedServerIds,
+	hasCodeInterpreter,
+	onAddServer,
+	onSandboxToggle,
 }: AddAgentToolDialogProps) {
 	const [sandboxAvailable, setSandboxAvailable] = useState(false);
 
@@ -292,19 +233,15 @@ export default function AddAgentToolDialog({
 				</DialogHeader>
 				<div className="overflow-y-auto max-h-[450px] space-y-7 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 					<MCPServerSection
-						agent={agent}
+						attachedServerIds={attachedServerIds}
 						onOpenChange={onOpenChange}
-						onServerAdded={onServerAdded}
-						onSaving={onSaving}
-						onSaved={onSaved}
+						onAddServer={onAddServer}
 					/>
 					{sandboxAvailable && <div className="border-t border-[#E0E8E4] dark:border-white/10" />}
 					<BuiltInCapabilities
-						agent={agent}
+						hasCodeInterpreter={hasCodeInterpreter}
 						sandboxAvailable={sandboxAvailable}
-						onSandboxToggled={onSandboxToggled}
-						onSaving={onSaving}
-						onSaved={onSaved}
+						onSandboxToggle={onSandboxToggle}
 					/>
 				</div>
 			</DialogContent>

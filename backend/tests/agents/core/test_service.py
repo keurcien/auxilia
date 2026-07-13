@@ -11,7 +11,13 @@ from app.agents.models import (
     PermissionLevel,
     ToolStatus,
 )
-from app.agents.schemas import AgentCreateDB, AgentPatch, AgentResponse
+from app.agents.schemas import (
+    AgentConfig,
+    AgentCreateDB,
+    AgentMCPServerConfig,
+    AgentPatch,
+    AgentResponse,
+)
 from app.exceptions import NotFoundError, PermissionDeniedError
 from app.tags.models import TagDB
 from app.users.models import WorkspaceRole
@@ -74,8 +80,16 @@ def mock_subagent_service():
     svc.list_subagents = AsyncMock(return_value=[])
     svc.list_all_subagent_data = AsyncMock(return_value=({}, set()))
     svc.delete_all_for_agent = AsyncMock()
+    svc.set_for_supervisor = AsyncMock()
     svc.repository = MagicMock()
     svc.repository.is_subagent = AsyncMock(return_value=False)
+    return svc
+
+
+@pytest.fixture
+def mock_mcp_server_service():
+    svc = MagicMock()
+    svc.set_for_agent = AsyncMock()
     return svc
 
 
@@ -103,6 +117,7 @@ def service(
     mock_tag_service,
     mock_user_service,
     mock_agent_mcp_repo,
+    mock_mcp_server_service,
 ):
     svc = AgentService(mock_db)
     svc.repository = mock_repo
@@ -111,6 +126,7 @@ def service(
     svc.tag_service = mock_tag_service
     svc.user_service = mock_user_service
     svc.mcp_server_repository = mock_agent_mcp_repo
+    svc.mcp_server_service = mock_mcp_server_service
     return svc
 
 
@@ -161,6 +177,62 @@ async def test_create_agent_delegates_to_repository(service, mock_repo):
 
     mock_repo.create.assert_awaited_once_with(data)
     assert result is agent
+
+
+async def test_create_from_config_orchestrates(
+    service, mock_repo, mock_mcp_server_service, mock_subagent_service
+):
+    owner_id = uuid4()
+    agent = make_agent(owner_id=owner_id)
+    mock_repo.create.return_value = agent
+    mock_repo.list_with_permissions.return_value = [(agent, None)]
+    server_id = uuid4()
+    sub_id = uuid4()
+    config = AgentConfig(
+        name="Drafted",
+        instructions="Do things",
+        description="From a draft",
+        mcp_servers=[AgentMCPServerConfig(mcp_server_id=server_id, tools=None)],
+        subagent_ids=[sub_id],
+    )
+
+    result = await service.create_from_config(
+        config, owner_id=owner_id, user_role=WorkspaceRole.admin
+    )
+
+    create_schema = mock_repo.create.call_args[0][0]
+    assert isinstance(create_schema, AgentCreateDB)
+    assert create_schema.owner_id == owner_id
+    assert create_schema.name == "Drafted"
+    assert create_schema.description == "From a draft"
+    mock_mcp_server_service.set_for_agent.assert_awaited_once_with(
+        agent.id, config.mcp_servers
+    )
+    mock_subagent_service.set_for_supervisor.assert_awaited_once_with(
+        agent.id, [sub_id], user_role=WorkspaceRole.admin
+    )
+    assert isinstance(result, AgentResponse)
+    assert result.current_user_permission == "owner"
+
+
+async def test_create_from_config_binding_failure_propagates(
+    service, mock_repo, mock_mcp_server_service
+):
+    """An invalid binding aborts the whole create — the request transaction
+    rolls back, so no stray agent is left behind."""
+    agent = make_agent()
+    mock_repo.create.return_value = agent
+    mock_mcp_server_service.set_for_agent.side_effect = NotFoundError(
+        "MCP server not found"
+    )
+    config = AgentConfig(
+        name="Drafted",
+        instructions="Do things",
+        mcp_servers=[AgentMCPServerConfig(mcp_server_id=uuid4(), tools=None)],
+    )
+
+    with pytest.raises(NotFoundError):
+        await service.create_from_config(config, owner_id=uuid4())
 
 
 # ---------------------------------------------------------------------------
@@ -486,6 +558,174 @@ async def test_update_agent_untag_skips_tag_lookup(
     mock_tag_service.get.assert_not_called()
     update_schema = mock_repo.update.call_args[0][1]
     assert update_schema.model_dump(exclude_unset=True) == {"tag_id": None}
+
+
+# ---------------------------------------------------------------------------
+# set_config
+# ---------------------------------------------------------------------------
+
+
+def make_config(**kwargs):
+    defaults = {"name": "Configured", "instructions": "Do things"}
+    return AgentConfig(**{**defaults, **kwargs})
+
+
+async def test_set_config_orchestrates_scalars_bindings_subagents(
+    service, mock_repo, mock_mcp_server_service, mock_subagent_service
+):
+    agent = make_agent()
+    mock_repo.get.return_value = agent
+    mock_repo.list_with_permissions.return_value = [(agent, None)]
+    server_id = uuid4()
+    sub_id = uuid4()
+    config = make_config(
+        description="A description",
+        mcp_servers=[
+            AgentMCPServerConfig(
+                mcp_server_id=server_id,
+                tools={"search": ToolStatus.needs_approval},
+            )
+        ],
+        subagent_ids=[sub_id],
+    )
+
+    result = await service.set_config(agent.id, config, user_id=agent.owner_id)
+
+    patch_schema = mock_repo.update.call_args[0][1]
+    assert isinstance(patch_schema, AgentPatch)
+    assert patch_schema.name == "Configured"
+    assert patch_schema.description == "A description"
+    mock_mcp_server_service.set_for_agent.assert_awaited_once_with(
+        agent.id, config.mcp_servers
+    )
+    mock_subagent_service.set_for_supervisor.assert_awaited_once_with(
+        agent.id, [sub_id], user_role=None
+    )
+    assert isinstance(result, AgentResponse)
+
+
+async def test_set_config_clears_unset_scalars(service, mock_repo):
+    """Full replace: omitting description/emoji/color in the config clears
+    them — every scalar field is explicitly written."""
+    agent = make_agent(description="old", emoji="🤖")
+    mock_repo.get.return_value = agent
+    mock_repo.list_with_permissions.return_value = [(agent, None)]
+
+    await service.set_config(agent.id, make_config(), user_id=agent.owner_id)
+
+    patch_schema = mock_repo.update.call_args[0][1]
+    dumped = patch_schema.model_dump(exclude_unset=True)
+    assert dumped["description"] is None
+    assert dumped["emoji"] is None
+    assert dumped["color"] is None
+    assert dumped["has_code_interpreter"] is False
+    assert "tag_id" not in dumped  # tags are outside the config document
+
+
+async def test_set_config_denies_member(service, mock_repo):
+    agent = make_agent()
+    mock_repo.list_with_permissions.return_value = [
+        (agent, None, PermissionLevel.member)
+    ]
+
+    with pytest.raises(PermissionDeniedError):
+        await service.set_config(agent.id, make_config(), user_id=uuid4())
+
+    mock_repo.update.assert_not_called()
+
+
+async def test_set_config_denies_without_permission(
+    service, mock_repo, mock_mcp_server_service
+):
+    agent = make_agent()
+    mock_repo.list_with_permissions.return_value = [(agent, None)]
+
+    with pytest.raises(PermissionDeniedError):
+        await service.set_config(agent.id, make_config(), user_id=uuid4())
+
+    mock_mcp_server_service.set_for_agent.assert_not_called()
+
+
+async def test_set_config_allows_agent_editor(service, mock_repo):
+    agent = make_agent()
+    mock_repo.get.return_value = agent
+    mock_repo.list_with_permissions.return_value = [
+        (agent, None, PermissionLevel.editor)
+    ]
+
+    await service.set_config(agent.id, make_config(), user_id=uuid4())
+
+    mock_repo.update.assert_awaited_once()
+
+
+async def test_set_config_allows_workspace_admin(service, mock_repo):
+    agent = make_agent()
+    mock_repo.get.return_value = agent
+    mock_repo.list_with_permissions.return_value = [(agent, None)]
+
+    await service.set_config(
+        agent.id, make_config(), user_id=uuid4(), user_role=WorkspaceRole.admin
+    )
+
+    mock_repo.update.assert_awaited_once()
+
+
+async def test_set_config_passes_role_to_subagent_gate(
+    service, mock_repo, mock_subagent_service
+):
+    agent = make_agent()
+    mock_repo.get.return_value = agent
+    mock_repo.list_with_permissions.return_value = [(agent, None)]
+    sub_id = uuid4()
+
+    await service.set_config(
+        agent.id,
+        make_config(subagent_ids=[sub_id]),
+        user_id=uuid4(),
+        user_role=WorkspaceRole.admin,
+    )
+
+    mock_subagent_service.set_for_supervisor.assert_awaited_once_with(
+        agent.id, [sub_id], user_role=WorkspaceRole.admin
+    )
+
+
+async def test_set_config_subagent_denial_propagates(
+    service, mock_repo, mock_subagent_service
+):
+    """A PermissionDeniedError from the subagent gate bubbles up — the request
+    transaction rolls back, so the scalar/MCP writes never commit."""
+    agent = make_agent()
+    mock_repo.get.return_value = agent
+    mock_repo.list_with_permissions.return_value = [
+        (agent, None, PermissionLevel.editor)
+    ]
+    mock_subagent_service.set_for_supervisor.side_effect = PermissionDeniedError(
+        "Only admins can modify subagents"
+    )
+
+    with pytest.raises(PermissionDeniedError):
+        await service.set_config(
+            agent.id, make_config(subagent_ids=[uuid4()]), user_id=uuid4()
+        )
+
+
+def test_agent_config_rejects_duplicate_servers():
+    server_id = uuid4()
+    with pytest.raises(ValueError, match="duplicate"):
+        AgentConfig(
+            name="X",
+            instructions="Y",
+            mcp_servers=[
+                AgentMCPServerConfig(mcp_server_id=server_id, tools=None),
+                AgentMCPServerConfig(mcp_server_id=server_id, tools=None),
+            ],
+        )
+
+
+def test_agent_config_rejects_invalid_color():
+    with pytest.raises(ValueError, match="color"):
+        AgentConfig(name="X", instructions="Y", color="#123456")
 
 
 # ---------------------------------------------------------------------------

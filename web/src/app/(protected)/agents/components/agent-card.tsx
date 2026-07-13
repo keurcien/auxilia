@@ -2,28 +2,20 @@
 
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Pencil } from "lucide-react";
 import { Agent, AgentPermission } from "@/types/agents";
 import { agentPastel, agentColorBackground } from "@/lib/colors";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import ArchivedAgentDialog from "@/app/(protected)/agents/components/archived-agent-dialog";
-import AgentDialogShell from "@/app/(protected)/agents/components/agent-dialog-shell";
+import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import Image from "next/image";
 
 interface AgentCardProps {
 	agent: Agent;
 	// In the Archived view the card opens a restore/delete dialog instead of
-	// the edit/chat modal, and only manage-capable users can open it.
+	// navigating to the agent page, and only manage-capable users can open it.
 	archived?: boolean;
 	onRemoved?: (agentId: string) => void;
 }
-
-const PERMISSION_HIERARCHY: Record<AgentPermission, number> = {
-	member: 0,
-	editor: 1,
-	admin: 2,
-	owner: 3,
-};
 
 const ROLE_BADGE_CONFIG: Record<
 	AgentPermission,
@@ -51,14 +43,6 @@ const ROLE_BADGE_CONFIG: Record<
 	},
 };
 
-function hasPermission(
-	current: AgentPermission | null | undefined,
-	required: AgentPermission,
-): boolean {
-	if (!current) return false;
-	return PERMISSION_HIERARCHY[current] >= PERMISSION_HIERARCHY[required];
-}
-
 const NO_ACCESS_BADGE = {
 	label: "No access",
 	bg: "bg-[#F3E4E6] dark:bg-rose-950",
@@ -72,6 +56,7 @@ export default function AgentCard({
 }: AgentCardProps) {
 	const router = useRouter();
 	const [open, setOpen] = useState(false);
+	const [forbiddenOpen, setForbiddenOpen] = useState(false);
 	const mcpServers = useMcpServersStore((state) => state.mcpServers);
 	// Only the agent owner/admin (or workspace admin, which resolves to "admin")
 	// may manage an archived agent.
@@ -92,21 +77,19 @@ export default function AgentCard({
 		});
 	}, [agent.mcpServers, mcpServers]);
 
-	const handleChat = () => {
-		if (!hasPermission(agent.currentUserPermission, "member")) {
-			alert("You don't have permission to chat with this agent.");
+	// Clicking a live card goes straight to the agent's detail page (read-only
+	// for members; editing is gated there). Archived cards open the
+	// restore/delete dialog instead. No access → explain via a dialog rather
+	// than silently doing nothing.
+	const handleClick = () => {
+		if (!hasAccess) {
+			setForbiddenOpen(true);
 			return;
 		}
-		setOpen(false);
-		router.push(`/agents/${agent.id}/chat`);
-	};
-
-	const handleEdit = () => {
-		if (!hasPermission(agent.currentUserPermission, "editor")) {
-			alert("You don't have permission to edit this agent.");
+		if (archived) {
+			setOpen(true);
 			return;
 		}
-		setOpen(false);
 		router.push(`/agents/${agent.id}`);
 	};
 
@@ -117,12 +100,8 @@ export default function AgentCard({
 	return (
 		<>
 			<div
-				className={`group flex h-full flex-col rounded-xl border border-[#e1ebe6] dark:border-white/10 bg-white dark:bg-card p-4 pb-0 transition-[border-color,box-shadow] duration-[130ms] ease-out hover:border-[#cfe0d8] dark:hover:border-white/20 hover:shadow-[0_3px_10px_rgba(30,45,40,0.06)] ${
-					hasAccess ? "cursor-pointer" : "cursor-default"
-				}`}
-				onClick={() => {
-					if (hasAccess) setOpen(true);
-				}}
+				className="group flex h-full cursor-pointer flex-col rounded-xl border border-[#e1ebe6] dark:border-white/10 bg-white dark:bg-card p-4 pb-0 transition-[border-color,box-shadow] duration-[130ms] ease-out hover:border-[#cfe0d8] dark:hover:border-white/20 hover:shadow-[0_3px_10px_rgba(30,45,40,0.06)]"
+				onClick={handleClick}
 			>
 				{/* Head: tile · name/handle · role */}
 				<div className="mb-2.5 flex min-w-0 items-center gap-[11px]">
@@ -231,90 +210,12 @@ export default function AgentCard({
 				/>
 			)}
 
-			{open && !archived && (
-				<AgentDialogShell
-					agent={agent}
-					subtitle={ownerName ? `by ${ownerName}` : null}
-					onClose={() => {
-						setOpen(false);
-					}}
-				>
-					{/* Description */}
-					<div className="mb-5">
-						<div className="font-[family-name:var(--font-dm-sans)] text-[12px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em] mb-1.5">
-							Description
-						</div>
-						<p className="font-[family-name:var(--font-dm-sans)] text-[14px] text-[#6B7F76] dark:text-muted-foreground leading-relaxed">
-							{agent.description || "No description provided."}
-						</p>
-					</div>
-
-					{/* Tools */}
-					{resolvedServers.length > 0 && (
-						<div className="mb-5">
-							<div className="font-[family-name:var(--font-dm-sans)] text-[12px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em] mb-2.5">
-								Tools
-							</div>
-							<div className="flex flex-wrap gap-2">
-								{resolvedServers.map((server) => (
-									<Image
-										unoptimized
-										key={server.id}
-										src={
-											server.iconUrl ??
-											"https://storage.googleapis.com/choose-assets/mcp.png"
-										}
-										alt={server.name}
-										width={24}
-										height={24}
-										className="shrink-0 rounded-md"
-									/>
-								))}
-							</div>
-						</div>
-					)}
-
-					{/* Subagents */}
-					{agent.subagents?.length > 0 && (
-						<div className="mb-7">
-							<div className="font-[family-name:var(--font-dm-sans)] text-[12px] font-semibold text-[#B8C8C0] dark:text-muted-foreground uppercase tracking-[0.06em] mb-2.5">
-								Subagents
-							</div>
-							<div className="flex flex-wrap gap-2">
-								{agent.subagents.map((sub) => (
-									<div
-										key={sub.id}
-										className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#F5F8F6] dark:bg-white/5 font-[family-name:var(--font-dm-sans)] text-[13px] font-medium"
-									>
-										<span className="text-sm">{sub.emoji || "🤖"}</span>
-										<span className="text-[#6B7F76] dark:text-muted-foreground">
-											{sub.name}
-										</span>
-									</div>
-								))}
-							</div>
-						</div>
-					)}
-
-					{/* Buttons */}
-					<div className="flex gap-2.5">
-						<button
-							className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-full border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-white dark:bg-transparent font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold text-[#1E2D28] dark:text-foreground cursor-pointer transition-all hover:border-[#A3B5AD]"
-							onClick={handleEdit}
-						>
-							<Pencil className="size-[15px] text-[#6B7F76]" />
-							Edit
-						</button>
-						<button
-							className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-full bg-[#111111] dark:bg-white font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold text-white dark:text-[#111111] cursor-pointer shadow-[0_4px_12px_-2px_rgba(0,0,0,0.15)] transition-all hover:opacity-90"
-							onClick={handleChat}
-						>
-							Chat
-							<ArrowRight className="size-[15px]" />
-						</button>
-					</div>
-				</AgentDialogShell>
-			)}
+			<ForbiddenErrorDialog
+				open={forbiddenOpen}
+				onOpenChange={setForbiddenOpen}
+				title="No access"
+				message="You don't have permission to view this agent. Ask the agent's owner or a workspace admin to grant you access."
+			/>
 		</>
 	);
 }

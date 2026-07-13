@@ -9,7 +9,12 @@ from app.agents.models import AgentDB, AgentSubagentDB
 from app.agents.schemas import SubagentResponse
 from app.agents.subagents.repository import SubagentRepository
 from app.database import get_db
-from app.exceptions import DomainValidationError, NotFoundError
+from app.exceptions import (
+    DomainValidationError,
+    NotFoundError,
+    PermissionDeniedError,
+)
+from app.users.models import WorkspaceRole
 
 
 def _to_response(agent: AgentDB) -> SubagentResponse:
@@ -101,6 +106,31 @@ class SubagentService:
             )
 
         return await self.repository.create_or_update(supervisor_id, subagent_id)
+
+    async def set_for_supervisor(
+        self,
+        supervisor_id: UUID,
+        subagent_ids: list[UUID],
+        *,
+        user_role: WorkspaceRole | None,
+    ) -> None:
+        """Whole-set replace of a supervisor's subagents, routed through
+        `create_or_update` so the self-link / archived / cycle validations
+        keep firing. Admin-gated only when the set actually changes — an
+        editor saving an agent whose subagents they didn't touch passes."""
+        current = {
+            link.subagent_id
+            for link in await self.repository.list_for_supervisor(supervisor_id)
+        }
+        wanted = set(subagent_ids)
+        if current == wanted:
+            return
+        if user_role != WorkspaceRole.admin:
+            raise PermissionDeniedError("Only admins can modify subagents")
+        for subagent_id in wanted - current:
+            await self.create_or_update(supervisor_id, subagent_id)
+        for subagent_id in current - wanted:
+            await self.delete(supervisor_id, subagent_id)
 
     async def delete(self, supervisor_id: UUID, subagent_id: UUID) -> None:
         link = await self.repository.get(supervisor_id, subagent_id)

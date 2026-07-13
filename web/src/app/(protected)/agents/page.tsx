@@ -7,51 +7,27 @@ import AgentList from "@/app/(protected)/agents/components/agent-list";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import { Button } from "@/components/ui/button";
 import { SearchBar } from "@/components/ui/search-bar";
-import { api } from "@/lib/api/client";
-import { randomAgentColor } from "@/lib/colors";
 import { PageContainer } from "@/components/layout/page-container";
-import { useAgentsStore } from "@/stores/agents-store";
 import { useUserStore } from "@/stores/user-store";
-import { Agent } from "@/types/agents";
 
 export default function AgentsPage() {
 	const router = useRouter();
 	const user = useUserStore((state) => state.user);
-	const addAgent = useAgentsStore((state) => state.addAgent);
-	const [isCreating, setIsCreating] = useState(false);
 	const [errorDialogOpen, setErrorDialogOpen] = useState(false);
 	const [search, setSearch] = useState("");
 	const [view, setView] = useState<"available" | "all" | "archived">(
 		"available",
 	);
 
-	const handleCreateAgent = async () => {
+	// Creation happens on the /agents/new draft page — nothing is persisted
+	// until the user hits "Create agent" there.
+	const handleCreateAgent = () => {
 		if (!user) return;
-		setIsCreating(true);
-		try {
-			const response = await api.post("/agents", {
-				name: "New Agent",
-				instructions: "",
-				emoji: "🤖",
-				color: randomAgentColor(),
-				owner_id: user.id,
-			});
-			const newAgent: Agent = response.data;
-			addAgent(newAgent);
-			router.push(`/agents/${newAgent.id}`);
-		} catch (error: unknown) {
-			if (
-				error instanceof Object &&
-				"status" in error &&
-				error.status === 403
-			) {
-				setErrorDialogOpen(true);
-			} else {
-				console.error("Error creating agent:", error);
-			}
-		} finally {
-			setIsCreating(false);
+		if (user.role === "member") {
+			setErrorDialogOpen(true);
+			return;
 		}
+		router.push("/agents/new");
 	};
 
 	return (
@@ -84,12 +60,11 @@ export default function AgentsPage() {
 					<Button
 						className="flex items-center gap-2 px-6! py-3! h-auto! bg-[#111111] dark:bg-white dark:text-[#111111] text-[14px] font-semibold font-[family-name:var(--font-dm-sans)] text-white rounded-full hover:bg-[#222222] dark:hover:bg-gray-100 transition-all cursor-pointer shadow-[0_4px_12px_-2px_rgba(0,0,0,0.15)] border-none whitespace-nowrap"
 						onClick={() => {
-							void handleCreateAgent();
+							handleCreateAgent();
 						}}
-						disabled={isCreating}
 					>
 						<Plus className="w-4 h-4" />
-						{isCreating ? "Creating..." : "Create an agent"}
+						Create an agent
 					</Button>
 				</div>
 			</div>
@@ -124,7 +99,7 @@ export default function AgentsPage() {
 					setSearch("");
 				}}
 				onCreateAgent={() => {
-					void handleCreateAgent();
+					handleCreateAgent();
 				}}
 			/>
 		</PageContainer>

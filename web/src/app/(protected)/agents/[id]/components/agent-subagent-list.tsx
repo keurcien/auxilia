@@ -2,60 +2,63 @@
 
 import { useState } from "react";
 import { Plus, X, Info } from "lucide-react";
-import { Agent } from "@/types/agents";
-import { api } from "@/lib/api/client";
+import { SubagentInfo } from "@/types/agents";
 import { useAgentsStore } from "@/stores/agents-store";
 import AddAgentSubagentDialog from "./add-agent-subagent-dialog";
 
 interface AgentSubagentListProps {
-	agent: Agent;
-	onSaving?: () => void;
-	onSaved?: () => void;
+	agentId: string;
+	/** True when this agent is itself used as a subagent elsewhere. */
+	isSubagent: boolean;
+	subagentIds: string[];
+	/** Display info for ids the store may not know (from agent.subagents). */
+	fallbackSubagents?: SubagentInfo[];
+	readOnly?: boolean;
+	onChange?: (subagentIds: string[]) => void;
 }
 
 export default function AgentSubagentList({
-	agent: initialAgent,
-	onSaving,
-	onSaved,
+	agentId,
+	isSubagent,
+	subagentIds,
+	fallbackSubagents = [],
+	readOnly,
+	onChange,
 }: AgentSubagentListProps) {
-	const updateAgent = useAgentsStore((state) => state.updateAgent);
-	const [agent, setAgent] = useState<Agent>(initialAgent);
+	const allAgents = useAgentsStore((state) => state.agents);
 	const [dialogOpen, setDialogOpen] = useState(false);
-	const [removingId, setRemovingId] = useState<string | null>(null);
 
-	const refreshAgent = async (affectedSubagentId?: string) => {
-		const [coordRes] = await Promise.all([
-			api.get(`/agents/${agent.id}`),
-			// Also refresh the affected subagent so its isSubagent flag updates in the store
-			...(affectedSubagentId
-				? [
-						api.get(`/agents/${affectedSubagentId}`).then((res) => {
-							updateAgent(affectedSubagentId, res.data);
-						}),
-					]
-				: []),
-		]);
-		setAgent(coordRes.data);
-		updateAgent(agent.id, coordRes.data);
+	const resolve = (id: string): SubagentInfo => {
+		const fromStore = allAgents.find((a) => a.id === id);
+		if (fromStore) {
+			return {
+				id: fromStore.id,
+				name: fromStore.name,
+				emoji: fromStore.emoji,
+				color: fromStore.color,
+				description: fromStore.description,
+			};
+		}
+		return (
+			fallbackSubagents.find((s) => s.id === id) ?? {
+				id,
+				name: "Unknown agent",
+			}
+		);
 	};
 
-	const handleRemove = async (subagentId: string) => {
-		setRemovingId(subagentId);
-		onSaving?.();
-		try {
-			await api.delete(`/agents/${agent.id}/subagents/${subagentId}`);
-			await refreshAgent(subagentId);
-			onSaved?.();
-		} catch (error) {
-			console.error("Failed to remove subagent:", error);
-			onSaved?.();
-		} finally {
-			setRemovingId(null);
-		}
+	const subagents = subagentIds.map(resolve);
+
+	const handleRemove = (subagentId: string) => {
+		onChange?.(subagentIds.filter((id) => id !== subagentId));
+	};
+
+	const handleAdd = (subagentId: string) => {
+		onChange?.([...subagentIds, subagentId]);
 	};
 
 	// If this agent is used as a subagent elsewhere, show info banner instead
-	if (agent.isSubagent) {
+	if (isSubagent) {
 		return (
 			<div className="flex flex-col mt-8">
 				<span className="text-[10.5px] font-bold text-[#94a59d] dark:text-muted-foreground uppercase tracking-[0.12em] font-[family-name:var(--font-dm-sans)] mb-2.5">
@@ -77,21 +80,23 @@ export default function AgentSubagentList({
 				<span className="text-[10.5px] font-bold text-[#94a59d] dark:text-muted-foreground uppercase tracking-[0.12em] font-[family-name:var(--font-dm-sans)]">
 					Subagents
 				</span>
-				<button
-					className="flex items-center gap-1.5 px-[13px] py-1.5 rounded-[9px] border border-[#e1ebe6] dark:border-white/10 bg-white dark:bg-card shadow-[0_1px_3px_rgba(33,36,31,0.05)] font-[family-name:var(--font-dm-sans)] text-[12px] font-medium normal-case tracking-normal text-[#1e2d28] dark:text-foreground cursor-pointer transition-colors hover:border-[#A3B5AD]"
-					onClick={() => setDialogOpen(true)}
-				>
-					<Plus className="w-3 h-3 text-[#6b7f76] dark:text-muted-foreground" />
-					Add subagent
-				</button>
+				{!readOnly && (
+					<button
+						className="flex items-center gap-1.5 px-[13px] py-1.5 rounded-[9px] border border-[#e1ebe6] dark:border-white/10 bg-white dark:bg-card shadow-[0_1px_3px_rgba(33,36,31,0.05)] font-[family-name:var(--font-dm-sans)] text-[12px] font-medium normal-case tracking-normal text-[#1e2d28] dark:text-foreground cursor-pointer transition-colors hover:border-[#A3B5AD]"
+						onClick={() => { setDialogOpen(true); }}
+					>
+						<Plus className="w-3 h-3 text-[#6b7f76] dark:text-muted-foreground" />
+						Add subagent
+					</button>
+				)}
 			</div>
 			<div className="rounded-[14px] border border-[#e1ebe6] dark:border-white/10 bg-white dark:bg-card shadow-[0_1px_3px_rgba(33,36,31,0.04)] overflow-hidden min-h-0">
-				{agent.subagents && agent.subagents.length > 0 ? (
-					agent.subagents.map((sub, i) => (
+				{subagents.length > 0 ? (
+					subagents.map((sub, i) => (
 						<div
 							key={sub.id}
 							className={`group flex items-center px-4.5 py-3.5 cursor-default transition-colors hover:bg-[#F8FAF9] dark:hover:bg-white/5 ${
-								i < agent.subagents!.length - 1 ? "border-b border-[#F0F3F2] dark:border-white/5" : ""
+								i < subagents.length - 1 ? "border-b border-[#F0F3F2] dark:border-white/5" : ""
 							}`}
 						>
 							<div
@@ -106,13 +111,16 @@ export default function AgentSubagentList({
 							<span className="font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold text-[#1E2D28] dark:text-foreground flex-1 truncate">
 								{sub.name}
 							</span>
-							<button
-								className="w-[30px] h-[30px] rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all hover:bg-[#F0F3F2] dark:hover:bg-white/10 cursor-pointer"
-								onClick={() => handleRemove(sub.id)}
-								disabled={removingId === sub.id}
-							>
-								<X className="w-[14px] h-[14px] text-[#A3B5AD]" />
-							</button>
+							{!readOnly && (
+								<button
+									className="w-[30px] h-[30px] rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all hover:bg-[#F0F3F2] dark:hover:bg-white/10 cursor-pointer"
+									onClick={() => {
+										handleRemove(sub.id);
+									}}
+								>
+									<X className="w-[14px] h-[14px] text-[#A3B5AD]" />
+								</button>
+							)}
 						</div>
 					))
 				) : (
@@ -122,14 +130,15 @@ export default function AgentSubagentList({
 				)}
 			</div>
 
-			<AddAgentSubagentDialog
-				open={dialogOpen}
-				onOpenChange={setDialogOpen}
-				agent={agent}
-				onSubagentAdded={(subagentId) => refreshAgent(subagentId)}
-				onSaving={onSaving}
-				onSaved={onSaved}
-			/>
+			{!readOnly && (
+				<AddAgentSubagentDialog
+					open={dialogOpen}
+					onOpenChange={setDialogOpen}
+					supervisorId={agentId}
+					currentSubagentIds={subagentIds}
+					onAdd={handleAdd}
+				/>
+			)}
 		</div>
 	);
 }

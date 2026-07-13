@@ -2,7 +2,6 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "@/lib/api/client";
-import type { Agent } from "@/types/agents";
 import type { MCPServer } from "@/types/mcp-servers";
 import AddAgentToolDialog from "./add-agent-tool-dialog";
 
@@ -13,8 +12,6 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/api/client", () => ({
 	api: {
 		get: vi.fn(),
-		post: vi.fn(),
-		patch: vi.fn(),
 	},
 }));
 
@@ -25,17 +22,6 @@ const availableServer: MCPServer = {
 	authType: "none",
 	createdAt: "2026-06-09T00:00:00Z",
 	updatedAt: "2026-06-09T00:00:00Z",
-};
-
-const agent: Agent = {
-	id: "agent-1",
-	name: "Researcher",
-	instructions: "",
-	ownerId: "user-1",
-	hasCodeInterpreter: false,
-	mcpServers: [],
-	subagents: [],
-	isSubagent: false,
 };
 
 describe("AddAgentToolDialog", () => {
@@ -50,16 +36,19 @@ describe("AddAgentToolDialog", () => {
 		});
 	});
 
-	it("closes after assigning the last available MCP server", async () => {
+	it("adds the server to the draft and closes when it was the last one", async () => {
 		const user = userEvent.setup();
 		const onOpenChange = vi.fn();
-		vi.mocked(api.post).mockResolvedValue({ data: {} });
+		const onAddServer = vi.fn();
 
 		render(
 			<AddAgentToolDialog
 				open
 				onOpenChange={onOpenChange}
-				agent={agent}
+				attachedServerIds={[]}
+				hasCodeInterpreter={false}
+				onAddServer={onAddServer}
+				onSandboxToggle={vi.fn()}
 			/>,
 		);
 
@@ -68,34 +57,27 @@ describe("AddAgentToolDialog", () => {
 		);
 
 		await waitFor(() => {
-			expect(api.post).toHaveBeenCalledWith(
-				"/agents/agent-1/mcp-servers/server-1",
-				{},
-			);
+			expect(onAddServer).toHaveBeenCalledWith("server-1");
 			expect(onOpenChange).toHaveBeenCalledWith(false);
 		});
 	});
 
-	it("stays open when assigning the last available MCP server fails", async () => {
-		const user = userEvent.setup();
-		const onOpenChange = vi.fn();
-		const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-		vi.mocked(api.post).mockRejectedValue(new Error("assignment failed"));
-
+	it("hides already-attached servers from the available list", async () => {
 		render(
 			<AddAgentToolDialog
 				open
-				onOpenChange={onOpenChange}
-				agent={agent}
+				onOpenChange={vi.fn()}
+				attachedServerIds={["server-1"]}
+				hasCodeInterpreter={false}
+				onAddServer={vi.fn()}
+				onSandboxToggle={vi.fn()}
 			/>,
 		);
 
-		await user.click(
-			await screen.findByRole("button", { name: "Add Internal Search" }),
-		);
-
-		await waitFor(() => expect(api.post).toHaveBeenCalled());
-		expect(onOpenChange).not.toHaveBeenCalledWith(false);
-		consoleError.mockRestore();
+		expect(
+			await screen.findByText(
+				"All workspace servers are already enabled for this agent.",
+			),
+		).toBeInTheDocument();
 	});
 });
