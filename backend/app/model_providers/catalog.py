@@ -25,13 +25,6 @@ ADAPTIVE_THINKING_MODELS: frozenset[str] = frozenset(
     {"claude-opus-4-6", "claude-opus-4-8", "claude-sonnet-5"}
 )
 
-# Providers whose API only accepts tool_choice="auto" (no "required" / named
-# function). The structured-output formatting turn routes these to provider-
-# native json_schema (ProviderStrategy) instead of a forced tool call — Meta's
-# Model API rejects forced tool_choice with a 400. Forced-tool-call providers
-# (deepseek etc.) keep the default strategy. See DeferredStructuredOutputMiddleware.
-AUTO_ONLY_TOOL_CHOICE_PROVIDERS: frozenset[str] = frozenset({"meta"})
-
 # OpenRouter catalog: our model id -> (OpenRouter slug, GLM `reasoning_effort`).
 # GLM 5.2 exposes two thinking levels; "max" is its deep-reasoning default, "high"
 # is lighter. Each is surfaced to users as its own model.

@@ -147,64 +147,48 @@ async def test_final_turn_adds_constrained_formatting_call():
     assert not is_structured_output_artifact(prose)
 
 
-async def test_auto_only_provider_uses_provider_native_strategy():
-    """Providers whose API only allows tool_choice='auto' (Meta) format via
-    provider-native json_schema (ProviderStrategy), never a forced tool call —
-    the forced call is what those providers reject with a 400."""
-    middleware = DeferredStructuredOutputMiddleware(supports_forced_tool_choice=False)
+async def test_auto_only_provider_retries_with_provider_native_strategy():
+    """A provider that rejects a forced tool call (Meta's tool_choice 400) is
+    retried on the formatting turn with the provider-native json_schema strategy
+    (ProviderStrategy), which carries no forced tool_choice."""
+    middleware = DeferredStructuredOutputMiddleware()
     request = _make_request()  # response_format is the raw SCHEMA dict
-    final_answer = AIMessage("2 + 2 = 4")
     formatted = AIMessage('{"answer": 4}')
     calls: list[ModelRequest] = []
 
-    response = await middleware.awrap_model_call(
-        request,
-        _handler_recording(
-            [
-                ModelResponse(result=[final_answer]),
-                ModelResponse(result=[formatted], structured_response={"answer": 4}),
-            ],
-            calls,
-        ),
-    )
+    async def handler(req: ModelRequest) -> ModelResponse:
+        calls.append(req)
+        if len(calls) == 1:
+            return ModelResponse(result=[AIMessage("2 + 2 = 4")])  # loop turn
+        if not isinstance(req.response_format, ProviderStrategy):
+            raise ValueError('only "auto" is supported for `tool_choice`')
+        return ModelResponse(result=[formatted], structured_response={"answer": 4})
 
-    assert len(calls) == 2
-    # Loop turn stays unconstrained.
-    assert calls[0].response_format is None
-    # Formatting turn: schema wrapped in the provider-native strategy, not a
-    # ToolStrategy (which would emit a forced tool_choice).
-    fmt = calls[1].response_format
-    assert isinstance(fmt, ProviderStrategy)
-    assert not isinstance(fmt, ToolStrategy)
-    assert fmt.schema == SCHEMA
-    # The validated structured_response still flows through unchanged.
+    response = await middleware.awrap_model_call(request, handler)
+
+    # Loop turn, rejected forced turn, then the native retry.
+    assert len(calls) == 3
+    assert calls[1].response_format == SCHEMA  # forced attempt (rejected)
+    assert isinstance(calls[2].response_format, ProviderStrategy)  # native retry
+    assert calls[2].response_format.schema == SCHEMA
     assert response.structured_response == {"answer": 4}
 
 
-async def test_forced_tool_choice_provider_keeps_resolved_strategy():
-    """The default (deepseek etc.) path is untouched: the formatting turn keeps
-    the strategy resolved at agent setup, so those providers don't regress."""
-    middleware = DeferredStructuredOutputMiddleware()  # supports_forced_tool_choice=True
+async def test_unrelated_formatting_error_is_not_swallowed():
+    """A 400 that isn't the tool_choice limitation must propagate, not trigger
+    the provider-native retry."""
+    middleware = DeferredStructuredOutputMiddleware()
     request = _make_request()
     calls: list[ModelRequest] = []
 
-    await middleware.awrap_model_call(
-        request,
-        _handler_recording(
-            [
-                ModelResponse(result=[AIMessage("2 + 2 = 4")]),
-                ModelResponse(
-                    result=[AIMessage('{"answer": 4}')],
-                    structured_response={"answer": 4},
-                ),
-            ],
-            calls,
-        ),
-    )
+    async def handler(req: ModelRequest) -> ModelResponse:
+        calls.append(req)
+        if len(calls) == 1:
+            return ModelResponse(result=[AIMessage("2 + 2 = 4")])
+        raise ValueError("context length exceeded")
 
-    # Unchanged: the original response_format is passed through as-is.
-    assert calls[1].response_format == SCHEMA
-    assert not isinstance(calls[1].response_format, ProviderStrategy)
+    with pytest.raises(ValueError, match="context length"):
+        await middleware.awrap_model_call(request, handler)
 
 
 async def test_invalid_formatting_result_retries_with_error_feedback():
