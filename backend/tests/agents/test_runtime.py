@@ -5,6 +5,7 @@ from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from app.agents.runtime import Agent
 from app.agents.structured_output import DeferredStructuredOutputMiddleware
 from app.agents.tool_errors import ToolErrorMiddleware
+from app.model_providers.catalog import Model
 
 
 def _build_agent(*, has_code_interpreter: bool = False, middleware=None) -> Agent:
@@ -40,6 +41,38 @@ def test_build_agent_forwards_output_schema(mock_create_agent):
     # model skips tools and fabricates values to satisfy the constraint.
     middleware = mock_create_agent.call_args.kwargs["middleware"]
     assert any(isinstance(m, DeferredStructuredOutputMiddleware) for m in middleware)
+
+
+@patch("app.agents.runtime.create_agent")
+def test_build_agent_routes_auto_only_provider_to_provider_native(mock_create_agent):
+    """The formatting middleware is flagged provider_native for providers whose
+    API only allows tool_choice='auto' (Meta), and not for others — this is what
+    keeps Meta off the forced-tool-call path (and must reach the non-sandbox
+    create_agent middleware, not just the sandbox one)."""
+    schema = {
+        "title": "answer",
+        "type": "object",
+        "properties": {"answer": {"type": "integer"}},
+        "required": ["answer"],
+    }
+    models = [
+        Model(name="auto-model", provider="meta"),
+        Model(name="forced-model", provider="deepseek"),
+    ]
+
+    def provider_native_for(model_id: str) -> bool:
+        agent = _build_agent()
+        agent.thread.model_id = model_id
+        with patch("app.agents.runtime.MODELS", models):
+            agent._build_agent(checkpointer=None, output_schema=schema)
+        middleware = mock_create_agent.call_args.kwargs["middleware"]
+        deferred = next(
+            m for m in middleware if isinstance(m, DeferredStructuredOutputMiddleware)
+        )
+        return deferred.provider_native
+
+    assert provider_native_for("auto-model") is True
+    assert provider_native_for("forced-model") is False
 
 
 @patch("app.agents.runtime.create_agent")
