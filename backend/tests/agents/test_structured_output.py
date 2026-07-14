@@ -2,7 +2,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
-from langchain.agents.structured_output import ToolStrategy
+from langchain.agents.structured_output import ProviderStrategy, ToolStrategy
 from langchain_core.messages import AIMessage, HumanMessage
 from pydantic import BaseModel
 
@@ -145,6 +145,66 @@ async def test_final_turn_adds_constrained_formatting_call():
     # rendered chat history; the prose answer is not.
     assert is_structured_output_artifact(structured)
     assert not is_structured_output_artifact(prose)
+
+
+async def test_auto_only_provider_uses_provider_native_strategy():
+    """Providers whose API only allows tool_choice='auto' (Meta) format via
+    provider-native json_schema (ProviderStrategy), never a forced tool call —
+    the forced call is what those providers reject with a 400."""
+    middleware = DeferredStructuredOutputMiddleware(supports_forced_tool_choice=False)
+    request = _make_request()  # response_format is the raw SCHEMA dict
+    final_answer = AIMessage("2 + 2 = 4")
+    formatted = AIMessage('{"answer": 4}')
+    calls: list[ModelRequest] = []
+
+    response = await middleware.awrap_model_call(
+        request,
+        _handler_recording(
+            [
+                ModelResponse(result=[final_answer]),
+                ModelResponse(result=[formatted], structured_response={"answer": 4}),
+            ],
+            calls,
+        ),
+    )
+
+    assert len(calls) == 2
+    # Loop turn stays unconstrained.
+    assert calls[0].response_format is None
+    # Formatting turn: schema wrapped in the provider-native strategy, not a
+    # ToolStrategy (which would emit a forced tool_choice).
+    fmt = calls[1].response_format
+    assert isinstance(fmt, ProviderStrategy)
+    assert not isinstance(fmt, ToolStrategy)
+    assert fmt.schema == SCHEMA
+    # The validated structured_response still flows through unchanged.
+    assert response.structured_response == {"answer": 4}
+
+
+async def test_forced_tool_choice_provider_keeps_resolved_strategy():
+    """The default (deepseek etc.) path is untouched: the formatting turn keeps
+    the strategy resolved at agent setup, so those providers don't regress."""
+    middleware = DeferredStructuredOutputMiddleware()  # supports_forced_tool_choice=True
+    request = _make_request()
+    calls: list[ModelRequest] = []
+
+    await middleware.awrap_model_call(
+        request,
+        _handler_recording(
+            [
+                ModelResponse(result=[AIMessage("2 + 2 = 4")]),
+                ModelResponse(
+                    result=[AIMessage('{"answer": 4}')],
+                    structured_response={"answer": 4},
+                ),
+            ],
+            calls,
+        ),
+    )
+
+    # Unchanged: the original response_format is passed through as-is.
+    assert calls[1].response_format == SCHEMA
+    assert not isinstance(calls[1].response_format, ProviderStrategy)
 
 
 async def test_invalid_formatting_result_retries_with_error_feedback():

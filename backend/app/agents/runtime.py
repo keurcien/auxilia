@@ -39,7 +39,12 @@ from app.agents.toolset import PreparedToolset, Toolset, sanitize_tool_name
 from app.database import get_checkpointer
 from app.exceptions import DomainValidationError
 from app.integrations.langfuse.callback import langfuse_callback_handler
-from app.model_providers.catalog import LLM_PROVIDERS, MODELS, ChatModelFactory
+from app.model_providers.catalog import (
+    AUTO_ONLY_TOOL_CHOICE_PROVIDERS,
+    LLM_PROVIDERS,
+    MODELS,
+    ChatModelFactory,
+)
 from app.sandbox.settings import sandbox_settings
 from app.threads.models import ThreadDB
 
@@ -78,6 +83,7 @@ def build_runnable(
     subagents=None,
     checkpointer=None,
     output_schema: dict | None = None,
+    supports_forced_tool_choice: bool = True,
 ):
     """Build a LangGraph runnable, dispatching on whether a sandbox is needed.
 
@@ -108,7 +114,9 @@ def build_runnable(
             m for m in base_middleware if not isinstance(m, PatchToolCallsMiddleware)
         ]
         if output_schema is not None:
-            middleware.append(DeferredStructuredOutputMiddleware())
+            middleware.append(
+                DeferredStructuredOutputMiddleware(supports_forced_tool_choice)
+            )
         return create_deep_agent(
             model=model,
             tools=[*tools, *create_sandbox_tools(lazy_backend)],
@@ -200,6 +208,7 @@ class Agent:
         middleware: list,
         callbacks: list,
         subagents: list[ResolvedAgent],
+        supports_forced_tool_choice: bool = True,
     ):
         self.thread = thread
         self.agent = agent
@@ -207,6 +216,7 @@ class Agent:
         self.middleware = middleware
         self.callbacks = callbacks
         self.subagents = subagents
+        self.supports_forced_tool_choice = supports_forced_tool_choice
 
     @property
     def metadata(self) -> dict:
@@ -251,6 +261,9 @@ class Agent:
         model = ChatModelFactory().create(
             provider.name, thread.model_id, provider.api_key
         )
+        supports_forced_tool_choice = (
+            provider.name not in AUTO_ONLY_TOOL_CHOICE_PROVIDERS
+        )
 
         # Build middleware stack.
         # PatchToolCallsMiddleware runs first so that any dangling tool_calls
@@ -289,6 +302,7 @@ class Agent:
             middleware=middleware,
             callbacks=callbacks,
             subagents=subagents,
+            supports_forced_tool_choice=supports_forced_tool_choice,
         )
 
     def _build_agent(self, checkpointer, output_schema: dict | None = None):
@@ -319,6 +333,7 @@ class Agent:
             subagents=compiled,
             checkpointer=checkpointer,
             output_schema=output_schema,
+            supports_forced_tool_choice=self.supports_forced_tool_choice,
         )
 
     def _resolve_input(self, agent_input: dict | None, command: dict | None):
