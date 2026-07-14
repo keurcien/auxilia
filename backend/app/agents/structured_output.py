@@ -84,6 +84,14 @@ def is_structured_output_artifact(message: Any) -> bool:
     return bool(metadata.get(STRUCTURED_OUTPUT_FLAG))
 
 
+def _schema_of(response_format: Any) -> Any:
+    """The JSON Schema inside a raw-schema dict or a langchain strategy wrapper
+    (``ToolStrategy`` / ``ProviderStrategy`` both expose ``.schema``)."""
+    if isinstance(response_format, dict):
+        return response_format
+    return getattr(response_format, "schema", None)
+
+
 def validate_structured_response(value: Any, response_format: Any) -> str | None:
     """Return why ``value`` is not a valid structured response, or None if it is.
 
@@ -96,11 +104,7 @@ def validate_structured_response(value: Any, response_format: Any) -> str | None
     """
     if value is None:
         return "no structured response was produced"
-    schema = (
-        response_format
-        if isinstance(response_format, dict)
-        else getattr(response_format, "schema", None)
-    )
+    schema = _schema_of(response_format)
     if not isinstance(schema, dict):
         return None
     try:
@@ -130,15 +134,18 @@ def _tag(message: BaseMessage) -> BaseMessage:
     )
 
 
-def _forced_tool_choice_rejected(exc: Exception) -> bool:
-    """True for the 400 that providers allowing only ``tool_choice="auto"``
-    (Meta) raise when langchain forces a tool call for structured output."""
-    message = str(exc).lower()
-    return "tool_choice" in message and "auto" in message
-
-
 class DeferredStructuredOutputMiddleware(AgentMiddleware):
-    """Apply ``response_format`` only on a final formatting turn."""
+    """Apply ``response_format`` only on a final formatting turn.
+
+    ``provider_native`` is True for providers whose API only accepts
+    ``tool_choice="auto"`` (Meta): the formatting turn then uses the provider-
+    native json_schema strategy (``ProviderStrategy``) instead of the default
+    forced tool call, which those providers reject with a 400.
+    """
+
+    def __init__(self, provider_native: bool = False) -> None:
+        super().__init__()
+        self.provider_native = provider_native
 
     async def awrap_model_call(
         self,
@@ -163,39 +170,25 @@ class DeferredStructuredOutputMiddleware(AgentMiddleware):
 
         # Final answer reached: a constrained call formats it. The resolved
         # response_format (strategy + ToolStrategy tool names from agent setup)
-        # is passed through untouched. Providers whose API only allows
-        # tool_choice="auto" (Meta) reject that forced tool call with a 400; the
-        # turn is retried with the provider-native json_schema strategy, which
-        # needs no forced tool_choice.
+        # is passed through untouched — except for providers whose API only
+        # allows tool_choice="auto" (Meta), which reject the forced tool call
+        # with a 400: those format via the provider-native json_schema strategy.
         # Each failed attempt's messages are dropped entirely — they may carry a
         # dangling structured-output tool call that must not reach state — and the
         # rejection is fed back to the next attempt.
         conversation = [*request.messages, *response.result]
         instruction = FORMAT_INSTRUCTION
         response_format = request.response_format
+        if self.provider_native:
+            response_format = ProviderStrategy(schema=_schema_of(response_format))
         error: str | None = None
         for _ in range(MAX_FORMAT_ATTEMPTS):
-            try:
-                format_response = await handler(
-                    request.override(
-                        messages=[*conversation, HumanMessage(instruction)],
-                        response_format=response_format,
-                    )
+            format_response = await handler(
+                request.override(
+                    messages=[*conversation, HumanMessage(instruction)],
+                    response_format=response_format,
                 )
-            except Exception as exc:  # noqa: BLE001 - narrowed below; re-raised otherwise
-                # ponytail: one fast-fail 400 per format turn on auto-only
-                # providers; add a per-provider capability flag if that cost matters.
-                if _forced_tool_choice_rejected(exc) and not isinstance(
-                    response_format, ProviderStrategy
-                ):
-                    schema = (
-                        response_format
-                        if isinstance(response_format, dict)
-                        else getattr(response_format, "schema", None)
-                    )
-                    response_format = ProviderStrategy(schema=schema)
-                    continue
-                raise
+            )
             error = validate_structured_response(
                 format_response.structured_response, response_format
             )
