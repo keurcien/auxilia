@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.23](https://github.com/keurcien/auxilia/compare/backend-v0.4.22...backend-v0.4.23) (2026-07-15)
+
+
+### Bug Fixes
+
+* **agents:** use provider-native json_schema for structured output on… ([#217](https://github.com/keurcien/auxilia/issues/217)) ([9bc0c5e](https://github.com/keurcien/auxilia/commit/9bc0c5e918ff418c1d7ee4533f41d5ef22d05da7))
+
 ## [0.4.22](https://github.com/keurcien/auxilia/compare/backend-v0.4.21...backend-v0.4.22) (2026-07-13)
 
 
