@@ -40,6 +40,7 @@ on the ToolStrategy path — and keep them out of the rendered chat history.
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -50,6 +51,7 @@ from langchain.agents.middleware.types import (
     ModelRequest,
     ModelResponse,
 )
+from langchain.agents.structured_output import ProviderStrategy
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
 from app.exceptions import StructuredOutputError
@@ -70,17 +72,65 @@ FORMAT_RETRY_INSTRUCTION = (
     "not invent values."
 )
 
+# json_object mode carries the schema in the prompt (the provider enforces only
+# "valid JSON", not the shape — validate_structured_response does the rest).
+JSON_OBJECT_INSTRUCTION = (
+    "Based on your answer above, respond with a single JSON object matching this "
+    "JSON Schema. Output only the JSON object — no prose, no code fences. Use "
+    "only information from this conversation; do not invent values.\n\n"
+    "JSON Schema:\n{schema}"
+)
+
+JSON_OBJECT_RETRY_INSTRUCTION = (
+    "Based on your answer above, respond with a single JSON object matching the "
+    "JSON Schema below. Your previous attempt was rejected: {error}. Fill in "
+    "every required field, output only the JSON object (no prose, no code "
+    "fences), and use only information from this conversation.\n\n"
+    "JSON Schema:\n{schema}"
+)
+
 # Formatting turns before giving up. Each attempt feeds the prior rejection back,
 # so extra tries cut the tail of transient omissions (e.g. a dropped required key).
 MAX_FORMAT_ATTEMPTS = 3
 
 STRUCTURED_OUTPUT_FLAG = "structured_output"
 
+# Formatting strategy for the final structured-output turn.
+#   FORMAT_TOOL           — langchain default: a forced (named) tool call.
+#   FORMAT_PROVIDER_NATIVE — provider-native json_schema (ProviderStrategy).
+#   FORMAT_JSON_OBJECT     — legacy json_object response_format; the schema rides
+#                            in the prompt and we validate the parsed JSON.
+FORMAT_TOOL = "tool"
+FORMAT_PROVIDER_NATIVE = "provider_native"
+FORMAT_JSON_OBJECT = "json_object"
+
+# Formatting strategy per model provider (see the modes above). Providers not
+# listed use the default forced tool call — the only path that constrains the
+# provider itself. The others exist because some provider APIs reject it:
+#   - Meta's Model API rejects a forced tool_choice with a 400 but accepts the
+#     provider-native json_schema, so it uses FORMAT_PROVIDER_NATIVE.
+#   - DeepSeek's thinking mode rejects BOTH a forced tool_choice ("Thinking mode
+#     does not support this tool_choice") AND json_schema ("This response_format
+#     type is unavailable now"); only the legacy json_object mode works, so it
+#     uses FORMAT_JSON_OBJECT.
+PROVIDER_FORMAT_MODES: dict[str, str] = {
+    "meta": FORMAT_PROVIDER_NATIVE,
+    "deepseek": FORMAT_JSON_OBJECT,
+}
+
 
 def is_structured_output_artifact(message: Any) -> bool:
     """True for messages produced by the formatting turn (chat-history noise)."""
     metadata = getattr(message, "response_metadata", None) or {}
     return bool(metadata.get(STRUCTURED_OUTPUT_FLAG))
+
+
+def _schema_of(response_format: Any) -> Any:
+    """The JSON Schema inside a raw-schema dict or a langchain strategy wrapper
+    (``ToolStrategy`` / ``ProviderStrategy`` both expose ``.schema``)."""
+    if isinstance(response_format, dict):
+        return response_format
+    return getattr(response_format, "schema", None)
 
 
 def validate_structured_response(value: Any, response_format: Any) -> str | None:
@@ -95,11 +145,7 @@ def validate_structured_response(value: Any, response_format: Any) -> str | None
     """
     if value is None:
         return "no structured response was produced"
-    schema = (
-        response_format
-        if isinstance(response_format, dict)
-        else getattr(response_format, "schema", None)
-    )
+    schema = _schema_of(response_format)
     if not isinstance(schema, dict):
         return None
     try:
@@ -107,6 +153,36 @@ def validate_structured_response(value: Any, response_format: Any) -> str | None
     except jsonschema.ValidationError as exc:
         return exc.message
     return None
+
+
+def _message_text(message: BaseMessage) -> str:
+    """The text content of a message, flattening the list-of-parts form some
+    providers use so json_object output can be parsed as a single string."""
+    content = getattr(message, "content", "")
+    if isinstance(content, list):
+        return "".join(
+            part.get("text", "") if isinstance(part, dict) else str(part)
+            for part in content
+        )
+    return content or ""
+
+
+def _parse_json_object(messages: list[BaseMessage]) -> tuple[Any, str | None]:
+    """Parse the last AIMessage as a JSON object: ``(value, None)`` on success,
+    ``(None, error)`` otherwise. json_object mode returns bare JSON, but a stray
+    ```` ```json ```` fence is stripped defensively before parsing."""
+    ai = next((m for m in reversed(messages) if isinstance(m, AIMessage)), None)
+    if ai is None:
+        return None, "no structured response was produced"
+    text = _message_text(ai).strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        if "\n" in text:
+            text = text.split("\n", 1)[1]
+    try:
+        return json.loads(text), None
+    except (json.JSONDecodeError, ValueError) as exc:
+        return None, f"response was not valid JSON: {exc}"
 
 
 def _payload_shape(value: Any) -> str:
@@ -130,7 +206,23 @@ def _tag(message: BaseMessage) -> BaseMessage:
 
 
 class DeferredStructuredOutputMiddleware(AgentMiddleware):
-    """Apply ``response_format`` only on a final formatting turn."""
+    """Apply ``response_format`` only on a final formatting turn.
+
+    ``format_mode`` selects how that final turn constrains the output, for
+    providers whose API rejects the langchain default (a forced tool call):
+
+    - ``FORMAT_TOOL`` (default): forced tool call — the provider enforces the
+      schema.
+    - ``FORMAT_PROVIDER_NATIVE``: provider-native json_schema (``ProviderStrategy``)
+      — for providers that only allow ``tool_choice="auto"`` (Meta).
+    - ``FORMAT_JSON_OBJECT``: legacy json_object mode — for providers that reject
+      both a forced tool call and json_schema (DeepSeek's thinking mode). The
+      schema rides in the prompt and the parsed JSON is validated here.
+    """
+
+    def __init__(self, format_mode: str = FORMAT_TOOL) -> None:
+        super().__init__()
+        self.format_mode = format_mode
 
     async def awrap_model_call(
         self,
@@ -153,29 +245,44 @@ class DeferredStructuredOutputMiddleware(AgentMiddleware):
         if loop_continues:
             return response
 
-        # Final answer reached: a constrained call formats it. The original
-        # response_format object is passed through untouched so the strategy
-        # (and ToolStrategy tool names) resolved at agent setup still apply.
-        # Each failed attempt's messages are dropped entirely — they may carry a
-        # dangling structured-output tool call that must not reach state — and the
+        # Final answer reached: a constrained call formats it. Each failed
+        # attempt's messages are dropped entirely — they may carry a dangling
+        # structured-output tool call that must not reach state — and the
         # rejection is fed back to the next attempt.
+        if self.format_mode == FORMAT_JSON_OBJECT:
+            return await self._format_via_json_object(request, handler, response)
+        return await self._format_via_strategy(request, handler, response)
+
+    async def _format_via_strategy(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+        response: ModelResponse,
+    ) -> ModelResponse:
+        """Format via langchain's structured-output machinery: the default forced
+        tool call, or (Meta) the provider-native json_schema strategy. The parsed
+        result flows back on ``structured_response``."""
         conversation = [*request.messages, *response.result]
         instruction = FORMAT_INSTRUCTION
+        response_format = request.response_format
+        if self.format_mode == FORMAT_PROVIDER_NATIVE:
+            response_format = ProviderStrategy(schema=_schema_of(response_format))
         error: str | None = None
         for _ in range(MAX_FORMAT_ATTEMPTS):
             format_response = await handler(
-                request.override(messages=[*conversation, HumanMessage(instruction)])
+                request.override(
+                    messages=[*conversation, HumanMessage(instruction)],
+                    response_format=response_format,
+                )
             )
             error = validate_structured_response(
-                format_response.structured_response, request.response_format
+                format_response.structured_response, response_format
             )
             if error is None:
-                return ModelResponse(
-                    result=[
-                        *response.result,
-                        *(_tag(m) for m in format_response.result),
-                    ],
-                    structured_response=format_response.structured_response,
+                return self._combine(
+                    response,
+                    format_response.result,
+                    format_response.structured_response,
                 )
             logger.warning(
                 "structured-output rejected: %s | shape=%s",
@@ -185,4 +292,66 @@ class DeferredStructuredOutputMiddleware(AgentMiddleware):
             instruction = FORMAT_RETRY_INSTRUCTION.format(error=error)
         raise StructuredOutputError(
             f"Model failed to produce a valid structured response: {error}"
+        )
+
+    async def _format_via_json_object(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+        response: ModelResponse,
+    ) -> ModelResponse:
+        """Format via legacy json_object mode (DeepSeek thinking): bind
+        ``response_format={"type": "json_object"}`` so the provider emits bare
+        JSON, carry the schema in the prompt (json_object enforces only "is
+        JSON", not the shape), then parse and validate here. No forced tool call
+        or json_schema is ever sent, both of which that API rejects."""
+        conversation = [*request.messages, *response.result]
+        schema = _schema_of(request.response_format)
+        schema_text = json.dumps(schema)
+        instruction = JSON_OBJECT_INSTRUCTION.format(schema=schema_text)
+        model_settings = {
+            **request.model_settings,
+            "response_format": {"type": "json_object"},
+        }
+        error: str | None = None
+        for _ in range(MAX_FORMAT_ATTEMPTS):
+            # response_format=None so no strategy is applied (no tool_choice, no
+            # json_schema); tools dropped so the turn only emits the JSON answer.
+            format_response = await handler(
+                request.override(
+                    messages=[*conversation, HumanMessage(instruction)],
+                    response_format=None,
+                    tools=[],
+                    model_settings=model_settings,
+                )
+            )
+            value, error = _parse_json_object(format_response.result)
+            if error is None:
+                error = validate_structured_response(value, request.response_format)
+            if error is None:
+                return self._combine(response, format_response.result, value)
+            logger.warning(
+                "structured-output rejected: %s | shape=%s",
+                error,
+                _payload_shape(value),
+            )
+            instruction = JSON_OBJECT_RETRY_INSTRUCTION.format(
+                error=error, schema=schema_text
+            )
+        raise StructuredOutputError(
+            f"Model failed to produce a valid structured response: {error}"
+        )
+
+    @staticmethod
+    def _combine(
+        response: ModelResponse,
+        format_messages: list[BaseMessage],
+        structured_response: Any,
+    ) -> ModelResponse:
+        """Prose answer + tagged formatting messages in state, parsed object on
+        ``structured_response``. Formatting messages are tagged so read paths can
+        keep them out of the rendered chat history."""
+        return ModelResponse(
+            result=[*response.result, *(_tag(m) for m in format_messages)],
+            structured_response=structured_response,
         )

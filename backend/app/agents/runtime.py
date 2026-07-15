@@ -31,6 +31,8 @@ from app.agents.stream import (
     encode_synthetic_ai_message_sse,
 )
 from app.agents.structured_output import (
+    FORMAT_TOOL,
+    PROVIDER_FORMAT_MODES,
     DeferredStructuredOutputMiddleware,
     is_structured_output_artifact,
 )
@@ -39,7 +41,11 @@ from app.agents.toolset import PreparedToolset, Toolset, sanitize_tool_name
 from app.database import get_checkpointer
 from app.exceptions import DomainValidationError
 from app.integrations.langfuse.callback import langfuse_callback_handler
-from app.model_providers.catalog import LLM_PROVIDERS, MODELS, ChatModelFactory
+from app.model_providers.catalog import (
+    LLM_PROVIDERS,
+    MODELS,
+    ChatModelFactory,
+)
 from app.sandbox.settings import sandbox_settings
 from app.threads.models import ThreadDB
 
@@ -78,6 +84,7 @@ def build_runnable(
     subagents=None,
     checkpointer=None,
     output_schema: dict | None = None,
+    format_mode: str = FORMAT_TOOL,
 ):
     """Build a LangGraph runnable, dispatching on whether a sandbox is needed.
 
@@ -108,7 +115,7 @@ def build_runnable(
             m for m in base_middleware if not isinstance(m, PatchToolCallsMiddleware)
         ]
         if output_schema is not None:
-            middleware.append(DeferredStructuredOutputMiddleware())
+            middleware.append(DeferredStructuredOutputMiddleware(format_mode))
         return create_deep_agent(
             model=model,
             tools=[*tools, *create_sandbox_tools(lazy_backend)],
@@ -124,7 +131,7 @@ def build_runnable(
     if subagents:
         middleware.append(SubAgentMiddleware(backend=StateBackend, subagents=subagents))
     if output_schema is not None:
-        middleware.append(DeferredStructuredOutputMiddleware())
+        middleware.append(DeferredStructuredOutputMiddleware(format_mode))
     return create_agent(
         model=model,
         tools=tools,
@@ -310,6 +317,9 @@ class Agent:
             if sandbox
             else SystemMessage(self.agent.config.instructions)
         )
+        provider = next(
+            (m.provider for m in MODELS if m.name == self.thread.model_id), None
+        )
         return build_runnable(
             model=self.model,
             tools=self.agent.live.all,
@@ -319,6 +329,7 @@ class Agent:
             subagents=compiled,
             checkpointer=checkpointer,
             output_schema=output_schema,
+            format_mode=PROVIDER_FORMAT_MODES.get(provider, FORMAT_TOOL),
         )
 
     def _resolve_input(self, agent_input: dict | None, command: dict | None):

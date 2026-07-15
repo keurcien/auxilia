@@ -3,8 +3,14 @@ from unittest.mock import MagicMock, patch
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 
 from app.agents.runtime import Agent
-from app.agents.structured_output import DeferredStructuredOutputMiddleware
+from app.agents.structured_output import (
+    FORMAT_JSON_OBJECT,
+    FORMAT_PROVIDER_NATIVE,
+    FORMAT_TOOL,
+    DeferredStructuredOutputMiddleware,
+)
 from app.agents.tool_errors import ToolErrorMiddleware
+from app.model_providers.catalog import Model
 
 
 def _build_agent(*, has_code_interpreter: bool = False, middleware=None) -> Agent:
@@ -40,6 +46,41 @@ def test_build_agent_forwards_output_schema(mock_create_agent):
     # model skips tools and fabricates values to satisfy the constraint.
     middleware = mock_create_agent.call_args.kwargs["middleware"]
     assert any(isinstance(m, DeferredStructuredOutputMiddleware) for m in middleware)
+
+
+@patch("app.agents.runtime.create_agent")
+def test_build_agent_routes_provider_to_format_mode(mock_create_agent):
+    """The formatting middleware's format_mode is resolved per provider (and must
+    reach the non-sandbox create_agent middleware, not just the sandbox one):
+    Meta rejects a forced tool call but takes json_schema (provider_native);
+    DeepSeek thinking rejects both, so it uses json_object; everyone else uses
+    the default forced tool call."""
+    schema = {
+        "title": "answer",
+        "type": "object",
+        "properties": {"answer": {"type": "integer"}},
+        "required": ["answer"],
+    }
+    models = [
+        Model(name="meta-model", provider="meta"),
+        Model(name="deepseek-model", provider="deepseek"),
+        Model(name="openai-model", provider="openai"),
+    ]
+
+    def format_mode_for(model_id: str) -> str:
+        agent = _build_agent()
+        agent.thread.model_id = model_id
+        with patch("app.agents.runtime.MODELS", models):
+            agent._build_agent(checkpointer=None, output_schema=schema)
+        middleware = mock_create_agent.call_args.kwargs["middleware"]
+        deferred = next(
+            m for m in middleware if isinstance(m, DeferredStructuredOutputMiddleware)
+        )
+        return deferred.format_mode
+
+    assert format_mode_for("meta-model") == FORMAT_PROVIDER_NATIVE
+    assert format_mode_for("deepseek-model") == FORMAT_JSON_OBJECT
+    assert format_mode_for("openai-model") == FORMAT_TOOL
 
 
 @patch("app.agents.runtime.create_agent")

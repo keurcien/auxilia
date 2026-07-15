@@ -2,12 +2,14 @@ from unittest.mock import MagicMock
 
 import pytest
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
-from langchain.agents.structured_output import ToolStrategy
+from langchain.agents.structured_output import ProviderStrategy, ToolStrategy
 from langchain_core.messages import AIMessage, HumanMessage
 from pydantic import BaseModel
 
 from app.agents.structured_output import (
     FORMAT_INSTRUCTION,
+    FORMAT_JSON_OBJECT,
+    FORMAT_PROVIDER_NATIVE,
     MAX_FORMAT_ATTEMPTS,
     DeferredStructuredOutputMiddleware,
     is_structured_output_artifact,
@@ -145,6 +147,113 @@ async def test_final_turn_adds_constrained_formatting_call():
     # rendered chat history; the prose answer is not.
     assert is_structured_output_artifact(structured)
     assert not is_structured_output_artifact(prose)
+
+
+async def test_provider_native_formats_with_provider_strategy():
+    """Providers whose API only allows tool_choice='auto' (Meta) format via the
+    provider-native json_schema strategy (ProviderStrategy) from the first call —
+    no forced tool_choice is ever sent, and no wasted rejected request."""
+    middleware = DeferredStructuredOutputMiddleware(format_mode=FORMAT_PROVIDER_NATIVE)
+    request = _make_request()  # response_format is the raw SCHEMA dict
+    final_answer = AIMessage("2 + 2 = 4")
+    formatted = AIMessage('{"answer": 4}')
+    calls: list[ModelRequest] = []
+
+    response = await middleware.awrap_model_call(
+        request,
+        _handler_recording(
+            [
+                ModelResponse(result=[final_answer]),
+                ModelResponse(result=[formatted], structured_response={"answer": 4}),
+            ],
+            calls,
+        ),
+    )
+
+    # One loop turn + one formatting turn: no extra rejected request.
+    assert len(calls) == 2
+    assert calls[0].response_format is None  # loop turn unconstrained
+    # Formatting turn wraps the schema in the provider-native strategy, not a
+    # ToolStrategy (which would emit a forced tool_choice).
+    fmt = calls[1].response_format
+    assert isinstance(fmt, ProviderStrategy)
+    assert not isinstance(fmt, ToolStrategy)
+    assert fmt.schema == SCHEMA
+    assert response.structured_response == {"answer": 4}
+
+
+async def test_json_object_mode_parses_and_validates_plain_json():
+    """Providers that reject both a forced tool call and json_schema (DeepSeek
+    thinking) format via legacy json_object: the turn binds
+    response_format=json_object, drops tools, carries the schema in the prompt,
+    and the JSON text answer is parsed and validated here — no strategy is set,
+    so structured_response is produced from the message content, not the model."""
+    middleware = DeferredStructuredOutputMiddleware(format_mode=FORMAT_JSON_OBJECT)
+    request = _make_request()  # raw SCHEMA dict
+    final_answer = AIMessage("2 + 2 = 4")
+    # json_object returns bare JSON text; no strategy, so structured_response=None.
+    formatted = AIMessage('{"answer": 4}')
+    calls: list[ModelRequest] = []
+
+    response = await middleware.awrap_model_call(
+        request,
+        _handler_recording(
+            [
+                ModelResponse(result=[final_answer]),
+                ModelResponse(result=[formatted]),
+            ],
+            calls,
+        ),
+    )
+
+    assert len(calls) == 2
+    assert calls[0].response_format is None  # loop turn unconstrained
+    fmt_call = calls[1]
+    # No strategy (no forced tool_choice, no json_schema); json_object bound via
+    # model_settings; tools dropped so the turn only emits the JSON answer.
+    assert fmt_call.response_format is None
+    assert fmt_call.tools == []
+    assert fmt_call.model_settings["response_format"] == {"type": "json_object"}
+    # The schema rides in the prompt (json_object enforces only "is JSON").
+    assert '"answer"' in fmt_call.messages[-1].content
+    # Parsed from the message content and validated here.
+    assert response.structured_response == {"answer": 4}
+    prose, structured = response.result
+    assert prose == final_answer
+    assert is_structured_output_artifact(structured)
+    assert not is_structured_output_artifact(prose)
+
+
+async def test_json_object_mode_retries_on_invalid_json():
+    """A non-JSON answer is rejected and retried with the rejection fed back;
+    the failed attempt's messages never reach state."""
+    middleware = DeferredStructuredOutputMiddleware(format_mode=FORMAT_JSON_OBJECT)
+    request = _make_request()
+    final_answer = AIMessage("2 + 2 = 4")
+    garbage = AIMessage("here you go: not json")
+    formatted = AIMessage('{"answer": 4}')
+    calls: list[ModelRequest] = []
+
+    response = await middleware.awrap_model_call(
+        request,
+        _handler_recording(
+            [
+                ModelResponse(result=[final_answer]),
+                ModelResponse(result=[garbage]),
+                ModelResponse(result=[formatted]),
+            ],
+            calls,
+        ),
+    )
+
+    assert len(calls) == 3
+    assert "rejected" in calls[2].messages[-1].content
+    assert response.structured_response == {"answer": 4}
+    assert garbage not in response.result
+    assert [m.content for m in response.result] == [
+        final_answer.content,
+        formatted.content,
+    ]
 
 
 async def test_invalid_formatting_result_retries_with_error_feedback():

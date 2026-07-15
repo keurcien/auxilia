@@ -125,6 +125,32 @@ python example_callback_handler.py <state-from-oauth-start>
 - `GET /agents/` - List all agents
 - `GET /agents/{agent_id}` - Get agent details
 
+## Sorties structurées (structured output)
+
+Un run peut fournir un `output_schema` (JSON Schema) pour obtenir une réponse validée dans `structured_response`. Le schéma est géré par `DeferredStructuredOutputMiddleware` (`app/agents/structured_output.py`).
+
+**Le schéma n'est pas appliqué pendant la boucle ReAct.** Contraindre le décodage à chaque appel casse la boucle en pratique : le modèle arrête d'appeler les outils et remplit directement le schéma avec des valeurs inventées. Le middleware laisse donc la boucle tourner sans contrainte, puis applique le schéma sur **un seul dernier tour de formatage**, une fois la réponse finale atteinte.
+
+Sur ce tour de formatage, langchain résout le schéma par défaut en **`ToolStrategy`** : un appel d'outil forcé (`tool_choice` = `"required"` ou une fonction nommée). Cela fonctionne pour la plupart de nos fournisseurs, mais deux APIs rejettent l'appel forcé. La stratégie de formatage est donc choisie par fournisseur via `PROVIDER_FORMAT_MODES` (`app/agents/structured_output.py`) — un fournisseur absent utilise l'appel d'outil forcé par défaut.
+
+| Mode | Fournisseur | Comment |
+| --- | --- | --- |
+| `FORMAT_TOOL` (défaut) | OpenAI, Anthropic, Google, Xiaomi, OpenRouter… | Appel d'outil forcé (`ToolStrategy`). Le fournisseur garantit le schéma. |
+| `FORMAT_PROVIDER_NATIVE` | Meta | `ProviderStrategy` → `response_format: {type: "json_schema"}`. |
+| `FORMAT_JSON_OBJECT` | DeepSeek | `response_format: {type: "json_object"}` + validation locale. |
+
+### Le cas Meta
+
+L'API de Meta (`muse-spark-1.1`) n'accepte que `tool_choice="auto"` et rejette l'appel forcé avec une erreur 400. On formate donc via la **stratégie native** (`ProviderStrategy` → `response_format: {type: "json_schema"}`), qui ne force aucun `tool_choice`.
+
+### Le cas DeepSeek (mode raisonnement)
+
+DeepSeek avec le raisonnement activé (`thinking.type = "enabled"`) rejette **à la fois** l'appel forcé (`Thinking mode does not support this tool_choice`) **et** le `json_schema` (`This response_format type is unavailable now`). Seul le mode `json_object` (legacy) fonctionne : il ne garantit que « c'est du JSON », pas la forme. Le middleware embarque donc le schéma dans le prompt, lie `response_format: {type: "json_object"}`, puis **parse et valide le JSON lui-même** (`validate_structured_response`, avec la même boucle de retry). C'est la seule voie où l'enforcement du schéma vient de nous et non du fournisseur.
+
+### Pourquoi ne pas utiliser une voie unique partout ?
+
+Parce que `ToolStrategy` (le défaut de langchain) fonctionne déjà chez la plupart des fournisseurs. On ne dévie de la stratégie que là où l'appel forcé échoue réellement (Meta, DeepSeek en raisonnement), afin de garder un impact minimal et de ne pas risquer de régression sur les fournisseurs qui marchent aujourd'hui. Ajouter un fournisseur se résume à une ligne dans `PROVIDER_FORMAT_MODES`.
+
 ## Configuration
 
 ### Environment Variables

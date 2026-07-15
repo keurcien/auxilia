@@ -98,10 +98,15 @@ class ChatModelFactory:
             case "openai":
                 return ChatOpenAI(model=model_id, api_key=api_key)
             case "deepseek":
+                # Reasoning enabled. max_tokens caps the answer so json_object
+                # structured output isn't truncated mid-string (DeepSeek's JSON
+                # mode guide warns about this); 32768 matches the other
+                # reasoning providers here.
                 return ChatDeepSeek(
                     model=model_id,
                     api_key=api_key,
-                    extra_body={"thinking": {"type": "disabled"}},
+                    max_tokens=32768,
+                    extra_body={"thinking": {"type": "enabled"}},
                 )
             case "anthropic":
                 kwargs: dict = {}
