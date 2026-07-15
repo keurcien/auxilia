@@ -3,7 +3,12 @@ from unittest.mock import MagicMock, patch
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 
 from app.agents.runtime import Agent
-from app.agents.structured_output import DeferredStructuredOutputMiddleware
+from app.agents.structured_output import (
+    FORMAT_JSON_OBJECT,
+    FORMAT_PROVIDER_NATIVE,
+    FORMAT_TOOL,
+    DeferredStructuredOutputMiddleware,
+)
 from app.agents.tool_errors import ToolErrorMiddleware
 from app.model_providers.catalog import Model
 
@@ -44,11 +49,12 @@ def test_build_agent_forwards_output_schema(mock_create_agent):
 
 
 @patch("app.agents.runtime.create_agent")
-def test_build_agent_routes_auto_only_provider_to_provider_native(mock_create_agent):
-    """The formatting middleware is flagged provider_native for providers whose
-    API only allows tool_choice='auto' (Meta), and not for others — this is what
-    keeps Meta off the forced-tool-call path (and must reach the non-sandbox
-    create_agent middleware, not just the sandbox one)."""
+def test_build_agent_routes_provider_to_format_mode(mock_create_agent):
+    """The formatting middleware's format_mode is resolved per provider (and must
+    reach the non-sandbox create_agent middleware, not just the sandbox one):
+    Meta rejects a forced tool call but takes json_schema (provider_native);
+    DeepSeek thinking rejects both, so it uses json_object; everyone else uses
+    the default forced tool call."""
     schema = {
         "title": "answer",
         "type": "object",
@@ -56,11 +62,12 @@ def test_build_agent_routes_auto_only_provider_to_provider_native(mock_create_ag
         "required": ["answer"],
     }
     models = [
-        Model(name="auto-model", provider="meta"),
-        Model(name="forced-model", provider="deepseek"),
+        Model(name="meta-model", provider="meta"),
+        Model(name="deepseek-model", provider="deepseek"),
+        Model(name="openai-model", provider="openai"),
     ]
 
-    def provider_native_for(model_id: str) -> bool:
+    def format_mode_for(model_id: str) -> str:
         agent = _build_agent()
         agent.thread.model_id = model_id
         with patch("app.agents.runtime.MODELS", models):
@@ -69,10 +76,11 @@ def test_build_agent_routes_auto_only_provider_to_provider_native(mock_create_ag
         deferred = next(
             m for m in middleware if isinstance(m, DeferredStructuredOutputMiddleware)
         )
-        return deferred.provider_native
+        return deferred.format_mode
 
-    assert provider_native_for("auto-model") is True
-    assert provider_native_for("forced-model") is False
+    assert format_mode_for("meta-model") == FORMAT_PROVIDER_NATIVE
+    assert format_mode_for("deepseek-model") == FORMAT_JSON_OBJECT
+    assert format_mode_for("openai-model") == FORMAT_TOOL
 
 
 @patch("app.agents.runtime.create_agent")
