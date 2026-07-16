@@ -182,6 +182,39 @@ async def test_provider_native_formats_with_provider_strategy():
     assert response.structured_response == {"answer": 4}
 
 
+async def test_provider_native_drops_tools_on_formatting_turn():
+    """On the provider-native path the formatting turn drops the agent's tools.
+
+    The turn only reformats the final answer, and langchain's create_agent binds
+    tools with strict=True for ProviderStrategy — under which Meta's streaming API
+    intermittently mangles non-ASCII (e.g. "é" comes back as NUL + "e9"). Dropping
+    the tools removes that strict binding. The loop turn still carries the tools
+    (the agent reasons and acts with them); only the final formatting turn drops
+    them.
+    """
+    middleware = DeferredStructuredOutputMiddleware(format_mode=FORMAT_PROVIDER_NATIVE)
+    tools = [{"name": "search"}]
+    request = _make_request().override(tools=tools)
+    calls: list[ModelRequest] = []
+
+    await middleware.awrap_model_call(
+        request,
+        _handler_recording(
+            [
+                ModelResponse(result=[AIMessage("2 + 2 = 4")]),
+                ModelResponse(
+                    result=[AIMessage('{"answer": 4}')],
+                    structured_response={"answer": 4},
+                ),
+            ],
+            calls,
+        ),
+    )
+
+    assert calls[0].tools == tools  # loop turn keeps the agent's tools
+    assert calls[1].tools == []  # formatting turn drops them
+
+
 async def test_json_object_mode_parses_and_validates_plain_json():
     """Providers that reject both a forced tool call and json_schema (DeepSeek
     thinking) format via legacy json_object: the turn binds
