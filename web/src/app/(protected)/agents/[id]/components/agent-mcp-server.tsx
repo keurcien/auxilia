@@ -78,6 +78,25 @@ export default function AgentMCPServer({
 		onToolsChange?.({ ...materializeTools(tools), [toolName]: status });
 	};
 
+	// Seed the draft's tool map the first time a connected server's tools become
+	// known, so a Save persists a complete map instead of null (= "never synced",
+	// which the backend treats as zero usable tools). Only seeds a null binding —
+	// an explicit map (even empty) is left untouched.
+	const seedIfUnsynced = useCallback(
+		(fetchedTools: MCPServerTool[]) => {
+			if (readOnly || binding.tools !== null) return;
+			onToolsChange?.(
+				Object.fromEntries(
+					fetchedTools.map((tool) => [
+						tool.name,
+						"always_allow" as ToolStatus,
+					]),
+				),
+			);
+		},
+		[readOnly, binding.tools, onToolsChange],
+	);
+
 	const fetchTools = useCallback(async () => {
 		setIsLoading(true);
 		try {
@@ -85,6 +104,7 @@ export default function AgentMCPServer({
 			const fetchedTools = res.data as MCPServerTool[];
 			setTools(fetchedTools);
 			setToolsFetched(true);
+			seedIfUnsynced(fetchedTools);
 		} catch (error: unknown) {
 			// Check if this is an OAuth authorization required error
 			if (
@@ -125,17 +145,7 @@ export default function AgentMCPServer({
 							setTools(fetchedTools);
 							setToolsFetched(true);
 							setIsLoading(false);
-
-							if (!readOnly && binding.tools === null) {
-								onToolsChange?.(
-									Object.fromEntries(
-										fetchedTools.map((tool) => [
-											tool.name,
-											"always_allow" as ToolStatus,
-										]),
-									),
-								);
-							}
+							seedIfUnsynced(fetchedTools);
 
 							if (popup && !popup.closed) {
 								popup.close();
@@ -162,7 +172,7 @@ export default function AgentMCPServer({
 		} finally {
 			setIsLoading(false);
 		}
-	}, [server.id, readOnly, binding.tools, onToolsChange]);
+	}, [server.id, seedIfUnsynced]);
 
 	const handleConnect = async () => {
 		await fetchTools();
