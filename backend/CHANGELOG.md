@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.25](https://github.com/keurcien/auxilia/compare/backend-v0.4.24...backend-v0.4.25) (2026-07-17)
+
+
+### Bug Fixes
+
+* **agents:** seed MCP tool map on connect so explicit save persists all servers ([#222](https://github.com/keurcien/auxilia/issues/222)) ([aeaf515](https://github.com/keurcien/auxilia/commit/aeaf51544f36159b10a68e7bc842d2299b6f2d5e))
+
 ## [0.4.24](https://github.com/keurcien/auxilia/compare/backend-v0.4.23...backend-v0.4.24) (2026-07-17)
 
 

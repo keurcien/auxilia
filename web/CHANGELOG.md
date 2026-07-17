@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.19](https://github.com/keurcien/auxilia/compare/web-v0.5.18...web-v0.5.19) (2026-07-17)
+
+
+### Bug Fixes
+
+* **agents:** seed MCP tool map on connect so explicit save persists all servers ([#222](https://github.com/keurcien/auxilia/issues/222)) ([aeaf515](https://github.com/keurcien/auxilia/commit/aeaf51544f36159b10a68e7bc842d2299b6f2d5e))
+
 ## [0.5.18](https://github.com/keurcien/auxilia/compare/web-v0.5.17...web-v0.5.18) (2026-07-13)
 
 
