@@ -17,6 +17,12 @@ interface AgentMCPServerProps {
 	readOnly?: boolean;
 	/** Draft update: the complete per-tool map for this server. */
 	onToolsChange?: (tools: Record<string, ToolStatus>) => void;
+	/**
+	 * Draft update: seed a never-synced binding. Applied conditionally against
+	 * the latest state (only fills a still-null map), so parallel seeds from
+	 * sibling servers merge instead of clobbering each other.
+	 */
+	onSeedTools?: (tools: Record<string, ToolStatus>) => void;
 	/** Draft update: detach this server. */
 	onRemove?: () => void;
 }
@@ -31,6 +37,7 @@ export default function AgentMCPServer({
 	binding,
 	readOnly,
 	onToolsChange,
+	onSeedTools,
 	onRemove,
 }: AgentMCPServerProps) {
 	const [isExpanded, setIsExpanded] = useState(false);
@@ -80,12 +87,13 @@ export default function AgentMCPServer({
 
 	// Seed the draft's tool map the first time a connected server's tools become
 	// known, so a Save persists a complete map instead of null (= "never synced",
-	// which the backend treats as zero usable tools). Only seeds a null binding —
-	// an explicit map (even empty) is left untouched.
+	// which the backend treats as zero usable tools). Routed through onSeedTools,
+	// which fills only a still-null binding against the latest state — so parallel
+	// seeds from sibling servers merge and user edits are never clobbered.
 	const seedIfUnsynced = useCallback(
 		(fetchedTools: MCPServerTool[]) => {
-			if (readOnly || binding.tools !== null) return;
-			onToolsChange?.(
+			if (readOnly) return;
+			onSeedTools?.(
 				Object.fromEntries(
 					fetchedTools.map((tool) => [
 						tool.name,
@@ -94,7 +102,7 @@ export default function AgentMCPServer({
 				),
 			);
 		},
-		[readOnly, binding.tools, onToolsChange],
+		[readOnly, onSeedTools],
 	);
 
 	const fetchTools = useCallback(async () => {

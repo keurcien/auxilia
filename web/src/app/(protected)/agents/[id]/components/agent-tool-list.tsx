@@ -14,7 +14,15 @@ interface AgentToolListProps {
 	mcpServers: AgentMCPServerForm[];
 	hasCodeInterpreter: boolean;
 	readOnly?: boolean;
-	onMcpServersChange?: (servers: AgentMCPServerForm[]) => void;
+	/**
+	 * Functional updater — applied against the LATEST draft state. Never rebuild
+	 * the array from the `mcpServers` prop: several servers can seed their tool
+	 * maps concurrently (async `fetchTools`), and a snapshot-based update would
+	 * let a late callback clobber a sibling's already-seeded map.
+	 */
+	onMcpServersChange?: (
+		update: (prev: AgentMCPServerForm[]) => AgentMCPServerForm[],
+	) => void;
 	onHasCodeInterpreterChange?: (enabled: boolean) => void;
 }
 
@@ -49,24 +57,39 @@ export default function AgentToolList({
 		serverId: string,
 		tools: Record<string, ToolStatus>,
 	) => {
-		onMcpServersChange?.(
-			mcpServers.map((s) =>
-				s.mcpServerId === serverId ? { ...s, tools } : s,
+		onMcpServersChange?.((prev) =>
+			prev.map((s) => (s.mcpServerId === serverId ? { ...s, tools } : s)),
+		);
+	};
+
+	// Seed a never-synced binding, evaluated against the latest state: only fill
+	// when `tools` is still null so concurrent seeds merge instead of clobbering,
+	// and a user's in-progress edits are never overwritten.
+	const handleSeedTools = (
+		serverId: string,
+		tools: Record<string, ToolStatus>,
+	) => {
+		onMcpServersChange?.((prev) =>
+			prev.map((s) =>
+				s.mcpServerId === serverId && s.tools === null
+					? { ...s, tools }
+					: s,
 			),
 		);
 	};
 
 	const handleRemoveServer = (serverId: string) => {
-		onMcpServersChange?.(
-			mcpServers.filter((s) => s.mcpServerId !== serverId),
+		onMcpServersChange?.((prev) =>
+			prev.filter((s) => s.mcpServerId !== serverId),
 		);
 	};
 
 	const handleAddServer = (serverId: string) => {
-		onMcpServersChange?.([
-			...mcpServers,
-			{ mcpServerId: serverId, tools: null },
-		]);
+		onMcpServersChange?.((prev) =>
+			prev.some((s) => s.mcpServerId === serverId)
+				? prev
+				: [...prev, { mcpServerId: serverId, tools: null }],
+		);
 	};
 
 	const hasTools = hasCodeInterpreter || enabledServers.length > 0;
@@ -106,6 +129,9 @@ export default function AgentToolList({
 								readOnly={readOnly}
 								onToolsChange={(tools) => {
 									handleToolsChange(server.id, tools);
+								}}
+								onSeedTools={(tools) => {
+									handleSeedTools(server.id, tools);
 								}}
 								onRemove={() => {
 									handleRemoveServer(server.id);
