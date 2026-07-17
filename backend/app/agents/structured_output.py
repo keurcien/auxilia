@@ -265,14 +265,28 @@ class DeferredStructuredOutputMiddleware(AgentMiddleware):
         conversation = [*request.messages, *response.result]
         instruction = FORMAT_INSTRUCTION
         response_format = request.response_format
+        overrides: dict[str, Any] = {}
         if self.format_mode == FORMAT_PROVIDER_NATIVE:
             response_format = ProviderStrategy(schema=_schema_of(response_format))
+            # Drop the agent's tools on the formatting turn. It only reformats the
+            # final answer (the ReAct loop already reached one), so the tools are
+            # dead weight here — and on the provider-native path langchain's
+            # create_agent binds them with strict=True (its ProviderStrategy
+            # branch, factory.py). Under strict tools + streaming, Meta's Model API
+            # intermittently escapes non-ASCII with an extra "00" (U+00E9 ->
+            # the 6-hex "\u0000e9" not "\u00e9"), which json.loads then reads as
+            # NUL + "e9" -- mojibake in the reply. No
+            # tools on the turn => no strict binding => clean UTF-8.
+            # ponytail: scoped to provider-native; other providers keep their tools
+            # on the formatting turn (they don't force strict, so they're unaffected).
+            overrides["tools"] = []
         error: str | None = None
         for _ in range(MAX_FORMAT_ATTEMPTS):
             format_response = await handler(
                 request.override(
                     messages=[*conversation, HumanMessage(instruction)],
                     response_format=response_format,
+                    **overrides,
                 )
             )
             error = validate_structured_response(
