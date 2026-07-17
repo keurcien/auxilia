@@ -27,7 +27,7 @@ test("auth page matches the sign-in visual baseline", async ({ page }) => {
 	});
 
 	await page.route(
-		"https://storage.googleapis.com/choose-assets/**",
+		"https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/**",
 		async (route) => {
 			await route.fulfill({
 				status: 200,

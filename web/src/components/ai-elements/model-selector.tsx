@@ -80,7 +80,7 @@ export const ModelSelectorLogo = ({
 		className={cn("size-3", provider === "openai" && "dark:invert", className)}
 		height={12}
 		// src={`https://models.dev/logos/${provider}.svg`}
-		src={`https://storage.googleapis.com/choose-assets/${provider}.png`}
+		src={`https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/${provider}.png`}
 		width={12}
 	/>
 );

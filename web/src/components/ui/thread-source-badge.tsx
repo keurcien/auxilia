@@ -3,7 +3,7 @@ import { AlarmClock, Globe, Plug } from "lucide-react";
 import type { ThreadSource } from "@/types/threads";
 
 const SLACK_ICON_SRC =
-	"https://storage.googleapis.com/choose-assets/slack.png";
+	"https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/slack.png";
 
 function getLabel(source: ThreadSource): string {
 	switch (source) {

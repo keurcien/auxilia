@@ -70,7 +70,7 @@ export default function SetupPage() {
 			<CardHeader className="text-center flex flex-col items-center">
 				<CardTitle className="text-2xl flex flex-col items-center justify-center">
 					<Image
-						src="https://storage.googleapis.com/choose-assets/logo.png"
+						src="https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/logo.png"
 						alt="auxilia"
 						width={48}
 						height={48}
@@ -82,7 +82,7 @@ export default function SetupPage() {
 					Create your admin account to get started.
 				</p>
 			</CardHeader>
-			<form onSubmit={handleSubmit}>
+			<form onSubmit={(e) => { void handleSubmit(e); }}>
 				<CardContent className="space-y-4">
 					{error && (
 						<div className="p-3 text-sm text-destructive bg-destructive/10 rounded-md">
@@ -97,7 +97,7 @@ export default function SetupPage() {
 							type="text"
 							placeholder="John Doe"
 							value={name}
-							onChange={(e) => setName(e.target.value)}
+							onChange={(e) => { setName(e.target.value); }}
 						/>
 					</div>
 
@@ -108,7 +108,7 @@ export default function SetupPage() {
 							type="email"
 							placeholder="you@example.com"
 							value={email}
-							onChange={(e) => setEmail(e.target.value)}
+							onChange={(e) => { setEmail(e.target.value); }}
 							required
 						/>
 					</div>
@@ -120,7 +120,7 @@ export default function SetupPage() {
 							type="password"
 							placeholder="••••••••"
 							value={password}
-							onChange={(e) => setPassword(e.target.value)}
+							onChange={(e) => { setPassword(e.target.value); }}
 							required
 						/>
 

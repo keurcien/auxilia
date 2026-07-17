@@ -85,14 +85,14 @@ function AuthPageContent() {
 			<CardHeader className="text-center flex flex-col items-center">
 				<CardTitle className="text-2xl flex flex-col items-center justify-center">
 					<Image
-						src="https://storage.googleapis.com/choose-assets/logo.png"
+						src="https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/logo.png"
 						alt="auxilia"
 						width={48}
 						height={48}
 						className="dark:hidden mb-2"
 					/>
 					<Image
-						src="https://storage.googleapis.com/choose-assets/logo-dark.png"
+						src="https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/logo-dark.png"
 						alt="auxilia"
 						width={48}
 						height={48}
@@ -103,7 +103,7 @@ function AuthPageContent() {
 			</CardHeader>
 
 			{providers?.password && (
-				<form className="space-y-4" onSubmit={handleSubmit}>
+				<form className="space-y-4" onSubmit={(e) => { void handleSubmit(e); }}>
 					<CardContent className="space-y-4">
 						{error && (
 							<div className="p-3 text-sm text-destructive bg-destructive/10 rounded-md">
@@ -118,7 +118,7 @@ function AuthPageContent() {
 								type="email"
 								placeholder="you@example.com"
 								value={email}
-								onChange={(e) => setEmail(e.target.value)}
+								onChange={(e) => { setEmail(e.target.value); }}
 								required
 							/>
 						</div>
@@ -130,7 +130,7 @@ function AuthPageContent() {
 								type="password"
 								placeholder="••••••••"
 								value={password}
-								onChange={(e) => setPassword(e.target.value)}
+								onChange={(e) => { setPassword(e.target.value); }}
 								required
 							/>
 						</div>
