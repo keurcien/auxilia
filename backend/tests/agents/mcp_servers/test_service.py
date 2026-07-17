@@ -279,7 +279,7 @@ async def test_create_or_update_oauth_fetches_tools_when_connected(
 
     with (
         patch(
-            "app.agents.mcp_servers.service.is_oauth_connected",
+            "app.agents.mcp_servers.service.is_authorized",
             new=AsyncMock(return_value=True),
         ),
         patch.object(service, "_sync_tools", new=AsyncMock()) as mock_fetch,
@@ -302,7 +302,7 @@ async def test_create_or_update_oauth_skips_fetch_when_not_connected(
 
     with (
         patch(
-            "app.agents.mcp_servers.service.is_oauth_connected",
+            "app.agents.mcp_servers.service.is_authorized",
             new=AsyncMock(return_value=False),
         ),
         patch.object(service, "_sync_tools", new=AsyncMock()) as mock_fetch,

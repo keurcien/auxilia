@@ -202,6 +202,111 @@ async def test_dynamic_client_registration_when_no_static_creds(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# token_endpoint_auth_method negotiation before dynamic registration
+#
+# We default to client_secret_post, but a public-only server (e.g. TikTok
+# advertises token_endpoint_auth_methods_supported: ["none"]) rejects that with
+# invalid_client_metadata. The requested method must be aligned with what the
+# server supports before DCR.
+# ---------------------------------------------------------------------------
+
+
+TIKTOK_URL = "https://business-api.tiktok.com/open_mcp/tt-ads-mcp-layer/oauth"
+
+
+def _provider_no_creds(url: str = TIKTOK_URL) -> WebOAuthClientProvider:
+    return WebOAuthClientProvider(
+        server_url=url,
+        client_metadata=build_oauth_client_metadata(),
+        storage=_FakeStorage(),
+    )
+
+
+def _asm_with_methods(methods) -> OAuthMetadata:
+    return OAuthMetadata(
+        issuer=f"{TIKTOK_URL}/",
+        authorization_endpoint=f"{TIKTOK_URL}/authorize",
+        token_endpoint=f"{TIKTOK_URL}/token",
+        registration_endpoint=f"{TIKTOK_URL}/register",
+        token_endpoint_auth_methods_supported=methods,
+    )
+
+
+def test_negotiate_prefers_none_for_public_only_server():
+    # The TikTok case: only "none" offered -> client_secret_post must be dropped.
+    provider = _provider_no_creds()
+    provider.context.oauth_metadata = _asm_with_methods(["none"])
+    provider._negotiate_registration_auth_method()
+    assert provider.context.client_metadata.token_endpoint_auth_method == "none"
+
+
+def test_negotiate_keeps_default_when_supported():
+    provider = _provider_no_creds()
+    provider.context.oauth_metadata = _asm_with_methods(["client_secret_post", "none"])
+    provider._negotiate_registration_auth_method()
+    assert (
+        provider.context.client_metadata.token_endpoint_auth_method
+        == "client_secret_post"
+    )
+
+
+def test_negotiate_keeps_default_when_server_omits_field():
+    provider = _provider_no_creds()
+    provider.context.oauth_metadata = _asm_with_methods(None)
+    provider._negotiate_registration_auth_method()
+    assert (
+        provider.context.client_metadata.token_endpoint_auth_method
+        == "client_secret_post"
+    )
+
+
+def test_negotiate_falls_back_to_basic_when_only_basic():
+    provider = _provider_no_creds()
+    provider.context.oauth_metadata = _asm_with_methods(["client_secret_basic"])
+    provider._negotiate_registration_auth_method()
+    assert (
+        provider.context.client_metadata.token_endpoint_auth_method
+        == "client_secret_basic"
+    )
+
+
+async def test_dcr_registers_public_client_for_none_only_server(monkeypatch):
+    # End-to-end: the metadata actually sent to the registration endpoint must
+    # carry "none" for a public-only server, not our client_secret_post default.
+    prm = ProtectedResourceMetadata(
+        resource=TIKTOK_URL,
+        authorization_servers=[TIKTOK_URL],
+        scopes_supported=["mcp:tt4b"],
+    )
+    _patch_discovery(monkeypatch, prm, (True, _asm_with_methods(["none"])))
+
+    captured: dict[str, str | None] = {}
+
+    def _capture(oauth_metadata, client_metadata, base_url):
+        captured["auth_method"] = client_metadata.token_endpoint_auth_method
+        return object()  # send() is stubbed and ignores this
+
+    monkeypatch.setattr(auth_module, "create_client_registration_request", _capture)
+    monkeypatch.setattr(
+        auth_module,
+        "handle_registration_response",
+        AsyncMock(
+            return_value=OAuthClientInformationFull(
+                client_id="tiktok-public",
+                redirect_uris=["https://app.example/cb"],
+                token_endpoint_auth_method="none",
+            )
+        ),
+    )
+
+    provider = _provider_no_creds()
+    with pytest.raises(OAuthAuthorizationRequired):
+        await provider.initiate_authorization()
+
+    assert captured["auth_method"] == "none"
+
+
+# ---------------------------------------------------------------------------
 # Token requests for client_secret_basic registrations
 #
 # RFC 6749 §2.3 allows a single client-authentication method per request, but

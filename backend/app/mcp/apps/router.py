@@ -7,9 +7,9 @@ from sqlmodel import SQLModel
 
 from app.auth.dependencies import get_current_user
 from app.database import get_db
+from app.mcp.client.connectivity import connect_to_server
 from app.mcp.servers.service import (
     MCPServerService,
-    connect_to_server,
     get_mcp_server_service,
 )
 from app.users.models import UserDB

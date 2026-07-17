@@ -935,7 +935,7 @@ async def test_check_ready_returns_ready_when_all_servers_connected(
     mock_db.execute.return_value = _make_mock_execute_result(scalars_list=[mcp_server])
 
     with patch(
-        "app.agents.core.service.probe_mcp_server",
+        "app.agents.core.service.is_authorized",
         new=AsyncMock(return_value=True),
     ):
         result = await service.describe_readiness(agent.id, "user-id")
@@ -964,7 +964,7 @@ async def test_check_ready_returns_not_ready_when_server_disconnected(
     mock_db.execute.return_value = _make_mock_execute_result(scalars_list=[mcp_server])
 
     with patch(
-        "app.agents.core.service.probe_mcp_server",
+        "app.agents.core.service.is_authorized",
         new=AsyncMock(return_value=False),
     ):
         result = await service.describe_readiness(agent.id, "user-id")
@@ -991,7 +991,7 @@ async def test_check_ready_disconnected_status_label(service, mock_db, mock_repo
     mock_db.execute.return_value = _make_mock_execute_result(scalars_list=[mcp_server])
 
     with patch(
-        "app.agents.core.service.probe_mcp_server",
+        "app.agents.core.service.is_authorized",
         new=AsyncMock(return_value=False),
     ):
         result = await service.describe_readiness(agent.id, "user-id")
@@ -1028,7 +1028,7 @@ async def test_describe_readiness_includes_subagent_servers(service, mock_db):
     )
 
     with patch(
-        "app.agents.core.service.probe_mcp_server",
+        "app.agents.core.service.is_authorized",
         # parent authorized, subagent's server is not
         new=AsyncMock(side_effect=lambda s, _u: s.id == parent_server),
     ):

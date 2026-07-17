@@ -1,16 +1,27 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { api } from "@/lib/api/client";
 import {
+	ConnectionTestResult,
 	MCPAuthType,
 	MCPServer,
 	MCPServerUpdate,
+	OAuthSecretHint,
 	OfficialMCPServer,
 } from "@/types/mcp-servers";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { X, CheckIcon, ChevronDown } from "lucide-react";
+import {
+	X,
+	CheckIcon,
+	ChevronDown,
+	Loader2,
+	CircleCheck,
+	CircleAlert,
+	Eye,
+	EyeOff,
+} from "lucide-react";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import Image from "next/image";
 import { SageInput, SageTextarea } from "@/components/ui/sage-input";
@@ -27,8 +38,9 @@ import {
 	validateMCPServerCreateForm,
 } from "../lib/mcp-server-create-form";
 
-const DEFAULT_ICON = "https://storage.googleapis.com/choose-assets/mcp.png";
-const GCS_HOST = "storage.googleapis.com";
+const DEFAULT_ICON =
+	"https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/mcp.png";
+const CDN_HOST = "pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev";
 
 const AUTH_TYPE_LABELS: Record<MCPAuthType, string> = {
 	none: "None",
@@ -72,6 +84,50 @@ export default function MCPServerDialog({
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [isResetting, setIsResetting] = useState(false);
 
+	// OAuth static-credential edit state
+	const [showSecret, setShowSecret] = useState(false);
+	// Whether the saved server already has a static client secret (inferred from
+	// the presence of a stored client_id — the two are always created together).
+	// The secret itself is never returned by the API.
+	const [hasStoredSecret, setHasStoredSecret] = useState(false);
+	// Admin-only, non-reversible hint (last 4 + length) about the stored secret so
+	// admins can confirm which one is set. Null when unavailable (e.g. non-admin).
+	const [secretHint, setSecretHint] = useState<OAuthSecretHint | null>(null);
+
+	// Test connection state
+	const [testStatus, setTestStatus] = useState<
+		"idle" | "testing" | "success" | "error"
+	>("idle");
+	const [testMessage, setTestMessage] = useState<string | null>(null);
+	const testPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+	const testTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+	const clearTestPolling = () => {
+		if (testPollRef.current) {
+			clearInterval(testPollRef.current);
+			testPollRef.current = null;
+		}
+		if (testTimeoutRef.current) {
+			clearTimeout(testTimeoutRef.current);
+			testTimeoutRef.current = null;
+		}
+	};
+
+	const resetTestState = () => {
+		clearTestPolling();
+		setTestStatus("idle");
+		setTestMessage(null);
+	};
+
+	// Stop polling if the dialog unmounts mid-authentication. Refs only, so the
+	// empty dependency array is exhaustive.
+	useEffect(() => {
+		return () => {
+			if (testPollRef.current) clearInterval(testPollRef.current);
+			if (testTimeoutRef.current) clearTimeout(testTimeoutRef.current);
+		};
+	}, []);
+
 	// ConnectorSearch state (create mode only)
 	const [searchQuery, setSearchQuery] = useState("");
 	const [officialServers, setOfficialServers] = useState<OfficialMCPServer[]>(
@@ -100,7 +156,9 @@ export default function MCPServerDialog({
 				description: server.description ?? "",
 				authType: server.authType,
 				apiKey: "",
-				oauthClientId: "",
+				// client_id is a public identifier — prefill it so it's editable;
+				// the secret is write-only and stays blank ("leave blank to keep").
+				oauthClientId: server.oauthClientId ?? "",
 				oauthClientSecret: "",
 				iconUrl: server.iconUrl ?? "",
 			});
@@ -111,6 +169,50 @@ export default function MCPServerDialog({
 		}
 		setErrors({});
 		setSubmitError(null);
+		setShowSecret(false);
+		setHasStoredSecret(false);
+		setSecretHint(null);
+		// Reset test state inline (refs + stable setters) so the dependency array
+		// stays exhaustive without depending on resetTestState.
+		if (testPollRef.current) clearInterval(testPollRef.current);
+		if (testTimeoutRef.current) clearTimeout(testTimeoutRef.current);
+		testPollRef.current = null;
+		testTimeoutRef.current = null;
+		setTestStatus("idle");
+		setTestMessage(null);
+	}, [open, isEditMode, server]);
+
+	// Editing an OAuth server: fetch the authoritative detail so the Client ID is
+	// prefilled even when the cached list is stale. The secret is never returned;
+	// a stored client_id implies a stored secret (created together).
+	useEffect(() => {
+		if (!(open && isEditMode && server && server.authType === "oauth2")) return;
+		let cancelled = false;
+		void (async () => {
+			try {
+				const res = await api.get(`/mcp-servers/${server.id}`);
+				if (cancelled) return;
+				const clientId = (res.data.oauthClientId as string | null) ?? "";
+				setForm((prev) => ({ ...prev, oauthClientId: clientId }));
+				setHasStoredSecret(!!clientId);
+			} catch {
+				// Fall back to whatever the list prop provided.
+			}
+			// Secret hint is admin-only; a 403 for non-admins is expected.
+			try {
+				const res = await api.get<OAuthSecretHint>(
+					`/mcp-servers/${server.id}/oauth-secret-hint`,
+				);
+				if (cancelled) return;
+				setSecretHint(res.data);
+				if (res.data.isSet) setHasStoredSecret(true);
+			} catch {
+				// Non-admin or no hint available — leave the masked placeholder.
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
 	}, [open, isEditMode, server]);
 
 	// Filter official servers: exclude installed, then apply search query
@@ -136,6 +238,8 @@ export default function MCPServerDialog({
 				return next;
 			});
 		}
+		// A prior test result no longer reflects the edited config.
+		if (testStatus !== "idle") resetTestState();
 	};
 
 	const selectOfficialServer = (official: OfficialMCPServer) => {
@@ -196,6 +300,20 @@ export default function MCPServerDialog({
 				url: form.url,
 				description: form.description || undefined,
 				iconUrl: form.iconUrl || undefined,
+				// Credentials are sent only when the field was filled in; a blank
+				// field keeps the stored secret untouched.
+				apiKey:
+					server.authType === "api_key" && form.apiKey
+						? form.apiKey
+						: undefined,
+				oauthClientId:
+					server.authType === "oauth2" && form.oauthClientId
+						? form.oauthClientId
+						: undefined,
+				oauthClientSecret:
+					server.authType === "oauth2" && form.oauthClientSecret
+						? form.oauthClientSecret
+						: undefined,
 			};
 			await updateMcpServer(server.id, payload);
 			onOpenChange(false);
@@ -263,6 +381,97 @@ export default function MCPServerDialog({
 		}
 	};
 
+	const applyTestResult = (data: ConnectionTestResult) => {
+		if (data.reachable) {
+			const count = data.toolCount ?? 0;
+			setTestStatus("success");
+			setTestMessage(
+				`Connection successful — ${count} tool${count === 1 ? "" : "s"} available.`,
+			);
+		} else {
+			setTestStatus("error");
+			setTestMessage(data.error ?? "Could not connect to the server.");
+		}
+	};
+
+	const handleTest = async () => {
+		clearTestPolling();
+		if (!form.url.trim()) {
+			setErrors((prev) => ({ ...prev, url: "Server address is required." }));
+			return;
+		}
+		setTestStatus("testing");
+		setTestMessage(null);
+
+		// OAuth is per-user and interactive, so it's tested against the saved
+		// server. An api_key edit with a blank field means "keep the stored key",
+		// which likewise requires the saved config; everything else tests the
+		// current form values without saving.
+		const useSavedTest =
+			isEditMode &&
+			!!server &&
+			(form.authType === "oauth2" ||
+				(form.authType === "api_key" && !form.apiKey.trim()));
+
+		try {
+			if (useSavedTest && server) {
+				const { data } = await api.post<ConnectionTestResult>(
+					`/mcp-servers/${server.id}/test-connection`,
+				);
+				if (data.oauthRequired && data.authUrl) {
+					const popup = window.open(
+						data.authUrl,
+						"_blank",
+						"width=600,height=700",
+					);
+					setTestMessage("Waiting for authentication...");
+					testPollRef.current = setInterval(() => {
+						void (async () => {
+							try {
+								const res = await api.get(
+									`/mcp-servers/${server.id}/is-connected`,
+								);
+								if (res.data.connected) {
+									clearTestPolling();
+									if (popup && !popup.closed) popup.close();
+									const retry = await api.post<ConnectionTestResult>(
+										`/mcp-servers/${server.id}/test-connection`,
+									);
+									applyTestResult(retry.data);
+								}
+							} catch {
+								// keep polling until success or timeout
+							}
+						})();
+					}, 2000);
+					testTimeoutRef.current = setTimeout(() => {
+						clearTestPolling();
+						setTestStatus("error");
+						setTestMessage("Authentication timed out. Please try again.");
+					}, 60000);
+					return;
+				}
+				applyTestResult(data);
+			} else {
+				const { data } = await api.post<ConnectionTestResult>(
+					"/mcp-servers/test-connection",
+					{
+						url: form.url,
+						authType: form.authType,
+						apiKey:
+							form.authType === "api_key"
+								? form.apiKey || undefined
+								: undefined,
+					},
+				);
+				applyTestResult(data);
+			}
+		} catch (error) {
+			setTestStatus("error");
+			setTestMessage(getApiErrorMessage(error, "Failed to test connection."));
+		}
+	};
+
 	const handleOpenChange = (newOpen: boolean) => {
 		if (!newOpen) {
 			setForm(emptyForm);
@@ -270,12 +479,34 @@ export default function MCPServerDialog({
 			setSearchQuery("");
 			setErrors({});
 			setSubmitError(null);
+			resetTestState();
 		}
 		onOpenChange(newOpen);
 	};
 
 	const isOfficialIcon = (url?: string) =>
-		url ? url.includes(GCS_HOST) : false;
+		url ? url.includes(CDN_HOST) : false;
+
+	// Masked hint for the stored client secret: (length − 4) dots + last 4, so its
+	// full length shows. Native placeholder behaviour hides it once you type and
+	// restores it when the field is cleared.
+	const secretPlaceholder = secretHint?.isSet
+		? "•".repeat(Math.max(0, (secretHint.length ?? 4) - 4)) +
+			(secretHint.last4 ?? "")
+		: hasStoredSecret
+			? "••••••••"
+			: "Enter your OAuth client secret";
+
+	const isTesting = testStatus === "testing";
+	const testButton = (
+		<SageButton
+			color="outline"
+			onClick={() => { void handleTest(); }}
+			disabled={isTesting || isSubmitting || isResetting || !form.url.trim()}
+		>
+			{isTesting ? "Testing..." : "Test"}
+		</SageButton>
+	);
 
 	return (
 		<Dialog open={open} onOpenChange={handleOpenChange}>
@@ -505,9 +736,7 @@ export default function MCPServerDialog({
 								id="mcp-server-description"
 								placeholder="Description"
 								value={form.description}
-								onChange={(e) =>
-									{ handleFormChange("description", e.target.value); }
-								}
+								onChange={(e) => { handleFormChange("description", e.target.value); }}
 								rows={4}
 							/>
 						</div>
@@ -568,8 +797,8 @@ export default function MCPServerDialog({
 							</div>
 						)}
 
-						{/* API Key field (create only) */}
-						{!isEditMode && form.authType === "api_key" && (
+						{/* API Key field */}
+						{form.authType === "api_key" && (
 							<div>
 								<label
 									htmlFor="mcp-server-api-key"
@@ -580,35 +809,42 @@ export default function MCPServerDialog({
 								<SageInput
 									id="mcp-server-api-key"
 									type="password"
-									placeholder="Enter your API Key"
+									placeholder={
+										isEditMode
+											? "Leave blank to keep current key"
+											: "Enter your API Key"
+									}
 									value={form.apiKey}
 									onChange={(e) => { handleFormChange("apiKey", e.target.value); }}
 								/>
 							</div>
 						)}
 
-						{/* OAuth fields (create only) */}
-						{!isEditMode && form.authType === "oauth2" && (
+						{/* OAuth fields */}
+						{form.authType === "oauth2" && (
 							<div className="space-y-[22px]">
 								<p className="font-[family-name:var(--font-dm-sans)] text-[13px] text-[#8FA89E] dark:text-muted-foreground">
-									{isNonDcrOAuth
-										? "This server requires OAuth credentials."
-										: "Leave empty to use Dynamic Client Registration (DCR). Only fill these if your MCP server requires static credentials."}
+									{isEditMode
+										? hasStoredSecret
+											? "Client ID and secret are configured. Edit the Client ID as needed; leave the secret blank to keep it, or enter a new one to replace it."
+											: "This server uses Dynamic Client Registration. Fill both fields to switch it to static credentials."
+										: isNonDcrOAuth
+											? "This server requires OAuth credentials."
+											: "Leave empty to use Dynamic Client Registration (DCR). Only fill these if your MCP server requires static credentials."}
 								</p>
 								<div>
 									<label
 										htmlFor="mcp-server-oauth-client-id"
 										className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-2"
 									>
-										Client ID{isNonDcrOAuth ? "" : " (optional)"}
+										Client ID
+										{isEditMode || isNonDcrOAuth ? "" : " (optional)"}
 									</label>
 									<SageInput
 										id="mcp-server-oauth-client-id"
 										placeholder="Enter your OAuth client ID"
 										value={form.oauthClientId}
-										onChange={(e) =>
-											{ handleFormChange("oauthClientId", e.target.value); }
-										}
+										onChange={(e) => { handleFormChange("oauthClientId", e.target.value); }}
 										error={!!errors.oauthClientId}
 										aria-required={isNonDcrOAuth}
 										aria-invalid={!!errors.oauthClientId}
@@ -632,25 +868,39 @@ export default function MCPServerDialog({
 										htmlFor="mcp-server-oauth-client-secret"
 										className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-2"
 									>
-										Client Secret{isNonDcrOAuth ? "" : " (optional)"}
+										Client Secret
+										{isEditMode || isNonDcrOAuth ? "" : " (optional)"}
 									</label>
-									<SageInput
-										id="mcp-server-oauth-client-secret"
-										type="password"
-										placeholder="Enter your OAuth client secret"
-										value={form.oauthClientSecret}
-										onChange={(e) =>
-											{ handleFormChange("oauthClientSecret", e.target.value); }
-										}
-										error={!!errors.oauthClientSecret}
-										aria-required={isNonDcrOAuth}
-										aria-invalid={!!errors.oauthClientSecret}
-										aria-describedby={
-											errors.oauthClientSecret
-												? "mcp-server-oauth-client-secret-error"
-												: undefined
-										}
-									/>
+									<div className="relative">
+										<SageInput
+											id="mcp-server-oauth-client-secret"
+											type={showSecret ? "text" : "password"}
+											className="pr-11"
+											placeholder={secretPlaceholder}
+											value={form.oauthClientSecret}
+											onChange={(e) => { handleFormChange("oauthClientSecret", e.target.value); }}
+											error={!!errors.oauthClientSecret}
+											aria-required={isNonDcrOAuth}
+											aria-invalid={!!errors.oauthClientSecret}
+											aria-describedby={
+												errors.oauthClientSecret
+													? "mcp-server-oauth-client-secret-error"
+													: undefined
+											}
+										/>
+										<button
+											type="button"
+											onClick={() => { setShowSecret((v) => !v); }}
+											aria-label={showSecret ? "Hide secret" : "Show secret"}
+											className="absolute right-4 top-1/2 -translate-y-1/2 text-[#8FA89E] hover:text-[#6B7F76] dark:text-muted-foreground dark:hover:text-foreground transition-colors cursor-pointer"
+										>
+											{showSecret ? (
+												<EyeOff className="w-4 h-4" />
+											) : (
+												<Eye className="w-4 h-4" />
+											)}
+										</button>
+									</div>
 									{errors.oauthClientSecret && (
 										<p
 											id="mcp-server-oauth-client-secret-error"
@@ -665,10 +915,38 @@ export default function MCPServerDialog({
 					</div>
 				</div>
 
+				{/* Connection test result */}
+				{testStatus !== "idle" && testMessage !== null && (
+					<div className="px-8 pt-1 pb-2">
+						<div
+							className={`flex items-center gap-2.5 rounded-[14px] px-4 py-3 font-[family-name:var(--font-dm-sans)] text-[13px] font-medium ${
+								testStatus === "success"
+									? "bg-[#EAF6F0] dark:bg-[#4CA882]/10 text-[#2E7D5B] dark:text-[#7FD1AC]"
+									: testStatus === "error"
+										? "bg-[#FBECE8] dark:bg-[#D45B45]/10 text-[#C0492F] dark:text-[#E9927E]"
+										: "bg-[#F5F8F6] dark:bg-white/5 text-[#6B7F76] dark:text-muted-foreground"
+							}`}
+						>
+							{testStatus === "success" ? (
+								<CircleCheck className="w-4 h-4 shrink-0" />
+							) : testStatus === "error" ? (
+								<CircleAlert className="w-4 h-4 shrink-0" />
+							) : (
+								<Loader2 className="w-4 h-4 shrink-0 animate-spin" />
+							)}
+							<span>{testMessage}</span>
+						</div>
+					</div>
+				)}
+
 				{/* Submission error */}
 				{submitError && (
 					<div className="px-8 pt-1 pb-2">
-						<SageAlert key={submitError} variant="error" message={submitError} />
+						<SageAlert
+							key={submitError}
+							variant="error"
+							message={submitError}
+						/>
 					</div>
 				)}
 
@@ -689,11 +967,12 @@ export default function MCPServerDialog({
 									onClick={() => { void handleReset(); }}
 									disabled={isSubmitting || isResetting}
 								>
-									{isResetting ? "Resetting..." : "Reset connections"}
+									{isResetting ? "Resetting..." : "Reset"}
 								</SageButton>
 							)}
 							<div className="flex-1" />
 							<div className="flex gap-2.5">
+								{testButton}
 								<SageButton
 									color="outline"
 									onClick={() => { handleOpenChange(false); }}
@@ -707,6 +986,7 @@ export default function MCPServerDialog({
 						</>
 					) : (
 						<>
+							{testButton}
 							<div className="flex-1" />
 							<div className="flex gap-2.5">
 								<SageButton

@@ -13,10 +13,9 @@ from app.agents.schemas import (
 )
 from app.database import get_db
 from app.exceptions import NotFoundError
-from app.mcp.client.connectivity import is_oauth_connected
+from app.mcp.client.connectivity import connect_to_server, is_authorized
 from app.mcp.servers.models import MCPAuthType, MCPServerDB
 from app.mcp.servers.repository import MCPServerRepository
-from app.mcp.servers.service import connect_to_server
 from app.service import BaseService
 
 
@@ -82,7 +81,7 @@ class AgentMCPServerService(BaseService[AgentMCPServerDB, AgentMCPServerReposito
             MCPAuthType.api_key,
         ) or (
             mcp_server.auth_type == MCPAuthType.oauth2
-            and await is_oauth_connected(mcp_server, user_id)
+            and await is_authorized(mcp_server, user_id, refresh=False)
         )
         if should_fetch:
             await self._sync_tools(db_link, mcp_server, user_id)

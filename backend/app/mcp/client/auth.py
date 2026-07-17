@@ -1,5 +1,6 @@
 import logging
 import secrets
+from datetime import UTC, datetime
 from urllib.parse import parse_qsl, urlencode, urljoin
 
 import httpx
@@ -137,6 +138,53 @@ class WebOAuthClientProvider(OAuthClientProvider):
             )
         )
 
+    async def ensure_valid_token(self) -> bool:
+        """Return True when a usable access token is available for this user.
+
+        Refreshes an expired-but-refreshable token in place, reusing the SDK's
+        own ``_refresh_token`` request builder (and this class's overrides of it
+        — the Notion basic-auth fix, HTTP 201 handling, refresh-token carry-over)
+        rather than hand-rolling the token POST. Returns False when no token is
+        stored, the token is expired with no refresh token, the stored client
+        info/metadata is missing, or the refresh request fails.
+        """
+        if not self._initialized:
+            await self._initialize()
+
+        stored = await self.context.storage.get_stored_token()
+        if not stored:
+            return False
+
+        is_expired = (
+            stored.expires_at is not None and datetime.now(UTC) > stored.expires_at
+        )
+        if not is_expired:
+            return True
+
+        if not stored.token_payload.refresh_token:
+            return False
+
+        if not self.context.client_info:
+            self.context.client_info = await self.context.storage.get_client_info()
+        if not self.context.oauth_metadata:
+            self.context.oauth_metadata = (
+                await self.context.storage.get_oauth_metadata()
+            )
+        if not self.context.client_info or not self.context.oauth_metadata:
+            return False
+
+        try:
+            request = await self._refresh_token()
+            async with httpx.AsyncClient() as client:
+                response = await client.send(request)
+                await self._handle_token_response(response)
+            return True
+        except Exception:
+            logger.warning(
+                "Token refresh failed for %s", self.context.server_url, exc_info=True
+            )
+            return False
+
     async def _exchange_token_authorization_code(
         self, *args, **kwargs
     ) -> httpx.Request:
@@ -146,6 +194,38 @@ class WebOAuthClientProvider(OAuthClientProvider):
     async def _refresh_token(self) -> httpx.Request:
         request = await super()._refresh_token()
         return strip_client_id_for_basic_auth(request)
+
+    def _negotiate_registration_auth_method(self) -> None:
+        """Align the requested ``token_endpoint_auth_method`` with what the
+        authorization server advertises, before dynamic registration.
+
+        We default to ``client_secret_post`` (see ``build_oauth_client_metadata``
+        for why), but a server that only registers public clients — e.g. TikTok
+        advertises ``token_endpoint_auth_methods_supported: ["none"]`` — rejects
+        that default with ``invalid_client_metadata``. When our default isn't
+        offered, prefer ``none`` (public client + PKCE, correct for a DCR client
+        with no static secret), then ``client_secret_basic``, else the server's
+        first advertised method. Servers that don't advertise the field keep our
+        default.
+        """
+        supported = self.context.oauth_metadata.token_endpoint_auth_methods_supported
+        if not supported:
+            return
+        current = self.context.client_metadata.token_endpoint_auth_method
+        if current in supported:
+            return
+        for preferred in ("none", "client_secret_post", "client_secret_basic"):
+            if preferred in supported:
+                self.context.client_metadata.token_endpoint_auth_method = preferred
+                break
+        else:
+            self.context.client_metadata.token_endpoint_auth_method = supported[0]
+        logger.debug(
+            "Negotiated token_endpoint_auth_method %s -> %s for %s",
+            current,
+            self.context.client_metadata.token_endpoint_auth_method,
+            self.context.server_url,
+        )
 
     async def initiate_authorization(self) -> None:
         """Start the OAuth flow explicitly, without calling a business tool to
@@ -220,6 +300,7 @@ class WebOAuthClientProvider(OAuthClientProvider):
             # Google) are loaded into client_info by _initialize; otherwise
             # register dynamically per RFC 7591 (e.g. Notion).
             if not self.context.client_info:
+                self._negotiate_registration_auth_method()
                 registration_response = await client.send(
                     create_client_registration_request(
                         self.context.oauth_metadata,
@@ -237,7 +318,7 @@ class WebOAuthClientProvider(OAuthClientProvider):
             raise OAuthFlowError("No client info available for authorization")
 
         # Persist client_info so the OAuth callback (a separate HTTP request with
-        # a fresh provider) and the refresh path (probe_mcp_server) can recover
+        # a fresh provider) and the refresh path (ensure_valid_token) can recover
         # the client_id/secret from storage. connect_to_server persists it on its
         # own path; the explicit flow skips connect_to_server, so persist it here.
         await self.context.storage.set_client_info(self.context.client_info)
