@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.24](https://github.com/keurcien/auxilia/compare/backend-v0.4.23...backend-v0.4.24) (2026-07-17)
+
+
+### Bug Fixes
+
+* **agents:** drop tools on Meta formatting turn to prevent non-ASCII mojibake ([#219](https://github.com/keurcien/auxilia/issues/219)) ([be2a1ab](https://github.com/keurcien/auxilia/commit/be2a1ab2e0565fdb3697ae1346709d413af0602f))
+
 ## [0.4.23](https://github.com/keurcien/auxilia/compare/backend-v0.4.22...backend-v0.4.23) (2026-07-15)
 
 
