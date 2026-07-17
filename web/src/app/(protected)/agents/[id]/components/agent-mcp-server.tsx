@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Image from "next/image";
 import { MCPServer } from "@/types/mcp-servers";
 import { ToolStatus } from "@/types/agents";
@@ -105,6 +105,16 @@ export default function AgentMCPServer({
 		[readOnly, onSeedTools],
 	);
 
+	// Keep `fetchTools` stable (identity keyed only on server.id) so a sibling
+	// server's seed re-rendering the parent — which hands us a fresh inline
+	// onSeedTools each time — can't churn fetchTools' identity and retrigger the
+	// mount effect, restarting an in-flight fetch. The ref tracks the latest seed
+	// closure so behavior stays current without becoming a dependency.
+	const seedRef = useRef(seedIfUnsynced);
+	useEffect(() => {
+		seedRef.current = seedIfUnsynced;
+	}, [seedIfUnsynced]);
+
 	const fetchTools = useCallback(async () => {
 		setIsLoading(true);
 		try {
@@ -112,7 +122,7 @@ export default function AgentMCPServer({
 			const fetchedTools = res.data as MCPServerTool[];
 			setTools(fetchedTools);
 			setToolsFetched(true);
-			seedIfUnsynced(fetchedTools);
+			seedRef.current(fetchedTools);
 		} catch (error: unknown) {
 			// Check if this is an OAuth authorization required error
 			if (
@@ -153,7 +163,7 @@ export default function AgentMCPServer({
 							setTools(fetchedTools);
 							setToolsFetched(true);
 							setIsLoading(false);
-							seedIfUnsynced(fetchedTools);
+							seedRef.current(fetchedTools);
 
 							if (popup && !popup.closed) {
 								popup.close();
@@ -180,7 +190,7 @@ export default function AgentMCPServer({
 		} finally {
 			setIsLoading(false);
 		}
-	}, [server.id, seedIfUnsynced]);
+	}, [server.id]);
 
 	const handleConnect = async () => {
 		await fetchTools();
