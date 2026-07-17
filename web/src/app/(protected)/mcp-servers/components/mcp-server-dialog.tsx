@@ -187,31 +187,31 @@ export default function MCPServerDialog({
 	// a stored client_id implies a stored secret (created together).
 	useEffect(() => {
 		if (!(open && isEditMode && server && server.authType === "oauth2")) return;
-		let cancelled = false;
+		const controller = new AbortController();
+		const { signal } = controller;
 		void (async () => {
 			try {
-				const res = await api.get(`/mcp-servers/${server.id}`);
-				if (cancelled) return;
+				const res = await api.get(`/mcp-servers/${server.id}`, { signal });
 				const clientId = (res.data.oauthClientId as string | null) ?? "";
 				setForm((prev) => ({ ...prev, oauthClientId: clientId }));
 				setHasStoredSecret(!!clientId);
 			} catch {
-				// Fall back to whatever the list prop provided.
+				// Aborted, or fall back to whatever the list prop provided.
 			}
 			// Secret hint is admin-only; a 403 for non-admins is expected.
 			try {
 				const res = await api.get<OAuthSecretHint>(
 					`/mcp-servers/${server.id}/oauth-secret-hint`,
+					{ signal },
 				);
-				if (cancelled) return;
 				setSecretHint(res.data);
 				if (res.data.isSet) setHasStoredSecret(true);
 			} catch {
-				// Non-admin or no hint available — leave the masked placeholder.
+				// Aborted, non-admin, or no hint — leave the masked placeholder.
 			}
 		})();
 		return () => {
-			cancelled = true;
+			controller.abort();
 		};
 	}, [open, isEditMode, server]);
 

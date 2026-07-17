@@ -26,19 +26,20 @@ OLD_PREFIX = "https://storage.googleapis.com/choose-assets/"
 NEW_PREFIX = "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/"
 
 # Tables holding icon URLs seeded/entered with the old prefix.
-TABLES = ("official_mcp_servers", "mcp_servers")
+# Static per-table statements (no string interpolation) — the prefix values are
+# passed as bound parameters, so nothing user-controlled reaches the SQL text.
+_STATEMENTS = (
+    "UPDATE official_mcp_servers SET icon_url = "
+    "REPLACE(icon_url, :from_prefix, :to_prefix) WHERE icon_url LIKE :like_prefix",
+    "UPDATE mcp_servers SET icon_url = "
+    "REPLACE(icon_url, :from_prefix, :to_prefix) WHERE icon_url LIKE :like_prefix",
+)
 
 
 def _rewrite(from_prefix: str, to_prefix: str) -> None:
-    for table in TABLES:
+    for sql in _STATEMENTS:
         op.execute(
-            sa.text(
-                f"""
-                UPDATE {table}
-                SET icon_url = REPLACE(icon_url, :from_prefix, :to_prefix)
-                WHERE icon_url LIKE :like_prefix
-                """
-            ).bindparams(
+            sa.text(sql).bindparams(
                 from_prefix=from_prefix,
                 to_prefix=to_prefix,
                 like_prefix=from_prefix + "%",

@@ -181,7 +181,7 @@ class WebOAuthClientProvider(OAuthClientProvider):
             return True
         except Exception:
             logger.warning(
-                "Token refresh failed for %s", self.context.server_url, exc_info=True
+                "OAuth refresh failed for %s", self.context.server_url, exc_info=True
             )
             return False
 
@@ -221,7 +221,7 @@ class WebOAuthClientProvider(OAuthClientProvider):
         else:
             self.context.client_metadata.token_endpoint_auth_method = supported[0]
         logger.debug(
-            "Negotiated token_endpoint_auth_method %s -> %s for %s",
+            "Negotiated client auth method %s -> %s for %s",
             current,
             self.context.client_metadata.token_endpoint_auth_method,
             self.context.server_url,
