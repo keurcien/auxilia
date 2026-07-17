@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Image from "next/image";
 import { MCPServer } from "@/types/mcp-servers";
 import { ToolStatus } from "@/types/agents";
@@ -17,6 +17,12 @@ interface AgentMCPServerProps {
 	readOnly?: boolean;
 	/** Draft update: the complete per-tool map for this server. */
 	onToolsChange?: (tools: Record<string, ToolStatus>) => void;
+	/**
+	 * Draft update: seed a never-synced binding. Applied conditionally against
+	 * the latest state (only fills a still-null map), so parallel seeds from
+	 * sibling servers merge instead of clobbering each other.
+	 */
+	onSeedTools?: (tools: Record<string, ToolStatus>) => void;
 	/** Draft update: detach this server. */
 	onRemove?: () => void;
 }
@@ -31,6 +37,7 @@ export default function AgentMCPServer({
 	binding,
 	readOnly,
 	onToolsChange,
+	onSeedTools,
 	onRemove,
 }: AgentMCPServerProps) {
 	const [isExpanded, setIsExpanded] = useState(false);
@@ -78,6 +85,36 @@ export default function AgentMCPServer({
 		onToolsChange?.({ ...materializeTools(tools), [toolName]: status });
 	};
 
+	// Seed the draft's tool map the first time a connected server's tools become
+	// known, so a Save persists a complete map instead of null (= "never synced",
+	// which the backend treats as zero usable tools). Routed through onSeedTools,
+	// which fills only a still-null binding against the latest state — so parallel
+	// seeds from sibling servers merge and user edits are never clobbered.
+	const seedIfUnsynced = useCallback(
+		(fetchedTools: MCPServerTool[]) => {
+			if (readOnly) return;
+			onSeedTools?.(
+				Object.fromEntries(
+					fetchedTools.map((tool) => [
+						tool.name,
+						"always_allow" as ToolStatus,
+					]),
+				),
+			);
+		},
+		[readOnly, onSeedTools],
+	);
+
+	// Keep `fetchTools` stable (identity keyed only on server.id) so a sibling
+	// server's seed re-rendering the parent — which hands us a fresh inline
+	// onSeedTools each time — can't churn fetchTools' identity and retrigger the
+	// mount effect, restarting an in-flight fetch. The ref tracks the latest seed
+	// closure so behavior stays current without becoming a dependency.
+	const seedRef = useRef(seedIfUnsynced);
+	useEffect(() => {
+		seedRef.current = seedIfUnsynced;
+	}, [seedIfUnsynced]);
+
 	const fetchTools = useCallback(async () => {
 		setIsLoading(true);
 		try {
@@ -85,6 +122,7 @@ export default function AgentMCPServer({
 			const fetchedTools = res.data as MCPServerTool[];
 			setTools(fetchedTools);
 			setToolsFetched(true);
+			seedRef.current(fetchedTools);
 		} catch (error: unknown) {
 			// Check if this is an OAuth authorization required error
 			if (
@@ -125,17 +163,7 @@ export default function AgentMCPServer({
 							setTools(fetchedTools);
 							setToolsFetched(true);
 							setIsLoading(false);
-
-							if (!readOnly && binding.tools === null) {
-								onToolsChange?.(
-									Object.fromEntries(
-										fetchedTools.map((tool) => [
-											tool.name,
-											"always_allow" as ToolStatus,
-										]),
-									),
-								);
-							}
+							seedRef.current(fetchedTools);
 
 							if (popup && !popup.closed) {
 								popup.close();
@@ -162,7 +190,7 @@ export default function AgentMCPServer({
 		} finally {
 			setIsLoading(false);
 		}
-	}, [server.id, readOnly, binding.tools, onToolsChange]);
+	}, [server.id]);
 
 	const handleConnect = async () => {
 		await fetchTools();

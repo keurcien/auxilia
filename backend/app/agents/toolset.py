@@ -102,9 +102,7 @@ def _build_tool_ui_metadata(
     if not resource_uri:
         return None
 
-    server_name = _resolve_server_name_from_prefixed_tool_name(
-        tool.name, server_names
-    )
+    server_name = _resolve_server_name_from_prefixed_tool_name(tool.name, server_names)
     if not server_name:
         return None
 
@@ -161,7 +159,9 @@ def _assemble_agent_tools(
     server_names = list(server_id_by_name.keys())
     agent_tools: list[AgentTool] = []
     for server_id, lc_tools in tools_by_server:
-        settings = tool_settings.get(str(server_id), {})
+        # A null map means "never synced" — treat it as no configured tools
+        # rather than letting None.items() blow up the whole agent build.
+        settings = tool_settings.get(str(server_id)) or {}
         allowed_names = {
             server_id + "_" + t
             for t, status in settings.items()

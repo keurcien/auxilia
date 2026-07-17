@@ -261,7 +261,12 @@ export default function AgentEditor({
 					<AgentToolList
 						mcpServers={form.mcpServers}
 						hasCodeInterpreter={form.hasCodeInterpreter}
-						onMcpServersChange={(mcpServers) => { setField("mcpServers", mcpServers); }}
+						onMcpServersChange={(update) => {
+							setForm((prev) => ({
+								...prev,
+								mcpServers: update(prev.mcpServers),
+							}));
+						}}
 						onHasCodeInterpreterChange={(enabled) => { setField("hasCodeInterpreter", enabled); }}
 					/>
 					{isAdmin && (
