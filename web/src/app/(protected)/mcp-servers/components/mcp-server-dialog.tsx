@@ -101,6 +101,12 @@ export default function MCPServerDialog({
 	const [testMessage, setTestMessage] = useState<string | null>(null);
 	const testPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	const testTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	// Monotonic id so a test result from a superseded run (form changed mid-test)
+	// is ignored instead of overwriting the current state.
+	const testRunRef = useRef(0);
+	// Whether the admin has edited the Client ID, so the async detail fetch does
+	// not overwrite typed input with a (possibly slower) stale response.
+	const clientIdDirtyRef = useRef(false);
 
 	const clearTestPolling = () => {
 		if (testPollRef.current) {
@@ -115,6 +121,7 @@ export default function MCPServerDialog({
 
 	const resetTestState = () => {
 		clearTestPolling();
+		testRunRef.current++; // invalidate any in-flight test run
 		setTestStatus("idle");
 		setTestMessage(null);
 	};
@@ -172,12 +179,14 @@ export default function MCPServerDialog({
 		setShowSecret(false);
 		setHasStoredSecret(false);
 		setSecretHint(null);
+		clientIdDirtyRef.current = false;
 		// Reset test state inline (refs + stable setters) so the dependency array
 		// stays exhaustive without depending on resetTestState.
 		if (testPollRef.current) clearInterval(testPollRef.current);
 		if (testTimeoutRef.current) clearTimeout(testTimeoutRef.current);
 		testPollRef.current = null;
 		testTimeoutRef.current = null;
+		testRunRef.current++;
 		setTestStatus("idle");
 		setTestMessage(null);
 	}, [open, isEditMode, server]);
@@ -193,7 +202,10 @@ export default function MCPServerDialog({
 			try {
 				const res = await api.get(`/mcp-servers/${server.id}`, { signal });
 				const clientId = (res.data.oauthClientId as string | null) ?? "";
-				setForm((prev) => ({ ...prev, oauthClientId: clientId }));
+				// Don't clobber input the admin has already started editing.
+				if (!clientIdDirtyRef.current) {
+					setForm((prev) => ({ ...prev, oauthClientId: clientId }));
+				}
 				setHasStoredSecret(!!clientId);
 			} catch {
 				// Aborted, or fall back to whatever the list prop provided.
@@ -231,6 +243,7 @@ export default function MCPServerDialog({
 		value: string,
 	) => {
 		setForm((prev) => ({ ...prev, [field]: value }));
+		if (field === "oauthClientId") clientIdDirtyRef.current = true;
 		if (errors[field]) {
 			setErrors((prev) => {
 				const next = { ...prev };
@@ -289,6 +302,19 @@ export default function MCPServerDialog({
 		const newErrors: MCPServerCreateFormErrors = {};
 		if (!form.name.trim()) newErrors.name = "Name is required.";
 		if (!form.url.trim()) newErrors.url = "Server address is required.";
+		// Setting static OAuth credentials on a server without them requires both
+		// fields — one alone would be silently dropped by the backend.
+		if (server.authType === "oauth2" && !hasStoredSecret) {
+			const id = form.oauthClientId.trim();
+			const secret = form.oauthClientSecret.trim();
+			if (id && !secret) {
+				newErrors.oauthClientSecret =
+					"Client Secret is required when providing a Client ID.";
+			} else if (secret && !id) {
+				newErrors.oauthClientId =
+					"Client ID is required when providing a Client Secret.";
+			}
+		}
 		setErrors(newErrors);
 		if (Object.keys(newErrors).length > 0) return;
 
@@ -400,8 +426,6 @@ export default function MCPServerDialog({
 			setErrors((prev) => ({ ...prev, url: "Server address is required." }));
 			return;
 		}
-		setTestStatus("testing");
-		setTestMessage(null);
 
 		// OAuth is per-user and interactive, so it's tested against the saved
 		// server. An api_key edit with a blank field means "keep the stored key",
@@ -413,17 +437,38 @@ export default function MCPServerDialog({
 			(form.authType === "oauth2" ||
 				(form.authType === "api_key" && !form.apiKey.trim()));
 
+		// A saved OAuth server may require interactive authorization. Popups must
+		// be opened synchronously within the click to survive Safari/Firefox
+		// blockers, so open a blank one now and navigate (or close) it once the
+		// test result is known.
+		let popup: Window | null = null;
+		if (useSavedTest && server?.authType === "oauth2") {
+			popup = window.open("", "_blank", "width=600,height=700");
+			if (!popup) {
+				setTestStatus("error");
+				setTestMessage(
+					"Popup blocked. Please allow popups for this site and try again.",
+				);
+				return;
+			}
+		}
+
+		const runId = ++testRunRef.current;
+		const isStale = () => testRunRef.current !== runId;
+		setTestStatus("testing");
+		setTestMessage(null);
+
 		try {
 			if (useSavedTest && server) {
 				const { data } = await api.post<ConnectionTestResult>(
 					`/mcp-servers/${server.id}/test-connection`,
 				);
+				if (isStale()) {
+					popup?.close();
+					return;
+				}
 				if (data.oauthRequired && data.authUrl) {
-					const popup = window.open(
-						data.authUrl,
-						"_blank",
-						"width=600,height=700",
-					);
+					if (popup) popup.location.href = data.authUrl;
 					setTestMessage("Waiting for authentication...");
 					testPollRef.current = setInterval(() => {
 						void (async () => {
@@ -431,12 +476,17 @@ export default function MCPServerDialog({
 								const res = await api.get(
 									`/mcp-servers/${server.id}/is-connected`,
 								);
+								if (isStale()) {
+									clearTestPolling();
+									return;
+								}
 								if (res.data.connected) {
 									clearTestPolling();
 									if (popup && !popup.closed) popup.close();
 									const retry = await api.post<ConnectionTestResult>(
 										`/mcp-servers/${server.id}/test-connection`,
 									);
+									if (isStale()) return;
 									applyTestResult(retry.data);
 								}
 							} catch {
@@ -446,11 +496,14 @@ export default function MCPServerDialog({
 					}, 2000);
 					testTimeoutRef.current = setTimeout(() => {
 						clearTestPolling();
+						if (isStale()) return;
 						setTestStatus("error");
 						setTestMessage("Authentication timed out. Please try again.");
 					}, 60000);
 					return;
 				}
+				// No authorization needed — discard the pre-opened popup.
+				popup?.close();
 				applyTestResult(data);
 			} else {
 				const { data } = await api.post<ConnectionTestResult>(
@@ -464,9 +517,12 @@ export default function MCPServerDialog({
 								: undefined,
 					},
 				);
+				if (isStale()) return;
 				applyTestResult(data);
 			}
 		} catch (error) {
+			popup?.close();
+			if (isStale()) return;
 			setTestStatus("error");
 			setTestMessage(getApiErrorMessage(error, "Failed to test connection."));
 		}

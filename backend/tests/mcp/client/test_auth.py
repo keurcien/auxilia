@@ -270,6 +270,17 @@ def test_negotiate_falls_back_to_basic_when_only_basic():
     )
 
 
+def test_negotiate_raises_when_no_performable_method():
+    # Server offers only methods this client can't perform (e.g. private_key_jwt)
+    # -> raise instead of registering with a method that fails at token exchange.
+    from mcp.client.auth import OAuthFlowError
+
+    provider = _provider_no_creds()
+    provider.context.oauth_metadata = _asm_with_methods(["private_key_jwt"])
+    with pytest.raises(OAuthFlowError):
+        provider._negotiate_registration_auth_method()
+
+
 async def test_dcr_registers_public_client_for_none_only_server(monkeypatch):
     # End-to-end: the metadata actually sent to the registration endpoint must
     # carry "none" for a public-only server, not our client_secret_post default.

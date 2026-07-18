@@ -81,16 +81,27 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         """Return a non-reversible hint (last 4 chars + length) about the stored
         OAuth client secret. Requires decrypting the secret, so the endpoint that
         exposes this is admin-gated."""
+        await self.get_or_404(server_id)
         creds = await self.repository.get_oauth_credentials(server_id)
         if not creds:
             return OAuthSecretHint(is_set=False)
         secret = decrypt_value(creds.client_secret_encrypted)
-        return OAuthSecretHint(is_set=True, last4=secret[-4:], length=len(secret))
+        # Only reveal the last 4 for secrets long enough that it stays a small
+        # fraction of the value; short secrets return length only.
+        last4 = secret[-4:] if len(secret) >= 10 else None
+        return OAuthSecretHint(is_set=True, last4=last4, length=len(secret))
 
     async def list_responses(self) -> list[MCPServerResponse]:
         rows = await self.repository.list_with_oauth_client_id()
+        # Gate client_id on the current auth type (as to_response does): a server
+        # switched away from OAuth2 may still have a stale credentials row.
         return [
-            MCPServerResponse(**server.model_dump(), oauth_client_id=client_id)
+            MCPServerResponse(
+                **server.model_dump(),
+                oauth_client_id=(
+                    client_id if server.auth_type == MCPAuthType.oauth2 else None
+                ),
+            )
             for server, client_id in rows
         ]
 
@@ -103,9 +114,14 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         if data.api_key:
             await self.repository.create_or_update_api_key(server_id, data.api_key)
 
-        # Partial: editing client_id alone patches it while a blank secret keeps
-        # the stored one (client secret is write-only in the UI).
-        if data.oauth_client_id or data.oauth_client_secret:
+        # Partial: editing client_id (or the token-endpoint auth method) alone
+        # patches it while a blank secret keeps the stored one (the client secret
+        # is write-only in the UI).
+        if (
+            data.oauth_client_id
+            or data.oauth_client_secret
+            or data.oauth_token_endpoint_auth_method
+        ):
             await self.repository.update_oauth_credentials(
                 server_id,
                 client_id=data.oauth_client_id or None,

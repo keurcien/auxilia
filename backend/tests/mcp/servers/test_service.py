@@ -311,3 +311,48 @@ async def test_secret_hint_not_set_when_no_credentials(service, mock_repo):
     assert hint.is_set is False
     assert hint.last4 is None
     assert hint.length is None
+
+
+async def test_secret_hint_omits_last4_for_short_secret(
+    service, mock_repo, monkeypatch
+):
+    # Secrets shorter than 10 chars expose length only, never a suffix.
+    monkeypatch.setattr(service_module, "decrypt_value", lambda _: "short1")
+    mock_repo.get_oauth_credentials.return_value = SimpleNamespace(
+        client_secret_encrypted="enc"
+    )
+
+    hint = await service.get_oauth_secret_hint(uuid4())
+
+    assert hint.is_set is True
+    assert hint.last4 is None
+    assert hint.length == len("short1")
+
+
+async def test_secret_hint_404_for_missing_server(service, mock_repo):
+    from app.exceptions import NotFoundError
+
+    mock_repo.get.return_value = None  # get_or_404 -> NotFoundError
+
+    with pytest.raises(NotFoundError):
+        await service.get_oauth_secret_hint(uuid4())
+
+
+async def test_update_persists_auth_method_only(service, mock_repo):
+    from app.mcp.servers.schemas import MCPServerPatch
+
+    server = make_mcp_server()
+    server.auth_type = MCPAuthType.oauth2
+    mock_repo.get.return_value = server
+    mock_repo.update.return_value = server
+
+    await service.update(
+        server.id,
+        MCPServerPatch(oauth_token_endpoint_auth_method="client_secret_basic"),
+    )
+
+    mock_repo.update_oauth_credentials.assert_awaited_once()
+    assert (
+        mock_repo.update_oauth_credentials.await_args.kwargs["auth_method"]
+        == "client_secret_basic"
+    )

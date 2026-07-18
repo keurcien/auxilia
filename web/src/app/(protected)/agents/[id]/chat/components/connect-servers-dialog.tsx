@@ -89,6 +89,12 @@ export function ConnectServersDialog({
 			) {
 				const authUrl = error.response.data.auth_url as string;
 				const popup = window.open(authUrl, "_blank", "width=600,height=700");
+				if (!popup) {
+					// Popup blocked: tell the user instead of silently timing out.
+					console.error("Popup blocked for", server.name);
+					setConnectingId(null);
+					return;
+				}
 
 				// Poll is-connected until connected
 				const poll = async () => {

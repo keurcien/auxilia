@@ -204,9 +204,10 @@ class WebOAuthClientProvider(OAuthClientProvider):
         advertises ``token_endpoint_auth_methods_supported: ["none"]`` — rejects
         that default with ``invalid_client_metadata``. When our default isn't
         offered, prefer ``none`` (public client + PKCE, correct for a DCR client
-        with no static secret), then ``client_secret_basic``, else the server's
-        first advertised method. Servers that don't advertise the field keep our
-        default.
+        with no static secret), then ``client_secret_basic``. If the server
+        advertises none of the methods this client can perform, raise rather than
+        registering with a method we can't honour (which would only fail later at
+        token exchange). Servers that don't advertise the field keep our default.
         """
         supported = self.context.oauth_metadata.token_endpoint_auth_methods_supported
         if not supported:
@@ -219,7 +220,10 @@ class WebOAuthClientProvider(OAuthClientProvider):
                 self.context.client_metadata.token_endpoint_auth_method = preferred
                 break
         else:
-            self.context.client_metadata.token_endpoint_auth_method = supported[0]
+            raise OAuthFlowError(
+                "MCP server supports no client-authentication method this client "
+                f"can use (advertised: {supported})"
+            )
         logger.debug(
             "Negotiated client auth method %s -> %s for %s",
             current,

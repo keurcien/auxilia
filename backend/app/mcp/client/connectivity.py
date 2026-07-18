@@ -137,6 +137,10 @@ async def _open_session(
             try:
                 tools = await _list_all_tools(session)
                 yield session, tools
+            except OAuthAuthorizationRequired:
+                # Let the caller (e.g. test_connection) translate this into an
+                # oauth_required result instead of a generic DomainError.
+                raise
             except Exception as e:
                 raise DomainError(str(e)) from e
 
@@ -265,6 +269,12 @@ async def test_connection(
                 tool_count=len(tools),
                 tool_names=[tool.name for tool in tools],
             )
+    except OAuthAuthorizationRequired as e:
+        # e.g. a revoked-but-unexpired token: surface as re-authorization needed
+        # so the caller can restart the OAuth flow rather than see a raw error.
+        return ConnectionTestResult(
+            reachable=False, oauth_required=True, auth_url=e.url
+        )
     except Exception as e:
         return ConnectionTestResult(reachable=False, error=str(e))
 
@@ -283,6 +293,15 @@ async def probe_candidate(
         return ConnectionTestResult(
             reachable=False,
             error="OAuth servers must be saved first, then authenticated and tested.",
+        )
+
+    if auth_type == MCPAuthType.api_key and not api_key:
+        # Without the key we'd do an anonymous handshake, which could report
+        # success for a server that accepts unauthenticated requests — a config
+        # that saving would then reject.
+        return ConnectionTestResult(
+            reachable=False,
+            error="An API key is required to test this server.",
         )
 
     headers = (
