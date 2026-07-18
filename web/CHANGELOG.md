@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.20](https://github.com/keurcien/auxilia/compare/web-v0.5.19...web-v0.5.20) (2026-07-18)
+
+
+### Features
+
+* **mcp:** connection testing, credential management, R2 icon CDN, and new official servers ([#224](https://github.com/keurcien/auxilia/issues/224)) ([c7e48e8](https://github.com/keurcien/auxilia/commit/c7e48e8254263858b3a9654c17b61f5e9b2ebb2f))
+
 ## [0.5.19](https://github.com/keurcien/auxilia/compare/web-v0.5.18...web-v0.5.19) (2026-07-17)
 
 
