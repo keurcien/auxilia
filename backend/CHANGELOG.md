@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.26](https://github.com/keurcien/auxilia/compare/backend-v0.4.25...backend-v0.4.26) (2026-07-18)
+
+
+### Features
+
+* **mcp:** connection testing, credential management, R2 icon CDN, and new official servers ([#224](https://github.com/keurcien/auxilia/issues/224)) ([c7e48e8](https://github.com/keurcien/auxilia/commit/c7e48e8254263858b3a9654c17b61f5e9b2ebb2f))
+
 ## [0.4.25](https://github.com/keurcien/auxilia/compare/backend-v0.4.24...backend-v0.4.25) (2026-07-17)
 
 
