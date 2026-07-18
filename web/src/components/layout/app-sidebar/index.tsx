@@ -288,7 +288,7 @@ export function AppSidebar() {
 													)}
 													{thread.source === "slack" && (
 														<Image
-															src="https://storage.googleapis.com/choose-assets/slack.png"
+															src="https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/slack.png"
 															alt="Slack"
 															height={16}
 															width={16}

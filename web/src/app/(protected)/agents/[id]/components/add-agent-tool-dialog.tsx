@@ -40,7 +40,7 @@ function AvailableMCPServerCard({ server, onAdd }: AvailableMCPServerCardProps) 
 				unoptimized
 				src={
 					server.iconUrl ??
-					"https://storage.googleapis.com/choose-assets/mcp.png"
+					"https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/mcp.png"
 				}
 				alt={server.name}
 				width={24}
@@ -84,7 +84,7 @@ function BuiltInCapabilities({
 					<Image
 						width={36}
 						height={36}
-						src="https://storage.googleapis.com/choose-assets/terminal.png"
+						src="https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/terminal.png"
 						alt="Code execution"
 						className="object-cover"
 					/>

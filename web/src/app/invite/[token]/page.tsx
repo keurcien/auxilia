@@ -82,7 +82,7 @@ export default function InviteAcceptPage({
 				<CardHeader className="text-center flex flex-col items-center">
 					<CardTitle className="text-2xl flex flex-col items-center justify-center">
 						<Image
-							src="https://storage.googleapis.com/choose-assets/logo.png"
+							src="https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/logo.png"
 							alt="auxilia"
 							width={48}
 							height={48}
@@ -99,7 +99,7 @@ export default function InviteAcceptPage({
 				<CardFooter>
 					<Button
 						className="w-full cursor-pointer"
-						onClick={() => router.push("/auth")}
+						onClick={() => { router.push("/auth"); }}
 					>
 						Go to sign in
 					</Button>
@@ -113,7 +113,7 @@ export default function InviteAcceptPage({
 			<CardHeader className="text-center flex flex-col items-center">
 				<CardTitle className="text-2xl flex flex-col items-center justify-center">
 					<Image
-						src="https://storage.googleapis.com/choose-assets/logo.png"
+						src="https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/logo.png"
 						alt="auxilia"
 						width={48}
 						height={48}
@@ -127,7 +127,7 @@ export default function InviteAcceptPage({
 			</CardHeader>
 
 			{inviteInfo?.passwordEnabled && (
-				<form onSubmit={handleSubmit}>
+				<form onSubmit={(e) => { void handleSubmit(e); }}>
 					<CardContent className="space-y-4">
 						{error && (
 							<div className="p-3 text-sm text-destructive bg-destructive/10 rounded-md">
@@ -153,7 +153,7 @@ export default function InviteAcceptPage({
 								type="text"
 								placeholder="John Doe"
 								value={name}
-								onChange={(e) => setName(e.target.value)}
+								onChange={(e) => { setName(e.target.value); }}
 							/>
 						</div>
 
@@ -164,7 +164,7 @@ export default function InviteAcceptPage({
 								type="password"
 								placeholder="••••••••"
 								value={password}
-								onChange={(e) => setPassword(e.target.value)}
+								onChange={(e) => { setPassword(e.target.value); }}
 								required
 							/>
 							<div className="h-5">

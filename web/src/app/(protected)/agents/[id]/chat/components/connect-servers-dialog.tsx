@@ -58,6 +58,8 @@ export function ConnectServersDialog({
 		if (!open) {
 			if (pollRef.current) clearInterval(pollRef.current);
 			if (timeoutRef.current) clearTimeout(timeoutRef.current);
+			// Resetting on close is intentional and safe here.
+			// eslint-disable-next-line react-hooks/set-state-in-effect
 			setConnectingId(null);
 		}
 	}, [open]);
@@ -87,12 +89,18 @@ export function ConnectServersDialog({
 			) {
 				const authUrl = error.response.data.auth_url as string;
 				const popup = window.open(authUrl, "_blank", "width=600,height=700");
+				if (!popup) {
+					// Popup blocked: tell the user instead of silently timing out.
+					console.error("Popup blocked for", server.name);
+					setConnectingId(null);
+					return;
+				}
 
-				// Poll is-connected-v2 until connected
-				pollRef.current = setInterval(async () => {
+				// Poll is-connected until connected
+				const poll = async () => {
 					try {
 						const res = await api.get(
-							`/mcp-servers/${server.id}/is-connected-v2`,
+							`/mcp-servers/${server.id}/is-connected`,
 						);
 						if (res.data.connected) {
 							if (pollRef.current) clearInterval(pollRef.current);
@@ -108,6 +116,9 @@ export function ConnectServersDialog({
 					} catch {
 						// continue polling
 					}
+				};
+				pollRef.current = setInterval(() => {
+					void poll();
 				}, 2000);
 
 				// Timeout after 60s
@@ -162,7 +173,7 @@ export function ConnectServersDialog({
 										height={32}
 										src={
 											server.iconUrl ??
-											"https://storage.googleapis.com/choose-assets/mcp.png"
+											"https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/mcp.png"
 										}
 										alt={server.name}
 										className="object-cover"
@@ -185,7 +196,7 @@ export function ConnectServersDialog({
 
 				{currentServer && (
 					<button
-						onClick={() => handleConnect(currentServer)}
+						onClick={() => { void handleConnect(currentServer); }}
 						disabled={connectingId !== null}
 						className="w-full mt-2 px-5 py-3 bg-black text-white text-sm font-medium rounded-xl hover:bg-gray-800 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
 					>

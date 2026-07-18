@@ -28,6 +28,22 @@ class MCPServerRepository(BaseRepository[MCPServerDB]):
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
+    async def list_with_oauth_client_id(
+        self,
+    ) -> list[tuple[MCPServerDB, str | None]]:
+        """List servers alongside their static OAuth client_id (None for DCR /
+        non-OAuth servers), via a single LEFT JOIN to avoid an N+1."""
+        stmt = (
+            select(MCPServerDB, MCPServerOAuthCredentialsDB.client_id)
+            .outerjoin(
+                MCPServerOAuthCredentialsDB,
+                MCPServerOAuthCredentialsDB.mcp_server_id == MCPServerDB.id,
+            )
+            .order_by(MCPServerDB.created_at.asc())
+        )
+        result = await self.db.execute(stmt)
+        return result.all()
+
     async def get_by_url(self, url: str) -> MCPServerDB | None:
         stmt = select(MCPServerDB).where(MCPServerDB.url == url)
         result = await self.db.execute(stmt)
@@ -68,7 +84,9 @@ class MCPServerRepository(BaseRepository[MCPServerDB]):
             )
         await self.db.flush()
 
-    async def get_oauth_credentials(self, server_id: UUID) -> MCPServerOAuthCredentialsDB | None:
+    async def get_oauth_credentials(
+        self, server_id: UUID
+    ) -> MCPServerOAuthCredentialsDB | None:
         stmt = select(MCPServerOAuthCredentialsDB).where(
             MCPServerOAuthCredentialsDB.mcp_server_id == server_id
         )
@@ -98,6 +116,36 @@ class MCPServerRepository(BaseRepository[MCPServerDB]):
                     created_by=None,
                 )
             )
+        await self.db.flush()
+
+    async def update_oauth_credentials(
+        self,
+        server_id: UUID,
+        *,
+        client_id: str | None = None,
+        client_secret: str | None = None,
+        auth_method: str | None = None,
+    ) -> None:
+        """Patch stored OAuth credentials: only provided fields change, so a
+        blank client_secret keeps the existing one while client_id is edited.
+
+        When no credentials exist yet, fresh ones are created only if BOTH
+        client_id and client_secret are supplied (a secret can't be omitted at
+        creation time); otherwise this is a no-op.
+        """
+        creds = await self.get_oauth_credentials(server_id)
+        if not creds:
+            if client_id and client_secret:
+                await self.create_or_update_oauth_credentials(
+                    server_id, client_id, client_secret, auth_method
+                )
+            return
+        if client_id is not None:
+            creds.client_id = client_id
+        if client_secret is not None:
+            creds.client_secret_encrypted = encrypt_api_key(client_secret)
+        if auth_method is not None:
+            creds.token_endpoint_auth_method = auth_method
         await self.db.flush()
 
     async def list_official(self) -> list[tuple[OfficialMCPServerDB, bool]]:

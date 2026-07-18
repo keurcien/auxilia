@@ -29,8 +29,8 @@ from app.agents.schemas import (
 from app.agents.subagents.service import SubagentService
 from app.database import get_db
 from app.exceptions import NotFoundError, PermissionDeniedError
+from app.mcp.client.connectivity import is_authorized
 from app.mcp.servers.models import MCPServerDB
-from app.mcp.utils import probe_mcp_server
 from app.service import BaseService
 from app.tags.service import TagService
 from app.threads.service import ThreadService
@@ -420,7 +420,7 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
 
         disconnected: list[str] = []
         for server in servers:
-            if not await probe_mcp_server(server, user_id):
+            if not await is_authorized(server, user_id):
                 disconnected.append(str(server.id))
 
         return {

@@ -1,9 +1,8 @@
-"""Tests for the shared OAuth-provider construction in app/mcp/servers/service.py.
+"""Tests for the shared OAuth-provider construction in app/mcp/client/connectivity.py.
 
-`_build_oauth_provider` is the single place that turns an OAuth2 MCP server into
-a WebOAuthClientProvider (loading + decrypting static credentials); the three
-former copies (handle_oauth_callback / initiate_oauth / connect_to_server) now
-route through it.
+`build_oauth_provider` is the single place that turns an OAuth2 MCP server into
+a WebOAuthClientProvider (loading + decrypting static credentials); every other
+path (handshake / callback / authorization / refresh) routes through it.
 """
 
 from __future__ import annotations
@@ -16,10 +15,12 @@ import pytest
 from mcp.shared.auth import OAuthClientInformationFull
 
 from app.exceptions import AlreadyExistsError, DomainValidationError
+from app.mcp.client import connectivity as connectivity_module
+from app.mcp.client.connectivity import build_oauth_provider
 from app.mcp.servers import service as service_module
 from app.mcp.servers.models import MCPAuthType
 from app.mcp.servers.schemas import MCPServerCreate
-from app.mcp.servers.service import MCPServerService, _build_oauth_provider
+from app.mcp.servers.service import MCPServerService
 
 
 def _repo_with_credentials(**overrides):
@@ -41,10 +42,12 @@ def _repo_without_credentials():
 
 
 async def test_build_oauth_provider_loads_static_credentials(monkeypatch):
-    monkeypatch.setattr(service_module, "decrypt_api_key", lambda _: "decrypted-secret")
+    monkeypatch.setattr(
+        connectivity_module, "decrypt_api_key", lambda _: "decrypted-secret"
+    )
     server = SimpleNamespace(id="s1", url="https://mcp.example.com/mcp")
 
-    provider = await _build_oauth_provider(
+    provider = await build_oauth_provider(
         server,
         MagicMock(),
         _repo_with_credentials(token_endpoint_auth_method="client_secret_basic"),
@@ -61,7 +64,7 @@ async def test_build_oauth_provider_loads_static_credentials(monkeypatch):
 async def test_build_oauth_provider_without_credentials_defers_to_dcr():
     server = SimpleNamespace(id="s1", url="https://mcp.notion.com/mcp")
 
-    provider = await _build_oauth_provider(
+    provider = await build_oauth_provider(
         server, MagicMock(), _repo_without_credentials()
     )
 
@@ -76,12 +79,14 @@ async def test_build_oauth_provider_without_credentials_defers_to_dcr():
 
 
 async def test_persist_client_info_writes_when_credentials_present(monkeypatch):
-    monkeypatch.setattr(service_module, "decrypt_api_key", lambda _: "decrypted-secret")
+    monkeypatch.setattr(
+        connectivity_module, "decrypt_api_key", lambda _: "decrypted-secret"
+    )
     storage = MagicMock()
     storage.set_client_info = AsyncMock()
     server = SimpleNamespace(id="s1", url="https://mcp.example.com/mcp")
 
-    provider = await _build_oauth_provider(server, storage, _repo_with_credentials())
+    provider = await build_oauth_provider(server, storage, _repo_with_credentials())
     await provider.persist_client_info()
 
     storage.set_client_info.assert_awaited_once()
@@ -96,7 +101,7 @@ async def test_persist_client_info_noop_without_credentials():
     storage.set_client_info = AsyncMock()
     server = SimpleNamespace(id="s1", url="https://mcp.notion.com/mcp")
 
-    provider = await _build_oauth_provider(server, storage, _repo_without_credentials())
+    provider = await build_oauth_provider(server, storage, _repo_without_credentials())
     await provider.persist_client_info()
 
     storage.set_client_info.assert_not_awaited()
@@ -121,9 +126,13 @@ def mock_db():
 def mock_repo():
     repo = MagicMock()
     repo.get_by_url = AsyncMock()
+    repo.get = AsyncMock()
     repo.create = AsyncMock()
+    repo.update = AsyncMock()
     repo.create_or_update_api_key = AsyncMock()
     repo.create_or_update_oauth_credentials = AsyncMock()
+    repo.update_oauth_credentials = AsyncMock()
+    repo.get_oauth_credentials = AsyncMock()
     return repo
 
 
@@ -196,3 +205,154 @@ async def test_create_still_validates_api_key_for_new_url(service, mock_repo):
         await service.create(data)
 
     mock_repo.create.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# update — partial OAuth credentials
+# ---------------------------------------------------------------------------
+
+
+async def test_update_patches_client_id_without_secret(service, mock_repo):
+    # Editing the client_id while leaving the secret blank must patch client_id
+    # and pass client_secret=None so the stored secret is kept.
+    from app.mcp.servers.schemas import MCPServerPatch
+
+    server = make_mcp_server()
+    server.auth_type = MCPAuthType.oauth2
+    mock_repo.get.return_value = server
+    mock_repo.update.return_value = server
+
+    await service.update(server.id, MCPServerPatch(oauth_client_id="new-client-id"))
+
+    mock_repo.update_oauth_credentials.assert_awaited_once()
+    kwargs = mock_repo.update_oauth_credentials.await_args.kwargs
+    assert kwargs["client_id"] == "new-client-id"
+    assert kwargs["client_secret"] is None
+
+
+async def test_update_skips_oauth_when_no_credential_fields(service, mock_repo):
+    from app.mcp.servers.schemas import MCPServerPatch
+
+    server = make_mcp_server()
+    server.auth_type = MCPAuthType.oauth2
+    mock_repo.get.return_value = server
+    mock_repo.update.return_value = server
+
+    await service.update(server.id, MCPServerPatch(name="Renamed"))
+
+    mock_repo.update_oauth_credentials.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# to_response — exposes client_id, never the secret
+# ---------------------------------------------------------------------------
+
+
+def _server_db(auth_type):
+    from datetime import UTC, datetime
+
+    from app.mcp.servers.models import MCPServerDB
+
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    return MCPServerDB(
+        name="srv",
+        url="https://mcp.example.com/mcp",
+        auth_type=auth_type,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+async def test_to_response_includes_oauth_client_id(service, mock_repo):
+    server = _server_db(MCPAuthType.oauth2)
+    mock_repo.get_oauth_credentials.return_value = SimpleNamespace(client_id="cid-123")
+
+    response = await service.to_response(server)
+
+    assert response.oauth_client_id == "cid-123"
+    # The secret is never part of the response shape.
+    assert not hasattr(response, "oauth_client_secret")
+
+
+async def test_to_response_omits_client_id_for_non_oauth(service, mock_repo):
+    server = _server_db(MCPAuthType.none)
+
+    response = await service.to_response(server)
+
+    assert response.oauth_client_id is None
+    mock_repo.get_oauth_credentials.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# get_oauth_secret_hint — last4 + length, never the full secret
+# ---------------------------------------------------------------------------
+
+
+async def test_secret_hint_returns_last4_and_length(service, mock_repo, monkeypatch):
+    monkeypatch.setattr(
+        service_module, "decrypt_value", lambda _: "supersecretvalue1234"
+    )
+    mock_repo.get_oauth_credentials.return_value = SimpleNamespace(
+        client_secret_encrypted="enc"
+    )
+
+    hint = await service.get_oauth_secret_hint(uuid4())
+
+    assert hint.is_set is True
+    assert hint.last4 == "1234"
+    assert hint.length == len("supersecretvalue1234")
+
+
+async def test_secret_hint_not_set_when_no_credentials(service, mock_repo):
+    mock_repo.get_oauth_credentials.return_value = None
+
+    hint = await service.get_oauth_secret_hint(uuid4())
+
+    assert hint.is_set is False
+    assert hint.last4 is None
+    assert hint.length is None
+
+
+async def test_secret_hint_omits_last4_for_short_secret(
+    service, mock_repo, monkeypatch
+):
+    # Secrets shorter than 10 chars expose length only, never a suffix.
+    monkeypatch.setattr(service_module, "decrypt_value", lambda _: "short1")
+    mock_repo.get_oauth_credentials.return_value = SimpleNamespace(
+        client_secret_encrypted="enc"
+    )
+
+    hint = await service.get_oauth_secret_hint(uuid4())
+
+    assert hint.is_set is True
+    assert hint.last4 is None
+    assert hint.length == len("short1")
+
+
+async def test_secret_hint_404_for_missing_server(service, mock_repo):
+    from app.exceptions import NotFoundError
+
+    mock_repo.get.return_value = None  # get_or_404 -> NotFoundError
+
+    with pytest.raises(NotFoundError):
+        await service.get_oauth_secret_hint(uuid4())
+
+
+async def test_update_persists_auth_method_only(service, mock_repo):
+    from app.mcp.servers.schemas import MCPServerPatch
+
+    server = make_mcp_server()
+    server.auth_type = MCPAuthType.oauth2
+    mock_repo.get.return_value = server
+    mock_repo.update.return_value = server
+
+    await service.update(
+        server.id,
+        MCPServerPatch(oauth_token_endpoint_auth_method="client_secret_basic"),
+    )
+
+    mock_repo.update_oauth_credentials.assert_awaited_once()
+    assert (
+        mock_repo.update_oauth_credentials.await_args.kwargs["auth_method"]
+        == "client_secret_basic"
+    )

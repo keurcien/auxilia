@@ -1,4 +1,4 @@
-"""Tests for tools/list pagination in app/mcp/servers/service.py.
+"""Tests for tools/list pagination in app/mcp/client/connectivity.py.
 
 `_list_all_tools` must not hang on a misbehaving server: a repeated or cyclic
 `nextCursor` is detected, and a runaway page count is capped.
@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 
 from app.exceptions import DomainError
-from app.mcp.servers import service
+from app.mcp.client import connectivity as service
 
 
 class _Resp:

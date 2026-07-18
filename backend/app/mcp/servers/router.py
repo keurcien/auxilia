@@ -6,15 +6,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user, require_admin
 from app.database import get_db
-from app.mcp.client.connectivity import (
-    probe_connectivity,
-    probe_connectivity_with_refresh,
-)
+from app.mcp.client.connectivity import is_authorized, probe_candidate, test_connection
 from app.mcp.servers.models import MCPServerDB
 from app.mcp.servers.schemas import (
+    ConnectionProbeRequest,
+    ConnectionTestResult,
     MCPServerCreate,
     MCPServerPatch,
     MCPServerResponse,
+    OAuthSecretHint,
     OfficialMCPServerResponse,
 )
 from app.mcp.servers.service import MCPServerService, get_mcp_server_service
@@ -37,7 +37,8 @@ async def create_mcp_server(
     _current_user: UserDB = Depends(require_admin),
     service: MCPServerService = Depends(get_mcp_server_service),
 ) -> MCPServerResponse:
-    return await service.create(server)
+    created = await service.create(server)
+    return await service.to_response(created)
 
 
 @router.get("/", response_model=list[MCPServerResponse])
@@ -45,7 +46,7 @@ async def get_mcp_servers(
     _current_user: UserDB = Depends(get_current_user),
     service: MCPServerService = Depends(get_mcp_server_service),
 ) -> list[MCPServerResponse]:
-    return await service.list()
+    return await service.list_responses()
 
 
 @router.get("/official", response_model=list[OfficialMCPServerResponse])
@@ -62,7 +63,8 @@ async def get_mcp_server(
     _current_user: UserDB = Depends(get_current_user),
     service: MCPServerService = Depends(get_mcp_server_service),
 ) -> MCPServerResponse:
-    return await service.get(server_id)
+    server = await service.get(server_id)
+    return await service.to_response(server)
 
 
 @router.patch("/{server_id}", response_model=MCPServerResponse)
@@ -72,7 +74,20 @@ async def update_mcp_server(
     _current_user: UserDB = Depends(require_admin),
     service: MCPServerService = Depends(get_mcp_server_service),
 ) -> MCPServerResponse:
-    return await service.update(server_id, server_update)
+    updated = await service.update(server_id, server_update)
+    return await service.to_response(updated)
+
+
+@router.get("/{server_id}/oauth-secret-hint", response_model=OAuthSecretHint)
+async def get_oauth_secret_hint(
+    server_id: UUID,
+    _current_user: UserDB = Depends(require_admin),
+    service: MCPServerService = Depends(get_mcp_server_service),
+) -> OAuthSecretHint:
+    """Admin-only: a non-reversible hint (last 4 chars + length) about the
+    stored OAuth client secret, so an admin editing the server can confirm which
+    secret is set. The full secret is never returned."""
+    return await service.get_oauth_secret_hint(server_id)
 
 
 @router.delete("/{server_id}", status_code=204)
@@ -124,19 +139,47 @@ async def list_tools(
 
 @router.get("/{server_id}/is-connected")
 async def is_connected(
+    refresh: bool = Query(
+        True, description="Attempt a token refresh when the stored token is expired"
+    ),
     mcp_server: MCPServerDB = Depends(get_mcp_server_dependency),
     current_user: UserDB = Depends(get_current_user),
 ):
-    connected = await probe_connectivity(mcp_server, str(current_user.id))
+    """Whether the current user holds a usable credential for the server.
+
+    OAuth servers count as connected when a token exists; with ``refresh=true``
+    (the default) an expired-but-refreshable token is refreshed first. This is a
+    credential check, not a handshake — use ``/test-connection`` to probe the
+    server itself.
+    """
+    connected = await is_authorized(mcp_server, str(current_user.id), refresh=refresh)
     return {"connected": connected}
 
 
-@router.get("/{server_id}/is-connected-v2")
-async def is_connected_v2(
-    mcp_server: MCPServerDB = Depends(get_mcp_server_dependency),
-    current_user: UserDB = Depends(get_current_user),
-):
-    connected = await probe_connectivity_with_refresh(
-        mcp_server, str(current_user.id)
+@router.post("/test-connection", response_model=ConnectionTestResult)
+async def test_connection_candidate(
+    payload: ConnectionProbeRequest,
+    _current_user: UserDB = Depends(require_admin),
+) -> ConnectionTestResult:
+    """Test candidate credentials without saving (create/edit form).
+
+    Performs a real MCP handshake for ``none``/``api_key`` servers; OAuth can't
+    be validated before saving (it is per-user and interactive).
+    """
+    return await probe_candidate(
+        payload.url, payload.auth_type, api_key=payload.api_key
     )
-    return {"connected": connected}
+
+
+@router.post("/{server_id}/test-connection", response_model=ConnectionTestResult)
+async def test_saved_connection(
+    mcp_server: MCPServerDB = Depends(get_mcp_server_dependency),
+    current_user: UserDB = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ConnectionTestResult:
+    """Test connectivity to a saved server as the current user.
+
+    Returns discovered tools on success; an unauthorized OAuth server is
+    reported as ``oauth_required`` with the ``auth_url`` to open, not a 401.
+    """
+    return await test_connection(mcp_server, str(current_user.id), db)

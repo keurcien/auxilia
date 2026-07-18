@@ -145,7 +145,7 @@ export default function AgentMCPServer({
 				const poll = async () => {
 					try {
 						const statusRes = await api.get(
-							`/mcp-servers/${server.id}/is-connected-v2`,
+							`/mcp-servers/${server.id}/is-connected`,
 						);
 						const statusData = statusRes.data;
 
@@ -199,7 +199,7 @@ export default function AgentMCPServer({
 	useEffect(() => {
 		setIsCheckingConnection(true);
 		api
-			.get(`/mcp-servers/${server.id}/is-connected-v2`)
+			.get(`/mcp-servers/${server.id}/is-connected`)
 			.then((res) => {
 				setIsConnected(res.data.connected);
 			})
@@ -229,7 +229,7 @@ export default function AgentMCPServer({
 						height={24}
 						src={
 							server.iconUrl ??
-							"https://storage.googleapis.com/choose-assets/mcp.png"
+							"https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/mcp.png"
 						}
 						alt={server.name}
 						className="object-cover"

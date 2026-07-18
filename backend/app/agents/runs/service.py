@@ -112,15 +112,15 @@ class RunService:
         (provider down, no metadata), the run launches and the failure surfaces
         in-thread as before — only a confirmed-unauthorized server blocks.
         """
-        # Local imports avoid an import cycle (runs.service is imported early
-        # by the worker/reaper; AgentService/MCPServerService pull in far more).
+        # Local imports avoid an import cycle (runs.service is imported early by
+        # the worker/reaper; AgentService and the MCP connectivity layer pull in
+        # far more).
         from sqlmodel import select
 
         from app.agents.core.service import AgentService
+        from app.mcp.client.connectivity import initiate_oauth, is_authorized
         from app.mcp.client.exceptions import OAuthAuthorizationRequired
         from app.mcp.servers.models import MCPAuthType, MCPServerDB
-        from app.mcp.servers.service import MCPServerService
-        from app.mcp.utils import probe_mcp_server
 
         bindings = await AgentService(db).collect_run_bindings(agent_id)
         if not bindings:
@@ -141,10 +141,10 @@ class RunService:
 
         for server in servers:
             try:
-                if not await probe_mcp_server(server, user_id):
+                if not await is_authorized(server, user_id):
                     # Raises OAuthAuthorizationRequired(auth_url) for the first
                     # unauthorized server; the caller connects it and retries.
-                    await MCPServerService(db).initiate_oauth(server, user_id)
+                    await initiate_oauth(server, user_id, db)
             except OAuthAuthorizationRequired:
                 raise
             except Exception:

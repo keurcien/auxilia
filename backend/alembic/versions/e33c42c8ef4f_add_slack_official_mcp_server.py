@@ -27,7 +27,7 @@ def upgrade() -> None:
                 'Slack',
                 'https://mcp.slack.com/mcp',
                 'oauth2',
-                'https://storage.googleapis.com/choose-assets/slack.png',
+                'https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/slack.png',
                 'The Slack MCP server provides tools for searching through Slack, retrieving and sending messages, managing canvases, and managing users. Each of these tools provides useful functionality for interacting with Slack; combine them for comprehensive integrations that grasp your team''s context and history.',
                 false
             )
