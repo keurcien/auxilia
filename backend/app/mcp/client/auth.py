@@ -207,9 +207,13 @@ class WebOAuthClientProvider(OAuthClientProvider):
         with no static secret), then ``client_secret_basic``. If the server
         advertises none of the methods this client can perform, raise rather than
         registering with a method we can't honour (which would only fail later at
-        token exchange). Servers that don't advertise the field keep our default.
+        token exchange). Servers that don't advertise the field — or for which no
+        AS metadata was discovered at all — keep our default.
         """
-        supported = self.context.oauth_metadata.token_endpoint_auth_methods_supported
+        metadata = self.context.oauth_metadata
+        if metadata is None:
+            return
+        supported = metadata.token_endpoint_auth_methods_supported
         if not supported:
             return
         current = self.context.client_metadata.token_endpoint_auth_method
@@ -268,9 +272,26 @@ class WebOAuthClientProvider(OAuthClientProvider):
                     break
 
             # Step 2: Authorization Server Metadata (RFC 8414 / OIDC fallbacks).
-            for url in build_oauth_authorization_server_metadata_discovery_urls(
+            #
+            # When PRM discovery found no authorization server (auth_server_url is
+            # None), the SDK helper only probes the *root*
+            # /.well-known/oauth-authorization-server. That misses servers that
+            # publish no RFC 9728 PRM yet host their metadata under the MCP path
+            # — e.g. TikTok serves OIDC discovery at
+            # {server_path}/.well-known/openid-configuration and no PRM at all.
+            # Fall back to path-aware discovery derived from the MCP server URL
+            # so those servers are still found; keep the root URL first so
+            # conformant legacy servers (metadata at the origin root) are
+            # unaffected.
+            discovery_urls = build_oauth_authorization_server_metadata_discovery_urls(
                 self.context.auth_server_url, self.context.server_url
-            ):
+            )
+            if not self.context.auth_server_url:
+                path_aware = build_oauth_authorization_server_metadata_discovery_urls(
+                    str(self.context.server_url), self.context.server_url
+                )
+                discovery_urls = list(dict.fromkeys([*discovery_urls, *path_aware]))
+            for url in discovery_urls:
                 response = await client.send(create_oauth_metadata_request(url))
                 ok, asm = await handle_auth_metadata_response(response)
                 if ok and asm:
