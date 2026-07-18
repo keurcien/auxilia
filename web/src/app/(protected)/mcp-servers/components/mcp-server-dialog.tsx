@@ -54,6 +54,19 @@ interface MCPServerDialogProps {
 	server?: MCPServer | null;
 }
 
+// Only navigate a popup to http(s) URLs — reject javascript:/data: and other
+// schemes so a malformed/hostile authorize URL can't execute script.
+function toHttpUrl(value: string): string | null {
+	try {
+		const url = new URL(value);
+		return url.protocol === "https:" || url.protocol === "http:"
+			? url.href
+			: null;
+	} catch {
+		return null;
+	}
+}
+
 const emptyForm: MCPServerCreateFormValues = {
 	name: "",
 	url: "",
@@ -468,7 +481,14 @@ export default function MCPServerDialog({
 					return;
 				}
 				if (data.oauthRequired && data.authUrl) {
-					if (popup) popup.location.href = data.authUrl;
+					const safeAuthUrl = toHttpUrl(data.authUrl);
+					if (!safeAuthUrl) {
+						popup?.close();
+						setTestStatus("error");
+						setTestMessage("Received an invalid authorization URL.");
+						return;
+					}
+					if (popup) popup.location.href = safeAuthUrl;
 					setTestMessage("Waiting for authentication...");
 					testPollRef.current = setInterval(() => {
 						void (async () => {
