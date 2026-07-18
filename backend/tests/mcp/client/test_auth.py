@@ -201,6 +201,57 @@ async def test_dynamic_client_registration_when_no_static_creds(monkeypatch):
     assert "scope" not in query
 
 
+async def test_as_metadata_discovery_falls_back_to_path_aware_urls(monkeypatch):
+    # TikTok publishes no RFC 9728 PRM (every PRM URL 404s) and hosts its AS
+    # metadata at {server_path}/.well-known/openid-configuration. With PRM
+    # discovery yielding no authorization server, the AS-metadata step must
+    # still probe the path-aware OIDC suffix URL — not only the origin root —
+    # otherwise oauth_metadata stays None and registration crashes / fails.
+    tiktok_url = "https://business-api.tiktok.com/open_mcp/tt-ads-mcp-layer/oauth"
+
+    probed: list[str] = []
+    orig_request = auth_module.create_oauth_metadata_request
+
+    def _record(url):
+        probed.append(url)
+        return orig_request(url)
+
+    monkeypatch.setattr(auth_module, "create_oauth_metadata_request", _record)
+    monkeypatch.setattr(httpx.AsyncClient, "send", AsyncMock(return_value=object()))
+    # No PRM anywhere -> auth_server_url stays None.
+    monkeypatch.setattr(
+        auth_module, "handle_protected_resource_response", AsyncMock(return_value=None)
+    )
+    # We only assert which URLs get probed, so no AS metadata is "found".
+    monkeypatch.setattr(
+        auth_module,
+        "handle_auth_metadata_response",
+        AsyncMock(return_value=(True, None)),
+    )
+    monkeypatch.setattr(
+        auth_module,
+        "handle_registration_response",
+        AsyncMock(
+            return_value=OAuthClientInformationFull(
+                client_id="dcr-client-id",
+                redirect_uris=["https://app.example/cb"],
+            )
+        ),
+    )
+
+    provider = WebOAuthClientProvider(
+        server_url=tiktok_url,
+        client_metadata=build_oauth_client_metadata(),
+        storage=_FakeStorage(),
+    )
+    with pytest.raises(OAuthAuthorizationRequired):
+        await provider.initiate_authorization()
+
+    # The path-aware OIDC suffix (where TikTok actually serves its metadata) was
+    # probed, in addition to the origin-root URL the SDK helper generates alone.
+    assert f"{tiktok_url}/.well-known/openid-configuration" in probed
+
+
 # ---------------------------------------------------------------------------
 # token_endpoint_auth_method negotiation before dynamic registration
 #
@@ -253,6 +304,19 @@ def test_negotiate_keeps_default_when_supported():
 def test_negotiate_keeps_default_when_server_omits_field():
     provider = _provider_no_creds()
     provider.context.oauth_metadata = _asm_with_methods(None)
+    provider._negotiate_registration_auth_method()
+    assert (
+        provider.context.client_metadata.token_endpoint_auth_method
+        == "client_secret_post"
+    )
+
+
+def test_negotiate_keeps_default_when_no_metadata():
+    # AS metadata discovery found nothing at all (e.g. TikTok, which publishes
+    # no PRM and hosts metadata under a non-standard path) -> oauth_metadata is
+    # None. Negotiation must not raise AttributeError and keeps our default.
+    provider = _provider_no_creds()
+    provider.context.oauth_metadata = None
     provider._negotiate_registration_auth_method()
     assert (
         provider.context.client_metadata.token_endpoint_auth_method
