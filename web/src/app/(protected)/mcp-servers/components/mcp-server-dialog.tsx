@@ -543,15 +543,20 @@ export default function MCPServerDialog({
 	const isOfficialIcon = (url?: string) =>
 		url ? url.includes(CDN_HOST) : false;
 
-	// Masked hint for the stored client secret: (length − 4) dots + last 4, so its
-	// full length shows. Native placeholder behaviour hides it once you type and
-	// restores it when the field is cleared.
-	const secretPlaceholder = secretHint?.isSet
-		? "•".repeat(Math.max(0, (secretHint.length ?? 4) - 4)) +
-			(secretHint.last4 ?? "")
-		: hasStoredSecret
-			? "••••••••"
-			: "Enter your OAuth client secret";
+	// Masked hint for the stored client secret: bullets for the hidden portion
+	// plus the revealed suffix (when any), so the mask always spans the secret's
+	// full length — including short secrets that expose no suffix. Native
+	// placeholder behaviour hides it once you type and restores it when cleared.
+	let secretPlaceholder: string;
+	if (secretHint?.isSet) {
+		const suffix = secretHint.last4 ?? "";
+		const bulletCount = Math.max(0, (secretHint.length ?? 0) - suffix.length);
+		secretPlaceholder = "•".repeat(bulletCount) + suffix || "••••••••";
+	} else if (hasStoredSecret) {
+		secretPlaceholder = "••••••••";
+	} else {
+		secretPlaceholder = "Enter your OAuth client secret";
+	}
 
 	const isTesting = testStatus === "testing";
 	const testButton = (
