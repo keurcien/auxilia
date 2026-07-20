@@ -447,16 +447,14 @@ class TestOpenSessions:
         import time as time_mod
 
         from app.agents.toolset import _open_sessions
-        from app.utils.timer import RequestTimer
 
         log = []
         cms = {
             "a": _FakeSessionCM("a", log, delay=0.05),
             "b": _FakeSessionCM("b", log, delay=0.05),
         }
-        timer = RequestTimer("t", enabled=False)
         t0 = time_mod.perf_counter()
-        async with _open_sessions(_FakeClient(cms), ["a", "b"], timer, "") as sessions:
+        async with _open_sessions(_FakeClient(cms), ["a", "b"]) as sessions:
             assert sessions == {"a": "session-a", "b": "session-b"}
         elapsed = time_mod.perf_counter() - t0
         assert elapsed < 0.09  # serial would be >= 0.10
@@ -466,12 +464,10 @@ class TestOpenSessions:
         import asyncio
 
         from app.agents.toolset import _open_sessions
-        from app.utils.timer import RequestTimer
 
         log = []
         cms = {"a": _FakeSessionCM("a", log), "b": _FakeSessionCM("b", log)}
-        timer = RequestTimer("t", enabled=False)
-        async with _open_sessions(_FakeClient(cms), ["a", "b"], timer, ""):
+        async with _open_sessions(_FakeClient(cms), ["a", "b"]):
             pass
         main_task = asyncio.current_task()
         by_name: dict[str, dict] = {}
@@ -484,40 +480,34 @@ class TestOpenSessions:
     @pytest.mark.asyncio
     async def test_enter_failure_propagates_and_cleans_up_others(self):
         from app.agents.toolset import _open_sessions
-        from app.utils.timer import RequestTimer
 
         log = []
         cms = {
             "ok": _FakeSessionCM("ok", log, delay=0.01),
             "bad": _FakeSessionCM("bad", log, fail_enter=True),
         }
-        timer = RequestTimer("t", enabled=False)
         with pytest.raises(RuntimeError, match="enter failed: bad"):
-            async with _open_sessions(_FakeClient(cms), ["ok", "bad"], timer, ""):
+            async with _open_sessions(_FakeClient(cms), ["ok", "bad"]):
                 pytest.fail("body must not run when a session fails to open")
         assert any(e == "exit" and n == "ok" for e, n, _ in log)
 
     @pytest.mark.asyncio
     async def test_teardown_failure_propagates(self):
         from app.agents.toolset import _open_sessions
-        from app.utils.timer import RequestTimer
 
         log = []
         cms = {"a": _FakeSessionCM("a", log, fail_exit=True)}
-        timer = RequestTimer("t", enabled=False)
         with pytest.raises(RuntimeError, match="exit failed: a"):
-            async with _open_sessions(_FakeClient(cms), ["a"], timer, ""):
+            async with _open_sessions(_FakeClient(cms), ["a"]):
                 pass
 
     @pytest.mark.asyncio
     async def test_body_exception_wins_over_teardown_error(self):
         from app.agents.toolset import _open_sessions
-        from app.utils.timer import RequestTimer
 
         log = []
         cms = {"a": _FakeSessionCM("a", log, fail_exit=True)}
-        timer = RequestTimer("t", enabled=False)
         with pytest.raises(ValueError, match="body boom"):
-            async with _open_sessions(_FakeClient(cms), ["a"], timer, ""):
+            async with _open_sessions(_FakeClient(cms), ["a"]):
                 raise ValueError("body boom")
         assert any(e == "exit" and n == "a" for e, n, t in log)

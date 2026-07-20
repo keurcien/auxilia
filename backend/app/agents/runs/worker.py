@@ -23,13 +23,11 @@ from app.agents.runs.service import RunService
 from app.agents.runs.settings import run_settings
 from app.agents.runs.state import MCP_REAUTH_ERROR, RunStatus
 from app.agents.runtime import Agent
-from app.agents.settings import agent_settings
 from app.database import AsyncSessionLocal, get_checkpointer
 from app.exceptions import root_cause
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
 from app.threads.models import ThreadDB
 from app.threads.serialization import pending_interrupt
-from app.utils.timer import RequestTimer
 
 
 logger = logging.getLogger(__name__)
@@ -168,19 +166,13 @@ class RunWorker:
         """Run the agent, publishing each SSE chunk. Returns True if an error
         event was emitted."""
         error_seen = False
-        timer = RequestTimer(
-            f"run:{record.id}", enabled=agent_settings.invoke_profiling
-        )
         async with AsyncSessionLocal() as db:
-            async with timer.aspan("load_thread"):
-                thread = await db.get(ThreadDB, record.thread_id)
+            thread = await db.get(ThreadDB, record.thread_id)
             if thread is None:
                 raise RuntimeError(f"Thread {record.thread_id} not found")
-            async with timer.aspan("mcp_oauth_preflight"):
-                unauthorized = await _mcp_unauthorized(db, thread, str(record.user_id))
-            if unauthorized:
+            if await _mcp_unauthorized(db, thread, str(record.user_id)):
                 raise RuntimeError(MCP_REAUTH_ERROR)
-            agent = await Agent.build(thread=thread, db=db, timer=timer)
+            agent = await Agent.build(thread=thread, db=db)
             async for sse in agent.stream(
                 agent_input=record.input,
                 command=record.command,

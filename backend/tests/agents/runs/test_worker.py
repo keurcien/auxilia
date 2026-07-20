@@ -18,7 +18,7 @@ class _FakeAgent:
     """Stands in for the real Agent — yields SSE without touching an LLM."""
 
     @classmethod
-    async def build(cls, *, thread, db, timer=None):
+    async def build(cls, *, thread, db):
         return cls()
 
     async def stream(self, **kwargs):

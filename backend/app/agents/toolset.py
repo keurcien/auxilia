@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import re
-import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
@@ -15,7 +14,6 @@ from app.agents.schemas import AgentMCPServerResponse
 from app.mcp.client.factory import MCPClientConfigFactory
 from app.mcp.client.tools import inject_ui_metadata_into_tool
 from app.mcp.servers.models import MCPServerDB
-from app.utils.timer import RequestTimer
 
 
 logger = logging.getLogger(__name__)
@@ -195,8 +193,6 @@ def _assemble_agent_tools(
 async def _open_sessions(
     client: MultiServerMCPClient | None,
     server_names: list[str],
-    timer: RequestTimer,
-    label: str,
 ):
     """Open one live MCP session per server, concurrently.
 
@@ -214,10 +210,8 @@ async def _open_sessions(
     ready: dict[str, asyncio.Future] = {n: loop.create_future() for n in server_names}
 
     async def _host(name: str) -> None:
-        t0 = time.perf_counter()
         try:
             async with client.session(name) as session:
-                timer.record(f"open:connect[{label}{name}]", time.perf_counter() - t0)
                 ready[name].set_result(session)
                 await stop.wait()
         except BaseException as exc:
@@ -272,7 +266,6 @@ class Toolset:
         user_id: str,
         *,
         apply_ui: bool,
-        timer: RequestTimer | None = None,
     ) -> PreparedToolset:
         """Build-time phase: DB lookup -> configs -> interrupt_on. No network.
 
@@ -290,24 +283,21 @@ class Toolset:
         )
         if not agent_mcp_servers:
             return empty
-        timer = timer or RequestTimer("toolset", enabled=False)
 
         # 1. Load MCP server records from DB
-        async with timer.aspan("prepare:db_load"):
-            server_ids = [s.mcp_server_id for s in agent_mcp_servers]
-            result = await db.execute(
-                select(MCPServerDB).where(MCPServerDB.id.in_(server_ids))
-            )
-            mcp_servers = list(result.scalars().all())
+        server_ids = [s.mcp_server_id for s in agent_mcp_servers]
+        result = await db.execute(
+            select(MCPServerDB).where(MCPServerDB.id.in_(server_ids))
+        )
+        mcp_servers = list(result.scalars().all())
 
         # 2. Build MCP client configs (resolves auth to Redis/header values — no
         #    live SQL handle is retained, so the client is safe to use later during
         #    streaming, after the request DB session has closed).
-        async with timer.aspan("prepare:build_configs"):
-            mcp_factory = MCPClientConfigFactory(db=db, user_id=user_id)
-            configs = {
-                server.name: await mcp_factory.build(server) for server in mcp_servers
-            }
+        mcp_factory = MCPClientConfigFactory(db=db, user_id=user_id)
+        configs = {
+            server.name: await mcp_factory.build(server) for server in mcp_servers
+        }
 
         # 3. Build tool settings map
         tool_settings = {
@@ -344,12 +334,7 @@ class Toolset:
 
     @classmethod
     @asynccontextmanager
-    async def open(
-        cls,
-        prepared: PreparedToolset,
-        timer: RequestTimer | None = None,
-        label: str = "",
-    ):
+    async def open(cls, prepared: PreparedToolset):
         """Stream-time phase: hold ONE live session per server and bind tools to it.
 
         The sessions stay open for the whole ``async with`` block, so a handle
@@ -359,24 +344,14 @@ class Toolset:
         natively by langchain-mcp-adapters; transport/protocol failures raise and
         are caught globally by ToolErrorMiddleware.
         """
-        timer = timer or RequestTimer("toolset", enabled=False)
-        async with _open_sessions(
-            prepared.client, prepared.server_names, timer, label
-        ) as sessions:
-
-            async def _load(name: str) -> list[Tool]:
-                t0 = time.perf_counter()
-                try:
-                    return await load_mcp_tools(
+        async with _open_sessions(prepared.client, prepared.server_names) as sessions:
+            results = await asyncio.gather(
+                *[
+                    load_mcp_tools(
                         sessions[name], server_name=name, tool_name_prefix=True
                     )
-                finally:
-                    timer.record(
-                        f"open:list_tools[{label}{name}]", time.perf_counter() - t0
-                    )
-
-            results = await asyncio.gather(
-                *[_load(name) for name in prepared.server_names]
+                    for name in prepared.server_names
+                ]
             )
             tools_by_server = list(zip(prepared.server_names, results, strict=True))
 
