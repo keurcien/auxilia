@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
@@ -375,11 +376,23 @@ class Agent:
         run config in one place.
         """
         async with AsyncExitStack() as stack, get_checkpointer() as checkpointer:
-            self.agent.live = await stack.enter_async_context(
-                Toolset.open(self.agent.prepared)
+            # Open every toolset (parent + subagents) concurrently.
+            # return_exceptions=True so all enters finish before we
+            # proceed or raise — a bare gather would orphan in-flight
+            # session opens past the stack's unwind on first failure.
+            resolved = [self.agent, *self.subagents]
+            results = await asyncio.gather(
+                *(
+                    stack.enter_async_context(Toolset.open(ra.prepared))
+                    for ra in resolved
+                ),
+                return_exceptions=True,
             )
-            for sub in self.subagents:
-                sub.live = await stack.enter_async_context(Toolset.open(sub.prepared))
+            for result in results:
+                if isinstance(result, BaseException):
+                    raise result
+            for ra, live in zip(resolved, results, strict=True):
+                ra.live = live
             agent = self._build_agent(checkpointer, output_schema)
             resolved_input = self._resolve_input(agent_input, command)
             config = await self._resolve_config(agent, trigger, config_overrides)

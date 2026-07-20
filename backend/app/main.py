@@ -16,6 +16,7 @@ from app.agents.runs.worker import RunDispatcher
 from app.auth.router import router as auth_router
 from app.auth.settings import auth_settings
 from app.auth.tokens.router import router as tokens_router
+from app.database import close_checkpointer_pool
 from app.exceptions import (
     AlreadyExistsError,
     DomainError,
@@ -100,6 +101,7 @@ async def lifespan(app: FastAPI):
             for task in background:
                 task.cancel()
             await asyncio.gather(*background, return_exceptions=True)
+            await close_checkpointer_pool()
             await close_redis()
 
 
