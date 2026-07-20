@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.28](https://github.com/keurcien/auxilia/compare/backend-v0.4.27...backend-v0.4.28) (2026-07-20)
+
+
+### Features
+
+* **models:** workspace model management with external whitelist ([#231](https://github.com/keurcien/auxilia/issues/231)) ([83be434](https://github.com/keurcien/auxilia/commit/83be434069d43438e1e5a5c0db22021567fd9d48))
+
 ## [0.4.27](https://github.com/keurcien/auxilia/compare/backend-v0.4.26...backend-v0.4.27) (2026-07-20)
 
 
