@@ -29,7 +29,9 @@ from app.agents.runs.settings import run_settings
 from app.agents.runs.state import RunStatus, is_terminal
 from app.database import AsyncSessionLocal
 from app.exceptions import DomainValidationError, NotFoundError
+from app.model_providers.service import ModelService
 from app.redis_client import get_redis
+from app.threads.models import ThreadDB
 from app.threads.repository import ThreadRepository
 
 
@@ -63,10 +65,23 @@ class RunService:
         `delivery` is an opaque push-target descriptor (e.g. Slack channel/
         thread) the worker hands to a delivery consumer; `None` means a pull
         subscriber rides the event log instead.
+
+        This is also the model-availability gate: every launch path (chat
+        endpoints, Slack, triggers) funnels through here while still inside
+        its initiating context, so ModelUnavailableError surfaces as a 409
+        (or a Slack reply / skipped firing) *before* any stream opens or run
+        row leaks. Unlike `ensure_mcp_authorized`, internal callers are
+        deliberately gated too — a run on an unavailable model is invalid no
+        matter who enqueues it.
         """
         if input is not None and command is not None:
             raise DomainValidationError("Provide either input or command, not both.")
+        # Warm the whitelist cache before taking a pooled connection: on a
+        # cold/expired catalog cache the CDN fetch can take seconds, and it
+        # must not hold a DB session (pool exhaustion under load).
+        await ModelService.list_whitelisted()
         async with AsyncSessionLocal() as db:
+            await self._ensure_runnable_thread(db, thread_id)
             repository = RunRepository(db)
             if multitask_strategy == "reject":
                 # Serialize concurrent creates on this thread so two reject
@@ -91,6 +106,16 @@ class RunService:
             )
             await db.commit()
         return run
+
+    @staticmethod
+    async def _ensure_runnable_thread(db: AsyncSession, thread_id: str) -> None:
+        """The model-availability gate behind `create`: the thread must exist
+        and its pinned model must resolve (whitelist ∧ provider key ∧
+        admin-enabled), else ModelUnavailableError."""
+        thread = await db.get(ThreadDB, thread_id)
+        if thread is None:
+            raise NotFoundError("Thread not found")
+        await ModelService(db).ensure_available(thread.model_id)
 
     @staticmethod
     async def ensure_mcp_authorized(

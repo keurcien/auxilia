@@ -22,6 +22,7 @@ from app.exceptions import (
     DomainError,
     DomainValidationError,
     InvalidCredentialsError,
+    ModelUnavailableError,
     NotFoundError,
     PermissionDeniedError,
 )
@@ -155,6 +156,20 @@ async def domain_validation_error_handler(
     _request: Request, exc: DomainValidationError
 ):
     return JSONResponse(status_code=400, content={"detail": exc.detail})
+
+
+@app.exception_handler(ModelUnavailableError)
+async def model_unavailable_handler(_request: Request, exc: ModelUnavailableError):
+    # Machine-readable body (like oauth_required) so clients can branch on
+    # `error` instead of string-matching the detail.
+    return JSONResponse(
+        status_code=409,
+        content={
+            "error": "model_unavailable",
+            "model_id": exc.model_id,
+            "detail": exc.detail,
+        },
+    )
 
 
 @app.exception_handler(PermissionDeniedError)

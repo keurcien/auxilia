@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock
+
 import pytest
 from fakeredis import FakeServer, aioredis
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -41,5 +43,9 @@ async def run_db(tmp_path, monkeypatch):
         await conn.run_sync(_create)
     factory = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
     monkeypatch.setattr(service_mod, "AsyncSessionLocal", factory)
+    # These tests exercise the run lifecycle, not the model-availability gate
+    # (covered in tests/model_providers/); most fixtures reference threads
+    # that don't exist, so stub the gate out.
+    monkeypatch.setattr(service_mod.RunService, "_ensure_runnable_thread", AsyncMock())
     yield factory
     await engine.dispose()

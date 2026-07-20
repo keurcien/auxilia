@@ -36,6 +36,12 @@ class ThreadResponse(ThreadBase):
     agent_emoji: str | None = None
     agent_color: str | None = None
     agent_archived: bool = False
+    # Whether the thread's pinned model can run right now (whitelist ∧
+    # provider key ∧ admin-enabled). Server-computed on the single-thread GET
+    # so the frontend can disable the composer without re-deriving the rule;
+    # list endpoints leave the default (the composer only exists on the
+    # thread page).
+    model_available: bool = True
 
 
 class AgentThreadResponse(ThreadResponse):

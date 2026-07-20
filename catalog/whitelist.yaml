@@ -1,0 +1,238 @@
+# auxilia model whitelist
+#
+# Source of truth for the models auxilia can offer. Every entry MUST be:
+#   1. tool-calling capable (all auxilia agents bind tools), and
+#   2. drivable by ChatModelFactory (backend/app/model_providers/catalog.py):
+#      `provider` must match a factory branch, and openrouter model_ids must
+#      exist in OPENROUTER_MODELS.
+#
+# Flags describe OUR serving path, not the model in the abstract:
+#   multimodal                 — accepts non-text input (image/audio/video)
+#   supports_structured_output — REAL constrained decoding (json_schema /
+#                                strict tool call) on the endpoint we call,
+#                                NOT best-effort json_object
+#
+# chef / chef_slug — the model's creator, shown next to the model in the
+# picker (logo lookup by slug). Optional: defaults to the provider name,
+# so they only need to be set when the creator differs from the serving
+# provider (e.g. Z.ai models served through OpenRouter).
+#
+# Availability in a workspace = listed here ∧ provider key configured ∧ enabled by admin.
+
+schema_version: 1
+
+models:
+  # --- OpenAI (native endpoint) ---
+  # The gpt-5.6 line (Luna/Sol/Terra) is served via the Responses API — the
+  # factory routes ids in OPENAI_RESPONSES_API_MODELS there, since chat
+  # completions rejects function tools on those reasoning models.
+  - provider: openai
+    model_id: gpt-4o-mini
+    display_name: GPT-4o mini
+    chef: OpenAI
+    chef_slug: openai
+    multimodal: true
+    supports_structured_output: true
+  - provider: openai
+    model_id: gpt-5
+    display_name: GPT-5
+    chef: OpenAI
+    chef_slug: openai
+    multimodal: true
+    supports_structured_output: true
+  - provider: openai
+    model_id: gpt-5-mini
+    display_name: GPT-5 mini
+    chef: OpenAI
+    chef_slug: openai
+    multimodal: true
+    supports_structured_output: true
+  - provider: openai
+    model_id: gpt-5-nano
+    display_name: GPT-5 nano
+    chef: OpenAI
+    chef_slug: openai
+    multimodal: true
+    supports_structured_output: true
+  - provider: openai
+    model_id: gpt-5.1
+    display_name: GPT-5.1
+    chef: OpenAI
+    chef_slug: openai
+    multimodal: true
+    supports_structured_output: true
+  - provider: openai
+    model_id: gpt-5.2
+    display_name: GPT-5.2
+    chef: OpenAI
+    chef_slug: openai
+    multimodal: true
+    supports_structured_output: true
+  - provider: openai
+    model_id: gpt-5.4
+    display_name: GPT-5.4
+    chef: OpenAI
+    chef_slug: openai
+    multimodal: true
+    supports_structured_output: true
+  - provider: openai
+    model_id: gpt-5.5
+    display_name: GPT-5.5
+    chef: OpenAI
+    chef_slug: openai
+    multimodal: true
+    supports_structured_output: true
+  - provider: openai
+    model_id: gpt-5.6-luna
+    display_name: GPT-5.6 Luna
+    chef: OpenAI
+    chef_slug: openai
+    multimodal: true
+    supports_structured_output: true
+  - provider: openai
+    model_id: gpt-5.6-sol
+    display_name: GPT-5.6 Sol
+    chef: OpenAI
+    chef_slug: openai
+    multimodal: true
+    supports_structured_output: true
+  - provider: openai
+    model_id: gpt-5.6-terra
+    display_name: GPT-5.6 Terra
+    chef: OpenAI
+    chef_slug: openai
+    multimodal: true
+    supports_structured_output: true
+
+  # --- Anthropic (native endpoint) ---
+  - provider: anthropic
+    model_id: claude-haiku-4-5
+    display_name: Claude Haiku 4.5
+    chef: Anthropic
+    chef_slug: anthropic
+    multimodal: true
+    supports_structured_output: true
+  - provider: anthropic
+    model_id: claude-sonnet-4-6
+    display_name: Claude Sonnet 4.6
+    chef: Anthropic
+    chef_slug: anthropic
+    multimodal: true
+    supports_structured_output: true
+  - provider: anthropic
+    model_id: claude-sonnet-5
+    display_name: Claude Sonnet 5
+    chef: Anthropic
+    chef_slug: anthropic
+    multimodal: true
+    supports_structured_output: true
+  - provider: anthropic
+    model_id: claude-opus-4-6
+    display_name: Claude Opus 4.6
+    chef: Anthropic
+    chef_slug: anthropic
+    multimodal: true
+    supports_structured_output: true
+  - provider: anthropic
+    model_id: claude-opus-4-8
+    display_name: Claude Opus 4.8
+    chef: Anthropic
+    chef_slug: anthropic
+    multimodal: true
+    supports_structured_output: true
+
+  # --- DeepSeek (native endpoint: json_object only, no schema guarantee) ---
+  - provider: deepseek
+    model_id: deepseek-v4-flash
+    display_name: DeepSeek V4 Flash
+    chef: DeepSeek
+    chef_slug: deepseek
+    multimodal: false
+    supports_structured_output: false
+  - provider: deepseek
+    model_id: deepseek-v4-pro
+    display_name: DeepSeek V4 Pro
+    chef: DeepSeek
+    chef_slug: deepseek
+    multimodal: false
+    supports_structured_output: false
+
+  # --- Google (native endpoint) ---
+  - provider: google
+    model_id: gemini-3-flash-preview
+    display_name: Gemini 3 Flash (preview)
+    chef: Google
+    chef_slug: google
+    multimodal: true
+    supports_structured_output: true
+  - provider: google
+    model_id: gemini-3-pro-preview
+    display_name: Gemini 3 Pro (preview)
+    chef: Google
+    chef_slug: google
+    multimodal: true
+    supports_structured_output: true
+  # Verified 2026-07-20 against the Generative Language models API: 3.5 Flash
+  # is the only 3.5 chat model (no 3.5 Pro; live-translate is Live-API-only,
+  # no generateContent → can't back an agent). Function calling tested live.
+  - provider: google
+    model_id: gemini-3.5-flash
+    display_name: Gemini 3.5 Flash
+    chef: Google
+    chef_slug: google
+    multimodal: true
+    supports_structured_output: true
+
+  # --- Xiaomi (native endpoint) ---
+  # SO flags conservative: OpenRouter's listing says the models support
+  # structured outputs, but we call Xiaomi's NATIVE endpoint, which is
+  # unverified — flip to true only after testing json_schema there.
+  - provider: xiaomi
+    model_id: mimo-v2.5-pro
+    display_name: MiMo V2.5 Pro
+    chef: Xiaomi
+    chef_slug: xiaomi
+    multimodal: false
+    supports_structured_output: false
+  - provider: xiaomi
+    model_id: mimo-v2.5
+    display_name: MiMo V2.5
+    chef: Xiaomi
+    chef_slug: xiaomi
+    multimodal: true
+    supports_structured_output: false
+
+  # --- Meta (native endpoint) ---
+  # Both flags conservative: Llama-4-family capabilities are assumed but the
+  # Meta Model API endpoint is unverified for image input and json_schema —
+  # flip after testing, don't publish unearned badges.
+  - provider: meta
+    model_id: muse-spark-1.1
+    display_name: Muse Spark 1.1
+    chef: Meta
+    chef_slug: meta
+    multimodal: false
+    supports_structured_output: false
+
+  # --- OpenRouter (gateway; ids must exist in OPENROUTER_MODELS) ---
+  # GLM SO flag: Z.ai's FIRST-PARTY API only offers json_object (no schema —
+  # docs.z.ai/guides/capabilities/struct-output), but we serve GLM through
+  # OpenRouter, whose hosts run real guided decoding — verified live
+  # 2026-07-20 with strict json_schema + provider.require_parameters. Same
+  # serving-path rule that flags DeepSeek false. If enforcement ever consumes
+  # this flag, the OpenRouter call must pin provider.require_parameters=true
+  # (routing to a host that ignores response_format is otherwise possible).
+  - provider: openrouter
+    model_id: glm-5.2-max
+    display_name: GLM 5.2 (max reasoning)
+    chef: Z.ai
+    chef_slug: z-ai
+    multimodal: false
+    supports_structured_output: true
+  - provider: openrouter
+    model_id: glm-5.2-high
+    display_name: GLM 5.2 (high reasoning)
+    chef: Z.ai
+    chef_slug: z-ai
+    multimodal: false
+    supports_structured_output: true

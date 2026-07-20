@@ -78,6 +78,26 @@ export function useDurableRun(threadId: string): DurableRun {
 
       const url = `${API_BASE_URL}/threads/${thread}/runs/stream`;
       const response = await fetch(url, { ...init, signal });
+      if (response.status === 409) {
+        // The pre-stream model gate: surface its human-readable reason as the
+        // stream error instead of the SDK's generic failure message. Covers
+        // the race where an admin disables the model while this page is open
+        // (on load the thread GET's modelAvailable flag hides the composer).
+        const body = (await response
+          .clone()
+          .json()
+          .catch(() => null)) as { error?: string; detail?: string } | null;
+        if (body?.error === "model_unavailable") {
+          const err = new Error(
+            body.detail ??
+              "This conversation's model is no longer available in this workspace.",
+          );
+          // Lets the chat page recognize the gate (vs. a generic stream
+          // failure) and lock its send affordances, not just show the text.
+          err.name = "ModelUnavailableError";
+          throw err;
+        }
+      }
       const runId = response.headers.get("X-Run-Id");
       if (runId) runIdRef.current = runId;
       return response;

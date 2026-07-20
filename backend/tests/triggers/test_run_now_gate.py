@@ -25,6 +25,7 @@ def _service():
     svc = TriggerService(AsyncMock())
     svc.get_or_404 = AsyncMock(return_value=trigger)
     svc.db.get = AsyncMock(return_value=MagicMock(is_archived=False))  # the agent
+    svc.model_service = AsyncMock()  # model availability is not under test here
     svc.thread_service = MagicMock(
         create=AsyncMock(return_value=SimpleNamespace(id="th1"))
     )

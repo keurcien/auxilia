@@ -139,9 +139,6 @@ export default function RunHistoryCard({
 							</span>
 						)
 					)}
-					<span className="shrink-0 font-[family-name:var(--font-dm-sans)] text-[12.5px] font-semibold text-[#4CA882] opacity-0 group-hover:opacity-100 transition-opacity">
-						Open
-					</span>
 				</Link>
 			))}
 		</div>

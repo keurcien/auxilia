@@ -41,3 +41,15 @@ class NoInviteError(DomainError):
 
 class StructuredOutputError(DomainError):
     """A run with an output schema failed to produce a valid structured response."""
+
+
+class ModelUnavailableError(DomainError):
+    """The thread/trigger model can't be used right now: not in the whitelist,
+    provider key missing, or disabled by a workspace admin. Mapped to a 409
+    with a machine-readable body so every client (web composer, Slack,
+    triggers) can branch on it without string-matching the message."""
+
+    def __init__(self, model_id: str, reason: str):
+        self.model_id = model_id
+        self.reason = reason
+        super().__init__(f"Model '{model_id}' is not available: {reason}")

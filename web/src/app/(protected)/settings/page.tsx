@@ -4,9 +4,11 @@ import { useEffect, useState } from "react";
 import { Trash2, Plus, KeyRound } from "lucide-react";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import CreateTokenDialog from "./create-token-dialog";
+import WorkspaceModels from "./workspace-models";
 import { Button } from "@/components/ui/button";
 import { PageContainer } from "@/components/layout/page-container";
 import { api } from "@/lib/api/client";
+import { useUserStore } from "@/stores/user-store";
 
 interface PersonalAccessToken {
 	id: string;
@@ -28,6 +30,12 @@ export default function SettingsPage() {
 	const [isLoading, setIsLoading] = useState(true);
 	const [errorDialogOpen, setErrorDialogOpen] = useState(false);
 	const [createDialogOpen, setCreateDialogOpen] = useState(false);
+	const user = useUserStore((state) => state.user);
+	const fetchUser = useUserStore((state) => state.fetchUser);
+
+	useEffect(() => {
+		void fetchUser();
+	}, [fetchUser]);
 
 	useEffect(() => {
 		const fetchTokens = async () => {
@@ -98,9 +106,9 @@ export default function SettingsPage() {
 			<CreateTokenDialog
 				open={createDialogOpen}
 				onOpenChange={setCreateDialogOpen}
-				onTokenCreated={(token) =>
-					setTokens((prev) => [token, ...prev])
-				}
+				onTokenCreated={(token) => {
+					setTokens((prev) => [token, ...prev]);
+				}}
 			/>
 
 			<div className="flex items-center justify-between my-8">
@@ -186,7 +194,9 @@ export default function SettingsPage() {
 											variant="ghost"
 											size="icon"
 											className="h-8 w-8 text-muted-foreground hover:text-destructive cursor-pointer"
-											onClick={() => handleDelete(token.id)}
+											onClick={() => {
+											void handleDelete(token.id);
+										}}
 										>
 											<Trash2 className="h-4 w-4" />
 										</Button>
@@ -197,6 +207,14 @@ export default function SettingsPage() {
 					</tbody>
 				</table>
 			</div>
+
+			{user?.role === "admin" && (
+				<WorkspaceModels
+					onForbidden={() => {
+						setErrorDialogOpen(true);
+					}}
+				/>
+			)}
 		</PageContainer>
 	);
 }

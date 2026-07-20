@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CheckIcon, ChevronDown } from "lucide-react";
+import { CheckIcon, ChevronDown, TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Model } from "@/types/models";
 import { useModelsStore } from "@/stores/models-store";
@@ -19,6 +19,15 @@ interface ModelPickerChipProps {
 	onChange: (modelId: string) => void;
 	/** Read-only chip: no dialog. */
 	disabled?: boolean;
+	/** Label for a `value` that is not in the available models list (e.g. the
+	 * whitelist display name of an admin-disabled model). Falls back to the
+	 * raw `value`. */
+	unavailableLabel?: string | null;
+	/** Authoritative unavailability (e.g. the server-computed
+	 * `model_available` flag). When provided it overrides the catalog-derived
+	 * inference, which is only a fallback (wrong while the catalog is loading
+	 * and unknowable if its fetch failed). */
+	unavailable?: boolean;
 }
 
 /** Small pill showing the selected model; opens the model catalog dialog. */
@@ -26,8 +35,11 @@ export function ModelPickerChip({
 	value,
 	onChange,
 	disabled,
+	unavailableLabel,
+	unavailable,
 }: ModelPickerChipProps) {
 	const models = useModelsStore((state) => state.models);
+	const isCatalogLoaded = useModelsStore((state) => state.isInitialized);
 	const fetchModels = useModelsStore((state) => state.fetchModels);
 	const [open, setOpen] = useState(false);
 	const [search, setSearch] = useState("");
@@ -39,6 +51,10 @@ export function ModelPickerChip({
 	}, [fetchModels]);
 
 	const selected = models.find((model) => model.id === value);
+	// Explicit server flag wins; otherwise infer from catalog membership, but
+	// only once the catalog actually loaded (no false warning during load).
+	const showAsUnavailable =
+		value != null && (unavailable ?? (isCatalogLoaded && !selected));
 
 	const groupedModels = useMemo(() => {
 		const q = search.trim().toLowerCase();
@@ -74,11 +90,22 @@ export function ModelPickerChip({
 					"cursor-pointer hover:bg-[#EDF4F0] dark:hover:bg-white/10",
 			)}
 		>
-			{selected ? (
+			{selected && !showAsUnavailable ? (
 				<>
 					<ModelSelectorLogo provider={selected.chefSlug} className="size-3" />
 					<span className="truncate">{selected.name}</span>
 				</>
+			) : showAsUnavailable ? (
+				// Bound to a model that is no longer offered (removed from the
+				// catalog or disabled by an admin). Keep the binding visible —
+				// a blank "Select model" would read as "not set".
+				<span className="inline-flex items-center gap-1.5 text-[#B4643C] dark:text-amber-400">
+					<TriangleAlert className="size-3 shrink-0" />
+					<span className="truncate">{unavailableLabel ?? value}</span>
+					<span className="font-normal">· unavailable</span>
+				</span>
+			) : value ? (
+				<span className="truncate">{unavailableLabel ?? value}</span>
 			) : (
 				<span className="text-[#8FA89E] dark:text-white/40">Select model</span>
 			)}

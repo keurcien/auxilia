@@ -2,19 +2,8 @@ from langchain_anthropic import ChatAnthropic
 from langchain_deepseek import ChatDeepSeek
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel
 
 from app.model_providers.settings import model_provider_settings
-
-
-class ModelProvider(BaseModel):
-    name: str
-    api_key: str
-
-
-class Model(BaseModel):
-    name: str
-    provider: str
 
 
 # Models that require adaptive thinking (`{"type": "adaptive"}` + `effort`).
@@ -25,6 +14,15 @@ ADAPTIVE_THINKING_MODELS: frozenset[str] = frozenset(
     {"claude-opus-4-6", "claude-opus-4-8", "claude-sonnet-5"}
 )
 
+# OpenAI reasoning models that reject function tools on /v1/chat/completions
+# ("Function tools with reasoning_effort are not supported ... use /v1/responses
+# or set reasoning_effort to 'none'"). Every agent binds tools, so route these
+# through the Responses API, which supports tools + reasoning. Verified: the
+# gpt-5.6 line needs this; gpt-5/5.1/5.2/5.4/5.5 work fine on chat completions.
+OPENAI_RESPONSES_API_MODELS: frozenset[str] = frozenset(
+    {"gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"}
+)
+
 # OpenRouter catalog: our model id -> (OpenRouter slug, GLM `reasoning_effort`).
 # GLM 5.2 exposes two thinking levels; "max" is its deep-reasoning default, "high"
 # is lighter. Each is surfaced to users as its own model.
@@ -33,70 +31,36 @@ OPENROUTER_MODELS: dict[str, tuple[str, str]] = {
     "glm-5.2-high": ("z-ai/glm-5.2", "high"),
 }
 
-LLM_PROVIDERS: list[ModelProvider] = []
-MODELS: list[Model] = []
 
-if model_provider_settings.openai_api_key:
-    LLM_PROVIDERS.append(
-        ModelProvider(name="openai", api_key=model_provider_settings.openai_api_key)
-    )
-    MODELS.append(Model(name="gpt-4o-mini", provider="openai"))
-
-if model_provider_settings.deepseek_api_key:
-    LLM_PROVIDERS.append(
-        ModelProvider(name="deepseek", api_key=model_provider_settings.deepseek_api_key)
-    )
-    MODELS.append(Model(name="deepseek-v4-flash", provider="deepseek"))
-    MODELS.append(Model(name="deepseek-v4-pro", provider="deepseek"))
-
-if model_provider_settings.anthropic_api_key:
-    LLM_PROVIDERS.append(
-        ModelProvider(
-            name="anthropic", api_key=model_provider_settings.anthropic_api_key
-        )
-    )
-    MODELS.append(Model(name="claude-haiku-4-5", provider="anthropic"))
-    MODELS.append(Model(name="claude-sonnet-4-6", provider="anthropic"))
-    MODELS.append(Model(name="claude-sonnet-5", provider="anthropic"))
-    # Claude Opus temporarily disabled.
-    # MODELS.append(Model(name="claude-opus-4-6", provider="anthropic"))
-    # MODELS.append(Model(name="claude-opus-4-8", provider="anthropic"))
-
-if model_provider_settings.google_api_key:
-    LLM_PROVIDERS.append(
-        ModelProvider(name="google", api_key=model_provider_settings.google_api_key)
-    )
-    MODELS.append(Model(name="gemini-3-flash-preview", provider="google"))
-    MODELS.append(Model(name="gemini-3-pro-preview", provider="google"))
-
-if model_provider_settings.xiaomi_api_key:
-    LLM_PROVIDERS.append(
-        ModelProvider(name="xiaomi", api_key=model_provider_settings.xiaomi_api_key)
-    )
-    MODELS.append(Model(name="mimo-v2.5-pro", provider="xiaomi"))
-    MODELS.append(Model(name="mimo-v2.5", provider="xiaomi"))
-
-if model_provider_settings.metaai_api_key:
-    LLM_PROVIDERS.append(
-        ModelProvider(name="meta", api_key=model_provider_settings.metaai_api_key)
-    )
-    MODELS.append(Model(name="muse-spark-1.1", provider="meta"))
-
-if model_provider_settings.openrouter_api_key:
-    LLM_PROVIDERS.append(
-        ModelProvider(
-            name="openrouter", api_key=model_provider_settings.openrouter_api_key
-        )
-    )
-    for _cid in OPENROUTER_MODELS:
-        MODELS.append(Model(name=_cid, provider="openrouter"))
+def provider_api_keys() -> dict[str, str]:
+    """Configured provider → API key, read at call time (not import time) so
+    tests and env changes don't fight module state. Which *models* those
+    providers may serve is decided by the whitelist + the workspace's
+    enablement rows (ModelService), never here."""
+    keys = {
+        "openai": model_provider_settings.openai_api_key,
+        "deepseek": model_provider_settings.deepseek_api_key,
+        "anthropic": model_provider_settings.anthropic_api_key,
+        "google": model_provider_settings.google_api_key,
+        "xiaomi": model_provider_settings.xiaomi_api_key,
+        "openrouter": model_provider_settings.openrouter_api_key,
+        "meta": model_provider_settings.metaai_api_key,
+    }
+    return {name: key for name, key in keys.items() if key}
 
 
 class ChatModelFactory:
     def create(self, provider: str, model_id: str, api_key: str):
         match provider:
             case "openai":
-                return ChatOpenAI(model=model_id, api_key=api_key)
+                # gpt-5.6 reasoning models require the Responses API to use
+                # function tools (chat completions 400s); everything else is
+                # fine on the default chat-completions path.
+                return ChatOpenAI(
+                    model=model_id,
+                    api_key=api_key,
+                    use_responses_api=model_id in OPENAI_RESPONSES_API_MODELS,
+                )
             case "deepseek":
                 # Reasoning enabled. max_tokens caps the answer so json_object
                 # structured output isn't truncated mid-string (DeepSeek's JSON

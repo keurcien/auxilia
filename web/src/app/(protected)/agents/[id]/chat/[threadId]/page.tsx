@@ -61,6 +61,7 @@ import {
   RefreshCcwIcon,
   CopyIcon,
   ArchiveIcon,
+  CircleSlash,
   ShieldCheck,
 } from "lucide-react";
 import {
@@ -407,6 +408,10 @@ const ChatPage = () => {
   const hasInitialized = useRef(false);
   const [threadModel, setThreadModel] = useState<string | undefined>(undefined);
   const [agentArchived, setAgentArchived] = useState(false);
+  // Server-computed on GET /threads/{id}: the thread's pinned model is no
+  // longer usable (removed from the catalog, provider key gone, or disabled
+  // by an admin). Sending would 409, so the composer is replaced by a notice.
+  const [modelUnavailable, setModelUnavailable] = useState(false);
   const [viewerRole, setViewerRole] = useState<"admin" | null>(null);
   const [initialValues, setInitialValues] = useState<Record<
     string,
@@ -502,6 +507,27 @@ const ChatPage = () => {
     streamMessages.length > 0 || isLoading ? streamMessages : initMessages;
 
   const isInterrupted = interrupt != null || rehydratedInterrupt;
+
+  // Mid-session race: an admin disabled the model after this page loaded.
+  // The gate 409s and use-durable-run rethrows it with this name — lock the
+  // send affordances (composer, Retry, HITL approvals) like the on-load flag.
+  useEffect(() => {
+    if (error instanceof globalThis.Error && error.name === "ModelUnavailableError") {
+      setModelUnavailable(true);
+    }
+  }, [error]);
+
+  // The way back without a page refresh: re-read the server-computed flag
+  // (the banner's "Check again") so an admin re-enabling the model unlocks
+  // the thread in place.
+  const recheckModelAvailability = useCallback(async () => {
+    try {
+      const response = await api.get(`/threads/${threadId}`);
+      setModelUnavailable(response.data.thread.modelAvailable === false);
+    } catch {
+      // Keep the lock; the user can retry.
+    }
+  }, [threadId]);
 
   // The HITL middleware only "hangs" tool calls whose name is in interrupt_on.
   // Other parallel tool calls in the same AI message auto-execute on resume.
@@ -720,6 +746,9 @@ const ChatPage = () => {
       const data = response.data;
 
       setThreadModel(data.thread.modelId);
+      if (data.thread.modelAvailable === false) {
+        setModelUnavailable(true);
+      }
       const isTriggerThread = data.thread.source === "trigger";
       setCurrentChat({
         agentName: data.thread.agentName ?? null,
@@ -912,12 +941,14 @@ const ChatPage = () => {
                         </Message>
                         {isLastAiMessage && (
                           <MessageActions>
-                            <MessageAction
-                              onClick={handleRegenerate}
-                              label="Retry"
-                            >
-                              <RefreshCcwIcon className="size-3" />
-                            </MessageAction>
+                            {!modelUnavailable && (
+                              <MessageAction
+                                onClick={handleRegenerate}
+                                label="Retry"
+                              >
+                                <RefreshCcwIcon className="size-3" />
+                              </MessageAction>
+                            )}
                             <MessageAction
                               onClick={() => {
                                 void navigator.clipboard.writeText(text);
@@ -994,7 +1025,7 @@ const ChatPage = () => {
                                       "cursor-pointer",
                                       decided === "reject" && "opacity-40",
                                     )}
-                                    disabled={decided != null}
+                                    disabled={decided != null || modelUnavailable}
                                     onClick={() => {
                                       recordDecision(tc.id, "approve");
                                     }}
@@ -1007,7 +1038,7 @@ const ChatPage = () => {
                                       "cursor-pointer",
                                       decided === "approve" && "opacity-40",
                                     )}
-                                    disabled={decided != null}
+                                    disabled={decided != null || modelUnavailable}
                                     onClick={() => {
                                       recordDecision(tc.id, "reject");
                                     }}
@@ -1141,6 +1172,28 @@ const ChatPage = () => {
                 thread is preserved as read-only so you can still review your
                 past messages.
               </p>
+            </div>
+          </div>
+        ) : modelUnavailable ? (
+          <div className="w-full max-w-4xl mx-auto lg:px-10 sm:px-6 px-3 py-6">
+            <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/50 px-4 py-3">
+              <CircleSlash className="size-5 shrink-0 text-muted-foreground" />
+              <p className="flex-1 text-sm text-muted-foreground">
+                The model used by this conversation
+                {threadModel ? ` (${threadModel})` : ""} is no longer available
+                in this workspace. Ask a workspace admin to restore it, or
+                start a new conversation.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 cursor-pointer"
+                onClick={() => {
+                  void recheckModelAvailability();
+                }}
+              >
+                Check again
+              </Button>
             </div>
           </div>
         ) : agentStatus === "not_configured" ? (
