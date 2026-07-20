@@ -19,7 +19,7 @@ class RequestTimer:
         with timer.span("message_processing"):
             ...
 
-        timer.summary()  # emits a DEBUG log with all spans and percentages
+        timer.summary()  # emits an INFO log with all spans and percentages
     """
 
     def __init__(self, name: str, enabled: bool = True):
@@ -37,13 +37,19 @@ class RequestTimer:
             yield
             return
         t0 = time.perf_counter()
-        logger.debug("[%s] → %s  (T+%.1fms)", self.name, label, self._offset_ms())
+        logger.info("[%s] → %s  (T+%.1fms)", self.name, label, self._offset_ms())
         try:
             yield
         finally:
             elapsed = time.perf_counter() - t0
             self._spans.append((label, elapsed))
-            logger.debug("[%s] ← %s: %.1fms  (T+%.1fms)", self.name, label, elapsed * 1000, self._offset_ms())
+            logger.info(
+                "[%s] ← %s: %.1fms  (T+%.1fms)",
+                self.name,
+                label,
+                elapsed * 1000,
+                self._offset_ms(),
+            )
 
     @asynccontextmanager
     async def aspan(self, label: str):
@@ -51,20 +57,32 @@ class RequestTimer:
             yield
             return
         t0 = time.perf_counter()
-        logger.debug("[%s] → %s  (T+%.1fms)", self.name, label, self._offset_ms())
+        logger.info("[%s] → %s  (T+%.1fms)", self.name, label, self._offset_ms())
         try:
             yield
         finally:
             elapsed = time.perf_counter() - t0
             self._spans.append((label, elapsed))
-            logger.debug("[%s] ← %s: %.1fms  (T+%.1fms)", self.name, label, elapsed * 1000, self._offset_ms())
+            logger.info(
+                "[%s] ← %s: %.1fms  (T+%.1fms)",
+                self.name,
+                label,
+                elapsed * 1000,
+                self._offset_ms(),
+            )
 
     def record(self, label: str, elapsed: float) -> None:
         """Record a pre-measured span (e.g. time-to-first-chunk)."""
         if not self.enabled:
             return
         self._spans.append((label, elapsed))
-        logger.debug("[%s] %s: %.1fms  (T+%.1fms)", self.name, label, elapsed * 1000, self._offset_ms())
+        logger.info(
+            "[%s] %s: %.1fms  (T+%.1fms)",
+            self.name,
+            label,
+            elapsed * 1000,
+            self._offset_ms(),
+        )
 
     def summary(self) -> None:
         if not self.enabled or not self._spans:
@@ -74,4 +92,4 @@ class RequestTimer:
         for label, elapsed in self._spans:
             pct = (elapsed / total * 100) if total > 0 else 0
             lines.append(f"  {label:.<40} {elapsed * 1000:>8.1f}ms  ({pct:4.1f}%)")
-        logger.debug("\n".join(lines))
+        logger.info("\n".join(lines))
