@@ -1,4 +1,6 @@
+import asyncio
 import logging
+import time
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from uuid import uuid4
@@ -48,6 +50,7 @@ from app.model_providers.catalog import (
 )
 from app.sandbox.settings import sandbox_settings
 from app.threads.models import ThreadDB
+from app.utils.timer import RequestTimer
 
 
 logger = logging.getLogger(__name__)
@@ -163,10 +166,13 @@ class ResolvedAgent:
         user_id: str,
         *,
         is_parent: bool = False,
+        timer: RequestTimer | None = None,
     ) -> "ResolvedAgent":
-        config = await AgentService(db).get(agent_id, include_archived=True)
+        timer = timer or RequestTimer("agent", enabled=False)
+        async with timer.aspan(f"resolve:config[{agent_id}]"):
+            config = await AgentService(db).get(agent_id, include_archived=True)
         prepared = await Toolset.prepare(
-            config.mcp_servers, db, user_id, apply_ui=is_parent
+            config.mcp_servers, db, user_id, apply_ui=is_parent, timer=timer
         )
         return cls(config=config, prepared=prepared)
 
@@ -207,6 +213,7 @@ class Agent:
         middleware: list,
         callbacks: list,
         subagents: list[ResolvedAgent],
+        timer: RequestTimer | None = None,
     ):
         self.thread = thread
         self.agent = agent
@@ -214,6 +221,7 @@ class Agent:
         self.middleware = middleware
         self.callbacks = callbacks
         self.subagents = subagents
+        self.timer = timer or RequestTimer("agent", enabled=False)
 
     @property
     def metadata(self) -> dict:
@@ -238,12 +246,15 @@ class Agent:
         cls,
         thread: ThreadDB,
         db: AsyncSession,
+        timer: RequestTimer | None = None,
     ) -> "Agent":
+        timer = timer or RequestTimer("agent", enabled=False)
         user_id = str(thread.user_id)
 
-        agent = await ResolvedAgent.resolve(
-            thread.agent_id, db, user_id, is_parent=True
-        )
+        async with timer.aspan("build:resolve_parent"):
+            agent = await ResolvedAgent.resolve(
+                thread.agent_id, db, user_id, is_parent=True, timer=timer
+            )
 
         model_entry = next((m for m in MODELS if m.name == thread.model_id), None)
         if model_entry is None:
@@ -282,8 +293,11 @@ class Agent:
 
         subagents: list[ResolvedAgent] = []
         if agent.config.subagents:
-            for sub in agent.config.subagents:
-                subagents.append(await ResolvedAgent.resolve(sub.id, db, user_id))
+            async with timer.aspan("build:resolve_subagents"):
+                for sub in agent.config.subagents:
+                    subagents.append(
+                        await ResolvedAgent.resolve(sub.id, db, user_id, timer=timer)
+                    )
 
         callbacks = (
             [langfuse_callback_handler] if langfuse_callback_handler is not None else []
@@ -296,6 +310,7 @@ class Agent:
             middleware=middleware,
             callbacks=callbacks,
             subagents=subagents,
+            timer=timer,
         )
 
     def _build_agent(self, checkpointer, output_schema: dict | None = None):
@@ -374,13 +389,37 @@ class Agent:
         LangGraph agent against the live tools, and resolves the request input and
         run config in one place.
         """
-        async with AsyncExitStack() as stack, get_checkpointer() as checkpointer:
-            self.agent.live = await stack.enter_async_context(
-                Toolset.open(self.agent.prepared)
-            )
-            for sub in self.subagents:
-                sub.live = await stack.enter_async_context(Toolset.open(sub.prepared))
-            agent = self._build_agent(checkpointer, output_schema)
+        async with AsyncExitStack() as stack:
+            async with self.timer.aspan("setup:checkpointer"):
+                checkpointer = await stack.enter_async_context(get_checkpointer())
+            async with self.timer.aspan("setup:open_mcp_sessions"):
+                # Open every toolset (parent + subagents) concurrently.
+                # return_exceptions=True so all enters finish before we
+                # proceed or raise — a bare gather would orphan in-flight
+                # session opens past the stack's unwind on first failure.
+                resolved = [self.agent, *self.subagents]
+                results = await asyncio.gather(
+                    *(
+                        stack.enter_async_context(
+                            Toolset.open(
+                                ra.prepared,
+                                timer=self.timer,
+                                label=""
+                                if ra is self.agent
+                                else f"{sanitize_tool_name(ra.config.name)}:",
+                            )
+                        )
+                        for ra in resolved
+                    ),
+                    return_exceptions=True,
+                )
+                for result in results:
+                    if isinstance(result, BaseException):
+                        raise result
+                for ra, live in zip(resolved, results, strict=True):
+                    ra.live = live
+            with self.timer.span("setup:build_graph"):
+                agent = self._build_agent(checkpointer, output_schema)
             resolved_input = self._resolve_input(agent_input, command)
             config = await self._resolve_config(agent, trigger, config_overrides)
             yield agent, resolved_input, config
@@ -433,8 +472,16 @@ class Agent:
             )
             adapter = LangGraphStreamAdapter(subgraphs=True)
 
+            t_stream = time.perf_counter()
+            first_chunk_seen = False
             try:
                 async for chunk in adapter.stream(langchain_stream):
+                    if not first_chunk_seen:
+                        first_chunk_seen = True
+                        self.timer.record(
+                            "first_sse_chunk", time.perf_counter() - t_stream
+                        )
+                        self.timer.summary()
                     yield chunk
             except GraphRecursionError:
                 ai_msg = await self._persist_recursion_fallback(agent, config)

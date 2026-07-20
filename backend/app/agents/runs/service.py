@@ -10,6 +10,7 @@ request (worker, reaper, Slack, trigger scanner), and even router calls must
 commit before the response starts streaming.
 """
 
+import asyncio
 import logging
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
@@ -139,12 +140,27 @@ class RunService:
         # seconds). expire_on_commit=False keeps the loaded rows usable.
         await db.commit()
 
-        for server in servers:
+        async def _probe(server) -> bool:
             try:
-                if not await is_authorized(server, user_id):
-                    # Raises OAuthAuthorizationRequired(auth_url) for the first
-                    # unauthorized server; the caller connects it and retries.
-                    await initiate_oauth(server, user_id, db)
+                return await is_authorized(server, user_id)
+            except Exception:
+                logger.warning(
+                    "OAuth pre-flight for MCP server %s failed; letting the run launch",
+                    server.id,
+                    exc_info=True,
+                )
+                return True  # fail open
+
+        # Probes are independent per (user, server) — run them concurrently so
+        # the pre-flight costs one round trip, not one per server.
+        results = await asyncio.gather(*(_probe(s) for s in servers))
+        for server, authorized in zip(servers, results, strict=True):
+            if authorized:
+                continue
+            try:
+                # Raises OAuthAuthorizationRequired(auth_url) for the first
+                # unauthorized server; the caller connects it and retries.
+                await initiate_oauth(server, user_id, db)
             except OAuthAuthorizationRequired:
                 raise
             except Exception:

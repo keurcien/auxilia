@@ -65,8 +65,7 @@ class _FakeMCPServer:
 class TestSanitizeToolName:
     def test_invalid_chars_replaced(self):
         assert (
-            sanitize_tool_name("google-sheets.read_range")
-            == "google-sheets_read_range"
+            sanitize_tool_name("google-sheets.read_range") == "google-sheets_read_range"
         )
 
     def test_preserves_valid_chars(self):
@@ -158,9 +157,7 @@ class TestExtractMcpAppResourceUri:
         assert _extract_mcp_app_resource_uri(tool) == "https://x.com"
 
     def test_empty_string_returns_none(self):
-        tool = _make_tool(
-            "t", metadata={"_meta": {"ui": {"resourceUri": "  "}}}
-        )
+        tool = _make_tool("t", metadata={"_meta": {"ui": {"resourceUri": "  "}}})
         assert _extract_mcp_app_resource_uri(tool) is None
 
 
@@ -327,3 +324,200 @@ class TestToolsetPrepareEmpty:
         async with Toolset.open(prepared) as ts:
             assert ts.tools == []
             assert ts.all == []
+
+
+# ---------------------------------------------------------------------------
+# Toolset.prepare — interrupt_on derived from the persisted tool map
+# ---------------------------------------------------------------------------
+
+
+class _FakeResult:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def scalars(self):
+        return self
+
+    def all(self):
+        return self._rows
+
+
+class _FakeDB:
+    def __init__(self, rows):
+        self._rows = rows
+
+    async def execute(self, stmt):
+        return _FakeResult(self._rows)
+
+
+class TestPrepareDerivesInterruptOn:
+    @pytest.mark.asyncio
+    async def test_needs_approval_tools_gate_without_network(self):
+        from types import SimpleNamespace
+
+        from app.mcp.servers.models import MCPAuthType, MCPServerDB
+
+        server_id = uuid4()
+        server = MCPServerDB(
+            id=server_id,
+            name="sheets",
+            url="http://mcp.example.com",
+            auth_type=MCPAuthType.none,
+        )
+        binding = SimpleNamespace(
+            mcp_server_id=server_id,
+            tools={
+                "read.range": "needs_approval",
+                "write_range": "always_allow",
+                "delete_sheet": "disabled",
+            },
+        )
+        prepared = await Toolset.prepare(
+            [binding], db=_FakeDB([server]), user_id="u1", apply_ui=True
+        )
+        # Prefixed name sanitized the same way live tool names are at open time.
+        assert prepared.interrupt_on == {"sheets_read_range": True}
+        assert prepared.server_names == ["sheets"]
+
+    @pytest.mark.asyncio
+    async def test_null_tool_map_yields_no_gates(self):
+        from types import SimpleNamespace
+
+        from app.mcp.servers.models import MCPAuthType, MCPServerDB
+
+        server_id = uuid4()
+        server = MCPServerDB(
+            id=server_id,
+            name="sheets",
+            url="http://mcp.example.com",
+            auth_type=MCPAuthType.none,
+        )
+        binding = SimpleNamespace(mcp_server_id=server_id, tools=None)
+        prepared = await Toolset.prepare(
+            [binding], db=_FakeDB([server]), user_id="u1", apply_ui=True
+        )
+        assert prepared.interrupt_on == {}
+
+
+# ---------------------------------------------------------------------------
+# _open_sessions — concurrent, task-owned session lifecycles
+# ---------------------------------------------------------------------------
+
+
+class _FakeSessionCM:
+    """Records which task enters/exits, to assert anyio-safe ownership."""
+
+    def __init__(self, name, log, delay=0.0, fail_enter=False, fail_exit=False):
+        self.name = name
+        self.log = log
+        self.delay = delay
+        self.fail_enter = fail_enter
+        self.fail_exit = fail_exit
+
+    async def __aenter__(self):
+        import asyncio
+
+        self.log.append(("enter", self.name, asyncio.current_task()))
+        if self.delay:
+            await asyncio.sleep(self.delay)
+        if self.fail_enter:
+            raise RuntimeError(f"enter failed: {self.name}")
+        return f"session-{self.name}"
+
+    async def __aexit__(self, *exc):
+        import asyncio
+
+        self.log.append(("exit", self.name, asyncio.current_task()))
+        if self.fail_exit:
+            raise RuntimeError(f"exit failed: {self.name}")
+        return False
+
+
+class _FakeClient:
+    def __init__(self, cms):
+        self._cms = cms
+
+    def session(self, name):
+        return self._cms[name]
+
+
+class TestOpenSessions:
+    @pytest.mark.asyncio
+    async def test_sessions_open_concurrently(self):
+        import time as time_mod
+
+        from app.agents.toolset import _open_sessions
+        from app.utils.timer import RequestTimer
+
+        log = []
+        cms = {
+            "a": _FakeSessionCM("a", log, delay=0.05),
+            "b": _FakeSessionCM("b", log, delay=0.05),
+        }
+        timer = RequestTimer("t", enabled=False)
+        t0 = time_mod.perf_counter()
+        async with _open_sessions(_FakeClient(cms), ["a", "b"], timer, "") as sessions:
+            assert sessions == {"a": "session-a", "b": "session-b"}
+        elapsed = time_mod.perf_counter() - t0
+        assert elapsed < 0.09  # serial would be >= 0.10
+
+    @pytest.mark.asyncio
+    async def test_enter_and_exit_happen_in_same_task(self):
+        import asyncio
+
+        from app.agents.toolset import _open_sessions
+        from app.utils.timer import RequestTimer
+
+        log = []
+        cms = {"a": _FakeSessionCM("a", log), "b": _FakeSessionCM("b", log)}
+        timer = RequestTimer("t", enabled=False)
+        async with _open_sessions(_FakeClient(cms), ["a", "b"], timer, ""):
+            pass
+        main_task = asyncio.current_task()
+        by_name: dict[str, dict] = {}
+        for event, name, task in log:
+            by_name.setdefault(name, {})[event] = task
+        for name, events in by_name.items():
+            assert events["enter"] is events["exit"], name
+            assert events["enter"] is not main_task, name
+
+    @pytest.mark.asyncio
+    async def test_enter_failure_propagates_and_cleans_up_others(self):
+        from app.agents.toolset import _open_sessions
+        from app.utils.timer import RequestTimer
+
+        log = []
+        cms = {
+            "ok": _FakeSessionCM("ok", log, delay=0.01),
+            "bad": _FakeSessionCM("bad", log, fail_enter=True),
+        }
+        timer = RequestTimer("t", enabled=False)
+        with pytest.raises(RuntimeError, match="enter failed: bad"):
+            async with _open_sessions(_FakeClient(cms), ["ok", "bad"], timer, ""):
+                pytest.fail("body must not run when a session fails to open")
+        assert any(e == "exit" and n == "ok" for e, n, _ in log)
+
+    @pytest.mark.asyncio
+    async def test_teardown_failure_propagates(self):
+        from app.agents.toolset import _open_sessions
+        from app.utils.timer import RequestTimer
+
+        log = []
+        cms = {"a": _FakeSessionCM("a", log, fail_exit=True)}
+        timer = RequestTimer("t", enabled=False)
+        with pytest.raises(RuntimeError, match="exit failed: a"):
+            async with _open_sessions(_FakeClient(cms), ["a"], timer, ""):
+                pass
+
+    @pytest.mark.asyncio
+    async def test_body_exception_wins_over_teardown_error(self):
+        from app.agents.toolset import _open_sessions
+        from app.utils.timer import RequestTimer
+
+        log = []
+        cms = {"a": _FakeSessionCM("a", log, fail_exit=True)}
+        timer = RequestTimer("t", enabled=False)
+        with pytest.raises(ValueError, match="body boom"):
+            async with _open_sessions(_FakeClient(cms), ["a"], timer, ""):
+                raise ValueError("body boom")
+        assert any(e == "exit" and n == "a" for e, n, t in log)
