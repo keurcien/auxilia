@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.27](https://github.com/keurcien/auxilia/compare/backend-v0.4.26...backend-v0.4.27) (2026-07-20)
+
+
+### Bug Fixes
+
+* **agents:** cut agent time-to-first-token ~9x ([#230](https://github.com/keurcien/auxilia/issues/230)) ([60a0970](https://github.com/keurcien/auxilia/commit/60a0970de753366b3e671d885bffc6d944305a44))
+* **mcp:** discover AS metadata via path-aware OIDC for servers without PRM ([#228](https://github.com/keurcien/auxilia/issues/228)) ([9afbb72](https://github.com/keurcien/auxilia/commit/9afbb72494ddf72aaeea372a4b5840f41fe447db))
+
 ## [0.4.26](https://github.com/keurcien/auxilia/compare/backend-v0.4.25...backend-v0.4.26) (2026-07-18)
 
 
