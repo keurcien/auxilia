@@ -26,7 +26,8 @@ export const useModelsStore = create<ModelsState>((set, get) => ({
 			set({ models: response.data, isInitialized: true });
 		} catch (error) {
 			console.error("Error fetching models:", error);
-			set({ isInitialized: true });
+			// Not initialized on failure — the next fetchModels() retries
+			// instead of pinning every picker to an empty catalog.
 			throw error;
 		}
 	},

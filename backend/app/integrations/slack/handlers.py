@@ -332,14 +332,16 @@ async def handle_message(event: SlackEvent, *, team_id: str | None = None) -> No
             team_id=team_id,
             input={"messages": [{"type": "human", "content": question}]},
         )
-    except ModelUnavailableError:
+    except ModelUnavailableError as exc:
+        # exc.detail carries the precise reason (disabled by admin / provider
+        # key missing / removed from the catalog) — a fixed "ask an admin to
+        # re-enable it" would be wrong advice for two of the three.
         await client.chat_postMessage(
             channel=event.channel,
             thread_ts=thread_ts,
             text=(
-                "This conversation's model is no longer available in this "
-                "workspace. Ask a workspace admin to re-enable it, or start "
-                "a new conversation."
+                f"{exc.detail} Ask a workspace admin about it, or start a "
+                "new conversation."
             ),
         )
 
@@ -452,13 +454,15 @@ async def _resume_agent(
             team_id=(payload.team or {}).get("id"),
             command={"resume": {"decisions": [{"type": cmd} for cmd in commands]}},
         )
-    except ModelUnavailableError:
+    except ModelUnavailableError as exc:
+        # The approval buttons stay in the thread and decisions are re-derived
+        # from replies on every click, so re-approving after the model is
+        # restored retries this resume — say so.
         await client.chat_postMessage(
             channel=channel_id,
             thread_ts=thread_ts,
             text=(
-                "This conversation's model is no longer available in this "
-                "workspace. Ask a workspace admin to re-enable it, or start "
-                "a new conversation."
+                f"{exc.detail} Once it is available again, click the "
+                "approval button again to resume."
             ),
         )

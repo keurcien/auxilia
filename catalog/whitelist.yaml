@@ -183,30 +183,36 @@ models:
     multimodal: true
     supports_structured_output: true
 
-  # --- Xiaomi (native endpoint; SO flags pending native-endpoint verification) ---
+  # --- Xiaomi (native endpoint) ---
+  # SO flags conservative: OpenRouter's listing says the models support
+  # structured outputs, but we call Xiaomi's NATIVE endpoint, which is
+  # unverified — flip to true only after testing json_schema there.
   - provider: xiaomi
     model_id: mimo-v2.5-pro
     display_name: MiMo V2.5 Pro
     chef: Xiaomi
     chef_slug: xiaomi
     multimodal: false
-    supports_structured_output: true
+    supports_structured_output: false
   - provider: xiaomi
     model_id: mimo-v2.5
     display_name: MiMo V2.5
     chef: Xiaomi
     chef_slug: xiaomi
     multimodal: true
-    supports_structured_output: true
+    supports_structured_output: false
 
-  # --- Meta (native endpoint; flags assumed from family, unverified) ---
+  # --- Meta (native endpoint) ---
+  # Both flags conservative: Llama-4-family capabilities are assumed but the
+  # Meta Model API endpoint is unverified for image input and json_schema —
+  # flip after testing, don't publish unearned badges.
   - provider: meta
     model_id: muse-spark-1.1
     display_name: Muse Spark 1.1
     chef: Meta
     chef_slug: meta
-    multimodal: true
-    supports_structured_output: true
+    multimodal: false
+    supports_structured_output: false
 
   # --- OpenRouter (gateway; ids must exist in OPENROUTER_MODELS) ---
   # GLM SO flag: Z.ai's FIRST-PARTY API only offers json_object (no schema —

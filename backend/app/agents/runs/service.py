@@ -76,6 +76,10 @@ class RunService:
         """
         if input is not None and command is not None:
             raise DomainValidationError("Provide either input or command, not both.")
+        # Warm the whitelist cache before taking a pooled connection: on a
+        # cold/expired catalog cache the CDN fetch can take seconds, and it
+        # must not hold a DB session (pool exhaustion under load).
+        await ModelService.list_whitelisted()
         async with AsyncSessionLocal() as db:
             await self._ensure_runnable_thread(db, thread_id)
             repository = RunRepository(db)

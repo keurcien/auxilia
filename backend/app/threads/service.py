@@ -113,7 +113,17 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
         self.db.add(thread)
         await self.db.flush()
         await self.db.refresh(thread)
-        return ThreadResponse.model_validate(thread)
+        # Compute (not default) the availability flag: creating a thread on a
+        # disabled model is possible via the API, and the schema default
+        # (True) must not masquerade as a runnable thread.
+        return ThreadResponse.model_validate(
+            thread,
+            update={
+                "model_available": await ModelService(self.db).is_available(
+                    thread.model_id
+                )
+            },
+        )
 
     async def update(self, thread_id: str, data: ThreadPatch) -> ThreadResponse:
         thread = await self.get_or_404(thread_id)

@@ -16,11 +16,10 @@ class ModelProviderSettings(BaseSettings):
     xiaomi_api_key: str | None = None
     openrouter_api_key: str | None = None
     metaai_api_key: str | None = None
-    # CDN-hosted whitelist YAML (see whitelist.py). Unset/empty → the bundled
-    # snapshot only (self-hosters can also point it at their own file).
-    model_whitelist_url: str | None = (
-        "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/models/whitelist.yaml"
-    )
+    # CDN-hosted whitelist YAML (see whitelist.py). Unset → the bundled
+    # snapshot only, so self-hosters never fetch from someone else's bucket;
+    # deployments that want live catalog updates set MODEL_WHITELIST_URL.
+    model_whitelist_url: str | None = None
 
     model_config: ConfigDict = ConfigDict(env_file=ROOT_ENV, extra="ignore")
 

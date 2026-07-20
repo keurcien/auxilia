@@ -27,7 +27,7 @@ WHITELIST = [
     ),
 ]
 
-KEYS = {"anthropic": "sk-ant", "openai": "sk-oai"}  # no google key
+KEYS = {"anthropic": "anthropic-test-key", "openai": "openai-test-key"}  # no google key
 
 
 def _service(rows: list[ModelDB]) -> ModelService:
@@ -63,7 +63,7 @@ async def test_ensure_available_resolves_enabled_model():
     service = _service([_row("anthropic", "claude-sonnet-5")])
     resolved = await service.ensure_available("claude-sonnet-5")
     assert resolved.provider == "anthropic"
-    assert resolved.api_key == "sk-ant"
+    assert resolved.api_key == "anthropic-test-key"
 
 
 @pytest.mark.parametrize(

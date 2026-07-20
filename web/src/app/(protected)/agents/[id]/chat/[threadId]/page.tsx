@@ -508,6 +508,15 @@ const ChatPage = () => {
 
   const isInterrupted = interrupt != null || rehydratedInterrupt;
 
+  // Mid-session race: an admin disabled the model after this page loaded.
+  // The gate 409s and use-durable-run rethrows it with this name — lock the
+  // send affordances (composer, Retry, HITL approvals) like the on-load flag.
+  useEffect(() => {
+    if (error instanceof globalThis.Error && error.name === "ModelUnavailableError") {
+      setModelUnavailable(true);
+    }
+  }, [error]);
+
   // The HITL middleware only "hangs" tool calls whose name is in interrupt_on.
   // Other parallel tool calls in the same AI message auto-execute on resume.
   // Scope approval UI and decisions to the hanging subset so the decision count
@@ -920,12 +929,14 @@ const ChatPage = () => {
                         </Message>
                         {isLastAiMessage && (
                           <MessageActions>
-                            <MessageAction
-                              onClick={handleRegenerate}
-                              label="Retry"
-                            >
-                              <RefreshCcwIcon className="size-3" />
-                            </MessageAction>
+                            {!modelUnavailable && (
+                              <MessageAction
+                                onClick={handleRegenerate}
+                                label="Retry"
+                              >
+                                <RefreshCcwIcon className="size-3" />
+                              </MessageAction>
+                            )}
                             <MessageAction
                               onClick={() => {
                                 void navigator.clipboard.writeText(text);
@@ -1002,7 +1013,7 @@ const ChatPage = () => {
                                       "cursor-pointer",
                                       decided === "reject" && "opacity-40",
                                     )}
-                                    disabled={decided != null}
+                                    disabled={decided != null || modelUnavailable}
                                     onClick={() => {
                                       recordDecision(tc.id, "approve");
                                     }}
@@ -1015,7 +1026,7 @@ const ChatPage = () => {
                                       "cursor-pointer",
                                       decided === "approve" && "opacity-40",
                                     )}
-                                    disabled={decided != null}
+                                    disabled={decided != null || modelUnavailable}
                                     onClick={() => {
                                       recordDecision(tc.id, "reject");
                                     }}
@@ -1158,7 +1169,7 @@ const ChatPage = () => {
               <p className="text-sm text-muted-foreground">
                 The model used by this conversation
                 {threadModel ? ` (${threadModel})` : ""} is no longer available
-                in this workspace. Ask a workspace admin to re-enable it, or
+                in this workspace. Ask a workspace admin to restore it, or
                 start a new conversation.
               </p>
             </div>

@@ -88,10 +88,14 @@ export function useDurableRun(threadId: string): DurableRun {
           .json()
           .catch(() => null)) as { error?: string; detail?: string } | null;
         if (body?.error === "model_unavailable") {
-          throw new Error(
+          const err = new Error(
             body.detail ??
               "This conversation's model is no longer available in this workspace.",
           );
+          // Lets the chat page recognize the gate (vs. a generic stream
+          // failure) and lock its send affordances, not just show the text.
+          err.name = "ModelUnavailableError";
+          throw err;
         }
       }
       const runId = response.headers.get("X-Run-Id");

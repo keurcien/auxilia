@@ -20,5 +20,5 @@ from app.model_providers.catalog import ChatModelFactory
 def test_openai_factory_routes_gpt56_through_responses_api(
     model_id: str, expects_responses_api: bool
 ):
-    model = ChatModelFactory().create("openai", model_id, "sk-test")
+    model = ChatModelFactory().create("openai", model_id, "unit-test-key")
     assert model.use_responses_api is expects_responses_api

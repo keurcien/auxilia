@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -50,33 +50,44 @@ export default function WorkspaceModels({ onForbidden }: WorkspaceModelsProps) {
 	const refreshModels = useModelsStore((state) => state.refreshModels);
 	const [models, setModels] = useState<ManagedModel[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
+	const [loadFailed, setLoadFailed] = useState(false);
 	const [isSyncing, setIsSyncing] = useState(false);
-	const [pendingKey, setPendingKey] = useState<string | null>(null);
+	// Keys with a PUT in flight — a Set so overlapping toggles on different
+	// rows don't re-enable each other's switch mid-request.
+	const [pendingKeys, setPendingKeys] = useState<ReadonlySet<string>>(
+		new Set(),
+	);
 	const [status, setStatus] = useState<{
 		kind: "info" | "error";
 		text: string;
 	} | null>(null);
 
-	useEffect(() => {
-		const fetchManaged = async () => {
-			try {
-				const response = await api.get<ManagedModel[]>(
-					"/model-providers/models/manage",
-				);
-				setModels(response.data);
-			} catch (error: unknown) {
-				if (axios.isAxiosError(error) && error.response?.status === 403) {
-					onForbidden();
-				} else {
-					console.error("Error fetching workspace models:", error);
-				}
-			} finally {
-				setIsLoading(false);
+	const loadManaged = useCallback(async () => {
+		setIsLoading(true);
+		setLoadFailed(false);
+		try {
+			const response = await api.get<ManagedModel[]>(
+				"/model-providers/models/manage",
+			);
+			setModels(response.data);
+		} catch (error: unknown) {
+			if (axios.isAxiosError(error) && error.response?.status === 403) {
+				onForbidden();
+			} else {
+				console.error("Error fetching workspace models:", error);
+				// Distinct from an empty catalog — "no providers configured"
+				// would send the admin chasing the wrong problem.
+				setLoadFailed(true);
 			}
-		};
-		void fetchManaged();
+		} finally {
+			setIsLoading(false);
+		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
+
+	useEffect(() => {
+		void loadManaged();
+	}, [loadManaged]);
 
 	// Group rows by provider, preserving whitelist order.
 	const providerGroups = useMemo(() => {
@@ -91,7 +102,7 @@ export default function WorkspaceModels({ onForbidden }: WorkspaceModelsProps) {
 
 	const handleToggle = async (model: ManagedModel, isEnabled: boolean) => {
 		const key = `${model.provider}/${model.modelId}`;
-		setPendingKey(key);
+		setPendingKeys((prev) => new Set(prev).add(key));
 		setStatus(null);
 		// Optimistic flip; reverted on failure.
 		setModels((prev) =>
@@ -127,23 +138,23 @@ export default function WorkspaceModels({ onForbidden }: WorkspaceModelsProps) {
 				});
 			}
 		} finally {
-			setPendingKey(null);
+			setPendingKeys((prev) => {
+				const next = new Set(prev);
+				next.delete(key);
+				return next;
+			});
 		}
 	};
 
 	const handleSync = async () => {
 		setIsSyncing(true);
 		setStatus(null);
+		let summary: string;
 		try {
 			const syncResponse = await api.post<WhitelistSyncResult>(
 				"/model-providers/whitelist/sync",
 			);
-			const managedResponse = await api.get<ManagedModel[]>(
-				"/model-providers/models/manage",
-			);
-			setModels(managedResponse.data);
-			setStatus({ kind: "info", text: syncSummary(syncResponse.data) });
-			await refreshModels().catch(() => {});
+			summary = syncSummary(syncResponse.data);
 		} catch (error: unknown) {
 			if (axios.isAxiosError(error) && error.response?.status === 403) {
 				onForbidden();
@@ -153,9 +164,26 @@ export default function WorkspaceModels({ onForbidden }: WorkspaceModelsProps) {
 					text: apiErrorDetail(error) ?? "Catalog sync failed. Please retry.",
 				});
 			}
+			setIsSyncing(false);
+			return;
+		}
+		// The sync itself succeeded — a refetch hiccup must not report it as
+		// failed (the backend has already applied the new catalog).
+		try {
+			const managedResponse = await api.get<ManagedModel[]>(
+				"/model-providers/models/manage",
+			);
+			setModels(managedResponse.data);
+			setStatus({ kind: "info", text: summary });
+		} catch {
+			setStatus({
+				kind: "info",
+				text: `${summary} The list below could not be refreshed — reload the page.`,
+			});
 		} finally {
 			setIsSyncing(false);
 		}
+		await refreshModels().catch(() => {});
 	};
 
 	return (
@@ -197,6 +225,22 @@ export default function WorkspaceModels({ onForbidden }: WorkspaceModelsProps) {
 				{isLoading ? (
 					<div className="px-6 py-12 text-center text-muted-foreground">
 						Loading...
+					</div>
+				) : loadFailed ? (
+					<div className="px-6 py-12 text-center">
+						<p className="text-muted-foreground mb-3">
+							Could not load the workspace models.
+						</p>
+						<Button
+							variant="outline"
+							size="sm"
+							className="cursor-pointer"
+							onClick={() => {
+								void loadManaged();
+							}}
+						>
+							Retry
+						</Button>
 					</div>
 				) : providerGroups.length === 0 ? (
 					<div className="px-6 py-12 text-center text-muted-foreground">
@@ -245,10 +289,13 @@ export default function WorkspaceModels({ onForbidden }: WorkspaceModelsProps) {
 										</div>
 										<Switch
 											checked={model.isEnabled}
-											// Deprecated rows can only be turned off; the model is
-											// gone from the catalog, so re-enabling is meaningless.
+											aria-label={`Enable ${model.displayName} (${model.modelId})`}
+											// Deprecated rows can only be turned off; a sync in
+											// flight would overwrite concurrent toggles, so rows
+											// lock while it runs.
 											disabled={
-												pendingKey === key ||
+												pendingKeys.has(key) ||
+												isSyncing ||
 												(model.deprecated && !model.isEnabled)
 											}
 											onCheckedChange={(checked) => {

@@ -102,6 +102,23 @@ class WhitelistDocument(BaseModel):
             seen.add(m.model_id)
         return self
 
+    @model_validator(mode="after")
+    def openrouter_ids_must_be_mapped(self) -> "WhitelistDocument":
+        """OpenRouter entries are indexed straight into OPENROUTER_MODELS by
+        ChatModelFactory — an unmapped id would pass the whitelist, get
+        enabled by an admin, and only crash at agent build. Reject it here so
+        the bad file never applies. (Lazy import: catalog pulls in the
+        langchain provider packages.)"""
+        from app.model_providers.catalog import OPENROUTER_MODELS
+
+        for m in self.models:
+            if m.provider == "openrouter" and m.model_id not in OPENROUTER_MODELS:
+                raise ValueError(
+                    f"openrouter model_id {m.model_id!r} has no OPENROUTER_MODELS "
+                    "mapping (add the slug/effort entry in catalog.py first)"
+                )
+        return self
+
 
 def parse_whitelist(text: str) -> list[SupportedModel]:
     """Parse + validate a whitelist YAML. Raises ValueError on any problem —

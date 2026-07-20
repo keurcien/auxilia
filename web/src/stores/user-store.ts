@@ -25,7 +25,9 @@ export const useUserStore = create<UserStore>((set, get) => ({
 	isInitialized: false,
 
 	fetchUser: async () => {
-		if (get().isInitialized) return;
+		// isLoading doubles as an in-flight guard: sidebar and pages both call
+		// this on mount, and only one /auth/me request should go out.
+		if (get().isInitialized || get().isLoading) return;
 
 		set({ isLoading: true });
 		try {

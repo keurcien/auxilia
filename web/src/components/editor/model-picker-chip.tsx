@@ -33,6 +33,7 @@ export function ModelPickerChip({
 	unavailableLabel,
 }: ModelPickerChipProps) {
 	const models = useModelsStore((state) => state.models);
+	const isCatalogLoaded = useModelsStore((state) => state.isInitialized);
 	const fetchModels = useModelsStore((state) => state.fetchModels);
 	const [open, setOpen] = useState(false);
 	const [search, setSearch] = useState("");
@@ -84,15 +85,19 @@ export function ModelPickerChip({
 					<ModelSelectorLogo provider={selected.chefSlug} className="size-3" />
 					<span className="truncate">{selected.name}</span>
 				</>
-			) : value ? (
+			) : value && isCatalogLoaded ? (
 				// Bound to a model that is no longer offered (removed from the
 				// catalog or disabled by an admin). Keep the binding visible —
-				// a blank "Select model" would read as "not set".
+				// a blank "Select model" would read as "not set". Gated on the
+				// catalog having loaded so a slow fetch doesn't flash a false
+				// "unavailable" warning.
 				<span className="inline-flex items-center gap-1.5 text-[#B4643C] dark:text-amber-400">
 					<TriangleAlert className="size-3 shrink-0" />
 					<span className="truncate">{unavailableLabel ?? value}</span>
 					<span className="font-normal">· unavailable</span>
 				</span>
+			) : value ? (
+				<span className="truncate">{unavailableLabel ?? value}</span>
 			) : (
 				<span className="text-[#8FA89E] dark:text-white/40">Select model</span>
 			)}

@@ -58,6 +58,15 @@ def test_chef_defaults_to_provider_and_explicit_chef_wins():
             "    display_name: X\n",
             "not supported",
         ),
+        # An openrouter id without an OPENROUTER_MODELS mapping would only
+        # crash at agent build — it must fail file validation instead.
+        (
+            "schema_version: 1\nmodels:\n"
+            "  - provider: openrouter\n"
+            "    model_id: z-ai/glm-99\n"
+            "    display_name: GLM 99\n",
+            "no OPENROUTER_MODELS mapping",
+        ),
     ],
 )
 def test_parse_rejects_bad_documents(text: str, match: str):
