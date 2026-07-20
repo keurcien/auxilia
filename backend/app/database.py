@@ -87,6 +87,15 @@ async def _get_checkpointer_pool() -> AsyncConnectionPool:
     return _checkpointer_pool
 
 
+async def close_checkpointer_pool() -> None:
+    """Release the checkpointer pool's connections (app shutdown)."""
+    global _checkpointer_pool
+    async with _checkpointer_pool_lock:
+        if _checkpointer_pool is not None:
+            await _checkpointer_pool.close()
+            _checkpointer_pool = None
+
+
 @asynccontextmanager
 async def get_checkpointer():
     pool = await _get_checkpointer_pool()
