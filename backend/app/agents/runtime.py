@@ -40,13 +40,9 @@ from app.agents.structured_output import (
 from app.agents.tool_errors import RepairInvalidToolCallsMiddleware, ToolErrorMiddleware
 from app.agents.toolset import PreparedToolset, Toolset, sanitize_tool_name
 from app.database import get_checkpointer
-from app.exceptions import DomainValidationError
 from app.integrations.langfuse.callback import langfuse_callback_handler
-from app.model_providers.catalog import (
-    LLM_PROVIDERS,
-    MODELS,
-    ChatModelFactory,
-)
+from app.model_providers.catalog import ChatModelFactory
+from app.model_providers.service import ModelService
 from app.sandbox.settings import sandbox_settings
 from app.threads.models import ThreadDB
 
@@ -208,6 +204,7 @@ class Agent:
         middleware: list,
         callbacks: list,
         subagents: list[ResolvedAgent],
+        provider: str | None = None,
     ):
         self.thread = thread
         self.agent = agent
@@ -215,6 +212,7 @@ class Agent:
         self.middleware = middleware
         self.callbacks = callbacks
         self.subagents = subagents
+        self.provider = provider
 
     @property
     def metadata(self) -> dict:
@@ -246,18 +244,12 @@ class Agent:
             thread.agent_id, db, user_id, is_parent=True
         )
 
-        model_entry = next((m for m in MODELS if m.name == thread.model_id), None)
-        if model_entry is None:
-            raise DomainValidationError(f"Unknown model: {thread.model_id}")
-        provider = next(
-            (p for p in LLM_PROVIDERS if p.name == model_entry.provider), None
-        )
-        if provider is None:
-            raise DomainValidationError(
-                f"Unknown provider {model_entry.provider!r} for model {thread.model_id}"
-            )
+        # Backstop for the RunService.create gate: covers the race where the
+        # model is disabled between enqueue and worker pickup, and any future
+        # path that builds an agent without going through `create`.
+        resolved = await ModelService(db).ensure_available(thread.model_id)
         model = ChatModelFactory().create(
-            provider.name, thread.model_id, provider.api_key
+            resolved.provider, resolved.model_id, resolved.api_key
         )
 
         # Build middleware stack.
@@ -297,6 +289,7 @@ class Agent:
             middleware=middleware,
             callbacks=callbacks,
             subagents=subagents,
+            provider=resolved.provider,
         )
 
     def _build_agent(self, checkpointer, output_schema: dict | None = None):
@@ -318,9 +311,6 @@ class Agent:
             if sandbox
             else SystemMessage(self.agent.config.instructions)
         )
-        provider = next(
-            (m.provider for m in MODELS if m.name == self.thread.model_id), None
-        )
         return build_runnable(
             model=self.model,
             tools=self.agent.live.all,
@@ -330,7 +320,7 @@ class Agent:
             subagents=compiled,
             checkpointer=checkpointer,
             output_schema=output_schema,
-            format_mode=PROVIDER_FORMAT_MODES.get(provider, FORMAT_TOOL),
+            format_mode=PROVIDER_FORMAT_MODES.get(self.provider, FORMAT_TOOL),
         )
 
     def _resolve_input(self, agent_input: dict | None, command: dict | None):

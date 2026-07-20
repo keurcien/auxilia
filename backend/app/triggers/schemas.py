@@ -40,6 +40,15 @@ class TriggerResponse(SQLModel):
     last_run_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+    # Whether the trigger's model can run right now (whitelist ∧ provider key
+    # ∧ admin-enabled). Server-computed on every read so the UI can warn
+    # preemptively — a trigger with an unavailable model has its scheduled
+    # firings skipped by the scanner.
+    model_available: bool = True
+    # Whitelist display name for model_id (set even when unavailable, so the
+    # UI never has to show a raw id). None = not in the whitelist at all —
+    # clients fall back to model_id.
+    model_display_name: str | None = None
 
 
 class SchedulePreviewResponse(SQLModel):

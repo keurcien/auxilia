@@ -1,7 +1,15 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Clock, MoreVertical, Pause, Pencil, Play, Trash2 } from "lucide-react";
+import {
+	Clock,
+	MoreVertical,
+	Pause,
+	Pencil,
+	Play,
+	Trash2,
+	TriangleAlert,
+} from "lucide-react";
 import { Trigger } from "@/types/triggers";
 import { describeSchedule, parseCronExpression } from "@/lib/triggers/schedule";
 import { getApiErrorMessage } from "@/lib/api/errors";
@@ -130,6 +138,17 @@ export default function TriggerCard({ trigger, onDelete }: TriggerCardProps) {
 						{frequency}
 					</span>
 				</div>
+				{!trigger.modelAvailable && (
+					<div
+						className="flex h-[30px] items-center gap-1.5 rounded-full border border-[#F0E4D3] dark:border-amber-400/20 bg-[#FDF6EC] dark:bg-amber-950/30 px-3"
+						title={`The model used by this trigger (${trigger.modelDisplayName ?? trigger.modelId}) is no longer available — scheduled runs are being skipped.`}
+					>
+						<TriangleAlert className="size-[13px] shrink-0 text-[#B4643C] dark:text-amber-400" />
+						<span className="font-[family-name:var(--font-dm-sans)] text-[12.5px] font-medium text-[#B4643C] dark:text-amber-400">
+							Model unavailable
+						</span>
+					</div>
+				)}
 			</div>
 		</div>
 	);

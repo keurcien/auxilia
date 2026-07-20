@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_checkpointer, get_db
 from app.exceptions import NotFoundError
+from app.model_providers.service import ModelService
 from app.pagination import Page, PageParams
 from app.service import BaseService
 from app.threads.models import ThreadDB, ThreadSource
@@ -73,7 +74,11 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
         row = await self.repository.get_with_agent(thread_id)
         if not row:
             raise NotFoundError(self.not_found_message)
-        return _thread_with_agent(*row)
+        response = _thread_with_agent(*row)
+        response.model_available = await ModelService(self.db).is_available(
+            response.model_id
+        )
+        return response
 
     async def list(self, user_id: UUID, page: PageParams) -> Page[ThreadResponse]:
         rows, total = await self.repository.list_for_user(user_id, page)

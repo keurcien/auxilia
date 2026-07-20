@@ -13,7 +13,7 @@ from app.agents.runs.service import RunService
 from app.database import get_db
 from app.exceptions import DomainValidationError, PermissionDeniedError
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
-from app.model_providers.catalog import MODELS
+from app.model_providers.service import ModelService
 from app.service import BaseService
 from app.threads.models import ThreadSource
 from app.threads.schemas import ThreadCreate
@@ -43,6 +43,7 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         super().__init__(db, TriggerRepository(db))
         self.agent_service = AgentService(db)
         self.thread_service = ThreadService(db)
+        self.model_service = ModelService(db)
 
     # ------------------------------------------------------------------
     # Guards
@@ -52,11 +53,6 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
     def _ensure_can_manage(trigger: TriggerDB, user: UserDB) -> None:
         if trigger.owner_id != user.id and user.role != WorkspaceRole.admin:
             raise PermissionDeniedError("Not authorized to access this trigger")
-
-    @staticmethod
-    def _ensure_known_model(model_id: str) -> None:
-        if model_id not in {m.name for m in MODELS}:
-            raise DomainValidationError(f"Unknown model: {model_id}")
 
     async def _ensure_agent_usable(self, agent_id: UUID, owner: UserDB) -> None:
         """The trigger's agent must be one its *owner* is allowed to use —
@@ -79,6 +75,30 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         return owner
 
     # ------------------------------------------------------------------
+    # Responses
+    # ------------------------------------------------------------------
+
+    async def _to_responses(self, triggers: list[TriggerDB]) -> list[TriggerResponse]:
+        """Project to responses with `model_available` and the whitelist
+        display name stamped — one availability lookup for the whole batch,
+        not one per trigger."""
+        available = {m.model_id for m in await self.model_service.list_available()}
+        names = {
+            m.model_id: m.display_name
+            for m in await self.model_service.list_whitelisted()
+        }
+        return [
+            TriggerResponse.model_validate(
+                t,
+                update={
+                    "model_available": t.model_id in available,
+                    "model_display_name": names.get(t.model_id),
+                },
+            )
+            for t in triggers
+        ]
+
+    # ------------------------------------------------------------------
     # CRUD
     # ------------------------------------------------------------------
 
@@ -87,12 +107,12 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
             triggers = await self.repository.list_all()
         else:
             triggers = await self.repository.list_for_owner(user.id)
-        return [TriggerResponse.model_validate(t) for t in triggers]
+        return await self._to_responses(triggers)
 
     async def get(self, trigger_id: UUID, user: UserDB) -> TriggerResponse:
         trigger = await self.get_or_404(trigger_id)
         self._ensure_can_manage(trigger, user)
-        return TriggerResponse.model_validate(trigger)
+        return (await self._to_responses([trigger]))[0]
 
     async def list_threads(
         self, trigger_id: UUID, user: UserDB
@@ -106,7 +126,8 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
 
     async def create(self, data: TriggerCreate, owner: UserDB) -> TriggerResponse:
         ensure_valid_schedule(data.cron_expression, data.timezone)
-        self._ensure_known_model(data.model_id)
+        # Fail at save time, not first fire — 409 model_unavailable on the form.
+        await self.model_service.ensure_available(data.model_id)
         await self._ensure_agent_usable(data.agent_id, owner)
         next_run_at = (
             compute_next_run_at(
@@ -137,7 +158,7 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         if schedule_changed:
             ensure_valid_schedule(cron, timezone)
         if "model_id" in update_data:
-            self._ensure_known_model(update_data["model_id"])
+            await self.model_service.ensure_available(update_data["model_id"])
         if "agent_id" in update_data and update_data["agent_id"] != trigger.agent_id:
             # Check against the owner, not the caller — an admin may edit
             # someone else's trigger, but the run still executes as the owner.
@@ -162,7 +183,9 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
             self.db.add(trigger)
             await self.db.flush()
             await self.db.refresh(trigger)
-        return TriggerResponse.model_validate(trigger)
+        # Recompute availability: a patch that doesn't touch model_id (e.g.
+        # pause/resume) must not reset the flag to its default on the client.
+        return (await self._to_responses([trigger]))[0]
 
     async def delete(self, trigger_id: UUID, user: UserDB) -> None:
         trigger = await self.get_or_404(trigger_id)
@@ -185,6 +208,10 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         agent = await self.db.get(AgentDB, trigger.agent_id)
         if agent is None or agent.is_archived:
             raise DomainValidationError("Trigger agent is archived or deleted")
+        # Before creating the fire thread — RunService.create would reject the
+        # run anyway, but this keeps a doomed request from leaving an orphan
+        # thread behind.
+        await self.model_service.ensure_available(trigger.model_id)
         # Probe the OWNER's credentials (the run executes as them, even when an
         # admin presses the button) via the shared pre-flight gate, so a broken
         # OAuth fails the request with an actionable message instead of a
@@ -264,6 +291,18 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
                 )
                 trigger.is_active = False
                 trigger.next_run_at = None
+                self.db.add(trigger)
+                continue
+            if not await self.model_service.is_available(trigger.model_id):
+                # Skip the firing but keep the schedule advancing (mirrors the
+                # missed-run policy); the trigger recovers by itself when an
+                # admin re-enables the model. `last_run_at` tracks actual
+                # fires, so it is not stamped for a skip.
+                logger.warning(
+                    "Skipping trigger %s: model %s is not available",
+                    trigger.id,
+                    trigger.model_id,
+                )
                 self.db.add(trigger)
                 continue
             trigger.last_run_at = now

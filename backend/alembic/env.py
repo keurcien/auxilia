@@ -35,6 +35,7 @@ from app.agents.runs.models import RunDB  # noqa: F401
 from app.triggers.models import TriggerDB  # noqa: F401
 from app.invites.models import InviteDB  # noqa: F401
 from app.auth.tokens.models import PersonalAccessTokenDB  # noqa: F401
+from app.model_providers.models import ModelDB  # noqa: F401
 
 target_metadata = SQLModel.metadata
 

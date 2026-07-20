@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlarmClock, Play, Trash2 } from "lucide-react";
+import { AlarmClock, Play, Trash2, TriangleAlert } from "lucide-react";
 import { Trigger } from "@/types/triggers";
 import {
 	describeSchedule,
@@ -116,7 +116,7 @@ export default function TriggerDetail({ trigger }: TriggerDetailProps) {
 							<Switch
 								checked={liveTrigger.isActive}
 								onCheckedChange={handleToggleActive}
-								className="data-[state=checked]:bg-[#3D8B63]"
+								className="data-[state=checked]:bg-[#3D8B63] cursor-pointer"
 							/>
 							<span
 								className={`text-[13px] font-semibold ${
@@ -172,6 +172,19 @@ export default function TriggerDetail({ trigger }: TriggerDetailProps) {
 					}
 				/>
 
+				{!liveTrigger.modelAvailable && (
+					<div className="mt-5 flex items-start gap-2.5 rounded-[14px] bg-[#FDF6EC] dark:bg-amber-950/30 px-4 py-3 text-[13.5px] font-medium text-[#B4643C] dark:text-amber-400">
+						<TriangleAlert className="size-4 shrink-0 mt-0.5" />
+						<span>
+							The model used by this trigger (
+							{liveTrigger.modelDisplayName ?? liveTrigger.modelId}) is no
+							longer available in this workspace, so scheduled runs are being
+							skipped. Choose another model in Edit, or ask a workspace admin to
+							re-enable it.
+						</span>
+					</div>
+				)}
+
 				{error && (
 					<div className="mt-5 rounded-[14px] bg-[#FFF5F3] dark:bg-[#D45B45]/10 px-4 py-3 text-[13.5px] font-medium text-[#D45B45]">
 						{error}
@@ -204,6 +217,7 @@ export default function TriggerDetail({ trigger }: TriggerDetailProps) {
 										value={liveTrigger.modelId}
 										onChange={() => {}}
 										disabled
+										unavailableLabel={liveTrigger.modelDisplayName}
 									/>
 								</div>
 							</div>

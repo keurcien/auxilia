@@ -10,6 +10,16 @@ from app.agents.structured_output import STRUCTURED_OUTPUT_FLAG
 from app.threads.models import ThreadDB, ThreadSource
 
 
+@pytest.fixture(autouse=True)
+def _model_available():
+    """These tests cover the thread routes, not model availability — pin the
+    server-computed `model_available` flag to True so they don't depend on
+    the whitelist or provider env keys."""
+    with patch("app.threads.service.ModelService") as model_service_cls:
+        model_service_cls.return_value.is_available = AsyncMock(return_value=True)
+        yield
+
+
 def test_create_thread(client: TestClient, mock_db, current_user):
     """Test creating a new thread."""
     user_id = current_user.id

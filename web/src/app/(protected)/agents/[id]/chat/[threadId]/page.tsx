@@ -61,6 +61,7 @@ import {
   RefreshCcwIcon,
   CopyIcon,
   ArchiveIcon,
+  CircleSlash,
   ShieldCheck,
 } from "lucide-react";
 import {
@@ -407,6 +408,10 @@ const ChatPage = () => {
   const hasInitialized = useRef(false);
   const [threadModel, setThreadModel] = useState<string | undefined>(undefined);
   const [agentArchived, setAgentArchived] = useState(false);
+  // Server-computed on GET /threads/{id}: the thread's pinned model is no
+  // longer usable (removed from the catalog, provider key gone, or disabled
+  // by an admin). Sending would 409, so the composer is replaced by a notice.
+  const [modelUnavailable, setModelUnavailable] = useState(false);
   const [viewerRole, setViewerRole] = useState<"admin" | null>(null);
   const [initialValues, setInitialValues] = useState<Record<
     string,
@@ -720,6 +725,9 @@ const ChatPage = () => {
       const data = response.data;
 
       setThreadModel(data.thread.modelId);
+      if (data.thread.modelAvailable === false) {
+        setModelUnavailable(true);
+      }
       const isTriggerThread = data.thread.source === "trigger";
       setCurrentChat({
         agentName: data.thread.agentName ?? null,
@@ -1140,6 +1148,18 @@ const ChatPage = () => {
                 The agent linked to this conversation has been archived. This
                 thread is preserved as read-only so you can still review your
                 past messages.
+              </p>
+            </div>
+          </div>
+        ) : modelUnavailable ? (
+          <div className="w-full max-w-4xl mx-auto lg:px-10 sm:px-6 px-3 py-6">
+            <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/50 px-4 py-3">
+              <CircleSlash className="size-5 shrink-0 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">
+                The model used by this conversation
+                {threadModel ? ` (${threadModel})` : ""} is no longer available
+                in this workspace. Ask a workspace admin to re-enable it, or
+                start a new conversation.
               </p>
             </div>
           </div>

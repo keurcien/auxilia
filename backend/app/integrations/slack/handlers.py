@@ -14,7 +14,7 @@ from app.agents.core.service import AgentService
 from app.agents.runs.service import RunService
 from app.auth.settings import auth_settings
 from app.database import AsyncSessionLocal
-from app.exceptions import DomainValidationError
+from app.exceptions import DomainValidationError, ModelUnavailableError
 from app.integrations.slack.blocks import build_connect_prompt_blocks
 from app.integrations.slack.commands.chat import (
     build_agent_picker_blocks,
@@ -323,14 +323,25 @@ async def handle_message(event: SlackEvent, *, team_id: str | None = None) -> No
                 title=question[:255],
             )
 
-    await _enqueue_slack_run(
-        thread_id=thread_ts,
-        user_id=str(user.id),
-        channel_id=event.channel,
-        slack_user_id=event.user,
-        team_id=team_id,
-        input={"messages": [{"type": "human", "content": question}]},
-    )
+    try:
+        await _enqueue_slack_run(
+            thread_id=thread_ts,
+            user_id=str(user.id),
+            channel_id=event.channel,
+            slack_user_id=event.user,
+            team_id=team_id,
+            input={"messages": [{"type": "human", "content": question}]},
+        )
+    except ModelUnavailableError:
+        await client.chat_postMessage(
+            channel=event.channel,
+            thread_ts=thread_ts,
+            text=(
+                "This conversation's model is no longer available in this "
+                "workspace. Ask a workspace admin to re-enable it, or start "
+                "a new conversation."
+            ),
+        )
 
 
 async def handle_interaction(payload: SlackInteractionPayload) -> None:
@@ -432,11 +443,22 @@ async def _resume_agent(
         status="is typing...",
     )
 
-    await _enqueue_slack_run(
-        thread_id=thread_ts,
-        user_id=str(user.id),
-        channel_id=channel_id,
-        slack_user_id=payload.user.id,
-        team_id=(payload.team or {}).get("id"),
-        command={"resume": {"decisions": [{"type": cmd} for cmd in commands]}},
-    )
+    try:
+        await _enqueue_slack_run(
+            thread_id=thread_ts,
+            user_id=str(user.id),
+            channel_id=channel_id,
+            slack_user_id=payload.user.id,
+            team_id=(payload.team or {}).get("id"),
+            command={"resume": {"decisions": [{"type": cmd} for cmd in commands]}},
+        )
+    except ModelUnavailableError:
+        await client.chat_postMessage(
+            channel=channel_id,
+            thread_ts=thread_ts,
+            text=(
+                "This conversation's model is no longer available in this "
+                "workspace. Ask a workspace admin to re-enable it, or start "
+                "a new conversation."
+            ),
+        )

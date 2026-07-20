@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CheckIcon, ChevronDown } from "lucide-react";
+import { CheckIcon, ChevronDown, TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Model } from "@/types/models";
 import { useModelsStore } from "@/stores/models-store";
@@ -19,6 +19,10 @@ interface ModelPickerChipProps {
 	onChange: (modelId: string) => void;
 	/** Read-only chip: no dialog. */
 	disabled?: boolean;
+	/** Label for a `value` that is not in the available models list (e.g. the
+	 * whitelist display name of an admin-disabled model). Falls back to the
+	 * raw `value`. */
+	unavailableLabel?: string | null;
 }
 
 /** Small pill showing the selected model; opens the model catalog dialog. */
@@ -26,6 +30,7 @@ export function ModelPickerChip({
 	value,
 	onChange,
 	disabled,
+	unavailableLabel,
 }: ModelPickerChipProps) {
 	const models = useModelsStore((state) => state.models);
 	const fetchModels = useModelsStore((state) => state.fetchModels);
@@ -79,6 +84,15 @@ export function ModelPickerChip({
 					<ModelSelectorLogo provider={selected.chefSlug} className="size-3" />
 					<span className="truncate">{selected.name}</span>
 				</>
+			) : value ? (
+				// Bound to a model that is no longer offered (removed from the
+				// catalog or disabled by an admin). Keep the binding visible —
+				// a blank "Select model" would read as "not set".
+				<span className="inline-flex items-center gap-1.5 text-[#B4643C] dark:text-amber-400">
+					<TriangleAlert className="size-3 shrink-0" />
+					<span className="truncate">{unavailableLabel ?? value}</span>
+					<span className="font-normal">· unavailable</span>
+				</span>
 			) : (
 				<span className="text-[#8FA89E] dark:text-white/40">Select model</span>
 			)}
