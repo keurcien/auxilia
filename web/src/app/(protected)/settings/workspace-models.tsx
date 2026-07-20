@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import { RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -62,6 +62,13 @@ export default function WorkspaceModels({ onForbidden }: WorkspaceModelsProps) {
 		text: string;
 	} | null>(null);
 
+	// Latest-callback ref: keeps loadManaged's identity stable (its consumer
+	// is a mount effect) without freezing the first render's onForbidden.
+	const onForbiddenRef = useRef(onForbidden);
+	useEffect(() => {
+		onForbiddenRef.current = onForbidden;
+	}, [onForbidden]);
+
 	const loadManaged = useCallback(async () => {
 		setIsLoading(true);
 		setLoadFailed(false);
@@ -72,7 +79,7 @@ export default function WorkspaceModels({ onForbidden }: WorkspaceModelsProps) {
 			setModels(response.data);
 		} catch (error: unknown) {
 			if (axios.isAxiosError(error) && error.response?.status === 403) {
-				onForbidden();
+				onForbiddenRef.current();
 			} else {
 				console.error("Error fetching workspace models:", error);
 				// Distinct from an empty catalog — "no providers configured"
@@ -82,7 +89,6 @@ export default function WorkspaceModels({ onForbidden }: WorkspaceModelsProps) {
 		} finally {
 			setIsLoading(false);
 		}
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
 	useEffect(() => {

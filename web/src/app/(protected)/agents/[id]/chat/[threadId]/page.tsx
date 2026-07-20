@@ -517,6 +517,18 @@ const ChatPage = () => {
     }
   }, [error]);
 
+  // The way back without a page refresh: re-read the server-computed flag
+  // (the banner's "Check again") so an admin re-enabling the model unlocks
+  // the thread in place.
+  const recheckModelAvailability = useCallback(async () => {
+    try {
+      const response = await api.get(`/threads/${threadId}`);
+      setModelUnavailable(response.data.thread.modelAvailable === false);
+    } catch {
+      // Keep the lock; the user can retry.
+    }
+  }, [threadId]);
+
   // The HITL middleware only "hangs" tool calls whose name is in interrupt_on.
   // Other parallel tool calls in the same AI message auto-execute on resume.
   // Scope approval UI and decisions to the hanging subset so the decision count
@@ -1166,12 +1178,22 @@ const ChatPage = () => {
           <div className="w-full max-w-4xl mx-auto lg:px-10 sm:px-6 px-3 py-6">
             <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/50 px-4 py-3">
               <CircleSlash className="size-5 shrink-0 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">
+              <p className="flex-1 text-sm text-muted-foreground">
                 The model used by this conversation
                 {threadModel ? ` (${threadModel})` : ""} is no longer available
                 in this workspace. Ask a workspace admin to restore it, or
                 start a new conversation.
               </p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 cursor-pointer"
+                onClick={() => {
+                  void recheckModelAvailability();
+                }}
+              >
+                Check again
+              </Button>
             </div>
           </div>
         ) : agentStatus === "not_configured" ? (

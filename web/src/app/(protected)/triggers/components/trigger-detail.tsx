@@ -217,6 +217,7 @@ export default function TriggerDetail({ trigger }: TriggerDetailProps) {
 										value={liveTrigger.modelId}
 										onChange={() => {}}
 										disabled
+										unavailable={!liveTrigger.modelAvailable}
 										unavailableLabel={liveTrigger.modelDisplayName}
 									/>
 								</div>

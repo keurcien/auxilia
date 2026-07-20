@@ -23,6 +23,11 @@ interface ModelPickerChipProps {
 	 * whitelist display name of an admin-disabled model). Falls back to the
 	 * raw `value`. */
 	unavailableLabel?: string | null;
+	/** Authoritative unavailability (e.g. the server-computed
+	 * `model_available` flag). When provided it overrides the catalog-derived
+	 * inference, which is only a fallback (wrong while the catalog is loading
+	 * and unknowable if its fetch failed). */
+	unavailable?: boolean;
 }
 
 /** Small pill showing the selected model; opens the model catalog dialog. */
@@ -31,6 +36,7 @@ export function ModelPickerChip({
 	onChange,
 	disabled,
 	unavailableLabel,
+	unavailable,
 }: ModelPickerChipProps) {
 	const models = useModelsStore((state) => state.models);
 	const isCatalogLoaded = useModelsStore((state) => state.isInitialized);
@@ -45,6 +51,10 @@ export function ModelPickerChip({
 	}, [fetchModels]);
 
 	const selected = models.find((model) => model.id === value);
+	// Explicit server flag wins; otherwise infer from catalog membership, but
+	// only once the catalog actually loaded (no false warning during load).
+	const showAsUnavailable =
+		value != null && (unavailable ?? (isCatalogLoaded && !selected));
 
 	const groupedModels = useMemo(() => {
 		const q = search.trim().toLowerCase();
@@ -80,17 +90,15 @@ export function ModelPickerChip({
 					"cursor-pointer hover:bg-[#EDF4F0] dark:hover:bg-white/10",
 			)}
 		>
-			{selected ? (
+			{selected && !showAsUnavailable ? (
 				<>
 					<ModelSelectorLogo provider={selected.chefSlug} className="size-3" />
 					<span className="truncate">{selected.name}</span>
 				</>
-			) : value && isCatalogLoaded ? (
+			) : showAsUnavailable ? (
 				// Bound to a model that is no longer offered (removed from the
 				// catalog or disabled by an admin). Keep the binding visible —
-				// a blank "Select model" would read as "not set". Gated on the
-				// catalog having loaded so a slow fetch doesn't flash a false
-				// "unavailable" warning.
+				// a blank "Select model" would read as "not set".
 				<span className="inline-flex items-center gap-1.5 text-[#B4643C] dark:text-amber-400">
 					<TriangleAlert className="size-3 shrink-0" />
 					<span className="truncate">{unavailableLabel ?? value}</span>

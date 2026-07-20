@@ -223,6 +223,11 @@ export default function TriggerEditor({
 									onChange={(modelId) => {
 										setField("modelId", modelId);
 									}}
+									unavailable={
+										trigger && form.modelId === trigger.modelId
+											? !trigger.modelAvailable
+											: undefined
+									}
 									unavailableLabel={
 										trigger && form.modelId === trigger.modelId
 											? trigger.modelDisplayName
