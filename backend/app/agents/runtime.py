@@ -25,6 +25,7 @@ from langgraph.types import Command
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.core.service import AgentService
+from app.agents.current_datetime import CurrentDatetimeMiddleware
 from app.agents.schemas import AgentResponse
 from app.agents.settings import agent_settings
 from app.agents.stream import (
@@ -92,7 +93,8 @@ def build_runnable(
     created on first tool call, not here).
 
     ``base_middleware`` is the caller's middleware stack — the parent passes its
-    full stack; subagents pass nothing. ``DeferredStructuredOutputMiddleware`` is
+    full stack; subagents pass only ``CurrentDatetimeMiddleware``.
+    ``DeferredStructuredOutputMiddleware`` is
     appended whenever an ``output_schema`` is given (it keeps the schema off the
     tool-calling loop and applies it on one final formatting turn). On the
     sandbox path ``ToolErrorMiddleware`` is appended and the caller's
@@ -187,6 +189,7 @@ class ResolvedAgent:
             tools=self.live.all,
             system_prompt=system_prompt,
             sandbox=sandbox,
+            base_middleware=[CurrentDatetimeMiddleware()],
         )
         return CompiledSubAgent(
             name=sanitize_tool_name(self.config.name),
@@ -271,6 +274,7 @@ class Agent:
                 interrupt_on=agent.prepared.interrupt_on,
                 description_prefix="Tool execution pending approval",
             ),
+            CurrentDatetimeMiddleware(),
         ]
 
         subagents: list[ResolvedAgent] = []
