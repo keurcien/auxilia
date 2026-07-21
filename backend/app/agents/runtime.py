@@ -2,6 +2,7 @@ import asyncio
 import logging
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from uuid import uuid4
 
 from deepagents import create_deep_agent
@@ -169,8 +170,11 @@ class ResolvedAgent:
         )
         return cls(config=config, prepared=prepared)
 
-    def compile(self, model) -> CompiledSubAgent:
+    def compile(self, model, created_at: datetime) -> CompiledSubAgent:
         """Compile into a CompiledSubAgent runnable (for subagent use).
+
+        ``created_at`` is the thread's creation date, stamped onto the
+        subagent's system prompt by ``CurrentDateMiddleware``.
 
         Subagent-level HITL is intentionally not wired here: CompiledSubAgent
         runnables don't inherit the parent's checkpointer, and HumanInTheLoopMiddleware
@@ -189,7 +193,7 @@ class ResolvedAgent:
             tools=self.live.all,
             system_prompt=system_prompt,
             sandbox=sandbox,
-            base_middleware=[CurrentDateMiddleware()],
+            base_middleware=[CurrentDateMiddleware(created_at)],
         )
         return CompiledSubAgent(
             name=sanitize_tool_name(self.config.name),
@@ -274,7 +278,7 @@ class Agent:
                 interrupt_on=agent.prepared.interrupt_on,
                 description_prefix="Tool execution pending approval",
             ),
-            CurrentDateMiddleware(),
+            CurrentDateMiddleware(thread.created_at),
         ]
 
         subagents: list[ResolvedAgent] = []
@@ -306,7 +310,9 @@ class Agent:
         """
         sandbox = self.agent.config.has_code_interpreter and sandbox_settings.enabled
         compiled = (
-            [s.compile(self.model) for s in self.subagents] if self.subagents else None
+            [s.compile(self.model, self.thread.created_at) for s in self.subagents]
+            if self.subagents
+            else None
         )
         # Deep agents take the raw instruction string; create_agent takes a
         # SystemMessage. Keep each form as-is to avoid a prompt-shape change.
