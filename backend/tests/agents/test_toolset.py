@@ -545,7 +545,7 @@ class TestOpenSessions:
 
 
 class _FakeSession:
-    """Stand-in ClientSession: fails every call_tool with `fail_with` if set."""
+    """Stand-in ClientSession: fails every request with `fail_with` if set."""
 
     def __init__(self, name: str, fail_with: BaseException | None = None):
         self.name = name
@@ -559,6 +559,8 @@ class _FakeSession:
         return f"{self.name}:{tool_name}"
 
     async def list_tools(self, cursor=None):
+        if self.fail_with is not None:
+            raise self.fail_with
         return f"tools-from-{self.name}"
 
 
@@ -650,6 +652,23 @@ class TestReconnectingSession:
         assert supervisor.reopened == ["slack", "slack"]
 
     @pytest.mark.asyncio
+    async def test_list_tools_reconnects_and_retries(self):
+        """Tool discovery (Toolset.open → load_mcp_tools → list_tools) must
+        survive a transport that died right after the session opened, not
+        abort the whole run at setup."""
+        import anyio
+
+        from app.agents.toolset import ReconnectingSession
+
+        dead = _FakeSession("dead", fail_with=anyio.ClosedResourceError())
+        fresh = _FakeSession("fresh")
+        supervisor = _FakeSupervisor([fresh])
+        proxy = ReconnectingSession("slack", dead, supervisor)
+
+        assert await proxy.list_tools() == "tools-from-fresh"
+        assert supervisor.reopened == ["slack"]
+
+    @pytest.mark.asyncio
     async def test_getattr_delegates_to_current_session(self):
         import anyio
 
@@ -660,9 +679,10 @@ class TestReconnectingSession:
         supervisor = _FakeSupervisor([fresh])
         proxy = ReconnectingSession("slack", dead, supervisor)
 
-        assert await proxy.list_tools() == "tools-from-dead"
+        # `name` is not a wrapped method — it resolves on the live session.
+        assert proxy.name == "dead"
         await proxy.call_tool("t")
-        assert await proxy.list_tools() == "tools-from-fresh"
+        assert proxy.name == "fresh"
 
 
 # ---------------------------------------------------------------------------

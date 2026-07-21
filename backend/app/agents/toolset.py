@@ -249,6 +249,11 @@ class ReconnectingSession:
     GET stream flaps — the next ``call_tool`` reopens the session once and
     retries, instead of every remaining call failing on the same corpse.
 
+    ``list_tools`` gets the same treatment so tool discovery
+    (``Toolset.open`` → ``load_mcp_tools``) survives a transport that dies
+    right after the session opened, instead of aborting the whole run at
+    setup.
+
     Only ``_DEAD_SESSION_ERRORS`` are retried: they mean the request was never
     sent, so at-most-once execution is preserved. Mid-flight failures (e.g.
     ``McpError`` "Connection closed") are NOT retried — the call may have
@@ -264,17 +269,23 @@ class ReconnectingSession:
         self._lock = asyncio.Lock()
 
     def __getattr__(self, attr: str):
-        # Rest of the session API (list_tools at load time, etc.) hits the
-        # current live session directly, without retry.
+        # Rest of the session API hits the current live session directly,
+        # without retry.
         return getattr(self._session, attr)
 
     async def call_tool(self, *args, **kwargs):
+        return await self._retry_on_dead_session("call_tool", *args, **kwargs)
+
+    async def list_tools(self, *args, **kwargs):
+        return await self._retry_on_dead_session("list_tools", *args, **kwargs)
+
+    async def _retry_on_dead_session(self, method: str, *args, **kwargs):
         session, generation = self._session, self._generation
         try:
-            return await session.call_tool(*args, **kwargs)
+            return await getattr(session, method)(*args, **kwargs)
         except _DEAD_SESSION_ERRORS as exc:
             session = await self._reconnect(generation, exc)
-            return await session.call_tool(*args, **kwargs)
+            return await getattr(session, method)(*args, **kwargs)
 
     async def _reconnect(self, seen_generation: int, cause: BaseException):
         """Reopen once per dead session, even under concurrent callers."""
