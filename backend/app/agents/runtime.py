@@ -97,10 +97,15 @@ def build_runnable(
     full stack; subagents pass only ``CurrentDateMiddleware``.
     ``DeferredStructuredOutputMiddleware`` is
     appended whenever an ``output_schema`` is given (it keeps the schema off the
-    tool-calling loop and applies it on one final formatting turn). On the
-    sandbox path ``ToolErrorMiddleware`` is appended and the caller's
-    ``PatchToolCallsMiddleware`` is dropped, since ``create_deep_agent`` injects
-    its own and langchain asserts against duplicates.
+    tool-calling loop and applies it on one final formatting turn).
+    ``ToolErrorMiddleware`` is appended on BOTH paths: without it the ToolNode
+    has no tool-call wrapper, and langgraph's default handler re-raises any
+    exception that isn't a ``ToolInvocationError`` — an MCP transport failure
+    in a tool (or in a subagent reached through ``task``) then kills the whole
+    run instead of feeding back to the model as an error ToolMessage. On the
+    sandbox path the caller's ``PatchToolCallsMiddleware`` is dropped, since
+    ``create_deep_agent`` injects its own and langchain asserts against
+    duplicates.
 
     ``subagents`` (already-compiled ``CompiledSubAgent`` runnables) wire in via
     ``SubAgentMiddleware`` on the no-sandbox path and via the ``subagents=`` arg
@@ -137,7 +142,7 @@ def build_runnable(
         tools=tools,
         system_prompt=system_prompt,
         checkpointer=checkpointer,
-        middleware=middleware,
+        middleware=[*middleware, ToolErrorMiddleware()],
         response_format=output_schema,
     )
 

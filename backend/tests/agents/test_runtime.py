@@ -94,6 +94,21 @@ def test_build_agent_without_output_schema(mock_create_agent):
     )
 
 
+@patch("app.agents.runtime.create_agent")
+def test_build_agent_appends_tool_error_middleware(mock_create_agent):
+    """The non-sandbox path must also contain tool errors: without a
+    wrap_tool_call middleware the ToolNode has no wrapper and langgraph's
+    default handler re-raises anything that isn't a ToolInvocationError — an
+    MCP transport failure (in a tool, or in a subagent reached through `task`)
+    then crashes the whole run instead of feeding back to the model."""
+    agent = _build_agent()
+
+    agent._build_agent(checkpointer=None)
+
+    middleware = mock_create_agent.call_args.kwargs["middleware"]
+    assert isinstance(middleware[-1], ToolErrorMiddleware)
+
+
 @patch("app.sandbox.tools.create_sandbox_tools", return_value=[])
 @patch("app.agents.runtime.create_deep_agent")
 @patch("app.agents.runtime.sandbox_settings")

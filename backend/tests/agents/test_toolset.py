@@ -511,3 +511,227 @@ class TestOpenSessions:
             async with _open_sessions(_FakeClient(cms), ["a"]):
                 raise ValueError("body boom")
         assert any(e == "exit" and n == "a" for e, n, t in log)
+
+    @pytest.mark.asyncio
+    async def test_replaced_session_teardown_error_is_excused(self):
+        """A dead primary that was replaced mid-stream tears down noisily —
+        that error must be logged, not raised at the end of a successful run."""
+        from app.agents.toolset import _open_sessions
+
+        log = []
+        cms = {
+            "dead": _FakeSessionCM("dead", log, fail_exit=True),
+            "ok": _FakeSessionCM("ok", log),
+        }
+        async with _open_sessions(
+            _FakeClient(cms), ["dead", "ok"], replaced={"dead"}
+        ) as sessions:
+            assert sessions["dead"] == "session-dead"
+
+    @pytest.mark.asyncio
+    async def test_unreplaced_teardown_error_still_raises(self):
+        from app.agents.toolset import _open_sessions
+
+        log = []
+        cms = {"a": _FakeSessionCM("a", log, fail_exit=True)}
+        with pytest.raises(RuntimeError, match="exit failed: a"):
+            async with _open_sessions(_FakeClient(cms), ["a"], replaced={"other"}):
+                pass
+
+
+# ---------------------------------------------------------------------------
+# ReconnectingSession — retry-once on dead transport
+# ---------------------------------------------------------------------------
+
+
+class _FakeSession:
+    """Stand-in ClientSession: fails every request with `fail_with` if set."""
+
+    def __init__(self, name: str, fail_with: BaseException | None = None):
+        self.name = name
+        self.calls: list[str] = []
+        self.fail_with = fail_with
+
+    async def call_tool(self, tool_name, args=None, **kwargs):
+        self.calls.append(tool_name)
+        if self.fail_with is not None:
+            raise self.fail_with
+        return f"{self.name}:{tool_name}"
+
+    async def list_tools(self, cursor=None):
+        if self.fail_with is not None:
+            raise self.fail_with
+        return f"tools-from-{self.name}"
+
+
+class _FakeSupervisor:
+    """Hands out pre-baked replacement sessions and counts reopens."""
+
+    def __init__(self, replacements: list[_FakeSession]):
+        self._replacements = list(replacements)
+        self.reopened: list[str] = []
+        self.replaced: set[str] = set()
+
+    async def reopen(self, name: str):
+        self.reopened.append(name)
+        self.replaced.add(name)
+        return self._replacements.pop(0)
+
+
+class TestReconnectingSession:
+    @pytest.mark.asyncio
+    async def test_dead_transport_reconnects_and_retries(self):
+        import anyio
+
+        from app.agents.toolset import ReconnectingSession
+
+        dead = _FakeSession("dead", fail_with=anyio.ClosedResourceError())
+        fresh = _FakeSession("fresh")
+        supervisor = _FakeSupervisor([fresh])
+        proxy = ReconnectingSession("slack", dead, supervisor)
+
+        result = await proxy.call_tool("read_channel")
+
+        assert result == "fresh:read_channel"
+        assert supervisor.reopened == ["slack"]
+        # The failed call never reached the server; the retry did.
+        assert dead.calls == ["read_channel"]
+        assert fresh.calls == ["read_channel"]
+
+    @pytest.mark.asyncio
+    async def test_non_transport_errors_are_not_retried(self):
+        from app.agents.toolset import ReconnectingSession
+
+        dead = _FakeSession("dead", fail_with=ValueError("mid-flight failure"))
+        supervisor = _FakeSupervisor([])
+        proxy = ReconnectingSession("slack", dead, supervisor)
+
+        with pytest.raises(ValueError, match="mid-flight failure"):
+            await proxy.call_tool("send_message")
+        assert supervisor.reopened == []
+
+    @pytest.mark.asyncio
+    async def test_concurrent_failures_reconnect_once(self):
+        """N concurrent calls on a dead session must trigger ONE reopen, and
+        all of them must retry on the same replacement."""
+        import asyncio
+
+        import anyio
+
+        from app.agents.toolset import ReconnectingSession
+
+        dead = _FakeSession("dead", fail_with=anyio.ClosedResourceError())
+        fresh = _FakeSession("fresh")
+        supervisor = _FakeSupervisor([fresh])
+        proxy = ReconnectingSession("slack", dead, supervisor)
+
+        results = await asyncio.gather(
+            proxy.call_tool("a"), proxy.call_tool("b"), proxy.call_tool("c")
+        )
+
+        assert sorted(results) == ["fresh:a", "fresh:b", "fresh:c"]
+        assert supervisor.reopened == ["slack"]
+
+    @pytest.mark.asyncio
+    async def test_second_death_reconnects_again(self):
+        import anyio
+
+        from app.agents.toolset import ReconnectingSession
+
+        dead1 = _FakeSession("dead1", fail_with=anyio.BrokenResourceError())
+        dead2 = _FakeSession("dead2", fail_with=anyio.BrokenResourceError())
+        fresh = _FakeSession("fresh")
+        supervisor = _FakeSupervisor([dead2, fresh])
+        proxy = ReconnectingSession("slack", dead1, supervisor)
+
+        # First call: dead1 -> reopen -> dead2 -> retry fails (one retry only).
+        with pytest.raises(anyio.BrokenResourceError):
+            await proxy.call_tool("a")
+        # Next call fails on dead2, reopens again onto fresh, succeeds.
+        assert await proxy.call_tool("b") == "fresh:b"
+        assert supervisor.reopened == ["slack", "slack"]
+
+    @pytest.mark.asyncio
+    async def test_list_tools_reconnects_and_retries(self):
+        """Tool discovery (Toolset.open → load_mcp_tools → list_tools) must
+        survive a transport that died right after the session opened, not
+        abort the whole run at setup."""
+        import anyio
+
+        from app.agents.toolset import ReconnectingSession
+
+        dead = _FakeSession("dead", fail_with=anyio.ClosedResourceError())
+        fresh = _FakeSession("fresh")
+        supervisor = _FakeSupervisor([fresh])
+        proxy = ReconnectingSession("slack", dead, supervisor)
+
+        assert await proxy.list_tools() == "tools-from-fresh"
+        assert supervisor.reopened == ["slack"]
+
+    @pytest.mark.asyncio
+    async def test_getattr_delegates_to_current_session(self):
+        import anyio
+
+        from app.agents.toolset import ReconnectingSession
+
+        dead = _FakeSession("dead", fail_with=anyio.ClosedResourceError())
+        fresh = _FakeSession("fresh")
+        supervisor = _FakeSupervisor([fresh])
+        proxy = ReconnectingSession("slack", dead, supervisor)
+
+        # `name` is not a wrapped method — it resolves on the live session.
+        assert proxy.name == "dead"
+        await proxy.call_tool("t")
+        assert proxy.name == "fresh"
+
+
+# ---------------------------------------------------------------------------
+# _SessionSupervisor — replacement host lifecycle
+# ---------------------------------------------------------------------------
+
+
+class TestSessionSupervisor:
+    @pytest.mark.asyncio
+    async def test_reopen_hosts_session_and_records_replacement(self):
+        import asyncio
+
+        from app.agents.toolset import _SessionSupervisor
+
+        log = []
+        cms = {"a": _FakeSessionCM("a", log)}
+        supervisor = _SessionSupervisor(_FakeClient(cms))
+
+        session = await supervisor.reopen("a")
+        assert session == "session-a"
+        assert supervisor.replaced == {"a"}
+        # Entered in a dedicated task, not the caller's.
+        enter_task = next(t for e, n, t in log if e == "enter")
+        assert enter_task is not asyncio.current_task()
+
+        await supervisor.close()
+        exit_task = next(t for e, n, t in log if e == "exit")
+        assert exit_task is enter_task
+
+    @pytest.mark.asyncio
+    async def test_close_logs_teardown_errors_instead_of_raising(self):
+        from app.agents.toolset import _SessionSupervisor
+
+        log = []
+        cms = {"a": _FakeSessionCM("a", log, fail_exit=True)}
+        supervisor = _SessionSupervisor(_FakeClient(cms))
+        await supervisor.reopen("a")
+
+        await supervisor.close()  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_reopen_failure_propagates_to_caller(self):
+        from app.agents.toolset import _SessionSupervisor
+
+        log = []
+        cms = {"a": _FakeSessionCM("a", log, fail_enter=True)}
+        supervisor = _SessionSupervisor(_FakeClient(cms))
+
+        with pytest.raises(RuntimeError, match="enter failed: a"):
+            await supervisor.reopen("a")
+        assert supervisor.replaced == set()
+        await supervisor.close()

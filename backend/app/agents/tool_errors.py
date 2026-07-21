@@ -52,8 +52,12 @@ class ToolErrorMiddleware(AgentMiddleware):
             return await handler(request)
         except Exception as exc:
             inner = root_cause(exc)
+            # Some transport errors stringify to "" (e.g. anyio's
+            # ClosedResourceError) — fall back to the type name so the model
+            # gets something actionable.
+            detail = str(inner) or type(inner).__name__
             return ToolMessage(
-                content=f"Error: {inner}",
+                content=f"Error: {detail}",
                 tool_call_id=request.tool_call["id"],
             )
 
