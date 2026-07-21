@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.29](https://github.com/keurcien/auxilia/compare/backend-v0.4.28...backend-v0.4.29) (2026-07-21)
+
+
+### Features
+
+* **agents:** inject the thread date into the system prompt ([#233](https://github.com/keurcien/auxilia/issues/233)) ([0f93d47](https://github.com/keurcien/auxilia/commit/0f93d473207963e6ac8cfce5a93a5b28acea5e95))
+
 ## [0.4.28](https://github.com/keurcien/auxilia/compare/backend-v0.4.27...backend-v0.4.28) (2026-07-20)
 
 
