@@ -1,9 +1,13 @@
-"""Middleware that stamps the current date and time onto the system prompt.
+"""Middleware that stamps the current date onto the system prompt.
 
 Agent instructions are static; the model has no notion of "now". This
-middleware appends the current UTC date and time to the end of the system
-prompt on every model call, so the timestamp stays fresh across a whole run
-(triggers, durable runs) instead of being frozen at agent-build time.
+middleware appends the current UTC date to the end of the system prompt on
+every model call, so a thread resumed days later still sees today's date.
+
+Deliberately date-only (no time of day): the system prompt sits at the front
+of the provider's prompt-cache prefix, so any value that changes between
+calls would invalidate the cache for the whole conversation on every turn.
+A day-granularity stamp keeps the prompt byte-identical within a day.
 """
 
 from __future__ import annotations
@@ -19,16 +23,16 @@ from langchain.agents.middleware.types import (
 from langchain_core.messages import SystemMessage
 
 
-class CurrentDatetimeMiddleware(AgentMiddleware):
-    """Append the current UTC date/time to the system prompt on each model call."""
+class CurrentDateMiddleware(AgentMiddleware):
+    """Append the current UTC date to the system prompt on each model call."""
 
     async def awrap_model_call(
         self,
         request: ModelRequest,
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> ModelResponse:
-        now = datetime.now(UTC).strftime("%A, %B %d, %Y, %H:%M UTC")
-        stamp = f"Current date and time: {now}"
+        today = datetime.now(UTC).strftime("%A, %B %d, %Y")
+        stamp = f"Current date: {today} (UTC)"
         message = request.system_message
         if message is None:
             stamped = SystemMessage(content=stamp)
