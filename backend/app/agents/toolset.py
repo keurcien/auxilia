@@ -4,6 +4,7 @@ import re
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
+import anyio
 from langchain_core.tools import Tool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
@@ -189,10 +190,112 @@ def _assemble_agent_tools(
     return agent_tools
 
 
+# Raised when sending on a session whose streams already closed — the request
+# never left the client, so retrying it on a fresh session is safe.
+_DEAD_SESSION_ERRORS = (anyio.ClosedResourceError, anyio.BrokenResourceError)
+
+
+class _SessionSupervisor:
+    """Opens replacement MCP sessions for servers whose transport died mid-stream.
+
+    Each replacement is hosted in its own task (same anyio cancel-scope
+    ownership rule as ``_open_sessions``) and torn down in ``close()`` at the
+    end of ``Toolset.open``. ``replaced`` records which servers were
+    reconnected, so ``_open_sessions`` demotes the dead primaries' teardown
+    errors to warnings instead of raising them at stream end.
+    """
+
+    def __init__(self, client: MultiServerMCPClient | None):
+        self._client = client
+        self._stop = asyncio.Event()
+        self._tasks: list[asyncio.Task] = []
+        self.replaced: set[str] = set()
+
+    async def reopen(self, name: str):
+        loop = asyncio.get_running_loop()
+        ready: asyncio.Future = loop.create_future()
+
+        async def _host() -> None:
+            try:
+                async with self._client.session(name) as session:
+                    ready.set_result(session)
+                    await self._stop.wait()
+            except BaseException as exc:
+                if not ready.done():
+                    ready.set_exception(exc)
+                else:
+                    raise
+
+        self._tasks.append(asyncio.create_task(_host()))
+        session = await ready
+        self.replaced.add(name)
+        return session
+
+    async def close(self) -> None:
+        self._stop.set()
+        results = await asyncio.gather(*self._tasks, return_exceptions=True)
+        for result in results:
+            if isinstance(result, BaseException) and not isinstance(
+                result, asyncio.CancelledError
+            ):
+                logger.warning("Replacement MCP session teardown failed: %r", result)
+
+
+class ReconnectingSession:
+    """Per-server ``ClientSession`` proxy that survives a dead transport.
+
+    All of a server's tools are bound to this proxy (not to the raw session),
+    so when the transport dies mid-run — the server drops the connection, the
+    GET stream flaps — the next ``call_tool`` reopens the session once and
+    retries, instead of every remaining call failing on the same corpse.
+
+    Only ``_DEAD_SESSION_ERRORS`` are retried: they mean the request was never
+    sent, so at-most-once execution is preserved. Mid-flight failures (e.g.
+    ``McpError`` "Connection closed") are NOT retried — the call may have
+    executed server-side; they surface as error ToolMessages via
+    ToolErrorMiddleware, and the next call on this server reconnects.
+    """
+
+    def __init__(self, name: str, session, supervisor: _SessionSupervisor):
+        self._session = session
+        self._name = name
+        self._generation = 0
+        self._supervisor = supervisor
+        self._lock = asyncio.Lock()
+
+    def __getattr__(self, attr: str):
+        # Rest of the session API (list_tools at load time, etc.) hits the
+        # current live session directly, without retry.
+        return getattr(self._session, attr)
+
+    async def call_tool(self, *args, **kwargs):
+        session, generation = self._session, self._generation
+        try:
+            return await session.call_tool(*args, **kwargs)
+        except _DEAD_SESSION_ERRORS as exc:
+            session = await self._reconnect(generation, exc)
+            return await session.call_tool(*args, **kwargs)
+
+    async def _reconnect(self, seen_generation: int, cause: BaseException):
+        """Reopen once per dead session, even under concurrent callers."""
+        async with self._lock:
+            if self._generation == seen_generation:
+                logger.warning(
+                    "MCP session '%s' is dead (%s); opening a replacement",
+                    self._name,
+                    type(cause).__name__,
+                )
+                self._session = await self._supervisor.reopen(self._name)
+                self._generation += 1
+            return self._session
+
+
 @asynccontextmanager
 async def _open_sessions(
     client: MultiServerMCPClient | None,
     server_names: list[str],
+    *,
+    replaced: set[str] | None = None,
 ):
     """Open one live MCP session per server, concurrently.
 
@@ -200,6 +303,10 @@ async def _open_sessions(
     host task: the streamable-HTTP transport is built on anyio cancel scopes,
     which must exit in the task that entered them — entering the contexts from
     a ``gather`` onto a shared exit stack would crash at teardown.
+
+    ``replaced`` (shared with the ``_SessionSupervisor``) names servers whose
+    primary session died and was replaced mid-stream: their teardown errors
+    are expected, so they are logged instead of raised.
     """
     if not server_names:
         yield {}
@@ -237,11 +344,19 @@ async def _open_sessions(
         await _teardown()
         raise
     else:
-        for result in await _teardown():
-            if isinstance(result, BaseException) and not isinstance(
+        for name, result in zip(server_names, await _teardown(), strict=True):
+            if not isinstance(result, BaseException) or isinstance(
                 result, asyncio.CancelledError
             ):
-                raise result
+                continue
+            if replaced and name in replaced:
+                logger.warning(
+                    "Dead MCP session '%s' teardown failed after it was replaced: %r",
+                    name,
+                    result,
+                )
+                continue
+            raise result
 
 
 class Toolset:
@@ -339,29 +454,42 @@ class Toolset:
 
         The sessions stay open for the whole ``async with`` block, so a handle
         minted by one tool call (e.g. Metabase ``construct_query``'s
-        ``query_handle``) survives to the next call (``visualize_query``). MCP tool
-        execution errors (isError=True) are surfaced as ToolMessage(status="error")
-        natively by langchain-mcp-adapters; transport/protocol failures raise and
-        are caught globally by ToolErrorMiddleware.
+        ``query_handle``) survives to the next call (``visualize_query``). Tools
+        are bound to a ``ReconnectingSession`` proxy, so a session whose
+        transport dies mid-run is reopened on the next call instead of failing
+        every remaining call. MCP tool execution errors (isError=True) are
+        surfaced as ToolMessage(status="error") natively by
+        langchain-mcp-adapters; transport/protocol failures raise and are
+        caught globally by ToolErrorMiddleware.
         """
-        async with _open_sessions(prepared.client, prepared.server_names) as sessions:
-            results = await asyncio.gather(
-                *[
-                    load_mcp_tools(
-                        sessions[name], server_name=name, tool_name_prefix=True
-                    )
+        supervisor = _SessionSupervisor(prepared.client)
+        async with _open_sessions(
+            prepared.client, prepared.server_names, replaced=supervisor.replaced
+        ) as sessions:
+            try:
+                proxies = {
+                    name: ReconnectingSession(name, sessions[name], supervisor)
                     for name in prepared.server_names
-                ]
-            )
-            tools_by_server = list(zip(prepared.server_names, results, strict=True))
+                }
+                results = await asyncio.gather(
+                    *[
+                        load_mcp_tools(
+                            proxies[name], server_name=name, tool_name_prefix=True
+                        )
+                        for name in prepared.server_names
+                    ]
+                )
+                tools_by_server = list(zip(prepared.server_names, results, strict=True))
 
-            agent_tools = _assemble_agent_tools(
-                tools_by_server, prepared.tool_settings, prepared.server_id_by_name
-            )
-            toolset = cls(tools=agent_tools)
-            if prepared.apply_ui:
-                toolset.apply_ui_metadata()
-            yield toolset
+                agent_tools = _assemble_agent_tools(
+                    tools_by_server, prepared.tool_settings, prepared.server_id_by_name
+                )
+                toolset = cls(tools=agent_tools)
+                if prepared.apply_ui:
+                    toolset.apply_ui_metadata()
+                yield toolset
+            finally:
+                await supervisor.close()
 
     def apply_ui_metadata(self) -> None:
         """Inject UI metadata into tool coroutines.
