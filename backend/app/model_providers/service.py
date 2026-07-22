@@ -183,7 +183,11 @@ class ModelService(BaseService[ModelDB, ModelRepository]):
                     "Cannot disable the last available model in the workspace."
                 )
 
-        row = await self.repository.get_by_provider_and_model_id(provider, model_id)
+        # Locked so a concurrent set_default can't re-flag the row between
+        # this read and the auto-unset below.
+        row = await self.repository.get_by_provider_and_model_id(
+            provider, model_id, for_update=True
+        )
         if row is None:
             row = await self.repository.create(
                 ModelCreateDB(
@@ -213,7 +217,19 @@ class ModelService(BaseService[ModelDB, ModelRepository]):
         if resolved.provider != provider:
             raise NotFoundError("Model not found in the supported catalog")
 
-        current = await self.repository.get_default()
+        # Lock the target row and revalidate under the lock: concurrent admin
+        # mutations could otherwise persist a disabled model as the default
+        # (racing set_enabled) or trip the single-default unique index with a
+        # raw 500 (racing another set_default).
+        row = await self.repository.get_by_provider_and_model_id(
+            provider, model_id, for_update=True
+        )
+        if row is None or not row.is_enabled:
+            raise ModelUnavailableError(
+                model_id, "it has been disabled by a workspace admin"
+            )
+
+        current = await self.repository.get_default(for_update=True)
         if current and (current.provider, current.model_id) != (provider, model_id):
             current.is_default = False
             self.db.add(current)
@@ -221,8 +237,6 @@ class ModelService(BaseService[ModelDB, ModelRepository]):
             # sees two default rows.
             await self.db.flush()
 
-        # ensure_available guarantees the enablement row exists (enabled ⇒ row).
-        row = await self.repository.get_by_provider_and_model_id(provider, model_id)
         if not row.is_default:
             row.is_default = True
             self.db.add(row)
@@ -238,18 +252,23 @@ class ModelService(BaseService[ModelDB, ModelRepository]):
 
     async def clear_default(self) -> None:
         """Back to automatic: consumers fall back to the first available model."""
-        row = await self.repository.get_default()
+        row = await self.repository.get_default(for_update=True)
         if row is not None:
             row.is_default = False
             self.db.add(row)
             await self.db.flush()
 
-    async def get_default_model_id(self) -> str | None:
+    async def get_default_model_id(
+        self, available: list[SupportedModel] | None = None
+    ) -> str | None:
         """The effective workspace default: the admin-flagged model while it is
         still available, else the first available model, else None. Every
         consumer that needs a model without the user picking one (Slack
-        threads, picker preselection) resolves through here."""
-        available = await self.list_available()
+        threads, picker preselection) resolves through here. Callers that
+        already hold ``list_available()``'s result pass it in to skip a second
+        resolution."""
+        if available is None:
+            available = await self.list_available()
         if not available:
             return None
         row = await self.repository.get_default()

@@ -58,6 +58,9 @@ export default function WorkspaceModels({ onForbidden }: WorkspaceModelsProps) {
 	const [pendingKeys, setPendingKeys] = useState<ReadonlySet<string>>(
 		new Set(),
 	);
+	// Default changes rewrite every row's flag, so they are serialized: all
+	// stars lock while one request is in flight.
+	const [isDefaultUpdating, setIsDefaultUpdating] = useState(false);
 	const [status, setStatus] = useState<{
 		kind: "info" | "error";
 		text: string;
@@ -156,17 +159,13 @@ export default function WorkspaceModels({ onForbidden }: WorkspaceModelsProps) {
 
 	const handleSetDefault = async (model: ManagedModel) => {
 		const key = `${model.provider}/${model.modelId}`;
-		const makeDefault = !model.isDefault;
 		// Clicking the current default's star unsets it (back to automatic).
-		const previousDefault = models.find((m) => m.isDefault);
-		const previousDefaultKey = previousDefault
-			? `${previousDefault.provider}/${previousDefault.modelId}`
-			: null;
+		const makeDefault = !model.isDefault;
+		setIsDefaultUpdating(true);
 		setPendingKeys((prev) => new Set(prev).add(key));
 		setStatus(null);
 		// Optimistic: exactly one default at a time — flag the target, clear
-		// the rest. Reverted by key on failure so a concurrent enable/disable
-		// toggle on another row isn't clobbered.
+		// the rest.
 		setModels((prev) =>
 			prev.map((m) => ({
 				...m,
@@ -188,12 +187,9 @@ export default function WorkspaceModels({ onForbidden }: WorkspaceModelsProps) {
 			// Every open model picker preselects the new default without a reload.
 			await refreshModels().catch(() => {});
 		} catch (error: unknown) {
-			setModels((prev) =>
-				prev.map((m) => ({
-					...m,
-					isDefault: `${m.provider}/${m.modelId}` === previousDefaultKey,
-				})),
-			);
+			// Refetch instead of reverting from a snapshot: the persisted state
+			// is the only reliable source after a failure.
+			await loadManaged();
 			if (axios.isAxiosError(error) && error.response?.status === 403) {
 				onForbidden();
 			} else {
@@ -205,6 +201,7 @@ export default function WorkspaceModels({ onForbidden }: WorkspaceModelsProps) {
 				});
 			}
 		} finally {
+			setIsDefaultUpdating(false);
 			setPendingKeys((prev) => {
 				const next = new Set(prev);
 				next.delete(key);
@@ -378,10 +375,13 @@ export default function WorkspaceModels({ onForbidden }: WorkspaceModelsProps) {
 														? "Unset as default (back to automatic)"
 														: "Set as workspace default"
 												}
-												// Only an enabled, supported model can be the default.
+												// Only an enabled, supported model can be the default;
+												// default changes are serialized (they rewrite every
+												// row's flag), so all stars lock while one is in flight.
 												disabled={
 													pendingKeys.has(key) ||
 													isSyncing ||
+													isDefaultUpdating ||
 													!model.isEnabled ||
 													model.deprecated
 												}

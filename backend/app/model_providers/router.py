@@ -34,7 +34,8 @@ async def get_models(
     """The model picker source: whitelist ∧ provider key ∧ admin-enabled.
     Exactly one row carries isDefault (the effective workspace default) —
     unless no model is available at all."""
-    default_model_id = await service.get_default_model_id()
+    available = await service.list_available()
+    default_model_id = await service.get_default_model_id(available)
     return [
         ModelResponse(
             name=m.display_name,
@@ -44,7 +45,7 @@ async def get_models(
             providers=[ModelProviderType(m.provider)],
             isDefault=m.model_id == default_model_id,
         )
-        for m in await service.list_available()
+        for m in available
     ]
 
 

@@ -29,12 +29,15 @@ def upgrade() -> None:
         ),
     )
     # Partial unique index: at most one default row, any number of non-defaults.
+    # sqlite_where keeps the migrated schema aligned with ModelDB should the
+    # migration ever run against SQLite (deployments are Postgres-only).
     op.create_index(
         "uq_models_single_default",
         "models",
         ["is_default"],
         unique=True,
         postgresql_where=sa.text("is_default"),
+        sqlite_where=sa.text("is_default"),
     )
 
 

@@ -36,10 +36,12 @@ def _service(rows: list[ModelDB]) -> ModelService:
     service.repository.list_all.return_value = rows
     by_key = {(r.provider, r.model_id): r for r in rows}
 
-    async def get_by(provider: str, model_id: str) -> ModelDB | None:
+    async def get_by(
+        provider: str, model_id: str, *, for_update: bool = False
+    ) -> ModelDB | None:
         return by_key.get((provider, model_id))
 
-    async def get_default() -> ModelDB | None:
+    async def get_default(*, for_update: bool = False) -> ModelDB | None:
         return next((r for r in rows if r.is_default), None)
 
     service.repository.get_by_provider_and_model_id.side_effect = get_by
