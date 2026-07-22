@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.22](https://github.com/keurcien/auxilia/compare/web-v0.5.21...web-v0.5.22) (2026-07-22)
+
+
+### Features
+
+* **models:** workspace default model ([#238](https://github.com/keurcien/auxilia/issues/238)) ([c15ad05](https://github.com/keurcien/auxilia/commit/c15ad05e361f2165c458956d050f1c5e54f25626))
+
 ## [0.5.21](https://github.com/keurcien/auxilia/compare/web-v0.5.20...web-v0.5.21) (2026-07-20)
 
 
