@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.30](https://github.com/keurcien/auxilia/compare/backend-v0.4.29...backend-v0.4.30) (2026-07-22)
+
+
+### Features
+
+* **sandbox:** cloud run sandbox provider via dedicated gateway service ([#237](https://github.com/keurcien/auxilia/issues/237)) ([6b6ee9c](https://github.com/keurcien/auxilia/commit/6b6ee9cf36913bf060a413d5d86dace50191be49))
+
+
+### Bug Fixes
+
+* **agents:** contain tool errors and reconnect dead MCP sessions ([#235](https://github.com/keurcien/auxilia/issues/235)) ([9743cb1](https://github.com/keurcien/auxilia/commit/9743cb1906e053dad68ed4800e6e46580d7e6799))
+
 ## [0.4.29](https://github.com/keurcien/auxilia/compare/backend-v0.4.28...backend-v0.4.29) (2026-07-21)
 
 
