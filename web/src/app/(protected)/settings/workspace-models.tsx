@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Star } from "lucide-react";
+import { ModelSelectorLogo } from "@/components/ai-elements/model-selector";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -10,18 +11,18 @@ import { api } from "@/lib/api/client";
 import { useModelsStore } from "@/stores/models-store";
 import type { ManagedModel, WhitelistSyncResult } from "@/types/models";
 
-const PROVIDER_LABELS: Record<string, string> = {
-	openai: "OpenAI",
-	anthropic: "Anthropic",
-	google: "Google",
-	deepseek: "DeepSeek",
-	xiaomi: "Xiaomi",
-	openrouter: "OpenRouter",
-	meta: "Meta",
-};
+const PROVIDER_LABELS = new Map<string, string>([
+	["openai", "OpenAI"],
+	["anthropic", "Anthropic"],
+	["google", "Google"],
+	["deepseek", "DeepSeek"],
+	["xiaomi", "Xiaomi"],
+	["openrouter", "OpenRouter"],
+	["meta", "Meta"],
+]);
 
 function providerLabel(provider: string): string {
-	return PROVIDER_LABELS[provider] ?? provider;
+	return PROVIDER_LABELS.get(provider) ?? provider;
 }
 
 function apiErrorDetail(error: unknown): string | null {
@@ -57,6 +58,9 @@ export default function WorkspaceModels({ onForbidden }: WorkspaceModelsProps) {
 	const [pendingKeys, setPendingKeys] = useState<ReadonlySet<string>>(
 		new Set(),
 	);
+	// Default changes rewrite every row's flag, so they are serialized: all
+	// stars lock while one request is in flight.
+	const [isDefaultUpdating, setIsDefaultUpdating] = useState(false);
 	const [status, setStatus] = useState<{
 		kind: "info" | "error";
 		text: string;
@@ -110,11 +114,12 @@ export default function WorkspaceModels({ onForbidden }: WorkspaceModelsProps) {
 		const key = `${model.provider}/${model.modelId}`;
 		setPendingKeys((prev) => new Set(prev).add(key));
 		setStatus(null);
-		// Optimistic flip; reverted on failure.
+		// Optimistic flip; reverted on failure. Disabling the default also
+		// clears its flag (the backend auto-unsets — back to automatic).
 		setModels((prev) =>
 			prev.map((m) =>
 				m.provider === model.provider && m.modelId === model.modelId
-					? { ...m, isEnabled }
+					? { ...m, isEnabled, isDefault: isEnabled ? m.isDefault : false }
 					: m,
 			),
 		);
@@ -129,7 +134,7 @@ export default function WorkspaceModels({ onForbidden }: WorkspaceModelsProps) {
 			setModels((prev) =>
 				prev.map((m) =>
 					m.provider === model.provider && m.modelId === model.modelId
-						? { ...m, isEnabled: !isEnabled }
+						? { ...m, isEnabled: !isEnabled, isDefault: model.isDefault }
 						: m,
 				),
 			);
@@ -144,6 +149,59 @@ export default function WorkspaceModels({ onForbidden }: WorkspaceModelsProps) {
 				});
 			}
 		} finally {
+			setPendingKeys((prev) => {
+				const next = new Set(prev);
+				next.delete(key);
+				return next;
+			});
+		}
+	};
+
+	const handleSetDefault = async (model: ManagedModel) => {
+		const key = `${model.provider}/${model.modelId}`;
+		// Clicking the current default's star unsets it (back to automatic).
+		const makeDefault = !model.isDefault;
+		setIsDefaultUpdating(true);
+		setPendingKeys((prev) => new Set(prev).add(key));
+		setStatus(null);
+		// Optimistic: exactly one default at a time — flag the target, clear
+		// the rest.
+		setModels((prev) =>
+			prev.map((m) => ({
+				...m,
+				isDefault:
+					makeDefault &&
+					m.provider === model.provider &&
+					m.modelId === model.modelId,
+			})),
+		);
+		try {
+			if (makeDefault) {
+				await api.put("/model-providers/models/default", {
+					provider: model.provider,
+					modelId: model.modelId,
+				});
+			} else {
+				await api.delete("/model-providers/models/default");
+			}
+			// Every open model picker preselects the new default without a reload.
+			await refreshModels().catch(() => {});
+		} catch (error: unknown) {
+			// Refetch instead of reverting from a snapshot: the persisted state
+			// is the only reliable source after a failure.
+			await loadManaged();
+			if (axios.isAxiosError(error) && error.response?.status === 403) {
+				onForbidden();
+			} else {
+				setStatus({
+					kind: "error",
+					text:
+						apiErrorDetail(error) ??
+						`Could not update the default model. Please retry.`,
+				});
+			}
+		} finally {
+			setIsDefaultUpdating(false);
 			setPendingKeys((prev) => {
 				const next = new Set(prev);
 				next.delete(key);
@@ -213,7 +271,9 @@ export default function WorkspaceModels({ onForbidden }: WorkspaceModelsProps) {
 			</div>
 			<p className="text-sm text-muted-foreground mb-3">
 				Choose which models members can use in chats and triggers. New catalog
-				models start disabled until you enable them.
+				models start disabled until you enable them. Star a model to make it
+				the workspace default — it preselects model pickers and is used by
+				Slack; without one, the first available model is used.
 			</p>
 			{status && (
 				<p
@@ -272,42 +332,87 @@ export default function WorkspaceModels({ onForbidden }: WorkspaceModelsProps) {
 										key={key}
 										className="px-6 py-3 border-t flex items-center justify-between gap-4 hover:bg-muted/30 transition-colors"
 									>
-										<div className="flex flex-col gap-0.5 min-w-0">
-											<div className="flex items-center gap-2 flex-wrap">
-												<span className="text-sm font-medium text-foreground">
-													{model.displayName}
+										<div className="flex items-center gap-3 min-w-0">
+											<ModelSelectorLogo
+												provider={model.chefSlug}
+												className="size-4 shrink-0"
+											/>
+											<div className="flex flex-col gap-0.5 min-w-0">
+												<div className="flex items-center gap-2 flex-wrap">
+													<span className="text-sm font-medium text-foreground">
+														{model.displayName}
+													</span>
+													{model.isDefault && <Badge>Default</Badge>}
+													{model.deprecated && (
+														<Badge variant="destructive">
+															No longer supported
+														</Badge>
+													)}
+													{model.multimodal && (
+														<Badge variant="secondary">Multimodal</Badge>
+													)}
+													{model.supportsStructuredOutput && (
+														<Badge variant="secondary">Structured output</Badge>
+													)}
+												</div>
+												<span className="text-xs text-muted-foreground font-mono truncate">
+													{model.modelId}
 												</span>
-												{model.deprecated && (
-													<Badge variant="destructive">
-														No longer supported
-													</Badge>
-												)}
-												{model.multimodal && (
-													<Badge variant="secondary">Multimodal</Badge>
-												)}
-												{model.supportsStructuredOutput && (
-													<Badge variant="secondary">Structured output</Badge>
-												)}
 											</div>
-											<span className="text-xs text-muted-foreground font-mono truncate">
-												{model.modelId}
-											</span>
 										</div>
-										<Switch
-											checked={model.isEnabled}
-											aria-label={`Enable ${model.displayName} (${model.modelId})`}
-											// Deprecated rows can only be turned off; a sync in
-											// flight would overwrite concurrent toggles, so rows
-											// lock while it runs.
-											disabled={
-												pendingKeys.has(key) ||
-												isSyncing ||
-												(model.deprecated && !model.isEnabled)
-											}
-											onCheckedChange={(checked) => {
-												void handleToggle(model, checked);
-											}}
-										/>
+										<div className="flex items-center gap-1">
+											<Button
+												variant="ghost"
+												size="icon"
+												className="h-8 w-8 cursor-pointer"
+												aria-label={
+													model.isDefault
+														? `Unset ${model.displayName} as the workspace default`
+														: `Set ${model.displayName} as the workspace default`
+												}
+												title={
+													model.isDefault
+														? "Unset as default (back to automatic)"
+														: "Set as workspace default"
+												}
+												// Only an enabled, supported model can be the default;
+												// default changes are serialized (they rewrite every
+												// row's flag), so all stars lock while one is in flight.
+												disabled={
+													pendingKeys.has(key) ||
+													isSyncing ||
+													isDefaultUpdating ||
+													!model.isEnabled ||
+													model.deprecated
+												}
+												onClick={() => {
+													void handleSetDefault(model);
+												}}
+											>
+												<Star
+													className={
+														model.isDefault
+															? "h-4 w-4 fill-current text-foreground"
+															: "h-4 w-4 text-muted-foreground"
+													}
+												/>
+											</Button>
+											<Switch
+												checked={model.isEnabled}
+												aria-label={`Enable ${model.displayName} (${model.modelId})`}
+												// Deprecated rows can only be turned off; a sync in
+												// flight would overwrite concurrent toggles, so rows
+												// lock while it runs.
+												disabled={
+													pendingKeys.has(key) ||
+													isSyncing ||
+													(model.deprecated && !model.isEnabled)
+												}
+												onCheckedChange={(checked) => {
+													void handleToggle(model, checked);
+												}}
+											/>
+										</div>
 									</div>
 								);
 							})}
