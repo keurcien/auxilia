@@ -39,12 +39,23 @@ def _service(rows: list[ModelDB]) -> ModelService:
     async def get_by(provider: str, model_id: str) -> ModelDB | None:
         return by_key.get((provider, model_id))
 
+    async def get_default() -> ModelDB | None:
+        return next((r for r in rows if r.is_default), None)
+
     service.repository.get_by_provider_and_model_id.side_effect = get_by
+    service.repository.get_default.side_effect = get_default
     return service
 
 
-def _row(provider: str, model_id: str, is_enabled: bool = True) -> ModelDB:
-    return ModelDB(provider=provider, model_id=model_id, is_enabled=is_enabled)
+def _row(
+    provider: str, model_id: str, is_enabled: bool = True, is_default: bool = False
+) -> ModelDB:
+    return ModelDB(
+        provider=provider,
+        model_id=model_id,
+        is_enabled=is_enabled,
+        is_default=is_default,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -144,6 +155,93 @@ async def test_set_enabled_creates_the_opt_in_row(tmp_path):
         result = await service.set_enabled("openai", "gpt-4o-mini", False)
         assert result.is_enabled is False
         assert len(await service.repository.list_all()) == 2
+    await engine.dispose()
+
+
+async def test_set_default_requires_an_available_model():
+    # gpt-4o-mini has a key but no enablement row → not available → refused.
+    service = _service([_row("anthropic", "claude-sonnet-5")])
+    with pytest.raises(ModelUnavailableError, match="disabled by a workspace admin"):
+        await service.set_default("openai", "gpt-4o-mini")
+
+
+async def test_set_default_rejects_a_provider_mismatch():
+    # model_id resolves but under a different provider — data-entry error.
+    service = _service([_row("anthropic", "claude-sonnet-5")])
+    with pytest.raises(NotFoundError):
+        await service.set_default("openai", "claude-sonnet-5")
+
+
+@pytest.mark.parametrize(
+    ("rows", "expected"),
+    [
+        # The admin's flag wins while its model is available.
+        (
+            [
+                _row("anthropic", "claude-sonnet-5"),
+                _row("openai", "gpt-4o-mini", is_default=True),
+            ],
+            "gpt-4o-mini",
+        ),
+        # No flag set → first available (whitelist order).
+        (
+            [_row("anthropic", "claude-sonnet-5"), _row("openai", "gpt-4o-mini")],
+            "claude-sonnet-5",
+        ),
+        # Flagged model became unavailable (provider lost its key) → fallback.
+        (
+            [
+                _row("anthropic", "claude-sonnet-5"),
+                _row("google", "gemini-3-pro-preview", is_default=True),
+            ],
+            "claude-sonnet-5",
+        ),
+        # Nothing available at all.
+        ([], None),
+    ],
+)
+async def test_get_default_model_id_prefers_the_flag_then_falls_back(rows, expected):
+    service = _service(rows)
+    assert await service.get_default_model_id() == expected
+
+
+async def test_default_flag_lifecycle(tmp_path):
+    # Real (SQLite) repository so the partial unique index and flush ordering
+    # are exercised, not mocked.
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'models.db'}")
+
+    def _create(conn):
+        SQLModel.metadata.create_all(conn, tables=[ModelDB.__table__])
+
+    async with engine.begin() as conn:
+        await conn.run_sync(_create)
+    factory = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+    async with factory() as db:
+        service = ModelService(db)
+        await service.set_enabled("anthropic", "claude-sonnet-5", True)
+        await service.set_enabled("openai", "gpt-4o-mini", True)
+
+        # Setting moves the single flag between rows.
+        result = await service.set_default("anthropic", "claude-sonnet-5")
+        assert result.is_default is True
+        result = await service.set_default("openai", "gpt-4o-mini")
+        assert result.is_default is True
+        flagged = [r for r in await service.repository.list_all() if r.is_default]
+        assert [(r.provider, r.model_id) for r in flagged] == [
+            ("openai", "gpt-4o-mini")
+        ]
+
+        # Disabling the default auto-unsets it (back to automatic).
+        result = await service.set_enabled("openai", "gpt-4o-mini", False)
+        assert result.is_default is False
+        assert await service.repository.get_default() is None
+        assert await service.get_default_model_id() == "claude-sonnet-5"
+
+        # clear_default is a no-op when unset, unsets when set.
+        await service.clear_default()
+        await service.set_default("anthropic", "claude-sonnet-5")
+        await service.clear_default()
+        assert await service.repository.get_default() is None
     await engine.dispose()
 
 

@@ -23,3 +23,8 @@ class ModelRepository(BaseRepository[ModelDB]):
         )
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_default(self) -> ModelDB | None:
+        stmt = select(ModelDB).where(ModelDB.is_default)
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()

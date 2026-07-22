@@ -4,6 +4,9 @@ export interface Model {
 	chef: string;
 	chefSlug: string;
 	providers: string[];
+	// The effective workspace default (admin-flagged model when available,
+	// else the first available one) — pickers preselect this row.
+	isDefault: boolean;
 }
 
 // One row of the admin Settings view (GET /model-providers/models/manage):
@@ -18,6 +21,8 @@ export interface ManagedModel {
 	multimodal: boolean;
 	supportsStructuredOutput: boolean;
 	isEnabled: boolean;
+	// The explicit admin choice only (no fallback) — unset shows as unset.
+	isDefault: boolean;
 	deprecated: boolean;
 }
 

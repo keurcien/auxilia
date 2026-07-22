@@ -5,6 +5,7 @@ from app.model_providers.catalog import provider_api_keys
 from app.model_providers.models import ModelProviderType
 from app.model_providers.schemas import (
     ManagedModelResponse,
+    ModelDefaultUpdate,
     ModelEnabledUpdate,
     ModelProviderResponse,
     ModelResponse,
@@ -30,7 +31,10 @@ async def get_model_providers() -> list[ModelProviderResponse]:
 async def get_models(
     service: ModelService = Depends(get_model_service),
 ) -> list[ModelResponse]:
-    """The model picker source: whitelist ∧ provider key ∧ admin-enabled."""
+    """The model picker source: whitelist ∧ provider key ∧ admin-enabled.
+    Exactly one row carries isDefault (the effective workspace default) —
+    unless no model is available at all."""
+    default_model_id = await service.get_default_model_id()
     return [
         ModelResponse(
             name=m.display_name,
@@ -38,6 +42,7 @@ async def get_models(
             chef=m.chef,
             chefSlug=m.chef_slug,
             providers=[ModelProviderType(m.provider)],
+            isDefault=m.model_id == default_model_id,
         )
         for m in await service.list_available()
     ]
@@ -50,6 +55,26 @@ async def list_managed_models(
 ) -> list[ManagedModelResponse]:
     """Admin Settings view: every offerable model with its enablement state."""
     return await service.list_manage()
+
+
+@router.put("/models/default", response_model=ManagedModelResponse)
+async def set_default_model(
+    update: ModelDefaultUpdate,
+    _: UserDB = Depends(require_admin),  # side-effect auth check
+    service: ModelService = Depends(get_model_service),
+) -> ManagedModelResponse:
+    """Flag one model as the workspace default (must be available). Pickers
+    preselect it and Slack threads start on it."""
+    return await service.set_default(update.provider, update.model_id)
+
+
+@router.delete("/models/default", status_code=204)
+async def clear_default_model(
+    _: UserDB = Depends(require_admin),  # side-effect auth check
+    service: ModelService = Depends(get_model_service),
+) -> None:
+    """Unset the workspace default — back to automatic (first available)."""
+    await service.clear_default()
 
 
 @router.put("/models/{provider}/{model_id:path}", response_model=ManagedModelResponse)

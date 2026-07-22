@@ -16,6 +16,9 @@ class ModelResponse(BaseModel):
     chef: str
     chefSlug: str
     providers: list[ModelProviderType]
+    # The *effective* workspace default (admin-flagged model when available,
+    # else the first available one) — pickers preselect this row.
+    isDefault: bool = False
 
 
 class ModelCreateDB(SQLModel):
@@ -40,11 +43,21 @@ class ManagedModelResponse(BaseModel):
     multimodal: bool = False
     supports_structured_output: bool = False
     is_enabled: bool
+    # The explicit admin choice only — no fallback here, so the Settings UI
+    # shows an unset default as unset.
+    is_default: bool = False
     deprecated: bool = False
 
 
 class ModelEnabledUpdate(BaseModel):
     is_enabled: bool
+
+
+class ModelDefaultUpdate(BaseModel):
+    """Body of PUT /models/default — which model becomes the workspace default."""
+
+    provider: str
+    model_id: str
 
 
 class WhitelistSyncResponse(BaseModel):

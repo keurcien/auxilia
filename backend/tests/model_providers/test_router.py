@@ -27,6 +27,7 @@ def test_get_models_projects_the_picker_shape(client, model_service):
             chef_slug="z-ai",
         )
     ]
+    model_service.get_default_model_id.return_value = "glm-5.2-max"
 
     response = client.get("/model-providers/models")
 
@@ -38,6 +39,7 @@ def test_get_models_projects_the_picker_shape(client, model_service):
             "chef": "Z.ai",
             "chefSlug": "z-ai",
             "providers": ["openrouter"],
+            "isDefault": True,
         }
     ]
 
@@ -88,6 +90,41 @@ def test_set_enabled_passes_the_path_and_body_through(
     model_service.set_enabled.assert_awaited_once_with(
         "anthropic", "claude-opus-4-8", True
     )
+
+
+def test_set_default_model_requires_admin(client, model_service, current_user):
+    response = client.put(
+        "/model-providers/models/default",
+        json={"provider": "anthropic", "model_id": "claude-opus-4-8"},
+    )
+    assert response.status_code == 403
+
+
+def test_set_default_model_passes_the_body_through(client, model_service, admin_user):
+    model_service.set_default.return_value = ManagedModelResponse(
+        provider="anthropic",
+        model_id="claude-opus-4-8",
+        display_name="Claude Opus 4.8",
+        chef="Anthropic",
+        chef_slug="anthropic",
+        is_enabled=True,
+        is_default=True,
+    )
+
+    response = client.put(
+        "/model-providers/models/default",
+        json={"provider": "anthropic", "model_id": "claude-opus-4-8"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["is_default"] is True
+    model_service.set_default.assert_awaited_once_with("anthropic", "claude-opus-4-8")
+
+
+def test_clear_default_model(client, model_service, admin_user):
+    response = client.delete("/model-providers/models/default")
+    assert response.status_code == 204
+    model_service.clear_default.assert_awaited_once()
 
 
 def test_sync_returns_the_diff(client, model_service, admin_user):

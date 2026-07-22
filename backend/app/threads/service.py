@@ -174,10 +174,12 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
         """
         thread = await self.db.get(ThreadDB, ts)
         if thread is None:
+            # Slack has no model picker — new threads start on the workspace
+            # default (admin-flagged model, else the first available one).
             thread = ThreadDB(
                 id=ts,
                 agent_id=agent_id,
-                model_id="deepseek-v4-flash",
+                model_id=await ModelService(self.db).get_default_model_id(),
                 first_message_content=question,
                 user_id=user_id,
                 source=ThreadSource.slack,

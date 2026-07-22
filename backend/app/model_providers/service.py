@@ -42,6 +42,25 @@ class ResolvedModel(BaseModel):
     api_key: str
 
 
+def _managed(entry: SupportedModel | None, row: ModelDB) -> ManagedModelResponse:
+    """Project an enablement row (plus its whitelist entry, if it still has
+    one) into the admin Settings shape."""
+    return ManagedModelResponse(
+        provider=row.provider,
+        model_id=row.model_id,
+        display_name=entry.display_name if entry else row.model_id,
+        chef=entry.chef if entry else row.provider.capitalize(),
+        chef_slug=entry.chef_slug if entry else row.provider,
+        multimodal=entry.multimodal if entry else False,
+        supports_structured_output=(
+            entry.supports_structured_output if entry else False
+        ),
+        is_enabled=row.is_enabled,
+        is_default=row.is_default,
+        deprecated=entry is None,
+    )
+
+
 class ModelService(BaseService[ModelDB, ModelRepository]):
     not_found_message = "Model not found"
 
@@ -126,21 +145,14 @@ class ModelService(BaseService[ModelDB, ModelRepository]):
                 supports_structured_output=m.supports_structured_output,
                 is_enabled=(row := rows.get((m.provider, m.model_id))) is not None
                 and row.is_enabled,
+                is_default=row is not None and row.is_default,
             )
             for m in whitelist
             if m.provider in keys
         ]
         whitelisted = {(m.provider, m.model_id) for m in whitelist}
         managed.extend(
-            ManagedModelResponse(
-                provider=row.provider,
-                model_id=row.model_id,
-                display_name=row.model_id,
-                chef=row.provider.capitalize(),
-                chef_slug=row.provider,
-                is_enabled=row.is_enabled,
-                deprecated=True,
-            )
+            _managed(None, row)
             for key, row in sorted(rows.items())
             if key not in whitelisted
         )
@@ -178,25 +190,74 @@ class ModelService(BaseService[ModelDB, ModelRepository]):
                     provider=provider, model_id=model_id, is_enabled=is_enabled
                 )
             )
-        elif row.is_enabled != is_enabled:
+        else:
+            changed = row.is_enabled != is_enabled
             row.is_enabled = is_enabled
+            # Disabling the workspace default silently returns the workspace
+            # to "automatic" — the default must always be a usable model.
+            if not is_enabled and row.is_default:
+                row.is_default = False
+                changed = True
+            if changed:
+                self.db.add(row)
+                await self.db.flush()
+                await self.db.refresh(row)
+
+        return _managed(entry, row)
+
+    async def set_default(self, provider: str, model_id: str) -> ManagedModelResponse:
+        """Flag one model as the workspace default. It must be available right
+        now (whitelist ∧ provider key ∧ enabled) — ensure_available raises the
+        precise reason otherwise."""
+        resolved = await self.ensure_available(model_id)
+        if resolved.provider != provider:
+            raise NotFoundError("Model not found in the supported catalog")
+
+        current = await self.repository.get_default()
+        if current and (current.provider, current.model_id) != (provider, model_id):
+            current.is_default = False
+            self.db.add(current)
+            # Flush the unset before the set so the partial unique index never
+            # sees two default rows.
+            await self.db.flush()
+
+        # ensure_available guarantees the enablement row exists (enabled ⇒ row).
+        row = await self.repository.get_by_provider_and_model_id(provider, model_id)
+        if not row.is_default:
+            row.is_default = True
             self.db.add(row)
             await self.db.flush()
             await self.db.refresh(row)
 
-        return ManagedModelResponse(
-            provider=row.provider,
-            model_id=row.model_id,
-            display_name=entry.display_name if entry else row.model_id,
-            chef=entry.chef if entry else row.provider.capitalize(),
-            chef_slug=entry.chef_slug if entry else row.provider,
-            multimodal=entry.multimodal if entry else False,
-            supports_structured_output=(
-                entry.supports_structured_output if entry else False
-            ),
-            is_enabled=row.is_enabled,
-            deprecated=entry is None,
+        whitelist = await get_whitelist()
+        entry = next(
+            (m for m in whitelist if m.provider == provider and m.model_id == model_id),
+            None,
         )
+        return _managed(entry, row)
+
+    async def clear_default(self) -> None:
+        """Back to automatic: consumers fall back to the first available model."""
+        row = await self.repository.get_default()
+        if row is not None:
+            row.is_default = False
+            self.db.add(row)
+            await self.db.flush()
+
+    async def get_default_model_id(self) -> str | None:
+        """The effective workspace default: the admin-flagged model while it is
+        still available, else the first available model, else None. Every
+        consumer that needs a model without the user picking one (Slack
+        threads, picker preselection) resolves through here."""
+        available = await self.list_available()
+        if not available:
+            return None
+        row = await self.repository.get_default()
+        if row and any(
+            m.provider == row.provider and m.model_id == row.model_id for m in available
+        ):
+            return row.model_id
+        return available[0].model_id
 
     @staticmethod
     async def sync() -> WhitelistSyncResponse:
