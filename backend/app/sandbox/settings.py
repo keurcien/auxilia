@@ -1,26 +1,40 @@
+from typing import Literal
+
 from pydantic_settings import BaseSettings
 
+from app.sandbox.cloudrun.settings import CloudRunSandboxSettings
+from app.sandbox.opensandbox.settings import OpenSandboxSettings
 from app.settings import ROOT_ENV
 
 
-class SandboxSettings(BaseSettings):
-    domain: str | None = None
-    api_key: str | None = None
-    default_image: str = "python:3.12-slim"
-    default_packages: list[str] = []
-    timeout: int = 30 * 60
-    volume_mounts: str = ""
-    use_server_proxy: bool = True
+class SandboxProviderSettings(BaseSettings):
+    """Provider selector, shared by both sandbox backends."""
 
-    model_config = {"env_file": ROOT_ENV, "env_prefix": "OPEN_SANDBOX_", "extra": "ignore"}
+    provider: Literal["opensandbox", "cloudrun"] = "opensandbox"
 
-    @property
-    def parsed_volume_mounts(self) -> list[str]:
-        return [entry.strip() for entry in self.volume_mounts.split(",") if entry.strip()]
+    model_config = {"env_file": ROOT_ENV, "env_prefix": "SANDBOX_", "extra": "ignore"}
+
+
+class SandboxSettings:
+    """Facade over the provider selector and both provider configs.
+
+    Keeps the two call sites the rest of the app relies on stable:
+    `sandbox_settings.enabled` (gates the deep-agent path) and
+    `sandbox_settings.provider` (picks the provider in provider.py).
+    """
+
+    def __init__(self) -> None:
+        self.provider = SandboxProviderSettings().provider
+        self.opensandbox = OpenSandboxSettings()
+        self.cloudrun = CloudRunSandboxSettings()
 
     @property
     def enabled(self) -> bool:
-        return self.domain is not None
+        if self.provider == "cloudrun":
+            # The gateway service is the only way to reach sandboxes.
+            # GCS snapshots are optional (best-effort).
+            return self.cloudrun.gateway_url is not None
+        return self.opensandbox.domain is not None
 
 
 sandbox_settings = SandboxSettings()

@@ -1,28 +1,21 @@
-"""Sandbox lifecycle tools for lazy creation and reconnection."""
+"""Sandbox lifecycle tools for lazy creation and reconnection.
+
+The model-facing contract (two tools, their names, and their docstrings) is
+defined once here; provider differences live behind ``SandboxProvider``
+(see ``app/sandbox/provider.py``).
+"""
 
 from __future__ import annotations
 
-from datetime import timedelta
-
 from langchain_core.tools import tool
-from opensandbox import SandboxSync
-from opensandbox.config import ConnectionConfigSync
 
-from app.sandbox.backend import OpenSandbox
 from app.sandbox.lazy import LazySandboxBackend
-from app.sandbox.settings import sandbox_settings
-
-
-def _get_connection_config() -> ConnectionConfigSync:
-    return ConnectionConfigSync(
-        api_key=sandbox_settings.api_key,
-        domain=sandbox_settings.domain,
-        use_server_proxy=sandbox_settings.use_server_proxy,
-    )
+from app.sandbox.provider import get_provider
 
 
 def create_sandbox_tools(lazy_backend: LazySandboxBackend) -> list:
     """Create sandbox management tools bound to a lazy backend."""
+    provider = get_provider()
 
     @tool
     def create_sandbox(timeout_minutes: int = 30) -> str:
@@ -31,46 +24,24 @@ def create_sandbox_tools(lazy_backend: LazySandboxBackend) -> list:
         Call this before running any code. If a sandbox was already created
         in this conversation, use connect_sandbox with the existing ID instead.
         """
-        sandbox = SandboxSync.create(
-            sandbox_settings.default_image,
-            timeout=timedelta(minutes=timeout_minutes),
-            connection_config=_get_connection_config()
-        )
-
-        backend = OpenSandbox(
-            sandbox=sandbox,
-            default_packages=list(sandbox_settings.default_packages) or None,
-            timeout=sandbox_settings.timeout,
-        )
-
-        lazy_backend.connect(sandbox, backend)
-
-        info = sandbox.get_info()
-        return f"Sandbox created (ID: {info.id}, TTL: {timeout_minutes}min). You can now execute code."
+        backend, message = provider.create(timeout_minutes=timeout_minutes)
+        lazy_backend.connect(backend)
+        return message
 
     @tool
     def connect_sandbox(sandbox_id: str) -> str:
         """Reconnect to an existing sandbox by ID. Use this when a sandbox
-        was already created earlier in this conversation.
-
-        Renews the TTL for another 30 minutes on success.
+        was already created earlier in this conversation. Files from the
+        previous session are restored where the provider supports it.
         """
         try:
-            sandbox = SandboxSync.connect(
-                sandbox_id,
-                connection_config=_get_connection_config(),
-            )
-            sandbox.renew(timeout=timedelta(minutes=30))
-
-            backend = OpenSandbox(
-                sandbox=sandbox,
-                timeout=sandbox_settings.timeout,
-            )
-
-            lazy_backend.connect(sandbox, backend)
-
-            return f"Reconnected to sandbox {sandbox_id}. TTL renewed for 30 minutes."
+            backend, message = provider.connect(sandbox_id)
         except Exception as e:
-            return f"Failed to reconnect to sandbox {sandbox_id}: {e}. Create a new sandbox instead."
+            return (
+                f"Failed to reconnect to sandbox {sandbox_id}: {e}. "
+                "Create a new sandbox instead."
+            )
+        lazy_backend.connect(backend)
+        return message
 
     return [create_sandbox, connect_sandbox]
