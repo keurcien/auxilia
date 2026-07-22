@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Protocol, runtime_checkable
+
 from deepagents.backends.protocol import (
     EditResult,
     ExecuteResponse,
@@ -19,6 +21,13 @@ from deepagents.backends.sandbox import BaseSandbox
 NOT_CONNECTED_MSG = (
     "No sandbox connected. Call create_sandbox or connect_sandbox first."
 )
+
+
+@runtime_checkable
+class SupportsPersist(Protocol):
+    """Backends that persist their state for cross-instance reconnects."""
+
+    def persist(self) -> None: ...
 
 
 class LazySandboxBackend(BaseSandbox):
@@ -54,11 +63,8 @@ class LazySandboxBackend(BaseSandbox):
         snapshots its overlay to GCS; OpenSandbox needs nothing — it lives
         server-side under its own TTL).
         """
-        if self._backend is None:
-            return
-        persist = getattr(self._backend, "persist", None)
-        if callable(persist):
-            persist()
+        if isinstance(self._backend, SupportsPersist):
+            self._backend.persist()
 
     @property
     def _inner(self) -> BaseSandbox:

@@ -14,6 +14,7 @@ against; tests substitute fakes for it.
 from __future__ import annotations
 
 import base64
+import logging
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Protocol
@@ -23,9 +24,14 @@ import httpx
 from app.sandbox.settings import sandbox_settings
 
 
+logger = logging.getLogger(__name__)
+
 # Margin added to the gateway HTTP timeout so the in-sandbox command timeout
 # (enforced gateway-side) fires first and returns a structured result.
 _GATEWAY_TIMEOUT_MARGIN = 30
+
+# Cloud Run rejects HTTP/1 requests over 32MiB; keep restores safely under it.
+_MAX_RESTORE_BYTES = 30 * 1024 * 1024
 
 # Lifecycle operations (launch/tar/delete) get a fixed generous timeout —
 # they are control-plane calls, not user code.
@@ -75,10 +81,28 @@ class GatewayTransport:
         allow_egress: bool = False,
         import_tar: bytes | None = None,
     ) -> None:
-        payload: dict = {"sandbox_id": sandbox_id, "allow_egress": allow_egress}
         if import_tar is not None:
-            payload["import_tar_b64"] = base64.b64encode(import_tar).decode("ascii")
-        response = self._client.post("/sandboxes", json=payload)
+            if len(import_tar) > _MAX_RESTORE_BYTES:
+                raise RuntimeError(
+                    f"Snapshot for {sandbox_id} is "
+                    f"{len(import_tar) // (1024 * 1024)}MiB — larger than the "
+                    "gateway restore limit (Cloud Run caps HTTP/1 requests at "
+                    "32MiB). The sandbox state cannot be restored; create a "
+                    "new sandbox instead."
+                )
+            # Raw tar body: a base64 JSON field would inflate the payload by
+            # a third and hit the request cap sooner.
+            response = self._client.post(
+                f"/sandboxes/{sandbox_id}/restore",
+                params={"allow_egress": allow_egress},
+                content=import_tar,
+                headers={"Content-Type": "application/x-tar"},
+            )
+        else:
+            response = self._client.post(
+                "/sandboxes",
+                json={"sandbox_id": sandbox_id, "allow_egress": allow_egress},
+            )
         if response.status_code != 201:
             raise RuntimeError(
                 f"Failed to launch sandbox {sandbox_id}: {_error_detail(response)}"
@@ -91,6 +115,10 @@ class GatewayTransport:
                 json={"argv": argv, "timeout": timeout},
                 timeout=timeout + _GATEWAY_TIMEOUT_MARGIN,
             )
+        except httpx.ConnectTimeout as e:
+            # Never reached the gateway — an outage, not the user's code
+            # overrunning its budget. Must not surface as exit code 124.
+            raise RuntimeError(f"Sandbox gateway unreachable: {e}") from e
         except httpx.TimeoutException as e:
             raise SandboxTimeoutError() from e
         if response.status_code != 200:
@@ -115,7 +143,15 @@ class GatewayTransport:
         return response.content
 
     def delete(self, sandbox_id: str) -> None:
-        self._client.delete(f"/sandboxes/{sandbox_id}")
+        response = self._client.delete(f"/sandboxes/{sandbox_id}")
+        # Deletion is used on cleanup paths where raising would mask the
+        # original error; a 404 just means the sandbox is already gone.
+        if response.status_code not in (204, 404):
+            logger.warning(
+                "Failed to delete sandbox %s: %s",
+                sandbox_id,
+                _error_detail(response),
+            )
 
 
 def _error_detail(response: httpx.Response) -> str:

@@ -182,6 +182,18 @@ class TestProvider:
         provider.create(timeout_minutes=30)
         assert transport.launched[0][1] is True
 
+    def test_create_deletes_sandbox_when_install_fails(
+        self, provider, transport, monkeypatch
+    ):
+        monkeypatch.setattr(sandbox_settings.cloudrun, "default_packages", ["httpx"])
+        transport.queue(ExecResult(stdout=b"", stderr=b"no network", returncode=1))
+
+        with pytest.raises(RuntimeError, match="default packages"):
+            provider.create(timeout_minutes=30)
+
+        [(sandbox_id, _, _)] = transport.launched
+        assert transport.deleted == [sandbox_id]
+
     def test_connect_alive_fast_path(self, provider, transport):
         backend, message = provider.connect("sbx-x")
 

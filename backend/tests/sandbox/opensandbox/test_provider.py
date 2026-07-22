@@ -45,6 +45,50 @@ def test_create_installs_default_packages(sdk_sandbox, monkeypatch):
     assert installed["packages"] == ["httpx", "rich"]
 
 
+def test_create_kills_sandbox_when_install_fails(sdk_sandbox, monkeypatch):
+    monkeypatch.setattr(sandbox_settings.opensandbox, "default_packages", ["httpx"])
+    with (
+        patch("app.sandbox.opensandbox.provider.SandboxSync") as sdk,
+        patch(
+            "app.sandbox.opensandbox.provider.install_default_packages",
+            side_effect=RuntimeError("install failed"),
+        ),
+    ):
+        sdk.create.return_value = sdk_sandbox
+        with pytest.raises(RuntimeError, match="install failed"):
+            OpenSandboxProvider().create(timeout_minutes=30)
+
+    sdk_sandbox.kill.assert_called_once()
+
+
+def test_create_passes_parsed_volume_mounts(sdk_sandbox, monkeypatch, tmp_path):
+    host_dir = tmp_path / "shared"
+    host_dir.mkdir()
+    monkeypatch.setattr(sandbox_settings.opensandbox, "default_packages", [])
+    monkeypatch.setattr(
+        sandbox_settings.opensandbox,
+        "volume_mounts",
+        f"{host_dir}:/mnt/shared:ro,missing:,/does/not/exist:/mnt/x",
+    )
+    with patch("app.sandbox.opensandbox.provider.SandboxSync") as sdk:
+        sdk.create.return_value = sdk_sandbox
+        OpenSandboxProvider().create(timeout_minutes=30)
+
+    [volume] = sdk.create.call_args.kwargs["volumes"]
+    assert volume.host.path == str(host_dir)
+    assert volume.mount_path == "/mnt/shared"
+    assert volume.read_only is True
+
+
+def test_create_without_mounts_passes_none(sdk_sandbox, monkeypatch):
+    monkeypatch.setattr(sandbox_settings.opensandbox, "default_packages", [])
+    monkeypatch.setattr(sandbox_settings.opensandbox, "volume_mounts", "")
+    with patch("app.sandbox.opensandbox.provider.SandboxSync") as sdk:
+        sdk.create.return_value = sdk_sandbox
+        OpenSandboxProvider().create(timeout_minutes=30)
+    assert sdk.create.call_args.kwargs["volumes"] is None
+
+
 def test_connect_renews_ttl(sdk_sandbox):
     with patch("app.sandbox.opensandbox.provider.SandboxSync") as sdk:
         sdk.connect.return_value = sdk_sandbox

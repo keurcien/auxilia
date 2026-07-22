@@ -31,9 +31,14 @@ class SandboxSettings:
     @property
     def enabled(self) -> bool:
         if self.provider == "cloudrun":
-            # The gateway service is the only way to reach sandboxes.
+            # The gateway service is the only way to reach sandboxes, and it
+            # fails closed without the shared secret — advertising the
+            # feature without both would enable tools that can never work.
             # GCS snapshots are optional (best-effort).
-            return self.cloudrun.gateway_url is not None
+            return (
+                self.cloudrun.gateway_url is not None
+                and self.cloudrun.gateway_secret is not None
+            )
         return self.opensandbox.domain is not None
 
 

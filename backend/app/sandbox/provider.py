@@ -40,9 +40,14 @@ def get_provider() -> SandboxProvider:
 
 
 def install_default_packages(backend: BaseSandbox, packages: list[str]) -> None:
-    """Install a provider's default packages into a fresh sandbox."""
+    """Install a provider's default packages into a fresh sandbox.
+
+    ``packages`` is operator-controlled deployment config (env), not user
+    input, and the command runs inside the sandbox's own isolation boundary.
+    """
     if not packages:
         return
+    # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query
     result = backend.execute(f"pip install {' '.join(packages)}", timeout=120)
     if result.exit_code != 0:
         raise RuntimeError(f"Failed to install default packages: {result.output}")

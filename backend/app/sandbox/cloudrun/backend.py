@@ -177,6 +177,10 @@ class CloudRunSandbox(BaseSandbox):
         for i, chunk in enumerate(chunks):
             redirect = ">" if i == 0 else ">>"
             prefix = f"mkdir -p {parent} && " if i == 0 else ""
+            # This is a shell command, not SQL; every interpolation is safe by
+            # construction (chunk is base64 alphabet, paths are shlex-quoted)
+            # and it runs inside the sandbox's own isolation boundary.
+            # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query
             result = self.execute(
                 f"{prefix}printf '%s' '{chunk}' | base64 -d {redirect} {quoted}"
             )

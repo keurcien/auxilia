@@ -53,15 +53,31 @@ class TestGatewayTransport:
         transport, requests = gateway_with_handler(
             lambda request: httpx.Response(201, json={"sandbox_id": "sbx-x"})
         )
-        transport.launch("sbx-x", allow_egress=True, import_tar=b"tar")
+        transport.launch("sbx-x", allow_egress=True)
 
         [request] = requests
         assert request.url.path == "/sandboxes"
         assert request.headers["authorization"] == "Bearer s3cret"
         body = json.loads(request.content)
-        assert body["sandbox_id"] == "sbx-x"
-        assert body["allow_egress"] is True
-        assert base64.b64decode(body["import_tar_b64"]) == b"tar"
+        assert body == {"sandbox_id": "sbx-x", "allow_egress": True}
+
+    def test_launch_with_tar_posts_raw_body_to_restore(self):
+        transport, requests = gateway_with_handler(
+            lambda request: httpx.Response(201, json={"sandbox_id": "sbx-x"})
+        )
+        transport.launch("sbx-x", import_tar=b"\x00raw-tar")
+
+        [request] = requests
+        assert request.url.path == "/sandboxes/sbx-x/restore"
+        assert request.url.params["allow_egress"] == "false"
+        assert request.headers["content-type"] == "application/x-tar"
+        assert request.content == b"\x00raw-tar"
+
+    def test_launch_with_oversized_tar_raises_before_sending(self):
+        transport, requests = gateway_with_handler(lambda request: httpx.Response(201))
+        with pytest.raises(RuntimeError, match="restore limit"):
+            transport.launch("sbx-x", import_tar=b"\x00" * (31 * 1024 * 1024))
+        assert requests == []
 
     def test_launch_error_raises_with_detail(self):
         transport, _ = gateway_with_handler(
@@ -105,6 +121,22 @@ class TestGatewayTransport:
         with pytest.raises(SandboxTimeoutError):
             transport.exec("sbx-x", ["/bin/true"], timeout=5)
 
+    def test_exec_connect_timeout_is_gateway_error_not_124(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectTimeout("connection timed out")
+
+        transport, _ = gateway_with_handler(handler)
+        with pytest.raises(RuntimeError, match="gateway unreachable"):
+            transport.exec("sbx-x", ["/bin/true"], timeout=5)
+
+    def test_exec_read_timeout_is_command_timeout(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ReadTimeout("read timed out")
+
+        transport, _ = gateway_with_handler(handler)
+        with pytest.raises(SandboxTimeoutError):
+            transport.exec("sbx-x", ["/bin/true"], timeout=5)
+
     def test_export_tar_returns_bytes(self):
         transport, requests = gateway_with_handler(
             lambda request: httpx.Response(200, content=b"overlay-tar")
@@ -117,3 +149,17 @@ class TestGatewayTransport:
         transport.delete("sbx-x")
         assert requests[0].method == "DELETE"
         assert requests[0].url.path == "/sandboxes/sbx-x"
+
+    def test_delete_failure_logs_but_does_not_raise(self, caplog):
+        transport, _ = gateway_with_handler(
+            lambda request: httpx.Response(502, json={"detail": "cli exploded"})
+        )
+        with caplog.at_level("WARNING"):
+            transport.delete("sbx-x")
+        assert "Failed to delete sandbox sbx-x" in caplog.text
+
+    def test_delete_404_is_silent(self, caplog):
+        transport, _ = gateway_with_handler(lambda request: httpx.Response(404))
+        with caplog.at_level("WARNING"):
+            transport.delete("sbx-x")
+        assert caplog.text == ""

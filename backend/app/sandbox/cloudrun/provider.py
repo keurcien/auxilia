@@ -24,7 +24,12 @@ class CloudRunProvider:
         backend = CloudRunSandbox(
             sandbox_id, timeout=settings.timeout, transport=transport
         )
-        install_default_packages(backend, list(settings.default_packages))
+        try:
+            install_default_packages(backend, list(settings.default_packages))
+        except Exception:
+            # Don't leak a running sandbox the caller never got an ID for.
+            backend.delete()
+            raise
         return backend, f"Sandbox created (ID: {sandbox_id}). You can now execute code."
 
     def connect(self, sandbox_id: str) -> tuple[CloudRunSandbox, str]:
