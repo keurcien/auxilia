@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Protocol, runtime_checkable
+
 from deepagents.backends.protocol import (
     EditResult,
     ExecuteResponse,
@@ -14,14 +16,18 @@ from deepagents.backends.protocol import (
     WriteResult,
 )
 from deepagents.backends.sandbox import BaseSandbox
-from opensandbox import SandboxSync
-
-from app.sandbox.backend import OpenSandbox
 
 
 NOT_CONNECTED_MSG = (
     "No sandbox connected. Call create_sandbox or connect_sandbox first."
 )
+
+
+@runtime_checkable
+class SupportsPersist(Protocol):
+    """Backends that persist their state for cross-instance reconnects."""
+
+    def persist(self) -> None: ...
 
 
 class LazySandboxBackend(BaseSandbox):
@@ -41,19 +47,27 @@ class LazySandboxBackend(BaseSandbox):
     """
 
     def __init__(self) -> None:
-        self._sandbox: SandboxSync | None = None
-        self._backend: OpenSandbox | None = None
+        self._backend: BaseSandbox | None = None
 
     @property
     def connected(self) -> bool:
         return self._backend is not None
 
-    def connect(self, sandbox: SandboxSync, backend: OpenSandbox) -> None:
-        self._sandbox = sandbox
+    def connect(self, backend: BaseSandbox) -> None:
         self._backend = backend
 
+    def persist(self) -> None:
+        """Persist sandbox state for cross-instance reconnects.
+
+        No-op unless the connected backend supports it (CloudRunSandbox
+        snapshots its overlay to GCS; OpenSandbox needs nothing — it lives
+        server-side under its own TTL).
+        """
+        if isinstance(self._backend, SupportsPersist):
+            self._backend.persist()
+
     @property
-    def _inner(self) -> OpenSandbox:
+    def _inner(self) -> BaseSandbox:
         if self._backend is None:
             raise RuntimeError(NOT_CONNECTED_MSG)
         return self._backend
@@ -64,12 +78,6 @@ class LazySandboxBackend(BaseSandbox):
 
     def execute(self, command: str, *, timeout: int | None = None) -> ExecuteResponse:
         return self._inner.execute(command, timeout=timeout)
-
-    def download_files(self, paths: list[str]) -> list[FileDownloadResponse]:
-        return self._inner.download_files(paths)
-
-    def upload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
-        return self._inner.upload_files(files)
 
     # File operations return protocol error results while disconnected (the
     # async variants inherit this: BackendProtocol's a* defaults delegate to
@@ -117,3 +125,9 @@ class LazySandboxBackend(BaseSandbox):
         if self._backend is None:
             return GrepResult(error=NOT_CONNECTED_MSG)
         return self._backend.grep(pattern, path=path, glob=glob)
+
+    def download_files(self, paths: list[str]) -> list[FileDownloadResponse]:
+        return self._inner.download_files(paths)
+
+    def upload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
+        return self._inner.upload_files(files)

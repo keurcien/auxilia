@@ -45,6 +45,7 @@ from app.database import get_checkpointer
 from app.integrations.langfuse.callback import langfuse_callback_handler
 from app.model_providers.catalog import ChatModelFactory
 from app.model_providers.service import ModelService
+from app.sandbox.lazy import LazySandboxBackend
 from app.sandbox.settings import sandbox_settings
 from app.threads.models import ThreadDB
 
@@ -78,7 +79,7 @@ def build_runnable(
     model,
     tools,
     system_prompt,
-    sandbox: bool,
+    sandbox_backend=None,
     base_middleware=(),
     subagents=None,
     checkpointer=None,
@@ -90,12 +91,12 @@ def build_runnable(
     Single construction path for both the parent agent and subagents. The
     no-sandbox branch uses a plain ``create_agent`` (so simple agents avoid
     deepagents' always-on filesystem/todo/patch scaffolding); the sandbox branch
-    uses ``create_deep_agent`` with a lazy sandbox backend (the sandbox itself is
-    created on first tool call, not here).
+    uses ``create_deep_agent`` with the caller's ``sandbox_backend`` — a
+    ``LazySandboxBackend`` the caller keeps a reference to for turn-end
+    persistence (the sandbox itself is created on first tool call, not here).
 
     ``base_middleware`` is the caller's middleware stack — the parent passes its
-    full stack; subagents pass only ``CurrentDateMiddleware``.
-    ``DeferredStructuredOutputMiddleware`` is
+    full stack; subagents pass only ``CurrentDateMiddleware``. ``DeferredStructuredOutputMiddleware`` is
     appended whenever an ``output_schema`` is given (it keeps the schema off the
     tool-calling loop and applies it on one final formatting turn).
     ``ToolErrorMiddleware`` is appended on BOTH paths: without it the ToolNode
@@ -111,11 +112,9 @@ def build_runnable(
     ``SubAgentMiddleware`` on the no-sandbox path and via the ``subagents=`` arg
     on the sandbox path.
     """
-    if sandbox:
-        from app.sandbox.lazy import LazySandboxBackend
+    if sandbox_backend is not None:
         from app.sandbox.tools import create_sandbox_tools
 
-        lazy_backend = LazySandboxBackend()
         middleware = [
             m for m in base_middleware if not isinstance(m, PatchToolCallsMiddleware)
         ]
@@ -123,9 +122,9 @@ def build_runnable(
             middleware.append(DeferredStructuredOutputMiddleware(format_mode))
         return create_deep_agent(
             model=model,
-            tools=[*tools, *create_sandbox_tools(lazy_backend)],
+            tools=[*tools, *create_sandbox_tools(sandbox_backend)],
             system_prompt=system_prompt,
-            backend=lazy_backend,
+            backend=sandbox_backend,
             middleware=[*middleware, ToolErrorMiddleware()],
             subagents=subagents,
             checkpointer=checkpointer,
@@ -193,11 +192,13 @@ class ResolvedAgent:
                 content=[{"type": "text", "text": self.config.instructions or ""}]
             )
         )
+        # Subagent sandboxes get no turn-end persist hook: CompiledSubAgent
+        # runnables have no teardown point, same as the HITL limitation above.
         runnable = build_runnable(
             model=model,
             tools=self.live.all,
             system_prompt=system_prompt,
-            sandbox=sandbox,
+            sandbox_backend=LazySandboxBackend() if sandbox else None,
             base_middleware=[CurrentDateMiddleware(created_at)],
         )
         return CompiledSubAgent(
@@ -224,6 +225,7 @@ class Agent:
         self.middleware = middleware
         self.callbacks = callbacks
         self.subagents = subagents
+        self._sandbox_backend: LazySandboxBackend | None = None
         self.provider = provider
 
     @property
@@ -314,6 +316,7 @@ class Agent:
         the parsed result surfaces in the run state under `structured_response`.
         """
         sandbox = self.agent.config.has_code_interpreter and sandbox_settings.enabled
+        self._sandbox_backend = LazySandboxBackend() if sandbox else None
         compiled = (
             [s.compile(self.model, self.thread.created_at) for s in self.subagents]
             if self.subagents
@@ -330,7 +333,7 @@ class Agent:
             model=self.model,
             tools=self.agent.live.all,
             system_prompt=system_prompt,
-            sandbox=sandbox,
+            sandbox_backend=self._sandbox_backend,
             base_middleware=self.middleware,
             subagents=compiled,
             checkpointer=checkpointer,
@@ -403,6 +406,22 @@ class Agent:
             config = await self._resolve_config(agent, trigger, config_overrides)
             yield agent, resolved_input, config
 
+    async def _persist_sandbox(self) -> None:
+        """Snapshot the sandbox state at turn end, if one was used.
+
+        Cloud Run sandboxes live inside a single instance, so their overlay is
+        exported to GCS here for cross-instance reconnects; OpenSandbox's
+        persist is a no-op. Failures are logged, never raised — a snapshot
+        problem must not mask the run's result.
+        """
+        backend = self._sandbox_backend
+        if backend is None or not backend.connected:
+            return
+        try:
+            await asyncio.to_thread(backend.persist)
+        except Exception:
+            logger.exception("Failed to persist sandbox state")
+
     async def _persist_recursion_fallback(self, agent, config) -> AIMessage:
         """Persist a synthetic AI message after a GraphRecursionError so the
         next turn can pick up where we left off. Returns the message."""
@@ -459,6 +478,8 @@ class Agent:
                 state = await agent.aget_state(config)
                 for sse in encode_synthetic_ai_message_sse(ai_msg, state.values):
                     yield sse
+            finally:
+                await self._persist_sandbox()
 
 
 def extract_invoke_result(

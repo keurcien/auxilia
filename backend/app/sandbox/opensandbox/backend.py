@@ -1,4 +1,4 @@
-"""OpenSandbox backend implementation for deepagents."""
+"""OpenSandbox backend: remote sandbox execution via the OpenSandbox API."""
 
 from __future__ import annotations
 
@@ -27,19 +27,10 @@ class OpenSandbox(BaseSandbox):
         sandbox: SandboxSync,
         timeout: int = 30 * 60,
         poll_interval: float = 0.1,
-        default_packages: list[str] | None = None,
     ) -> None:
         self._sandbox = sandbox
         self._default_timeout = timeout
         self._poll_interval = poll_interval
-
-        if default_packages:
-            pkgs = " ".join(default_packages)
-            result = self.execute(f"pip install {pkgs}", timeout=120)
-            if result.exit_code != 0:
-                raise RuntimeError(
-                    f"Failed to install default packages: {result.output}"
-                )
 
     @property
     def id(self) -> str:
@@ -111,9 +102,7 @@ class OpenSandbox(BaseSandbox):
                 )
         return responses
 
-    def upload_files(
-        self, files: list[tuple[str, bytes]]
-    ) -> list[FileUploadResponse]:
+    def upload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
         responses: list[FileUploadResponse] = []
         for path, content in files:
             if not path.startswith("/"):

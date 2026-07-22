@@ -14,6 +14,38 @@ def test_disconnected_execute_raises():
         backend.execute("echo hi")
 
 
+def test_connected_delegates_execute():
+    backend = LazySandboxBackend()
+    inner = MagicMock()
+    backend.connect(inner)
+
+    backend.execute("echo hi", timeout=5)
+
+    inner.execute.assert_called_once_with("echo hi", timeout=5)
+
+
+def test_persist_is_noop_when_disconnected():
+    LazySandboxBackend().persist()  # must not raise
+
+
+def test_persist_delegates_when_supported():
+    backend = LazySandboxBackend()
+    inner = MagicMock()
+    backend.connect(inner)
+
+    backend.persist()
+
+    inner.persist.assert_called_once_with()
+
+
+def test_persist_is_noop_when_backend_lacks_persist():
+    backend = LazySandboxBackend()
+    inner = MagicMock(spec=["execute", "id", "download_files", "upload_files"])
+    backend.connect(inner)
+
+    backend.persist()  # must not raise
+
+
 def test_disconnected_file_ops_return_error_results():
     """deepagents calls file ops from middleware hooks (large-tool-result and
     conversation-history eviction), OUTSIDE any tool-call wrapper — a raise
@@ -41,8 +73,7 @@ async def test_disconnected_awrite_returns_error_result():
 def test_connected_file_ops_delegate():
     backend = LazySandboxBackend()
     inner = MagicMock()
-    backend.connect(MagicMock(), inner)
-    assert backend.connected is True
+    backend.connect(inner)
 
     backend.write("/f.txt", "content")
     inner.write.assert_called_once_with("/f.txt", "content")
@@ -56,12 +87,3 @@ def test_connected_file_ops_delegate():
     inner.glob.assert_called_once_with("*.py", path="/src")
     backend.grep("needle", path="/src", glob="*.py")
     inner.grep.assert_called_once_with("needle", path="/src", glob="*.py")
-
-
-def test_connected_execute_delegates():
-    backend = LazySandboxBackend()
-    inner = MagicMock()
-    backend.connect(MagicMock(), inner)
-
-    backend.execute("echo hi", timeout=5)
-    inner.execute.assert_called_once_with("echo hi", timeout=5)
