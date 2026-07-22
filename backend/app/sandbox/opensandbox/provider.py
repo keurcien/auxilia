@@ -68,6 +68,12 @@ def _parse_volume_mounts() -> list[Volume]:
     volumes: list[Volume] = []
     for i, entry in enumerate(sandbox_settings.opensandbox.parsed_volume_mounts):
         parts = entry.split(":")
+        read_only = parts[-1] == "ro"
+        if read_only:
+            parts = parts[:-1]
+
+        # Re-check after stripping the ro suffix: "/data:ro" would otherwise
+        # pass a pre-strip length check and crash on parts[1].
         if len(parts) < 2:
             logger.warning(
                 "Ignoring invalid volume mount %r — expected host_path:sandbox_path[:ro]",
@@ -75,11 +81,8 @@ def _parse_volume_mounts() -> list[Volume]:
             )
             continue
 
-        read_only = parts[-1] == "ro"
-        if read_only:
-            parts = parts[:-1]
-
-        host_path = str(Path(parts[0]).expanduser())
+        # Host.path requires an absolute path; resolve relative entries.
+        host_path = str(Path(parts[0]).expanduser().resolve())
         sandbox_path = parts[1]
 
         if not Path(host_path).exists():

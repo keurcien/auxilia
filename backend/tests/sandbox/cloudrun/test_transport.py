@@ -129,6 +129,14 @@ class TestGatewayTransport:
         with pytest.raises(RuntimeError, match="gateway unreachable"):
             transport.exec("sbx-x", ["/bin/true"], timeout=5)
 
+    def test_exec_connection_refused_is_gateway_error_not_124(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("connection refused")
+
+        transport, _ = gateway_with_handler(handler)
+        with pytest.raises(RuntimeError, match="gateway unreachable"):
+            transport.exec("sbx-x", ["/bin/true"], timeout=5)
+
     def test_exec_read_timeout_is_command_timeout(self):
         def handler(request: httpx.Request) -> httpx.Response:
             raise httpx.ReadTimeout("read timed out")

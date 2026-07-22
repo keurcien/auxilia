@@ -115,9 +115,10 @@ class GatewayTransport:
                 json={"argv": argv, "timeout": timeout},
                 timeout=timeout + _GATEWAY_TIMEOUT_MARGIN,
             )
-        except httpx.ConnectTimeout as e:
-            # Never reached the gateway — an outage, not the user's code
-            # overrunning its budget. Must not surface as exit code 124.
+        except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+            # Never reached the gateway (refused or timed out connecting) —
+            # an outage, not the user's code overrunning its budget. Must
+            # not surface as exit code 124.
             raise RuntimeError(f"Sandbox gateway unreachable: {e}") from e
         except httpx.TimeoutException as e:
             raise SandboxTimeoutError() from e

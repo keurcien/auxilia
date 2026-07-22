@@ -1,5 +1,6 @@
 """Unit tests for the OpenSandbox provider (SDK mocked)."""
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -78,6 +79,30 @@ def test_create_passes_parsed_volume_mounts(sdk_sandbox, monkeypatch, tmp_path):
     assert volume.host.path == str(host_dir)
     assert volume.mount_path == "/mnt/shared"
     assert volume.read_only is True
+
+
+def test_volume_mount_ro_without_sandbox_path_is_skipped(sdk_sandbox, monkeypatch):
+    """ "/data:ro" must be skipped with a warning, not crash on parts[1]."""
+    monkeypatch.setattr(sandbox_settings.opensandbox, "default_packages", [])
+    monkeypatch.setattr(sandbox_settings.opensandbox, "volume_mounts", "/data:ro")
+    with patch("app.sandbox.opensandbox.provider.SandboxSync") as sdk:
+        sdk.create.return_value = sdk_sandbox
+        OpenSandboxProvider().create(timeout_minutes=30)
+    assert sdk.create.call_args.kwargs["volumes"] is None
+
+
+def test_relative_volume_mount_is_resolved(sdk_sandbox, monkeypatch, tmp_path):
+    monkeypatch.setattr(sandbox_settings.opensandbox, "default_packages", [])
+    monkeypatch.setattr(sandbox_settings.opensandbox, "volume_mounts", "data:/mnt/data")
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "data").mkdir()
+    with patch("app.sandbox.opensandbox.provider.SandboxSync") as sdk:
+        sdk.create.return_value = sdk_sandbox
+        OpenSandboxProvider().create(timeout_minutes=30)
+
+    [volume] = sdk.create.call_args.kwargs["volumes"]
+    assert Path(volume.host.path).is_absolute()
+    assert volume.host.path == str(tmp_path / "data")
 
 
 def test_create_without_mounts_passes_none(sdk_sandbox, monkeypatch):
