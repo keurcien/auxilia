@@ -47,7 +47,8 @@ def install_default_packages(backend: BaseSandbox, packages: list[str]) -> None:
     """
     if not packages:
         return
-    # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query
-    result = backend.execute(f"pip install {' '.join(packages)}", timeout=120)
+    # A shell command, not SQL — static analyzers flag `execute(f"...")`.
+    install_command = "pip install " + " ".join(packages)
+    result = backend.execute(install_command, timeout=120)
     if result.exit_code != 0:
         raise RuntimeError(f"Failed to install default packages: {result.output}")

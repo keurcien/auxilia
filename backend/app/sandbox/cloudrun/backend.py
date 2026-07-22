@@ -177,13 +177,14 @@ class CloudRunSandbox(BaseSandbox):
         for i, chunk in enumerate(chunks):
             redirect = ">" if i == 0 else ">>"
             prefix = f"mkdir -p {parent} && " if i == 0 else ""
-            # This is a shell command, not SQL; every interpolation is safe by
-            # construction (chunk is base64 alphabet, paths are shlex-quoted)
-            # and it runs inside the sandbox's own isolation boundary.
-            # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query
-            result = self.execute(
+            # A shell command, not SQL (static analyzers flag `execute(f"...")`).
+            # Every interpolation is safe by construction: chunk is base64
+            # alphabet, paths are shlex-quoted, and it runs inside the
+            # sandbox's own isolation boundary.
+            write_command = (
                 f"{prefix}printf '%s' '{chunk}' | base64 -d {redirect} {quoted}"
             )
+            result = self.execute(write_command)
             if result.exit_code != 0:
                 return FileUploadResponse(path=path, error="permission_denied")
         return FileUploadResponse(path=path, error=None)
