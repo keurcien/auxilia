@@ -1,9 +1,33 @@
+from functools import lru_cache
+
+import google.auth
+from google.auth.exceptions import DefaultCredentialsError
 from langchain_anthropic import ChatAnthropic
 from langchain_deepseek import ChatDeepSeek
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
 from app.model_providers.settings import model_provider_settings
+
+
+# provider_api_keys()'s "google" slot when no GOOGLE_API_KEY is configured but
+# Application Default Credentials are available (GCP service account on
+# Cloud Run/GKE/Compute, `gcloud auth application-default login`, or
+# GOOGLE_APPLICATION_CREDENTIALS). Signals ChatModelFactory to serve Gemini
+# via Vertex AI instead of the API-key-based Gemini Developer API. Never a
+# real credential value.
+GOOGLE_ADC_SENTINEL = "adc"
+
+
+@lru_cache(maxsize=1)
+def _google_adc() -> tuple[google.auth.credentials.Credentials, str | None] | None:
+    """Application Default Credentials for this environment, or None if
+    unavailable. The probe can hit the GCE metadata server, so it's cached —
+    the answer can't change for the life of the process."""
+    try:
+        return google.auth.default()
+    except DefaultCredentialsError:
+        return None
 
 
 # Models that require adaptive thinking (`{"type": "adaptive"}` + `effort`).
@@ -41,7 +65,8 @@ def provider_api_keys() -> dict[str, str]:
         "openai": model_provider_settings.openai_api_key,
         "deepseek": model_provider_settings.deepseek_api_key,
         "anthropic": model_provider_settings.anthropic_api_key,
-        "google": model_provider_settings.google_api_key,
+        "google": model_provider_settings.google_api_key
+        or (GOOGLE_ADC_SENTINEL if _google_adc() else None),
         "xiaomi": model_provider_settings.xiaomi_api_key,
         "openrouter": model_provider_settings.openrouter_api_key,
         "meta": model_provider_settings.metaai_api_key,
@@ -97,6 +122,18 @@ class ChatModelFactory:
                     **kwargs,
                 )
             case "google":
+                auth_kwargs: dict = {}
+                if api_key == GOOGLE_ADC_SENTINEL:
+                    # No GOOGLE_API_KEY configured; serve Gemini via Vertex AI
+                    # using the environment's Application Default Credentials
+                    # instead of an API key (e.g. a GCP service account).
+                    credentials, project = _google_adc()
+                    auth_kwargs["vertexai"] = True
+                    auth_kwargs["credentials"] = credentials
+                    if project:
+                        auth_kwargs["project"] = project
+                else:
+                    auth_kwargs["api_key"] = api_key
                 return ChatGoogleGenerativeAI(
                     model=model_id,
                     temperature=0,
@@ -106,7 +143,7 @@ class ChatModelFactory:
                     streaming=True,
                     include_thoughts=True,
                     thinking_budget=-1,
-                    api_key=api_key,
+                    **auth_kwargs,
                 )
             case "xiaomi":
                 return ChatOpenAI(

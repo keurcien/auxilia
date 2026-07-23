@@ -37,6 +37,7 @@ dependencies = [
     "croniter>=6.2.3",
     "pyyaml>=6.0.3",
     "google-cloud-storage>=3.13.0",
+    "google-auth>=2.50.0",
 ]
 
 [dependency-groups]
