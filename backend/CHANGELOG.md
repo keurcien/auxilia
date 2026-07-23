@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.32](https://github.com/keurcien/auxilia/compare/backend-v0.4.31...backend-v0.4.32) (2026-07-23)
+
+
+### Features
+
+* **auth:** add support for Google Application Default Credentials (ADC) fallback in model provider catalog ([#240](https://github.com/keurcien/auxilia/issues/240)) ([5fbdec6](https://github.com/keurcien/auxilia/commit/5fbdec689d8e5580ec72feac539529fe96ad053b))
+
 ## [0.4.31](https://github.com/keurcien/auxilia/compare/backend-v0.4.30...backend-v0.4.31) (2026-07-22)
 
 
