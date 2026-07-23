@@ -18,6 +18,14 @@ from app.model_providers.settings import model_provider_settings
 # real credential value.
 GOOGLE_ADC_SENTINEL = "adc"
 
+# google-genai only requests this scope itself when it resolves ADC
+# internally; since we fetch and hand it `credentials=` explicitly (see
+# ChatModelFactory), its own scoped fetch never runs (it's skipped whenever
+# credentials are already set). Request the scope here instead, or
+# unscoped service-account/GCE credentials get passed through and Vertex AI
+# calls fail with an insufficient-scope error.
+_VERTEX_AI_SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
+
 
 @lru_cache(maxsize=1)
 def _google_adc() -> tuple[google.auth.credentials.Credentials, str | None] | None:
@@ -25,7 +33,7 @@ def _google_adc() -> tuple[google.auth.credentials.Credentials, str | None] | No
     unavailable. The probe can hit the GCE metadata server, so it's cached —
     the answer can't change for the life of the process."""
     try:
-        return google.auth.default()
+        return google.auth.default(scopes=_VERTEX_AI_SCOPES)
     except DefaultCredentialsError:
         return None
 
