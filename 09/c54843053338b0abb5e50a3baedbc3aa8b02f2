@@ -1,0 +1,32 @@
+backend/app/mcp/client/factory.py
+  s_483bf125d13c1b::t_878072a726705a 35
+  s_483bf125d13c1b::t_ddd26ae85777fd 1-2,11-21
+  s_483bf125d13c1b::t_1dc6be45c79d82 22-23
+backend/app/mcp/client/connectivity.py
+  s_483bf125d13c1b::t_40ff3cc97ad73a 30
+  s_483bf125d13c1b::t_3c1fff6c53e6ca 136-138
+backend/tests/mcp/client/test_factory.py
+  s_483bf125d13c1b::t_80cd6cb2d3e243 1,4,6-7,9
+  s_483bf125d13c1b::t_3cbe1d5319f488 93-129
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "09c54843053338b0abb5e50a3baedbc3aa8b02f2",
+  "prompts": {},
+  "humans": {
+    "h_df81e42269d667": {
+      "author": "tgensol <thibaut@appchoose.io>"
+    }
+  },
+  "sessions": {
+    "s_483bf125d13c1b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fea4bd88-aee7-43ed-b682-af59c468c550",
+        "model": "claude-opus-5"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}
