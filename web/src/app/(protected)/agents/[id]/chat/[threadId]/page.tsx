@@ -427,6 +427,7 @@ const ChatPage = () => {
   const [subagentMessages, setSubagentMessages] = useState<
     Record<string, unknown[]>
   >({});
+  const fetchedSubagentHistory = useRef(new Set<string>());
 
   const { mcpServers } = useMcpServersStore();
   // Sidebar populates the agents store; when this agent is there and the
@@ -694,40 +695,27 @@ const ChatPage = () => {
     );
   };
 
-  // ---- Fetch subagent internal messages after reconstruction ----
+  const loadSubagentHistory = useCallback(
+    async (toolCallId: string) => {
+      const key = `${threadId}:${toolCallId}`;
+      if (fetchedSubagentHistory.current.has(key)) return;
+      fetchedSubagentHistory.current.add(key);
 
-  const hasFetchedSubagentHistory = useRef(false);
-
-  useEffect(() => {
-    if (hasFetchedSubagentHistory.current) return;
-    if (isLoading) return;
-    if (!subagentApi.subagents || subagentApi.subagents.size === 0) return;
-
-    // Find subagents that were reconstructed but have no internal messages
-    const toFetch = [...subagentApi.subagents.entries()].filter(
-      ([, s]) =>
-        s.messages.length === 0 &&
-        (s.status === "complete" || s.status === "error"),
-    );
-    if (toFetch.length === 0) return;
-
-    hasFetchedSubagentHistory.current = true;
-
-    Promise.all(
-      toFetch.map(async ([toolCallId]) => {
-        try {
-          const res = await api.get(
-            `/threads/${threadId}/subagents/${toolCallId}/state`,
-          );
-          const msgs = res.data?.messages;
-          if (!Array.isArray(msgs) || msgs.length === 0) return;
+      try {
+        const res = await api.get(
+          `/threads/${threadId}/subagents/${toolCallId}/state`,
+        );
+        const msgs = res.data?.messages;
+        if (Array.isArray(msgs) && msgs.length > 0) {
           setSubagentMessages((prev) => ({ ...prev, [toolCallId]: msgs }));
-        } catch {
-          // Subgraph checkpoint may not exist — ignore
         }
-      }),
-    );
-  }, [subagentApi, thread, isLoading, threadId]);
+      } catch {
+        // Allow a later open to retry a transient failure.
+        fetchedSubagentHistory.current.delete(key);
+      }
+    },
+    [threadId],
+  );
 
   // ---- Initialization ----
 
@@ -1087,6 +1075,13 @@ const ChatPage = () => {
                               key={sub.id}
                               subagent={sub}
                               mcpServers={mcpServers}
+                              onOpen={
+                                sub.messages.length === 0 &&
+                                (sub.status === "complete" ||
+                                  sub.status === "error")
+                                  ? () => void loadSubagentHistory(sub.id)
+                                  : undefined
+                              }
                               fallbackMessages={subagentMessages[sub.id]}
                             />
                           ))}

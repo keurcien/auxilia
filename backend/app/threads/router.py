@@ -115,7 +115,13 @@ def _seed_human_content(messages: list) -> str | None:
 
 
 @router.get("/{thread_id}/subagents/{tool_call_id}/state")
-async def get_subagent_state(thread_id: str, tool_call_id: str) -> dict:
+async def get_subagent_state(
+    thread_id: str,
+    tool_call_id: str,
+    current_user: UserDB = Depends(get_current_user),
+    service: ThreadService = Depends(get_thread_service),
+    agent_service: AgentService = Depends(get_agent_service),
+) -> dict:
     """Fetch a subagent's checkpoint state (its internal messages) by tool call ID.
 
     A subagent runs as a Pregel subgraph whose checkpoint namespace is keyed by an
@@ -124,6 +130,9 @@ async def get_subagent_state(thread_id: str, tool_call_id: str) -> dict:
     while streaming: match the ``task`` tool call's ``description`` against each
     subgraph checkpoint's seed message.
     """
+    thread = await service.get(thread_id)
+    await _resolve_viewer_role(thread, current_user, agent_service)
+
     async with get_checkpointer() as checkpointer:
         # The task call's description lives in the parent (root-namespace) state.
         parent = await checkpointer.aget_tuple(
