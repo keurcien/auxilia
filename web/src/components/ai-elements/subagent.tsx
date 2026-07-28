@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import { ChevronDownIcon } from "lucide-react";
-import { memo, useEffect } from "react";
+import { memo, useEffect, useRef } from "react";
 import { Loader } from "@/components/ai-elements/loader";
 import {
 	Tool,
@@ -265,10 +265,18 @@ export const SubAgentCard = memo(({ subagent, mcpServers, onOpen, fallbackMessag
 	const [isOpen, setIsOpen] = useControllableState({
 		defaultProp: isStreaming || isError,
 	});
+	const requestedInitialHistory = useRef(false);
 
 	useEffect(() => {
 		if (isStreaming) setIsOpen(true);
 	}, [isStreaming, setIsOpen]);
+
+	useEffect(() => {
+		if (isError && onOpen && !requestedInitialHistory.current) {
+			requestedInitialHistory.current = true;
+			onOpen();
+		}
+	}, [isError, onOpen]);
 
 	const convoMessages =
 		messages && messages.length > 0 ? messages : (fallbackMessages ?? []);

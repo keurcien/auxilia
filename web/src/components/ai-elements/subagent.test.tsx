@@ -27,4 +27,24 @@ describe("SubAgentCard", () => {
 		await userEvent.click(screen.getByRole("button"));
 		expect(onOpen).toHaveBeenCalledOnce();
 	});
+
+	it("loads restored history for an error card that starts open", () => {
+		const onOpen = vi.fn();
+		const subagent = {
+			id: "call_2",
+			status: "error",
+			toolCall: { args: { description: "Inspect the failed task" } },
+			messages: [],
+			values: {},
+			error: "Failed",
+		} as unknown as SubagentStreamInterface<
+			Record<string, unknown>,
+			Record<string, unknown>,
+			string
+		>;
+
+		render(<SubAgentCard subagent={subagent} onOpen={onOpen} />);
+
+		expect(onOpen).toHaveBeenCalledOnce();
+	});
 });
