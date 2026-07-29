@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.23](https://github.com/keurcien/auxilia/compare/web-v0.5.22...web-v0.5.23) (2026-07-29)
+
+
+### Bug Fixes
+
+* **oom:** Only load when needed ([#243](https://github.com/keurcien/auxilia/issues/243)) ([867b2a3](https://github.com/keurcien/auxilia/commit/867b2a35e7f7e979b161036ec5646c8f5a84de9b))
+
 ## [0.5.22](https://github.com/keurcien/auxilia/compare/web-v0.5.21...web-v0.5.22) (2026-07-22)
 
 
