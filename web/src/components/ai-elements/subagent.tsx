@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import { ChevronDownIcon } from "lucide-react";
-import { memo, useEffect } from "react";
+import { memo, useEffect, useRef } from "react";
 import { Loader } from "@/components/ai-elements/loader";
 import {
 	Tool,
@@ -238,14 +238,15 @@ interface SubAgentCardProps {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	subagent: SubagentStreamInterface<any, any, any>;
 	mcpServers?: MCPServerInfo[];
+	onOpen?: () => void;
 	// Internal conversation restored from the subgraph checkpoint on refresh.
 	// The SDK can't inject these into the (reconstructed) subagent via the custom
-	// transport, so the page fetches them separately and passes them here.
+	// transport, so the page fetches them on demand and passes them here.
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	fallbackMessages?: any[];
 }
 
-export const SubAgentCard = memo(({ subagent, mcpServers, fallbackMessages }: SubAgentCardProps) => {
+export const SubAgentCard = memo(({ subagent, mcpServers, onOpen, fallbackMessages }: SubAgentCardProps) => {
 	const { status, toolCall, result, startedAt, completedAt, messages, values } =
 		subagent;
 	const isStreaming = status === "running";
@@ -264,10 +265,18 @@ export const SubAgentCard = memo(({ subagent, mcpServers, fallbackMessages }: Su
 	const [isOpen, setIsOpen] = useControllableState({
 		defaultProp: isStreaming || isError,
 	});
+	const requestedInitialHistory = useRef(false);
 
 	useEffect(() => {
 		if (isStreaming) setIsOpen(true);
 	}, [isStreaming, setIsOpen]);
+
+	useEffect(() => {
+		if (isError && onOpen && !requestedInitialHistory.current) {
+			requestedInitialHistory.current = true;
+			onOpen();
+		}
+	}, [isError, onOpen]);
 
 	const convoMessages =
 		messages && messages.length > 0 ? messages : (fallbackMessages ?? []);
@@ -275,11 +284,16 @@ export const SubAgentCard = memo(({ subagent, mcpServers, fallbackMessages }: Su
 	const hasBody =
 		description || todos.length > 0 || hasConversation || result || isError;
 
+	const handleOpenChange = (open: boolean) => {
+		setIsOpen(open);
+		if (open) onOpen?.();
+	};
+
 	return (
 		<Collapsible
 			className="not-prose w-full rounded-lg border border-border bg-card shadow-sm overflow-hidden"
 			open={isOpen}
-			onOpenChange={setIsOpen}
+			onOpenChange={handleOpenChange}
 		>
 			{/* ---- Header ---- */}
 			<CollapsibleTrigger className="flex w-full items-center justify-between gap-3 p-3 text-sm transition-colors hover:bg-muted/50 cursor-pointer">
