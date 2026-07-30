@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.33](https://github.com/keurcien/auxilia/compare/backend-v0.4.32...backend-v0.4.33) (2026-07-29)
+
+
+### Bug Fixes
+
+* **oom:** Only load when needed ([#243](https://github.com/keurcien/auxilia/issues/243)) ([867b2a3](https://github.com/keurcien/auxilia/commit/867b2a35e7f7e979b161036ec5646c8f5a84de9b))
+
 ## [0.4.32](https://github.com/keurcien/auxilia/compare/backend-v0.4.31...backend-v0.4.32) (2026-07-23)
 
 
