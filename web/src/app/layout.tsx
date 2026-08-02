@@ -1,33 +1,26 @@
 import type { Metadata } from "next";
-import { DM_Sans, Geist, Geist_Mono, Noto_Sans, Plus_Jakarta_Sans } from "next/font/google";
+import { Hanken_Grotesk, IBM_Plex_Mono, Space_Grotesk } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import "./globals.css";
 
-const geistSans = Geist({
-	variable: "--font-geist-sans",
+// Petrol Mono design system fonts (see design/README.md):
+// - Space Grotesk: display only (page H1s, wordmark, landing card titles)
+// - Hanken Grotesk: all UI text
+// - IBM Plex Mono: eyebrows, field labels, agent names, metadata, code
+const spaceGrotesk = Space_Grotesk({
+	variable: "--font-space-grotesk",
 	subsets: ["latin"],
 });
 
-const geistMono = Geist_Mono({
-	variable: "--font-geist-mono",
+const hankenGrotesk = Hanken_Grotesk({
+	variable: "--font-hanken-grotesk",
 	subsets: ["latin"],
 });
 
-const notoSans = Noto_Sans({
-	variable: "--font-noto-sans",
+const ibmPlexMono = IBM_Plex_Mono({
+	variable: "--font-ibm-plex-mono",
 	subsets: ["latin"],
-	weight: ["100", "200", "300", "400", "500", "600", "700", "800", "900"],
-	style: ["normal", "italic"],
-});
-
-const dmSans = DM_Sans({
-	variable: "--font-dm-sans",
-	subsets: ["latin"],
-});
-
-const plusJakartaSans = Plus_Jakarta_Sans({
-	variable: "--font-jakarta-sans",
-	subsets: ["latin"],
+	weight: ["400", "500", "600"],
 });
 
 export const metadata: Metadata = {
@@ -43,7 +36,7 @@ export default function RootLayout({
 	return (
 		<html lang="en" className="h-full" suppressHydrationWarning>
 			<body
-				className={`${geistSans.variable} ${geistMono.variable} ${notoSans.variable} ${dmSans.variable} ${plusJakartaSans.variable} antialiased h-full`}
+				className={`${spaceGrotesk.variable} ${hankenGrotesk.variable} ${ibmPlexMono.variable} antialiased h-full`}
 			>
 				<ThemeProvider
 					attribute="class"
