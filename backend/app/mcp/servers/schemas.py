@@ -48,9 +48,28 @@ class MCPServerResponse(SQLModel):
     oauth_client_id: str | None = None
 
 
-class OfficialMCPServerResponse(MCPServerResponse):
+class OfficialMCPServerResponse(SQLModel):
+    """One catalog entry (see mcp/servers/catalog.py). Deliberately NOT an
+    MCPServerResponse: catalog entries come from a file, so they have no id and
+    no timestamps — ``url`` is their identity."""
+
+    name: str
+    url: str
+    auth_type: MCPAuthType
+    icon_url: str | None = None
+    description: str | None = None
+    # Whether a workspace server already exists for this url.
     is_installed: bool = Field(default=False)
     supports_dcr: bool | None = Field(default=None)
+
+
+class MCPCatalogSyncResponse(SQLModel):
+    """Diff returned by the admin catalog sync. ``added``/``removed`` list urls."""
+
+    added: list[str]
+    removed: list[str]
+    server_count: int
+    fetched_at: datetime
 
 
 class OAuthSecretHint(SQLModel):

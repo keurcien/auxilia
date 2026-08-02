@@ -19,10 +19,12 @@ from app.mcp.client.connectivity import (
     is_authorized,
 )
 from app.mcp.client.storage import TokenStorageFactory
+from app.mcp.servers import catalog as mcp_catalog
 from app.mcp.servers.encryption import decrypt_value
 from app.mcp.servers.models import MCPAuthType, MCPServerDB
 from app.mcp.servers.repository import MCPServerRepository
 from app.mcp.servers.schemas import (
+    MCPCatalogSyncResponse,
     MCPServerConnectionResponse,
     MCPServerCreate,
     MCPServerPatch,
@@ -139,11 +141,21 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         await self.repository.delete(server)
 
     async def list_official(self) -> list[OfficialMCPServerResponse]:
-        rows = await self.repository.list_official()
+        """The catalog (file order) with each entry flagged as installed or not.
+        The match is on url — installing an entry copies it into a workspace
+        server, so that is the only link between the two."""
+        catalog = await mcp_catalog.get_catalog()
+        installed = await self.repository.list_urls()
         return [
-            OfficialMCPServerResponse(**row[0].model_dump(), is_installed=row[1])
-            for row in rows
+            OfficialMCPServerResponse(
+                **entry.model_dump(), is_installed=entry.url in installed
+            )
+            for entry in catalog
         ]
+
+    @staticmethod
+    async def sync_catalog() -> MCPCatalogSyncResponse:
+        return MCPCatalogSyncResponse(**await mcp_catalog.sync_catalog())
 
     async def reset(self, server_id: UUID) -> dict:
         await self.get(server_id)

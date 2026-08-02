@@ -133,6 +133,7 @@ auxilia/
 │   │   │   ├── apps/                  # FastMCP demo tools exposed by auxilia itself
 │   │   │   ├── client/                # MCP client, OAuth provider, Redis storage, connectivity probes
 │   │   │   ├── servers/               # MCP server CRUD, API-key/OAuth credentials encryption
+│   │   │   │                          # catalog.py — official servers from a CDN YAML (see app/utils/remote_catalog.py)
 │   │   │   ├── router.py              # auxilia_mcp (FastMCP) endpoint
 │   │   │   └── utils.py               # check_mcp_server_connected (with token refresh)
 │   │   ├── model_providers/           # LLM provider configuration & catalog
@@ -146,7 +147,7 @@ auxilia/
 │   │   │   ├── service.py             # TriggerService — CRUD + claim_and_enqueue (scanner entrypoint)
 │   │   │   └── router.py              # /triggers CRUD + /triggers/schedule/preview
 │   │   ├── users/                     # User management
-│   │   ├── utils/                     # RequestTimer and other shared helpers
+│   │   ├── utils/                     # remote_catalog.py — CDN-hosted catalogs (model whitelist, MCP servers)
 │   │   ├── database.py                # Async engine + request-scoped get_db
 │   │   ├── redis_client.py            # Shared async Redis client (durable runtime, out-of-request)
 │   │   ├── exceptions.py              # DomainError hierarchy (NotFoundError, ValidationError, …)

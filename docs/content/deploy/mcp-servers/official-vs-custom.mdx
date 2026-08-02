@@ -4,26 +4,39 @@
 
 ## Official MCP servers
 
-Official servers are seeded into the database with their URL, icon, and authentication type. They appear under an **Official** section on the MCP Servers page with an **Install** button.
+Official servers come from a catalog **auxilia** hosts as a single file, listing each server's URL, icon, and authentication type. Click **Add MCP server** to search the catalog and pick one — it prefills the form for you. Servers your workspace already runs are left out of the list.
 
-| Server     | Auth      | OAuth style        |
-| ---------- | --------- | ------------------ |
-| Notion     | OAuth 2.0 | DCR                |
-| Atlassian  | OAuth 2.0 | DCR                |
-| Linear     | OAuth 2.0 | DCR                |
-| Sentry     | OAuth 2.0 | DCR                |
-| Stripe     | OAuth 2.0 | DCR                |
-| Canva      | OAuth 2.0 | DCR                |
-| Intercom   | OAuth 2.0 | DCR                |
-| DeepWiki   | None      | —                  |
-| Supabase   | OAuth 2.0 | DCR                |
-| Amplitude  | OAuth 2.0 | DCR                |
-| GitHub     | OAuth 2.0 | Static credentials |
-| HubSpot    | OAuth 2.0 | Static credentials |
-| BigQuery   | OAuth 2.0 | Static credentials |
-| Slack      | OAuth 2.0 | DCR                |
+| Server    | Auth      | OAuth style        |
+| --------- | --------- | ------------------ |
+| Amplitude | OAuth 2.0 | DCR                |
+| Atlassian | OAuth 2.0 | DCR                |
+| BigQuery  | OAuth 2.0 | Static credentials |
+| Calendar  | OAuth 2.0 | Static credentials |
+| Canva     | OAuth 2.0 | DCR                |
+| DeepWiki  | None      | —                  |
+| Drive     | OAuth 2.0 | Static credentials |
+| Gmail     | OAuth 2.0 | Static credentials |
+| GitHub    | OAuth 2.0 | Static credentials |
+| HubSpot   | OAuth 2.0 | Static credentials |
+| Intercom  | OAuth 2.0 | DCR                |
+| Kahoot    | OAuth 2.0 | DCR                |
+| Linear    | OAuth 2.0 | DCR                |
+| Notion    | OAuth 2.0 | DCR                |
+| PandaDoc  | OAuth 2.0 | DCR                |
+| Praiz     | OAuth 2.0 | DCR                |
+| Sentry    | OAuth 2.0 | DCR                |
+| Slack     | OAuth 2.0 | Static credentials |
+| Stripe    | OAuth 2.0 | DCR                |
+| Supabase  | OAuth 2.0 | DCR                |
+| Tavily    | API key   | —                  |
 
 Installing an official server creates a workspace MCP server entry pointing at the correct URL with the correct auth type.
+
+### Keeping the catalog current
+
+Because the catalog is a hosted file rather than part of the release, new servers become available without upgrading **auxilia** — but the file is cached, so an admin decides when to pull changes in: **Sync catalog** on the MCP Servers page fetches it immediately and reports what changed. A malformed or unreachable file changes nothing; the last known-good catalog keeps being served.
+
+Self-hosted deployments can point `MCP_CATALOG_URL` at their own file to publish an internal list of approved servers instead, or set it empty to pin the catalog bundled with the release.
 
 ### DCR servers
 

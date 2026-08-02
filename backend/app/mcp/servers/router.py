@@ -11,6 +11,7 @@ from app.mcp.servers.models import MCPServerDB
 from app.mcp.servers.schemas import (
     ConnectionProbeRequest,
     ConnectionTestResult,
+    MCPCatalogSyncResponse,
     MCPServerConnectionResponse,
     MCPServerCreate,
     MCPServerPatch,
@@ -56,6 +57,17 @@ async def get_official_mcp_servers(
     service: MCPServerService = Depends(get_mcp_server_service),
 ) -> list[OfficialMCPServerResponse]:
     return await service.list_official()
+
+
+@router.post("/catalog/sync", response_model=MCPCatalogSyncResponse)
+async def sync_official_catalog(
+    _current_user: UserDB = Depends(require_admin),
+    service: MCPServerService = Depends(get_mcp_server_service),
+) -> MCPCatalogSyncResponse:
+    """Force-fetch the CDN catalog now. Raises 400 (instead of silently falling
+    back) when the fetch or validation fails — the admin pressed the button and
+    needs to know."""
+    return await service.sync_catalog()
 
 
 @router.get("/{server_id}", response_model=MCPServerResponse)
