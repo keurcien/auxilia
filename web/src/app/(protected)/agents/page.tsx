@@ -5,9 +5,11 @@ import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import AgentList from "@/app/(protected)/agents/components/agent-list";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
-import { Button } from "@/components/ui/button";
-import { SearchBar } from "@/components/ui/search-bar";
-import { PageContainer } from "@/components/layout/page-container";
+import { UnderlineTabs } from "@/components/ui/underline-tabs";
+import {
+	WorkspacePage,
+	WorkspaceTopBarButton,
+} from "@/components/layout/workspace-page";
 import { useUserStore } from "@/stores/user-store";
 
 export default function AgentsPage() {
@@ -19,8 +21,6 @@ export default function AgentsPage() {
 		"available",
 	);
 
-	// Creation happens on the /agents/new draft page — nothing is persisted
-	// until the user hits "Create agent" there.
 	const handleCreateAgent = () => {
 		if (!user) return;
 		if (user.role === "member") {
@@ -31,66 +31,43 @@ export default function AgentsPage() {
 	};
 
 	return (
-		<PageContainer>
+		<WorkspacePage
+			slug="agents"
+			title="Agents"
+			intro="Assistants connected to your team's tools. Chat with them, or let triggers run them on a schedule."
+			search={{
+				placeholder: "Search agents…",
+				value: search,
+				onChange: setSearch,
+			}}
+			actions={
+				<WorkspaceTopBarButton
+					onClick={() => {
+						handleCreateAgent();
+					}}
+				>
+					<Plus className="size-3.5" />
+					New agent
+				</WorkspaceTopBarButton>
+			}
+			headerRight={
+				<UnderlineTabs
+					tabs={[
+						{ key: "available", label: "Available to you" },
+						{ key: "all", label: "All" },
+						{ key: "archived", label: "Archived" },
+					]}
+					value={view}
+					onChange={setView}
+				/>
+			}
+		>
 			<ForbiddenErrorDialog
 				open={errorDialogOpen}
 				onOpenChange={setErrorDialogOpen}
 				title="Insufficient privileges"
 				message="You need at least editor permissions to create agents."
 			/>
-			<div className="flex flex-col gap-5 my-8 sm:flex-row sm:items-start sm:justify-between">
-				<div className="min-w-0">
-					<h1 className="font-[family-name:var(--font-jakarta-sans)] font-extrabold text-[32px] tracking-[-0.03em] text-[#111111] dark:text-white">
-						Agents
-					</h1>
-					<p className="mt-1.5 font-[family-name:var(--font-dm-sans)] text-[15px] font-medium text-[#6B7F76] dark:text-muted-foreground">
-						Everything you can chat with — yours, and what the team shares with
-						you.
-					</p>
-				</div>
-
-				<div className="flex items-center gap-3 shrink-0">
-					<SearchBar
-						placeholder="Search agents..."
-						value={search}
-						onChange={setSearch}
-						hint="⌘K"
-						className="w-full sm:w-72"
-					/>
-					<Button
-						className="flex items-center gap-2 px-6! py-3! h-auto! bg-[#111111] dark:bg-white dark:text-[#111111] text-[14px] font-semibold font-[family-name:var(--font-dm-sans)] text-white rounded-full hover:bg-[#222222] dark:hover:bg-gray-100 transition-all cursor-pointer shadow-[0_4px_12px_-2px_rgba(0,0,0,0.15)] border-none whitespace-nowrap"
-						onClick={() => {
-							handleCreateAgent();
-						}}
-					>
-						<Plus className="w-4 h-4" />
-						Create an agent
-					</Button>
-				</div>
-			</div>
-			<div className="mb-6 inline-flex items-center gap-1 rounded-full bg-[#F0F4F2] dark:bg-white/5 p-1">
-				{(
-					[
-						{ key: "available", label: "Available to you" },
-						{ key: "all", label: "All" },
-						{ key: "archived", label: "Archived" },
-					] as const
-				).map((tab) => (
-					<button
-						key={tab.key}
-						onClick={() => {
-							setView(tab.key);
-						}}
-						className={`rounded-full px-4 py-1.5 font-[family-name:var(--font-dm-sans)] text-[13.5px] font-semibold cursor-pointer transition-colors ${
-							view === tab.key
-								? "bg-white dark:bg-white/10 text-[#1E2D28] dark:text-foreground shadow-[0_1px_2px_rgba(30,45,40,0.08)]"
-								: "text-[#8FA89E] dark:text-muted-foreground hover:text-[#1E2D28] dark:hover:text-foreground"
-						}`}
-					>
-						{tab.label}
-					</button>
-				))}
-			</div>
 			<AgentList
 				key={view === "archived" ? "archived" : "active"}
 				view={view}
@@ -102,6 +79,6 @@ export default function AgentsPage() {
 					handleCreateAgent();
 				}}
 			/>
-		</PageContainer>
+		</WorkspacePage>
 	);
 }

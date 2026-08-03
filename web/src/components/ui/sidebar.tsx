@@ -24,9 +24,12 @@ import {
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
-const SIDEBAR_WIDTH = "20rem";
+// Petrol Mono: 248px expanded; collapsed keeps the 22px icon column at the
+// same x offset as the open state (8px group pad + 8px row pad + 22px icon
+// + matching right side = 62px).
+const SIDEBAR_WIDTH = "15.5rem";
 const SIDEBAR_WIDTH_MOBILE = "18rem";
-const SIDEBAR_WIDTH_ICON = "3.5rem";
+const SIDEBAR_WIDTH_ICON = "3.875rem";
 const SIDEBAR_KEYBOARD_SHORTCUT = "b";
 
 type SidebarContextProps = {
@@ -87,7 +90,11 @@ function SidebarProvider({
 
 	// Helper to toggle the sidebar.
 	const toggleSidebar = React.useCallback(() => {
-		return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open);
+		if (isMobile) {
+			setOpenMobile((open) => !open);
+		} else {
+			setOpen((open) => !open);
+		}
 	}, [isMobile, setOpen, setOpenMobile]);
 
 	// Adds a keyboard shortcut to toggle the sidebar.
@@ -103,7 +110,9 @@ function SidebarProvider({
 		};
 
 		window.addEventListener("keydown", handleKeyDown);
-		return () => window.removeEventListener("keydown", handleKeyDown);
+		return () => {
+			window.removeEventListener("keydown", handleKeyDown);
+		};
 	}, [toggleSidebar]);
 
 	// We add a state so that we can do data-state="expanded" or "collapsed".

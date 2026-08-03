@@ -14,9 +14,11 @@ import {
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import InviteDialog from "./invite-dialog";
 import NewTeamDialog, { type Team } from "./new-team-dialog";
-import { SearchBar } from "@/components/ui/search-bar";
-import { Button } from "@/components/ui/button";
-import { PageContainer } from "@/components/layout/page-container";
+import { UnderlineTabs } from "@/components/ui/underline-tabs";
+import {
+	WorkspacePage,
+	WorkspaceTopBarButton,
+} from "@/components/layout/workspace-page";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { SageDropdownMenu } from "@/components/ui/sage-dropdown-menu";
 import { api } from "@/lib/api/client";
@@ -521,7 +523,40 @@ export default function UsersPage() {
 	];
 
 	return (
-		<PageContainer>
+		<WorkspacePage
+			slug="users"
+			title="Users"
+			intro="Manage who's in your workspace and what they can do."
+			search={{
+				placeholder: "Search users…",
+				value: search,
+				onChange: setSearch,
+			}}
+			actions={
+				<WorkspaceTopBarButton
+					onClick={() => {
+						setInviteDialogOpen(true);
+					}}
+				>
+					<Plus className="size-3.5" />
+					Invite user
+				</WorkspaceTopBarButton>
+			}
+			headerRight={
+				<UnderlineTabs
+					tabs={ROLE_FILTERS.map((filter) => ({
+						key: filter.key,
+						label: filter.label,
+						count:
+							filter.key === "all"
+								? roleCounts?.total
+								: roleCounts?.[filter.key],
+					}))}
+					value={roleFilter}
+					onChange={handleRoleFilterChange}
+				/>
+			}
+		>
 			<ForbiddenErrorDialog
 				open={errorDialogOpen}
 				onOpenChange={setErrorDialogOpen}
@@ -547,63 +582,6 @@ export default function UsersPage() {
 				onTeamCreated={handleTeamCreated}
 				onTeamUpdated={handleTeamUpdated}
 			/>
-			<div className="flex flex-col gap-5 my-8 sm:flex-row sm:items-start sm:justify-between">
-				<div className="min-w-0">
-					<h1 className="font-[family-name:var(--font-jakarta-sans)] font-extrabold text-[32px] tracking-[-0.03em] text-[#111111] dark:text-white">
-						Users
-					</h1>
-					<p className="mt-1.5 font-[family-name:var(--font-dm-sans)] text-[15px] font-medium text-[#6B7F76] dark:text-muted-foreground">
-						Manage who&apos;s in your workspace and what they can do.
-					</p>
-				</div>
-
-				<div className="flex items-center gap-3 shrink-0">
-					<SearchBar
-						placeholder="Search users..."
-						value={search}
-						onChange={setSearch}
-						hint="⌘K"
-						className="w-full sm:w-72"
-					/>
-					<Button
-						className="flex items-center gap-2 px-6! py-3! h-auto! bg-[#111111] dark:bg-white dark:text-[#111111] text-[14px] font-semibold font-[family-name:var(--font-dm-sans)] text-white rounded-full hover:bg-[#222222] dark:hover:bg-gray-100 transition-all cursor-pointer shadow-[0_4px_12px_-2px_rgba(0,0,0,0.15)] border-none whitespace-nowrap"
-						onClick={() => { setInviteDialogOpen(true); }}
-					>
-						<Plus className="w-4 h-4" />
-						Invite user
-					</Button>
-				</div>
-			</div>
-
-			{/* Role filter chips */}
-			<div className="flex flex-wrap items-center gap-2 mb-5">
-				{ROLE_FILTERS.map((filter) => {
-					const active = roleFilter === filter.key;
-					const count =
-						filter.key === "all" ? roleCounts?.total : roleCounts?.[filter.key];
-					return (
-						<button
-							key={filter.key}
-							onClick={() => {
-								handleRoleFilterChange(filter.key);
-							}}
-							className={`inline-flex items-center gap-2 rounded-full px-[13px] py-1.5 text-[12px] font-[family-name:var(--font-dm-sans)] cursor-pointer transition-colors ${
-								active
-									? "bg-[#e7f0eb] text-[#3d8b63] font-semibold dark:bg-emerald-950 dark:text-emerald-300"
-									: "border border-[#e1ebe6] text-[#5f7068] hover:bg-[#f8faf9] dark:border-white/10 dark:text-muted-foreground dark:hover:bg-white/5"
-							}`}
-						>
-							{filter.label}
-							{count !== undefined && (
-								<span className="font-mono text-[10.5px] opacity-70">
-									{count}
-								</span>
-							)}
-						</button>
-					);
-				})}
-			</div>
-
 			{/* Member list */}
 			<DataTable
 				columns={columns}
@@ -758,6 +736,6 @@ export default function UsersPage() {
 					</div>
 				</>
 			)}
-		</PageContainer>
+		</WorkspacePage>
 	);
 }
