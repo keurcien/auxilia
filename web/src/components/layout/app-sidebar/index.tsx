@@ -225,7 +225,7 @@ export function AppSidebar() {
 							}}
 							disabled={agents.length === 0}
 							title="New thread"
-							className="flex h-9 w-full cursor-pointer items-center gap-[9px] rounded-lg border border-input bg-card pl-2 pr-2.5 text-[13.5px] font-semibold text-sidebar-foreground shadow-raised transition-colors hover:border-border-hover disabled:cursor-not-allowed disabled:opacity-50"
+							className="flex h-9 w-full cursor-pointer items-center gap-[9px] rounded-lg border border-input bg-card pl-2 pr-2.5 text-[13.5px] font-semibold text-sidebar-foreground shadow-raised transition-colors hover:border-border-hover disabled:cursor-not-allowed disabled:opacity-50 group-data-[collapsible=icon]:w-[38px]"
 						>
 							<IconSlot>
 								<SquarePen className="size-4" />
@@ -276,7 +276,7 @@ export function AppSidebar() {
 												asChild
 												isActive={isActive}
 												tooltip={title}
-												className="h-12 rounded-[7px] hover:bg-sidebar-hover data-[active=true]:bg-sidebar-accent group-data-[collapsible=icon]:h-12! group-data-[collapsible=icon]:w-full! group-data-[collapsible=icon]:p-2! group-data-[collapsible=icon]:data-[active=true]:bg-transparent"
+												className="h-12 rounded-[7px] hover:bg-sidebar-hover data-[active=true]:bg-sidebar-accent group-data-[collapsible=icon]:h-12! group-data-[collapsible=icon]:w-[38px]! group-data-[collapsible=icon]:p-2! group-data-[collapsible=icon]:data-[active=true]:bg-transparent"
 											>
 												<Link
 													href={`/agents/${thread.agentId}/chat/${thread.id}`}
@@ -427,7 +427,7 @@ export function AppSidebar() {
 												asChild
 												isActive={isNavActive}
 												tooltip={item.title}
-												className="rounded-[7px] px-2 hover:bg-sidebar-hover data-[active=true]:bg-sidebar-accent group-data-[collapsible=icon]:w-full! group-data-[collapsible=icon]:p-2!"
+												className="rounded-[7px] px-2 hover:bg-sidebar-hover data-[active=true]:bg-sidebar-accent group-data-[collapsible=icon]:w-[38px]! group-data-[collapsible=icon]:p-2!"
 											>
 												<Link
 													href={item.href}
@@ -473,7 +473,7 @@ export function AppSidebar() {
 									<SidebarMenuButton
 										size="lg"
 										tooltip={user?.name || "User"}
-										className="h-11 cursor-pointer rounded-lg pl-[5px] pr-2 hover:bg-sidebar-hover data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground group-data-[collapsible=icon]:h-11! group-data-[collapsible=icon]:w-full! group-data-[collapsible=icon]:p-0! group-data-[collapsible=icon]:pl-[5px]!"
+										className="h-11 cursor-pointer rounded-lg pl-[5px] pr-2 hover:bg-sidebar-hover data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground group-data-[collapsible=icon]:h-11! group-data-[collapsible=icon]:w-[38px]! group-data-[collapsible=icon]:p-0! group-data-[collapsible=icon]:pl-[5px]!"
 									>
 										<span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
 											{getInitials(user?.name ?? undefined)}
