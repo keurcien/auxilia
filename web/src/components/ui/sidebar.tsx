@@ -24,10 +24,9 @@ import {
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
-// Petrol Mono: 248px expanded; collapsed keeps the 22px icon column at the
-// same x offset as the open state (8px group pad + 8px row pad + 22px icon
-// + matching right side = 62px).
-const SIDEBAR_WIDTH = "15.5rem";
+// Collapsed keeps the 22px icon column at the same x offset as the open
+// state (8px group pad + 8px row pad + 22px icon + matching right = 62px).
+const SIDEBAR_WIDTH = "20rem";
 const SIDEBAR_WIDTH_MOBILE = "18rem";
 const SIDEBAR_WIDTH_ICON = "3.875rem";
 const SIDEBAR_KEYBOARD_SHORTCUT = "b";

@@ -225,7 +225,7 @@ export function AppSidebar() {
 							}}
 							disabled={agents.length === 0}
 							title="New thread"
-							className="flex w-full cursor-pointer items-center gap-[9px] rounded-lg border border-input bg-card py-[7px] pl-2 pr-2.5 text-[13.5px] font-semibold text-sidebar-foreground shadow-raised transition-colors hover:border-border-hover disabled:cursor-not-allowed disabled:opacity-50"
+							className="flex h-9 w-full cursor-pointer items-center gap-[9px] rounded-lg border border-input bg-card pl-2 pr-2.5 text-[13.5px] font-semibold text-sidebar-foreground shadow-raised transition-colors hover:border-border-hover disabled:cursor-not-allowed disabled:opacity-50"
 						>
 							<IconSlot>
 								<SquarePen className="size-4" />
@@ -237,7 +237,10 @@ export function AppSidebar() {
 					</SidebarGroup>
 
 					<SidebarGroup className="flex-1 min-h-0 overflow-hidden pt-0">
-						<SidebarGroupLabel className="h-auto px-2 pt-2 pb-1.5 font-mono text-[10px] font-semibold tracking-[0.09em] text-sidebar-muted-highlight">
+						{/* mt-0 cancels shadcn's collapsed -mt-8 and nowrap keeps the
+						    (invisible) label the same height in the narrow rail, so the
+						    thread rows below don't move when collapsing */}
+						<SidebarGroupLabel className="h-auto overflow-hidden whitespace-nowrap px-2 pt-2 pb-1.5 font-mono text-[10px] font-semibold tracking-[0.09em] text-sidebar-muted-highlight group-data-[collapsible=icon]:mt-0">
 							RECENT THREADS
 						</SidebarGroupLabel>
 						<SidebarGroupContent className="overflow-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -273,11 +276,11 @@ export function AppSidebar() {
 												asChild
 												isActive={isActive}
 												tooltip={title}
-												className="h-11 rounded-[7px] hover:bg-sidebar-hover data-[active=true]:bg-sidebar-accent group-data-[collapsible=icon]:h-11! group-data-[collapsible=icon]:w-full! group-data-[collapsible=icon]:p-2! group-data-[collapsible=icon]:data-[active=true]:bg-transparent"
+												className="h-12 rounded-[7px] hover:bg-sidebar-hover data-[active=true]:bg-sidebar-accent group-data-[collapsible=icon]:h-12! group-data-[collapsible=icon]:w-full! group-data-[collapsible=icon]:p-2! group-data-[collapsible=icon]:data-[active=true]:bg-transparent"
 											>
 												<Link
 													href={`/agents/${thread.agentId}/chat/${thread.id}`}
-													className="flex h-full items-center gap-[9px] px-2"
+													className="flex items-center gap-[9px] px-2"
 												>
 													<IconSlot>
 														{isTriggerThread ? (
@@ -407,7 +410,7 @@ export function AppSidebar() {
 					</SidebarGroup>
 
 					<SidebarGroup className="mt-auto">
-						<SidebarGroupLabel className="h-auto px-2 pt-2 pb-1.5 font-mono text-[10px] font-semibold tracking-[0.09em] text-sidebar-muted-highlight group-data-[collapsible=icon]:mt-0">
+						<SidebarGroupLabel className="h-auto overflow-hidden whitespace-nowrap px-2 pt-2 pb-1.5 font-mono text-[10px] font-semibold tracking-[0.09em] text-sidebar-muted-highlight group-data-[collapsible=icon]:mt-0">
 							WORKSPACE
 						</SidebarGroupLabel>
 						<SidebarGroupContent>
