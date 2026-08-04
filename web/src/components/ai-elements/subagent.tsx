@@ -1,32 +1,31 @@
 "use client";
 
-import { useControllableState } from "@radix-ui/react-use-controllable-state";
-import {
-	Collapsible,
-	CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
-import { ChevronDownIcon } from "lucide-react";
-import { memo, useEffect, useRef } from "react";
+import { Loader2, XCircleIcon } from "lucide-react";
+import { memo, useEffect, useRef, useState } from "react";
 import { Loader } from "@/components/ai-elements/loader";
 import {
-	Tool,
-	ToolContent,
-	ToolContentInner,
-	ToolHeader,
-	ToolInput,
-	ToolOutput,
-} from "@/components/ai-elements/tool";
+	ChainRail,
+	ChainReasoningLine,
+	ChainStep,
+	ChainStepIcon,
+	StepCode,
+	StepSection,
+	humanizeToolName,
+	summarizeToolArgs,
+} from "@/components/ai-elements/chain-of-thought";
+import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { TodoList } from "@/components/ai-elements/todo-list";
 import type { Todo } from "@/components/ai-elements/todo-list";
 import { extractToolErrorText } from "@/lib/utils/tool-content";
 import type { SubagentStreamInterface } from "@langchain/langgraph-sdk/ui";
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Petrol Mono (design 8a): a subagent call is a chain-of-thought step —
+// node = the agent's emoji on its pastel tile, title = "Ask {Agent}",
+// expanded = TASK block → the subagent's own nested rail (tool calls +
+// ✦ italic reasoning lines, one nesting level max) → RESULT block.
 // ---------------------------------------------------------------------------
-
-type Status = "pending" | "running" | "complete" | "error";
 
 const formatElapsed = (ms: number) => {
 	if (ms < 1000) return `${Math.round(ms)}ms`;
@@ -39,12 +38,14 @@ const formatElapsed = (ms: number) => {
 function getTextFromMessage(msg: any): string {
 	if (typeof msg.content === "string") return msg.content;
 	if (Array.isArray(msg.content)) {
-		return msg.content
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			.filter((c: any) => c.type === "text")
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			.map((c: any) => c.text)
-			.join("");
+		return (
+			msg.content
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				.filter((c: any) => c.type === "text")
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				.map((c: any) => c.text)
+				.join("")
+		);
 	}
 	return "";
 }
@@ -76,168 +77,143 @@ function getToolOutputContent(msg: any): unknown {
 	return content;
 }
 
-type ToolRenderState =
-	| "output-available"
-	| "output-error"
-	| "input-available";
-
-/**
- * Renders the subagent's conversation as a mini log:
- * AI text paragraphs + Tool cards (same as supervisor).
- */
 interface MCPServerInfo {
 	name: string;
 	iconUrl?: string | null;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const SubAgentConversation = memo(({ messages, isStreaming, mcpServers }: { messages: any[]; isStreaming: boolean; mcpServers?: MCPServerInfo[] }) => {
-	if (!messages || messages.length === 0) return null;
+/**
+ * The subagent's internal conversation as a nested rail: ✦ italic reasoning
+ * lines for AI text, nested chain steps for its tool calls.
+ */
+const SubAgentConversation = memo(
+	({
+		messages,
+		isStreaming,
+		mcpServers,
+	}: {
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		messages: any[];
+		isStreaming: boolean;
+		mcpServers?: MCPServerInfo[];
+	}) => {
+		if (!messages || messages.length === 0) return null;
 
-	// Build a map of tool_call_id → tool message for result lookup
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const toolResults = new Map<string, any>();
-	for (const msg of messages) {
-		if (msg.type === "tool") {
-			const tcId = msg.tool_call_id ?? msg.toolCallId;
-			if (tcId) toolResults.set(tcId, msg);
+		// Build a map of tool_call_id → tool message for result lookup
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const toolResults = new Map<string, any>();
+		for (const msg of messages) {
+			if (msg.type === "tool") {
+				const tcId = msg.tool_call_id ?? msg.toolCallId;
+				if (tcId) toolResults.set(tcId, msg);
+			}
 		}
-	}
 
-	const elements: React.ReactNode[] = [];
+		const knownNames = (mcpServers ?? [])
+			.map((s) => s.name)
+			.sort((a, b) => b.length - a.length);
 
-	for (let i = 0; i < messages.length; i++) {
-		const msg = messages[i];
+		const elements: React.ReactNode[] = [];
 
-		if (msg.type === "ai" || msg.type === "assistant") {
+		for (let i = 0; i < messages.length; i++) {
+			const msg = messages[i];
+			if (msg.type !== "ai" && msg.type !== "assistant") continue;
+
 			const text = getTextFromMessage(msg);
 			const toolCalls = msg.tool_calls ?? msg.toolCalls ?? [];
 			const isLast = i === messages.length - 1;
 
 			if (text) {
 				elements.push(
-					<p key={`ai-${msg.id ?? i}`} className="text-sm whitespace-pre-wrap">
+					<ChainReasoningLine key={`ai-${msg.id ?? i}`}>
 						{text}
 						{isStreaming && isLast && toolCalls.length === 0 && (
-							<span className="inline-block h-3.5 w-1 ml-0.5 animate-pulse bg-primary rounded-sm align-text-bottom" />
+							<span className="ml-0.5 inline-block h-3 w-1 animate-pulse rounded-sm bg-petrol align-text-bottom" />
 						)}
-					</p>,
+					</ChainReasoningLine>,
 				);
 			}
 
-			// Render tool calls with the same Tool components as the supervisor
-			{/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			toolCalls.forEach((tc: any, j: number) => {
 				const tcId = tc.id ?? `${msg.id}-tc-${j}`;
 				const toolMsg = toolResults.get(tcId);
 				const isError = toolMsg?.status === "error";
 				const isDone = !!toolMsg;
-				const toolState: ToolRenderState = isDone
-					? isError
-						? "output-error"
-						: "output-available"
-					: "input-available";
-				const knownNames = (mcpServers ?? []).map((s) => s.name).sort((a, b) => b.length - a.length);
-				const { serverName, toolName } = knownNames.length > 0
-					? (() => {
-						const fullName = tc.name ?? "tool";
-						for (const sn of knownNames) {
-							if (fullName === sn || fullName.startsWith(`${sn}_`)) {
-								const suffix = fullName.slice(sn.length);
-								return { serverName: sn, toolName: suffix.startsWith("_") ? suffix.slice(1) : suffix || fullName };
-							}
+				const fullName = (tc.name ?? "tool") as string;
+				const { serverName, toolName } = (() => {
+					for (const sn of knownNames) {
+						if (fullName === sn || fullName.startsWith(`${sn}_`)) {
+							const suffix = fullName.slice(sn.length);
+							return {
+								serverName: sn,
+								toolName: suffix.startsWith("_")
+									? suffix.slice(1)
+									: suffix || fullName,
+							};
 						}
-						return parseToolName(fullName);
-					})()
-					: parseToolName(tc.name ?? "tool");
-				const serverIcon = mcpServers?.find((s) => s.name === serverName)?.iconUrl ?? undefined;
+					}
+					return parseToolName(fullName);
+				})();
+				const serverIcon =
+					mcpServers?.find((s) => s.name === serverName)?.iconUrl ?? undefined;
 				const output = getToolOutputContent(toolMsg);
+				const errorText =
+					isError && toolMsg ? extractToolErrorText(toolMsg.content) : undefined;
 
 				elements.push(
-					<Tool key={tcId} toolState={toolState}>
-						<ToolHeader
-							title={toolName}
-							type={`tool-${tc.name}`}
-							state={toolState}
-							mcpServerName={serverName}
-							mcpServerIcon={serverIcon}
-						/>
-						<ToolContent>
-							<ToolContentInner>
-								{tc.args !== undefined && (
-									<ToolInput input={tc.args} />
-								)}
-								{(output !== undefined || isError || !isDone) && (
-									<ToolOutput
-										output={output as React.ReactNode}
-										errorText={
-											isError && toolMsg
-												? extractToolErrorText(toolMsg.content)
-												: undefined
-										}
-									/>
-								)}
-							</ToolContentInner>
-						</ToolContent>
-					</Tool>,
+					<ChainStep
+						key={tcId}
+						nested
+						node={<ChainStepIcon icon={serverIcon} name={serverName} />}
+						title={humanizeToolName(toolName)}
+						summary={summarizeToolArgs(tc.args)}
+						meta={
+							!isDone ? (
+								<Loader2 className="size-3 animate-spin text-petrol" />
+							) : isError ? (
+								<XCircleIcon className="size-3.5 text-destructive" />
+							) : undefined
+						}
+					>
+						{tc.args !== undefined && (
+							<StepSection label="PARAMETERS">
+								<StepCode value={tc.args} />
+							</StepSection>
+						)}
+						{errorText !== undefined ? (
+							<StepSection label="ERROR" error>
+								<StepCode value={errorText} />
+							</StepSection>
+						) : (
+							output !== undefined && (
+								<StepSection label="RESULT">
+									<StepCode value={output} />
+								</StepSection>
+							)
+						)}
+					</ChainStep>,
 				);
 			});
 		}
-	}
 
-	if (elements.length === 0) return null;
+		if (elements.length === 0) return null;
 
-	return <div className="space-y-2">{elements}</div>;
-});
+		return <ChainRail>{elements}</ChainRail>;
+	},
+);
 SubAgentConversation.displayName = "SubAgentConversation";
 
 // ---------------------------------------------------------------------------
-// StatusIcon + StatusBadge
-// ---------------------------------------------------------------------------
-
-const StatusIcon = memo(({ status }: { status: Status }) => {
-	switch (status) {
-		case "pending":
-			return (
-				<span className="text-muted-foreground text-sm">&#9675;</span>
-			);
-		case "running":
-			return <Loader size={16} className="animate-spin text-primary" />;
-		case "complete":
-			return <span className="text-emerald-500 text-sm">&#10003;</span>;
-		case "error":
-			return <span className="text-red-500 text-sm">&#10005;</span>;
-	}
-});
-StatusIcon.displayName = "StatusIcon";
-
-const statusBadgeStyles: Record<Status, string> = {
-	pending: "bg-muted text-muted-foreground",
-	running: "bg-primary/10 text-primary",
-	complete: "bg-emerald-500/10 text-emerald-600",
-	error: "bg-red-500/10 text-red-600",
-};
-
-const StatusBadge = memo(({ status }: { status: Status }) => (
-	<span
-		className={cn(
-			"rounded-full px-2 py-0.5 text-[10px] font-medium capitalize",
-			statusBadgeStyles[status],
-		)}
-	>
-		{status === "complete" ? "finished" : status}
-	</span>
-));
-StatusBadge.displayName = "StatusBadge";
-
-// ---------------------------------------------------------------------------
-// SubAgentCard: renders a SubagentStreamInterface from the SDK
+// SubAgentCard: a subagent call rendered as a chain-of-thought step
 // ---------------------------------------------------------------------------
 
 interface SubAgentCardProps {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	subagent: SubagentStreamInterface<any, any, any>;
 	mcpServers?: MCPServerInfo[];
+	/** The workspace agent behind this subagent, for its emoji/pastel tile. */
+	agent?: { name: string; emoji?: string | null; color?: string | null };
 	onOpen?: () => void;
 	// Internal conversation restored from the subgraph checkpoint on refresh.
 	// The SDK can't inject these into the (reconstructed) subagent via the custom
@@ -246,124 +222,120 @@ interface SubAgentCardProps {
 	fallbackMessages?: any[];
 }
 
-export const SubAgentCard = memo(({ subagent, mcpServers, onOpen, fallbackMessages }: SubAgentCardProps) => {
-	const { status, toolCall, result, startedAt, completedAt, messages, values } =
-		subagent;
-	const isStreaming = status === "running";
-	const isError = status === "error";
-	const description = toolCall?.args?.description as string | undefined;
-	const subagentType = toolCall?.args?.subagent_type as string | undefined;
-	const title = subagentType?.replaceAll("_", " ") ?? "Sub-agent";
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const todos = ((values as any)?.todos ?? []) as Todo[];
+export const SubAgentCard = memo(
+	({ subagent, mcpServers, agent, onOpen, fallbackMessages }: SubAgentCardProps) => {
+		const {
+			status,
+			toolCall,
+			result,
+			startedAt,
+			completedAt,
+			messages,
+			values,
+		} = subagent;
+		const isStreaming = status === "running";
+		const isError = status === "error";
+		const description = toolCall?.args?.description as string | undefined;
+		const subagentType = toolCall?.args?.subagent_type as string | undefined;
+		const agentLabel =
+			agent?.name ?? subagentType?.replaceAll("_", " ") ?? "subagent";
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const todos = ((values as any)?.todos ?? []) as Todo[];
 
-	const elapsed =
-		startedAt && completedAt
-			? completedAt.getTime() - startedAt.getTime()
-			: undefined;
+		const elapsed =
+			startedAt && completedAt
+				? completedAt.getTime() - startedAt.getTime()
+				: undefined;
 
-	const [isOpen, setIsOpen] = useControllableState({
-		defaultProp: isStreaming || isError,
-	});
-	const requestedInitialHistory = useRef(false);
+		// Streaming and errored steps start open; opening fetches restored
+		// history (onOpen) when the live messages are empty.
+		const [autoOpen, setAutoOpen] = useState(isStreaming || isError);
+		const requestedInitialHistory = useRef(false);
 
-	useEffect(() => {
-		if (isStreaming) setIsOpen(true);
-	}, [isStreaming, setIsOpen]);
-
-	useEffect(() => {
-		if (isError && onOpen && !requestedInitialHistory.current) {
-			requestedInitialHistory.current = true;
-			onOpen();
+		// Reopen when a new streaming phase starts — state is adjusted during
+		// render (not in an effect) per react-hooks/set-state-in-effect.
+		const [wasStreaming, setWasStreaming] = useState(isStreaming);
+		if (isStreaming !== wasStreaming) {
+			setWasStreaming(isStreaming);
+			if (isStreaming) setAutoOpen(true);
 		}
-	}, [isError, onOpen]);
 
-	const convoMessages =
-		messages && messages.length > 0 ? messages : (fallbackMessages ?? []);
-	const hasConversation = convoMessages.length > 0;
-	const hasBody =
-		description || todos.length > 0 || hasConversation || result || isError;
+		useEffect(() => {
+			if (isError && onOpen && !requestedInitialHistory.current) {
+				requestedInitialHistory.current = true;
+				onOpen();
+			}
+		}, [isError, onOpen]);
 
-	const handleOpenChange = (open: boolean) => {
-		setIsOpen(open);
-		if (open) onOpen?.();
-	};
+		const convoMessages =
+			messages && messages.length > 0 ? messages : (fallbackMessages ?? []);
+		const hasConversation = convoMessages.length > 0;
 
-	return (
-		<Collapsible
-			className="not-prose w-full rounded-lg border border-border bg-card shadow-sm overflow-hidden"
-			open={isOpen}
-			onOpenChange={handleOpenChange}
-		>
-			{/* ---- Header ---- */}
-			<CollapsibleTrigger className="flex w-full items-center justify-between gap-3 p-3 text-sm transition-colors hover:bg-muted/50 cursor-pointer">
-				<div className="flex items-center gap-2.5 min-w-0">
-					<StatusIcon status={status} />
-					<span className="font-medium truncate">{title}</span>
-					{description && (
-						<span className="hidden sm:inline text-xs text-muted-foreground truncate max-w-[200px]">
-							{description}
-						</span>
-					)}
-				</div>
-				<div className="flex items-center gap-2 shrink-0">
-					{elapsed != null && (
-						<span className="text-xs text-muted-foreground">
+		return (
+			<ChainStep
+				node={
+					<AgentAvatar
+						color={agent?.color}
+						emoji={agent?.emoji}
+						size="2xs"
+						shape="tile"
+						className="relative z-[1]"
+					/>
+				}
+				title={`Ask ${agentLabel}`}
+				summary={description}
+				lockOpen={autoOpen}
+				onOpenChange={(open) => {
+					setAutoOpen(false);
+					if (open) onOpen?.();
+				}}
+				meta={
+					isStreaming || status === "pending" ? (
+						<Loader2 className="size-3 animate-spin text-petrol" />
+					) : isError ? (
+						<XCircleIcon className="size-3.5 text-destructive" />
+					) : elapsed != null ? (
+						<span className="font-mono text-[10.5px] text-meta dark:text-panel-dim">
 							{formatElapsed(elapsed)}
 						</span>
-					)}
-					<StatusBadge status={status} />
-					<ChevronDownIcon
-						className={cn(
-							"size-4 text-muted-foreground transition-transform",
-							isOpen ? "rotate-0" : "-rotate-90",
-						)}
+					) : undefined
+				}
+			>
+				{description && (
+					<StepSection label="TASK">
+						<StepCode value={description} />
+					</StepSection>
+				)}
+				{todos.length > 0 && <TodoList todos={todos} />}
+				{hasConversation && (
+					<SubAgentConversation
+						messages={convoMessages}
+						isStreaming={isStreaming}
+						mcpServers={mcpServers}
 					/>
-				</div>
-			</CollapsibleTrigger>
-
-			{/* ---- Collapsible body ---- */}
-			{hasBody && (
-				<div
-					className={cn(
-						"grid transition-[grid-template-rows] duration-300 ease-out",
-						isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
-					)}
-				>
-					<div className="overflow-hidden">
-						<div className="border-t border-border px-4 py-3 space-y-3">
-							{description && (
-								<p className="text-xs text-muted-foreground">
-									{description}
-								</p>
-							)}
-							{todos.length > 0 && <TodoList todos={todos} />}
-							{hasConversation && (
-								<SubAgentConversation
-									messages={convoMessages}
-									isStreaming={isStreaming}
-									mcpServers={mcpServers}
-								/>
-							)}
-							{result && !hasConversation && (
-								<div className="text-sm whitespace-pre-wrap line-clamp-6">
-									{result}
-								</div>
-							)}
-							{isError && subagent.error != null && (
-								<div className="text-sm text-red-500">
-									{subagent.error instanceof Error
-										? subagent.error.message
-										: String(subagent.error)}
-								</div>
-							)}
+				)}
+				{result != null && result !== "" && (
+					<StepSection label="RESULT">
+						<div className="min-w-0 whitespace-pre-wrap rounded-[6px] bg-hover px-3 py-2.5 text-[12.5px] leading-[1.6] text-body dark:bg-white/5 dark:text-panel-body">
+							{String(result)}
 						</div>
-					</div>
-				</div>
-			)}
-		</Collapsible>
-	);
-});
+					</StepSection>
+				)}
+				{isError && subagent.error != null && (
+					<StepSection label="ERROR" error>
+						<StepCode
+							value={
+								subagent.error instanceof Error
+									? subagent.error.message
+									: String(subagent.error)
+							}
+						/>
+					</StepSection>
+				)}
+			</ChainStep>
+		);
+	},
+);
 
 SubAgentCard.displayName = "SubAgentCard";
 
@@ -387,10 +359,10 @@ export const SubAgentProgress = memo(({ subagents }: SubAgentProgressProps) => {
 	const pct = (completed / total) * 100;
 
 	return (
-		<div className="flex items-center gap-2 text-xs text-muted-foreground">
-			<div className="h-1.5 flex-1 rounded-full bg-muted overflow-hidden">
+		<div className="flex items-center gap-2 font-mono text-[10.5px] text-meta dark:text-panel-dim">
+			<div className="h-1 flex-1 overflow-hidden rounded-full bg-hover dark:bg-white/10">
 				<div
-					className="h-full rounded-full bg-primary transition-all duration-300"
+					className="h-full rounded-full bg-petrol transition-all duration-300"
 					style={{ width: `${pct}%` }}
 				/>
 			</div>
@@ -424,9 +396,9 @@ export const SynthesisIndicator = memo(
 		if (!allDone || !isCoordinatorStreaming) return null;
 
 		return (
-			<div className="flex items-center gap-2 text-xs text-muted-foreground animate-pulse">
+			<div className={cn("flex animate-pulse items-center gap-2 text-[12.5px] italic text-muted-foreground")}>
 				<Loader size={12} className="animate-spin" />
-				Synthesizing results...
+				Synthesizing results…
 			</div>
 		);
 	},

@@ -93,14 +93,14 @@ export const CodeBlock = ({
 	return (
 		<div
 			className={cn(
-				"group relative min-w-0 w-full max-w-full overflow-hidden rounded-md border border-border/30 text-foreground",
+				"group relative min-w-0 w-full max-w-full overflow-hidden rounded-[6px] text-foreground",
 				className,
 			)}
 			{...props}
 		>
 			<div className="relative min-w-0 max-w-full">
 				{!shouldHighlight || !html ? (
-					<div className="min-w-0 max-w-full overflow-x-auto bg-background [&>pre]:m-0 [&>pre]:bg-background! [&>pre]:p-4 [&>pre]:text-foreground! [&>pre]:text-sm [&_code]:font-mono [&_code]:text-sm">
+					<div className="min-w-0 max-w-full overflow-x-auto [&>pre]:m-0 [&>pre]:bg-transparent! [&>pre]:px-3 [&>pre]:py-2.5 [&>pre]:text-foreground! [&>pre]:text-[11.5px] [&>pre]:leading-[1.7] [&_code]:font-mono [&_code]:text-[11.5px]">
 						<pre>
 							<code>{code}</code>
 						</pre>
@@ -108,12 +108,12 @@ export const CodeBlock = ({
 				) : (
 					<>
 						<div
-							className="min-w-0 max-w-full overflow-x-auto bg-background dark:hidden [&>pre]:m-0 [&>pre]:bg-background! [&>pre]:p-4 [&>pre]:text-foreground! [&>pre]:text-sm [&_code]:font-mono [&_code]:text-sm"
+							className="min-w-0 max-w-full overflow-x-auto dark:hidden [&>pre]:m-0 [&>pre]:bg-transparent! [&>pre]:px-3 [&>pre]:py-2.5 [&>pre]:text-foreground! [&>pre]:text-[11.5px] [&>pre]:leading-[1.7] [&_code]:font-mono [&_code]:text-[11.5px]"
 							// biome-ignore lint/security/noDangerouslySetInnerHtml: "this is needed."
 							dangerouslySetInnerHTML={{ __html: html }}
 						/>
 						<div
-							className="hidden min-w-0 max-w-full overflow-x-auto bg-background dark:block [&>pre]:m-0 [&>pre]:bg-background! [&>pre]:p-4 [&>pre]:text-foreground! [&>pre]:text-sm [&_code]:font-mono [&_code]:text-sm"
+							className="hidden min-w-0 max-w-full overflow-x-auto dark:block [&>pre]:m-0 [&>pre]:bg-transparent! [&>pre]:px-3 [&>pre]:py-2.5 [&>pre]:text-foreground! [&>pre]:text-[11.5px] [&>pre]:leading-[1.7] [&_code]:font-mono [&_code]:text-[11.5px]"
 							// biome-ignore lint/security/noDangerouslySetInnerHtml: "this is needed."
 							dangerouslySetInnerHTML={{ __html: darkHtml }}
 						/>
