@@ -144,8 +144,8 @@ const ChatPromptInput = ({
 				onSubmit={handleSubmit}
 				className={cn(
 					"min-h-[132px] transition-all duration-200",
-					// Petrol Mono composer: 16px radius, 2px border, petrol focus
-					"[&>[data-slot=input-group]]:rounded-2xl",
+					// Petrol Mono composer (28px radius kept from the previous design)
+					"[&>[data-slot=input-group]]:rounded-[28px]",
 					"[&>[data-slot=input-group]]:border-2",
 					"[&>[data-slot=input-group]]:border-input",
 					"[&>[data-slot=input-group]]:bg-card",

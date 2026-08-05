@@ -299,13 +299,13 @@ export const StepSection = ({
 	</div>
 );
 
-/** JSON / text payload block: mono on #F1F5F5, radius 6, no border. */
+/** JSON / text payload block: mono on white, hairline border, radius 6. */
 export const StepCode = ({ value }: { value: unknown }) => {
 	if (value == null) return null;
 
 	if (typeof value === "string") {
 		return (
-			<div className="max-h-80 min-w-0 overflow-y-auto whitespace-pre-wrap rounded-[6px] bg-hover px-3 py-2.5 font-mono text-[11.5px] leading-[1.7] text-body dark:bg-white/5 dark:text-panel-body">
+			<div className="max-h-80 min-w-0 overflow-y-auto whitespace-pre-wrap rounded-[6px] border border-border bg-card px-3 py-2.5 font-mono text-[11.5px] leading-[1.7] text-body dark:text-panel-body">
 				{value.replace(/\\n/g, "\n")}
 			</div>
 		);
@@ -314,13 +314,13 @@ export const StepCode = ({ value }: { value: unknown }) => {
 	const code = JSON.stringify(value, null, 2).replace(/\\n/g, "\n");
 	if (code.length > SHIKI_MAX_CHARS) {
 		return (
-			<div className="max-h-80 min-w-0 overflow-y-auto whitespace-pre-wrap rounded-[6px] bg-hover px-3 py-2.5 font-mono text-[11.5px] leading-[1.7] text-body dark:bg-white/5 dark:text-panel-body">
+			<div className="max-h-80 min-w-0 overflow-y-auto whitespace-pre-wrap rounded-[6px] border border-border bg-card px-3 py-2.5 font-mono text-[11.5px] leading-[1.7] text-body dark:text-panel-body">
 				{code}
 			</div>
 		);
 	}
 	return (
-		<div className="max-h-80 min-w-0 overflow-y-auto rounded-[6px] bg-hover dark:bg-white/5">
+		<div className="max-h-80 min-w-0 overflow-y-auto rounded-[6px] border border-border bg-card">
 			<CodeBlock code={code} language="json" />
 		</div>
 	);

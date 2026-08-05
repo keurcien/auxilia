@@ -316,7 +316,7 @@ export const SubAgentCard = memo(
 				)}
 				{result != null && result !== "" && (
 					<StepSection label="RESULT">
-						<div className="min-w-0 whitespace-pre-wrap rounded-[6px] bg-hover px-3 py-2.5 text-[12.5px] leading-[1.6] text-body dark:bg-white/5 dark:text-panel-body">
+						<div className="min-w-0 whitespace-pre-wrap rounded-[6px] border border-border bg-card px-3 py-2.5 text-[12.5px] leading-[1.6] text-body dark:text-panel-body">
 							{String(result)}
 						</div>
 					</StepSection>
