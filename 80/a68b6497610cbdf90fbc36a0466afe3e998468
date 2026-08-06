@@ -1,0 +1,24 @@
+backend/alembic/versions/d2e5f8a1c4b6_rename_muse_spark_1_1_to_1_2.py
+  s_09ae29f496ef9e::t_c66712c63c3f4e 1-63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "80a68b6497610cbdf90fbc36a0466afe3e998468",
+  "prompts": {},
+  "humans": {
+    "h_df81e42269d667": {
+      "author": "tgensol <thibaut@appchoose.io>"
+    }
+  },
+  "sessions": {
+    "s_09ae29f496ef9e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "207cca55-9d8c-48e4-9350-2a7a1cfc27a0",
+        "model": "claude-opus-5"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}
