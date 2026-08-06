@@ -141,7 +141,7 @@ Sur ce tour de formatage, langchain résout le schéma par défaut en **`ToolStr
 
 ### Le cas Meta
 
-L'API de Meta (`muse-spark-1.1`) n'accepte que `tool_choice="auto"` et rejette l'appel forcé avec une erreur 400. On formate donc via la **stratégie native** (`ProviderStrategy` → `response_format: {type: "json_schema"}`), qui ne force aucun `tool_choice`.
+L'API de Meta (`muse-spark-1.2`) n'accepte que `tool_choice="auto"` et rejette l'appel forcé avec une erreur 400. On formate donc via la **stratégie native** (`ProviderStrategy` → `response_format: {type: "json_schema"}`), qui ne force aucun `tool_choice`.
 
 ### Le cas DeepSeek (mode raisonnement)
 
