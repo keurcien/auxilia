@@ -309,7 +309,7 @@ export default function AgentEditor({
 			{/* Two panels: definition left, capabilities right */}
 			<div className="flex min-h-0 flex-1 flex-col md:flex-row">
 				{/* Left: identity + tabs */}
-				<div className="min-w-0 overflow-y-auto border-b border-border bg-background p-7 md:flex-[1.05] md:border-b-0 md:border-r [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+				<div className="flex min-w-0 flex-col overflow-y-auto border-b border-border bg-background p-7 md:flex-[1.05] md:border-b-0 md:border-r [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 					<div
 						className={cn(
 							"flex gap-3.5",
@@ -417,10 +417,12 @@ export default function AgentEditor({
 						className="mt-6 border-b border-border"
 					/>
 
-					<div className="pt-5">
+					{/* Instructions fill the remaining panel height and scroll
+					    internally when the text exceeds it. */}
+					<div className="flex min-h-0 flex-1 flex-col pt-5">
 						{tab === "instructions" &&
 							(readOnly ? (
-								<div className="min-h-[200px] w-full rounded-lg border border-border bg-sidebar p-4">
+								<div className="min-h-[200px] w-full flex-1 overflow-y-auto rounded-lg border border-border bg-sidebar p-4 [scrollbar-width:thin]">
 									{form.instructions ? (
 										<MessageResponse className="text-[13px] leading-[1.65] text-foreground">
 											{form.instructions}
@@ -438,7 +440,7 @@ export default function AgentEditor({
 										setField("instructions", e.target.value);
 									}}
 									placeholder="Enter instructions for your agent…"
-									className="h-[440px] w-full resize-none rounded-lg border border-input bg-sidebar p-4 font-mono text-[12.5px] leading-[1.7] text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-meta dark:placeholder:text-panel-dim focus:border-petrol focus:shadow-[0_0_0_3px_rgba(22,96,110,0.10)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+									className="min-h-[300px] w-full flex-1 resize-none rounded-lg border border-input bg-sidebar p-4 font-mono text-[12.5px] leading-[1.7] text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-meta dark:placeholder:text-panel-dim focus:border-petrol focus:shadow-[0_0_0_3px_rgba(22,96,110,0.10)] [scrollbar-width:thin]"
 								/>
 							))}
 						{tab === "tags" && agent && (

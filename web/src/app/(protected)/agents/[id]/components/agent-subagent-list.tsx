@@ -112,11 +112,13 @@ export default function AgentSubagentList({
 								<span className="block truncate font-mono text-[12.5px] font-semibold text-petrol">
 									{sub.name}
 								</span>
-								{sub.description && (
-									<span className="mt-0.5 block truncate text-xs text-muted-foreground">
-										{sub.description}
-									</span>
-								)}
+								<span className="mt-0.5 block truncate text-xs text-muted-foreground">
+									{sub.description || (
+										<span className="text-faint dark:text-panel-dim">
+											No description provided.
+										</span>
+									)}
+								</span>
 							</span>
 							{!readOnly && (
 								<button
