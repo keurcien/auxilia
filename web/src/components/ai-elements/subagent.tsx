@@ -11,7 +11,9 @@ import {
 	ChainStepIcon,
 	StepCode,
 	StepSection,
+	TERMINAL_ICON,
 	humanizeToolName,
+	isSandboxTool,
 	summarizeToolArgs,
 } from "@/components/ai-elements/chain-of-thought";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
@@ -142,7 +144,11 @@ const SubAgentConversation = memo(
 				const isError = toolMsg?.status === "error";
 				const isDone = !!toolMsg;
 				const fullName = (tc.name ?? "tool") as string;
+				const sandbox = isSandboxTool(fullName);
 				const { serverName, toolName } = (() => {
+					if (sandbox) {
+						return { serverName: "Code execution", toolName: fullName };
+					}
 					for (const sn of knownNames) {
 						if (fullName === sn || fullName.startsWith(`${sn}_`)) {
 							const suffix = fullName.slice(sn.length);
@@ -156,8 +162,10 @@ const SubAgentConversation = memo(
 					}
 					return parseToolName(fullName);
 				})();
-				const serverIcon =
-					mcpServers?.find((s) => s.name === serverName)?.iconUrl ?? undefined;
+				const serverIcon = sandbox
+					? TERMINAL_ICON
+					: (mcpServers?.find((s) => s.name === serverName)?.iconUrl ??
+						undefined);
 				const output = getToolOutputContent(toolMsg);
 				const errorText =
 					isError && toolMsg ? extractToolErrorText(toolMsg.content) : undefined;

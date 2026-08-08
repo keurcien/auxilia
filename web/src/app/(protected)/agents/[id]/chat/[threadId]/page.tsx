@@ -28,7 +28,9 @@ import {
   NeedsApprovalBadge,
   StepCode,
   StepSection,
+  TERMINAL_ICON,
   humanizeToolName,
+  isSandboxTool,
   summarizeToolArgs,
 } from "@/components/ai-elements/chain-of-thought";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
@@ -1171,19 +1173,28 @@ const ChatPage = () => {
                               );
                             }
 
-                            const { serverName, toolName } = getToolMetadata(
-                              tc.call.name,
-                              knownServerNames,
-                            );
+                            const sandbox = isSandboxTool(tc.call.name);
+                            const { serverName, toolName } = sandbox
+                              ? {
+                                  serverName: "Code execution",
+                                  toolName: tc.call.name,
+                                }
+                              : getToolMetadata(
+                                  tc.call.name,
+                                  knownServerNames,
+                                );
                             return (
                               <ChainStep
                                 key={tc.id}
                                 node={
                                   <ChainStepIcon
                                     icon={
-                                      mcpServers.find(
-                                        (server) => server.name === serverName,
-                                      )?.iconUrl
+                                      sandbox
+                                        ? TERMINAL_ICON
+                                        : mcpServers.find(
+                                            (server) =>
+                                              server.name === serverName,
+                                          )?.iconUrl
                                     }
                                     name={serverName}
                                   />

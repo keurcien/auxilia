@@ -18,6 +18,28 @@ import { CodeBlock, SHIKI_MAX_CHARS } from "./code-block";
 // a 1px rail. Tool calls and subagent calls are both steps.
 // ---------------------------------------------------------------------------
 
+/** Built-in code-execution (sandbox) tools — not MCP tools, so server-name
+ * matching can't resolve an icon for them. They carry the terminal icon. */
+export const TERMINAL_ICON =
+	"https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/terminal.png";
+
+const SANDBOX_TOOL_NAMES = new Set([
+	"ls",
+	"read_file",
+	"write_file",
+	"edit_file",
+	"glob",
+	"grep",
+	"execute",
+	// Sandbox lifecycle tools (backend/app/sandbox/tools.py)
+	"create_sandbox",
+	"connect_sandbox",
+]);
+
+export function isSandboxTool(name: string): boolean {
+	return SANDBOX_TOOL_NAMES.has(name);
+}
+
 /** "run_query" / "searchMessages" → "Run query" / "Search messages" */
 export function humanizeToolName(name: string): string {
 	const spaced = name
@@ -89,7 +111,9 @@ export const ChainOfThought = ({
 	const [userOpenPreference, setUserOpenPreference] = useState<boolean | null>(
 		null,
 	);
-	const isOpen = lockOpen ? true : (userOpenPreference ?? active);
+	// Open by default and stays open when the run finishes — collapsing is
+	// the user's call (except an undecided approval, which forces open).
+	const isOpen = lockOpen ? true : (userOpenPreference ?? true);
 
 	const counts = [
 		toolCount > 0 &&
