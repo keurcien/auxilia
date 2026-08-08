@@ -221,7 +221,7 @@ export default function AgentMCPServer({
 
 	return (
 		<div className="overflow-hidden rounded-[10px] border border-border bg-card">
-			<div className="flex items-center gap-2.5 bg-sidebar px-4 py-3">
+			<div className="flex items-center gap-2.5 bg-card px-4 py-3">
 				<span className="flex size-[26px] shrink-0 items-center justify-center rounded-[6px] border border-border bg-card">
 					<Image
 						unoptimized
