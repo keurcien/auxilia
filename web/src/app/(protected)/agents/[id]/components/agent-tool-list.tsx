@@ -95,56 +95,57 @@ export default function AgentToolList({
 	const hasTools = hasCodeInterpreter || enabledServers.length > 0;
 
 	return (
-		<div className="flex flex-col min-h-0">
-			<div className="flex items-center justify-between min-h-[34px] mb-2.5 shrink-0">
-				<span className="text-[10.5px] font-bold text-[#94a59d] dark:text-muted-foreground uppercase tracking-[0.12em] font-[family-name:var(--font-dm-sans)]">
-					Tools
+		<div className="flex min-h-0 flex-col">
+			<div className="mb-3 flex min-h-[24px] shrink-0 items-center justify-between">
+				<span className="font-mono text-[10.5px] font-semibold tracking-[0.09em] text-label dark:text-muted-foreground">
+					MCP SERVERS{" "}
+					<span className="tracking-normal text-meta dark:text-panel-dim">
+						{enabledServers.length}
+					</span>
 				</span>
 				{!readOnly && (
 					<button
-						className="flex items-center gap-1.5 px-[13px] py-1.5 rounded-[9px] border border-[#e1ebe6] dark:border-white/10 bg-white dark:bg-card shadow-[0_1px_3px_rgba(33,36,31,0.05)] font-[family-name:var(--font-dm-sans)] text-[12px] font-medium normal-case tracking-normal text-[#1e2d28] dark:text-foreground cursor-pointer transition-colors hover:border-[#A3B5AD]"
+						className="flex cursor-pointer items-center gap-1 text-[12.5px] font-semibold text-petrol transition-opacity hover:opacity-80"
 						onClick={() => { setDialogOpen(true); }}
 					>
-						<Plus className="w-3 h-3 text-[#6b7f76] dark:text-muted-foreground" />
-						Add tool
+						<Plus className="size-3" />
+						Add server
 					</button>
 				)}
 			</div>
-			<div className="flex-1 overflow-y-auto rounded-[14px] border border-[#e1ebe6] dark:border-white/10 bg-white dark:bg-card shadow-[0_1px_3px_rgba(33,36,31,0.04)] min-h-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-				{hasTools ? (
-					<>
-						{hasCodeInterpreter && (
-							<AgentCodeExecution
-								readOnly={readOnly}
-								onDisable={() => {
-									onHasCodeInterpreterChange?.(false);
-								}}
-							/>
-						)}
-						{enabledServers.map((server) => (
-							<AgentMCPServer
-								key={server.id}
-								server={server}
-								binding={bindingFor(server.id)}
-								readOnly={readOnly}
-								onToolsChange={(tools) => {
-									handleToolsChange(server.id, tools);
-								}}
-								onSeedTools={(tools) => {
-									handleSeedTools(server.id, tools);
-								}}
-								onRemove={() => {
-									handleRemoveServer(server.id);
-								}}
-							/>
-						))}
-					</>
-				) : (
-					<div className="p-4 font-[family-name:var(--font-dm-sans)] text-[14px] text-[#8FA89E] dark:text-muted-foreground text-center">
-						No tools enabled
-					</div>
-				)}
-			</div>
+			{hasTools ? (
+				<div className="flex flex-col gap-2.5">
+					{hasCodeInterpreter && (
+						<AgentCodeExecution
+							readOnly={readOnly}
+							onDisable={() => {
+								onHasCodeInterpreterChange?.(false);
+							}}
+						/>
+					)}
+					{enabledServers.map((server) => (
+						<AgentMCPServer
+							key={server.id}
+							server={server}
+							binding={bindingFor(server.id)}
+							readOnly={readOnly}
+							onToolsChange={(tools) => {
+								handleToolsChange(server.id, tools);
+							}}
+							onSeedTools={(tools) => {
+								handleSeedTools(server.id, tools);
+							}}
+							onRemove={() => {
+								handleRemoveServer(server.id);
+							}}
+						/>
+					))}
+				</div>
+			) : (
+				<div className="rounded-[10px] border border-dashed border-input px-4 py-8 text-center text-[13px] text-meta dark:text-panel-dim">
+					No tools enabled
+				</div>
+			)}
 
 			{!readOnly && (
 				<AddAgentToolDialog

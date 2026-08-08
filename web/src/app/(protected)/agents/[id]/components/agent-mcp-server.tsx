@@ -5,8 +5,6 @@ import Image from "next/image";
 import { MCPServer } from "@/types/mcp-servers";
 import { ToolStatus } from "@/types/agents";
 import { ChevronRight } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import AgentMCPTool from "./agent-mcp-tool";
 import { AgentMCPServerForm } from "../../lib/agent-form";
 import { api } from "@/lib/api/client";
@@ -40,7 +38,8 @@ export default function AgentMCPServer({
 	onSeedTools,
 	onRemove,
 }: AgentMCPServerProps) {
-	const [isExpanded, setIsExpanded] = useState(false);
+	// Design 12a: server cards render expanded — the page scrolls.
+	const [isExpanded, setIsExpanded] = useState(true);
 	const [tools, setTools] = useState<MCPServerTool[]>([]);
 	const [isLoading, setIsLoading] = useState(false);
 	const [toolsFetched, setToolsFetched] = useState(false);
@@ -220,59 +219,36 @@ export default function AgentMCPServer({
 	}, [toolsFetched, isConnected, fetchTools]);
 
 	return (
-		<div className="border-b last:border-b-0">
-			<div className="flex items-center p-3 hover:bg-[#F8FAF9] dark:hover:bg-white/5 transition-colors">
-				<div className="w-6 h-6 rounded-sm flex items-center justify-center text-white font-semibold mr-3 overflow-hidden relative">
+		<div className="overflow-hidden rounded-[10px] border border-border bg-card">
+			<div className="flex items-center gap-2.5 bg-sidebar px-4 py-3">
+				<span className="flex size-[26px] shrink-0 items-center justify-center rounded-[6px] border border-border bg-card">
 					<Image
 						unoptimized
-						width={24}
-						height={24}
+						width={14}
+						height={14}
 						src={
 							server.iconUrl ??
 							"https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/mcp.png"
 						}
 						alt={server.name}
-						className="object-cover"
+						className="rounded-[2px] object-contain"
 					/>
-				</div>
-
-				<div className="flex-1">
-					<div className="flex items-center gap-2">
-						<div className="font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold text-[#1E2D28] dark:text-foreground">{server.name}</div>
-						{isCheckingConnection ? (
-							<Badge
-								variant="secondary"
-								className="bg-muted text-muted-foreground border-border text-[0.6rem]"
-							>
-								<span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/60" />
-								Checking
-							</Badge>
-						) : isConnected ? (
-							<Badge
-								variant="secondary"
-								className="bg-green-100 dark:bg-green-950/40 text-green-600 dark:text-green-400 border-green-200 dark:border-green-800 text-[0.6rem]"
-							>
-								<span className="w-1.5 h-1.5 rounded-full bg-green-400" />
-								Ready
-							</Badge>
-						) : (
-							<Badge
-								variant="destructive"
-								className="bg-red-100 dark:bg-red-950/40 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800 text-[0.6rem]"
-							>
-								<span className="w-1.5 h-1.5 rounded-full bg-red-400" />
-								Not Connected
-							</Badge>
-						)}
-					</div>
-				</div>
-
+				</span>
+				<span className="truncate text-[13.5px] font-semibold text-foreground">
+					{server.name}
+				</span>
+				{!isCheckingConnection && !isConnected && (
+					<span className="rounded-[4px] bg-[#FBEFED] px-2 py-0.5 font-mono text-[9.5px] font-semibold tracking-[0.05em] text-[#B04A3A]">
+						NOT CONNECTED
+					</span>
+				)}
 				<button
 					onClick={handleToggleExpand}
-					className="text-muted-foreground hover:text-foreground cursor-pointer p-1"
+					aria-label={isExpanded ? "Collapse" : "Expand"}
+					className="ml-auto cursor-pointer p-1 text-meta transition-colors hover:text-foreground dark:text-panel-dim"
 				>
 					<ChevronRight
-						className={`w-5 h-5 transition-transform ${
+						className={`size-4 transition-transform ${
 							isExpanded ? "rotate-90" : ""
 						}`}
 					/>
@@ -280,81 +256,58 @@ export default function AgentMCPServer({
 			</div>
 
 			{isExpanded && (
-				<div className="bg-card p-4 border-t">
-					<div className="max-h-[400px] overflow-y-auto mb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-						{!isConnected ? (
-							<div className="rounded-2xl border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-[#FAFCFB] dark:bg-white/5 p-6 text-center mb-3">
-								<div className="w-10 h-10 rounded-full bg-[#F5F8F6] dark:bg-white/10 border-[1.5px] border-[#E0E8E4] dark:border-white/10 flex items-center justify-center mx-auto mb-3">
-									<svg width="18" height="18" viewBox="0 0 20 20" fill="none">
-										<rect
-											x="4"
-											y="9"
-											width="12"
-											height="9"
-											rx="2"
-											stroke="currentColor"
-											strokeWidth="1.5"
-											className="text-[#6B7F76] dark:text-muted-foreground"
-										/>
-										<path
-											d="M7 9V6a3 3 0 116 0v3"
-											stroke="currentColor"
-											strokeWidth="1.5"
-											strokeLinecap="round"
-											className="text-[#6B7F76] dark:text-muted-foreground"
-										/>
-									</svg>
-								</div>
-								<p className="font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold text-[#1E2D28] dark:text-foreground mb-1">Connect your account</p>
-								<p className="font-[family-name:var(--font-dm-sans)] text-[12px] text-[#A3B5AD] dark:text-muted-foreground mb-4">
-									This server requires authentication.
-								</p>
-								<button
-									className="px-5 py-2.5 bg-[#111111] dark:bg-white text-white dark:text-[#111111] font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold rounded-full hover:opacity-90 transition-all cursor-pointer"
-									onClick={() => {
-										void handleConnect();
+				<div className="border-t border-hover dark:border-white/5">
+					{!isConnected && !isCheckingConnection ? (
+						<div className="p-6 text-center">
+							<p className="mb-1 text-[13.5px] font-semibold text-foreground">
+								Connect your account
+							</p>
+							<p className="mb-4 text-xs text-muted-foreground">
+								This server requires authentication.
+							</p>
+							<button
+								className="cursor-pointer rounded-[7px] bg-petrol px-4 py-2 text-[13px] font-semibold text-white transition-opacity hover:opacity-90"
+								onClick={() => {
+									void handleConnect();
+								}}
+							>
+								Connect
+							</button>
+						</div>
+					) : isLoading || isCheckingConnection ? (
+						<div className="px-4 py-3 text-[13px] text-muted-foreground">
+							Loading tools…
+						</div>
+					) : tools && tools.length > 0 ? (
+						<div>
+							{tools.map((tool) => (
+								<AgentMCPTool
+									key={tool.name}
+									toolName={tool.name}
+									toolDescription={tool.description}
+									status={statusFor(tool.name)}
+									readOnly={readOnly}
+									onStatusChange={(status) => {
+										handleStatusChange(tool.name, status);
 									}}
-								>
-									Connect
-								</button>
-							</div>
-						) : isLoading ? (
-							<div className="text-sm text-muted-foreground py-2">
-								Loading tools...
-							</div>
-						) : tools && tools.length > 0 ? (
-							<div className="space-y-2">
-								{tools.map((tool) => (
-									<AgentMCPTool
-										key={tool.name}
-										toolName={tool.name}
-										toolDescription={tool.description}
-										status={statusFor(tool.name)}
-										readOnly={readOnly}
-										onStatusChange={(status) => {
-											handleStatusChange(tool.name, status);
-										}}
-									/>
-								))}
-							</div>
-						) : (
-							<div className="text-sm text-muted-foreground py-2">
-								No tools available
-							</div>
-						)}
-					</div>
+								/>
+							))}
+						</div>
+					) : (
+						<div className="px-4 py-3 text-[13px] text-muted-foreground">
+							No tools available
+						</div>
+					)}
 					{!readOnly && (
-						<div className="flex w-full justify-center">
-							<Button
-								variant="ghost"
-								size="sm"
-								className="text-destructive cursor-pointer hover:text-destructive/80"
+						<div className="flex justify-center border-t border-hover px-4 py-2 dark:border-white/5">
+							<button
+								className="cursor-pointer rounded-[7px] px-3 py-1.5 text-[12.5px] font-semibold text-[#B04A3A] transition-colors hover:bg-[#FBEFED] dark:hover:bg-[#B04A3A]/10"
 								onClick={() => {
 									onRemove?.();
 								}}
 							>
 								Disable {server.name}
-							</Button>
+							</button>
 						</div>
 					)}
 				</div>

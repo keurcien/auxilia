@@ -1,10 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import Image from "next/image";
 import { ChevronRight } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { humanizeToolName } from "@/components/ai-elements/chain-of-thought";
 
 const SANDBOX_TOOLS = [
 	{ name: "ls", description: "List files in a directory with metadata (size, modified time)" },
@@ -29,81 +27,57 @@ export default function AgentCodeExecution({
 	const [isExpanded, setIsExpanded] = useState(false);
 
 	return (
-		<div className="border-b last:border-b-0">
-			<div className="flex items-center p-3 hover:bg-[#F8FAF9] dark:hover:bg-white/5 transition-colors">
-				<div className="w-6 h-6 rounded-sm flex items-center justify-center mr-3 overflow-hidden relative">
-					<Image
-						width={24}
-						height={24}
-						src="https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/terminal.png"
-						alt="Code execution"
-						className="object-cover"
-					/>
-				</div>
-
-				<div className="flex-1">
-					<div className="flex items-center gap-2">
-						<div className="font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold text-[#1E2D28] dark:text-foreground">Code execution</div>
-						<Badge
-							variant="secondary"
-							className="bg-green-100 dark:bg-green-950/40 text-green-600 dark:text-green-400 border-green-200 dark:border-green-800 text-[0.6rem]"
+		<div className="overflow-hidden rounded-[10px] border border-border bg-card">
+			<div className="flex items-center gap-2.5 px-4 py-3">
+				<span className="flex size-[26px] shrink-0 items-center justify-center rounded-[6px] bg-petrol-tint text-[13px]">
+					🧮
+				</span>
+				<span className="text-[13.5px] font-semibold text-foreground">
+					Code interpreter
+				</span>
+				<span className="text-xs text-meta dark:text-panel-dim">built-in</span>
+				<span className="ml-auto flex items-center gap-1.5">
+					{!readOnly && (
+						<button
+							className="cursor-pointer rounded-[7px] px-2.5 py-1 text-[12.5px] font-semibold text-[#B04A3A] transition-colors hover:bg-[#FBEFED] dark:hover:bg-[#B04A3A]/10"
+							onClick={() => {
+								onDisable?.();
+							}}
 						>
-							<span className="w-1.5 h-1.5 rounded-full bg-green-400" />
-							Ready
-						</Badge>
-					</div>
-				</div>
-
-				<button
-					onClick={() => { setIsExpanded(!isExpanded); }}
-					className="text-muted-foreground hover:text-foreground cursor-pointer p-1"
-				>
-					<ChevronRight
-						className={`w-5 h-5 transition-transform ${
-							isExpanded ? "rotate-90" : ""
-						}`}
-					/>
-				</button>
+							Disable
+						</button>
+					)}
+					<button
+						onClick={() => {
+							setIsExpanded(!isExpanded);
+						}}
+						aria-label={isExpanded ? "Collapse" : "Expand"}
+						className="cursor-pointer p-1 text-meta transition-colors hover:text-foreground dark:text-panel-dim"
+					>
+						<ChevronRight
+							className={`size-4 transition-transform ${
+								isExpanded ? "rotate-90" : ""
+							}`}
+						/>
+					</button>
+				</span>
 			</div>
 
 			{isExpanded && (
-				<div className="bg-card p-4 border-t">
-					<div className="max-h-[400px] overflow-y-auto mb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-						<div className="space-y-2">
-							{SANDBOX_TOOLS.map((tool) => (
-								<div
-									key={tool.name}
-									className="flex items-center p-3 bg-[#FAFCFB] rounded-2xl hover:bg-sidebar-hover border-[1.5px] border-[#E0E8E4] dark:border-white/10"
-								>
-									<div className="w-8 h-8 bg-white rounded-full flex items-center justify-center text-muted-foreground text-xs font-semibold mr-3 shrink-0 border-[1.5px] border-[#E0E8E4] dark:border-white/10">
-										{tool.name.charAt(0).toUpperCase()}
-									</div>
-									<div className="flex-1 min-w-0 mr-3">
-										<div className="font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold text-[#1E2D28] dark:text-foreground truncate">
-											{tool.name}
-										</div>
-										<div className="text-xs text-muted-foreground line-clamp-2">
-											{tool.description}
-										</div>
-									</div>
-								</div>
-							))}
+				<div className="border-t border-hover dark:border-white/5">
+					{SANDBOX_TOOLS.map((tool) => (
+						<div
+							key={tool.name}
+							className="border-b border-hover px-4 py-2.5 last:border-b-0 dark:border-white/5"
+						>
+							<span className="block truncate text-[13.5px] font-semibold text-foreground">
+								{humanizeToolName(tool.name)}
+							</span>
+							<span className="mt-px block text-xs text-muted-foreground">
+								{tool.description}
+							</span>
 						</div>
-					</div>
-					{!readOnly && (
-						<div className="flex w-full justify-center">
-							<Button
-								variant="ghost"
-								size="sm"
-								className="text-destructive cursor-pointer hover:text-destructive/80"
-								onClick={() => {
-									onDisable?.();
-								}}
-							>
-								Disable Code execution
-							</Button>
-						</div>
-					)}
+					))}
 				</div>
 			)}
 		</div>
