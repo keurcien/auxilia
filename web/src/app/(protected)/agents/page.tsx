@@ -1,16 +1,56 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import AgentList from "@/app/(protected)/agents/components/agent-list";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import { UnderlineTabs } from "@/components/ui/underline-tabs";
+import { ViewToggle, type ViewMode } from "@/components/ui/view-toggle";
 import {
 	WorkspacePage,
 	WorkspaceTopBarButton,
 } from "@/components/layout/workspace-page";
 import { useUserStore } from "@/stores/user-store";
+
+const VIEW_MODE_STORAGE_KEY = "agents:view-mode";
+
+// Persisted table/cards preference (table by default), exposed through
+// useSyncExternalStore so the server render and hydration stay consistent
+// without effect-driven state.
+const viewModeListeners = new Set<() => void>();
+
+function subscribeViewMode(listener: () => void) {
+	viewModeListeners.add(listener);
+	return () => {
+		viewModeListeners.delete(listener);
+	};
+}
+
+// In-session fallback when localStorage is unavailable (private mode).
+let sessionViewMode: ViewMode = "table";
+
+function readViewMode(): ViewMode {
+	try {
+		const stored = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+		if (stored === "cards" || stored === "table") return stored;
+	} catch {
+		// Fall through to the in-session value.
+	}
+	return sessionViewMode;
+}
+
+function writeViewMode(mode: ViewMode) {
+	sessionViewMode = mode;
+	try {
+		localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode);
+	} catch {
+		// Persistence failed — the in-session fallback still applies.
+	}
+	viewModeListeners.forEach((listener) => {
+		listener();
+	});
+}
 
 export default function AgentsPage() {
 	const router = useRouter();
@@ -19,6 +59,11 @@ export default function AgentsPage() {
 	const [search, setSearch] = useState("");
 	const [view, setView] = useState<"available" | "all" | "archived">(
 		"available",
+	);
+	const viewMode = useSyncExternalStore(
+		subscribeViewMode,
+		readViewMode,
+		() => "table" as ViewMode,
 	);
 
 	const handleCreateAgent = () => {
@@ -51,15 +96,18 @@ export default function AgentsPage() {
 				</WorkspaceTopBarButton>
 			}
 			headerRight={
-				<UnderlineTabs
-					tabs={[
-						{ key: "available", label: "Available to you" },
-						{ key: "all", label: "All" },
-						{ key: "archived", label: "Archived" },
-					]}
-					value={view}
-					onChange={setView}
-				/>
+				<div className="flex items-center gap-3">
+					<UnderlineTabs
+						tabs={[
+							{ key: "available", label: "Available to you" },
+							{ key: "all", label: "All" },
+							{ key: "archived", label: "Archived" },
+						]}
+						value={view}
+						onChange={setView}
+					/>
+					<ViewToggle value={viewMode} onChange={writeViewMode} />
+				</div>
 			}
 		>
 			<ForbiddenErrorDialog
@@ -71,6 +119,7 @@ export default function AgentsPage() {
 			<AgentList
 				key={view === "archived" ? "archived" : "active"}
 				view={view}
+				mode={viewMode}
 				search={search}
 				onClearSearch={() => {
 					setSearch("");

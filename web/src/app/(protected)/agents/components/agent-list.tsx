@@ -4,6 +4,8 @@ import { useState, useEffect, useMemo } from "react";
 import { Archive, ArrowRight, Plus, Search, Users, Zap } from "lucide-react";
 import { Agent } from "@/types/agents";
 import AgentCard from "@/app/(protected)/agents/components/agent-card";
+import AgentTable from "@/app/(protected)/agents/components/agent-table";
+import type { ViewMode } from "@/components/ui/view-toggle";
 import { api } from "@/lib/api/client";
 
 type View = "available" | "all" | "archived";
@@ -155,6 +157,8 @@ function AgentSection({
 
 interface AgentListProps {
 	view: View;
+	/** Table (design 7a) or the tag-grouped card grid. */
+	mode: ViewMode;
 	search: string;
 	onClearSearch?: () => void;
 	onCreateAgent?: () => void;
@@ -162,6 +166,7 @@ interface AgentListProps {
 
 export default function AgentList({
 	view,
+	mode,
 	search,
 	onClearSearch,
 	onCreateAgent,
@@ -299,6 +304,18 @@ export default function AgentList({
 				title="Nothing shared with you yet"
 				subtitle="Ask a workspace admin or an agent's owner to give you access — or switch to All to browse everything in your workspace."
 			/>
+		);
+	}
+
+	if (mode === "table") {
+		return (
+			<div className="w-full animate-in fade-in duration-300">
+				<AgentTable
+					agents={visible}
+					archived={archived}
+					onRemoved={handleRemoved}
+				/>
+			</div>
 		);
 	}
 
