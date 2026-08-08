@@ -25,8 +25,8 @@ export default function AgentCodeExecution({
 	readOnly,
 	onDisable,
 }: AgentCodeExecutionProps) {
-	// Matches the MCP server cards: expanded by default, the page scrolls.
-	const [isExpanded, setIsExpanded] = useState(true);
+	// Matches the MCP server cards: collapsed on page open.
+	const [isExpanded, setIsExpanded] = useState(false);
 
 	return (
 		<div className="overflow-hidden rounded-[10px] border border-border bg-card">

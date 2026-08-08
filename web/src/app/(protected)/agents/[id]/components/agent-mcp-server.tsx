@@ -38,8 +38,9 @@ export default function AgentMCPServer({
 	onSeedTools,
 	onRemove,
 }: AgentMCPServerProps) {
-	// Design 12a: server cards render expanded — the page scrolls.
-	const [isExpanded, setIsExpanded] = useState(true);
+	// Collapsed on page open; not-connected servers auto-expand (effect
+	// below) so the Connect action stays visible.
+	const [isExpanded, setIsExpanded] = useState(false);
 	const [tools, setTools] = useState<MCPServerTool[]>([]);
 	const [isLoading, setIsLoading] = useState(false);
 	const [toolsFetched, setToolsFetched] = useState(false);
