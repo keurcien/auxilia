@@ -12,6 +12,7 @@ import AgentToolList from "../[id]/components/agent-tool-list";
 import AgentSubagentList from "../[id]/components/agent-subagent-list";
 import AgentTagsPanel from "./agent-tags-panel";
 import AgentPermissionsPanel from "./agent-permissions-panel";
+import { MessageResponse } from "@/components/ai-elements/message";
 import { api } from "@/lib/api/client";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useAgentsStore } from "@/stores/agents-store";
@@ -36,16 +37,19 @@ const slugify = (name: string) =>
 interface AgentEditorProps {
 	/** Undefined = create mode (`/agents/new` draft). */
 	agent?: Agent;
-	/** Viewer can't edit — inputs render disabled, no save bar. */
+	/** Read mode — inputs render disabled, instructions as markdown. */
 	readOnly?: boolean;
+	/** Provided in read mode when the viewer may edit — shows the Edit button. */
+	onEdit?: () => void;
 	onSaved: (agent: Agent) => void;
-	/** Leave the page (create mode's Discard; unused for existing agents). */
+	/** Discard/Cancel: back to read mode (detail) or leave the page (create). */
 	onCancel: () => void;
 }
 
 export default function AgentEditor({
 	agent,
 	readOnly = false,
+	onEdit,
 	onSaved,
 	onCancel,
 }: AgentEditorProps) {
@@ -61,6 +65,13 @@ export default function AgentEditor({
 	const canManageAgent =
 		agent?.currentUserPermission === "owner" ||
 		agent?.currentUserPermission === "admin";
+
+	// Tag assignment is an instant action (own PATCH, not part of the config
+	// draft), so it stays available to editors even in read mode.
+	const canEditAgent =
+		!agent ||
+		canManageAgent ||
+		agent.currentUserPermission === "editor";
 
 	// Snapshot taken on mount — the dirty baseline. Re-derives when the agent
 	// is saved (the store hands back a fresh object), never from form edits.
@@ -175,13 +186,7 @@ export default function AgentEditor({
 		if (isDirty && !confirm("Discard unsaved changes?")) {
 			return;
 		}
-		if (agent) {
-			// Reset the draft in place.
-			setForm(initialForm);
-			setError(null);
-		} else {
-			onCancel();
-		}
+		onCancel();
 	};
 
 	const handleArchive = async () => {
@@ -235,16 +240,22 @@ export default function AgentEditor({
 							Test in chat
 						</button>
 					)}
+					{readOnly && onEdit && (
+						<button
+							type="button"
+							onClick={onEdit}
+							className="cursor-pointer rounded-[7px] bg-petrol px-[18px] py-2 text-[13px] font-semibold text-white transition-opacity hover:opacity-90"
+						>
+							Edit
+						</button>
+					)}
 					{!readOnly && (
 						<>
 							<button
 								type="button"
-								disabled={!isDirty || isSaving}
+								disabled={isSaving}
 								onClick={handleDiscard}
-								className={cn(
-									"cursor-pointer rounded-[7px] border border-input bg-card px-4 py-2 text-[13px] font-semibold text-foreground transition-colors hover:border-border-hover",
-									agent && "disabled:cursor-not-allowed disabled:opacity-50",
-								)}
+								className="cursor-pointer rounded-[7px] border border-input bg-card px-4 py-2 text-[13px] font-semibold text-foreground transition-colors hover:border-border-hover disabled:cursor-not-allowed disabled:opacity-50"
 							>
 								{agent ? "Discard" : "Cancel"}
 							</button>
@@ -389,19 +400,31 @@ export default function AgentEditor({
 					/>
 
 					<div className="pt-5">
-						{tab === "instructions" && (
-							<textarea
-								disabled={readOnly}
-								value={form.instructions}
-								onChange={(e) => {
-									setField("instructions", e.target.value);
-								}}
-								placeholder="Enter instructions for your agent…"
-								className="h-[440px] w-full resize-none rounded-lg border border-input bg-sidebar p-4 font-mono text-[12.5px] leading-[1.7] text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-meta dark:placeholder:text-panel-dim focus:border-petrol focus:shadow-[0_0_0_3px_rgba(22,96,110,0.10)] disabled:cursor-default [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-							/>
-						)}
+						{tab === "instructions" &&
+							(readOnly ? (
+								<div className="min-h-[200px] w-full rounded-lg border border-border bg-sidebar p-4">
+									{form.instructions ? (
+										<MessageResponse className="text-[13px] leading-[1.65] text-foreground">
+											{form.instructions}
+										</MessageResponse>
+									) : (
+										<p className="text-[13px] text-meta dark:text-panel-dim">
+											No instructions
+										</p>
+									)}
+								</div>
+							) : (
+								<textarea
+									value={form.instructions}
+									onChange={(e) => {
+										setField("instructions", e.target.value);
+									}}
+									placeholder="Enter instructions for your agent…"
+									className="h-[440px] w-full resize-none rounded-lg border border-input bg-sidebar p-4 font-mono text-[12.5px] leading-[1.7] text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-meta dark:placeholder:text-panel-dim focus:border-petrol focus:shadow-[0_0_0_3px_rgba(22,96,110,0.10)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+								/>
+							))}
 						{tab === "tags" && agent && (
-							<AgentTagsPanel agent={agent} canAssign={!readOnly} />
+							<AgentTagsPanel agent={agent} canAssign={canEditAgent} />
 						)}
 						{tab === "permissions" && agent && canManageAgent && (
 							<AgentPermissionsPanel
