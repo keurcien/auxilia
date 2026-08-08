@@ -372,11 +372,11 @@ export default function AgentEditor({
 								<h1 className="w-full truncate py-[2px] font-mono text-[19px] font-semibold tracking-[-0.01em] text-petrol">
 									{form.name}
 								</h1>
-								{form.description && (
-									<p className="w-full truncate py-[2px] text-[13.5px] font-medium text-label dark:text-muted-foreground">
-										{form.description}
-									</p>
-								)}
+								{/* Always rendered so the name keeps the same vertical
+								    position whether or not a description exists. */}
+								<p className="w-full truncate py-[2px] text-[13.5px] font-medium text-label dark:text-muted-foreground">
+									{form.description || "\u00A0"}
+								</p>
 							</div>
 						) : (
 							<div className="flex min-w-0 flex-1 flex-col gap-1.5">
