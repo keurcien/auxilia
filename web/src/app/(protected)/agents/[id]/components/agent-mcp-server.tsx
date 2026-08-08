@@ -279,7 +279,8 @@ export default function AgentMCPServer({
 							Loading tools…
 						</div>
 					) : tools && tools.length > 0 ? (
-						<div>
+						// Show ~5-6 tool rows; longer lists scroll within the card.
+						<div className="max-h-80 overflow-y-auto [scrollbar-width:thin]">
 							{tools.map((tool) => (
 								<AgentMCPTool
 									key={tool.name}

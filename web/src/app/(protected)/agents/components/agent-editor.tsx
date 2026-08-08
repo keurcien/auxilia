@@ -360,36 +360,49 @@ export default function AgentEditor({
 								</div>
 							)}
 						</div>
-						<div className="flex min-w-0 flex-1 flex-col gap-1.5">
-							<input
-								type="text"
-								maxLength={255}
-								disabled={readOnly}
-								value={form.name}
-								onChange={(e) => {
-									setField("name", e.target.value);
-								}}
-								placeholder="Agent name"
-								className={cn(
-									fieldInputClass,
-									"font-mono text-[15px] font-semibold tracking-[-0.01em] text-petrol",
+						{readOnly ? (
+							// Most viewers never edit — the identity reads as plain text,
+							// no input chrome.
+							<div className="flex min-w-0 flex-1 flex-col justify-center gap-1 self-stretch">
+								<h1 className="truncate font-mono text-[19px] font-semibold tracking-[-0.01em] text-petrol">
+									{form.name}
+								</h1>
+								{form.description && (
+									<p className="truncate text-[13.5px] text-body dark:text-panel-body">
+										{form.description}
+									</p>
 								)}
-							/>
-							<input
-								type="text"
-								maxLength={255}
-								disabled={readOnly}
-								value={form.description}
-								onChange={(e) => {
-									setField("description", e.target.value);
-								}}
-								placeholder="Describe what this agent does"
-								className={cn(
-									fieldInputClass,
-									"text-[13px] font-medium text-body dark:text-panel-body",
-								)}
-							/>
-						</div>
+							</div>
+						) : (
+							<div className="flex min-w-0 flex-1 flex-col gap-1.5">
+								<input
+									type="text"
+									maxLength={255}
+									value={form.name}
+									onChange={(e) => {
+										setField("name", e.target.value);
+									}}
+									placeholder="Agent name"
+									className={cn(
+										fieldInputClass,
+										"font-mono text-[15px] font-semibold tracking-[-0.01em] text-petrol",
+									)}
+								/>
+								<input
+									type="text"
+									maxLength={255}
+									value={form.description}
+									onChange={(e) => {
+										setField("description", e.target.value);
+									}}
+									placeholder="Describe what this agent does"
+									className={cn(
+										fieldInputClass,
+										"text-[13px] font-medium text-body dark:text-panel-body",
+									)}
+								/>
+							</div>
+						)}
 					</div>
 
 					<UnderlineTabs
