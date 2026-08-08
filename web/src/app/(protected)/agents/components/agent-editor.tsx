@@ -310,7 +310,12 @@ export default function AgentEditor({
 			<div className="flex min-h-0 flex-1 flex-col md:flex-row">
 				{/* Left: identity + tabs */}
 				<div className="min-w-0 overflow-y-auto border-b border-border bg-background p-7 md:flex-[1.05] md:border-b-0 md:border-r [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-					<div className="flex items-start gap-3.5">
+					<div
+						className={cn(
+							"flex gap-3.5",
+							readOnly ? "items-center" : "items-start",
+						)}
+					>
 						<div className="relative shrink-0">
 							<button
 								type="button"
@@ -363,12 +368,12 @@ export default function AgentEditor({
 						{readOnly ? (
 							// Most viewers never edit — the identity reads as plain text,
 							// no input chrome.
-							<div className="flex min-w-0 flex-1 flex-col justify-center gap-1 self-stretch">
-								<h1 className="truncate font-mono text-[19px] font-semibold tracking-[-0.01em] text-petrol">
+							<div className="min-w-0 flex-1">
+								<h1 className="w-full truncate py-[2px] font-mono text-[19px] font-semibold tracking-[-0.01em] text-petrol">
 									{form.name}
 								</h1>
 								{form.description && (
-									<p className="truncate text-[13.5px] text-body dark:text-panel-body">
+									<p className="w-full truncate py-[2px] text-[13.5px] font-medium text-label dark:text-muted-foreground">
 										{form.description}
 									</p>
 								)}
