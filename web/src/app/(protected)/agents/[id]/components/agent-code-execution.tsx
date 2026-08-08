@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { ChevronRight } from "lucide-react";
 import { humanizeToolName } from "@/components/ai-elements/chain-of-thought";
 
@@ -29,8 +30,15 @@ export default function AgentCodeExecution({
 	return (
 		<div className="overflow-hidden rounded-[10px] border border-border bg-card">
 			<div className="flex items-center gap-2.5 px-4 py-3">
-				<span className="flex size-[26px] shrink-0 items-center justify-center rounded-[6px] bg-petrol-tint text-[13px]">
-					🧮
+				<span className="flex size-[26px] shrink-0 items-center justify-center rounded-[6px] border border-border bg-card">
+					<Image
+						unoptimized
+						width={14}
+						height={14}
+						src="https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/terminal.png"
+						alt="Code interpreter"
+						className="rounded-[2px] object-contain"
+					/>
 				</span>
 				<span className="text-[13.5px] font-semibold text-foreground">
 					Code interpreter

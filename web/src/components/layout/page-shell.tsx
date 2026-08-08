@@ -28,12 +28,10 @@ export function PageShell({ children }: { children: React.ReactNode }) {
 			<SidebarTrigger className="md:hidden fixed left-3 top-3 z-50 size-9 rounded-lg border border-sidebar-border bg-sidebar shadow-raised cursor-pointer" />
 
 			{isChat ? (
-				<main className="flex-1 min-w-0 flex h-svh p-2 pl-0">
-					<div className="flex-1 min-w-0 flex flex-col rounded-2xl border border-border bg-card shadow-raised overflow-hidden">
-						<ChatHeader />
-						<div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-							{children}
-						</div>
+				<main className="flex-1 min-w-0 flex h-svh flex-col bg-background overflow-hidden">
+					<ChatHeader />
+					<div className="flex flex-1 flex-col min-h-0 overflow-hidden">
+						{children}
 					</div>
 				</main>
 			) : isWorkspace ? (

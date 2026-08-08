@@ -98,9 +98,9 @@ export default function AgentToolList({
 		<div className="flex min-h-0 flex-col">
 			<div className="mb-3 flex min-h-[24px] shrink-0 items-center justify-between">
 				<span className="font-mono text-[10.5px] font-semibold tracking-[0.09em] text-label dark:text-muted-foreground">
-					MCP SERVERS{" "}
+					TOOLS{" "}
 					<span className="tracking-normal text-meta dark:text-panel-dim">
-						{enabledServers.length}
+						{enabledServers.length + (hasCodeInterpreter ? 1 : 0)}
 					</span>
 				</span>
 				{!readOnly && (
@@ -109,7 +109,7 @@ export default function AgentToolList({
 						onClick={() => { setDialogOpen(true); }}
 					>
 						<Plus className="size-3" />
-						Add server
+						Add tool
 					</button>
 				)}
 			</div>

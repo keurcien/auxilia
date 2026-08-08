@@ -15,6 +15,7 @@ import {
 	summarizeToolArgs,
 } from "@/components/ai-elements/chain-of-thought";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
+import { MessageResponse } from "@/components/ai-elements/message";
 import { TodoList } from "@/components/ai-elements/todo-list";
 import type { Todo } from "@/components/ai-elements/todo-list";
 import { extractToolErrorText } from "@/lib/utils/tool-content";
@@ -316,8 +317,10 @@ export const SubAgentCard = memo(
 				)}
 				{result != null && result !== "" && (
 					<StepSection label="RESULT">
-						<div className="min-w-0 whitespace-pre-wrap rounded-[6px] border border-border bg-card px-3 py-2.5 text-[12.5px] leading-[1.6] text-body dark:text-panel-body">
-							{String(result)}
+						<div className="min-w-0 rounded-[6px] border border-border bg-card px-3 py-2.5 text-[12.5px] leading-[1.6] text-body dark:text-panel-body">
+							<MessageResponse className="text-[12.5px] leading-[1.6]">
+								{String(result)}
+							</MessageResponse>
 						</div>
 					</StepSection>
 				)}
