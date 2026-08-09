@@ -276,29 +276,29 @@ export function AppSidebar() {
 												asChild
 												isActive={isActive}
 												tooltip={title}
-												className="h-12 rounded-[7px] hover:bg-sidebar-hover data-[active=true]:bg-sidebar-accent group-data-[collapsible=icon]:h-12! group-data-[collapsible=icon]:w-[38px]! group-data-[collapsible=icon]:p-2! group-data-[collapsible=icon]:data-[active=true]:bg-transparent"
+												className="h-12 rounded-[7px] hover:bg-sidebar-hover data-[active=true]:bg-sidebar-accent group-data-[collapsible=icon]:h-12! group-data-[collapsible=icon]:w-[38px]! group-data-[collapsible=icon]:p-[5px]! group-data-[collapsible=icon]:data-[active=true]:bg-transparent"
 											>
 												<Link
 													href={`/agents/${thread.agentId}/chat/${thread.id}`}
-													className="flex items-center gap-[9px] px-2"
+													className="flex items-center gap-1.5 px-[5px]"
 												>
-													<IconSlot>
+													<span className="flex w-7 shrink-0 items-center justify-center">
 														{isTriggerThread ? (
 															<span
 																title="Started by a trigger"
-																className={`flex size-[22px] items-center justify-center rounded-[6px] border border-input bg-sidebar-accent ${
+																className={`flex size-7 items-center justify-center rounded-[7px] border border-input bg-sidebar-accent ${
 																	isActive
 																		? "group-data-[collapsible=icon]:ring-2 group-data-[collapsible=icon]:ring-sidebar-ring"
 																		: ""
 																}`}
 															>
-																<AlarmClock className="size-3 text-sidebar-active-icon" />
+																<AlarmClock className="size-3.5 text-sidebar-active-icon" />
 															</span>
 														) : (
 															<AgentAvatar
 																color={thread.agentColor}
 																emoji={thread.agentEmoji}
-																size="2xs"
+																size="xs"
 																shape="tile"
 																className={
 																	isActive
@@ -307,7 +307,7 @@ export function AppSidebar() {
 																}
 															/>
 														)}
-													</IconSlot>
+													</span>
 													<div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
 														<div className="flex items-center gap-2">
 															<span
@@ -444,7 +444,7 @@ export function AppSidebar() {
 														/>
 													</IconSlot>
 													<span
-														className={`text-[13.5px] group-data-[collapsible=icon]:hidden ${isNavActive ? "font-semibold text-sidebar-foreground" : "font-medium text-sidebar-muted"}`}
+														className={`truncate text-[13.5px] group-data-[collapsible=icon]:hidden ${isNavActive ? "font-semibold text-sidebar-foreground" : "font-medium text-sidebar-muted"}`}
 													>
 														{item.title}
 													</span>
