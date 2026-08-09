@@ -11,6 +11,9 @@ interface AuthProviders {
 }
 
 const DEMO_STEPS = 8;
+// One extra beat at the end of the loop where everything fades out in place
+// (no downward slide) before the cycle restarts.
+const DEMO_CYCLE = DEMO_STEPS + 1;
 const DEMO_STEP_MS = 1300;
 
 const DEMO_TOOL_LINES = [
@@ -70,7 +73,7 @@ function Favicon({ domain }: { domain: string }) {
 
 /**
  * Generic product showcase looping on the dark panel (design 9a):
- * 8 steps, ~1.3s each, fade + 8px rise. Everything stays visible under
+ * 8 steps + 1 fade-out beat, ~1.3s each, fade + 8px rise. Everything stays visible under
  * prefers-reduced-motion (motion-reduce variants beat the step classes).
  */
 function LoginShowcase() {
@@ -78,17 +81,24 @@ function LoginShowcase() {
 
 	useEffect(() => {
 		const timer = setInterval(() => {
-			setStep((s) => (s + 1) % DEMO_STEPS);
+			setStep((s) => (s + 1) % DEMO_CYCLE);
 		}, DEMO_STEP_MS);
 		return () => {
 			clearInterval(timer);
 		};
 	}, []);
 
-	const vis = (n: number) =>
-		`transition-[opacity,transform] duration-[450ms] ease-out motion-reduce:transition-none motion-reduce:opacity-100 motion-reduce:translate-y-0 ${
-			step >= n ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"
+	const vis = (n: number) => {
+		const shown = step >= n && step < DEMO_STEPS;
+		// During the fade-out beat, stay at translate-y-0 so elements fade in
+		// place instead of sliding down; they snap back below (translate-y-2)
+		// only once invisible, ready to rise in again on the next cycle.
+		const hidden =
+			step === DEMO_STEPS ? "opacity-0 translate-y-0" : "opacity-0 translate-y-2";
+		return `transition-[opacity,transform] duration-[450ms] ease-out motion-reduce:transition-none motion-reduce:opacity-100 motion-reduce:translate-y-0 ${
+			shown ? "opacity-100 translate-y-0" : hidden
 		}`;
+	};
 
 	return (
 		<div className="relative flex flex-col gap-5">
