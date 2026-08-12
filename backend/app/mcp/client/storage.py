@@ -222,3 +222,32 @@ class TokenStorageFactory:
             await self.redis.delete(key)
             deleted += 1
         return deleted
+
+    async def clear_user_server_data(self, user_id: str, mcp_server_id: str) -> int:
+        """Delete all Redis keys for one user's connection to an MCP server.
+
+        Scans for keys matching mcp:{user_id}:{mcp_server_id}:* and deletes
+        them (tokens, client info, OAuth metadata).
+
+        Returns:
+            Number of keys deleted.
+        """
+        pattern = f"mcp:{user_id}:{mcp_server_id}:*"
+        deleted = 0
+        async for key in self.redis.scan_iter(match=pattern):
+            await self.redis.delete(key)
+            deleted += 1
+        return deleted
+
+    async def list_connected_user_ids(self, mcp_server_id: str) -> list[str]:
+        """User ids holding stored tokens for an MCP server.
+
+        Token keys have the shape mcp:{user_id}:{mcp_server_id}:tokens.
+        """
+        pattern = f"mcp:*:{mcp_server_id}:tokens"
+        user_ids: list[str] = []
+        async for key in self.redis.scan_iter(match=pattern):
+            parts = key.split(":")
+            if len(parts) == 4:
+                user_ids.append(parts[1])
+        return user_ids
