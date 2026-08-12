@@ -1,5 +1,15 @@
 export default {
-  index: 'Introduction',
+  index: {
+    title: 'Introduction',
+    theme: {
+      layout: 'full',
+      sidebar: false,
+      toc: false,
+      breadcrumb: false,
+      pagination: false,
+      timestamp: false
+    }
+  },
   'get-started': 'Get Started',
   '---': {
     type: 'separator'

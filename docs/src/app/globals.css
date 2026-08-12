@@ -1,77 +1,97 @@
-@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&display=swap");
-@import url("https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap");
-@import url("https://fonts.googleapis.com/css2?family=Geist+Mono:wght@100..900&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500..700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,300..800;1,300..800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap");
 
 /* ---------------------------------------------------------------- *
- * Auxilia design tokens — kept in sync with web/src/app/globals.css
+ * Auxilia design tokens — Petrol Mono, kept in sync with
+ * web/src/app/globals.css (design/README.md is the spec)
  * ---------------------------------------------------------------- */
 :root {
-  /* Sage green (same hex as --sidebar-primary: #4ca882) */
-  --auxilia-primary: #4ca882;
-  --auxilia-primary-hover: #3d8b63;
+  /* Petrol teal — the single accent */
+  --auxilia-primary: #16606e;
+  --auxilia-primary-hover: #124f5b;
+  --auxilia-tint: #edf3f3; /* active / selected tint */
+  --auxilia-chip: #e3eeee; /* teal-tinted chips */
 
-  --auxilia-fg: #1e2d28;           /* foreground text */
-  --auxilia-muted: #6b7f76;        /* muted foreground */
+  --auxilia-fg: #101820; /* ink */
+  --auxilia-body: #46545a; /* body text */
+  --auxilia-muted: #6e7c80; /* secondary text */
+  --auxilia-meta: #8a9aa0; /* placeholders, meta */
+  --auxilia-faint: #c4ced0; /* chevrons, disabled */
 
-  --auxilia-surface: #f1f6f4;      /* app --surface */
-  --auxilia-sidebar: #ffffff;
-  --auxilia-sidebar-accent: #edf4f0;
-  --auxilia-sidebar-border: #e8efe9;
-  --auxilia-sidebar-hover: #f8faf9;
+  --auxilia-surface: #f6f8f8; /* marketing canvas */
+  --auxilia-sidebar: #fbfcfc;
+  --auxilia-sidebar-accent: #edf3f3;
+  --auxilia-sidebar-border: #e9eeee;
+  --auxilia-sidebar-hover: #f1f5f5;
 
-  --auxilia-border: #e0e8e4;
-  --auxilia-border-strong: #c9d6cf;
+  --auxilia-border: #e2e8e8; /* rails */
+  --auxilia-input: #dce4e4; /* inputs/buttons */
+  --auxilia-border-strong: #c4ced0;
   --auxilia-card: #ffffff;
-  --auxilia-inner-card: #fafcfb;
+  --auxilia-inner-card: #fbfcfc;
+  --auxilia-code-bg: #f1f5f5;
 
-  /* Rounded scale — matches app (radius base = 0.625rem) */
-  --auxilia-radius: 0.625rem;
-  --auxilia-radius-lg: 1rem;
-  --auxilia-radius-xl: 1.25rem;
+  /* Dark panel (terminal chip on the landing) */
+  --auxilia-panel: #101820;
+  --auxilia-terminal: #9fd6cb;
+  --auxilia-terminal-dim: #5a6e74;
+
+  /* Radii — 8px inputs/buttons · 12px containers · 16px large */
+  --auxilia-radius: 0.5rem;
+  --auxilia-radius-lg: 0.75rem;
+  --auxilia-radius-xl: 1rem;
   --auxilia-radius-full: 9999px;
 
-  /* Nextra primary colour wheel → sage green
-   * primary-hue + primary-saturation + primary-lightness is the HSL base
-   * Nextra interpolates all highlight/link shades from this triplet. */
-  --nextra-primary-hue: 154deg;
-  --nextra-primary-saturation: 38%;
-  --nextra-primary-lightness: 48%;
+  /* Nextra primary colour wheel → petrol (#16606E ≈ hsl(190 67% 26%)) */
+  --nextra-primary-hue: 190deg;
+  --nextra-primary-saturation: 67%;
+  --nextra-primary-lightness: 26%;
 
   /* Body background (RGB channels — Nextra uses rgb(var(--nextra-bg))) */
   --nextra-bg: 255, 255, 255; /* #FFFFFF */
 }
 
 .dark {
-  --auxilia-primary: #5abf94;
-  --auxilia-primary-hover: #4ca882;
+  /* Links/accents on dark = the panel terminal teal */
+  --auxilia-primary: #9fd6cb;
+  --auxilia-primary-hover: #7bc7a9;
+  --auxilia-tint: #1c2830;
+  --auxilia-chip: #1c2830;
 
-  --auxilia-fg: #e6efea;
-  --auxilia-muted: #94a69d;
+  --auxilia-fg: #e6edee;
+  --auxilia-body: #c9d4d6;
+  --auxilia-muted: #8a9aa0;
+  --auxilia-meta: #5a6e74;
+  --auxilia-faint: #46545a;
 
-  --auxilia-surface: #1a2420;
-  --auxilia-sidebar: #161f1b;
-  --auxilia-sidebar-accent: #1f2a26;
-  --auxilia-sidebar-border: #243029;
-  --auxilia-sidebar-hover: #1d2722;
+  --auxilia-surface: #0c1318;
+  --auxilia-sidebar: #0c1318;
+  --auxilia-sidebar-accent: #1c2830;
+  --auxilia-sidebar-border: rgba(255, 255, 255, 0.08);
+  --auxilia-sidebar-hover: #141e26;
 
-  --auxilia-border: #243029;
-  --auxilia-border-strong: #2e3c36;
-  --auxilia-card: #1a2420;
-  --auxilia-inner-card: #1e2823;
+  --auxilia-border: rgba(255, 255, 255, 0.1);
+  --auxilia-input: rgba(255, 255, 255, 0.1);
+  --auxilia-border-strong: rgba(255, 255, 255, 0.16);
+  --auxilia-card: #16222b;
+  --auxilia-inner-card: #141e26;
+  --auxilia-code-bg: #141e26;
 
-  --nextra-primary-hue: 154deg;
-  --nextra-primary-saturation: 42%;
-  --nextra-primary-lightness: 55%;
+  /* #9FD6CB ≈ hsl(168 40% 73%) */
+  --nextra-primary-hue: 168deg;
+  --nextra-primary-saturation: 40%;
+  --nextra-primary-lightness: 73%;
 
-  --nextra-bg: 20, 28, 25; /* a touch darker than --auxilia-surface */
+  --nextra-bg: 16, 24, 32; /* #101820 */
 }
 
 /* ---------------------------------------------------------------- *
- * Typography
+ * Typography — Space Grotesk display · Hanken Grotesk UI · IBM Plex Mono
  * ---------------------------------------------------------------- */
 html {
   font-family:
-    "Plus Jakarta Sans",
+    "Hanken Grotesk",
     ui-sans-serif,
     system-ui,
     -apple-system,
@@ -81,7 +101,6 @@ html {
     "Helvetica Neue",
     Arial,
     sans-serif;
-  font-feature-settings: "ss01", "cv11";
   color: var(--auxilia-fg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -93,7 +112,7 @@ kbd,
 samp,
 .nextra-code {
   font-family:
-    "Geist Mono",
+    "IBM Plex Mono",
     ui-monospace,
     SFMono-Regular,
     Menlo,
@@ -102,7 +121,6 @@ samp,
     "Liberation Mono",
     "Courier New",
     monospace;
-  font-feature-settings: "calt" 1, "ss02" 1;
 }
 
 h1,
@@ -111,12 +129,14 @@ h3,
 h4,
 h5,
 h6 {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: "Hanken Grotesk", sans-serif;
   letter-spacing: -0.015em;
   color: var(--auxilia-fg);
 }
 
+/* Space Grotesk is display-only: page H1s, the wordmark, landing titles. */
 h1 {
+  font-family: "Space Grotesk", sans-serif;
   font-weight: 700;
   letter-spacing: -0.035em;
 }
@@ -124,12 +144,12 @@ h1 {
 h2 {
   font-weight: 700;
   letter-spacing: -0.025em;
-  border-bottom: 1px solid var(--auxilia-border);
+  border-bottom: 1px solid var(--auxilia-sidebar-border);
   padding-bottom: 0.4em;
 }
 
 h3 {
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: -0.02em;
 }
 
@@ -158,7 +178,7 @@ html.dark .logo-dark {
 }
 
 /* ---------------------------------------------------------------- *
- * Navbar — translucent sage-tinted pill, matches the app chrome
+ * Navbar — hairline border, white blur
  * ---------------------------------------------------------------- */
 .nextra-navbar-blur {
   background-color: rgb(255 255 255 / 0.72) !important;
@@ -167,15 +187,25 @@ html.dark .logo-dark {
 }
 
 .dark .nextra-navbar-blur {
-  background-color: rgb(22 31 27 / 0.75) !important;
+  background-color: rgb(16 24 32 / 0.8) !important;
   border-bottom-color: var(--auxilia-sidebar-border) !important;
+}
+
+/* Version chip next to the wordmark */
+.pm-version-chip {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  color: var(--auxilia-primary);
+  background: var(--auxilia-chip);
+  border-radius: 4px;
+  padding: 3px 7px;
+  margin-left: 4px;
 }
 
 /* ---------------------------------------------------------------- *
  * Navbar-hosted ThemeSwitch — compact button that matches search
  * ---------------------------------------------------------------- */
 .nextra-navbar nav > :last-child [title="Change theme"] {
-  /* Strip the default select chrome so the theme switch looks like an icon button. */
   background: transparent !important;
   border: 1px solid var(--auxilia-sidebar-border) !important;
   color: var(--auxilia-muted) !important;
@@ -186,17 +216,13 @@ html.dark .logo-dark {
 }
 
 .nextra-navbar nav > :last-child [title="Change theme"]:hover {
-  background-color: var(--auxilia-sidebar-accent) !important;
-  color: var(--auxilia-primary-hover) !important;
-  border-color: var(--auxilia-border) !important;
-}
-
-.dark .nextra-navbar nav > :last-child [title="Change theme"]:hover {
+  background-color: var(--auxilia-sidebar-hover) !important;
   color: var(--auxilia-primary) !important;
+  border-color: var(--auxilia-input) !important;
 }
 
 /* ---------------------------------------------------------------- *
- * Sidebar — sage-tinted border, rounded hover chips
+ * Sidebar — petrol active tint, rounded hover chips
  * ---------------------------------------------------------------- */
 .nextra-sidebar,
 .nextra-mobile-nav {
@@ -205,24 +231,33 @@ html.dark .logo-dark {
 
 .nextra-sidebar a,
 .nextra-sidebar button {
-  border-radius: var(--auxilia-radius) !important;
+  border-radius: 7px !important;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .nextra-sidebar a:hover:not([aria-current="page"]),
 .nextra-sidebar button:hover {
-  background-color: var(--auxilia-sidebar-accent) !important;
+  background-color: var(--auxilia-sidebar-hover) !important;
   color: var(--auxilia-fg) !important;
 }
 
-.nextra-sidebar a[aria-current="page"] {
-  background-color: var(--auxilia-sidebar-accent) !important;
-  color: var(--auxilia-primary-hover) !important;
-  font-weight: 600;
+/* Nextra 4 marks the active sidebar item with bg-primary-100 utilities
+ * (no aria-current) — repaint the derived shades to the petrol active
+ * tint: #EDF3F3 bg + ink text (design: active = tint + w600, no hue). */
+.x\:bg-primary-100 {
+  background-color: var(--auxilia-tint) !important;
 }
 
-.dark .nextra-sidebar a[aria-current="page"] {
-  color: var(--auxilia-primary) !important;
+.x\:text-primary-800 {
+  color: var(--auxilia-fg) !important;
+}
+
+.dark .x\:dark\:bg-primary-400\/10 {
+  background-color: var(--auxilia-sidebar-accent) !important;
+}
+
+.dark .x\:dark\:text-primary-600 {
+  color: var(--auxilia-fg) !important;
 }
 
 /* Hide the sidebar footer — the theme switch lives in the navbar now. */
@@ -244,10 +279,6 @@ html.dark .logo-dark {
 }
 
 .nextra-toc a:hover {
-  color: var(--auxilia-primary-hover) !important;
-}
-
-.dark .nextra-toc a:hover {
   color: var(--auxilia-primary) !important;
 }
 
@@ -255,7 +286,7 @@ html.dark .logo-dark {
  * Links in prose
  * ---------------------------------------------------------------- */
 article a:not(.nextra-copy-icon):not(.nextra-focus) {
-  color: var(--auxilia-primary-hover);
+  color: var(--auxilia-primary);
   text-decoration-color: color-mix(in srgb, var(--auxilia-primary) 35%, transparent);
   text-decoration-thickness: 1px;
   text-underline-offset: 0.15em;
@@ -263,46 +294,34 @@ article a:not(.nextra-copy-icon):not(.nextra-focus) {
 }
 
 article a:not(.nextra-copy-icon):not(.nextra-focus):hover {
-  color: var(--auxilia-primary);
+  color: var(--auxilia-primary-hover);
   text-decoration-color: var(--auxilia-primary);
 }
 
-.dark article a:not(.nextra-copy-icon):not(.nextra-focus) {
-  color: var(--auxilia-primary);
+.dark article a:not(.nextra-copy-icon):not(.nextra-focus):hover {
+  color: var(--auxilia-primary-hover);
 }
 
 /* ---------------------------------------------------------------- *
- * Inline code
+ * Inline code — #F1F5F5 chip, no tint
  * ---------------------------------------------------------------- */
 article :not(pre) > code {
-  background-color: color-mix(in srgb, var(--auxilia-primary) 10%, var(--auxilia-surface)) !important;
+  background-color: var(--auxilia-code-bg) !important;
   border: 1px solid var(--auxilia-sidebar-border) !important;
   color: var(--auxilia-fg) !important;
-  border-radius: calc(var(--auxilia-radius) - 2px) !important;
+  border-radius: 6px !important;
   padding: 0.12em 0.38em !important;
   font-size: 0.875em;
 }
 
-.dark article :not(pre) > code {
-  background-color: color-mix(in srgb, var(--auxilia-primary) 14%, var(--auxilia-surface)) !important;
-  border-color: var(--auxilia-border) !important;
-  color: var(--auxilia-fg) !important;
-}
-
 /* ---------------------------------------------------------------- *
- * Code blocks — rounded sage card
+ * Code blocks — hairline border, 12px radius, near-white ground
  * ---------------------------------------------------------------- */
 article pre.nextra-code,
 .nextra-code pre {
   border-radius: var(--auxilia-radius-lg) !important;
-  border: 1.5px solid var(--auxilia-border) !important;
+  border: 1px solid var(--auxilia-border) !important;
   background-color: var(--auxilia-inner-card) !important;
-}
-
-.dark article pre.nextra-code,
-.dark .nextra-code pre {
-  background-color: color-mix(in srgb, #000 30%, var(--auxilia-surface)) !important;
-  border-color: var(--auxilia-border) !important;
 }
 
 .nextra-code > pre {
@@ -314,17 +333,18 @@ article pre.nextra-code,
 .nextra-code [data-language] {
   border-top-left-radius: var(--auxilia-radius-lg) !important;
   border-top-right-radius: var(--auxilia-radius-lg) !important;
-  background-color: color-mix(in srgb, var(--auxilia-primary) 8%, var(--auxilia-surface)) !important;
+  background-color: var(--auxilia-sidebar) !important;
   border-color: var(--auxilia-border) !important;
+  font-family: "IBM Plex Mono", monospace;
 }
 
 .nextra-copy-icon {
-  border-radius: calc(var(--auxilia-radius) - 2px) !important;
+  border-radius: 6px !important;
 }
 
 .nextra-copy-icon:hover {
-  background-color: var(--auxilia-sidebar-accent) !important;
-  color: var(--auxilia-primary-hover) !important;
+  background-color: var(--auxilia-sidebar-hover) !important;
+  color: var(--auxilia-primary) !important;
 }
 
 /* ---------------------------------------------------------------- *
@@ -332,11 +352,11 @@ article pre.nextra-code,
  * ---------------------------------------------------------------- */
 .nextra-callout {
   border-radius: var(--auxilia-radius-lg) !important;
-  border-width: 1.5px !important;
+  border-width: 1px !important;
 }
 
 /* ---------------------------------------------------------------- *
- * Tables — clean sage-bordered, no zebra stripes
+ * Tables — hairline-bordered, no zebra stripes
  * ---------------------------------------------------------------- */
 article table {
   /* Nextra wraps tables in display:block for horizontal scroll, which
@@ -346,7 +366,7 @@ article table {
   width: 100% !important;
   border-collapse: separate !important;
   border-spacing: 0;
-  border: 1.5px solid var(--auxilia-border);
+  border: 1px solid var(--auxilia-border);
   border-radius: var(--auxilia-radius-lg);
   overflow: hidden;
   margin: 1.25em 0;
@@ -360,21 +380,21 @@ article table td {
 }
 
 article table th {
-  background-color: var(--auxilia-sidebar-accent) !important;
-  color: var(--auxilia-fg) !important;
+  background-color: var(--auxilia-sidebar) !important;
+  color: var(--auxilia-muted) !important;
   font-weight: 600 !important;
   text-align: left;
   border-bottom: 1px solid var(--auxilia-border) !important;
 }
 
-/* Every body row: plain white/card background, no zebra striping. */
+/* Every body row: plain card background, no zebra striping. */
 article table tr {
   background-color: var(--auxilia-card) !important;
 }
 
 /* Row separators — everything except the last row. */
 article table tbody tr:not(:last-child) td {
-  border-bottom: 1px solid var(--auxilia-border) !important;
+  border-bottom: 1px solid var(--auxilia-sidebar-border) !important;
 }
 
 .dark article table tr {
@@ -399,11 +419,11 @@ article blockquote {
  * ---------------------------------------------------------------- */
 article hr,
 .nextra-border {
-  border-color: var(--auxilia-border) !important;
+  border-color: var(--auxilia-sidebar-border) !important;
 }
 
 /* ---------------------------------------------------------------- *
- * Body background — softly tinted surface like the app
+ * Body background
  * ---------------------------------------------------------------- */
 body {
   background-color: rgb(var(--nextra-bg));
@@ -411,18 +431,18 @@ body {
 }
 
 /* ---------------------------------------------------------------- *
- * Focus ring — sage, not blue
+ * Focus ring — petrol, not blue
  * ---------------------------------------------------------------- */
 .nextra-focus:focus-visible,
 :focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px rgb(var(--nextra-bg)),
     0 0 0 4px var(--auxilia-primary);
-  border-radius: calc(var(--auxilia-radius) - 2px);
+  border-radius: 6px;
 }
 
 /* ---------------------------------------------------------------- *
- * Scrollbar — thin sage
+ * Scrollbar — thin, faint
  * ---------------------------------------------------------------- */
 .nextra-scrollbar {
   scrollbar-width: thin;
@@ -440,11 +460,234 @@ body {
 }
 
 /* ---------------------------------------------------------------- *
- * Steps — match the rounded sage feel
+ * Steps
  * ---------------------------------------------------------------- */
 .nextra-steps h3::before,
 .nextra-steps h4::before {
   background-color: var(--auxilia-sidebar-accent) !important;
   border-color: var(--auxilia-border) !important;
-  color: var(--auxilia-primary-hover) !important;
+  color: var(--auxilia-primary) !important;
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.dark .nextra-steps h3::before,
+.dark .nextra-steps h4::before {
+  color: var(--auxilia-primary) !important;
+}
+
+/* ================================================================ *
+ * Landing page (design 1c — Petrol Mono)
+ * ================================================================ */
+.pm-landing {
+  max-width: 1120px;
+  margin: 0 auto;
+}
+
+.pm-hero {
+  padding: clamp(40px, 8vh, 88px) 0 0;
+}
+
+.pm-eyebrow {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--auxilia-primary);
+  letter-spacing: 0.06em;
+}
+
+.pm-hero-title {
+  font-family: "Space Grotesk", sans-serif;
+  font-size: clamp(40px, 5.5vw, 68px);
+  font-weight: 700;
+  line-height: 1.03;
+  letter-spacing: -0.035em;
+  color: var(--auxilia-fg);
+  margin: 22px 0 0;
+  max-width: 920px;
+  text-wrap: balance;
+}
+
+.pm-hero-sub {
+  font-size: 18px;
+  line-height: 1.65;
+  color: var(--auxilia-body);
+  margin: 24px 0 0;
+  max-width: 600px;
+  text-wrap: pretty;
+}
+
+.pm-cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  margin-top: 36px;
+}
+
+.pm-btn-ink {
+  display: inline-flex;
+  align-items: center;
+  background: var(--auxilia-panel);
+  color: #ffffff !important;
+  padding: 14px 28px;
+  border-radius: var(--auxilia-radius);
+  font-weight: 600;
+  font-size: 15px;
+  text-decoration: none !important;
+  transition: opacity 0.15s ease;
+}
+
+.pm-btn-ink:hover {
+  opacity: 0.9;
+}
+
+/* Primary button on dark = light fill, ink text (design dark-panel rule). */
+.dark .pm-btn-ink {
+  background: #e6edee;
+  color: #101820 !important;
+}
+
+.pm-clone-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 13.5px;
+  background: var(--auxilia-panel);
+  color: var(--auxilia-terminal);
+  border-radius: var(--auxilia-radius);
+  padding: 14px 20px;
+  white-space: nowrap;
+}
+
+.dark .pm-clone-chip {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.pm-clone-chip .pm-dollar {
+  color: var(--auxilia-terminal-dim);
+}
+
+.pm-clone-copy {
+  appearance: none;
+  background: none;
+  border: none;
+  font: inherit;
+  color: var(--auxilia-terminal-dim);
+  border-left: 1px solid #2a3840;
+  padding: 0 0 0 12px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.pm-clone-copy:hover {
+  color: var(--auxilia-terminal);
+}
+
+.pm-demo {
+  margin-top: 56px;
+}
+
+.pm-demo video {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--auxilia-border);
+  border-radius: var(--auxilia-radius-lg);
+  background: var(--auxilia-inner-card);
+}
+
+/* 4-column numbered feature strip in a single bordered container.
+ * gap:1px over the border colour draws the internal hairlines. */
+.pm-feature-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--auxilia-border);
+  border: 1px solid var(--auxilia-border);
+  border-radius: var(--auxilia-radius-lg);
+  overflow: hidden;
+  margin-top: 56px;
+}
+
+@media (max-width: 1024px) {
+  .pm-feature-strip {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .pm-feature-strip {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pm-feature-cell {
+  background: var(--auxilia-card);
+  padding: 28px;
+}
+
+.pm-feature-num {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  color: var(--auxilia-primary);
+  letter-spacing: 0.08em;
+}
+
+.pm-feature-title {
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--auxilia-fg);
+  margin-top: 10px;
+}
+
+.pm-feature-text {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--auxilia-body);
+  margin: 8px 0 0;
+}
+
+.pm-agent-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 28px;
+}
+
+.pm-agent-chips-label {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+  color: var(--auxilia-muted);
+}
+
+.pm-agent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--auxilia-card);
+  border: 1px solid var(--auxilia-border);
+  border-radius: var(--auxilia-radius);
+  padding: 6px 12px 6px 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--auxilia-fg);
+}
+
+.pm-agent-chip-emoji {
+  display: flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+/* Prose sections below the landing hero */
+.pm-landing-prose {
+  max-width: 820px;
+  margin-top: 72px;
 }
