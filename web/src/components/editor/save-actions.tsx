@@ -1,4 +1,7 @@
-import { SageButton } from "@/components/ui/sage-button";
+import {
+	HeaderButton,
+	HeaderPrimaryButton,
+} from "@/components/layout/subpage-header";
 
 interface SaveActionsProps {
 	isDirty: boolean;
@@ -10,7 +13,7 @@ interface SaveActionsProps {
 	saveLabel?: string;
 }
 
-/** Explicit-save button pair: optional Cancel + primary Save. */
+/** Explicit-save button pair: optional Cancel + primary petrol Save. */
 export function SaveActions({
 	isDirty,
 	isSaving,
@@ -20,27 +23,25 @@ export function SaveActions({
 	saveLabel = "Save changes",
 }: SaveActionsProps) {
 	return (
-		<div className="flex items-center gap-2.5">
+		<>
 			{onCancel && (
-				<SageButton
-					color="outline"
+				<HeaderButton
 					onClick={() => {
 						onCancel();
 					}}
 					disabled={isSaving}
 				>
 					Cancel
-				</SageButton>
+				</HeaderButton>
 			)}
-			<SageButton
-				color="dark"
+			<HeaderPrimaryButton
 				onClick={() => {
 					onSave();
 				}}
 				disabled={!isDirty || !canSave || isSaving}
 			>
-				{isSaving ? "Saving..." : saveLabel}
-			</SageButton>
-		</div>
+				{isSaving ? "Saving…" : saveLabel}
+			</HeaderPrimaryButton>
+		</>
 	);
 }

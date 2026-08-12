@@ -56,3 +56,12 @@ export interface OfficialMCPServer extends MCPServer {
 	isInstalled: boolean;
 	supportsDcr: boolean | null;
 }
+
+/** A user's stored OAuth connection to a server (admin view). `expired`
+ * means the token is past expiry with no refresh token to renew it. */
+export interface MCPServerConnection {
+	userId: string;
+	name?: string | null;
+	email?: string | null;
+	status: "active" | "expired";
+}

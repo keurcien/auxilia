@@ -1,37 +1,80 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Trash2, Plus, KeyRound } from "lucide-react";
+import { Copy, Check, KeyRound, Plus, Trash2 } from "lucide-react";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
-import CreateTokenDialog from "./create-token-dialog";
+import CreateTokenDialog, { type PersonalAccessToken } from "./create-token-dialog";
 import WorkspaceModels from "./workspace-models";
-import { Button } from "@/components/ui/button";
-import { PageContainer } from "@/components/layout/page-container";
+import { SubpageHeader } from "@/components/layout/subpage-header";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { api } from "@/lib/api/client";
+import { useQueryParamState } from "@/hooks/use-query-param-state";
 import { useUserStore } from "@/stores/user-store";
 
-interface PersonalAccessToken {
-	id: string;
-	name: string;
-	prefix: string;
-	createdAt: string;
+function formatDate(dateStr: string): string {
+	return new Date(dateStr)
+		.toLocaleDateString("en-US", {
+			year: "numeric",
+			month: "short",
+			day: "numeric",
+		})
+		.toLowerCase();
 }
 
-function formatDate(dateStr: string): string {
-	return new Date(dateStr).toLocaleDateString("en-US", {
-		year: "numeric",
-		month: "short",
-		day: "numeric",
-	});
+/** One-time reveal of a freshly created token (design 18a banner). */
+function TokenRevealBanner({ plaintext }: { plaintext: string }) {
+	const [copied, setCopied] = useState(false);
+
+	const handleCopy = () => {
+		void navigator.clipboard.writeText(plaintext).then(() => {
+			setCopied(true);
+			setTimeout(() => {
+				setCopied(false);
+			}, 2000);
+		});
+	};
+
+	return (
+		<div className="mb-3 flex items-center gap-3 rounded-[10px] border border-sparkline bg-[#F2F8F8] px-4 py-[13px] dark:border-petrol/40 dark:bg-petrol/10">
+			<span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-[#DCE9EB] bg-white text-petrol dark:border-white/10 dark:bg-white/10 dark:text-panel-terminal">
+				<KeyRound className="size-[15px]" />
+			</span>
+			<span className="min-w-0 flex-1">
+				<span className="block text-[13px] font-semibold text-foreground">
+					Copy your new token now — you won&apos;t be able to see it again.
+				</span>
+				<span className="mt-[3px] block truncate font-mono text-[12px] text-petrol dark:text-panel-terminal">
+					{plaintext}
+				</span>
+			</span>
+			<button
+				type="button"
+				onClick={handleCopy}
+				className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-[7px] bg-petrol px-3.5 py-[7px] text-[12.5px] font-semibold text-white transition-opacity hover:opacity-90"
+			>
+				{copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+				{copied ? "Copied!" : "Copy"}
+			</button>
+		</div>
+	);
 }
+
+type SettingsTab = "tokens" | "models";
 
 export default function SettingsPage() {
 	const [tokens, setTokens] = useState<PersonalAccessToken[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
+	const [revealedToken, setRevealedToken] = useState<string | null>(null);
+	const [modelCount, setModelCount] = useState<number | null>(null);
 	const [errorDialogOpen, setErrorDialogOpen] = useState(false);
 	const [createDialogOpen, setCreateDialogOpen] = useState(false);
 	const user = useUserStore((state) => state.user);
 	const fetchUser = useUserStore((state) => state.fetchUser);
+	const isAdmin = user?.role === "admin";
+
+	const [tabParam, setTab] = useQueryParamState("tab", "tokens");
+	const tab: SettingsTab =
+		tabParam === "models" && isAdmin ? "models" : "tokens";
 
 	useEffect(() => {
 		void fetchUser();
@@ -56,18 +99,18 @@ export default function SettingsPage() {
 				setIsLoading(false);
 			}
 		};
-		fetchTokens();
+		void fetchTokens();
 	}, []);
 
-	const handleDelete = async (tokenId: string) => {
+	const handleDelete = async (token: PersonalAccessToken) => {
 		const confirmed = window.confirm(
 			"Are you sure you want to revoke this token? Any services using it will lose access.",
 		);
 		if (!confirmed) return;
 
 		try {
-			await api.delete(`/auth/tokens/${tokenId}`);
-			setTokens((prev) => prev.filter((t) => t.id !== tokenId));
+			await api.delete(`/auth/tokens/${token.id}`);
+			setTokens((prev) => prev.filter((t) => t.id !== token.id));
 		} catch (error: unknown) {
 			if (
 				error instanceof Object &&
@@ -81,22 +124,64 @@ export default function SettingsPage() {
 		}
 	};
 
-	const handleCreate = () => {
-		try {
-			setCreateDialogOpen(true);
-		} catch (error: unknown) {
-			if (
-				error instanceof Object &&
-				"status" in error &&
-				error.status === 403
-			) {
-				setErrorDialogOpen(true);
-			}
-		}
-	};
+	const tokenColumns: DataTableColumn<PersonalAccessToken>[] = [
+		{
+			key: "token",
+			header: "Token",
+			width: "minmax(0, 1fr)",
+			cell: (token) => (
+				<div className="min-w-0">
+					<span className="block truncate text-[13.5px] font-semibold text-foreground">
+						{token.name}
+					</span>
+					<span className="mt-0.5 block truncate font-mono text-[10.5px] text-meta dark:text-panel-dim">
+						{token.prefix}…
+					</span>
+				</div>
+			),
+		},
+		{
+			key: "created",
+			header: "Created",
+			width: "160px",
+			mobileWidth: "auto",
+			cell: (token) => (
+				<span className="font-mono text-[11px] text-subtle dark:text-muted-foreground">
+					{formatDate(token.createdAt)}
+				</span>
+			),
+		},
+		{
+			key: "actions",
+			header: "",
+			width: "40px",
+			cell: (token) => (
+				<button
+					type="button"
+					title="Revoke token"
+					aria-label={`Revoke ${token.name}`}
+					onClick={() => {
+						void handleDelete(token);
+					}}
+					className="flex size-7 cursor-pointer items-center justify-center rounded-[7px] text-meta transition-colors hover:bg-[#FBEFED] hover:text-[#B04A3A] dark:hover:bg-rose-950"
+				>
+					<Trash2 className="size-3.5" />
+				</button>
+			),
+		},
+	];
+
+	const railTabClass = (active: boolean) =>
+		`flex cursor-pointer items-center gap-2 border-l-2 px-3 py-[7px] text-left text-[13px] transition-colors ${
+			active
+				? "border-petrol font-semibold text-foreground"
+				: "border-transparent font-medium text-subtle hover:text-foreground dark:text-panel-body"
+		}`;
 
 	return (
-		<PageContainer>
+		<div className="flex h-svh min-w-0 flex-1 flex-col bg-background animate-in fade-in duration-300">
+			<SubpageHeader trail={[{ label: "workspace" }, { label: "settings" }]} />
+
 			<ForbiddenErrorDialog
 				open={errorDialogOpen}
 				onOpenChange={setErrorDialogOpen}
@@ -106,115 +191,109 @@ export default function SettingsPage() {
 			<CreateTokenDialog
 				open={createDialogOpen}
 				onOpenChange={setCreateDialogOpen}
-				onTokenCreated={(token) => {
+				onTokenCreated={(token, plaintext) => {
 					setTokens((prev) => [token, ...prev]);
+					setRevealedToken(plaintext);
 				}}
 			/>
 
-			<div className="flex items-center justify-between my-8">
-				<h1 className="font-primary font-extrabold text-2xl md:text-4xl tracking-tighter text-[#2A2F2D] dark:text-white">
-					Settings
-				</h1>
-				<Button
-					className="flex items-center gap-2 py-2.5 md:py-5 bg-[#2A2F2D] text-sm md:text-base font-semibold text-white rounded-[14px] hover:opacity-90 transition-opacity cursor-pointer shadow-[0_4px_14px_rgba(118,181,160,0.14)] border-none"
-					onClick={handleCreate}
-				>
-					<Plus className="w-4 h-4" />
-					Generate token
-				</Button>
-			</div>
-
-			<h2 className="font-primary font-bold text-lg tracking-tight text-[#2A2F2D] dark:text-white mb-2">
-				Personal access tokens
-			</h2>
-
-			<div className="rounded-[20px] border bg-card overflow-hidden">
-				<table className="w-full">
-					<thead>
-						<tr className="border-b bg-muted/50">
-							<th className="px-6 py-3 text-left text-xs text-muted-foreground font-semibold uppercase tracking-wider">
-								Token
-							</th>
-							<th className="px-6 py-3 text-left text-xs text-muted-foreground font-semibold uppercase tracking-wider">
-								Created
-							</th>
-							<th className="w-16 px-6 py-3" />
-						</tr>
-					</thead>
-					<tbody>
-						{isLoading ? (
-							<tr>
-								<td
-									colSpan={3}
-									className="px-6 py-12 text-center text-muted-foreground"
-								>
-									Loading...
-								</td>
-							</tr>
-						) : tokens.length === 0 ? (
-							<tr>
-								<td
-									colSpan={3}
-									className="px-6 py-12 text-center"
-								>
-									<div className="flex flex-col items-center gap-2">
-										<KeyRound className="h-8 w-8 text-muted-foreground/50" />
-										<p className="text-muted-foreground">
-											No personal access tokens yet.
-										</p>
-										<p className="text-sm text-muted-foreground/70">
-											Generate a token to authenticate external services.
-										</p>
-									</div>
-								</td>
-							</tr>
-						) : (
-							tokens.map((token) => (
-								<tr
-									key={token.id}
-									className="border-b last:border-b-0 hover:bg-muted/30 transition-colors"
-								>
-									<td className="px-6 py-4">
-										<div className="flex flex-col gap-0.5">
-											<span className="text-sm font-medium text-foreground">
-												{token.name}
-											</span>
-											<span className="text-xs text-muted-foreground font-mono">
-												{token.prefix}...
-											</span>
-										</div>
-									</td>
-									<td className="px-6 py-4">
-										<span className="text-sm text-muted-foreground">
-											{formatDate(token.createdAt)}
-										</span>
-									</td>
-									<td className="px-6 py-4">
-										<Button
-											variant="ghost"
-											size="icon"
-											className="h-8 w-8 text-muted-foreground hover:text-destructive cursor-pointer"
-											onClick={() => {
-											void handleDelete(token.id);
-										}}
-										>
-											<Trash2 className="h-4 w-4" />
-										</Button>
-									</td>
-								</tr>
-							))
+			<div className="flex min-h-0 flex-1">
+				{/* Left rail: title + vertical section tabs */}
+				<div className="w-[200px] flex-none pl-7 pt-8">
+					<h1 className="mb-[18px] pl-3.5 font-display text-[22px] font-bold tracking-[-0.03em] text-foreground">
+						Settings
+					</h1>
+					<div className="flex flex-col gap-0.5">
+						<button
+							type="button"
+							className={railTabClass(tab === "tokens")}
+							onClick={() => {
+								setTab("tokens");
+							}}
+						>
+							Access tokens
+							<span className="font-mono text-[10.5px] font-normal text-meta dark:text-panel-dim">
+								{tokens.length}
+							</span>
+						</button>
+						{isAdmin && (
+							<button
+								type="button"
+								className={railTabClass(tab === "models")}
+								onClick={() => {
+									setTab("models");
+								}}
+							>
+								Models
+								{modelCount !== null && (
+									<span className="font-mono text-[10.5px] font-normal text-meta dark:text-panel-dim">
+										{modelCount}
+									</span>
+								)}
+							</button>
 						)}
-					</tbody>
-				</table>
-			</div>
+					</div>
+				</div>
 
-			{user?.role === "admin" && (
-				<WorkspaceModels
-					onForbidden={() => {
-						setErrorDialogOpen(true);
-					}}
-				/>
-			)}
-		</PageContainer>
+				{/* Content */}
+				<div className="min-w-0 flex-1 overflow-y-auto px-9 py-8 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+					<div className="mx-auto max-w-[800px]">
+						{/* Access tokens — kept mounted so the rail count stays live */}
+						<section className={tab === "tokens" ? "" : "hidden"}>
+							<div className="mb-1.5 flex items-baseline gap-2.5">
+								<span className="font-mono text-[10.5px] font-semibold tracking-[0.09em] text-subtle dark:text-panel-dim">
+									PERSONAL ACCESS TOKENS
+								</span>
+								<span className="flex-1" />
+								<button
+									type="button"
+									onClick={() => {
+										setCreateDialogOpen(true);
+									}}
+									className="flex cursor-pointer items-center gap-1.5 rounded-[7px] bg-primary px-4 py-2 text-[12.5px] font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+								>
+									<Plus className="size-3.5" />
+									Generate token
+								</button>
+							</div>
+							<p className="mb-3.5 max-w-[620px] text-[13px] leading-[1.55] text-subtle dark:text-panel-body">
+								Authenticate external services against the API — n8n, the
+								invoke endpoint, scripts. Tokens act as you.
+							</p>
+
+							{revealedToken && <TokenRevealBanner plaintext={revealedToken} />}
+
+							<DataTable
+								columns={tokenColumns}
+								rows={tokens}
+								rowKey={(token) => token.id}
+								isLoading={isLoading}
+								emptyMessage={
+									<span>
+										No personal access tokens yet.
+										<br />
+										<span className="text-[13px] font-normal">
+											Generate a token to authenticate external services.
+										</span>
+									</span>
+								}
+							/>
+						</section>
+
+						{/* Workspace models — admin only */}
+						{isAdmin && (
+							<section className={tab === "models" ? "" : "hidden"}>
+								<WorkspaceModels
+									onForbidden={() => {
+										setErrorDialogOpen(true);
+									}}
+									onCountChange={setModelCount}
+								/>
+							</section>
+						)}
+					</div>
+				</div>
+			</div>
+		</div>
 	);
 }

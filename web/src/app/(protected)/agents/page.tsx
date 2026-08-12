@@ -12,6 +12,7 @@ import {
 	WorkspaceTopBarButton,
 } from "@/components/layout/workspace-page";
 import { useUserStore } from "@/stores/user-store";
+import { useQueryParamState } from "@/hooks/use-query-param-state";
 
 const VIEW_MODE_STORAGE_KEY = "agents:view-mode";
 
@@ -56,10 +57,10 @@ export default function AgentsPage() {
 	const router = useRouter();
 	const user = useUserStore((state) => state.user);
 	const [errorDialogOpen, setErrorDialogOpen] = useState(false);
-	const [search, setSearch] = useState("");
-	const [view, setView] = useState<"available" | "all" | "archived">(
-		"available",
-	);
+	const [search, setSearch] = useQueryParamState("q");
+	const [viewParam, setView] = useQueryParamState("view", "available");
+	const view: "available" | "all" | "archived" =
+		viewParam === "all" || viewParam === "archived" ? viewParam : "available";
 	const viewMode = useSyncExternalStore(
 		subscribeViewMode,
 		readViewMode,
@@ -80,6 +81,7 @@ export default function AgentsPage() {
 			slug="agents"
 			title="Agents"
 			intro="Assistants connected to your team's tools. Chat with them, or let triggers run them on a schedule."
+			fillHeight={viewMode === "table"}
 			search={{
 				placeholder: "Search agents…",
 				value: search,

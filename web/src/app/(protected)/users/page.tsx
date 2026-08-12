@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import {
-	Trash2,
+	X,
 	Plus,
 	Copy,
 	Check,
@@ -10,11 +10,11 @@ import {
 	ChevronDown,
 	MoreVertical,
 	Pencil,
+	Trash2,
 } from "lucide-react";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import InviteDialog from "./invite-dialog";
 import NewTeamDialog, { type Team } from "./new-team-dialog";
-import { UnderlineTabs } from "@/components/ui/underline-tabs";
 import {
 	WorkspacePage,
 	WorkspaceTopBarButton,
@@ -23,6 +23,7 @@ import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { SageDropdownMenu } from "@/components/ui/sage-dropdown-menu";
 import { api } from "@/lib/api/client";
 import { useUserStore } from "@/stores/user-store";
+import { useQueryParamState } from "@/hooks/use-query-param-state";
 import type { Paginated } from "@/types/api";
 
 interface User {
@@ -61,12 +62,16 @@ const ROLE_LABELS: Record<Role, string> = {
 	member: "Member",
 };
 
-// Only the dot is tinted; the role-control chrome stays neutral.
+// Only the dot is tinted; the role-control chrome stays neutral (design 13c).
 const ROLE_DOT: Record<Role, string> = {
-	admin: "#2f6f4e",
-	editor: "#9a7b3c",
-	member: "#6f7670",
+	admin: "#1E7A56",
+	editor: "#B07A2A",
+	member: "#8A9AA0",
 };
+
+// Bordered dropdown chip shared by the role and team controls.
+const CHIP_CLASS =
+	"inline-flex items-center gap-[7px] rounded-[7px] border border-border bg-card px-2.5 py-[5px] text-[12.5px] font-medium text-foreground cursor-pointer transition-colors hover:border-border-hover dark:border-white/10";
 
 const ROLE_FILTERS: { key: "all" | Role; label: string }[] = [
 	{ key: "all", label: "All" },
@@ -109,9 +114,17 @@ export default function UsersPage() {
 	const [roleCounts, setRoleCounts] = useState<RoleCounts | null>(null);
 	const [invites, setInvites] = useState<Invite[]>([]);
 	const [teams, setTeams] = useState<Team[]>([]);
-	const [search, setSearch] = useState("");
-	const [debouncedSearch, setDebouncedSearch] = useState("");
-	const [roleFilter, setRoleFilter] = useState<"all" | Role>("all");
+	const [search, setSearch] = useQueryParamState("q");
+	// Seed the debounced value from the restored search so back navigation
+	// doesn't flash an unfiltered page before the debounce settles.
+	const [debouncedSearch, setDebouncedSearch] = useState(search.trim());
+	const [roleFilterParam, setRoleFilter] = useQueryParamState("role", "all");
+	const roleFilter: "all" | Role =
+		roleFilterParam === "admin" ||
+		roleFilterParam === "editor" ||
+		roleFilterParam === "member"
+			? roleFilterParam
+			: "all";
 	const [isLoading, setIsLoading] = useState(true);
 	const [errorDialogOpen, setErrorDialogOpen] = useState(false);
 	const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
@@ -362,27 +375,27 @@ export default function UsersPage() {
 		{
 			key: "name",
 			header: "Name",
-			width: "1fr",
+			width: "minmax(0, 1.4fr)",
 			cell: (user) => {
 				const isCurrentUser = user.id === currentUser?.id;
 				return (
 					<div className="flex min-w-0 items-center gap-3">
-						<span className="flex size-[34px] shrink-0 items-center justify-center rounded-full bg-[#e7f0eb] font-[family-name:var(--font-jakarta-sans)] text-[11.5px] font-bold text-[#3d8b63] dark:bg-emerald-950 dark:text-emerald-300">
+						<span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-[10.5px] font-bold text-white dark:bg-white/15">
 							{getInitials(user.name)}
 						</span>
 						<div className="min-w-0">
 							<div className="flex min-w-0 items-center gap-2">
-								<span className="truncate font-[family-name:var(--font-jakarta-sans)] text-[13.5px] font-semibold tracking-[-0.01em] text-[#1e2d28] dark:text-foreground">
+								<span className="truncate text-[13.5px] font-semibold text-foreground">
 									{user.name || "Unnamed"}
 								</span>
 								{isCurrentUser && (
-									<span className="shrink-0 rounded-[5px] bg-[#e7f0eb] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-[0.06em] text-[#3d8b63] dark:bg-emerald-950 dark:text-emerald-300">
-										You
+									<span className="shrink-0 rounded-[4px] bg-petrol-tint px-1.5 py-0.5 font-mono text-[9px] font-bold tracking-[0.06em] text-petrol">
+										YOU
 									</span>
 								)}
 							</div>
 							{/* Email folds under the name on mobile; own column on md+ */}
-							<span className="block truncate font-mono text-[11px] text-[#94a59d] dark:text-muted-foreground md:hidden">
+							<span className="block truncate font-mono text-[11px] text-meta dark:text-panel-dim md:hidden">
 								{user.email}
 							</span>
 						</div>
@@ -393,10 +406,10 @@ export default function UsersPage() {
 		{
 			key: "email",
 			header: "Email",
-			width: "200px",
+			width: "230px",
 			hideBelowMd: true,
 			cell: (user) => (
-				<span className="block truncate font-mono text-[12px] text-[#5f7068] dark:text-muted-foreground">
+				<span className="block truncate font-mono text-[11.5px] text-subtle dark:text-muted-foreground">
 					{user.email}
 				</span>
 			),
@@ -404,12 +417,12 @@ export default function UsersPage() {
 		{
 			key: "role",
 			header: "Role",
-			width: "120px",
+			width: "130px",
 			mobileWidth: "auto",
 			cell: (user) => {
 				const isCurrentUser = user.id === currentUser?.id;
 				return isCurrentUser ? (
-					<span className="inline-flex items-center gap-2 font-[family-name:var(--font-dm-sans)] text-[13px] font-medium text-[#5f7068] dark:text-muted-foreground">
+					<span className="inline-flex items-center gap-[7px] px-2.5 py-[5px] text-[12.5px] font-medium text-subtle dark:text-muted-foreground">
 						<span
 							className="size-1.5 rounded-full"
 							style={{ background: ROLE_DOT[user.role] }}
@@ -419,13 +432,13 @@ export default function UsersPage() {
 				) : (
 					<SageDropdownMenu
 						trigger={
-							<button className="inline-flex items-center gap-2 rounded-lg border border-[#e1ebe6] bg-white px-2.5 py-[5px] font-[family-name:var(--font-dm-sans)] text-[13px] font-medium text-[#1e2d28] cursor-pointer transition-colors hover:border-[#A3B5AD] dark:border-white/10 dark:bg-transparent dark:text-foreground">
+							<button className={CHIP_CLASS}>
 								<span
 									className="size-1.5 rounded-full"
 									style={{ background: ROLE_DOT[user.role] }}
 								/>
 								{ROLE_LABELS[user.role]}
-								<ChevronDown className="size-3.5 text-[#94a59d]" />
+								<ChevronDown className="size-3.5 text-meta" />
 							</button>
 						}
 						items={[
@@ -440,7 +453,7 @@ export default function UsersPage() {
 		{
 			key: "team",
 			header: "Team",
-			width: "150px",
+			width: "160px",
 			hideBelowMd: true,
 			cell: (user) => {
 				const team = user.teamId ? teamsById.get(user.teamId) : undefined;
@@ -449,19 +462,19 @@ export default function UsersPage() {
 						align="start"
 						trigger={
 							team ? (
-								<button className="inline-flex max-w-full items-center gap-2 rounded-lg border border-[#e1ebe6] bg-white px-2.5 py-[5px] font-[family-name:var(--font-dm-sans)] text-[13px] font-medium text-[#1e2d28] cursor-pointer transition-colors hover:border-[#A3B5AD] dark:border-white/10 dark:bg-transparent dark:text-foreground">
+								<button className={`${CHIP_CLASS} max-w-full`}>
 									<span
 										className="size-1.5 shrink-0 rounded-full"
 										style={{ background: team.color ?? "#9E9E9E" }}
 									/>
 									<span className="truncate">{team.name}</span>
-									<ChevronDown className="size-3.5 shrink-0 text-[#94a59d]" />
+									<ChevronDown className="size-3.5 shrink-0 text-meta" />
 								</button>
 							) : (
-								<button className="inline-flex items-center gap-2 rounded-lg border border-dashed border-[#d8e3dd] bg-transparent px-2.5 py-[5px] font-[family-name:var(--font-dm-sans)] text-[13px] font-medium text-[#94a59d] cursor-pointer transition-colors hover:border-[#A3B5AD] hover:text-[#5f7068] dark:border-white/15">
-									<span className="size-1.5 shrink-0 rounded-full border border-[#c3d2cb] dark:border-white/20" />
+								<button className="inline-flex cursor-pointer items-center gap-[7px] rounded-[7px] border border-dashed border-input bg-transparent px-2.5 py-[5px] text-[12.5px] font-medium text-meta transition-colors hover:border-border-hover hover:text-subtle dark:border-white/15">
+									<span className="size-1.5 shrink-0 rounded-full border border-faint dark:border-white/20" />
 									No team
-									<ChevronDown className="size-3.5 shrink-0 text-[#94a59d]" />
+									<ChevronDown className="size-3.5 shrink-0 text-meta" />
 								</button>
 							)
 						}
@@ -503,17 +516,18 @@ export default function UsersPage() {
 		{
 			key: "actions",
 			header: "",
-			width: "34px",
+			width: "36px",
 			cell: (user) => {
 				const isCurrentUser = user.id === currentUser?.id;
 				return (
 					<div className="flex justify-center">
 						{!isCurrentUser && (
 							<button
-								className="flex size-7 items-center justify-center rounded-[7px] text-[#94a59d] opacity-100 transition-all hover:bg-[#fbe5e3] hover:text-[#b03a30] cursor-pointer md:opacity-0 md:group-hover:opacity-100 dark:hover:bg-rose-950"
+								aria-label={`Remove ${user.name || user.email || "user"}`}
+								className="flex size-7 cursor-pointer items-center justify-center rounded-[7px] text-ghost opacity-100 transition-all hover:bg-[#FBEFED] hover:text-[#B04A3A] md:opacity-0 md:group-hover:opacity-100 dark:hover:bg-rose-950"
 								onClick={() => { void handleRemoveUser(user.id, user.name); }}
 							>
-								<Trash2 className="size-[15px]" />
+								<X className="size-[15px]" />
 							</button>
 						)}
 					</div>
@@ -542,20 +556,6 @@ export default function UsersPage() {
 					Invite user
 				</WorkspaceTopBarButton>
 			}
-			headerRight={
-				<UnderlineTabs
-					tabs={ROLE_FILTERS.map((filter) => ({
-						key: filter.key,
-						label: filter.label,
-						count:
-							filter.key === "all"
-								? roleCounts?.total
-								: roleCounts?.[filter.key],
-					}))}
-					value={roleFilter}
-					onChange={handleRoleFilterChange}
-				/>
-			}
 		>
 			<ForbiddenErrorDialog
 				open={errorDialogOpen}
@@ -582,6 +582,38 @@ export default function UsersPage() {
 				onTeamCreated={handleTeamCreated}
 				onTeamUpdated={handleTeamUpdated}
 			/>
+			{/* Role filter chips (design 13c: pills above the table) */}
+			<div className="flex flex-wrap items-center gap-2 pb-[18px] pt-1.5">
+				{ROLE_FILTERS.map((filter) => {
+					const active = roleFilter === filter.key;
+					const count =
+						filter.key === "all" ? roleCounts?.total : roleCounts?.[filter.key];
+					return (
+						<button
+							key={filter.key}
+							type="button"
+							onClick={() => {
+								handleRoleFilterChange(filter.key);
+							}}
+							className={
+								active
+									? "inline-flex cursor-pointer items-center gap-[7px] rounded-full bg-petrol-tint px-[13px] py-1.5 text-[12.5px] font-semibold text-petrol"
+									: "inline-flex cursor-pointer items-center gap-[7px] rounded-full border border-border px-[13px] py-1.5 text-[12.5px] font-medium text-subtle transition-colors hover:bg-sidebar dark:border-white/10 dark:text-panel-body dark:hover:bg-white/5"
+							}
+						>
+							{filter.label}
+							{count !== undefined && (
+								<span
+									className={`font-mono text-[10.5px] ${active ? "opacity-70" : "text-meta dark:text-panel-dim"}`}
+								>
+									{count}
+								</span>
+							)}
+						</button>
+					);
+				})}
+			</div>
+
 			{/* Member list */}
 			<DataTable
 				columns={columns}
@@ -598,21 +630,22 @@ export default function UsersPage() {
 					limit: PAGE_SIZE,
 					offset,
 					onOffsetChange: setOffset,
+					itemLabel: total === 1 ? "user" : "users",
 				}}
 			/>
 
 			{/* Teams */}
-			<div className="flex items-baseline gap-2.5 pt-6 pb-3">
-				<span className="font-[family-name:var(--font-jakarta-sans)] text-[14px] font-bold tracking-[-0.01em] text-[#1e2d28] dark:text-foreground">
+			<div className="flex items-baseline gap-2.5 pt-[18px] pb-3">
+				<span className="text-[14px] font-bold tracking-[-0.01em] text-foreground">
 					Teams
 				</span>
-				<span className="text-[11.5px] text-[#94a59d]">
+				<span className="font-mono text-[10.5px] text-meta dark:text-panel-dim">
 					{teams.length}
 				</span>
-				<span className="h-px flex-1 self-center bg-[#e1ebe6] dark:bg-white/10" />
+				<span className="h-px flex-1 self-center bg-border dark:bg-white/10" />
 				<button
 					onClick={openCreateTeam}
-					className="inline-flex items-center gap-1.5 rounded-lg border border-[#e1ebe6] px-3 py-1.5 font-[family-name:var(--font-dm-sans)] text-[12px] font-medium text-[#5f7068] cursor-pointer transition-colors hover:bg-[#f8faf9] dark:border-white/10 dark:text-muted-foreground dark:hover:bg-white/5"
+					className="inline-flex cursor-pointer items-center gap-1.5 rounded-[7px] border border-border px-3 py-1.5 text-[12px] font-semibold text-subtle transition-colors hover:bg-sidebar dark:border-white/10 dark:text-muted-foreground dark:hover:bg-white/5"
 				>
 					<Plus className="size-3.5" />
 					New team
@@ -620,29 +653,29 @@ export default function UsersPage() {
 			</div>
 
 			{teams.length === 0 ? (
-				<div className="rounded-[14px] border border-dashed border-[#d8e3dd] bg-transparent px-[18px] py-8 text-center text-[14px] font-medium text-[#A3B5AD] dark:border-white/10 dark:text-muted-foreground">
+				<div className="rounded-[10px] border border-dashed border-input bg-transparent px-[18px] py-8 text-center text-[14px] font-medium text-faint dark:border-white/10 dark:text-muted-foreground">
 					No teams yet. Create one to group members.
 				</div>
 			) : (
-				<div className="overflow-hidden rounded-[14px] border border-[#e1ebe6] bg-white dark:border-white/10 dark:bg-card">
+				<div className="overflow-hidden rounded-[10px] border border-border bg-card dark:border-white/10">
 					{teams.map((team) => (
 						<div
 							key={team.id}
-							className="group flex items-center gap-3 border-b border-[#edf2ef] px-[18px] py-[11px] transition-colors duration-[110ms] last:border-b-0 hover:bg-[#eff4f1] dark:border-white/5 dark:hover:bg-white/5"
+							className="group flex items-center gap-3 border-b border-hairline px-4 py-[11px] transition-colors duration-[110ms] last:border-b-0 hover:bg-sidebar dark:border-white/5 dark:hover:bg-white/5"
 						>
 							<span
-								className="block size-2.5 shrink-0 rounded-full"
+								className="block size-[9px] shrink-0 rounded-full"
 								style={{ background: team.color ?? "#9E9E9E" }}
 							/>
-							<span className="flex-1 truncate font-[family-name:var(--font-jakarta-sans)] text-[13.5px] font-semibold tracking-[-0.01em] text-[#1e2d28] dark:text-foreground">
+							<span className="flex-1 truncate text-[13.5px] font-semibold text-foreground">
 								{team.name}
 							</span>
-							<span className="shrink-0 text-[11.5px] text-[#94a59d]">
+							<span className="shrink-0 font-mono text-[10.5px] text-meta dark:text-panel-dim">
 								{team.memberCount} member{team.memberCount === 1 ? "" : "s"}
 							</span>
 							<SageDropdownMenu
 								trigger={
-									<button className="flex size-7 items-center justify-center rounded-[7px] text-[#94a59d] cursor-pointer transition-all hover:bg-[#edf2ef] md:opacity-0 md:group-hover:opacity-100 dark:hover:bg-white/10">
+									<button className="flex size-7 cursor-pointer items-center justify-center rounded-[7px] text-meta transition-all hover:bg-hover md:opacity-0 md:group-hover:opacity-100 dark:hover:bg-white/10">
 										<MoreVertical className="size-[18px]" />
 									</button>
 								}
@@ -670,32 +703,32 @@ export default function UsersPage() {
 			{/* Pending invites */}
 			{invites.length > 0 && (
 				<>
-					<div className="flex items-baseline gap-2.5 pt-6 pb-3">
-						<span className="font-[family-name:var(--font-jakarta-sans)] text-[14px] font-bold tracking-[-0.01em] text-[#1e2d28] dark:text-foreground">
+					<div className="flex items-baseline gap-2.5 pt-[22px] pb-3">
+						<span className="text-[14px] font-bold tracking-[-0.01em] text-foreground">
 							Pending invites
 						</span>
-						<span className="text-[11.5px] text-[#94a59d]">
+						<span className="font-mono text-[10.5px] text-meta dark:text-panel-dim">
 							{invites.length}
 						</span>
-						<span className="h-px flex-1 self-center bg-[#e1ebe6] dark:bg-white/10" />
+						<span className="h-px flex-1 self-center bg-border dark:bg-white/10" />
 					</div>
 
-					<div className="overflow-hidden rounded-[14px] border border-[#e1ebe6] bg-white dark:border-white/10 dark:bg-card">
+					<div className="overflow-hidden rounded-[10px] border border-border bg-card dark:border-white/10">
 						{invites.map((invite) => (
 							<div
 								key={invite.id}
-								className="flex flex-col gap-3 border-b border-[#edf2ef] px-[18px] py-[11px] last:border-b-0 md:grid md:grid-cols-[1fr_140px_auto] md:items-center md:gap-4 dark:border-white/5"
+								className="flex flex-col gap-3 border-b border-hairline px-4 py-[11px] last:border-b-0 md:grid md:grid-cols-[1fr_150px_auto] md:items-center md:gap-4 dark:border-white/5"
 							>
 								{/* Envelope + email + meta */}
 								<div className="flex min-w-0 items-center gap-3">
-									<span className="flex size-[34px] shrink-0 items-center justify-center rounded-full border border-dashed border-[#e1ebe6] bg-surface text-[#94a59d] dark:border-white/10 dark:bg-white/5">
-										<Mail className="size-[15px]" />
+									<span className="flex size-8 shrink-0 items-center justify-center rounded-full border border-dashed border-input text-meta dark:border-white/15">
+										<Mail className="size-[14px]" />
 									</span>
 									<div className="min-w-0">
-										<div className="truncate font-mono text-[12.5px] font-medium text-[#1e2d28] dark:text-foreground">
+										<div className="truncate font-mono text-[12px] font-medium text-foreground">
 											{invite.email}
 										</div>
-										<div className="truncate text-[11px] text-[#94a59d] mt-0.5">
+										<div className="mt-0.5 truncate text-[11.5px] text-meta dark:text-panel-dim">
 											Invited {timeAgo(invite.createdAt)} · by{" "}
 											{getInviterShortName(invite.invitedByName)}
 										</div>
@@ -703,8 +736,8 @@ export default function UsersPage() {
 								</div>
 
 								{/* Status pill */}
-								<span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-[#fbf2da] px-2.5 py-1 text-[11px] font-semibold text-[#9a7b14] dark:bg-amber-950 dark:text-amber-300">
-									<span className="size-[5px] rounded-full bg-[#d4a017]" />
+								<span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-warning-bg px-2.5 py-1 text-[11px] font-semibold text-warning dark:bg-amber-950 dark:text-amber-300">
+									<span className="size-[5px] rounded-full bg-warning" />
 									{invite.role in ROLE_LABELS
 										? ROLE_LABELS[invite.role as Role]
 										: invite.role}{" "}
@@ -714,7 +747,7 @@ export default function UsersPage() {
 								{/* Actions */}
 								<div className="flex items-center gap-1.5">
 									<button
-										className="flex items-center gap-1.5 rounded-lg border border-[#e1ebe6] px-3 py-1.5 font-[family-name:var(--font-dm-sans)] text-[12px] font-medium text-[#5f7068] cursor-pointer transition-colors hover:bg-[#f8faf9] dark:border-white/10 dark:text-muted-foreground dark:hover:bg-white/5"
+										className="flex cursor-pointer items-center gap-1.5 rounded-[7px] border border-border px-3 py-1.5 text-[12px] font-medium text-subtle transition-colors hover:bg-sidebar dark:border-white/10 dark:text-muted-foreground dark:hover:bg-white/5"
 										onClick={() => { void handleCopyInviteLink(invite); }}
 									>
 										{copiedInviteId === invite.id ? (
@@ -725,7 +758,7 @@ export default function UsersPage() {
 										{copiedInviteId === invite.id ? "Copied!" : "Copy link"}
 									</button>
 									<button
-										className="rounded-lg border border-[#e1ebe6] px-3 py-1.5 font-[family-name:var(--font-dm-sans)] text-[12px] font-medium text-[#b03a30] cursor-pointer transition-colors hover:bg-[#fbe5e3] dark:border-white/10 dark:hover:bg-rose-950"
+										className="cursor-pointer rounded-[7px] border border-border px-3 py-1.5 text-[12px] font-medium text-[#B04A3A] transition-colors hover:bg-[#FBEFED] dark:border-white/10 dark:hover:bg-rose-950"
 										onClick={() => { void handleDeleteInvite(invite.id); }}
 									>
 										Revoke

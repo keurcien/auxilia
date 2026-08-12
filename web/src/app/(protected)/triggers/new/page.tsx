@@ -7,15 +7,13 @@ export default function NewTriggerPage() {
 	const router = useRouter();
 
 	return (
-		<div className="px-8 py-6">
-			<TriggerEditor
-				onSaved={(trigger) => {
-					router.push(`/triggers/${trigger.id}`);
-				}}
-				onCancel={() => {
-					router.push("/triggers");
-				}}
-			/>
-		</div>
+		<TriggerEditor
+			onSaved={(trigger) => {
+				router.push(`/triggers/${trigger.id}`);
+			}}
+			onCancel={() => {
+				router.push("/triggers");
+			}}
+		/>
 	);
 }

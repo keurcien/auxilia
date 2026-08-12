@@ -7,17 +7,25 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 
 // Chat is the only surface that keeps the floating card; workspace list
 // pages own their full-height chrome (top bar + scroll) via WorkspacePage,
-// and the agent editor (/agents/new, /agents/{id}) its own two-panel shell;
+// the agent editor (/agents/new, /agents/{id}) its own two-panel shell, and
+// the MCP server subpages (add / custom / detail) their SubpageHeader shell;
 // every other route renders in the default padded scroll container.
 const CHAT_ROUTE = /^\/agents\/[^/]+\/chat(\/|$)/;
-const WORKSPACE_ROUTE = /^\/(agents|mcp-servers|users|triggers)$/;
+const WORKSPACE_ROUTE = /^\/(agents|users)$/;
 const AGENT_EDITOR_ROUTE = /^\/agents\/[^/]+$/;
+const MCP_SERVERS_ROUTE = /^\/mcp-servers(\/|$)/;
+const TRIGGERS_ROUTE = /^\/triggers(\/|$)/;
+const SETTINGS_ROUTE = /^\/settings(\/|$)/;
 
 export function PageShell({ children }: { children: React.ReactNode }) {
 	const pathname = usePathname();
 	const isChat = CHAT_ROUTE.test(pathname);
 	const isWorkspace =
-		WORKSPACE_ROUTE.test(pathname) || AGENT_EDITOR_ROUTE.test(pathname);
+		WORKSPACE_ROUTE.test(pathname) ||
+		AGENT_EDITOR_ROUTE.test(pathname) ||
+		MCP_SERVERS_ROUTE.test(pathname) ||
+		TRIGGERS_ROUTE.test(pathname) ||
+		SETTINGS_ROUTE.test(pathname);
 
 	return (
 		<>

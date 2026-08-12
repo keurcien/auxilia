@@ -82,14 +82,14 @@ export default function RunHistoryCard({
 	}, [runs, activeRunThreadIds, triggerId, fetchRuns]);
 
 	return (
-		<div className="flex flex-col rounded-[14px] border border-[#e1ebe6] dark:border-white/10 bg-white dark:bg-card px-4.5 py-1.5 shadow-[0_1px_3px_rgba(33,36,31,0.04)]">
+		<div className="flex flex-col rounded-[10px] border border-border bg-card px-4.5 py-1.5">
 			{runs === undefined && (
-				<p className="py-3.5 font-[family-name:var(--font-dm-sans)] text-[13px] text-[#A3B5AD] dark:text-muted-foreground">
+				<p className="py-3.5 text-[13px] text-faint dark:text-muted-foreground">
 					Loading…
 				</p>
 			)}
 			{runs !== undefined && runs.length === 0 && (
-				<p className="py-3.5 font-[family-name:var(--font-dm-sans)] text-[13px] text-[#A3B5AD] dark:text-muted-foreground">
+				<p className="py-3.5 text-[13px] text-faint dark:text-muted-foreground">
 					No runs yet.
 				</p>
 			)}
@@ -97,19 +97,19 @@ export default function RunHistoryCard({
 				<Link
 					key={run.id}
 					href={`/agents/${run.agentId}/chat/${run.id}`}
-					className="group flex items-center gap-3 py-3.5 border-b border-[#F1F5F3] dark:border-white/5 last:border-b-0"
+					className="group flex items-center gap-3 py-3.5 border-b border-hairline dark:border-white/5 last:border-b-0"
 				>
-					<span className="flex-1 min-w-0 truncate font-[family-name:var(--font-dm-sans)] text-[14px] font-medium text-[#1E2D28] dark:text-white group-hover:text-[#3D8B63] dark:group-hover:text-emerald-400 transition-colors">
+					<span className="flex-1 min-w-0 truncate text-[14px] font-medium text-foreground group-hover:text-petrol dark:group-hover:text-panel-terminal transition-colors">
 						{formatRunAt(run.createdAt, timezone)}
 					</span>
 					{activeRunThreadIds.has(run.id) || isInFlight(run) ? (
 						<span className="flex shrink-0 items-center gap-1">
 							<Loader2
 								aria-hidden="true"
-								className="size-[13px] shrink-0 animate-spin text-[#4CA882]"
+								className="size-[13px] shrink-0 animate-spin text-success"
 							/>
-							<span className="font-[family-name:var(--font-dm-sans)] text-[12.5px]/4 font-semibold text-[#4CA882]">
-								Running
+							<span className="font-mono text-[10.5px] font-semibold tracking-[0.05em] text-success">
+								RUNNING
 							</span>
 						</span>
 					) : (
@@ -127,14 +127,14 @@ export default function RunHistoryCard({
 									<path
 										d="M18 6L6 18M6 6l12 12"
 										fill="none"
-										stroke="#CE5B45"
+										stroke="#B04A3A"
 										strokeWidth="3"
 										strokeLinecap="round"
 										strokeLinejoin="round"
 									/>
 								</svg>
-								<span className="font-[family-name:var(--font-dm-sans)] text-[12.5px]/4 font-semibold text-[#CE5B45]">
-									Failed
+								<span className="font-mono text-[10.5px] font-semibold tracking-[0.05em] text-[#B04A3A]">
+									FAILED
 								</span>
 							</span>
 						)

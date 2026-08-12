@@ -4,8 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import { RefreshCw, Star } from "lucide-react";
 import { ModelSelectorLogo } from "@/components/ai-elements/model-selector";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { HeaderButton } from "@/components/layout/subpage-header";
 import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api/client";
 import { useModelsStore } from "@/stores/models-store";
@@ -43,11 +42,39 @@ function syncSummary(result: WhitelistSyncResult): string {
 	return `Catalog synced — ${changes || "no changes"} (${result.modelCount} models).`;
 }
 
-interface WorkspaceModelsProps {
-	onForbidden: () => void;
+/** Mono-caps chip on a model row (DEFAULT / capabilities / deprecation). */
+function ModelBadge({
+	tone,
+	children,
+}: {
+	tone: "accent" | "neutral" | "destructive";
+	children: React.ReactNode;
+}) {
+	const toneClass =
+		tone === "accent"
+			? "bg-petrol-tint text-petrol dark:bg-white/10 dark:text-panel-terminal"
+			: tone === "destructive"
+				? "bg-[#FBEFED] text-[#B04A3A] dark:bg-[#B04A3A]/10"
+				: "bg-hover text-subtle dark:bg-white/10 dark:text-panel-body";
+	return (
+		<span
+			className={`shrink-0 rounded-[4px] px-[7px] py-[2px] font-mono text-[9px] font-semibold tracking-[0.05em] ${toneClass}`}
+		>
+			{children}
+		</span>
+	);
 }
 
-export default function WorkspaceModels({ onForbidden }: WorkspaceModelsProps) {
+interface WorkspaceModelsProps {
+	onForbidden: () => void;
+	/** Reports the catalog size so the settings rail can show a count. */
+	onCountChange?: (count: number) => void;
+}
+
+export default function WorkspaceModels({
+	onForbidden,
+	onCountChange,
+}: WorkspaceModelsProps) {
 	const refreshModels = useModelsStore((state) => state.refreshModels);
 	const [models, setModels] = useState<ManagedModel[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
@@ -72,6 +99,14 @@ export default function WorkspaceModels({ onForbidden }: WorkspaceModelsProps) {
 	useEffect(() => {
 		onForbiddenRef.current = onForbidden;
 	}, [onForbidden]);
+
+	const onCountChangeRef = useRef(onCountChange);
+	useEffect(() => {
+		onCountChangeRef.current = onCountChange;
+	}, [onCountChange]);
+	useEffect(() => {
+		onCountChangeRef.current?.(models.length);
+	}, [models.length]);
 
 	const loadManaged = useCallback(async () => {
 		setIsLoading(true);
@@ -251,76 +286,79 @@ export default function WorkspaceModels({ onForbidden }: WorkspaceModelsProps) {
 	};
 
 	return (
-		<section className="mt-12">
-			<div className="flex items-center justify-between mb-2">
-				<h2 className="font-primary font-bold text-lg tracking-tight text-[#2A2F2D] dark:text-white">
-					Workspace models
-				</h2>
-				<Button
-					variant="outline"
-					size="sm"
-					className="gap-2 cursor-pointer"
+		<div>
+			<div className="mb-1.5 flex items-baseline gap-2.5">
+				<span className="font-mono text-[10.5px] font-semibold tracking-[0.09em] text-subtle dark:text-panel-dim">
+					WORKSPACE MODELS
+				</span>
+				<span className="font-mono text-[10.5px] text-meta dark:text-panel-dim">
+					admin
+				</span>
+				<span className="flex-1" />
+				<HeaderButton
+					accent
+					className="gap-1.5 px-3.5 py-[7px] text-[12.5px]"
 					disabled={isSyncing}
 					onClick={() => {
 						void handleSync();
 					}}
 				>
-					<RefreshCw className={isSyncing ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+					<RefreshCw
+						className={isSyncing ? "size-[13px] animate-spin" : "size-[13px]"}
+					/>
 					Sync catalog
-				</Button>
+				</HeaderButton>
 			</div>
-			<p className="text-sm text-muted-foreground mb-3">
+			<p className="mb-3.5 max-w-[640px] text-[13px] leading-[1.55] text-subtle text-pretty dark:text-panel-body">
 				Choose which models members can use in chats and triggers. New catalog
-				models start disabled until you enable them. Star a model to make it
-				the workspace default — it preselects model pickers and is used by
-				Slack; without one, the first available model is used.
+				models start disabled. Star a model to make it the workspace default —
+				it preselects pickers and is used by Slack; without one, the first
+				available model is used.
 			</p>
 			{status && (
 				<p
-					className={
+					className={`mb-3 text-[13px] font-medium ${
 						status.kind === "error"
-							? "text-sm text-destructive mb-3"
-							: "text-sm text-muted-foreground mb-3"
-					}
+							? "text-destructive"
+							: "text-subtle dark:text-panel-body"
+					}`}
 				>
 					{status.text}
 				</p>
 			)}
 
-			<div className="rounded-[20px] border bg-card overflow-hidden">
+			<div className="overflow-hidden rounded-[10px] border border-border bg-card dark:border-white/10">
 				{isLoading ? (
-					<div className="px-6 py-12 text-center text-muted-foreground">
-						Loading...
+					<div className="px-4 py-12 text-center text-[14px] font-medium text-faint dark:text-muted-foreground">
+						Loading…
 					</div>
 				) : loadFailed ? (
-					<div className="px-6 py-12 text-center">
-						<p className="text-muted-foreground mb-3">
+					<div className="px-4 py-12 text-center">
+						<p className="mb-3 text-[14px] font-medium text-faint dark:text-muted-foreground">
 							Could not load the workspace models.
 						</p>
-						<Button
-							variant="outline"
-							size="sm"
-							className="cursor-pointer"
+						<HeaderButton
+							className="mx-auto"
 							onClick={() => {
 								void loadManaged();
 							}}
 						>
 							Retry
-						</Button>
+						</HeaderButton>
 					</div>
 				) : providerGroups.length === 0 ? (
-					<div className="px-6 py-12 text-center text-muted-foreground">
+					<div className="px-4 py-12 text-center text-[14px] font-medium text-faint dark:text-muted-foreground">
 						No providers configured. Set provider API keys in the backend
 						environment to offer models.
 					</div>
 				) : (
 					providerGroups.map(([provider, providerModels]) => (
-						<div key={provider} className="border-b last:border-b-0">
-							<div className="px-6 py-3 bg-muted/50 flex items-center justify-between">
-								<span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">
+						<div key={provider}>
+							<div className="flex items-center border-b border-hairline bg-sidebar px-4 py-[9px] dark:border-white/5 dark:bg-white/[0.03]">
+								<span className="font-mono text-[10px] font-semibold uppercase tracking-[0.09em] text-subtle dark:text-panel-dim">
 									{providerLabel(provider)}
 								</span>
-								<span className="text-xs text-muted-foreground">
+								<span className="ml-auto font-mono text-[10.5px] text-meta dark:text-panel-dim">
 									{providerModels.filter((m) => m.isEnabled).length}/
 									{providerModels.length} enabled
 								</span>
@@ -330,89 +368,105 @@ export default function WorkspaceModels({ onForbidden }: WorkspaceModelsProps) {
 								return (
 									<div
 										key={key}
-										className="px-6 py-3 border-t flex items-center justify-between gap-4 hover:bg-muted/30 transition-colors"
+										className="flex items-center gap-3 border-b border-hairline px-4 py-3 transition-colors last:border-b-0 hover:bg-sidebar dark:border-white/5 dark:hover:bg-white/5"
 									>
-										<div className="flex items-center gap-3 min-w-0">
-											<ModelSelectorLogo
-												provider={model.chefSlug}
-												className="size-4 shrink-0"
-											/>
-											<div className="flex flex-col gap-0.5 min-w-0">
-												<div className="flex items-center gap-2 flex-wrap">
-													<span className="text-sm font-medium text-foreground">
-														{model.displayName}
-													</span>
-													{model.isDefault && <Badge>Default</Badge>}
-													{model.deprecated && (
-														<Badge variant="destructive">
-															No longer supported
-														</Badge>
-													)}
-													{model.multimodal && (
-														<Badge variant="secondary">Multimodal</Badge>
-													)}
-													{model.supportsStructuredOutput && (
-														<Badge variant="secondary">Structured output</Badge>
-													)}
-												</div>
-												<span className="text-xs text-muted-foreground font-mono truncate">
-													{model.modelId}
+										<ModelSelectorLogo
+											provider={model.chefSlug}
+											className={
+												model.isEnabled
+													? "size-4 shrink-0"
+													: "size-4 shrink-0 opacity-45"
+											}
+										/>
+										<div className="min-w-0 flex-1">
+											<div className="flex flex-wrap items-center gap-2">
+												<span
+													className={`text-[13.5px] font-semibold ${
+														model.isEnabled
+															? "text-foreground"
+															: "text-meta dark:text-panel-dim"
+													}`}
+												>
+													{model.displayName}
 												</span>
+												{model.isDefault && (
+													<ModelBadge tone="accent">DEFAULT</ModelBadge>
+												)}
+												{model.deprecated && (
+													<ModelBadge tone="destructive">
+														NO LONGER SUPPORTED
+													</ModelBadge>
+												)}
+												{model.multimodal && (
+													<ModelBadge tone="neutral">MULTIMODAL</ModelBadge>
+												)}
+												{model.supportsStructuredOutput && (
+													<ModelBadge tone="neutral">
+														STRUCTURED OUTPUT
+													</ModelBadge>
+												)}
 											</div>
-										</div>
-										<div className="flex items-center gap-1">
-											<Button
-												variant="ghost"
-												size="icon"
-												className="h-8 w-8 cursor-pointer"
-												aria-label={
-													model.isDefault
-														? `Unset ${model.displayName} as the workspace default`
-														: `Set ${model.displayName} as the workspace default`
-												}
-												title={
-													model.isDefault
-														? "Unset as default (back to automatic)"
-														: "Set as workspace default"
-												}
-												// Only an enabled, supported model can be the default;
-												// default changes are serialized (they rewrite every
-												// row's flag), so all stars lock while one is in flight.
-												disabled={
-													pendingKeys.has(key) ||
-													isSyncing ||
-													isDefaultUpdating ||
-													!model.isEnabled ||
-													model.deprecated
-												}
-												onClick={() => {
-													void handleSetDefault(model);
-												}}
+											<span
+												className={`mt-0.5 block truncate font-mono text-[10.5px] ${
+													model.isEnabled
+														? "text-meta dark:text-panel-dim"
+														: "text-faint dark:text-panel-dim/70"
+												}`}
 											>
-												<Star
-													className={
-														model.isDefault
-															? "h-4 w-4 fill-current text-foreground"
-															: "h-4 w-4 text-muted-foreground"
-													}
-												/>
-											</Button>
-											<Switch
-												checked={model.isEnabled}
-												aria-label={`Enable ${model.displayName} (${model.modelId})`}
-												// Deprecated rows can only be turned off; a sync in
-												// flight would overwrite concurrent toggles, so rows
-												// lock while it runs.
-												disabled={
-													pendingKeys.has(key) ||
-													isSyncing ||
-													(model.deprecated && !model.isEnabled)
-												}
-												onCheckedChange={(checked) => {
-													void handleToggle(model, checked);
-												}}
-											/>
+												{model.modelId}
+											</span>
 										</div>
+										<button
+											type="button"
+											aria-label={
+												model.isDefault
+													? `Unset ${model.displayName} as the workspace default`
+													: `Set ${model.displayName} as the workspace default`
+											}
+											title={
+												model.isDefault
+													? "Unset as default (back to automatic)"
+													: "Set as workspace default"
+											}
+											// Only an enabled, supported model can be the default;
+											// default changes are serialized (they rewrite every
+											// row's flag), so all stars lock while one is in flight.
+											disabled={
+												pendingKeys.has(key) ||
+												isSyncing ||
+												isDefaultUpdating ||
+												!model.isEnabled ||
+												model.deprecated
+											}
+											onClick={() => {
+												void handleSetDefault(model);
+											}}
+											className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[7px] transition-colors hover:bg-hover disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent dark:hover:bg-white/10"
+										>
+											<Star
+												className={
+													model.isDefault
+														? "size-[15px] fill-current text-ink dark:text-white"
+														: "size-[15px] text-faint"
+												}
+											/>
+										</button>
+										<Switch
+											checked={model.isEnabled}
+											aria-label={`Enable ${model.displayName} (${model.modelId})`}
+											// Deprecated rows can only be turned off; a sync in
+											// flight would overwrite concurrent toggles, so rows
+											// lock while it runs.
+											disabled={
+												pendingKeys.has(key) ||
+												isSyncing ||
+												(model.deprecated && !model.isEnabled)
+											}
+											onCheckedChange={(checked) => {
+												void handleToggle(model, checked);
+											}}
+											className="cursor-pointer data-[state=checked]:bg-petrol"
+										/>
 									</div>
 								);
 							})}
@@ -420,6 +474,6 @@ export default function WorkspaceModels({ onForbidden }: WorkspaceModelsProps) {
 					))
 				)}
 			</div>
-		</section>
+		</div>
 	);
 }

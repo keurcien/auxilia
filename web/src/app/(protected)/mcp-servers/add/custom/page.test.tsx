@@ -4,7 +4,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "@/lib/api/client";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import type { MCPServer } from "@/types/mcp-servers";
-import MCPServerDialog from "./mcp-server-dialog";
+import CustomMCPServerPage from "./page";
+
+const { push } = vi.hoisted(() => ({ push: vi.fn() }));
+
+vi.mock("next/navigation", () => ({
+	useRouter: () => ({ push }),
+	useSearchParams: () => new URLSearchParams(),
+}));
 
 vi.mock("@/lib/api/client", () => ({
 	api: {
@@ -24,7 +31,15 @@ const createdServer: MCPServer = {
 	updatedAt: "2026-05-25T00:00:00Z",
 };
 
-describe("MCPServerDialog create mode", () => {
+async function fillRequiredFields(user: ReturnType<typeof userEvent.setup>) {
+	await user.type(screen.getByLabelText(/^Name/), createdServer.name);
+	await user.type(
+		screen.getByLabelText(/Remote server address/),
+		createdServer.url,
+	);
+}
+
+describe("CustomMCPServerPage", () => {
 	beforeEach(() => {
 		vi.resetAllMocks();
 		useMcpServersStore.setState({
@@ -34,22 +49,16 @@ describe("MCPServerDialog create mode", () => {
 		vi.mocked(api.get).mockResolvedValue({ data: [] });
 	});
 
-	it("creates a custom API-key server, publishes it to the store, and closes", async () => {
+	it("creates a custom API-key server, publishes it to the store, and navigates back", async () => {
 		const user = userEvent.setup();
-		const onOpenChange = vi.fn();
 		vi.mocked(api.post).mockResolvedValue({ data: createdServer });
 
-		render(<MCPServerDialog open onOpenChange={onOpenChange} />);
+		render(<CustomMCPServerPage />);
 
-		await user.type(screen.getByLabelText("Name"), createdServer.name);
-		await user.type(
-			screen.getByLabelText(/Remote Server Address/),
-			createdServer.url,
-		);
-		await user.click(screen.getByLabelText("Authentication Method"));
-		await user.click(await screen.findByRole("menuitem", { name: "API Key" }));
-		await user.type(screen.getByLabelText("API Key"), "secret-token");
-		await user.click(screen.getByRole("button", { name: "Create server" }));
+		await fillRequiredFields(user);
+		await user.click(screen.getByRole("radio", { name: /API key/ }));
+		await user.type(screen.getByLabelText("API key"), "secret-token");
+		await user.click(screen.getByRole("button", { name: "Add server" }));
 
 		await waitFor(() => {
 			expect(api.post).toHaveBeenCalledWith("/mcp-servers", {
@@ -64,81 +73,64 @@ describe("MCPServerDialog create mode", () => {
 			});
 		});
 		expect(useMcpServersStore.getState().mcpServers).toEqual([createdServer]);
-		expect(onOpenChange).toHaveBeenCalledWith(false);
+		expect(push).toHaveBeenCalledWith("/mcp-servers");
 	});
 
-	it("surfaces a fallback error, keeps the dialog open, and does not publish on failure", async () => {
+	it("surfaces a fallback error, stays on the page, and does not publish on failure", async () => {
 		const user = userEvent.setup();
-		const onOpenChange = vi.fn();
 		vi.mocked(api.post).mockRejectedValue(new Error("network down"));
 
-		render(<MCPServerDialog open onOpenChange={onOpenChange} />);
+		render(<CustomMCPServerPage />);
 
-		await user.type(screen.getByLabelText("Name"), "Internal Search");
-		await user.type(
-			screen.getByLabelText(/Remote Server Address/),
-			"https://search.example.com/mcp",
-		);
-		await user.click(screen.getByRole("button", { name: "Create server" }));
+		await fillRequiredFields(user);
+		await user.click(screen.getByRole("button", { name: "Add server" }));
 
-		await waitFor(() => expect(api.post).toHaveBeenCalled());
+		await waitFor(() => {
+			expect(api.post).toHaveBeenCalled();
+		});
 		expect(
 			await screen.findByText("Failed to create MCP server."),
 		).toBeInTheDocument();
-		await waitFor(() =>
-			expect(
-				screen.getByRole("button", { name: "Create server" }),
-			).toBeEnabled(),
-		);
+		await waitFor(() => {
+			expect(screen.getByRole("button", { name: "Add server" })).toBeEnabled();
+		});
 		expect(useMcpServersStore.getState().mcpServers).toEqual([]);
-		expect(onOpenChange).not.toHaveBeenCalledWith(false);
+		expect(push).not.toHaveBeenCalled();
 	});
 
 	it("surfaces the backend error detail when creation is rejected", async () => {
 		const user = userEvent.setup();
-		const onOpenChange = vi.fn();
 		vi.mocked(api.post).mockRejectedValue({
 			status: 409,
 			response: { data: { detail: "An MCP server with this URL already exists" } },
 		});
 
-		render(<MCPServerDialog open onOpenChange={onOpenChange} />);
+		render(<CustomMCPServerPage />);
 
-		await user.type(screen.getByLabelText("Name"), "Internal Search");
-		await user.type(
-			screen.getByLabelText(/Remote Server Address/),
-			"https://search.example.com/mcp",
-		);
-		await user.click(screen.getByRole("button", { name: "Create server" }));
+		await fillRequiredFields(user);
+		await user.click(screen.getByRole("button", { name: "Add server" }));
 
 		expect(
 			await screen.findByText("An MCP server with this URL already exists"),
 		).toBeInTheDocument();
-		expect(onOpenChange).not.toHaveBeenCalledWith(false);
+		expect(push).not.toHaveBeenCalled();
 	});
 
 	it("hides 5xx detail and shows the generic fallback instead", async () => {
 		const user = userEvent.setup();
-		const onOpenChange = vi.fn();
 		vi.mocked(api.post).mockRejectedValue({
 			status: 500,
 			response: { data: { detail: "psycopg.errors.UndefinedColumn: ..." } },
 		});
 
-		render(<MCPServerDialog open onOpenChange={onOpenChange} />);
+		render(<CustomMCPServerPage />);
 
-		await user.type(screen.getByLabelText("Name"), "Internal Search");
-		await user.type(
-			screen.getByLabelText(/Remote Server Address/),
-			"https://search.example.com/mcp",
-		);
-		await user.click(screen.getByRole("button", { name: "Create server" }));
+		await fillRequiredFields(user);
+		await user.click(screen.getByRole("button", { name: "Add server" }));
 
 		expect(
 			await screen.findByText("Failed to create MCP server."),
 		).toBeInTheDocument();
-		expect(
-			screen.queryByText(/psycopg/),
-		).not.toBeInTheDocument();
+		expect(screen.queryByText(/psycopg/)).not.toBeInTheDocument();
 	});
 });

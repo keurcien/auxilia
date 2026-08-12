@@ -308,8 +308,10 @@ export default function AgentList({
 	}
 
 	if (mode === "table") {
+		// min-h-0 flex chain: lets the table body cap at the remaining page
+		// height (WorkspacePage fillHeight) and scroll internally.
 		return (
-			<div className="w-full animate-in fade-in duration-300">
+			<div className="flex min-h-0 w-full flex-1 flex-col animate-in fade-in duration-300">
 				<AgentTable
 					agents={visible}
 					archived={archived}

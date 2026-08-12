@@ -25,10 +25,11 @@ import {
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
 // Collapsed keeps the 22px icon column at the same x offset as the open
-// state (8px group pad + 8px row pad + 22px icon + matching right = 62px).
+// state: 8px group pad + 38px row (8px pad + 22px icon + 8px pad) + 8px
+// group pad = 54px, so the rows sit centered with symmetric margins.
 const SIDEBAR_WIDTH = "20rem";
 const SIDEBAR_WIDTH_MOBILE = "18rem";
-const SIDEBAR_WIDTH_ICON = "3.875rem";
+const SIDEBAR_WIDTH_ICON = "3.375rem";
 const SIDEBAR_KEYBOARD_SHORTCUT = "b";
 
 type SidebarContextProps = {

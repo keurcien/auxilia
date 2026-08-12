@@ -20,6 +20,9 @@ interface WorkspacePageProps {
 	actions?: React.ReactNode;
 	/** Right side of the page header (tabs, view toggles) */
 	headerRight?: React.ReactNode;
+	/** Pin the page (no page scroll) and give children the remaining height —
+	 * for content that scrolls internally (e.g. a capped table body). */
+	fillHeight?: boolean;
 	children: React.ReactNode;
 }
 
@@ -35,6 +38,7 @@ export function WorkspacePage({
 	search,
 	actions,
 	headerRight,
+	fillHeight = false,
 	children,
 }: WorkspacePageProps) {
 	return (
@@ -58,9 +62,20 @@ export function WorkspacePage({
 					{actions}
 				</div>
 			</header>
-			<div className="flex-1 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-				<PageContainer className="px-4 pt-8 pb-10 sm:px-6 lg:px-8">
-					<div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
+			<div
+				className={
+					fillHeight
+						? "flex min-h-0 flex-1 flex-col overflow-hidden"
+						: "flex-1 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+				}
+			>
+				<PageContainer
+					className={cn(
+						"px-4 pt-8 pb-10 sm:px-6 lg:px-8",
+						fillHeight && "flex min-h-0 flex-1 flex-col",
+					)}
+				>
+					<div className="flex shrink-0 flex-wrap items-end justify-between gap-x-6 gap-y-4">
 						<div className="min-w-0">
 							<h1 className="font-display text-[30px] font-bold tracking-[-0.035em] text-foreground">
 								{title}
@@ -71,7 +86,13 @@ export function WorkspacePage({
 						</div>
 						{headerRight}
 					</div>
-					<div className="mt-4">{children}</div>
+					<div
+						className={
+							fillHeight ? "mt-4 flex min-h-0 flex-1 flex-col" : "mt-4"
+						}
+					>
+						{children}
+					</div>
 				</PageContainer>
 			</div>
 		</div>
