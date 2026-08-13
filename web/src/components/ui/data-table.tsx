@@ -299,6 +299,11 @@ export function DataTable<T>({
 											onRowClick(row);
 										}}
 										onKeyDown={(event) => {
+											// Only when the row itself is focused — Enter/Space on a
+											// nested action button must activate that button, not
+											// navigate (the keyboard twin of the actions cell's
+											// stopPropagation on clicks).
+											if (event.target !== event.currentTarget) return;
 											if (event.key === "Enter" || event.key === " ") {
 												event.preventDefault();
 												onRowClick(row);

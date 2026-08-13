@@ -86,20 +86,16 @@
 		"Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 	--font-mono: var(--font-ibm-plex-mono), ui-monospace, SFMono-Regular, Menlo,
 		monospace;
-	/* Legacy aliases (pre-redesign utilities still in components). The
-	   dm-sans/jakarta vars were next/font variables removed from <body> —
-	   without these aliases var(--font-dm-sans) is undefined and the whole
-	   font-family declaration is silently dropped. */
+	/* Legacy aliases (pre-redesign `font-primary` etc. utilities). Runtime
+	   var() aliases for components live on body below — `@theme inline`
+	   inlines values into generated utilities and emits NO custom
+	   properties, so raw `var(--font-…)` references can't resolve from here. */
 	--font-primary: var(--font-hanken-grotesk), -apple-system, BlinkMacSystemFont,
 		"Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 	--font-secondary: var(--font-hanken-grotesk), -apple-system,
 		BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 	--font-noto: var(--font-hanken-grotesk), -apple-system, BlinkMacSystemFont,
 		"Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-	--font-dm-sans: var(--font-hanken-grotesk), -apple-system, BlinkMacSystemFont,
-		"Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-	--font-jakarta-sans: var(--font-hanken-grotesk), -apple-system,
-		BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 
 	/* --- Petrol Mono utilities (text-ink, bg-hover, border-hairline, …) --- */
 	--color-ink: var(--pm-ink);
@@ -355,5 +351,15 @@
 
 	body {
 		@apply bg-background text-foreground font-sans;
+		/* Runtime aliases for pre-redesign components that reference the old
+		   next/font variables as raw `var(--font-dm-sans)` /
+		   `var(--font-jakarta-sans)` arbitrary values. Declared on body (not
+		   :root / @theme inline) because the next/font variables they chain
+		   to are class-scoped to <body>, and `@theme inline` emits no custom
+		   properties at all. */
+		--font-dm-sans: var(--font-hanken-grotesk), -apple-system,
+			BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+		--font-jakarta-sans: var(--font-hanken-grotesk), -apple-system,
+			BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 	}
 }

@@ -95,6 +95,8 @@ export default function MCPServerTable({
 			!window.confirm(`Delete "${server.name}"? Agents lose its tools immediately.`)
 		)
 			return;
+		// A stale failure banner must not outlive the next action.
+		setActionError(null);
 		try {
 			await deleteMcpServer(server.id);
 		} catch (err: unknown) {
@@ -113,6 +115,8 @@ export default function MCPServerTable({
 			)
 		)
 			return;
+		// A stale failure banner must not outlive the next action.
+		setActionError(null);
 		try {
 			await resetMcpServerConnections(server.id);
 		} catch (err: unknown) {

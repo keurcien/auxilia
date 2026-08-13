@@ -29,6 +29,12 @@ function TokenRevealBanner({ plaintext }: { plaintext: string }) {
 	const copied = copyState === "copied";
 
 	const handleCopy = () => {
+		// navigator.clipboard is absent on insecure origins (self-hosted over
+		// plain HTTP) — guard so the click can't throw before the fallback.
+		if (!navigator.clipboard) {
+			setCopyState("failed");
+			return;
+		}
 		navigator.clipboard
 			.writeText(plaintext)
 			.then(() => {

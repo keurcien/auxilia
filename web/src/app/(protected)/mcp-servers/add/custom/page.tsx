@@ -266,9 +266,12 @@ export default function CustomMCPServerPage() {
 						{selectedOfficial ? `Add ${selectedOfficial.name}` : "Custom MCP server"}
 					</h1>
 					<p className="mt-2 text-[14px] leading-[1.6] text-body dark:text-panel-body text-pretty">
-						{isNonDcrOAuth
+						{/* Gate on the ACTIVE auth method — the catalog hint must not
+						    outlive a switch to another method. */}
+						{isNonDcrOAuth && form.authType === "oauth2"
 							? "This server requires OAuth credentials from the provider's developer console."
-							: selectedOfficial?.authType === "api_key"
+							: selectedOfficial?.authType === "api_key" &&
+								  form.authType === "api_key"
 								? "This server requires an API key shared by the whole workspace."
 								: "Connect any remote server that speaks the Model Context Protocol over HTTP."}
 					</p>
@@ -288,10 +291,13 @@ export default function CustomMCPServerPage() {
 								}}
 								aria-required="true"
 								aria-invalid={!!errors.url}
+								aria-describedby={errors.url ? "mcp-url-error" : undefined}
 								className={MONO_INPUT_CLASS}
 							/>
 							{errors.url ? (
-								<span className={ERROR_CLASS}>{errors.url}</span>
+								<span id="mcp-url-error" className={ERROR_CLASS}>
+									{errors.url}
+								</span>
 							) : (
 								<span className="text-[12px] text-meta dark:text-panel-dim">
 									Streamable HTTP endpoint — the only transport auxilia supports.
@@ -314,9 +320,14 @@ export default function CustomMCPServerPage() {
 									}}
 									aria-required="true"
 									aria-invalid={!!errors.name}
+									aria-describedby={errors.name ? "mcp-name-error" : undefined}
 									className={INPUT_CLASS}
 								/>
-								{errors.name && <span className={ERROR_CLASS}>{errors.name}</span>}
+								{errors.name && (
+									<span id="mcp-name-error" className={ERROR_CLASS}>
+										{errors.name}
+									</span>
+								)}
 							</div>
 							<div className="flex flex-1 flex-col gap-[7px]">
 								<label htmlFor="mcp-icon-url" className={LABEL_CLASS}>
@@ -383,10 +394,15 @@ export default function CustomMCPServerPage() {
 										}}
 										aria-required="true"
 										aria-invalid={!!errors.apiKey}
+										aria-describedby={
+											errors.apiKey ? "mcp-api-key-error" : undefined
+										}
 										className={MONO_INPUT_CLASS}
 									/>
 									{errors.apiKey && (
-										<span className={ERROR_CLASS}>{errors.apiKey}</span>
+										<span id="mcp-api-key-error" className={ERROR_CLASS}>
+											{errors.apiKey}
+										</span>
 									)}
 								</div>
 							</div>
@@ -422,10 +438,17 @@ export default function CustomMCPServerPage() {
 										}}
 										aria-required={isNonDcrOAuth}
 										aria-invalid={!!errors.oauthClientId}
+										aria-describedby={
+											errors.oauthClientId
+												? "mcp-oauth-client-id-error"
+												: undefined
+										}
 										className={MONO_INPUT_CLASS}
 									/>
 									{errors.oauthClientId && (
-										<span className={ERROR_CLASS}>{errors.oauthClientId}</span>
+										<span id="mcp-oauth-client-id-error" className={ERROR_CLASS}>
+											{errors.oauthClientId}
+										</span>
 									)}
 								</div>
 								<div className="flex flex-col gap-[7px]">
@@ -451,6 +474,11 @@ export default function CustomMCPServerPage() {
 											}}
 											aria-required={isNonDcrOAuth}
 											aria-invalid={!!errors.oauthClientSecret}
+											aria-describedby={
+												errors.oauthClientSecret
+													? "mcp-oauth-client-secret-error"
+													: undefined
+											}
 											className={`${MONO_INPUT_CLASS} pr-10`}
 										/>
 										<button
@@ -469,7 +497,12 @@ export default function CustomMCPServerPage() {
 										</button>
 									</div>
 									{errors.oauthClientSecret && (
-										<span className={ERROR_CLASS}>{errors.oauthClientSecret}</span>
+										<span
+											id="mcp-oauth-client-secret-error"
+											className={ERROR_CLASS}
+										>
+											{errors.oauthClientSecret}
+										</span>
 									)}
 								</div>
 							</div>

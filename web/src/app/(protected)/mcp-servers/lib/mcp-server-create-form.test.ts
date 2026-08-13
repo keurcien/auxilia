@@ -110,4 +110,45 @@ describe("validateMCPServerCreateForm", () => {
 				"Client Secret is required when providing a Client ID.",
 		});
 	});
+
+	it("requires an API key for api_key servers", () => {
+		const errors = validateMCPServerCreateForm(
+			{ ...validForm, authType: "api_key" },
+			null,
+		);
+
+		expect(errors).toEqual({ apiKey: "API key is required." });
+	});
+
+	it("only demands static OAuth credentials while OAuth stays selected", () => {
+		const nonDcrOfficial = {
+			id: "official-1",
+			name: "Notion",
+			url: "https://mcp.notion.com/mcp",
+			authType: "oauth2",
+			createdAt: "2026-01-01T00:00:00Z",
+			updatedAt: "2026-01-01T00:00:00Z",
+			isInstalled: false,
+			supportsDcr: false,
+		} as const;
+
+		// OAuth selected: both credentials are required.
+		expect(
+			validateMCPServerCreateForm(
+				{ ...validForm, authType: "oauth2" },
+				nonDcrOfficial,
+			),
+		).toEqual({
+			oauthClientId: "Client ID is required.",
+			oauthClientSecret: "Client Secret is required.",
+		});
+
+		// Switched away from OAuth: the catalog entry must not demand them.
+		expect(
+			validateMCPServerCreateForm(
+				{ ...validForm, authType: "none" },
+				nonDcrOfficial,
+			),
+		).toEqual({});
+	});
 });

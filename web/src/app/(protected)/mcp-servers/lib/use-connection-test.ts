@@ -170,7 +170,9 @@ export function useConnectionTest() {
 									);
 								}
 							} finally {
-								pollBusyRef.current = false;
+								// A superseded run must not release the flag — the shared
+								// ref belongs to the current run's probes now.
+								if (!isStale()) pollBusyRef.current = false;
 							}
 						})();
 					}, 2000);
