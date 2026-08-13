@@ -21,11 +21,14 @@ function CatalogCard({
 	server,
 	isAdded,
 	isPending,
+	disabled,
 	onAdd,
 }: {
 	server: OfficialMCPServer;
 	isAdded: boolean;
 	isPending: boolean;
+	/** Any add in flight locks every card — prevents duplicate submissions. */
+	disabled: boolean;
 	onAdd: () => void;
 }) {
 	return (
@@ -60,7 +63,7 @@ function CatalogCard({
 				) : (
 					<button
 						type="button"
-						disabled={isPending}
+						disabled={disabled}
 						onClick={onAdd}
 						className="inline-flex cursor-pointer items-center gap-1.5 rounded-[7px] bg-petrol px-[15px] py-1.5 text-[12.5px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-default disabled:opacity-60"
 					>
@@ -122,9 +125,10 @@ export default function AddMCPServerPage() {
 			setForbiddenOpen(true);
 			return;
 		}
-		// Non-DCR OAuth servers need static credentials — collect them in the
-		// custom form, pre-filled with the catalog entry.
-		if (requiresStaticOAuthCredentials(server)) {
+		// Entries that need a credential can't be one-click added: non-DCR
+		// OAuth servers need a client ID/secret, api_key servers need the key.
+		// Collect them in the custom form, pre-filled with the catalog entry.
+		if (requiresStaticOAuthCredentials(server) || server.authType === "api_key") {
 			router.push(`/mcp-servers/add/custom?official=${server.id}`);
 			return;
 		}
@@ -210,6 +214,7 @@ export default function AddMCPServerPage() {
 											server={server}
 											isAdded={server.isInstalled || addedIds.has(server.id)}
 											isPending={pendingId === server.id}
+											disabled={pendingId !== null}
 											onAdd={() => {
 												void handleAdd(server);
 											}}

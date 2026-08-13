@@ -151,7 +151,7 @@ export function ConnectedUsersPanel({
 					CONNECTED USERS
 				</span>
 				<span className="font-mono text-[10.5px] text-meta dark:text-panel-dim">
-					{isLoading ? "…" : connections.length}
+					{isLoading ? "…" : error && connections.length === 0 ? "—" : connections.length}
 				</span>
 				<span className="flex-1" />
 				{connections.length > 0 && (
@@ -180,6 +180,20 @@ export function ConnectedUsersPanel({
 				{isLoading ? (
 					<div className="px-4 py-8 text-center text-[13px] font-medium text-meta dark:text-panel-dim">
 						Loading connections…
+					</div>
+				) : error && connections.length === 0 ? (
+					// A failed load must not masquerade as "no one is connected".
+					<div className="px-4 py-8 text-center">
+						<button
+							type="button"
+							onClick={() => {
+								setIsLoading(true);
+								void fetchConnections();
+							}}
+							className="cursor-pointer text-[13px] font-semibold text-petrol hover:underline"
+						>
+							Retry loading connections
+						</button>
 					</div>
 				) : connections.length === 0 ? (
 					<div className="px-4 py-8 text-center text-[13px] font-medium text-meta dark:text-panel-dim">

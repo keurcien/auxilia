@@ -4,6 +4,7 @@ import { useState } from "react";
 import {
 	Dialog,
 	DialogContent,
+	DialogDescription,
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { api } from "@/lib/api/client";
@@ -77,10 +78,10 @@ export default function CreateTokenDialog({
 				<DialogTitle className="font-display text-[20px] font-bold tracking-[-0.025em] text-foreground">
 					Generate a token
 				</DialogTitle>
-				<p className="text-[13px] leading-[1.55] text-subtle dark:text-panel-body">
+				<DialogDescription className="text-[13px] leading-[1.55] text-subtle dark:text-panel-body">
 					The token acts as you. You&apos;ll see it once — store it in the
 					service that needs it.
-				</p>
+				</DialogDescription>
 
 				<form
 					onSubmit={(e) => {

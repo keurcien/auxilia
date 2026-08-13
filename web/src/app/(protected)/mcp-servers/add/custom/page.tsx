@@ -180,13 +180,13 @@ export default function CustomMCPServerPage() {
 		value: string,
 	) => {
 		setForm((prev) => ({ ...prev, [field]: value }));
-		if (errors[field]) {
-			setErrors((prev) => {
-				const next = { ...prev };
-				delete next[field];
-				return next;
-			});
-		}
+		// Editing a field clears its error (rebuild without the key — no
+		// dynamic access/delete, which static analysis flags as injection).
+		setErrors((prev) =>
+			Object.fromEntries(
+				Object.entries(prev).filter(([key]) => key !== field),
+			) as MCPServerCreateFormErrors,
+		);
 		// A prior test result no longer reflects the edited config.
 		if (testStatus !== "idle") resetTest();
 	};
@@ -268,7 +268,9 @@ export default function CustomMCPServerPage() {
 					<p className="mt-2 text-[14px] leading-[1.6] text-body dark:text-panel-body text-pretty">
 						{isNonDcrOAuth
 							? "This server requires OAuth credentials from the provider's developer console."
-							: "Connect any remote server that speaks the Model Context Protocol over HTTP."}
+							: selectedOfficial?.authType === "api_key"
+								? "This server requires an API key shared by the whole workspace."
+								: "Connect any remote server that speaks the Model Context Protocol over HTTP."}
 					</p>
 
 					<div className="mt-7 flex flex-col gap-[18px]">
@@ -369,7 +371,7 @@ export default function CustomMCPServerPage() {
 								</div>
 								<div className="flex flex-col gap-[7px]">
 									<label htmlFor="mcp-api-key" className={LABEL_CLASS}>
-										API key
+										API key <span className="text-destructive">*</span>
 									</label>
 									<input
 										id="mcp-api-key"
@@ -379,8 +381,13 @@ export default function CustomMCPServerPage() {
 										onChange={(e) => {
 											handleFormChange("apiKey", e.target.value);
 										}}
+										aria-required="true"
+										aria-invalid={!!errors.apiKey}
 										className={MONO_INPUT_CLASS}
 									/>
+									{errors.apiKey && (
+										<span className={ERROR_CLASS}>{errors.apiKey}</span>
+									)}
 								</div>
 							</div>
 						)}

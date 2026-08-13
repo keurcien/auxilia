@@ -144,9 +144,10 @@ export function AppSidebar() {
 		fetchUser();
 		fetchThreads();
 		fetchAgents();
-		// Fetched for the workspace nav counts; stores are shared with the pages.
-		void fetchTriggers();
-		void fetchMcpServers();
+		// Fetched for the workspace nav counts; stores are shared with the
+		// pages. Failures just leave the counts blank — never unhandled.
+		fetchTriggers().catch(() => {});
+		fetchMcpServers().catch(() => {});
 	}, [fetchUser, fetchThreads, fetchAgents, fetchTriggers, fetchMcpServers]);
 
 	const navCounts: Record<string, number | undefined> = {

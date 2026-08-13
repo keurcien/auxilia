@@ -86,13 +86,20 @@
 		"Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 	--font-mono: var(--font-ibm-plex-mono), ui-monospace, SFMono-Regular, Menlo,
 		monospace;
-	/* Legacy aliases (pre-redesign utilities still in components) */
+	/* Legacy aliases (pre-redesign utilities still in components). The
+	   dm-sans/jakarta vars were next/font variables removed from <body> —
+	   without these aliases var(--font-dm-sans) is undefined and the whole
+	   font-family declaration is silently dropped. */
 	--font-primary: var(--font-hanken-grotesk), -apple-system, BlinkMacSystemFont,
 		"Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 	--font-secondary: var(--font-hanken-grotesk), -apple-system,
 		BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 	--font-noto: var(--font-hanken-grotesk), -apple-system, BlinkMacSystemFont,
 		"Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+	--font-dm-sans: var(--font-hanken-grotesk), -apple-system, BlinkMacSystemFont,
+		"Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+	--font-jakarta-sans: var(--font-hanken-grotesk), -apple-system,
+		BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 
 	/* --- Petrol Mono utilities (text-ink, bg-hover, border-hairline, …) --- */
 	--color-ink: var(--pm-ink);

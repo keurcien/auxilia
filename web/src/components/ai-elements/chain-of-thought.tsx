@@ -74,12 +74,12 @@ const truncate = (value: string, max = 90) => {
 /** Best-effort plain-language summary of a tool call's arguments. */
 export function summarizeToolArgs(args: unknown): string {
 	if (!args || typeof args !== "object") return "";
-	const record = args as Record<string, unknown>;
+	const entries = new Map(Object.entries(args as Record<string, unknown>));
 	for (const key of SUMMARY_ARG_PRIORITY) {
-		const value = record[key];
+		const value = entries.get(key);
 		if (typeof value === "string" && value.trim()) return truncate(value);
 	}
-	for (const value of Object.values(record)) {
+	for (const value of entries.values()) {
 		if (typeof value === "string" && value.trim()) return truncate(value);
 	}
 	return "";

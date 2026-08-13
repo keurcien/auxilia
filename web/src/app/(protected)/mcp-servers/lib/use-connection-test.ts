@@ -43,6 +43,9 @@ export function useConnectionTest() {
 	// Monotonic id so a result from a superseded run (config changed mid-test)
 	// is ignored instead of overwriting the current state.
 	const runRef = useRef(0);
+	// One /is-connected probe at a time — a slow response must not overlap
+	// with the next interval tick.
+	const pollBusyRef = useRef(false);
 
 	const clearPolling = useCallback(() => {
 		if (pollRef.current) {
@@ -62,9 +65,12 @@ export function useConnectionTest() {
 		setMessage(null);
 	}, [clearPolling]);
 
-	// Stop polling if the component unmounts mid-authentication.
+	// Stop polling if the component unmounts mid-authentication, and
+	// invalidate the run so a late response can't restart timers afterwards.
 	useEffect(() => {
+		const runCounter = runRef;
 		return () => {
+			runCounter.current++;
 			if (pollRef.current) clearInterval(pollRef.current);
 			if (timeoutRef.current) clearTimeout(timeoutRef.current);
 		};
@@ -126,33 +132,54 @@ export function useConnectionTest() {
 					}
 					if (popup) popup.location.href = safeAuthUrl;
 					setMessage("Waiting for authentication…");
+					pollBusyRef.current = false;
 					pollRef.current = setInterval(() => {
+						// Serialize probes: skip the tick while one is in flight.
+						if (pollBusyRef.current) return;
+						pollBusyRef.current = true;
 						void (async () => {
 							try {
-								const res = await api.get(
-									`/mcp-servers/${server.id}/is-connected`,
-								);
-								if (isStale()) {
-									clearPolling();
-									return;
+								let connected = false;
+								try {
+									const res = await api.get(
+										`/mcp-servers/${server.id}/is-connected`,
+									);
+									// Stale = a newer run owns the shared timers now — just
+									// bail, clearing them would break that run.
+									if (isStale()) return;
+									connected = Boolean(res.data.connected);
+								} catch {
+									return; // transient — keep polling until timeout
 								}
-								if (res.data.connected) {
-									clearPolling();
-									if (popup && !popup.closed) popup.close();
+								if (!connected) return;
+								clearPolling();
+								if (popup && !popup.closed) popup.close();
+								try {
 									const retry = await api.post<ConnectionTestResult>(
 										`/mcp-servers/${server.id}/test-connection`,
 									);
 									if (isStale()) return;
 									applyResult(retry.data);
+								} catch (error) {
+									// Timers are already cleared — surface the failure
+									// instead of leaving the button on "Testing…" forever.
+									if (isStale()) return;
+									setStatus("error");
+									setMessage(
+										getApiErrorMessage(error, "Failed to test connection."),
+									);
 								}
-							} catch {
-								// keep polling until success or timeout
+							} finally {
+								pollBusyRef.current = false;
 							}
 						})();
 					}, 2000);
 					timeoutRef.current = setTimeout(() => {
 						clearPolling();
 						if (isStale()) return;
+						// Invalidate the run so an in-flight probe that resolves after
+						// the deadline can't overwrite the timeout result.
+						runRef.current++;
 						setStatus("error");
 						setMessage("Authentication timed out. Please try again.");
 					}, 60000);

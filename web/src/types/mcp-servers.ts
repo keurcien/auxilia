@@ -29,8 +29,9 @@ export interface MCPServerUpdate {
 	name?: string;
 	url?: string;
 	authType?: MCPAuthType;
-	iconUrl?: string;
-	description?: string;
+	// null clears the stored value; undefined leaves it untouched.
+	iconUrl?: string | null;
+	description?: string | null;
 	// Credentials — send only when changing them; blank keeps the stored value.
 	apiKey?: string;
 	oauthClientId?: string;

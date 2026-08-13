@@ -49,6 +49,7 @@ export default function AgentCodeExecution({
 						setIsExpanded(!isExpanded);
 					}}
 					aria-label={isExpanded ? "Collapse" : "Expand"}
+					aria-expanded={isExpanded}
 					className="ml-auto cursor-pointer p-1 text-meta transition-colors hover:text-foreground dark:text-panel-dim"
 				>
 					<ChevronRight

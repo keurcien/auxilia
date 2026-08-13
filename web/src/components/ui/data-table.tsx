@@ -289,10 +289,20 @@ export function DataTable<T>({
 								);
 							} else if (onRowClick) {
 								elements.push(
+									// Button semantics so keyboard users can activate the
+									// row like the Link path.
 									<div
 										key={rowKey(row)}
+										role="button"
+										tabIndex={0}
 										onClick={() => {
 											onRowClick(row);
+										}}
+										onKeyDown={(event) => {
+											if (event.key === "Enter" || event.key === " ") {
+												event.preventDefault();
+												onRowClick(row);
+											}
 										}}
 										className={`${gridClass} ${ROW_CLASS} cursor-pointer`}
 									>

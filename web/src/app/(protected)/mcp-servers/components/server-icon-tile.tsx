@@ -10,13 +10,22 @@ interface ServerIconTileProps {
 	className?: string;
 }
 
-const TILE_CLASSES: Record<number, string> = {
-	32: "size-8 rounded-[9px]",
-	38: "size-[38px] rounded-[10px]",
-	52: "size-[52px] rounded-[14px] shadow-[0_2px_8px_rgba(10,25,30,0.16)]",
-};
-
-const ICON_SIZES: Record<number, number> = { 32: 17, 38: 20, 52: 28 };
+// Exhaustive switch (not a keyed lookup) so static analysis can verify the
+// access — the size union guarantees every case is covered.
+function tileFor(size: 32 | 38 | 52): { tileClass: string; iconPx: number } {
+	switch (size) {
+		case 32:
+			return { tileClass: "size-8 rounded-[9px]", iconPx: 17 };
+		case 38:
+			return { tileClass: "size-[38px] rounded-[10px]", iconPx: 20 };
+		case 52:
+			return {
+				tileClass:
+					"size-[52px] rounded-[14px] shadow-[0_2px_8px_rgba(10,25,30,0.16)]",
+				iconPx: 28,
+			};
+	}
+}
 
 /** White logo tile with the design system's soft shadow. */
 export function ServerIconTile({
@@ -25,11 +34,12 @@ export function ServerIconTile({
 	size = 32,
 	className,
 }: ServerIconTileProps) {
+	const { tileClass, iconPx } = tileFor(size);
 	return (
 		<span
 			className={cn(
 				"flex shrink-0 items-center justify-center bg-white shadow-[0_2px_6px_rgba(10,25,30,0.14)] dark:bg-white/10",
-				TILE_CLASSES[size],
+				tileClass,
 				className,
 			)}
 		>
@@ -37,8 +47,8 @@ export function ServerIconTile({
 				unoptimized
 				src={iconUrl ?? DEFAULT_ICON}
 				alt={name}
-				width={ICON_SIZES[size]}
-				height={ICON_SIZES[size]}
+				width={iconPx}
+				height={iconPx}
 				className="object-contain"
 			/>
 		</span>

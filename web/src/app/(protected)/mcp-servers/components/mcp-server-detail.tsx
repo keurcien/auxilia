@@ -103,6 +103,9 @@ export default function MCPServerDetail({
 
 	const [server, setServer] = useState<MCPServer>(initialServer);
 	const [isEditing, setIsEditing] = useState(initialEdit);
+	// ?edit=1 must not expose the editor to non-admins — the backend would
+	// 403 the save, but the destructive controls shouldn't render at all.
+	const editing = isEditing && isAdmin;
 	const [form, setForm] = useState<EditFormValues>(formFromServer(initialServer));
 	const [fieldErrors, setFieldErrors] = useState<
 		Partial<Record<keyof EditFormValues, string>>
@@ -180,13 +183,14 @@ export default function MCPServerDetail({
 	const handleFormChange = (field: keyof EditFormValues, value: string) => {
 		setForm((prev) => ({ ...prev, [field]: value }));
 		if (field === "oauthClientId") clientIdDirtyRef.current = true;
-		if (fieldErrors[field]) {
-			setFieldErrors((prev) => {
-				const next = { ...prev };
-				delete next[field];
-				return next;
-			});
-		}
+		// Editing a field clears its error (rebuild without the key — no
+		// dynamic access/delete, which static analysis flags as injection).
+		setFieldErrors(
+			(prev) =>
+				Object.fromEntries(
+					Object.entries(prev).filter(([key]) => key !== field),
+				) as typeof fieldErrors,
+		);
 		// A prior test result no longer reflects the edited config.
 		if (testStatus !== "idle") resetTest();
 	};
@@ -197,7 +201,7 @@ export default function MCPServerDetail({
 		// key", which likewise requires the saved config; everything else tests
 		// the current form values without saving.
 		const useSavedTest =
-			!isEditing ||
+			!editing ||
 			server.authType === "oauth2" ||
 			(server.authType === "api_key" && !form.apiKey.trim());
 		if (useSavedTest) {
@@ -237,8 +241,10 @@ export default function MCPServerDetail({
 			const payload: MCPServerUpdate = {
 				name: form.name,
 				url: form.url,
-				description: form.description || undefined,
-				iconUrl: form.iconUrl || undefined,
+				// Explicit null clears the stored value — undefined would be
+				// dropped from the PATCH and silently keep the old one.
+				description: form.description.trim() ? form.description : null,
+				iconUrl: form.iconUrl.trim() ? form.iconUrl : null,
 				// Credentials are sent only when the field was filled in; a blank
 				// field keeps the stored secret untouched.
 				apiKey:
@@ -351,7 +357,7 @@ export default function MCPServerDetail({
 				>
 					{testStatus === "testing" ? "Testing…" : "Test connection"}
 				</HeaderButton>
-				{isEditing ? (
+				{editing ? (
 					<>
 						<HeaderButton disabled={busy} onClick={cancelEdit}>
 							Cancel
@@ -400,7 +406,7 @@ export default function MCPServerDetail({
 				<div className="min-w-0 overflow-y-auto border-b border-border bg-background p-7 pb-11 md:flex-[1.05] md:border-b-0 md:border-r [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 					<div className="flex items-center gap-4">
 						<ServerIconTile
-							iconUrl={isEditing ? form.iconUrl || null : server.iconUrl}
+							iconUrl={editing ? form.iconUrl || null : server.iconUrl}
 							name={server.name}
 							size={52}
 						/>
@@ -437,7 +443,7 @@ export default function MCPServerDetail({
 						</span>
 					</div>
 
-					{!isEditing ? (
+					{!editing ? (
 						<div>
 							<ConfigRow label="Name">
 								<span className="text-[13.5px] text-foreground">{server.name}</span>

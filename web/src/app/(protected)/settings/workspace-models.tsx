@@ -104,9 +104,6 @@ export default function WorkspaceModels({
 	useEffect(() => {
 		onCountChangeRef.current = onCountChange;
 	}, [onCountChange]);
-	useEffect(() => {
-		onCountChangeRef.current?.(models.length);
-	}, [models.length]);
 
 	const loadManaged = useCallback(async () => {
 		setIsLoading(true);
@@ -116,6 +113,9 @@ export default function WorkspaceModels({
 				"/model-providers/models/manage",
 			);
 			setModels(response.data);
+			// Only a successful fetch reports a count — an empty array from a
+			// failed/pending load would show a misleading "Models 0" in the rail.
+			onCountChangeRef.current?.(response.data.length);
 		} catch (error: unknown) {
 			if (axios.isAxiosError(error) && error.response?.status === 403) {
 				onForbiddenRef.current();
@@ -273,6 +273,7 @@ export default function WorkspaceModels({
 				"/model-providers/models/manage",
 			);
 			setModels(managedResponse.data);
+			onCountChangeRef.current?.(managedResponse.data.length);
 			setStatus({ kind: "info", text: summary });
 		} catch {
 			setStatus({

@@ -23,15 +23,25 @@ function formatDate(dateStr: string): string {
 
 /** One-time reveal of a freshly created token (design 18a banner). */
 function TokenRevealBanner({ plaintext }: { plaintext: string }) {
-	const [copied, setCopied] = useState(false);
+	const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
+		"idle",
+	);
+	const copied = copyState === "copied";
 
 	const handleCopy = () => {
-		void navigator.clipboard.writeText(plaintext).then(() => {
-			setCopied(true);
-			setTimeout(() => {
-				setCopied(false);
-			}, 2000);
-		});
+		navigator.clipboard
+			.writeText(plaintext)
+			.then(() => {
+				setCopyState("copied");
+				setTimeout(() => {
+					setCopyState("idle");
+				}, 2000);
+			})
+			.catch(() => {
+				// Clipboard permission denied — the token is visible in the
+				// banner, so point the user at manual selection.
+				setCopyState("failed");
+			});
 	};
 
 	return (
@@ -46,6 +56,11 @@ function TokenRevealBanner({ plaintext }: { plaintext: string }) {
 				<span className="mt-[3px] block truncate font-mono text-[12px] text-petrol dark:text-panel-terminal">
 					{plaintext}
 				</span>
+				{copyState === "failed" && (
+					<span className="mt-1 block text-[11.5px] font-medium text-destructive">
+						Copying failed — select the token above and copy it manually.
+					</span>
+				)}
 			</span>
 			<button
 				type="button"
@@ -80,7 +95,9 @@ export default function SettingsPage() {
 		void fetchUser();
 	}, [fetchUser]);
 
+	// The token routes are admin-only — fetching as a member would just 403.
 	useEffect(() => {
+		if (!isAdmin) return;
 		const fetchTokens = async () => {
 			try {
 				const response = await api.get("/auth/tokens");
@@ -100,7 +117,7 @@ export default function SettingsPage() {
 			}
 		};
 		void fetchTokens();
-	}, []);
+	}, [isAdmin]);
 
 	const handleDelete = async (token: PersonalAccessToken) => {
 		const confirmed = window.confirm(
@@ -212,9 +229,11 @@ export default function SettingsPage() {
 							}}
 						>
 							Access tokens
-							<span className="font-mono text-[10.5px] font-normal text-meta dark:text-panel-dim">
-								{tokens.length}
-							</span>
+							{isAdmin && (
+								<span className="font-mono text-[10.5px] font-normal text-meta dark:text-panel-dim">
+									{tokens.length}
+								</span>
+							)}
 						</button>
 						{isAdmin && (
 							<button
@@ -245,16 +264,18 @@ export default function SettingsPage() {
 									PERSONAL ACCESS TOKENS
 								</span>
 								<span className="flex-1" />
-								<button
-									type="button"
-									onClick={() => {
-										setCreateDialogOpen(true);
-									}}
-									className="flex cursor-pointer items-center gap-1.5 rounded-[7px] bg-primary px-4 py-2 text-[12.5px] font-semibold text-primary-foreground transition-opacity hover:opacity-90"
-								>
-									<Plus className="size-3.5" />
-									Generate token
-								</button>
+								{isAdmin && (
+									<button
+										type="button"
+										onClick={() => {
+											setCreateDialogOpen(true);
+										}}
+										className="flex cursor-pointer items-center gap-1.5 rounded-[7px] bg-primary px-4 py-2 text-[12.5px] font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+									>
+										<Plus className="size-3.5" />
+										Generate token
+									</button>
+								)}
 							</div>
 							<p className="mb-3.5 max-w-[620px] text-[13px] leading-[1.55] text-subtle dark:text-panel-body">
 								Authenticate external services against the API — n8n, the
@@ -263,21 +284,27 @@ export default function SettingsPage() {
 
 							{revealedToken && <TokenRevealBanner plaintext={revealedToken} />}
 
-							<DataTable
-								columns={tokenColumns}
-								rows={tokens}
-								rowKey={(token) => token.id}
-								isLoading={isLoading}
-								emptyMessage={
-									<span>
-										No personal access tokens yet.
-										<br />
-										<span className="text-[13px] font-normal">
-											Generate a token to authenticate external services.
+							{isAdmin ? (
+								<DataTable
+									columns={tokenColumns}
+									rows={tokens}
+									rowKey={(token) => token.id}
+									isLoading={isLoading}
+									emptyMessage={
+										<span>
+											No personal access tokens yet.
+											<br />
+											<span className="text-[13px] font-normal">
+												Generate a token to authenticate external services.
+											</span>
 										</span>
-									</span>
-								}
-							/>
+									}
+								/>
+							) : (
+								<div className="rounded-[10px] border border-dashed border-input px-5 py-8 text-center text-[13px] font-medium text-meta dark:border-white/15 dark:text-panel-dim">
+									Personal access tokens are managed by workspace admins.
+								</div>
+							)}
 						</section>
 
 						{/* Workspace models — admin only */}

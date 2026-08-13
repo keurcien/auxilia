@@ -17,9 +17,10 @@ function CloneChip() {
 	};
 
 	return (
+		// Display and clipboard share CLONE_COMMAND — a reader copying the
+		// visible text by hand must get the same runnable command.
 		<span className="pm-clone-chip">
-			<span className="pm-dollar">$</span> git clone keurcien/auxilia &amp;&amp;
-			make up
+			<span className="pm-dollar">$</span> {CLONE_COMMAND}
 			<button type="button" className="pm-clone-copy" onClick={copy}>
 				{copied ? "copied!" : "copy"}
 			</button>

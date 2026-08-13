@@ -89,6 +89,9 @@ export default function AgentsPage() {
 			}}
 			actions={
 				<WorkspaceTopBarButton
+					// Until /auth/me resolves the role check can't run — a click
+					// would silently no-op, so keep the button disabled.
+					disabled={!user}
 					onClick={() => {
 						handleCreateAgent();
 					}}

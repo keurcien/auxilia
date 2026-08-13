@@ -285,7 +285,7 @@ html.dark .logo-dark {
 /* ---------------------------------------------------------------- *
  * Links in prose
  * ---------------------------------------------------------------- */
-article a:not(.nextra-copy-icon):not(.nextra-focus) {
+article a:not(.nextra-copy-icon, .nextra-focus) {
   color: var(--auxilia-primary);
   text-decoration-color: color-mix(in srgb, var(--auxilia-primary) 35%, transparent);
   text-decoration-thickness: 1px;
@@ -293,12 +293,12 @@ article a:not(.nextra-copy-icon):not(.nextra-focus) {
   transition: color 0.15s ease, text-decoration-color 0.15s ease;
 }
 
-article a:not(.nextra-copy-icon):not(.nextra-focus):hover {
+article a:not(.nextra-copy-icon, .nextra-focus):hover {
   color: var(--auxilia-primary-hover);
   text-decoration-color: var(--auxilia-primary);
 }
 
-.dark article a:not(.nextra-copy-icon):not(.nextra-focus):hover {
+.dark article a:not(.nextra-copy-icon, .nextra-focus):hover {
   color: var(--auxilia-primary-hover);
 }
 
@@ -558,6 +558,8 @@ body {
   border-radius: var(--auxilia-radius);
   padding: 14px 20px;
   white-space: nowrap;
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 .dark .pm-clone-chip {

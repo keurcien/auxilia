@@ -55,7 +55,9 @@ export default function MCPServerTable({
 		resetMcpServerConnections,
 	} = useMcpServersStore();
 	const [isLoading, setIsLoading] = useState(true);
-	const [error, setError] = useState<string | null>(null);
+	const [loadError, setLoadError] = useState<string | null>(null);
+	// Delete/reset failures render inline — they must not hide the table.
+	const [actionError, setActionError] = useState<string | null>(null);
 	const [forbiddenOpen, setForbiddenOpen] = useState(false);
 
 	useEffect(() => {
@@ -67,9 +69,9 @@ export default function MCPServerTable({
 			setIsLoading(true);
 			try {
 				await fetchMcpServers();
-				setError(null);
+				setLoadError(null);
 			} catch (err) {
-				setError(getApiErrorMessage(err, "Failed to load MCP servers."));
+				setLoadError(getApiErrorMessage(err, "Failed to load MCP servers."));
 			} finally {
 				setIsLoading(false);
 			}
@@ -99,7 +101,7 @@ export default function MCPServerTable({
 			if (err instanceof Object && "status" in err && err.status === 403) {
 				setForbiddenOpen(true);
 			} else {
-				setError(getApiErrorMessage(err, "Failed to delete MCP server."));
+				setActionError(getApiErrorMessage(err, "Failed to delete MCP server."));
 			}
 		}
 	};
@@ -117,7 +119,7 @@ export default function MCPServerTable({
 			if (err instanceof Object && "status" in err && err.status === 403) {
 				setForbiddenOpen(true);
 			} else {
-				setError(
+				setActionError(
 					getApiErrorMessage(err, "Failed to reset MCP server connections."),
 				);
 			}
@@ -169,9 +171,8 @@ export default function MCPServerTable({
 			cell: (server) => (
 				<div
 					className="flex items-center justify-end gap-1.5"
-					// The row itself is a link — keep action clicks off it.
+					// The row itself is clickable — keep action clicks off it.
 					onClick={(e) => {
-						e.preventDefault();
 						e.stopPropagation();
 					}}
 				>
@@ -211,10 +212,10 @@ export default function MCPServerTable({
 		},
 	];
 
-	if (error) {
+	if (loadError) {
 		return (
 			<div className="flex items-center justify-center rounded-[10px] border border-border p-12">
-				<div className="text-[14px] font-medium text-destructive">{error}</div>
+				<div className="text-[14px] font-medium text-destructive">{loadError}</div>
 			</div>
 		);
 	}
@@ -227,13 +228,22 @@ export default function MCPServerTable({
 				title="Insufficient privileges"
 				message="You are not allowed to perform this action."
 			/>
+			{actionError && (
+				<div className="mb-3 shrink-0 rounded-[10px] bg-destructive/10 px-4 py-2.5 text-[13px] font-medium text-destructive">
+					{actionError}
+				</div>
+			)}
 			<DataTable
 				columns={columns}
 				rows={filtered}
 				rowKey={(server) => server.id}
 				isLoading={isLoading}
 				scrollBody
-				getRowHref={(server) => `/mcp-servers/${server.id}`}
+				// Rows navigate via onRowClick, not a Link — the action buttons
+				// live inside the row, and interactive elements can't nest in <a>.
+				onRowClick={(server) => {
+					router.push(`/mcp-servers/${server.id}`);
+				}}
 				emptyMessage={
 					search && mcpServers.length > 0 ? (
 						<span>

@@ -311,7 +311,7 @@ function AuthPageContent() {
 							</form>
 						)}
 
-						{providers?.password && providers?.google && (
+						{providers?.password && providers.google && (
 							<div className="my-1 flex items-center gap-3">
 								<span className="h-px flex-1 bg-rail" />
 								<span className="font-mono text-[10.5px] text-meta">OR</span>
