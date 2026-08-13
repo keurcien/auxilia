@@ -267,12 +267,10 @@ export function DataTable<T>({
 								const groupKey = groupBy.key(row);
 								const prevKey = index > 0 ? groupBy.key(rows[index - 1]) : null;
 								if (groupKey !== prevKey) {
-									// Opaque background (incl. dark) — the header is sticky in
-									// scrollBody mode, so rows must not show through it.
 									elements.push(
 										<div
 											key={`group:${groupKey}`}
-											className="sticky top-0 z-[1] flex items-center border-b border-hairline bg-sidebar px-[18px] py-[9px] dark:border-white/5 dark:bg-[#1c2830]"
+											className="flex items-center border-b border-hairline bg-sidebar px-[18px] py-[9px] dark:border-white/5 dark:bg-white/[0.03]"
 										>
 											{groupBy.header(groupKey)}
 										</div>,
