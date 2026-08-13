@@ -226,7 +226,7 @@ export function AppSidebar() {
 							}}
 							disabled={agents.length === 0}
 							title="New thread"
-							className="flex h-9 w-full cursor-pointer items-center gap-[9px] rounded-lg border border-input bg-card pl-2 pr-2.5 text-[13.5px] font-semibold text-sidebar-foreground shadow-raised transition-colors hover:border-border-hover disabled:cursor-not-allowed disabled:opacity-50 group-data-[collapsible=icon]:w-[38px]"
+							className="flex h-9 w-full cursor-pointer items-center gap-[9px] rounded-lg border border-input bg-card pl-2 pr-2.5 text-[13.5px] font-semibold text-sidebar-foreground shadow-raised transition-colors hover:border-border-hover disabled:cursor-not-allowed disabled:opacity-50 group-data-[collapsible=icon]:w-[38px] group-data-[collapsible=icon]:px-1.75"
 						>
 							<IconSlot>
 								<SquarePen className="size-4" />
