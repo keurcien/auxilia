@@ -851,10 +851,12 @@ const ChatPage = () => {
   }, [threadId]);
 
   // ---- Chain-of-thought grouping ----
-  // One timeline per turn: steps from every AI message in a run of
-  // consecutive non-human messages merge into the turn's first step-bearing
-  // AI message. Task tool calls pair with their SDK subagent stream by id,
-  // preserving the original tool_call order.
+  // One timeline per run of *consecutive* tool work: steps from adjacent AI
+  // messages merge into the run's first step-bearing AI message, but any
+  // assistant text ends the run — a message's own steps render above its
+  // text, and tool calls after the text start a new chain below it. Task
+  // tool calls pair with their SDK subagent stream by id, preserving the
+  // original tool_call order.
   const chainByOwner = new Map<string, ChainStepData[]>();
   {
     let turnOwner: string | null = null;
@@ -864,9 +866,13 @@ const ChatPage = () => {
         continue;
       }
       if ((m.type !== "ai" && m.type !== "assistant") || !m.id) continue;
+      const hasText = getTextContent(m).trim().length > 0;
       const tcs = getToolCallsForMessage(m);
       const subs = subagentApi.getSubagentsByMessage(m.id);
-      if (tcs.length === 0 && subs.length === 0) continue;
+      if (tcs.length === 0 && subs.length === 0) {
+        if (hasText) turnOwner = null;
+        continue;
+      }
 
       const subById = new Map(subs.map((s) => [s.id, s]));
       const paired = new Set<string>();
@@ -890,6 +896,9 @@ const ChatPage = () => {
       } else {
         chainByOwner.get(turnOwner)?.push(...steps);
       }
+      // The message's text renders below its steps — anything after it
+      // belongs to a fresh chain.
+      if (hasText) turnOwner = null;
     }
   }
 
