@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.24](https://github.com/keurcien/auxilia/compare/web-v0.5.23...web-v0.5.24) (2026-08-14)
+
+
+### Features
+
+* Petrol Mono redesign — app pages, docs, and MCP connection management ([#246](https://github.com/keurcien/auxilia/issues/246)) ([1014a4b](https://github.com/keurcien/auxilia/commit/1014a4b0ef978be517165c511b8e481e35d8b992))
+
 ## [0.5.23](https://github.com/keurcien/auxilia/compare/web-v0.5.22...web-v0.5.23) (2026-07-29)
 
 
