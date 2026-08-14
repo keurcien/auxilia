@@ -24,9 +24,14 @@ import {
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
-const SIDEBAR_WIDTH = "20rem";
+// Collapsed keeps the 22px icon column at the same x offset as the open
+// state: 8px group pad + 38px row (8px pad + 22px icon + 8px pad) + 8px
+// group pad = 54px interior + the 1px right border = 55px. The width is
+// border-box on the bordered container, so the border must be counted or
+// the rows lose 1px of right margin and sit off-center.
+const SIDEBAR_WIDTH = "18rem";
 const SIDEBAR_WIDTH_MOBILE = "18rem";
-const SIDEBAR_WIDTH_ICON = "3.5rem";
+const SIDEBAR_WIDTH_ICON = "3.4375rem";
 const SIDEBAR_KEYBOARD_SHORTCUT = "b";
 
 type SidebarContextProps = {
@@ -87,7 +92,11 @@ function SidebarProvider({
 
 	// Helper to toggle the sidebar.
 	const toggleSidebar = React.useCallback(() => {
-		return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open);
+		if (isMobile) {
+			setOpenMobile((open) => !open);
+		} else {
+			setOpen((open) => !open);
+		}
 	}, [isMobile, setOpen, setOpenMobile]);
 
 	// Adds a keyboard shortcut to toggle the sidebar.
@@ -103,7 +112,9 @@ function SidebarProvider({
 		};
 
 		window.addEventListener("keydown", handleKeyDown);
-		return () => window.removeEventListener("keydown", handleKeyDown);
+		return () => {
+			window.removeEventListener("keydown", handleKeyDown);
+		};
 	}, [toggleSidebar]);
 
 	// We add a state so that we can do data-state="expanded" or "collapsed".

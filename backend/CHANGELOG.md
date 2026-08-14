@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.34](https://github.com/keurcien/auxilia/compare/backend-v0.4.33...backend-v0.4.34) (2026-08-14)
+
+
+### Features
+
+* Petrol Mono redesign — app pages, docs, and MCP connection management ([#246](https://github.com/keurcien/auxilia/issues/246)) ([1014a4b](https://github.com/keurcien/auxilia/commit/1014a4b0ef978be517165c511b8e481e35d8b992))
+
 ## [0.4.33](https://github.com/keurcien/auxilia/compare/backend-v0.4.32...backend-v0.4.33) (2026-07-29)
 
 

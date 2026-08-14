@@ -42,8 +42,8 @@ export const config = {
 		 * - api routes
 		 * - _next/static (static files)
 		 * - _next/image (image optimization)
-		 * - favicon.ico, sitemap.xml, robots.txt
+		 * - static assets (any path with a file extension, e.g. logo.svg)
 		 */
-		"/((?!api|_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt).*)",
+		"/((?!api|_next/static|_next/image|.*\\..*).*)",
 	],
 };

@@ -21,13 +21,13 @@ export function EditorSection({
 }: EditorSectionProps) {
 	return (
 		<div className={cn("flex flex-col", className)}>
-			<div className="flex items-center justify-between min-h-[34px] mb-2.5 gap-2">
-				<label className="font-[family-name:var(--font-dm-sans)] text-[10.5px] font-bold text-[#94a59d] dark:text-muted-foreground uppercase tracking-[0.12em]">
+			<div className="mb-2.5 flex min-h-[30px] items-center justify-between gap-2">
+				<label className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.09em] text-subtle dark:text-panel-dim">
 					{label}
 				</label>
 				{actions ??
 					(hint && (
-						<span className="font-[family-name:var(--font-dm-sans)] text-[12px] font-medium text-[#A9B7B0] dark:text-muted-foreground">
+						<span className="font-mono text-[11px] text-meta dark:text-panel-dim">
 							{hint}
 						</span>
 					))}

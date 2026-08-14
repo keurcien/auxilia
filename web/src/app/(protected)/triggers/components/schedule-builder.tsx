@@ -75,10 +75,10 @@ function DayChips({
 							onToggle(day);
 						}}
 						className={cn(
-							"flex-1 h-10 rounded-[11px] font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold cursor-pointer transition-colors",
+							"flex-1 h-10 rounded-lg text-[14px] font-semibold cursor-pointer transition-colors",
 							isSelected
-								? "bg-[#1E2D28] text-white dark:bg-white dark:text-[#111111]"
-								: "bg-white dark:bg-transparent text-[#5A6B63] dark:text-white/60 border border-[#E4EAE7] dark:border-white/10 hover:border-[#A3B5AD]",
+								? "bg-ink text-white dark:bg-white dark:text-ink"
+								: "bg-card text-subtle dark:bg-transparent dark:text-white/60 border border-input dark:border-white/10 hover:border-border-hover",
 						)}
 					>
 						{WEEKDAY_CHIP_LABELS[day]}
@@ -90,7 +90,7 @@ function DayChips({
 }
 
 const fieldClassName =
-	"flex items-center justify-between h-12 px-3.5 rounded-xl border border-[#E4EAE7] dark:border-white/10 bg-white dark:bg-transparent font-[family-name:var(--font-dm-sans)] text-[14px] font-medium text-[#1E2D28] dark:text-white cursor-pointer transition-colors hover:border-[#A3B5AD]";
+	"flex items-center justify-between h-11 px-3.5 rounded-lg border border-input dark:border-white/10 bg-card dark:bg-transparent text-[14px] font-medium text-foreground cursor-pointer transition-colors hover:border-border-hover";
 
 export default function ScheduleBuilder({
 	value,
@@ -117,8 +117,7 @@ export default function ScheduleBuilder({
 		<div
 			className={cn(
 				"flex flex-col gap-4",
-				!bare &&
-					"rounded-[14px] border border-[#e1ebe6] dark:border-white/10 bg-white dark:bg-card p-5 shadow-[0_1px_3px_rgba(33,36,31,0.04)]",
+				!bare && "rounded-[10px] border border-border bg-card p-5",
 			)}
 		>
 			{/* Preset · at · time */}
@@ -129,7 +128,7 @@ export default function ScheduleBuilder({
 					trigger={
 						<button type="button" className={cn(fieldClassName, "flex-1")}>
 							{presetLabel(value)}
-							<ChevronDown className="size-[18px] shrink-0 text-[#9AA8A1]" />
+							<ChevronDown className="size-[18px] shrink-0 text-faint" />
 						</button>
 					}
 					items={PRESETS.map((preset) => ({
@@ -142,12 +141,12 @@ export default function ScheduleBuilder({
 				/>
 				{time !== null && (
 					<>
-						<span className="shrink-0 font-[family-name:var(--font-dm-sans)] text-[14px] font-medium text-[#7C8C84] dark:text-muted-foreground">
+						<span className="shrink-0 text-[14px] font-medium text-subtle dark:text-muted-foreground">
 							at
 						</span>
-						<div className="flex items-center shrink-0 h-12 rounded-xl overflow-hidden border border-[#E4EAE7] dark:border-white/10 bg-white dark:bg-transparent font-[family-name:var(--font-dm-sans)] text-[14px] font-medium text-[#1E2D28] dark:text-white transition-colors">
+						<div className="flex items-center shrink-0 h-11 rounded-lg overflow-hidden border border-input dark:border-white/10 bg-card dark:bg-transparent text-[14px] font-medium text-foreground transition-colors">
 							<label className="flex items-center gap-1.5 pl-3.5 pr-3 cursor-pointer">
-								<Clock className="size-[15px] shrink-0 text-[#9AA8A1]" />
+								<Clock className="size-[15px] shrink-0 text-faint" />
 								<input
 									ref={timeInputRef}
 									type="time"
@@ -156,17 +155,17 @@ export default function ScheduleBuilder({
 										if (!e.target.value) return;
 										onChange({ ...value, time: e.target.value } as Schedule);
 									}}
-									className="bg-transparent border-none outline-none font-semibold text-[#1E2D28] dark:text-white cursor-pointer appearance-none [&::-webkit-calendar-picker-indicator]:hidden"
+									className="bg-transparent border-none outline-none font-semibold text-foreground cursor-pointer appearance-none [&::-webkit-calendar-picker-indicator]:hidden"
 								/>
 							</label>
-							<span className="w-px self-stretch shrink-0 bg-[#E4EAE7] dark:bg-white/10" />
+							<span className="w-px self-stretch shrink-0 bg-input dark:bg-white/10" />
 							<button
 								type="button"
 								aria-label="Open time picker"
 								onClick={() => {
 									timeInputRef.current?.showPicker();
 								}}
-								className="flex items-center justify-center w-9.5 self-stretch shrink-0 bg-transparent text-[#7C8C84] dark:text-muted-foreground cursor-pointer hover:bg-[#EEF3F0] dark:hover:bg-white/10 transition-colors"
+								className="flex items-center justify-center w-9.5 self-stretch shrink-0 bg-transparent text-subtle dark:text-muted-foreground cursor-pointer hover:bg-hover dark:hover:bg-white/10 transition-colors"
 							>
 								<ChevronDown className="size-4 shrink-0" />
 							</button>
@@ -178,7 +177,7 @@ export default function ScheduleBuilder({
 			{/* Single-day pick for weekly / biweekly */}
 			{singleDay !== null && (
 				<div className="flex flex-col gap-2.5">
-					<span className="font-[family-name:var(--font-dm-sans)] text-[12.5px] font-semibold text-[#7C8C84] dark:text-muted-foreground">
+					<span className="text-[12.5px] font-semibold text-subtle dark:text-muted-foreground">
 						On
 					</span>
 					<DayChips
@@ -193,9 +192,9 @@ export default function ScheduleBuilder({
 			{/* Custom: repeat every N unit (+ day chips for weeks) */}
 			{value.kind === "custom" && (
 				<>
-					<div className="h-px shrink-0 bg-[#EEF3F0] dark:bg-white/5" />
+					<div className="h-px shrink-0 bg-hairline dark:bg-white/5" />
 					<div className="flex items-center gap-2.5">
-						<span className="shrink-0 font-[family-name:var(--font-dm-sans)] text-[14px] font-medium text-[#3A4A43] dark:text-white/80">
+						<span className="shrink-0 text-[14px] font-medium text-body dark:text-white/80">
 							Repeat every
 						</span>
 						<input
@@ -206,7 +205,7 @@ export default function ScheduleBuilder({
 							onChange={(e) => {
 								handleIntervalChange(Number(e.target.value));
 							}}
-							className="w-16 h-[42px] px-3 rounded-[11px] border border-[#E4EAE7] dark:border-white/10 bg-white dark:bg-transparent font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold text-[#1E2D28] dark:text-white outline-none focus:border-[#4CA882] transition-colors"
+							className="w-16 h-[42px] px-3 rounded-lg border border-input dark:border-white/10 bg-card dark:bg-transparent text-[14px] font-semibold text-foreground outline-none focus:border-petrol transition-colors"
 						/>
 						<SageDropdownMenu
 							align="start"
@@ -222,7 +221,7 @@ export default function ScheduleBuilder({
 										: value.interval === 1
 											? "week"
 											: "weeks"}
-									<ChevronDown className="size-[16px] shrink-0 text-[#9AA8A1]" />
+									<ChevronDown className="size-[16px] shrink-0 text-faint" />
 								</button>
 							}
 							items={(["day", "week"] as const).map((unit) => ({
@@ -244,7 +243,7 @@ export default function ScheduleBuilder({
 					</div>
 					{value.unit === "week" && (
 						<div className="flex flex-col gap-2.5">
-							<span className="font-[family-name:var(--font-dm-sans)] text-[12.5px] font-semibold text-[#7C8C84] dark:text-muted-foreground">
+							<span className="text-[12.5px] font-semibold text-subtle dark:text-muted-foreground">
 								On days
 							</span>
 							<DayChips
@@ -263,8 +262,8 @@ export default function ScheduleBuilder({
 
 			{/* Raw cron fallback */}
 			{value.kind === "raw" && (
-				<div className="flex items-center justify-between gap-3 rounded-[10px] bg-[#F4F8F5] dark:bg-white/5 px-3.5 py-3">
-					<code className="font-mono text-[13px] text-[#1E2D28] dark:text-white truncate">
+				<div className="flex items-center justify-between gap-3 rounded-lg bg-hover dark:bg-white/5 px-3.5 py-3">
+					<code className="font-mono text-[13px] text-foreground truncate">
 						{value.cronExpression}
 					</code>
 					<button
@@ -272,7 +271,7 @@ export default function ScheduleBuilder({
 						onClick={() => {
 							onChange(withKind(value, "custom"));
 						}}
-						className="shrink-0 font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#3D8B63] dark:text-emerald-400 cursor-pointer hover:underline"
+						className="shrink-0 text-[13px] font-semibold text-petrol dark:text-panel-terminal cursor-pointer hover:underline"
 					>
 						Edit as custom
 					</button>
@@ -281,9 +280,9 @@ export default function ScheduleBuilder({
 
 			{/* Summary line — only when the schedule needs spelling out */}
 			{value.kind === "custom" && (
-				<div className="flex items-center gap-2.5 rounded-[10px] bg-[#F4F8F5] dark:bg-white/5 px-3.5 py-3">
-					<Repeat className="size-[15px] shrink-0 text-[#5E8C76] dark:text-emerald-400" />
-					<span className="font-[family-name:var(--font-dm-sans)] text-[13px] font-medium text-[#42594F] dark:text-white/70">
+				<div className="flex items-center gap-2.5 rounded-lg bg-hover dark:bg-white/5 px-3.5 py-3">
+					<Repeat className="size-[15px] shrink-0 text-petrol dark:text-panel-terminal" />
+					<span className="font-mono text-[12px] text-body dark:text-white/70">
 						{describeSchedule(value)} · {timezone}
 					</span>
 				</div>

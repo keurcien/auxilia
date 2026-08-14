@@ -11,6 +11,7 @@ from app.mcp.servers.models import MCPServerDB
 from app.mcp.servers.schemas import (
     ConnectionProbeRequest,
     ConnectionTestResult,
+    MCPServerConnectionResponse,
     MCPServerCreate,
     MCPServerPatch,
     MCPServerResponse,
@@ -110,6 +111,33 @@ async def reset_mcp_server(
     Clears all per-user OAuth tokens, client info, and metadata from Redis.
     """
     return await service.reset(server_id)
+
+
+@router.get(
+    "/{server_id}/connections", response_model=list[MCPServerConnectionResponse]
+)
+async def list_mcp_server_connections(
+    server_id: UUID,
+    _current_user: UserDB = Depends(require_admin),
+    service: MCPServerService = Depends(get_mcp_server_service),
+) -> list[MCPServerConnectionResponse]:
+    """Admin-only: users holding a stored OAuth connection to this server."""
+    return await service.list_connections(server_id)
+
+
+@router.delete("/{server_id}/connections/{user_id}", status_code=200)
+async def revoke_mcp_server_connection(
+    server_id: UUID,
+    user_id: UUID,
+    _current_user: UserDB = Depends(require_admin),
+    service: MCPServerService = Depends(get_mcp_server_service),
+):
+    """Admin-only: revoke one user's connection to this server.
+
+    Clears the user's OAuth tokens, client info, and metadata from Redis;
+    they will need to re-authenticate to use the server again.
+    """
+    return await service.delete_connection(server_id, user_id)
 
 
 @router.get("/oauth/callback")

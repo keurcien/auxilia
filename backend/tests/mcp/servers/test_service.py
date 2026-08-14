@@ -338,6 +338,115 @@ async def test_secret_hint_404_for_missing_server(service, mock_repo):
         await service.get_oauth_secret_hint(uuid4())
 
 
+# ---------------------------------------------------------------------------
+# connections — list + revoke (Redis-backed, admin surface)
+# ---------------------------------------------------------------------------
+
+
+def _stored_token(expires_at=None, refresh_token=None):
+    return SimpleNamespace(
+        expires_at=expires_at,
+        token_payload=SimpleNamespace(refresh_token=refresh_token),
+    )
+
+
+def _factory_with_tokens(tokens_by_user):
+    """Fake TokenStorageFactory: one stored token per user id."""
+    factory = MagicMock()
+    factory.list_connected_user_ids = AsyncMock(
+        return_value=list(tokens_by_user.keys())
+    )
+
+    def get_storage(user_id, _server_id):
+        storage = MagicMock()
+        storage.get_stored_token = AsyncMock(return_value=tokens_by_user[user_id])
+        return storage
+
+    factory.get_storage = MagicMock(side_effect=get_storage)
+    return factory
+
+
+def _users_repo(users):
+    repo = MagicMock()
+    repo.list_by_ids = AsyncMock(return_value=users)
+    return repo
+
+
+async def test_list_connections_classifies_token_status(
+    service, mock_repo, monkeypatch
+):
+    from datetime import UTC, datetime, timedelta
+
+    mock_repo.get.return_value = make_mcp_server()
+    expired_id, refreshable_id, fresh_id = uuid4(), uuid4(), uuid4()
+    past = datetime.now(UTC) - timedelta(minutes=5)
+
+    tokens = {
+        # Past expiry, no refresh token — dead until the user re-auths.
+        str(expired_id): _stored_token(expires_at=past),
+        # Past expiry but refreshable — effectively still active.
+        str(refreshable_id): _stored_token(expires_at=past, refresh_token="rt"),
+        # No expiry recorded — active.
+        str(fresh_id): _stored_token(),
+    }
+    monkeypatch.setattr(
+        service_module, "TokenStorageFactory", lambda: _factory_with_tokens(tokens)
+    )
+
+    users = [
+        SimpleNamespace(id=expired_id, name="Ada", email="ada@x.io"),
+        SimpleNamespace(id=refreshable_id, name="Bob", email="bob@x.io"),
+        SimpleNamespace(id=fresh_id, name="Cleo", email="cleo@x.io"),
+    ]
+    monkeypatch.setattr(service_module, "UserRepository", lambda db: _users_repo(users))
+
+    connections = await service.list_connections(uuid4())
+
+    by_user = {c.user_id: c for c in connections}
+    assert by_user[expired_id].status == "expired"
+    assert by_user[refreshable_id].status == "active"
+    assert by_user[fresh_id].status == "active"
+    assert by_user[expired_id].name == "Ada"
+    # Sorted by display name.
+    assert [c.name for c in connections] == ["Ada", "Bob", "Cleo"]
+
+
+async def test_list_connections_keeps_orphaned_tokens_of_deleted_users(
+    service, mock_repo, monkeypatch
+):
+    mock_repo.get.return_value = make_mcp_server()
+    ghost_id = uuid4()
+    tokens = {str(ghost_id): _stored_token()}
+    monkeypatch.setattr(
+        service_module, "TokenStorageFactory", lambda: _factory_with_tokens(tokens)
+    )
+    monkeypatch.setattr(service_module, "UserRepository", lambda db: _users_repo([]))
+
+    connections = await service.list_connections(uuid4())
+
+    assert len(connections) == 1
+    assert connections[0].user_id == ghost_id
+    assert connections[0].name is None
+    assert connections[0].email is None
+
+
+async def test_delete_connection_clears_only_that_users_keys(
+    service, mock_repo, monkeypatch
+):
+    mock_repo.get.return_value = make_mcp_server()
+    factory = MagicMock()
+    factory.clear_user_server_data = AsyncMock(return_value=3)
+    monkeypatch.setattr(service_module, "TokenStorageFactory", lambda: factory)
+
+    server_id, user_id = uuid4(), uuid4()
+    result = await service.delete_connection(server_id, user_id)
+
+    assert result == {"deleted_keys": 3}
+    factory.clear_user_server_data.assert_awaited_once_with(
+        str(user_id), str(server_id)
+    )
+
+
 async def test_update_persists_auth_method_only(service, mock_repo):
     from app.mcp.servers.schemas import MCPServerPatch
 

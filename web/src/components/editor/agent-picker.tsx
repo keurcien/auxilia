@@ -51,8 +51,8 @@ export function AgentPicker({ value, onChange, disabled }: AgentPickerProps) {
 	const row = (
 		<div
 			className={cn(
-				"flex w-full items-center justify-between h-14 px-4 rounded-[14px] border border-[#e1ebe6] dark:border-white/10 bg-white dark:bg-card shadow-[0_1px_3px_rgba(33,36,31,0.04)] transition-colors",
-				!disabled && "cursor-pointer hover:border-[#A3B5AD]",
+				"flex w-full items-center justify-between h-[52px] px-3.5 rounded-[10px] border border-input bg-card transition-colors",
+				!disabled && "cursor-pointer hover:border-border-hover",
 			)}
 		>
 			{selected ? (
@@ -62,17 +62,17 @@ export function AgentPicker({ value, onChange, disabled }: AgentPickerProps) {
 						emoji={selected.emoji}
 						size="xs"
 					/>
-					<span className="font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold text-[#1E2D28] dark:text-white truncate">
+					<span className="font-mono text-[12.5px] font-semibold tracking-[-0.01em] text-petrol truncate">
 						{selected.name}
 					</span>
 				</div>
 			) : (
-				<span className="font-[family-name:var(--font-dm-sans)] text-[14px] font-medium text-[#A3B5AD] dark:text-white/30">
+				<span className="text-[14px] font-medium text-meta dark:text-panel-dim">
 					Select an agent
 				</span>
 			)}
 			{!disabled && (
-				<ChevronDown className="size-[18px] shrink-0 text-[#9AA8A1]" />
+				<ChevronDown className="size-[18px] shrink-0 text-faint" />
 			)}
 		</div>
 	);
@@ -94,10 +94,10 @@ export function AgentPicker({ value, onChange, disabled }: AgentPickerProps) {
 			>
 				{/* Header */}
 				<div className="px-8 pt-7 pb-0">
-					<DialogTitle className="font-[family-name:var(--font-jakarta-sans)] text-[22px] font-extrabold text-[#111111] dark:text-white tracking-[-0.02em]">
+					<DialogTitle className="font-display text-[22px] font-bold text-foreground tracking-[-0.025em]">
 						Select an agent
 					</DialogTitle>
-					<p className="font-[family-name:var(--font-dm-sans)] text-[14px] text-[#8FA89E] dark:text-muted-foreground font-medium mt-2 leading-relaxed">
+					<p className="text-[14px] text-subtle dark:text-muted-foreground font-medium mt-2 leading-relaxed">
 						Runs execute with this agent&apos;s tools
 					</p>
 				</div>
@@ -119,10 +119,10 @@ export function AgentPicker({ value, onChange, disabled }: AgentPickerProps) {
 							<div
 								key={agent.id}
 								className={cn(
-									"flex items-center gap-3.5 px-3 py-2.5 rounded-[16px] cursor-pointer transition-all duration-200 group",
+									"flex items-center gap-3.5 px-3 py-2.5 rounded-[10px] cursor-pointer transition-all duration-200 group",
 									isActive
-										? "bg-[#F8FAF9] dark:bg-white/5"
-										: "hover:bg-[#F8FAF9] dark:hover:bg-white/5",
+										? "bg-petrol-tint dark:bg-white/5"
+										: "hover:bg-hover dark:hover:bg-white/5",
 								)}
 								onClick={() => {
 									onChange(agent.id);
@@ -135,12 +135,12 @@ export function AgentPicker({ value, onChange, disabled }: AgentPickerProps) {
 									size="md"
 									className="transition-transform duration-300 group-hover:scale-105"
 								/>
-								<span className="flex-1 font-[family-name:var(--font-dm-sans)] text-[14.5px] font-semibold text-[#1E2D28] dark:text-foreground truncate">
+								<span className="flex-1 text-[14.5px] font-semibold text-foreground truncate">
 									{agent.name}
 								</span>
 								{isActive && (
 									<CheckIcon
-										className="ml-auto size-4 shrink-0 text-[#4CA882]"
+										className="ml-auto size-4 shrink-0 text-petrol dark:text-panel-terminal"
 										strokeWidth={3}
 									/>
 								)}
@@ -148,7 +148,7 @@ export function AgentPicker({ value, onChange, disabled }: AgentPickerProps) {
 						);
 					})}
 					{selectableAgents.length === 0 && (
-						<p className="font-[family-name:var(--font-dm-sans)] text-center text-[14px] text-[#A3B5AD] dark:text-muted-foreground font-medium py-8">
+						<p className="text-center text-[14px] text-faint dark:text-muted-foreground font-medium py-8">
 							No agents found.
 						</p>
 					)}

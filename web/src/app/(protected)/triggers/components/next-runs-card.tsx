@@ -70,18 +70,17 @@ export default function NextRunsCard({
 		<div
 			className={cn(
 				"flex flex-col",
-				!bare &&
-					"rounded-[14px] border border-[#e1ebe6] dark:border-white/10 bg-white dark:bg-card px-4.5 py-1.5 shadow-[0_1px_3px_rgba(33,36,31,0.04)]",
+				!bare && "rounded-[10px] border border-border bg-card px-4.5 py-1.5",
 				className,
 			)}
 		>
 			{!cronExpression && (
-				<p className="py-3.5 font-[family-name:var(--font-dm-sans)] text-[13px] text-[#A3B5AD] dark:text-muted-foreground">
+				<p className="py-3.5 text-[13px] text-faint dark:text-muted-foreground">
 					Pick a schedule to preview upcoming runs.
 				</p>
 			)}
 			{cronExpression && error && (
-				<p className="py-3.5 font-[family-name:var(--font-dm-sans)] text-[13px] font-medium text-[#D45B45]">
+				<p className="py-3.5 text-[13px] font-medium text-destructive">
 					{error}
 				</p>
 			)}
@@ -90,29 +89,29 @@ export default function NextRunsCard({
 				runs.map((iso, index) => (
 					<div
 						key={iso}
-						className="flex items-center gap-3 py-3 border-b border-[#F1F5F3] dark:border-white/5 last:border-b-0"
+						className="flex items-center gap-3 py-3 border-b border-hairline dark:border-white/5 last:border-b-0"
 					>
 						<span
 							className={cn(
 								"flex items-center justify-center size-[30px] shrink-0 rounded-full",
 								index === 0
-									? "bg-[#EDF4F0] dark:bg-emerald-950/40"
-									: "bg-[#F3F6F4] dark:bg-white/5",
+									? "bg-petrol-tint dark:bg-white/10"
+									: "bg-hover dark:bg-white/5",
 							)}
 						>
 							<span
 								className={cn(
 									"size-[7px] rounded-full",
-									index === 0 ? "bg-[#4CA882]" : "bg-[#C2CFC8]",
+									index === 0 ? "bg-petrol" : "bg-faint",
 								)}
 							/>
 						</span>
 						<span
 							className={cn(
-								"font-[family-name:var(--font-dm-sans)] text-[14px]",
+								"text-[14px]",
 								index === 0
-									? "font-semibold text-[#1E2D28] dark:text-white"
-									: "font-medium text-[#3A4A43] dark:text-white/70",
+									? "font-semibold text-foreground"
+									: "font-medium text-body dark:text-white/70",
 							)}
 						>
 							{formatRunAt(iso, timezone)}

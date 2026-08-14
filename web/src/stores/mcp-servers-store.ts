@@ -16,6 +16,10 @@ interface McpServersState {
 	resetMcpServerConnections: (id: string) => Promise<void>;
 }
 
+// Concurrent mounts (StoreInitializer + sidebar) both call fetch before
+// isInitialized flips — share one request instead of firing twice.
+let fetchInFlight: Promise<void> | null = null;
+
 export const useMcpServersStore = create<McpServersState>((set, get) => ({
 	mcpServers: [],
 	isInitialized: false,
@@ -23,15 +27,23 @@ export const useMcpServersStore = create<McpServersState>((set, get) => ({
 		if (get().isInitialized) {
 			return;
 		}
-
-		try {
-			const response = await api.get("/mcp-servers");
-			set({ mcpServers: response.data, isInitialized: true });
-		} catch (error) {
-			console.error("Error fetching MCP servers:", error);
-			set({ isInitialized: true });
-			throw error;
+		if (fetchInFlight) {
+			return fetchInFlight;
 		}
+
+		fetchInFlight = (async () => {
+			try {
+				const response = await api.get("/mcp-servers");
+				set({ mcpServers: response.data, isInitialized: true });
+			} catch (error) {
+				console.error("Error fetching MCP servers:", error);
+				set({ isInitialized: true });
+				throw error;
+			} finally {
+				fetchInFlight = null;
+			}
+		})();
+		return fetchInFlight;
 	},
 	createMcpServer: async (payload) => {
 		const response = await api.post("/mcp-servers", payload);

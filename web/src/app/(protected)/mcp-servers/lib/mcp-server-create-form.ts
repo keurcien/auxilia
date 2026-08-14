@@ -39,6 +39,11 @@ export function validateMCPServerCreateForm(
 	if (!form.name.trim()) errors.name = "Name is required.";
 	if (!form.url.trim()) errors.url = "Server address is required.";
 
+	// The backend rejects api_key servers without a key — catch it inline.
+	if (form.authType === "api_key" && !form.apiKey.trim()) {
+		errors.apiKey = "API key is required.";
+	}
+
 	if (form.authType === "oauth2" && oauthClientSecret && !oauthClientId) {
 		errors.oauthClientId =
 			"Client ID is required when providing a Client Secret.";
@@ -48,7 +53,12 @@ export function validateMCPServerCreateForm(
 			"Client Secret is required when providing a Client ID.";
 	}
 
-	if (requiresStaticOAuthCredentials(officialServer)) {
+	// Only when OAuth is still the selected method — switching the auth type
+	// away from a non-DCR catalog entry must not demand OAuth credentials.
+	if (
+		form.authType === "oauth2" &&
+		requiresStaticOAuthCredentials(officialServer)
+	) {
 		if (!oauthClientId) {
 			errors.oauthClientId = "Client ID is required.";
 		}

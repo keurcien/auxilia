@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlarmClock } from "lucide-react";
 import { Trigger } from "@/types/triggers";
 import {
 	buildCronExpression,
@@ -13,13 +12,19 @@ import { getApiErrorMessage } from "@/lib/api/errors";
 import { getDefaultModel } from "@/lib/utils/get-default-model";
 import { useTriggersStore } from "@/stores/triggers-store";
 import { useModelsStore } from "@/stores/models-store";
-import { EditorHeader } from "@/components/editor/editor-header";
+import {
+	SubpageHeader,
+	UnsavedBadge,
+} from "@/components/layout/subpage-header";
 import { EditorSection } from "@/components/editor/editor-section";
 import { SaveActions } from "@/components/editor/save-actions";
 import { AgentPicker } from "@/components/editor/agent-picker";
 import { ModelPickerChip } from "@/components/editor/model-picker-chip";
 import ScheduleBuilder from "@/app/(protected)/triggers/components/schedule-builder";
 import NextRunsCard from "@/app/(protected)/triggers/components/next-runs-card";
+
+const slugify = (name: string) =>
+	name.trim().toLowerCase().replace(/\s+/g, "-") || "…";
 
 interface TriggerFormState {
 	name: string;
@@ -150,121 +155,120 @@ export default function TriggerEditor({
 	};
 
 	return (
-		<div className="flex flex-col font-[family-name:var(--font-dm-sans)] animate-in fade-in duration-300">
-			<EditorHeader
-				icon={<AlarmClock className="size-[23px]" />}
-				iconClassName="bg-[#E6F2EB] dark:bg-emerald-950/40 text-[#2F7F57] dark:text-emerald-400"
-				title={trigger ? "Edit trigger" : "New trigger"}
-				subtitle={
-					trigger ? (
-						<span className="font-[family-name:var(--font-dm-sans)] text-[12.5px] font-medium text-[#94A59D] dark:text-muted-foreground">
-							{trigger.name}
-						</span>
-					) : undefined
-				}
-				actions={
-					<SaveActions
-						isDirty={isDirty}
-						isSaving={isSaving}
-						canSave={canSave}
-						onSave={() => {
-							void handleSave();
-						}}
-						onCancel={onCancel ? handleCancel : undefined}
-						saveLabel={trigger ? "Save changes" : "Create trigger"}
-					/>
-				}
-			/>
+		<div className="flex h-svh min-w-0 flex-1 flex-col bg-background animate-in fade-in duration-300">
+			<SubpageHeader
+				trail={[
+					{ label: "workspace" },
+					{ label: "triggers", href: "/triggers" },
+					{ label: trigger ? slugify(trigger.name) : "new" },
+				]}
+				badge={isDirty ? <UnsavedBadge /> : undefined}
+			>
+				<SaveActions
+					isDirty={isDirty}
+					isSaving={isSaving}
+					canSave={canSave}
+					onSave={() => {
+						void handleSave();
+					}}
+					onCancel={onCancel ? handleCancel : undefined}
+					saveLabel={trigger ? "Save changes" : "Create trigger"}
+				/>
+			</SubpageHeader>
 
-			{error && (
-				<div className="mt-5 rounded-[14px] bg-[#FFF5F3] dark:bg-[#D45B45]/10 px-4 py-3 text-[13.5px] font-medium text-[#D45B45]">
-					{error}
-				</div>
-			)}
-
-			<div className="flex flex-col md:flex-row gap-8 mt-7">
-				{/* Left: name, agent, instructions */}
-				<div className="flex flex-col gap-7 flex-1 min-w-0">
-					<EditorSection label="Trigger name">
-						<input
-							type="text"
-							maxLength={255}
-							value={form.name}
-							onChange={(e) => {
-								setField("name", e.target.value);
-							}}
-							placeholder="What does this trigger do?"
-							className="w-full px-[17px] py-[15px] rounded-[14px] border border-[#e1ebe6] dark:border-white/10 bg-white dark:bg-card text-[15px] font-semibold text-[#1E2D28] dark:text-white leading-[1.5] placeholder:text-[#A3B5AD] dark:placeholder:text-white/30 shadow-[0_1px_3px_rgba(33,36,31,0.04)] focus:outline-none focus:border-[#4CA882] transition-colors"
-						/>
-					</EditorSection>
-
-					<EditorSection label="Agent">
-						<AgentPicker
-							value={form.agentId}
-							onChange={(agentId) => {
-								setField("agentId", agentId);
-							}}
-						/>
-					</EditorSection>
-
-					<EditorSection label="Instructions" className="flex-1">
-						<div className="flex flex-col flex-1 min-h-[300px] rounded-[14px] border border-[#e1ebe6] dark:border-white/10 bg-white dark:bg-card p-[18px] shadow-[0_1px_3px_rgba(33,36,31,0.04)] focus-within:border-[#4CA882] transition-colors">
-							<textarea
-								value={form.instructions}
-								onChange={(e) => {
-									setField("instructions", e.target.value);
-								}}
-								placeholder="The message sent to the agent on every run..."
-								className="flex-1 w-full resize-none bg-transparent border-none text-[14.5px] font-medium text-[#3A4A43] dark:text-white leading-[1.6] placeholder:text-[#A3B5AD] dark:placeholder:text-white/30 focus:outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-							/>
-							<div className="flex items-center shrink-0 mt-4 pt-3.5 border-t border-[#edf2ef] dark:border-white/5">
-								<ModelPickerChip
-									value={form.modelId}
-									onChange={(modelId) => {
-										setField("modelId", modelId);
-									}}
-									unavailable={
-										trigger && form.modelId === trigger.modelId
-											? !trigger.modelAvailable
-											: undefined
-									}
-									unavailableLabel={
-										trigger && form.modelId === trigger.modelId
-											? trigger.modelDisplayName
-											: undefined
-									}
-								/>
-							</div>
+			<div className="min-h-0 flex-1 overflow-y-auto px-4 py-7 sm:px-7 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+				<div className="w-full">
+					{error && (
+						<div className="mb-5 rounded-[10px] bg-destructive/10 px-4 py-3 text-[13.5px] font-medium text-destructive">
+							{error}
 						</div>
-					</EditorSection>
-				</div>
+					)}
 
-				{/* Right: frequency card with embedded next-runs preview */}
-				<div className="flex flex-col gap-7 w-full md:w-1/2">
-					<EditorSection label="Frequency">
-						<div className="flex flex-col rounded-[14px] border border-[#e1ebe6] dark:border-white/10 bg-white dark:bg-card shadow-[0_1px_3px_rgba(33,36,31,0.04)]">
-							<div className="p-5">
-								<ScheduleBuilder
-									bare
-									value={form.schedule}
-									onChange={(schedule) => {
-										setField("schedule", schedule);
+					<div className="flex flex-col gap-8 md:flex-row">
+						{/* Left: name, agent, instructions */}
+						<div className="flex min-w-0 flex-1 flex-col gap-7">
+							<EditorSection label="Trigger name">
+								<input
+									type="text"
+									maxLength={255}
+									value={form.name}
+									onChange={(e) => {
+										setField("name", e.target.value);
 									}}
-									timezone={form.timezone}
+									placeholder="What does this trigger do?"
+									className="w-full rounded-[10px] border border-input bg-card px-3.5 py-3 text-[15px] font-semibold leading-[1.5] text-foreground outline-none transition-[border-color,box-shadow] placeholder:font-medium placeholder:text-meta dark:placeholder:text-panel-dim focus:border-petrol focus:shadow-[0_0_0_3px_rgba(22,96,110,0.10)]"
 								/>
-							</div>
-							<div className="border-t border-[#F1F5F3] dark:border-white/5 px-4.5 pt-2.5 pb-1.5">
-								<div className="px-0.5 pb-1 font-[family-name:var(--font-dm-sans)] text-[10.5px] font-semibold uppercase tracking-[0.1em] text-[#AEBBB4] dark:text-muted-foreground">
-									Next runs
+							</EditorSection>
+
+							<EditorSection label="Agent">
+								<AgentPicker
+									value={form.agentId}
+									onChange={(agentId) => {
+										setField("agentId", agentId);
+									}}
+								/>
+							</EditorSection>
+
+							<EditorSection label="Instructions" className="flex-1">
+								<div className="flex min-h-[300px] flex-1 flex-col rounded-[10px] border border-input bg-sidebar p-4 transition-[border-color,box-shadow] focus-within:border-petrol focus-within:shadow-[0_0_0_3px_rgba(22,96,110,0.10)] dark:bg-white/5">
+									<textarea
+										value={form.instructions}
+										onChange={(e) => {
+											setField("instructions", e.target.value);
+										}}
+										placeholder="The message sent to the agent on every run…"
+										className="w-full flex-1 resize-none border-none bg-transparent font-mono text-[12.5px] leading-[1.7] text-foreground placeholder:text-meta dark:placeholder:text-panel-dim focus:outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+									/>
+									<div className="mt-4 flex shrink-0 items-center border-t border-hairline pt-3.5 dark:border-white/5">
+										<ModelPickerChip
+											value={form.modelId}
+											onChange={(modelId) => {
+												setField("modelId", modelId);
+											}}
+											unavailable={
+												trigger && form.modelId === trigger.modelId
+													? !trigger.modelAvailable
+													: undefined
+											}
+											unavailableLabel={
+												trigger && form.modelId === trigger.modelId
+													? trigger.modelDisplayName
+													: undefined
+											}
+										/>
+									</div>
 								</div>
-								<NextRunsCard
-									bare
-									cronExpression={cronExpression}
-									timezone={form.timezone}
-								/>
-							</div>
+							</EditorSection>
 						</div>
-					</EditorSection>
+
+						{/* Right: frequency card with embedded next-runs preview */}
+						<div className="flex w-full flex-col gap-7 md:w-1/2">
+							<EditorSection label="Frequency">
+								<div className="flex flex-col rounded-[10px] border border-border bg-card">
+									<div className="p-5">
+										<ScheduleBuilder
+											bare
+											value={form.schedule}
+											onChange={(schedule) => {
+												setField("schedule", schedule);
+											}}
+											timezone={form.timezone}
+										/>
+									</div>
+									<div className="border-t border-hairline px-4.5 pt-2.5 pb-1.5 dark:border-white/5">
+										<div className="px-0.5 pb-1 font-mono text-[10.5px] font-semibold uppercase tracking-[0.09em] text-meta dark:text-panel-dim">
+											Next runs
+										</div>
+										<NextRunsCard
+											bare
+											cronExpression={cronExpression}
+											timezone={form.timezone}
+										/>
+									</div>
+								</div>
+							</EditorSection>
+						</div>
+					</div>
 				</div>
 			</div>
 		</div>

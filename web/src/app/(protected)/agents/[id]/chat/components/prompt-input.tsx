@@ -18,6 +18,7 @@ import {
 import { CheckIcon, PlugIcon } from "lucide-react";
 import { useRef, useState, useEffect, useMemo } from "react";
 import { useModelsStore } from "@/stores/models-store";
+import { useChatHeaderStore } from "@/stores/chat-header-store";
 import { Model } from "@/types/models";
 import { MCPServer } from "@/types/mcp-servers";
 import { ConnectServersDialog } from "./connect-servers-dialog";
@@ -34,13 +35,13 @@ import {
 } from "@/components/ui/dialog";
 import { SearchBar } from "@/components/ui/search-bar";
 
-const sagePromptToolButtonClass = cn(
-	"h-9 px-3 gap-2 rounded-full",
-	"font-[family-name:var(--font-dm-sans)] text-[13px] font-medium",
-	"text-[#1E2D28] dark:text-white/90",
-	"bg-[#F5F8F6] dark:bg-white/5",
-	"hover:bg-[#EDF4F0] dark:hover:bg-white/10",
-	"data-[state=open]:bg-[#EDF4F0] dark:data-[state=open]:bg-white/10",
+// Petrol Mono composer pills: 34px tall, 999px radius, on the hover tint.
+const composerPillClass = cn(
+	"h-[34px] px-3 gap-2 rounded-full",
+	"text-[13px] font-medium text-foreground",
+	"bg-hover dark:bg-white/5",
+	"hover:bg-petrol-tint dark:hover:bg-white/10",
+	"data-[state=open]:bg-petrol-tint dark:data-[state=open]:bg-white/10",
 	"disabled:opacity-60 disabled:cursor-not-allowed",
 	"transition-colors",
 );
@@ -73,6 +74,7 @@ const ChatPromptInput = ({
 	const [connectDialogOpen, setConnectDialogOpen] = useState(false);
 	const models = useModelsStore((state) => state.models);
 	const fetchModels = useModelsStore((state) => state.fetchModels);
+	const agentName = useChatHeaderStore((state) => state.agentName);
 	const [model, setModel] = useState<string | undefined>(undefined);
 	const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
 	const [modelSearch, setModelSearch] = useState("");
@@ -121,7 +123,6 @@ const ChatPromptInput = ({
 
 		const hasText = Boolean("text" in message && message.text);
 		const hasAttachments = Boolean("files" in message && message.files?.length);
-		console.log("hasText", hasText, "hasAttachments", hasAttachments);
 		if (!(hasText || hasAttachments)) {
 			return;
 		}
@@ -142,41 +143,37 @@ const ChatPromptInput = ({
 				multiple
 				onSubmit={handleSubmit}
 				className={cn(
-					"min-h-40 transition-all duration-200",
-					// Sage-style InputGroup container
+					"min-h-[132px] transition-all duration-200",
+					// Petrol Mono composer (28px radius kept from the previous design)
 					"[&>[data-slot=input-group]]:rounded-[28px]",
-					"[&>[data-slot=input-group]]:border-[3px]",
-					"[&>[data-slot=input-group]]:border-[#E0E8E4]",
-					"dark:[&>[data-slot=input-group]]:border-white/10",
-					"[&>[data-slot=input-group]]:bg-white",
-					"dark:[&>[data-slot=input-group]]:bg-[#1C1C1C]",
-					"[&>[data-slot=input-group]]:shadow-[0_8px_24px_-12px_rgba(30,45,40,0.08)]",
-					"dark:[&>[data-slot=input-group]]:shadow-[0_8px_24px_-12px_rgba(0,0,0,0.3)]",
+					"[&>[data-slot=input-group]]:border-2",
+					"[&>[data-slot=input-group]]:border-input",
+					"[&>[data-slot=input-group]]:bg-card",
+					"[&>[data-slot=input-group]]:shadow-composer",
 					"[&>[data-slot=input-group]]:transition-colors",
-					"[&>[data-slot=input-group]:focus-within]:border-[#4CA882]",
-					"dark:[&>[data-slot=input-group]:focus-within]:border-[#4CA882]",
+					"[&>[data-slot=input-group]:focus-within]:border-petrol",
 					// Remove default focus ring
 					"[&>[data-slot=input-group]]:has-[[data-slot=input-group-control]:focus-visible]:ring-0",
 					className,
 				)}
 			>
-				<PromptInputAttachments className="px-5 pt-4">
+				<PromptInputAttachments className="px-[18px] pt-4">
 					{(attachment) => <PromptInputAttachment data={attachment} />}
 				</PromptInputAttachments>
 				<PromptInputBody>
 					<PromptInputTextarea
 						ref={textareaRef}
 						disabled={agentReady === false}
+						placeholder={agentName ? `Reply to ${agentName}…` : "Ask anything…"}
 						className={cn(
-							"font-[family-name:var(--font-dm-sans)]",
 							"text-[15px] font-medium leading-relaxed",
-							"text-[#1E2D28] dark:text-white",
-							"placeholder:text-[#A3B5AD] dark:placeholder:text-white/30",
-							"px-5 pt-5 pb-2",
+							"text-foreground",
+							"placeholder:text-meta dark:placeholder:text-panel-dim",
+							"px-[18px] pt-4 pb-2",
 						)}
 					/>
 				</PromptInputBody>
-				<PromptInputFooter className="px-4 pb-4">
+				<PromptInputFooter className="px-3 pb-3">
 					<PromptInputTools className="gap-1.5">
 						{noAttachments ? (
 							<Tooltip>
@@ -184,7 +181,7 @@ const ChatPromptInput = ({
 									<span>
 										<PromptInputAddAttachmentButton
 											disabled
-											className={sagePromptToolButtonClass}
+											className={cn(composerPillClass, "w-[34px] px-0")}
 										/>
 									</span>
 								</TooltipTrigger>
@@ -195,19 +192,14 @@ const ChatPromptInput = ({
 						) : (
 							<PromptInputAddAttachmentButton
 								disabled={agentReady === false}
-								className={sagePromptToolButtonClass}
+								className={cn(
+									composerPillClass,
+									"w-[34px] px-0 text-subtle dark:text-panel-body",
+								)}
 							/>
 						)}
-						{/* <PromptInputSpeechButton textareaRef={textareaRef} />
-						<PromptInputButton>
-							<GlobeIcon size={16} />
-							<span>Search</span>
-						</PromptInputButton> */}
 						{readOnlyModel ? (
-							<PromptInputButton
-								disabled
-								className={sagePromptToolButtonClass}
-							>
+							<PromptInputButton disabled className={composerPillClass}>
 								{selectedModelData?.chefSlug && (
 									<ModelSelectorLogo provider={selectedModelData.chefSlug} />
 								)}
@@ -223,7 +215,7 @@ const ChatPromptInput = ({
 								onOpenChange={handleModelSelectorOpenChange}
 							>
 								<DialogTrigger asChild>
-									<PromptInputButton className={sagePromptToolButtonClass}>
+									<PromptInputButton className={composerPillClass}>
 										{selectedModelData ? (
 											<>
 												<ModelSelectorLogo
@@ -234,22 +226,22 @@ const ChatPromptInput = ({
 												</span>
 											</>
 										) : (
-											<span className="truncate text-left text-[#8FA89E] dark:text-white/40">
+											<span className="truncate text-left text-meta dark:text-panel-dim">
 												Select model
 											</span>
 										)}
 									</PromptInputButton>
 								</DialogTrigger>
 								<DialogContent
-									className="sm:max-w-[480px] rounded-[28px] p-0 gap-0 overflow-hidden"
+									className="sm:max-w-[480px] rounded-2xl p-0 gap-0 overflow-hidden"
 									showCloseButton={false}
 								>
 									<div className="flex items-start justify-between px-7 pt-6 pb-4">
 										<div>
-											<DialogTitle className="font-[family-name:var(--font-jakarta-sans)] text-[20px] font-extrabold text-[#111111] dark:text-white tracking-[-0.02em]">
+											<DialogTitle className="font-display text-[19px] font-bold tracking-[-0.02em] text-foreground">
 												Select a model
 											</DialogTitle>
-											<p className="font-[family-name:var(--font-dm-sans)] text-[13px] text-[#8FA89E] dark:text-muted-foreground font-medium mt-1">
+											<p className="mt-1 text-[13px] text-muted-foreground">
 												Choose the model powering this chat
 											</p>
 										</div>
@@ -265,14 +257,14 @@ const ChatPromptInput = ({
 
 									<div className="px-4 pb-5 max-h-[55vh] overflow-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 										{!hasModelResults ? (
-											<div className="font-[family-name:var(--font-dm-sans)] px-4 py-8 text-center text-[13px] text-[#A3B5AD] dark:text-muted-foreground">
+											<div className="px-4 py-8 text-center text-[13px] text-meta dark:text-panel-dim">
 												No models found.
 											</div>
 										) : (
 											Object.entries(groupedModels).map(
 												([chefName, chefModels]) => (
 													<div key={chefName} className="px-2 pt-2">
-														<div className="font-[family-name:var(--font-dm-sans)] px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8FA89E] dark:text-muted-foreground">
+														<div className="px-3 pb-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.09em] text-meta dark:text-panel-dim">
 															{chefName}
 														</div>
 														<div className="flex flex-col gap-0.5">
@@ -287,11 +279,11 @@ const ChatPromptInput = ({
 																			handleModelSelectorOpenChange(false);
 																		}}
 																		className={cn(
-																			"flex w-full items-center gap-3 px-3 py-2.5 rounded-[14px] cursor-pointer transition-colors text-left outline-none",
-																			"font-[family-name:var(--font-dm-sans)] text-[14px] font-medium",
+																			"flex w-full items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-colors text-left outline-none",
+																			"text-[13.5px] font-medium text-foreground",
 																			isActive
-																				? "bg-[#F8FAF9] dark:bg-white/5 text-[#1E2D28] dark:text-white"
-																				: "text-[#1E2D28] dark:text-white/90 hover:bg-[#F8FAF9] dark:hover:bg-white/5",
+																				? "bg-petrol-tint dark:bg-white/10"
+																				: "hover:bg-hover dark:hover:bg-white/5",
 																		)}
 																	>
 																		<ModelSelectorLogo provider={m.chefSlug} />
@@ -300,7 +292,7 @@ const ChatPromptInput = ({
 																		</span>
 																		{isActive && (
 																			<CheckIcon
-																				className="ml-auto size-4 shrink-0 text-[#4CA882]"
+																				className="ml-auto size-4 shrink-0 text-petrol"
 																				strokeWidth={3}
 																			/>
 																		)}
@@ -318,7 +310,11 @@ const ChatPromptInput = ({
 						)}
 					</PromptInputTools>
 					{agentReady === false ? (
-						<ConnectButton onClick={() => setConnectDialogOpen(true)} />
+						<ConnectButton
+							onClick={() => {
+								setConnectDialogOpen(true);
+							}}
+						/>
 					) : (
 						<SubmitButton status={status} stop={stop} />
 					)}
@@ -357,10 +353,10 @@ const SubmitButton = ({
 				}
 			}}
 			className={cn(
-				"flex items-center justify-center rounded-full w-10 h-10 transition-all",
+				"flex size-[38px] items-center justify-center rounded-full transition-all",
 				isDisabled
-					? "bg-[#EDF4F0] dark:bg-white/5 text-[#A3B5AD] dark:text-white/30 cursor-not-allowed"
-					: "bg-[#4CA882] text-white hover:bg-[#3F8F70] hover:scale-105 cursor-pointer shadow-[0_4px_12px_-4px_rgba(76,168,130,0.4)]",
+					? "cursor-not-allowed bg-hover text-ghost dark:bg-white/5 dark:text-panel-dim"
+					: "cursor-pointer bg-petrol text-white shadow-submit hover:opacity-90",
 			)}
 		>
 			{isStreaming ? (
@@ -394,10 +390,10 @@ const ConnectButton = ({ onClick }: { onClick: () => void }) => {
 			type="button"
 			onClick={onClick}
 			className={cn(
-				"flex items-center gap-2 rounded-full px-4 h-10 transition-all cursor-pointer",
-				"font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold",
-				"bg-[#4CA882] text-white hover:bg-[#3F8F70]",
-				"shadow-[0_4px_12px_-4px_rgba(76,168,130,0.4)]",
+				"flex h-[38px] cursor-pointer items-center gap-2 rounded-full px-4 transition-all",
+				"text-[14px] font-semibold",
+				"bg-petrol text-white hover:opacity-90",
+				"shadow-submit",
 			)}
 		>
 			<PlugIcon size={16} />

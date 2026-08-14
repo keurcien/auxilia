@@ -2,6 +2,8 @@
 
 import { ToolStatus } from "@/types/agents";
 import { ThreeStateToggle } from "@/components/ui/three-state-toggle";
+import { humanizeToolName } from "@/components/ai-elements/chain-of-thought";
+import { cn } from "@/lib/utils";
 
 interface AgentMCPToolProps {
 	toolName: string;
@@ -18,26 +20,36 @@ export default function AgentMCPTool({
 	readOnly,
 	onStatusChange,
 }: AgentMCPToolProps) {
-	return (
-		<div className="flex items-center p-3 bg-[#FAFCFB] rounded-2xl hover:bg-sidebar-hover border-[1.5px] border-[#E0E8E4] dark:border-white/10">
-			<div className="w-8 h-8 bg-white rounded-full flex items-center justify-center text-muted-foreground text-xs font-semibold mr-3 shrink-0 border-[1.5px] border-[#E0E8E4] dark:border-white/10">
-				{toolName.charAt(0).toUpperCase()}
-			</div>
+	const isDisabled = status === "disabled";
 
-			<div className="flex-1 min-w-0 mr-3">
-				<div className="font-(family-name:--font-dm-sans) text-[14px] font-semibold text-[#1E2D28] dark:text-foreground truncate">
-					{toolName}
-				</div>
+	return (
+		<div className="flex items-center gap-2.5 border-b border-hover px-4 py-2.5 last:border-b-0 dark:border-white/5">
+			<span className="min-w-0 flex-1">
+				<span
+					className={cn(
+						"block truncate text-[13.5px] font-semibold",
+						isDisabled ? "text-meta dark:text-panel-dim" : "text-foreground",
+					)}
+				>
+					{humanizeToolName(toolName)}
+				</span>
 				{toolDescription && (
-					<div className="text-xs text-muted-foreground line-clamp-2">
+					<span
+						className={cn(
+							"mt-px line-clamp-2 text-xs",
+							isDisabled
+								? "text-faint dark:text-panel-dim"
+								: "text-muted-foreground",
+						)}
+					>
 						{toolDescription}
-					</div>
+					</span>
 				)}
-			</div>
+			</span>
 
 			<div
-				className={`flex items-center shrink-0 ${
-					readOnly ? "opacity-60 pointer-events-none" : ""
+				className={`flex shrink-0 items-center ${
+					readOnly ? "pointer-events-none opacity-60" : ""
 				}`}
 			>
 				<ThreeStateToggle

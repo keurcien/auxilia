@@ -191,6 +191,7 @@ export default function AgentThreadsPage() {
 								limit: PAGE_SIZE,
 								offset,
 								onOffsetChange: setOffset,
+								itemLabel: total === 1 ? "thread" : "threads",
 							}}
 						/>
 					)}
