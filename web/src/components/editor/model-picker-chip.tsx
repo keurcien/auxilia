@@ -85,9 +85,9 @@ export function ModelPickerChip({
 	const chip = (
 		<div
 			className={cn(
-				"inline-flex items-center gap-2 h-9 rounded-full px-3 bg-[#F5F8F6] dark:bg-white/5 font-[family-name:var(--font-dm-sans)] text-[13px] font-medium text-[#1E2D28] dark:text-white transition-colors",
+				"inline-flex items-center gap-2 h-9 rounded-full px-3 bg-hover dark:bg-white/5 text-[13px] font-medium text-foreground transition-colors",
 				!disabled &&
-					"cursor-pointer hover:bg-[#EDF4F0] dark:hover:bg-white/10",
+					"cursor-pointer hover:bg-petrol-tint dark:hover:bg-white/10",
 			)}
 		>
 			{selected && !showAsUnavailable ? (
@@ -99,7 +99,7 @@ export function ModelPickerChip({
 				// Bound to a model that is no longer offered (removed from the
 				// catalog or disabled by an admin). Keep the binding visible —
 				// a blank "Select model" would read as "not set".
-				<span className="inline-flex items-center gap-1.5 text-[#B4643C] dark:text-amber-400">
+				<span className="inline-flex items-center gap-1.5 text-warning dark:text-amber-400">
 					<TriangleAlert className="size-3 shrink-0" />
 					<span className="truncate">{unavailableLabel ?? value}</span>
 					<span className="font-normal">· unavailable</span>
@@ -107,10 +107,10 @@ export function ModelPickerChip({
 			) : value ? (
 				<span className="truncate">{unavailableLabel ?? value}</span>
 			) : (
-				<span className="text-[#8FA89E] dark:text-white/40">Select model</span>
+				<span className="text-meta dark:text-white/40">Select model</span>
 			)}
 			{!disabled && (
-				<ChevronDown className="size-[15px] shrink-0 text-[#7C8C84]" />
+				<ChevronDown className="size-[15px] shrink-0 text-faint" />
 			)}
 		</div>
 	);
@@ -130,10 +130,10 @@ export function ModelPickerChip({
 			>
 				<div className="flex items-start justify-between px-7 pt-6 pb-4">
 					<div>
-						<DialogTitle className="font-[family-name:var(--font-jakarta-sans)] text-[20px] font-extrabold text-[#111111] dark:text-white tracking-[-0.02em]">
+						<DialogTitle className="font-display text-[20px] font-bold text-foreground tracking-[-0.025em]">
 							Select a model
 						</DialogTitle>
-						<p className="font-[family-name:var(--font-dm-sans)] text-[13px] text-[#8FA89E] dark:text-muted-foreground font-medium mt-1">
+						<p className="text-[13px] text-subtle dark:text-muted-foreground font-medium mt-1">
 							Choose the model running the instructions
 						</p>
 					</div>
@@ -149,13 +149,13 @@ export function ModelPickerChip({
 
 				<div className="px-4 pb-5 max-h-[55vh] overflow-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 					{!hasResults ? (
-						<div className="font-[family-name:var(--font-dm-sans)] px-4 py-8 text-center text-[13px] text-[#A3B5AD] dark:text-muted-foreground">
+						<div className="px-4 py-8 text-center text-[13px] text-faint dark:text-muted-foreground">
 							No models found.
 						</div>
 					) : (
 						Object.entries(groupedModels).map(([chefName, chefModels]) => (
 							<div key={chefName} className="px-2 pt-2">
-								<div className="font-[family-name:var(--font-dm-sans)] px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8FA89E] dark:text-muted-foreground">
+								<div className="px-3 pb-1.5 font-mono text-[10.5px] font-semibold uppercase tracking-[0.09em] text-meta dark:text-panel-dim">
 									{chefName}
 								</div>
 								<div className="flex flex-col gap-0.5">
@@ -170,18 +170,18 @@ export function ModelPickerChip({
 													handleOpenChange(false);
 												}}
 												className={cn(
-													"flex w-full items-center gap-3 px-3 py-2.5 rounded-[14px] cursor-pointer transition-colors text-left outline-none",
-													"font-[family-name:var(--font-dm-sans)] text-[14px] font-medium",
+													"flex w-full items-center gap-3 px-3 py-2.5 rounded-[10px] cursor-pointer transition-colors text-left outline-none",
+													"text-[14px] font-medium",
 													isActive
-														? "bg-[#F8FAF9] dark:bg-white/5 text-[#1E2D28] dark:text-white"
-														: "text-[#1E2D28] dark:text-white/90 hover:bg-[#F8FAF9] dark:hover:bg-white/5",
+														? "bg-petrol-tint dark:bg-white/5 text-foreground"
+														: "text-foreground hover:bg-hover dark:hover:bg-white/5",
 												)}
 											>
 												<ModelSelectorLogo provider={model.chefSlug} />
 												<span className="flex-1 truncate">{model.name}</span>
 												{isActive && (
 													<CheckIcon
-														className="ml-auto size-4 shrink-0 text-[#4CA882]"
+														className="ml-auto size-4 shrink-0 text-petrol dark:text-panel-terminal"
 														strokeWidth={3}
 													/>
 												)}

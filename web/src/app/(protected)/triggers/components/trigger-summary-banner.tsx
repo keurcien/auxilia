@@ -19,16 +19,14 @@ export default function TriggerSummaryBanner({
 			: describeSchedule(schedule).replace(" · ", " at ");
 
 	return (
-		<div className="flex flex-col rounded-2xl border border-[#E4F0E9] dark:border-emerald-900/30 bg-[#F5FAF7] dark:bg-emerald-950/20 px-6 py-5">
-			<div className="flex items-center gap-2 mb-3">
-				<span className="flex items-center justify-center rounded-md bg-[#E1F0E8] dark:bg-emerald-900/40 p-1">
-					<Sparkles className="size-3 text-[#3D8B63] dark:text-emerald-400" />
-				</span>
-				<span className="font-[family-name:var(--font-dm-sans)] text-[10.5px] font-bold uppercase tracking-[0.12em] text-[#6E8E7D] dark:text-emerald-300/70">
+		<div className="flex flex-col rounded-xl bg-petrol-tint px-6 py-5 dark:bg-white/5">
+			<div className="mb-3 flex items-center gap-2">
+				<Sparkles className="size-3 text-petrol dark:text-panel-terminal" />
+				<span className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.09em] text-petrol dark:text-panel-terminal">
 					What this trigger does
 				</span>
 			</div>
-			<p className="font-[family-name:var(--font-jakarta-sans)] text-[19px] font-semibold leading-[1.45] tracking-[-0.015em] text-[#26352F] dark:text-emerald-50">
+			<p className="text-[18px] font-semibold leading-[1.5] tracking-[-0.015em] text-foreground">
 				{scheduleText}, {agentName} starts a fresh thread and runs these
 				instructions on its own.
 			</p>

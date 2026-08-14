@@ -1,10 +1,17 @@
 import { cn } from "@/lib/utils";
 import { agentColorBackground } from "@/lib/colors";
 
-type AvatarSize = "xs" | "sm" | "md" | "lg" | "xl";
+type AvatarSize = "2xs" | "xs" | "sm" | "md" | "lg" | "xl";
+
+/**
+ * Petrol Mono: emoji on pastel tile, radius ≈ size/4. Round (999px) is
+ * reserved for the chat header; everywhere else use the default tile.
+ */
+type AvatarShape = "tile" | "round";
 
 function getSizeClass(size: AvatarSize): string {
 	switch (size) {
+		case "2xs": return "w-[22px] h-[22px] text-[12px]";
 		case "xs": return "w-7 h-7 text-[13px]";
 		case "sm": return "w-[34px] h-[34px] text-[15px]";
 		case "md": return "w-[42px] h-[42px] text-[20px]";
@@ -13,10 +20,22 @@ function getSizeClass(size: AvatarSize): string {
 	}
 }
 
+function getTileRadiusClass(size: AvatarSize): string {
+	switch (size) {
+		case "2xs": return "rounded-[6px]";
+		case "xs": return "rounded-[7px]";
+		case "sm": return "rounded-lg";
+		case "md": return "rounded-[10px]";
+		case "lg": return "rounded-xl";
+		case "xl": return "rounded-[14px]";
+	}
+}
+
 interface AgentAvatarProps {
 	color?: string | null;
 	emoji?: string | null;
 	size?: AvatarSize;
+	shape?: AvatarShape;
 	className?: string;
 }
 
@@ -24,6 +43,7 @@ export function AgentAvatar({
 	color,
 	emoji,
 	size = "md",
+	shape = "round",
 	className,
 }: AgentAvatarProps) {
 	return (
@@ -37,9 +57,10 @@ export function AgentAvatar({
 					: undefined
 			}
 			className={cn(
-				"flex items-center justify-center shrink-0 rounded-full",
+				"flex items-center justify-center shrink-0",
+				shape === "round" ? "rounded-full" : getTileRadiusClass(size),
 				getSizeClass(size),
-				!color && "bg-[#F0F3F2] dark:bg-white/10",
+				!color && "bg-hover dark:bg-white/10",
 				className,
 			)}
 		>

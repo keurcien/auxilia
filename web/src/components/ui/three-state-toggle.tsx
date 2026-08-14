@@ -96,14 +96,14 @@ export function ThreeStateToggle({
 	return (
 		<div
 			className={cn(
-				"relative inline-flex items-center bg-[#EDF1EE] dark:bg-neutral-800 rounded-full p-1",
+				"relative inline-flex items-center rounded-full bg-hover p-[3px] dark:bg-white/10",
 				className,
 			)}
 		>
 			<div
-				className="absolute h-8 w-10 bg-white dark:bg-neutral-600 rounded-full shadow transition-all duration-300 ease-out"
+				className="absolute h-6 w-8 rounded-full bg-card shadow-raised transition-all duration-300 ease-out"
 				style={{
-					left: `${4 + selectedIndex * 40}px`,
+					left: `${3 + selectedIndex * 32}px`,
 				}}
 			/>
 
@@ -116,20 +116,22 @@ export function ThreeStateToggle({
 					<React.Fragment key={state.id}>
 						<button
 							type="button"
-							onClick={() => onChange(state.id)}
+							onClick={() => {
+								onChange(state.id);
+							}}
 							className={cn(
-								"relative z-10 w-10 h-8 flex items-center justify-center rounded-full",
+								"relative z-10 flex h-6 w-8 items-center justify-center rounded-full",
 								"transition-colors duration-200 cursor-pointer",
 								isSelected
-									? "text-gray-800 dark:text-gray-100"
-									: "text-gray-400 dark:text-gray-500 hover:text-gray-500 dark:hover:text-gray-400",
+									? "text-foreground"
+									: "text-faint hover:text-label dark:text-panel-dim",
 							)}
 							aria-label={state.label}
 							aria-pressed={isSelected}
 							data-tooltip-id={tooltipId}
 							data-tooltip-content={state.label}
 						>
-							<span className="scale-75">
+							<span className="scale-[0.6]">
 								<Icon />
 							</span>
 						</button>
@@ -138,7 +140,7 @@ export function ThreeStateToggle({
 							id={tooltipId}
 							place="top"
 							delayShow={300}
-							className="z-50 text-xs! py-1! px-2! rounded-lg! bg-gray-800! text-white!"
+							className="z-50 text-xs! py-1! px-2! rounded-lg! bg-ink! text-white!"
 						/>
 					</React.Fragment>
 				);

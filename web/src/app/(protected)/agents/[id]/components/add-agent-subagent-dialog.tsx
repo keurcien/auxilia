@@ -97,18 +97,15 @@ export default function AddAgentSubagentDialog({
 		return allAgents
 			.filter((a) => a.id !== supervisorId && !alreadyBoundIds.has(a.id))
 			.map((a) => {
-				let disabled = false;
-				let disabledReason: string | undefined;
-
-				if (a.subagents && a.subagents.length > 0) {
-					disabled = true;
-					disabledReason = "Has subagents of its own";
-				} else if (a.isSubagent) {
-					disabled = true;
-					disabledReason = "Already used as a subagent";
-				}
-
-				return { agent: a, disabled, disabledReason };
+				// One nesting level max: an agent with its own subagents can't be
+				// a subagent. Being a subagent of ANOTHER supervisor is fine —
+				// subagents are shared, not exclusive.
+				const disabled = Boolean(a.subagents && a.subagents.length > 0);
+				return {
+					agent: a,
+					disabled,
+					disabledReason: disabled ? "Has subagents of its own" : undefined,
+				};
 			})
 			.sort((a, b) => {
 				// Eligible agents first

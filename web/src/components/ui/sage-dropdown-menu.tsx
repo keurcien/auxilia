@@ -37,7 +37,10 @@ export function SageDropdownMenu({
 		<DropdownMenuPrimitive.Root>
 			<DropdownMenuPrimitive.Trigger asChild>
 				{trigger || (
-					<button className="w-10 h-10 rounded-full bg-[#F5F8F6] dark:bg-white/10 flex items-center justify-center cursor-pointer transition-colors hover:bg-[#EDF4F0] dark:hover:bg-white/15 data-[state=open]:bg-[#EDF4F0] dark:data-[state=open]:bg-white/15">
+					<button
+						aria-label="More actions"
+						className="w-10 h-10 rounded-full bg-[#F5F8F6] dark:bg-white/10 flex items-center justify-center cursor-pointer transition-colors hover:bg-[#EDF4F0] dark:hover:bg-white/15 data-[state=open]:bg-[#EDF4F0] dark:data-[state=open]:bg-white/15"
+					>
 						<MoreVertical className="w-[18px] h-[18px] text-[#6B7F76]" />
 					</button>
 				)}

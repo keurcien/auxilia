@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import Depends
@@ -22,6 +23,7 @@ from app.mcp.servers.encryption import decrypt_value
 from app.mcp.servers.models import MCPAuthType, MCPServerDB
 from app.mcp.servers.repository import MCPServerRepository
 from app.mcp.servers.schemas import (
+    MCPServerConnectionResponse,
     MCPServerCreate,
     MCPServerPatch,
     MCPServerResponse,
@@ -29,6 +31,7 @@ from app.mcp.servers.schemas import (
     OfficialMCPServerResponse,
 )
 from app.service import BaseService
+from app.users.repository import UserRepository
 
 
 class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
@@ -146,6 +149,61 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         await self.get(server_id)
         factory = TokenStorageFactory()
         deleted = await factory.clear_server_data(str(server_id))
+        return {"deleted_keys": deleted}
+
+    async def list_connections(
+        self, server_id: UUID
+    ) -> list[MCPServerConnectionResponse]:
+        """Users holding a stored OAuth token for the server, with a coarse
+        token status: ``expired`` when the access token is past its expiry and
+        no refresh token can renew it, ``active`` otherwise."""
+        await self.get(server_id)
+        factory = TokenStorageFactory()
+
+        user_ids: list[UUID] = []
+        for raw_id in await factory.list_connected_user_ids(str(server_id)):
+            try:
+                user_ids.append(UUID(raw_id))
+            except ValueError:
+                continue
+
+        users = await UserRepository(self.db).list_by_ids(user_ids)
+        users_by_id = {user.id: user for user in users}
+
+        connections: list[MCPServerConnectionResponse] = []
+        for user_id in user_ids:
+            stored = await factory.get_storage(
+                str(user_id), str(server_id)
+            ).get_stored_token()
+            if not stored:
+                continue
+            expired = (
+                stored.expires_at is not None
+                and stored.expires_at <= datetime.now(UTC)
+                and not stored.token_payload.refresh_token
+            )
+            # Deleted users may still hold tokens — keep them listed (name and
+            # email None) so an admin can revoke the orphaned connection.
+            user = users_by_id.get(user_id)
+            connections.append(
+                MCPServerConnectionResponse(
+                    user_id=user_id,
+                    name=user.name if user else None,
+                    email=user.email if user else None,
+                    status="expired" if expired else "active",
+                )
+            )
+
+        connections.sort(key=lambda c: (c.name or c.email or str(c.user_id)).lower())
+        return connections
+
+    async def delete_connection(self, server_id: UUID, user_id: UUID) -> dict:
+        """Revoke one user's connection: clear their stored tokens, client
+        info and OAuth metadata for the server. The user re-authenticates on
+        their next use."""
+        await self.get(server_id)
+        factory = TokenStorageFactory()
+        deleted = await factory.clear_user_server_data(str(user_id), str(server_id))
         return {"deleted_keys": deleted}
 
     async def handle_oauth_callback(self, code: str, state: str) -> dict:

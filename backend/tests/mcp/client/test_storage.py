@@ -1,9 +1,10 @@
 from datetime import UTC, datetime
+from fnmatch import fnmatch
 
 import pytest
 from mcp.shared.auth import OAuthToken
 
-from app.mcp.client.storage import RedisTokenStorage
+from app.mcp.client.storage import RedisTokenStorage, TokenStorageFactory
 
 
 class _FakeRedis:
@@ -17,6 +18,14 @@ class _FakeRedis:
 
     async def set(self, key: str, value: str, ex: int | None = None) -> None:
         self.store[key] = value
+
+    async def delete(self, key: str) -> None:
+        self.store.pop(key, None)
+
+    async def scan_iter(self, match: str):
+        for key in list(self.store):
+            if fnmatch(key, match):
+                yield key
 
 
 def _storage() -> RedisTokenStorage:
@@ -67,6 +76,44 @@ async def test_set_tokens_without_existing_token_stores_as_is():
     tokens = await storage.get_tokens()
     assert tokens is not None
     assert tokens.refresh_token is None
+
+
+def _factory() -> TokenStorageFactory:
+    factory = TokenStorageFactory.__new__(TokenStorageFactory)
+    factory.redis = _FakeRedis()
+    return factory
+
+
+@pytest.mark.asyncio
+async def test_list_connected_user_ids_matches_token_keys_only():
+    factory = _factory()
+    factory.redis.store = {
+        "mcp:u1:s1:tokens": "t",
+        "mcp:u1:s1:client_info": "c",
+        "mcp:u2:s1:tokens": "t",
+        "mcp:u3:s2:tokens": "t",  # other server
+        "mcp:oauth_states:abc": "s",  # state key, not a connection
+    }
+
+    user_ids = await factory.list_connected_user_ids("s1")
+
+    assert sorted(user_ids) == ["u1", "u2"]
+
+
+@pytest.mark.asyncio
+async def test_clear_user_server_data_scopes_to_one_user():
+    factory = _factory()
+    factory.redis.store = {
+        "mcp:u1:s1:tokens": "t",
+        "mcp:u1:s1:client_info": "c",
+        "mcp:u2:s1:tokens": "t",
+        "mcp:u1:s2:tokens": "t",
+    }
+
+    deleted = await factory.clear_user_server_data("u1", "s1")
+
+    assert deleted == 2
+    assert set(factory.redis.store) == {"mcp:u2:s1:tokens", "mcp:u1:s2:tokens"}
 
 
 @pytest.mark.asyncio

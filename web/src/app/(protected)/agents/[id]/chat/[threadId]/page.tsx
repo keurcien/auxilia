@@ -22,14 +22,18 @@ import {
   ReasoningContent,
 } from "@/components/ai-elements/reasoning";
 import {
-  Tool,
-  ToolContent,
-  ToolContentInner,
-  ToolFooter,
-  ToolHeader,
-  ToolInput,
-  ToolOutput,
-} from "@/components/ai-elements/tool";
+  ChainOfThought,
+  ChainStep,
+  ChainStepIcon,
+  NeedsApprovalBadge,
+  StepCode,
+  StepSection,
+  TERMINAL_ICON,
+  humanizeToolName,
+  isSandboxTool,
+  summarizeToolArgs,
+} from "@/components/ai-elements/chain-of-thought";
+import { AgentAvatar } from "@/components/ui/agent-avatar";
 import type { AttachmentData } from "@/components/ai-elements/attachments";
 import {
   Conversation,
@@ -62,13 +66,18 @@ import {
   CopyIcon,
   ArchiveIcon,
   CircleSlash,
+  Loader2,
   ShieldCheck,
+  XCircleIcon,
 } from "lucide-react";
 import {
   useStream,
   FetchStreamTransport,
 } from "@langchain/langgraph-sdk/react";
-import type { SubagentApi } from "@langchain/langgraph-sdk/ui";
+import type {
+  SubagentApi,
+  SubagentStreamInterface,
+} from "@langchain/langgraph-sdk/ui";
 import {
   SubAgentCard,
   SubAgentProgress,
@@ -78,7 +87,7 @@ import { TodoList } from "@/components/ai-elements/todo-list";
 import type { Todo } from "@/components/ai-elements/todo-list";
 import { useParams } from "next/navigation";
 import { api, API_BASE_URL } from "@/lib/api/client";
-import { ThinkingLoader, DotsLoader } from "../components/loader";
+import { ThinkingLoader } from "../components/loader";
 import { useActiveRunsStore } from "@/stores/active-runs-store";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { useAgentsStore } from "@/stores/agents-store";
@@ -230,6 +239,15 @@ type LocalToolCall = {
   index: number;
   state: "pending" | "completed" | "error";
 };
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type SubagentData = SubagentStreamInterface<any, any, any>;
+
+// A chain-of-thought step: a plain tool call, or a subagent call (a `task`
+// tool call the SDK paired with its subagent stream).
+type ChainStepData =
+  | { kind: "tool"; tc: LocalToolCall }
+  | { kind: "subagent"; sub: SubagentData };
 
 // The LangGraph SDK reconstructs subagent containers from history, but it reads
 // LangChain's snake_case keys (`tool_calls`, `tool_call_id`, `args.subagent_type`).
@@ -578,6 +596,26 @@ const ChatPage = () => {
     [toolCallsByMessageId],
   );
 
+  // Resolve a subagent_type (sanitize_tool_name(agent.name) backend-side)
+  // back to the workspace agent, for its emoji/pastel tile in chain steps.
+  const workspaceAgents = useAgentsStore((s) => s.agents);
+  const findAgentForSubagentType = useCallback(
+    (subagentType: string | undefined) => {
+      if (!subagentType) return undefined;
+      return (
+        workspaceAgents.find(
+          (a) => sanitizeToolIdentifier(a.name) === subagentType,
+        ) ??
+        workspaceAgents.find(
+          (a) =>
+            a.name.toLowerCase() ===
+            subagentType.replaceAll("_", " ").toLowerCase(),
+        )
+      );
+    },
+    [workspaceAgents],
+  );
+
   // Loading state detection
   const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
   const isAwaitingResponse =
@@ -812,6 +850,58 @@ const ChatPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId]);
 
+  // ---- Chain-of-thought grouping ----
+  // One timeline per run of *consecutive* tool work: steps from adjacent AI
+  // messages merge into the run's first step-bearing AI message, but any
+  // assistant text ends the run — a message's own steps render above its
+  // text, and tool calls after the text start a new chain below it. Task
+  // tool calls pair with their SDK subagent stream by id, preserving the
+  // original tool_call order.
+  const chainByOwner = new Map<string, ChainStepData[]>();
+  {
+    let turnOwner: string | null = null;
+    for (const m of messages) {
+      if (m.type === "human" || m.type === "user") {
+        turnOwner = null;
+        continue;
+      }
+      if ((m.type !== "ai" && m.type !== "assistant") || !m.id) continue;
+      const hasText = getTextContent(m).trim().length > 0;
+      const tcs = getToolCallsForMessage(m);
+      const subs = subagentApi.getSubagentsByMessage(m.id);
+      if (tcs.length === 0 && subs.length === 0) {
+        if (hasText) turnOwner = null;
+        continue;
+      }
+
+      const subById = new Map(subs.map((s) => [s.id, s]));
+      const paired = new Set<string>();
+      const steps: ChainStepData[] = [];
+      for (const tc of tcs) {
+        const sub = subById.get(tc.id);
+        if (sub) {
+          steps.push({ kind: "subagent", sub });
+          paired.add(sub.id);
+        } else {
+          steps.push({ kind: "tool", tc });
+        }
+      }
+      for (const sub of subs) {
+        if (!paired.has(sub.id)) steps.push({ kind: "subagent", sub });
+      }
+
+      if (turnOwner == null) {
+        turnOwner = m.id;
+        chainByOwner.set(m.id, steps);
+      } else {
+        chainByOwner.get(turnOwner)?.push(...steps);
+      }
+      // The message's text renders below its steps — anything after it
+      // belongs to a fresh chain.
+      if (hasText) turnOwner = null;
+    }
+  }
+
   // ---- Render ----
 
   return (
@@ -897,7 +987,33 @@ const ChatPage = () => {
               if (message.type === "ai" || message.type === "assistant") {
                 const text = getTextContent(message);
                 const reasoning = getReasoningContent(message);
-                const msgToolCalls = getToolCallsForMessage(message);
+                const chainSteps = message.id
+                  ? (chainByOwner.get(message.id) ?? [])
+                  : [];
+                const chainSubagents = chainSteps
+                  .filter(
+                    (s): s is Extract<ChainStepData, { kind: "subagent" }> =>
+                      s.kind === "subagent",
+                  )
+                  .map((s) => s.sub);
+                const chainActive = chainSteps.some((s) =>
+                  s.kind === "tool"
+                    ? s.tc.state === "pending"
+                    : s.sub.status === "running" || s.sub.status === "pending",
+                );
+                const chainLockOpen = chainSteps.some(
+                  (s) =>
+                    s.kind === "tool" &&
+                    getToolRenderState(s.tc, isInterrupted, hitlToolNames) ===
+                      "approval-requested" &&
+                    !decisions[s.tc.id],
+                );
+                const isTaskCall = (tc: LocalToolCall) =>
+                  tc.call.name === "task";
+                const toolCount = chainSteps.filter(
+                  (s) => s.kind === "tool" && !isTaskCall(s.tc),
+                ).length;
+                const subagentCount = chainSteps.length - toolCount;
                 const isLastMessage =
                   messageIndex === messages.length - 1 ||
                   // Last AI message before a potential loading indicator
@@ -917,6 +1033,242 @@ const ChatPage = () => {
                         <ReasoningTrigger />
                         <ReasoningContent>{reasoning}</ReasoningContent>
                       </Reasoning>
+                    )}
+
+                    {/* Chain of thought: the turn's tool + subagent steps */}
+                    {chainSteps.length > 0 && (
+                      <div className="w-full space-y-2">
+                        <ChainOfThought
+                          active={chainActive}
+                          lockOpen={chainLockOpen}
+                          toolCount={toolCount}
+                          subagentCount={subagentCount}
+                        >
+                          {chainSteps.map((step) => {
+                            if (step.kind === "subagent") {
+                              const sub = step.sub;
+                              return (
+                                <SubAgentCard
+                                  key={sub.id}
+                                  subagent={sub}
+                                  mcpServers={mcpServers}
+                                  agent={findAgentForSubagentType(
+                                    sub.toolCall?.args?.subagent_type as
+                                      | string
+                                      | undefined,
+                                  )}
+                                  onOpen={
+                                    sub.messages.length === 0 &&
+                                    (sub.status === "complete" ||
+                                      sub.status === "error")
+                                      ? () => void loadSubagentHistory(sub.id)
+                                      : undefined
+                                  }
+                                  fallbackMessages={subagentMessages[sub.id]}
+                                />
+                              );
+                            }
+
+                            const tc = step.tc;
+                            const toolState = getToolRenderState(
+                              tc,
+                              isInterrupted,
+                              hitlToolNames,
+                            );
+                            const decided = decisions[tc.id];
+                            const output = getToolOutputContent(tc);
+                            const errorText =
+                              tc.state === "error" && tc.result
+                                ? extractToolErrorText(tc.result.content)
+                                : undefined;
+                            const stepMeta =
+                              toolState === "approval-requested" ? (
+                                <NeedsApprovalBadge />
+                              ) : toolState === "input-available" ? (
+                                <Loader2 className="size-3 animate-spin text-petrol" />
+                              ) : toolState === "output-error" ? (
+                                <XCircleIcon className="size-3.5 text-destructive" />
+                              ) : undefined;
+                            const approvalFooter =
+                              toolState === "approval-requested" ? (
+                                <div className="flex items-center gap-2 pt-1">
+                                  <button
+                                    type="button"
+                                    disabled={
+                                      decided != null || modelUnavailable
+                                    }
+                                    onClick={() => {
+                                      recordDecision(tc.id, "approve");
+                                    }}
+                                    className={cn(
+                                      "cursor-pointer rounded-[7px] bg-petrol px-4 py-1.5 text-[12.5px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed",
+                                      decided === "reject" && "opacity-40",
+                                    )}
+                                  >
+                                    Approve
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={
+                                      decided != null || modelUnavailable
+                                    }
+                                    onClick={() => {
+                                      recordDecision(tc.id, "reject");
+                                    }}
+                                    className={cn(
+                                      "cursor-pointer rounded-[7px] border border-input bg-card px-4 py-1.5 text-[12.5px] font-semibold text-foreground transition-colors hover:border-border-hover disabled:cursor-not-allowed",
+                                      decided === "approve" && "opacity-40",
+                                    )}
+                                  >
+                                    Deny
+                                  </button>
+                                </div>
+                              ) : null;
+                            const resultSection =
+                              errorText !== undefined ? (
+                                <StepSection label="ERROR" error>
+                                  <StepCode value={errorText} />
+                                </StepSection>
+                              ) : (
+                                output !== undefined && (
+                                  <StepSection label="RESULT">
+                                    <StepCode value={output} />
+                                  </StepSection>
+                                )
+                              );
+
+                            if (isTaskCall(tc)) {
+                              // task call the SDK didn't pair with a subagent
+                              // stream (e.g. filtered history) — still render
+                              // it as a subagent-style step.
+                              const args = tc.call.args as
+                                | Record<string, unknown>
+                                | undefined;
+                              const subagentType = (args?.subagent_type ??
+                                args?.subagentType) as string | undefined;
+                              const matched =
+                                findAgentForSubagentType(subagentType);
+                              const description = args?.description as
+                                | string
+                                | undefined;
+                              return (
+                                <ChainStep
+                                  key={tc.id}
+                                  node={
+                                    <AgentAvatar
+                                      color={matched?.color}
+                                      emoji={matched?.emoji}
+                                      size="2xs"
+                                      shape="tile"
+                                      className="relative z-[1]"
+                                    />
+                                  }
+                                  title={`Ask ${matched?.name ?? subagentType?.replaceAll("_", " ") ?? "subagent"}`}
+                                  summary={description}
+                                  meta={stepMeta}
+                                  lockOpen={
+                                    toolState === "approval-requested" &&
+                                    !decided
+                                  }
+                                >
+                                  {description && (
+                                    <StepSection label="TASK">
+                                      <StepCode value={description} />
+                                    </StepSection>
+                                  )}
+                                  {resultSection}
+                                  {approvalFooter}
+                                </ChainStep>
+                              );
+                            }
+
+                            const sandbox = isSandboxTool(tc.call.name);
+                            const { serverName, toolName } = sandbox
+                              ? {
+                                  serverName: "Code execution",
+                                  toolName: tc.call.name,
+                                }
+                              : getToolMetadata(
+                                  tc.call.name,
+                                  knownServerNames,
+                                );
+                            return (
+                              <ChainStep
+                                key={tc.id}
+                                node={
+                                  <ChainStepIcon
+                                    icon={
+                                      sandbox
+                                        ? TERMINAL_ICON
+                                        : mcpServers.find(
+                                            (server) =>
+                                              server.name === serverName,
+                                          )?.iconUrl
+                                    }
+                                    name={serverName}
+                                  />
+                                }
+                                title={humanizeToolName(toolName)}
+                                summary={summarizeToolArgs(tc.call.args)}
+                                meta={stepMeta}
+                                lockOpen={
+                                  toolState === "approval-requested" &&
+                                  !decided
+                                }
+                              >
+                                {tc.call.args !== undefined && (
+                                  <StepSection label="PARAMETERS">
+                                    <StepCode value={tc.call.args} />
+                                  </StepSection>
+                                )}
+                                {resultSection}
+                                {approvalFooter}
+                              </ChainStep>
+                            );
+                          })}
+                        </ChainOfThought>
+                        {chainSubagents.length > 0 && (
+                          <>
+                            <SubAgentProgress subagents={chainSubagents} />
+                            <SynthesisIndicator
+                              subagents={chainSubagents}
+                              isCoordinatorStreaming={
+                                assistantIsStreaming && isLastMessage
+                              }
+                            />
+                          </>
+                        )}
+                        {/* Interactive MCP app widgets surface below the chain */}
+                        {chainSteps.map((step) => {
+                          if (step.kind !== "tool") return null;
+                          const appToolInfo = getMcpAppInfoFromToolCall(
+                            step.tc,
+                          );
+                          if (!appToolInfo) return null;
+                          return (
+                            <McpAppWidget
+                              key={`app-${step.tc.id}`}
+                              input={step.tc.call.args}
+                              output={getToolOutputContent(step.tc)}
+                              structuredContent={getStructuredContentFromToolCall(
+                                step.tc,
+                              )}
+                              errorText={
+                                step.tc.state === "error" && step.tc.result
+                                  ? extractToolErrorText(step.tc.result.content)
+                                  : undefined
+                              }
+                              toolName={
+                                getToolMetadata(
+                                  step.tc.call.name,
+                                  knownServerNames,
+                                ).toolName
+                              }
+                              appToolInfo={appToolInfo}
+                            />
+                          );
+                        })}
+                      </div>
                     )}
 
                     {/* Text content */}
@@ -949,151 +1301,6 @@ const ChatPage = () => {
                         )}
                       </>
                     )}
-
-                    {/* Tool calls */}
-                    {msgToolCalls.map((tc) => {
-                      const toolState = getToolRenderState(
-                        tc,
-                        isInterrupted,
-                        hitlToolNames,
-                      );
-                      const { serverName, toolName } = getToolMetadata(
-                        tc.call.name,
-                        knownServerNames,
-                      );
-                      const output = getToolOutputContent(tc);
-
-                      const decided = decisions[tc.id];
-
-                      return (
-                        <Fragment key={tc.id}>
-                          <Tool
-                            toolState={toolState}
-                            lockOpen={
-                              toolState === "approval-requested" && !decided
-                            }
-                          >
-                            <ToolHeader
-                              title={toolName}
-                              type={`tool-${tc.call.name}`}
-                              state={toolState}
-                              mcpServerName={serverName}
-                              mcpServerIcon={
-                                mcpServers.find(
-                                  (server) => server.name === serverName,
-                                )?.iconUrl
-                              }
-                            />
-                            <ToolContent>
-                              <ToolContentInner>
-                                {tc.call.args !== undefined && (
-                                  <ToolInput input={tc.call.args} />
-                                )}
-                                {(output !== undefined ||
-                                  tc.state === "error" ||
-                                  tc.state === "pending") && (
-                                  <ToolOutput
-                                    output={output as React.ReactNode}
-                                    errorText={
-                                      tc.state === "error" && tc.result
-                                        ? extractToolErrorText(
-                                            tc.result.content,
-                                          )
-                                        : undefined
-                                    }
-                                  />
-                                )}
-                              </ToolContentInner>
-                              {/* HITL Approval UI */}
-                              {toolState === "approval-requested" && (
-                                <ToolFooter>
-                                  <Button
-                                    variant="default"
-                                    className={cn(
-                                      "cursor-pointer",
-                                      decided === "reject" && "opacity-40",
-                                    )}
-                                    disabled={decided != null || modelUnavailable}
-                                    onClick={() => {
-                                      recordDecision(tc.id, "approve");
-                                    }}
-                                  >
-                                    Approve
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    className={cn(
-                                      "cursor-pointer",
-                                      decided === "approve" && "opacity-40",
-                                    )}
-                                    disabled={decided != null || modelUnavailable}
-                                    onClick={() => {
-                                      recordDecision(tc.id, "reject");
-                                    }}
-                                  >
-                                    Reject
-                                  </Button>
-                                </ToolFooter>
-                              )}
-                            </ToolContent>
-                          </Tool>
-                          {(() => {
-                            const appToolInfo = getMcpAppInfoFromToolCall(tc);
-                            if (!appToolInfo) return null;
-                            return (
-                              <McpAppWidget
-                                input={tc.call.args}
-                                output={getToolOutputContent(tc)}
-                                structuredContent={getStructuredContentFromToolCall(
-                                  tc,
-                                )}
-                                errorText={
-                                  tc.state === "error" && tc.result
-                                    ? extractToolErrorText(tc.result.content)
-                                    : undefined
-                                }
-                                toolName={toolName}
-                                appToolInfo={appToolInfo}
-                              />
-                            );
-                          })()}
-                        </Fragment>
-                      );
-                    })}
-
-                    {/* Subagent cards */}
-                    {(() => {
-                      const turnSubagents = message.id
-                        ? subagentApi.getSubagentsByMessage(message.id)
-                        : [];
-                      if (turnSubagents.length === 0) return null;
-                      return (
-                        <div className="space-y-2 mt-1">
-                          <SubAgentProgress subagents={turnSubagents} />
-                          {turnSubagents.map((sub) => (
-                            <SubAgentCard
-                              key={sub.id}
-                              subagent={sub}
-                              mcpServers={mcpServers}
-                              onOpen={
-                                sub.messages.length === 0 &&
-                                (sub.status === "complete" ||
-                                  sub.status === "error")
-                                  ? () => void loadSubagentHistory(sub.id)
-                                  : undefined
-                              }
-                              fallbackMessages={subagentMessages[sub.id]}
-                            />
-                          ))}
-                          <SynthesisIndicator
-                            subagents={turnSubagents}
-                            isCoordinatorStreaming={
-                              assistantIsStreaming && isLastMessage
-                            }
-                          />
-                        </div>
-                      );
-                    })()}
                   </Fragment>
                 );
               }

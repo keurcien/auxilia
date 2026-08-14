@@ -29,8 +29,9 @@ export interface MCPServerUpdate {
 	name?: string;
 	url?: string;
 	authType?: MCPAuthType;
-	iconUrl?: string;
-	description?: string;
+	// null clears the stored value; undefined leaves it untouched.
+	iconUrl?: string | null;
+	description?: string | null;
 	// Credentials — send only when changing them; blank keeps the stored value.
 	apiKey?: string;
 	oauthClientId?: string;
@@ -55,4 +56,13 @@ export interface ConnectionTestResult {
 export interface OfficialMCPServer extends MCPServer {
 	isInstalled: boolean;
 	supportsDcr: boolean | null;
+}
+
+/** A user's stored OAuth connection to a server (admin view). `expired`
+ * means the token is past expiry with no refresh token to renew it. */
+export interface MCPServerConnection {
+	userId: string;
+	name?: string | null;
+	email?: string | null;
+	status: "active" | "expired";
 }

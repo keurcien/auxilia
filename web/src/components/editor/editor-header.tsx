@@ -29,7 +29,7 @@ export function EditorHeader({
 	className,
 }: EditorHeaderProps) {
 	const titleClassName =
-		"font-[family-name:var(--font-jakarta-sans)] text-[22px] font-bold text-[#1E2D28] dark:text-foreground leading-tight tracking-[-0.025em] truncate w-full";
+		"font-display text-[26px] font-bold text-foreground leading-tight tracking-[-0.03em] truncate w-full";
 
 	return (
 		<div
@@ -58,7 +58,7 @@ export function EditorHeader({
 							placeholder={titlePlaceholder}
 							className={cn(
 								titleClassName,
-								"bg-transparent border-none focus:outline-none focus:ring-0 p-0 placeholder:text-[#A3B5AD] dark:placeholder:text-white/30",
+								"bg-transparent border-none focus:outline-none focus:ring-0 p-0 placeholder:text-faint dark:placeholder:text-white/30",
 							)}
 						/>
 					) : (

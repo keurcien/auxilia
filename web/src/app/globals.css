@@ -1,4 +1,3 @@
-@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
 
@@ -6,130 +5,274 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ============================================================
+ * Petrol Mono design system — tokens
+ * Source of truth: design/README.md + design/Petrol Mono Design System.dc.html
+ *
+ * Two layers:
+ *   1. Raw palette (--pm-*): the design-system values, defined once.
+ *   2. Semantic tokens (shadcn/ui contract + app-specific): mapped onto
+ *      the raw palette so components keep using the usual utilities
+ *      (bg-background, text-muted-foreground, border-border, …).
+ *
+ * Tailwind utilities for design-specific roles are exposed via @theme
+ * below (e.g. text-ink, text-petrol, bg-hover, border-hairline).
+ * ============================================================ */
+
+:root {
+	/* --- Text ramp --- */
+	--pm-ink: #101820; /* text, primary buttons, dark panel bg */
+	--pm-body: #46545a; /* body / intro text */
+	--pm-subtle: #56646a; /* secondary text */
+	--pm-label: #6e7c80; /* labels, descriptions */
+	--pm-meta: #8a9aa0; /* placeholders, metadata */
+	--pm-faint: #a8b4b8; /* timestamps */
+	--pm-ghost: #c4ced0; /* chevrons, disabled */
+
+	/* --- Accent --- */
+	--pm-petrol: #16606e; /* the single accent: agent names, save/confirm, links */
+	--pm-petrol-chip: #e3eeee; /* teal-tinted chips */
+	--pm-petrol-tint: #edf3f3; /* active / selected tint */
+	--pm-petrol-ring: rgba(22, 96, 110, 0.1); /* focus ring fill */
+
+	/* --- Surfaces --- */
+	--pm-canvas: #ffffff; /* app canvas */
+	--pm-marketing: #f6f8f8; /* marketing / login canvas */
+	--pm-sidebar: #fbfcfc;
+	--pm-hover: #f1f5f5; /* row hover, user bubble, code bg */
+	--pm-neutral-bg: #edf1f1; /* neutral badge bg */
+
+	/* --- Borders --- */
+	--pm-hairline: #e9eeee; /* hairline dividers */
+	--pm-border-input: #dce4e4; /* inputs / buttons */
+	--pm-rail: #e2e8e8; /* rails (chain-of-thought, layout) */
+	--pm-border-hover: #b9cdd0; /* button border darken on hover */
+
+	/* --- Data --- */
+	--pm-sparkline: #b9d6db;
+
+	/* --- Status --- */
+	--pm-success: #1e7a56;
+	--pm-success-bg: #e1f3ec;
+	--pm-warning: #b07a2a;
+	--pm-warning-bg: #fbf3e2;
+
+	/* --- Dark panel (landing terminal, editor test console, login showcase) --- */
+	--pm-panel: #101820;
+	--pm-panel-card: rgba(255, 255, 255, 0.04);
+	--pm-panel-border: rgba(255, 255, 255, 0.08);
+	--pm-panel-border-strong: rgba(255, 255, 255, 0.1);
+	--pm-panel-terminal: #9fd6cb; /* terminal text */
+	--pm-panel-dim: #5a6e74; /* dim terminal text */
+	--pm-panel-success: #7bc7a9;
+	--pm-panel-attention: #e8a085; /* approval cards on dark */
+	--pm-panel-body: #c9d4d6; /* body text on dark */
+	--pm-panel-button: #e6edee; /* primary button fill on dark */
+	--pm-panel-grid: rgba(159, 214, 203, 0.05); /* 40px grid overlay lines */
+
+	/* --- Agent pastels (avatar tiles ONLY) --- */
+	--pm-pastel-mint: #d0f5ea;
+	--pm-pastel-lilac: #e4dfff;
+	--pm-pastel-peach: #ffe0d9;
+	--pm-pastel-lemon: #fff5cc;
+	--pm-pastel-sky: #d6eaff;
+	--pm-pastel-rose: #fbe3ee;
+}
+
 @theme inline {
+	/* --- Fonts --- */
+	--font-display: var(--font-space-grotesk), sans-serif;
+	--font-sans: var(--font-hanken-grotesk), -apple-system, BlinkMacSystemFont,
+		"Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+	--font-mono: var(--font-ibm-plex-mono), ui-monospace, SFMono-Regular, Menlo,
+		monospace;
+	/* Legacy aliases (pre-redesign `font-primary` etc. utilities). Runtime
+	   var() aliases for components live on body below — `@theme inline`
+	   inlines values into generated utilities and emits NO custom
+	   properties, so raw `var(--font-…)` references can't resolve from here. */
+	--font-primary: var(--font-hanken-grotesk), -apple-system, BlinkMacSystemFont,
+		"Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+	--font-secondary: var(--font-hanken-grotesk), -apple-system,
+		BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+	--font-noto: var(--font-hanken-grotesk), -apple-system, BlinkMacSystemFont,
+		"Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+	/* --- Petrol Mono utilities (text-ink, bg-hover, border-hairline, …) --- */
+	--color-ink: var(--pm-ink);
+	--color-body: var(--pm-body);
+	--color-subtle: var(--pm-subtle);
+	--color-label: var(--pm-label);
+	--color-meta: var(--pm-meta);
+	--color-faint: var(--pm-faint);
+	--color-ghost: var(--pm-ghost);
+	--color-petrol: var(--pm-petrol);
+	--color-petrol-chip: var(--pm-petrol-chip);
+	--color-petrol-tint: var(--pm-petrol-tint);
+	--color-canvas: var(--pm-canvas);
+	--color-marketing: var(--pm-marketing);
+	--color-hover: var(--pm-hover);
+	--color-neutral-bg: var(--pm-neutral-bg);
+	--color-hairline: var(--pm-hairline);
+	--color-rail: var(--pm-rail);
+	--color-border-hover: var(--pm-border-hover);
+	--color-sparkline: var(--pm-sparkline);
+	--color-success: var(--pm-success);
+	--color-success-bg: var(--pm-success-bg);
+	--color-warning: var(--pm-warning);
+	--color-warning-bg: var(--pm-warning-bg);
+	--color-panel: var(--pm-panel);
+	--color-panel-card: var(--pm-panel-card);
+	--color-panel-border: var(--pm-panel-border);
+	--color-panel-border-strong: var(--pm-panel-border-strong);
+	--color-panel-terminal: var(--pm-panel-terminal);
+	--color-panel-dim: var(--pm-panel-dim);
+	--color-panel-success: var(--pm-panel-success);
+	--color-panel-attention: var(--pm-panel-attention);
+	--color-panel-body: var(--pm-panel-body);
+	--color-panel-button: var(--pm-panel-button);
+	--color-pastel-mint: var(--pm-pastel-mint);
+	--color-pastel-lilac: var(--pm-pastel-lilac);
+	--color-pastel-peach: var(--pm-pastel-peach);
+	--color-pastel-lemon: var(--pm-pastel-lemon);
+	--color-pastel-sky: var(--pm-pastel-sky);
+	--color-pastel-rose: var(--pm-pastel-rose);
+
+	/* --- shadcn/ui contract --- */
 	--color-background: var(--background);
 	--color-foreground: var(--foreground);
 	--color-surface: var(--surface);
-	--font-sans: var(--font-geist-sans);
-	--font-mono: var(--font-geist-mono);
-	--font-noto: var(--font-noto-sans);
-	--font-primary:
-		"Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-		Helvetica, Arial, sans-serif;
-	--font-secondary: var(--font-noto-sans);
-	--color-sidebar-ring: var(--sidebar-ring);
-	--color-sidebar-border: var(--sidebar-border);
-	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-	--color-sidebar-accent: var(--sidebar-accent);
-	--color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-	--color-sidebar-primary: var(--sidebar-primary);
-	--color-sidebar-foreground: var(--sidebar-foreground);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+	--color-chart-1: var(--chart-1);
+	--color-chart-2: var(--chart-2);
+	--color-chart-3: var(--chart-3);
+	--color-chart-4: var(--chart-4);
+	--color-chart-5: var(--chart-5);
 	--color-sidebar: var(--sidebar);
+	--color-sidebar-foreground: var(--sidebar-foreground);
+	--color-sidebar-primary: var(--sidebar-primary);
+	--color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+	--color-sidebar-accent: var(--sidebar-accent);
+	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+	--color-sidebar-border: var(--sidebar-border);
+	--color-sidebar-ring: var(--sidebar-ring);
 	--color-sidebar-muted: var(--sidebar-muted);
 	--color-sidebar-muted-highlight: var(--sidebar-muted-highlight);
 	--color-sidebar-hover: var(--sidebar-hover);
 	--color-sidebar-active-icon: var(--sidebar-active-icon);
 	--color-sidebar-section-label: var(--sidebar-section-label);
-	--color-chart-5: var(--chart-5);
-	--color-chart-4: var(--chart-4);
-	--color-chart-3: var(--chart-3);
-	--color-chart-2: var(--chart-2);
-	--color-chart-1: var(--chart-1);
-	--color-ring: var(--ring);
-	--color-input: var(--input);
-	--color-border: var(--border);
-	--color-destructive: var(--destructive);
-	--color-accent-foreground: var(--accent-foreground);
-	--color-accent: var(--accent);
-	--color-muted-foreground: var(--muted-foreground);
-	--color-muted: var(--muted);
-	--color-secondary-foreground: var(--secondary-foreground);
-	--color-secondary: var(--secondary);
-	--color-primary-foreground: var(--primary-foreground);
-	--color-primary: var(--primary);
-	--color-popover-foreground: var(--popover-foreground);
-	--color-popover: var(--popover);
-	--color-card-foreground: var(--card-foreground);
-	--color-card: var(--card);
+
+	/* --- Radii (design: 4 badges · 6-7 chips/buttons · 8 inputs · 10-12 containers · 16 composer) --- */
 	--radius-sm: calc(var(--radius) - 4px);
 	--radius-md: calc(var(--radius) - 2px);
 	--radius-lg: var(--radius);
-	--radius-xl: calc(var(--radius) + 4px);
+	--radius-xl: calc(var(--radius) + 6px);
+
+	/* --- Shadows (depth comes from borders — almost none) --- */
+	--shadow-raised: 0 1px 2px rgba(10, 25, 30, 0.04);
+	--shadow-composer: 0 8px 24px -12px rgba(10, 25, 30, 0.08);
+	--shadow-submit: 0 4px 12px -4px rgba(22, 96, 110, 0.4);
+
 	--animate-collapsible-down: collapsible-down 0.3s ease-out;
 	--animate-collapsible-up: collapsible-up 0.3s ease-in;
 	--animate-pulse-dot: pulse-dot 2.2s ease-in-out infinite;
 }
 
 :root {
-	--radius: 0.625rem;
-	--surface: #f6f9f7;
-	--background: oklch(1 0 0);
-	--foreground: oklch(0.145 0 0);
-	--card: oklch(1 0 0);
-	--card-foreground: oklch(0.145 0 0);
-	--popover: oklch(1 0 0);
-	--popover-foreground: oklch(0.145 0 0);
-	--primary: oklch(0.205 0 0);
-	--primary-foreground: oklch(0.985 0 0);
-	--secondary: oklch(0.97 0 0);
-	--secondary-foreground: oklch(0.205 0 0);
-	--muted: oklch(0.97 0 0);
-	--muted-foreground: oklch(0.556 0 0);
-	--accent: oklch(0.97 0 0);
-	--accent-foreground: oklch(0.205 0 0);
+	--radius: 0.625rem; /* lg 10px containers · md 8px inputs · sm 6px chips */
+	--background: var(--pm-canvas);
+	--foreground: var(--pm-ink);
+	--surface: var(--pm-marketing);
+	--card: var(--pm-canvas);
+	--card-foreground: var(--pm-ink);
+	--popover: var(--pm-canvas);
+	--popover-foreground: var(--pm-ink);
+	--primary: var(--pm-ink);
+	--primary-foreground: #ffffff;
+	--secondary: var(--pm-hover);
+	--secondary-foreground: var(--pm-ink);
+	--muted: var(--pm-hover);
+	--muted-foreground: var(--pm-label);
+	--accent: var(--pm-hover);
+	--accent-foreground: var(--pm-ink);
 	--destructive: oklch(0.577 0.245 27.325);
-	--border: oklch(0.922 0 0);
-	--input: oklch(0.922 0 0);
-	--ring: oklch(0.708 0 0);
-	--chart-1: oklch(0.646 0.222 41.116);
-	--chart-2: oklch(0.6 0.118 184.704);
-	--chart-3: oklch(0.398 0.07 227.392);
-	--chart-4: oklch(0.828 0.189 84.429);
-	--chart-5: oklch(0.769 0.188 70.08);
-	/* --sidebar: #f9fbf9; */
-	--sidebar: #ffffff;
-	--sidebar-foreground: #1e2d28;
-	--sidebar-primary: #4ca882;
+	--border: var(--pm-hairline);
+	--input: var(--pm-border-input);
+	--ring: var(--pm-petrol);
+	--chart-1: var(--pm-petrol);
+	--chart-2: var(--pm-sparkline);
+	--chart-3: var(--pm-success);
+	--chart-4: var(--pm-warning);
+	--chart-5: var(--pm-meta);
+	--sidebar: var(--pm-sidebar);
+	--sidebar-foreground: var(--pm-ink);
+	--sidebar-primary: var(--pm-petrol);
 	--sidebar-primary-foreground: #ffffff;
-	--sidebar-accent: #edf4f0;
-	--sidebar-accent-foreground: #1e2d28;
-	--sidebar-border: #e8efe9;
-	--sidebar-ring: #4ca882;
+	--sidebar-accent: var(--pm-petrol-tint);
+	--sidebar-accent-foreground: var(--pm-ink);
+	--sidebar-border: var(--pm-hairline);
+	--sidebar-ring: var(--pm-petrol);
+	--sidebar-muted: var(--pm-label);
+	--sidebar-muted-highlight: var(--pm-meta);
+	--sidebar-hover: var(--pm-hover);
+	--sidebar-active-icon: var(--pm-petrol);
+	--sidebar-section-label: var(--pm-faint);
 }
 
+/* Petrol Mono is light-first; this dark theme is a provisional mapping
+ * derived from the design's dark panel until a full dark spec exists. */
 .dark {
-	--surface: #1a2420;
-	--background: oklch(0.145 0 0);
-	--foreground: oklch(0.985 0 0);
-	--card: oklch(0.205 0 0);
-	--card-foreground: oklch(0.985 0 0);
-	--popover: oklch(0.205 0 0);
-	--popover-foreground: oklch(0.985 0 0);
-	--primary: oklch(0.922 0 0);
-	--primary-foreground: oklch(0.205 0 0);
-	--secondary: oklch(0.269 0 0);
-	--secondary-foreground: oklch(0.985 0 0);
-	--muted: oklch(0.269 0 0);
-	--muted-foreground: oklch(0.708 0 0);
-	--accent: oklch(0.269 0 0);
-	--accent-foreground: oklch(0.985 0 0);
+	--background: var(--pm-panel);
+	--foreground: var(--pm-panel-button);
+	--surface: #0c1318;
+	--card: #16222b;
+	--card-foreground: var(--pm-panel-button);
+	--popover: #16222b;
+	--popover-foreground: var(--pm-panel-button);
+	--primary: var(--pm-panel-button);
+	--primary-foreground: var(--pm-ink);
+	--secondary: #1c2830;
+	--secondary-foreground: var(--pm-panel-button);
+	--muted: #1c2830;
+	--muted-foreground: var(--pm-meta);
+	--accent: #1c2830;
+	--accent-foreground: var(--pm-panel-button);
 	--destructive: oklch(0.704 0.191 22.216);
-	--border: oklch(1 0 0 / 10%);
-	--input: oklch(1 0 0 / 15%);
-	--ring: oklch(0.556 0 0);
-	--chart-1: oklch(0.488 0.243 264.376);
-	--chart-2: oklch(0.696 0.17 162.48);
-	--chart-3: oklch(0.769 0.188 70.08);
-	--chart-4: oklch(0.627 0.265 303.9);
-	--chart-5: oklch(0.645 0.246 16.439);
-	--sidebar: oklch(0.16 0.01 160);
-	--sidebar-foreground: oklch(0.92 0.01 160);
-	--sidebar-primary: #4ca882;
-	--sidebar-primary-foreground: #ffffff;
-	--sidebar-accent: oklch(0.22 0.015 160);
-	--sidebar-accent-foreground: oklch(0.92 0.01 160);
-	--sidebar-border: oklch(1 0 0 / 8%);
-	--sidebar-ring: #4ca882;
+	--border: var(--pm-panel-border);
+	--input: var(--pm-panel-border-strong);
+	--ring: var(--pm-panel-terminal);
+	--chart-1: var(--pm-panel-terminal);
+	--chart-2: var(--pm-sparkline);
+	--chart-3: var(--pm-panel-success);
+	--chart-4: var(--pm-panel-attention);
+	--chart-5: var(--pm-panel-dim);
+	--sidebar: #0c1318;
+	--sidebar-foreground: var(--pm-panel-body);
+	--sidebar-primary: var(--pm-panel-terminal);
+	--sidebar-primary-foreground: var(--pm-ink);
+	--sidebar-accent: #1c2830;
+	--sidebar-accent-foreground: var(--pm-panel-button);
+	--sidebar-border: var(--pm-panel-border);
+	--sidebar-ring: var(--pm-panel-terminal);
+	--sidebar-muted: var(--pm-panel-dim);
+	--sidebar-muted-highlight: var(--pm-meta);
+	--sidebar-hover: #141e26;
+	--sidebar-active-icon: var(--pm-panel-terminal);
+	--sidebar-section-label: var(--pm-panel-dim);
 }
 
 @keyframes collapsible-down {
@@ -207,39 +350,16 @@
 	}
 
 	body {
-		@apply bg-background text-foreground;
-	}
-
-	:root {
-		/* --sidebar: #F9FBF9; */
-		--sidebar: #ffffff;
-		--sidebar-foreground: #1e2d28;
-		--sidebar-primary: #4ca882;
-		--sidebar-primary-foreground: #ffffff;
-		--sidebar-accent: #edf4f0;
-		--sidebar-accent-foreground: #1e2d28;
-		--sidebar-border: #e8efe9;
-		--sidebar-ring: #4ca882;
-		--sidebar-muted: #6b7f76;
-		--sidebar-muted-highlight: #8fb5a3;
-		--sidebar-hover: #f8faf9;
-		--sidebar-active-icon: #3d8b63;
-		--sidebar-section-label: #b8c8c0;
-	}
-
-	.dark {
-		--sidebar: oklch(0.16 0.01 160);
-		--sidebar-foreground: oklch(0.92 0.01 160);
-		--sidebar-primary: #4ca882;
-		--sidebar-primary-foreground: #ffffff;
-		--sidebar-accent: oklch(0.22 0.015 160);
-		--sidebar-accent-foreground: oklch(0.92 0.01 160);
-		--sidebar-border: oklch(1 0 0 / 8%);
-		--sidebar-ring: #4ca882;
-		--sidebar-muted: oklch(0.6 0.01 160);
-		--sidebar-muted-highlight: oklch(0.65 0.03 160);
-		--sidebar-hover: oklch(0.19 0.01 160);
-		--sidebar-active-icon: #5abf94;
-		--sidebar-section-label: oklch(0.5 0.01 160);
+		@apply bg-background text-foreground font-sans;
+		/* Runtime aliases for pre-redesign components that reference the old
+		   next/font variables as raw `var(--font-dm-sans)` /
+		   `var(--font-jakarta-sans)` arbitrary values. Declared on body (not
+		   :root / @theme inline) because the next/font variables they chain
+		   to are class-scoped to <body>, and `@theme inline` emits no custom
+		   properties at all. */
+		--font-dm-sans: var(--font-hanken-grotesk), -apple-system,
+			BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+		--font-jakarta-sans: var(--font-hanken-grotesk), -apple-system,
+			BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 	}
 }

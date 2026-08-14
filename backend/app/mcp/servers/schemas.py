@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from sqlmodel import Field, SQLModel
@@ -59,6 +60,20 @@ class OAuthSecretHint(SQLModel):
     is_set: bool = False
     last4: str | None = None
     length: int | None = None
+
+
+class MCPServerConnectionResponse(SQLModel):
+    """A user's stored OAuth connection to an MCP server (admin view).
+
+    ``expired`` means the access token is past its expiry with no refresh
+    token to renew it — runs using this connection will fail until the user
+    re-authenticates.
+    """
+
+    user_id: UUID
+    name: str | None = None
+    email: str | None = None
+    status: Literal["active", "expired"] = "active"
 
 
 class ConnectionProbeRequest(SQLModel):

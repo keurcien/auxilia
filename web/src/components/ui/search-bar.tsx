@@ -17,16 +17,18 @@ export function SearchBar({
 }: SearchBarProps) {
 	return (
 		<div className={`relative ${className}`}>
-			<Search className="absolute left-4 top-1/2 -translate-y-1/2 size-4 text-[#A3B5AD] dark:text-white/30" />
+			<Search className="absolute left-3 top-1/2 size-[15px] -translate-y-1/2 text-meta dark:text-panel-dim" />
 			<input
 				type="text"
 				placeholder={placeholder}
 				value={value}
-				onChange={(e) => onChange(e.target.value)}
-				className={`w-full pl-10 ${hint ? "pr-14" : "pr-4"} py-2.5 rounded-full border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-[#FAFCFB] dark:bg-white/5 text-[14px] font-medium font-[family-name:var(--font-dm-sans)] text-[#1E2D28] dark:text-white placeholder:text-[#A3B5AD] dark:placeholder:text-white/30 focus:outline-none focus:border-[#4CA882] transition-colors`}
+				onChange={(e) => {
+					onChange(e.target.value);
+				}}
+				className={`w-full rounded-[7px] border border-border bg-sidebar py-2 pl-9 ${hint ? "pr-12" : "pr-3"} text-[13px] font-medium text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-meta dark:placeholder:text-panel-dim focus:border-petrol focus:shadow-[0_0_0_3px_rgba(22,96,110,0.10)]`}
 			/>
 			{hint && (
-				<kbd className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded-md border border-[#E0E8E4] dark:border-white/10 bg-white dark:bg-white/5 px-1.5 py-0.5 font-[family-name:var(--font-geist-mono)] text-[11px] font-medium text-[#A3B5AD] dark:text-white/30">
+				<kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded-[4px] border border-rail bg-background px-[5px] py-px font-mono text-[10px] text-meta dark:text-panel-dim">
 					{hint}
 				</kbd>
 			)}

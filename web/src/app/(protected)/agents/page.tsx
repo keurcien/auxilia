@@ -1,26 +1,72 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import AgentList from "@/app/(protected)/agents/components/agent-list";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
-import { Button } from "@/components/ui/button";
-import { SearchBar } from "@/components/ui/search-bar";
-import { PageContainer } from "@/components/layout/page-container";
+import { UnderlineTabs } from "@/components/ui/underline-tabs";
+import { ViewToggle, type ViewMode } from "@/components/ui/view-toggle";
+import {
+	WorkspacePage,
+	WorkspaceTopBarButton,
+} from "@/components/layout/workspace-page";
 import { useUserStore } from "@/stores/user-store";
+import { useQueryParamState } from "@/hooks/use-query-param-state";
+
+const VIEW_MODE_STORAGE_KEY = "agents:view-mode";
+
+// Persisted table/cards preference (table by default), exposed through
+// useSyncExternalStore so the server render and hydration stay consistent
+// without effect-driven state.
+const viewModeListeners = new Set<() => void>();
+
+function subscribeViewMode(listener: () => void) {
+	viewModeListeners.add(listener);
+	return () => {
+		viewModeListeners.delete(listener);
+	};
+}
+
+// In-session fallback when localStorage is unavailable (private mode).
+let sessionViewMode: ViewMode = "table";
+
+function readViewMode(): ViewMode {
+	try {
+		const stored = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+		if (stored === "cards" || stored === "table") return stored;
+	} catch {
+		// Fall through to the in-session value.
+	}
+	return sessionViewMode;
+}
+
+function writeViewMode(mode: ViewMode) {
+	sessionViewMode = mode;
+	try {
+		localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode);
+	} catch {
+		// Persistence failed — the in-session fallback still applies.
+	}
+	viewModeListeners.forEach((listener) => {
+		listener();
+	});
+}
 
 export default function AgentsPage() {
 	const router = useRouter();
 	const user = useUserStore((state) => state.user);
 	const [errorDialogOpen, setErrorDialogOpen] = useState(false);
-	const [search, setSearch] = useState("");
-	const [view, setView] = useState<"available" | "all" | "archived">(
-		"available",
+	const [search, setSearch] = useQueryParamState("q");
+	const [viewParam, setView] = useQueryParamState("view", "available");
+	const view: "available" | "all" | "archived" =
+		viewParam === "all" || viewParam === "archived" ? viewParam : "available";
+	const viewMode = useSyncExternalStore(
+		subscribeViewMode,
+		readViewMode,
+		() => "table" as ViewMode,
 	);
 
-	// Creation happens on the /agents/new draft page — nothing is persisted
-	// until the user hits "Create agent" there.
 	const handleCreateAgent = () => {
 		if (!user) return;
 		if (user.role === "member") {
@@ -31,69 +77,54 @@ export default function AgentsPage() {
 	};
 
 	return (
-		<PageContainer>
+		<WorkspacePage
+			slug="agents"
+			title="Agents"
+			intro="Assistants connected to your team's tools. Chat with them, or let triggers run them on a schedule."
+			fillHeight={viewMode === "table"}
+			search={{
+				placeholder: "Search agents…",
+				value: search,
+				onChange: setSearch,
+			}}
+			actions={
+				<WorkspaceTopBarButton
+					// Until /auth/me resolves the role check can't run — a click
+					// would silently no-op, so keep the button disabled.
+					disabled={!user}
+					onClick={() => {
+						handleCreateAgent();
+					}}
+				>
+					<Plus className="size-3.5" />
+					New agent
+				</WorkspaceTopBarButton>
+			}
+			headerRight={
+				<div className="flex items-center gap-3">
+					<UnderlineTabs
+						tabs={[
+							{ key: "available", label: "Available to you" },
+							{ key: "all", label: "All" },
+							{ key: "archived", label: "Archived" },
+						]}
+						value={view}
+						onChange={setView}
+					/>
+					<ViewToggle value={viewMode} onChange={writeViewMode} />
+				</div>
+			}
+		>
 			<ForbiddenErrorDialog
 				open={errorDialogOpen}
 				onOpenChange={setErrorDialogOpen}
 				title="Insufficient privileges"
 				message="You need at least editor permissions to create agents."
 			/>
-			<div className="flex flex-col gap-5 my-8 sm:flex-row sm:items-start sm:justify-between">
-				<div className="min-w-0">
-					<h1 className="font-[family-name:var(--font-jakarta-sans)] font-extrabold text-[32px] tracking-[-0.03em] text-[#111111] dark:text-white">
-						Agents
-					</h1>
-					<p className="mt-1.5 font-[family-name:var(--font-dm-sans)] text-[15px] font-medium text-[#6B7F76] dark:text-muted-foreground">
-						Everything you can chat with — yours, and what the team shares with
-						you.
-					</p>
-				</div>
-
-				<div className="flex items-center gap-3 shrink-0">
-					<SearchBar
-						placeholder="Search agents..."
-						value={search}
-						onChange={setSearch}
-						hint="⌘K"
-						className="w-full sm:w-72"
-					/>
-					<Button
-						className="flex items-center gap-2 px-6! py-3! h-auto! bg-[#111111] dark:bg-white dark:text-[#111111] text-[14px] font-semibold font-[family-name:var(--font-dm-sans)] text-white rounded-full hover:bg-[#222222] dark:hover:bg-gray-100 transition-all cursor-pointer shadow-[0_4px_12px_-2px_rgba(0,0,0,0.15)] border-none whitespace-nowrap"
-						onClick={() => {
-							handleCreateAgent();
-						}}
-					>
-						<Plus className="w-4 h-4" />
-						Create an agent
-					</Button>
-				</div>
-			</div>
-			<div className="mb-6 inline-flex items-center gap-1 rounded-full bg-[#F0F4F2] dark:bg-white/5 p-1">
-				{(
-					[
-						{ key: "available", label: "Available to you" },
-						{ key: "all", label: "All" },
-						{ key: "archived", label: "Archived" },
-					] as const
-				).map((tab) => (
-					<button
-						key={tab.key}
-						onClick={() => {
-							setView(tab.key);
-						}}
-						className={`rounded-full px-4 py-1.5 font-[family-name:var(--font-dm-sans)] text-[13.5px] font-semibold cursor-pointer transition-colors ${
-							view === tab.key
-								? "bg-white dark:bg-white/10 text-[#1E2D28] dark:text-foreground shadow-[0_1px_2px_rgba(30,45,40,0.08)]"
-								: "text-[#8FA89E] dark:text-muted-foreground hover:text-[#1E2D28] dark:hover:text-foreground"
-						}`}
-					>
-						{tab.label}
-					</button>
-				))}
-			</div>
 			<AgentList
 				key={view === "archived" ? "archived" : "active"}
 				view={view}
+				mode={viewMode}
 				search={search}
 				onClearSearch={() => {
 					setSearch("");
@@ -102,6 +133,6 @@ export default function AgentsPage() {
 					handleCreateAgent();
 				}}
 			/>
-		</PageContainer>
+		</WorkspacePage>
 	);
 }

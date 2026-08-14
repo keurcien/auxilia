@@ -33,7 +33,7 @@ export default async function RootLayout({ children }) {
 						display: "inline-flex",
 						alignItems: "center",
 						gap: "0.5rem",
-						fontFamily: "'Plus Jakarta Sans', sans-serif",
+						fontFamily: "'Space Grotesk', sans-serif",
 						fontWeight: 700,
 						fontSize: "1.1rem",
 						letterSpacing: "-0.02em",
@@ -53,6 +53,7 @@ export default async function RootLayout({ children }) {
 						style={{ height: "1.5rem" }}
 					/>
 					auxilia
+					<span className="pm-version-chip">v1.x</span>
 				</span>
 			}
 			projectLink="https://github.com/keurcien/auxilia"
@@ -66,12 +67,12 @@ export default async function RootLayout({ children }) {
 			<Head
 				backgroundColor={{
 					light: "#ffffff",
-					dark: "#141c19",
+					dark: "#101820",
 				}}
 				color={{
-					hue: 154,
-					saturation: 38,
-					lightness: { light: 48, dark: 55 },
+					hue: { light: 190, dark: 168 },
+					saturation: { light: 67, dark: 40 },
+					lightness: { light: 26, dark: 73 },
 				}}
 			/>
 			<body>
@@ -83,13 +84,19 @@ export default async function RootLayout({ children }) {
 								backgroundColor: "transparent",
 								borderTop: "1px solid var(--auxilia-sidebar-border)",
 								color: "var(--auxilia-muted)",
-								fontSize: "0.875rem",
+								fontFamily: "'IBM Plex Mono', monospace",
+								fontSize: "13px",
+								display: "flex",
+								justifyContent: "space-between",
+								flexWrap: "wrap",
+								gap: "0.5rem",
 							}}
 						>
 							<span>
-								AGPL-3.0 {new Date().getFullYear()} © auxilia — open-source web
-								MCP client
+								AGPL-3.0 {new Date().getFullYear()} © auxilia · built with
+								LangGraph + MCP
 							</span>
+							<span>github.com/keurcien/auxilia</span>
 						</Footer>
 					}
 					editLink="Edit this page on GitHub"
