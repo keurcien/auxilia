@@ -30,12 +30,15 @@ function TokenRevealBanner({ plaintext }: { plaintext: string }) {
 
 	const handleCopy = () => {
 		// navigator.clipboard is absent on insecure origins (self-hosted over
-		// plain HTTP) — guard so the click can't throw before the fallback.
-		if (!navigator.clipboard) {
+		// plain HTTP) even though the DOM types claim otherwise — widen the
+		// type so the guard survives type-aware lint, and the click can't
+		// throw before the fallback.
+		const clipboard = navigator.clipboard as Clipboard | undefined;
+		if (!clipboard) {
 			setCopyState("failed");
 			return;
 		}
-		navigator.clipboard
+		clipboard
 			.writeText(plaintext)
 			.then(() => {
 				setCopyState("copied");
