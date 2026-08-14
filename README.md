@@ -89,7 +89,7 @@ Developing? `make dev` runs PostgreSQL, Redis, the FastAPI backend (migrations a
 | OpenAI    | GPT-4o mini                                  |
 | Google    | Gemini 3 Flash Preview, Gemini 3 Pro Preview |
 | DeepSeek  | DeepSeek v4 Flash, v4 Pro                    |
-| Meta      | Muse Spark 1.1                               |
+| Meta      | Muse Spark 1.2                               |
 | Xiaomi    | MiMo-V2.5-Pro, MiMo-V2.5                     |
 | OpenRouter | GLM 5.2 (Max), GLM 5.2 (High)              |
 
