@@ -207,8 +207,8 @@ models:
   # Meta Model API endpoint is unverified for image input and json_schema —
   # flip after testing, don't publish unearned badges.
   - provider: meta
-    model_id: muse-spark-1.1
-    display_name: Muse Spark 1.1
+    model_id: muse-spark-1.2
+    display_name: Muse Spark 1.2
     chef: Meta
     chef_slug: meta
     multimodal: false
