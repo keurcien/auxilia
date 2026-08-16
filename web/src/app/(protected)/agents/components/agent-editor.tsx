@@ -18,7 +18,7 @@ import { getApiErrorMessage } from "@/lib/api/errors";
 import { useAgentsStore } from "@/stores/agents-store";
 import { useThreadsStore } from "@/stores/threads-store";
 import { useUserStore } from "@/stores/user-store";
-import { SageDropdownMenu } from "@/components/ui/sage-dropdown-menu";
+import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { UnderlineTabs } from "@/components/ui/underline-tabs";
 import { cn } from "@/lib/utils";
 import {
@@ -276,7 +276,7 @@ export default function AgentEditor({
 						</>
 					)}
 					{agent && canManageAgent && (
-						<SageDropdownMenu
+						<DropdownMenu
 							items={[
 								{
 									label: "View thread history",

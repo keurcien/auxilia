@@ -2,10 +2,10 @@
 
 import * as React from "react";
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
-import { Check, MoreVertical } from "lucide-react";
+import { Check, EllipsisVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type SageDropdownItem =
+type DropdownItem =
 	| {
 			label: string;
 			icon?: React.ReactNode;
@@ -16,8 +16,8 @@ type SageDropdownItem =
 	  }
 	| { separator: true };
 
-interface SageDropdownMenuProps {
-	items: SageDropdownItem[];
+interface DropdownMenuProps {
+	items: DropdownItem[];
 	trigger?: React.ReactNode;
 	align?: "start" | "end";
 	side?: "bottom" | "right" | "left" | "top";
@@ -25,23 +25,23 @@ interface SageDropdownMenuProps {
 	className?: string;
 }
 
-export function SageDropdownMenu({
+export function DropdownMenu({
 	items,
 	trigger,
 	align = "end",
 	side = "bottom",
-	sideOffset = 8,
+	sideOffset = 6,
 	className,
-}: SageDropdownMenuProps) {
+}: DropdownMenuProps) {
 	return (
 		<DropdownMenuPrimitive.Root>
 			<DropdownMenuPrimitive.Trigger asChild>
 				{trigger || (
 					<button
 						aria-label="More actions"
-						className="w-10 h-10 rounded-full bg-[#F5F8F6] dark:bg-white/10 flex items-center justify-center cursor-pointer transition-colors hover:bg-[#EDF4F0] dark:hover:bg-white/15 data-[state=open]:bg-[#EDF4F0] dark:data-[state=open]:bg-white/15"
+						className="flex size-7 cursor-pointer items-center justify-center rounded-[7px] text-meta transition-colors hover:bg-hover hover:text-ink data-[state=open]:bg-hover data-[state=open]:text-ink dark:hover:bg-white/10 dark:hover:text-panel-button dark:data-[state=open]:bg-white/10 dark:data-[state=open]:text-panel-button"
 					>
-						<MoreVertical className="w-[18px] h-[18px] text-[#6B7F76]" />
+						<EllipsisVertical className="size-[15px]" />
 					</button>
 				)}
 			</DropdownMenuPrimitive.Trigger>
@@ -52,9 +52,9 @@ export function SageDropdownMenu({
 					align={align}
 					sideOffset={sideOffset}
 					className={cn(
-						"z-50 min-w-[220px] bg-white dark:bg-[#1C1C1C] border-[1.5px] border-[#E0E8E4] dark:border-white/10 rounded-[20px] p-1.5 shadow-[0_8px_24px_-6px_rgba(0,0,0,0.08)] dark:shadow-[0_8px_24px_-6px_rgba(0,0,0,0.3)]",
-						"data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-[0.97] data-[state=open]:slide-in-from-top-1",
-						"data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-[0.97]",
+						"z-50 min-w-[200px] rounded-[10px] border border-hairline bg-canvas p-1 shadow-[0_12px_32px_-12px_rgba(10,25,30,0.18)] dark:border-white/10 dark:bg-card",
+						"data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-top-1",
+						"data-[state=closed]:animate-out data-[state=closed]:fade-out-0",
 						className,
 					)}
 				>
@@ -63,7 +63,7 @@ export function SageDropdownMenu({
 							return (
 								<DropdownMenuPrimitive.Separator
 									key={i}
-									className="h-px bg-[#F0F3F2] dark:bg-white/5 mx-2 my-1"
+									className="mx-1 my-1 h-px bg-hairline dark:bg-white/10"
 								/>
 							);
 						}
@@ -73,23 +73,20 @@ export function SageDropdownMenu({
 								key={i}
 								onSelect={item.onClick}
 								className={cn(
-									"flex items-center gap-3 px-3.5 py-2.5 rounded-[14px] cursor-pointer outline-none transition-colors select-none",
-									"font-[family-name:var(--font-dm-sans)] text-[14px] font-medium",
+									"flex cursor-pointer select-none items-center gap-2.5 rounded-[6px] px-2.5 py-2 text-[13px] font-medium outline-none transition-colors",
 									item.destructive
-										? "text-[#D45B45] focus:bg-[#FFF5F3] dark:focus:bg-[#D45B45]/10"
-										: "text-[#1E2D28] dark:text-white/90 focus:bg-[#F8FAF9] dark:focus:bg-white/5",
+										? "text-[#B04A3A] focus:bg-[#FBEFED] dark:focus:bg-[#B04A3A]/10"
+										: "text-ink focus:bg-hover dark:text-panel-button dark:focus:bg-white/5",
 									item.active &&
 										!item.destructive &&
-										"bg-[#F8FAF9] dark:bg-white/5",
+										"bg-petrol-tint dark:bg-white/10",
 								)}
 							>
 								{item.icon && (
 									<span
 										className={cn(
-											"shrink-0 [&_svg]:size-[17px]",
-											item.destructive
-												? "text-[#D45B45]"
-												: "text-[#8FA89E]",
+											"shrink-0 [&_svg]:size-[15px]",
+											item.destructive ? "text-[#B04A3A]" : "text-label",
 										)}
 									>
 										{item.icon}
@@ -97,7 +94,10 @@ export function SageDropdownMenu({
 								)}
 								<span>{item.label}</span>
 								{item.active && (
-									<Check className="ml-auto size-4 shrink-0 text-[#4CA882]" />
+									<Check
+										className="ml-auto size-3.5 shrink-0 text-petrol dark:text-panel-terminal"
+										strokeWidth={3}
+									/>
 								)}
 							</DropdownMenuPrimitive.Item>
 						);

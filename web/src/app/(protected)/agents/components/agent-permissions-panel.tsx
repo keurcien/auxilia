@@ -5,7 +5,7 @@ import { Trash2, ChevronDown, Check, Plus } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import { SearchBar } from "@/components/ui/search-bar";
-import { SageDropdownMenu } from "@/components/ui/sage-dropdown-menu";
+import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { UnderlineTabs } from "@/components/ui/underline-tabs";
 
 type PermissionLevel = "member" | "editor" | "admin";
@@ -270,7 +270,7 @@ export default function AgentPermissionsPanel({
 										{user.email}
 									</span>
 								</span>
-								<SageDropdownMenu
+								<DropdownMenu
 									trigger={
 										<button className="flex w-[96px] cursor-pointer items-center justify-between gap-1 rounded-[7px] border border-input bg-card px-3 py-1.5 text-[12.5px] font-semibold text-foreground transition-colors hover:border-border-hover">
 											<span>{PERMISSION_LABELS[user.permission]}</span>

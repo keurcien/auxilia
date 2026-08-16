@@ -7,19 +7,12 @@ import { agentColorBackground } from "@/lib/colors";
 
 interface AgentDialogShellProps {
 	agent: Agent;
-	// Secondary line under the agent name (e.g. the @handle, or "Archived").
 	subtitle: React.ReactNode;
 	onClose: () => void;
-	// When true, overlay/close-button clicks are ignored (e.g. while a request
-	// is in flight).
 	closeDisabled?: boolean;
 	children: React.ReactNode;
 }
 
-// Shared modal chrome for agent dialogs: a centered portal with a blurred
-// overlay, the rounded card container, and the avatar/name/subtitle/close
-// header. Both the active-agent modal (AgentCard) and the archived-agent
-// dialog render their body as children so the chrome stays consistent.
 export default function AgentDialogShell({
 	agent,
 	subtitle,
@@ -34,39 +27,38 @@ export default function AgentDialogShell({
 
 	return createPortal(
 		<div
-			className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(30,45,40,0.2)] backdrop-blur-[4px] animate-in fade-in duration-200"
+			className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(10,25,30,0.45)] animate-in fade-in duration-200"
 			onClick={close}
 		>
 			<div
-				className="bg-white dark:bg-card rounded-[28px] p-8 w-[440px] max-w-[90vw] shadow-[0_24px_48px_-12px_rgba(0,0,0,0.12)] animate-in slide-in-from-bottom-4 zoom-in-[0.97] duration-300"
+				className="w-[480px] max-w-[90vw] rounded-[14px] border border-hairline bg-canvas p-6 shadow-[0_24px_64px_-16px_rgba(10,25,30,0.28)] animate-in fade-in slide-in-from-bottom-2 duration-200 dark:bg-card"
 				onClick={(e) => {
 					e.stopPropagation();
 				}}
 			>
-				{/* Avatar + Name + Close */}
-				<div className="flex items-center gap-4 mb-6">
+				<div className="mb-5 flex items-center gap-3.5">
 					<div
 						style={{
 							background: agentColorBackground(color),
-							border: `1.5px solid ${color}18`,
 						}}
-						className="shrink-0 w-[60px] h-[60px] rounded-full flex items-center justify-center text-[30px]"
+						className="flex size-12 shrink-0 items-center justify-center rounded-[12px] text-[24px]"
 					>
 						{agent.emoji || "🤖"}
 					</div>
-					<div className="flex-1 min-w-0">
-						<div className="font-[family-name:var(--font-jakarta-sans)] text-[20px] font-extrabold text-[#1E2D28] dark:text-foreground tracking-[-0.02em] truncate">
+					<div className="min-w-0 flex-1">
+						<div className="truncate text-[16px] leading-snug font-bold text-ink dark:text-panel-button">
 							{agent.name}
 						</div>
-						<div className="font-[family-name:var(--font-dm-sans)] text-[13.5px] text-[#A3B5AD] dark:text-muted-foreground font-medium mt-0.5">
+						<div className="mt-0.5 text-[13px] leading-[1.5] text-label dark:text-panel-dim">
 							{subtitle}
 						</div>
 					</div>
 					<button
 						onClick={close}
-						className="shrink-0 self-start w-9 h-9 rounded-full bg-[#F5F8F6] dark:bg-white/10 flex items-center justify-center cursor-pointer transition-colors hover:bg-[#EDF4F0] dark:hover:bg-white/15"
+						aria-label="Close"
+						className="flex size-7 shrink-0 cursor-pointer items-center justify-center self-start rounded-[6px] text-meta transition-colors hover:bg-hover hover:text-ink dark:hover:bg-white/10 dark:hover:text-panel-button"
 					>
-						<X className="h-4 w-4 text-[#6B7F76]" />
+						<X className="size-4" />
 					</button>
 				</div>
 

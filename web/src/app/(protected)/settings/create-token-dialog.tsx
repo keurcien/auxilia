@@ -3,8 +3,11 @@
 import { useState } from "react";
 import {
 	Dialog,
+	DialogButton,
 	DialogContent,
 	DialogDescription,
+	DialogFooter,
+	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { api } from "@/lib/api/client";
@@ -74,23 +77,23 @@ export default function CreateTokenDialog({
 
 	return (
 		<Dialog open={open} onOpenChange={handleClose}>
-			<DialogContent className="sm:max-w-[420px]">
-				<DialogTitle className="font-display text-[20px] font-bold tracking-[-0.025em] text-foreground">
-					Generate a token
-				</DialogTitle>
-				<DialogDescription className="text-[13px] leading-[1.55] text-subtle dark:text-panel-body">
-					The token acts as you. You&apos;ll see it once — store it in the
-					service that needs it.
-				</DialogDescription>
+			<DialogContent className="sm:max-w-[560px]">
+				<DialogHeader>
+					<DialogTitle>Generate a token</DialogTitle>
+					<DialogDescription>
+						The token acts as you. You&apos;ll see it once — store it in the
+						service that needs it.
+					</DialogDescription>
+				</DialogHeader>
 
 				<form
 					onSubmit={(e) => {
 						void handleSubmit(e);
 					}}
-					className="flex flex-col gap-4"
+					className="flex flex-col gap-5"
 				>
 					{error && (
-						<div className="rounded-[10px] bg-destructive/10 px-3.5 py-2.5 text-[13px] font-medium text-destructive">
+						<div className="rounded-[10px] bg-[#FBEFED] px-3.5 py-2.5 text-[13px] font-medium text-[#B04A3A] dark:bg-[#B04A3A]/10">
 							{error}
 						</div>
 					)}
@@ -98,9 +101,9 @@ export default function CreateTokenDialog({
 					<div className="flex flex-col gap-[7px]">
 						<label
 							htmlFor="token-name"
-							className="font-mono text-[10.5px] font-semibold tracking-[0.09em] text-label dark:text-panel-dim"
+							className="text-[13px] font-semibold text-ink dark:text-panel-button"
 						>
-							NAME
+							Name
 						</label>
 						<input
 							id="token-name"
@@ -115,13 +118,19 @@ export default function CreateTokenDialog({
 						/>
 					</div>
 
-					<button
-						type="submit"
-						disabled={isLoading || !name.trim()}
-						className="cursor-pointer rounded-[7px] bg-petrol px-[18px] py-2.5 text-[13.5px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-					>
-						{isLoading ? "Creating…" : "Create token"}
-					</button>
+					<DialogFooter>
+						<DialogButton
+							variant="outline"
+							onClick={() => {
+								handleClose(false);
+							}}
+						>
+							Cancel
+						</DialogButton>
+						<DialogButton type="submit" disabled={isLoading || !name.trim()}>
+							{isLoading ? "Creating…" : "Create token"}
+						</DialogButton>
+					</DialogFooter>
 				</form>
 			</DialogContent>
 		</Dialog>

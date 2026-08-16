@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, X } from "lucide-react";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
-import { SageDropdownMenu } from "@/components/ui/sage-dropdown-menu";
+import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { MCPServer } from "@/types/mcp-servers";
@@ -190,7 +190,7 @@ export default function MCPServerTable({
 					>
 						Edit
 					</button>
-					<SageDropdownMenu
+					<DropdownMenu
 						items={[
 							...(server.authType === "oauth2"
 								? [

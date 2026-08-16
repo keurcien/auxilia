@@ -4,8 +4,10 @@ import { agentColorBackground } from "@/lib/colors";
 type AvatarSize = "2xs" | "xs" | "sm" | "md" | "lg" | "xl";
 
 /**
- * Petrol Mono: emoji on pastel tile, radius ≈ size/4. Round (999px) is
- * reserved for the chat header; everywhere else use the default tile.
+ * Petrol Mono: emoji on a pastel background. Default is round (999px) —
+ * the chat header and small subagent chips ("22px emoji circles on their
+ * pastels", design 7a). Pass shape="tile" (radius ≈ size/4) for agent
+ * identity tiles in lists and editors.
  */
 type AvatarShape = "tile" | "round";
 

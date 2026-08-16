@@ -3,7 +3,6 @@
 import { useEffect } from "react";
 import { AlarmClock, Plus } from "lucide-react";
 import TriggerCard from "@/app/(protected)/triggers/components/trigger-card";
-import { SageButton } from "@/components/ui/sage-button";
 import { useTriggersStore } from "@/stores/triggers-store";
 import { useAgentsStore } from "@/stores/agents-store";
 
@@ -52,15 +51,16 @@ export default function TriggerList({ view, onCreate }: TriggerListProps) {
 						Schedule an agent to run on its own, no open session needed.
 					</p>
 				</div>
-				<SageButton
-					color="dark"
+				<button
+					type="button"
 					onClick={() => {
 						onCreate();
 					}}
+					className="inline-flex cursor-pointer items-center gap-1.5 rounded-[7px] bg-primary px-3.5 py-[7px] text-[12.5px] font-semibold text-primary-foreground transition-opacity hover:opacity-90"
 				>
 					<Plus className="size-4" />
 					New trigger
-				</SageButton>
+				</button>
 			</div>
 		);
 	}

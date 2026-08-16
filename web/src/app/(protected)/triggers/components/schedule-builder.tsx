@@ -10,7 +10,7 @@ import {
 	WEEKDAY_CHIP_LABELS,
 	WEEKDAY_CHIP_ORDER,
 } from "@/lib/triggers/schedule";
-import { SageDropdownMenu } from "@/components/ui/sage-dropdown-menu";
+import { DropdownMenu } from "@/components/ui/dropdown-menu";
 
 interface ScheduleBuilderProps {
 	value: Schedule;
@@ -122,7 +122,7 @@ export default function ScheduleBuilder({
 		>
 			{/* Preset · at · time */}
 			<div className="flex items-center gap-3">
-				<SageDropdownMenu
+				<DropdownMenu
 					align="start"
 					className="min-w-[240px]"
 					trigger={
@@ -207,7 +207,7 @@ export default function ScheduleBuilder({
 							}}
 							className="w-16 h-[42px] px-3 rounded-lg border border-input dark:border-white/10 bg-card dark:bg-transparent text-[14px] font-semibold text-foreground outline-none focus:border-petrol transition-colors"
 						/>
-						<SageDropdownMenu
+						<DropdownMenu
 							align="start"
 							trigger={
 								<button

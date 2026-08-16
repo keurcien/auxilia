@@ -4,7 +4,9 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import Image from "next/image";
 import {
 	Dialog,
+	DialogButton,
 	DialogContent,
+	DialogFooter,
 	DialogHeader,
 	DialogTitle,
 	DialogDescription,
@@ -138,9 +140,9 @@ export function ConnectServersDialog({
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className="sm:max-w-[480px]">
+			<DialogContent>
 				<DialogHeader>
-					<DialogTitle className="text-xl">Authentication Required</DialogTitle>
+					<DialogTitle>Authentication required</DialogTitle>
 					<DialogDescription>
 						To use this agent, you need to authenticate with{" "}
 						{disconnectedServers.length === 1
@@ -150,7 +152,7 @@ export function ConnectServersDialog({
 					</DialogDescription>
 				</DialogHeader>
 
-				<div className="space-y-2 mt-2">
+				<div className="flex flex-col gap-2">
 					{disconnectedServers.map((server) => {
 						const isConnected = connectedIds.has(server.id);
 						const isCurrent = currentServer?.id === server.id && !isConnected;
@@ -158,15 +160,15 @@ export function ConnectServersDialog({
 						return (
 							<div
 								key={server.id}
-								className={`flex items-center gap-3 rounded-xl p-3 transition-colors ${
+								className={`flex items-center gap-3 rounded-[10px] border p-3 transition-colors ${
 									isCurrent
-										? "bg-blue-50 border border-blue-200"
+										? "border-sparkline bg-[#F2F8F8] dark:border-petrol/40 dark:bg-petrol/10"
 										: isConnected
-											? "bg-green-50 border border-green-200"
-											: "bg-gray-50 border border-gray-100"
+											? "border-success-bg bg-success-bg/50 dark:border-success/30 dark:bg-success/10"
+											: "border-hairline bg-sidebar dark:bg-white/5"
 								}`}
 							>
-								<div className="w-8 h-8 rounded-md flex items-center justify-center overflow-hidden relative shrink-0">
+								<div className="relative flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md">
 									<Image
 										unoptimized
 										width={32}
@@ -179,14 +181,14 @@ export function ConnectServersDialog({
 										className="object-cover"
 									/>
 								</div>
-								<span className="text-sm font-medium flex-1">
+								<span className="flex-1 text-[13.5px] font-semibold text-ink dark:text-panel-button">
 									{server.name}
 								</span>
 								{isConnected ? (
-									<CheckCircle2Icon className="w-5 h-5 text-green-600" />
+									<CheckCircle2Icon className="size-5 text-success" />
 								) : isCurrent ? (
-									<span className="text-xs font-medium text-blue-600">
-										Current
+									<span className="font-mono text-[10.5px] font-semibold tracking-[0.05em] text-petrol dark:text-panel-terminal">
+										CURRENT
 									</span>
 								) : null}
 							</div>
@@ -195,20 +197,21 @@ export function ConnectServersDialog({
 				</div>
 
 				{currentServer && (
-					<button
-						onClick={() => { void handleConnect(currentServer); }}
-						disabled={connectingId !== null}
-						className="w-full mt-2 px-5 py-3 bg-black text-white text-sm font-medium rounded-xl hover:bg-gray-800 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-					>
-						{connectingId === currentServer.id ? (
-							<>
-								<LoaderIcon className="w-4 h-4 animate-spin" />
-								Waiting for authentication...
-							</>
-						) : (
-							<>Authenticate with {currentServer.name}</>
-						)}
-					</button>
+					<DialogFooter>
+						<DialogButton
+							onClick={() => { void handleConnect(currentServer); }}
+							disabled={connectingId !== null}
+						>
+							{connectingId === currentServer.id ? (
+								<>
+									<LoaderIcon className="size-4 animate-spin" />
+									Waiting for authentication…
+								</>
+							) : (
+								<>Authenticate with {currentServer.name}</>
+							)}
+						</DialogButton>
+					</DialogFooter>
 				)}
 			</DialogContent>
 		</Dialog>

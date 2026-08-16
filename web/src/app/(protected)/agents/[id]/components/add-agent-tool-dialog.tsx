@@ -8,6 +8,7 @@ import { api } from "@/lib/api/client";
 import { MCPServer } from "@/types/mcp-servers";
 import {
 	Dialog,
+	DialogButton,
 	DialogContent,
 	DialogDescription,
 	DialogHeader,
@@ -35,7 +36,7 @@ interface AvailableMCPServerCardProps {
 
 function AvailableMCPServerCard({ server, onAdd }: AvailableMCPServerCardProps) {
 	return (
-		<div className="flex items-center gap-3 px-4 py-3 rounded-2xl border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-white dark:bg-white/5 hover:bg-sidebar-hover transition-colors">
+		<div className="flex items-center gap-3 rounded-[10px] border border-hairline bg-canvas px-4 py-3 transition-colors hover:bg-sidebar dark:bg-white/5 dark:hover:bg-white/10">
 			<Image
 				unoptimized
 				src={
@@ -48,16 +49,18 @@ function AvailableMCPServerCard({ server, onAdd }: AvailableMCPServerCardProps) 
 				className="shrink-0 rounded-md"
 			/>
 			<div className="min-w-0 flex-1">
-				<h3 className="font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold text-[#1E2D28] dark:text-foreground truncate">{server.name}</h3>
+				<h3 className="truncate text-[13.5px] font-semibold text-ink dark:text-panel-button">
+					{server.name}
+				</h3>
 			</div>
 			<button
-				className="w-8 h-8 rounded-full bg-white dark:bg-white/10 border-[1.5px] border-[#E0E8E4] dark:border-white/10 flex items-center justify-center cursor-pointer transition-colors hover:bg-[#EDF4F0] dark:hover:bg-white/15"
+				className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[7px] border border-input text-label outline-none transition-colors hover:border-border-hover hover:text-ink focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:border-white/10 dark:hover:bg-white/10 dark:hover:text-panel-button"
 				onClick={() => {
 					onAdd(server.id);
 				}}
 				aria-label={`Add ${server.name}`}
 			>
-				<Plus className="w-3.5 h-3.5 text-[#6B7F76]" />
+				<Plus className="size-3.5" />
 			</button>
 		</div>
 	);
@@ -76,11 +79,11 @@ function BuiltInCapabilities({
 
 	return (
 		<div>
-			<h3 className="font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold text-[#8FA89E] dark:text-muted-foreground mb-3">
-				Built-in capabilities
+			<h3 className="mb-3 font-mono text-[10.5px] font-semibold tracking-[0.09em] text-label dark:text-panel-dim">
+				BUILT-IN CAPABILITIES
 			</h3>
-			<div className="flex items-center gap-3 px-4 py-3 rounded-2xl border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-white dark:bg-white/5">
-				<div className="flex items-center justify-center w-9 h-9 rounded-lg shrink-0 overflow-hidden">
+			<div className="flex items-center gap-3 rounded-[10px] border border-hairline bg-canvas px-4 py-3 dark:bg-white/5">
+				<div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg">
 					<Image
 						width={36}
 						height={36}
@@ -89,14 +92,16 @@ function BuiltInCapabilities({
 						className="object-cover"
 					/>
 				</div>
-				<div className="flex-1 min-w-0">
-					<h4 className="font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold text-[#1E2D28] dark:text-foreground">Code execution</h4>
-					<p className="font-[family-name:var(--font-dm-sans)] text-[12px] text-[#8FA89E] dark:text-muted-foreground">
+				<div className="min-w-0 flex-1">
+					<h4 className="text-[13.5px] font-semibold text-ink dark:text-panel-button">
+						Code execution
+					</h4>
+					<p className="text-[12px] text-label dark:text-panel-dim">
 						Run Python in a sandboxed environment
 					</p>
 				</div>
 				<Switch
-					className="cursor-pointer"
+					className="cursor-pointer data-[state=checked]:bg-petrol"
 					checked={hasCodeInterpreter}
 					onCheckedChange={onSandboxToggle}
 				/>
@@ -146,12 +151,12 @@ function MCPServerSection({
 	if (isLoading) {
 		return (
 			<div>
-				<h3 className="font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold text-[#8FA89E] dark:text-muted-foreground mb-3">
-					MCP servers
+				<h3 className="mb-3 font-mono text-[10.5px] font-semibold tracking-[0.09em] text-label dark:text-panel-dim">
+					MCP SERVERS
 				</h3>
 				<div className="content-start grid md:grid-cols-2 grid-cols-1 gap-x-2.5 gap-y-2">
 					{[0, 1].map((i) => (
-						<div key={i} className="h-[50px] rounded-2xl border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-[#FAFCFB] dark:bg-white/5 animate-pulse" />
+						<div key={i} className="h-[50px] animate-pulse rounded-[10px] border border-hairline bg-sidebar dark:border-white/10 dark:bg-white/5" />
 					))}
 				</div>
 			</div>
@@ -160,8 +165,8 @@ function MCPServerSection({
 
 	return (
 		<div>
-			<h3 className="font-[family-name:var(--font-dm-sans)] text-[14px] font-semibold text-[#8FA89E] dark:text-muted-foreground mb-3 animate-in fade-in duration-300">
-				MCP servers
+			<h3 className="mb-3 font-mono text-[10.5px] font-semibold tracking-[0.09em] text-label dark:text-panel-dim animate-in fade-in duration-300">
+				MCP SERVERS
 			</h3>
 			{availableServers.length > 0 ? (
 				<div className="content-start grid md:grid-cols-2 grid-cols-1 gap-x-2.5 gap-y-2 animate-in fade-in duration-300">
@@ -182,19 +187,19 @@ function MCPServerSection({
 				<div className="text-center py-6 animate-in fade-in duration-300">
 					{allServers.length === 0 ? (
 						<>
-							<p className="font-[family-name:var(--font-dm-sans)] text-[13px] text-[#8FA89E] dark:text-muted-foreground text-center mb-4">
+							<p className="mb-4 text-center text-[13px] text-label dark:text-panel-dim">
 								No MCP servers found. Start by adding a MCP server to your
 								workspace.
 							</p>
-							<button
-								className="font-[family-name:var(--font-dm-sans)] px-5 py-2.5 rounded-full border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-white dark:bg-transparent text-[13px] font-semibold text-[#6B7F76] dark:text-muted-foreground cursor-pointer transition-colors hover:border-[#A3B5AD]"
+							<DialogButton
+								variant="outline"
 								onClick={() => { router.push("/mcp-servers"); }}
 							>
-								Add MCP Server
-							</button>
+								Add MCP server
+							</DialogButton>
 						</>
 					) : (
-						<p className="font-[family-name:var(--font-dm-sans)] text-[13px] text-[#8FA89E] dark:text-muted-foreground">
+						<p className="text-[13px] text-label dark:text-panel-dim">
 							All workspace servers are already enabled for this agent.
 						</p>
 					)}
@@ -225,19 +230,19 @@ export default function AddAgentToolDialog({
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent className="sm:max-w-[560px]">
-				<DialogHeader className="mb-1">
+				<DialogHeader>
 					<DialogTitle>Add tool</DialogTitle>
-					<DialogDescription className="font-[family-name:var(--font-dm-sans)] text-[14px] text-[#A3B5AD] dark:text-muted-foreground">
+					<DialogDescription>
 						Extend your agent&apos;s capabilities
 					</DialogDescription>
 				</DialogHeader>
-				<div className="overflow-y-auto max-h-[450px] space-y-7 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+				<div className="overflow-y-auto max-h-[450px] space-y-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 					<MCPServerSection
 						attachedServerIds={attachedServerIds}
 						onOpenChange={onOpenChange}
 						onAddServer={onAddServer}
 					/>
-					{sandboxAvailable && <div className="border-t border-[#E0E8E4] dark:border-white/10" />}
+					{sandboxAvailable && <div className="border-t border-hairline dark:border-white/10" />}
 					<BuiltInCapabilities
 						hasCodeInterpreter={hasCodeInterpreter}
 						sandboxAvailable={sandboxAvailable}

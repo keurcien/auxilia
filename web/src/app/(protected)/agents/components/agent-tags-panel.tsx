@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Check, MoreVertical, Pencil, Plus, Trash2 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { getApiErrorMessage } from "@/lib/api/errors";
-import { SageDropdownMenu } from "@/components/ui/sage-dropdown-menu";
+import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { useAgentsStore } from "@/stores/agents-store";
 import { useUserStore } from "@/stores/user-store";
 import { Agent, AgentTag } from "@/types/agents";
@@ -171,7 +171,7 @@ export default function AgentTagsPanel({ agent, canAssign }: AgentTagsPanelProps
 									)}
 								</button>
 								{isWorkspaceAdmin && (
-									<SageDropdownMenu
+									<DropdownMenu
 										trigger={
 											<button className="flex size-7 cursor-pointer items-center justify-center rounded-[7px] text-meta transition-all hover:bg-hover md:opacity-0 md:group-hover:opacity-100 dark:text-panel-dim dark:hover:bg-white/10">
 												<MoreVertical className="size-4" />

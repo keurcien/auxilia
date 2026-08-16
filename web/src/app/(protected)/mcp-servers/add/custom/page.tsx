@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff, ShieldCheck } from "lucide-react";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
-import { SageAlert } from "@/components/ui/sage-alert";
+import { Alert } from "@/components/ui/alert";
 import { api } from "@/lib/api/client";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
@@ -534,7 +534,7 @@ export default function CustomMCPServerPage() {
 						<ConnectionTestBanner status={testStatus} message={testMessage} />
 
 						{submitError && (
-							<SageAlert key={submitError} variant="error" message={submitError} />
+							<Alert key={submitError} variant="error" message={submitError} />
 						)}
 					</div>
 				</div>

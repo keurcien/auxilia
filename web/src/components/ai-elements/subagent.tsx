@@ -287,7 +287,6 @@ export const SubAgentCard = memo(
 						color={agent?.color}
 						emoji={agent?.emoji}
 						size="2xs"
-						shape="tile"
 						className="relative z-[1]"
 					/>
 				}

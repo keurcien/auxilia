@@ -22,7 +22,7 @@ import { EditorHeader } from "@/components/editor/editor-header";
 import { EditorSection } from "@/components/editor/editor-section";
 import { AgentPicker } from "@/components/editor/agent-picker";
 import { ModelPickerChip } from "@/components/editor/model-picker-chip";
-import { SageDropdownMenu } from "@/components/ui/sage-dropdown-menu";
+import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 import TriggerEditor from "@/app/(protected)/triggers/components/trigger-editor";
 import TriggerSummaryBanner from "@/app/(protected)/triggers/components/trigger-summary-banner";
@@ -136,7 +136,7 @@ export default function TriggerDetail({ trigger }: TriggerDetailProps) {
 				>
 					Edit
 				</HeaderPrimaryButton>
-				<SageDropdownMenu
+				<DropdownMenu
 					items={[
 						{
 							label: "Delete trigger",

@@ -9,6 +9,7 @@ import { SearchBar } from "@/components/ui/search-bar";
 import {
 	Dialog,
 	DialogContent,
+	DialogDescription,
 	DialogTitle,
 	DialogTrigger,
 } from "@/components/ui/dialog";
@@ -88,22 +89,17 @@ export function AgentPicker({ value, onChange, disabled }: AgentPickerProps) {
 					{row}
 				</button>
 			</DialogTrigger>
-			<DialogContent
-				className="sm:max-w-[440px] rounded-[28px] p-0 gap-0 overflow-hidden"
-				showCloseButton={false}
-			>
+			<DialogContent className="gap-0 p-0">
 				{/* Header */}
-				<div className="px-8 pt-7 pb-0">
-					<DialogTitle className="font-display text-[22px] font-bold text-foreground tracking-[-0.025em]">
-						Select an agent
-					</DialogTitle>
-					<p className="text-[14px] text-subtle dark:text-muted-foreground font-medium mt-2 leading-relaxed">
+				<div className="px-6 pt-6">
+					<DialogTitle>Select an agent</DialogTitle>
+					<DialogDescription className="mt-1.5">
 						Runs execute with this agent&apos;s tools
-					</p>
+					</DialogDescription>
 				</div>
 
 				{/* Search */}
-				<div className="px-8 pt-5 pb-1">
+				<div className="px-6 pt-4 pb-1">
 					<SearchBar
 						placeholder="Search for an agent..."
 						value={search}
@@ -112,7 +108,7 @@ export function AgentPicker({ value, onChange, disabled }: AgentPickerProps) {
 				</div>
 
 				{/* Agent list */}
-				<div className="px-5 pt-3 pb-6 max-h-[340px] overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+				<div className="px-3 pt-2 pb-4 max-h-[340px] overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 					{selectableAgents.map((agent) => {
 						const isActive = agent.id === value;
 						return (
@@ -135,7 +131,7 @@ export function AgentPicker({ value, onChange, disabled }: AgentPickerProps) {
 									size="md"
 									className="transition-transform duration-300 group-hover:scale-105"
 								/>
-								<span className="flex-1 text-[14.5px] font-semibold text-foreground truncate">
+								<span className="flex-1 text-[13.5px] font-semibold text-foreground truncate">
 									{agent.name}
 								</span>
 								{isActive && (
@@ -148,7 +144,7 @@ export function AgentPicker({ value, onChange, disabled }: AgentPickerProps) {
 						);
 					})}
 					{selectableAgents.length === 0 && (
-						<p className="text-center text-[14px] text-faint dark:text-muted-foreground font-medium py-8">
+						<p className="text-center text-[13px] text-meta dark:text-panel-dim font-medium py-8">
 							No agents found.
 						</p>
 					)}

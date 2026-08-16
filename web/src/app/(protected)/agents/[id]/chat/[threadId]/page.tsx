@@ -1159,7 +1159,6 @@ const ChatPage = () => {
                                       color={matched?.color}
                                       emoji={matched?.emoji}
                                       size="2xs"
-                                      shape="tile"
                                       className="relative z-[1]"
                                     />
                                   }

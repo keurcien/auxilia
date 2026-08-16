@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { cva, type VariantProps } from "class-variance-authority";
 import { XIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -32,7 +33,7 @@ function DialogOverlay({
 		<DialogPrimitive.Overlay
 			data-slot="dialog-overlay"
 			className={cn(
-				"data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-[rgba(30,45,40,0.2)] backdrop-blur-[4px]",
+				"data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-[rgba(10,25,30,0.45)]",
 				className
 			)}
 			{...props}
@@ -54,7 +55,7 @@ function DialogContent({
 			<DialogPrimitive.Content
 				data-slot="dialog-content"
 				className={cn(
-					"bg-white dark:bg-card data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-bottom-4 data-[state=open]:zoom-in-[0.97] fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-[28px] p-8 shadow-[0_24px_48px_-12px_rgba(0,0,0,0.12)] duration-300 sm:max-w-lg",
+					"bg-canvas dark:bg-card data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-bottom-2 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-5 rounded-[14px] border border-hairline p-6 shadow-[0_24px_64px_-16px_rgba(10,25,30,0.28)] duration-200 sm:max-w-[480px]",
 					className
 				)}
 				{...props}
@@ -63,9 +64,9 @@ function DialogContent({
 				{showCloseButton && (
 					<DialogPrimitive.Close
 						data-slot="dialog-close"
-						className="absolute top-6 right-6 w-9 h-9 rounded-full bg-[#F5F8F6] dark:bg-white/10 flex items-center justify-center cursor-pointer transition-colors hover:bg-[#EDF4F0] dark:hover:bg-white/15 focus:outline-hidden [&_svg]:pointer-events-none [&_svg]:shrink-0"
+						className="absolute top-4 right-4 flex size-7 cursor-pointer items-center justify-center rounded-[6px] text-meta transition-colors hover:bg-hover hover:text-ink focus:outline-hidden dark:hover:bg-white/10 dark:hover:text-panel-button [&_svg]:pointer-events-none [&_svg]:shrink-0"
 					>
-						<XIcon className="h-4 w-4 text-[#6B7F76]" />
+						<XIcon className="size-4" />
 						<span className="sr-only">Close</span>
 					</DialogPrimitive.Close>
 				)}
@@ -78,7 +79,7 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
 	return (
 		<div
 			data-slot="dialog-header"
-			className={cn("flex flex-col gap-2 text-center sm:text-left", className)}
+			className={cn("flex flex-col gap-1.5 text-left", className)}
 			{...props}
 		/>
 	);
@@ -88,10 +89,7 @@ function DialogFooter({ className, ...props }: React.ComponentProps<"div">) {
 	return (
 		<div
 			data-slot="dialog-footer"
-			className={cn(
-				"flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
-				className
-			)}
+			className={cn("flex flex-row justify-end gap-2", className)}
 			{...props}
 		/>
 	);
@@ -104,7 +102,10 @@ function DialogTitle({
 	return (
 		<DialogPrimitive.Title
 			data-slot="dialog-title"
-			className={cn("font-[family-name:var(--font-jakarta-sans)] text-[20px] font-extrabold text-[#111111] dark:text-white tracking-[-0.02em] leading-none", className)}
+			className={cn(
+				"text-[16px] leading-snug font-bold text-ink dark:text-panel-button",
+				className
+			)}
 			{...props}
 		/>
 	);
@@ -117,7 +118,47 @@ function DialogDescription({
 	return (
 		<DialogPrimitive.Description
 			data-slot="dialog-description"
-			className={cn("text-muted-foreground text-sm", className)}
+			className={cn(
+				"text-[13px] leading-[1.5] text-label dark:text-panel-dim",
+				className
+			)}
+			{...props}
+		/>
+	);
+}
+
+const dialogButtonVariants = cva(
+	"inline-flex cursor-pointer items-center justify-center gap-2 rounded-[7px] px-[18px] py-2 text-[13px] font-semibold outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50",
+	{
+		variants: {
+			variant: {
+				primary:
+					"bg-petrol text-white transition-opacity hover:opacity-90",
+				outline:
+					"border border-input text-ink transition-colors hover:border-border-hover dark:text-panel-button dark:hover:border-white/30",
+				destructive:
+					"bg-[#B04A3A] text-white transition-opacity hover:opacity-90",
+			},
+		},
+		defaultVariants: {
+			variant: "primary",
+		},
+	},
+);
+
+/** Footer action for dialogs: outline Cancel + petrol primary; destructive
+ * confirms are a #B04A3A fill (spec: never a bare red text button). */
+function DialogButton({
+	className,
+	variant,
+	type = "button",
+	...props
+}: React.ComponentProps<"button"> & VariantProps<typeof dialogButtonVariants>) {
+	return (
+		<button
+			data-slot="dialog-button"
+			type={type}
+			className={cn(dialogButtonVariants({ variant }), className)}
 			{...props}
 		/>
 	);
@@ -125,6 +166,7 @@ function DialogDescription({
 
 export {
 	Dialog,
+	DialogButton,
 	DialogContent,
 	DialogDescription,
 	DialogFooter,

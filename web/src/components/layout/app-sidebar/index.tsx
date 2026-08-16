@@ -40,7 +40,7 @@ import {
 	SidebarTrigger,
 	useSidebar,
 } from "@/components/ui/sidebar";
-import { SageDropdownMenu } from "@/components/ui/sage-dropdown-menu";
+import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { useThreadsStore } from "@/stores/threads-store";
 import { useUserStore } from "@/stores/user-store";
 import { useAgentsStore } from "@/stores/agents-store";
@@ -300,7 +300,6 @@ export function AppSidebar() {
 																color={thread.agentColor}
 																emoji={thread.agentEmoji}
 																size="xs"
-																shape="tile"
 																className={
 																	isActive
 																		? "group-data-[collapsible=icon]:ring-2 group-data-[collapsible=icon]:ring-sidebar-ring"
@@ -354,7 +353,7 @@ export function AppSidebar() {
 													</div>
 												</Link>
 											</SidebarMenuButton>
-											<SageDropdownMenu
+											<DropdownMenu
 												trigger={
 													<SidebarMenuAction
 														showOnHover
@@ -469,7 +468,7 @@ export function AppSidebar() {
 				<SidebarFooter className="border-t border-sidebar-border">
 					<SidebarMenu>
 						<SidebarMenuItem>
-							<SageDropdownMenu
+							<DropdownMenu
 								trigger={
 									<SidebarMenuButton
 										size="lg"
