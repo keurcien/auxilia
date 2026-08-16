@@ -9,6 +9,7 @@ import { SearchBar } from "@/components/ui/search-bar";
 import {
 	Dialog,
 	DialogContent,
+	DialogDescription,
 	DialogTitle,
 	DialogTrigger,
 } from "@/components/ui/dialog";
@@ -91,12 +92,10 @@ export function AgentPicker({ value, onChange, disabled }: AgentPickerProps) {
 			<DialogContent className="gap-0 p-0">
 				{/* Header */}
 				<div className="px-6 pt-6">
-					<DialogTitle className="text-[16px] leading-snug font-bold text-ink dark:text-panel-button">
-						Select an agent
-					</DialogTitle>
-					<p className="mt-1.5 text-[13px] leading-[1.5] text-label dark:text-panel-dim">
+					<DialogTitle>Select an agent</DialogTitle>
+					<DialogDescription className="mt-1.5">
 						Runs execute with this agent&apos;s tools
-					</p>
+					</DialogDescription>
 				</div>
 
 				{/* Search */}

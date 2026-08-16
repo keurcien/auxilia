@@ -10,6 +10,7 @@ import { SearchBar } from "@/components/ui/search-bar";
 import {
 	Dialog,
 	DialogContent,
+	DialogDescription,
 	DialogTitle,
 	DialogTrigger,
 } from "@/components/ui/dialog";
@@ -126,12 +127,10 @@ export function ModelPickerChip({
 			</DialogTrigger>
 			<DialogContent className="gap-0 p-0">
 				<div className="px-6 pt-6 pb-4">
-					<DialogTitle className="text-[16px] leading-snug font-bold text-ink dark:text-panel-button">
-						Select a model
-					</DialogTitle>
-					<p className="mt-1.5 text-[13px] leading-[1.5] text-label dark:text-panel-dim">
+					<DialogTitle>Select a model</DialogTitle>
+					<DialogDescription className="mt-1.5">
 						Choose the model running the instructions
-					</p>
+					</DialogDescription>
 				</div>
 
 				<div className="px-6 pb-3">

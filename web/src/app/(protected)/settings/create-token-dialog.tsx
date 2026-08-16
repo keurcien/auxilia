@@ -3,6 +3,7 @@
 import { useState } from "react";
 import {
 	Dialog,
+	DialogButton,
 	DialogContent,
 	DialogDescription,
 	DialogFooter,
@@ -118,22 +119,17 @@ export default function CreateTokenDialog({
 					</div>
 
 					<DialogFooter>
-						<button
-							type="button"
+						<DialogButton
+							variant="outline"
 							onClick={() => {
 								handleClose(false);
 							}}
-							className="cursor-pointer rounded-[7px] border border-input px-[18px] py-2 text-[13px] font-semibold text-ink transition-colors hover:border-border-hover dark:text-panel-button dark:hover:border-white/30"
 						>
 							Cancel
-						</button>
-						<button
-							type="submit"
-							disabled={isLoading || !name.trim()}
-							className="cursor-pointer rounded-[7px] bg-petrol px-[18px] py-2 text-[13px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-						>
+						</DialogButton>
+						<DialogButton type="submit" disabled={isLoading || !name.trim()}>
 							{isLoading ? "Creating…" : "Create token"}
-						</button>
+						</DialogButton>
 					</DialogFooter>
 				</form>
 			</DialogContent>

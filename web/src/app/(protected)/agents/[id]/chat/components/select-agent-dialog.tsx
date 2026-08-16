@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import {
 	Dialog,
 	DialogContent,
+	DialogDescription,
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { SearchBar } from "@/components/ui/search-bar";
@@ -43,12 +44,10 @@ export function SelectAgentDialog({
 			<DialogContent className="gap-0 p-0">
 				{/* Header */}
 				<div className="px-6 pt-6">
-					<DialogTitle className="text-[16px] leading-snug font-bold text-ink dark:text-panel-button">
-						Chat with an agent
-					</DialogTitle>
-					<p className="mt-1.5 text-[13px] leading-[1.5] text-label dark:text-panel-dim">
+					<DialogTitle>Chat with an agent</DialogTitle>
+					<DialogDescription className="mt-1.5">
 						Select an agent to start a conversation
-					</p>
+					</DialogDescription>
 				</div>
 
 				{/* Search */}

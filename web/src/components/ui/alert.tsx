@@ -62,6 +62,7 @@ export function Alert({
 
 	return (
 		<div
+			role={variant === "error" || variant === "warning" ? "alert" : "status"}
 			className={cn(
 				"flex items-center gap-2.5 rounded-[10px] px-4 py-3 animate-in fade-in slide-in-from-bottom-1 duration-200",
 				v.container,
@@ -74,6 +75,7 @@ export function Alert({
 			</span>
 			{dismissible && (
 				<button
+					type="button"
 					onClick={() => {
 						setVisible(false);
 					}}

@@ -2,6 +2,7 @@
 
 import {
 	Dialog,
+	DialogButton,
 	DialogContent,
 	DialogDescription,
 	DialogFooter,
@@ -30,15 +31,14 @@ export default function ForbiddenErrorDialog({
 					<DialogDescription>{message}</DialogDescription>
 				</DialogHeader>
 				<DialogFooter>
-					<button
-						type="button"
+					<DialogButton
+						variant="outline"
 						onClick={() => {
 							onOpenChange(false);
 						}}
-						className="cursor-pointer rounded-[7px] border border-input px-[18px] py-2 text-[13px] font-semibold text-ink transition-colors hover:border-border-hover dark:text-panel-button dark:hover:border-white/30"
 					>
 						Close
-					</button>
+					</DialogButton>
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>

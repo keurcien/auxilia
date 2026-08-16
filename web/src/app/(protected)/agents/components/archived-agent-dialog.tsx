@@ -5,6 +5,7 @@ import { TriangleAlert } from "lucide-react";
 import { Agent } from "@/types/agents";
 import { api } from "@/lib/api/client";
 import AgentDialogShell from "@/app/(protected)/agents/components/agent-dialog-shell";
+import { DialogButton } from "@/components/ui/dialog";
 
 interface ArchivedAgentDialogProps {
 	agent: Agent;
@@ -64,24 +65,24 @@ export default function ArchivedAgentDialog({
 						</span>
 					</div>
 					<div className="flex justify-end gap-2">
-						<button
+						<DialogButton
+							variant="outline"
 							disabled={busy}
-							className="cursor-pointer rounded-[7px] border border-input px-[18px] py-2 text-[13px] font-semibold text-ink transition-colors hover:border-border-hover disabled:cursor-not-allowed disabled:opacity-50 dark:text-panel-button dark:hover:border-white/30"
 							onClick={() => {
 								setConfirmingDelete(false);
 							}}
 						>
 							Cancel
-						</button>
-						<button
+						</DialogButton>
+						<DialogButton
+							variant="destructive"
 							disabled={busy}
-							className="cursor-pointer rounded-[7px] bg-[#B04A3A] px-[18px] py-2 text-[13px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
 							onClick={() => {
 								void handleDelete();
 							}}
 						>
 							{busy ? "Deleting…" : "Delete permanently"}
-						</button>
+						</DialogButton>
 					</div>
 				</>
 			) : (
@@ -100,15 +101,14 @@ export default function ArchivedAgentDialog({
 						>
 							Delete permanently
 						</button>
-						<button
+						<DialogButton
 							disabled={busy}
-							className="cursor-pointer rounded-[7px] bg-petrol px-[18px] py-2 text-[13px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
 							onClick={() => {
 								void handleRestore();
 							}}
 						>
 							{busy ? "Restoring…" : "Restore"}
-						</button>
+						</DialogButton>
 					</div>
 				</>
 			)}

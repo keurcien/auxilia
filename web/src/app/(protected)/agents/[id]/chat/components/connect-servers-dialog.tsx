@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import Image from "next/image";
 import {
 	Dialog,
+	DialogButton,
 	DialogContent,
 	DialogFooter,
 	DialogHeader,
@@ -197,10 +198,9 @@ export function ConnectServersDialog({
 
 				{currentServer && (
 					<DialogFooter>
-						<button
+						<DialogButton
 							onClick={() => { void handleConnect(currentServer); }}
 							disabled={connectingId !== null}
-							className="flex cursor-pointer items-center justify-center gap-2 rounded-[7px] bg-petrol px-[18px] py-2 text-[13px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
 						>
 							{connectingId === currentServer.id ? (
 								<>
@@ -210,7 +210,7 @@ export function ConnectServersDialog({
 							) : (
 								<>Authenticate with {currentServer.name}</>
 							)}
-						</button>
+						</DialogButton>
 					</DialogFooter>
 				)}
 			</DialogContent>

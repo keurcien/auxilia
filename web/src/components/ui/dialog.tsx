@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { cva, type VariantProps } from "class-variance-authority";
 import { XIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -126,8 +127,46 @@ function DialogDescription({
 	);
 }
 
+const dialogButtonVariants = cva(
+	"inline-flex cursor-pointer items-center justify-center gap-2 rounded-[7px] px-[18px] py-2 text-[13px] font-semibold outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50",
+	{
+		variants: {
+			variant: {
+				primary:
+					"bg-petrol text-white transition-opacity hover:opacity-90",
+				outline:
+					"border border-input text-ink transition-colors hover:border-border-hover dark:text-panel-button dark:hover:border-white/30",
+				destructive:
+					"bg-[#B04A3A] text-white transition-opacity hover:opacity-90",
+			},
+		},
+		defaultVariants: {
+			variant: "primary",
+		},
+	},
+);
+
+/** Footer action for dialogs: outline Cancel + petrol primary; destructive
+ * confirms are a #B04A3A fill (spec: never a bare red text button). */
+function DialogButton({
+	className,
+	variant,
+	type = "button",
+	...props
+}: React.ComponentProps<"button"> & VariantProps<typeof dialogButtonVariants>) {
+	return (
+		<button
+			data-slot="dialog-button"
+			type={type}
+			className={cn(dialogButtonVariants({ variant }), className)}
+			{...props}
+		/>
+	);
+}
+
 export {
 	Dialog,
+	DialogButton,
 	DialogContent,
 	DialogDescription,
 	DialogFooter,

@@ -64,7 +64,7 @@ function AgentCandidateCard({
 			</div>
 			<button
 				type="button"
-				className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[7px] border border-input text-label transition-colors hover:border-border-hover hover:text-ink disabled:pointer-events-none dark:border-white/10 dark:hover:bg-white/10 dark:hover:text-panel-button"
+				className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[7px] border border-input text-label outline-none transition-colors hover:border-border-hover hover:text-ink focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none dark:border-white/10 dark:hover:bg-white/10 dark:hover:text-panel-button"
 				onClick={() => {
 					onAdd(candidate.id);
 				}}
