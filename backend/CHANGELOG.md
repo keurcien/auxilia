@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.35](https://github.com/keurcien/auxilia/compare/backend-v0.4.34...backend-v0.4.35) (2026-08-16)
+
+
+### Bug Fixes
+
+* **meta:** 1.2 ([#245](https://github.com/keurcien/auxilia/issues/245)) ([785475b](https://github.com/keurcien/auxilia/commit/785475bea43ca43496658adb398a997291d566da))
+
 ## [0.4.34](https://github.com/keurcien/auxilia/compare/backend-v0.4.33...backend-v0.4.34) (2026-08-14)
 
 
