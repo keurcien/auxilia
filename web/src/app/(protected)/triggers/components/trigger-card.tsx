@@ -17,7 +17,7 @@ import { useAgentsStore } from "@/stores/agents-store";
 import { useTriggersStore } from "@/stores/triggers-store";
 import { useRunTrigger } from "@/hooks/use-run-trigger";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
-import { SageDropdownMenu } from "@/components/ui/sage-dropdown-menu";
+import { DropdownMenu } from "@/components/ui/dropdown-menu";
 
 interface TriggerCardProps {
 	trigger: Trigger;
@@ -72,13 +72,13 @@ export default function TriggerCard({ trigger, onDelete }: TriggerCardProps) {
 						e.stopPropagation();
 					}}
 				>
-					<SageDropdownMenu
+					<DropdownMenu
 						trigger={
 							<button
 								type="button"
-								className="flex size-[30px] items-center justify-center rounded-lg cursor-pointer opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 hover:bg-[#F4F8F5] dark:hover:bg-white/5"
+								className="flex size-7 cursor-pointer items-center justify-center rounded-[7px] text-meta opacity-0 transition-all hover:bg-hover hover:text-ink group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:bg-hover data-[state=open]:opacity-100 dark:hover:bg-white/10 dark:hover:text-panel-button"
 							>
-								<MoreVertical className="size-[18px] text-[#9AA8A1]" />
+								<MoreVertical className="size-[15px]" />
 								<span className="sr-only">Trigger options</span>
 							</button>
 						}

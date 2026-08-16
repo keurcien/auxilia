@@ -10,7 +10,6 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { SearchBar } from "@/components/ui/search-bar";
 
 interface AddAgentSubagentDialogProps {
@@ -38,8 +37,8 @@ function AgentCandidateCard({
 }: AgentCandidateCardProps) {
 	return (
 		<div
-			className={`flex items-center justify-between px-4 py-3 rounded-md border ${
-				disabled ? "opacity-50" : ""
+			className={`flex items-center justify-between rounded-[10px] border border-hairline bg-canvas px-4 py-3 transition-colors dark:bg-white/5 ${
+				disabled ? "opacity-50" : "hover:bg-sidebar dark:hover:bg-white/10"
 			}`}
 		>
 			<div className="flex items-center gap-3 min-w-0 flex-1">
@@ -47,31 +46,33 @@ function AgentCandidateCard({
 					{candidate.emoji || "🤖"}
 				</span>
 				<div className="min-w-0 flex-1">
-					<p className="text-sm font-medium truncate">{candidate.name}</p>
+					<p className="truncate text-[13.5px] font-semibold text-ink dark:text-panel-button">
+						{candidate.name}
+					</p>
 					{disabled && disabledReason ? (
-						<p className="text-xs text-muted-foreground truncate">
+						<p className="truncate text-[12px] text-label dark:text-panel-dim">
 							{disabledReason}
 						</p>
 					) : (
 						candidate.description && (
-							<p className="text-xs text-muted-foreground truncate">
+							<p className="truncate text-[12px] text-label dark:text-panel-dim">
 								{candidate.description}
 							</p>
 						)
 					)}
 				</div>
 			</div>
-			<Button
-				variant="ghost"
-				size="icon"
-				className="cursor-pointer shrink-0"
+			<button
+				type="button"
+				className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[7px] border border-input text-label transition-colors hover:border-border-hover hover:text-ink disabled:pointer-events-none dark:border-white/10 dark:hover:bg-white/10 dark:hover:text-panel-button"
 				onClick={() => {
 					onAdd(candidate.id);
 				}}
 				disabled={disabled}
+				aria-label={`Add ${candidate.name}`}
 			>
-				<Plus className="w-4 h-4" />
-			</Button>
+				<Plus className="size-3.5" />
+			</button>
 		</div>
 	);
 }
@@ -135,11 +136,11 @@ export default function AddAgentSubagentDialog({
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className="sm:max-w-[600px] max-h-[600px]">
+			<DialogContent className="sm:max-w-[560px] max-h-[600px]">
 				<DialogHeader>
-					<DialogTitle>Add Subagent</DialogTitle>
+					<DialogTitle>Add subagent</DialogTitle>
 				</DialogHeader>
-				<div className="py-4 flex flex-col gap-4 overflow-y-auto">
+				<div className="flex flex-col gap-4 overflow-y-auto">
 					<SearchBar
 						placeholder="Search agents..."
 						value={search}

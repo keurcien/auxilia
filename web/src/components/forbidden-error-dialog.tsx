@@ -1,6 +1,5 @@
 "use client";
 
-import { ShieldAlert } from "lucide-react";
 import {
 	Dialog,
 	DialogContent,
@@ -9,7 +8,6 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 
 interface ForbiddenErrorDialogProps {
 	open: boolean;
@@ -26,25 +24,21 @@ export default function ForbiddenErrorDialog({
 }: ForbiddenErrorDialogProps) {
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent
-				className="sm:max-w-[560px] rounded-3xl p-0 gap-0"
-				showCloseButton={false}
-			>
-				<DialogHeader className="p-6">
-					<div className="flex items-center gap-3 mb-2">
-						<ShieldAlert className="h-5 w-5 text-destructive" />
-						<DialogTitle>{title}</DialogTitle>
-					</div>
+			<DialogContent>
+				<DialogHeader>
+					<DialogTitle>{title}</DialogTitle>
 					<DialogDescription>{message}</DialogDescription>
 				</DialogHeader>
-				<DialogFooter className="p-6 pt-0">
-					<Button
-						variant="outline"
-						onClick={() => onOpenChange(false)}
-						className="cursor-pointer"
+				<DialogFooter>
+					<button
+						type="button"
+						onClick={() => {
+							onOpenChange(false);
+						}}
+						className="cursor-pointer rounded-[7px] border border-input px-[18px] py-2 text-[13px] font-semibold text-ink transition-colors hover:border-border-hover dark:text-panel-button dark:hover:border-white/30"
 					>
 						Close
-					</Button>
+					</button>
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>

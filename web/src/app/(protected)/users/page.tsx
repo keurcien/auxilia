@@ -20,7 +20,7 @@ import {
 	WorkspaceTopBarButton,
 } from "@/components/layout/workspace-page";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
-import { SageDropdownMenu } from "@/components/ui/sage-dropdown-menu";
+import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { api } from "@/lib/api/client";
 import { useUserStore } from "@/stores/user-store";
 import { useQueryParamState } from "@/hooks/use-query-param-state";
@@ -430,7 +430,7 @@ export default function UsersPage() {
 						{ROLE_LABELS[user.role]}
 					</span>
 				) : (
-					<SageDropdownMenu
+					<DropdownMenu
 						trigger={
 							<button className={CHIP_CLASS}>
 								<span
@@ -458,7 +458,7 @@ export default function UsersPage() {
 			cell: (user) => {
 				const team = user.teamId ? teamsById.get(user.teamId) : undefined;
 				return (
-					<SageDropdownMenu
+					<DropdownMenu
 						align="start"
 						trigger={
 							team ? (
@@ -673,7 +673,7 @@ export default function UsersPage() {
 							<span className="shrink-0 font-mono text-[10.5px] text-meta dark:text-panel-dim">
 								{team.memberCount} member{team.memberCount === 1 ? "" : "s"}
 							</span>
-							<SageDropdownMenu
+							<DropdownMenu
 								trigger={
 									<button className="flex size-7 cursor-pointer items-center justify-center rounded-[7px] text-meta transition-all hover:bg-hover md:opacity-0 md:group-hover:opacity-100 dark:hover:bg-white/10">
 										<MoreVertical className="size-[18px]" />

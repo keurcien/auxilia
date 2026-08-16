@@ -16,7 +16,7 @@ import { api } from "@/lib/api/client";
 import { ChevronDown } from "lucide-react";
 import { Agent, canConfigureAgent } from "@/types/agents";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
-import { SageAlert } from "@/components/ui/sage-alert";
+import { Alert } from "@/components/ui/alert";
 import { getDefaultModel } from "@/lib/utils/get-default-model";
 import { useAgentReadiness } from "@/hooks/use-agent-readiness";
 
@@ -129,7 +129,9 @@ const StarterChatPage = () => {
 			<div className="w-full max-w-3xl space-y-8">
 				<div className="text-center space-y-4">
 					<button
-						onClick={() => setIsAgentDialogOpen(true)}
+						onClick={() => {
+							setIsAgentDialogOpen(true);
+						}}
 						className="flex items-center justify-center gap-2 mx-auto hover:opacity-80 transition-opacity cursor-pointer"
 					>
 						<AgentAvatar
@@ -151,7 +153,7 @@ const StarterChatPage = () => {
 
 				<div className="w-full">
 					{status === "not_configured" ? (
-						<SageAlert
+						<Alert
 							variant="error"
 							message={
 								canConfigureAgent(agent?.currentUserPermission)
@@ -162,7 +164,9 @@ const StarterChatPage = () => {
 						/>
 					) : (
 						<ChatPromptInput
-							onSubmit={handleSubmit}
+							onSubmit={(message) => {
+								void handleSubmit(message);
+							}}
 							status={isCreating ? "streaming" : "ready"}
 							className="w-full"
 							selectedModel={selectedModel}
@@ -177,9 +181,9 @@ const StarterChatPage = () => {
 				<SelectAgentDialog
 					open={isAgentDialogOpen}
 					onOpenChange={setIsAgentDialogOpen}
-					onAgentSelect={(a) =>
-						starterAgent.set({ name: a.name, emoji: a.emoji ?? null })
-					}
+					onAgentSelect={(a) => {
+						starterAgent.set({ name: a.name, emoji: a.emoji ?? null });
+					}}
 				/>
 			</div>
 		</div>

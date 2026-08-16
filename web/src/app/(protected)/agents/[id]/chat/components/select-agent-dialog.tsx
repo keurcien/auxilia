@@ -40,22 +40,19 @@ export function SelectAgentDialog({
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent
-				className="sm:max-w-[440px] rounded-[28px] p-0 gap-0 overflow-hidden"
-				showCloseButton={false}
-			>
+			<DialogContent className="gap-0 p-0">
 				{/* Header */}
-				<div className="px-8 pt-7 pb-0">
-					<DialogTitle className="font-[family-name:var(--font-jakarta-sans)] text-[22px] font-extrabold text-[#111111] dark:text-white tracking-[-0.02em]">
-						Chat with an Agent
+				<div className="px-6 pt-6">
+					<DialogTitle className="text-[16px] leading-snug font-bold text-ink dark:text-panel-button">
+						Chat with an agent
 					</DialogTitle>
-					<p className="font-[family-name:var(--font-dm-sans)] text-[14px] text-[#8FA89E] dark:text-muted-foreground font-medium mt-2 leading-relaxed">
+					<p className="mt-1.5 text-[13px] leading-[1.5] text-label dark:text-panel-dim">
 						Select an agent to start a conversation
 					</p>
 				</div>
 
 				{/* Search */}
-				<div className="px-8 pt-5 pb-1">
+				<div className="px-6 pt-4 pb-1">
 					<SearchBar
 						placeholder="Search for an agent..."
 						value={searchQuery}
@@ -64,11 +61,11 @@ export function SelectAgentDialog({
 				</div>
 
 				{/* Agent list */}
-				<div className="px-5 pt-3 pb-6 max-h-[340px] overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+				<div className="px-3 pt-2 pb-4 max-h-[340px] overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 					{filteredAgents.map((agent) => (
 						<div
 							key={agent.id}
-							className="flex items-center gap-3.5 px-3 py-2.5 rounded-[16px] hover:bg-[#F8FAF9] dark:hover:bg-white/5 cursor-pointer transition-all duration-200 group"
+							className="flex items-center gap-3.5 px-3 py-2.5 rounded-[8px] hover:bg-hover dark:hover:bg-white/5 cursor-pointer transition-colors group"
 							onClick={() => { handleSelectAgent(agent); }}
 						>
 							<AgentAvatar
@@ -77,13 +74,13 @@ export function SelectAgentDialog({
 								size="md"
 								className="transition-transform duration-300 group-hover:scale-105"
 							/>
-							<span className="font-[family-name:var(--font-dm-sans)] text-[14.5px] font-semibold text-[#1E2D28] dark:text-foreground truncate">
+							<span className="text-[13.5px] font-semibold text-ink dark:text-panel-button truncate">
 								{agent.name}
 							</span>
 						</div>
 					))}
 					{filteredAgents.length === 0 && (
-						<p className="font-[family-name:var(--font-dm-sans)] text-center text-[14px] text-[#A3B5AD] dark:text-muted-foreground font-medium py-8">
+						<p className="text-center text-[13px] text-meta dark:text-panel-dim font-medium py-8">
 							No agents found.
 						</p>
 					)}

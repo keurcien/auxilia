@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { ChevronRight, Loader2, Plus } from "lucide-react";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import { SearchBar } from "@/components/ui/search-bar";
-import { SageAlert } from "@/components/ui/sage-alert";
+import { Alert } from "@/components/ui/alert";
 import { api } from "@/lib/api/client";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
@@ -191,7 +191,7 @@ export default function AddMCPServerPage() {
 
 					{submitError && (
 						<div className="mt-4">
-							<SageAlert key={submitError} variant="error" message={submitError} />
+							<Alert key={submitError} variant="error" message={submitError} />
 						</div>
 					)}
 

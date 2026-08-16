@@ -124,22 +124,17 @@ export function ModelPickerChip({
 			<DialogTrigger asChild>
 				<button type="button">{chip}</button>
 			</DialogTrigger>
-			<DialogContent
-				className="sm:max-w-[480px] rounded-[28px] p-0 gap-0 overflow-hidden"
-				showCloseButton={false}
-			>
-				<div className="flex items-start justify-between px-7 pt-6 pb-4">
-					<div>
-						<DialogTitle className="font-display text-[20px] font-bold text-foreground tracking-[-0.025em]">
-							Select a model
-						</DialogTitle>
-						<p className="text-[13px] text-subtle dark:text-muted-foreground font-medium mt-1">
-							Choose the model running the instructions
-						</p>
-					</div>
+			<DialogContent className="gap-0 p-0">
+				<div className="px-6 pt-6 pb-4">
+					<DialogTitle className="text-[16px] leading-snug font-bold text-ink dark:text-panel-button">
+						Select a model
+					</DialogTitle>
+					<p className="mt-1.5 text-[13px] leading-[1.5] text-label dark:text-panel-dim">
+						Choose the model running the instructions
+					</p>
 				</div>
 
-				<div className="px-7 pb-3">
+				<div className="px-6 pb-3">
 					<SearchBar
 						placeholder="Search models..."
 						value={search}

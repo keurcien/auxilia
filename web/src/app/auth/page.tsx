@@ -3,6 +3,7 @@
 import { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api/client";
+import { version } from "../../../package.json";
 
 interface AuthProviders {
 	password: boolean;
@@ -239,7 +240,7 @@ function AuthPageContent() {
 						auxilia
 					</span>
 					<span className="ml-1 rounded-sm bg-petrol-chip px-1.5 py-0.5 font-mono text-[11px] text-petrol">
-						v1.x
+						v{version}
 					</span>
 				</div>
 				<div className="mx-auto flex w-full max-w-[420px] flex-1 flex-col justify-center px-8">

@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
-import { SageAlert } from "@/components/ui/sage-alert";
-import { SageDropdownMenu } from "@/components/ui/sage-dropdown-menu";
+import { Alert } from "@/components/ui/alert";
+import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { api } from "@/lib/api/client";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
@@ -375,7 +375,7 @@ export default function MCPServerDetail({
 					isAdmin && (
 						<>
 							<HeaderButton onClick={startEdit}>Edit server</HeaderButton>
-							<SageDropdownMenu
+							<DropdownMenu
 								items={[
 									...(isOauth
 										? [
@@ -432,7 +432,7 @@ export default function MCPServerDetail({
 						<div className="mt-5 flex flex-col gap-2.5">
 							<ConnectionTestBanner status={testStatus} message={testMessage} />
 							{submitError && (
-								<SageAlert key={submitError} variant="error" message={submitError} />
+								<Alert key={submitError} variant="error" message={submitError} />
 							)}
 						</div>
 					)}

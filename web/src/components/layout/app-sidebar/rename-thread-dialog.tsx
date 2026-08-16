@@ -1,10 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X } from "lucide-react";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { SageInput } from "@/components/ui/sage-input";
-import { SageButton } from "@/components/ui/sage-button";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
 import { api } from "@/lib/api/client";
 import { useThreadsStore } from "@/stores/threads-store";
 import { Thread } from "@/types/threads";
@@ -50,70 +54,58 @@ export function RenameThreadDialog({
 
 	return (
 		<Dialog open={thread !== null} onOpenChange={onOpenChange}>
-			<DialogContent
-				className="sm:max-w-[460px] rounded-[28px] p-0 gap-0 overflow-hidden"
-				showCloseButton={false}
-			>
+			<DialogContent className="sm:max-w-[560px]">
+				<DialogHeader>
+					<DialogTitle>Rename thread</DialogTitle>
+					<DialogDescription>
+						Give this conversation a new title
+					</DialogDescription>
+				</DialogHeader>
+
 				<form
 					onSubmit={(e) => {
 						void handleSubmit(e);
 					}}
+					className="flex flex-col gap-5"
 				>
-					{/* Header */}
-					<div className="flex items-start justify-between px-8 pt-7 pb-0">
-						<div>
-							<DialogTitle className="font-[family-name:var(--font-jakarta-sans)] text-[22px] font-extrabold text-[#111111] dark:text-white tracking-[-0.02em]">
-								Rename thread
-							</DialogTitle>
-							<p className="font-[family-name:var(--font-dm-sans)] text-[14px] text-[#8FA89E] dark:text-muted-foreground font-medium mt-2 leading-relaxed">
-								Give this conversation a new title
-							</p>
-						</div>
-						<button
-							type="button"
-							onClick={() => {
-								onOpenChange(false);
-							}}
-							className="shrink-0 flex items-center justify-center w-9 h-9 rounded-full bg-[#F5F8F6] dark:bg-white/10 text-[#6B7F76] hover:bg-[#EDF4F0] dark:hover:bg-white/15 transition-colors cursor-pointer"
-						>
-							<X className="w-4 h-4" />
-						</button>
-					</div>
-
-					{/* Content */}
-					<div className="px-8 pt-6 pb-2">
+					<div className="flex flex-col gap-[7px]">
 						<label
 							htmlFor="thread-title"
-							className="block font-[family-name:var(--font-dm-sans)] text-[13px] font-semibold text-[#1E2D28] dark:text-foreground mb-2"
+							className="text-[13px] font-semibold text-ink dark:text-panel-button"
 						>
 							Title
 						</label>
-						<SageInput
+						<input
 							id="thread-title"
+							type="text"
 							autoFocus
 							placeholder="Thread title"
 							value={title}
 							onChange={(e) => {
 								setTitle(e.target.value);
 							}}
+							className="w-full rounded-lg border border-input bg-card px-3 py-[9px] text-[13.5px] font-medium text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-meta dark:placeholder:text-panel-dim focus:border-petrol focus:shadow-[0_0_0_3px_rgba(22,96,110,0.10)]"
 						/>
 					</div>
 
-					{/* Footer */}
-					<div className="flex items-center justify-end gap-2.5 px-8 pt-5 pb-6 mt-4 border-t border-[#F0F3F2] dark:border-white/5">
-						<SageButton
+					<DialogFooter>
+						<button
 							type="button"
-							color="outline"
 							onClick={() => {
 								onOpenChange(false);
 							}}
+							className="cursor-pointer rounded-[7px] border border-input px-[18px] py-2 text-[13px] font-semibold text-ink transition-colors hover:border-border-hover dark:text-panel-button dark:hover:border-white/30"
 						>
 							Cancel
-						</SageButton>
-						<SageButton type="submit" disabled={isSubmitting}>
-							{isSubmitting ? "Saving..." : "Save"}
-						</SageButton>
-					</div>
+						</button>
+						<button
+							type="submit"
+							disabled={isSubmitting}
+							className="cursor-pointer rounded-[7px] bg-petrol px-[18px] py-2 text-[13px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+						>
+							{isSubmitting ? "Saving…" : "Save"}
+						</button>
+					</DialogFooter>
 				</form>
 			</DialogContent>
 		</Dialog>

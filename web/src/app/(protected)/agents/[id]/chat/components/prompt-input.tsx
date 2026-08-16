@@ -143,9 +143,10 @@ const ChatPromptInput = ({
 				multiple
 				onSubmit={handleSubmit}
 				className={cn(
-					"min-h-[132px] transition-all duration-200",
-					// Petrol Mono composer (28px radius kept from the previous design)
-					"[&>[data-slot=input-group]]:rounded-[28px]",
+					"min-h-[116px] transition-all duration-200",
+					// Petrol Mono composer (design kit 09): 16px radius, 2px #DCE4E4
+					// border → petrol on focus, depth from the composer shadow.
+					"[&>[data-slot=input-group]]:rounded-2xl",
 					"[&>[data-slot=input-group]]:border-2",
 					"[&>[data-slot=input-group]]:border-input",
 					"[&>[data-slot=input-group]]:bg-card",
@@ -173,7 +174,7 @@ const ChatPromptInput = ({
 						)}
 					/>
 				</PromptInputBody>
-				<PromptInputFooter className="px-3 pb-3">
+				<PromptInputFooter className="px-3 pt-0 pb-3">
 					<PromptInputTools className="gap-1.5">
 						{noAttachments ? (
 							<Tooltip>
@@ -232,22 +233,17 @@ const ChatPromptInput = ({
 										)}
 									</PromptInputButton>
 								</DialogTrigger>
-								<DialogContent
-									className="sm:max-w-[480px] rounded-2xl p-0 gap-0 overflow-hidden"
-									showCloseButton={false}
-								>
-									<div className="flex items-start justify-between px-7 pt-6 pb-4">
-										<div>
-											<DialogTitle className="font-display text-[19px] font-bold tracking-[-0.02em] text-foreground">
-												Select a model
-											</DialogTitle>
-											<p className="mt-1 text-[13px] text-muted-foreground">
-												Choose the model powering this chat
-											</p>
-										</div>
+								<DialogContent className="gap-0 p-0">
+									<div className="px-6 pt-6 pb-4">
+										<DialogTitle className="text-[16px] leading-snug font-bold text-ink dark:text-panel-button">
+											Select a model
+										</DialogTitle>
+										<p className="mt-1.5 text-[13px] leading-[1.5] text-label dark:text-panel-dim">
+											Choose the model powering this chat
+										</p>
 									</div>
 
-									<div className="px-7 pb-3">
+									<div className="px-6 pb-3">
 										<SearchBar
 											placeholder="Search models..."
 											value={modelSearch}
