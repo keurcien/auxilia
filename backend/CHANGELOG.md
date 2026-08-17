@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.36](https://github.com/keurcien/auxilia/compare/backend-v0.4.35...backend-v0.4.36) (2026-08-17)
+
+
+### Code Refactoring
+
+* **mcp:** serve the official server catalog from the CDN ([#258](https://github.com/keurcien/auxilia/issues/258)) ([61a4b5c](https://github.com/keurcien/auxilia/commit/61a4b5cb7387a759d0521f142d355a05155a5ae6))
+
 ## [0.4.35](https://github.com/keurcien/auxilia/compare/backend-v0.4.34...backend-v0.4.35) (2026-08-16)
 
 
