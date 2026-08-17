@@ -7,7 +7,6 @@ module owns only what is model-specific: the entry shape, the validation rules,
 and the bundled snapshot.
 """
 
-import logging
 from pathlib import Path
 from typing import Literal
 
@@ -19,8 +18,6 @@ from app.exceptions import DomainValidationError
 from app.model_providers.settings import model_provider_settings
 from app.utils.remote_catalog import RemoteCatalog
 
-
-logger = logging.getLogger(__name__)
 
 # Providers ChatModelFactory can drive. A whitelist entry with any other
 # provider is a data-entry error and fails validation (all-or-nothing).

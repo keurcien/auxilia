@@ -12,7 +12,6 @@ release. Caching, fallback and admin-sync mechanics live in
 validation rules, and the bundled snapshot.
 """
 
-import logging
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
@@ -26,8 +25,6 @@ from app.mcp.servers.models import MCPAuthType
 from app.mcp.servers.settings import mcp_server_settings
 from app.utils.remote_catalog import RemoteCatalog
 
-
-logger = logging.getLogger(__name__)
 
 _BUNDLED_PATH = Path(__file__).parent / "catalog.yaml"
 
@@ -49,9 +46,18 @@ class OfficialServer(BaseModel):
     def validate_entry(self) -> "OfficialServer":
         if not self.name.strip():
             raise ValueError("server name must not be empty")
+        bad_url = ValueError(f"url {self.url!r} must be an absolute http(s) URL")
+        if any(c.isspace() for c in self.url):
+            raise bad_url
         parsed = urlparse(self.url)
-        if parsed.scheme not in ("http", "https") or not parsed.netloc:
-            raise ValueError(f"url {self.url!r} must be an absolute http(s) URL")
+        try:
+            # .port raises on a non-numeric or out-of-range port; .netloc alone
+            # also accepts hostless authorities like "https://:443".
+            hostname, _ = parsed.hostname, parsed.port
+        except ValueError:
+            raise bad_url from None
+        if parsed.scheme not in ("http", "https") or not hostname:
+            raise bad_url
         if self.auth_type is MCPAuthType.oauth2:
             # A missing flag would silently read as "DCR works", and the admin
             # would only discover otherwise when authorization fails.

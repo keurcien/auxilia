@@ -27,7 +27,7 @@ Current surface is tiny, which is what makes this cheap:
 | The one endpoint | `GET /mcp-servers/official` — `backend/app/mcp/servers/router.py:52` |
 | Response schema | `OfficialMCPServerResponse(MCPServerResponse)` — `schemas.py:50` |
 | The one consumer | `web/src/app/(protected)/mcp-servers/components/mcp-server-dialog.tsx` |
-| Seed data (4 migrations) | `ee903a5e6aa0` (create + 13 rows), `e33c42c8ef4f` (Slack), `60eb74a86009` (unique url), `f1a2b3c4d5e6` (icons → R2), `b2c3d4e5f6a7` (7 more rows) |
+| Seed data (5 migrations) | `ee903a5e6aa0` (create + 13 rows), `e33c42c8ef4f` (Slack), `60eb74a86009` (unique url), `f1a2b3c4d5e6` (icons → R2), `b2c3d4e5f6a7` (7 more rows) |
 
 Crucially the catalog is **pure reference data**:
 

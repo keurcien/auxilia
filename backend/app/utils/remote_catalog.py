@@ -3,7 +3,7 @@
 auxilia keeps two of these: the model whitelist (which models we can offer) and
 the official MCP server catalog (which servers appear in the "add server"
 dialog). Both are hand-editable YAML behind a CDN so extending them needs no
-migration and no release, and both are read through the same four layers,
+migration and no release, and both are read through the same five layers,
 freshest first:
 
 1. a per-process memo (short, so an admin sync converges everywhere in a minute)
@@ -18,6 +18,7 @@ instead of falling back, and returns the diff. The CDN is never on a request hot
 path in a way that can take the app down.
 """
 
+import hashlib
 import json
 import logging
 from collections.abc import Callable
@@ -29,6 +30,8 @@ from typing import Generic, TypeVar
 import httpx
 from pydantic import BaseModel
 from redis.asyncio import Redis
+from redis.asyncio.lock import Lock
+from redis.exceptions import LockError
 
 from app.redis_client import get_redis
 
@@ -75,10 +78,6 @@ class RemoteCatalog(Generic[T]):
         memo_ttl_seconds: int = MEMO_TTL_SECONDS,
     ) -> None:
         self.prefix = prefix
-        self.cache_key = prefix
-        self.last_good_key = f"{prefix}:last_good"
-        self.meta_key = f"{prefix}:meta"
-        self.lock_key = f"{prefix}:lock"
         self._item_model = item_model
         self._parse = parse
         self._key = key
@@ -86,11 +85,36 @@ class RemoteCatalog(Generic[T]):
         self._bundled_path = bundled_path
         self._ttl_seconds = ttl_seconds
         self._memo_ttl_seconds = memo_ttl_seconds
-        self._memo: tuple[float, list[T]] | None = None
+        # (stored_at, source_url, items) — the url is part of the memo identity
+        # so changing the setting takes effect within a request, not a TTL.
+        self._memo: tuple[float, str | None, list[T]] | None = None
 
     @property
     def url(self) -> str | None:
         return self._url()
+
+    # Cache keys are scoped to the source URL so pointing a deployment at a
+    # different file (or its own internal one) never serves another URL's
+    # cached content; the old keys just age out of Redis.
+    def _scope(self) -> str:
+        digest = hashlib.sha256((self.url or "").encode()).hexdigest()[:12]
+        return f"{self.prefix}:{digest}"
+
+    @property
+    def cache_key(self) -> str:
+        return self._scope()
+
+    @property
+    def last_good_key(self) -> str:
+        return f"{self._scope()}:last_good"
+
+    @property
+    def meta_key(self) -> str:
+        return f"{self._scope()}:meta"
+
+    @property
+    def lock_key(self) -> str:
+        return f"{self._scope()}:lock"
 
     def bundled(self) -> list[T]:
         """The snapshot shipped with the backend — the fallback of last resort."""
@@ -127,10 +151,30 @@ class RemoteCatalog(Generic[T]):
         response.raise_for_status()
         return self._parse(response.text), response.headers.get("etag")
 
+    def _lock(self, redis: Redis, *, blocking: bool) -> Lock:
+        """Token-based lock shared by the lazy refresh and the admin sync, so a
+        slow lazy fetch can never overwrite a fresher force-fetch. Tokens mean
+        an owner whose lock expired can't delete a successor's lock."""
+        return redis.lock(
+            self.lock_key,
+            timeout=LOCK_TTL_SECONDS,
+            blocking=blocking,
+            blocking_timeout=LOCK_TTL_SECONDS,
+        )
+
+    @staticmethod
+    async def _release(lock: Lock) -> None:
+        try:
+            await lock.release()
+        except LockError:
+            # The lock expired mid-fetch and may belong to someone else now.
+            pass
+
     async def _refresh(self, redis: Redis, url: str) -> list[T] | None:
         """Cache-miss path: fetch behind a single-flight lock. Returns None when
         the fetch fails or another instance holds the lock — callers fall back."""
-        if not await redis.set(self.lock_key, "1", nx=True, ex=LOCK_TTL_SECONDS):
+        lock = self._lock(redis, blocking=False)
+        if not await lock.acquire():
             return None
         try:
             items, etag = await self._fetch(url)
@@ -145,40 +189,43 @@ class RemoteCatalog(Generic[T]):
             )
             return None
         finally:
-            await redis.delete(self.lock_key)
+            await self._release(lock)
 
     async def get(self) -> list[T]:
         """The current catalog, through memo → Redis → CDN → last_good → bundled."""
+        url = self.url
         if (
             self._memo is not None
+            and self._memo[1] == url
             and monotonic() - self._memo[0] < self._memo_ttl_seconds
         ):
-            return self._memo[1]
+            return self._memo[2]
 
-        redis = get_redis()
         items: list[T] | None = None
-        try:
-            cached = await redis.get(self.cache_key)
-            if cached:
-                items = self._loads(cached)
-            else:
-                url = self.url
-                if url:
+        if url:
+            redis = get_redis()
+            try:
+                cached = await redis.get(self.cache_key)
+                if cached:
+                    items = self._loads(cached)
+                else:
                     items = await self._refresh(redis, url)
-                if items is None:
-                    last_good = await redis.get(self.last_good_key)
-                    if last_good:
-                        items = self._loads(last_good)
-        except Exception:
-            logger.warning(
-                "%s read from Redis failed; using bundled snapshot",
-                self.prefix,
-                exc_info=True,
-            )
+                    if items is None:
+                        last_good = await redis.get(self.last_good_key)
+                        if last_good:
+                            items = self._loads(last_good)
+            except Exception:
+                logger.warning(
+                    "%s read from Redis failed; using bundled snapshot",
+                    self.prefix,
+                    exc_info=True,
+                )
 
+        # No URL configured means "bundled snapshot only" — never serve a
+        # Redis entry left over from a previously configured URL.
         if items is None:
             items = self.bundled()
-        self._memo = (monotonic(), items)
+        self._memo = (monotonic(), url, items)
         return items
 
     async def sync(self) -> SyncResult:
@@ -192,9 +239,19 @@ class RemoteCatalog(Generic[T]):
         if url is None:
             raise ValueError("no catalog URL configured")
         previous = await self.get()
-        items, etag = await self._fetch(url)
 
-        await self._store(get_redis(), items, etag)
+        # Same lock as the lazy refresh: block briefly rather than skip, so an
+        # in-flight cache-miss fetch finishes (and can't clobber our result)
+        # before the force-fetch stores the authoritative content.
+        redis = get_redis()
+        lock = self._lock(redis, blocking=True)
+        if not await lock.acquire():
+            raise ValueError("another catalog refresh is in progress; retry shortly")
+        try:
+            items, etag = await self._fetch(url)
+            await self._store(redis, items, etag)
+        finally:
+            await self._release(lock)
         self.invalidate_memo()
 
         previous_keys = {self._key(item) for item in previous}

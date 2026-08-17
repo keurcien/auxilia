@@ -6,17 +6,21 @@ server needs neither a migration nor a release. Nothing referenced this table �
 installing a catalog entry copies its fields into a new mcp_servers row — so the
 drop is safe.
 
-The downgrade recreates the table and re-seeds it from the bundled snapshot, so
-rolling back to the previous release leaves a working catalog. The shared
-`mcp_auth_type` enum is deliberately left in place: mcp_servers.auth_type uses it.
+The downgrade recreates the table and re-seeds it from the bundled snapshot
+(read as a plain YAML file — importing app code here would tie the schema
+downgrade to the app's runtime env: settings validation, SALT, Redis). The
+shared `mcp_auth_type` enum is deliberately left in place: mcp_servers.auth_type
+uses it.
 
 Revision ID: d7b3f1c05a92
 Revises: c8f4e2a91d05
 Create Date: 2026-07-27 00:00:00.000000
 
 """
+from pathlib import Path
 from typing import Sequence, Union
 
+import yaml
 from alembic import op
 import sqlalchemy as sa
 import sqlmodel.sql.sqltypes
@@ -34,8 +38,13 @@ def upgrade() -> None:
     op.drop_table('official_mcp_servers')
 
 
+_BUNDLED_SNAPSHOT = (
+    Path(__file__).resolve().parents[2] / "app" / "mcp" / "servers" / "catalog.yaml"
+)
+
+
 def downgrade() -> None:
-    from app.mcp.servers.catalog import bundled_catalog
+    snapshot = yaml.safe_load(_BUNDLED_SNAPSHOT.read_text(encoding="utf-8"))
 
     table = op.create_table(
         'official_mcp_servers',
@@ -78,13 +87,13 @@ def downgrade() -> None:
         table,
         [
             {
-                'name': entry.name,
-                'url': entry.url,
-                'auth_type': entry.auth_type.value,
-                'icon_url': entry.icon_url,
-                'description': entry.description,
-                'supports_dcr': entry.supports_dcr,
+                'name': entry['name'],
+                'url': entry['url'],
+                'auth_type': entry.get('auth_type', 'none'),
+                'icon_url': entry.get('icon_url'),
+                'description': entry.get('description'),
+                'supports_dcr': entry.get('supports_dcr'),
             }
-            for entry in bundled_catalog()
+            for entry in snapshot['servers']
         ],
     )
