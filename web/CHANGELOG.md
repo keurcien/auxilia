@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.25](https://github.com/keurcien/auxilia/compare/web-v0.5.24...web-v0.5.25) (2026-08-16)
+
+
+### Features
+
+* **web:** Petrol Mono dialogs, menus, and composer ([#257](https://github.com/keurcien/auxilia/issues/257)) ([7b48896](https://github.com/keurcien/auxilia/commit/7b48896cc9d88a3dbaa012641e0d771eab5d8104))
+
 ## [0.5.24](https://github.com/keurcien/auxilia/compare/web-v0.5.23...web-v0.5.24) (2026-08-14)
 
 
