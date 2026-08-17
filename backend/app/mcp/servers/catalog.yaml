@@ -1,0 +1,253 @@
+# auxilia official MCP server catalog
+#
+# The curated list of remote MCP servers offered in the "add server" dialog.
+# This file is the bundled snapshot; the canonical copy lives behind the CDN
+# (MCP_CATALOG_URL) so adding a server needs no migration and no release.
+#
+# Entries are reference data only: installing one copies these fields into a new
+# mcp_servers row, and `url` is the identity key (it decides whether a server
+# already shows as installed). File order is display order.
+#
+# Fields:
+#   name          - display name
+#   url           - remote MCP endpoint (https, unique across the file)
+#   auth_type     - none | api_key | oauth2
+#   icon_url      - logo, served from the CDN
+#   description   - shown in the dialog
+#   supports_dcr  - OAuth servers only: false means the workspace admin must
+#                   supply a static client_id/secret (no dynamic registration)
+
+schema_version: 1
+
+servers:
+  - name: Amplitude
+    url: "https://mcp.amplitude.com/mcp"
+    auth_type: oauth2
+    icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/amplitude.png"
+    supports_dcr: true
+    description: >-
+      The Amplitude Model Context Protocol (MCP) server enables teams to analyze
+      product data, experiments, and user behavior using conversational AI. Query
+      and create Amplitude content including charts, dashboards, experiments, and
+      cohorts directly through AI interfaces using natural language.
+
+  - name: Atlassian
+    url: "https://mcp.atlassian.com/v1/mcp"
+    auth_type: oauth2
+    icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/atlassian.png"
+    supports_dcr: true
+    description: >-
+      The Atlassian Rovo MCP Server is a cloud-based bridge between your Atlassian
+      Cloud site and compatible external tools. Once configured, it enables those
+      tools to interact with Jira, Compass, and Confluence data in real-time. This
+      functionality is powered by secure OAuth 2.1 authorization, which ensures
+      all actions respect the user’s existing access controls.
+
+  - name: BigQuery
+    url: "https://bigquery.googleapis.com/mcp"
+    auth_type: oauth2
+    icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/bigquery.png"
+    supports_dcr: false
+    description: >-
+      MCP helps accelerate the AI agent building process by giving LLM-powered
+      applications direct access to your analytics data through a defined set of
+      tools.
+
+  - name: Calendar
+    url: "https://calendarmcp.googleapis.com/mcp/v1"
+    auth_type: oauth2
+    icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/calendar.png"
+    supports_dcr: false
+    description: >-
+      Google Calendar is Google's scheduling and calendar service. Its MCP server
+      lets an AI assistant list calendars and events, check availability and
+      suggest times, and create, update, respond to, or delete events, inheriting
+      the user's existing permissions.
+
+  - name: Canva
+    url: "https://mcp.canva.com/mcp"
+    auth_type: oauth2
+    icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/canva.png"
+    supports_dcr: true
+    description: >-
+      Once set up, your AI can create new empty designs, autofill templates with
+      your content, find your existing designs, and export them as PDFs or images.
+      It's an easy way to speed up creative tasks—no coding required.
+
+  - name: DeepWiki
+    url: "https://mcp.deepwiki.com/mcp"
+    auth_type: none
+    icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/deepwiki.png"
+    description: >-
+      DeepWiki provides up-to-date documentation you can talk to, for every repo
+      in the world. Think Deep Research for GitHub.
+
+  - name: Drive
+    url: "https://drivemcp.googleapis.com/mcp/v1"
+    auth_type: oauth2
+    icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/drive.png"
+    supports_dcr: false
+    description: >-
+      Google Drive is Google's cloud file storage and sharing service. Its MCP
+      server lets an AI assistant search files, read and download file content and
+      metadata, check permissions, and create or copy files, respecting the user's
+      existing access controls.
+
+  - name: GitHub
+    url: "https://api.githubcopilot.com/mcp"
+    auth_type: oauth2
+    icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/github.png"
+    supports_dcr: false
+    description: >-
+      The GitHub MCP Server connects AI tools directly to GitHub's platform. This
+      gives AI agents, assistants, and chatbots the ability to read repositories
+      and code files, manage issues and PRs, analyze code, and automate workflows.
+      All through natural language interactions.
+
+  - name: Gmail
+    url: "https://gmailmcp.googleapis.com/mcp/v1"
+    auth_type: oauth2
+    icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/gmail.png"
+    supports_dcr: false
+    description: >-
+      Gmail is Google's email service. Its MCP server lets an AI assistant search
+      and read messages and threads, create drafts, and organize mail with labels,
+      operating under the user's existing account permissions.
+
+  - name: HubSpot
+    url: "https://mcp.hubspot.com"
+    auth_type: oauth2
+    icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/hubspot.png"
+    supports_dcr: false
+    description: >-
+      The HubSpot Model Context Protocol (MCP) server enables AI assistants and
+      Large Language Models to securely interact with your HubSpot CRM data
+      through natural conversation.
+
+  - name: Intercom
+    url: "https://mcp.intercom.com/mcp"
+    auth_type: oauth2
+    icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/intercom.png"
+    supports_dcr: true
+    description: >-
+      Intercom's MCP is a secure, standardized protocol that allows AI models to
+      access, interact with, and maintain context around Intercom data and tools
+      like conversations, contacts, and workspace-specific functionality.
+
+  - name: Kahoot
+    url: "https://mcp.kahoot.it/mcp"
+    auth_type: oauth2
+    icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/kahoot.png"
+    supports_dcr: true
+    description: >-
+      Kahoot! is a game-based learning platform for creating and running
+      interactive quizzes and presentations. Its MCP server lets an AI assistant
+      create, edit, and manage kahoots through natural-language commands,
+      including generating quiz questions and translating content (currently
+      multiple-choice and true/false formats).
+
+  - name: Linear
+    url: "https://mcp.linear.app/mcp"
+    auth_type: oauth2
+    icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/linear.png"
+    supports_dcr: true
+    description: >-
+      Linear's MCP server follows the authenticated remote MCP spec, so the server
+      is centrally hosted and managed. The Linear MCP server has tools available
+      for finding, creating, and updating objects in Linear like issues, projects,
+      and comments.
+
+  - name: Notion
+    url: "https://mcp.notion.com/mcp"
+    auth_type: oauth2
+    icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/notion.png"
+    supports_dcr: true
+    description: >-
+      Connect your AI tools to Notion using the Model Context Protocol (MCP), an
+      open standard that lets AI assistants interact with your Notion workspace.
+
+  - name: PandaDoc
+    url: "https://mcp.pandadoc.com/v1/mcp"
+    auth_type: oauth2
+    icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/pandadoc.png"
+    supports_dcr: true
+    description: >-
+      PandaDoc is a document automation platform for creating, sending, e-signing,
+      and tracking business documents such as proposals, quotes, and contracts.
+      Its MCP server connects AI assistants directly to your document and
+      agreement workflows, letting them draft, send, and manage documents through
+      natural-language instructions.
+
+  - name: Pennylane
+    url: "https://app.pennylane.com/mcp/messages"
+    auth_type: oauth2
+    icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/pennylane.png"
+    supports_dcr: true
+    description: >-
+      Connect Pennylane to the AI of your choice: Claude, ChatGPT, Mistral, and
+      many others. Query your accounting and financial data without leaving your
+      conversation.
+
+  - name: Praiz
+    url: "https://mcp.praiz.io/mcp"
+    auth_type: oauth2
+    icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/praiz.jpeg"
+    supports_dcr: true
+    description: >-
+      Praiz is an AI meeting platform that records and transcribes sales and
+      customer calls across tools like Zoom, Google Meet, and Microsoft Teams,
+      turning conversations into structured, CRM-ready data. Its read-only MCP
+      server lets an AI assistant search and retrieve meeting videos, transcripts,
+      participants, comments, and usage insights from a Praiz workspace.
+
+  - name: Sentry
+    url: "https://mcp.sentry.dev/mcp"
+    auth_type: oauth2
+    icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/sentry.png"
+    supports_dcr: true
+    description: >-
+      The Sentry MCP Server provides a secure way of bringing Sentry's full issue
+      context into systems that are able to leverage the Model Context Protocol
+      (MCP). Sentry hosts and manages a remote MCP server, which you can connect
+      to and leverage centrally.
+
+  - name: Slack
+    url: "https://mcp.slack.com/mcp"
+    auth_type: oauth2
+    icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/slack.png"
+    supports_dcr: false
+    description: >-
+      The Slack MCP server provides tools for searching through Slack, retrieving
+      and sending messages, managing canvases, and managing users. Each of these
+      tools provides useful functionality for interacting with Slack; combine them
+      for comprehensive integrations that grasp your team's context and history.
+
+  - name: Stripe
+    url: "https://mcp.stripe.com"
+    auth_type: oauth2
+    icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/stripe.png"
+    supports_dcr: true
+    description: >-
+      The Stripe Model Context Protocol (MCP) server defines a set of tools that
+      AI agents can use to interact with the Stripe API and search our knowledge
+      base (including documentation and support articles).
+
+  - name: Supabase
+    url: "https://mcp.supabase.com/mcp"
+    auth_type: oauth2
+    icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/supabase.png"
+    supports_dcr: true
+    description: >-
+      The Model Context Protocol (MCP) is a standard for connecting Large Language
+      Models (LLMs) to platforms like Supabase. Once connected, your AI assistants
+      can interact with and query your Supabase projects on your behalf.
+
+  - name: Tavily
+    url: "https://mcp.tavily.com/mcp"
+    auth_type: api_key
+    icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/tavily.png"
+    description: >-
+      Tavily is a web search and data extraction API built for AI agents. Its MCP
+      server gives an AI assistant real-time tools to search the web, extract
+      structured content from URLs, and map or crawl websites, returning clean,
+      LLM-ready results.

@@ -126,7 +126,8 @@ function AuthMethodCards({
 export default function CustomMCPServerPage() {
 	const router = useRouter();
 	const searchParams = useSearchParams();
-	const officialId = searchParams.get("official");
+	// The catalog has no ids — the `official` param carries the entry's url.
+	const officialUrl = searchParams.get("official");
 	const createMcpServer = useMcpServersStore((state) => state.createMcpServer);
 
 	const [form, setForm] = useState<MCPServerCreateFormValues>(emptyForm);
@@ -144,14 +145,14 @@ export default function CustomMCPServerPage() {
 	// Arriving from a catalog card that needs static OAuth credentials: prefill
 	// the form with the official entry.
 	useEffect(() => {
-		if (!officialId) return;
+		if (!officialUrl) return;
 		const controller = new AbortController();
 		void (async () => {
 			try {
 				const res = await api.get<OfficialMCPServer[]>("/mcp-servers/official", {
 					signal: controller.signal,
 				});
-				const official = res.data.find((server) => server.id === officialId);
+				const official = res.data.find((server) => server.url === officialUrl);
 				if (!official) return;
 				setSelectedOfficial(official);
 				setForm({
@@ -171,7 +172,7 @@ export default function CustomMCPServerPage() {
 		return () => {
 			controller.abort();
 		};
-	}, [officialId]);
+	}, [officialUrl]);
 
 	const isNonDcrOAuth = requiresStaticOAuthCredentials(selectedOfficial);
 

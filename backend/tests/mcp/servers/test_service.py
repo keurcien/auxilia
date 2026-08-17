@@ -465,3 +465,41 @@ async def test_update_persists_auth_method_only(service, mock_repo):
         mock_repo.update_oauth_credentials.await_args.kwargs["auth_method"]
         == "client_secret_basic"
     )
+
+
+# ---------------------------------------------------------------------------
+# list_official — the catalog, joined to installed servers on url
+# ---------------------------------------------------------------------------
+
+
+async def test_list_official_flags_installed_entries(service, mock_repo, monkeypatch):
+    from app.mcp.servers.catalog import OfficialServer
+
+    catalog = [
+        OfficialServer(
+            name="Installed",
+            url="https://installed.example.com/mcp",
+            auth_type=MCPAuthType.oauth2,
+            supports_dcr=True,
+        ),
+        OfficialServer(name="Fresh", url="https://fresh.example.com/mcp"),
+    ]
+    monkeypatch.setattr(
+        service_module.mcp_catalog, "get_catalog", AsyncMock(return_value=catalog)
+    )
+    mock_repo.list_urls = AsyncMock(
+        # An unrelated installed server must not flag anything.
+        return_value={
+            "https://installed.example.com/mcp",
+            "https://other.example.com/mcp",
+        }
+    )
+
+    result = await service.list_official()
+
+    # File order is display order, and the entry shape carries no id/timestamps.
+    assert [(r.name, r.is_installed) for r in result] == [
+        ("Installed", True),
+        ("Fresh", False),
+    ]
+    assert not hasattr(result[0], "id")

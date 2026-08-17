@@ -13,7 +13,6 @@ from app.mcp.servers.models import (
     MCPServerAPIKeyDB,
     MCPServerDB,
     MCPServerOAuthCredentialsDB,
-    OfficialMCPServerDB,
 )
 from app.mcp.servers.schemas import MCPServerCreate
 from app.repository import BaseRepository
@@ -148,14 +147,9 @@ class MCPServerRepository(BaseRepository[MCPServerDB]):
             creds.token_endpoint_auth_method = auth_method
         await self.db.flush()
 
-    async def list_official(self) -> list[tuple[OfficialMCPServerDB, bool]]:
-        stmt = (
-            select(
-                OfficialMCPServerDB,
-                MCPServerDB.id.isnot(None).label("is_configured"),
-            )
-            .outerjoin(MCPServerDB, OfficialMCPServerDB.url == MCPServerDB.url)
-            .order_by(OfficialMCPServerDB.created_at.asc())
-        )
+    async def list_urls(self) -> set[str]:
+        """Every installed server's url — the catalog matches on it to decide
+        which of its entries are already installed."""
+        stmt = select(MCPServerDB.url)
         result = await self.db.execute(stmt)
-        return result.all()
+        return set(result.scalars().all())

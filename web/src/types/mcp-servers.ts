@@ -53,7 +53,15 @@ export interface ConnectionTestResult {
 	error?: string | null;
 }
 
-export interface OfficialMCPServer extends MCPServer {
+// An entry in the official catalog (a CDN-hosted file, not a DB row) — so it
+// has no id and no timestamps; `url` is its identity, and installing one copies
+// these fields into a new workspace MCPServer.
+export interface OfficialMCPServer {
+	name: string;
+	url: string;
+	authType: MCPAuthType;
+	iconUrl?: string;
+	description?: string;
 	isInstalled: boolean;
 	supportsDcr: boolean | null;
 }
@@ -65,4 +73,11 @@ export interface MCPServerConnection {
 	name?: string | null;
 	email?: string | null;
 	status: "active" | "expired";
+}
+
+export interface MCPCatalogSyncResult {
+	added: string[];
+	removed: string[];
+	serverCount: number;
+	fetchedAt: string;
 }

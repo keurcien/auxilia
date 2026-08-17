@@ -122,12 +122,9 @@ describe("validateMCPServerCreateForm", () => {
 
 	it("only demands static OAuth credentials while OAuth stays selected", () => {
 		const nonDcrOfficial = {
-			id: "official-1",
 			name: "Notion",
 			url: "https://mcp.notion.com/mcp",
 			authType: "oauth2",
-			createdAt: "2026-01-01T00:00:00Z",
-			updatedAt: "2026-01-01T00:00:00Z",
 			isInstalled: false,
 			supportsDcr: false,
 		} as const;

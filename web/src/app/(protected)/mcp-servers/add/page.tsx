@@ -86,8 +86,9 @@ export default function AddMCPServerPage() {
 	);
 	const [isLoading, setIsLoading] = useState(true);
 	const [searchQuery, setSearchQuery] = useState("");
-	const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
-	const [pendingId, setPendingId] = useState<string | null>(null);
+	// Catalog entries are file rows with no id — `url` is their identity.
+	const [addedUrls, setAddedUrls] = useState<Set<string>>(new Set());
+	const [pendingUrl, setPendingUrl] = useState<string | null>(null);
 	const [submitError, setSubmitError] = useState<string | null>(null);
 	const [forbiddenOpen, setForbiddenOpen] = useState(false);
 
@@ -129,11 +130,13 @@ export default function AddMCPServerPage() {
 		// OAuth servers need a client ID/secret, api_key servers need the key.
 		// Collect them in the custom form, pre-filled with the catalog entry.
 		if (requiresStaticOAuthCredentials(server) || server.authType === "api_key") {
-			router.push(`/mcp-servers/add/custom?official=${server.id}`);
+			router.push(
+				`/mcp-servers/add/custom?official=${encodeURIComponent(server.url)}`,
+			);
 			return;
 		}
 		setSubmitError(null);
-		setPendingId(server.id);
+		setPendingUrl(server.url);
 		try {
 			await createMcpServer({
 				name: server.name,
@@ -142,7 +145,7 @@ export default function AddMCPServerPage() {
 				description: server.description || undefined,
 				iconUrl: server.iconUrl || undefined,
 			});
-			setAddedIds((prev) => new Set(prev).add(server.id));
+			setAddedUrls((prev) => new Set(prev).add(server.url));
 		} catch (error: unknown) {
 			if (error instanceof Object && "status" in error && error.status === 403) {
 				setForbiddenOpen(true);
@@ -150,7 +153,7 @@ export default function AddMCPServerPage() {
 				setSubmitError(getApiErrorMessage(error, "Failed to add MCP server."));
 			}
 		} finally {
-			setPendingId(null);
+			setPendingUrl(null);
 		}
 	};
 
@@ -210,11 +213,11 @@ export default function AddMCPServerPage() {
 								<div className="mt-[22px] grid grid-cols-1 gap-3.5 md:grid-cols-2 xl:grid-cols-3">
 									{filtered.map((server) => (
 										<CatalogCard
-											key={server.id}
+											key={server.url}
 											server={server}
-											isAdded={server.isInstalled || addedIds.has(server.id)}
-											isPending={pendingId === server.id}
-											disabled={pendingId !== null}
+											isAdded={server.isInstalled || addedUrls.has(server.url)}
+											isPending={pendingUrl === server.url}
+											disabled={pendingUrl !== null}
 											onAdd={() => {
 												void handleAdd(server);
 											}}
