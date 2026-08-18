@@ -1,4 +1,6 @@
+from contextlib import asynccontextmanager
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -466,3 +468,75 @@ async def test_sync_tools_calls_fetch_and_save_and_returns_link(
 
     mock_fetch.assert_awaited_once_with(link, server, "user-id")
     assert result is link
+
+
+# ---------------------------------------------------------------------------
+# _sync_tools (map computation)
+# ---------------------------------------------------------------------------
+
+
+def make_connect_to_server(tool_names):
+    """Async-context-manager stand-in for connect_to_server yielding tools."""
+    tools = [SimpleNamespace(name=name) for name in tool_names]
+
+    @asynccontextmanager
+    async def _connect(server, user_id, db):
+        yield (MagicMock(), tools)
+
+    return _connect
+
+
+async def test_sync_tools_seeds_never_synced_map(service):
+    server = make_mcp_server()
+    link = make_link(tools=None)
+
+    with patch(
+        "app.agents.mcp_servers.service.connect_to_server",
+        new=make_connect_to_server(["search", "write"]),
+    ):
+        await service._sync_tools(link, server, "user-id")
+
+    assert link.tools == {
+        "search": ToolStatus.always_allow,
+        "write": ToolStatus.always_allow,
+    }
+
+
+async def test_sync_tools_merges_preserving_curated_statuses(service):
+    """Re-sync keeps curated statuses, adds new tools as always_allow, and
+    drops tools the server no longer exposes."""
+    server = make_mcp_server()
+    link = make_link(
+        tools={
+            "search": ToolStatus.needs_approval,
+            "vanished": ToolStatus.disabled,
+        }
+    )
+
+    with patch(
+        "app.agents.mcp_servers.service.connect_to_server",
+        new=make_connect_to_server(["search", "create_page"]),
+    ):
+        await service._sync_tools(link, server, "user-id")
+
+    assert link.tools == {
+        "search": ToolStatus.needs_approval,
+        "create_page": ToolStatus.always_allow,
+    }
+
+
+async def test_sync_tools_keeps_map_on_connect_failure(service):
+    """A failed fetch must never wipe an existing map."""
+    server = make_mcp_server()
+    original = {"search": ToolStatus.needs_approval}
+    link = make_link(tools=dict(original))
+
+    @asynccontextmanager
+    async def _broken(server, user_id, db):
+        raise RuntimeError("boom")
+        yield  # pragma: no cover
+
+    with patch("app.agents.mcp_servers.service.connect_to_server", new=_broken):
+        await service._sync_tools(link, server, "user-id")
+
+    assert link.tools == original

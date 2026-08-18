@@ -10,17 +10,24 @@ import { AgentMCPServerForm } from "../../lib/agent-form";
 import { api } from "@/lib/api/client";
 
 interface AgentMCPServerProps {
+	/** Saved agent id — undefined in create mode. */
+	agentId?: string;
 	server: MCPServer;
 	binding: AgentMCPServerForm;
 	readOnly?: boolean;
 	/** Draft update: the complete per-tool map for this server. */
 	onToolsChange?: (tools: Record<string, ToolStatus>) => void;
 	/**
-	 * Draft update: seed a never-synced binding. Applied conditionally against
-	 * the latest state (only fills a still-null map), so parallel seeds from
-	 * sibling servers merge instead of clobbering each other.
+	 * Draft update: merge freshly fetched tool names into the binding's map.
+	 * Applied against the latest state (existing statuses win), so parallel
+	 * seeds from sibling servers and in-progress edits never clobber.
 	 */
-	onSeedTools?: (tools: Record<string, ToolStatus>) => void;
+	onSeedTools?: (fetchedNames: string[]) => void;
+	/**
+	 * A read-mode connect persisted the tool map server-side (sync-tools) —
+	 * `tools` is the map the backend saved.
+	 */
+	onToolsPersisted?: (tools: Record<string, ToolStatus>) => void;
 	/** Draft update: detach this server. */
 	onRemove?: () => void;
 }
@@ -31,11 +38,13 @@ interface MCPServerTool {
 }
 
 export default function AgentMCPServer({
+	agentId,
 	server,
 	binding,
 	readOnly,
 	onToolsChange,
 	onSeedTools,
+	onToolsPersisted,
 	onRemove,
 }: AgentMCPServerProps) {
 	// Collapsed on page open; not-connected servers auto-expand (effect
@@ -85,35 +94,64 @@ export default function AgentMCPServer({
 		onToolsChange?.({ ...materializeTools(tools), [toolName]: status });
 	};
 
-	// Seed the draft's tool map the first time a connected server's tools become
-	// known, so a Save persists a complete map instead of null (= "never synced",
-	// which the backend treats as zero usable tools). Routed through onSeedTools,
-	// which fills only a still-null binding against the latest state — so parallel
-	// seeds from sibling servers merge and user edits are never clobbered.
-	const seedIfUnsynced = useCallback(
+	// Merge fetched tools into the draft's map whenever a connected server's
+	// tools become known, so a Save always persists the complete, current map:
+	// null (= never synced) gets seeded, and a stale map gains the server's new
+	// tools — the runtime EXCLUDES any tool missing from the saved map, so a
+	// draft that lags the server would silently drop tools from the agent.
+	// Read mode has no draft to save; the post-connect sync-tools call below
+	// covers persistence there.
+	const seedFromFetched = useCallback(
 		(fetchedTools: MCPServerTool[]) => {
 			if (readOnly) return;
-			onSeedTools?.(
-				Object.fromEntries(
-					fetchedTools.map((tool) => [
-						tool.name,
-						"always_allow" as ToolStatus,
-					]),
-				),
-			);
+			onSeedTools?.(fetchedTools.map((tool) => tool.name));
 		},
 		[readOnly, onSeedTools],
+	);
+
+	// Read mode has no draft, so a saved map that disagrees with the server's
+	// live tool list (never synced after an OAuth connect, or a keyless server
+	// that gained/lost tools) must be healed server-side: sync-tools merges —
+	// curated statuses survive, new tools default to enabled, vanished tools
+	// drop. No-op when the map is already current, so merely viewing an
+	// up-to-date agent never writes.
+	const persistIfStale = useCallback(
+		async (fetchedTools: MCPServerTool[]) => {
+			if (!readOnly || !agentId) return;
+			const existing = binding.tools;
+			const upToDate =
+				existing !== null &&
+				Object.keys(existing).length === fetchedTools.length &&
+				fetchedTools.every((tool) => Object.hasOwn(existing, tool.name));
+			if (upToDate) return;
+			try {
+				const res = await api.post(
+					`/agents/${agentId}/mcp-servers/${server.id}/sync-tools`,
+				);
+				const savedTools = res.data.tools as Record<string, ToolStatus> | null;
+				if (savedTools) {
+					onToolsPersisted?.(savedTools);
+				}
+			} catch (error) {
+				console.error("Failed to sync tools:", error);
+			}
+		},
+		[readOnly, agentId, binding.tools, server.id, onToolsPersisted],
 	);
 
 	// Keep `fetchTools` stable (identity keyed only on server.id) so a sibling
 	// server's seed re-rendering the parent — which hands us a fresh inline
 	// onSeedTools each time — can't churn fetchTools' identity and retrigger the
-	// mount effect, restarting an in-flight fetch. The ref tracks the latest seed
-	// closure so behavior stays current without becoming a dependency.
-	const seedRef = useRef(seedIfUnsynced);
+	// mount effect, restarting an in-flight fetch. The refs track the latest
+	// closures so behavior stays current without becoming dependencies.
+	const seedRef = useRef(seedFromFetched);
 	useEffect(() => {
-		seedRef.current = seedIfUnsynced;
-	}, [seedIfUnsynced]);
+		seedRef.current = seedFromFetched;
+	}, [seedFromFetched]);
+	const persistRef = useRef(persistIfStale);
+	useEffect(() => {
+		persistRef.current = persistIfStale;
+	}, [persistIfStale]);
 
 	const fetchTools = useCallback(async () => {
 		setIsLoading(true);
@@ -123,6 +161,7 @@ export default function AgentMCPServer({
 			setTools(fetchedTools);
 			setToolsFetched(true);
 			seedRef.current(fetchedTools);
+			await persistRef.current(fetchedTools);
 		} catch (error: unknown) {
 			// Check if this is an OAuth authorization required error
 			if (
@@ -153,9 +192,10 @@ export default function AgentMCPServer({
 							clearInterval(pollInterval);
 							setIsConnected(true);
 
-							// Fetch tools for display; connecting is a deliberate
-							// action, so it also seeds the draft's tool map when
-							// the binding was never synced.
+							// Connecting is a deliberate action, so it must land in
+							// the config: in edit mode the seed merges the tools into
+							// the draft (saved on Save), in read mode sync-tools
+							// persists the map server-side immediately.
 							const retryRes = await api.get(
 								`/mcp-servers/${server.id}/list-tools`,
 							);
@@ -164,6 +204,7 @@ export default function AgentMCPServer({
 							setToolsFetched(true);
 							setIsLoading(false);
 							seedRef.current(fetchedTools);
+							await persistRef.current(fetchedTools);
 
 							if (popup && !popup.closed) {
 								popup.close();
@@ -238,11 +279,16 @@ export default function AgentMCPServer({
 				<span className="truncate text-[13.5px] font-semibold text-foreground">
 					{server.name}
 				</span>
-				{!isCheckingConnection && !isConnected && (
-					<span className="rounded-[4px] bg-[#FBEFED] px-2 py-0.5 font-mono text-[9.5px] font-semibold tracking-[0.05em] text-[#B04A3A]">
-						NOT CONNECTED
-					</span>
-				)}
+				{!isCheckingConnection &&
+					(isConnected ? (
+						<span className="rounded-[4px] bg-success-bg px-2 py-0.5 font-mono text-[9.5px] font-semibold tracking-[0.05em] text-success">
+							CONNECTED
+						</span>
+					) : (
+						<span className="rounded-[4px] bg-[#FBEFED] px-2 py-0.5 font-mono text-[9.5px] font-semibold tracking-[0.05em] text-[#B04A3A]">
+							NOT CONNECTED
+						</span>
+					))}
 				<button
 					onClick={handleToggleExpand}
 					aria-label={isExpanded ? "Collapse" : "Expand"}

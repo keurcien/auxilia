@@ -458,6 +458,7 @@ export default function AgentEditor({
 				{/* Right: capabilities */}
 				<div className="min-w-0 overflow-y-auto bg-sidebar p-7 md:flex-1 dark:bg-white/[0.02] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 					<AgentToolList
+						agentId={agent?.id}
 						readOnly={readOnly}
 						mcpServers={form.mcpServers}
 						hasCodeInterpreter={form.hasCodeInterpreter}
@@ -466,6 +467,21 @@ export default function AgentEditor({
 								...prev,
 								mcpServers: update(prev.mcpServers),
 							}));
+						}}
+						onBindingPersisted={(serverId, tools) => {
+							// A read-mode connect wrote the binding server-side;
+							// mirror it into the store so the next edit-mode
+							// snapshot (and dirty baseline) starts from what is
+							// actually saved.
+							if (!agent) return;
+							updateAgent(agent.id, {
+								...agent,
+								mcpServers: (agent.mcpServers ?? []).map((server) =>
+									server.mcpServerId === serverId
+										? { ...server, tools }
+										: server,
+								),
+							});
 						}}
 						onHasCodeInterpreterChange={(enabled) => {
 							setField("hasCodeInterpreter", enabled);
