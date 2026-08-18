@@ -12,8 +12,8 @@ This tutorial walks you through doing that — no custom code needed for the bas
 
 ## What you'll need
 
-- An **auxilia** deployment that your team can reach (see [Deploy & Configure](/docs/deploy))
-- An agent that already works well in the chat UI — see [Build Agents](/docs/agents) if you haven't set one up yet
+- An **auxilia** deployment that your team can reach (see [Deploy & Configure](/deploy))
+- An agent that already works well in the chat UI — see [Build Agents](/agents) if you haven't set one up yet
 - A **personal access token** (PAT) so the external system can authenticate on your behalf
 
 ## Step 1 — Mint a personal access token
@@ -61,7 +61,7 @@ Once you have the request working, you can wire it into almost anything:
 - **A cron job or Cloud Scheduler** — "every Monday at 8am, ask the CRM agent for a deal pipeline summary and email it to the team"
 - **A webhook from your product** — "when a new support ticket arrives, have the agent draft a first-line reply"
 
-See **[Use auxilia from n8n & Cloud Scheduler](/docs/tutorials/n8n-cloud-scheduler)** for a step-by-step for each of those.
+See **[Use auxilia from n8n & Cloud Scheduler](/tutorials/n8n-cloud-scheduler)** for a step-by-step for each of those.
 
 ## Passing a follow-up message
 
@@ -81,4 +81,4 @@ Without a `thread_id`, each call starts a fresh conversation.
 
 If your agent has tools set to **needs approval**, calls from HTTP will **wait for a human to approve** before those tools run. This is usually what you want for automation — you can review in the **auxilia** UI or Slack before a write happens.
 
-If you'd rather have the automation run end-to-end without pauses, review the agent's [tool settings](/docs/agents/tools) and switch the relevant tools to **always allow**.
+If you'd rather have the automation run end-to-end without pauses, review the agent's [tool settings](/agents/tools) and switch the relevant tools to **always allow**.

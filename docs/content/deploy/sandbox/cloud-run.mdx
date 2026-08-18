@@ -1,0 +1,92 @@
+# Cloud Run Sandboxes
+
+Instead of self-hosting OpenSandbox, you can run agent code on [Google Cloud Run sandboxes](https://docs.cloud.google.com/run/docs/code-execution) (public preview). Select it with:
+
+```env
+SANDBOX_PROVIDER=cloudrun
+```
+
+The backend never talks to Cloud Run directly. All sandbox traffic goes through a small dedicated Cloud Run service — the **sandbox gateway** (`sandbox-gateway/` at the repo root) — which is the only deployment that runs Google's `sandbox` CLI. Your backend and worker can run anywhere (another cloud, a VM, even a laptop) and need no special launcher.
+
+```
+┌──────────────────┐   HTTPS + bearer secret   ┌────────────────────────┐
+│ auxilia backend  │ ────────────────────────▶ │  sandbox-gateway       │
+│ (anywhere)       │                           │  (Cloud Run,           │
+└────────┬─────────┘                           │   --sandbox-launcher)  │
+         │                                     └───────────┬────────────┘
+         │  snapshot tar at end of turn                    │ sandbox CLI
+         ▼                                                 ▼
+┌──────────────────┐                           ┌────────────────────────┐
+│  GCS bucket      │                           │  Sandbox               │
+│  (optional)      │                           │  (gateway image, ro)   │
+└──────────────────┘                           └────────────────────────┘
+```
+
+## 1. Deploy the gateway
+
+From `sandbox-gateway/` in the repo:
+
+```bash
+gcloud beta run deploy sandbox-gateway \
+  --source . \
+  --region <region> \
+  --sandbox-launcher \
+  --allow-unauthenticated \
+  --set-env-vars CLOUD_RUN_SANDBOX_GATEWAY_SECRET=$(openssl rand -hex 32)
+```
+
+Notes:
+
+- `--sandbox-launcher` (gen2) is required — it mounts the `sandbox` CLI into the service. Verify with `GET /health` → `{"cli_mounted": true}` after deploying.
+- `--allow-unauthenticated` disables Cloud Run IAM on the service. This is deliberate: the backend authenticates with the shared bearer secret only (it does not mint Google ID tokens), so IAM must be open for it to connect — every endpoint except `/health` rejects requests without the secret, and the gateway **fails closed** (503) if the secret is unset. Treat the secret like a credential: generate it with high entropy (as above), store it in a secret manager, and rotate it if leaked. If your backend runs inside the same Google Cloud project, you can additionally restrict exposure with `--ingress internal` plus a VPC connector instead of leaving the URL publicly reachable.
+- Set `ALLOW_EGRESS=true` on the gateway service if sandboxes should get outbound network access (needed for in-sandbox `pip install`). Off by default.
+
+### The gateway image is the sandbox environment
+
+Sandboxed code sees the gateway container's filesystem **read-only**, with a private writable overlay on top. Whatever is installed in the gateway's `Dockerfile` is what agent code can import — edit its second `pip install` block (ships with `numpy`, `pandas`, `matplotlib`, `openpyxl`, `requests`) to change the runtime, then redeploy.
+
+## 2. Point the backend at it
+
+```env
+SANDBOX_PROVIDER=cloudrun
+CLOUD_RUN_SANDBOX_GATEWAY_URL=https://sandbox-gateway-....run.app
+CLOUD_RUN_SANDBOX_GATEWAY_SECRET=<same secret as the gateway>
+
+# Recommended in production: snapshot bucket for cross-instance persistence
+CLOUD_RUN_SANDBOX_GCS_BUCKET=your-snapshot-bucket
+```
+
+The sandbox integration only reports `{"enabled": true}` on `/sandbox/status` when **both** the gateway URL and the secret are set — advertising the tools without them would expose tools that can never work.
+
+## 3. Persistence and snapshots
+
+A Cloud Run sandbox lives inside **one gateway instance**, so continuity across instances (and across gateway restarts) is handled with snapshots:
+
+- At the **end of each agent turn**, the sandbox's writable overlay is exported as a tar and stored in GCS under `CLOUD_RUN_SANDBOX_GCS_BUCKET`
+- When the agent later calls `connect_sandbox`, the backend probes the live sandbox first; if it's gone, it relaunches the sandbox from the last snapshot (`pip install`s made by the agent travel inside the snapshot)
+- Snapshots are **best-effort**: without `CLOUD_RUN_SANDBOX_GCS_BUCKET` (e.g. local dev against the gateway), a lost instance means a lost sandbox
+
+Alternatively, run the gateway with `--max-instances 1` and session affinity to keep sandboxes on a single instance without a bucket.
+
+Unlike OpenSandbox, Cloud Run sandboxes have **no TTL** — `create_sandbox(timeout_minutes)` is accepted for tool-contract parity but ignored; lifetime is bounded by the host instance plus snapshot restores.
+
+## Configuration reference
+
+All backend settings use the `CLOUD_RUN_SANDBOX_` prefix (`app/sandbox/cloudrun/settings.py`):
+
+| Variable                            | Default              | Notes                                                            |
+| ----------------------------------- | -------------------- | ---------------------------------------------------------------- |
+| `CLOUD_RUN_SANDBOX_GATEWAY_URL`     | —                    | Required. URL of the deployed gateway service                    |
+| `CLOUD_RUN_SANDBOX_GATEWAY_SECRET`  | —                    | Required. Shared secret, sent as a bearer token                  |
+| `CLOUD_RUN_SANDBOX_GCS_BUCKET`      | —                    | GCS bucket for turn-end snapshots (optional but recommended)     |
+| `CLOUD_RUN_SANDBOX_SNAPSHOT_PREFIX` | `sandbox-snapshots/` | Object prefix inside the bucket                                  |
+| `CLOUD_RUN_SANDBOX_ALLOW_EGRESS`    | `false`              | Request egress per sandbox — only honored if the gateway itself runs with `ALLOW_EGRESS=true` |
+| `CLOUD_RUN_SANDBOX_DEFAULT_PACKAGES`| `[]`                 | Extra packages pip-installed into each fresh sandbox             |
+| `CLOUD_RUN_SANDBOX_TIMEOUT`         | `1800`               | Per-command timeout (seconds)                                    |
+
+The backend also needs GCS write access to the snapshot bucket (Application Default Credentials, e.g. the service account it runs as).
+
+## Known limitations
+
+- **Subagent sandboxes** don't get the turn-end snapshot hook yet — files written by a subagent's sandbox may not survive a gateway instance recycle
+- Snapshot restores are capped by Cloud Run's 32 MiB request limit — sandboxes with a very large writable overlay can't be restored across instances

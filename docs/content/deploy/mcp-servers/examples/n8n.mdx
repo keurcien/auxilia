@@ -10,7 +10,7 @@ n8n already integrates with hundreds of apps (Google Workspace, HubSpot, Stripe,
 - **Reuse logic you already trust** — the workflow keeps running in n8n, with its own credentials, retries, and error handling; the agent just decides *when* to fire it
 - **Reach systems that don't have an MCP server yet** — if n8n can talk to it, your agent can too
 
-This is the inverse of the [n8n & Cloud Scheduler tutorial](/docs/tutorials/n8n-cloud-scheduler), where n8n *calls* auxilia. Here, the agent *calls n8n*.
+This is the inverse of the [n8n & Cloud Scheduler tutorial](/tutorials/n8n-cloud-scheduler), where n8n *calls* auxilia. Here, the agent *calls n8n*.
 
 ## How it works
 
@@ -56,7 +56,7 @@ In **auxilia**, navigate to **MCP Servers** (admin only):
    - **URL** — the Production MCP URL from the trigger node
    - **Authentication** — **API Key**, and paste the bearer token
 
-   See [Authentication methods](/docs/deploy/mcp-servers/authentication) for how the key is encrypted and sent.
+   See [Authentication methods](/deploy/mcp-servers/authentication) for how the key is encrypted and sent.
 3. Save
 
 Because n8n uses a shared bearer token (not per-user OAuth), there's no **Connect** step — the workspace shares one key. **auxilia** fetches the tool list from your MCP Server Trigger node immediately.
@@ -65,7 +65,7 @@ Because n8n uses a shared bearer token (not per-user OAuth), there's no **Connec
 
 1. Open an agent's configuration page
 2. Click **Add MCP Server** and pick **n8n Automations**
-3. Review the discovered tools and set [tool settings](/docs/agents/tools). Workflows that write to other systems are good candidates for **needs approval** until you trust the agent's judgment.
+3. Review the discovered tools and set [tool settings](/agents/tools). Workflows that write to other systems are good candidates for **needs approval** until you trust the agent's judgment.
 
 If you later add or rename Tool sub-nodes in n8n, click **Sync tools** on the agent-server binding so **auxilia** picks up the changes.
 

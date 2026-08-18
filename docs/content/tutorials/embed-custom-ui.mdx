@@ -24,8 +24,8 @@ The agent itself — its instructions, its tools, its MCP server bindings — li
 
 ## What you'll need
 
-- An **auxilia** deployment reachable from your embedding site (see [Deploy & Configure](/docs/deploy))
-- A **personal access token** (see [User Management](/docs/deploy/user-management))
+- An **auxilia** deployment reachable from your embedding site (see [Deploy & Configure](/deploy))
+- A **personal access token** (see [User Management](/deploy/user-management))
 - A host UI where you can add a chat input and display streamed text — could be React, a WebView in a native app, a Slack canvas, a Google Apps Script sidebar, etc.
 
 ## The streaming endpoint
@@ -48,7 +48,7 @@ The request body looks similar to the non-streaming version:
 
 The response is a **Server-Sent Events** stream — your UI reads chunks and appends them to the message being rendered, exactly the way the **auxilia** chat app does.
 
-For one-shot, non-streaming calls (useful for slower-moving surfaces like spreadsheet cells), use `/api/backend/threads/runs/invoke` — see **[Trigger agents over HTTP](/docs/tutorials/http-invoke)**.
+For one-shot, non-streaming calls (useful for slower-moving surfaces like spreadsheet cells), use `/api/backend/threads/runs/invoke` — see **[Trigger agents over HTTP](/tutorials/http-invoke)**.
 
 ## A typical integration plan
 
@@ -75,4 +75,4 @@ Rather than prescribe code, here's the shape of a few concrete integrations team
 - **Zendesk side panel** — a Zendesk app that, for the currently open ticket, posts the ticket context + the rep's question to the **auxilia** agent and displays the streamed response. The agent has HubSpot and product-docs MCP servers so it can speak to the customer in context.
 - **Internal React dashboard** — a floating chat widget that talks to a "data assistant" agent with BigQuery access. The widget remembers the thread ID in `localStorage` so the user can keep a single conversation across sessions.
 
-When you build one of these, consider sharing it in **[Case Studies](/docs/case-studies)** — it helps other teams figure out the right shape for their own integration.
+When you build one of these, consider sharing it in **[Case Studies](/case-studies)** — it helps other teams figure out the right shape for their own integration.
