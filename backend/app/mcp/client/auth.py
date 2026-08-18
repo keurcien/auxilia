@@ -1,21 +1,37 @@
+"""auxilia's OAuth client provider for MCP servers (MCP SDK v2 / httpx2).
+
+``WebOAuthClientProvider`` adapts the SDK's ``OAuthClientProvider`` (an
+``httpx2.Auth``) to a *serverless* web backend: there is no local callback
+server to block on, so the authorization-code grant is split across two HTTP
+requests —
+
+1. :meth:`initiate_authorization` (or any authenticated MCP request hitting a
+   401) runs the SDK's own discovery/registration flow; our
+   :meth:`_perform_authorization_code_grant` override persists the PKCE state
+   to Redis and raises :class:`OAuthAuthorizationRequired` with the authorize
+   URL instead of waiting for a browser callback.
+2. The ``/mcp-servers/oauth/callback`` endpoint — a separate request with a
+   fresh provider — resolves the state from Redis and finishes the exchange
+   via :meth:`manual_exchange`.
+
+Compared to the v1 implementation this no longer hand-copies the SDK's 401
+discovery sequence: the probe in :meth:`initiate_authorization` lets the
+SDK's ``async_auth_flow`` drive it. Remaining per-server quirks are contained
+in the overrides below.
+"""
+
 import logging
 import secrets
 from datetime import UTC, datetime
 from urllib.parse import parse_qsl, urlencode, urljoin
 
-import httpx
+import httpx2
 from mcp.client.auth import OAuthClientProvider, OAuthFlowError, PKCEParameters
-from mcp.client.auth.exceptions import OAuthTokenError
+from mcp.client.auth.exceptions import OAuthRegistrationError
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
-    build_protected_resource_metadata_discovery_urls,
-    create_client_registration_request,
     create_oauth_metadata_request,
-    get_client_metadata_scopes,
     handle_auth_metadata_response,
-    handle_protected_resource_response,
-    handle_registration_response,
-    handle_token_response_scopes,
 )
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata
 from pydantic import AnyHttpUrl, AnyUrl
@@ -27,28 +43,52 @@ from app.settings import app_settings
 logger = logging.getLogger(__name__)
 
 
-def strip_client_id_for_basic_auth(request: httpx.Request) -> httpx.Request:
+def _install_slash_tolerant_issuer_validation() -> None:
+    """Make the SDK's SEP-2468 issuer check tolerate a trailing-slash-only
+    difference.
+
+    Real-world failure (BigQuery/Google): pydantic normalizes the PRM's
+    ``authorization_servers`` entry to ``https://accounts.google.com/`` while
+    Google's AS metadata declares ``issuer`` as ``https://accounts.google.com``
+    — the SDK's byte-compare then rejects Google's own metadata. Upstream fix
+    is open but unmerged (modelcontextprotocol/python-sdk#3013); drop this shim
+    when it ships.
+    """
+    import mcp.client.auth.oauth2 as _sdk_oauth2
+    from mcp.client.auth.utils import validate_metadata_issuer as _strict
+
+    def tolerant(oauth_metadata, expected_issuer: str) -> None:
+        if str(oauth_metadata.issuer).rstrip("/") == expected_issuer.rstrip("/"):
+            return
+        _strict(oauth_metadata, expected_issuer)
+
+    _sdk_oauth2.validate_metadata_issuer = tolerant
+
+
+_install_slash_tolerant_issuer_validation()
+
+
+def strip_client_id_for_basic_auth(request: httpx2.Request) -> httpx2.Request:
     """Rebuild a token request without ``client_id`` in the form body when it
     also carries a Basic ``Authorization`` header.
 
     RFC 6749 §2.3 allows only one client-authentication method per request,
-    but the SDK's ``_exchange_token_authorization_code`` and ``_refresh_token``
-    always put ``client_id`` in the body, even when ``prepare_token_auth`` has
-    selected ``client_secret_basic``. Strict servers (e.g. Notion) reject the
-    combination with "Client must not use multiple authentication methods".
-    Stripping it here keeps registrations stored as ``client_secret_basic``
-    working without re-registration.
+    but the SDK's token requests keep ``client_id`` in the body even when
+    ``prepare_token_auth`` selected ``client_secret_basic``. Strict servers
+    (e.g. Notion) reject the combination with "Client must not use multiple
+    authentication methods". Stripping it keeps registrations stored as
+    ``client_secret_basic`` working without re-registration.
     """
     if not request.headers.get("Authorization", "").startswith("Basic "):
         return request
     data = dict(parse_qsl(request.content.decode()))
     if "client_id" not in data:
         return request
-    del data["client_id"]
     headers = {
         k: v for k, v in request.headers.items() if k.lower() != "content-length"
     }
-    return httpx.Request(request.method, request.url, data=data, headers=headers)
+    del data["client_id"]
+    return httpx2.Request(request.method, request.url, data=data, headers=headers)
 
 
 def build_oauth_client_metadata() -> OAuthClientMetadata:
@@ -59,10 +99,13 @@ def build_oauth_client_metadata() -> OAuthClientMetadata:
     authorization, so there is nothing server-specific to configure here.
 
     ``token_endpoint_auth_method`` is requested explicitly: when omitted,
-    RFC 7591 lets the server default to ``client_secret_basic``, and the SDK's
-    basic-auth token request keeps ``client_id`` in the form body alongside the
-    Basic header — strict servers (e.g. Notion) reject that as multiple
-    authentication methods.
+    RFC 7591 lets the server default to ``client_secret_basic``, whose token
+    requests some strict servers (e.g. Notion) then reject (see
+    ``strip_client_id_for_basic_auth``).
+
+    ``application_type`` is ``web``: auxilia is a hosted client with a real
+    HTTPS redirect URI, not a native app on a loopback redirect (the SDK's
+    SEP-837 default).
     """
     return OAuthClientMetadata(
         client_name="auxilia",
@@ -72,6 +115,7 @@ def build_oauth_client_metadata() -> OAuthClientMetadata:
         grant_types=["authorization_code", "refresh_token"],
         response_types=["code"],
         token_endpoint_auth_method="client_secret_post",
+        application_type="web",
     )
 
 
@@ -90,7 +134,15 @@ class WebOAuthClientProvider(OAuthClientProvider):
         self._client_secret = client_secret
 
     async def _initialize(self):
-        """Initialize and properly set token expiry from stored tokens."""
+        """Load stored state, then fill the gaps the SDK leaves.
+
+        On top of the SDK's own ``_initialize`` (tokens + client info): restore
+        the persisted AS metadata (the SDK never stores it, but the stateless
+        callback/refresh requests need the token endpoint), inject static
+        client credentials when the server was configured with them, and set
+        the token expiry from the stored token (the SDK skips this on load, so
+        a restarted process would treat any stored token as valid forever).
+        """
         self.context.current_tokens = await self.context.storage.get_tokens()
         self.context.client_info = await self.context.storage.get_client_info()
 
@@ -100,7 +152,8 @@ class WebOAuthClientProvider(OAuthClientProvider):
             )
 
         if (
-            self.context.oauth_metadata
+            self.context.client_info
+            and self.context.oauth_metadata
             and self.context.oauth_metadata.issuer
             == AnyHttpUrl("https://api.supabase.com/")
         ):
@@ -142,8 +195,8 @@ class WebOAuthClientProvider(OAuthClientProvider):
         """Return True when a usable access token is available for this user.
 
         Refreshes an expired-but-refreshable token in place, reusing the SDK's
-        own ``_refresh_token`` request builder (and this class's overrides of it
-        — the Notion basic-auth fix, HTTP 201 handling, refresh-token carry-over)
+        own ``_refresh_token`` request builder and ``_handle_refresh_response``
+        (which carries ``refresh_token``/``scope`` forward per RFC 6749 §6)
         rather than hand-rolling the token POST. Returns False when no token is
         stored, the token is expired with no refresh token, the stored client
         info/metadata is missing, or the refresh request fails.
@@ -175,10 +228,9 @@ class WebOAuthClientProvider(OAuthClientProvider):
 
         try:
             request = await self._refresh_token()
-            async with httpx.AsyncClient() as client:
+            async with httpx2.AsyncClient() as client:
                 response = await client.send(request)
-                await self._handle_token_response(response)
-            return True
+                return await self._handle_refresh_response(response)
         except Exception:
             logger.warning(
                 "OAuth refresh failed for %s", self.context.server_url, exc_info=True
@@ -187,11 +239,11 @@ class WebOAuthClientProvider(OAuthClientProvider):
 
     async def _exchange_token_authorization_code(
         self, *args, **kwargs
-    ) -> httpx.Request:
+    ) -> httpx2.Request:
         request = await super()._exchange_token_authorization_code(*args, **kwargs)
         return strip_client_id_for_basic_auth(request)
 
-    async def _refresh_token(self) -> httpx.Request:
+    async def _refresh_token(self) -> httpx2.Request:
         request = await super()._refresh_token()
         return strip_client_id_for_basic_auth(request)
 
@@ -236,160 +288,126 @@ class WebOAuthClientProvider(OAuthClientProvider):
         )
 
     async def initiate_authorization(self) -> None:
-        """Start the OAuth flow explicitly, without calling a business tool to
-        provoke a 401.
+        """Start the OAuth flow explicitly, without opening an MCP session.
 
-        Discovers OAuth metadata the same way the SDK's ``async_auth_flow``
-        does on a 401 — RFC 9728 Protected Resource Metadata, then RFC 8414 /
-        OIDC Authorization Server Metadata — applies the discovered scopes,
-        then builds the authorization URL (which raises
-        ``OAuthAuthorizationRequired`` via the overridden
-        ``_perform_authorization_code_grant``).
+        Drives the SDK's own ``async_auth_flow`` — Protected Resource Metadata,
+        Authorization Server Metadata, scope selection, dynamic registration —
+        which ends in this class's ``_perform_authorization_code_grant``
+        override raising :class:`OAuthAuthorizationRequired` with the authorize
+        URL. Everything runs on a plain ``httpx2.AsyncClient`` (no MCP session,
+        no anyio task group), so the exception propagates on the normal request
+        stack instead of wrapped in an ``ExceptionGroup``.
 
-        The discovery GETs run on a plain ``httpx.AsyncClient`` (no MCP
-        session, no anyio task group), so the resulting exception propagates
-        on the normal request stack instead of wrapped in an ``ExceptionGroup``.
+        The flow's 401 branch is entered unconditionally (see
+        :meth:`_drive_auth_flow`): it must not depend on the server actually
+        challenging, because some servers (e.g. BigQuery) accept an
+        unauthenticated ``initialize`` and only 401 business calls.
 
-        Mirrors the 401 branch of ``OAuthClientProvider.async_auth_flow``
-        (PRM -> AS metadata -> scope selection -> DCR -> authorize). The SDK
-        only exposes that sequence as inlined generator code plus the public
-        helpers in ``mcp.client.auth.utils``, so this rebuilds the orchestration
-        on those helpers; keep it in sync with the SDK flow on upgrades.
+        A failed dynamic registration gets one retry after
+        :meth:`_recover_registration_context` patches up what the SDK's inline
+        flow can't (TikTok-style servers; see that method's docstring).
         """
         if not self._initialized:
             await self._initialize()
 
-        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-            # Step 1: Protected Resource Metadata (path-based then root well-known).
-            for url in build_protected_resource_metadata_discovery_urls(
-                None, self.context.server_url
-            ):
-                response = await client.send(create_oauth_metadata_request(url))
-                prm = await handle_protected_resource_response(response)
-                if prm:
-                    self.context.protected_resource_metadata = prm
-                    self.context.auth_server_url = str(prm.authorization_servers[0])
-                    break
-
-            # Step 2: Authorization Server Metadata (RFC 8414 / OIDC fallbacks).
-            #
-            # When PRM discovery found no authorization server (auth_server_url is
-            # None), the SDK helper only probes the *root*
-            # /.well-known/oauth-authorization-server. That misses servers that
-            # publish no RFC 9728 PRM yet host their metadata under the MCP path
-            # — e.g. TikTok serves OIDC discovery at
-            # {server_path}/.well-known/openid-configuration and no PRM at all.
-            # Fall back to path-aware discovery derived from the MCP server URL
-            # so those servers are still found; keep the root URL first so
-            # conformant legacy servers (metadata at the origin root) are
-            # unaffected.
-            discovery_urls = build_oauth_authorization_server_metadata_discovery_urls(
-                self.context.auth_server_url, self.context.server_url
+        for attempt in range(2):
+            try:
+                await self._drive_auth_flow()
+            except (OAuthRegistrationError, OAuthFlowError):
+                if attempt == 1 or not await self._recover_registration_context():
+                    raise
+                continue
+            raise OAuthFlowError(
+                "OAuth flow completed without an authorization redirect for "
+                f"{self.context.server_url}"
             )
-            if not self.context.auth_server_url:
-                path_aware = build_oauth_authorization_server_metadata_discovery_urls(
-                    str(self.context.server_url), self.context.server_url
-                )
-                discovery_urls = list(dict.fromkeys([*discovery_urls, *path_aware]))
-            for url in discovery_urls:
-                response = await client.send(create_oauth_metadata_request(url))
-                ok, asm = await handle_auth_metadata_response(response)
-                if ok and asm:
-                    self.context.oauth_metadata = asm
-                    break
-                if not ok:
-                    break
 
-            # Step 3: scope selection — hardcoded per-server (e.g. Gmail),
-            # otherwise PRM scopes_supported if advertised, otherwise no scope
-            # param (the server omits it, e.g. Notion).
-            # TODO: Handle scopes automatically
-            if str(self.context.server_url) == "https://gmailmcp.googleapis.com/mcp/v1":
-                self.context.client_metadata.scope = (
-                    "openid "
-                    "https://www.googleapis.com/auth/userinfo.email "
-                    "https://www.googleapis.com/auth/gmail.readonly "
-                    "https://www.googleapis.com/auth/gmail.compose "
-                    "https://www.googleapis.com/auth/gmail.modify"
-                )
-            else:
-                discovered_scopes = get_client_metadata_scopes(
-                    None,
-                    self.context.protected_resource_metadata,
-                    self.context.oauth_metadata,
-                )
-                if discovered_scopes:
-                    self.context.client_metadata.scope = discovered_scopes
+    async def _drive_auth_flow(self) -> None:
+        """Pump the SDK's ``async_auth_flow`` generator by hand, feeding a
+        synthetic 401 for the probe request so the discovery branch always runs.
 
-            # Step 4: ensure a registered client. Static credentials (e.g.
-            # Google) are loaded into client_info by _initialize; otherwise
-            # register dynamically per RFC 7591 (e.g. Notion).
-            if not self.context.client_info:
-                self._negotiate_registration_auth_method()
-                registration_response = await client.send(
-                    create_client_registration_request(
-                        self.context.oauth_metadata,
-                        self.context.client_metadata,
-                        self.context.get_authorization_base_url(
-                            self.context.server_url
-                        ),
-                    )
-                )
-                self.context.client_info = await handle_registration_response(
-                    registration_response
-                )
-
-        if not self.context.client_info:
-            raise OAuthFlowError("No client info available for authorization")
-
-        # Persist client_info so the OAuth callback (a separate HTTP request with
-        # a fresh provider) and the refresh path (ensure_valid_token) can recover
-        # the client_id/secret from storage. connect_to_server persists it on its
-        # own path; the explicit flow skips connect_to_server, so persist it here.
-        await self.context.storage.set_client_info(self.context.client_info)
-
-        # Builds the authorization URL and raises OAuthAuthorizationRequired.
-        # protected_resource_metadata is set, so should_include_resource_param()
-        # is True and the RFC 8707 resource param is included.
-        await self._perform_authorization_code_grant()
-
-    async def _handle_token_response(self, response: httpx.Response) -> None:
-        """Handle token exchange response.
-
-        Overrides the SDK parent to accept HTTP 201 in addition to 200 — some
-        servers return 201 from the token endpoint — then reuses the SDK's
-        ``handle_token_response_scopes`` for parsing/scope validation and
-        persists the token to storage so the next request is authenticated.
+        The httpx2 auth interface is a generator of requests: the SDK yields
+        the original request, and on a 401 response yields its discovery /
+        registration requests before performing authorization. Sending a real
+        probe and waiting for a genuine 401 does not work universally — some
+        servers (BigQuery) return 200 to unauthenticated ``initialize`` and
+        challenge only business tool calls. So the probe request is never sent:
+        it is answered with a synthetic 401 (no ``WWW-Authenticate``, which the
+        SDK treats as "discover via well-known URLs"), while every request the
+        flow yields after it — the actual discovery GETs and the DCR POST —
+        goes over the wire. The flow terminates inside
+        ``_perform_authorization_code_grant``, which raises
+        :class:`OAuthAuthorizationRequired`.
         """
-        if response.status_code not in {200, 201}:
-            body = await response.aread()  # pragma: no cover
-            body_text = body.decode("utf-8")  # pragma: no cover
-            raise OAuthTokenError(
-                f"Token exchange failed ({response.status_code}): {body_text}"
-            )  # pragma: no cover
+        probe = httpx2.Request("POST", str(self.context.server_url))
+        flow = self.async_auth_flow(probe)
+        async with httpx2.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            try:
+                request = await flow.__anext__()
+                while True:
+                    if request is probe:
+                        response = httpx2.Response(401, request=probe)
+                    else:
+                        response = await client.send(request)
+                    request = await flow.asend(response)
+            except StopAsyncIteration:
+                return
 
-        # Parse and validate response with scope validation
-        token_response = await handle_token_response_scopes(response)
+    async def _recover_registration_context(self) -> bool:
+        """Repair the discovery context after a failed dynamic registration,
+        for servers the SDK's inline 401 flow can't discover or register with.
 
-        # Store tokens in context
-        self.context.current_tokens = token_response
-        self.context.update_token_expiry(token_response)
-        await self.context.storage.set_tokens(token_response)
+        Two known cases (both seen with TikTok):
+
+        * The server publishes no RFC 9728 PRM and hosts its AS metadata under
+          the MCP *path* (e.g. ``{path}/.well-known/openid-configuration``),
+          which the SDK's root-only fallback misses. Seed
+          ``context.oauth_metadata`` via path-aware discovery; the SDK's flow
+          keeps a pre-seeded value when its own discovery finds nothing.
+        * The server only registers public clients
+          (``token_endpoint_auth_methods_supported: ["none"]``) and rejects our
+          ``client_secret_post`` default. Negotiate the method against the
+          (possibly just-seeded) AS metadata.
+
+        Returns True when anything changed — i.e. a retry is worth it.
+        """
+        changed = False
+
+        if self.context.oauth_metadata is None:
+            urls = build_oauth_authorization_server_metadata_discovery_urls(
+                str(self.context.server_url), self.context.server_url
+            )
+            async with httpx2.AsyncClient(
+                timeout=10.0, follow_redirects=True
+            ) as client:
+                for url in urls:
+                    response = await client.send(create_oauth_metadata_request(url))
+                    ok, asm = await handle_auth_metadata_response(response)
+                    if ok and asm:
+                        self.context.oauth_metadata = asm
+                        changed = True
+                        break
+
+        method_before = self.context.client_metadata.token_endpoint_auth_method
+        self._negotiate_registration_auth_method()
+        method_after = self.context.client_metadata.token_endpoint_auth_method
+
+        return changed or method_after != method_before
 
     async def _perform_authorization_code_grant(self) -> tuple[str, str]:
-        """
-        Overrides the SDK method to support serverless flows.
-        Instead of waiting for a callback, it saves state to Redis and raises an exception.
-        """
+        """Serverless override of the SDK's authorization-code grant.
 
+        Instead of opening a browser (``redirect_handler``) and blocking on a
+        local callback (``callback_handler``), persist the PKCE state to Redis
+        — the ``/callback`` endpoint recovers it via ``manual_exchange`` — and
+        raise :class:`OAuthAuthorizationRequired` carrying the authorize URL.
+        """
         if self.context.oauth_metadata:
             await self.context.storage.set_oauth_metadata(self.context.oauth_metadata)
 
-        # 1. Standard SDK Validation
         if self.context.client_metadata.redirect_uris is None:
             raise OAuthFlowError("No redirect URIs provided")
 
-        # 2. Determine Auth Endpoint (Standard SDK Logic)
         if (
             self.context.oauth_metadata
             and self.context.oauth_metadata.authorization_endpoint
@@ -404,7 +422,23 @@ class WebOAuthClientProvider(OAuthClientProvider):
         if not self.context.client_info:
             raise OAuthFlowError("No client info available")
 
-        # 3. Generate State & PKCE
+        # The SDK's scope-selection step has run by now and overwritten
+        # client_metadata.scope, so per-server scope fixes belong here.
+        # TODO: Handle scopes automatically
+        if str(self.context.server_url) == "https://gmailmcp.googleapis.com/mcp/v1":
+            self.context.client_metadata.scope = (
+                "openid "
+                "https://www.googleapis.com/auth/userinfo.email "
+                "https://www.googleapis.com/auth/gmail.readonly "
+                "https://www.googleapis.com/auth/gmail.compose "
+                "https://www.googleapis.com/auth/gmail.modify"
+            )
+
+        # Persist client_info so the OAuth callback (a separate HTTP request
+        # with a fresh provider) and the refresh path can recover the
+        # client_id/secret from storage.
+        await self.context.storage.set_client_info(self.context.client_info)
+
         pkce_params = PKCEParameters.generate()
         state = secrets.token_urlsafe(32)
 
@@ -427,7 +461,6 @@ class WebOAuthClientProvider(OAuthClientProvider):
             auth_params["access_type"] = "offline"
             auth_params["prompt"] = "consent"
 
-        # Include resource param if needed (SDK Logic)
         if self.context.should_include_resource_param(self.context.protocol_version):
             auth_params["resource"] = self.context.get_resource_url()
 
@@ -438,12 +471,9 @@ class WebOAuthClientProvider(OAuthClientProvider):
 
         raise OAuthAuthorizationRequired(authorization_url)
 
-    # --- HELPER FOR PHASE 2 ---
     async def manual_exchange(self, code: str, state: str):
-        """
-        Called by the /callback endpoint to finish the job.
-        """
-        # Restore client_info from storage if missing
+        """Called by the /callback endpoint to finish the authorization-code
+        exchange started by ``_perform_authorization_code_grant``."""
         if not self.context.client_info:
             self.context.client_info = await self.context.storage.get_client_info()
 
@@ -455,23 +485,19 @@ class WebOAuthClientProvider(OAuthClientProvider):
                 await self.context.storage.get_oauth_metadata()
             )
 
-        # Recover Verifier
         verifier = await self.context.storage.get_verifier(state)
 
         if not verifier:
             raise OAuthFlowError("Session expired or invalid state")
 
-        # Use the SDK's protected method to finish the exchange
-        # This handles the HTTP request, token parsing, and storage writing
-
         token_request = await self._exchange_token_authorization_code(
             auth_code=code, code_verifier=verifier
         )
-
         token_request.headers["Accept"] = "application/json"
 
-        # Execute the request (since _exchange... returns a Request object)
-        async with httpx.AsyncClient() as client:
+        # The SDK's _handle_token_response accepts 200/201, validates scopes,
+        # and persists the token to storage.
+        async with httpx2.AsyncClient() as client:
             response = await client.send(token_request)
             await self._handle_token_response(response)
 

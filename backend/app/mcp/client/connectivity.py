@@ -20,13 +20,13 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
-from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions import DomainError
 from app.mcp.client.auth import WebOAuthClientProvider, build_oauth_client_metadata
+from app.mcp.client.connection import open_mcp_client
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
+from app.mcp.client.langchain_tools import list_all_mcp_tools
 from app.mcp.client.storage import RedisTokenStorage, TokenStorageFactory
 from app.mcp.servers.encryption import decrypt_value as decrypt_api_key
 from app.mcp.servers.models import MCPAuthType, MCPServerDB
@@ -75,74 +75,26 @@ async def build_oauth_provider(
     )
 
 
-# --- Session handshake ------------------------------------------------------
-
-# Safety bound for tools/list pagination. A well-behaved server eventually returns
-# a falsy nextCursor; this caps a misbehaving one that emits endless new cursors.
-MAX_TOOL_LIST_PAGES = 1000
+# --- Connection ---------------------------------------------------------------
 
 
-async def _list_all_tools(session: ClientSession) -> list:
-    """Page through ``tools/list``, guarding against a server that never ends
-    pagination. A repeated or cyclic ``nextCursor`` is detected and a runaway page
-    count is capped — otherwise the loop would spin forever, accumulating tools.
-    """
-    tools = []
-    cursor: str | None = None
-    seen_cursors: set[str] = set()
-    for _ in range(MAX_TOOL_LIST_PAGES):
-        response = await session.list_tools(cursor=cursor)
-        tools.extend(response.tools)
-        cursor = response.nextCursor
-        if not cursor:
-            return tools
-        if cursor in seen_cursors:
-            raise DomainError(
-                "MCP server returned a repeated tools/list cursor; "
-                "aborting to avoid an infinite pagination loop."
-            )
-        seen_cursors.add(cursor)
-    raise DomainError(
-        f"MCP server exceeded {MAX_TOOL_LIST_PAGES} tools/list pages; "
-        "aborting to avoid an unbounded pagination loop."
-    )
+async def _resolve_transport_kwargs(
+    mcp_server: MCPServerDB, user_id: str, db: AsyncSession
+) -> dict:
+    """Resolve the server's auth type to ``open_mcp_client`` keyword arguments:
+    the user's OAuth provider, a Bearer ``Authorization`` header from the stored
+    API key, or nothing for unauthenticated servers."""
+    repository = MCPServerRepository(db)
 
-
-@asynccontextmanager
-async def _open_session(
-    url: str,
-    *,
-    headers: dict[str, str] | None = None,
-    auth=None,
-    terminate_on_close: bool = True,
-):
-    """Open a Streamable HTTP MCP session, initialize it, and list its tools.
-
-    The low-level primitive shared by every handshake path: the DB-backed
-    :func:`connect_to_server` and the stateless :func:`probe_candidate`. Errors
-    raised while listing tools (or from the ``async with`` body) are wrapped in
-    ``DomainError`` to give callers a clean message.
-    """
-    client_args: dict = {"url": url}
-    if headers:
-        client_args["headers"] = headers
-    if auth is not None:
-        client_args["auth"] = auth
-
-    async with streamablehttp_client(
-        **client_args, terminate_on_close=terminate_on_close
-    ) as (read, write, _):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            try:
-                tools = await _list_all_tools(session)
-                yield session, tools
-            except OAuthAuthorizationRequired:
-                # Let the caller (e.g. test_connection) translate this into an
-                # oauth_required result instead of a generic DomainError.
-                raise
-            except Exception as e:
-                raise DomainError(str(e)) from e
+    if mcp_server.auth_type == MCPAuthType.oauth2:
+        storage = TokenStorageFactory().get_storage(user_id, str(mcp_server.id))
+        provider = await build_oauth_provider(mcp_server, storage, repository)
+        await provider.persist_client_info()
+        return {"auth": provider}
+    if mcp_server.auth_type == MCPAuthType.api_key:
+        api_key = await repository.get_api_key(mcp_server.id)
+        return {"headers": {"Authorization": f"Bearer {api_key}"}}
+    return {}
 
 
 @asynccontextmanager
@@ -153,11 +105,11 @@ async def connect_to_server(
     *,
     terminate_on_close: bool = True,
 ):
-    """Connect to an MCP server for a specific user and initialize the session.
+    """Connect to an MCP server for a specific user and yield the live client.
 
-    Resolves the auth type to the right transport arguments — the user's OAuth
-    provider, a Bearer ``Authorization`` header from the stored API key, or a
-    plain URL — then opens the session via :func:`_open_session`.
+    Callers that need the tool list call :func:`list_all_mcp_tools` on the
+    yielded client themselves — the MCP App paths (read-resource / call-tool)
+    never need it, so no ``tools/list`` round-trip is paid here.
 
     Args:
         mcp_server: MCP server configuration.
@@ -169,34 +121,25 @@ async def connect_to_server(
             session — DELETEing it kills the token before the browser uses it.
 
     Yields:
-        tuple: (session, tools) - Initialized session and available tools.
+        The connected MCP ``Client``.
 
     Raises:
         OAuthAuthorizationRequired: If OAuth authorization is needed.
+        DomainError: Any other connect or in-body failure, wrapped for a clean
+            client-facing message.
     """
-    repository = MCPServerRepository(db)
-    storage = TokenStorageFactory().get_storage(user_id, str(mcp_server.id))
-
-    if mcp_server.auth_type == MCPAuthType.oauth2:
-        provider = await build_oauth_provider(mcp_server, storage, repository)
-        await provider.persist_client_info()
-        async with _open_session(
-            mcp_server.url, auth=provider, terminate_on_close=terminate_on_close
-        ) as result:
-            yield result
-    elif mcp_server.auth_type == MCPAuthType.api_key:
-        api_key = await repository.get_api_key(mcp_server.id)
-        async with _open_session(
-            mcp_server.url,
-            headers={"Authorization": f"Bearer {api_key}"},
-            terminate_on_close=terminate_on_close,
-        ) as result:
-            yield result
-    else:
-        async with _open_session(
-            mcp_server.url, terminate_on_close=terminate_on_close
-        ) as result:
-            yield result
+    kwargs = await _resolve_transport_kwargs(mcp_server, user_id, db)
+    async with open_mcp_client(
+        mcp_server.url, terminate_on_close=terminate_on_close, **kwargs
+    ) as client:
+        try:
+            yield client
+        except (OAuthAuthorizationRequired, DomainError):
+            # OAuthAuthorizationRequired: translated globally (or by
+            # test_connection) into an oauth_required result, not a 500.
+            raise
+        except Exception as e:
+            raise DomainError(str(e)) from e
 
 
 # --- Authorization ----------------------------------------------------------
@@ -263,7 +206,8 @@ async def test_connection(
             return ConnectionTestResult(reachable=False, error=str(e))
 
     try:
-        async with connect_to_server(server, user_id, db) as (_, tools):
+        async with connect_to_server(server, user_id, db) as client:
+            tools = await list_all_mcp_tools(client)
             return ConnectionTestResult(
                 reachable=True,
                 tool_count=len(tools),
@@ -310,7 +254,8 @@ async def probe_candidate(
         else None
     )
     try:
-        async with _open_session(url, headers=headers) as (_, tools):
+        async with open_mcp_client(url, headers=headers) as client:
+            tools = await list_all_mcp_tools(client)
             return ConnectionTestResult(
                 reachable=True,
                 tool_count=len(tools),

@@ -41,8 +41,8 @@ async def read_mcp_app_resource(
     # browser uses it. Let the server expire it by TTL instead.
     async with connect_to_server(
         mcp_server, str(current_user.id), db, terminate_on_close=False
-    ) as (session, _):
-        return await session.read_resource(body.uri)
+    ) as client:
+        return await client.read_resource(body.uri)
 
 
 @router.post("/mcp-servers/{server_id}/app/call-tool")
@@ -58,5 +58,5 @@ async def call_mcp_app_tool(
     # data requests; it expires by the server's TTL.
     async with connect_to_server(
         mcp_server, str(current_user.id), db, terminate_on_close=False
-    ) as (session, _):
-        return await session.call_tool(body.tool_name, body.arguments)
+    ) as client:
+        return await client.call_tool(body.tool_name, body.arguments)

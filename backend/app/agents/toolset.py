@@ -6,13 +6,15 @@ from dataclasses import dataclass
 
 import anyio
 from langchain_core.tools import Tool
-from langchain_mcp_adapters.client import MultiServerMCPClient
-from langchain_mcp_adapters.tools import load_mcp_tools
+from mcp.shared.exceptions import MCPError
+from mcp_types import CONNECTION_CLOSED
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.agents.schemas import AgentMCPServerResponse
+from app.mcp.client.connection import MCPConnectionSpec, open_mcp_client_from_spec
 from app.mcp.client.factory import MCPClientConfigFactory
+from app.mcp.client.langchain_tools import load_mcp_tools
 from app.mcp.client.tools import inject_ui_metadata_into_tool
 from app.mcp.servers.models import MCPServerDB
 
@@ -136,7 +138,7 @@ class PreparedToolset:
     here so HITL middleware can be wired at build time.
     """
 
-    client: MultiServerMCPClient | None
+    connections: dict[str, MCPConnectionSpec] | None
     server_names: list[str]  # config keys (== MCP server names), in a fixed order
     tool_settings: dict[str, dict]
     server_id_by_name: dict[str, str]
@@ -195,8 +197,21 @@ def _assemble_agent_tools(
 _DEAD_SESSION_ERRORS = (anyio.ClosedResourceError, anyio.BrokenResourceError)
 
 
+def _is_connection_closed(exc: BaseException) -> bool:
+    """The v2 dispatcher's dead-transport signature.
+
+    MCP SDK v2 collapses every request touching a dead transport — the call
+    in flight when it died AND every later send — into
+    ``MCPError(code=CONNECTION_CLOSED)`` (the v1 signatures in
+    ``_DEAD_SESSION_ERRORS`` no longer reach the caller). The code alone can't
+    say whether the request reached the server, so it must never be retried
+    blindly; see ``ReconnectingSession`` for how it is handled instead.
+    """
+    return isinstance(exc, MCPError) and exc.code == CONNECTION_CLOSED
+
+
 class _SessionSupervisor:
-    """Opens replacement MCP sessions for servers whose transport died mid-stream.
+    """Opens replacement MCP clients for servers whose transport died mid-stream.
 
     Each replacement is hosted in its own task (same anyio cancel-scope
     ownership rule as ``_open_sessions``) and torn down in ``close()`` at the
@@ -205,8 +220,8 @@ class _SessionSupervisor:
     errors to warnings instead of raising them at stream end.
     """
 
-    def __init__(self, client: MultiServerMCPClient | None):
-        self._client = client
+    def __init__(self, connections: dict[str, MCPConnectionSpec] | None):
+        self._connections = connections
         self._stop = asyncio.Event()
         self._tasks: list[asyncio.Task] = []
         self.replaced: set[str] = set()
@@ -217,7 +232,9 @@ class _SessionSupervisor:
 
         async def _host() -> None:
             try:
-                async with self._client.session(name) as session:
+                async with open_mcp_client_from_spec(
+                    self._connections[name]
+                ) as session:
                     ready.set_result(session)
                     await self._stop.wait()
             except BaseException as exc:
@@ -242,29 +259,33 @@ class _SessionSupervisor:
 
 
 class ReconnectingSession:
-    """Per-server ``ClientSession`` proxy that survives a dead transport.
+    """Per-server MCP ``Client`` proxy that survives a dead transport.
 
     All of a server's tools are bound to this proxy (not to the raw session),
     so when the transport dies mid-run — the server drops the connection, the
-    GET stream flaps — the next ``call_tool`` reopens the session once and
-    retries, instead of every remaining call failing on the same corpse.
+    GET stream flaps — subsequent calls get a fresh session instead of every
+    remaining call failing on the same corpse. ``list_tools`` gets the same
+    treatment so tool discovery (``Toolset.open`` → ``load_mcp_tools``)
+    survives a transport that dies right after the session opened.
 
-    ``list_tools`` gets the same treatment so tool discovery
-    (``Toolset.open`` → ``load_mcp_tools``) survives a transport that dies
-    right after the session opened, instead of aborting the whole run at
-    setup.
+    Two dead-transport signatures, handled differently to preserve
+    at-most-once execution:
 
-    Only ``_DEAD_SESSION_ERRORS`` are retried: they mean the request was never
-    sent, so at-most-once execution is preserved. Mid-flight failures (e.g.
-    ``McpError`` "Connection closed") are NOT retried — the call may have
-    executed server-side; they surface as error ToolMessages via
-    ToolErrorMiddleware, and the next call on this server reconnects.
+    * ``_DEAD_SESSION_ERRORS`` (send on already-closed streams): the request
+      never left the client, so it is retried once on a fresh session.
+    * ``MCPError(CONNECTION_CLOSED)`` (the v2 dispatcher's signature, covering
+      both in-flight deaths and later sends indistinguishably): NOT retried —
+      the call may have executed server-side. It surfaces as an error
+      ToolMessage via ToolErrorMiddleware, but the session is marked dead so
+      the NEXT call reconnects *before* sending (that call was never sent, so
+      reconnecting first is safe).
     """
 
     def __init__(self, name: str, session, supervisor: _SessionSupervisor):
         self._session = session
         self._name = name
         self._generation = 0
+        self._dead = False
         self._supervisor = supervisor
         self._lock = asyncio.Lock()
 
@@ -280,40 +301,49 @@ class ReconnectingSession:
         return await self._retry_on_dead_session("list_tools", *args, **kwargs)
 
     async def _retry_on_dead_session(self, method: str, *args, **kwargs):
+        if self._dead:
+            # A previous call died with CONNECTION_CLOSED; this one hasn't been
+            # sent yet, so reconnecting first is safe.
+            await self._reconnect(self._generation, "an earlier CONNECTION_CLOSED")
         session, generation = self._session, self._generation
         try:
             return await getattr(session, method)(*args, **kwargs)
         except _DEAD_SESSION_ERRORS as exc:
-            session = await self._reconnect(generation, exc)
+            session = await self._reconnect(generation, type(exc).__name__)
             return await getattr(session, method)(*args, **kwargs)
+        except MCPError as exc:
+            if _is_connection_closed(exc) and self._generation == generation:
+                self._dead = True
+            raise
 
-    async def _reconnect(self, seen_generation: int, cause: BaseException):
+    async def _reconnect(self, seen_generation: int, reason: str):
         """Reopen once per dead session, even under concurrent callers."""
         async with self._lock:
             if self._generation == seen_generation:
                 logger.warning(
                     "MCP session '%s' is dead (%s); opening a replacement",
                     self._name,
-                    type(cause).__name__,
+                    reason,
                 )
                 self._session = await self._supervisor.reopen(self._name)
                 self._generation += 1
+                self._dead = False
             return self._session
 
 
 @asynccontextmanager
 async def _open_sessions(
-    client: MultiServerMCPClient | None,
+    connections: dict[str, MCPConnectionSpec] | None,
     server_names: list[str],
     *,
     replaced: set[str] | None = None,
 ):
-    """Open one live MCP session per server, concurrently.
+    """Open one live MCP client per server, concurrently.
 
-    Each session's context manager is entered AND exited inside a dedicated
-    host task: the streamable-HTTP transport is built on anyio cancel scopes,
-    which must exit in the task that entered them — entering the contexts from
-    a ``gather`` onto a shared exit stack would crash at teardown.
+    Each connection's context manager is entered AND exited inside a dedicated
+    host task: the streamable-HTTP transport (v2 included) is built on anyio
+    cancel scopes, which must exit in the task that entered them — entering the
+    contexts from a ``gather`` onto a shared exit stack would crash at teardown.
 
     ``replaced`` (shared with the ``_SessionSupervisor``) names servers whose
     primary session died and was replaced mid-stream: their teardown errors
@@ -329,7 +359,7 @@ async def _open_sessions(
 
     async def _host(name: str) -> None:
         try:
-            async with client.session(name) as session:
+            async with open_mcp_client_from_spec(connections[name]) as session:
                 ready[name].set_result(session)
                 await stop.wait()
         except BaseException as exc:
@@ -400,7 +430,7 @@ class Toolset:
         no MCP session is opened — live discovery happens once, in :meth:`open`.
         """
         empty = PreparedToolset(
-            client=None,
+            connections=None,
             server_names=[],
             tool_settings={},
             server_id_by_name={},
@@ -441,7 +471,6 @@ class Toolset:
         #    open time on sanitize collisions can't be predicted, so a
         #    colliding needs_approval tool would miss its gate — collisions
         #    require characters outside [a-zA-Z0-9_-] in server/tool names.
-        client = MultiServerMCPClient(configs, tool_name_prefix=True)
         interrupt_on: dict[str, bool] = {}
         for name in server_names:
             settings = tool_settings.get(name) or {}
@@ -450,7 +479,7 @@ class Toolset:
                     interrupt_on[sanitize_tool_name(f"{name}_{tool_name}")] = True
 
         return PreparedToolset(
-            client=client,
+            connections=configs,
             server_names=server_names,
             tool_settings=tool_settings,
             server_id_by_name=server_id_by_name,
@@ -468,14 +497,14 @@ class Toolset:
         ``query_handle``) survives to the next call (``visualize_query``). Tools
         are bound to a ``ReconnectingSession`` proxy, so a session whose
         transport dies mid-run is reopened on the next call instead of failing
-        every remaining call. MCP tool execution errors (isError=True) are
-        surfaced as ToolMessage(status="error") natively by
-        langchain-mcp-adapters; transport/protocol failures raise and are
-        caught globally by ToolErrorMiddleware.
+        every remaining call. MCP tool execution errors (is_error=True) are
+        surfaced as ToolMessage(status="error") by
+        ``app.mcp.client.langchain_tools``; transport/protocol failures raise
+        and are caught globally by ToolErrorMiddleware.
         """
-        supervisor = _SessionSupervisor(prepared.client)
+        supervisor = _SessionSupervisor(prepared.connections)
         async with _open_sessions(
-            prepared.client, prepared.server_names, replaced=supervisor.replaced
+            prepared.connections, prepared.server_names, replaced=supervisor.replaced
         ) as sessions:
             try:
                 proxies = {
