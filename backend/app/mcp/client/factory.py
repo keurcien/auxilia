@@ -7,6 +7,10 @@ from app.mcp.servers.repository import MCPServerRepository
 
 
 class MCPClientConfigFactory:
+    """Builds ``MCPConnectionSpec`` dicts (see ``app/mcp/client/connection.py``)
+    from MCP server records, resolving auth to header/httpx2-auth values so no
+    live SQL handle is retained by the spec."""
+
     def __init__(self, db: AsyncSession, user_id: str):
         self._db = db
         self._user_id = user_id
@@ -15,7 +19,6 @@ class MCPClientConfigFactory:
 
     async def build(self, config: MCPServerDB) -> dict:
         base_config = {
-            "transport": "http",
             "url": config.url,
         }
 

@@ -1,7 +1,7 @@
-"""Tests for tools/list pagination in app/mcp/client/connectivity.py.
+"""Tests for tools/list pagination in app/mcp/client/langchain_tools.py.
 
-`_list_all_tools` must not hang on a misbehaving server: a repeated or cyclic
-`nextCursor` is detected, and a runaway page count is capped.
+`list_all_mcp_tools` must not hang on a misbehaving server: a repeated or
+cyclic `next_cursor` is detected, and a runaway page count is capped.
 """
 
 from __future__ import annotations
@@ -9,13 +9,13 @@ from __future__ import annotations
 import pytest
 
 from app.exceptions import DomainError
-from app.mcp.client import connectivity as service
+from app.mcp.client import langchain_tools as service
 
 
 class _Resp:
     def __init__(self, tools, next_cursor):
         self.tools = tools
-        self.nextCursor = next_cursor
+        self.next_cursor = next_cursor
 
 
 class _SeqSession:
@@ -47,7 +47,7 @@ async def test_collects_all_pages_until_falsy_cursor():
     session = _SeqSession(
         [_Resp(["a", "b"], "c1"), _Resp(["c"], "c2"), _Resp(["d"], None)]
     )
-    tools = await service._list_all_tools(session)
+    tools = await service.list_all_mcp_tools(session)
     assert tools == ["a", "b", "c", "d"]
     assert session.cursors_seen == [None, "c1", "c2"]
 
@@ -56,14 +56,14 @@ async def test_repeated_cursor_raises():
     # Server keeps handing back the same cursor -> would loop forever.
     session = _CursorSession(["same", "same", "same"])
     with pytest.raises(DomainError, match="repeated tools/list cursor"):
-        await service._list_all_tools(session)
+        await service.list_all_mcp_tools(session)
 
 
 async def test_cyclic_cursor_raises():
     # A -> B -> A cycle.
     session = _CursorSession(["A", "B", "A", "B"])
     with pytest.raises(DomainError, match="repeated tools/list cursor"):
-        await service._list_all_tools(session)
+        await service.list_all_mcp_tools(session)
 
 
 async def test_endless_unique_cursors_are_capped(monkeypatch):
@@ -71,5 +71,5 @@ async def test_endless_unique_cursors_are_capped(monkeypatch):
     # Always a brand-new cursor: repeat-detection can't catch it; the cap must.
     session = _CursorSession([f"c{i}" for i in range(10)])
     with pytest.raises(DomainError, match="exceeded 3 tools/list pages"):
-        await service._list_all_tools(session)
+        await service.list_all_mcp_tools(session)
     assert session.call_count == 3

@@ -31,7 +31,6 @@ from app.integrations.slack.router import router as slack_router
 from app.invites.router import router as invites_router
 from app.mcp.apps.router import router as mcp_apps_router
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
-from app.mcp.client.initialize import apply_mcp_client_patches
 from app.mcp.router import auxilia_mcp
 from app.mcp.servers.router import router as mcp_servers_router
 from app.model_providers.router import router as model_providers_router
@@ -62,7 +61,6 @@ def _log_background_crash(task: asyncio.Task) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    apply_mcp_client_patches()
     app.state.redis = get_redis()
 
     # The dispatcher + reaper are background loops; they need an always-on
@@ -220,4 +218,4 @@ app.include_router(model_providers_router)
 app.include_router(sandbox_router)
 app.include_router(slack_router)
 
-app.mount("/", auxilia_mcp.streamable_http_app())
+app.mount("/", auxilia_mcp.streamable_http_app(stateless_http=True, json_response=True))

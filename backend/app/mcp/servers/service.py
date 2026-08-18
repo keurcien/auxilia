@@ -18,6 +18,7 @@ from app.mcp.client.connectivity import (
     initiate_oauth,
     is_authorized,
 )
+from app.mcp.client.langchain_tools import list_all_mcp_tools
 from app.mcp.client.storage import TokenStorageFactory
 from app.mcp.servers import catalog as mcp_catalog
 from app.mcp.servers.encryption import decrypt_value
@@ -256,7 +257,8 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
             # 401 {oauth_required, auth_url}). No business tool is called.
             await initiate_oauth(server, user_id, self.db)
 
-        async with connect_to_server(server, user_id, self.db) as (_, tools):
+        async with connect_to_server(server, user_id, self.db) as client:
+            tools = await list_all_mcp_tools(client)
             return [
                 {"name": tool.name, "description": tool.description} for tool in tools
             ]

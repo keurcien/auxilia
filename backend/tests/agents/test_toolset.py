@@ -316,7 +316,7 @@ class TestToolsetPrepareEmpty:
         prepared = await Toolset.prepare([], db=None, user_id="u1", apply_ui=True)
         assert prepared.server_names == []
         assert prepared.interrupt_on == {}
-        assert prepared.client is None
+        assert prepared.connections is None
 
     @pytest.mark.asyncio
     async def test_empty_bindings_open_yields_empty_toolset(self):
@@ -433,12 +433,15 @@ class _FakeSessionCM:
         return False
 
 
-class _FakeClient:
-    def __init__(self, cms):
-        self._cms = cms
+@pytest.fixture(autouse=True)
+def _identity_connection_opener(monkeypatch):
+    """Treat a connection "spec" as the connection context manager itself, so
+    tests inject `_FakeSessionCM` instances directly as the connections dict."""
+    import app.agents.toolset as toolset_mod
 
-    def session(self, name):
-        return self._cms[name]
+    monkeypatch.setattr(
+        toolset_mod, "open_mcp_client_from_spec", lambda spec, **_kw: spec
+    )
 
 
 class TestOpenSessions:
@@ -454,7 +457,7 @@ class TestOpenSessions:
             "b": _FakeSessionCM("b", log, delay=0.05),
         }
         t0 = time_mod.perf_counter()
-        async with _open_sessions(_FakeClient(cms), ["a", "b"]) as sessions:
+        async with _open_sessions(cms, ["a", "b"]) as sessions:
             assert sessions == {"a": "session-a", "b": "session-b"}
         elapsed = time_mod.perf_counter() - t0
         assert elapsed < 0.09  # serial would be >= 0.10
@@ -467,7 +470,7 @@ class TestOpenSessions:
 
         log = []
         cms = {"a": _FakeSessionCM("a", log), "b": _FakeSessionCM("b", log)}
-        async with _open_sessions(_FakeClient(cms), ["a", "b"]):
+        async with _open_sessions(cms, ["a", "b"]):
             pass
         main_task = asyncio.current_task()
         by_name: dict[str, dict] = {}
@@ -487,7 +490,7 @@ class TestOpenSessions:
             "bad": _FakeSessionCM("bad", log, fail_enter=True),
         }
         with pytest.raises(RuntimeError, match="enter failed: bad"):
-            async with _open_sessions(_FakeClient(cms), ["ok", "bad"]):
+            async with _open_sessions(cms, ["ok", "bad"]):
                 pytest.fail("body must not run when a session fails to open")
         assert any(e == "exit" and n == "ok" for e, n, _ in log)
 
@@ -498,7 +501,7 @@ class TestOpenSessions:
         log = []
         cms = {"a": _FakeSessionCM("a", log, fail_exit=True)}
         with pytest.raises(RuntimeError, match="exit failed: a"):
-            async with _open_sessions(_FakeClient(cms), ["a"]):
+            async with _open_sessions(cms, ["a"]):
                 pass
 
     @pytest.mark.asyncio
@@ -508,7 +511,7 @@ class TestOpenSessions:
         log = []
         cms = {"a": _FakeSessionCM("a", log, fail_exit=True)}
         with pytest.raises(ValueError, match="body boom"):
-            async with _open_sessions(_FakeClient(cms), ["a"]):
+            async with _open_sessions(cms, ["a"]):
                 raise ValueError("body boom")
         assert any(e == "exit" and n == "a" for e, n, t in log)
 
@@ -523,9 +526,7 @@ class TestOpenSessions:
             "dead": _FakeSessionCM("dead", log, fail_exit=True),
             "ok": _FakeSessionCM("ok", log),
         }
-        async with _open_sessions(
-            _FakeClient(cms), ["dead", "ok"], replaced={"dead"}
-        ) as sessions:
+        async with _open_sessions(cms, ["dead", "ok"], replaced={"dead"}) as sessions:
             assert sessions["dead"] == "session-dead"
 
     @pytest.mark.asyncio
@@ -535,7 +536,7 @@ class TestOpenSessions:
         log = []
         cms = {"a": _FakeSessionCM("a", log, fail_exit=True)}
         with pytest.raises(RuntimeError, match="exit failed: a"):
-            async with _open_sessions(_FakeClient(cms), ["a"], replaced={"other"}):
+            async with _open_sessions(cms, ["a"], replaced={"other"}):
                 pass
 
 
@@ -699,7 +700,7 @@ class TestSessionSupervisor:
 
         log = []
         cms = {"a": _FakeSessionCM("a", log)}
-        supervisor = _SessionSupervisor(_FakeClient(cms))
+        supervisor = _SessionSupervisor(cms)
 
         session = await supervisor.reopen("a")
         assert session == "session-a"
@@ -718,7 +719,7 @@ class TestSessionSupervisor:
 
         log = []
         cms = {"a": _FakeSessionCM("a", log, fail_exit=True)}
-        supervisor = _SessionSupervisor(_FakeClient(cms))
+        supervisor = _SessionSupervisor(cms)
         await supervisor.reopen("a")
 
         await supervisor.close()  # must not raise
@@ -729,9 +730,94 @@ class TestSessionSupervisor:
 
         log = []
         cms = {"a": _FakeSessionCM("a", log, fail_enter=True)}
-        supervisor = _SessionSupervisor(_FakeClient(cms))
+        supervisor = _SessionSupervisor(cms)
 
         with pytest.raises(RuntimeError, match="enter failed: a"):
             await supervisor.reopen("a")
         assert supervisor.replaced == set()
         await supervisor.close()
+
+
+# ---------------------------------------------------------------------------
+# MCPError(CONNECTION_CLOSED) — the v2 dispatcher's dead-transport signature
+# ---------------------------------------------------------------------------
+
+
+def _connection_closed():
+    from mcp.shared.exceptions import MCPError
+    from mcp_types import CONNECTION_CLOSED
+
+    return MCPError(code=CONNECTION_CLOSED, message="Connection closed")
+
+
+class TestConnectionClosedHandling:
+    @pytest.mark.asyncio
+    async def test_connection_closed_is_not_retried_but_marks_dead(self):
+        """The failing call may have executed server-side: it must surface
+        (as an error ToolMessage upstream), NOT silently retry — but the next
+        call must reconnect BEFORE sending."""
+        from mcp.shared.exceptions import MCPError
+
+        from app.agents.toolset import ReconnectingSession
+
+        dead = _FakeSession("dead", fail_with=_connection_closed())
+        fresh = _FakeSession("fresh")
+        supervisor = _FakeSupervisor([fresh])
+        proxy = ReconnectingSession("slack", dead, supervisor)
+
+        with pytest.raises(MCPError, match="Connection closed"):
+            await proxy.call_tool("a")
+        # No retry happened on the failing call itself.
+        assert supervisor.reopened == []
+        assert dead.calls == ["a"]
+
+        # Next call reconnects proactively; the dead session is never re-sent.
+        assert await proxy.call_tool("b") == "fresh:b"
+        assert supervisor.reopened == ["slack"]
+        assert dead.calls == ["a"]
+        assert fresh.calls == ["b"]
+
+    @pytest.mark.asyncio
+    async def test_other_mcp_errors_do_not_mark_dead(self):
+        """A domain-level MCPError (tool not found, invalid params) must not
+        trigger reconnection — the session is fine."""
+        from mcp.shared.exceptions import MCPError
+
+        from app.agents.toolset import ReconnectingSession
+
+        flaky = _FakeSession(
+            "s", fail_with=MCPError(code=-32602, message="Invalid params")
+        )
+        supervisor = _FakeSupervisor([])
+        proxy = ReconnectingSession("slack", flaky, supervisor)
+
+        with pytest.raises(MCPError, match="Invalid params"):
+            await proxy.call_tool("a")
+        flaky.fail_with = None
+        assert await proxy.call_tool("b") == "s:b"
+        assert supervisor.reopened == []
+
+    @pytest.mark.asyncio
+    async def test_calls_after_marked_dead_reopen_exactly_once(self):
+        """The first CONNECTION_CLOSED marks the session dead; every later call
+        (concurrent included) is served by exactly one reopen."""
+        import asyncio
+
+        from mcp.shared.exceptions import MCPError
+
+        from app.agents.toolset import ReconnectingSession
+
+        dead = _FakeSession("dead", fail_with=_connection_closed())
+        fresh = _FakeSession("fresh")
+        supervisor = _FakeSupervisor([fresh])
+        proxy = ReconnectingSession("slack", dead, supervisor)
+
+        with pytest.raises(MCPError, match="Connection closed"):
+            await proxy.call_tool("a")
+
+        follow_ups = await asyncio.gather(
+            proxy.call_tool("b"), proxy.call_tool("c"), proxy.call_tool("d")
+        )
+        assert sorted(follow_ups) == ["fresh:b", "fresh:c", "fresh:d"]
+        assert supervisor.reopened == ["slack"]
+        assert dead.calls == ["a"]

@@ -1,32 +1,34 @@
-"""Tests for WebOAuthClientProvider.initiate_authorization.
+"""Tests for WebOAuthClientProvider (MCP SDK v2 / httpx2).
 
-The provider replaces the old "call a dummy tool to provoke a 401" probe: it
-discovers OAuth metadata explicitly (RFC 9728 PRM + RFC 8414/OIDC AS metadata),
-applies the discovered scopes, and raises OAuthAuthorizationRequired with the
-authorize URL — all on the plain request stack (no MCP session / task group).
+`initiate_authorization` sends one unauthenticated probe and lets the SDK's own
+`async_auth_flow` drive discovery (RFC 9728 PRM + RFC 8414/OIDC AS metadata),
+scope selection and dynamic registration; our
+`_perform_authorization_code_grant` override then raises
+OAuthAuthorizationRequired with the authorize URL — all on the plain request
+stack (no MCP session / task group). These tests run the real SDK flow against
+an httpx2 MockTransport serving the discovery endpoints.
 """
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+import json
 from urllib.parse import parse_qs, urlparse
 
-import httpx
+import httpx2
 import pytest
 from mcp.shared.auth import (
     OAuthClientInformationFull,
     OAuthMetadata,
     OAuthToken,
-    ProtectedResourceMetadata,
 )
 
-from app.mcp.client import auth as auth_module
 from app.mcp.client.auth import WebOAuthClientProvider, build_oauth_client_metadata
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
 
 
 BIGQUERY_URL = "https://bigquery.googleapis.com/mcp"
 GOOGLE_AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_ISSUER = "https://accounts.google.com/"
 
 
 class _FakeStorage:
@@ -37,6 +39,9 @@ class _FakeStorage:
 
     async def get_tokens(self):
         return None
+
+    async def set_tokens(self, tokens):
+        self.tokens = tokens
 
     async def get_client_info(self):
         return self.client_info
@@ -64,34 +69,79 @@ def _make_provider() -> WebOAuthClientProvider:
     )
 
 
-def _asm() -> OAuthMetadata:
-    return OAuthMetadata(
-        issuer="https://accounts.google.com/",
-        authorization_endpoint=GOOGLE_AUTH_ENDPOINT,
-        token_endpoint="https://oauth2.googleapis.com/token",
-    )
+def _serve(monkeypatch, routes):
+    """Route every httpx2.AsyncClient request through a MockTransport.
+
+    `routes` maps "METHOD https://host/path" (no query) to either a dict
+    (returned as JSON 200) or an httpx2.Response.
+    """
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        key = f"{request.method} {str(request.url).split('?')[0]}"
+        result = routes.get(key)
+        if result is None:
+            return httpx2.Response(404)
+        if callable(result):
+            result = result(request)
+        if isinstance(result, httpx2.Response):
+            return result
+        return httpx2.Response(200, json=result)
+
+    transport = httpx2.MockTransport(handler)
+    real_client = httpx2.AsyncClient
+
+    def factory(**kwargs):
+        kwargs["transport"] = transport
+        return real_client(**kwargs)
+
+    monkeypatch.setattr(httpx2, "AsyncClient", factory)
 
 
-def _patch_discovery(monkeypatch, prm, asm_result):
-    """Stub the network: send() returns a sentinel, and the SDK parse helpers
-    return the canned PRM / AS-metadata regardless of the response."""
-    monkeypatch.setattr(httpx.AsyncClient, "send", AsyncMock(return_value=object()))
-    monkeypatch.setattr(
-        auth_module, "handle_protected_resource_response", AsyncMock(return_value=prm)
-    )
-    monkeypatch.setattr(
-        auth_module, "handle_auth_metadata_response", AsyncMock(return_value=asm_result)
-    )
+def _google_prm(scopes) -> dict:
+    return {
+        "resource": BIGQUERY_URL,
+        "authorization_servers": [GOOGLE_ISSUER],
+        "scopes_supported": scopes,
+    }
+
+
+def _google_asm() -> dict:
+    return {
+        "issuer": GOOGLE_ISSUER,
+        "authorization_endpoint": GOOGLE_AUTH_ENDPOINT,
+        "token_endpoint": "https://oauth2.googleapis.com/token",
+        "response_types_supported": ["code"],
+    }
+
+
+def _probe_must_not_be_sent(request: httpx2.Request) -> httpx2.Response:
+    """The probe is answered with a synthetic 401 and must never hit the wire.
+
+    Regression guard for the BigQuery case: the server returns 200 to an
+    unauthenticated initialize, so a real probe would see no challenge and the
+    flow would never start.
+    """
+    raise AssertionError(f"probe request must not be sent: {request.url}")
+
+
+_PROBE = f"POST {BIGQUERY_URL}"
+_PRM_PATH = (
+    "GET https://bigquery.googleapis.com/.well-known/oauth-protected-resource/mcp"
+)
+_ASM_ROOT = f"GET {GOOGLE_ISSUER.rstrip('/')}/.well-known/oauth-authorization-server"
 
 
 async def test_uses_scopes_discovered_from_prm(monkeypatch):
     # The scope advertised by the PRM must end up in the authorize URL.
-    prm = ProtectedResourceMetadata(
-        resource=BIGQUERY_URL,
-        authorization_servers=["https://accounts.google.com"],
-        scopes_supported=["https://www.googleapis.com/auth/bigquery.readonly"],
+    scope = "https://www.googleapis.com/auth/bigquery.readonly"
+    _serve(
+        monkeypatch,
+        {
+            _PROBE: _probe_must_not_be_sent,
+            _PRM_PATH: _google_prm([scope]),
+            _ASM_ROOT: _google_asm(),
+        },
     )
-    _patch_discovery(monkeypatch, prm, (True, _asm()))
 
     provider = _make_provider()
     with pytest.raises(OAuthAuthorizationRequired) as exc_info:
@@ -107,9 +157,9 @@ async def test_uses_scopes_discovered_from_prm(monkeypatch):
 
     # Authorize endpoint comes from discovered AS metadata, not server_url/authorize.
     assert f"{parsed.scheme}://{parsed.netloc}{parsed.path}" == GOOGLE_AUTH_ENDPOINT
-    # Discovery overrides the hardcoded scope.
-    assert query["scope"] == ["https://www.googleapis.com/auth/bigquery.readonly"]
-    # RFC 8707 resource param fires because PRM is present (C.3).
+    # Discovery sets the scope.
+    assert query["scope"] == [scope]
+    # RFC 8707 resource param fires because PRM is present.
     assert query["resource"] == [BIGQUERY_URL]
     # PKCE + Google offline-consent params.
     assert query["code_challenge_method"] == ["S256"]
@@ -120,14 +170,16 @@ async def test_uses_scopes_discovered_from_prm(monkeypatch):
 
 
 async def test_omits_scope_param_when_prm_has_no_scopes(monkeypatch):
-    # No hardcoded fallback anymore: if the PRM advertises no scopes (and there
-    # is no WWW-Authenticate scope), the authorize request omits scope entirely.
-    prm = ProtectedResourceMetadata(
-        resource=BIGQUERY_URL,
-        authorization_servers=["https://accounts.google.com"],
-        scopes_supported=None,
+    # If the PRM advertises no scopes (and there is no WWW-Authenticate scope),
+    # the authorize request omits scope entirely.
+    _serve(
+        monkeypatch,
+        {
+            _PROBE: _probe_must_not_be_sent,
+            _PRM_PATH: _google_prm(None),
+            _ASM_ROOT: _google_asm(),
+        },
     )
-    _patch_discovery(monkeypatch, prm, (True, _asm()))
 
     with pytest.raises(OAuthAuthorizationRequired) as exc_info:
         await _make_provider().initiate_authorization()
@@ -136,23 +188,29 @@ async def test_omits_scope_param_when_prm_has_no_scopes(monkeypatch):
     assert "scope" not in query
 
 
-async def test_no_attribute_error_when_as_metadata_discovery_fails(monkeypatch):
+async def test_authorize_url_falls_back_when_as_metadata_missing(monkeypatch):
     # AS metadata discovery yields nothing -> context.oauth_metadata stays None.
-    # The hardened issuer guard must not raise AttributeError.
-    prm = ProtectedResourceMetadata(
-        resource=BIGQUERY_URL,
-        authorization_servers=["https://accounts.google.com"],
-        scopes_supported=["https://www.googleapis.com/auth/bigquery"],
+    # The authorize URL falls back to {base}/authorize; Google-specific params
+    # are skipped; the RFC 8707 resource param still fires (PRM present).
+    _serve(
+        monkeypatch,
+        {
+            _PROBE: _probe_must_not_be_sent,
+            _PRM_PATH: _google_prm(["https://www.googleapis.com/auth/bigquery"]),
+            # every ASM URL 404s
+        },
     )
-    _patch_discovery(monkeypatch, prm, (False, None))
 
     with pytest.raises(OAuthAuthorizationRequired) as exc_info:
         await _make_provider().initiate_authorization()
 
-    query = parse_qs(urlparse(exc_info.value.url).query)
-    # With no AS metadata, Google-specific params are skipped (guard short-circuits).
+    parsed = urlparse(exc_info.value.url)
+    query = parse_qs(parsed.query)
+    assert (
+        f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        == "https://bigquery.googleapis.com/authorize"
+    )
     assert "access_type" not in query
-    # resource param still present (PRM available).
     assert query["resource"] == [BIGQUERY_URL]
 
 
@@ -160,27 +218,32 @@ async def test_dynamic_client_registration_when_no_static_creds(monkeypatch):
     # A server with no pre-registered credentials (e.g. Notion) must register
     # dynamically (RFC 7591) before the authorize URL can be built.
     notion_url = "https://mcp.notion.com/mcp"
-    prm = ProtectedResourceMetadata(
-        resource=notion_url,
-        authorization_servers=["https://mcp.notion.com"],
-        scopes_supported=None,
-    )
-    asm = OAuthMetadata(
-        issuer="https://mcp.notion.com/",
-        authorization_endpoint="https://mcp.notion.com/authorize",
-        token_endpoint="https://mcp.notion.com/token",
-        registration_endpoint="https://mcp.notion.com/register",
-    )
-    _patch_discovery(monkeypatch, prm, (True, asm))
-    monkeypatch.setattr(
-        auth_module,
-        "handle_registration_response",
-        AsyncMock(
-            return_value=OAuthClientInformationFull(
-                client_id="dcr-client-id",
-                redirect_uris=["https://app.example/cb"],
-            )
-        ),
+    notion_issuer = "https://mcp.notion.com/"
+    _serve(
+        monkeypatch,
+        {
+            f"POST {notion_url}": _probe_must_not_be_sent,
+            "GET https://mcp.notion.com/.well-known/oauth-protected-resource/mcp": {
+                "resource": notion_url,
+                "authorization_servers": [notion_issuer],
+            },
+            "GET https://mcp.notion.com/.well-known/oauth-authorization-server": {
+                "issuer": notion_issuer,
+                "authorization_endpoint": "https://mcp.notion.com/authorize",
+                "token_endpoint": "https://mcp.notion.com/token",
+                "registration_endpoint": "https://mcp.notion.com/register",
+                "response_types_supported": ["code"],
+            },
+            "POST https://mcp.notion.com/register": httpx2.Response(
+                201,
+                json={
+                    "client_id": "dcr-client-id",
+                    "client_secret": "dcr-secret",
+                    "token_endpoint_auth_method": "client_secret_post",
+                    "redirect_uris": ["https://app.example/cb"],
+                },
+            ),
+        },
     )
 
     # No client_id/secret -> forces dynamic registration.
@@ -201,55 +264,96 @@ async def test_dynamic_client_registration_when_no_static_creds(monkeypatch):
     assert "scope" not in query
 
 
-async def test_as_metadata_discovery_falls_back_to_path_aware_urls(monkeypatch):
-    # TikTok publishes no RFC 9728 PRM (every PRM URL 404s) and hosts its AS
-    # metadata at {server_path}/.well-known/openid-configuration. With PRM
-    # discovery yielding no authorization server, the AS-metadata step must
-    # still probe the path-aware OIDC suffix URL — not only the origin root —
-    # otherwise oauth_metadata stays None and registration crashes / fails.
-    tiktok_url = "https://business-api.tiktok.com/open_mcp/tt-ads-mcp-layer/oauth"
+TIKTOK_URL = "https://business-api.tiktok.com/open_mcp/tt-ads-mcp-layer/oauth"
+TIKTOK_BASE = "https://business-api.tiktok.com"
 
-    probed: list[str] = []
-    orig_request = auth_module.create_oauth_metadata_request
 
-    def _record(url):
-        probed.append(url)
-        return orig_request(url)
-
-    monkeypatch.setattr(auth_module, "create_oauth_metadata_request", _record)
-    monkeypatch.setattr(httpx.AsyncClient, "send", AsyncMock(return_value=object()))
-    # No PRM anywhere -> auth_server_url stays None.
-    monkeypatch.setattr(
-        auth_module, "handle_protected_resource_response", AsyncMock(return_value=None)
+def _tiktok_register_handler(request: httpx2.Request) -> httpx2.Response:
+    """Registers public clients only: rejects client_secret_post like TikTok."""
+    body = json.loads(request.content.decode())
+    if body.get("token_endpoint_auth_method") != "none":
+        return httpx2.Response(400, json={"error": "invalid_client_metadata"})
+    return httpx2.Response(
+        201,
+        json={
+            "client_id": "tiktok-public",
+            "token_endpoint_auth_method": "none",
+            "redirect_uris": ["https://app.example/cb"],
+        },
     )
-    # We only assert which URLs get probed, so no AS metadata is "found".
-    monkeypatch.setattr(
-        auth_module,
-        "handle_auth_metadata_response",
-        AsyncMock(return_value=(True, None)),
-    )
-    monkeypatch.setattr(
-        auth_module,
-        "handle_registration_response",
-        AsyncMock(
-            return_value=OAuthClientInformationFull(
-                client_id="dcr-client-id",
-                redirect_uris=["https://app.example/cb"],
-            )
-        ),
+
+
+async def test_recovery_uses_path_aware_as_metadata_and_public_dcr(monkeypatch):
+    # TikTok publishes no RFC 9728 PRM, hosts its AS metadata at
+    # {server_path}/.well-known/openid-configuration (which the SDK's root-only
+    # fallback misses), and only registers public clients. The first probe's
+    # registration fails; _recover_registration_context must find the metadata
+    # path-aware, negotiate "none", and the retry must succeed.
+    _serve(
+        monkeypatch,
+        {
+            f"POST {TIKTOK_URL}": _probe_must_not_be_sent,
+            # no PRM, no root ASM (404 everywhere)
+            f"GET {TIKTOK_URL}/.well-known/openid-configuration": {
+                "issuer": f"{TIKTOK_URL}/",
+                "authorization_endpoint": f"{TIKTOK_URL}/authorize",
+                "token_endpoint": f"{TIKTOK_URL}/token",
+                "registration_endpoint": f"{TIKTOK_BASE}/register",
+                "token_endpoint_auth_methods_supported": ["none"],
+                "response_types_supported": ["code"],
+            },
+            f"POST {TIKTOK_BASE}/register": _tiktok_register_handler,
+        },
     )
 
     provider = WebOAuthClientProvider(
-        server_url=tiktok_url,
+        server_url=TIKTOK_URL,
+        client_metadata=build_oauth_client_metadata(),
+        storage=_FakeStorage(),
+    )
+    with pytest.raises(OAuthAuthorizationRequired) as exc_info:
+        await provider.initiate_authorization()
+
+    assert provider.context.storage.client_info.client_id == "tiktok-public"
+    query = parse_qs(urlparse(exc_info.value.url).query)
+    assert query["client_id"] == ["tiktok-public"]
+
+
+async def test_dcr_retries_as_public_client_for_none_only_server(monkeypatch):
+    # Discovery works normally, but the server only registers public clients:
+    # the first DCR (client_secret_post) is rejected, negotiation switches to
+    # "none", and the retry registers successfully.
+    _serve(
+        monkeypatch,
+        {
+            f"POST {TIKTOK_URL}": _probe_must_not_be_sent,
+            f"GET {TIKTOK_BASE}/.well-known/oauth-protected-resource/open_mcp/tt-ads-mcp-layer/oauth": {
+                "resource": TIKTOK_URL,
+                "authorization_servers": [f"{TIKTOK_URL}/"],
+                "scopes_supported": ["mcp:tt4b"],
+            },
+            f"GET {TIKTOK_BASE}/.well-known/oauth-authorization-server/open_mcp/tt-ads-mcp-layer/oauth": {
+                "issuer": f"{TIKTOK_URL}/",
+                "authorization_endpoint": f"{TIKTOK_URL}/authorize",
+                "token_endpoint": f"{TIKTOK_URL}/token",
+                "registration_endpoint": f"{TIKTOK_BASE}/register",
+                "token_endpoint_auth_methods_supported": ["none"],
+                "response_types_supported": ["code"],
+            },
+            f"POST {TIKTOK_BASE}/register": _tiktok_register_handler,
+        },
+    )
+
+    provider = WebOAuthClientProvider(
+        server_url=TIKTOK_URL,
         client_metadata=build_oauth_client_metadata(),
         storage=_FakeStorage(),
     )
     with pytest.raises(OAuthAuthorizationRequired):
         await provider.initiate_authorization()
 
-    # The path-aware OIDC suffix (where TikTok actually serves its metadata) was
-    # probed, in addition to the origin-root URL the SDK helper generates alone.
-    assert f"{tiktok_url}/.well-known/openid-configuration" in probed
+    assert provider.context.storage.client_info.client_id == "tiktok-public"
+    assert provider.context.client_metadata.token_endpoint_auth_method == "none"
 
 
 # ---------------------------------------------------------------------------
@@ -345,42 +449,6 @@ def test_negotiate_raises_when_no_performable_method():
         provider._negotiate_registration_auth_method()
 
 
-async def test_dcr_registers_public_client_for_none_only_server(monkeypatch):
-    # End-to-end: the metadata actually sent to the registration endpoint must
-    # carry "none" for a public-only server, not our client_secret_post default.
-    prm = ProtectedResourceMetadata(
-        resource=TIKTOK_URL,
-        authorization_servers=[TIKTOK_URL],
-        scopes_supported=["mcp:tt4b"],
-    )
-    _patch_discovery(monkeypatch, prm, (True, _asm_with_methods(["none"])))
-
-    captured: dict[str, str | None] = {}
-
-    def _capture(oauth_metadata, client_metadata, base_url):
-        captured["auth_method"] = client_metadata.token_endpoint_auth_method
-        return object()  # send() is stubbed and ignores this
-
-    monkeypatch.setattr(auth_module, "create_client_registration_request", _capture)
-    monkeypatch.setattr(
-        auth_module,
-        "handle_registration_response",
-        AsyncMock(
-            return_value=OAuthClientInformationFull(
-                client_id="tiktok-public",
-                redirect_uris=["https://app.example/cb"],
-                token_endpoint_auth_method="none",
-            )
-        ),
-    )
-
-    provider = _provider_no_creds()
-    with pytest.raises(OAuthAuthorizationRequired):
-        await provider.initiate_authorization()
-
-    assert captured["auth_method"] == "none"
-
-
 # ---------------------------------------------------------------------------
 # Token requests for client_secret_basic registrations
 #
@@ -390,6 +458,14 @@ async def test_dcr_registers_public_client_for_none_only_server(monkeypatch):
 # methods. The provider strips it so registrations stored as
 # client_secret_basic keep working without re-registration.
 # ---------------------------------------------------------------------------
+
+
+def _asm() -> OAuthMetadata:
+    return OAuthMetadata(
+        issuer=GOOGLE_ISSUER,
+        authorization_endpoint=GOOGLE_AUTH_ENDPOINT,
+        token_endpoint="https://oauth2.googleapis.com/token",
+    )
 
 
 def _provider_with_client_info(auth_method: str) -> WebOAuthClientProvider:
@@ -443,3 +519,25 @@ async def test_refresh_request_for_basic_omits_client_id_in_body():
     assert "client_id" not in body
     assert body["refresh_token"] == ["rt"]
     assert body["grant_type"] == ["refresh_token"]
+
+
+# ---------------------------------------------------------------------------
+# SEP-2468 issuer validation shim (upstream: modelcontextprotocol/python-sdk#3013)
+# ---------------------------------------------------------------------------
+
+
+def test_issuer_validation_tolerates_trailing_slash_only():
+    # Google: PRM authorization_servers normalizes to ".../", ASM issuer has no
+    # trailing slash. The shim must accept that and still reject real mismatches.
+    import mcp.client.auth.oauth2 as sdk_oauth2
+    from mcp.client.auth import OAuthFlowError as SDKOAuthFlowError
+
+    asm = OAuthMetadata(
+        issuer="https://accounts.google.com",
+        authorization_endpoint=GOOGLE_AUTH_ENDPOINT,
+        token_endpoint="https://oauth2.googleapis.com/token",
+    )
+    sdk_oauth2.validate_metadata_issuer(asm, "https://accounts.google.com/")
+    sdk_oauth2.validate_metadata_issuer(asm, "https://accounts.google.com")
+    with pytest.raises(SDKOAuthFlowError):
+        sdk_oauth2.validate_metadata_issuer(asm, "https://evil.example.com/")

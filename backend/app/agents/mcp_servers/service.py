@@ -14,6 +14,7 @@ from app.agents.schemas import (
 from app.database import get_db
 from app.exceptions import NotFoundError
 from app.mcp.client.connectivity import connect_to_server, is_authorized
+from app.mcp.client.langchain_tools import list_all_mcp_tools
 from app.mcp.servers.models import MCPAuthType, MCPServerDB
 from app.mcp.servers.repository import MCPServerRepository
 from app.service import BaseService
@@ -42,7 +43,8 @@ class AgentMCPServerService(BaseService[AgentMCPServerDB, AgentMCPServerReposito
         user_id: str,
     ) -> None:
         try:
-            async with connect_to_server(mcp_server, user_id, self.db) as (_, tools):
+            async with connect_to_server(mcp_server, user_id, self.db) as client:
+                tools = await list_all_mcp_tools(client)
                 db_link.tools = {tool.name: "always_allow" for tool in tools}
                 self.db.add(db_link)
                 await self.db.flush()

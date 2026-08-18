@@ -18,8 +18,7 @@ def _config(auth_type, id="s1", url="https://mcp.example.com"):
 async def test_no_auth():
     factory = MCPClientConfigFactory(db=MagicMock(), user_id="u1")
     result = await factory.build(_config(MCPAuthType.none))
-    assert result["transport"] == "http"
-    assert result["url"] == "https://mcp.example.com"
+    assert result == {"url": "https://mcp.example.com"}
 
 
 @pytest.mark.asyncio
