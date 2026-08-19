@@ -6,7 +6,7 @@ Instead of self-hosting OpenSandbox, you can run agent code on [Google Cloud Run
 SANDBOX_PROVIDER=cloudrun
 ```
 
-The backend never talks to Cloud Run directly. All sandbox traffic goes through a small dedicated Cloud Run service — the **sandbox gateway** (`sandbox-gateway/` at the repo root) — which is the only deployment that runs Google's `sandbox` CLI. Your backend and worker can run anywhere (another cloud, a VM, even a laptop) and need no special launcher.
+The backend never talks to Cloud Run directly. All sandbox traffic goes through a small dedicated Cloud Run service — the **sandbox gateway** — which is the only deployment that runs Google's `sandbox` CLI. Your backend and worker can run anywhere (another cloud, a VM, even a laptop) and need no special launcher.
 
 ```
 ┌──────────────────┐   HTTPS + bearer secret   ┌────────────────────────┐
@@ -24,7 +24,7 @@ The backend never talks to Cloud Run directly. All sandbox traffic goes through 
 
 ## 1. Deploy the gateway
 
-From `sandbox-gateway/` in the repo:
+From the gateway service's directory (a FastAPI app exposing the `sandbox` CLI over HTTP, plus the Dockerfile that defines the sandbox runtime):
 
 ```bash
 gcloud beta run deploy sandbox-gateway \
