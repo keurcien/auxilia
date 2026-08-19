@@ -21,8 +21,10 @@ from __future__ import annotations
 import base64
 import os
 import re
+import secrets
 import subprocess
 import tempfile
+import threading
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
@@ -48,13 +50,19 @@ _CLI_TIMEOUT = 120
 # command timeout and treats `timed_out` as exit code 124.
 MAX_EXEC_TIMEOUT = 60 * 60
 
+# Per-stream cap on captured exec output; anything past it is drained and
+# discarded so a runaway command (`yes`) can't exhaust gateway memory.
+MAX_STREAM_BYTES = 2 * 1024 * 1024
+_TRUNCATION_NOTICE = b"\n[output truncated by gateway]\n"
+
 app = FastAPI(title="auxilia sandbox gateway", docs_url=None, redoc_url=None)
 
 
 def verify_secret(authorization: str | None = Header(default=None)) -> None:
     if not SECRET:
         raise HTTPException(status_code=503, detail="Gateway secret not configured")
-    if authorization != f"Bearer {SECRET}":
+    expected = f"Bearer {SECRET}".encode()
+    if not secrets.compare_digest((authorization or "").encode(), expected):
         raise HTTPException(status_code=401, detail="Invalid or missing bearer token")
 
 
@@ -79,6 +87,23 @@ class ExecResponse(BaseModel):
     stderr_b64: str
     exit_code: int | None
     timed_out: bool = False
+    truncated: bool = False
+
+
+def _run_cli(argv: list[str], *, describe: str) -> subprocess.CompletedProcess:
+    """Run a control-plane CLI call; a stalled CLI maps to 504, not a bare 500."""
+    try:
+        return subprocess.run(
+            argv,
+            capture_output=True,
+            text=True,
+            timeout=_CLI_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(
+            status_code=504,
+            detail=f"{describe} timed out after {_CLI_TIMEOUT}s",
+        ) from None
 
 
 def _launch(sandbox_id: str, *, allow_egress: bool, import_tar: bytes | None) -> None:
@@ -88,12 +113,7 @@ def _launch(sandbox_id: str, *, allow_egress: bool, import_tar: bytes | None) ->
         cmd.append("--allow-egress")
 
     def run_launch(extra: list[str]) -> None:
-        result = subprocess.run(
-            [*cmd, *extra],
-            capture_output=True,
-            text=True,
-            timeout=_CLI_TIMEOUT,
-        )
+        result = _run_cli([*cmd, *extra], describe=f"sandbox launch for {sandbox_id}")
         if result.returncode != 0:
             raise HTTPException(
                 status_code=502,
@@ -147,35 +167,76 @@ async def restore_sandbox(
     return {"sandbox_id": sandbox_id}
 
 
+def _read_capped(stream, cap: int) -> tuple[bytes, bool]:
+    """Read a pipe to EOF, keeping at most `cap` bytes and discarding the rest —
+    the pipe must be drained even past the cap or the child blocks on write."""
+    chunks: list[bytes] = []
+    total = 0
+    truncated = False
+    while chunk := stream.read(65536):
+        if total < cap:
+            keep = chunk[: cap - total]
+            chunks.append(keep)
+            total += len(keep)
+            truncated = truncated or len(keep) < len(chunk)
+        else:
+            truncated = True
+    return b"".join(chunks), truncated
+
+
 @app.post("/sandboxes/{sandbox_id}/exec", dependencies=[Depends(verify_secret)])
 def exec_in_sandbox(
     request: ExecRequest, sandbox_id: str = Depends(valid_sandbox_id)
 ) -> ExecResponse:
-    try:
-        result = subprocess.run(
-            [CLI, "exec", sandbox_id, "--", *request.argv],
-            capture_output=True,
-            timeout=request.timeout,
+    proc = subprocess.Popen(
+        [CLI, "exec", sandbox_id, "--", *request.argv],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    captured: dict[str, tuple[bytes, bool]] = {}
+    readers = [
+        threading.Thread(
+            target=lambda n=name, s=stream: captured.__setitem__(
+                n, _read_capped(s, MAX_STREAM_BYTES)
+            )
         )
+        for name, stream in (("stdout", proc.stdout), ("stderr", proc.stderr))
+    ]
+    for reader in readers:
+        reader.start()
+    try:
+        proc.wait(timeout=request.timeout)
+        timed_out = False
     except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+        timed_out = True
+    for reader in readers:
+        reader.join()
+    if timed_out:
         return ExecResponse(
             stdout_b64="", stderr_b64="", exit_code=None, timed_out=True
         )
+    stdout, stdout_truncated = captured["stdout"]
+    stderr, stderr_truncated = captured["stderr"]
+    if stdout_truncated:
+        stdout += _TRUNCATION_NOTICE
+    if stderr_truncated:
+        stderr += _TRUNCATION_NOTICE
     return ExecResponse(
-        stdout_b64=base64.b64encode(result.stdout).decode("ascii"),
-        stderr_b64=base64.b64encode(result.stderr).decode("ascii"),
-        exit_code=result.returncode,
+        stdout_b64=base64.b64encode(stdout).decode("ascii"),
+        stderr_b64=base64.b64encode(stderr).decode("ascii"),
+        exit_code=proc.returncode,
+        truncated=stdout_truncated or stderr_truncated,
     )
 
 
 @app.get("/sandboxes/{sandbox_id}/tar", dependencies=[Depends(verify_secret)])
 def export_sandbox_tar(sandbox_id: str = Depends(valid_sandbox_id)) -> Response:
     with tempfile.NamedTemporaryFile(suffix=".tar") as tmp:
-        result = subprocess.run(
+        result = _run_cli(
             [CLI, "tar", sandbox_id, f"--file={tmp.name}"],
-            capture_output=True,
-            text=True,
-            timeout=_CLI_TIMEOUT,
+            describe=f"sandbox tar for {sandbox_id}",
         )
         if result.returncode != 0:
             raise HTTPException(
@@ -190,9 +251,17 @@ def export_sandbox_tar(sandbox_id: str = Depends(valid_sandbox_id)) -> Response:
     "/sandboxes/{sandbox_id}", status_code=204, dependencies=[Depends(verify_secret)]
 )
 def delete_sandbox(sandbox_id: str = Depends(valid_sandbox_id)) -> Response:
-    subprocess.run(
+    result = _run_cli(
         [CLI, "delete", sandbox_id, "--force"],
-        capture_output=True,
-        timeout=_CLI_TIMEOUT,
+        describe=f"sandbox delete for {sandbox_id}",
     )
+    if result.returncode != 0:
+        # Idempotent: deleting a sandbox that's already gone is a success.
+        error = (result.stderr or result.stdout or "").lower()
+        if not any(m in error for m in ("not found", "no such", "does not exist")):
+            raise HTTPException(
+                status_code=502,
+                detail=f"sandbox delete failed for {sandbox_id}: "
+                f"{result.stderr or result.stdout}",
+            )
     return Response(status_code=204)

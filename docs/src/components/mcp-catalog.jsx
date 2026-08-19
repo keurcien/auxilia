@@ -12,7 +12,12 @@ const BADGES = {
 };
 
 function AuthBadge({ authType }) {
-	const badge = BADGES[authType] ?? BADGES.none;
+	// An auth type this component doesn't know is not "no auth" — label it
+	// honestly rather than presenting the server as openly accessible.
+	const badge = BADGES[authType] ?? {
+		label: "UNKNOWN",
+		className: "pm-badge-neutral",
+	};
 	return (
 		<span className={`pm-catalog-badge ${badge.className}`}>{badge.label}</span>
 	);
@@ -105,7 +110,9 @@ export function MCPCatalog() {
 				/>
 				{servers && (
 					<span className="pm-catalog-count">
-						{servers.length} server{servers.length === 1 ? "" : "s"}
+						{query.trim()
+							? `${filtered.length} of ${servers.length} servers`
+							: `${servers.length} server${servers.length === 1 ? "" : "s"}`}
 					</span>
 				)}
 			</div>

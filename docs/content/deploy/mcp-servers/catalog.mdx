@@ -29,7 +29,7 @@ Deployments control it with one variable:
 # MCP_CATALOG_URL=
 ```
 
-Because the Redis cache is long-lived (7 days), edits to the file propagate when a workspace admin triggers a sync (`POST /mcp-servers/official/sync`), which force-fetches, validates the file all-or-nothing, and returns the diff.
+Because the Redis cache is long-lived (7 days), edits to the file propagate when a workspace admin triggers a sync (`POST /mcp-servers/catalog/sync`), which force-fetches, validates the file all-or-nothing, and returns the diff.
 
 ## Entry format
 

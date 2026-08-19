@@ -15,14 +15,16 @@ export async function GET() {
 			throw new Error(`catalog fetch failed: ${res.status}`);
 		}
 		const doc = parse(await res.text());
+		// Normalize every field to the type the component renders and filters
+		// on — a hand-edited catalog entry must never crash the page.
 		const servers = (Array.isArray(doc?.servers) ? doc.servers : [])
 			.filter((s) => s && typeof s.name === "string" && typeof s.url === "string")
 			.map((s) => ({
 				name: s.name,
 				url: s.url,
-				authType: s.auth_type ?? "none",
-				iconUrl: s.icon_url ?? null,
-				description: s.description ?? null,
+				authType: typeof s.auth_type === "string" ? s.auth_type : "none",
+				iconUrl: typeof s.icon_url === "string" ? s.icon_url : null,
+				description: typeof s.description === "string" ? s.description : null,
 			}));
 		if (servers.length === 0) {
 			throw new Error("catalog is empty");

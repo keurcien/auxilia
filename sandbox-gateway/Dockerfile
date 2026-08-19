@@ -16,4 +16,9 @@ RUN pip install --no-cache-dir \
 WORKDIR /srv
 COPY main.py .
 
+# The gateway is internet-reachable; run it unprivileged. The platform-mounted
+# sandbox CLI (/usr/local/gcp/bin/sandbox) does not require root.
+RUN useradd --create-home --uid 1000 gateway
+USER gateway
+
 CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}"]

@@ -41,7 +41,7 @@ With OpenSandbox, the wiring looks like this:
                                                   └──────────────────────┘
 ```
 
-The sandbox is **lazy**: it is not created when an agent starts. The LLM decides when (and whether) to call `create_sandbox`, and only then does a container come up. A default OpenSandbox container has a **30-minute TTL** that can be renewed via `connect_sandbox`; Cloud Run sandboxes have no TTL and instead persist between turns via GCS snapshots.
+The sandbox is **lazy**: it is not created when an agent starts. The LLM decides when (and whether) to call `create_sandbox`, and only then does a container come up. A default OpenSandbox container has a **30-minute TTL** that can be renewed via `connect_sandbox`; Cloud Run sandboxes have no TTL; they live inside one gateway instance and persist across instance recycles only when a snapshot bucket (`CLOUD_RUN_SANDBOX_GCS_BUCKET`) is configured — without one, a recycled instance means a lost sandbox.
 
 Inside a conversation, the agent can create one sandbox, keep reusing it across turns, and reconnect to it after a browser refresh.
 

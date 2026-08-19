@@ -13,6 +13,7 @@ gcloud beta run deploy sandbox-gateway \
   --source . \
   --region <region> \
   --sandbox-launcher \
+  --timeout=3600 \
   --no-allow-unauthenticated=false \
   --set-env-vars CLOUD_RUN_SANDBOX_GATEWAY_SECRET=$(openssl rand -hex 32)
 ```
@@ -20,6 +21,7 @@ gcloud beta run deploy sandbox-gateway \
 Notes:
 
 - `--sandbox-launcher` (gen2) is required — it mounts the `sandbox` CLI at `/usr/local/gcp/bin/sandbox`. Check `GET /health` → `cli_mounted: true` after deploying.
+- `--timeout=3600` raises Cloud Run's request deadline (default 300s) to the gateway's max exec timeout — without it, long-running commands are cut off by the platform before the gateway can report `timed_out`.
 - The service is public at the Cloud Run layer and protected by the bearer secret; it fails closed (503) if the secret is unset.
 - Set `ALLOW_EGRESS=true` on the service to let sandboxes get outbound network access (needed for in-sandbox `pip install`). Off by default.
 - Stateful sandboxes live inside one instance. Either run with `--max-instances 1` and session affinity, or rely on the backend's GCS snapshot restore (`CLOUD_RUN_SANDBOX_GCS_BUCKET`) for cross-instance continuity.
@@ -38,8 +40,9 @@ All endpoints except `/health` require `Authorization: Bearer <secret>`.
 
 | Endpoint | Purpose |
 | --- | --- |
-| `POST /sandboxes` | Launch a detached named sandbox (`{sandbox_id, allow_egress, import_tar_b64?}`) |
-| `POST /sandboxes/{id}/exec` | Run argv in the sandbox → `{stdout_b64, stderr_b64, exit_code, timed_out}` |
+| `POST /sandboxes` | Launch a detached named sandbox (`{sandbox_id, allow_egress}`) |
+| `POST /sandboxes/{id}/restore` | Launch a sandbox seeded with a snapshot (raw tar body, `?allow_egress=`) |
+| `POST /sandboxes/{id}/exec` | Run argv in the sandbox → `{stdout_b64, stderr_b64, exit_code, timed_out, truncated}` |
 | `GET /sandboxes/{id}/tar` | Export the writable overlay as a tar (binary) |
 | `DELETE /sandboxes/{id}` | Delete the sandbox |
 | `GET /health` | `{cli_mounted, allow_egress}` |

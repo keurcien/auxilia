@@ -4,6 +4,7 @@ Run from this directory: pip install fastapi httpx pytest && pytest
 """
 
 import base64
+import io
 import subprocess
 from unittest.mock import MagicMock, patch
 
@@ -20,6 +21,25 @@ def completed(stdout=b"", stderr=b"", returncode=0):
     result.stderr = stderr
     result.returncode = returncode
     return result
+
+
+class FakeProc:
+    """Stand-in for the Popen the exec endpoint drives."""
+
+    def __init__(self, stdout=b"", stderr=b"", returncode=0, hangs=False):
+        self.stdout = io.BytesIO(stdout)
+        self.stderr = io.BytesIO(stderr)
+        self.returncode = returncode
+        self._hangs = hangs
+        self.killed = False
+
+    def wait(self, timeout=None):
+        if self._hangs and not self.killed:
+            raise subprocess.TimeoutExpired(cmd="sandbox", timeout=timeout)
+        return self.returncode
+
+    def kill(self):
+        self.killed = True
 
 
 @pytest.fixture
@@ -127,39 +147,53 @@ class TestLaunch:
 
 class TestExec:
     def test_exec_roundtrip(self, client):
-        with patch("main.subprocess.run") as run:
-            run.return_value = completed(stdout=b"out", stderr=b"err", returncode=3)
+        with patch("main.subprocess.Popen") as popen:
+            popen.return_value = FakeProc(stdout=b"out", stderr=b"err", returncode=3)
             response = client.post(
                 "/sandboxes/sbx-x/exec",
                 json={"argv": ["/bin/bash", "-lc", "echo hi"], "timeout": 5},
                 headers=AUTH,
             )
 
-        argv = run.call_args.args[0]
+        argv = popen.call_args.args[0]
         assert argv == [main.CLI, "exec", "sbx-x", "--", "/bin/bash", "-lc", "echo hi"]
-        assert run.call_args.kwargs["timeout"] == 5
         body = response.json()
         assert base64.b64decode(body["stdout_b64"]) == b"out"
         assert base64.b64decode(body["stderr_b64"]) == b"err"
         assert body["exit_code"] == 3
         assert body["timed_out"] is False
+        assert body["truncated"] is False
 
-    def test_exec_timeout_flag(self, client):
-        with patch("main.subprocess.run") as run:
-            run.side_effect = subprocess.TimeoutExpired(cmd="sandbox", timeout=5)
+    def test_exec_timeout_kills_process(self, client):
+        proc = FakeProc(hangs=True)
+        with patch("main.subprocess.Popen", return_value=proc):
             response = client.post(
                 "/sandboxes/sbx-x/exec", json={"argv": ["/bin/true"]}, headers=AUTH
             )
         assert response.status_code == 200
         assert response.json()["timed_out"] is True
+        assert proc.killed is True
+
+    def test_exec_output_capped(self, client):
+        oversized = b"x" * (main.MAX_STREAM_BYTES + 1000)
+        with patch("main.subprocess.Popen") as popen:
+            popen.return_value = FakeProc(stdout=oversized)
+            response = client.post(
+                "/sandboxes/sbx-x/exec", json={"argv": ["/usr/bin/yes"]}, headers=AUTH
+            )
+        body = response.json()
+        stdout = base64.b64decode(body["stdout_b64"])
+        assert body["truncated"] is True
+        assert stdout.endswith(main._TRUNCATION_NOTICE)
+        assert len(stdout) == main.MAX_STREAM_BYTES + len(main._TRUNCATION_NOTICE)
 
     def test_invalid_sandbox_id_rejected(self, client):
-        with patch("main.subprocess.run") as run:
+        with patch("main.subprocess.Popen") as popen:
             response = client.post(
                 "/sandboxes/--evil/exec", json={"argv": ["/bin/true"]}, headers=AUTH
             )
         assert response.status_code == 422
-        run.assert_not_called()
+        popen.assert_not_called()
 
 
 class TestTarAndDelete:
@@ -186,3 +220,26 @@ class TestTarAndDelete:
 
         assert response.status_code == 204
         assert run.call_args.args[0] == [main.CLI, "delete", "sbx-x", "--force"]
+
+    def test_delete_missing_sandbox_is_idempotent(self, client):
+        with patch("main.subprocess.run") as run:
+            run.return_value = completed(returncode=1)
+            run.return_value.stderr = "sandbox sbx-x not found"
+            run.return_value.stdout = ""
+            response = client.delete("/sandboxes/sbx-x", headers=AUTH)
+        assert response.status_code == 204
+
+    def test_delete_failure_maps_to_502(self, client):
+        with patch("main.subprocess.run") as run:
+            run.return_value = completed(returncode=1)
+            run.return_value.stderr = "launcher unreachable"
+            run.return_value.stdout = ""
+            response = client.delete("/sandboxes/sbx-x", headers=AUTH)
+        assert response.status_code == 502
+        assert "launcher unreachable" in response.json()["detail"]
+
+    def test_lifecycle_timeout_maps_to_504(self, client):
+        with patch("main.subprocess.run") as run:
+            run.side_effect = subprocess.TimeoutExpired(cmd="sandbox", timeout=120)
+            response = client.get("/sandboxes/sbx-x/tar", headers=AUTH)
+        assert response.status_code == 504

@@ -31,6 +31,7 @@ gcloud beta run deploy sandbox-gateway \
   --source . \
   --region <region> \
   --sandbox-launcher \
+  --timeout=3600 \
   --allow-unauthenticated \
   --set-env-vars CLOUD_RUN_SANDBOX_GATEWAY_SECRET=$(openssl rand -hex 32)
 ```
@@ -38,6 +39,7 @@ gcloud beta run deploy sandbox-gateway \
 Notes:
 
 - `--sandbox-launcher` (gen2) is required — it mounts the `sandbox` CLI into the service. Verify with `GET /health` → `{"cli_mounted": true}` after deploying.
+- `--timeout=3600` raises Cloud Run's request deadline (default 300 seconds) above the exec timeout (`CLOUD_RUN_SANDBOX_TIMEOUT`, default 1800). Without it, any command running longer than 5 minutes is cut off by the platform instead of being reported as timed out.
 - `--allow-unauthenticated` disables Cloud Run IAM on the service. This is deliberate: the backend authenticates with the shared bearer secret only (it does not mint Google ID tokens), so IAM must be open for it to connect — every endpoint except `/health` rejects requests without the secret, and the gateway **fails closed** (503) if the secret is unset. Treat the secret like a credential: generate it with high entropy (as above), store it in a secret manager, and rotate it if leaked. If your backend runs inside the same Google Cloud project, you can additionally restrict exposure with `--ingress internal` plus a VPC connector instead of leaving the URL publicly reachable.
 - Set `ALLOW_EGRESS=true` on the gateway service if sandboxes should get outbound network access (needed for in-sandbox `pip install`). Off by default.
 
