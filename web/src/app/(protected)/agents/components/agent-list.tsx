@@ -7,6 +7,7 @@ import AgentCard from "@/app/(protected)/agents/components/agent-card";
 import AgentTable from "@/app/(protected)/agents/components/agent-table";
 import type { ViewMode } from "@/components/ui/view-toggle";
 import { api } from "@/lib/api/client";
+import { useAgentsStore } from "@/stores/agents-store";
 
 type View = "available" | "all" | "archived";
 
@@ -172,23 +173,49 @@ export default function AgentList({
 	onCreateAgent,
 }: AgentListProps) {
 	const archived = view === "archived";
-	const [agents, setAgents] = useState<Agent[]>([]);
-	const [isLoading, setIsLoading] = useState(true);
+	// Live views read the shared store (already fetched by the sidebar), so
+	// visiting the page never re-requests the list. Archived agents aren't in
+	// the store; that view keeps its own fetch.
+	const storeAgents = useAgentsStore((state) => state.agents);
+	const storeReady = useAgentsStore((state) => state.isInitialized);
+	const fetchAgents = useAgentsStore((state) => state.fetchAgents);
+	const removeAgent = useAgentsStore((state) => state.removeAgent);
+	const [archivedAgents, setArchivedAgents] = useState<Agent[]>([]);
+	// Starts true and never flips back: re-entering the archived view shows the
+	// previous data while the refetch runs, like the store-backed views do.
+	const [archivedLoading, setArchivedLoading] = useState(true);
 
 	useEffect(() => {
+		if (!archived) {
+			fetchAgents().catch(console.error);
+			return;
+		}
 		api
-			.get<Agent[]>(archived ? "/agents?archived=true" : "/agents")
+			.get<Agent[]>("/agents?archived=true")
 			.then((response) => {
-				setAgents(response.data);
+				setArchivedAgents(response.data);
 			})
 			.catch(console.error)
 			.finally(() => {
-				setIsLoading(false);
+				setArchivedLoading(false);
 			});
-	}, [archived]);
+	}, [archived, fetchAgents]);
+
+	const agents = archived ? archivedAgents : storeAgents;
+	const isLoading = archived ? archivedLoading : !storeReady;
 
 	const handleRemoved = (agentId: string) => {
-		setAgents((prev) => prev.filter((a) => a.id !== agentId));
+		if (archived) {
+			setArchivedAgents((prev) => prev.filter((a) => a.id !== agentId));
+			// A restored agent belongs in the live list again; a permanent delete
+			// changes nothing there. We can't tell which happened, so refresh.
+			void useAgentsStore
+				.getState()
+				.refreshAgents()
+				.catch(() => {});
+			return;
+		}
+		removeAgent(agentId);
 	};
 
 	const matches = useMemo(() => {

@@ -6,12 +6,17 @@ interface AgentsState {
 	agents: Agent[];
 	isInitialized: boolean;
 	fetchAgents: () => Promise<void>;
+	refreshAgents: () => Promise<void>;
 	addAgent: (agent: Agent) => void;
 	updateAgent: (agentId: string, agent: Partial<Agent>) => void;
 	removeAgent: (agentId: string) => void;
 	applyTagUpdate: (tag: AgentTag) => void;
 	applyTagRemoval: (tagId: string) => void;
 }
+
+// Shared across callers so concurrent mounts (sidebar + list page) coalesce
+// into a single /agents request instead of racing before isInitialized flips.
+let inflight: Promise<void> | null = null;
 
 export const useAgentsStore = create<AgentsState>((set, get) => ({
 	agents: [],
@@ -20,15 +25,22 @@ export const useAgentsStore = create<AgentsState>((set, get) => ({
 		if (get().isInitialized) {
 			return;
 		}
-
-		try {
-			const response = await api.get("/agents");
-			set({ agents: response.data, isInitialized: true });
-		} catch (error) {
-			console.error("Error fetching agents:", error);
-			set({ isInitialized: true });
-			throw error;
-		}
+		return get().refreshAgents();
+	},
+	refreshAgents: async () => {
+		inflight ??= (async () => {
+			try {
+				const response = await api.get("/agents");
+				set({ agents: response.data, isInitialized: true });
+			} catch (error) {
+				console.error("Error fetching agents:", error);
+				set({ isInitialized: true });
+				throw error;
+			} finally {
+				inflight = null;
+			}
+		})();
+		return inflight;
 	},
 	addAgent: (agent) => { set((state) => ({ agents: [agent, ...state.agents] })); },
 	updateAgent: (agentId, agent) =>

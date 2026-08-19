@@ -281,6 +281,10 @@ export function AppSidebar() {
 											>
 												<Link
 													href={`/agents/${thread.agentId}/chat/${thread.id}`}
+													// Every visible link would otherwise fire two router
+													// prefetches on page load — dozens of requests for
+													// threads the user rarely opens.
+													prefetch={false}
 													className="flex items-center gap-1.5 px-[5px]"
 												>
 													<span className="flex w-7 shrink-0 items-center justify-center">
