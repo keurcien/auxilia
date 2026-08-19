@@ -70,6 +70,8 @@ gcloud run deploy auxilia-backend \
 
 Migrations (`alembic upgrade head`) run automatically when the container starts.
 
+**Gemini without an API key**: on Cloud Run, the backend automatically picks up the service account's [Application Default Credentials](https://cloud.google.com/docs/authentication/application-default-credentials). If `GOOGLE_API_KEY` is unset, Gemini models are served through **Vertex AI** using that identity instead — grant the service account the **Vertex AI User** role and you can skip the API key entirely. See [Environment Variables](/deploy/environment-variables#google-via-application-default-credentials).
+
 ## 5. Deploy the web
 
 ```bash
@@ -105,6 +107,10 @@ gcloud run domain-mappings create \
 ```
 
 Update `FRONTEND_URL` on the backend to the new domain.
+
+## Optional: agent code execution
+
+If you want agents to run code, Cloud Run is also the easiest place to host the sandbox runtime: deploy the `sandbox-gateway` service and set `SANDBOX_PROVIDER=cloudrun` on the backend. See [Cloud Run Sandboxes](/deploy/sandbox/cloud-run).
 
 ## Notes on Cloud Run sizing
 

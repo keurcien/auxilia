@@ -693,3 +693,208 @@ body {
   max-width: 820px;
   margin-top: 72px;
 }
+
+/* ================================================================ *
+ * Official MCP catalog (docs mirror of the app's "add server" grid)
+ * ================================================================ */
+.pm-catalog {
+  margin-top: 20px;
+}
+
+.pm-catalog-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.pm-catalog-search {
+  appearance: none;
+  width: 100%;
+  max-width: 420px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--auxilia-fg);
+  background: var(--auxilia-card);
+  border: 1px solid var(--auxilia-input);
+  border-radius: var(--auxilia-radius);
+  padding: 9px 14px;
+  transition: border-color 0.15s ease;
+}
+
+.pm-catalog-search::placeholder {
+  color: var(--auxilia-meta);
+}
+
+.pm-catalog-search:focus {
+  outline: none;
+  border-color: var(--auxilia-primary);
+  box-shadow: none;
+}
+
+.pm-catalog-count {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+  color: var(--auxilia-muted);
+  white-space: nowrap;
+}
+
+.pm-catalog-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+  margin-top: 20px;
+}
+
+@media (max-width: 720px) {
+  .pm-catalog-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pm-catalog-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--auxilia-card);
+  border: 1px solid var(--auxilia-border);
+  border-radius: 14px;
+  padding: 17px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.pm-catalog-card:hover {
+  border-color: var(--auxilia-input);
+  box-shadow: 0 6px 18px -4px rgba(10, 25, 30, 0.08);
+}
+
+.pm-catalog-card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.pm-catalog-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 2px 6px rgba(10, 25, 30, 0.14);
+}
+
+.dark .pm-catalog-icon {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.pm-catalog-icon img {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+
+.pm-catalog-id {
+  min-width: 0;
+  flex: 1;
+}
+
+.pm-catalog-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pm-catalog-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--auxilia-fg);
+}
+
+.pm-catalog-badge {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+.pm-badge-oauth {
+  background: #e7f0fa;
+  color: #2e6fa8;
+}
+
+.dark .pm-badge-oauth {
+  background: #082f49;
+  color: #7dd3fc;
+}
+
+.pm-badge-neutral {
+  background: var(--auxilia-code-bg);
+  color: var(--auxilia-muted);
+}
+
+.dark .pm-badge-neutral {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--auxilia-body);
+}
+
+.pm-catalog-url {
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  color: var(--auxilia-meta);
+}
+
+.pm-catalog-desc {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--auxilia-body);
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.pm-catalog-skeleton {
+  height: 150px;
+  border: 1px solid var(--auxilia-border);
+  border-radius: 14px;
+  background: var(--auxilia-sidebar-hover);
+  animation: pm-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pm-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.pm-catalog-empty {
+  margin-top: 20px;
+  border: 1px dashed var(--auxilia-input);
+  border-radius: 14px;
+  padding: 40px 20px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--auxilia-meta);
+}

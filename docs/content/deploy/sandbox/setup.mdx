@@ -2,6 +2,17 @@
 
 The sandbox runtime is external — **auxilia** is a client of it. You can run [OpenSandbox](https://github.com/langchain-ai/opensandbox) alongside **auxilia** or point **auxilia** at a managed OpenSandbox instance.
 
+## 0. Pick a provider
+
+`SANDBOX_PROVIDER` selects the runtime:
+
+```env
+# "opensandbox" (default) or "cloudrun"
+SANDBOX_PROVIDER=opensandbox
+```
+
+This page covers the **OpenSandbox** provider. For `cloudrun` — Google Cloud Run sandboxes reached through the dedicated sandbox gateway — follow [Cloud Run Sandboxes](/deploy/sandbox/cloud-run) instead; steps 1–3 below don't apply there.
+
 ## 1. Run OpenSandbox
 
 Follow the [OpenSandbox installation guide](https://github.com/langchain-ai/opensandbox) to run the controller. The simplest setup is a Docker container on the same host or VPC as your **auxilia** backend.
@@ -66,4 +77,4 @@ curl -H "Cookie: auth_token=..." https://your-auxilia.example.com/api/backend/sa
 # {"enabled": true}
 ```
 
-If you get `{"enabled": false}`, `OPEN_SANDBOX_DOMAIN` is not set. If the flag is `true` but `create_sandbox` fails at runtime, check the OpenSandbox controller logs.
+If you get `{"enabled": false}`, the selected provider is missing its configuration — `OPEN_SANDBOX_DOMAIN` for `opensandbox`, or `CLOUD_RUN_SANDBOX_GATEWAY_URL` + `CLOUD_RUN_SANDBOX_GATEWAY_SECRET` for `cloudrun`. If the flag is `true` but `create_sandbox` fails at runtime, check the sandbox runtime's logs (the OpenSandbox controller or the sandbox gateway service).

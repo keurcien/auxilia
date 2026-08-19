@@ -2,7 +2,7 @@
 
 Agents are most useful when they don't wait for someone to open a chat window. This tutorial shows two common ways to put them into motion automatically: automation platforms (n8n, Zapier, Make) and scheduled jobs (Google Cloud Scheduler, cron).
 
-Both use the same underlying mechanism — a simple HTTP request — so if you haven't already, skim **[Trigger agents over HTTP](/docs/tutorials/http-invoke)** first to understand the shape of the call.
+Both use the same underlying mechanism — a simple HTTP request — so if you haven't already, skim **[Trigger agents over HTTP](/tutorials/http-invoke)** first to understand the shape of the call.
 
 ## Pattern 1 — Automation workflows (n8n, Zapier, Make)
 
@@ -77,7 +77,7 @@ If the agent has the Slack MCP server bound and the right tools on **always allo
 
 - **Think about time zones** — schedulers normally run in UTC; set the zone explicitly or the 8am job fires at a surprising hour
 - **Use idempotent agents** — if the scheduler retries on failure, you don't want duplicate posts. Tell the agent to check for an existing post before creating a new one.
-- **Monitor through [Langfuse](/docs/deploy/langfuse)** — scheduled runs don't have a human watching, so observability is how you catch regressions
+- **Monitor through [Langfuse](/deploy/langfuse)** — scheduled runs don't have a human watching, so observability is how you catch regressions
 
 ## Combining both
 

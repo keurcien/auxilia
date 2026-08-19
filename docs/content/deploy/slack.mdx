@@ -1,6 +1,6 @@
 # Slack Integration — Setup
 
-This page covers the one-time **workspace setup** — creating the Slack app, wiring the event URLs, and setting the environment variables. For the day-to-day end-user flow (mentioning the bot, replying in threads, approving tool calls), see the tutorial: **[Trigger agents from Slack](/docs/tutorials/slack)**.
+This page covers the one-time **workspace setup** — creating the Slack app, wiring the event URLs, and setting the environment variables. For the day-to-day end-user flow (mentioning the bot, replying in threads, approving tool calls), see the tutorial: **[Trigger agents from Slack](/tutorials/slack)**.
 
 ## How a Slack user is matched to an **auxilia** user
 
@@ -55,6 +55,10 @@ Under **Interactivity & Shortcuts**, enable interactivity and set the **Request 
 
 This is where **Approve / Reject** button clicks are delivered.
 
+## Which model Slack threads use
+
+Slack has no model picker. New Slack threads start on the **workspace default model** — the one a workspace admin has starred under **Settings → Models** — or, if no default is set, the first available model. See [Workspace default model](/agents#workspace-default-model).
+
 ## Next
 
-Your Slack app is now connected. For the end-user experience — how teammates mention the bot, pick an agent, send messages, and approve tool calls — see **[Trigger agents from Slack](/docs/tutorials/slack)**.
+Your Slack app is now connected. For the end-user experience — how teammates mention the bot, pick an agent, send messages, and approve tool calls — see **[Trigger agents from Slack](/tutorials/slack)**.

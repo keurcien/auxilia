@@ -4,15 +4,20 @@ The sandbox lets an LLM run arbitrary shell commands against a filesystem. That 
 
 ## Isolation model
 
-Every sandbox is a short-lived container managed by [OpenSandbox](https://github.com/langchain-ai/opensandbox). Containers:
+Every sandbox is an isolated container, **per-conversation** — the sandbox tied to thread A cannot be reached from thread B — and created **on demand** when the LLM calls `create_sandbox`; no idle containers sit around.
 
-- Are **per-conversation** — the sandbox tied to thread A cannot be reached from thread B
-- Have a **TTL** (default 30 minutes); after expiry they are destroyed and any state inside is lost
-- Are created **on demand** when the LLM calls `create_sandbox` — no idle containers sit around
+The **auxilia** backend never executes commands itself — it always delegates to the sandbox runtime. So the blast radius of a malicious prompt is whatever your sandbox deployment allows the container to do.
 
-The **auxilia** backend never executes commands itself — it always delegates to the OpenSandbox controller. So the blast radius of a malicious prompt is whatever your OpenSandbox deployment allows the container to do.
+**With OpenSandbox** (`SANDBOX_PROVIDER=opensandbox`, the default), containers are managed by [OpenSandbox](https://github.com/langchain-ai/opensandbox) and have a **TTL** (default 30 minutes); after expiry they are destroyed and any state inside is lost.
 
-## Volume mounts
+**With Cloud Run sandboxes** (`SANDBOX_PROVIDER=cloudrun`):
+
+- Sandboxed code sees the gateway image's filesystem **read-only**, with a private writable overlay per sandbox
+- Sandboxes have **no outbound network access** unless the gateway is deployed with `ALLOW_EGRESS=true` *and* the backend sets `CLOUD_RUN_SANDBOX_ALLOW_EGRESS=true`
+- The gateway requires a shared bearer secret on every request and **fails closed** if the secret is unset
+- If `CLOUD_RUN_SANDBOX_GCS_BUCKET` is set, the writable overlay is snapshotted to GCS at the end of each turn — treat that bucket as containing whatever agents write
+
+## Volume mounts (OpenSandbox only)
 
 You can mount host paths into every sandbox via `OPEN_SANDBOX_VOLUME_MOUNTS`:
 
@@ -33,8 +38,8 @@ Treat the host paths you mount as **public** to any agent with the sandbox enabl
 
 Two timeouts apply:
 
-- **Per-command timeout** — `OPEN_SANDBOX_TIMEOUT` (default 1800s). If a single `execute` call doesn't finish in this window, **auxilia** cancels it and returns `exit_code=124`.
-- **Container TTL** — default 30 minutes; renewed each time `connect_sandbox` is called.
+- **Per-command timeout** — `OPEN_SANDBOX_TIMEOUT` (or `CLOUD_RUN_SANDBOX_TIMEOUT`), default 1800s. If a single `execute` call doesn't finish in this window, **auxilia** cancels it and returns `exit_code=124`.
+- **Container TTL** (OpenSandbox only) — default 30 minutes; renewed each time `connect_sandbox` is called. Cloud Run sandboxes have no TTL; their lifetime is bounded by the gateway instance, with GCS snapshots covering continuity.
 
 Keep the per-command timeout tight. Long-running commands are rare in practice and chew up OpenSandbox capacity.
 
@@ -54,4 +59,4 @@ A safe default for most teams:
 - Turn **Code execution** on only for agents whose owners trust the LLM to run code against the configured image
 - Use **tool approvals** on non-sandbox write tools (HubSpot writes, GitHub PRs) to keep a human in the loop even when the agent is autonomous inside the sandbox
 
-If you need stronger guarantees, gate the sandbox toggle behind a workspace-admin-only agent, and use the [permissions model](/docs/agents/permissions) to restrict who can chat with it.
+If you need stronger guarantees, gate the sandbox toggle behind a workspace-admin-only agent, and use the [permissions model](/agents/permissions) to restrict who can chat with it.

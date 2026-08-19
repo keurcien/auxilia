@@ -41,7 +41,7 @@ export function LandingHero() {
 				control.
 			</p>
 			<div className="pm-cta-row">
-				<a href="/docs/get-started" className="pm-btn-ink">
+				<a href="/get-started" className="pm-btn-ink">
 					Get started →
 				</a>
 				<CloneChip />
