@@ -6,12 +6,17 @@ interface AgentsState {
 	agents: Agent[];
 	isInitialized: boolean;
 	fetchAgents: () => Promise<void>;
+	refreshAgents: () => Promise<void>;
 	addAgent: (agent: Agent) => void;
 	updateAgent: (agentId: string, agent: Partial<Agent>) => void;
 	removeAgent: (agentId: string) => void;
 	applyTagUpdate: (tag: AgentTag) => void;
 	applyTagRemoval: (tagId: string) => void;
 }
+
+// Shared across callers so concurrent mounts (sidebar + list page) coalesce
+// into a single /agents request instead of racing before isInitialized flips.
+let inflight: Promise<void> | null = null;
 
 export const useAgentsStore = create<AgentsState>((set, get) => ({
 	agents: [],
@@ -20,14 +25,33 @@ export const useAgentsStore = create<AgentsState>((set, get) => ({
 		if (get().isInitialized) {
 			return;
 		}
-
+		if (inflight) {
+			return inflight;
+		}
+		return get().refreshAgents();
+	},
+	refreshAgents: async () => {
+		const load = async () => {
+			try {
+				const response = await api.get("/agents");
+				set({ agents: response.data, isInitialized: true });
+			} catch (error) {
+				console.error("Error fetching agents:", error);
+				set({ isInitialized: true });
+				throw error;
+			}
+		};
+		// A refresh must observe server state from after the caller's mutation,
+		// so it never joins a request that may have started earlier — it queues
+		// a fresh GET behind any in-flight one instead.
+		const next = inflight ? inflight.catch(() => {}).then(load) : load();
+		inflight = next;
 		try {
-			const response = await api.get("/agents");
-			set({ agents: response.data, isInitialized: true });
-		} catch (error) {
-			console.error("Error fetching agents:", error);
-			set({ isInitialized: true });
-			throw error;
+			await next;
+		} finally {
+			if (inflight === next) {
+				inflight = null;
+			}
 		}
 	},
 	addAgent: (agent) => { set((state) => ({ agents: [agent, ...state.agents] })); },
