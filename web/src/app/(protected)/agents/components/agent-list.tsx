@@ -181,8 +181,9 @@ export default function AgentList({
 	const fetchAgents = useAgentsStore((state) => state.fetchAgents);
 	const removeAgent = useAgentsStore((state) => state.removeAgent);
 	const [archivedAgents, setArchivedAgents] = useState<Agent[]>([]);
-	// Starts true and never flips back: re-entering the archived view shows the
-	// previous data while the refetch runs, like the store-backed views do.
+	// The parent keys AgentList by active/archived, so entering the Archived
+	// view mounts a fresh instance: this starts true and flips false once the
+	// fetch resolves (the pre-store behavior, unchanged).
 	const [archivedLoading, setArchivedLoading] = useState(true);
 
 	useEffect(() => {

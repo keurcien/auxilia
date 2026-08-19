@@ -25,10 +25,13 @@ export const useAgentsStore = create<AgentsState>((set, get) => ({
 		if (get().isInitialized) {
 			return;
 		}
+		if (inflight) {
+			return inflight;
+		}
 		return get().refreshAgents();
 	},
 	refreshAgents: async () => {
-		inflight ??= (async () => {
+		const load = async () => {
 			try {
 				const response = await api.get("/agents");
 				set({ agents: response.data, isInitialized: true });
@@ -36,11 +39,20 @@ export const useAgentsStore = create<AgentsState>((set, get) => ({
 				console.error("Error fetching agents:", error);
 				set({ isInitialized: true });
 				throw error;
-			} finally {
+			}
+		};
+		// A refresh must observe server state from after the caller's mutation,
+		// so it never joins a request that may have started earlier — it queues
+		// a fresh GET behind any in-flight one instead.
+		const next = inflight ? inflight.catch(() => {}).then(load) : load();
+		inflight = next;
+		try {
+			await next;
+		} finally {
+			if (inflight === next) {
 				inflight = null;
 			}
-		})();
-		return inflight;
+		}
 	},
 	addAgent: (agent) => { set((state) => ({ agents: [agent, ...state.agents] })); },
 	updateAgent: (agentId, agent) =>

@@ -12,7 +12,10 @@ export async function proxy(request: NextRequest) {
 	// request and a segment request) would each pay a blocking backend
 	// round-trip here. They only warm the client cache — the real navigation
 	// still gets verified, and the backend authenticates every data call — so
-	// let them through unverified.
+	// let them through unverified. Accepted trade-off: with an expired or
+	// revoked token, a prefetched server render's backend calls 401 and the
+	// prefetch is discarded; no protected data is served, and the actual
+	// navigation still redirects to /auth and clears the cookie.
 	const isPrefetch =
 		request.headers.has("next-router-prefetch") ||
 		request.headers.has("next-router-segment-prefetch");
