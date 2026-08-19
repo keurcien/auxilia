@@ -181,6 +181,10 @@ export default function AgentMCPServer({
 
 				const popup = window.open(authUrl, "_blank", "width=600,height=700");
 
+				// Poll ticks overlap when a response is slow — only the first
+				// tick that sees the connection may run the fetch/persist leg,
+				// or sync-tools would fire once per in-flight tick.
+				let connectHandled = false;
 				const poll = async () => {
 					try {
 						const statusRes = await api.get(
@@ -188,9 +192,9 @@ export default function AgentMCPServer({
 						);
 						const statusData = statusRes.data;
 
-						if (statusData.connected) {
+						if (statusData.connected && !connectHandled) {
+							connectHandled = true;
 							clearInterval(pollInterval);
-							setIsConnected(true);
 
 							// Connecting is a deliberate action, so it must land in
 							// the config: in edit mode the seed merges the tools into
@@ -202,6 +206,10 @@ export default function AgentMCPServer({
 							const fetchedTools = retryRes.data as MCPServerTool[];
 							setTools(fetchedTools);
 							setToolsFetched(true);
+							// Only after toolsFetched, in the same batch — flipping
+							// isConnected first re-renders with toolsFetched=false
+							// and the mount effect starts a duplicate fetch.
+							setIsConnected(true);
 							setIsLoading(false);
 							seedRef.current(fetchedTools);
 							await persistRef.current(fetchedTools);

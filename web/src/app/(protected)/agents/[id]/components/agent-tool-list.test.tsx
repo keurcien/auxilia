@@ -10,7 +10,7 @@
  *    to read mode on Save).
  */
 import { useMemo, useState } from "react";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "@/lib/api/client";
 import type { MCPServer } from "@/types/mcp-servers";
@@ -29,9 +29,9 @@ vi.mock("@/lib/api/client", () => ({
 }));
 
 vi.mock("next/image", () => ({
-	default: (props: Record<string, unknown>) => (
-		// eslint-disable-next-line jsx-a11y/alt-text, @next/next/no-img-element
-		<img {...(props as React.ImgHTMLAttributes<HTMLImageElement>)} />
+	default: ({ alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) => (
+		// eslint-disable-next-line @next/next/no-img-element
+		<img alt={alt ?? ""} {...props} />
 	),
 }));
 
@@ -201,12 +201,14 @@ describe("agent tool map persistence", () => {
 			if (url === `/mcp-servers/${SERVER.id}/list-tools`) {
 				return connected
 					? Promise.resolve({ data: [{ name: "search" }] })
-					: Promise.reject({
-							response: {
-								status: 401,
-								data: { auth_url: "https://oauth.example.com" },
-							},
-						});
+					: Promise.reject(
+							Object.assign(new Error("Unauthorized"), {
+								response: {
+									status: 401,
+									data: { auth_url: "https://oauth.example.com" },
+								},
+							}),
+						);
 			}
 			return Promise.reject(new Error(`unexpected GET ${url}`));
 		});
@@ -343,9 +345,8 @@ describe("agent tool map persistence", () => {
 				initialServers={[{ mcpServerId: SERVER.id, tools: null }]}
 			/>,
 		);
-		const card = (await screen.findByText(SERVER.name)).closest("div");
-		expect(await within(card!.parentElement!).findByText("CONNECTED"))
-			.toBeInTheDocument();
+		// The single rendered card holds the pill — no scoping needed.
+		expect(await screen.findByText("CONNECTED")).toBeInTheDocument();
 		unmount();
 
 		mockApi({ connected: false, tools: [] });

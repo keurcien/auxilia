@@ -84,19 +84,24 @@ export default function AgentToolList({
 		onMcpServersChange?.((prev) =>
 			prev.map((s) => {
 				if (s.mcpServerId !== serverId) return s;
+				// A Map lookup, not `s.tools[name]`: a tool named like a
+				// prototype member ("toString", …) must never resolve to an
+				// inherited value.
+				const existing = new Map(Object.entries(s.tools ?? {}));
+				// Keep the same object when nothing changed so an unchanged
+				// fetch never dirties the form or churns identities.
+				const upToDate =
+					s.tools !== null &&
+					existing.size === fetchedNames.length &&
+					fetchedNames.every((name) => existing.has(name));
+				if (upToDate) return s;
 				const merged: Record<string, ToolStatus> = Object.fromEntries(
 					fetchedNames.map((name) => [
 						name,
-						s.tools?.[name] ?? ("always_allow" as ToolStatus),
+						existing.get(name) ?? ("always_allow" as ToolStatus),
 					]),
 				);
-				// Keep the same object when nothing changed so an unchanged
-				// fetch never dirties the form or churns identities.
-				const same =
-					s.tools !== null &&
-					Object.keys(s.tools).length === fetchedNames.length &&
-					fetchedNames.every((name) => s.tools?.[name] === merged[name]);
-				return same ? s : { ...s, tools: merged };
+				return { ...s, tools: merged };
 			}),
 		);
 	};

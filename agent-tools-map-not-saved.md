@@ -62,16 +62,19 @@ tool.
 
 ## Reproduction
 
-`cd web && npx vitest run src/app/\(protected\)/agents/\[id\]/components/agent-tool-list.repro.test.tsx`
+The original repro tests asserted the buggy behavior (read mode + `tools:
+null` kept `"tools": null` in the payload; a stale map never dirtied the
+form). They were replaced by the behavior tests for the fixed semantics:
 
-- **CONTROL**: edit mode + never-synced binding → seed fills the draft, form
-  dirty, payload carries the full map (the intended path works).
-- **BUG 1**: read mode + `tools: null` + connected server → tools render as
-  "Always allow", payload still `"tools": null`.
-- **BUG 1b**: read mode still renders the Connect button, inviting the
-  unsavable flow.
-- **BUG 2**: edit mode + stale non-null map → new tool renders enabled, form
-  never dirty, payload lacks the new tool.
+`cd web && npx vitest run src/app/\(protected\)/agents/\[id\]/components/agent-tool-list.test.tsx`
+
+- edit mode + never-synced binding → seed fills the draft, form dirty,
+  payload carries the full map.
+- edit mode + stale map → merge-seed adds new tools, preserves curated
+  statuses, drops vanished keys, dirties the form.
+- read mode + null/stale map → self-heals via sync-tools on view; an
+  up-to-date map never writes.
+- read mode + OAuth connect poll → persists via sync-tools after consent.
 
 ## Fix (implemented 2026-08-19)
 

@@ -43,15 +43,21 @@ class AgentMCPServerService(BaseService[AgentMCPServerDB, AgentMCPServerReposito
     ) -> None:
         try:
             async with connect_to_server(mcp_server, user_id, self.db) as (_, tools):
-                # Merge, don't clobber: the server's tool list is the key
-                # universe, but a curated status survives a re-sync.
-                existing = db_link.tools or {}
-                db_link.tools = {
-                    tool.name: existing.get(tool.name, "always_allow") for tool in tools
-                }
-                self.db.add(db_link)
-                await self.db.flush()
-                await self.db.refresh(db_link)
+                fetched_names = [tool.name for tool in tools]
+            # The fetch can take seconds, so a concurrent save may have
+            # rewritten the map meanwhile. Reload the row under a lock and
+            # merge against the fresh state — otherwise this assignment
+            # would silently revert that save (lost update).
+            await self.db.refresh(db_link, with_for_update=True)
+            # Merge, don't clobber: the server's tool list is the key
+            # universe, but a curated status survives a re-sync.
+            existing = db_link.tools or {}
+            db_link.tools = {
+                name: existing.get(name, "always_allow") for name in fetched_names
+            }
+            self.db.add(db_link)
+            await self.db.flush()
+            await self.db.refresh(db_link)
         except Exception as e:
             logger.warning(f"Failed to fetch tools for MCP server {mcp_server.id}: {e}")
 

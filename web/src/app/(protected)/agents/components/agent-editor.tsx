@@ -469,14 +469,20 @@ export default function AgentEditor({
 							}));
 						}}
 						onBindingPersisted={(serverId, tools) => {
-							// A read-mode connect wrote the binding server-side;
+							// A read-mode sync wrote the binding server-side;
 							// mirror it into the store so the next edit-mode
 							// snapshot (and dirty baseline) starts from what is
-							// actually saved.
+							// actually saved. Read the store's latest copy, not
+							// the `agent` prop: several bindings can self-heal
+							// concurrently, and a render-closure snapshot would
+							// let the later callback revert a sibling's map.
 							if (!agent) return;
+							const current =
+								useAgentsStore
+									.getState()
+									.agents.find((a) => a.id === agent.id) ?? agent;
 							updateAgent(agent.id, {
-								...agent,
-								mcpServers: (agent.mcpServers ?? []).map((server) =>
+								mcpServers: (current.mcpServers ?? []).map((server) =>
 									server.mcpServerId === serverId
 										? { ...server, tools }
 										: server,

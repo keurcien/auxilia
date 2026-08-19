@@ -486,7 +486,7 @@ def make_connect_to_server(tool_names):
     return _connect
 
 
-async def test_sync_tools_seeds_never_synced_map(service):
+async def test_sync_tools_seeds_never_synced_map(service, mock_db):
     server = make_mcp_server()
     link = make_link(tools=None)
 
@@ -499,6 +499,34 @@ async def test_sync_tools_seeds_never_synced_map(service):
     assert link.tools == {
         "search": ToolStatus.always_allow,
         "write": ToolStatus.always_allow,
+    }
+    # The map isn't just mutated in memory — it is staged and flushed.
+    mock_db.add.assert_called_once_with(link)
+    mock_db.flush.assert_awaited_once()
+
+
+async def test_sync_tools_merges_against_row_reloaded_under_lock(service, mock_db):
+    """The merge uses the row as reloaded (FOR UPDATE) after the slow network
+    fetch — a save that landed mid-fetch is merged with, not reverted."""
+    server = make_mcp_server()
+    link = make_link(tools={"search": ToolStatus.always_allow})
+
+    async def refresh(instance, attribute_names=None, with_for_update=None):
+        if with_for_update:
+            # A concurrent save committed while tools were being fetched.
+            instance.tools = {"search": ToolStatus.disabled}
+
+    mock_db.refresh = AsyncMock(side_effect=refresh)
+
+    with patch(
+        "app.agents.mcp_servers.service.connect_to_server",
+        new=make_connect_to_server(["search", "create_page"]),
+    ):
+        await service._sync_tools(link, server, "user-id")
+
+    assert link.tools == {
+        "search": ToolStatus.disabled,
+        "create_page": ToolStatus.always_allow,
     }
 
 
