@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.28](https://github.com/keurcien/auxilia/compare/web-v0.5.27...web-v0.5.28) (2026-08-19)
+
+
+### Performance Improvements
+
+* **web:** cut the /agents page request storm ([#265](https://github.com/keurcien/auxilia/issues/265)) ([ca54ad2](https://github.com/keurcien/auxilia/commit/ca54ad21707476b5a98e52fa1c7bf3e3e3263b93))
+
 ## [0.5.27](https://github.com/keurcien/auxilia/compare/web-v0.5.26...web-v0.5.27) (2026-08-19)
 
 
