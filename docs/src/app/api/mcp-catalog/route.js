@@ -22,7 +22,15 @@ export async function GET() {
 			.map((s) => ({
 				name: s.name,
 				url: s.url,
-				authType: typeof s.auth_type === "string" ? s.auth_type : "none",
+				// Absent means the backend's default ("none"); a present but
+				// malformed value becomes null so the badge renders UNKNOWN
+				// rather than presenting the server as openly accessible.
+				authType:
+					s.auth_type == null
+						? "none"
+						: typeof s.auth_type === "string"
+							? s.auth_type
+							: null,
 				iconUrl: typeof s.icon_url === "string" ? s.icon_url : null,
 				description: typeof s.description === "string" ? s.description : null,
 			}));

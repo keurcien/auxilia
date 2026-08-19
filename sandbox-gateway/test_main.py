@@ -6,6 +6,7 @@ Run from this directory: pip install fastapi httpx pytest && pytest
 import base64
 import io
 import subprocess
+import threading
 from unittest.mock import MagicMock, patch
 
 import main
@@ -173,6 +174,25 @@ class TestExec:
         assert response.status_code == 200
         assert response.json()["timed_out"] is True
         assert proc.killed is True
+
+    def test_exec_stuck_pipe_answers_within_grace(self, client, monkeypatch):
+        """A descendant holding the pipe open must not hang the request."""
+        monkeypatch.setattr(main, "_READER_GRACE_SECONDS", 0.05)
+
+        class StuckStream:
+            def read(self, _size):
+                threading.Event().wait()  # never returns
+
+        proc = FakeProc()
+        proc.stdout = StuckStream()
+        with patch("main.subprocess.Popen", return_value=proc):
+            response = client.post(
+                "/sandboxes/sbx-x/exec", json={"argv": ["/bin/true"]}, headers=AUTH
+            )
+        body = response.json()
+        assert response.status_code == 200
+        assert base64.b64decode(body["stdout_b64"]) == main._TRUNCATION_NOTICE
+        assert body["truncated"] is True
 
     def test_exec_output_capped(self, client):
         oversized = b"x" * (main.MAX_STREAM_BYTES + 1000)

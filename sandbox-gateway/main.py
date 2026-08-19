@@ -22,6 +22,7 @@ import base64
 import os
 import re
 import secrets
+import signal
 import subprocess
 import tempfile
 import threading
@@ -54,6 +55,11 @@ MAX_EXEC_TIMEOUT = 60 * 60
 # discarded so a runaway command (`yes`) can't exhaust gateway memory.
 MAX_STREAM_BYTES = 2 * 1024 * 1024
 _TRUNCATION_NOTICE = b"\n[output truncated by gateway]\n"
+
+# How long to wait for the pipe readers after the CLI is gone. A descendant
+# that escaped the process group can hold the pipe open forever; past this
+# grace the request answers with what was captured instead of hanging.
+_READER_GRACE_SECONDS = 10.0
 
 app = FastAPI(title="auxilia sandbox gateway", docs_url=None, redoc_url=None)
 
@@ -184,6 +190,16 @@ def _read_capped(stream, cap: int) -> tuple[bytes, bool]:
     return b"".join(chunks), truncated
 
 
+def _kill_tree(proc) -> None:
+    """SIGKILL the CLI's whole process group — a child left holding the output
+    pipes would otherwise keep the readers (and the request) blocked forever."""
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except (AttributeError, ProcessLookupError, PermissionError, OSError):
+        proc.kill()
+    proc.wait()
+
+
 @app.post("/sandboxes/{sandbox_id}/exec", dependencies=[Depends(verify_secret)])
 def exec_in_sandbox(
     request: ExecRequest, sandbox_id: str = Depends(valid_sandbox_id)
@@ -192,13 +208,15 @@ def exec_in_sandbox(
         [CLI, "exec", sandbox_id, "--", *request.argv],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        start_new_session=True,
     )
     captured: dict[str, tuple[bytes, bool]] = {}
     readers = [
         threading.Thread(
             target=lambda n=name, s=stream: captured.__setitem__(
                 n, _read_capped(s, MAX_STREAM_BYTES)
-            )
+            ),
+            daemon=True,
         )
         for name, stream in (("stdout", proc.stdout), ("stderr", proc.stderr))
     ]
@@ -208,17 +226,19 @@ def exec_in_sandbox(
         proc.wait(timeout=request.timeout)
         timed_out = False
     except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait()
+        _kill_tree(proc)
         timed_out = True
+    # Bounded join: killing the group EOFs the pipes in every normal case; a
+    # descendant that escaped the group is abandoned (daemon reader) past the
+    # grace and the missing stream reports as truncated.
     for reader in readers:
-        reader.join()
+        reader.join(timeout=_READER_GRACE_SECONDS)
     if timed_out:
         return ExecResponse(
             stdout_b64="", stderr_b64="", exit_code=None, timed_out=True
         )
-    stdout, stdout_truncated = captured["stdout"]
-    stderr, stderr_truncated = captured["stderr"]
+    stdout, stdout_truncated = captured.get("stdout", (b"", True))
+    stderr, stderr_truncated = captured.get("stderr", (b"", True))
     if stdout_truncated:
         stdout += _TRUNCATION_NOTICE
     if stderr_truncated:
