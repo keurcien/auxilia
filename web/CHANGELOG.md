@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.27](https://github.com/keurcien/auxilia/compare/web-v0.5.26...web-v0.5.27) (2026-08-19)
+
+
+### Bug Fixes
+
+* **agents:** persist MCP tool maps the editor UI already shows ([#262](https://github.com/keurcien/auxilia/issues/262)) ([6b75edd](https://github.com/keurcien/auxilia/commit/6b75edddf164bda210066a08ed5f8c0e8578c22d))
+
 ## [0.5.26](https://github.com/keurcien/auxilia/compare/web-v0.5.25...web-v0.5.26) (2026-08-17)
 
 

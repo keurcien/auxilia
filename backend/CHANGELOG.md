@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.37](https://github.com/keurcien/auxilia/compare/backend-v0.4.36...backend-v0.4.37) (2026-08-19)
+
+
+### Bug Fixes
+
+* **agents:** persist MCP tool maps the editor UI already shows ([#262](https://github.com/keurcien/auxilia/issues/262)) ([6b75edd](https://github.com/keurcien/auxilia/commit/6b75edddf164bda210066a08ed5f8c0e8578c22d))
+
 ## [0.4.36](https://github.com/keurcien/auxilia/compare/backend-v0.4.35...backend-v0.4.36) (2026-08-17)
 
 
