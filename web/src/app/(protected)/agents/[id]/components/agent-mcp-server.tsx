@@ -196,23 +196,37 @@ export default function AgentMCPServer({
 							connectHandled = true;
 							clearInterval(pollInterval);
 
-							// Connecting is a deliberate action, so it must land in
-							// the config: in edit mode the seed merges the tools into
-							// the draft (saved on Save), in read mode sync-tools
-							// persists the map server-side immediately.
-							const retryRes = await api.get(
-								`/mcp-servers/${server.id}/list-tools`,
-							);
-							const fetchedTools = retryRes.data as MCPServerTool[];
-							setTools(fetchedTools);
-							setToolsFetched(true);
-							// Only after toolsFetched, in the same batch — flipping
-							// isConnected first re-renders with toolsFetched=false
-							// and the mount effect starts a duplicate fetch.
-							setIsConnected(true);
-							setIsLoading(false);
-							seedRef.current(fetchedTools);
-							await persistRef.current(fetchedTools);
+							try {
+								// Connecting is a deliberate action, so it must land
+								// in the config: in edit mode the seed merges the
+								// tools into the draft (saved on Save), in read mode
+								// sync-tools persists the map server-side immediately.
+								const retryRes = await api.get(
+									`/mcp-servers/${server.id}/list-tools`,
+								);
+								const fetchedTools = retryRes.data as MCPServerTool[];
+								setTools(fetchedTools);
+								setToolsFetched(true);
+								// Only after toolsFetched, in the same batch —
+								// flipping isConnected first re-renders with
+								// toolsFetched=false and the mount effect starts a
+								// duplicate fetch.
+								setIsConnected(true);
+								setIsLoading(false);
+								seedRef.current(fetchedTools);
+								await persistRef.current(fetchedTools);
+							} catch (fetchError) {
+								console.error(
+									"Failed to fetch tools after connect:",
+									fetchError,
+								);
+								// The server IS connected — expose that even though
+								// the fetch failed: with toolsFetched still false,
+								// the mount effect retries the fetch instead of the
+								// card sticking at NOT CONNECTED with polling dead.
+								setIsConnected(true);
+								setIsLoading(false);
+							}
 
 							if (popup && !popup.closed) {
 								popup.close();
