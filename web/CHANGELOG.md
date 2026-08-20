@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.30](https://github.com/keurcien/auxilia/compare/web-v0.5.29...web-v0.5.30) (2026-08-20)
+
+
+### Bug Fixes
+
+* **web:** strip stale encoding headers in the backend proxy ([#270](https://github.com/keurcien/auxilia/issues/270)) ([aa2f50b](https://github.com/keurcien/auxilia/commit/aa2f50bdf798679c822eb8c0fb389d7c69010394))
+
 ## [0.5.29](https://github.com/keurcien/auxilia/compare/web-v0.5.28...web-v0.5.29) (2026-08-20)
 
 
