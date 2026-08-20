@@ -91,6 +91,17 @@ class AgentMCPServerPatch(SQLModel):
     tools: dict[str, ToolStatus] | None = None
 
 
+class AgentMCPServerListResponse(SQLModel):
+    """Slim binding for list responses — identifies the server without the
+    per-tool map, which only the agent detail/editor flow consumes."""
+
+    id: UUID
+    agent_id: UUID
+    mcp_server_id: UUID
+    created_at: datetime
+    updated_at: datetime
+
+
 class AgentMCPServerResponse(AgentMCPServerBase):
     id: UUID
     created_at: datetime
@@ -142,10 +153,17 @@ class AgentOwnerInfo(SQLModel):
     email: str | None = None
 
 
-class AgentResponse(SQLModel):
+class AgentListResponse(SQLModel):
+    """List-row projection: everything the agents list and pickers render.
+
+    Omits the heavyweight fields — ``instructions`` (agent prompts run to
+    tens of KB each) and the bindings' per-tool maps — which only the detail
+    endpoint returns. GET /agents/ serializes through this schema; the
+    service still assembles full ``AgentResponse`` objects internally.
+    """
+
     id: UUID
     name: str
-    instructions: str
     owner_id: UUID
     emoji: str | None
     color: str | None
@@ -154,9 +172,14 @@ class AgentResponse(SQLModel):
     is_archived: bool = False
     created_at: datetime
     updated_at: datetime
-    mcp_servers: list[AgentMCPServerResponse] | None = None
+    mcp_servers: list[AgentMCPServerListResponse] | None = None
     subagents: list[SubagentResponse] | None = None
     tag: TagInfo | None = None
     owner: AgentOwnerInfo | None = None
     is_subagent: bool = False
     current_user_permission: str | None = None
+
+
+class AgentResponse(AgentListResponse):
+    instructions: str
+    mcp_servers: list[AgentMCPServerResponse] | None = None
