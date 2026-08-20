@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.38](https://github.com/keurcien/auxilia/compare/backend-v0.4.37...backend-v0.4.38) (2026-08-20)
+
+
+### Performance Improvements
+
+* **agents:** drop instructions and tool maps from the list response ([#267](https://github.com/keurcien/auxilia/issues/267)) ([69be828](https://github.com/keurcien/auxilia/commit/69be828b5a0e8c2e9ff5aec69744eb9403cb0102))
+* **api:** gzip JSON responses ([#268](https://github.com/keurcien/auxilia/issues/268)) ([9b7dd3d](https://github.com/keurcien/auxilia/commit/9b7dd3daffd237e72f3b34192f217b73dced7970))
+
 ## [0.4.37](https://github.com/keurcien/auxilia/compare/backend-v0.4.36...backend-v0.4.37) (2026-08-19)
 
 

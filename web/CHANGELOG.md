@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.29](https://github.com/keurcien/auxilia/compare/web-v0.5.28...web-v0.5.29) (2026-08-20)
+
+
+### Performance Improvements
+
+* **agents:** drop instructions and tool maps from the list response ([#267](https://github.com/keurcien/auxilia/issues/267)) ([69be828](https://github.com/keurcien/auxilia/commit/69be828b5a0e8c2e9ff5aec69744eb9403cb0102))
+
 ## [0.5.28](https://github.com/keurcien/auxilia/compare/web-v0.5.27...web-v0.5.28) (2026-08-19)
 
 
