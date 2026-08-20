@@ -4,7 +4,9 @@ export type ToolStatus = "always_allow" | "needs_approval" | "disabled";
 
 interface AgentMCPServer extends MCPServer {
 	mcpServerId: string;
-	tools: Record<string, ToolStatus> | null;
+	/** Absent on list responses; the detail response carries the full map
+	 * (null = never synced). */
+	tools?: Record<string, ToolStatus> | null;
 }
 
 export type AgentPermission = "owner" | "admin" | "editor" | "member";
@@ -35,7 +37,9 @@ export interface AgentOwner {
 export interface Agent {
 	id: string;
 	name: string;
-	instructions: string;
+	/** Absent on list responses (GET /agents returns slim rows); present on
+	 * detail responses (GET /agents/{id}) and save results. */
+	instructions?: string;
 	ownerId: string;
 	emoji?: string | null;
 	color?: string | null;
