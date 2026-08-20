@@ -26,9 +26,16 @@ async function proxyRequest(
 		duplex: "half",
 	});
 
+	// fetch already decoded any Content-Encoding on the backend response, so
+	// the encoding headers describe a body we no longer have — forwarding
+	// them makes the browser try to gunzip plain JSON and fail every call.
+	const responseHeaders = new Headers(response.headers);
+	responseHeaders.delete("content-encoding");
+	responseHeaders.delete("content-length");
+
 	return new Response(response.body, {
 		status: response.status,
-		headers: response.headers,
+		headers: responseHeaders,
 	});
 }
 
