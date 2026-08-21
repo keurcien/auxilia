@@ -28,7 +28,7 @@ dependencies = [
     "mcp>=1.26.0",
     "slack-sdk>=3.34.0",
     "aiohttp>=3.13.3",
-    "langfuse>=3.14.1",
+    "langfuse>=4.14.4",
     "h2>=4.3.0",
     "langchain-ai-sdk-adapter",
     "deepagents>=0.5.6",
