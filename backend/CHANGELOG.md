@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.40](https://github.com/keurcien/auxilia/compare/backend-v0.4.39...backend-v0.4.40) (2026-08-21)
+
+
+### Features
+
+* **catalog:** add Cloud Logging, Team Tailor and TikTok MCP servers ([#275](https://github.com/keurcien/auxilia/issues/275)) ([0471dc7](https://github.com/keurcien/auxilia/commit/0471dc732109caa65976442e1579b268cf4e7d49))
+
 ## [0.4.39](https://github.com/keurcien/auxilia/compare/backend-v0.4.38...backend-v0.4.39) (2026-08-21)
 
 

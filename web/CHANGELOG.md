@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.32](https://github.com/keurcien/auxilia/compare/web-v0.5.31...web-v0.5.32) (2026-08-21)
+
+
+### Bug Fixes
+
+* **web:** cap agent table inline avatars at 3 ([#276](https://github.com/keurcien/auxilia/issues/276)) ([a7fc7e4](https://github.com/keurcien/auxilia/commit/a7fc7e4307182b19bd4f01c3dbf4237a56991748))
+
 ## [0.5.31](https://github.com/keurcien/auxilia/compare/web-v0.5.30...web-v0.5.31) (2026-08-21)
 
 
