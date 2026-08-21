@@ -9,7 +9,10 @@ dev-backend: dev-stack
 	cd backend && uv run uvicorn app.main:app --reload
 
 dev-frontend:
-	cd web && npm i && npm run dev
+	cd web && npm i
+	@echo "Waiting for backend to be ready..."
+	@until curl -sf -o /dev/null http://localhost:8000/docs; do sleep 0.5; done
+	cd web && npm run dev
 
 dev:
 	make -j 3 dev-stack dev-backend dev-frontend
