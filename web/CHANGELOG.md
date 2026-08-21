@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.31](https://github.com/keurcien/auxilia/compare/web-v0.5.30...web-v0.5.31) (2026-08-21)
+
+
+### Bug Fixes
+
+* **web:** resolve npm audit vulnerabilities via lockfile bumps ([#274](https://github.com/keurcien/auxilia/issues/274)) ([ebf59e6](https://github.com/keurcien/auxilia/commit/ebf59e6df9b29d2fdce4d1e435496c85394fb70b))
+
 ## [0.5.30](https://github.com/keurcien/auxilia/compare/web-v0.5.29...web-v0.5.30) (2026-08-20)
 
 
