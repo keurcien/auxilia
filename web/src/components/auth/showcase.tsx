@@ -70,7 +70,7 @@ export function ProductShowcase() {
 	};
 
 	return (
-		<div className="relative flex flex-col gap-5">
+		<div aria-hidden="true" className="relative flex flex-col gap-5">
 			<div className="flex flex-col gap-1.5 rounded-xl border border-panel-border-strong bg-panel-card px-5.5 py-5">
 				<div
 					className={`mb-2 max-w-[85%] self-end rounded-[10px_10px_2px_10px] bg-white/8 px-3.5 py-2.5 text-[13.5px] leading-[1.55] text-panel-button ${vis(0)}`}
