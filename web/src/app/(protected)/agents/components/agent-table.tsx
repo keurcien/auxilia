@@ -11,7 +11,7 @@ import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { cn } from "@/lib/utils";
 
-const MAX_INLINE_AVATARS = 4;
+const MAX_INLINE_AVATARS = 3;
 
 // Agents with no tag are collected under this trailing pseudo-group
 // (mirrors the card grid's tag sections).
