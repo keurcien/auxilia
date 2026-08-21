@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.33](https://github.com/keurcien/auxilia/compare/web-v0.5.32...web-v0.5.33) (2026-08-21)
+
+
+### Features
+
+* **users:** store SSO profile pictures and show avatars in users table ([#278](https://github.com/keurcien/auxilia/issues/278)) ([8a8cfdd](https://github.com/keurcien/auxilia/commit/8a8cfdd32c7be119f694b13e1c0bf71feed91c4a))
+
+
+### Bug Fixes
+
+* **web:** display DeepSeek reasoning content in chat ([#280](https://github.com/keurcien/auxilia/issues/280)) ([16f0fe8](https://github.com/keurcien/auxilia/commit/16f0fe8f719b3194ddd7d42952f1c469d0953cc2))
+
 ## [0.5.32](https://github.com/keurcien/auxilia/compare/web-v0.5.31...web-v0.5.32) (2026-08-21)
 
 
