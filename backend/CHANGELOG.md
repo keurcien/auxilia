@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.39](https://github.com/keurcien/auxilia/compare/backend-v0.4.38...backend-v0.4.39) (2026-08-21)
+
+
+### Dependencies
+
+* **backend:** upgrade langfuse SDK to v4 ([#272](https://github.com/keurcien/auxilia/issues/272)) ([0460a0b](https://github.com/keurcien/auxilia/commit/0460a0b4d81b99d2e1872f1cf01002bfa2c76a2b))
+
 ## [0.4.38](https://github.com/keurcien/auxilia/compare/backend-v0.4.37...backend-v0.4.38) (2026-08-20)
 
 
