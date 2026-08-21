@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.41](https://github.com/keurcien/auxilia/compare/backend-v0.4.40...backend-v0.4.41) (2026-08-21)
+
+
+### Features
+
+* **users:** store SSO profile pictures and show avatars in users table ([#278](https://github.com/keurcien/auxilia/issues/278)) ([8a8cfdd](https://github.com/keurcien/auxilia/commit/8a8cfdd32c7be119f694b13e1c0bf71feed91c4a))
+
 ## [0.4.40](https://github.com/keurcien/auxilia/compare/backend-v0.4.39...backend-v0.4.40) (2026-08-21)
 
 
