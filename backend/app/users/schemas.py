@@ -33,6 +33,7 @@ class UserResponse(SQLModel):
     email: str | None
     role: WorkspaceRole
     team_id: UUID | None = None
+    picture_url: str | None = None
     created_at: datetime
     updated_at: datetime
 

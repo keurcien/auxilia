@@ -92,14 +92,28 @@ class AuthService:
         await self.db.refresh(user)
         return self.build_jwt_for_user(user)
 
-    async def google_signin_or_link(
+    def _refresh_picture(self, user: UserDB, picture_url: str | None) -> None:
+        """Update the cached avatar from the provider's claim on each sign-in.
+
+        Provider photo URLs rotate when users change their picture, so the
+        stored value is a cache refreshed at every OAuth sign-in. ``None`` is
+        left alone: a provider that stops sending the claim (or a secondary
+        provider without one) must not erase a previously stored avatar.
+        """
+        if picture_url and user.picture_url != picture_url:
+            user.picture_url = picture_url
+            self.db.add(user)
+
+    async def oauth_signin_or_link(
         self,
-        google_sub: str,
+        provider: str,
+        sub_id: str,
         email: str,
         name: str | None,
+        picture_url: str | None,
         invite_token: str | None,
     ) -> tuple[UserDB, str]:
-        """Resolve a Google OAuth identity to a user.
+        """Resolve an OAuth/OIDC identity to a user.
 
         - Existing OAuth link → returns the linked user.
         - Matching user by email → creates an OAuth link.
@@ -110,8 +124,8 @@ class AuthService:
         """
         result = await self.db.execute(
             select(OAuthAccountDB).where(
-                OAuthAccountDB.provider == "google",
-                OAuthAccountDB.sub_id == google_sub,
+                OAuthAccountDB.provider == provider,
+                OAuthAccountDB.sub_id == sub_id,
             )
         )
         oauth_account = result.scalar_one_or_none()
@@ -123,6 +137,8 @@ class AuthService:
             user = result.scalar_one_or_none()
             if not user:
                 raise DomainError("Linked user not found")
+            self._refresh_picture(user, picture_url)
+            await self.db.flush()
             return self.build_jwt_for_user(user)
 
         result = await self.db.execute(select(UserDB).where(UserDB.email == email))
@@ -131,11 +147,12 @@ class AuthService:
         if user:
             self.db.add(
                 OAuthAccountDB(
-                    provider="google",
-                    sub_id=google_sub,
+                    provider=provider,
+                    sub_id=sub_id,
                     user_id=user.id,
                 )
             )
+            self._refresh_picture(user, picture_url)
             await self.db.flush()
             return self.build_jwt_for_user(user)
 
@@ -150,6 +167,7 @@ class AuthService:
         user = UserDB(
             email=email,
             name=name,
+            picture_url=picture_url,
             role=WorkspaceRole(invite.role),
             team_id=invite.team_id,
         )
@@ -158,8 +176,8 @@ class AuthService:
 
         self.db.add(
             OAuthAccountDB(
-                provider="google",
-                sub_id=google_sub,
+                provider=provider,
+                sub_id=sub_id,
                 user_id=user.id,
             )
         )

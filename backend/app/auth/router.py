@@ -187,10 +187,12 @@ async def google_callback(
     invite_token = request.session.pop("invite_token", None)
 
     try:
-        user, access_token = await service.google_signin_or_link(
-            google_sub=google_sub,
+        user, access_token = await service.oauth_signin_or_link(
+            provider="google",
+            sub_id=google_sub,
             email=email,
             name=userinfo.get("name"),
+            picture_url=userinfo.get("picture"),
             invite_token=invite_token,
         )
     except NoInviteError:
@@ -200,7 +202,8 @@ async def google_callback(
         )
 
     response = RedirectResponse(
-        url=f"{auth_settings.FRONTEND_URL}/agents", status_code=302,
+        url=f"{auth_settings.FRONTEND_URL}/agents",
+        status_code=302,
     )
     _attach_auth_cookie(response, access_token)
     return response

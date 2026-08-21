@@ -19,6 +19,7 @@ import {
 	WorkspacePage,
 	WorkspaceTopBarButton,
 } from "@/components/layout/workspace-page";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { api } from "@/lib/api/client";
@@ -32,6 +33,7 @@ interface User {
 	email: string | null;
 	role: "member" | "editor" | "admin";
 	teamId: string | null;
+	pictureUrl: string | null;
 	createdAt: string;
 	updatedAt: string;
 }
@@ -380,9 +382,18 @@ export default function UsersPage() {
 				const isCurrentUser = user.id === currentUser?.id;
 				return (
 					<div className="flex min-w-0 items-center gap-3">
-						<span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-[10.5px] font-bold text-white dark:bg-white/15">
-							{getInitials(user.name)}
-						</span>
+						<Avatar className="size-8 shrink-0">
+							{user.pictureUrl && (
+								<AvatarImage
+									src={user.pictureUrl}
+									alt=""
+									referrerPolicy="no-referrer"
+								/>
+							)}
+							<AvatarFallback className="bg-ink text-[10.5px] font-bold text-white dark:bg-white/15">
+								{getInitials(user.name)}
+							</AvatarFallback>
+						</Avatar>
 						<div className="min-w-0">
 							<div className="flex min-w-0 items-center gap-2">
 								<span className="truncate text-[13.5px] font-semibold text-foreground">

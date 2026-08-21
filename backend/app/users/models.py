@@ -17,6 +17,7 @@ class UserBase(SQLModel):
     email: str | None = Field(default=None, max_length=255, unique=True, index=True)
     password_hash: str | None = Field(default=None)
     role: WorkspaceRole = Field(default=WorkspaceRole.member, nullable=False)
+    picture_url: str | None = Field(default=None, max_length=1024)
 
 
 class UserDB(UserBase, BaseDBModel, table=True):
