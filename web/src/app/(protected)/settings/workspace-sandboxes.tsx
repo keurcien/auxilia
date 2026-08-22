@@ -47,26 +47,15 @@ export default function WorkspaceSandboxes({
 	const onCountChangeRef = useRef(onCountChange);
 	onCountChangeRef.current = onCountChange;
 
-	// Functional updates only: a delete/save that lands while another request
-	// is in flight must apply against the latest list, not a render snapshot.
-	const applySandboxes = useCallback(
-		(update: (prev: Sandbox[]) => Sandbox[]) => {
-			setSandboxes((prev) => {
-				const next = update(prev);
-				onCountChangeRef.current?.(next.length);
-				return next;
-			});
-		},
-		[],
-	);
+	const [hasLoaded, setHasLoaded] = useState(false);
 
 	const loadSandboxes = useCallback(async () => {
 		setIsLoading(true);
 		setLoadFailed(false);
 		try {
 			const response = await api.get("/sandboxes");
-			const rows = response.data as Sandbox[];
-			applySandboxes(() => rows);
+			setSandboxes(response.data as Sandbox[]);
+			setHasLoaded(true);
 		} catch (error: unknown) {
 			if (isForbidden(error)) {
 				onForbiddenRef.current();
@@ -75,11 +64,17 @@ export default function WorkspaceSandboxes({
 		} finally {
 			setIsLoading(false);
 		}
-	}, [applySandboxes]);
+	}, []);
 
 	useEffect(() => {
 		void loadSandboxes();
 	}, [loadSandboxes]);
+
+	// Report the rail count after commit — never from inside a state updater,
+	// which React may re-invoke — and only once real data has loaded.
+	useEffect(() => {
+		if (hasLoaded) onCountChangeRef.current?.(sandboxes.length);
+	}, [hasLoaded, sandboxes]);
 
 	const setPending = (id: string, pending: boolean) => {
 		setPendingIds((prev) => {
@@ -106,7 +101,7 @@ export default function WorkspaceSandboxes({
 			}
 			if (!window.confirm(`Delete "${sandbox.name}"?`)) return;
 			await api.delete(`/sandboxes/${sandbox.id}`);
-			applySandboxes((prev) => prev.filter((s) => s.id !== sandbox.id));
+			setSandboxes((prev) => prev.filter((s) => s.id !== sandbox.id));
 		} catch (error: unknown) {
 			if (isForbidden(error)) {
 				onForbiddenRef.current();
@@ -130,12 +125,12 @@ export default function WorkspaceSandboxes({
 			}
 			throw error; // the dialog shows its own banner
 		}
-		applySandboxes((prev) => prev.filter((s) => s.id !== sandbox.id));
+		setSandboxes((prev) => prev.filter((s) => s.id !== sandbox.id));
 	};
 
 	const handleSaved = (saved: Sandbox) => {
 		setStatus(null);
-		applySandboxes((prev) =>
+		setSandboxes((prev) =>
 			prev.some((s) => s.id === saved.id)
 				? prev.map((s) => (s.id === saved.id ? saved : s))
 				: [...prev, saved],

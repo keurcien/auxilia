@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from daytona import DaytonaNotFoundError
 from deepagents.backends.protocol import (
     ExecuteResponse,
     FileDownloadResponse,
@@ -58,16 +59,19 @@ class DaytonaSandbox(BaseSandbox):
                     FileDownloadResponse(path=path, content=None, error="invalid_path")
                 )
                 continue
-            # The SDK returns None for a missing file; anything it raises is a
-            # transport/auth failure and must surface as such, not masquerade
-            # as file_not_found.
-            content = self._sandbox.fs.download_file(path)
-            responses.append(
-                FileDownloadResponse(
-                    path=path,
-                    content=content,
-                    error=None if content is not None else "file_not_found",
+            # Catch only the SDK's not-found error; transport/auth failures
+            # must surface as such, not masquerade as file_not_found.
+            try:
+                content = self._sandbox.fs.download_file(path)
+            except DaytonaNotFoundError:
+                responses.append(
+                    FileDownloadResponse(
+                        path=path, content=None, error="file_not_found"
+                    )
                 )
+                continue
+            responses.append(
+                FileDownloadResponse(path=path, content=content, error=None)
             )
         return responses
 
