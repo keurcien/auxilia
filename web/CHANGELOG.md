@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.0](https://github.com/keurcien/auxilia/compare/web-v0.5.33...web-v0.6.0) (2026-08-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* **sandbox:** agents.has_code_interpreter and the SANDBOX_* / OPEN_SANDBOX_* / CLOUD_RUN_SANDBOX_* env vars are removed. The migration converts an env-configured deployment into a registry row and rebinds flagged agents automatically when the env vars are still present at upgrade time.
+
+### Features
+
+* **sandbox:** workspace sandbox registry with per-agent bindings ([#284](https://github.com/keurcien/auxilia/issues/284)) ([61fb930](https://github.com/keurcien/auxilia/commit/61fb930791b00c92f227735bf79230ad436fb678))
+* **web:** rebuild setup page on the shared Petrol Mono auth shell ([#281](https://github.com/keurcien/auxilia/issues/281)) ([78a62a4](https://github.com/keurcien/auxilia/commit/78a62a4cfb6359fa7ee063f76b1439d640c468a2))
+
 ## [0.5.33](https://github.com/keurcien/auxilia/compare/web-v0.5.32...web-v0.5.33) (2026-08-21)
 
 
