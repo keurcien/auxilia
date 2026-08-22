@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from daytona import DaytonaNotFoundError
+from daytona import DaytonaFileNotFoundError
 from deepagents.backends.protocol import (
     ExecuteResponse,
     FileDownloadResponse,
@@ -59,11 +59,12 @@ class DaytonaSandbox(BaseSandbox):
                     FileDownloadResponse(path=path, content=None, error="invalid_path")
                 )
                 continue
-            # Catch only the SDK's not-found error; transport/auth failures
-            # must surface as such, not masquerade as file_not_found.
+            # Catch only the file-level not-found; a sandbox-level 404 (the
+            # sandbox itself is gone) and transport/auth failures must
+            # surface as such, not masquerade as file_not_found.
             try:
                 content = self._sandbox.fs.download_file(path)
-            except DaytonaNotFoundError:
+            except DaytonaFileNotFoundError:
                 responses.append(
                     FileDownloadResponse(
                         path=path, content=None, error="file_not_found"
