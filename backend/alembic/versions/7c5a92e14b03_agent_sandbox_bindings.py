@@ -43,6 +43,10 @@ def _env_sandbox() -> tuple[str, str, str | None, dict, str] | None:
         return None
     if settings.provider == "cloudrun":
         cr = settings.cloudrun
+        # `enabled` only checks for None — an empty-string URL or secret would
+        # produce a row that runtime validation rejects.
+        if not cr.gateway_url or not cr.gateway_secret:
+            return None
         return (
             "cloudrun",
             cr.gateway_url,
@@ -57,6 +61,8 @@ def _env_sandbox() -> tuple[str, str, str | None, dict, str] | None:
             "Cloud Run",
         )
     osb = settings.opensandbox
+    if not osb.domain:
+        return None
     return (
         "opensandbox",
         osb.domain,
@@ -97,6 +103,8 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("agent_id", name="uq_agent_sandbox"),
     )
+    # The delete guard and bulk detach filter on sandbox_id.
+    op.create_index("ix_agent_sandboxes_sandbox_id", "agent_sandboxes", ["sandbox_id"])
 
     bind = op.get_bind()
     env = _env_sandbox()
@@ -136,6 +144,20 @@ def upgrade() -> None:
             ),
             {"sid": sandbox_id},
         )
+    else:
+        # Never drop the flag silently: agents still carrying it would lose
+        # their sandbox with no trace. Run this upgrade in an environment
+        # where the SANDBOX_* env vars are set (so the conversion runs), or
+        # clear the flags first if that configuration is truly gone.
+        flagged = bind.execute(
+            sa.text("SELECT count(*) FROM agents WHERE has_code_interpreter = true")
+        ).scalar()
+        if flagged:
+            raise RuntimeError(
+                f"{flagged} agent(s) still have has_code_interpreter=true but no "
+                "sandbox env configuration is present to convert them. Set the "
+                "SANDBOX_* env vars for this upgrade, or clear the flags first."
+            )
 
     op.drop_column("agents", "has_code_interpreter")
 
@@ -155,4 +177,5 @@ def downgrade() -> None:
         "UPDATE agents SET has_code_interpreter = true "
         "WHERE id IN (SELECT agent_id FROM agent_sandboxes)"
     )
+    op.drop_index("ix_agent_sandboxes_sandbox_id", table_name="agent_sandboxes")
     op.drop_table("agent_sandboxes")

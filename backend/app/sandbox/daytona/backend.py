@@ -58,10 +58,10 @@ class DaytonaSandbox(BaseSandbox):
                     FileDownloadResponse(path=path, content=None, error="invalid_path")
                 )
                 continue
-            try:
-                content = self._sandbox.fs.download_file(path)
-            except Exception:
-                content = None
+            # The SDK returns None for a missing file; anything it raises is a
+            # transport/auth failure and must surface as such, not masquerade
+            # as file_not_found.
+            content = self._sandbox.fs.download_file(path)
             responses.append(
                 FileDownloadResponse(
                     path=path,

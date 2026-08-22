@@ -29,7 +29,7 @@ class SnapshotStore:
 
     @property
     def enabled(self) -> bool:
-        return self._bucket is not None
+        return bool(self._bucket)
 
     def _blob(self, sandbox_id: str) -> storage.Blob:
         bucket = _client().bucket(self._bucket)

@@ -28,6 +28,8 @@ interface AddAgentToolDialogProps {
 	attachedServerIds: string[];
 	/** Sandboxes already attached in the draft (at most one). */
 	attachedSandboxIds: string[];
+	/** Workspace sandboxes, fetched once by the tool list — not re-fetched here. */
+	sandboxes: Sandbox[];
 	/** Draft update: attach a server (tools stay null until synced/edited). */
 	onAddServer: (serverId: string) => void;
 	/** Draft update: attach a sandbox (replaces the current one, if any). */
@@ -110,24 +112,18 @@ function AvailableSandboxCard({
 }
 
 function SandboxSection({
+	sandboxes,
 	attachedSandboxIds,
 	onOpenChange,
 	onAddSandbox,
 }: {
+	sandboxes: Sandbox[];
 	attachedSandboxIds: string[];
 	onOpenChange: (open: boolean) => void;
 	onAddSandbox: (sandboxId: string) => void;
 }) {
-	const [allSandboxes, setAllSandboxes] = useState<Sandbox[]>([]);
-
-	useEffect(() => {
-		api.get("/sandboxes").then((res) => {
-			setAllSandboxes(res.data as Sandbox[]);
-		});
-	}, []);
-
 	// One sandbox per agent: once one is attached the section disappears.
-	if (attachedSandboxIds.length > 0 || allSandboxes.length === 0) return null;
+	if (attachedSandboxIds.length > 0 || sandboxes.length === 0) return null;
 
 	return (
 		<div>
@@ -135,7 +131,7 @@ function SandboxSection({
 				SANDBOXES
 			</h3>
 			<div className="content-start grid md:grid-cols-2 grid-cols-1 gap-x-2.5 gap-y-2">
-				{allSandboxes.map((sandbox) => (
+				{sandboxes.map((sandbox) => (
 					<AvailableSandboxCard
 						key={sandbox.id}
 						sandbox={sandbox}
@@ -254,6 +250,7 @@ export default function AddAgentToolDialog({
 	onOpenChange,
 	attachedServerIds,
 	attachedSandboxIds,
+	sandboxes,
 	onAddServer,
 	onAddSandbox,
 }: AddAgentToolDialogProps) {
@@ -273,6 +270,7 @@ export default function AddAgentToolDialog({
 						onAddServer={onAddServer}
 					/>
 					<SandboxSection
+						sandboxes={sandboxes}
 						attachedSandboxIds={attachedSandboxIds}
 						onOpenChange={onOpenChange}
 						onAddSandbox={onAddSandbox}

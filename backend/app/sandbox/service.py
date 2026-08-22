@@ -2,6 +2,7 @@ from uuid import UUID
 
 from fastapi import Depends
 from pydantic import ValidationError
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -74,7 +75,12 @@ class SandboxService(BaseService[SandboxDB, SandboxRepository]):
         # can never leave an invalid config behind. An omitted/empty secret
         # keeps the stored one (write-only field).
         url = data.url if data.url is not None else row.url
-        config = data.config if data.config is not None else row.config
+        # Overlay, not replace: the stored config always carries every field
+        # (defaults materialized on write), so a partial patch must not reset
+        # the fields it omits back to defaults.
+        config = (
+            {**row.config, **data.config} if data.config is not None else row.config
+        )
         secret = data.secret or (
             decrypt_value(row.encrypted_secret) if row.encrypted_secret else None
         )
@@ -121,7 +127,14 @@ class SandboxService(BaseService[SandboxDB, SandboxRepository]):
             raise DomainValidationError(
                 f"Sandbox is used by {len(agents)} agent(s) — detach it first"
             )
-        await self.repository.delete(row)
+        try:
+            await self.repository.delete(row)
+        except IntegrityError as exc:
+            # A binding created between the check and the delete hits the FK;
+            # surface the same clean 400 the guard gives.
+            raise DomainValidationError(
+                "Sandbox is used by agents — detach it first"
+            ) from exc
 
     async def get_secret_hint(self, sandbox_id: UUID) -> SandboxSecretHint:
         row = await self.get_or_404(sandbox_id)

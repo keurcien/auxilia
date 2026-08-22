@@ -91,6 +91,10 @@ The env `*Settings` classes are replaced by API-facing config models. The base c
 class SandboxConfigBase(SQLModel):
     """Shared shape of every sandbox provider's runtime config.
     Hydrated from a SandboxDB row: url/secret from columns, rest from JSONB."""
+    # Unknown keys are rejected, not silently dropped — this is what makes
+    # the config JSONB "always validated", not a schema escape hatch.
+    model_config = ConfigDict(extra="forbid")
+
     url: str
     secret: str | None = None            # decrypted at hydration, never serialized in responses
     default_packages: list[str] = []
@@ -170,7 +174,7 @@ def build_provider(row: SandboxDB) -> BaseSandboxProvider:
 
 - deepagents only ships the abstract `BaseSandbox` — `OpenSandbox` and `CloudRunSandbox` are already ours. **Daytona** is one more `BaseSandbox` implementation (`app/sandbox/daytona/`) wrapping the Daytona Python SDK: `Daytona(DaytonaConfig(api_key=secret, api_url=url, target=...))`, `daytona.create(...)` / `daytona.get(sandbox_id)` for the provider's create/connect, `sandbox.process.exec(...)` behind `execute`, `sandbox.fs.*` behind upload/download. (SDK surface from docs; verify exact names at implementation time.)
 - **Adding a provider = the DRY test**: one `BaseSandbox` subclass, one `BaseSandboxProvider` subclass, one config model in the union, one `PROVIDERS` entry, one field-group spec for the create dialog (§6.3). No schema change, no new env vars, no changes to tools/runtime/binding code.
-- `create_sandbox_tools(lazy_backend)` becomes `create_sandbox_tools(lazy_backend, provider)` (`app/sandbox/tools.py:18`); `get_provider()`, the `SandboxSettings` facade, and both env settings classes are deleted.
+- `create_sandbox_tools(lazy_backend)` becomes `create_sandbox_tools(lazy_backend, provider)` (`app/sandbox/tools.py:18`); `get_provider()` and the `SandboxSettings.enabled` gate are deleted from the runtime path; the env settings classes themselves survive untouched solely as the one-shot migration's input (§7) and die with the env vars once every deployment has upgraded.
 
 ## 4. Agent binding
 
@@ -209,7 +213,7 @@ class ResolvedAgent:
     sandbox: ResolvedSandbox | None = None
 ```
 
-The two gate sites (`runtime.py:187`, `:318`) change from `self.config.has_code_interpreter and sandbox_settings.enabled` to `self.sandbox is not None` (binding exists ∧ row `is_active`, enforced at resolve). Nothing downstream (streaming scope, runs worker, subagent compile) touches the DB or a global; triggers, Slack, and the durable runs worker inherit this for free.
+The two gate sites (`runtime.py:187`, `:318`) change from `self.config.has_code_interpreter and sandbox_settings.enabled` to `self.sandbox is not None` (a binding to an existing sandbox row, resolved at request scope). Nothing downstream (streaming scope, runs worker, subagent compile) touches the DB or a global; triggers, Slack, and the durable runs worker inherit this for free.
 
 Tool gating: `disabled` entries are dropped from the toolset; `needs_approval` joins the same HITL wiring MCP tools use (parent agent only, same subagent limitation as today).
 

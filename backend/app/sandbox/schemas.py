@@ -25,7 +25,7 @@ class SandboxConfigBase(SQLModel):
     url: str
     secret: str | None = Field(default=None, exclude=True)
     default_packages: list[str] = []
-    timeout: int = 30 * 60
+    timeout: int = Field(default=30 * 60, ge=1)
 
 
 class OpenSandboxConfig(SandboxConfigBase):
@@ -56,7 +56,7 @@ class DaytonaConfig(SandboxConfigBase):
     url: str = "https://app.daytona.io/api"
     target: str = "us"
     snapshot: str | None = None
-    auto_stop_interval: int = 15
+    auto_stop_interval: int = Field(default=15, ge=0)
 
     @model_validator(mode="after")
     def require_secret(self) -> "DaytonaConfig":
@@ -99,8 +99,8 @@ def config_extras(validated: SandboxConfigBase) -> dict:
 
 
 class SandboxCreate(SQLModel):
-    name: str
-    description: str | None = None
+    name: str = Field(max_length=255)
+    description: str | None = Field(default=None, max_length=255)
     provider: SandboxProviderType
     url: str
     # Write-only credential: excluded from serialization so it never lands in
@@ -118,8 +118,8 @@ class SandboxPatch(SQLModel):
     for the provider it was validated against; recreate to switch. An omitted
     or empty `secret` keeps the stored one (write-only, like OAuth secrets)."""
 
-    name: str | None = None
-    description: str | None = None
+    name: str | None = Field(default=None, max_length=255)
+    description: str | None = Field(default=None, max_length=255)
     url: str | None = None
     secret: str | None = Field(default=None, exclude=True)
     config: dict | None = None

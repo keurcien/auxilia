@@ -39,14 +39,18 @@ class BaseSandboxProvider(ABC):
         backend = self._create_backend(timeout_minutes=timeout_minutes)
         try:
             install_default_packages(backend, list(self.config.default_packages))
+            # Inside the protected block: resolving `backend.id` for the
+            # message can itself hit the network (OpenSandbox), and a failure
+            # there must not leak a running sandbox either.
+            message = self._created_message(backend, timeout_minutes)
         except Exception:
             # Don't leak a running sandbox the caller never got an ID for.
             try:
                 self._destroy_backend(backend)
             except Exception:
-                logger.warning("Failed to clean up sandbox after install failure")
+                logger.warning("Failed to clean up sandbox after create failure")
             raise
-        return backend, self._created_message(backend, timeout_minutes)
+        return backend, message
 
     @abstractmethod
     def _create_backend(self, *, timeout_minutes: int) -> BaseSandbox: ...

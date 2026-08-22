@@ -48,10 +48,19 @@ export function useDeleteMcpServer({
 		}
 	};
 
-	/** Dialog confirm — errors propagate so the dialog shows its own banner. */
+	/** Dialog confirm — non-403 errors propagate so the dialog shows its
+	 * own banner; a 403 opens the ForbiddenErrorDialog like every other path. */
 	const confirmDetachAndDelete = async () => {
 		if (!guard) return;
-		await deleteMcpServer(guard.server.id, { detachAgents: true });
+		try {
+			await deleteMcpServer(guard.server.id, { detachAgents: true });
+		} catch (error: unknown) {
+			if (error instanceof Object && "status" in error && error.status === 403) {
+				onForbidden?.();
+				return;
+			}
+			throw error;
+		}
 		onDeleted?.(guard.server);
 	};
 

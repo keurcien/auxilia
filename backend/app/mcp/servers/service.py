@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import Depends
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -168,7 +169,14 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
             raise DomainValidationError(
                 f"MCP server is used by {len(agents)} agent(s) — detach it first"
             )
-        await self.repository.delete(server)
+        try:
+            await self.repository.delete(server)
+        except IntegrityError as exc:
+            # A binding created between the check and the delete hits the FK;
+            # surface the same clean 400 the guard gives.
+            raise DomainValidationError(
+                "MCP server is used by agents — detach it first"
+            ) from exc
 
     async def list_official(self) -> list[OfficialMCPServerResponse]:
         """The catalog (file order) with each entry flagged as installed or not.

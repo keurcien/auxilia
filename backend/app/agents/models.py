@@ -49,7 +49,7 @@ class AgentSandboxBase(SQLModel):
     # sandbox is refused; the admin explicitly detaches it from all agents
     # (DELETE /sandboxes/{id}?detach_agents=true). Threads are never bound
     # to a sandbox — only agents are.
-    sandbox_id: UUID = Field(foreign_key="sandboxes.id", nullable=False)
+    sandbox_id: UUID = Field(foreign_key="sandboxes.id", index=True, nullable=False)
     tools: dict[str, ToolStatus] | None = Field(
         default=None, sa_column=Column(JSONB, nullable=True)
     )

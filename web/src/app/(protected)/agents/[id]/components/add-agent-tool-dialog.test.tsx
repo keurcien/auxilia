@@ -37,14 +37,10 @@ const availableSandbox: Sandbox = {
 	updatedAt: "2026-08-22T00:00:00Z",
 };
 
-function mockApi({ sandboxes = [availableSandbox] }: { sandboxes?: Sandbox[] } = {}) {
-	vi.mocked(api.get).mockImplementation((url) => {
-		if (url === "/sandboxes") {
-			return Promise.resolve({ data: sandboxes });
-		}
-
-		return Promise.resolve({ data: [availableServer] });
-	});
+function mockApi() {
+	vi.mocked(api.get).mockImplementation(() =>
+		Promise.resolve({ data: [availableServer] }),
+	);
 }
 
 describe("AddAgentToolDialog", () => {
@@ -64,6 +60,7 @@ describe("AddAgentToolDialog", () => {
 				onOpenChange={onOpenChange}
 				attachedServerIds={[]}
 				attachedSandboxIds={[]}
+				sandboxes={[availableSandbox]}
 				onAddServer={onAddServer}
 				onAddSandbox={vi.fn()}
 			/>,
@@ -86,6 +83,7 @@ describe("AddAgentToolDialog", () => {
 				onOpenChange={vi.fn()}
 				attachedServerIds={["server-1"]}
 				attachedSandboxIds={[]}
+				sandboxes={[availableSandbox]}
 				onAddServer={vi.fn()}
 				onAddSandbox={vi.fn()}
 			/>,
@@ -109,6 +107,7 @@ describe("AddAgentToolDialog", () => {
 				onOpenChange={onOpenChange}
 				attachedServerIds={[]}
 				attachedSandboxIds={[]}
+				sandboxes={[availableSandbox]}
 				onAddServer={vi.fn()}
 				onAddSandbox={onAddSandbox}
 			/>,
@@ -131,6 +130,7 @@ describe("AddAgentToolDialog", () => {
 				onOpenChange={vi.fn()}
 				attachedServerIds={[]}
 				attachedSandboxIds={["sandbox-1"]}
+				sandboxes={[availableSandbox]}
 				onAddServer={vi.fn()}
 				onAddSandbox={vi.fn()}
 			/>,

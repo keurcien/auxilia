@@ -19,7 +19,24 @@ from app.sandbox.schemas import DaytonaConfig
 
 
 # States `connect` can recover from by (re)starting the sandbox.
-_WAKEABLE_STATES = {"stopped", "stopping", "paused", "pausing", "archived"}
+_WAKEABLE_STATES = {"stopped", "stopping", "paused", "pausing", "archived", "archiving"}
+
+# States where the sandbox is (or is about to be) usable as-is.
+_USABLE_STATES = {
+    "started",
+    "starting",
+    "creating",
+    "restoring",
+    "resuming",
+    "pulling_snapshot",
+}
+
+
+def _state_of(sandbox: object) -> str:
+    """The sandbox state as a lowercase string. `Sandbox.state` is an enum —
+    `str()` on it yields "SandboxState.STOPPED", so read `.value`."""
+    state = getattr(sandbox, "state", None)
+    return str(getattr(state, "value", state) or "").lower()
 
 
 class DaytonaProvider(BaseSandboxProvider):
@@ -52,13 +69,19 @@ class DaytonaProvider(BaseSandboxProvider):
     def connect(self, sandbox_id: str) -> tuple[DaytonaSandbox, str]:
         client = self._client()
         sandbox = client.get(sandbox_id)
-        state = str(getattr(sandbox, "state", "") or "").lower()
+        state = _state_of(sandbox)
         if state in _WAKEABLE_STATES:
             client.start(sandbox)
             return (
                 DaytonaSandbox(sandbox, timeout=self.config.timeout),
                 f"Restarted sandbox {sandbox_id}. Files are preserved.",
             )
+        # Unknown state (older SDK / missing attribute) is treated as usable —
+        # the first execute surfaces the truth. Known-dead states must raise:
+        # the base-class contract is "raise if it cannot be restored", and a
+        # false "Reconnected" would just defer the failure to the next tool.
+        if state and state not in _USABLE_STATES:
+            raise RuntimeError(f"sandbox {sandbox_id} is in state {state!r}")
         return (
             DaytonaSandbox(sandbox, timeout=self.config.timeout),
             f"Reconnected to sandbox {sandbox_id}.",

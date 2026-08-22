@@ -207,6 +207,7 @@ export default function AgentToolList({
 					onOpenChange={setDialogOpen}
 					attachedServerIds={mcpServers.map((s) => s.mcpServerId)}
 					attachedSandboxIds={sandboxes.map((s) => s.sandboxId)}
+					sandboxes={allSandboxes}
 					onAddServer={handleAddServer}
 					onAddSandbox={handleAddSandbox}
 				/>

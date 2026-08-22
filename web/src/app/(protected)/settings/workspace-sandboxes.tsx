@@ -47,17 +47,26 @@ export default function WorkspaceSandboxes({
 	const onCountChangeRef = useRef(onCountChange);
 	onCountChangeRef.current = onCountChange;
 
-	const applySandboxes = useCallback((rows: Sandbox[]) => {
-		setSandboxes(rows);
-		onCountChangeRef.current?.(rows.length);
-	}, []);
+	// Functional updates only: a delete/save that lands while another request
+	// is in flight must apply against the latest list, not a render snapshot.
+	const applySandboxes = useCallback(
+		(update: (prev: Sandbox[]) => Sandbox[]) => {
+			setSandboxes((prev) => {
+				const next = update(prev);
+				onCountChangeRef.current?.(next.length);
+				return next;
+			});
+		},
+		[],
+	);
 
 	const loadSandboxes = useCallback(async () => {
 		setIsLoading(true);
 		setLoadFailed(false);
 		try {
 			const response = await api.get("/sandboxes");
-			applySandboxes(response.data as Sandbox[]);
+			const rows = response.data as Sandbox[];
+			applySandboxes(() => rows);
 		} catch (error: unknown) {
 			if (isForbidden(error)) {
 				onForbiddenRef.current();
@@ -97,7 +106,7 @@ export default function WorkspaceSandboxes({
 			}
 			if (!window.confirm(`Delete "${sandbox.name}"?`)) return;
 			await api.delete(`/sandboxes/${sandbox.id}`);
-			applySandboxes(sandboxes.filter((s) => s.id !== sandbox.id));
+			applySandboxes((prev) => prev.filter((s) => s.id !== sandbox.id));
 		} catch (error: unknown) {
 			if (isForbidden(error)) {
 				onForbiddenRef.current();
@@ -112,17 +121,24 @@ export default function WorkspaceSandboxes({
 	const handleDetachAndDelete = async () => {
 		if (!deleteTarget) return;
 		const { sandbox } = deleteTarget;
-		await api.delete(`/sandboxes/${sandbox.id}?detach_agents=true`);
-		applySandboxes(sandboxes.filter((s) => s.id !== sandbox.id));
+		try {
+			await api.delete(`/sandboxes/${sandbox.id}?detach_agents=true`);
+		} catch (error: unknown) {
+			if (isForbidden(error)) {
+				onForbiddenRef.current();
+				return;
+			}
+			throw error; // the dialog shows its own banner
+		}
+		applySandboxes((prev) => prev.filter((s) => s.id !== sandbox.id));
 	};
 
 	const handleSaved = (saved: Sandbox) => {
 		setStatus(null);
-		const exists = sandboxes.some((s) => s.id === saved.id);
-		applySandboxes(
-			exists
-				? sandboxes.map((s) => (s.id === saved.id ? saved : s))
-				: [...sandboxes, saved],
+		applySandboxes((prev) =>
+			prev.some((s) => s.id === saved.id)
+				? prev.map((s) => (s.id === saved.id ? saved : s))
+				: [...prev, saved],
 		);
 	};
 

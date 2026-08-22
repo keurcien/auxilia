@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
 	Dialog,
 	DialogButton,
@@ -37,6 +37,14 @@ export default function ResourceInUseDialog({
 }: ResourceInUseDialogProps) {
 	const [isDeleting, setIsDeleting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+
+	// A failure from a previous confirm must not greet the next open.
+	useEffect(() => {
+		if (open) {
+			setError(null);
+			setIsDeleting(false);
+		}
+	}, [open]);
 
 	const handleConfirm = async () => {
 		setIsDeleting(true);
