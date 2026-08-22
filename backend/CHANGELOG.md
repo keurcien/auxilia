@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.0](https://github.com/keurcien/auxilia/compare/backend-v0.4.41...backend-v0.5.0) (2026-08-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* **sandbox:** agents.has_code_interpreter and the SANDBOX_* / OPEN_SANDBOX_* / CLOUD_RUN_SANDBOX_* env vars are removed. The migration converts an env-configured deployment into a registry row and rebinds flagged agents automatically when the env vars are still present at upgrade time.
+
+### Features
+
+* **sandbox:** workspace sandbox registry with per-agent bindings ([#284](https://github.com/keurcien/auxilia/issues/284)) ([61fb930](https://github.com/keurcien/auxilia/commit/61fb930791b00c92f227735bf79230ad436fb678))
+
 ## [0.4.41](https://github.com/keurcien/auxilia/compare/backend-v0.4.40...backend-v0.4.41) (2026-08-21)
 
 
