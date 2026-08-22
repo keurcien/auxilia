@@ -2,7 +2,7 @@
 
 The **sandbox** gives an agent a private, isolated Linux environment for executing code, reading and writing files, searching, and running shell commands. It turns any agent into a lightweight data-analysis or scripting agent without handing it access to the host.
 
-This page is the **operator's view** — what the sandbox is, how it's architected, and what you need to run. For how an agent author enables and uses the sandbox inside an agent, see [Using the sandbox](/docs/agents/sandbox).
+This page is the **operator's view** — what the sandbox is, how it's architected, and what you need to run. For how an agent author enables and uses the sandbox inside an agent, see [Using the sandbox](/agents/sandbox).
 
 ## Why a sandbox
 
@@ -17,7 +17,14 @@ The sandbox provides that environment and exposes it to the agent as a toolset.
 
 ## How it works
 
-**auxilia**'s sandbox integration is built on [OpenSandbox](https://github.com/langchain-ai/opensandbox), an open-source sandbox runtime that spawns short-lived Linux containers on demand. The wiring:
+**auxilia** supports two sandbox providers, selected with the `SANDBOX_PROVIDER` environment variable:
+
+- **`opensandbox`** (default) — [OpenSandbox](https://github.com/langchain-ai/opensandbox), an open-source sandbox runtime that spawns short-lived Linux containers on demand. You run the controller yourself, next to the backend.
+- **`cloudrun`** — [Google Cloud Run sandboxes](https://docs.cloud.google.com/run/docs/code-execution) (public preview), reached through a dedicated **sandbox gateway** Cloud Run service. Nothing to host beyond that one service — see [Cloud Run Sandboxes](/deploy/sandbox/cloud-run).
+
+Whichever provider you pick, the agent sees the exact same toolset (`create_sandbox` / `connect_sandbox` + file ops) — the provider only changes where the container runs.
+
+With OpenSandbox, the wiring looks like this:
 
 ```
 ┌─────────────────────┐      create_sandbox()      ┌────────────────────┐
@@ -34,23 +41,23 @@ The sandbox provides that environment and exposes it to the agent as a toolset.
                                                   └──────────────────────┘
 ```
 
-The sandbox is **lazy**: it is not created when an agent starts. The LLM decides when (and whether) to call `create_sandbox`, and only then does a container come up. A default container has a **30-minute TTL** that can be renewed via `connect_sandbox`.
+The sandbox is **lazy**: it is not created when an agent starts. The LLM decides when (and whether) to call `create_sandbox`, and only then does a container come up. A default OpenSandbox container has a **30-minute TTL** that can be renewed via `connect_sandbox`; Cloud Run sandboxes have no TTL; they live inside one gateway instance and persist across instance recycles only when a snapshot bucket (`CLOUD_RUN_SANDBOX_GCS_BUCKET`) is configured — without one, a recycled instance means a lost sandbox.
 
 Inside a conversation, the agent can create one sandbox, keep reusing it across turns, and reconnect to it after a browser refresh.
 
 ## What you need to run it
 
-The OpenSandbox controller runs **alongside** the **auxilia** backend. **auxilia** is a client of it — the backend never executes shell commands itself.
+The sandbox runtime runs **outside** the **auxilia** backend. **auxilia** is a client of it — the backend never executes shell commands itself.
 
 You can either:
 
-- **Self-host OpenSandbox** — run the controller in a container on the same host, in the same VPC, or on Kubernetes
+- **Self-host OpenSandbox** — run the controller in a container on the same host, in the same VPC, or on Kubernetes, then configure **auxilia** with `OPEN_SANDBOX_DOMAIN` (and optionally `OPEN_SANDBOX_API_KEY`). The [Setup](/deploy/sandbox/setup) page walks through it.
 - **Point at a managed OpenSandbox instance** — anything reachable over HTTP with an API key
-
-Once the controller is running, configure **auxilia** with `OPEN_SANDBOX_DOMAIN` (and optionally `OPEN_SANDBOX_API_KEY`). The [Setup](/docs/deploy/sandbox/setup) page walks through it.
+- **Use Cloud Run sandboxes** — deploy the `sandbox-gateway` service on Google Cloud Run and set `SANDBOX_PROVIDER=cloudrun`. See [Cloud Run Sandboxes](/deploy/sandbox/cloud-run).
 
 ## Next
 
-- **[Setup](/docs/deploy/sandbox/setup)** — run OpenSandbox and point **auxilia** at it
-- **[Security](/docs/deploy/sandbox/security)** — isolation, volume mounts, timeouts
-- **[Using the sandbox in an agent](/docs/agents/sandbox)** — the agent-author side: enabling the toggle and the toolset the LLM sees
+- **[Setup](/deploy/sandbox/setup)** — pick a provider, run OpenSandbox and point **auxilia** at it
+- **[Cloud Run Sandboxes](/deploy/sandbox/cloud-run)** — deploy the sandbox gateway and use Google Cloud Run sandboxes
+- **[Security](/deploy/sandbox/security)** — isolation, volume mounts, timeouts
+- **[Using the sandbox in an agent](/agents/sandbox)** — the agent-author side: enabling the toggle and the toolset the LLM sees

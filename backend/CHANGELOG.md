@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.4.41](https://github.com/keurcien/auxilia/compare/backend-v0.4.40...backend-v0.4.41) (2026-08-21)
+
+
+### Features
+
+* **users:** store SSO profile pictures and show avatars in users table ([#278](https://github.com/keurcien/auxilia/issues/278)) ([8a8cfdd](https://github.com/keurcien/auxilia/commit/8a8cfdd32c7be119f694b13e1c0bf71feed91c4a))
+
+## [0.4.40](https://github.com/keurcien/auxilia/compare/backend-v0.4.39...backend-v0.4.40) (2026-08-21)
+
+
+### Features
+
+* **catalog:** add Cloud Logging, Team Tailor and TikTok MCP servers ([#275](https://github.com/keurcien/auxilia/issues/275)) ([0471dc7](https://github.com/keurcien/auxilia/commit/0471dc732109caa65976442e1579b268cf4e7d49))
+
+## [0.4.39](https://github.com/keurcien/auxilia/compare/backend-v0.4.38...backend-v0.4.39) (2026-08-21)
+
+
+### Dependencies
+
+* **backend:** upgrade langfuse SDK to v4 ([#272](https://github.com/keurcien/auxilia/issues/272)) ([0460a0b](https://github.com/keurcien/auxilia/commit/0460a0b4d81b99d2e1872f1cf01002bfa2c76a2b))
+
+## [0.4.38](https://github.com/keurcien/auxilia/compare/backend-v0.4.37...backend-v0.4.38) (2026-08-20)
+
+
+### Performance Improvements
+
+* **agents:** drop instructions and tool maps from the list response ([#267](https://github.com/keurcien/auxilia/issues/267)) ([69be828](https://github.com/keurcien/auxilia/commit/69be828b5a0e8c2e9ff5aec69744eb9403cb0102))
+* **api:** gzip JSON responses ([#268](https://github.com/keurcien/auxilia/issues/268)) ([9b7dd3d](https://github.com/keurcien/auxilia/commit/9b7dd3daffd237e72f3b34192f217b73dced7970))
+
+## [0.4.37](https://github.com/keurcien/auxilia/compare/backend-v0.4.36...backend-v0.4.37) (2026-08-19)
+
+
+### Bug Fixes
+
+* **agents:** persist MCP tool maps the editor UI already shows ([#262](https://github.com/keurcien/auxilia/issues/262)) ([6b75edd](https://github.com/keurcien/auxilia/commit/6b75edddf164bda210066a08ed5f8c0e8578c22d))
+
 ## [0.4.36](https://github.com/keurcien/auxilia/compare/backend-v0.4.35...backend-v0.4.36) (2026-08-17)
 
 

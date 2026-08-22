@@ -1,0 +1,49 @@
+---
+title: Official Catalog
+---
+
+import { MCPCatalog } from "../../../src/components/mcp-catalog";
+
+# Official Catalog
+
+The official catalog is the curated list of remote MCP servers offered in the **Add an MCP server** dialog. Entries are templates: installing one copies its endpoint, auth type, and description into your workspace — nothing links back to the catalog afterwards.
+
+The list below is live — it's the same CDN-hosted file every **auxilia** deployment reads.
+
+<MCPCatalog />
+
+## How the catalog is served
+
+The canonical catalog is a hand-editable YAML file behind a CDN, so new servers appear without a migration or a release. Each backend reads it through a cache chain (in-process memo → Redis → CDN → last-known-good → the snapshot bundled with the backend), which means a CDN outage can never take the dialog down — it just serves the last list that validated.
+
+Deployments control it with one variable:
+
+```env
+# Default: auxilia's hosted catalog (the list above)
+# MCP_CATALOG_URL=https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/mcp/catalog.yaml
+
+# Point it at your own file to publish an internal list of approved servers
+# MCP_CATALOG_URL=https://cdn.your-company.com/mcp/catalog.yaml
+
+# Or set it empty to use only the bundled snapshot
+# MCP_CATALOG_URL=
+```
+
+Because the Redis cache is long-lived (7 days), edits to the file propagate when a workspace admin triggers a sync (`POST /mcp-servers/catalog/sync`), which force-fetches, validates the file all-or-nothing, and returns the diff.
+
+## Entry format
+
+```yaml filename="catalog.yaml"
+schema_version: 1
+
+servers:
+  - name: GitHub
+    url: "https://api.githubcopilot.com/mcp/"
+    auth_type: oauth2 # none | api_key | oauth2
+    icon_url: "https://cdn.example.com/icons/github.png"
+    supports_dcr: true # oauth2 only: false = admin must supply client_id/secret
+    description: >-
+      Shown in the add-server dialog.
+```
+
+`url` is the identity key — it decides whether a server already shows as installed — and file order is display order. For what happens after installing an entry (credentials, per-user OAuth), see [Authentication](/deploy/mcp-servers/authentication); for when to prefer a catalog entry over your own endpoint, see [Official vs Custom](/deploy/mcp-servers/official-vs-custom).

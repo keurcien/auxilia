@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.agents.router import router as agents_router
@@ -194,6 +195,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Compress JSON responses (the /agents list alone runs to hundreds of KB on
+# large workspaces). Starlette excludes text/event-stream by default, so the
+# /runs/stream SSE endpoints keep flushing tokens unbuffered.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 # SessionMiddleware is required for OAuth flows (stores state during authorization)
 app.add_middleware(

@@ -6,6 +6,7 @@ interface User {
 	name: string | null;
 	email: string | null;
 	role: "member" | "editor" | "admin";
+	pictureUrl: string | null;
 	createdAt: string;
 	updatedAt: string;
 }

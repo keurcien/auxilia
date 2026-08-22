@@ -3,7 +3,7 @@
 import { Callout } from 'nextra/components'
 
 <Callout type="warning">
-**Work in progress.** A full walkthrough for deploying **auxilia** on a bare VM or generic Docker host is coming. In the meantime, the [Cloud Run guide](/docs/deploy/cloud-run) and the repository's `docker-compose.yml` are the best references.
+**Work in progress.** A full walkthrough for deploying **auxilia** on a bare VM or generic Docker host is coming. In the meantime, the [Cloud Run guide](/deploy/cloud-run) and the repository's `docker-compose.yml` are the best references.
 </Callout>
 
 ## What this page will cover
@@ -24,7 +24,7 @@ The repo ships with a production-ready `docker-compose.yml`. The short version:
 git clone https://github.com/keurcien/auxilia.git
 cd auxilia
 cp .env.example .env
-# edit .env — see /docs/deploy/environment-variables
+# edit .env — see /deploy/environment-variables
 docker compose up -d
 ```
 

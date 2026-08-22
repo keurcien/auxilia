@@ -1,5 +1,59 @@
 # Changelog
 
+## [0.5.33](https://github.com/keurcien/auxilia/compare/web-v0.5.32...web-v0.5.33) (2026-08-21)
+
+
+### Features
+
+* **users:** store SSO profile pictures and show avatars in users table ([#278](https://github.com/keurcien/auxilia/issues/278)) ([8a8cfdd](https://github.com/keurcien/auxilia/commit/8a8cfdd32c7be119f694b13e1c0bf71feed91c4a))
+
+
+### Bug Fixes
+
+* **web:** display DeepSeek reasoning content in chat ([#280](https://github.com/keurcien/auxilia/issues/280)) ([16f0fe8](https://github.com/keurcien/auxilia/commit/16f0fe8f719b3194ddd7d42952f1c469d0953cc2))
+
+## [0.5.32](https://github.com/keurcien/auxilia/compare/web-v0.5.31...web-v0.5.32) (2026-08-21)
+
+
+### Bug Fixes
+
+* **web:** cap agent table inline avatars at 3 ([#276](https://github.com/keurcien/auxilia/issues/276)) ([a7fc7e4](https://github.com/keurcien/auxilia/commit/a7fc7e4307182b19bd4f01c3dbf4237a56991748))
+
+## [0.5.31](https://github.com/keurcien/auxilia/compare/web-v0.5.30...web-v0.5.31) (2026-08-21)
+
+
+### Bug Fixes
+
+* **web:** resolve npm audit vulnerabilities via lockfile bumps ([#274](https://github.com/keurcien/auxilia/issues/274)) ([ebf59e6](https://github.com/keurcien/auxilia/commit/ebf59e6df9b29d2fdce4d1e435496c85394fb70b))
+
+## [0.5.30](https://github.com/keurcien/auxilia/compare/web-v0.5.29...web-v0.5.30) (2026-08-20)
+
+
+### Bug Fixes
+
+* **web:** strip stale encoding headers in the backend proxy ([#270](https://github.com/keurcien/auxilia/issues/270)) ([aa2f50b](https://github.com/keurcien/auxilia/commit/aa2f50bdf798679c822eb8c0fb389d7c69010394))
+
+## [0.5.29](https://github.com/keurcien/auxilia/compare/web-v0.5.28...web-v0.5.29) (2026-08-20)
+
+
+### Performance Improvements
+
+* **agents:** drop instructions and tool maps from the list response ([#267](https://github.com/keurcien/auxilia/issues/267)) ([69be828](https://github.com/keurcien/auxilia/commit/69be828b5a0e8c2e9ff5aec69744eb9403cb0102))
+
+## [0.5.28](https://github.com/keurcien/auxilia/compare/web-v0.5.27...web-v0.5.28) (2026-08-19)
+
+
+### Performance Improvements
+
+* **web:** cut the /agents page request storm ([#265](https://github.com/keurcien/auxilia/issues/265)) ([ca54ad2](https://github.com/keurcien/auxilia/commit/ca54ad21707476b5a98e52fa1c7bf3e3e3263b93))
+
+## [0.5.27](https://github.com/keurcien/auxilia/compare/web-v0.5.26...web-v0.5.27) (2026-08-19)
+
+
+### Bug Fixes
+
+* **agents:** persist MCP tool maps the editor UI already shows ([#262](https://github.com/keurcien/auxilia/issues/262)) ([6b75edd](https://github.com/keurcien/auxilia/commit/6b75edddf164bda210066a08ed5f8c0e8578c22d))
+
 ## [0.5.26](https://github.com/keurcien/auxilia/compare/web-v0.5.25...web-v0.5.26) (2026-08-17)
 
 

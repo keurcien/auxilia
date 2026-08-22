@@ -9,6 +9,7 @@ from app.agents.mcp_servers.service import (
 )
 from app.agents.schemas import (
     AgentConfig,
+    AgentListResponse,
     AgentMCPServerCreate,
     AgentMCPServerPatch,
     AgentMCPServerResponse,
@@ -52,7 +53,10 @@ async def create_agent(
     )
 
 
-@router.get("/", response_model=list[AgentResponse])
+# The list endpoint serializes through the slim schema: response_model
+# filtering drops `instructions` and the bindings' tool maps, which cuts the
+# payload by ~80% on real workspaces. Detail (GET /{agent_id}) stays full.
+@router.get("/", response_model=list[AgentListResponse])
 async def get_agents(
     archived: bool = False,
     current_user: UserDB = Depends(get_current_user),

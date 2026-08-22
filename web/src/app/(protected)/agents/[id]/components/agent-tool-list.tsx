@@ -12,6 +12,8 @@ import { AgentMCPServerForm, AgentSandboxForm } from "../../lib/agent-form";
 import { api } from "@/lib/api/client";
 
 interface AgentToolListProps {
+	/** Saved agent id — undefined in create mode (`/agents/new`). */
+	agentId?: string;
 	mcpServers: AgentMCPServerForm[];
 	sandboxes: AgentSandboxForm[];
 	readOnly?: boolean;
@@ -26,14 +28,24 @@ interface AgentToolListProps {
 	) => void;
 	/** Plain array in/out — sandbox bindings have no async seeding. */
 	onSandboxesChange?: (sandboxes: AgentSandboxForm[]) => void;
+	/**
+	 * A read-mode connect persisted this binding's tool map server-side
+	 * (sync-tools) — lets the page refresh its copy of the saved agent.
+	 */
+	onBindingPersisted?: (
+		serverId: string,
+		tools: Record<string, ToolStatus>,
+	) => void;
 }
 
 export default function AgentToolList({
+	agentId,
 	mcpServers,
 	sandboxes,
 	readOnly,
 	onMcpServersChange,
 	onSandboxesChange,
+	onBindingPersisted,
 }: AgentToolListProps) {
 	const [allMCPServers, setAllMCPServers] = useState<MCPServer[]>([]);
 	const [allSandboxes, setAllSandboxes] = useState<Sandbox[]>([]);
@@ -73,19 +85,35 @@ export default function AgentToolList({
 		);
 	};
 
-	// Seed a never-synced binding, evaluated against the latest state: only fill
-	// when `tools` is still null so concurrent seeds merge instead of clobbering,
-	// and a user's in-progress edits are never overwritten.
-	const handleSeedTools = (
-		serverId: string,
-		tools: Record<string, ToolStatus>,
-	) => {
+	// Merge freshly fetched tool names into a binding's map, evaluated against
+	// the latest state so concurrent seeds and in-progress user edits are never
+	// clobbered. The fetched list is the key universe (stale keys drop out);
+	// existing statuses win, unknown tools default to enabled. This is what
+	// keeps the draft honest when a server has gained tools since the last
+	// save — the runtime excludes any tool missing from the saved map.
+	const handleSeedTools = (serverId: string, fetchedNames: string[]) => {
 		onMcpServersChange?.((prev) =>
-			prev.map((s) =>
-				s.mcpServerId === serverId && s.tools === null
-					? { ...s, tools }
-					: s,
-			),
+			prev.map((s) => {
+				if (s.mcpServerId !== serverId) return s;
+				// A Map lookup, not `s.tools[name]`: a tool named like a
+				// prototype member ("toString", …) must never resolve to an
+				// inherited value.
+				const existing = new Map(Object.entries(s.tools ?? {}));
+				// Keep the same object when nothing changed so an unchanged
+				// fetch never dirties the form or churns identities.
+				const upToDate =
+					s.tools !== null &&
+					existing.size === fetchedNames.length &&
+					fetchedNames.every((name) => existing.has(name));
+				if (upToDate) return s;
+				const merged: Record<string, ToolStatus> = Object.fromEntries(
+					fetchedNames.map((name) => [
+						name,
+						existing.get(name) ?? ("always_allow" as ToolStatus),
+					]),
+				);
+				return { ...s, tools: merged };
+			}),
 		);
 	};
 
@@ -148,14 +176,18 @@ export default function AgentToolList({
 					{enabledServers.map((server) => (
 						<AgentMCPServer
 							key={server.id}
+							agentId={agentId}
 							server={server}
 							binding={bindingFor(server.id)}
 							readOnly={readOnly}
 							onToolsChange={(tools) => {
 								handleToolsChange(server.id, tools);
 							}}
-							onSeedTools={(tools) => {
-								handleSeedTools(server.id, tools);
+							onSeedTools={(fetchedNames) => {
+								handleSeedTools(server.id, fetchedNames);
+							}}
+							onToolsPersisted={(tools) => {
+								onBindingPersisted?.(server.id, tools);
 							}}
 							onRemove={() => {
 								handleRemoveServer(server.id);

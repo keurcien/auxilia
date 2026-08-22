@@ -2,18 +2,14 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-	Card,
-	CardContent,
-	CardFooter,
-	CardHeader,
-	CardTitle,
-} from "@/components/ui/card";
 import { api } from "@/lib/api/client";
+import { getApiErrorMessage } from "@/lib/api/errors";
+import { AuthShell } from "@/components/auth/auth-shell";
+import {
+	AuthErrorAlert,
+	AuthField,
+	AuthSubmitButton,
+} from "@/components/auth/form";
 
 export default function SetupPage() {
 	const router = useRouter();
@@ -50,12 +46,7 @@ export default function SetupPage() {
 			await api.post("/auth/setup", { email, password, name });
 			router.push("/agents");
 		} catch (err: unknown) {
-			if (err && typeof err === "object" && "response" in err) {
-				const axiosError = err as { response?: { data?: { detail?: string } } };
-				setError(axiosError.response?.data?.detail || "An error occurred");
-			} else {
-				setError("An error occurred");
-			}
+			setError(getApiErrorMessage(err, "An error occurred"));
 		} finally {
 			setIsLoading(false);
 		}
@@ -66,87 +57,77 @@ export default function SetupPage() {
 	}
 
 	return (
-		<Card className="w-full max-w-md">
-			<CardHeader className="text-center flex flex-col items-center">
-				<CardTitle className="text-2xl flex flex-col items-center justify-center">
-					<Image
-						src="https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/logo.png"
-						alt="auxilia"
-						width={48}
-						height={48}
-						className="mb-2"
-					/>
-					<span className="text-2xl">Welcome to auxilia</span>
-				</CardTitle>
-				<p className="text-sm text-muted-foreground mt-2">
-					Create your admin account to get started.
-				</p>
-			</CardHeader>
-			<form onSubmit={(e) => { void handleSubmit(e); }}>
-				<CardContent className="space-y-4">
-					{error && (
-						<div className="p-3 text-sm text-destructive bg-destructive/10 rounded-md">
-							{error}
-						</div>
-					)}
+		<AuthShell
+			eyebrow="// FIRST RUN"
+			title="Set up your workspace"
+			description="Create the admin account for this workspace to get started."
+			footer={
+				<>
+					You&apos;ll be able to{" "}
+					<span className="font-semibold text-petrol">invite your team</span>{" "}
+					once you&apos;re in
+				</>
+			}
+		>
+			<AuthErrorAlert error={error} />
 
-					<div className="space-y-2">
-						<Label htmlFor="name">Name</Label>
-						<Input
-							id="name"
-							type="text"
-							placeholder="John Doe"
-							value={name}
-							onChange={(e) => { setName(e.target.value); }}
-						/>
+			<form
+				className="flex flex-col gap-4"
+				onSubmit={(e) => {
+					void handleSubmit(e);
+				}}
+			>
+				<AuthField
+					id="name"
+					label="NAME"
+					type="text"
+					placeholder="John Doe"
+					value={name}
+					onChange={(e) => {
+						setName(e.target.value);
+					}}
+				/>
+
+				<AuthField
+					id="email"
+					label="EMAIL"
+					type="email"
+					placeholder="you@example.com"
+					value={email}
+					onChange={(e) => {
+						setEmail(e.target.value);
+					}}
+					required
+				/>
+
+				<AuthField
+					id="password"
+					label="PASSWORD"
+					type="password"
+					placeholder="••••••••••••"
+					value={password}
+					onChange={(e) => {
+						setPassword(e.target.value);
+					}}
+					required
+				>
+					<div className="mt-[7px] h-4">
+						<p
+							className={`text-xs text-label transition-all duration-300 ease-in-out ${
+								password.length > 0 && password.length < 8
+									? "opacity-100 translate-y-0"
+									: "opacity-0 -translate-y-1 pointer-events-none"
+							}`}
+						>
+							Password must be at least 8 characters
+						</p>
 					</div>
+				</AuthField>
 
-					<div className="space-y-2">
-						<Label htmlFor="email">Email</Label>
-						<Input
-							id="email"
-							type="email"
-							placeholder="you@example.com"
-							value={email}
-							onChange={(e) => { setEmail(e.target.value); }}
-							required
-						/>
-					</div>
-
-					<div className="space-y-2">
-						<Label htmlFor="password">Password</Label>
-						<Input
-							id="password"
-							type="password"
-							placeholder="••••••••"
-							value={password}
-							onChange={(e) => { setPassword(e.target.value); }}
-							required
-						/>
-
-						<div className="h-5">
-							<p
-								className={`text-xs transition-all duration-300 ease-in-out ${
-									password.length > 0 && password.length < 8
-										? "opacity-100 translate-y-0"
-										: "opacity-0 -translate-y-1 pointer-events-none"
-								}`}
-							>
-								Password must be at least 8 characters
-							</p>
-						</div>
-					</div>
-				</CardContent>
-				<CardFooter>
-					<Button
-						type="submit"
-						className="w-full cursor-pointer"
-						disabled={isLoading}
-					>
-						{isLoading ? "Creating account..." : "Create admin account"}
-					</Button>
-				</CardFooter>
+				<AuthSubmitButton disabled={isLoading}>
+					{isLoading ? "Creating account…" : "Create admin account →"}
+				</AuthSubmitButton>
 			</form>
-		</Card>
+		</AuthShell>
 	);
 }

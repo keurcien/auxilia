@@ -74,6 +74,14 @@ servers:
       your content, find your existing designs, and export them as PDFs or images.
       It's an easy way to speed up creative tasks—no coding required.
 
+  - name: Cloud Logging
+    url: "https://logging.googleapis.com/mcp"
+    auth_type: oauth2
+    icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/cloud-logging.png"
+    supports_dcr: false
+    description: >-
+      The Cloud Logging remote MCP server lets agents and API applications interact with your log entries. The Cloud Logging remote MCP server is enabled when you enable the Cloud Logging API.
+
   - name: DeepWiki
     url: "https://mcp.deepwiki.com/mcp"
     auth_type: none
@@ -251,3 +259,19 @@ servers:
       server gives an AI assistant real-time tools to search the web, extract
       structured content from URLs, and map or crawl websites, returning clean,
       LLM-ready results.
+
+  - name: Team Tailor
+    url: "https://mcp.teamtailor.com/mcp"
+    auth_type: oauth2
+    icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/teamtailor.png"
+    supports_dcr: true
+    description: >-
+      Connect AI assistants like ChatGPT and Claude to your Teamtailor account using the Model Context Protocol (MCP). Once connected, you can use your AI assistant to interact with Teamtailor using natural language. Ask questions, complete recruitment tasks, and streamline everyday workflows based on your existing Teamtailor permissions.
+
+  - name: TikTok
+    url: "https://business-api.tiktok.com/open_mcp/tt-ads-mcp-layer"
+    auth_type: oauth2
+    icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/tiktok.png"
+    supports_dcr: true
+    description: >-
+      TikTok for Business MCP Server is a standardized bridge built on the Model Context Protocol (MCP) that enables developers and advertisers to connect AI agents directly to the TikTok Ads platform. By exposing core advertising functions — campaign management, performance reporting, audience configuration, and creative operations — as a set of reliable, production-ready tools, the MCP Server allows AI agents to manage, optimize, and report on TikTok advertising through simple, structured instructions.

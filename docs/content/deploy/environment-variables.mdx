@@ -1,6 +1,6 @@
 # Environment Variables
 
-Every **auxilia** deployment is configured through environment variables. This page is the complete reference — start here to understand what to set, then follow the [Cloud Run](/docs/deploy/cloud-run) or [VM / Docker host](/docs/deploy/vm-docker) guide for the deployment-specific wiring.
+Every **auxilia** deployment is configured through environment variables. This page is the complete reference — start here to understand what to set, then follow the [Cloud Run](/deploy/cloud-run) or [VM / Docker host](/deploy/vm-docker) guide for the deployment-specific wiring.
 
 A full example lives in [`.env.example`](https://github.com/keurcien/auxilia/blob/main/.env.example) at the repo root.
 
@@ -26,7 +26,7 @@ In production, also set:
 
 ## LLM providers
 
-At least one provider key is required. Every configured provider shows up in the model picker — configure multiple to give agent authors a choice.
+At least one provider must be configured. That means a provider key — except for Google, which also works with [Application Default Credentials](#google-via-application-default-credentials) alone. Configuring a provider makes its models eligible for the picker — configure multiple to give agent authors a choice. Which models actually appear (and which one is preselected) is managed by workspace admins under **Settings → Models**; see [Available models](/agents#available-models).
 
 | Provider  | Environment variable | Models                                                     |
 | --------- | -------------------- | ---------------------------------------------------------- |
@@ -40,6 +40,10 @@ At least one provider key is required. Every configured provider shows up in the
 
 Anthropic models run with thinking enabled by default; Google models run with `include_thoughts=True`. Defaults live in `app/model_providers/catalog.py`.
 
+### Google via Application Default Credentials
+
+`GOOGLE_API_KEY` is not the only way to enable Gemini. If it is unset but [Application Default Credentials](https://cloud.google.com/docs/authentication/application-default-credentials) are available — a GCP service account on Cloud Run/GKE/Compute, `gcloud auth application-default login`, or `GOOGLE_APPLICATION_CREDENTIALS` — the backend serves Gemini models through **Vertex AI** using those credentials instead of the Gemini Developer API. The identity needs permission to call Vertex AI (e.g. the **Vertex AI User** role). When `GOOGLE_API_KEY` is set, it always wins.
+
 ## Authentication
 
 | Variable                 | Notes                                                                 |
@@ -49,11 +53,19 @@ Anthropic models run with thinking enabled by default; Google models run with `i
 | `GOOGLE_REDIRECT_URI`    | e.g. `https://your-host/auth/google/callback`                         |
 | `AUTH_GOOGLE_EXCLUSIVE`  | `true` disables email/password signup — Google OAuth only             |
 
-Leaving these unset keeps email/password signup as the only path. See [User Management](/docs/deploy/user-management) for the full flow.
+Leaving these unset keeps email/password signup as the only path. See [User Management](/deploy/user-management) for the full flow.
 
 ## Sandbox (optional)
 
-If you're running [OpenSandbox](https://github.com/langchain-ai/opensandbox) for agent code execution:
+Agent code execution supports two providers, selected with:
+
+| Variable           | Notes                                                                 |
+| ------------------ | --------------------------------------------------------------------- |
+| `SANDBOX_PROVIDER` | `opensandbox` (default) or `cloudrun`                                 |
+
+### OpenSandbox
+
+If you're running [OpenSandbox](https://github.com/langchain-ai/opensandbox):
 
 | Variable                         | Notes                                                                      |
 | -------------------------------- | -------------------------------------------------------------------------- |
@@ -65,7 +77,23 @@ If you're running [OpenSandbox](https://github.com/langchain-ai/opensandbox) for
 | `OPEN_SANDBOX_TIMEOUT`           | Per-command timeout (seconds). Default `1800`                              |
 | `OPEN_SANDBOX_VOLUME_MOUNTS`     | Host mounts, comma-separated `host:sandbox[:ro]`                           |
 
-If `OPEN_SANDBOX_DOMAIN` is missing, the sandbox toggle on agents is silently disabled. Details: [Sandbox](/docs/deploy/sandbox).
+If `OPEN_SANDBOX_DOMAIN` is missing, the sandbox toggle on agents is silently disabled. Details: [Sandbox](/deploy/sandbox).
+
+### Cloud Run sandboxes
+
+If `SANDBOX_PROVIDER=cloudrun`, the backend drives Google Cloud Run sandboxes through the dedicated [sandbox gateway](/deploy/sandbox/cloud-run) service:
+
+| Variable                             | Notes                                                                          |
+| ------------------------------------ | ------------------------------------------------------------------------------ |
+| `CLOUD_RUN_SANDBOX_GATEWAY_URL`      | URL of the deployed `sandbox-gateway` Cloud Run service                        |
+| `CLOUD_RUN_SANDBOX_GATEWAY_SECRET`   | Shared secret, sent as a bearer token — the gateway fails closed without it    |
+| `CLOUD_RUN_SANDBOX_GCS_BUCKET`       | GCS bucket for turn-end snapshots (optional, enables cross-instance restore)   |
+| `CLOUD_RUN_SANDBOX_SNAPSHOT_PREFIX`  | Object prefix inside the bucket. Default `sandbox-snapshots/`                  |
+| `CLOUD_RUN_SANDBOX_ALLOW_EGRESS`     | `true` requests outbound network per sandbox (gateway must also allow egress)  |
+| `CLOUD_RUN_SANDBOX_DEFAULT_PACKAGES` | Extra packages pip-installed into each fresh sandbox                           |
+| `CLOUD_RUN_SANDBOX_TIMEOUT`          | Per-command timeout (seconds). Default `1800`                                  |
+
+Both `CLOUD_RUN_SANDBOX_GATEWAY_URL` and `CLOUD_RUN_SANDBOX_GATEWAY_SECRET` must be set for the sandbox toggle to be active. Details: [Cloud Run Sandboxes](/deploy/sandbox/cloud-run).
 
 ## Observability (optional)
 
@@ -76,7 +104,7 @@ If `OPEN_SANDBOX_DOMAIN` is missing, the sandbox toggle on agents is silently di
 | `LANGFUSE_BASE_URL`     | `https://cloud.langfuse.com` or your self-hosted URL       |
 | `LANGFUSE_TIMEOUT`      | API request timeout in seconds (positive integer; default `15`) |
 
-The public key, secret key, and base URL are required to enable Langfuse; missing any of them disables the integration silently. The timeout is optional. Details: [Observability (Langfuse)](/docs/deploy/langfuse).
+The public key, secret key, and base URL are required to enable Langfuse; missing any of them disables the integration silently. The timeout is optional. Details: [Observability (Langfuse)](/deploy/langfuse).
 
 ## Slack (optional)
 
@@ -85,7 +113,7 @@ The public key, secret key, and base URL are required to enable Langfuse; missin
 | `SLACK_SIGNING_SECRET`  | From **Basic Information** in your Slack app config        |
 | `SLACK_BOT_TOKEN`       | `xoxb-…` Bot User OAuth Token                              |
 
-Missing values make the Slack endpoints reject all incoming requests. Details: [Slack Integration](/docs/deploy/slack).
+Missing values make the Slack endpoints reject all incoming requests. Details: [Slack Integration](/deploy/slack).
 
 ## Tuning & debugging
 

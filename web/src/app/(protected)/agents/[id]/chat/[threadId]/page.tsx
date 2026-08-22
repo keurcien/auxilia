@@ -124,6 +124,7 @@ type LCMessage = {
   // camelCase (after Axios interceptor)
   toolCalls?: LCToolCallEntry[];
   toolCallId?: string;
+  additionalKwargs?: Record<string, unknown>;
   status?: string;
   additional_kwargs?: Record<string, unknown>;
   response_metadata?: Record<string, unknown>;
@@ -143,10 +144,19 @@ function getTextContent(message: LCMessage): string {
 }
 
 function getReasoningContent(message: LCMessage): string | null {
-  if (!Array.isArray(message.content)) return null;
-  const thinking = message.content.filter((c) => c.type === "thinking");
-  if (thinking.length === 0) return null;
-  return thinking.map((c) => (c.thinking as string) || "").join("\n");
+  // Anthropic: `thinking` blocks in content.
+  if (Array.isArray(message.content)) {
+    const thinking = message.content.filter((c) => c.type === "thinking");
+    if (thinking.length > 0) {
+      return thinking.map((c) => (c.thinking as string) || "").join("\n");
+    }
+  }
+  // DeepSeek: reasoning lives in additional_kwargs.reasoning_content, not in
+  // content. Streamed messages keep snake_case (SSE bypasses the Axios
+  // interceptor); history loaded via GET /threads/{id} is camelCased.
+  const kwargs = message.additional_kwargs ?? message.additionalKwargs;
+  const reasoning = kwargs?.reasoning_content ?? kwargs?.reasoningContent;
+  return typeof reasoning === "string" && reasoning ? reasoning : null;
 }
 
 function getFileAttachments(message: LCMessage): AttachmentData[] {

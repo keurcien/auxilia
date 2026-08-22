@@ -14,7 +14,7 @@ When a user sends a message to an agent, **auxilia**:
 
 1. Loads the agent configuration from Postgres
 2. Opens an MCP session to every bound server (reusing cached OAuth tokens per user)
-3. Discovers each server's tools and filters them by the agent's [tool settings](/docs/agents/tools)
+3. Discovers each server's tools and filters them by the agent's [tool settings](/agents/tools)
 4. If the **sandbox** is enabled, adds the `create_sandbox` / `connect_sandbox` tools and the standard file-ops toolset
 5. If subagents are configured, wraps them as tools the coordinator can call
 6. Sends the conversation to the LLM via LangGraph with the resolved toolset
@@ -49,7 +49,7 @@ You can regenerate the last assistant message in a thread; **auxilia** rewinds t
 
 ## Available models
 
-You can pick a different LLM per thread. Only models whose API key is configured in the environment appear in the selector.
+You can pick a different LLM per thread. A model appears in the selector when its provider's API key is configured in the environment **and** a workspace admin has enabled it under **Settings → Models**.
 
 | Provider  | Models                                                     |
 | --------- | ---------------------------------------------------------- |
@@ -61,10 +61,19 @@ You can pick a different LLM per thread. Only models whose API key is configured
 | OpenRouter | `glm-5.2-max`, `glm-5.2-high`                              |
 | Meta       | `muse-spark-1.2`                                           |
 
+### Workspace default model
+
+Workspace admins can flag one model as the **workspace default** by clicking the star next to it in **Settings → Models**. The default model:
+
+- Is preselected in every model picker (users can still switch per thread)
+- Is used for threads started from **Slack**, which has no model picker
+
+Clicking the star on the current default unsets it. Without an explicit default — or if the flagged model becomes unavailable — **auxilia** falls back to the first available model. Disabling the default model automatically clears its flag. Programmatically, the default is managed via `PUT /model-providers/models/default` and `DELETE /model-providers/models/default` (admin only).
+
 ## Where to go next
 
-- **[Configuration](/docs/agents/configuration)** — editing instructions, avatar, MCP bindings
-- **[Permissions](/docs/agents/permissions)** — sharing agents across the workspace
-- **[Subagents](/docs/agents/subagents)** — dispatching work to specialized agents
-- **[Sandbox](/docs/agents/sandbox)** — enabling code execution
-- **[Tool Settings](/docs/agents/tools)** — approval rules per tool
+- **[Configuration](/agents/configuration)** — editing instructions, avatar, MCP bindings
+- **[Permissions](/agents/permissions)** — sharing agents across the workspace
+- **[Subagents](/agents/subagents)** — dispatching work to specialized agents
+- **[Sandbox](/agents/sandbox)** — enabling code execution
+- **[Tool Settings](/agents/tools)** — approval rules per tool

@@ -458,6 +458,7 @@ export default function AgentEditor({
 				{/* Right: capabilities */}
 				<div className="min-w-0 overflow-y-auto bg-sidebar p-7 md:flex-1 dark:bg-white/[0.02] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 					<AgentToolList
+						agentId={agent?.id}
 						readOnly={readOnly}
 						mcpServers={form.mcpServers}
 						sandboxes={form.sandboxes}
@@ -469,6 +470,27 @@ export default function AgentEditor({
 						}}
 						onSandboxesChange={(sandboxes) => {
 							setField("sandboxes", sandboxes);
+						}}
+						onBindingPersisted={(serverId, tools) => {
+							// A read-mode sync wrote the binding server-side;
+							// mirror it into the store so the next edit-mode
+							// snapshot (and dirty baseline) starts from what is
+							// actually saved. Read the store's latest copy, not
+							// the `agent` prop: several bindings can self-heal
+							// concurrently, and a render-closure snapshot would
+							// let the later callback revert a sibling's map.
+							if (!agent) return;
+							const current =
+								useAgentsStore
+									.getState()
+									.agents.find((a) => a.id === agent.id) ?? agent;
+							updateAgent(agent.id, {
+								mcpServers: (current.mcpServers ?? []).map((server) =>
+									server.mcpServerId === serverId
+										? { ...server, tools }
+										: server,
+								),
+							});
 						}}
 					/>
 					{isAdmin && (

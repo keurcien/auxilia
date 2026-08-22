@@ -2,7 +2,7 @@
 
 This tutorial walks through building an **auxilia** agent end to end — from naming it to chatting with it. We'll build a concrete example: a **Sales Research Assistant** that looks up CRM records and drafts outreach. The same steps apply to any agent you want to build.
 
-You don't need to be a developer to follow along, but an admin may need to register MCP servers for you first (see [MCP Servers](/docs/deploy/mcp-servers)).
+You don't need to be a developer to follow along, but an admin may need to register MCP servers for you first (see [MCP Servers](/deploy/mcp-servers)).
 
 ## What you'll build
 
@@ -17,7 +17,7 @@ By the end you'll understand the four things that define every agent: **identity
 ## Before you start
 
 - You need the **editor** or **admin** role. The person who creates an agent becomes its **owner**.
-- At least one MCP server should be registered in your workspace. For this example we'll use **HubSpot** (see the [HubSpot setup guide](/docs/deploy/mcp-servers/examples/hubspot)) and a web-search server.
+- At least one MCP server should be registered in your workspace. For this example we'll use **HubSpot** (see the [HubSpot setup guide](/deploy/mcp-servers/examples/hubspot)) and a web-search server.
 
 ## Step 1 — Create the agent and give it an identity
 
@@ -62,7 +62,7 @@ If you see a **Connect** prompt on the server card:
 
 ![Connect an OAuth MCP server](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/agent_connect_oauth.png)
 
-Your tokens are stored privately and scoped to you — a teammate using the same agent connects with their own account. API-key servers (and bearer-token servers like [n8n](/docs/deploy/mcp-servers/examples/n8n)) skip this step because they share one workspace credential. See [MCP Server Authentication](/docs/deploy/mcp-servers/authentication) for the full picture.
+Your tokens are stored privately and scoped to you — a teammate using the same agent connects with their own account. API-key servers (and bearer-token servers like [n8n](/deploy/mcp-servers/examples/n8n)) skip this step because they share one workspace credential. See [MCP Server Authentication](/deploy/mcp-servers/authentication) for the full picture.
 
 ## Step 3 — Select and configure tools
 
@@ -85,7 +85,7 @@ For the Sales Research Assistant, a sensible setup:
 - HubSpot tools the agent doesn't need (bulk delete, admin settings) → **Disabled**
 - Web-search tool → **Always allow**
 
-> When you first bind a server, every tool defaults to **Always allow**. Always review the list and tighten writes before sharing the agent — this is the single most important safety step. See [Tools & Permissions](/docs/agents/tools) for the full model.
+> When you first bind a server, every tool defaults to **Always allow**. Always review the list and tighten writes before sharing the agent — this is the single most important safety step. See [Tools & Permissions](/agents/tools) for the full model.
 
 Tool settings live on the agent–server binding, so the *same* HubSpot server can be read-only on this agent and fully writable on an automation agent. You're not configuring HubSpot globally — only what *this* agent can do with it.
 
@@ -129,7 +129,7 @@ Notice what this does:
 - **Defines done** — exactly what a good research result contains.
 - **Handles failure** — what to do when a lookup comes up empty, so the model doesn't hallucinate.
 
-Save your instructions. Changes take effect on the next message; existing chat threads aren't recomputed. See [Configuration](/docs/agents/configuration) for more prompt-writing tips.
+Save your instructions. Changes take effect on the next message; existing chat threads aren't recomputed. See [Configuration](/agents/configuration) for more prompt-writing tips.
 
 ## Step 5 — Test the agent in Chat
 
@@ -162,8 +162,8 @@ Each change takes effect on your next message, so the loop is fast: chat, observ
 
 You now have a working agent. From here you can:
 
-- **[Share it with your workspace](/docs/agents/permissions)** — grant teammates `user`, `editor`, or `admin` access
-- **[Trigger it over HTTP](/docs/tutorials/http-invoke)** — call it from scripts, webhooks, or spreadsheets
-- **[Trigger it from Slack](/docs/tutorials/slack)** — let the team talk to it in threads
-- **[Run it on a schedule](/docs/tutorials/n8n-cloud-scheduler)** — daily digests and recurring reports
-- **[Add subagents](/docs/agents/subagents)** or the **[sandbox](/docs/agents/sandbox)** for more advanced agents
+- **[Share it with your workspace](/agents/permissions)** — grant teammates `user`, `editor`, or `admin` access
+- **[Trigger it over HTTP](/tutorials/http-invoke)** — call it from scripts, webhooks, or spreadsheets
+- **[Trigger it from Slack](/tutorials/slack)** — let the team talk to it in threads
+- **[Run it on a schedule](/tutorials/n8n-cloud-scheduler)** — daily digests and recurring reports
+- **[Add subagents](/agents/subagents)** or the **[sandbox](/agents/sandbox)** for more advanced agents

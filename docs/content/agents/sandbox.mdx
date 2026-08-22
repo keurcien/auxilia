@@ -2,7 +2,7 @@
 
 This page is the **agent-author's view** of the sandbox: how to turn it on for a specific agent, what tools the LLM gains, and a typical usage pattern.
 
-If your workspace doesn't have OpenSandbox running yet, see **[Sandbox — Setup](/docs/deploy/sandbox/setup)** first. Only workspace admins can run the sandbox controller; agent authors just toggle it on.
+If your workspace doesn't have a sandbox runtime configured yet — OpenSandbox or Cloud Run sandboxes — see **[Sandbox — Setup](/deploy/sandbox/setup)** first. Only workspace admins can run the sandbox runtime; agent authors just toggle it on.
 
 ## Enable code execution on an agent
 
@@ -12,7 +12,7 @@ If your workspace doesn't have OpenSandbox running yet, see **[Sandbox — Setup
 
 The next message you send exposes the sandbox toolset (below) to the LLM. The agent decides when to spin up the container — usually right before it needs to run code.
 
-If the **auxilia** backend has no sandbox runtime configured (`OPEN_SANDBOX_DOMAIN` unset), the toggle is still visible but has no effect.
+If the **auxilia** backend has no sandbox runtime configured (see [Setup](/deploy/sandbox/setup)), the toggle is still visible but has no effect.
 
 ## Lifecycle tools
 
@@ -20,15 +20,15 @@ When code execution is enabled, **auxilia** exposes two sandbox-lifecycle tools 
 
 ### `create_sandbox(timeout_minutes: int = 30)`
 
-Create a new container for this conversation. Returns the sandbox ID plus the TTL.
+Create a new container for this conversation. Returns the sandbox ID.
 
-The LLM is instructed to call this **before** any code execution. A single sandbox is reused across turns until it expires or the user starts a new thread.
+The LLM is instructed to call this **before** any code execution. A single sandbox is reused across turns until it expires or the user starts a new thread. On OpenSandbox, `timeout_minutes` sets the container TTL (default 30 minutes); on Cloud Run sandboxes there is no TTL and the parameter is ignored.
 
 ### `connect_sandbox(sandbox_id: str)`
 
-Reconnect to an existing sandbox by ID. Useful when the conversation is resumed after the TTL has started ticking. On success, the TTL is renewed for another 30 minutes.
+Reconnect to an existing sandbox by ID. Useful when the conversation is resumed later. On OpenSandbox, success renews the TTL for another 30 minutes. On Cloud Run sandboxes, if the live sandbox is gone, it is restored from its last GCS snapshot (files and pip installs included) when a snapshot bucket is configured.
 
-If the sandbox no longer exists, the tool returns an error and the LLM is expected to call `create_sandbox` instead.
+If the sandbox no longer exists (and can't be restored), the tool returns an error and the LLM is expected to call `create_sandbox` instead.
 
 ## File-ops tools
 
@@ -82,6 +82,6 @@ Because the sandbox lives for the length of the conversation, subsequent turns c
 
 ## Related
 
-- **[Sandbox — Setup](/docs/deploy/sandbox/setup)** — deploying OpenSandbox alongside **auxilia**
-- **[Sandbox — Security](/docs/deploy/sandbox/security)** — isolation model, volume mounts, timeouts
-- **[Tools & Permissions](/docs/agents/tools)** — approval settings for MCP tool calls (separate from sandbox calls)
+- **[Sandbox — Setup](/deploy/sandbox/setup)** — deploying OpenSandbox alongside **auxilia**
+- **[Sandbox — Security](/deploy/sandbox/security)** — isolation model, volume mounts, timeouts
+- **[Tools & Permissions](/agents/tools)** — approval settings for MCP tool calls (separate from sandbox calls)
