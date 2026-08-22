@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/keurcien/auxilia/compare/backend-v0.5.0...backend-v0.5.1) (2026-08-22)
+
+
+### Bug Fixes
+
+* **backend:** linearize sandbox migrations onto the picture_url head ([#285](https://github.com/keurcien/auxilia/issues/285)) ([98694b7](https://github.com/keurcien/auxilia/commit/98694b766fef61997170d3df245aafedd53ba449))
+
 ## [0.5.0](https://github.com/keurcien/auxilia/compare/backend-v0.4.41...backend-v0.5.0) (2026-08-22)
 
 
