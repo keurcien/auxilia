@@ -503,3 +503,48 @@ async def test_list_official_flags_installed_entries(service, mock_repo, monkeyp
         ("Fresh", False),
     ]
     assert not hasattr(result[0], "id")
+
+
+@pytest.mark.asyncio
+async def test_delete_refused_while_agents_bound(service, mock_repo, monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.exceptions import DomainValidationError
+
+    mock_repo.get.return_value = make_mcp_server()
+    mock_repo.delete = AsyncMock()
+    bindings = MagicMock()
+    bindings.list_agents_for_server = AsyncMock(return_value=[MagicMock()])
+    bindings.delete_all_for_server = AsyncMock()
+    monkeypatch.setattr(
+        "app.agents.mcp_servers.repository.AgentMCPServerRepository",
+        lambda db: bindings,
+    )
+
+    with pytest.raises(DomainValidationError, match="detach"):
+        await service.delete(uuid4())
+
+    mock_repo.delete.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_delete_with_detach_agents_removes_bindings_first(
+    service, mock_repo, monkeypatch
+):
+    from unittest.mock import AsyncMock, MagicMock
+
+    mock_repo.get.return_value = make_mcp_server()
+    mock_repo.delete = AsyncMock()
+    bindings = MagicMock()
+    bindings.list_agents_for_server = AsyncMock(return_value=[MagicMock()])
+    bindings.delete_all_for_server = AsyncMock()
+    monkeypatch.setattr(
+        "app.agents.mcp_servers.repository.AgentMCPServerRepository",
+        lambda db: bindings,
+    )
+
+    server_id = uuid4()
+    await service.delete(server_id, detach_agents=True)
+
+    bindings.delete_all_for_server.assert_awaited_once_with(server_id)
+    mock_repo.delete.assert_awaited_once()

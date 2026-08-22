@@ -9,26 +9,7 @@ import pytest
 from app.sandbox.cloudrun.transport import (
     GatewayTransport,
     SandboxTimeoutError,
-    get_transport,
 )
-from app.sandbox.settings import sandbox_settings
-
-
-class TestGetTransport:
-    def test_raises_without_gateway_url(self, monkeypatch):
-        monkeypatch.setattr(sandbox_settings.cloudrun, "gateway_url", None)
-        get_transport.cache_clear()
-        with pytest.raises(RuntimeError, match="GATEWAY_URL"):
-            get_transport()
-        get_transport.cache_clear()
-
-    def test_returns_gateway_transport(self, monkeypatch):
-        monkeypatch.setattr(
-            sandbox_settings.cloudrun, "gateway_url", "http://gateway.test"
-        )
-        get_transport.cache_clear()
-        assert isinstance(get_transport(), GatewayTransport)
-        get_transport.cache_clear()
 
 
 def gateway_with_handler(handler) -> tuple[GatewayTransport, list[httpx.Request]]:

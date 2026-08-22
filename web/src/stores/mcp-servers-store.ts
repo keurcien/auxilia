@@ -12,7 +12,7 @@ interface McpServersState {
 	fetchMcpServers: () => Promise<void>;
 	createMcpServer: (payload: MCPServerCreate) => Promise<MCPServer>;
 	updateMcpServer: (id: string, payload: MCPServerUpdate) => Promise<MCPServer>;
-	deleteMcpServer: (id: string) => Promise<void>;
+	deleteMcpServer: (id: string, options?: { detachAgents?: boolean }) => Promise<void>;
 	resetMcpServerConnections: (id: string) => Promise<void>;
 }
 
@@ -61,8 +61,11 @@ export const useMcpServersStore = create<McpServersState>((set, get) => ({
 		}));
 		return updated;
 	},
-	deleteMcpServer: async (id) => {
-		await api.delete(`/mcp-servers/${id}`);
+	deleteMcpServer: async (id, options) => {
+		// detach_agents: the guard dialog's explicit confirm — the backend
+		// refuses a plain delete while agents still bind the server.
+		const suffix = options?.detachAgents ? "?detach_agents=true" : "";
+		await api.delete(`/mcp-servers/${id}${suffix}`);
 		set((state) => ({
 			mcpServers: state.mcpServers.filter((server) => server.id !== id),
 		}));

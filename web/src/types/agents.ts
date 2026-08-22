@@ -1,4 +1,5 @@
 import { MCPServer } from "./mcp-servers";
+import { SandboxProviderType } from "./sandboxes";
 
 export type ToolStatus = "always_allow" | "needs_approval" | "disabled";
 
@@ -7,6 +8,24 @@ interface AgentMCPServer extends MCPServer {
 	/** Absent on list responses; the detail response carries the full map
 	 * (null = never synced). */
 	tools?: Record<string, ToolStatus> | null;
+}
+
+/** One agent↔sandbox binding, flattened with the sandbox's display fields. */
+export interface AgentSandbox {
+	sandboxId: string;
+	tools: Record<string, ToolStatus> | null;
+	name: string;
+	provider: SandboxProviderType;
+	url: string;
+}
+
+/** An agent still bound to a workspace resource (sandbox, MCP server) —
+ * shown in the delete-guard dialog. */
+export interface BoundAgent {
+	id: string;
+	name: string;
+	emoji: string | null;
+	color: string | null;
 }
 
 export type AgentPermission = "owner" | "admin" | "editor" | "member";
@@ -44,9 +63,9 @@ export interface Agent {
 	emoji?: string | null;
 	color?: string | null;
 	description?: string | null;
-	hasCodeInterpreter: boolean;
 	isArchived: boolean;
 	mcpServers: AgentMCPServer[];
+	sandboxes: AgentSandbox[];
 	subagents: SubagentInfo[];
 	tag?: AgentTag | null;
 	owner?: AgentOwner | null;

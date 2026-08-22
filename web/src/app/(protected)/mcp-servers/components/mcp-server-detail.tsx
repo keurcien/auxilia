@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
+import ResourceInUseDialog from "@/components/resource-in-use-dialog";
+import { useDeleteMcpServer } from "@/hooks/use-delete-mcp-server";
 import { Alert } from "@/components/ui/alert";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { api } from "@/lib/api/client";
@@ -98,8 +100,7 @@ export default function MCPServerDetail({
 	const router = useRouter();
 	const user = useUserStore((state) => state.user);
 	const isAdmin = user?.role === "admin";
-	const { updateMcpServer, deleteMcpServer, resetMcpServerConnections } =
-		useMcpServersStore();
+	const { updateMcpServer, resetMcpServerConnections } = useMcpServersStore();
 
 	const [server, setServer] = useState<MCPServer>(initialServer);
 	const [isEditing, setIsEditing] = useState(initialEdit);
@@ -276,26 +277,32 @@ export default function MCPServerDetail({
 		}
 	};
 
+	const {
+		guard: deleteGuard,
+		clearGuard: clearDeleteGuard,
+		requestDelete,
+		confirmDetachAndDelete,
+	} = useDeleteMcpServer({
+		onDeleted: () => {
+			router.push("/mcp-servers");
+		},
+		onError: (error) => {
+			setSubmitError(getApiErrorMessage(error, "Failed to delete MCP server."));
+			setIsSubmitting(false);
+		},
+		onForbidden: () => {
+			setForbiddenOpen(true);
+			setIsSubmitting(false);
+		},
+	});
+
 	const handleDelete = async () => {
-		if (
-			!window.confirm(
-				`Delete "${server.name}"? Agents lose its tools immediately.`,
-			)
-		)
-			return;
 		setSubmitError(null);
 		setIsSubmitting(true);
-		try {
-			await deleteMcpServer(server.id);
-			router.push("/mcp-servers");
-		} catch (error: unknown) {
-			if (error instanceof Object && "status" in error && error.status === 403) {
-				setForbiddenOpen(true);
-			} else {
-				setSubmitError(getApiErrorMessage(error, "Failed to delete MCP server."));
-			}
-			setIsSubmitting(false);
-		}
+		await requestDelete(server);
+		// Reset unless we navigated away — also covers the guard-dialog path,
+		// where the delete continues from the dialog's own confirm.
+		setIsSubmitting(false);
 	};
 
 	// Shared by the header ⋮ menu, the edit footer, and the connected-users
@@ -729,6 +736,17 @@ export default function MCPServerDetail({
 				onOpenChange={setForbiddenOpen}
 				title="Insufficient privileges"
 				message="You are not allowed to perform this action."
+			/>
+			<ResourceInUseDialog
+				open={deleteGuard !== null}
+				onOpenChange={(open) => {
+					if (!open) clearDeleteGuard();
+				}}
+				resourceLabel="MCP server"
+				resourceName={deleteGuard?.server.name ?? null}
+				agents={deleteGuard?.agents ?? []}
+				consequence="they lose its tools"
+				onConfirm={confirmDetachAndDelete}
 			/>
 		</div>
 	);

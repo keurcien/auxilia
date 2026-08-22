@@ -6,6 +6,8 @@ import { Check, X } from "lucide-react";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
+import ResourceInUseDialog from "@/components/resource-in-use-dialog";
+import { useDeleteMcpServer } from "@/hooks/use-delete-mcp-server";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { MCPServer } from "@/types/mcp-servers";
 import { getApiErrorMessage } from "@/lib/api/errors";
@@ -51,7 +53,6 @@ export default function MCPServerTable({
 		mcpServers,
 		fetchMcpServers,
 		isInitialized,
-		deleteMcpServer,
 		resetMcpServerConnections,
 	} = useMcpServersStore();
 	const [isLoading, setIsLoading] = useState(true);
@@ -90,22 +91,24 @@ export default function MCPServerTable({
 		);
 	}, [mcpServers, search]);
 
+	const {
+		guard: deleteGuard,
+		clearGuard: clearDeleteGuard,
+		requestDelete,
+		confirmDetachAndDelete,
+	} = useDeleteMcpServer({
+		onError: (err) => {
+			setActionError(getApiErrorMessage(err, "Failed to delete MCP server."));
+		},
+		onForbidden: () => {
+			setForbiddenOpen(true);
+		},
+	});
+
 	const handleDelete = async (server: MCPServer) => {
-		if (
-			!window.confirm(`Delete "${server.name}"? Agents lose its tools immediately.`)
-		)
-			return;
 		// A stale failure banner must not outlive the next action.
 		setActionError(null);
-		try {
-			await deleteMcpServer(server.id);
-		} catch (err: unknown) {
-			if (err instanceof Object && "status" in err && err.status === 403) {
-				setForbiddenOpen(true);
-			} else {
-				setActionError(getApiErrorMessage(err, "Failed to delete MCP server."));
-			}
-		}
+		await requestDelete(server);
 	};
 
 	const handleReset = async (server: MCPServer) => {
@@ -231,6 +234,17 @@ export default function MCPServerTable({
 				onOpenChange={setForbiddenOpen}
 				title="Insufficient privileges"
 				message="You are not allowed to perform this action."
+			/>
+			<ResourceInUseDialog
+				open={deleteGuard !== null}
+				onOpenChange={(open) => {
+					if (!open) clearDeleteGuard();
+				}}
+				resourceLabel="MCP server"
+				resourceName={deleteGuard?.server.name ?? null}
+				agents={deleteGuard?.agents ?? []}
+				consequence="they lose its tools"
+				onConfirm={confirmDetachAndDelete}
 			/>
 			{actionError && (
 				<div className="mb-3 shrink-0 rounded-[10px] bg-destructive/10 px-4 py-2.5 text-[13px] font-medium text-destructive">

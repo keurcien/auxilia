@@ -24,13 +24,11 @@ from deepagents.backends.protocol import (
 )
 from deepagents.backends.sandbox import BaseSandbox
 
-from app.sandbox.cloudrun import snapshots
+from app.sandbox.cloudrun.snapshots import SnapshotStore
 from app.sandbox.cloudrun.transport import (
     SandboxTimeoutError,
     SandboxTransport,
-    get_transport,
 )
-from app.sandbox.settings import sandbox_settings
 
 
 logger = logging.getLogger(__name__)
@@ -55,12 +53,14 @@ class CloudRunSandbox(BaseSandbox):
         sandbox_id: str,
         *,
         timeout: int = 30 * 60,
-        transport: SandboxTransport | None = None,
+        transport: SandboxTransport,
+        snapshot_store: SnapshotStore | None = None,
     ) -> None:
         _validate_sandbox_id(sandbox_id)
         self._id = sandbox_id
         self._default_timeout = timeout
-        self._transport = transport if transport is not None else get_transport()
+        self._transport = transport
+        self._snapshots = snapshot_store
 
     @property
     def id(self) -> str:
@@ -111,10 +111,10 @@ class CloudRunSandbox(BaseSandbox):
         Best-effort: skipped (with a log) when no snapshot bucket is
         configured — e.g. local dev pointed at a gateway.
         """
-        if sandbox_settings.cloudrun.gcs_bucket is None:
+        if self._snapshots is None or not self._snapshots.enabled:
             logger.debug("No sandbox snapshot bucket configured — skipping persist")
             return
-        snapshots.save_snapshot(self._id, self.snapshot())
+        self._snapshots.save(self._id, self.snapshot())
 
     def delete(self) -> None:
         self._transport.delete(self._id)

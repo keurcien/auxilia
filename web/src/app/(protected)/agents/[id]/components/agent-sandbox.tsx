@@ -4,27 +4,36 @@ import { useState } from "react";
 import Image from "next/image";
 import { ChevronRight } from "lucide-react";
 import { humanizeToolName } from "@/components/ai-elements/chain-of-thought";
+import {
+	SANDBOX_PROVIDER_ICONS,
+	SANDBOX_PROVIDER_LABELS,
+} from "@/lib/sandbox-providers";
+import type { Sandbox } from "@/types/sandboxes";
 
 const SANDBOX_TOOLS = [
+	{ name: "create_sandbox", description: "Start a new code execution session" },
+	{ name: "connect_sandbox", description: "Reattach to an existing session by ID" },
+	{ name: "execute", description: "Run shell commands in the environment" },
 	{ name: "ls", description: "List files in a directory with metadata (size, modified time)" },
 	{ name: "read_file", description: "Read file contents with line numbers, supports offset/limit for large files" },
 	{ name: "write_file", description: "Create new files" },
 	{ name: "edit_file", description: "Perform exact string replacements in files (with global replace mode)" },
 	{ name: "glob", description: "Find files matching patterns (e.g., **/*.py)" },
 	{ name: "grep", description: "Search file contents with multiple output modes (files only, content with context, or counts)" },
-	{ name: "execute", description: "Run shell commands in the environment" },
 ];
 
-interface AgentCodeExecutionProps {
+interface AgentSandboxProps {
+	sandbox: Sandbox;
 	readOnly?: boolean;
-	/** Draft update: turn the code interpreter off. */
-	onDisable?: () => void;
+	/** Draft update: detach this sandbox from the agent. */
+	onRemove?: () => void;
 }
 
-export default function AgentCodeExecution({
+export default function AgentSandbox({
+	sandbox,
 	readOnly,
-	onDisable,
-}: AgentCodeExecutionProps) {
+	onRemove,
+}: AgentSandboxProps) {
 	// Matches the MCP server cards: collapsed on page open.
 	const [isExpanded, setIsExpanded] = useState(false);
 
@@ -36,13 +45,16 @@ export default function AgentCodeExecution({
 						unoptimized
 						width={14}
 						height={14}
-						src="https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/terminal.png"
-						alt="Code execution"
+						src={SANDBOX_PROVIDER_ICONS[sandbox.provider]}
+						alt={SANDBOX_PROVIDER_LABELS[sandbox.provider]}
 						className="rounded-[2px] object-contain"
 					/>
 				</span>
-				<span className="text-[13.5px] font-semibold text-foreground">
-					Code execution
+				<span className="truncate text-[13.5px] font-semibold text-foreground">
+					{sandbox.name}
+				</span>
+				<span className="shrink-0 rounded-[4px] bg-hover px-2 py-0.5 font-mono text-[9.5px] font-semibold tracking-[0.06em] text-subtle uppercase dark:bg-white/10 dark:text-panel-dim">
+					{SANDBOX_PROVIDER_LABELS[sandbox.provider]}
 				</span>
 				<button
 					onClick={() => {
@@ -82,10 +94,10 @@ export default function AgentCodeExecution({
 							<button
 								className="cursor-pointer rounded-[7px] px-3 py-1.5 text-[12.5px] font-semibold text-[#B04A3A] transition-colors hover:bg-[#FBEFED] dark:hover:bg-[#B04A3A]/10"
 								onClick={() => {
-									onDisable?.();
+									onRemove?.();
 								}}
 							>
-								Disable Code execution
+								Disable {sandbox.name}
 							</button>
 						</div>
 					)}

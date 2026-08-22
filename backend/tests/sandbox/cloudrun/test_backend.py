@@ -9,7 +9,7 @@ import pytest
 from app.sandbox.cloudrun.backend import CloudRunSandbox
 from app.sandbox.cloudrun.provider import CloudRunProvider
 from app.sandbox.cloudrun.transport import ExecResult, SandboxTimeoutError
-from app.sandbox.settings import sandbox_settings
+from app.sandbox.schemas import CloudRunConfig
 
 
 class FakeTransport:
@@ -41,6 +41,33 @@ class FakeTransport:
 
     def delete(self, sandbox_id):
         self.deleted.append(sandbox_id)
+
+
+class FakeSnapshotStore:
+    def __init__(self, tar=None, enabled=True):
+        self.saved = {}
+        self.tar = tar
+        self.enabled = enabled
+
+    def save(self, sandbox_id, tar_bytes):
+        if not self.enabled:
+            pytest.fail("should not upload")
+        self.saved[sandbox_id] = tar_bytes
+
+    def load(self, sandbox_id):
+        return self.tar if self.enabled else None
+
+
+def make_provider(transport, *, snapshots=None, **overrides) -> CloudRunProvider:
+    defaults = {
+        "url": "http://gateway.test",
+        "secret": "s3cret",
+        "default_packages": [],
+    }
+    provider = CloudRunProvider(CloudRunConfig(**{**defaults, **overrides}))
+    provider._transport = transport
+    provider._snapshots = snapshots if snapshots is not None else FakeSnapshotStore()
+    return provider
 
 
 @pytest.fixture
@@ -152,11 +179,8 @@ class TestUploadFiles:
 
 class TestProvider:
     @pytest.fixture
-    def provider(self, transport, monkeypatch):
-        monkeypatch.setattr(
-            "app.sandbox.cloudrun.provider.get_transport", lambda: transport
-        )
-        return CloudRunProvider()
+    def provider(self, transport):
+        return make_provider(transport)
 
     def test_create_launches_and_returns_message(self, provider, transport):
         backend, message = provider.create(timeout_minutes=30)
@@ -168,24 +192,20 @@ class TestProvider:
         assert import_tar is None
         assert sandbox_id in message
 
-    def test_create_installs_default_packages(self, provider, transport, monkeypatch):
-        monkeypatch.setattr(
-            sandbox_settings.cloudrun, "default_packages", ["httpx", "rich"]
-        )
+    def test_create_installs_default_packages(self, transport):
+        provider = make_provider(transport, default_packages=["httpx", "rich"])
         provider.create(timeout_minutes=30)
 
         [(_, argv, _)] = transport.exec_calls
         assert argv[-1] == "pip install httpx rich"
 
-    def test_create_passes_egress_setting(self, provider, transport, monkeypatch):
-        monkeypatch.setattr(sandbox_settings.cloudrun, "allow_egress", True)
+    def test_create_passes_egress_setting(self, transport):
+        provider = make_provider(transport, allow_egress=True)
         provider.create(timeout_minutes=30)
         assert transport.launched[0][1] is True
 
-    def test_create_deletes_sandbox_when_install_fails(
-        self, provider, transport, monkeypatch
-    ):
-        monkeypatch.setattr(sandbox_settings.cloudrun, "default_packages", ["httpx"])
+    def test_create_deletes_sandbox_when_install_fails(self, transport):
+        provider = make_provider(transport, default_packages=["httpx"])
         transport.queue(ExecResult(stdout=b"", stderr=b"no network", returncode=1))
 
         with pytest.raises(RuntimeError, match="default packages"):
@@ -201,22 +221,18 @@ class TestProvider:
         assert "Reconnected" in message
         assert transport.launched == []
 
-    def test_connect_restores_from_snapshot(self, provider, transport, monkeypatch):
+    def test_connect_restores_from_snapshot(self, transport):
+        provider = make_provider(transport, snapshots=FakeSnapshotStore(tar=b"tar"))
         transport.queue(RuntimeError("not running"))  # is_alive probe fails
-        monkeypatch.setattr(
-            "app.sandbox.cloudrun.provider.snapshots.load_snapshot", lambda _: b"tar"
-        )
         backend, message = provider.connect("sbx-old")
 
         assert backend.id == "sbx-old"
         assert "Restored" in message
         assert transport.launched[0] == ("sbx-old", False, b"tar")
 
-    def test_connect_without_snapshot_raises(self, provider, transport, monkeypatch):
+    def test_connect_without_snapshot_raises(self, transport):
+        provider = make_provider(transport, snapshots=FakeSnapshotStore(tar=None))
         transport.queue(ExecResult(stdout=b"", stderr=b"", returncode=1))
-        monkeypatch.setattr(
-            "app.sandbox.cloudrun.provider.snapshots.load_snapshot", lambda _: None
-        )
         with pytest.raises(RuntimeError, match="no snapshot"):
             provider.connect("sbx-gone")
 
@@ -232,23 +248,21 @@ class TestLifecycle:
     def test_snapshot_returns_overlay_tar(self, backend):
         assert backend.snapshot() == b"overlay-tar"
 
-    def test_persist_uploads_snapshot(self, backend, monkeypatch):
-        monkeypatch.setattr(sandbox_settings.cloudrun, "gcs_bucket", "bucket")
-        saved = {}
-        monkeypatch.setattr(
-            "app.sandbox.cloudrun.backend.snapshots.save_snapshot",
-            lambda sandbox_id, tar: saved.update({sandbox_id: tar}),
+    def test_persist_uploads_snapshot(self, transport):
+        store = FakeSnapshotStore()
+        backend = CloudRunSandbox(
+            "sbx-test", timeout=60, transport=transport, snapshot_store=store
         )
         backend.persist()
-        assert saved == {"sbx-test": b"overlay-tar"}
+        assert store.saved == {"sbx-test": b"overlay-tar"}
 
-    def test_persist_skips_without_bucket(self, backend, monkeypatch):
-        monkeypatch.setattr(sandbox_settings.cloudrun, "gcs_bucket", None)
-        monkeypatch.setattr(
-            "app.sandbox.cloudrun.backend.snapshots.save_snapshot",
-            lambda *a: pytest.fail("should not upload"),
+    def test_persist_skips_without_bucket(self, transport):
+        store = FakeSnapshotStore(enabled=False)
+        backend = CloudRunSandbox(
+            "sbx-test", timeout=60, transport=transport, snapshot_store=store
         )
         backend.persist()
+        assert store.saved == {}
 
     def test_delete(self, backend, transport):
         backend.delete()

@@ -10,6 +10,7 @@ from app.agents.models import (
     PermissionLevel,
     ToolStatus,
 )
+from app.sandbox.models import SandboxProviderType
 
 
 class AgentCreateDB(SQLModel):
@@ -19,7 +20,6 @@ class AgentCreateDB(SQLModel):
     emoji: str | None = None
     color: str | None = None
     description: str | None = None
-    has_code_interpreter: bool = False
 
     @field_validator("color")
     @classmethod
@@ -35,7 +35,6 @@ class AgentPatch(SQLModel):
     emoji: str | None = None
     color: str | None = None
     description: str | None = None
-    has_code_interpreter: bool | None = None
     tag_id: UUID | None = None
 
     @field_validator("color")
@@ -51,6 +50,11 @@ class AgentMCPServerConfig(SQLModel):
     tools: dict[str, ToolStatus] | None = None
 
 
+class AgentSandboxConfig(SQLModel):
+    sandbox_id: UUID
+    tools: dict[str, ToolStatus] | None = None
+
+
 class AgentConfig(SQLModel):
     """The whole agent config as one document — the payload of the unified
     PUT /agents/{id}/config save. Full replace semantics: `tools` is the
@@ -61,9 +65,20 @@ class AgentConfig(SQLModel):
     description: str | None = None
     emoji: str | None = None
     color: str | None = None
-    has_code_interpreter: bool = False
     mcp_servers: list[AgentMCPServerConfig] = []
+    sandboxes: list[AgentSandboxConfig] = []
     subagent_ids: list[UUID] = []
+
+    @field_validator("sandboxes")
+    @classmethod
+    def validate_single_sandbox(
+        cls, v: list[AgentSandboxConfig]
+    ) -> list[AgentSandboxConfig]:
+        # The deepagents runnable takes exactly one execution backend; the
+        # field stays list-shaped so the API is stable if that changes.
+        if len(v) > 1:
+            raise ValueError("an agent can bind at most one sandbox")
+        return v
 
     @field_validator("color")
     @classmethod
@@ -106,6 +121,17 @@ class AgentMCPServerResponse(AgentMCPServerBase):
     id: UUID
     created_at: datetime
     updated_at: datetime
+
+
+class AgentSandboxResponse(SQLModel):
+    """One agent↔sandbox binding, flattened with the sandbox's display
+    fields so the editor never joins client-side."""
+
+    sandbox_id: UUID
+    tools: dict[str, ToolStatus] | None = None
+    name: str
+    provider: SandboxProviderType
+    url: str
 
 
 class AgentPermissionResponse(SQLModel):
@@ -168,7 +194,6 @@ class AgentListResponse(SQLModel):
     emoji: str | None
     color: str | None
     description: str | None
-    has_code_interpreter: bool
     is_archived: bool = False
     created_at: datetime
     updated_at: datetime
@@ -183,3 +208,6 @@ class AgentListResponse(SQLModel):
 class AgentResponse(AgentListResponse):
     instructions: str
     mcp_servers: list[AgentMCPServerResponse] | None = None
+    # Sandboxes ride only on the full response: the runtime and the agent
+    # editor consume the binding; list rows never render it.
+    sandboxes: list[AgentSandboxResponse] | None = None

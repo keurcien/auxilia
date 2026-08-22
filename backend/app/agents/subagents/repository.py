@@ -21,18 +21,14 @@ class SubagentRepository:
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def list_for_supervisor(
-        self, supervisor_id: UUID
-    ) -> list[AgentSubagentDB]:
+    async def list_for_supervisor(self, supervisor_id: UUID) -> list[AgentSubagentDB]:
         stmt = select(AgentSubagentDB).where(
             AgentSubagentDB.supervisor_id == supervisor_id
         )
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_supervisor(
-        self, subagent_id: UUID
-    ) -> AgentSubagentDB | None:
+    async def get_supervisor(self, subagent_id: UUID) -> AgentSubagentDB | None:
         stmt = (
             select(AgentSubagentDB)
             .where(AgentSubagentDB.subagent_id == subagent_id)

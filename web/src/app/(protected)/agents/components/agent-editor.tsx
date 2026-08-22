@@ -461,12 +461,15 @@ export default function AgentEditor({
 						agentId={agent?.id}
 						readOnly={readOnly}
 						mcpServers={form.mcpServers}
-						hasCodeInterpreter={form.hasCodeInterpreter}
+						sandboxes={form.sandboxes}
 						onMcpServersChange={(update) => {
 							setForm((prev) => ({
 								...prev,
 								mcpServers: update(prev.mcpServers),
 							}));
+						}}
+						onSandboxesChange={(sandboxes) => {
+							setField("sandboxes", sandboxes);
 						}}
 						onBindingPersisted={(serverId, tools) => {
 							// A read-mode sync wrote the binding server-side;
@@ -488,9 +491,6 @@ export default function AgentEditor({
 										: server,
 								),
 							});
-						}}
-						onHasCodeInterpreterChange={(enabled) => {
-							setField("hasCodeInterpreter", enabled);
 						}}
 					/>
 					{isAdmin && (

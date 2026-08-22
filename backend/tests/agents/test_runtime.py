@@ -13,10 +13,10 @@ from app.agents.tool_errors import ToolErrorMiddleware
 
 
 def _build_agent(
-    *, has_code_interpreter: bool = False, middleware=None, provider: str | None = None
+    *, sandbox: bool = False, middleware=None, provider: str | None = None
 ) -> Agent:
     resolved = MagicMock()
-    resolved.config.has_code_interpreter = has_code_interpreter
+    resolved.sandbox = MagicMock() if sandbox else None
     resolved.config.instructions = "You are a test agent"
     resolved.live.all = []
     return Agent(
@@ -111,16 +111,14 @@ def test_build_agent_appends_tool_error_middleware(mock_create_agent):
 
 @patch("app.sandbox.tools.create_sandbox_tools", return_value=[])
 @patch("app.agents.runtime.create_deep_agent")
-@patch("app.agents.runtime.sandbox_settings")
 def test_build_agent_sandbox_dispatches_to_deep_agent(
-    mock_settings, mock_create_deep_agent, _mock_tools
+    mock_create_deep_agent, _mock_tools
 ):
-    """With a code interpreter + sandbox enabled, the build goes through
+    """With a sandbox bound to the agent, the build goes through
     create_deep_agent: ToolErrorMiddleware is appended and the caller's
     PatchToolCallsMiddleware is dropped (deepagents injects its own)."""
-    mock_settings.enabled = True
     agent = _build_agent(
-        has_code_interpreter=True,
+        sandbox=True,
         middleware=[PatchToolCallsMiddleware(), DeferredStructuredOutputMiddleware()],
     )
 

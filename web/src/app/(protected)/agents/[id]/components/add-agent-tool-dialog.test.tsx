@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "@/lib/api/client";
 import type { MCPServer } from "@/types/mcp-servers";
+import type { Sandbox } from "@/types/sandboxes";
 import AddAgentToolDialog from "./add-agent-tool-dialog";
 
 vi.mock("next/navigation", () => ({
@@ -24,16 +25,28 @@ const availableServer: MCPServer = {
 	updatedAt: "2026-06-09T00:00:00Z",
 };
 
+const availableSandbox: Sandbox = {
+	id: "sandbox-1",
+	name: "Data lab",
+	description: null,
+	provider: "daytona",
+	url: "https://app.daytona.io/api",
+	config: {},
+	hasSecret: true,
+	createdAt: "2026-08-22T00:00:00Z",
+	updatedAt: "2026-08-22T00:00:00Z",
+};
+
+function mockApi() {
+	vi.mocked(api.get).mockImplementation(() =>
+		Promise.resolve({ data: [availableServer] }),
+	);
+}
+
 describe("AddAgentToolDialog", () => {
 	beforeEach(() => {
 		vi.resetAllMocks();
-		vi.mocked(api.get).mockImplementation((url) => {
-			if (url === "/sandbox/status") {
-				return Promise.resolve({ data: { enabled: false } });
-			}
-
-			return Promise.resolve({ data: [availableServer] });
-		});
+		mockApi();
 	});
 
 	it("adds the server to the draft and closes when it was the last one", async () => {
@@ -46,9 +59,10 @@ describe("AddAgentToolDialog", () => {
 				open
 				onOpenChange={onOpenChange}
 				attachedServerIds={[]}
-				hasCodeInterpreter={false}
+				attachedSandboxIds={[]}
+				sandboxes={[availableSandbox]}
 				onAddServer={onAddServer}
-				onSandboxToggle={vi.fn()}
+				onAddSandbox={vi.fn()}
 			/>,
 		);
 
@@ -68,9 +82,10 @@ describe("AddAgentToolDialog", () => {
 				open
 				onOpenChange={vi.fn()}
 				attachedServerIds={["server-1"]}
-				hasCodeInterpreter={false}
+				attachedSandboxIds={[]}
+				sandboxes={[availableSandbox]}
 				onAddServer={vi.fn()}
-				onSandboxToggle={vi.fn()}
+				onAddSandbox={vi.fn()}
 			/>,
 		);
 
@@ -79,5 +94,49 @@ describe("AddAgentToolDialog", () => {
 				"All workspace servers are already enabled for this agent.",
 			),
 		).toBeInTheDocument();
+	});
+
+	it("adds a sandbox to the draft and closes the dialog", async () => {
+		const user = userEvent.setup();
+		const onOpenChange = vi.fn();
+		const onAddSandbox = vi.fn();
+
+		render(
+			<AddAgentToolDialog
+				open
+				onOpenChange={onOpenChange}
+				attachedServerIds={[]}
+				attachedSandboxIds={[]}
+				sandboxes={[availableSandbox]}
+				onAddServer={vi.fn()}
+				onAddSandbox={onAddSandbox}
+			/>,
+		);
+
+		await user.click(
+			await screen.findByRole("button", { name: "Add Data lab" }),
+		);
+
+		await waitFor(() => {
+			expect(onAddSandbox).toHaveBeenCalledWith("sandbox-1");
+			expect(onOpenChange).toHaveBeenCalledWith(false);
+		});
+	});
+
+	it("hides the sandbox section once one is attached", async () => {
+		render(
+			<AddAgentToolDialog
+				open
+				onOpenChange={vi.fn()}
+				attachedServerIds={[]}
+				attachedSandboxIds={["sandbox-1"]}
+				sandboxes={[availableSandbox]}
+				onAddServer={vi.fn()}
+				onAddSandbox={vi.fn()}
+			/>,
+		);
+
+		await screen.findByRole("button", { name: "Add Internal Search" });
+		expect(screen.queryByText("SANDBOXES")).not.toBeInTheDocument();
 	});
 });

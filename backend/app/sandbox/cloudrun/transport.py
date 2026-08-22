@@ -16,12 +16,9 @@ from __future__ import annotations
 import base64
 import logging
 from dataclasses import dataclass
-from functools import lru_cache
 from typing import Protocol
 
 import httpx
-
-from app.sandbox.settings import sandbox_settings
 
 
 logger = logging.getLogger(__name__)
@@ -160,15 +157,3 @@ def _error_detail(response: httpx.Response) -> str:
         return response.json().get("detail", response.text)
     except ValueError:
         return response.text
-
-
-@lru_cache(maxsize=1)
-def get_transport() -> SandboxTransport:
-    """The gateway transport (singleton — it holds a pooled HTTP client)."""
-    settings = sandbox_settings.cloudrun
-    if settings.gateway_url is None:
-        raise RuntimeError(
-            "CLOUD_RUN_SANDBOX_GATEWAY_URL is not configured — the cloudrun "
-            "sandbox provider requires the sandbox gateway service."
-        )
-    return GatewayTransport(settings.gateway_url, settings.gateway_secret)

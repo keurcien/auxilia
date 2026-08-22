@@ -38,6 +38,7 @@ dependencies = [
     "pyyaml>=6.0.3",
     "google-cloud-storage>=3.13.0",
     "google-auth>=2.50.0",
+    "daytona>=0.205.1",
 ]
 
 [dependency-groups]

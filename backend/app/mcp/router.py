@@ -12,7 +12,14 @@ LOREM_IPSUM = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do e
 @auxilia_mcp.tool()
 def list_agents() -> dict[str, list[dict[str, str]]]:
     """List all agents available to the user"""
-    return {"result": [{"agent_name": "data_analyst", "agent_description": "A data analyst agent capable to run BigQuery queries and analyze data"}]}
+    return {
+        "result": [
+            {
+                "agent_name": "data_analyst",
+                "agent_description": "A data analyst agent capable to run BigQuery queries and analyze data",
+            }
+        ]
+    }
 
 
 @auxilia_mcp.tool()
@@ -36,6 +43,8 @@ async def ask_agent(agent_name: str, question: str, ctx: Context) -> dict[str, s
     await asyncio.sleep(0.5)
     await ctx.info("Agent {agent_name} has answered the question {question}...")
     await asyncio.sleep(0.5)
-    await ctx.info("Agent {agent_name} has answered the question {question} with the following answer: {LOREM_IPSUM}...")
+    await ctx.info(
+        "Agent {agent_name} has answered the question {question} with the following answer: {LOREM_IPSUM}..."
+    )
     await asyncio.sleep(0.5)
     return {"result": LOREM_IPSUM}

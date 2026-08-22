@@ -94,6 +94,20 @@ def mock_mcp_server_service():
 
 
 @pytest.fixture
+def mock_agent_sandbox_repo():
+    repo = MagicMock()
+    repo.list_for_agents = AsyncMock(return_value=[])
+    return repo
+
+
+@pytest.fixture
+def mock_agent_sandbox_service():
+    svc = MagicMock()
+    svc.set_for_agent = AsyncMock()
+    return svc
+
+
+@pytest.fixture
 def mock_tag_service():
     svc = MagicMock()
     svc.get = AsyncMock()
@@ -118,6 +132,8 @@ def service(
     mock_user_service,
     mock_agent_mcp_repo,
     mock_mcp_server_service,
+    mock_agent_sandbox_repo,
+    mock_agent_sandbox_service,
 ):
     svc = AgentService(mock_db)
     svc.repository = mock_repo
@@ -127,6 +143,8 @@ def service(
     svc.user_service = mock_user_service
     svc.mcp_server_repository = mock_agent_mcp_repo
     svc.mcp_server_service = mock_mcp_server_service
+    svc.sandbox_repository = mock_agent_sandbox_repo
+    svc.sandbox_service = mock_agent_sandbox_service
     return svc
 
 
@@ -618,7 +636,6 @@ async def test_set_config_clears_unset_scalars(service, mock_repo):
     assert dumped["description"] is None
     assert dumped["emoji"] is None
     assert dumped["color"] is None
-    assert dumped["has_code_interpreter"] is False
     assert "tag_id" not in dumped  # tags are outside the config document
 
 

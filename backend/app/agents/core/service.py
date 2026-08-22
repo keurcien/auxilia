@@ -16,6 +16,8 @@ from app.agents.models import (
     AgentDB,
     AgentUserPermissionDB,
 )
+from app.agents.sandboxes.repository import AgentSandboxRepository
+from app.agents.sandboxes.service import AgentSandboxService
 from app.agents.schemas import (
     AgentConfig,
     AgentCreateDB,
@@ -24,6 +26,7 @@ from app.agents.schemas import (
     AgentPatch,
     AgentPermissionCreate,
     AgentResponse,
+    AgentSandboxResponse,
     TagInfo,
 )
 from app.agents.subagents.service import SubagentService
@@ -52,6 +55,8 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         self.user_service = UserService(db)
         self.mcp_server_repository = AgentMCPServerRepository(db)
         self.mcp_server_service = AgentMCPServerService(db)
+        self.sandbox_repository = AgentSandboxRepository(db)
+        self.sandbox_service = AgentSandboxService(db)
 
     @staticmethod
     def _resolve_permission(
@@ -86,6 +91,17 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
             subagents_map,
             is_subagent_ids,
         ) = await self.subagent_service.list_all_subagent_data(agent_ids)
+        sandbox_map: dict[UUID, list[AgentSandboxResponse]] = defaultdict(list)
+        for link, sandbox in await self.sandbox_repository.list_for_agents(agent_ids):
+            sandbox_map[link.agent_id].append(
+                AgentSandboxResponse(
+                    sandbox_id=sandbox.id,
+                    tools=link.tools,
+                    name=sandbox.name,
+                    provider=sandbox.provider,
+                    url=sandbox.url,
+                )
+            )
         tag_ids = list({a.tag_id for a in agents if a.tag_id is not None})
         tags_by_id = {t.id: t for t in await self.tag_service.list_by_ids(tag_ids)}
         owner_ids = list({a.owner_id for a in agents})
@@ -94,6 +110,7 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
             AgentResponse(
                 **agent.model_dump(),
                 mcp_servers=mcp_map.get(agent.id, []),
+                sandboxes=sandbox_map.get(agent.id, []),
                 subagents=subagents_map.get(agent.id, []),
                 tag=(
                     TagInfo(id=tag.id, name=tag.name)
@@ -163,10 +180,10 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
                 emoji=config.emoji,
                 color=config.color,
                 description=config.description,
-                has_code_interpreter=config.has_code_interpreter,
             )
         )
         await self.mcp_server_service.set_for_agent(agent.id, config.mcp_servers)
+        await self.sandbox_service.set_for_agent(agent.id, config.sandboxes)
         await self.subagent_service.set_for_supervisor(
             agent.id, config.subagent_ids, user_role=user_role
         )
@@ -284,10 +301,10 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
                 description=config.description,
                 emoji=config.emoji,
                 color=config.color,
-                has_code_interpreter=config.has_code_interpreter,
             ),
         )
         await self.mcp_server_service.set_for_agent(agent_id, config.mcp_servers)
+        await self.sandbox_service.set_for_agent(agent_id, config.sandboxes)
         await self.subagent_service.set_for_supervisor(
             agent_id, config.subagent_ids, user_role=user_role
         )

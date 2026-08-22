@@ -1,5 +1,5 @@
 from datetime import datetime
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -7,6 +7,17 @@ from fastapi.testclient import TestClient
 
 from app.agents.models import AgentDB
 from app.threads.models import ThreadDB, ThreadSource
+
+
+@pytest.fixture(autouse=True)
+def _no_sandbox_bindings():
+    """These tests drive db.execute with one shared mock result; the sandbox
+    hydration query would otherwise consume it. No test here binds one."""
+    with patch(
+        "app.agents.core.service.AgentSandboxRepository.list_for_agents",
+        new=AsyncMock(return_value=[]),
+    ):
+        yield
 
 
 def test_create_agent(client: TestClient, mock_db, editor_user):
@@ -581,7 +592,6 @@ def _agent_response(permission):
         emoji=None,
         color=None,
         description=None,
-        has_code_interpreter=False,
         is_archived=False,
         created_at=datetime.now(),
         updated_at=datetime.now(),

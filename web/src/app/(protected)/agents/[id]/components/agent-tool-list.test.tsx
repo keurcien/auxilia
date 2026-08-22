@@ -76,7 +76,7 @@ function Harness({
 				agentId={AGENT_ID}
 				readOnly={readOnly}
 				mcpServers={form.mcpServers}
-				hasCodeInterpreter={false}
+				sandboxes={form.sandboxes}
 				onMcpServersChange={(update) => {
 					setForm((prev) => ({
 						...prev,
@@ -104,6 +104,7 @@ function mockApi({
 }) {
 	vi.mocked(api.get).mockImplementation((url: string) => {
 		if (url === "/mcp-servers") return Promise.resolve({ data: [SERVER] });
+		if (url === "/sandboxes") return Promise.resolve({ data: [] });
 		if (url === `/mcp-servers/${SERVER.id}/is-connected`)
 			return Promise.resolve({ data: { connected } });
 		if (url === `/mcp-servers/${SERVER.id}/list-tools`)
@@ -196,6 +197,7 @@ describe("agent tool map persistence", () => {
 		let connected = false;
 		vi.mocked(api.get).mockImplementation((url: string) => {
 			if (url === "/mcp-servers") return Promise.resolve({ data: [SERVER] });
+			if (url === "/sandboxes") return Promise.resolve({ data: [] });
 			if (url === `/mcp-servers/${SERVER.id}/is-connected`)
 				return Promise.resolve({ data: { connected } });
 			if (url === `/mcp-servers/${SERVER.id}/list-tools`) {

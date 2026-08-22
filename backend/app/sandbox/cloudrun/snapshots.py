@@ -12,28 +12,40 @@ from functools import lru_cache
 from google.api_core.exceptions import NotFound
 from google.cloud import storage
 
-from app.sandbox.settings import sandbox_settings
-
 
 @lru_cache(maxsize=1)
 def _client() -> storage.Client:
     return storage.Client()
 
 
-def _blob(sandbox_id: str) -> storage.Blob:
-    settings = sandbox_settings.cloudrun
-    bucket = _client().bucket(settings.gcs_bucket)
-    return bucket.blob(f"{settings.snapshot_prefix}{sandbox_id}.tar")
+class SnapshotStore:
+    """Snapshot persistence for one sandbox's GCS location (bucket + prefix
+    come from the workspace sandbox config). With no bucket configured the
+    store is inert: saves are skipped, loads return None."""
 
+    def __init__(self, *, bucket: str | None, prefix: str) -> None:
+        self._bucket = bucket
+        self._prefix = prefix
 
-def save_snapshot(sandbox_id: str, tar_bytes: bytes) -> None:
-    _blob(sandbox_id).upload_from_string(tar_bytes, content_type="application/x-tar")
+    @property
+    def enabled(self) -> bool:
+        return bool(self._bucket)
 
+    def _blob(self, sandbox_id: str) -> storage.Blob:
+        bucket = _client().bucket(self._bucket)
+        return bucket.blob(f"{self._prefix}{sandbox_id}.tar")
 
-def load_snapshot(sandbox_id: str) -> bytes | None:
-    if sandbox_settings.cloudrun.gcs_bucket is None:
-        return None
-    try:
-        return _blob(sandbox_id).download_as_bytes()
-    except NotFound:
-        return None
+    def save(self, sandbox_id: str, tar_bytes: bytes) -> None:
+        if not self.enabled:
+            return
+        self._blob(sandbox_id).upload_from_string(
+            tar_bytes, content_type="application/x-tar"
+        )
+
+    def load(self, sandbox_id: str) -> bytes | None:
+        if not self.enabled:
+            return None
+        try:
+            return self._blob(sandbox_id).download_as_bytes()
+        except NotFound:
+            return None
