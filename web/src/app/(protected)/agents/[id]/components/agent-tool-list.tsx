@@ -4,15 +4,16 @@ import { useState, useEffect, useMemo } from "react";
 import { Plus } from "lucide-react";
 import { MCPServer } from "@/types/mcp-servers";
 import { ToolStatus } from "@/types/agents";
+import { Sandbox } from "@/types/sandboxes";
 import AgentMCPServer from "./agent-mcp-server";
-import AgentCodeExecution from "./agent-code-execution";
+import AgentSandbox from "./agent-sandbox";
 import AddAgentToolDialog from "./add-agent-tool-dialog";
-import { AgentMCPServerForm } from "../../lib/agent-form";
+import { AgentMCPServerForm, AgentSandboxForm } from "../../lib/agent-form";
 import { api } from "@/lib/api/client";
 
 interface AgentToolListProps {
 	mcpServers: AgentMCPServerForm[];
-	hasCodeInterpreter: boolean;
+	sandboxes: AgentSandboxForm[];
 	readOnly?: boolean;
 	/**
 	 * Functional updater — applied against the LATEST draft state. Never rebuild
@@ -23,22 +24,27 @@ interface AgentToolListProps {
 	onMcpServersChange?: (
 		update: (prev: AgentMCPServerForm[]) => AgentMCPServerForm[],
 	) => void;
-	onHasCodeInterpreterChange?: (enabled: boolean) => void;
+	/** Plain array in/out — sandbox bindings have no async seeding. */
+	onSandboxesChange?: (sandboxes: AgentSandboxForm[]) => void;
 }
 
 export default function AgentToolList({
 	mcpServers,
-	hasCodeInterpreter,
+	sandboxes,
 	readOnly,
 	onMcpServersChange,
-	onHasCodeInterpreterChange,
+	onSandboxesChange,
 }: AgentToolListProps) {
 	const [allMCPServers, setAllMCPServers] = useState<MCPServer[]>([]);
+	const [allSandboxes, setAllSandboxes] = useState<Sandbox[]>([]);
 	const [dialogOpen, setDialogOpen] = useState(false);
 
 	useEffect(() => {
 		api.get("/mcp-servers").then((res) => {
 			setAllMCPServers(res.data);
+		});
+		api.get("/sandboxes").then((res) => {
+			setAllSandboxes(res.data);
 		});
 	}, []);
 
@@ -46,6 +52,11 @@ export default function AgentToolList({
 		const enabledIds = new Set(mcpServers.map((s) => s.mcpServerId));
 		return allMCPServers.filter((server) => enabledIds.has(server.id));
 	}, [allMCPServers, mcpServers]);
+
+	const enabledSandboxes = useMemo(() => {
+		const enabledIds = new Set(sandboxes.map((s) => s.sandboxId));
+		return allSandboxes.filter((sandbox) => enabledIds.has(sandbox.id));
+	}, [allSandboxes, sandboxes]);
 
 	const bindingFor = (serverId: string): AgentMCPServerForm =>
 		mcpServers.find((s) => s.mcpServerId === serverId) ?? {
@@ -92,7 +103,16 @@ export default function AgentToolList({
 		);
 	};
 
-	const hasTools = hasCodeInterpreter || enabledServers.length > 0;
+	const handleAddSandbox = (sandboxId: string) => {
+		// One sandbox per agent: adding replaces any existing binding.
+		onSandboxesChange?.([{ sandboxId, tools: null }]);
+	};
+
+	const handleRemoveSandbox = (sandboxId: string) => {
+		onSandboxesChange?.(sandboxes.filter((s) => s.sandboxId !== sandboxId));
+	};
+
+	const hasTools = enabledSandboxes.length > 0 || enabledServers.length > 0;
 
 	return (
 		<div className="flex min-h-0 flex-col">
@@ -100,7 +120,7 @@ export default function AgentToolList({
 				<span className="font-mono text-[10.5px] font-semibold tracking-[0.09em] text-label dark:text-muted-foreground">
 					TOOLS{" "}
 					<span className="tracking-normal text-meta dark:text-panel-dim">
-						{enabledServers.length + (hasCodeInterpreter ? 1 : 0)}
+						{enabledServers.length + enabledSandboxes.length}
 					</span>
 				</span>
 				{!readOnly && (
@@ -115,14 +135,16 @@ export default function AgentToolList({
 			</div>
 			{hasTools ? (
 				<div className="flex flex-col gap-2.5">
-					{hasCodeInterpreter && (
-						<AgentCodeExecution
+					{enabledSandboxes.map((sandbox) => (
+						<AgentSandbox
+							key={sandbox.id}
+							sandbox={sandbox}
 							readOnly={readOnly}
-							onDisable={() => {
-								onHasCodeInterpreterChange?.(false);
+							onRemove={() => {
+								handleRemoveSandbox(sandbox.id);
 							}}
 						/>
-					)}
+					))}
 					{enabledServers.map((server) => (
 						<AgentMCPServer
 							key={server.id}
@@ -152,11 +174,9 @@ export default function AgentToolList({
 					open={dialogOpen}
 					onOpenChange={setDialogOpen}
 					attachedServerIds={mcpServers.map((s) => s.mcpServerId)}
-					hasCodeInterpreter={hasCodeInterpreter}
+					attachedSandboxIds={sandboxes.map((s) => s.sandboxId)}
 					onAddServer={handleAddServer}
-					onSandboxToggle={(enabled) => {
-						onHasCodeInterpreterChange?.(enabled);
-					}}
+					onAddSandbox={handleAddSandbox}
 				/>
 			)}
 		</div>

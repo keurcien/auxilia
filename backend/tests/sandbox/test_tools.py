@@ -24,10 +24,8 @@ class FakeProvider:
 
 
 @pytest.fixture
-def provider(monkeypatch):
-    fake = FakeProvider()
-    monkeypatch.setattr("app.sandbox.tools.get_provider", lambda: fake)
-    return fake
+def provider():
+    return FakeProvider()
 
 
 @pytest.fixture
@@ -40,12 +38,12 @@ def tool_by_name(tools, name):
 
 
 def test_tool_names(provider, lazy_backend):
-    tools = create_sandbox_tools(lazy_backend)
+    tools = create_sandbox_tools(lazy_backend, provider)
     assert {t.name for t in tools} == {"create_sandbox", "connect_sandbox"}
 
 
 def test_create_connects_lazy_backend(provider, lazy_backend):
-    tools = create_sandbox_tools(lazy_backend)
+    tools = create_sandbox_tools(lazy_backend, provider)
     result = tool_by_name(tools, "create_sandbox").invoke({"timeout_minutes": 45})
 
     assert "sbx-new" in result
@@ -54,7 +52,7 @@ def test_create_connects_lazy_backend(provider, lazy_backend):
 
 
 def test_connect_success(provider, lazy_backend):
-    tools = create_sandbox_tools(lazy_backend)
+    tools = create_sandbox_tools(lazy_backend, provider)
     result = tool_by_name(tools, "connect_sandbox").invoke({"sandbox_id": "sbx-x"})
 
     assert "Reconnected to sandbox sbx-x" in result
@@ -63,7 +61,7 @@ def test_connect_success(provider, lazy_backend):
 
 def test_connect_error_is_reported_not_raised(provider, lazy_backend):
     provider.connect_error = RuntimeError("sandbox gone")
-    tools = create_sandbox_tools(lazy_backend)
+    tools = create_sandbox_tools(lazy_backend, provider)
     result = tool_by_name(tools, "connect_sandbox").invoke({"sandbox_id": "sbx-x"})
 
     assert "sandbox gone" in result

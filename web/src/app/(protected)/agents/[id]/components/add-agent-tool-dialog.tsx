@@ -6,6 +6,11 @@ import Image from "next/image";
 import { Plus } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { MCPServer } from "@/types/mcp-servers";
+import { Sandbox } from "@/types/sandboxes";
+import {
+	SANDBOX_PROVIDER_ICONS,
+	SANDBOX_PROVIDER_LABELS,
+} from "@/lib/sandbox-providers";
 import {
 	Dialog,
 	DialogButton,
@@ -14,7 +19,6 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
-import { Switch } from "@/components/ui/switch";
 import { shouldCloseAddToolDialogAfterServerAdded } from "../lib/mcp-server-assignment";
 
 interface AddAgentToolDialogProps {
@@ -22,11 +26,12 @@ interface AddAgentToolDialogProps {
 	onOpenChange: (open: boolean) => void;
 	/** Servers already attached in the draft. */
 	attachedServerIds: string[];
-	hasCodeInterpreter: boolean;
+	/** Sandboxes already attached in the draft (at most one). */
+	attachedSandboxIds: string[];
 	/** Draft update: attach a server (tools stay null until synced/edited). */
 	onAddServer: (serverId: string) => void;
-	/** Draft update: toggle the code interpreter. */
-	onSandboxToggle: (enabled: boolean) => void;
+	/** Draft update: attach a sandbox (replaces the current one, if any). */
+	onAddSandbox: (sandboxId: string) => void;
 }
 
 interface AvailableMCPServerCardProps {
@@ -66,45 +71,80 @@ function AvailableMCPServerCard({ server, onAdd }: AvailableMCPServerCardProps) 
 	);
 }
 
-function BuiltInCapabilities({
-	hasCodeInterpreter,
-	sandboxAvailable,
-	onSandboxToggle,
+function AvailableSandboxCard({
+	sandbox,
+	onAdd,
 }: {
-	hasCodeInterpreter: boolean;
-	sandboxAvailable: boolean;
-	onSandboxToggle: (enabled: boolean) => void;
+	sandbox: Sandbox;
+	onAdd: (sandboxId: string) => void;
 }) {
-	if (!sandboxAvailable) return null;
+	return (
+		<div className="flex items-center gap-3 rounded-[10px] border border-hairline bg-canvas px-4 py-3 transition-colors hover:bg-sidebar dark:bg-white/5 dark:hover:bg-white/10">
+			<Image
+				unoptimized
+				src={SANDBOX_PROVIDER_ICONS[sandbox.provider]}
+				alt={SANDBOX_PROVIDER_LABELS[sandbox.provider]}
+				width={24}
+				height={24}
+				className="shrink-0 rounded-md"
+			/>
+			<div className="min-w-0 flex-1">
+				<h3 className="truncate text-[13.5px] font-semibold text-ink dark:text-panel-button">
+					{sandbox.name}
+				</h3>
+				<span className="font-mono text-[9.5px] font-semibold tracking-[0.06em] text-meta uppercase dark:text-panel-dim">
+					{SANDBOX_PROVIDER_LABELS[sandbox.provider]}
+				</span>
+			</div>
+			<button
+				className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[7px] border border-input text-label outline-none transition-colors hover:border-border-hover hover:text-ink focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:border-white/10 dark:hover:bg-white/10 dark:hover:text-panel-button"
+				onClick={() => {
+					onAdd(sandbox.id);
+				}}
+				aria-label={`Add ${sandbox.name}`}
+			>
+				<Plus className="size-3.5" />
+			</button>
+		</div>
+	);
+}
+
+function SandboxSection({
+	attachedSandboxIds,
+	onOpenChange,
+	onAddSandbox,
+}: {
+	attachedSandboxIds: string[];
+	onOpenChange: (open: boolean) => void;
+	onAddSandbox: (sandboxId: string) => void;
+}) {
+	const [allSandboxes, setAllSandboxes] = useState<Sandbox[]>([]);
+
+	useEffect(() => {
+		api.get("/sandboxes").then((res) => {
+			setAllSandboxes(res.data as Sandbox[]);
+		});
+	}, []);
+
+	// One sandbox per agent: once one is attached the section disappears.
+	if (attachedSandboxIds.length > 0 || allSandboxes.length === 0) return null;
 
 	return (
 		<div>
 			<h3 className="mb-3 font-mono text-[10.5px] font-semibold tracking-[0.09em] text-label dark:text-panel-dim">
-				BUILT-IN CAPABILITIES
+				SANDBOXES
 			</h3>
-			<div className="flex items-center gap-3 rounded-[10px] border border-hairline bg-canvas px-4 py-3 dark:bg-white/5">
-				<div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg">
-					<Image
-						width={36}
-						height={36}
-						src="https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/terminal.png"
-						alt="Code execution"
-						className="object-cover"
+			<div className="content-start grid md:grid-cols-2 grid-cols-1 gap-x-2.5 gap-y-2">
+				{allSandboxes.map((sandbox) => (
+					<AvailableSandboxCard
+						key={sandbox.id}
+						sandbox={sandbox}
+						onAdd={(sandboxId) => {
+							onAddSandbox(sandboxId);
+							onOpenChange(false);
+						}}
 					/>
-				</div>
-				<div className="min-w-0 flex-1">
-					<h4 className="text-[13.5px] font-semibold text-ink dark:text-panel-button">
-						Code execution
-					</h4>
-					<p className="text-[12px] text-label dark:text-panel-dim">
-						Run Python in a sandboxed environment
-					</p>
-				</div>
-				<Switch
-					className="cursor-pointer data-[state=checked]:bg-petrol"
-					checked={hasCodeInterpreter}
-					onCheckedChange={onSandboxToggle}
-				/>
+				))}
 			</div>
 		</div>
 	);
@@ -213,20 +253,10 @@ export default function AddAgentToolDialog({
 	open,
 	onOpenChange,
 	attachedServerIds,
-	hasCodeInterpreter,
+	attachedSandboxIds,
 	onAddServer,
-	onSandboxToggle,
+	onAddSandbox,
 }: AddAgentToolDialogProps) {
-	const [sandboxAvailable, setSandboxAvailable] = useState(false);
-
-	useEffect(() => {
-		if (open) {
-			api.get("/sandbox/status").then((res) => {
-				setSandboxAvailable(res.data.enabled);
-			});
-		}
-	}, [open]);
-
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent className="sm:max-w-[560px]">
@@ -242,11 +272,10 @@ export default function AddAgentToolDialog({
 						onOpenChange={onOpenChange}
 						onAddServer={onAddServer}
 					/>
-					{sandboxAvailable && <div className="border-t border-hairline dark:border-white/10" />}
-					<BuiltInCapabilities
-						hasCodeInterpreter={hasCodeInterpreter}
-						sandboxAvailable={sandboxAvailable}
-						onSandboxToggle={onSandboxToggle}
+					<SandboxSection
+						attachedSandboxIds={attachedSandboxIds}
+						onOpenChange={onOpenChange}
+						onAddSandbox={onAddSandbox}
 					/>
 				</div>
 			</DialogContent>

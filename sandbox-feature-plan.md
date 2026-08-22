@@ -70,7 +70,6 @@ class SandboxBase(SQLModel):
     provider: SandboxProviderType = Field(nullable=False)
     url: str = Field(nullable=False)                                 # the endpoint, plain
     config: dict = Field(default={}, sa_column=Column(JSONB, nullable=False))  # extras only
-    is_active: bool = Field(default=True)
 
 class SandboxDB(SandboxBase, BaseDBModel, table=True):
     __tablename__ = "sandboxes"
@@ -230,7 +229,7 @@ Tool gating: `disabled` entries are dropped from the toolset; `needs_approval` j
 | `GET /sandboxes/{id}/secret-hint` | `require_admin` | masked hint, mirrors `oauth-secret-hint` |
 | `PATCH /sandboxes/{id}` | `require_admin` | omitted secret = keep current |
 | `POST /sandboxes/{id}/probe` | `require_admin` | connectivity check: create a throwaway session, `execute("true")`, report |
-| `DELETE /sandboxes/{id}` | `require_admin` | 400 while `agent_sandboxes` rows reference it |
+| `DELETE /sandboxes/{id}` | `require_admin` | refused (400) while agents are bound; `?detach_agents=true` (the dialog's explicit confirm) detaches from all agents then deletes. `GET /sandboxes/{id}/agents` feeds the dialog. Threads are never bound to sandboxes |
 
 `GET /sandbox/status` is deleted; its only caller (`add-agent-tool-dialog.tsx`) switches to `GET /sandboxes` (enabled ⇔ non-empty).
 

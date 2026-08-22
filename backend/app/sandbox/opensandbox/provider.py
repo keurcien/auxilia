@@ -11,62 +11,62 @@ from opensandbox.config import ConnectionConfigSync
 from opensandbox.models.sandboxes import Host, Volume
 
 from app.sandbox.opensandbox.backend import OpenSandbox
-from app.sandbox.provider import install_default_packages
-from app.sandbox.settings import sandbox_settings
+from app.sandbox.provider import BaseSandboxProvider
+from app.sandbox.schemas import OpenSandboxConfig
 
 
 logger = logging.getLogger(__name__)
 
 
-class OpenSandboxProvider:
+class OpenSandboxProvider(BaseSandboxProvider):
     """Sandbox lifecycle on the OpenSandbox API (create / connect + TTL renew)."""
 
-    def create(self, *, timeout_minutes: int) -> tuple[OpenSandbox, str]:
-        settings = sandbox_settings.opensandbox
-        sandbox = SandboxSync.create(
-            settings.default_image,
-            timeout=timedelta(minutes=timeout_minutes),
-            volumes=_parse_volume_mounts() or None,
-            connection_config=_connection_config(),
-        )
-        backend = OpenSandbox(sandbox=sandbox, timeout=settings.timeout)
-        try:
-            install_default_packages(backend, list(settings.default_packages))
-        except Exception:
-            # Don't leak a running sandbox the caller never got an ID for.
-            try:
-                sandbox.kill()
-            except Exception:
-                logger.warning("Failed to kill sandbox after install failure")
-            raise
+    config: OpenSandboxConfig
 
-        info = sandbox.get_info()
-        return backend, (
-            f"Sandbox created (ID: {info.id}, TTL: {timeout_minutes}min). "
+    def _create_backend(self, *, timeout_minutes: int) -> OpenSandbox:
+        sandbox = SandboxSync.create(
+            self.config.default_image,
+            timeout=timedelta(minutes=timeout_minutes),
+            volumes=_parse_volume_mounts(self.config.volume_mounts) or None,
+            connection_config=self._connection_config(),
+        )
+        return OpenSandbox(sandbox=sandbox, timeout=self.config.timeout)
+
+    def _destroy_backend(self, backend: OpenSandbox) -> None:
+        backend.kill()
+
+    def _created_message(self, backend: OpenSandbox, timeout_minutes: int) -> str:
+        return (
+            f"Sandbox created (ID: {backend.id}, TTL: {timeout_minutes}min). "
             "You can now execute code."
         )
 
     def connect(self, sandbox_id: str) -> tuple[OpenSandbox, str]:
         sandbox = SandboxSync.connect(
-            sandbox_id, connection_config=_connection_config()
+            sandbox_id, connection_config=self._connection_config()
         )
         sandbox.renew(timeout=timedelta(minutes=30))
-        backend = OpenSandbox(
-            sandbox=sandbox, timeout=sandbox_settings.opensandbox.timeout
-        )
+        backend = OpenSandbox(sandbox=sandbox, timeout=self.config.timeout)
         return backend, (
             f"Reconnected to sandbox {sandbox_id}. TTL renewed for 30 minutes."
         )
 
+    def _connection_config(self) -> ConnectionConfigSync:
+        return ConnectionConfigSync(
+            api_key=self.config.secret,
+            domain=self.config.url,
+            use_server_proxy=self.config.use_server_proxy,
+        )
 
-def _parse_volume_mounts() -> list[Volume]:
-    """Parse volume mount specs from settings.
+
+def _parse_volume_mounts(entries: list[str]) -> list[Volume]:
+    """Parse volume mount specs from the sandbox config.
 
     Each entry has the format ``host_path:sandbox_path`` with an optional
     ``:ro`` suffix for read-only mounts.
     """
     volumes: list[Volume] = []
-    for i, entry in enumerate(sandbox_settings.opensandbox.parsed_volume_mounts):
+    for i, entry in enumerate(entries):
         parts = entry.split(":")
         read_only = parts[-1] == "ro"
         if read_only:
@@ -100,12 +100,3 @@ def _parse_volume_mounts() -> list[Volume]:
             )
         )
     return volumes
-
-
-def _connection_config() -> ConnectionConfigSync:
-    settings = sandbox_settings.opensandbox
-    return ConnectionConfigSync(
-        api_key=settings.api_key,
-        domain=settings.domain,
-        use_server_proxy=settings.use_server_proxy,
-    )

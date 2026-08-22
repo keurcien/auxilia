@@ -37,6 +37,10 @@ class OpenSandbox(BaseSandbox):
         info = self._sandbox.get_info()
         return info.id
 
+    def kill(self) -> None:
+        """Terminate the sandbox (create-path cleanup)."""
+        self._sandbox.kill()
+
     def execute(
         self,
         command: str,

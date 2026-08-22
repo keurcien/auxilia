@@ -43,6 +43,26 @@ class AgentMCPServerDB(AgentMCPServerBase, BaseDBModel, table=True):
     __tablename__ = "agent_mcp_servers"
 
 
+class AgentSandboxBase(SQLModel):
+    agent_id: UUID = Field(foreign_key="agents.id", ondelete="CASCADE", nullable=False)
+    # No cascade (consistent with agent_mcp_servers): deleting a bound
+    # sandbox is refused; the admin explicitly detaches it from all agents
+    # (DELETE /sandboxes/{id}?detach_agents=true). Threads are never bound
+    # to a sandbox — only agents are.
+    sandbox_id: UUID = Field(foreign_key="sandboxes.id", nullable=False)
+    tools: dict[str, ToolStatus] | None = Field(
+        default=None, sa_column=Column(JSONB, nullable=True)
+    )
+
+
+class AgentSandboxDB(AgentSandboxBase, BaseDBModel, table=True):
+    __tablename__ = "agent_sandboxes"
+    # One sandbox per agent for now: the deepagents runnable takes exactly one
+    # execution backend. Kept as a link table (not a FK on agents) so the
+    # binding carries per-agent config and the constraint can be relaxed later.
+    __table_args__ = (UniqueConstraint("agent_id", name="uq_agent_sandbox"),)
+
+
 class AgentBase(SQLModel):
     name: str = Field(max_length=255, nullable=False)
     instructions: str = Field(sa_column=Column(Text, nullable=False))
@@ -58,10 +78,6 @@ class AgentDB(AgentBase, BaseDBModel, table=True):
     __tablename__ = "agents"
 
     is_archived: bool = Field(
-        default=False,
-        sa_column=Column(Boolean, nullable=False, server_default="false"),
-    )
-    has_code_interpreter: bool = Field(
         default=False,
         sa_column=Column(Boolean, nullable=False, server_default="false"),
     )

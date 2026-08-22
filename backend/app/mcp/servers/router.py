@@ -12,6 +12,7 @@ from app.mcp.servers.schemas import (
     ConnectionProbeRequest,
     ConnectionTestResult,
     MCPCatalogSyncResponse,
+    MCPServerAgentResponse,
     MCPServerConnectionResponse,
     MCPServerCreate,
     MCPServerPatch,
@@ -103,13 +104,23 @@ async def get_oauth_secret_hint(
     return await service.get_oauth_secret_hint(server_id)
 
 
-@router.delete("/{server_id}", status_code=204)
-async def delete_mcp_server(
+@router.get("/{server_id}/agents", response_model=list[MCPServerAgentResponse])
+async def list_mcp_server_agents(
     server_id: UUID,
     _current_user: UserDB = Depends(require_admin),
     service: MCPServerService = Depends(get_mcp_server_service),
+) -> list[MCPServerAgentResponse]:
+    return await service.list_agents(server_id)
+
+
+@router.delete("/{server_id}", status_code=204)
+async def delete_mcp_server(
+    server_id: UUID,
+    detach_agents: bool = False,
+    _current_user: UserDB = Depends(require_admin),
+    service: MCPServerService = Depends(get_mcp_server_service),
 ) -> None:
-    await service.delete(server_id)
+    await service.delete(server_id, detach_agents=detach_agents)
 
 
 @router.post("/{server_id}/reset", status_code=200)

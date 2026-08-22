@@ -1,8 +1,9 @@
 """Sandbox lifecycle tools for lazy creation and reconnection.
 
 The model-facing contract (two tools, their names, and their docstrings) is
-defined once here; provider differences live behind ``SandboxProvider``
-(see ``app/sandbox/provider.py``).
+defined once here; provider differences live behind ``BaseSandboxProvider``
+(see ``app/sandbox/provider.py``). The provider is injected by the caller —
+it comes from the sandbox bound to the agent, not from process-wide config.
 """
 
 from __future__ import annotations
@@ -10,12 +11,13 @@ from __future__ import annotations
 from langchain_core.tools import tool
 
 from app.sandbox.lazy import LazySandboxBackend
-from app.sandbox.provider import get_provider
+from app.sandbox.provider import BaseSandboxProvider
 
 
-def create_sandbox_tools(lazy_backend: LazySandboxBackend) -> list:
-    """Create sandbox management tools bound to a lazy backend."""
-    provider = get_provider()
+def create_sandbox_tools(
+    lazy_backend: LazySandboxBackend, provider: BaseSandboxProvider
+) -> list:
+    """Create sandbox management tools bound to a lazy backend and provider."""
 
     @tool
     def create_sandbox(timeout_minutes: int = 30) -> str:

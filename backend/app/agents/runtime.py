@@ -46,7 +46,8 @@ from app.integrations.langfuse.callback import langfuse_callback_handler
 from app.model_providers.catalog import ChatModelFactory
 from app.model_providers.service import ModelService
 from app.sandbox.lazy import LazySandboxBackend
-from app.sandbox.settings import sandbox_settings
+from app.sandbox.provider import BaseSandboxProvider, build_provider
+from app.sandbox.repository import SandboxRepository
 from app.threads.models import ThreadDB
 
 
@@ -80,6 +81,7 @@ def build_runnable(
     tools,
     system_prompt,
     sandbox_backend=None,
+    sandbox_provider: BaseSandboxProvider | None = None,
     base_middleware=(),
     subagents=None,
     checkpointer=None,
@@ -122,7 +124,7 @@ def build_runnable(
             middleware.append(DeferredStructuredOutputMiddleware(format_mode))
         return create_deep_agent(
             model=model,
-            tools=[*tools, *create_sandbox_tools(sandbox_backend)],
+            tools=[*tools, *create_sandbox_tools(sandbox_backend, sandbox_provider)],
             system_prompt=system_prompt,
             backend=sandbox_backend,
             middleware=[*middleware, ToolErrorMiddleware()],
@@ -147,6 +149,16 @@ def build_runnable(
 
 
 @dataclass
+class ResolvedSandbox:
+    """An agent's sandbox binding, resolved to a ready provider: the row is
+    loaded and its credential decrypted at request scope, so the streaming
+    scope (and subagent compile) never touch the DB or a global."""
+
+    provider: BaseSandboxProvider
+    tools: dict | None
+
+
+@dataclass
 class ResolvedAgent:
     """An agent config with its prepared toolset. Used for both parent and subagents.
 
@@ -158,6 +170,7 @@ class ResolvedAgent:
     config: AgentResponse
     prepared: PreparedToolset
     live: Toolset | None = None
+    sandbox: ResolvedSandbox | None = None
 
     @classmethod
     async def resolve(
@@ -172,7 +185,27 @@ class ResolvedAgent:
         prepared = await Toolset.prepare(
             config.mcp_servers, db, user_id, apply_ui=is_parent
         )
-        return cls(config=config, prepared=prepared)
+        sandbox = await cls._resolve_sandbox(config, db)
+        return cls(config=config, prepared=prepared, sandbox=sandbox)
+
+    @staticmethod
+    async def _resolve_sandbox(
+        config: AgentResponse, db: AsyncSession
+    ) -> ResolvedSandbox | None:
+        binding = next(iter(config.sandboxes or []), None)
+        if binding is None:
+            return None
+        row = await SandboxRepository(db).get(binding.sandbox_id)
+        if row is None:
+            return None
+        try:
+            provider = build_provider(row)
+        except Exception:
+            # A row that no longer validates (e.g. secret cleared) must not
+            # kill the whole run — the agent just runs without code execution.
+            logger.exception("Failed to build sandbox provider %s", row.id)
+            return None
+        return ResolvedSandbox(provider=provider, tools=binding.tools)
 
     def compile(self, model, created_at: datetime) -> CompiledSubAgent:
         """Compile into a CompiledSubAgent runnable (for subagent use).
@@ -184,7 +217,7 @@ class ResolvedAgent:
         runnables don't inherit the parent's checkpointer, and HumanInTheLoopMiddleware
         needs one. Approval gates on subagent tools are silently dropped today.
         """
-        sandbox = self.config.has_code_interpreter and sandbox_settings.enabled
+        sandbox = self.sandbox is not None
         system_prompt = (
             self.config.instructions or ""
             if sandbox
@@ -199,6 +232,7 @@ class ResolvedAgent:
             tools=self.live.all,
             system_prompt=system_prompt,
             sandbox_backend=LazySandboxBackend() if sandbox else None,
+            sandbox_provider=self.sandbox.provider if self.sandbox else None,
             base_middleware=[CurrentDateMiddleware(created_at)],
         )
         return CompiledSubAgent(
@@ -315,7 +349,7 @@ class Agent:
         off the tool-calling loop and applies it on one final formatting turn;
         the parsed result surfaces in the run state under `structured_response`.
         """
-        sandbox = self.agent.config.has_code_interpreter and sandbox_settings.enabled
+        sandbox = self.agent.sandbox is not None
         self._sandbox_backend = LazySandboxBackend() if sandbox else None
         compiled = (
             [s.compile(self.model, self.thread.created_at) for s in self.subagents]
@@ -334,6 +368,9 @@ class Agent:
             tools=self.agent.live.all,
             system_prompt=system_prompt,
             sandbox_backend=self._sandbox_backend,
+            sandbox_provider=self.agent.sandbox.provider
+            if self.agent.sandbox
+            else None,
             base_middleware=self.middleware,
             subagents=compiled,
             checkpointer=checkpointer,

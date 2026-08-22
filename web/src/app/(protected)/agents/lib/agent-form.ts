@@ -7,6 +7,11 @@ export interface AgentMCPServerForm {
 	tools: Record<string, ToolStatus> | null;
 }
 
+export interface AgentSandboxForm {
+	sandboxId: string;
+	tools: Record<string, ToolStatus> | null;
+}
+
 /** The draft the agent editor works on — the client side of `AgentConfig`. */
 export interface AgentFormState {
 	name: string;
@@ -14,8 +19,9 @@ export interface AgentFormState {
 	instructions: string;
 	emoji: string;
 	color: string;
-	hasCodeInterpreter: boolean;
 	mcpServers: AgentMCPServerForm[];
+	/** At most one — list-shaped to match the API. */
+	sandboxes: AgentSandboxForm[];
 	subagentIds: string[];
 }
 
@@ -27,8 +33,8 @@ export function defaultAgentForm(): AgentFormState {
 		instructions: "",
 		emoji: "🤖",
 		color: randomAgentColor(),
-		hasCodeInterpreter: false,
 		mcpServers: [],
+		sandboxes: [],
 		subagentIds: [],
 	};
 }
@@ -40,10 +46,13 @@ export function fromAgent(agent: Agent): AgentFormState {
 		instructions: agent.instructions || "",
 		emoji: agent.emoji || "🤖",
 		color: agent.color || AGENT_COLORS[0],
-		hasCodeInterpreter: agent.hasCodeInterpreter,
 		mcpServers: (agent.mcpServers || []).map((server) => ({
 			mcpServerId: server.mcpServerId,
 			tools: server.tools ? { ...server.tools } : null,
+		})),
+		sandboxes: (agent.sandboxes || []).map((sandbox) => ({
+			sandboxId: sandbox.sandboxId,
+			tools: sandbox.tools ? { ...sandbox.tools } : null,
 		})),
 		subagentIds: (agent.subagents || []).map((sub) => sub.id),
 	};
@@ -55,24 +64,29 @@ export function fromAgent(agent: Agent): AgentFormState {
  * JSON comparison never trips on ordering.
  */
 export function toPayload(form: AgentFormState) {
+	const sortTools = (tools: Record<string, ToolStatus> | null) =>
+		tools
+			? Object.fromEntries(
+					Object.entries(tools).sort(([a], [b]) => a.localeCompare(b)),
+				)
+			: null;
 	return {
 		name: form.name.trim(),
 		instructions: form.instructions.trim(),
 		description: form.description.trim() || null,
 		emoji: form.emoji || null,
 		color: form.color || null,
-		hasCodeInterpreter: form.hasCodeInterpreter,
 		mcpServers: [...form.mcpServers]
 			.sort((a, b) => a.mcpServerId.localeCompare(b.mcpServerId))
 			.map((server) => ({
 				mcpServerId: server.mcpServerId,
-				tools: server.tools
-					? Object.fromEntries(
-							Object.entries(server.tools).sort(([a], [b]) =>
-								a.localeCompare(b),
-							),
-						)
-					: null,
+				tools: sortTools(server.tools),
+			})),
+		sandboxes: [...form.sandboxes]
+			.sort((a, b) => a.sandboxId.localeCompare(b.sandboxId))
+			.map((sandbox) => ({
+				sandboxId: sandbox.sandboxId,
+				tools: sortTools(sandbox.tools),
 			})),
 		subagentIds: [...form.subagentIds].sort(),
 	};

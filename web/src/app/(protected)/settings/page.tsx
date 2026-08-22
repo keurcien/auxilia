@@ -5,6 +5,7 @@ import { Copy, Check, KeyRound, Plus, Trash2 } from "lucide-react";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import CreateTokenDialog, { type PersonalAccessToken } from "./create-token-dialog";
 import WorkspaceModels from "./workspace-models";
+import WorkspaceSandboxes from "./workspace-sandboxes";
 import { SubpageHeader } from "@/components/layout/subpage-header";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { api } from "@/lib/api/client";
@@ -83,13 +84,14 @@ function TokenRevealBanner({ plaintext }: { plaintext: string }) {
 	);
 }
 
-type SettingsTab = "tokens" | "models";
+type SettingsTab = "tokens" | "models" | "sandboxes";
 
 export default function SettingsPage() {
 	const [tokens, setTokens] = useState<PersonalAccessToken[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [revealedToken, setRevealedToken] = useState<string | null>(null);
 	const [modelCount, setModelCount] = useState<number | null>(null);
+	const [sandboxCount, setSandboxCount] = useState<number | null>(null);
 	const [errorDialogOpen, setErrorDialogOpen] = useState(false);
 	const [createDialogOpen, setCreateDialogOpen] = useState(false);
 	const user = useUserStore((state) => state.user);
@@ -98,7 +100,9 @@ export default function SettingsPage() {
 
 	const [tabParam, setTab] = useQueryParamState("tab", "tokens");
 	const tab: SettingsTab =
-		tabParam === "models" && isAdmin ? "models" : "tokens";
+		(tabParam === "models" || tabParam === "sandboxes") && isAdmin
+			? tabParam
+			: "tokens";
 
 	useEffect(() => {
 		void fetchUser();
@@ -260,6 +264,22 @@ export default function SettingsPage() {
 								)}
 							</button>
 						)}
+						{isAdmin && (
+							<button
+								type="button"
+								className={railTabClass(tab === "sandboxes")}
+								onClick={() => {
+									setTab("sandboxes");
+								}}
+							>
+								Sandboxes
+								{sandboxCount !== null && (
+									<span className="font-mono text-[10.5px] font-normal text-meta dark:text-panel-dim">
+										{sandboxCount}
+									</span>
+								)}
+							</button>
+						)}
 					</div>
 				</div>
 
@@ -324,6 +344,18 @@ export default function SettingsPage() {
 										setErrorDialogOpen(true);
 									}}
 									onCountChange={setModelCount}
+								/>
+							</section>
+						)}
+
+						{/* Workspace sandboxes — admin only */}
+						{isAdmin && (
+							<section className={tab === "sandboxes" ? "" : "hidden"}>
+								<WorkspaceSandboxes
+									onForbidden={() => {
+										setErrorDialogOpen(true);
+									}}
+									onCountChange={setSandboxCount}
 								/>
 							</section>
 						)}

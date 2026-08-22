@@ -72,6 +72,15 @@ class MCPCatalogSyncResponse(SQLModel):
     fetched_at: datetime
 
 
+class MCPServerAgentResponse(SQLModel):
+    """An agent still bound to an MCP server — shown in the delete-guard dialog."""
+
+    id: UUID
+    name: str
+    emoji: str | None = None
+    color: str | None = None
+
+
 class OAuthSecretHint(SQLModel):
     """Non-reversible hint about the stored OAuth client secret, so an admin can
     confirm *which* secret is configured without exposing it. Admin-only."""

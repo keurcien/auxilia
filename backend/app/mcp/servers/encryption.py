@@ -1,35 +1,13 @@
-"""Encryption utilities for sensitive stored values."""
-import base64
-import hashlib
+"""Encryption utilities for sensitive stored values.
 
-from cryptography.fernet import Fernet
+Deprecated location — the implementation moved to app.utils.encryption so
+non-MCP modules (e.g. sandboxes) can use it without importing mcp.servers.
+"""
 
-from app.mcp.servers.settings import mcp_server_settings
-
-
-def get_encryption_key() -> bytes:
-    """Derive a valid Fernet key from the configured salt.
-
-    Reads SALT first; falls back to the deprecated MCP_API_KEY_ENCRYPTION_SALT.
-    Hashes the salt with SHA-256 to produce 32 bytes, then base64url-encodes
-    it into a valid Fernet key.
-    """
-    salt = mcp_server_settings.get_salt()
-    derived = hashlib.sha256(salt.encode()).digest()
-    return base64.urlsafe_b64encode(derived)
+from app.utils.encryption import decrypt_value, encrypt_value, get_encryption_key
 
 
-def encrypt_value(value: str) -> str:
-    """Encrypt a string value for storage."""
-    fernet = Fernet(get_encryption_key())
-    return fernet.encrypt(value.encode()).decode()
-
-
-def decrypt_value(encrypted: str) -> str:
-    """Decrypt a string value from storage."""
-    fernet = Fernet(get_encryption_key())
-    return fernet.decrypt(encrypted.encode()).decode()
-
+__all__ = ["decrypt_value", "encrypt_value", "get_encryption_key"]
 
 # Deprecated aliases — use encrypt_value / decrypt_value instead
 encrypt_api_key = encrypt_value

@@ -460,15 +460,15 @@ export default function AgentEditor({
 					<AgentToolList
 						readOnly={readOnly}
 						mcpServers={form.mcpServers}
-						hasCodeInterpreter={form.hasCodeInterpreter}
+						sandboxes={form.sandboxes}
 						onMcpServersChange={(update) => {
 							setForm((prev) => ({
 								...prev,
 								mcpServers: update(prev.mcpServers),
 							}));
 						}}
-						onHasCodeInterpreterChange={(enabled) => {
-							setField("hasCodeInterpreter", enabled);
+						onSandboxesChange={(sandboxes) => {
+							setField("sandboxes", sandboxes);
 						}}
 					/>
 					{isAdmin && (
