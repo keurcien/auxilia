@@ -1,7 +1,7 @@
 """add sandboxes table
 
 Revision ID: 3e9d41c7a802
-Revises: d7b3f1c05a92
+Revises: 1d60a5dabb57
 Create Date: 2026-08-22 10:00:00.000000
 
 """
@@ -14,7 +14,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 
 # revision identifiers, used by Alembic.
 revision: str = '3e9d41c7a802'
-down_revision: Union[str, Sequence[str], None] = 'd7b3f1c05a92'
+down_revision: Union[str, Sequence[str], None] = '1d60a5dabb57'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
