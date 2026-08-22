@@ -20,8 +20,10 @@ import type {
 	SandboxSecretHint,
 } from "@/types/sandboxes";
 
-interface ProviderSpec {
+interface ProviderOption {
+	id: SandboxProviderType;
 	label: string;
+	icon: string;
 	secretLabel: string;
 	secretRequired: boolean;
 	urlLabel: string;
@@ -29,37 +31,42 @@ interface ProviderSpec {
 	defaultUrl?: string;
 }
 
-export const SANDBOX_PROVIDER_SPECS: Record<SandboxProviderType, ProviderSpec> =
+// An array with a find-based accessor (not a keyed record): static analysis
+// flags identifier-keyed object access as an injection sink.
+const PROVIDER_OPTIONS: ProviderOption[] = [
 	{
-		opensandbox: {
-			label: "OpenSandbox",
-			secretLabel: "API key",
-			secretRequired: false,
-			urlLabel: "Domain",
-			urlPlaceholder: "sandbox.example.com",
-		},
-		cloudrun: {
-			label: "Cloud Run",
-			secretLabel: "Gateway secret",
-			secretRequired: true,
-			urlLabel: "Gateway URL",
-			urlPlaceholder: "https://sandbox-gateway-xxxx.run.app",
-		},
-		daytona: {
-			label: "Daytona",
-			secretLabel: "API key",
-			secretRequired: true,
-			urlLabel: "API URL",
-			urlPlaceholder: "https://app.daytona.io/api",
-			defaultUrl: "https://app.daytona.io/api",
-		},
-	};
-
-const PROVIDER_ORDER: SandboxProviderType[] = [
-	"opensandbox",
-	"cloudrun",
-	"daytona",
+		id: "opensandbox",
+		label: "OpenSandbox",
+		icon: SANDBOX_PROVIDER_ICONS.opensandbox,
+		secretLabel: "API key",
+		secretRequired: false,
+		urlLabel: "Domain",
+		urlPlaceholder: "sandbox.example.com",
+	},
+	{
+		id: "cloudrun",
+		label: "Cloud Run",
+		icon: SANDBOX_PROVIDER_ICONS.cloudrun,
+		secretLabel: "Gateway secret",
+		secretRequired: true,
+		urlLabel: "Gateway URL",
+		urlPlaceholder: "https://sandbox-gateway-xxxx.run.app",
+	},
+	{
+		id: "daytona",
+		label: "Daytona",
+		icon: SANDBOX_PROVIDER_ICONS.daytona,
+		secretLabel: "API key",
+		secretRequired: true,
+		urlLabel: "API URL",
+		urlPlaceholder: "https://app.daytona.io/api",
+		defaultUrl: "https://app.daytona.io/api",
+	},
 ];
+
+const specFor = (provider: SandboxProviderType): ProviderOption =>
+	PROVIDER_OPTIONS.find((option) => option.id === provider) ??
+	PROVIDER_OPTIONS[0];
 
 interface SandboxFormState {
 	provider: SandboxProviderType;
@@ -254,7 +261,7 @@ export default function SandboxDialog({
 	const [error, setError] = useState<string | null>(null);
 	const [isSaving, setIsSaving] = useState(false);
 	const isEdit = sandbox !== null;
-	const spec = SANDBOX_PROVIDER_SPECS[form.provider];
+	const spec = specFor(form.provider);
 
 	const setField = <K extends keyof SandboxFormState>(
 		key: K,
@@ -282,8 +289,8 @@ export default function SandboxDialog({
 
 	const handleProviderChange = (provider: SandboxProviderType) => {
 		setForm((prev) => {
-			const previousDefault = SANDBOX_PROVIDER_SPECS[prev.provider].defaultUrl;
-			const nextDefault = SANDBOX_PROVIDER_SPECS[provider].defaultUrl;
+			const previousDefault = specFor(prev.provider).defaultUrl;
+			const nextDefault = specFor(provider).defaultUrl;
 			const url =
 				prev.url === "" || prev.url === previousDefault
 					? (nextDefault ?? "")
@@ -365,16 +372,16 @@ export default function SandboxDialog({
 									Provider
 								</span>
 								<div className="grid grid-cols-3 gap-1.5">
-									{PROVIDER_ORDER.map((provider) => (
+									{PROVIDER_OPTIONS.map((option) => (
 										<button
-											key={provider}
+											key={option.id}
 											type="button"
 											disabled={isEdit}
 											onClick={() => {
-												handleProviderChange(provider);
+												handleProviderChange(option.id);
 											}}
 											className={`flex cursor-pointer items-center justify-center gap-2 rounded-lg border px-3 py-[9px] text-[13px] font-semibold transition-colors disabled:cursor-default disabled:opacity-50 ${
-												form.provider === provider
+												form.provider === option.id
 													? "border-petrol bg-petrol/5 text-petrol dark:text-panel-terminal"
 													: "border-input text-subtle hover:border-petrol/40 hover:text-foreground dark:text-panel-body"
 											}`}
@@ -383,11 +390,11 @@ export default function SandboxDialog({
 												unoptimized
 												width={14}
 												height={14}
-												src={SANDBOX_PROVIDER_ICONS[provider]}
+												src={option.icon}
 												alt=""
 												className="rounded-[2px] object-contain"
 											/>
-											{SANDBOX_PROVIDER_SPECS[provider].label}
+											{option.label}
 										</button>
 									))}
 								</div>
