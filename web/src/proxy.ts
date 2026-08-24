@@ -3,6 +3,10 @@ import type { NextRequest } from "next/server";
 
 const PUBLIC_PATHS = ["/auth", "/setup", "/invite"];
 
+// Same default as lib/api/client.ts — without it, an unset BACKEND_URL makes
+// the verify fetch throw on every request and bounces signed-in users to /auth.
+const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
+
 export async function proxy(request: NextRequest) {
 	const { pathname } = request.nextUrl;
 	const accessToken = request.cookies.get("access_token")?.value;
@@ -25,7 +29,7 @@ export async function proxy(request: NextRequest) {
 
 	if (accessToken) {
 		try {
-			const verifyRes = await fetch(`${process.env.BACKEND_URL}/auth/me`, {
+			const verifyRes = await fetch(`${BACKEND_URL}/auth/me`, {
 				headers: { Cookie: `access_token=${accessToken}` },
 			});
 

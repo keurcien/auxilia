@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronRight, Loader2, Plus } from "lucide-react";
+import { toast } from "sonner";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import { SearchBar } from "@/components/ui/search-bar";
 import { Alert } from "@/components/ui/alert";
@@ -146,6 +147,7 @@ export default function AddMCPServerPage() {
 				iconUrl: server.iconUrl || undefined,
 			});
 			setAddedUrls((prev) => new Set(prev).add(server.url));
+			toast.success(`${server.name} added to the workspace`);
 		} catch (error: unknown) {
 			if (error instanceof Object && "status" in error && error.status === 403) {
 				setForbiddenOpen(true);
