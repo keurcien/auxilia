@@ -435,6 +435,10 @@ function colorizeCommandLine(line: string): TermSeg[] {
 
 export async function apiScene(page: Page, opts: ApiSceneOpts): Promise<void> {
 	const resultPromise = opts.run();
+	// The run races the typing animation below — mark rejections as handled
+	// so a failure mid-animation can't crash the process as an unhandled
+	// rejection; the `await resultPromise` further down still throws.
+	resultPromise.catch(() => {});
 	const segLines = opts.command.map(colorizeCommandLine);
 
 	// Mount the terminal and type the command while the run is in flight.
@@ -533,14 +537,24 @@ export async function apiScene(page: Page, opts: ApiSceneOpts): Promise<void> {
 			term.querySelector("[data-running]")?.remove();
 			const block = document.createElement("div");
 			block.style.cssText = "margin-top:14px;opacity:0;transition:opacity 400ms ease;";
-			const esc = (s: string) =>
-				s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
-			block.innerHTML =
-				'<span style="color:#7bc7a9;">HTTP/2 200 OK</span>\n' +
-				'<span style="color:#c9d4d6;">{</span>\n' +
-				`<span style="color:#9fd6cb;">  "content"</span><span style="color:#c9d4d6;">: </span>` +
-				`<span style="color:#ffffff;font-weight:600;">"${esc(text)}"</span>\n` +
-				'<span style="color:#c9d4d6;">}</span>';
+			// Built with textContent (never markup) — the reply is model output.
+			// JSON.stringify renders it exactly as a real curl body would:
+			// quoted, with newlines and quotes escaped.
+			const span = (color: string, value: string, bold = false) => {
+				const el = document.createElement("span");
+				el.style.color = color;
+				if (bold) el.style.fontWeight = "600";
+				el.textContent = value;
+				return el;
+			};
+			block.append(
+				span("#7bc7a9", "HTTP/2 200 OK\n"),
+				span("#c9d4d6", "{\n"),
+				span("#9fd6cb", '  "content"'),
+				span("#c9d4d6", ": "),
+				span("#ffffff", JSON.stringify(text), true),
+				span("#c9d4d6", "\n}"),
+			);
 			term.appendChild(block);
 			await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 			block.style.opacity = "1";

@@ -17,6 +17,20 @@ interface AgentRow {
 	name: string;
 }
 
+/**
+ * The agent featured in the agent-detail and chat shots. A missing agent
+ * FAILS the run (not a skip) — a green suite must mean every PNG the docs
+ * embed was actually written.
+ */
+async function seededAgent(): Promise<AgentRow> {
+	const agents = (await api<AgentRow[]>("GET", "/agents/")) ?? [];
+	const agent = agents.find((a) => a.name === "Docs Researcher") ?? agents[0];
+	if (!agent) {
+		throw new Error("no seeded agent found — run `npm run demo:seed` first");
+	}
+	return agent;
+}
+
 test.describe("docs screenshots", () => {
 	test("sign-in page", async ({ page }) => {
 		await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
@@ -38,9 +52,7 @@ test.describe("docs screenshots", () => {
 		});
 
 		test("agent detail", async ({ page }) => {
-			const agents = (await api<AgentRow[]>("GET", "/agents/")) ?? [];
-			const agent = agents.find((a) => a.name === "Docs Researcher") ?? agents[0];
-			test.skip(!agent, "no seeded agent found — run `npm run demo:seed` first");
+			const agent = await seededAgent();
 			await page.goto(`/agents/${agent.id}`);
 			await expect(page.getByRole("button", { name: "Test in chat" })).toBeVisible();
 			await docShot(page, "agent-detail");
@@ -66,9 +78,7 @@ test.describe("docs screenshots", () => {
 		});
 
 		test("chat starter", async ({ page }) => {
-			const agents = (await api<AgentRow[]>("GET", "/agents/")) ?? [];
-			const agent = agents.find((a) => a.name === "Docs Researcher") ?? agents[0];
-			test.skip(!agent, "no seeded agent found — run `npm run demo:seed` first");
+			const agent = await seededAgent();
 			await page.goto(`/agents/${agent.id}/chat`);
 			await expect(page.locator('textarea[name="message"]')).toBeVisible();
 			await docShot(page, "chat");

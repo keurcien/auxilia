@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import { test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -9,9 +9,15 @@ import path from "node:path";
  *
  * Override the target directory with DOCS_SCREENSHOT_DIR.
  */
-const SCREENSHOT_DIR =
-	process.env.DOCS_SCREENSHOT_DIR ??
-	path.resolve(process.cwd(), "..", "docs", "public", "screenshots");
+function screenshotDir(): string {
+	if (process.env.DOCS_SCREENSHOT_DIR) return process.env.DOCS_SCREENSHOT_DIR;
+	// Anchor on the Playwright config (web/playwright.config.ts) instead of
+	// process.cwd(), so the target is right no matter where the runner is
+	// launched from (repo root, web/, CI…).
+	const configFile = test.info().config.configFile;
+	const webDir = configFile ? path.dirname(configFile) : process.cwd();
+	return path.resolve(webDir, "..", "docs", "public", "screenshots");
+}
 
 export interface DocShotOptions {
 	/** Capture the full scrollable page instead of the viewport. */
@@ -27,8 +33,9 @@ export async function docShot(
 ): Promise<string> {
 	await page.waitForLoadState("networkidle").catch(() => {});
 	await page.waitForTimeout(settle);
-	fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
-	const file = path.join(SCREENSHOT_DIR, `${name}.png`);
+	const dir = screenshotDir();
+	fs.mkdirSync(dir, { recursive: true });
+	const file = path.join(dir, `${name}.png`);
 	await page.screenshot({ path: file, fullPage, animations: "disabled" });
 	console.log(`  ✔ ${path.relative(process.cwd(), file)}`);
 	return file;

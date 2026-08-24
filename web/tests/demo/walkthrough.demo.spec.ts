@@ -459,8 +459,10 @@ test("demo walkthrough", async ({ page, baseURL }) => {
 				);
 				const modelId = (models?.find((m) => m.isDefault) ?? models?.[0])?.id;
 				if (!modelId) throw new Error("no model available for the API scene");
-				// A transient run error would sink a 15-minute take — retry the
-				// invoke on a fresh thread a couple of times before giving up.
+				// A transient run error would sink a long take — retry the invoke
+				// on a fresh thread a couple of times before giving up. Threads
+				// are deleted afterwards either way so repeated recordings don't
+				// accumulate orphaned API threads.
 				let lastError: unknown;
 				for (let attempt = 0; attempt < 3; attempt++) {
 					const threadId = crypto.randomUUID();
@@ -478,6 +480,8 @@ test("demo walkthrough", async ({ page, baseURL }) => {
 						return result?.content ?? "";
 					} catch (error) {
 						lastError = error;
+					} finally {
+						await api("DELETE", `/threads/${threadId}`).catch(() => {});
 					}
 				}
 				throw lastError;
