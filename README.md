@@ -23,7 +23,8 @@
 
 ---
 
-https://github.com/user-attachments/assets/3236f9da-28c5-44c8-8c2c-4c68199f187c
+[https://github.com/user-attachments/assets/3236f9da-28c5-44c8-8c2c-4c68199f187c](https://github.com/user-attachments/assets/868f36cc-9c45-4003-9687-0494ca86d2a2
+)
 
 **auxilia is a web platform for running AI agents as a team.** An admin sets up [MCP](https://modelcontextprotocol.io/) servers and agents once, and the whole workspace shares them — no more everyone configuring their own assistant with their own prompts and credentials. Anyone can create an agent and experiment, zero technical skills required: agents chat in the browser or in Slack, use your internal tools, ask a human for approval before sensitive actions, and run on schedules or in the background. An agent is only as good as the environment you give it. That's where auxilia comes in: iterating quickly is how you find what's missing — a tool it needed, a doc that's outdated, data that isn't as clean as you thought. The more gaps you close, the more reliable your agents become; when one proves itself, plug it into your own products through the API. You pick the LLM provider (Anthropic, OpenAI, Google, DeepSeek) and can switch anytime — and because it's self-hosted, conversations, credentials, and usage data never leave your infrastructure. Everything that matters — the documentation, the data models, the MCP servers you build to make your agents work — is yours, and it follows you to any other agentic platform.
 
