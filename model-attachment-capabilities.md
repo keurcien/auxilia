@@ -32,8 +32,8 @@ Verified output on our installed packages:
 | Model (package) | image | pdf | audio | video |
 | --- | --- | --- | --- | --- |
 | `claude-sonnet-4-5` (langchain-anthropic 1.4.3) | ✅ | ✅ | ❌ | ❌ |
-| `gpt-5-mini` (langchain-openai 1.1.1) | ✅ | ✅ | ❌ | ❌ |
-| `gemini-2.5-flash` (langchain-google-genai 4.2.0) | ✅ | ✅ | ✅ | ✅ |
+| `gpt-5-mini` (langchain-openai 1.1.9) | ✅ | ✅ | ❌ | ❌ |
+| `gemini-2.5-flash` (langchain-google-genai 4.2.2) | ✅ | ✅ | ✅ | ✅ |
 | `deepseek-chat` (langchain-deepseek) | `profile is None` |
 | `z-ai/glm-4.6` via OpenRouter (`ChatOpenAI` + base_url) | `profile == {}` |
 
@@ -81,8 +81,8 @@ into an exact `accept` list.** The cross product never needs per-model maintenan
    a drop of an unsupported *type* is rejected client-side with a toast.
 3. **Whitelist** — drop `multimodal` once the above lands (or keep it as an override slot for
    OpenRouter-served models with no profile data).
-4. **Backstop** — the provider 400 can still happen (stale package data); the run-error
-   surfacing work (`run-error-surfacing.md`) covers making that visible instead of silent.
+4. **Backstop** — the provider 400 can still happen (stale package data); the in-progress
+   run-error surfacing work covers making such failures visible in the UI instead of silent.
 
 **Staleness caveat**: profile data updates with partner-package releases. A brand-new model
 may briefly report no capabilities until the package updates — conservative (blocks uploads

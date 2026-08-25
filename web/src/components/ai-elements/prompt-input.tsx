@@ -688,7 +688,7 @@ export const PromptInput = ({
 		}
 
 		const hasFiles = (e: DragEvent) =>
-			Boolean(e.dataTransfer?.types?.includes("Files"));
+			Boolean(e.dataTransfer?.types.includes("Files"));
 		const onDragEnter = (e: DragEvent) => {
 			if (!hasFiles(e)) return;
 			dragDepth.current += 1;
@@ -937,15 +937,13 @@ export const PromptInputTextarea = ({
 	};
 
 	const handlePaste: ClipboardEventHandler<HTMLTextAreaElement> = (event) => {
-		const items = event.clipboardData?.items;
-
-		if (!items || attachmentsDisabled) {
+		if (attachmentsDisabled) {
 			return;
 		}
 
 		const files: File[] = [];
 
-		for (const item of items) {
+		for (const item of event.clipboardData.items) {
 			if (item.kind === "file") {
 				const file = item.getAsFile();
 				if (file) {
