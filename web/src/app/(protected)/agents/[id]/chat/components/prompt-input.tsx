@@ -142,6 +142,7 @@ const ChatPromptInput = ({
 			<PromptInput
 				globalDrop
 				multiple
+				disableAttachments={noAttachments}
 				onSubmit={handleSubmit}
 				className={cn(
 					"min-h-[116px] transition-all duration-200",

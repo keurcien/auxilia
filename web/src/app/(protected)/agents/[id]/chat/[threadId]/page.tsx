@@ -1409,8 +1409,8 @@ const ChatPage = () => {
           </div>
         ) : agentStatus === "not_configured" ? (
           <div className="w-full max-w-4xl mx-auto lg:px-10 sm:px-6 px-3 py-4">
-            <div className="w-full flex items-center justify-center border border-red-200 bg-red-50 rounded-lg px-4 py-8">
-              <p className="text-md text-center text-red-700">
+            <div className="w-full flex items-center justify-center border border-destructive/30 bg-destructive/10 rounded-lg px-4 py-8">
+              <p className="text-md text-center text-destructive">
                 {canConfigure
                   ? "This agent's MCP tools aren't configured yet. Configure them in the agent's settings."
                   : "Agent is not configured yet. Contact agent owner to configure it first."}

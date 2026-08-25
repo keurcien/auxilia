@@ -119,7 +119,7 @@ export function PromptInputProvider({
 }: PromptInputProviderProps) {
 	// ----- textInput state
 	const [textInput, setTextInput] = useState(initialTextInput);
-	const clearInput = useCallback(() => setTextInput(""), []);
+	const clearInput = useCallback(() => { setTextInput(""); }, []);
 
 	// ----- model selection state
 	const [selectedModel, setSelectedModel] = useState<string | undefined>(
@@ -255,6 +255,10 @@ export function PromptInputProvider({
 // ============================================================================
 
 const LocalAttachmentsContext = createContext<AttachmentsContext | null>(null);
+
+// True when the surrounding PromptInput has attachments disabled (e.g. the
+// selected model can't take files) — lets paste/button handlers opt out too.
+const AttachmentsDisabledContext = createContext(false);
 
 const usePromptInputAttachments = () => {
 	// Dual-mode: prefer provider if present, otherwise use local
@@ -405,12 +409,18 @@ export type PromptInputAddAttachmentButtonProps = Omit<
 
 export const PromptInputAddAttachmentButton = ({
 	children,
+	disabled,
 	...props
 }: PromptInputAddAttachmentButtonProps) => {
 	const attachments = usePromptInputAttachments();
+	const attachmentsDisabled = useContext(AttachmentsDisabledContext);
 
 	return (
-		<PromptInputButton onClick={() => attachments.openFileDialog()} {...props}>
+		<PromptInputButton
+			onClick={() => { attachments.openFileDialog(); }}
+			disabled={disabled || attachmentsDisabled}
+			{...props}
+		>
 			{children ?? <PlusIcon className="size-4 cursor-pointer" />}
 		</PromptInputButton>
 	);
@@ -426,6 +436,8 @@ export type PromptInputProps = Omit<
 > & {
 	accept?: string; // e.g., "image/*" or leave undefined for any
 	multiple?: boolean;
+	// When true, blocks every attachment path (file dialog, drop, paste).
+	disableAttachments?: boolean;
 	// When true, accepts drops anywhere on document. Default false (opt-in).
 	globalDrop?: boolean;
 	// Render a hidden input with given name and keep it in sync for native form posts. Default false.
@@ -447,6 +459,7 @@ export const PromptInput = ({
 	className,
 	accept,
 	multiple,
+	disableAttachments,
 	globalDrop,
 	syncHiddenInput,
 	maxFiles,
@@ -464,6 +477,12 @@ export const PromptInput = ({
 	const inputRef = useRef<HTMLInputElement | null>(null);
 	const anchorRef = useRef<HTMLSpanElement>(null);
 	const formRef = useRef<HTMLFormElement | null>(null);
+
+	// ----- Drag & drop visual state
+	const [isDragActive, setIsDragActive] = useState(false);
+	// dragenter/dragleave fire for every child element crossed; count the depth
+	// so the overlay doesn't flicker while moving inside the drop zone.
+	const dragDepth = useRef(0);
 
 	// Find nearest form to scope drag & drop
 	useEffect(() => {
@@ -546,36 +565,46 @@ export const PromptInput = ({
 		[matchesAccept, maxFiles, maxFileSize, onError],
 	);
 
-	const add = usingProvider
-		? (files: File[] | FileList) => controller.attachments.add(files)
+	const addFiles = usingProvider
+		? (files: File[] | FileList) => { controller.attachments.add(files); }
 		: addLocal;
+	// Every ingestion path (file dialog, drop, paste) funnels through here.
+	const add = disableAttachments ? () => {} : addFiles;
 
 	const remove = usingProvider
-		? (id: string) => controller.attachments.remove(id)
+		? (id: string) => { controller.attachments.remove(id); }
 		: (id: string) =>
-				setItems((prev) => {
+				{ setItems((prev) => {
 					const found = prev.find((file) => file.id === id);
 					if (found?.url) {
 						URL.revokeObjectURL(found.url);
 					}
 					return prev.filter((file) => file.id !== id);
-				});
+				}); };
 
 	const clear = usingProvider
-		? () => controller.attachments.clear()
+		? () => { controller.attachments.clear(); }
 		: () =>
-				setItems((prev) => {
+				{ setItems((prev) => {
 					for (const file of prev) {
 						if (file.url) {
 							URL.revokeObjectURL(file.url);
 						}
 					}
 					return [];
-				});
+				}); };
 
 	const openFileDialog = usingProvider
-		? () => controller.attachments.openFileDialog()
+		? () => { controller.attachments.openFileDialog(); }
 		: openFileDialogLocal;
+
+	// Drop stale attachments if the flag flips on with files already queued
+	// (e.g. the user switches to a model that can't take them).
+	useEffect(() => {
+		if (disableAttachments && files.length > 0) {
+			clear();
+		}
+	});
 
 	// Let provider know about our hidden file input so external menus can call openFileDialog()
 	useEffect(() => {
@@ -629,6 +658,11 @@ export const PromptInput = ({
 			if (e.dataTransfer?.types?.includes("Files")) {
 				e.preventDefault();
 			}
+			// Drops on the form itself bubble here too — the form handler
+			// already added them, so skip to avoid duplicating attachments.
+			if (formRef.current?.contains(e.target as Node)) {
+				return;
+			}
 			if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
 				add(e.dataTransfer.files);
 			}
@@ -640,6 +674,50 @@ export const PromptInput = ({
 			document.removeEventListener("drop", onDrop);
 		};
 	}, [add, globalDrop]);
+
+	// Track file-drag presence to surface the drop-zone hint. Scoped to the
+	// document when globalDrop is on (any drag anywhere can land here),
+	// otherwise to the form only. Tracked even with attachments disabled —
+	// the hint then renders as a "not supported" tint instead.
+	useEffect(() => {
+		const target: EventTarget | null = globalDrop
+			? document
+			: formRef.current;
+		if (!target) {
+			return;
+		}
+
+		const hasFiles = (e: DragEvent) =>
+			Boolean(e.dataTransfer?.types.includes("Files"));
+		const onDragEnter = (e: DragEvent) => {
+			if (!hasFiles(e)) return;
+			dragDepth.current += 1;
+			setIsDragActive(true);
+		};
+		const onDragLeave = (e: DragEvent) => {
+			if (!hasFiles(e)) return;
+			dragDepth.current = Math.max(0, dragDepth.current - 1);
+			if (dragDepth.current === 0) {
+				setIsDragActive(false);
+			}
+		};
+		const reset = () => {
+			dragDepth.current = 0;
+			setIsDragActive(false);
+		};
+
+		target.addEventListener("dragenter", onDragEnter as EventListener);
+		target.addEventListener("dragleave", onDragLeave as EventListener);
+		target.addEventListener("drop", reset);
+		// dragend fires on the source when the drag is cancelled (e.g. Esc)
+		window.addEventListener("dragend", reset);
+		return () => {
+			target.removeEventListener("dragenter", onDragEnter as EventListener);
+			target.removeEventListener("dragleave", onDragLeave as EventListener);
+			target.removeEventListener("drop", reset);
+			window.removeEventListener("dragend", reset);
+		};
+	}, [globalDrop]);
 
 	useEffect(
 		() => () => {
@@ -663,7 +741,7 @@ export const PromptInput = ({
 		const blob = await response.blob();
 		return new Promise((resolve, reject) => {
 			const reader = new FileReader();
-			reader.onloadend = () => resolve(reader.result as string);
+			reader.onloadend = () => { resolve(reader.result as string); };
 			reader.onerror = reject;
 			reader.readAsDataURL(blob);
 		});
@@ -740,7 +818,7 @@ export const PromptInput = ({
 
 	// Render with or without local provider
 	const inner = (
-		<>
+		<AttachmentsDisabledContext.Provider value={!!disableAttachments}>
 			<span aria-hidden="true" className="hidden" ref={anchorRef} />
 			<input
 				accept={accept}
@@ -757,9 +835,36 @@ export const PromptInput = ({
 				onSubmit={handleSubmit}
 				{...props}
 			>
-				<InputGroup className="overflow-hidden">{children}</InputGroup>
+				<InputGroup
+					className={cn(
+						"overflow-hidden",
+						// `!` beats consumer border overrides scoped on the form
+						// (e.g. the chat composer's [&>[data-slot=input-group]] rules).
+						isDragActive &&
+							disableAttachments &&
+							"border-destructive! dark:border-destructive!",
+					)}
+				>
+					{children}
+					{isDragActive && (
+						<div
+							className={cn(
+								"pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-[inherit] transition-colors",
+								disableAttachments
+									? "bg-destructive/8 dark:bg-destructive/15"
+									: "bg-petrol/8 dark:bg-petrol/25",
+							)}
+						>
+							{disableAttachments && (
+								<span className="rounded-full border border-destructive/30 bg-card px-3 py-1.5 text-[13px] font-medium text-destructive shadow-sm">
+									This model does not support attachments
+								</span>
+							)}
+						</div>
+					)}
+				</InputGroup>
 			</form>
-		</>
+		</AttachmentsDisabledContext.Provider>
 	);
 
 	return usingProvider ? (
@@ -792,6 +897,7 @@ export const PromptInputTextarea = ({
 }: PromptInputTextareaProps) => {
 	const controller = useOptionalPromptInputController();
 	const attachments = usePromptInputAttachments();
+	const attachmentsDisabled = useContext(AttachmentsDisabledContext);
 	const [isComposing, setIsComposing] = useState(false);
 
 	const handleKeyDown: KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
@@ -831,15 +937,13 @@ export const PromptInputTextarea = ({
 	};
 
 	const handlePaste: ClipboardEventHandler<HTMLTextAreaElement> = (event) => {
-		const items = event.clipboardData?.items;
-
-		if (!items) {
+		if (attachmentsDisabled) {
 			return;
 		}
 
 		const files: File[] = [];
 
-		for (const item of items) {
+		for (const item of event.clipboardData.items) {
 			if (item.kind === "file") {
 				const file = item.getAsFile();
 				if (file) {
@@ -870,8 +974,8 @@ export const PromptInputTextarea = ({
 		<InputGroupTextarea
 			className={cn("field-sizing-content max-h-48 min-h-16", className)}
 			name="message"
-			onCompositionEnd={() => setIsComposing(false)}
-			onCompositionStart={() => setIsComposing(true)}
+			onCompositionEnd={() => { setIsComposing(false); }}
+			onCompositionStart={() => { setIsComposing(true); }}
 			onKeyDown={handleKeyDown}
 			onPaste={handlePaste}
 			placeholder={placeholder}
