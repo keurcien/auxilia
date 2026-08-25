@@ -92,7 +92,7 @@ Developing? `make dev` runs PostgreSQL, Redis, the FastAPI backend (migrations a
 | DeepSeek  | DeepSeek v4 Flash, v4 Pro                    |
 | Meta      | Muse Spark 1.2                               |
 | Xiaomi    | MiMo-V2.5-Pro, MiMo-V2.5                     |
-| OpenRouter | GLM 5.2 (Max), GLM 5.2 (High)              |
+| OpenRouter | Auto, GLM 5.2 (Max), GLM 5.2 (High)        |
 
 **MCP servers — one-click install**: Notion · Linear · GitHub · HubSpot · BigQuery · Slack · Sentry — or paste the URL of any custom remote MCP server with its OAuth credentials or API key.
 

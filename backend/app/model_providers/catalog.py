@@ -55,12 +55,12 @@ OPENAI_RESPONSES_API_MODELS: frozenset[str] = frozenset(
     {"gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"}
 )
 
-# OpenRouter catalog: our model id -> (OpenRouter slug, GLM `reasoning_effort`).
-# GLM 5.2 exposes two thinking levels; "max" is its deep-reasoning default, "high"
-# is lighter. Each is surfaced to users as its own model.
-OPENROUTER_MODELS: dict[str, tuple[str, str]] = {
-    "glm-5.2-max": ("z-ai/glm-5.2", "max"),
-    "glm-5.2-high": ("z-ai/glm-5.2", "high"),
+# OpenRouter catalog: our model id -> (OpenRouter slug, model-specific body).
+# GLM 5.2 exposes two thinking levels; Auto needs no extra configuration.
+OPENROUTER_MODELS: dict[str, tuple[str, dict[str, str]]] = {
+    "auto": ("openrouter/auto", {}),
+    "glm-5.3-max": ("z-ai/glm-5.3", {"reasoning_effort": "max"}),
+    "glm-5.3-high": ("z-ai/glm-5.3", {"reasoning_effort": "high"}),
 }
 
 
@@ -160,17 +160,15 @@ class ChatModelFactory:
                     api_key=api_key,
                 )
             case "openrouter":
-                # OpenAI-compatible gateway. Our model id encodes the GLM thinking
-                # level; pass GLM's native `reasoning_effort` ("high"/"max"). Output
-                # is capped generously (GLM 5.2 max = 32768) since "max" reasoning
-                # produces long chains of thought.
-                slug, effort = OPENROUTER_MODELS[model_id]
+                # OpenAI-compatible gateway. Options are model-specific: GLM
+                # receives its thinking level while Auto is sent as a bare slug.
+                slug, extra_body = OPENROUTER_MODELS[model_id]
                 return ChatOpenAI(
                     base_url="https://openrouter.ai/api/v1",
                     model=slug,
                     api_key=api_key,
                     max_tokens=32768,
-                    extra_body={"reasoning_effort": effort},
+                    extra_body=extra_body,
                 )
             case "meta":
                 # Meta Model API — OpenAI-compatible Chat Completions.

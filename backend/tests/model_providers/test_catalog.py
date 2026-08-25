@@ -69,3 +69,18 @@ def test_google_factory_uses_api_key_when_provided():
     model = ChatModelFactory().create("google", "gemini-3-pro-preview", "a-real-key")
     assert model.vertexai is None
     assert model.credentials is None
+
+
+@pytest.mark.parametrize(
+    ("model_id", "slug", "extra_body"),
+    [
+        ("auto", "openrouter/auto", {}),
+        ("glm-5.2-max", "z-ai/glm-5.2", {"reasoning_effort": "max"}),
+    ],
+)
+def test_openrouter_factory_uses_model_specific_options(
+    model_id: str, slug: str, extra_body: dict[str, str]
+):
+    model = ChatModelFactory().create("openrouter", model_id, "unit-test-key")
+    assert model.model_name == slug
+    assert model.extra_body == extra_body

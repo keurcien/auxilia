@@ -83,3 +83,4 @@ def test_bundled_snapshot_is_valid():
     # The bundled snapshot must contain the models seeded by the migration.
     ids = {m.model_id for m in models}
     assert {"gpt-4o-mini", "claude-sonnet-5", "glm-5.2-max"} <= ids
+    assert "auto" in ids
