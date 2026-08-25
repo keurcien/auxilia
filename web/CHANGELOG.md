@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.1](https://github.com/keurcien/auxilia/compare/web-v0.6.0...web-v0.6.1) (2026-08-25)
+
+
+### Features
+
+* **web:** gate attachments per model with drag & drop hints ([#290](https://github.com/keurcien/auxilia/issues/290)) ([863db4a](https://github.com/keurcien/auxilia/commit/863db4a57767ec54292bd2fabd6cb1d3f3e76ba5))
+* **web:** scripted product demo video with Petrol Mono overlays ([#288](https://github.com/keurcien/auxilia/issues/288)) ([6104d38](https://github.com/keurcien/auxilia/commit/6104d3821220d84d7ab919db98d4fcea82b21671))
+
 ## [0.6.0](https://github.com/keurcien/auxilia/compare/web-v0.5.33...web-v0.6.0) (2026-08-22)
 
 
