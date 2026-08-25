@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff, ShieldCheck } from "lucide-react";
+import { toast } from "sonner";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import { Alert } from "@/components/ui/alert";
 import { api } from "@/lib/api/client";
@@ -201,6 +202,7 @@ export default function CustomMCPServerPage() {
 		setIsSubmitting(true);
 		try {
 			await createMcpServer(buildMCPServerCreatePayload(form));
+			toast.success(`${form.name.trim()} added to the workspace`);
 			router.push("/mcp-servers");
 		} catch (error: unknown) {
 			if (error instanceof Object && "status" in error && error.status === 403) {

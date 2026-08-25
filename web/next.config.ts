@@ -3,6 +3,9 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
 	reactCompiler: true,
 	output: "standalone",
+	// The demo recording builds into its own dist dir (npm run demo:web) so
+	// `next build` never clobbers the `.next` of a running `next dev`.
+	distDir: process.env.NEXT_DIST_DIR ?? ".next",
 	images: {
 		remotePatterns: [
 			{

@@ -11,6 +11,10 @@
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"test:visual": "playwright test --project=visual",
+		"demo:seed": "node tests/demo/seed-demo.mjs",
+		"demo:web": "NEXT_DIST_DIR=.next-demo next build && NEXT_DIST_DIR=.next-demo next start -p \"${DEMO_PORT:-3100}\"",
+		"demo:video": "PLAYWRIGHT_BASE_URL=\"${PLAYWRIGHT_BASE_URL:-http://localhost:${DEMO_PORT:-3100}}\" playwright test --project=demo",
+		"docs:screenshots": "PLAYWRIGHT_BASE_URL=\"${PLAYWRIGHT_BASE_URL:-http://localhost:${DEMO_PORT:-3100}}\" playwright test --project=docs",
 		"test:visual:update": "docker run --rm -v \"$PWD\":/work -v auxilia-web-node-modules:/work/node_modules -w /work -e HOME=/root mcr.microsoft.com/playwright:v1.61.1-noble sh -lc \"npm ci && npx playwright test --project=visual --update-snapshots\""
 	},
 	"dependencies": {

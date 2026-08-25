@@ -20,6 +20,11 @@ scripts/
 # Ruff
 .ruff_cache/
 
+# Playwright artifacts (demo video, reports)
+web/demo-output/
+web/playwright-report/
+web/test-results/
+
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
@@ -34,11 +39,10 @@ node_modules
 
 # testing
 coverage
-web/playwright-report/
-web/test-results/
 
 # next.js
 .next/
+.next-demo/
 out/
 
 # production

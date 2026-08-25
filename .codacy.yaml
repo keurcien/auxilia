@@ -1,0 +1,8 @@
+---
+# Static analysis targets shipped code. web/tests/ is Playwright tooling
+# (demo-video recording, docs screenshots) that runs locally against a dev
+# stack with developer-controlled input only — its dynamic fs paths, env-var
+# backend URL and overlay templates trip security patterns (path/SSRF/XSS)
+# that don't apply to code that is never served or deployed.
+exclude_paths:
+  - "web/tests/**"
