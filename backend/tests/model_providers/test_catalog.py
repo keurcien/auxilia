@@ -75,7 +75,7 @@ def test_google_factory_uses_api_key_when_provided():
     ("model_id", "slug", "extra_body"),
     [
         ("auto", "openrouter/auto", {}),
-        ("glm-5.2-max", "z-ai/glm-5.2", {"reasoning_effort": "max"}),
+        ("glm-5.3-max", "z-ai/glm-5.3", {"reasoning_effort": "max"}),
     ],
 )
 def test_openrouter_factory_uses_model_specific_options(

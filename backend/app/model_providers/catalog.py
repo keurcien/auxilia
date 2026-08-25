@@ -56,7 +56,7 @@ OPENAI_RESPONSES_API_MODELS: frozenset[str] = frozenset(
 )
 
 # OpenRouter catalog: our model id -> (OpenRouter slug, model-specific body).
-# GLM 5.2 exposes two thinking levels; Auto needs no extra configuration.
+# GLM 5.3 exposes two thinking levels; Auto needs no extra configuration.
 OPENROUTER_MODELS: dict[str, tuple[str, dict[str, str]]] = {
     "auto": ("openrouter/auto", {}),
     "glm-5.3-max": ("z-ai/glm-5.3", {"reasoning_effort": "max"}),

@@ -83,7 +83,7 @@ const ChatPromptInput = ({
 
 	const currentModel = externalSelectedModel ?? model;
 	const selectedModelData = models.find((m) => m.id === currentModel);
-	// Text-only providers can't take image attachments (DeepSeek, Z.ai/GLM 5.2).
+	// Text-only providers can't take image attachments (DeepSeek, Z.ai/GLM).
 	const noAttachments = ["deepseek", "z-ai"].includes(
 		selectedModelData?.chefSlug ?? "",
 	);
