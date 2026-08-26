@@ -452,6 +452,9 @@ const ChatPage = () => {
   // error state is lost on reload. Restored from the run record (which
   // persists the error text) when the thread's lastRunStatus says it failed.
   const [rehydratedError, setRehydratedError] = useState<string | null>(null);
+  // Set on submit so a still-in-flight rehydration fetch can't restore the
+  // previous run's error after the new run already owns the error state.
+  const rehydratedErrorStale = useRef(false);
   // Subagent internal conversations restored from subgraph checkpoints on
   // refresh, keyed by tool_call_id. The SDK's custom transport doesn't expose a
   // way to inject these into the reconstructed subagents, so we hold them here
@@ -512,6 +515,7 @@ const ChatPage = () => {
       setRehydratedInterrupt(false);
       setRehydratedInterruptValue(null);
       setRehydratedError(null);
+      rehydratedErrorStale.current = true;
       return rawSubmit(input, opts);
     },
     [rawSubmit],
@@ -877,9 +881,13 @@ const ChatPage = () => {
             const failed = runs.find(
               (r) => r.status === "error" || r.status === "timeout",
             );
-            setRehydratedError(failed?.error || fallback);
+            if (!rehydratedErrorStale.current) {
+              setRehydratedError(failed?.error || fallback);
+            }
           } catch {
-            setRehydratedError(fallback);
+            if (!rehydratedErrorStale.current) {
+              setRehydratedError(fallback);
+            }
           }
         }
       }
