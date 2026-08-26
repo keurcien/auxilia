@@ -23,6 +23,7 @@ from app.agents.runs.service import RunService
 from app.agents.runs.settings import run_settings
 from app.agents.runs.state import MCP_REAUTH_ERROR, RunStatus
 from app.agents.runtime import Agent
+from app.agents.stream import decode_sse_blocks
 from app.database import AsyncSessionLocal, get_checkpointer
 from app.exceptions import root_cause
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
@@ -35,6 +36,19 @@ logger = logging.getLogger(__name__)
 # `LangGraphStreamAdapter` swallows exceptions into an SSE error event rather
 # than raising, so a clean stream that emitted one of these still failed.
 _ERROR_EVENT_PREFIX = "event: error"
+
+
+def _error_event_message(sse: str) -> str:
+    """The `message` of an `event: error` SSE chunk ("" when malformed).
+
+    The event log TTLs away, but the run record doesn't — persisting the
+    message lets the UI surface the failure after a reload/reattach."""
+    for event, data in decode_sse_blocks(sse):
+        if event == "error":
+            if isinstance(data, dict):
+                return str(data.get("message") or "")
+            return str(data or "")
+    return ""
 
 
 async def _mcp_unauthorized(db, thread: ThreadDB, user_id: str) -> bool:
@@ -156,16 +170,18 @@ class RunWorker:
         exc = stream_task.exception()
         if exc is not None:
             return RunStatus.error, str(root_cause(exc))
-        if stream_task.result():  # an error SSE was emitted
-            return RunStatus.error, None
+        if (stream_error := stream_task.result()) is not None:
+            # An error SSE was emitted — persist its message on the record so
+            # the failure survives the event log's TTL.
+            return RunStatus.error, stream_error or None
         if await self._is_interrupted(record.thread_id):
             return RunStatus.interrupted, None
         return RunStatus.success, None
 
-    async def _stream(self, record: RunDB, events: RunEventStream) -> bool:
-        """Run the agent, publishing each SSE chunk. Returns True if an error
-        event was emitted."""
-        error_seen = False
+    async def _stream(self, record: RunDB, events: RunEventStream) -> str | None:
+        """Run the agent, publishing each SSE chunk. Returns the message of the
+        first error event emitted, or None if the stream was clean."""
+        error_message: str | None = None
         async with AsyncSessionLocal() as db:
             thread = await db.get(ThreadDB, record.thread_id)
             if thread is None:
@@ -180,10 +196,10 @@ class RunWorker:
                 config_overrides=record.config_overrides,
                 output_schema=record.output_schema,
             ):
-                if sse.startswith(_ERROR_EVENT_PREFIX):
-                    error_seen = True
+                if error_message is None and sse.startswith(_ERROR_EVENT_PREFIX):
+                    error_message = _error_event_message(sse)
                 await events.publish(sse)
-        return error_seen
+        return error_message
 
     async def _heartbeat(self, liveness: RunLiveness) -> None:
         """Keep the liveness key fresh while the run executes."""

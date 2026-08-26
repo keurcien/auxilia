@@ -4,5 +4,9 @@
 # stack with developer-controlled input only — its dynamic fs paths, env-var
 # backend URL and overlay templates trip security patterns (path/SSRF/XSS)
 # that don't apply to code that is never served or deployed.
+# backend/tests/ is pytest code: `assert` is the test mechanism itself, so
+# bandit's B101 (assert removed under -O) doesn't apply — tests never run
+# optimised, and flagging every assertion drowns real findings.
 exclude_paths:
   - "web/tests/**"
+  - "backend/tests/**"

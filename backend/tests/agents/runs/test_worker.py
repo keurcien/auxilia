@@ -89,7 +89,10 @@ async def test_worker_marks_error_on_error_event(redis, monkeypatch):
     service = RunService(redis)
     record = await _create_and_claim(service, thread_id="t2", input={"messages": []})
     await RunWorker(redis).run(record)
-    assert (await service.get(record.id)).status == RunStatus.error
+    back = await service.get(record.id)
+    assert back.status == RunStatus.error
+    # The event log TTLs away; the record must keep the message for reloads.
+    assert back.error == "boom"
 
 
 @pytest.mark.usefixtures("patch_agent")

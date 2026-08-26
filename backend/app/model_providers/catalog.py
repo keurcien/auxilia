@@ -84,6 +84,11 @@ def provider_api_keys() -> dict[str, str]:
 
 class ChatModelFactory:
     def create(self, provider: str, model_id: str, api_key: str):
+        # max_retries=0 everywhere: retrying is owned by ModelRetryMiddleware
+        # (classified via ModelError.is_retryable, persists the failure as an
+        # AIMessage on exhaustion). Leaving the SDK layer's default retries on
+        # would multiply the layers — one transient failure could cost up to
+        # middleware_attempts × sdk_attempts provider requests.
         match provider:
             case "openai":
                 # gpt-5.6 reasoning models require the Responses API to use
@@ -92,6 +97,7 @@ class ChatModelFactory:
                 return ChatOpenAI(
                     model=model_id,
                     api_key=api_key,
+                    max_retries=0,
                     use_responses_api=model_id in OPENAI_RESPONSES_API_MODELS,
                 )
             case "deepseek":
@@ -103,6 +109,7 @@ class ChatModelFactory:
                     model=model_id,
                     api_key=api_key,
                     max_tokens=32768,
+                    max_retries=0,
                     extra_body={"thinking": {"type": "enabled"}},
                 )
             case "anthropic":
@@ -125,7 +132,7 @@ class ChatModelFactory:
                     max_tokens=32768,
                     streaming=True,
                     timeout=None,
-                    max_retries=2,
+                    max_retries=0,
                     api_key=api_key,
                     **kwargs,
                 )
@@ -147,7 +154,7 @@ class ChatModelFactory:
                     temperature=0,
                     max_tokens=None,
                     timeout=None,
-                    max_retries=2,
+                    max_retries=0,
                     streaming=True,
                     include_thoughts=True,
                     thinking_budget=-1,
@@ -158,6 +165,7 @@ class ChatModelFactory:
                     base_url="https://api.xiaomimimo.com/v1",
                     model=model_id,
                     api_key=api_key,
+                    max_retries=0,
                 )
             case "openrouter":
                 # OpenAI-compatible gateway. Our model id encodes the GLM thinking
@@ -170,6 +178,7 @@ class ChatModelFactory:
                     model=slug,
                     api_key=api_key,
                     max_tokens=32768,
+                    max_retries=0,
                     extra_body={"reasoning_effort": effort},
                 )
             case "meta":
@@ -180,6 +189,7 @@ class ChatModelFactory:
                     base_url="https://api.meta.ai/v1",
                     model=model_id,
                     api_key=api_key,
+                    max_retries=0,
                 )
             case _:
                 raise ValueError(f"Provider {provider} not supported")

@@ -448,6 +448,13 @@ const ChatPage = () => {
   const [rehydratedInterrupt, setRehydratedInterrupt] = useState(false);
   const [rehydratedInterruptValue, setRehydratedInterruptValue] =
     useState<unknown>(null);
+  // A failed last run leaves no trace in the checkpoint, so the live stream's
+  // error state is lost on reload. Restored from the run record (which
+  // persists the error text) when the thread's lastRunStatus says it failed.
+  const [rehydratedError, setRehydratedError] = useState<string | null>(null);
+  // Set on submit so a still-in-flight rehydration fetch can't restore the
+  // previous run's error after the new run already owns the error state.
+  const rehydratedErrorStale = useRef(false);
   // Subagent internal conversations restored from subgraph checkpoints on
   // refresh, keyed by tool_call_id. The SDK's custom transport doesn't expose a
   // way to inject these into the reconstructed subagents, so we hold them here
@@ -507,6 +514,8 @@ const ChatPage = () => {
     (input, opts) => {
       setRehydratedInterrupt(false);
       setRehydratedInterruptValue(null);
+      setRehydratedError(null);
+      rehydratedErrorStale.current = true;
       return rawSubmit(input, opts);
     },
     [rawSubmit],
@@ -853,6 +862,34 @@ const ChatPage = () => {
         }, 0);
       } else {
         setInitialValues(normalizedValues);
+        // No run in flight and none about to start: if the last run failed,
+        // restore its error from the run record so a reload doesn't hide it.
+        const lastRunStatus = data.thread.lastRunStatus as string | undefined;
+        if (lastRunStatus === "error" || lastRunStatus === "timeout") {
+          const fallback =
+            lastRunStatus === "timeout"
+              ? "The last run exceeded the time limit."
+              : "The last run failed.";
+          try {
+            const res = await api.get(`/threads/${threadId}/runs`);
+            const runs = (res.data ?? []) as {
+              status?: string;
+              error?: string | null;
+            }[];
+            // Newest first; the run that stamped lastRunStatus is the first
+            // failed one.
+            const failed = runs.find(
+              (r) => r.status === "error" || r.status === "timeout",
+            );
+            if (!rehydratedErrorStale.current) {
+              setRehydratedError(failed?.error || fallback);
+            }
+          } catch {
+            if (!rehydratedErrorStale.current) {
+              setRehydratedError(fallback);
+            }
+          }
+        }
       }
     };
 
@@ -1346,14 +1383,16 @@ const ChatPage = () => {
                 </div>
               )}
 
-            {error != null && (
+            {(error != null || rehydratedError != null) && (
               <Error>
                 <ErrorContent>An error occurred.</ErrorContent>
                 <ErrorDetails>
                   <div>
-                    {error instanceof globalThis.Error
-                      ? error.message
-                      : String(error)}
+                    {error != null
+                      ? error instanceof globalThis.Error
+                        ? error.message
+                        : String(error)
+                      : rehydratedError}
                   </div>
                 </ErrorDetails>
               </Error>
