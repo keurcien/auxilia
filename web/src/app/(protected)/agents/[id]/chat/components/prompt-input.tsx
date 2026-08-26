@@ -106,10 +106,19 @@ const ChatPromptInput = ({
 	const selectedModelData = models.find((m) => m.id === currentModel);
 	const effortLevels = selectedModelData?.reasoningEffortLevels ?? [];
 	const effortDefault = selectedModelData?.reasoningEffortDefault ?? null;
+	// A stored effort the catalog no longer declares is clamped to the model
+	// default at run time — don't display it as if it were in effect. When the
+	// model itself is unknown (e.g. disabled, absent from the picker list) the
+	// levels can't be checked, so trust the stored value.
+	const validatedEffort =
+		selectedEffort &&
+		(selectedModelData === undefined || effortLevels.includes(selectedEffort))
+			? selectedEffort
+			: null;
 	// Pill label: the explicit choice, else the model's declared default
 	// level, else Auto (provider-managed/dynamic).
-	const effortPillLabel = selectedEffort
-		? effortLabel(selectedEffort)
+	const effortPillLabel = validatedEffort
+		? effortLabel(validatedEffort)
 		: effortDefault
 			? effortLabel(effortDefault)
 			: "Auto";
@@ -338,12 +347,12 @@ const ChatPromptInput = ({
 						)}
 						{readOnlyModel
 							? // Existing threads pin the effort with the model — show it
-								// only when one was explicitly chosen.
-								selectedEffort && (
+								// only when one was explicitly chosen (and still declared).
+								validatedEffort && (
 									<PromptInputButton disabled className={composerPillClass}>
 										<BrainIcon className="size-3.5" />
 										<span className="truncate text-left">
-											{effortLabel(selectedEffort)}
+											{effortLabel(validatedEffort)}
 										</span>
 									</PromptInputButton>
 								)
@@ -356,14 +365,14 @@ const ChatPromptInput = ({
 												label: effortDefault
 													? `Default (${effortLabel(effortDefault)})`
 													: "Auto",
-												active: !selectedEffort,
+												active: !validatedEffort,
 												onClick: () => {
 													onEffortChange?.(null);
 												},
 											},
 											...effortLevels.map((level) => ({
 												label: effortLabel(level),
-												active: selectedEffort === level,
+												active: validatedEffort === level,
 												onClick: () => {
 													onEffortChange?.(level);
 												},
