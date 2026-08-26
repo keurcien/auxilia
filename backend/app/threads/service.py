@@ -102,6 +102,17 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
         source: ThreadSource,
         trigger_id: UUID | None = None,
     ) -> ThreadResponse:
+        # Strict at selection time (unlike model availability, which is only
+        # flagged): an undeclared effort level is a client bug, and letting it
+        # persist would silently degrade to the model default on every run.
+        # Trigger firings are exempt — their effort was validated when the
+        # trigger was saved, and a later catalog edit must skip nothing worse
+        # than the effort (ensure_available clamps it at run time), not the
+        # whole scheduled firing.
+        if data.reasoning_effort is not None and source != ThreadSource.trigger:
+            await ModelService.validate_reasoning_effort(
+                data.model_id, data.reasoning_effort
+            )
         # `trigger_id` is a keyword (not a ThreadCreate field) so API clients
         # can't attach arbitrary threads to a trigger — only the scanner sets it.
         thread = ThreadDB(

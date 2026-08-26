@@ -435,6 +435,9 @@ const ChatPage = () => {
   const threadId = params.threadId as string;
   const hasInitialized = useRef(false);
   const [threadModel, setThreadModel] = useState<string | undefined>(undefined);
+  // The thread's pinned reasoning-effort choice (null = model default) —
+  // displayed read-only next to the pinned model.
+  const [threadEffort, setThreadEffort] = useState<string | null>(null);
   const [agentArchived, setAgentArchived] = useState(false);
   // Server-computed on GET /threads/{id}: the thread's pinned model is no
   // longer usable (removed from the catalog, provider key gone, or disabled
@@ -791,6 +794,7 @@ const ChatPage = () => {
       const data = response.data;
 
       setThreadModel(data.thread.modelId);
+      setThreadEffort(data.thread.reasoningEffort ?? null);
       if (data.thread.modelAvailable === false) {
         setModelUnavailable(true);
       }
@@ -1464,6 +1468,7 @@ const ChatPage = () => {
             stop={handleStop}
             selectedModel={threadModel}
             readOnlyModel={true}
+            selectedEffort={threadEffort}
             agentReady={agentReady}
             disconnectedServers={disconnectedMcpServers}
             onAllConnected={refetchReady}

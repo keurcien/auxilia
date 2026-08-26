@@ -128,6 +128,9 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         ensure_valid_schedule(data.cron_expression, data.timezone)
         # Fail at save time, not first fire — 409 model_unavailable on the form.
         await self.model_service.ensure_available(data.model_id)
+        await ModelService.validate_reasoning_effort(
+            data.model_id, data.reasoning_effort
+        )
         await self._ensure_agent_usable(data.agent_id, owner)
         next_run_at = (
             compute_next_run_at(
@@ -159,6 +162,13 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
             ensure_valid_schedule(cron, timezone)
         if "model_id" in update_data:
             await self.model_service.ensure_available(update_data["model_id"])
+        if "model_id" in update_data or "reasoning_effort" in update_data:
+            # Validate the pair that will be stored — a model change must not
+            # carry over an effort level the new model doesn't declare.
+            await ModelService.validate_reasoning_effort(
+                update_data.get("model_id", trigger.model_id),
+                update_data.get("reasoning_effort", trigger.reasoning_effort),
+            )
         if "agent_id" in update_data and update_data["agent_id"] != trigger.agent_id:
             # Check against the owner, not the caller — an admin may edit
             # someone else's trigger, but the run still executes as the owner.
@@ -241,6 +251,7 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
             ThreadCreate(
                 agent_id=trigger.agent_id,
                 model_id=trigger.model_id,
+                reasoning_effort=trigger.reasoning_effort,
                 first_message_content=trigger.name,
             ),
             user_id=trigger.owner_id,

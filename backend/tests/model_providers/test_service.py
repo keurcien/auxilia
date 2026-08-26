@@ -17,7 +17,11 @@ from app.model_providers.whitelist import SupportedModel
 
 WHITELIST = [
     SupportedModel(
-        provider="anthropic", model_id="claude-sonnet-5", display_name="Claude Sonnet 5"
+        provider="anthropic",
+        model_id="claude-sonnet-5",
+        display_name="Claude Sonnet 5",
+        reasoning_effort_levels=["low", "medium", "high", "xhigh", "max"],
+        reasoning_effort_default="medium",
     ),
     SupportedModel(
         provider="openai", model_id="gpt-4o-mini", display_name="GPT-4o mini"
@@ -100,6 +104,45 @@ async def test_ensure_available_raises_with_precise_reason(rows, model_id, match
     service = _service(rows)
     with pytest.raises(ModelUnavailableError, match=match):
         await service.ensure_available(model_id)
+
+
+async def test_ensure_available_passes_a_declared_effort_through():
+    service = _service([_row("anthropic", "claude-sonnet-5")])
+    resolved = await service.ensure_available("claude-sonnet-5", "xhigh")
+    assert resolved.reasoning_effort == "xhigh"
+
+
+async def test_ensure_available_applies_the_catalog_default_when_unset():
+    # The whitelist default is a policy value, not a UI hint: a thread with no
+    # explicit choice resolves to it, so editing the CDN file changes what
+    # unset means without touching threads.
+    service = _service([_row("anthropic", "claude-sonnet-5")])
+    resolved = await service.ensure_available("claude-sonnet-5", None)
+    assert resolved.reasoning_effort == "medium"
+
+
+async def test_ensure_available_clamps_an_undeclared_effort_to_the_default():
+    # A catalog edit must never strand an existing thread: a stored level the
+    # whitelist no longer declares is discarded, and the entry's applied
+    # default takes over.
+    service = _service(
+        [_row("anthropic", "claude-sonnet-5"), _row("openai", "gpt-4o-mini")]
+    )
+    resolved = await service.ensure_available("claude-sonnet-5", "ultra")
+    assert resolved.reasoning_effort == "medium"
+    # gpt-4o-mini declares no levels (and no default) — any stored effort
+    # clamps all the way to None: send nothing.
+    resolved = await service.ensure_available("gpt-4o-mini", "high")
+    assert resolved.reasoning_effort is None
+
+
+async def test_validate_reasoning_effort_is_strict_at_selection_time():
+    await ModelService.validate_reasoning_effort("claude-sonnet-5", None)
+    await ModelService.validate_reasoning_effort("claude-sonnet-5", "max")
+    with pytest.raises(DomainValidationError, match="does not support"):
+        await ModelService.validate_reasoning_effort("claude-sonnet-5", "none")
+    with pytest.raises(DomainValidationError, match="does not support"):
+        await ModelService.validate_reasoning_effort("gpt-4o-mini", "high")
 
 
 async def test_is_available_swallows_the_domain_error():

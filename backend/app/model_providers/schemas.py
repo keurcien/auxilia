@@ -19,6 +19,15 @@ class ModelResponse(BaseModel):
     # The *effective* workspace default (admin-flagged model when available,
     # else the first available one) — pickers preselect this row.
     isDefault: bool = False
+    # Whether the model accepts non-text input on our serving path — the
+    # composer gates attachments on this (per model, not per chef: e.g. GLM
+    # 5.3 Flash takes images while plain GLM 5.3 does not).
+    multimodal: bool = False
+    # The reasoning-effort values the user may pick for this model (empty =
+    # no effort knob) and the level in effect when they pick nothing (None =
+    # provider-managed/dynamic, shown as Auto).
+    reasoningEffortLevels: list[str] = []
+    reasoningEffortDefault: str | None = None
 
 
 class ModelCreateDB(SQLModel):

@@ -8,6 +8,8 @@ create/update, the picker endpoint, and the thread response's
 `model_available` flag.
 """
 
+import logging
+
 from fastapi import Depends
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,12 +36,19 @@ from app.model_providers.whitelist import (
 from app.service import BaseService
 
 
+logger = logging.getLogger(__name__)
+
+
 class ResolvedModel(BaseModel):
     """An available model plus what Agent.build needs to instantiate it."""
 
     provider: str
     model_id: str
     api_key: str
+    # The effort to send: the thread's choice clamped to the whitelist
+    # entry's declared levels, else the entry's applied default. None = the
+    # model declares no default — send nothing, provider default applies.
+    reasoning_effort: str | None = None
 
 
 def _managed(entry: SupportedModel | None, row: ModelDB) -> ManagedModelResponse:
@@ -82,10 +91,21 @@ class ModelService(BaseService[ModelDB, ModelRepository]):
             if m.provider in keys and (m.provider, m.model_id) in enabled
         ]
 
-    async def ensure_available(self, model_id: str | None) -> ResolvedModel:
+    async def ensure_available(
+        self, model_id: str | None, reasoning_effort: str | None = None
+    ) -> ResolvedModel:
         """The chokepoint: raise ModelUnavailableError with the precise reason,
         or return what ChatModelFactory needs. Called by RunService.create
-        (the pre-stream gate), Agent.build (the backstop) and TriggerService."""
+        (the pre-stream gate), Agent.build (the backstop) and TriggerService.
+
+        `reasoning_effort` (a thread/trigger's stored choice) is clamped, not
+        rejected: a level the whitelist no longer declares is discarded so a
+        catalog edit can never strand an existing thread. With no (surviving)
+        choice, the whitelist entry's `reasoning_effort_default` applies —
+        the CDN file is the policy knob for what unset means — and a model
+        with no default falls through to its provider-default path. Strict
+        validation of *new* choices happens at selection time via
+        `validate_reasoning_effort`."""
         if not model_id:
             raise ModelUnavailableError("", "no model is set")
         whitelist = await get_whitelist()
@@ -107,9 +127,41 @@ class ModelService(BaseService[ModelDB, ModelRepository]):
             raise ModelUnavailableError(
                 model_id, "it has been disabled by a workspace admin"
             )
+        if reasoning_effort and reasoning_effort not in entry.reasoning_effort_levels:
+            logger.warning(
+                "Stored reasoning_effort %r is not declared for model %s; "
+                "falling back to the model's default",
+                reasoning_effort,
+                model_id,
+            )
+            reasoning_effort = None
+        if reasoning_effort is None:
+            reasoning_effort = entry.reasoning_effort_default
         return ResolvedModel(
-            provider=entry.provider, model_id=entry.model_id, api_key=api_key
+            provider=entry.provider,
+            model_id=entry.model_id,
+            api_key=api_key,
+            reasoning_effort=reasoning_effort,
         )
+
+    @staticmethod
+    async def validate_reasoning_effort(
+        model_id: str | None, reasoning_effort: str | None
+    ) -> None:
+        """Strict gate for user-supplied effort choices (thread and trigger
+        creation): the value must be one of the model's declared levels.
+        None always passes — it means "the model's default"."""
+        if reasoning_effort is None:
+            return
+        whitelist = await get_whitelist()
+        entry = next((m for m in whitelist if m.model_id == model_id), None)
+        levels = entry.reasoning_effort_levels if entry else []
+        if reasoning_effort not in levels:
+            raise DomainValidationError(
+                f"Model '{model_id}' does not support reasoning effort "
+                f"'{reasoning_effort}'"
+                + (f" (supported: {', '.join(levels)})" if levels else "")
+            )
 
     @staticmethod
     async def list_whitelisted() -> list[SupportedModel]:

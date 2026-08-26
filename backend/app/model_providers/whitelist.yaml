@@ -3,14 +3,27 @@
 # Source of truth for the models auxilia can offer. Every entry MUST be:
 #   1. tool-calling capable (all auxilia agents bind tools), and
 #   2. drivable by ChatModelFactory (backend/app/model_providers/catalog.py):
-#      `provider` must match a factory branch, and openrouter model_ids must
-#      exist in OPENROUTER_MODELS.
+#      `provider` must match a factory branch. Openrouter model_ids are the
+#      OpenRouter slugs, passed to the gateway verbatim.
 #
 # Flags describe OUR serving path, not the model in the abstract:
 #   multimodal                 — accepts non-text input (image/audio/video)
 #   supports_structured_output — REAL constrained decoding (json_schema /
 #                                strict tool call) on the endpoint we call,
 #                                NOT best-effort json_object
+#
+# reasoning_effort_levels / reasoning_effort_default — the effort values a
+# user may pick for this model, drawn from the canonical ladder
+# (none < minimal < low < medium < high < xhigh < max), and the level APPLIED
+# when they pick nothing (threads/triggers with no explicit choice resolve to
+# it, so editing a default here changes what unset means workspace-wide —
+# explicit choices are never touched). Declare only values the serving
+# endpoint ACCEPTS as distinct tiers (silent-coercion aliases don't count —
+# e.g. GLM 5.2 coerces xhigh to max, so only high/max are listed).
+# Empty/omitted levels = the model has no effort knob and the picker renders
+# none. "none" in the list means thinking can be turned off entirely. A
+# missing default with non-empty levels means "provider-managed/dynamic"
+# (shown as Auto): no effort is sent and the serving default applies.
 #
 # chef / chef_slug — the model's creator, shown next to the model in the
 # picker (logo lookup by slug). Optional: defaults to the provider name,
@@ -40,6 +53,7 @@ models:
     chef_slug: openai
     multimodal: true
     supports_structured_output: true
+    reasoning_effort_levels: [none, low, medium, high, xhigh]
   - provider: openai
     model_id: gpt-5-mini
     display_name: GPT-5 mini
@@ -47,6 +61,7 @@ models:
     chef_slug: openai
     multimodal: true
     supports_structured_output: true
+    reasoning_effort_levels: [none, low, medium, high, xhigh]
   - provider: openai
     model_id: gpt-5-nano
     display_name: GPT-5 nano
@@ -54,6 +69,7 @@ models:
     chef_slug: openai
     multimodal: true
     supports_structured_output: true
+    reasoning_effort_levels: [none, low, medium, high, xhigh]
   - provider: openai
     model_id: gpt-5.1
     display_name: GPT-5.1
@@ -61,6 +77,7 @@ models:
     chef_slug: openai
     multimodal: true
     supports_structured_output: true
+    reasoning_effort_levels: [none, low, medium, high, xhigh]
   - provider: openai
     model_id: gpt-5.2
     display_name: GPT-5.2
@@ -68,6 +85,7 @@ models:
     chef_slug: openai
     multimodal: true
     supports_structured_output: true
+    reasoning_effort_levels: [none, low, medium, high, xhigh]
   - provider: openai
     model_id: gpt-5.4
     display_name: GPT-5.4
@@ -75,6 +93,7 @@ models:
     chef_slug: openai
     multimodal: true
     supports_structured_output: true
+    reasoning_effort_levels: [none, low, medium, high, xhigh]
   - provider: openai
     model_id: gpt-5.5
     display_name: GPT-5.5
@@ -82,6 +101,8 @@ models:
     chef_slug: openai
     multimodal: true
     supports_structured_output: true
+    reasoning_effort_levels: [none, low, medium, high, xhigh]
+    reasoning_effort_default: medium
   - provider: openai
     model_id: gpt-5.6-luna
     display_name: GPT-5.6 Luna
@@ -89,6 +110,8 @@ models:
     chef_slug: openai
     multimodal: true
     supports_structured_output: true
+    reasoning_effort_levels: [none, low, medium, high, xhigh, max]
+    reasoning_effort_default: medium
   - provider: openai
     model_id: gpt-5.6-sol
     display_name: GPT-5.6 Sol
@@ -96,6 +119,8 @@ models:
     chef_slug: openai
     multimodal: true
     supports_structured_output: true
+    reasoning_effort_levels: [none, low, medium, high, xhigh, max]
+    reasoning_effort_default: medium
   - provider: openai
     model_id: gpt-5.6-terra
     display_name: GPT-5.6 Terra
@@ -103,6 +128,8 @@ models:
     chef_slug: openai
     multimodal: true
     supports_structured_output: true
+    reasoning_effort_levels: [none, low, medium, high, xhigh, max]
+    reasoning_effort_default: medium
 
   # --- Anthropic (native endpoint) ---
   - provider: anthropic
@@ -119,6 +146,7 @@ models:
     chef_slug: anthropic
     multimodal: true
     supports_structured_output: true
+    reasoning_effort_levels: [low, medium, high, max]
   - provider: anthropic
     model_id: claude-sonnet-5
     display_name: Claude Sonnet 5
@@ -126,6 +154,11 @@ models:
     chef_slug: anthropic
     multimodal: true
     supports_structured_output: true
+    reasoning_effort_levels: [low, medium, high, xhigh, max]
+    # Adaptive-thinking models (ADAPTIVE_THINKING_MODELS in catalog.py) have
+    # always been served at effort medium — the applied default preserves
+    # that. Anthropic's own API default is high.
+    reasoning_effort_default: medium
   - provider: anthropic
     model_id: claude-opus-4-6
     display_name: Claude Opus 4.6
@@ -133,6 +166,8 @@ models:
     chef_slug: anthropic
     multimodal: true
     supports_structured_output: true
+    reasoning_effort_levels: [low, medium, high, max]
+    reasoning_effort_default: medium
   - provider: anthropic
     model_id: claude-opus-4-8
     display_name: Claude Opus 4.8
@@ -140,6 +175,23 @@ models:
     chef_slug: anthropic
     multimodal: true
     supports_structured_output: true
+    reasoning_effort_levels: [low, medium, high, xhigh, max]
+    reasoning_effort_default: medium
+  # Opus 5 thinks by default (no opt-in needed) but is driven through the same
+  # adaptive path (ADAPTIVE_THINKING_MODELS); the legacy budget format 400s.
+  # `thinking: disabled` exists only at effort ≤ high — not exposed here ("none"
+  # would need a factory mapping). Verified live 2026-08-26 on the adaptive
+  # path. Anthropic's API default effort is high; medium matches the other
+  # Claudes we serve.
+  - provider: anthropic
+    model_id: claude-opus-5
+    display_name: Claude Opus 5
+    chef: Anthropic
+    chef_slug: anthropic
+    multimodal: true
+    supports_structured_output: true
+    reasoning_effort_levels: [low, medium, high, xhigh, max]
+    reasoning_effort_default: medium
 
   # --- DeepSeek (native endpoint: json_object only, no schema guarantee) ---
   - provider: deepseek
@@ -149,6 +201,8 @@ models:
     chef_slug: deepseek
     multimodal: false
     supports_structured_output: false
+    reasoning_effort_levels: [none, low, high, max]
+    reasoning_effort_default: high
   - provider: deepseek
     model_id: deepseek-v4-pro
     display_name: DeepSeek V4 Pro
@@ -156,6 +210,8 @@ models:
     chef_slug: deepseek
     multimodal: false
     supports_structured_output: false
+    reasoning_effort_levels: [none, low, high, max]
+    reasoning_effort_default: high
 
   # --- Google (native endpoint) ---
   - provider: google
@@ -165,6 +221,7 @@ models:
     chef_slug: google
     multimodal: true
     supports_structured_output: true
+    reasoning_effort_levels: [minimal, low, medium, high]
   - provider: google
     model_id: gemini-3-pro-preview
     display_name: Gemini 3 Pro (preview)
@@ -172,6 +229,7 @@ models:
     chef_slug: google
     multimodal: true
     supports_structured_output: true
+    reasoning_effort_levels: [low, high]
   # Verified 2026-07-20 against the Generative Language models API: 3.5 Flash
   # is the only 3.5 chat model (no 3.5 Pro; live-translate is Live-API-only,
   # no generateContent → can't back an agent). Function calling tested live.
@@ -182,6 +240,31 @@ models:
     chef_slug: google
     multimodal: true
     supports_structured_output: true
+    reasoning_effort_levels: [minimal, low, medium, high]
+  # 3.6/3.7 verified live 2026-08-26 against the Generative Language API:
+  # Flash is the only model in each line (no 3.6/3.7 Pro or Flash-Lite —
+  # Google's Pro line is frozen at 3.1). Level acceptance probed per model
+  # (3.7 rejects `minimal`), function calling tested live, thinking cannot be
+  # disabled on either. `medium` is Google's documented default for both —
+  # declaring it keeps unset threads on the documented behavior.
+  - provider: google
+    model_id: gemini-3.6-flash
+    display_name: Gemini 3.6 Flash
+    chef: Google
+    chef_slug: google
+    multimodal: true
+    supports_structured_output: true
+    reasoning_effort_levels: [minimal, low, medium, high]
+    reasoning_effort_default: medium
+  - provider: google
+    model_id: gemini-3.7-flash
+    display_name: Gemini 3.7 Flash
+    chef: Google
+    chef_slug: google
+    multimodal: true
+    supports_structured_output: true
+    reasoning_effort_levels: [low, medium, high]
+    reasoning_effort_default: medium
 
   # --- Xiaomi (native endpoint) ---
   # SO flags conservative: OpenRouter's listing says the models support
@@ -214,7 +297,7 @@ models:
     multimodal: false
     supports_structured_output: false
 
-  # --- OpenRouter (gateway; ids must exist in OPENROUTER_MODELS) ---
+  # --- OpenRouter (gateway; model_id is the OpenRouter slug, sent verbatim) ---
   # GLM SO flag: Z.ai's FIRST-PARTY API only offers json_object (no schema —
   # docs.z.ai/guides/capabilities/struct-output), but we serve GLM through
   # OpenRouter, whose hosts run real guided decoding — verified live
@@ -222,17 +305,79 @@ models:
   # serving-path rule that flags DeepSeek false. If enforcement ever consumes
   # this flag, the OpenRouter call must pin provider.require_parameters=true
   # (routing to a host that ignores response_format is otherwise possible).
+  # Effort: GLM 5.2 exposes exactly two thinking tiers (its API coerces the
+  # other ladder values onto them); "max" is its deep-reasoning default.
+  # Replaces the former glm-5.2-max / glm-5.2-high pseudo-model split.
   - provider: openrouter
-    model_id: glm-5.2-max
-    display_name: GLM 5.2 (max reasoning)
+    model_id: z-ai/glm-5.2
+    display_name: GLM 5.2
     chef: Z.ai
     chef_slug: z-ai
     multimodal: false
     supports_structured_output: true
+    reasoning_effort_levels: [high, max]
+    reasoning_effort_default: max
+
+  # GLM 5.3 (added 2026-08-26): thinking is FORCED on both variants (Z.ai docs
+  # — `thinking.type: disabled` fails on the direct API); the effort ladder
+  # narrowed to low|high|max, default max. SO flags: plain 5.3 is served by
+  # Z.AI only, which offers response_format json only (no json_schema); the
+  # Flash variant has real structured_outputs only on 2 of its 6 OpenRouter
+  # hosts (Cloudflare, DeepInfra) — false until we pin
+  # provider.require_parameters. Flash is natively multimodal (image+video).
   - provider: openrouter
-    model_id: glm-5.2-high
-    display_name: GLM 5.2 (high reasoning)
+    model_id: z-ai/glm-5.3
+    display_name: GLM 5.3
     chef: Z.ai
     chef_slug: z-ai
     multimodal: false
+    supports_structured_output: false
+    reasoning_effort_levels: [low, high, max]
+    reasoning_effort_default: max
+  - provider: openrouter
+    model_id: z-ai/glm-5.3-flash
+    display_name: GLM 5.3 Flash
+    chef: Z.ai
+    chef_slug: z-ai
+    multimodal: true
+    supports_structured_output: false
+    reasoning_effort_levels: [low, high, max]
+    reasoning_effort_default: max
+
+  # --- Qwen 3.8 via OpenRouter (added 2026-08-26) ---
+  # There is NO qwen3.8-flash (on OpenRouter or Alibaba); the 3.8 lineup is
+  # Max (hosted, multimodal), 27B (open-weight dense VL) and 2.4T-A95B (the
+  # open-weight MoE flagship, text-only). Effort ladder is low|xhigh with
+  # xhigh the native default — Qwen's `medium` is a silent no-op alias for
+  # the default, so per the header rule it is not declared. Whether hosted
+  # endpoints accept disabling thinking is unverified — no `none` until
+  # probed. SO flags follow the endpoints' supported_parameters: Max
+  # (Alibaba, sole host) and 27B (all 10 hosts) list structured_outputs;
+  # 2.4T-A95B is host-dependent (absent on Alibaba's own endpoint) → false.
+  - provider: openrouter
+    model_id: qwen/qwen3.8-max
+    display_name: Qwen3.8 Max
+    chef: Qwen
+    chef_slug: qwen
+    multimodal: true
     supports_structured_output: true
+    reasoning_effort_levels: [low, xhigh]
+    reasoning_effort_default: xhigh
+  - provider: openrouter
+    model_id: qwen/qwen3.8-27b
+    display_name: Qwen3.8 27B
+    chef: Qwen
+    chef_slug: qwen
+    multimodal: true
+    supports_structured_output: true
+    reasoning_effort_levels: [low, xhigh]
+    reasoning_effort_default: xhigh
+  - provider: openrouter
+    model_id: qwen/qwen3.8-2.4t-a95b
+    display_name: Qwen3.8 2.4T
+    chef: Qwen
+    chef_slug: qwen
+    multimodal: false
+    supports_structured_output: false
+    reasoning_effort_levels: [low, xhigh]
+    reasoning_effort_default: xhigh

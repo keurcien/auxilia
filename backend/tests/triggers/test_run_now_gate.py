@@ -21,6 +21,7 @@ def _service():
         instructions="do it",
         name="t",
         model_id="m",
+        reasoning_effort=None,
     )
     svc = TriggerService(AsyncMock())
     svc.get_or_404 = AsyncMock(return_value=trigger)
