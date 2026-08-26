@@ -1,18 +1,90 @@
-"""Tests for RepairInvalidToolCallsMiddleware.
+"""Tests for ToolErrorMiddleware and RepairInvalidToolCallsMiddleware.
 
-The model can emit tool-call arguments that aren't valid JSON (a large payload
-truncated or duplicated). Providers route those to ``invalid_tool_calls`` and
-the agent would otherwise exit the loop silently. The middleware turns each into
-an error ToolMessage and loops back to the model.
+``ToolErrorMiddleware`` (upstream, bound to our formatting) turns tool
+execution exceptions into error ToolMessages the model can recover from.
+``RepairInvalidToolCallsMiddleware`` handles the pre-execution case: the model
+emitted tool-call arguments that aren't valid JSON (a large payload truncated
+or duplicated). Providers route those to ``invalid_tool_calls`` and the agent
+would otherwise exit the loop silently.
 """
 
+import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.messages.tool import invalid_tool_call, tool_call
+from langgraph.errors import GraphInterrupt
+from langgraph.prebuilt.tool_node import ToolCallRequest
 
 from app.agents.tool_errors import (
     MAX_ECHOED_ARGS_CHARS,
     RepairInvalidToolCallsMiddleware,
+    ToolErrorMiddleware,
 )
+
+
+# ---- ToolErrorMiddleware ----
+
+
+def _request() -> ToolCallRequest:
+    return ToolCallRequest(
+        tool_call=tool_call(name="get_weather", args={}, id="c1"),
+        tool=None,
+        state={},
+        runtime=None,
+    )
+
+
+async def _wrap(exc: BaseException) -> ToolMessage:
+    async def handler(request):
+        raise exc
+
+    return await ToolErrorMiddleware().awrap_tool_call(_request(), handler)
+
+
+async def test_tool_error_becomes_error_tool_message():
+    msg = await _wrap(ValueError("boom"))
+    assert isinstance(msg, ToolMessage)
+    assert msg.content == "Error: boom"
+    assert msg.tool_call_id == "c1"
+    assert msg.status == "error"
+
+
+async def test_tool_error_flattens_exception_groups():
+    """anyio taskgroups wrap MCP transport failures — the root cause must
+    surface, not the group repr."""
+    group = BaseExceptionGroup("unhandled", [ValueError("inner boom")])
+    msg = await _wrap(group)
+    assert msg.content == "Error: inner boom"
+
+
+async def test_tool_error_empty_str_falls_back_to_type_name():
+    """Some transport errors stringify to "" (e.g. anyio's
+    ClosedResourceError) — the model still needs something actionable."""
+
+    class ClosedResourceError(Exception):
+        pass
+
+    msg = await _wrap(ClosedResourceError())
+    assert msg.content == "Error: ClosedResourceError"
+
+
+async def test_tool_error_propagates_interrupts():
+    """Langgraph control-flow signals must never be swallowed into a
+    ToolMessage — an in-tool interrupt (HITL) has to bubble up."""
+    with pytest.raises(GraphInterrupt):
+        await _wrap(GraphInterrupt(()))
+
+
+async def test_tool_error_passes_through_success():
+    ok = ToolMessage(content="sunny", tool_call_id="c1")
+
+    async def handler(request):
+        return ok
+
+    result = await ToolErrorMiddleware().awrap_tool_call(_request(), handler)
+    assert result is ok
+
+
+# ---- RepairInvalidToolCallsMiddleware ----
 
 
 def _run(messages):

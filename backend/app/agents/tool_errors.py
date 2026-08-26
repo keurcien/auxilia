@@ -3,11 +3,14 @@
 Two mechanisms, both so a tool failure feeds back to the LLM instead of
 crashing the stream or silently ending the run:
 
-1. ``ToolErrorMiddleware`` — catches execution exceptions from ALL tool calls,
+1. ``ToolErrorMiddleware`` — the upstream langchain middleware bound to our
+   error formatting. Catches execution exceptions from ALL tool calls,
    including tools registered by other middleware (e.g. deepagents filesystem
-   tools) and transport/protocol failures from MCP tools. (MCP *tool execution*
-   errors — ``isError=True`` — are surfaced as ``ToolMessage(status="error")``
-   natively by langchain-mcp-adapters>=0.3.0, so they never reach here.)
+   tools) and transport/protocol failures from MCP tools, and re-raises
+   langgraph control-flow signals (interrupts, parent commands) untouched.
+   (MCP *tool execution* errors — ``isError=True`` — are surfaced as
+   ``ToolMessage(status="error")`` natively by langchain-mcp-adapters>=0.3.0,
+   so they never reach here.)
 2. ``RepairInvalidToolCallsMiddleware`` — handles the case *before* execution,
    where the model emitted arguments that aren't valid JSON: it answers each
    such call with an error ToolMessage so the model can retry with valid JSON.
@@ -16,10 +19,12 @@ crashing the stream or silently ending the run:
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable
 from typing import Any
 from uuid import uuid4
 
+from langchain.agents.middleware import (
+    ToolErrorMiddleware as UpstreamToolErrorMiddleware,
+)
 from langchain.agents.middleware.types import (
     AgentMiddleware,
     AgentState,
@@ -28,7 +33,6 @@ from langchain.agents.middleware.types import (
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.messages.tool import tool_call as create_tool_call
 from langgraph.runtime import Runtime
-from langgraph.types import Command
 
 from app.exceptions import root_cause
 
@@ -36,30 +40,28 @@ from app.exceptions import root_cause
 logger = logging.getLogger(__name__)
 
 
-class ToolErrorMiddleware(AgentMiddleware):
-    """Middleware that catches uncaught exceptions from any tool call.
+def _tool_error_content(
+    exc: Exception,
+    request: ToolCallRequest,  # noqa: ARG001 - required by handler signature
+) -> str:
+    """Error-ToolMessage text for a failed tool call.
 
-    Returns the error as a ToolMessage so the LLM can process it instead of
-    crashing the stream.
+    Always returns content (never ``None``): a ``None`` return would let the
+    exception propagate and kill the run, and this middleware is our last-line
+    catch-all. ``root_cause`` flattens ExceptionGroups (anyio taskgroups wrap
+    MCP transport failures); some errors stringify to "" (e.g. anyio's
+    ClosedResourceError) — fall back to the type name so the model gets
+    something actionable.
     """
+    inner = root_cause(exc)
+    return f"Error: {str(inner) or type(inner).__name__}"
 
-    async def awrap_tool_call(
-        self,
-        request: ToolCallRequest,
-        handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]],
-    ) -> ToolMessage | Command[Any]:
-        try:
-            return await handler(request)
-        except Exception as exc:
-            inner = root_cause(exc)
-            # Some transport errors stringify to "" (e.g. anyio's
-            # ClosedResourceError) — fall back to the type name so the model
-            # gets something actionable.
-            detail = str(inner) or type(inner).__name__
-            return ToolMessage(
-                content=f"Error: {detail}",
-                tool_call_id=request.tool_call["id"],
-            )
+
+class ToolErrorMiddleware(UpstreamToolErrorMiddleware):
+    """Upstream ToolErrorMiddleware pre-bound to our catch-all formatting."""
+
+    def __init__(self) -> None:
+        super().__init__(on_error=_tool_error_content)
 
 
 # The raw malformed arguments are echoed back to the model so it can see what it

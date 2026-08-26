@@ -1,15 +1,23 @@
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
+from langchain.agents.middleware import ModelRetryMiddleware, ToolCallLimitMiddleware
 
-from app.agents.runtime import Agent
+from app.agents.current_date import CurrentDateMiddleware
+from app.agents.runtime import (
+    SUBAGENT_RECURSION_LIMIT,
+    Agent,
+    ResolvedAgent,
+    build_parent_middleware,
+)
 from app.agents.structured_output import (
     FORMAT_JSON_OBJECT,
     FORMAT_PROVIDER_NATIVE,
     FORMAT_TOOL,
     DeferredStructuredOutputMiddleware,
 )
-from app.agents.tool_errors import ToolErrorMiddleware
+from app.agents.tool_errors import RepairInvalidToolCallsMiddleware, ToolErrorMiddleware
 
 
 def _build_agent(
@@ -129,3 +137,49 @@ def test_build_agent_sandbox_dispatches_to_deep_agent(
     assert not any(isinstance(m, PatchToolCallsMiddleware) for m in middleware)
     # ToolErrorMiddleware is appended last so tool failures feed back as messages.
     assert isinstance(middleware[-1], ToolErrorMiddleware)
+
+
+@patch("app.agents.runtime.create_agent")
+def test_compile_subagent_middleware_stack(mock_create_agent):
+    """Subagents need their own repair/limit/retry middleware: the deepagents
+    task tool invokes them with a fresh config (parent middleware doesn't
+    propagate) and reports back only the last message's text — a subagent that
+    exits its loop silently on invalid tool-call JSON would return an empty
+    ToolMessage to the parent, and one that blows the default recursion limit
+    would discard its progress."""
+    resolved = ResolvedAgent(config=MagicMock(), prepared=MagicMock())
+    resolved.config.instructions = "You are a helper"
+    resolved.config.name = "Helper"
+    resolved.config.description = "helps"
+    resolved.live = MagicMock()
+    resolved.live.all = []
+    resolved.sandbox = None
+
+    resolved.compile(MagicMock(), datetime(2026, 1, 1, tzinfo=UTC))
+
+    middleware = mock_create_agent.call_args.kwargs["middleware"]
+    assert any(isinstance(m, ModelRetryMiddleware) for m in middleware)
+    assert any(isinstance(m, RepairInvalidToolCallsMiddleware) for m in middleware)
+    assert any(isinstance(m, CurrentDateMiddleware) for m in middleware)
+    assert isinstance(middleware[-1], ToolErrorMiddleware)
+    # The task tool doesn't propagate the parent's recursion_limit, so the tool
+    # budget must end the run gracefully before langgraph's default (25) trips.
+    limiter = next(m for m in middleware if isinstance(m, ToolCallLimitMiddleware))
+    assert limiter.exit_behavior == "end"
+    assert limiter.run_limit == (SUBAGENT_RECURSION_LIMIT - 1) // 2
+
+
+def test_parent_middleware_stack():
+    """ModelRetryMiddleware retries transient model failures; Repair stays
+    listed before HITL so it executes after it (after_model hooks run
+    last-to-first), keeping malformed calls invisible to the approval gate."""
+    prepared = MagicMock()
+    prepared.interrupt_on = {}
+
+    middleware = build_parent_middleware(datetime(2026, 1, 1, tzinfo=UTC), prepared)
+
+    types = [type(m).__name__ for m in middleware]
+    assert any(isinstance(m, ModelRetryMiddleware) for m in middleware)
+    assert types.index("RepairInvalidToolCallsMiddleware") < types.index(
+        "HumanInTheLoopMiddleware"
+    )

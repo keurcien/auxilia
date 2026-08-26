@@ -12,6 +12,7 @@ from deepagents.middleware.subagents import CompiledSubAgent, SubAgentMiddleware
 from langchain.agents import create_agent
 from langchain.agents.middleware import (
     HumanInTheLoopMiddleware,
+    ModelRetryMiddleware,
     ToolCallLimitMiddleware,
 )
 from langchain_core.messages import (
@@ -53,6 +54,10 @@ from app.threads.models import ThreadDB
 
 logger = logging.getLogger(__name__)
 
+
+# LangGraph's default recursion limit — what a subagent actually runs under,
+# since the deepagents task tool builds a fresh config without ours.
+SUBAGENT_RECURSION_LIMIT = 25
 
 RECURSION_LIMIT_MESSAGE = (
     "I reached my step limit for this turn. Send any follow-up message "
@@ -97,8 +102,9 @@ def build_runnable(
     ``LazySandboxBackend`` the caller keeps a reference to for turn-end
     persistence (the sandbox itself is created on first tool call, not here).
 
-    ``base_middleware`` is the caller's middleware stack — the parent passes its
-    full stack; subagents pass only ``CurrentDateMiddleware``. ``DeferredStructuredOutputMiddleware`` is
+    ``base_middleware`` is the caller's middleware stack — the parent passes
+    ``build_parent_middleware``'s list; subagents pass their own retry/limit/
+    repair/date stack (see ``ResolvedAgent.compile``). ``DeferredStructuredOutputMiddleware`` is
     appended whenever an ``output_schema`` is given (it keeps the schema off the
     tool-calling loop and applies it on one final formatting turn).
     ``ToolErrorMiddleware`` is appended on BOTH paths: without it the ToolNode
@@ -146,6 +152,40 @@ def build_runnable(
         middleware=[*middleware, ToolErrorMiddleware()],
         response_format=output_schema,
     )
+
+
+def build_parent_middleware(created_at: datetime, prepared: PreparedToolset) -> list:
+    """The parent agent's middleware stack.
+
+    PatchToolCallsMiddleware runs first so that any dangling tool_calls left
+    by a previous aborted turn (recursion limit, cancelled stream, etc.) get
+    synthetic ToolMessage responses before the model sees them.
+    RepairInvalidToolCallsMiddleware is placed *before* HITL so it runs
+    *after* it (after_model hooks execute last-to-first): HITL must see only
+    the genuine tool_calls and gate those, while the malformed calls stay in
+    invalid_tool_calls (invisible to HITL) until Repair promotes them into
+    tool_calls answered by error ToolMessages.
+    """
+    return [
+        PatchToolCallsMiddleware(),
+        # Retries transient model failures (rate limits, timeouts, connection
+        # drops — classified via ModelError.is_retryable) and, when retries
+        # are exhausted, persists the failure as an AIMessage so the turn ends
+        # visibly instead of crashing. Non-retryable errors (e.g. provider
+        # 400s) re-raise immediately and surface through the run record.
+        # Listed early so a retry re-runs the whole inner model pipeline
+        # (date stamp, deferred formatting).
+        ModelRetryMiddleware(),
+        ToolCallLimitMiddleware(
+            run_limit=(agent_settings.recursion_limit - 1) // 2, exit_behavior="end"
+        ),
+        RepairInvalidToolCallsMiddleware(),
+        HumanInTheLoopMiddleware(
+            interrupt_on=prepared.interrupt_on,
+            description_prefix="Tool execution pending approval",
+        ),
+        CurrentDateMiddleware(created_at),
+    ]
 
 
 @dataclass
@@ -216,6 +256,13 @@ class ResolvedAgent:
         Subagent-level HITL is intentionally not wired here: CompiledSubAgent
         runnables don't inherit the parent's checkpointer, and HumanInTheLoopMiddleware
         needs one. Approval gates on subagent tools are silently dropped today.
+
+        Unlike the parent, subagents DO need their own repair/limit/retry
+        middleware: the deepagents ``task`` tool invokes them with a fresh
+        config (parent middleware and recursion_limit don't propagate) and
+        reports back only ``messages[-1].text`` — a subagent that exits its
+        loop silently (invalid tool-call JSON) returns an empty ToolMessage,
+        and one that blows the recursion limit discards its progress.
         """
         sandbox = self.sandbox is not None
         system_prompt = (
@@ -233,7 +280,18 @@ class ResolvedAgent:
             system_prompt=system_prompt,
             sandbox_backend=LazySandboxBackend() if sandbox else None,
             sandbox_provider=self.sandbox.provider if self.sandbox else None,
-            base_middleware=[CurrentDateMiddleware(created_at)],
+            base_middleware=[
+                ModelRetryMiddleware(),
+                # The task tool doesn't propagate the parent's recursion_limit,
+                # so subagents run under langgraph's default of 25 — size the
+                # tool budget to end gracefully before that backstop trips.
+                ToolCallLimitMiddleware(
+                    run_limit=(SUBAGENT_RECURSION_LIMIT - 1) // 2,
+                    exit_behavior="end",
+                ),
+                RepairInvalidToolCallsMiddleware(),
+                CurrentDateMiddleware(created_at),
+            ],
         )
         return CompiledSubAgent(
             name=sanitize_tool_name(self.config.name),
@@ -300,27 +358,7 @@ class Agent:
             resolved.provider, resolved.model_id, resolved.api_key
         )
 
-        # Build middleware stack.
-        # PatchToolCallsMiddleware runs first so that any dangling tool_calls
-        # left by a previous aborted turn (recursion limit, cancelled stream,
-        # etc.) get synthetic ToolMessage responses before the model sees them.
-        # RepairInvalidToolCallsMiddleware is placed *before* HITL so it runs
-        # *after* it (after_model hooks execute last-to-first): HITL must see only
-        # the genuine tool_calls and gate those, while the malformed calls stay in
-        # invalid_tool_calls (invisible to HITL) until Repair promotes them into
-        # tool_calls answered by error ToolMessages.
-        middleware = [
-            PatchToolCallsMiddleware(),
-            ToolCallLimitMiddleware(
-                run_limit=(agent_settings.recursion_limit - 1) // 2, exit_behavior="end"
-            ),
-            RepairInvalidToolCallsMiddleware(),
-            HumanInTheLoopMiddleware(
-                interrupt_on=agent.prepared.interrupt_on,
-                description_prefix="Tool execution pending approval",
-            ),
-            CurrentDateMiddleware(thread.created_at),
-        ]
+        middleware = build_parent_middleware(thread.created_at, agent.prepared)
 
         subagents: list[ResolvedAgent] = []
         if agent.config.subagents:
