@@ -202,7 +202,16 @@ models:
     multimodal: false
     supports_structured_output: false
     reasoning_effort_levels: [none, low, high, max]
-    reasoning_effort_default: high
+    reasoning_effort_default: low
+  - provider: deepseek
+    model_id: deepseek-v4-flash-vision-exp
+    display_name: DeepSeek V4 Flash Vision Exp
+    chef: DeepSeek
+    chef_slug: deepseek
+    multimodal: true
+    supports_structured_output: false
+    reasoning_effort_levels: [none, low, high, max]
+    reasoning_effort_default: low
   - provider: deepseek
     model_id: deepseek-v4-pro
     display_name: DeepSeek V4 Pro
@@ -211,7 +220,7 @@ models:
     multimodal: false
     supports_structured_output: false
     reasoning_effort_levels: [none, low, high, max]
-    reasoning_effort_default: high
+    reasoning_effort_default: low
 
   # --- Google (native endpoint) ---
   - provider: google

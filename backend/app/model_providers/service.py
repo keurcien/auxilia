@@ -127,7 +127,12 @@ class ModelService(BaseService[ModelDB, ModelRepository]):
             raise ModelUnavailableError(
                 model_id, "it has been disabled by a workspace admin"
             )
-        if reasoning_effort and reasoning_effort not in entry.reasoning_effort_levels:
+        # `is not None` (not truthiness): an empty string must clamp like any
+        # other undeclared value, never slip through to the factory.
+        if (
+            reasoning_effort is not None
+            and reasoning_effort not in entry.reasoning_effort_levels
+        ):
             logger.warning(
                 "Stored reasoning_effort %r is not declared for model %s; "
                 "falling back to the model's default",
@@ -145,6 +150,21 @@ class ModelService(BaseService[ModelDB, ModelRepository]):
         )
 
     @staticmethod
+    async def _declared_effort_levels(model_id: str | None) -> list[str]:
+        whitelist = await get_whitelist()
+        entry = next((m for m in whitelist if m.model_id == model_id), None)
+        return list(entry.reasoning_effort_levels) if entry else []
+
+    @staticmethod
+    async def is_reasoning_effort_declared(
+        model_id: str | None, reasoning_effort: str
+    ) -> bool:
+        """Whether the whitelist declares this level for the model — for
+        callers that clamp a *stored* value instead of rejecting it (e.g.
+        re-pointing a trigger's model with a stale carried-over effort)."""
+        return reasoning_effort in await ModelService._declared_effort_levels(model_id)
+
+    @staticmethod
     async def validate_reasoning_effort(
         model_id: str | None, reasoning_effort: str | None
     ) -> None:
@@ -153,9 +173,7 @@ class ModelService(BaseService[ModelDB, ModelRepository]):
         None always passes — it means "the model's default"."""
         if reasoning_effort is None:
             return
-        whitelist = await get_whitelist()
-        entry = next((m for m in whitelist if m.model_id == model_id), None)
-        levels = entry.reasoning_effort_levels if entry else []
+        levels = await ModelService._declared_effort_levels(model_id)
         if reasoning_effort not in levels:
             raise DomainValidationError(
                 f"Model '{model_id}' does not support reasoning effort "

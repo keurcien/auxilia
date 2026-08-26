@@ -136,6 +136,16 @@ async def test_ensure_available_clamps_an_undeclared_effort_to_the_default():
     assert resolved.reasoning_effort is None
 
 
+async def test_is_reasoning_effort_declared():
+    # The clamp-side helper (trigger model re-pointing): membership only,
+    # never raises.
+    assert await ModelService.is_reasoning_effort_declared("claude-sonnet-5", "max")
+    assert not await ModelService.is_reasoning_effort_declared(
+        "claude-sonnet-5", "none"
+    )
+    assert not await ModelService.is_reasoning_effort_declared("gpt-4o-mini", "high")
+
+
 async def test_validate_reasoning_effort_is_strict_at_selection_time():
     await ModelService.validate_reasoning_effort("claude-sonnet-5", None)
     await ModelService.validate_reasoning_effort("claude-sonnet-5", "max")

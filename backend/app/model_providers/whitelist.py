@@ -8,7 +8,7 @@ and the bundled snapshot.
 """
 
 from pathlib import Path
-from typing import Literal
+from typing import Literal, get_args
 
 import httpx
 import yaml
@@ -77,6 +77,16 @@ class SupportedModel(BaseModel):
         if len(set(self.reasoning_effort_levels)) != len(self.reasoning_effort_levels):
             raise ValueError(
                 f"model {self.model_id!r} has duplicate reasoning_effort_levels"
+            )
+        # Levels must follow the canonical ladder order — the picker renders
+        # the list as-is, so an out-of-order file would show `high` above
+        # `low`. Reject it like any other data-entry error.
+        ladder = get_args(ReasoningEffort)
+        positions = [ladder.index(level) for level in self.reasoning_effort_levels]
+        if positions != sorted(positions):
+            raise ValueError(
+                f"model {self.model_id!r} has out-of-order reasoning_effort_levels "
+                f"(expected the ladder order {', '.join(ladder)})"
             )
         if (
             self.reasoning_effort_default is not None
