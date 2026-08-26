@@ -212,10 +212,10 @@ async def test_adapter_error_message_unwraps_exception_groups():
     "unhandled errors in a TaskGroup"."""
 
     async def _raising():
+        yield ("messages", (AIMessageChunk(content="", id="m1"), {}))
         raise ExceptionGroup(
             "unhandled errors in a TaskGroup", [RuntimeError("real cause")]
         )
-        yield  # pragma: no cover — makes this an async generator
 
     sse = [s async for s in LangGraphStreamAdapter(subgraphs=False).stream(_raising())]
     assert decode_sse_blocks(sse[-1]) == [
