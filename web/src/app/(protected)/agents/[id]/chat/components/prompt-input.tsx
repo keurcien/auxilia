@@ -67,17 +67,17 @@ interface ChatPromptInputProps {
 
 // Human labels for the canonical effort ladder ("none" reads as Off — it
 // turns the model's thinking off entirely).
-const EFFORT_LABELS: Record<string, string> = {
-	none: "Off",
-	minimal: "Minimal",
-	low: "Low",
-	medium: "Medium",
-	high: "High",
-	xhigh: "Extra high",
-	max: "Max",
-};
+const EFFORT_LABELS = new Map<string, string>([
+	["none", "Off"],
+	["minimal", "Minimal"],
+	["low", "Low"],
+	["medium", "Medium"],
+	["high", "High"],
+	["xhigh", "Extra high"],
+	["max", "Max"],
+]);
 
-const effortLabel = (effort: string) => EFFORT_LABELS[effort] ?? effort;
+const effortLabel = (effort: string) => EFFORT_LABELS.get(effort) ?? effort;
 
 const ChatPromptInput = ({
 	onSubmit,

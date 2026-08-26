@@ -18,6 +18,29 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+# Lightweight Core table handles for the data migration — everything below is
+# built from these constructs (no raw SQL strings anywhere).
+def _model_tables() -> tuple[sa.TableClause, sa.TableClause]:
+    threads = sa.table(
+        "threads", sa.column("model_id"), sa.column("reasoning_effort")
+    )
+    triggers = sa.table(
+        "triggers", sa.column("model_id"), sa.column("reasoning_effort")
+    )
+    return threads, triggers
+
+
+_models = sa.table(
+    "models",
+    sa.column("id"),
+    sa.column("provider"),
+    sa.column("model_id"),
+    sa.column("is_enabled"),
+    sa.column("is_default"),
+    sa.column("created_at"),
+)
+
+
 def upgrade() -> None:
     """Upgrade schema."""
     op.add_column(
@@ -33,14 +56,12 @@ def upgrade() -> None:
     # thinking level in the model id. The level is now a per-thread
     # reasoning_effort and the id is the OpenRouter slug, so rewrite every
     # stored reference.
-    for table in ("threads", "triggers"):
+    for tbl in _model_tables():
         for old_id, effort in (("glm-5.2-max", "max"), ("glm-5.2-high", "high")):
             op.execute(
-                sa.text(
-                    f"UPDATE {table} "  # noqa: S608 — constant table/id values
-                    "SET model_id = 'z-ai/glm-5.2', reasoning_effort = :effort "
-                    "WHERE model_id = :old_id"
-                ).bindparams(effort=effort, old_id=old_id)
+                sa.update(tbl)
+                .where(tbl.c.model_id == old_id)
+                .values(model_id="z-ai/glm-5.2", reasoning_effort=effort)
             )
 
     # Merge the two enablement rows (admin decisions) into one: enabled /
@@ -49,46 +70,51 @@ def upgrade() -> None:
     # satisfied because at most one of the two could have been the default.
     bind = op.get_bind()
     rows = bind.execute(
-        sa.text(
-            "SELECT id, is_enabled, is_default FROM models "
-            "WHERE provider = 'openrouter' "
-            "AND model_id IN ('glm-5.2-max', 'glm-5.2-high') "
-            "ORDER BY created_at"
+        sa.select(_models.c.id, _models.c.is_enabled, _models.c.is_default)
+        .where(
+            _models.c.provider == "openrouter",
+            _models.c.model_id.in_(["glm-5.2-max", "glm-5.2-high"]),
         )
+        .order_by(_models.c.created_at)
     ).fetchall()
     if rows:
         keep = rows[0]
         merged_enabled = any(r.is_enabled for r in rows)
         merged_default = any(r.is_default for r in rows)
         for r in rows[1:]:
-            bind.execute(
-                sa.text("DELETE FROM models WHERE id = :id").bindparams(id=r.id)
-            )
+            bind.execute(sa.delete(_models).where(_models.c.id == r.id))
         bind.execute(
-            sa.text(
-                "UPDATE models SET model_id = 'z-ai/glm-5.2', "
-                "is_enabled = :enabled, is_default = :default WHERE id = :id"
-            ).bindparams(enabled=merged_enabled, default=merged_default, id=keep.id)
+            sa.update(_models)
+            .where(_models.c.id == keep.id)
+            .values(
+                model_id="z-ai/glm-5.2",
+                is_enabled=merged_enabled,
+                is_default=merged_default,
+            )
         )
 
 
 def downgrade() -> None:
     """Downgrade schema."""
     # Re-split by the stored effort level (max was the old default id).
-    for table in ("threads", "triggers"):
+    for tbl in _model_tables():
         op.execute(
-            sa.text(
-                f"UPDATE {table} "  # noqa: S608 — constant table/id values
-                "SET model_id = CASE WHEN reasoning_effort = 'high' "
-                "THEN 'glm-5.2-high' ELSE 'glm-5.2-max' END "
-                "WHERE model_id = 'z-ai/glm-5.2'"
+            sa.update(tbl)
+            .where(tbl.c.model_id == "z-ai/glm-5.2")
+            .values(
+                model_id=sa.case(
+                    (tbl.c.reasoning_effort == "high", "glm-5.2-high"),
+                    else_="glm-5.2-max",
+                )
             )
         )
     op.execute(
-        sa.text(
-            "UPDATE models SET model_id = 'glm-5.2-max' "
-            "WHERE provider = 'openrouter' AND model_id = 'z-ai/glm-5.2'"
+        sa.update(_models)
+        .where(
+            _models.c.provider == "openrouter",
+            _models.c.model_id == "z-ai/glm-5.2",
         )
+        .values(model_id="glm-5.2-max")
     )
     op.drop_column("triggers", "reasoning_effort")
     op.drop_column("threads", "reasoning_effort")
