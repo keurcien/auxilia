@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.exceptions import DomainError
 from app.mcp.client.auth import WebOAuthClientProvider, build_oauth_client_metadata
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
+from app.mcp.client.factory import MCP_REQUEST_TIMEOUT
 from app.mcp.client.storage import RedisTokenStorage, TokenStorageFactory
 from app.mcp.servers.encryption import decrypt_value as decrypt_api_key
 from app.mcp.servers.models import MCPAuthType, MCPServerDB
@@ -132,7 +133,9 @@ async def _open_session(
     async with streamablehttp_client(
         **client_args, terminate_on_close=terminate_on_close
     ) as (read, write, _):
-        async with ClientSession(read, write) as session:
+        async with ClientSession(
+            read, write, read_timeout_seconds=MCP_REQUEST_TIMEOUT
+        ) as session:
             await session.initialize()
             try:
                 tools = await _list_all_tools(session)
