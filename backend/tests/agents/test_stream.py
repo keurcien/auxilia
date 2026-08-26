@@ -1,6 +1,10 @@
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 
-from app.agents.stream import LangGraphStreamAdapter, SlackStreamAdapter
+from app.agents.stream import (
+    LangGraphStreamAdapter,
+    SlackStreamAdapter,
+    decode_sse_blocks,
+)
 
 
 # ── Fixtures: LangGraph astream(stream_mode=["messages", "values"]) tuples ──
@@ -184,3 +188,36 @@ async def test_slack_subagent_messages_are_skipped():
     events = await _collect(SlackStreamAdapter().stream(_async_gen([ns])))
 
     assert events == []
+
+
+# ── LangGraph adapter error events (what the run record persists) ────────
+
+
+async def test_adapter_error_message_falls_back_to_type_name():
+    """Failures that stringify to "" (CancelledError leaks, closed resources)
+    must not produce a blank error message."""
+
+    async def _raising():
+        yield ("messages", (AIMessageChunk(content="", id="m1"), {}))
+        raise ValueError()
+
+    sse = [s async for s in LangGraphStreamAdapter(subgraphs=False).stream(_raising())]
+    assert decode_sse_blocks(sse[-1]) == [
+        ("error", {"message": "ValueError", "status_code": 500})
+    ]
+
+
+async def test_adapter_error_message_unwraps_exception_groups():
+    """A TaskGroup-wrapped failure must surface the root cause, not
+    "unhandled errors in a TaskGroup"."""
+
+    async def _raising():
+        raise ExceptionGroup(
+            "unhandled errors in a TaskGroup", [RuntimeError("real cause")]
+        )
+        yield  # pragma: no cover — makes this an async generator
+
+    sse = [s async for s in LangGraphStreamAdapter(subgraphs=False).stream(_raising())]
+    assert decode_sse_blocks(sse[-1]) == [
+        ("error", {"message": "real cause", "status_code": 500})
+    ]

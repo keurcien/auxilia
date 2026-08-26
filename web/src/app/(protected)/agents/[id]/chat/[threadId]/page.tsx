@@ -448,6 +448,10 @@ const ChatPage = () => {
   const [rehydratedInterrupt, setRehydratedInterrupt] = useState(false);
   const [rehydratedInterruptValue, setRehydratedInterruptValue] =
     useState<unknown>(null);
+  // A failed last run leaves no trace in the checkpoint, so the live stream's
+  // error state is lost on reload. Restored from the run record (which
+  // persists the error text) when the thread's lastRunStatus says it failed.
+  const [rehydratedError, setRehydratedError] = useState<string | null>(null);
   // Subagent internal conversations restored from subgraph checkpoints on
   // refresh, keyed by tool_call_id. The SDK's custom transport doesn't expose a
   // way to inject these into the reconstructed subagents, so we hold them here
@@ -507,6 +511,7 @@ const ChatPage = () => {
     (input, opts) => {
       setRehydratedInterrupt(false);
       setRehydratedInterruptValue(null);
+      setRehydratedError(null);
       return rawSubmit(input, opts);
     },
     [rawSubmit],
@@ -853,6 +858,30 @@ const ChatPage = () => {
         }, 0);
       } else {
         setInitialValues(normalizedValues);
+        // No run in flight and none about to start: if the last run failed,
+        // restore its error from the run record so a reload doesn't hide it.
+        const lastRunStatus = data.thread.lastRunStatus as string | undefined;
+        if (lastRunStatus === "error" || lastRunStatus === "timeout") {
+          const fallback =
+            lastRunStatus === "timeout"
+              ? "The last run exceeded the time limit."
+              : "The last run failed.";
+          try {
+            const res = await api.get(`/threads/${threadId}/runs`);
+            const runs = (res.data ?? []) as {
+              status?: string;
+              error?: string | null;
+            }[];
+            // Newest first; the run that stamped lastRunStatus is the first
+            // failed one.
+            const failed = runs.find(
+              (r) => r.status === "error" || r.status === "timeout",
+            );
+            setRehydratedError(failed?.error || fallback);
+          } catch {
+            setRehydratedError(fallback);
+          }
+        }
       }
     };
 
@@ -1346,14 +1375,16 @@ const ChatPage = () => {
                 </div>
               )}
 
-            {error != null && (
+            {(error != null || rehydratedError != null) && (
               <Error>
                 <ErrorContent>An error occurred.</ErrorContent>
                 <ErrorDetails>
                   <div>
-                    {error instanceof globalThis.Error
-                      ? error.message
-                      : String(error)}
+                    {error != null
+                      ? error instanceof globalThis.Error
+                        ? error.message
+                        : String(error)
+                      : rehydratedError}
                   </div>
                 </ErrorDetails>
               </Error>
@@ -1409,8 +1440,8 @@ const ChatPage = () => {
           </div>
         ) : agentStatus === "not_configured" ? (
           <div className="w-full max-w-4xl mx-auto lg:px-10 sm:px-6 px-3 py-4">
-            <div className="w-full flex items-center justify-center border border-red-200 bg-red-50 rounded-lg px-4 py-8">
-              <p className="text-md text-center text-red-700">
+            <div className="w-full flex items-center justify-center border border-destructive/30 bg-destructive/10 rounded-lg px-4 py-8">
+              <p className="text-md text-center text-destructive">
                 {canConfigure
                   ? "This agent's MCP tools aren't configured yet. Configure them in the agent's settings."
                   : "Agent is not configured yet. Contact agent owner to configure it first."}

@@ -15,6 +15,8 @@ from langchain_core.messages import BaseMessage
 from langgraph.errors import GraphRecursionError
 from langgraph.types import Overwrite
 
+from app.exceptions import root_cause
+
 
 logger = logging.getLogger(__name__)
 
@@ -201,7 +203,12 @@ class LangGraphStreamAdapter:
             raise
         except Exception as e:
             logger.exception("Stream processing error")
-            yield _encode_lg_sse("error", {"message": str(e), "status_code": 500})
+            # Some failures stringify to "" (CancelledError leaks, closed
+            # resources) — fall back to the type name so the UI and the run
+            # record never carry a blank error.
+            cause = root_cause(e)
+            message = str(cause) or type(cause).__name__
+            yield _encode_lg_sse("error", {"message": message, "status_code": 500})
 
 
 def encode_synthetic_ai_message_sse(
@@ -221,7 +228,7 @@ def encode_synthetic_ai_message_sse(
     ]
 
 
-def _decode_sse_blocks(sse: str) -> list[tuple[str, Any]]:
+def decode_sse_blocks(sse: str) -> list[tuple[str, Any]]:
     """Parse one published SSE string into `(event, data)` pairs.
 
     Each chunk in the run event log is `event: <name>\\ndata: <json>\\n\\n`
@@ -289,7 +296,7 @@ class SlackStreamAdapter:
         self, sse_stream: AsyncIterator[str]
     ) -> AsyncGenerator[dict[str, Any], None]:
         async for sse in sse_stream:
-            for event, data in _decode_sse_blocks(sse):
+            for event, data in decode_sse_blocks(sse):
                 for out in self._process(event, data):
                     yield out
 
