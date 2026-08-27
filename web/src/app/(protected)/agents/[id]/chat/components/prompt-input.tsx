@@ -129,6 +129,21 @@ const ChatPromptInput = ({
 	const noAttachments =
 		selectedModelData !== undefined && !selectedModelData.multimodal;
 
+	// Editable composer only: normalize a stale selection in the parent state
+	// too (not just the display), so what's shown as Default/Auto is also what
+	// gets submitted. Read-only threads keep their pinned value — the backend
+	// clamps it at run time.
+	useEffect(() => {
+		if (
+			!readOnlyModel &&
+			selectedEffort &&
+			selectedModelData !== undefined &&
+			!selectedModelData.reasoningEffortLevels.includes(selectedEffort)
+		) {
+			onEffortChange?.(null);
+		}
+	}, [readOnlyModel, selectedEffort, selectedModelData, onEffortChange]);
+
 	const handleModelChange = (modelId: string) => {
 		setModel(modelId);
 		onModelChange?.(modelId);
