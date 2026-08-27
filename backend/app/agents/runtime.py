@@ -353,9 +353,14 @@ class Agent:
         # Backstop for the RunService.create gate: covers the race where the
         # model is disabled between enqueue and worker pickup, and any future
         # path that builds an agent without going through `create`.
-        resolved = await ModelService(db).ensure_available(thread.model_id)
+        resolved = await ModelService(db).ensure_available(
+            thread.model_id, reasoning_effort=thread.reasoning_effort
+        )
         model = ChatModelFactory().create(
-            resolved.provider, resolved.model_id, resolved.api_key
+            resolved.provider,
+            resolved.model_id,
+            resolved.api_key,
+            reasoning_effort=resolved.reasoning_effort,
         )
 
         middleware = build_parent_middleware(thread.created_at, agent.prepared)

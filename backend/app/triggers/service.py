@@ -128,6 +128,9 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         ensure_valid_schedule(data.cron_expression, data.timezone)
         # Fail at save time, not first fire — 409 model_unavailable on the form.
         await self.model_service.ensure_available(data.model_id)
+        await ModelService.validate_reasoning_effort(
+            data.model_id, data.reasoning_effort
+        )
         await self._ensure_agent_usable(data.agent_id, owner)
         next_run_at = (
             compute_next_run_at(
@@ -159,6 +162,22 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
             ensure_valid_schedule(cron, timezone)
         if "model_id" in update_data:
             await self.model_service.ensure_available(update_data["model_id"])
+        clear_stale_effort = False
+        if "reasoning_effort" in update_data:
+            # A fresh user choice is validated strictly against the model
+            # that will be stored.
+            await ModelService.validate_reasoning_effort(
+                update_data.get("model_id", trigger.model_id),
+                update_data["reasoning_effort"],
+            )
+        elif "model_id" in update_data and trigger.reasoning_effort is not None:
+            # Re-pointing the model with a carried-over effort the new model
+            # doesn't declare must not block the edit (the stored value was
+            # valid when saved) — clear it back to the model default, the
+            # same clamp ensure_available applies at run time.
+            clear_stale_effort = not await ModelService.is_reasoning_effort_declared(
+                update_data["model_id"], trigger.reasoning_effort
+            )
         if "agent_id" in update_data and update_data["agent_id"] != trigger.agent_id:
             # Check against the owner, not the caller — an admin may edit
             # someone else's trigger, but the run still executes as the owner.
@@ -168,6 +187,11 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
             await self._ensure_agent_usable(update_data["agent_id"], owner)
 
         trigger = await self.repository.update(trigger, data)
+
+        if clear_stale_effort:
+            trigger.reasoning_effort = None
+            self.db.add(trigger)
+            await self.db.flush()
 
         # Rematerialize the schedule: pausing clears next_run_at so the row
         # drops out of the due scan; (re)activating or editing the schedule
@@ -241,6 +265,7 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
             ThreadCreate(
                 agent_id=trigger.agent_id,
                 model_id=trigger.model_id,
+                reasoning_effort=trigger.reasoning_effort,
                 first_message_content=trigger.name,
             ),
             user_id=trigger.owner_id,

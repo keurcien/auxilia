@@ -21,25 +21,30 @@ def test_get_models_projects_the_picker_shape(client, model_service):
     model_service.list_available.return_value = [
         SupportedModel(
             provider="openrouter",
-            model_id="glm-5.2-max",
-            display_name="GLM 5.2 (max reasoning)",
+            model_id="z-ai/glm-5.2",
+            display_name="GLM 5.2",
             chef="Z.ai",
             chef_slug="z-ai",
+            reasoning_effort_levels=["high", "max"],
+            reasoning_effort_default="max",
         )
     ]
-    model_service.get_default_model_id.return_value = "glm-5.2-max"
+    model_service.get_default_model_id.return_value = "z-ai/glm-5.2"
 
     response = client.get("/model-providers/models")
 
     assert response.status_code == 200
     assert response.json() == [
         {
-            "name": "GLM 5.2 (max reasoning)",
-            "id": "glm-5.2-max",
+            "name": "GLM 5.2",
+            "id": "z-ai/glm-5.2",
             "chef": "Z.ai",
             "chefSlug": "z-ai",
             "providers": ["openrouter"],
             "isDefault": True,
+            "multimodal": False,
+            "reasoningEffortLevels": ["high", "max"],
+            "reasoningEffortDefault": "max",
         }
     ]
 

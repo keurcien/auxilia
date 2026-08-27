@@ -44,6 +44,9 @@ async def get_models(
             chefSlug=m.chef_slug,
             providers=[ModelProviderType(m.provider)],
             isDefault=m.model_id == default_model_id,
+            multimodal=m.multimodal,
+            reasoningEffortLevels=list(m.reasoning_effort_levels),
+            reasoningEffortDefault=m.reasoning_effort_default,
         )
         for m in available
     ]

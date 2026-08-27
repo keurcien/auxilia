@@ -8,7 +8,7 @@ and the bundled snapshot.
 """
 
 from pathlib import Path
-from typing import Literal
+from typing import Literal, get_args
 
 import httpx
 import yaml
@@ -25,6 +25,13 @@ SUPPORTED_PROVIDERS: frozenset[str] = frozenset(
     {"openai", "deepseek", "anthropic", "google", "xiaomi", "openrouter", "meta"}
 )
 
+# The canonical reasoning-effort ladder (the industry superset, ordered from
+# least to most reasoning). Whitelist entries declare the per-model subset —
+# no two providers accept the same one, and sending an undeclared value is
+# never safe (some providers coerce silently, others 400). "none" in a
+# model's levels means its thinking can be turned off entirely.
+ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
+
 _BUNDLED_PATH = Path(__file__).parent / "whitelist.yaml"
 
 
@@ -39,6 +46,16 @@ class SupportedModel(BaseModel):
     chef_slug: str | None = None
     multimodal: bool = False
     supports_structured_output: bool = False
+    # The reasoning-effort values a user may pick for this model (empty =
+    # no effort knob, the picker doesn't render one). Values must be what the
+    # serving endpoint actually accepts — silent coercion tiers don't count.
+    reasoning_effort_levels: list[ReasoningEffort] = []
+    # APPLIED when the user picks nothing: ensure_available resolves a NULL
+    # thread/trigger effort to this level, so editing it in the CDN file
+    # changes what unset means workspace-wide (explicit choices are never
+    # touched). None with non-empty levels = provider-managed/dynamic — the
+    # factory sends no effort at all and keeps its historical default path.
+    reasoning_effort_default: ReasoningEffort | None = None
 
     @field_validator("provider")
     @classmethod
@@ -53,6 +70,32 @@ class SupportedModel(BaseModel):
             self.chef = self.provider.capitalize()
         if self.chef_slug is None:
             self.chef_slug = self.provider
+        return self
+
+    @model_validator(mode="after")
+    def reasoning_effort_is_coherent(self) -> "SupportedModel":
+        if len(set(self.reasoning_effort_levels)) != len(self.reasoning_effort_levels):
+            raise ValueError(
+                f"model {self.model_id!r} has duplicate reasoning_effort_levels"
+            )
+        # Levels must follow the canonical ladder order — the picker renders
+        # the list as-is, so an out-of-order file would show `high` above
+        # `low`. Reject it like any other data-entry error.
+        ladder = get_args(ReasoningEffort)
+        positions = [ladder.index(level) for level in self.reasoning_effort_levels]
+        if positions != sorted(positions):
+            raise ValueError(
+                f"model {self.model_id!r} has out-of-order reasoning_effort_levels "
+                f"(expected the ladder order {', '.join(ladder)})"
+            )
+        if (
+            self.reasoning_effort_default is not None
+            and self.reasoning_effort_default not in self.reasoning_effort_levels
+        ):
+            raise ValueError(
+                f"model {self.model_id!r}: reasoning_effort_default "
+                f"{self.reasoning_effort_default!r} is not in reasoning_effort_levels"
+            )
         return self
 
 
@@ -71,23 +114,6 @@ class WhitelistDocument(BaseModel):
             if m.model_id in seen:
                 raise ValueError(f"duplicate model_id {m.model_id!r}")
             seen.add(m.model_id)
-        return self
-
-    @model_validator(mode="after")
-    def openrouter_ids_must_be_mapped(self) -> "WhitelistDocument":
-        """OpenRouter entries are indexed straight into OPENROUTER_MODELS by
-        ChatModelFactory — an unmapped id would pass the whitelist, get
-        enabled by an admin, and only crash at agent build. Reject it here so
-        the bad file never applies. (Lazy import: catalog pulls in the
-        langchain provider packages.)"""
-        from app.model_providers.catalog import OPENROUTER_MODELS
-
-        for m in self.models:
-            if m.provider == "openrouter" and m.model_id not in OPENROUTER_MODELS:
-                raise ValueError(
-                    f"openrouter model_id {m.model_id!r} has no OPENROUTER_MODELS "
-                    "mapping (add the slug/effort entry in catalog.py first)"
-                )
         return self
 
 

@@ -28,6 +28,9 @@ const StarterChatPage = () => {
 	const { modelSelection, starterAgent } = usePromptInputController();
 	const selectedModel = modelSelection.value;
 	const setSelectedModel = modelSelection.setModel;
+	// Reasoning-effort choice for the selected model; null = the model's
+	// default. Pinned onto the thread at creation, like the model.
+	const [reasoningEffort, setReasoningEffort] = useState<string | null>(null);
 	const addThread = useThreadsStore((state) => state.addThread);
 	const setPendingMessage = usePendingMessageStore(
 		(state) => state.setPendingMessage,
@@ -76,6 +79,7 @@ const StarterChatPage = () => {
 				id: threadId,
 				agentId: agentId,
 				modelId,
+				reasoningEffort,
 				firstMessageContent: textContent,
 			});
 
@@ -170,7 +174,14 @@ const StarterChatPage = () => {
 							status={isCreating ? "streaming" : "ready"}
 							className="w-full"
 							selectedModel={selectedModel}
-							onModelChange={setSelectedModel}
+							onModelChange={(modelId) => {
+								setSelectedModel(modelId);
+								// Levels differ per model — a carried-over choice could be
+								// one the new model rejects.
+								setReasoningEffort(null);
+							}}
+							selectedEffort={reasoningEffort}
+							onEffortChange={setReasoningEffort}
 							agentReady={agentReady}
 							disconnectedServers={disconnectedMcpServers}
 							onAllConnected={refetchReady}

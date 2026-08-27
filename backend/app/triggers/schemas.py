@@ -21,6 +21,7 @@ class TriggerPatch(SQLModel):
     instructions: str | None = None
     agent_id: UUID | None = None
     model_id: str | None = None
+    reasoning_effort: str | None = None
     cron_expression: str | None = None
     timezone: str | None = None
     is_active: bool | None = None
@@ -33,6 +34,7 @@ class TriggerResponse(SQLModel):
     owner_id: UUID
     agent_id: UUID
     model_id: str
+    reasoning_effort: str | None = None
     cron_expression: str
     timezone: str
     is_active: bool

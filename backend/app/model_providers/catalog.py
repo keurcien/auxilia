@@ -41,9 +41,10 @@ def _google_adc() -> tuple[google.auth.credentials.Credentials, str | None] | No
 # Models that require adaptive thinking (`{"type": "adaptive"}` + `effort`).
 # Opus 4.7+ dropped manual extended thinking and return a 400 for the legacy
 # `{"type": "enabled", "budget_tokens": ...}` format. Everything else uses
-# the legacy `enabled` format.
+# the legacy `enabled` format. (Opus 5 thinks by default even without the
+# opt-in, but it rejects the legacy format too, so it belongs here.)
 ADAPTIVE_THINKING_MODELS: frozenset[str] = frozenset(
-    {"claude-opus-4-6", "claude-opus-4-8", "claude-sonnet-5"}
+    {"claude-opus-4-6", "claude-opus-4-8", "claude-sonnet-5", "claude-opus-5"}
 )
 
 # OpenAI reasoning models that reject function tools on /v1/chat/completions
@@ -54,14 +55,6 @@ ADAPTIVE_THINKING_MODELS: frozenset[str] = frozenset(
 OPENAI_RESPONSES_API_MODELS: frozenset[str] = frozenset(
     {"gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"}
 )
-
-# OpenRouter catalog: our model id -> (OpenRouter slug, GLM `reasoning_effort`).
-# GLM 5.2 exposes two thinking levels; "max" is its deep-reasoning default, "high"
-# is lighter. Each is surfaced to users as its own model.
-OPENROUTER_MODELS: dict[str, tuple[str, str]] = {
-    "glm-5.2-max": ("z-ai/glm-5.2", "max"),
-    "glm-5.2-high": ("z-ai/glm-5.2", "high"),
-}
 
 
 def provider_api_keys() -> dict[str, str]:
@@ -83,7 +76,19 @@ def provider_api_keys() -> dict[str, str]:
 
 
 class ChatModelFactory:
-    def create(self, provider: str, model_id: str, api_key: str):
+    def create(
+        self,
+        provider: str,
+        model_id: str,
+        api_key: str,
+        reasoning_effort: str | None = None,
+    ):
+        # `reasoning_effort` is a value from the model's whitelist-declared
+        # levels (ModelService.ensure_available resolves and clamps it) —
+        # never a raw client string. None means "no explicit choice": each
+        # branch keeps its historical default behavior, so existing threads
+        # run exactly as before.
+        #
         # max_retries=0 everywhere: retrying is owned by ModelRetryMiddleware
         # (classified via ModelError.is_retryable, persists the failure as an
         # AIMessage on exhaustion). Leaving the SDK layer's default retries on
@@ -93,28 +98,44 @@ class ChatModelFactory:
             case "openai":
                 # gpt-5.6 reasoning models require the Responses API to use
                 # function tools (chat completions 400s); everything else is
-                # fine on the default chat-completions path.
+                # fine on the default chat-completions path. On the Responses
+                # path langchain translates reasoning_effort into
+                # `reasoning.effort` itself.
                 return ChatOpenAI(
                     model=model_id,
                     api_key=api_key,
                     max_retries=0,
                     use_responses_api=model_id in OPENAI_RESPONSES_API_MODELS,
+                    reasoning_effort=reasoning_effort,
                 )
             case "deepseek":
-                # Reasoning enabled. max_tokens caps the answer so json_object
-                # structured output isn't truncated mid-string (DeepSeek's JSON
-                # mode guide warns about this); 32768 matches the other
-                # reasoning providers here.
+                # DeepSeek V4 selects thinking by parameters: `thinking.type`
+                # turns it on/off ("none" maps to disabled), `reasoning_effort`
+                # picks the depth (low/high/max; the API defaults to high).
+                # max_tokens caps the answer so json_object structured output
+                # isn't truncated mid-string (DeepSeek's JSON mode guide warns
+                # about this); 32768 matches the other reasoning providers.
+                thinking_off = reasoning_effort == "none"
+                extra_body: dict = {
+                    "thinking": {"type": "disabled" if thinking_off else "enabled"}
+                }
+                if reasoning_effort and not thinking_off:
+                    extra_body["reasoning_effort"] = reasoning_effort
                 return ChatDeepSeek(
                     model=model_id,
                     api_key=api_key,
                     max_tokens=32768,
                     max_retries=0,
-                    extra_body={"thinking": {"type": "enabled"}},
+                    extra_body=extra_body,
                 )
             case "anthropic":
                 kwargs: dict = {}
-                if model_id in ADAPTIVE_THINKING_MODELS:
+                if model_id in ADAPTIVE_THINKING_MODELS or reasoning_effort:
+                    # Adaptive thinking + output_config.effort. Mandatory on
+                    # Opus 4.7+/Sonnet 5 (the legacy budget format 400s there);
+                    # older models (e.g. Sonnet 4.6) opt in whenever the user
+                    # picked an effort level.
+                    #
                     # `display` defaults to "omitted" on Opus 4.7+, which returns
                     # thinking blocks with an empty `thinking` field. langchain
                     # then drops the field when round-tripping the block after a
@@ -123,7 +144,7 @@ class ChatModelFactory:
                     # "summarized" keeps the field populated so it survives the
                     # round-trip (and surfaces reasoning to the UI).
                     kwargs["thinking"] = {"type": "adaptive", "display": "summarized"}
-                    kwargs["effort"] = "medium"
+                    kwargs["effort"] = reasoning_effort or "medium"
                 else:
                     kwargs["thinking"] = {"type": "enabled", "budget_tokens": 1024}
                 return ChatAnthropic(
@@ -149,6 +170,13 @@ class ChatModelFactory:
                         auth_kwargs["project"] = project
                 else:
                     auth_kwargs["api_key"] = api_key
+                # thinking_level (aka reasoning_effort) and thinking_budget are
+                # mutually exclusive on Gemini 3+ — send exactly one: the
+                # user's level, else the dynamic budget (historical default).
+                if reasoning_effort:
+                    auth_kwargs["reasoning_effort"] = reasoning_effort
+                else:
+                    auth_kwargs["thinking_budget"] = -1
                 return ChatGoogleGenerativeAI(
                     model=model_id,
                     temperature=0,
@@ -157,7 +185,6 @@ class ChatModelFactory:
                     max_retries=0,
                     streaming=True,
                     include_thoughts=True,
-                    thinking_budget=-1,
                     **auth_kwargs,
                 )
             case "xiaomi":
@@ -168,18 +195,23 @@ class ChatModelFactory:
                     max_retries=0,
                 )
             case "openrouter":
-                # OpenAI-compatible gateway. Our model id encodes the GLM thinking
-                # level; pass GLM's native `reasoning_effort` ("high"/"max"). Output
-                # is capped generously (GLM 5.2 max = 32768) since "max" reasoning
+                # OpenAI-compatible gateway; model_id is the OpenRouter slug,
+                # sent verbatim like any other provider's id. The effort level
+                # travels as the OpenAI-style `reasoning_effort`, which
+                # OpenRouter normalizes for the upstream host. Output is capped
+                # generously (GLM 5.2 max = 32768) since deep reasoning
                 # produces long chains of thought.
-                slug, effort = OPENROUTER_MODELS[model_id]
                 return ChatOpenAI(
                     base_url="https://openrouter.ai/api/v1",
-                    model=slug,
+                    model=model_id,
                     api_key=api_key,
                     max_tokens=32768,
                     max_retries=0,
-                    extra_body={"reasoning_effort": effort},
+                    extra_body=(
+                        {"reasoning_effort": reasoning_effort}
+                        if reasoning_effort
+                        else None
+                    ),
                 )
             case "meta":
                 # Meta Model API — OpenAI-compatible Chat Completions.

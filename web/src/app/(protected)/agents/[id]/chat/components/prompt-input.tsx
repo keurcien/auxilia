@@ -15,8 +15,9 @@ import {
 	PromptInputTools,
 	usePromptInputController,
 } from "@/components/ai-elements/prompt-input";
-import { CheckIcon, PlugIcon } from "lucide-react";
+import { BrainIcon, CheckIcon, PlugIcon } from "lucide-react";
 import { useRef, useState, useEffect, useMemo } from "react";
+import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { useModelsStore } from "@/stores/models-store";
 import { useChatHeaderStore } from "@/stores/chat-header-store";
 import { Model } from "@/types/models";
@@ -55,10 +56,28 @@ interface ChatPromptInputProps {
 	onModelChange?: (modelId: string) => void;
 	selectedModel?: string;
 	readOnlyModel?: boolean;
+	// Reasoning-effort choice for the selected model; null = the model's
+	// default. Pinned with the model on existing threads (readOnlyModel).
+	selectedEffort?: string | null;
+	onEffortChange?: (effort: string | null) => void;
 	agentReady?: boolean | null;
 	disconnectedServers?: MCPServer[];
 	onAllConnected?: () => void;
 }
+
+// Human labels for the canonical effort ladder ("none" reads as Off — it
+// turns the model's thinking off entirely).
+const EFFORT_LABELS = new Map<string, string>([
+	["none", "Off"],
+	["minimal", "Minimal"],
+	["low", "Low"],
+	["medium", "Medium"],
+	["high", "High"],
+	["xhigh", "Extra high"],
+	["max", "Max"],
+]);
+
+const effortLabel = (effort: string) => EFFORT_LABELS.get(effort) ?? effort;
 
 const ChatPromptInput = ({
 	onSubmit,
@@ -68,6 +87,8 @@ const ChatPromptInput = ({
 	onModelChange,
 	selectedModel: externalSelectedModel,
 	readOnlyModel = false,
+	selectedEffort = null,
+	onEffortChange,
 	agentReady,
 	disconnectedServers = [],
 	onAllConnected,
@@ -83,10 +104,45 @@ const ChatPromptInput = ({
 
 	const currentModel = externalSelectedModel ?? model;
 	const selectedModelData = models.find((m) => m.id === currentModel);
-	// Text-only providers can't take image attachments (DeepSeek, Z.ai/GLM 5.2).
-	const noAttachments = ["deepseek", "z-ai"].includes(
-		selectedModelData?.chefSlug ?? "",
-	);
+	const effortLevels = selectedModelData?.reasoningEffortLevels ?? [];
+	const effortDefault = selectedModelData?.reasoningEffortDefault ?? null;
+	// A stored effort the catalog no longer declares is clamped to the model
+	// default at run time — don't display it as if it were in effect. When the
+	// model itself is unknown (e.g. disabled, absent from the picker list) the
+	// levels can't be checked, so trust the stored value.
+	const validatedEffort =
+		selectedEffort &&
+		(selectedModelData === undefined || effortLevels.includes(selectedEffort))
+			? selectedEffort
+			: null;
+	// Pill label: the explicit choice, else the model's declared default
+	// level, else Auto (provider-managed/dynamic).
+	const effortPillLabel = validatedEffort
+		? effortLabel(validatedEffort)
+		: effortDefault
+			? effortLabel(effortDefault)
+			: "Auto";
+	// Text-only models can't take image attachments. Per model, not per chef:
+	// e.g. GLM 5.3 Flash accepts images while plain GLM 5.3 does not. Unknown
+	// model (not in the picker list, e.g. a disabled pinned model) → allow,
+	// matching the old lookup-miss behavior.
+	const noAttachments =
+		selectedModelData !== undefined && !selectedModelData.multimodal;
+
+	// Editable composer only: normalize a stale selection in the parent state
+	// too (not just the display), so what's shown as Default/Auto is also what
+	// gets submitted. Read-only threads keep their pinned value — the backend
+	// clamps it at run time.
+	useEffect(() => {
+		if (
+			!readOnlyModel &&
+			selectedEffort &&
+			selectedModelData !== undefined &&
+			!selectedModelData.reasoningEffortLevels.includes(selectedEffort)
+		) {
+			onEffortChange?.(null);
+		}
+	}, [readOnlyModel, selectedEffort, selectedModelData, onEffortChange]);
 
 	const handleModelChange = (modelId: string) => {
 		setModel(modelId);
@@ -304,6 +360,49 @@ const ChatPromptInput = ({
 								</DialogContent>
 							</Dialog>
 						)}
+						{readOnlyModel
+							? // Existing threads pin the effort with the model — show it
+								// only when one was explicitly chosen (and still declared).
+								validatedEffort && (
+									<PromptInputButton disabled className={composerPillClass}>
+										<BrainIcon className="size-3.5" />
+										<span className="truncate text-left">
+											{effortLabel(validatedEffort)}
+										</span>
+									</PromptInputButton>
+								)
+							: effortLevels.length > 0 && (
+									<DropdownMenu
+										align="start"
+										side="top"
+										items={[
+											{
+												label: effortDefault
+													? `Default (${effortLabel(effortDefault)})`
+													: "Auto",
+												active: !validatedEffort,
+												onClick: () => {
+													onEffortChange?.(null);
+												},
+											},
+											...effortLevels.map((level) => ({
+												label: effortLabel(level),
+												active: validatedEffort === level,
+												onClick: () => {
+													onEffortChange?.(level);
+												},
+											})),
+										]}
+										trigger={
+											<PromptInputButton className={composerPillClass}>
+												<BrainIcon className="size-3.5" />
+												<span className="truncate text-left">
+													{effortPillLabel}
+												</span>
+											</PromptInputButton>
+										}
+									/>
+								)}
 					</PromptInputTools>
 					{agentReady === false ? (
 						<ConnectButton

@@ -14,6 +14,9 @@ class TriggerBase(SQLModel):
         foreign_key="agents.id", ondelete="CASCADE", index=True, nullable=False
     )
     model_id: str = Field(max_length=255, nullable=False)
+    # Reasoning-effort choice for the model, one of its whitelist-declared
+    # levels; NULL = the model's default. Copied onto each firing's thread.
+    reasoning_effort: str | None = Field(default=None, max_length=32, nullable=True)
     cron_expression: str = Field(max_length=255, nullable=False)
     timezone: str = Field(default="UTC", max_length=64, nullable=False)
     is_active: bool = Field(default=True, nullable=False)
