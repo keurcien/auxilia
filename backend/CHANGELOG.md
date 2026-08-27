@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.2](https://github.com/keurcien/auxilia/compare/backend-v0.5.1...backend-v0.5.2) (2026-08-27)
+
+
+### Features
+
+* **agents:** persistent run errors, recovery middleware, and langchain 1.3 ([#292](https://github.com/keurcien/auxilia/issues/292)) ([2e8766e](https://github.com/keurcien/auxilia/commit/2e8766e66d1ba2c0672a915518d69dd9282e1c12))
+* **models:** user-configurable reasoning effort per model ([#294](https://github.com/keurcien/auxilia/issues/294)) ([66d21ad](https://github.com/keurcien/auxilia/commit/66d21ada355c5dbe414205b29d2f88d59cf6dc13))
+
 ## [0.5.1](https://github.com/keurcien/auxilia/compare/backend-v0.5.0...backend-v0.5.1) (2026-08-22)
 
 
