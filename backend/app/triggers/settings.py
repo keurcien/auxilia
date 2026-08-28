@@ -1,11 +1,6 @@
-from pathlib import Path
-
-from pydantic import ConfigDict
 from pydantic_settings import BaseSettings
 
-
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
-ROOT_ENV = BASE_DIR.parent / ".env"
+from app.settings import settings_config
 
 
 class TriggerSettings(BaseSettings):
@@ -21,9 +16,7 @@ class TriggerSettings(BaseSettings):
     # Max triggers claimed per tick per instance (backpressure on the run queue).
     claim_batch_size: int = 50
 
-    model_config: ConfigDict = ConfigDict(
-        env_prefix="trigger_", env_file=ROOT_ENV, extra="ignore"
-    )
+    model_config = settings_config(env_prefix="trigger_")
 
 
 trigger_settings: TriggerSettings = TriggerSettings()

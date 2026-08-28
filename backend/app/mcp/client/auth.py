@@ -179,7 +179,7 @@ class WebOAuthClientProvider(OAuthClientProvider):
                 response = await client.send(request)
                 await self._handle_token_response(response)
             return True
-        except Exception:
+        except Exception:  # noqa: BLE001 — a failed refresh means "not authorized", not a crash
             logger.warning(
                 "OAuth refresh failed for %s", self.context.server_url, exc_info=True
             )

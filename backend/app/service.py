@@ -2,13 +2,15 @@ from typing import Generic, TypeVar
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import SQLModel
 
 from app.exceptions import NotFoundError
+from app.models import BaseDBModel
 from app.repository import BaseRepository
 
 
-ModelType = TypeVar("ModelType", bound=SQLModel)
+# Same bound as BaseRepository's, so `self.repository.get(...)` type-checks and a
+# service can't be parameterised over a model its repository can't address.
+ModelType = TypeVar("ModelType", bound=BaseDBModel)
 RepositoryType = TypeVar("RepositoryType", bound=BaseRepository)
 
 
@@ -27,7 +29,7 @@ class BaseService(Generic[ModelType, RepositoryType]):
         self.db = db
         self.repository = repository
 
-    async def get_or_404(self, id: UUID | str) -> ModelType:
+    async def get_or_404(self, id: UUID) -> ModelType:
         obj = await self.repository.get(id)
         if obj is None:
             raise NotFoundError(self.not_found_message)

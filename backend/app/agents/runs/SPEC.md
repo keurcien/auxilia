@@ -73,6 +73,36 @@ finalize: `WHERE status IN legal_source_statuses(target)`, so e.g. a `pending`
 run can be reaped to `error` but never reported `success`, plus an optional
 `expected` guard for cancel/reap-vs-claim races).
 
+```mermaid
+stateDiagram-v2
+    [*] --> pending: POST /runs (enqueue)
+    pending --> running: dispatcher claim (SKIP LOCKED)
+    pending --> cancelled: Stop before dispatch
+    pending --> error: reaped (queued zombie)
+    running --> success: stream completed
+    running --> interrupted: HITL approval pending
+    running --> error: exception / error SSE / reaped (dead liveness)
+    running --> timeout: RUN_MAX_DURATION_SECONDS exceeded
+    running --> cancelled: Stop via control channel
+    interrupted --> [*]: resume creates a NEW run
+    success --> [*]
+    error --> [*]
+    timeout --> [*]
+    cancelled --> [*]
+```
+
+### Execution is at-most-once — reaped runs are never retried
+
+A run that fails, times out, or is reaped is finalized, full stop. Nothing
+re-queues it, and that is deliberate: an LLM turn is not idempotent (it has
+already streamed tokens to the user, called tools with side effects, and spent
+budget), so a redelivery could double-send an email or double-charge a customer.
+Recovery is a user action — the user sends again, creating a new run.
+
+Contributors arriving from Celery, SQS or similar will assume at-least-once
+delivery with automatic retries. There is no `max_retries`, no dead-letter queue,
+and no backoff, because there is no retry.
+
 ## Module layout (`app/agents/runs/`)
 
 Layered like the rest of the backend (router → service → repository):

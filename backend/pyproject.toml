@@ -1,7 +1,7 @@
 [project]
 name = "backend"
 version = "0.5.3"
-description = "Add your description here"
+description = "auxilia backend — FastAPI service for hosting MCP-powered AI assistants"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
 requires-python = ">=3.11"
@@ -52,6 +52,8 @@ dev = [
     "pytest-mock>=3.14.0",
     "fakeredis[lua]>=2.36.2",
     "aiosqlite>=0.22.1",
+    "pytest-cov>=6.0.0",
+    "mypy>=1.14.0",
 ]
 
 [tool.ruff]
@@ -70,6 +72,10 @@ select = [
     "UP",  # pyupgrade
     "ARG001", # unused arguments in functions
     "T201",   # print statements are not allowed
+    "ASYNC",  # flake8-async: blocking calls on the event loop
+    "SIM",    # flake8-simplify
+    "RUF",    # ruff-specific rules
+    "BLE001", # blind `except Exception` — must be deliberate and annotated
 ]
 ignore = [
     "E501",  # line too long, handled by black
@@ -77,6 +83,10 @@ ignore = [
     "W191",  # indentation contains tabs
     "B904",  # Allow raising exceptions without from e, for HTTPException
     "UP042", # StrEnum has subtly different __str__ behavior; keep (str, Enum)
+    # Comments and docstrings deliberately use typographic characters (— × ›).
+    "RUF001",
+    "RUF002",
+    "RUF003",
 ]
 
 fixable = ["ALL"]
@@ -111,3 +121,106 @@ lines-after-imports = 2
 # pytest fixtures are injected by name and are often present only for their
 # side effects (auth overrides, DB session), so they read as "unused args".
 "tests/**" = ["ARG001"]
+
+[tool.mypy]
+# Deliberately non-strict: the value here is catching the mistakes the generics in
+# `app/repository.py` / `app/service.py` were meant to catch and currently can't
+# (nothing type-checked this codebase before), not annotating every function.
+# Tighten per-module as modules get cleaned up — see backend-cleanup-todo.md P0-3.
+python_version = "3.11"
+files = ["app"]
+exclude = "^alembic/"
+explicit_package_bases = true
+mypy_path = "."
+plugins = ["pydantic.mypy"]
+
+# On by default at this strictness.
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_reexport = false
+
+# Off for now: turning these on floods the report before the Phase 3 cleanups.
+check_untyped_defs = false
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+warn_return_any = false
+
+[[tool.mypy.overrides]]
+# Third-party packages without (or with incomplete) type information.
+module = [
+    "authlib.*",
+    "croniter.*",
+    "daytona.*",
+    "deepagents.*",
+    "fastmcp.*",
+    "jose.*",
+    "jsonschema.*",
+    "langchain_ai_sdk_adapter.*",
+    "langfuse.*",
+    "mcp.*",
+    "opensandbox.*",
+    "pwdlib.*",
+    "slack_sdk.*",
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# The type-check ratchet. Everything not listed here is checked; these 50 modules
+# carried errors when mypy was first introduced and are exempted per-module rather
+# than lowering the bar globally, so new and cleaned-up code is protected today.
+#
+# To clean one up: delete its line, run `uv run mypy app`, fix what it reports.
+# Do not add lines — a new module must be clean. See backend-cleanup-todo.md P0-3.
+module = [
+    "app.agents.core.repository",
+    "app.agents.core.service",
+    "app.agents.mcp_servers.repository",
+    "app.agents.mcp_servers.service",
+    "app.agents.router",
+    "app.agents.runs.control",
+    "app.agents.runs.repository",
+    "app.agents.runs.router",
+    "app.agents.runs.service",
+    "app.agents.runtime",
+    "app.agents.sandboxes.repository",
+    "app.agents.schemas",
+    "app.agents.structured_output",
+    "app.agents.subagents.repository",
+    "app.agents.subagents.service",
+    "app.agents.tool_errors",
+    "app.agents.toolset",
+    "app.auth.router",
+    "app.auth.service",
+    "app.auth.tokens.repository",
+    "app.database",
+    "app.integrations.slack.handlers",
+    "app.invites.service",
+    "app.main",
+    "app.mcp.client.auth",
+    "app.mcp.client.connectivity",
+    "app.mcp.client.initialize",
+    "app.mcp.servers.catalog",
+    "app.mcp.servers.repository",
+    "app.mcp.servers.service",
+    "app.model_providers.catalog",
+    "app.model_providers.whitelist",
+    "app.sandbox.cloudrun.provider",
+    "app.sandbox.cloudrun.snapshots",
+    "app.sandbox.daytona.provider",
+    "app.sandbox.opensandbox.backend",
+    "app.sandbox.opensandbox.provider",
+    "app.sandbox.repository",
+    "app.tags.repository",
+    "app.tags.router",
+    "app.tags.service",
+    "app.teams.repository",
+    "app.teams.router",
+    "app.threads.repository",
+    "app.threads.service",
+    "app.triggers.repository",
+    "app.triggers.service",
+    "app.users.repository",
+    "app.users.router",
+    "app.users.service",
+]
+ignore_errors = true

@@ -9,11 +9,13 @@ from app.auth.settings import auth_settings
 
 password_hash = PasswordHash.recommended()
 
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
     Verify a plain password against the stored hash.
     """
     return password_hash.verify(plain_password, hashed_password)
+
 
 def get_password_hash(password: str) -> str:
     """
@@ -57,5 +59,7 @@ def decode_access_token(token: str) -> UUID | None:
         if user_id_str is None:
             return None
         return UUID(user_id_str)
-    except JWTError:
+    except (JWTError, ValueError):
+        # ValueError: a signed token whose `sub` isn't a UUID. Treat it as
+        # "not authenticated" (401) rather than letting it escape as a 500.
         return None

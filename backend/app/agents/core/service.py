@@ -163,9 +163,6 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
                 team_agent_ids.add(agent.id)
         return agents_map, mcp_map, permissions_map, team_agent_ids
 
-    async def create(self, data: AgentCreateDB) -> AgentDB:
-        return await self.repository.create(data)
-
     async def create_from_config(
         self,
         config: AgentConfig,

@@ -35,7 +35,7 @@ class TestGetPsycopgConnString:
         """URLs without a password (e.g. IAM auth) work correctly."""
         url = "postgresql+psycopg://sa@project.iam@127.0.0.1:5432/mydb"
         result = get_psycopg_conn_string(url)
-        assert "postgresql://sa%40project.iam@127.0.0.1:5432/mydb" == result
+        assert result == "postgresql://sa%40project.iam@127.0.0.1:5432/mydb"
         # No colon before @ (no password segment)
         assert ":%40" not in result.split("@")[0]
 

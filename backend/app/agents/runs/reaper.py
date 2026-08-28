@@ -40,7 +40,7 @@ class RunReaper:
         while not self._stopping.is_set():
             try:
                 await self._sweep()
-            except Exception:  # noqa: BLE001 — a bad sweep must not kill the loop
+            except Exception:
                 logger.exception("Reaper sweep failed")
             await self._sleep(run_settings.reaper_interval_seconds)
 

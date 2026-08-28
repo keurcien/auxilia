@@ -42,7 +42,17 @@ Keep these layers honest. Don't write `db.execute(select(...))` in a router or i
 
 `get_db` (in `app/database.py`) runs one transaction per HTTP request: it commits on success, rolls back on any exception. Service methods should use `await self.db.flush()` when they need a server-generated value (PK, timestamp) and never call `self.db.commit()`.
 
-The only exception is code that doesn't run inside a FastAPI request — e.g. Slack handlers use `AsyncSessionLocal()` directly and manage their own commit (see `get_or_create_thread`).
+There are two documented exceptions:
+
+1. **Out-of-request code** manages its own transaction — Slack handlers, the run
+   worker, the reaper and the trigger scanner use `AsyncSessionLocal()` directly
+   (see `get_or_create_thread`).
+2. **Request handlers that hand off to a long-lived operation commit early, on
+   purpose.** The run endpoints (`agents/runs/router.py`) and
+   `TriggerService.claim_and_enqueue` finish their DB work, `await db.commit()`,
+   and only then start streaming or open their own sessions — holding a pooled
+   connection for the length of an agent run risks pool starvation. Each such
+   commit carries a comment saying why; if you add one, so should yours.
 
 ### Domain exceptions
 
@@ -51,10 +61,16 @@ Services raise exceptions from `app/exceptions.py`:
 | Exception | HTTP status |
 | --- | --- |
 | `NotFoundError` | 404 |
-| `AlreadyExistsError` | 400 |
-| `ValidationError` | 400 |
+| `DomainValidationError` | 400 |
 | `PermissionDeniedError` | 403 |
+| `InvalidCredentialsError` | 401 |
+| `AlreadyExistsError` | 409 |
+| `ModelUnavailableError` | 409 (machine-readable body: `model_id`, `reason`) |
 | `DomainError` (base) | 500 |
+
+`DomainValidationError` is deliberately *not* named `ValidationError` — that name
+belongs to Pydantic's parse-time error. `NoInviteError` and `StructuredOutputError`
+subclass `DomainError` and are handled at their call sites (see below).
 
 Global handlers in `main.py` translate them to JSON responses. Routers don't catch or re-raise these — the only router-level `try/except` is for cases that need non-standard handling (e.g. OAuth callback catching `NoInviteError` to emit a 302 redirect instead of a 400).
 
@@ -111,7 +127,6 @@ auxilia/
 │   │   │   ├── mcp_servers/           # AgentMCPServerService (agent↔MCP bindings, tool sync)
 │   │   │   ├── subagents/             # SubagentService (supervisor/subagent links)
 │   │   │   ├── runs/                  # Durable run runtime — Redis-backed runs, queue, worker, reaper (see runs/SPEC.md)
-│   │   │   ├── hitl.py                # HITL approval extraction from UI messages
 │   │   │   ├── runtime.py             # Agent runtime — Agent.build / .stream / .invoke (LangGraph)
 │   │   │   ├── stream.py              # AI SDK SSE & Slack stream adapters
 │   │   │   ├── toolset.py             # Tool binding for the agent
@@ -130,36 +145,35 @@ auxilia/
 │   │   │   └── slack/                 # Slack events, commands, interactions
 │   │   ├── invites/                   # Admin invites (email → pending role)
 │   │   ├── mcp/                       # MCP server management & client
-│   │   │   ├── apps/                  # FastMCP demo tools exposed by auxilia itself
+│   │   │   ├── apps/                  # MCP-app UI endpoints (read resource / call tool)
 │   │   │   ├── client/                # MCP client, OAuth provider, Redis storage, connectivity probes
 │   │   │   ├── servers/               # MCP server CRUD, API-key/OAuth credentials encryption
 │   │   │   │                          # catalog.py — official servers from a CDN YAML (see app/utils/remote_catalog.py)
-│   │   │   ├── router.py              # auxilia_mcp (FastMCP) endpoint
-│   │   │   └── utils.py               # check_mcp_server_connected (with token refresh)
+│   │   │   └── router.py              # auxilia_mcp (FastMCP) endpoint — advertises no tools yet
 │   │   ├── model_providers/           # LLM provider configuration & catalog
 │   │   ├── sandbox/                   # Sandboxed code execution
 │   │   ├── threads/                   # Chat thread management
 │   │   │   ├── serialization.py       # LangGraph checkpoint → UI message conversion
 │   │   │   └── router.py              # Thread CRUD, history & subagent state (runs live in agents/runs/)
-│   │   ├── triggers/                  # Scheduled agent runs (see trigger-feature-plan.md)
+│   │   ├── triggers/                  # Scheduled agent runs
 │   │   │   ├── scanner.py             # TriggerScanner — due-trigger loop (sibling of runs/reaper)
 │   │   │   ├── schedule.py            # Pure cron/timezone math (croniter): validation, next_run_at
 │   │   │   ├── service.py             # TriggerService — CRUD + claim_and_enqueue (scanner entrypoint)
 │   │   │   └── router.py              # /triggers CRUD + /triggers/schedule/preview
 │   │   ├── users/                     # User management
-│   │   ├── utils/                     # remote_catalog.py — CDN-hosted catalogs (model whitelist, MCP servers)
+│   │   ├── utils/                     # remote_catalog.py — CDN-hosted catalogs; encryption.py — AES-GCM at rest
 │   │   ├── database.py                # Async engine + request-scoped get_db
 │   │   ├── redis_client.py            # Shared async Redis client (durable runtime, out-of-request)
-│   │   ├── exceptions.py              # DomainError hierarchy (NotFoundError, ValidationError, …)
+│   │   ├── exceptions.py              # DomainError hierarchy + root_cause() ExceptionGroup unwrap
 │   │   ├── main.py                    # FastAPI app + global exception handlers
 │   │   ├── models.py                  # BaseDBModel, UUIDMixin, TimestampMixin, AI SDK Message
 │   │   ├── repository.py              # BaseRepository[T] — generic CRUD
 │   │   ├── service.py                 # BaseService[M, R] — get_or_404 + shared helpers
 │   │   └── settings.py                # App-wide settings (pydantic-settings)
 │   ├── alembic/                       # Database migrations
-│   ├── scripts/                       # One-off utilities (diagnostics, PAT tests, probes)
+│   ├── scripts/                       # One-off utilities — gitignored, not in the repo
 │   ├── tests/                         # Pytest test suite (mirrors app/ layout)
-│   ├── pyproject.toml                 # Python dependencies (uv) + ruff config
+│   ├── pyproject.toml                 # Python dependencies (uv) + ruff / mypy / pytest config
 │   └── Dockerfile
 ├── web/                               # Next.js frontend (App Router)
 │   ├── src/
@@ -305,20 +319,21 @@ See **Backend conventions** above for the full layered architecture, naming rule
 
 ### Agent Permissions
 
-Workspace role levels (`WorkspaceRole`): `member`, `editor`, `admin`. Per-agent permission levels (`PermissionLevel`): `user`, `editor`, `admin`, plus a virtual `"owner"` derived from `AgentDB.owner_id`.
+Workspace role levels (`WorkspaceRole`): `member`, `editor`, `admin`. Per-agent permission levels (`PermissionLevel`): `member`, `editor`, `admin`, plus a virtual `"owner"` derived from `AgentDB.owner_id`. Membership can also be team-derived (`AgentTeamDB`), which resolves to `member`.
 
 `AgentService.list_agents(user_id, user_role)` and `AgentService.get_agent(agent_id, user_id, user_role)` return `AgentResponse` with `current_user_permission` resolved via `_resolve_permission`:
 
 1. Owner of the agent → `"owner"`
 2. Workspace admin → `"admin"`
-3. Explicit grant in `AgentUserPermissionDB` → `user` / `editor` / `admin`
-4. Otherwise → `None`
+3. Explicit grant in `AgentUserPermissionDB` → `member` / `editor` / `admin`
+4. Membership of a team bound to the agent (`AgentTeamDB`) → `member`
+5. Otherwise → `None`
 
 The service does **not** filter unauthorized agents out of `list_agents`. Callers (e.g. Slack handlers) must filter on `current_user_permission is not None` when enforcing access.
 
 ### MCP Server Security
 
-- API keys are encrypted at rest with AES-GCM (`app/mcp/servers/encryption.py`)
+- API keys are encrypted at rest with AES-GCM (`app/utils/encryption.py`)
 - OAuth tokens are stored per-user via `TokenStorageFactory`
 - Only remote (streamable HTTP) MCP servers are supported
 

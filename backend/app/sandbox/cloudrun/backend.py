@@ -97,7 +97,7 @@ class CloudRunSandbox(BaseSandbox):
         """Probe whether the named sandbox still exists."""
         try:
             result = self._transport.exec(self._id, ["/bin/true"], timeout=30)
-        except Exception:
+        except Exception:  # noqa: BLE001 — any probe failure means "not alive"
             return False
         return result.returncode == 0
 

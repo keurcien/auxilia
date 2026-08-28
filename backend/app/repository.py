@@ -7,10 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 from sqlmodel import SQLModel, select
 
+from app.models import BaseDBModel
 from app.pagination import PageParams
 
 
-ModelType = TypeVar("ModelType", bound=SQLModel)
+# Bound to BaseDBModel, not SQLModel: `get` and `paginate` address rows by `id`,
+# so a repository over a model without a UUID PK would fail at runtime. All 14
+# repositories are over BaseDBModel tables — this makes that a checked contract.
+ModelType = TypeVar("ModelType", bound=BaseDBModel)
 
 
 class BaseRepository(Generic[ModelType]):

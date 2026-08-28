@@ -28,10 +28,10 @@ from app.exceptions import DomainError
 from app.mcp.client.auth import WebOAuthClientProvider, build_oauth_client_metadata
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
 from app.mcp.client.storage import RedisTokenStorage, TokenStorageFactory
-from app.mcp.servers.encryption import decrypt_value as decrypt_api_key
 from app.mcp.servers.models import MCPAuthType, MCPServerDB
 from app.mcp.servers.repository import MCPServerRepository
 from app.mcp.servers.schemas import ConnectionTestResult
+from app.utils.encryption import decrypt_value
 
 
 logger = logging.getLogger(__name__)
@@ -62,7 +62,7 @@ async def build_oauth_provider(
         oauth_credentials = await repository.get_oauth_credentials(mcp_server.id)
         if oauth_credentials:
             client_id = oauth_credentials.client_id
-            client_secret = decrypt_api_key(oauth_credentials.client_secret_encrypted)
+            client_secret = decrypt_value(oauth_credentials.client_secret_encrypted)
             client_metadata.token_endpoint_auth_method = (
                 oauth_credentials.token_endpoint_auth_method or "client_secret_post"
             )
@@ -129,20 +129,24 @@ async def _open_session(
     if auth is not None:
         client_args["auth"] = auth
 
-    async with streamablehttp_client(
-        **client_args, terminate_on_close=terminate_on_close
-    ) as (read, write, _):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            try:
-                tools = await _list_all_tools(session)
-                yield session, tools
-            except OAuthAuthorizationRequired:
-                # Let the caller (e.g. test_connection) translate this into an
-                # oauth_required result instead of a generic DomainError.
-                raise
-            except Exception as e:
-                raise DomainError(str(e)) from e
+    async with (
+        streamablehttp_client(**client_args, terminate_on_close=terminate_on_close) as (
+            read,
+            write,
+            _,
+        ),
+        ClientSession(read, write) as session,
+    ):
+        await session.initialize()
+        try:
+            tools = await _list_all_tools(session)
+            yield session, tools
+        except OAuthAuthorizationRequired:
+            # Let the caller (e.g. test_connection) translate this into an
+            # oauth_required result instead of a generic DomainError.
+            raise
+        except Exception as e:
+            raise DomainError(str(e)) from e
 
 
 @asynccontextmanager
@@ -259,7 +263,7 @@ async def test_connection(
             return ConnectionTestResult(
                 reachable=False, oauth_required=True, auth_url=e.url
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — any failure is reported as unreachable
             return ConnectionTestResult(reachable=False, error=str(e))
 
     try:
@@ -275,7 +279,7 @@ async def test_connection(
         return ConnectionTestResult(
             reachable=False, oauth_required=True, auth_url=e.url
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — any failure is reported as unreachable
         return ConnectionTestResult(reachable=False, error=str(e))
 
 
@@ -316,5 +320,5 @@ async def probe_candidate(
                 tool_count=len(tools),
                 tool_names=[tool.name for tool in tools],
             )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — any failure is reported as unreachable
         return ConnectionTestResult(reachable=False, error=str(e))

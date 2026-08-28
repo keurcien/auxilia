@@ -310,7 +310,7 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
                 trigger.next_run_at = compute_next_run_at(
                     trigger.cron_expression, trigger.timezone, after=now
                 )
-            except Exception:  # noqa: BLE001 — a poison schedule must not wedge the scan
+            except Exception:
                 logger.exception(
                     "Pausing trigger %s: schedule no longer computes", trigger.id
                 )
@@ -345,7 +345,7 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
                     user_id=owner_id,
                     input={"messages": [{"type": "human", "content": message}]},
                 )
-            except Exception:  # noqa: BLE001 — one bad enqueue must not stop the rest
+            except Exception:
                 logger.exception("Failed to enqueue run for thread %s", thread_id)
                 continue
             run_ids.append(record.id)

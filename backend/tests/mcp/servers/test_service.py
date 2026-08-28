@@ -43,7 +43,7 @@ def _repo_without_credentials():
 
 async def test_build_oauth_provider_loads_static_credentials(monkeypatch):
     monkeypatch.setattr(
-        connectivity_module, "decrypt_api_key", lambda _: "decrypted-secret"
+        connectivity_module, "decrypt_value", lambda _: "decrypted-secret"
     )
     server = SimpleNamespace(id="s1", url="https://mcp.example.com/mcp")
 
@@ -80,7 +80,7 @@ async def test_build_oauth_provider_without_credentials_defers_to_dcr():
 
 async def test_persist_client_info_writes_when_credentials_present(monkeypatch):
     monkeypatch.setattr(
-        connectivity_module, "decrypt_api_key", lambda _: "decrypted-secret"
+        connectivity_module, "decrypt_value", lambda _: "decrypted-secret"
     )
     storage = MagicMock()
     storage.set_client_info = AsyncMock()
@@ -394,9 +394,16 @@ async def test_list_connections_classifies_token_status(
     )
 
     users = [
-        SimpleNamespace(id=expired_id, name="Ada", email="ada@x.io"),
-        SimpleNamespace(id=refreshable_id, name="Bob", email="bob@x.io"),
-        SimpleNamespace(id=fresh_id, name="Cleo", email="cleo@x.io"),
+        SimpleNamespace(id=expired_id, name="Ada", email="ada@x.io", picture_url=None),
+        SimpleNamespace(
+            id=refreshable_id, name="Bob", email="bob@x.io", picture_url=None
+        ),
+        SimpleNamespace(
+            id=fresh_id,
+            name="Cleo",
+            email="cleo@x.io",
+            picture_url="https://x.io/c.png",
+        ),
     ]
     monkeypatch.setattr(service_module, "UserRepository", lambda db: _users_repo(users))
 

@@ -39,6 +39,8 @@ node_modules
 
 # testing
 coverage
+.coverage
+coverage.xml
 
 # next.js
 .next/

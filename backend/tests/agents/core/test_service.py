@@ -182,19 +182,8 @@ def _make_mock_execute_result(*, rows=_UNSET, scalar=_UNSET, scalars_list=_UNSET
 
 
 # ---------------------------------------------------------------------------
-# create_agent
+# create_from_config
 # ---------------------------------------------------------------------------
-
-
-async def test_create_agent_delegates_to_repository(service, mock_repo):
-    agent = make_agent()
-    mock_repo.create.return_value = agent
-    data = AgentCreateDB(name="X", instructions="Y", owner_id=uuid4())
-
-    result = await service.create(data)
-
-    mock_repo.create.assert_awaited_once_with(data)
-    assert result is agent
 
 
 async def test_create_from_config_orchestrates(

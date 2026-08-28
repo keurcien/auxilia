@@ -21,7 +21,6 @@ from app.mcp.client.connectivity import (
 )
 from app.mcp.client.storage import TokenStorageFactory
 from app.mcp.servers import catalog as mcp_catalog
-from app.mcp.servers.encryption import decrypt_value
 from app.mcp.servers.models import MCPAuthType, MCPServerDB
 from app.mcp.servers.repository import MCPServerRepository
 from app.mcp.servers.schemas import (
@@ -36,6 +35,7 @@ from app.mcp.servers.schemas import (
 )
 from app.service import BaseService
 from app.users.repository import UserRepository
+from app.utils.encryption import decrypt_value
 
 
 class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):

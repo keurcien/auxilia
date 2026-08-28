@@ -126,7 +126,7 @@ def test_connection_config_uses_url_and_secret(sdk_sandbox):
 def test_connect_renews_ttl(sdk_sandbox):
     with patch("app.sandbox.opensandbox.provider.SandboxSync") as sdk:
         sdk.connect.return_value = sdk_sandbox
-        backend, message = make_provider().connect("osb-1")
+        _backend, message = make_provider().connect("osb-1")
 
     sdk.connect.assert_called_once()
     sdk_sandbox.renew.assert_called_once()

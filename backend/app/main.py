@@ -126,16 +126,17 @@ async def oauth_exception_handler(_request: Request, exc: Exception):
             content={"error": "oauth_required", "auth_url": exc.url},
         )
 
-    # 2. Check if it's an ExceptionGroup containing our target exception
-    if isinstance(exc, ExceptionGroup):
-        # .subgroup() searches the group (recursively) for matches
-        if matching_group := exc.subgroup(OAuthAuthorizationRequired):
-            # Extract the first match to get the URL
-            first_match = matching_group.exceptions[0]
-            return JSONResponse(
-                status_code=401,
-                content={"error": "oauth_required", "auth_url": first_match.url},
-            )
+    # 2. Check if it's an ExceptionGroup containing our target exception.
+    # .subgroup() searches the group (recursively) for matches.
+    if isinstance(exc, ExceptionGroup) and (
+        matching_group := exc.subgroup(OAuthAuthorizationRequired)
+    ):
+        # Extract the first match to get the URL
+        first_match = matching_group.exceptions[0]
+        return JSONResponse(
+            status_code=401,
+            content={"error": "oauth_required", "auth_url": first_match.url},
+        )
 
     # 3. If it's an ExceptionGroup that doesn't contain our error,
     # or an unrelated exception caught by accident, re-raise it.
@@ -188,9 +189,13 @@ async def domain_error_handler(_request: Request, exc: DomainError):
     return JSONResponse(status_code=500, content={"detail": exc.detail})
 
 
+# Browser traffic normally rides the Next.js proxy (same-origin), so CORS only
+# matters for a browser pointed straight at the backend. It must name real
+# origins: browsers reject `allow_origins=["*"]` together with credentials, so
+# the previous wildcard config allowed nothing it appeared to allow.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[auth_settings.FRONTEND_URL],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

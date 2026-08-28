@@ -85,7 +85,7 @@ class DaytonaSandbox(BaseSandbox):
             try:
                 self._sandbox.fs.upload_file(content, path)
                 responses.append(FileUploadResponse(path=path, error=None))
-            except Exception:
+            except Exception:  # noqa: BLE001 — per-file failure is reported in its response
                 responses.append(
                     FileUploadResponse(path=path, error="permission_denied")
                 )

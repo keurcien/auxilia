@@ -22,12 +22,15 @@ class UUIDMixin(SQLModel):
 class TimestampMixin(SQLModel):
     """Server-side created_at / updated_at timestamps."""
 
-    created_at: datetime | None = Field(
+    # sqlmodel's Field stub types `sa_type` as `type[Any]`, but SQLModel accepts a
+    # type *instance* (needed for DateTime(timezone=True)) — a stub inaccuracy, not
+    # a real mismatch.
+    created_at: datetime | None = Field(  # type: ignore[call-overload]
         default=None,
         sa_type=DateTime(timezone=True),
         sa_column_kwargs={"server_default": func.now(), "nullable": False},
     )
-    updated_at: datetime = Field(
+    updated_at: datetime = Field(  # type: ignore[call-overload]
         default=None,
         sa_type=DateTime(timezone=True),
         sa_column_kwargs={
@@ -101,6 +104,7 @@ MessagePart = Annotated[
 
 class Message(BaseModel):
     """AI SDK client message format"""
+
     id: str
     role: str
     parts: list[MessagePart]

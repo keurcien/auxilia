@@ -104,7 +104,7 @@ async def _initialize_with_ui_capability(self: ClientSession) -> types.Initializ
                 ),
             )
         )
-    except Exception:  # noqa: BLE001 - any drift in the mirrored SDK internals
+    except Exception:
         original = _original_initialize
         if original is None:  # patches not applied; nothing to fall back to
             raise

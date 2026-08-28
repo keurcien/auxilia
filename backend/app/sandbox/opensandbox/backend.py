@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import time
 
 from deepagents.backends.protocol import (
@@ -60,10 +61,8 @@ class OpenSandbox(BaseSandbox):
         while True:
             elapsed = time.monotonic() - started_at
             if effective_timeout and elapsed >= effective_timeout:
-                try:
+                with contextlib.suppress(Exception):
                     self._sandbox.commands.interrupt(execution_id)
-                except Exception:
-                    pass
                 return ExecuteResponse(
                     output=f"Command timed out after {effective_timeout} seconds",
                     exit_code=124,
@@ -98,7 +97,7 @@ class OpenSandbox(BaseSandbox):
                 responses.append(
                     FileDownloadResponse(path=path, content=content, error=None)
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001 — per-file failure is reported in its response
                 responses.append(
                     FileDownloadResponse(
                         path=path, content=None, error="file_not_found"
@@ -115,7 +114,7 @@ class OpenSandbox(BaseSandbox):
             try:
                 self._sandbox.files.write_file(path, content)
                 responses.append(FileUploadResponse(path=path, error=None))
-            except Exception:
+            except Exception:  # noqa: BLE001 — per-file failure is reported in its response
                 responses.append(
                     FileUploadResponse(path=path, error="permission_denied")
                 )

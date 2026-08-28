@@ -1,11 +1,6 @@
-from pathlib import Path
-
-from pydantic import ConfigDict
 from pydantic_settings import BaseSettings
 
-
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
-ROOT_ENV = BASE_DIR.parent / ".env"
+from app.settings import settings_config
 
 
 class ModelProviderSettings(BaseSettings):
@@ -26,7 +21,7 @@ class ModelProviderSettings(BaseSettings):
         "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/models/whitelist.yaml"
     )
 
-    model_config: ConfigDict = ConfigDict(env_file=ROOT_ENV, extra="ignore")
+    model_config = settings_config()
 
 
 model_provider_settings = ModelProviderSettings()
