@@ -72,6 +72,7 @@ export interface MCPServerConnection {
 	userId: string;
 	name?: string | null;
 	email?: string | null;
+	pictureUrl?: string | null;
 	status: "active" | "expired";
 }
 

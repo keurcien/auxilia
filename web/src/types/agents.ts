@@ -51,6 +51,7 @@ export interface AgentOwner {
 	id: string;
 	name?: string | null;
 	email?: string | null;
+	pictureUrl?: string | null;
 }
 
 export interface Agent {

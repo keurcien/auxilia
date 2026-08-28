@@ -50,6 +50,7 @@ import { api } from "@/lib/api/client";
 import { formatRunAt } from "@/lib/triggers/schedule";
 import { useActiveRunThreadIds } from "@/hooks/use-active-runs";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
+import { UserAvatar } from "@/components/ui/user-avatar";
 import { RenameThreadDialog } from "@/components/layout/app-sidebar/rename-thread-dialog";
 import { Thread } from "@/types/threads";
 import { useTheme } from "next-themes";
@@ -82,15 +83,6 @@ const navItems: {
 		icon: Users,
 	},
 ];
-
-function getInitials(name: string | undefined): string {
-	if (!name) return "U";
-	const parts = name.trim().split(" ");
-	if (parts.length >= 2) {
-		return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-	}
-	return name.substring(0, 2).toUpperCase();
-}
 
 /** Compact relative time for thread rows: now, 5m, 2h, 3d, 4w */
 function shortTimeAgo(dateStr: string): string {
@@ -479,9 +471,12 @@ export function AppSidebar() {
 										tooltip={user?.name || "User"}
 										className="h-11 cursor-pointer rounded-lg pl-[5px] pr-2 hover:bg-sidebar-hover data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground group-data-[collapsible=icon]:h-11! group-data-[collapsible=icon]:w-[38px]! group-data-[collapsible=icon]:p-0! group-data-[collapsible=icon]:pl-[5px]!"
 									>
-										<span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
-											{getInitials(user?.name ?? undefined)}
-										</span>
+										<UserAvatar
+											name={user?.name}
+											pictureUrl={user?.pictureUrl}
+											className="size-7 shrink-0"
+											fallbackClassName="bg-primary text-[10px] text-primary-foreground dark:bg-primary"
+										/>
 										<div className="grid flex-1 text-left leading-tight min-w-0 group-data-[collapsible=icon]:hidden">
 											<span className="truncate text-[12.5px] font-semibold text-sidebar-foreground">
 												{user?.name || "User"}

@@ -240,6 +240,7 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
                     user_id=user_id,
                     name=user.name if user else None,
                     email=user.email if user else None,
+                    picture_url=user.picture_url if user else None,
                     status="expired" if expired else "active",
                 )
             )

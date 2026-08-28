@@ -118,7 +118,12 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
                     else None
                 ),
                 owner=(
-                    AgentOwnerInfo(id=owner.id, name=owner.name, email=owner.email)
+                    AgentOwnerInfo(
+                        id=owner.id,
+                        name=owner.name,
+                        email=owner.email,
+                        picture_url=owner.picture_url,
+                    )
                     if (owner := owners_by_id.get(agent.owner_id)) is not None
                     else None
                 ),

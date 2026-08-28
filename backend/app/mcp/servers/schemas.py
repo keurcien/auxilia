@@ -101,6 +101,7 @@ class MCPServerConnectionResponse(SQLModel):
     user_id: UUID
     name: str | None = None
     email: str | None = None
+    picture_url: str | None = None
     status: Literal["active", "expired"] = "active"
 
 

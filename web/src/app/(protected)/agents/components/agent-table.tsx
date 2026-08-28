@@ -9,6 +9,7 @@ import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import ArchivedAgentDialog from "@/app/(protected)/agents/components/archived-agent-dialog";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
+import { UserAvatar } from "@/components/ui/user-avatar";
 import { cn } from "@/lib/utils";
 
 const MAX_INLINE_AVATARS = 3;
@@ -31,14 +32,6 @@ const NO_ACCESS_BADGE = {
 	label: "NO ACCESS",
 	className: "bg-[#FBEFED] text-[#B04A3A] dark:bg-[#B04A3A]/10",
 };
-
-function ownerInitials(name: string): string {
-	const parts = name.trim().split(/\s+/);
-	if (parts.length >= 2) {
-		return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-	}
-	return name.slice(0, 2).toUpperCase();
-}
 
 interface AgentTableProps {
 	agents: Agent[];
@@ -234,9 +227,12 @@ export default function AgentTable({
 				const ownerName = agent.owner?.name || agent.owner?.email || "Unknown";
 				return (
 					<span className="flex min-w-0 items-center gap-2">
-						<span className="flex size-[22px] shrink-0 items-center justify-center rounded-full bg-primary text-[8.5px] font-bold text-primary-foreground">
-							{ownerInitials(ownerName)}
-						</span>
+						<UserAvatar
+							name={ownerName}
+							pictureUrl={agent.owner?.pictureUrl}
+							className="size-[22px] shrink-0"
+							fallbackClassName="bg-primary text-[8.5px] text-primary-foreground dark:bg-primary"
+						/>
 						<span className="truncate text-[12.5px] text-body dark:text-panel-body">
 							{ownerName}
 						</span>

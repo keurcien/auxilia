@@ -177,6 +177,7 @@ class AgentOwnerInfo(SQLModel):
     id: UUID
     name: str | None = None
     email: str | None = None
+    picture_url: str | None = None
 
 
 class AgentListResponse(SQLModel):
