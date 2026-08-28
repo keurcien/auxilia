@@ -310,12 +310,19 @@ class RunService:
             record = await repository.get(run_id)
         if thread_id is not None:
             await RunEventStream(run_id, self.redis).publish_end(status)
-        # Unconditional. `thread_id is None` means the terminal UPDATE matched
-        # nothing — the run was already terminal, or its row is gone because the
-        # thread was deleted mid-run (CASCADE). In that second case the ephemera
-        # would otherwise keep no TTL at all and sit in Redis for ever; there is
-        # no second chance, because nothing will ever finalize this run again.
-        await self._expire_ephemera(run_id)
+        # `thread_id is None` means the guarded UPDATE matched nothing, which
+        # covers three different situations and only two of them are finished:
+        #   1. the run was already terminal — expire, it is over;
+        #   2. its row is gone (the thread was deleted mid-run and CASCADEd) —
+        #      expire, or the ephemera keep no TTL at all and sit in Redis for
+        #      ever, with no second chance because nothing will finalize it again;
+        #   3. it moved out of `expected` and is **still running** — a pending
+        #      cancel or a reaper sweep losing a race with a dispatcher claim.
+        # Expiring in case 3 would clear a live run's liveness key and hand the
+        # reaper a false "dead worker", which is precisely the failure the
+        # two-sample rule exists to prevent.
+        if thread_id is not None or record is None or is_terminal(record.status):
+            await self._expire_ephemera(run_id)
         return record
 
     # --- reaper support -----------------------------------------------------

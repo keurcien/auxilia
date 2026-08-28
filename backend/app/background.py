@@ -30,6 +30,8 @@ logger = logging.getLogger(__name__)
 
 # Backoff after a failing tick: doubles from the loop's own interval up to this.
 MAX_BACKOFF_SECONDS = 60.0
+# Floor for a loop's interval — see `PeriodicLoop.__init__`.
+MIN_INTERVAL_SECONDS = 0.001
 
 
 @dataclass
@@ -55,7 +57,11 @@ class LoopHealth:
 
     def mark_failure(self, exc: BaseException) -> None:
         self.consecutive_failures += 1
-        self.last_error = repr(exc)
+        # The exception *type* only. `/health` is unauthenticated, so anything
+        # kept here is world-readable; a repr can carry a DSN, a query, or a
+        # token from whatever raised. The full exception goes to the logs, where
+        # it belongs, via the caller's `logger.exception`.
+        self.last_error = type(exc).__name__
 
     @property
     def seconds_since_tick(self) -> float | None:
@@ -89,7 +95,7 @@ class LoopHealth:
                 else round(self.seconds_since_tick, 1)
             ),
             "consecutive_failures": self.consecutive_failures,
-            "last_error": self.last_error,
+            "last_error_type": self.last_error,
         }
 
 
@@ -132,6 +138,11 @@ class PeriodicLoop:
         interval: float,
         tick: Callable[[], Awaitable[None]],
     ):
+        # A non-positive interval makes `_sleep` return instantly and turns the
+        # loop into a busy spin. Clamped rather than rejected: an operator who
+        # sets 0 means "as often as possible", and refusing to start a loop over
+        # a config typo is a worse outcome than running it a little slower.
+        interval = max(interval, MIN_INTERVAL_SECONDS)
         self.health = registry.register(LoopHealth(name=name, interval=interval))
         self._name = name
         self._interval = interval

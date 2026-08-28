@@ -94,7 +94,7 @@ class AgentRepository(BaseRepository[AgentDB]):
         out of the agents list while still wired to a supervisor.
         """
         # One query for the whole first level. The outer join carries the link
-        # row's `created_at` so subagents keep a stable order; the parent matches
+        # row's `created_at` so subagents come back in a stable order; the parent matches
         # the first disjunct and joins to a NULL link, hence `nullsfirst`.
         stmt = (
             select(AgentDB, AgentSubagentDB.created_at)
@@ -109,7 +109,15 @@ class AgentRepository(BaseRepository[AgentDB]):
                     AgentSubagentDB.supervisor_id == agent_id,
                 )
             )
-            .order_by(AgentSubagentDB.created_at.asc().nullsfirst())
+            .order_by(
+                AgentSubagentDB.created_at.asc().nullsfirst(),
+                # `created_at` is the *transaction* timestamp, so subagents bound
+                # in one save all share it and would otherwise come back in
+                # whatever order the planner liked. The tie-break only buys
+                # repeatability — subagents are addressed by name, so their
+                # relative order carries no meaning.
+                AgentSubagentDB.id.asc(),
+            )
         )
         rows = (await self.db.execute(stmt)).all()
 

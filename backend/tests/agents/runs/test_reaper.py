@@ -14,6 +14,7 @@ reason `test_repository.py` uses naive datetimes), and `updated_at` carries an
 `now` forward tests the identical thresholds from the other side.
 """
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -160,7 +161,9 @@ async def test_pending_runs_are_reaped_once_no_dispatcher_is_alive(redis):
         thread_id="t-orphan", user_id=str(uuid4()), input={"messages": []}
     )
 
-    await RunReaper(redis)._reap_undispatched_pending(_after_pending_timeout())
+    reaper = RunReaper(redis)
+    await reaper._reap_undispatched_pending(_after_pending_timeout())
+    await reaper._reap_undispatched_pending(_after_pending_timeout())
 
     back = await service.get(record.id)
     assert back.status == RunStatus.error
@@ -178,13 +181,88 @@ async def test_a_young_pending_run_is_never_reaped(redis):
     assert (await service.get(record.id)).status == RunStatus.pending
 
 
-async def test_dispatcher_liveness_expires_so_a_dead_cluster_is_detectable(redis):
-    """The gate is a self-expiring key, not a flag: a dispatcher that dies
-    without cleaning up must stop counting as alive on its own."""
+async def test_dispatcher_liveness_is_a_self_expiring_key(redis):
+    """The gate has to expire on its own: a dispatcher that dies without
+    cleaning up must stop counting as alive.
+
+    Asserting the TTL is the whole point. Deleting the key by hand and checking
+    `any_alive()` proves nothing — it would pass just as well if `stamp` were a
+    plain SET with no expiry, which is the exact regression this guards.
+    """
+    liveness = DispatcherLiveness(redis)
+
+    await liveness.stamp(ttl=60)
+
+    assert await liveness.any_alive() is True
+    ttl = await redis.ttl("run:dispatchers:alive")
+    assert 0 < ttl <= 60  # -1 would mean "set, but never expires"
+
+
+async def test_an_expired_dispatcher_key_reads_as_no_dispatcher(redis):
     liveness = DispatcherLiveness(redis)
     await liveness.stamp(ttl=60)
-    assert await liveness.any_alive() is True
-
-    await redis.delete("run:dispatchers:alive")
+    await redis.pexpire("run:dispatchers:alive", 1)
+    await asyncio.sleep(0.05)
 
     assert await liveness.any_alive() is False
+
+
+async def test_a_missing_dispatcher_key_survives_its_first_sweep(redis):
+    """Same evidence problem as the running path: "no dispatcher" is a missing
+    Redis key, and a Redis restart makes every key missing at once. One sample
+    would turn a restart into "reap the entire queue"."""
+    service = RunService(redis)
+    record = await service.create(
+        thread_id="t-restart", user_id=str(uuid4()), input={"messages": []}
+    )
+
+    await RunReaper(redis)._reap_undispatched_pending(_after_pending_timeout())
+
+    assert (await service.get(record.id)).status == RunStatus.pending
+
+
+async def test_a_dispatcher_coming_back_resets_the_no_dispatcher_suspicion(redis):
+    """The Redis-restart sequence end to end: the key vanishes, the reaper
+    notices, the dispatcher stamps again on its next heartbeat, nothing dies."""
+    service = RunService(redis)
+    record = await service.create(
+        thread_id="t-restart2", user_id=str(uuid4()), input={"messages": []}
+    )
+    reaper = RunReaper(redis)
+
+    await reaper._reap_undispatched_pending(_after_pending_timeout())  # 1st sighting
+    await DispatcherLiveness(redis).stamp(ttl=60)  # dispatcher heartbeats again
+    await reaper._reap_undispatched_pending(_after_pending_timeout())  # cleared
+    await redis.delete("run:dispatchers:alive")
+    await reaper._reap_undispatched_pending(_after_pending_timeout())  # a *first* one
+
+    assert (await service.get(record.id)).status == RunStatus.pending
+
+
+async def test_a_failed_sweep_does_not_carry_suspicion_into_the_next_one(redis):
+    """A sweep that raises part-way used to leave `_suspect` untouched, so a run
+    it had already flagged would be reaped on its very next missing sample —
+    the single-sample rule, reintroduced through the error path."""
+    service = RunService(redis)
+    run_id = await _claimed(service, "t-aborted")
+    reaper = RunReaper(redis)
+
+    await reaper._reap_dead_running(_after_heartbeat_grace())  # suspected
+    assert run_id in reaper._suspect
+
+    # The next sweep blows up after listing.
+    original = reaper.service.list_running
+
+    async def _boom():
+        raise ConnectionError("postgres went away")
+
+    reaper.service.list_running = _boom
+    with pytest.raises(ConnectionError):
+        await reaper._reap_dead_running(_after_heartbeat_grace())
+    reaper.service.list_running = original
+
+    assert reaper._suspect == set()
+
+    # ...so the run needs a fresh pair of sightings, not one.
+    await reaper._reap_dead_running(_after_heartbeat_grace())
+    assert (await service.get(run_id)).status == RunStatus.running

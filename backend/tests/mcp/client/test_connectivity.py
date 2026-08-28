@@ -149,7 +149,7 @@ async def test_probe_memoizes_a_positive_so_the_polling_loop_stops_refreshing(
 
     assert first == second == {server.id: True}
     probe.assert_awaited_once()
-    assert await probe_redis.ttl(f"mcp:authprobe:u1:{server.id}") > 0
+    assert await probe_redis.ttl(f"mcp:u1:{server.id}:authprobe") > 0
 
 
 async def test_probe_does_not_memoize_a_negative(probe_redis):
@@ -279,3 +279,59 @@ async def test_an_oauth_requirement_is_not_wrapped(open_session, monkeypatch):
     with pytest.raises(OAuthAuthorizationRequired):
         async with connectivity._open_session("https://mcp.example.com/mcp"):
             pass  # pragma: no cover — never reached
+
+
+async def test_the_probe_cache_lives_where_the_purges_can_reach_it(probe_redis):
+    """The cache key must sit inside `mcp:{user}:{server}:...`, the layout
+    `TokenStorageFactory.clear_server_data` / `clear_user_server_data` scan
+    (`mcp:*:{server_id}:*`). Outside it, the key survives every purge — so a
+    user who revoked their connection, or a server whose URL just changed, would
+    keep reading as authorized from a cache nothing knows how to invalidate."""
+    from app.mcp.client.storage import TokenStorageFactory
+
+    server = _server(MCPAuthType.oauth2, uuid4())
+    with patch.object(connectivity, "is_authorized", AsyncMock(return_value=True)):
+        await connectivity.probe_authorization([server], "u1")
+    assert await probe_redis.exists(f"mcp:u1:{server.id}:authprobe")
+
+    deleted = await TokenStorageFactory(redis=probe_redis).clear_server_data(
+        str(server.id)
+    )
+
+    assert deleted >= 1
+    assert not await probe_redis.exists(f"mcp:u1:{server.id}:authprobe")
+
+
+async def test_a_stalled_redis_does_not_hang_the_polled_endpoint(monkeypatch):
+    """Fail-open only catches raised errors. A Redis that accepts the connection
+    then stalls would hang readiness and the run-start preflight indefinitely."""
+    import asyncio as _asyncio
+
+    async def _never_returns(*_args, **_kwargs):
+        await _asyncio.Event().wait()
+
+    class _StallingPipeline:
+        """Stalls on entry, the way a wedged connection would — so the write
+        path is timed out rather than failing on a type error."""
+
+        async def __aenter__(self):
+            await _asyncio.Event().wait()
+
+        async def __aexit__(self, *_exc):
+            return False
+
+    monkeypatch.setattr(connectivity, "_CACHE_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(
+        connectivity,
+        "get_redis",
+        lambda: SimpleNamespace(
+            mget=_never_returns, pipeline=lambda **_kw: _StallingPipeline()
+        ),
+    )
+    server = _server(MCPAuthType.oauth2, uuid4())
+
+    with patch.object(connectivity, "is_authorized", AsyncMock(return_value=True)):
+        async with _asyncio.timeout(2):
+            result = await connectivity.probe_authorization([server], "u1")
+
+    assert result == {server.id: True}

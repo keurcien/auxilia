@@ -94,7 +94,7 @@ async def test_a_persistent_failure_backs_off_instead_of_spinning(until, monkeyp
 
     assert waits[:3] == [0.001, 0.002, 0.004]  # doubling
     assert loop.health.consecutive_failures >= 3
-    assert "still broken" in (loop.health.last_error or "")
+    assert loop.health.last_error == "RuntimeError"
 
 
 async def test_backoff_is_capped(until, monkeypatch):
@@ -133,7 +133,8 @@ async def test_failures_are_visible_in_health_while_they_last(until):
 
     await _run_briefly(loop, until, _failed, what="a recorded failure")
 
-    assert loop.health.snapshot()["last_error"] is not None
+    snapshot = loop.health.snapshot()
+    assert snapshot["last_error_type"] == "RuntimeError"
 
 
 # ---------------------------------------------------------------------------
@@ -238,3 +239,22 @@ def test_health_is_ok_on_a_request_only_instance(client, isolated_registry):
 
     assert response.status_code == 200
     assert response.json()["loops"] == []
+
+
+async def test_health_never_exposes_raw_exception_text(until):
+    """`/health` is unauthenticated, so anything kept here is world-readable —
+    and an exception repr can carry a DSN, a query, or a token from whatever
+    raised. The type is enough to triage; the rest belongs in the logs."""
+
+    async def tick() -> None:
+        raise RuntimeError("postgresql://admin:hunter2@db.internal:5432/prod")
+
+    loop = PeriodicLoop("leaky", 0.001, tick)
+
+    async def _failed() -> bool:
+        return loop.health.consecutive_failures > 0
+
+    await _run_briefly(loop, until, _failed, what="a recorded failure")
+
+    assert "hunter2" not in repr(loop.health.snapshot())
+    assert loop.health.snapshot()["last_error_type"] == "RuntimeError"

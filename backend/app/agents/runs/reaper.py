@@ -31,6 +31,9 @@ class RunReaper:
         self._last_prune: float | None = None
         # Run ids that looked dead on the previous sweep — see `_reap_dead_running`.
         self._suspect: set[str] = set()
+        # Whether the previous sweep also found no dispatcher — see
+        # `_reap_undispatched_pending`.
+        self._saw_no_dispatcher = False
         self._loop = PeriodicLoop(
             "run-reaper", run_settings.reaper_interval_seconds, self._sweep
         )
@@ -59,23 +62,30 @@ class RunReaper:
         """
         grace = timedelta(seconds=run_settings.heartbeat_timeout_seconds)
         suspect_now: set[str] = set()
-        for record in await self.service.list_running():
-            if await RunLiveness(record.id, self.service.redis).is_alive():
-                continue
-            if now - record.updated_at < grace:
-                continue
-            suspect_now.add(record.id)
-            if record.id not in self._suspect:
-                logger.info(
-                    "Run %s looks dead; waiting for a second sweep to confirm",
-                    record.id,
+        # `finally`, so a sweep that raises part-way still replaces the previous
+        # suspicions instead of carrying them into the next one — a run left in
+        # `_suspect` by an aborted sweep would be reaped on its very next
+        # missing sample, which is the single-sample rule this exists to avoid.
+        # A partial `suspect_now` errs the safe way: fewer suspects, more sweeps.
+        try:
+            for record in await self.service.list_running():
+                if await RunLiveness(record.id, self.service.redis).is_alive():
+                    continue
+                if now - record.updated_at < grace:
+                    continue
+                suspect_now.add(record.id)
+                if record.id not in self._suspect:
+                    logger.info(
+                        "Run %s looks dead; waiting for a second sweep to confirm",
+                        record.id,
+                    )
+                    continue
+                logger.warning("Reaping stale running run %s", record.id)
+                await self.service.finalize(
+                    record.id, RunStatus.error, error="Worker stopped responding."
                 )
-                continue
-            logger.warning("Reaping stale running run %s", record.id)
-            await self.service.finalize(
-                record.id, RunStatus.error, error="Worker stopped responding."
-            )
-        self._suspect = suspect_now
+        finally:
+            self._suspect = suspect_now
 
     async def _reap_undispatched_pending(self, now: datetime) -> None:
         """Finalize `pending` runs that will never be picked up.
@@ -90,10 +100,20 @@ class RunReaper:
         legitimate `enqueue` waiter and is skipped by the query itself.)
 
         Trade-off, on purpose: a dispatcher that is alive but wedged leaves
-        pending runs un-reaped. That is a supervision problem (P1-12), and
+        pending runs un-reaped. That is what `/health` is for (P1-12), and
         failing to reap is far cheaper than killing runs that were about to run.
+
+        "No dispatcher alive" also has to be seen **twice in a row**, for the
+        same reason the running path does: the evidence is a Redis key, and a
+        Redis restart makes every key missing at once. A single sample would
+        turn a restart into "reap the entire queue".
         """
         if await self.dispatchers.any_alive():
+            self._saw_no_dispatcher = False
+            return
+        if not self._saw_no_dispatcher:
+            self._saw_no_dispatcher = True
+            logger.info("No dispatcher alive; waiting for a second sweep to confirm")
             return
         cutoff = now - timedelta(seconds=run_settings.pending_timeout_seconds)
         for record in await self.service.list_stuck_pending(cutoff):

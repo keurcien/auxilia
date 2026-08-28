@@ -409,7 +409,22 @@ async def test_heartbeat_refreshes_the_event_log_ttl(redis, monkeypatch, until):
 # ---------------------------------------------------------------------------
 
 
-async def test_dispatcher_announces_liveness_while_saturated(redis, monkeypatch, until):
+@pytest.fixture
+def isolated_registry(monkeypatch):
+    """`RunDispatcher` registers its health in the process-wide registry on
+    construction, and a cancelled task never reaches the cleanup that marks it
+    stopped — so without this, later tests (and /health) see a dispatcher that
+    does not exist."""
+    from app.background import LoopRegistry
+
+    registry = LoopRegistry()
+    monkeypatch.setattr("app.background.registry", registry)
+    return registry
+
+
+async def test_dispatcher_announces_liveness_while_saturated(
+    redis, monkeypatch, until, isolated_registry
+):
     """The claim loop blocks on `_semaphore.acquire()` when every slot is busy —
     precisely the backlog the reaper must not mistake for "nothing dispatching".
     So the announcement runs on its own timer."""
@@ -491,3 +506,77 @@ async def test_a_chatty_run_does_not_pay_a_round_trip_per_chunk(
     assert appends["xadd"] == 1
     chunks = [c async for c in service.stream(record.id, "0")]
     assert len([c for c in chunks if "event: messages" in c]) == 50
+
+
+async def test_a_losing_finalize_does_not_disturb_a_live_run(redis):
+    """A pending cancel (or a reaper sweep) can lose a race with a dispatcher
+    claim: the guarded UPDATE matches nothing while the run is now `running`.
+    Clearing its liveness key there fakes a dead worker for the reaper — the
+    exact failure the two-sample rule exists to prevent."""
+    service = RunService(redis)
+    record = await service.create(
+        thread_id="t-race", user_id=str(uuid4()), input={"messages": []}
+    )
+    claimed = await service.claim_next()
+    assert claimed is not None
+    liveness = RunLiveness(record.id, redis)
+    await liveness.stamp(ttl=60)
+
+    # The reaper reaps a *pending* zombie; the dispatcher already claimed it.
+    result = await service.finalize(
+        record.id,
+        RunStatus.error,
+        error="Run was never dispatched.",
+        expected=RunStatus.pending,
+    )
+
+    assert result.status == RunStatus.running  # untouched
+    assert await liveness.is_alive() is True
+
+
+async def test_an_already_terminal_finalize_still_expires_ephemera(redis):
+    """The idempotent re-finalize (worker and reaper may both call it) must
+    still leave the ephemera on a TTL."""
+    service = RunService(redis)
+    record = await service.create(
+        thread_id="t-twice", user_id=str(uuid4()), input={"messages": []}
+    )
+    await service.claim_next()
+    await service.finalize(record.id, RunStatus.success)
+    await redis.persist(keys.run_events_key(record.id))
+
+    await service.finalize(record.id, RunStatus.success)
+
+    assert await redis.ttl(keys.run_events_key(record.id)) > 0
+
+
+async def test_a_saturated_dispatcher_stays_healthy(
+    redis, monkeypatch, until, isolated_registry
+):
+    """The regression: health used to be ticked by the claim loop, which blocks
+    on the semaphore for the whole length of an agent turn. A fully occupied
+    dispatcher went stale in about a minute, so /health returned 503 and the
+    platform recycled a healthy, busy worker mid-run — worse than the failure
+    /health exists to catch."""
+    monkeypatch.setattr(run_settings, "heartbeat_interval_seconds", 0)
+    monkeypatch.setattr(run_settings, "worker_concurrency", 1)
+    dispatcher = RunDispatcher(redis)
+    await dispatcher._semaphore.acquire()  # every slot busy on a long run
+
+    task = asyncio.create_task(dispatcher.run())
+    try:
+        # Two ticks, so this cannot pass on the single mark_tick() in `run()`.
+        ticks = []
+
+        async def _ticked_twice() -> bool:
+            ticks.append(dispatcher.health.last_tick_at)
+            return len({t for t in ticks if t is not None}) >= 2
+
+        await until(_ticked_twice, what="a saturated dispatcher to keep ticking health")
+    finally:
+        await dispatcher.stop(drain_timeout=0.1)
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+    assert dispatcher.health.is_healthy() is True

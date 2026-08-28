@@ -93,17 +93,25 @@ async def test_includes_direct_subagents_but_not_their_subagents(agent_session):
     assert [s.id for s in spec.subagents] == [child.id]
 
 
-async def test_subagents_keep_the_order_they_were_bound_in(agent_session):
+async def test_subagent_order_is_stable_across_reads(agent_session):
+    """Repeatable, not semantic. Subagents bound in one save share a `created_at`
+    (it is the transaction timestamp), so the id tie-break is what stops the
+    planner returning them in a different order each time. They are addressed by
+    name, so their relative order carries no meaning beyond that."""
     parent = await _add_agent(agent_session, "Parent")
-    first = await _add_agent(agent_session, "First")
-    second = await _add_agent(agent_session, "Second")
-    await _bind_subagent(agent_session, parent.id, first.id)
-    await _bind_subagent(agent_session, parent.id, second.id)
+    for name in ("First", "Second", "Third"):
+        child = await _add_agent(agent_session, name)
+        await _bind_subagent(agent_session, parent.id, child.id)
 
-    spec = await AgentRepository(agent_session).get_run_spec(parent.id)
+    repository = AgentRepository(agent_session)
+    first_read = await repository.get_run_spec(parent.id)
+    second_read = await repository.get_run_spec(parent.id)
 
-    assert spec is not None
-    assert [s.name for s in spec.subagents] == ["First", "Second"]
+    assert first_read is not None and second_read is not None
+    assert [s.name for s in first_read.subagents] == [
+        s.name for s in second_read.subagents
+    ]
+    assert sorted(s.name for s in first_read.subagents) == ["First", "Second", "Third"]
 
 
 async def test_an_archived_agent_still_resolves(agent_session):

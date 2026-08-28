@@ -252,10 +252,23 @@ async def is_authorized(
 # revoked at the IdP keeps reading as authorized for up to the TTL. Thirty
 # seconds of lag before the run fails in-thread is the cheaper mistake.
 _PROBE_CACHE_TTL_SECONDS = 30
+# The fail-open handlers below only catch *raised* errors. A Redis that accepts
+# the connection and then stalls would hang the polled readiness endpoint and
+# the run-start preflight indefinitely, so every cache round trip gets a
+# deadline. The cache is an optimization; missing it costs a probe.
+_CACHE_TIMEOUT_SECONDS = 2.0
 
 
 def _probe_cache_key(user_id: str, server_id: UUID) -> str:
-    return f"mcp:authprobe:{user_id}:{server_id}"
+    """Deliberately shaped `mcp:{user}:{server}:...`, matching `RedisTokenStorage`.
+
+    That layout is what `TokenStorageFactory.clear_server_data` /
+    `clear_user_server_data` scan (`mcp:*:{server_id}:*`). A key outside it
+    survives every purge, so a user who revoked their connection — or a server
+    whose URL or auth type just changed — would keep reading as authorized until
+    this TTL lapsed, from a cache nothing knows how to invalidate.
+    """
+    return f"mcp:{user_id}:{server_id}:authprobe"
 
 
 async def probe_authorization(
@@ -283,7 +296,10 @@ async def probe_authorization(
     unique = {server.id: server for server in servers}
 
     try:
-        cached = await redis.mget([_probe_cache_key(user_id, sid) for sid in unique])
+        async with asyncio.timeout(_CACHE_TIMEOUT_SECONDS):
+            cached = await redis.mget(
+                [_probe_cache_key(user_id, sid) for sid in unique]
+            )
     except Exception:  # noqa: BLE001 — a cache outage degrades to probing, never to failing
         logger.warning("Authorization probe cache read failed", exc_info=True)
         cached = [None] * len(unique)
@@ -316,14 +332,15 @@ async def probe_authorization(
 
     if authorized_ids:
         try:
-            async with redis.pipeline(transaction=False) as pipe:
-                for server_id in authorized_ids:
-                    pipe.set(
-                        _probe_cache_key(user_id, server_id),
-                        "1",
-                        ex=_PROBE_CACHE_TTL_SECONDS,
-                    )
-                await pipe.execute()
+            async with asyncio.timeout(_CACHE_TIMEOUT_SECONDS):
+                async with redis.pipeline(transaction=False) as pipe:
+                    for server_id in authorized_ids:
+                        pipe.set(
+                            _probe_cache_key(user_id, server_id),
+                            "1",
+                            ex=_PROBE_CACHE_TTL_SECONDS,
+                        )
+                    await pipe.execute()
         except Exception:  # noqa: BLE001 — a cache outage degrades to probing, never to failing
             logger.warning("Authorization probe cache write failed", exc_info=True)
 

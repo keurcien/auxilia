@@ -348,6 +348,45 @@ Last updated: 2026-08-29
 
 ---
 
+## Review follow-ups on PR #299 (cubic)
+
+cubic found 16 issues on the Phase 1 PR, and the important ones were real —
+including two flaws inside the P1-8 fixes themselves and one self-inflicted
+outage risk. Recorded here because they are the kind of mistake that recurs:
+
+- **A fix can reintroduce the bug it was fixing.** P1-8's unconditional
+  `_expire_ephemera` (§5.4) cleared the liveness key of a run that was *still
+  running* whenever a guarded finalize lost a race with a dispatcher claim —
+  handing the reaper a fake dead worker, which is precisely what §5.3's
+  two-sample rule exists to prevent. Now gated on the row being absent or
+  terminal.
+- **A health check can be the outage.** P1-12 ticked dispatcher health from the
+  claim loop, which blocks on the semaphore for the whole length of an agent
+  turn. A fully occupied dispatcher went stale in ~63s, so `/health` 503'd and
+  the platform would recycle a healthy, busy worker mid-run. Health now rides
+  the liveness heartbeat, which runs on its own timer.
+- **The two-sample rule had to apply to both reap paths.** "No dispatcher alive"
+  is a missing Redis key too, so a restart made the reaper kill the whole
+  pending queue on one sample. Also: a sweep that raised part-way left
+  `_suspect` stale, so the *next* single sample could reap — the error path
+  quietly restored single-sample behaviour.
+- **Cancelling a task can destroy data it already took.** The event buffer's
+  `_flush_locked` empties the buffer before awaiting the write, so `aclose`
+  cancelling mid-write lost the tail of a run. The flusher is now asked to stop
+  and awaited, never cancelled.
+- **Fail-open only catches raised errors.** The `probe_authorization` cache had
+  no deadline, so a stalled Redis would hang the polled endpoint rather than
+  degrade. Every cache round trip is now bounded.
+- **A cache must live where the invalidators can find it.** The probe cache key
+  sat outside the `mcp:{user}:{server}:*` layout that `clear_server_data` scans,
+  so a revoked connection or a changed server URL left it reporting authorized.
+- **Two of my own tests proved nothing.** The dispatcher-liveness test deleted
+  the key by hand and would have passed against a `SET` with no expiry; the
+  subagent-ordering test asserted insertion order that the query never
+  guaranteed (`created_at` is the transaction timestamp, so siblings tie).
+- `/health` is unauthenticated, so it now reports an exception *type*, never a
+  repr that could carry a DSN or token.
+
 ## Process note: the mypy ratchet can hide a regression in a base class
 
 `app/repository.py` and `app/service.py` are checked, but most of their *subclasses*

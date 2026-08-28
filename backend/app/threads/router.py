@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +16,8 @@ from app.threads.serialization import deserialize_to_ui_messages, pending_interr
 from app.threads.service import ThreadService, get_thread_service
 from app.users.models import UserDB
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/threads", tags=["threads"])
 
@@ -240,4 +244,15 @@ async def delete_thread(
     # direction fails safe: a purge that errors leaves a deleted thread's
     # checkpoints orphaned, which is invisible and reclaimable.
     await db.commit()
-    await service.purge_checkpoints([thread_id])
+    # Past the commit the delete has happened, so a purge failure must not turn
+    # into a 500: the client would retry and get a 404 for a thread that really
+    # is gone. Orphaned checkpoints are invisible and reclaimable; a confusing
+    # error on a successful operation is not. Logged loudly so they can be.
+    try:
+        await service.purge_checkpoints([thread_id])
+    except Exception:
+        logger.exception(
+            "Thread %s was deleted but its checkpoints could not be purged; "
+            "they are now orphaned",
+            thread_id,
+        )

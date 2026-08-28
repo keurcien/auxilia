@@ -257,13 +257,16 @@ class RunDispatcher:
         self._tasks: set[asyncio.Task] = set()
         self._heartbeat: asyncio.Task | None = None
         # Not a `PeriodicLoop`: this loop is not periodic — it blocks on the
-        # semaphore for as long as every slot is busy. It publishes the same
-        # `LoopHealth` so `/health` can see it, with an interval sized to the
-        # longest a *healthy* dispatcher can legitimately go without a pass.
+        # semaphore for as long as every slot is busy, which can be the whole
+        # length of an agent turn. Health is therefore ticked by
+        # `_announce_liveness`, not by the claim loop, and sized to that
+        # cadence. Ticking from the claim loop would make a *fully occupied*
+        # dispatcher look dead within a minute and get a healthy, busy worker
+        # recycled mid-run — worse than the failure /health exists to catch.
         self.health = registry.register(
             LoopHealth(
                 name="run-dispatcher",
-                interval=max(run_settings.claim_interval_seconds, 1.0),
+                interval=run_settings.heartbeat_interval_seconds,
             )
         )
 
@@ -276,26 +279,34 @@ class RunDispatcher:
         self.health.started = True
         self.health.mark_tick()
         self._heartbeat = asyncio.create_task(self._announce_liveness())
-        # Acquire a slot *before* claiming so at most `concurrency` runs are
-        # ever in flight; the loop blocks on `acquire` when saturated.
-        while not self._stopping.is_set():
-            try:
-                await self._claim_and_dispatch()
-            except Exception as exc:
-                # `_claim_one` already absorbs claim failures; reaching here
-                # means the loop's own machinery broke. Without this the
-                # dispatcher died for good and the instance kept serving 200s
-                # while no run ever executed again (design review §2.3).
-                self.health.mark_failure(exc)
-                logger.exception("Run dispatch loop failed; retrying")
-                await self._sleep(min(run_settings.claim_interval_seconds * 4, 5.0))
-        self.health.stopped = True
+        try:
+            # Acquire a slot *before* claiming so at most `concurrency` runs are
+            # ever in flight; the loop blocks on `acquire` when saturated.
+            while not self._stopping.is_set():
+                try:
+                    await self._claim_and_dispatch()
+                except Exception as exc:
+                    # `_claim_one` already absorbs claim failures; reaching here
+                    # means the loop's own machinery broke. Without this the
+                    # dispatcher died for good and the instance kept serving 200s
+                    # while no run ever executed again (design review §2.3).
+                    self.health.mark_failure(exc)
+                    logger.exception("Run dispatch loop failed; retrying")
+                    await self._sleep(min(run_settings.claim_interval_seconds * 4, 5.0))
+        finally:
+            # The heartbeat is what ticks health, so it must not outlive this
+            # loop: an orphaned heartbeat would keep reporting a dispatcher that
+            # is no longer dispatching. `stopped` is set only for a shutdown we
+            # asked for — leaving any other exit to go stale and fail /health.
+            if self._heartbeat is not None:
+                await _cancel(self._heartbeat)
+                self._heartbeat = None
+            self.health.stopped = self._stopping.is_set()
 
     async def _claim_and_dispatch(self) -> None:
         """One pass: take a slot, claim a run, start it."""
         await self._semaphore.acquire()
         record = None if self._stopping.is_set() else await self._claim_one()
-        self.health.mark_tick()
         if record is None:
             self._semaphore.release()
             await self._sleep(run_settings.claim_interval_seconds)
@@ -314,8 +325,13 @@ class RunDispatcher:
         while not self._stopping.is_set():
             try:
                 await self.liveness.stamp(ttl=run_settings.heartbeat_timeout_seconds)
-            except Exception:  # noqa: BLE001 — a blip must not end the heartbeat
+            except Exception as exc:  # noqa: BLE001 — a blip must not end the heartbeat
+                self.health.mark_failure(exc)
                 logger.warning("Dispatcher liveness stamp failed", exc_info=True)
+            else:
+                # This, not the claim loop, is the dispatcher's health signal —
+                # see the note on `self.health` above.
+                self.health.mark_tick()
             await self._sleep(run_settings.heartbeat_interval_seconds)
 
     async def _claim_one(self) -> RunDB | None:

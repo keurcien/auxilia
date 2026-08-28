@@ -20,6 +20,7 @@ from app.redis_client import get_redis
 
 # Stream entry fields.
 _DATA = "data"  # the raw SSE chunk
+_MIN_FLUSH_DELAY_SECONDS = 0.001
 _END = "end"  # present ("1") only on the terminal sentinel
 
 
@@ -186,14 +187,20 @@ class BufferedEventPublisher:
     ):
         self._events = events
         self._max_chunks = max_chunks or run_settings.event_buffer_max_chunks
-        self._max_delay = (
+        delay = (
             max_delay_seconds
             if max_delay_seconds is not None
             else run_settings.event_buffer_max_delay_ms / 1000
         )
+        # A non-positive delay would make the flusher's wait return instantly
+        # and spin a CPU for the length of the run. Zero plainly means "ship
+        # immediately", so honour that intent at the smallest delay that still
+        # yields, rather than rejecting the configuration.
+        self._max_delay = max(delay, _MIN_FLUSH_DELAY_SECONDS)
         self._buffer: list[str] = []
         self._lock = asyncio.Lock()
         self._flusher: asyncio.Task | None = None
+        self._stopping = asyncio.Event()
         self._error: BaseException | None = None
 
     async def __aenter__(self) -> "BufferedEventPublisher":
@@ -211,11 +218,17 @@ class BufferedEventPublisher:
                 await self._flush_locked()
 
     async def aclose(self) -> None:
-        """Stop the flusher and drain whatever is left."""
+        """Stop the flusher and drain whatever is left.
+
+        The flusher is *asked* to stop and awaited, never cancelled.
+        `_flush_locked` takes the buffer before awaiting the write, so
+        cancelling mid-write would destroy chunks that are no longer in the
+        buffer for the drain below to pick up — losing the tail of a run, or
+        landing it after the end sentinel.
+        """
+        self._stopping.set()
         if self._flusher is not None:
-            self._flusher.cancel()
-            with suppress(asyncio.CancelledError):
-                await self._flusher
+            await self._flusher
             self._flusher = None
         async with self._lock:
             await self._flush_locked()
@@ -233,8 +246,11 @@ class BufferedEventPublisher:
         await self._events.publish_many(chunks)
 
     async def _flush_periodically(self) -> None:
-        while True:
-            await asyncio.sleep(self._max_delay)
+        while not self._stopping.is_set():
+            with suppress(TimeoutError):
+                await asyncio.wait_for(self._stopping.wait(), timeout=self._max_delay)
+            if self._stopping.is_set():
+                return  # `aclose` owns the final drain
             try:
                 async with self._lock:
                     await self._flush_locked()

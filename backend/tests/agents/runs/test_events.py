@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -179,3 +180,49 @@ async def test_a_background_flush_failure_surfaces_on_close(redis, until):
 
     with pytest.raises(ConnectionError, match="redis down"):
         await publisher.aclose()
+
+
+async def test_closing_never_drops_a_write_that_is_already_in_flight(redis, until):
+    """`_flush_locked` takes the buffer *before* awaiting the write, so a close
+    that cancels the flusher mid-write destroys chunks the drain can no longer
+    see — the tail of a run, silently lost or landing after the end sentinel."""
+    events = RunEventStream("r-race", redis)
+    real_publish_many = events.publish_many
+    in_flight = asyncio.Event()
+    release = asyncio.Event()
+
+    async def _slow_publish_many(chunks):
+        in_flight.set()
+        await release.wait()
+        await real_publish_many(chunks)
+
+    events.publish_many = _slow_publish_many
+
+    publisher = BufferedEventPublisher(events, max_chunks=1000, max_delay_seconds=0.001)
+    await publisher.__aenter__()
+    await publisher.publish("first")
+
+    async def _writing() -> bool:
+        return in_flight.is_set()
+
+    await until(_writing, what="the periodic flusher to start writing")
+
+    closing = asyncio.create_task(publisher.aclose())
+    await asyncio.sleep(0)  # let aclose reach its await
+    release.set()
+    await closing
+
+    await events.publish_end(RunStatus.success)
+    chunks = [c async for c in events.subscribe("0", block_ms=200)]
+    assert "first" in chunks
+    assert chunks.index("first") < len(chunks) - 1  # ahead of the end sentinel
+
+
+async def test_a_zero_delay_does_not_spin_the_flusher(redis):
+    """A configured 0 means "ship immediately", not "burn a core for the length
+    of the run" — the flusher's wait would return instantly forever."""
+    events = RunEventStream("r-zero", redis)
+
+    publisher = BufferedEventPublisher(events, max_chunks=1000, max_delay_seconds=0)
+
+    assert publisher._max_delay > 0

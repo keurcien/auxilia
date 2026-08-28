@@ -610,7 +610,7 @@ async def test_leaving_oauth_deletes_the_now_dead_oauth_credentials(
     token_storage.clear_server_data.assert_awaited_once()
 
 
-async def test_leaving_api_key_deletes_the_now_dead_api_key(
+async def test_leaving_api_key_deletes_the_now_dead_api_key_and_purges_redis(
     service, mock_repo, token_storage
 ):
     before = _server_at("https://mcp.example.com/mcp", MCPAuthType.api_key)
@@ -622,6 +622,9 @@ async def test_leaving_api_key_deletes_the_now_dead_api_key(
     await service.update(before.id, MCPServerPatch(auth_type=MCPAuthType.oauth2))
 
     mock_repo.delete_credentials.assert_awaited_once_with(before.id, api_key=True)
+    # Both directions must purge: stale per-user OAuth state left behind here
+    # would report users as connected to a server they have never authorized.
+    token_storage.clear_server_data.assert_awaited_once_with(str(before.id))
 
 
 async def test_an_unrelated_edit_purges_nothing(service, mock_repo, token_storage):
