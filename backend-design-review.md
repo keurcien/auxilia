@@ -2,6 +2,19 @@
 
 *Reviewed 2026-08-27, against the working tree on `main` (post PR #294). Scope: `backend/` only — architecture, performance, code smells, design patterns, maintainability, contributor experience. Security and UI/UX explicitly out of scope. Based on reading the code, not the docs (which are stale in several places — see §8.1).*
 
+> [!IMPORTANT]
+> **This is a frozen snapshot of the tree as it stood on 2026-08-27, not a description
+> of the code today.** Findings are kept in their original wording so the plan in §9 and
+> the `file:line` evidence still line up. Phase 0 has since landed (PR #297), so several
+> statements below are deliberately out of date — most visibly §0's "there is no backend
+> CI", §6.2's "`app/auth/` — zero tests", and the §4.3 entries for wildcard CORS, the
+> unpopulated `SubagentResponse.color` and the dead sandbox-settings trio. All of those
+> are fixed in the current tree.
+>
+> **For what is actually true now, read [`backend-cleanup-todo.md`](./backend-cleanup-todo.md)**
+> — it carries the live status of every task, including corrections to this document.
+> Do not act on an assertion here without checking it against the tracker first.
+
 *Method: full reads of the agent runtime (`runtime.py`, `toolset.py`, `stream.py`, `structured_output.py`, `main.py`) plus six parallel deep-review passes over the agent domain layer, the durable-run runtime + triggers, the MCP subsystem, the app foundations (base classes, auth, model_providers), threads/Slack/sandbox, and the test suite/DX. All claims carry `file:line` references; severities are high / medium / low.*
 
 ---
@@ -19,7 +32,7 @@ The complexity you feel comes from four specific sources of *accidental* complex
 3. **Duplication with divergent quality.** The same logic implemented twice with different error policies: readiness probing (sequential + fail-loud) vs run preflight (concurrent + fail-open); auth-type dispatch in `connectivity.py` vs `factory.py` (one raises, one silently connects unauthenticated); six copies of the permission tuple check; three copies of Slack identity resolution.
 4. **Contract drift between docs and code.** CLAUDE.md documents files that no longer exist (`hitl.py`, `mcp/utils.py`), a permission model the code doesn't implement, and exception names/status codes that don't match. For an open-source project, the contributor guide describing rules the flagship modules don't follow is the most expensive kind of debt.
 
-And one meta-finding that outranks everything below: **there is no backend CI.** A 667-test, 4.4-second, zero-infrastructure suite exists and nothing runs it on PRs (`.github/workflows/` has frontend CI, docker publish, and release-please only). Fixing that is an afternoon and it protects every other fix in this document.
+And one meta-finding that outranks everything below: **there is no backend CI.** *(Fixed in Phase 0 — `.github/workflows/backend-ci.yml`.)* A 667-test, 4.4-second, zero-infrastructure suite exists and nothing runs it on PRs (`.github/workflows/` has frontend CI, docker publish, and release-please only). Fixing that is an afternoon and it protects every other fix in this document.
 
 ---
 
@@ -215,13 +228,13 @@ The two most concurrency-sensitive areas — run delivery and Slack HITL — are
 
 ### 4.3 Dead / misleading code
 
-- **Three dead sandbox settings modules** (`sandbox/settings.py`, `opensandbox/settings.py`, `cloudrun/settings.py`) consumed by nothing in `app/` — kept alive only by their own tests, with docstrings claiming call sites that no longer exist. Delete all three + the test. Dead *config* is worse than dead logic: a contributor will set `SANDBOX_PROVIDER=` and lose an afternoon.
+- *(Deleted in Phase 0.)* **Three dead sandbox settings modules** (`sandbox/settings.py`, `opensandbox/settings.py`, `cloudrun/settings.py`) consumed by nothing in `app/` — kept alive only by their own tests, with docstrings claiming call sites that no longer exist. Delete all three + the test. Dead *config* is worse than dead logic: a contributor will set `SANDBOX_PROVIDER=` and lose an afternoon.
 - ETag plumbing in `remote_catalog.py` stores etags nothing ever reads (no `If-None-Match`). Implement the conditional GET (sync becomes ~free) or delete it.
-- `ModelProviderType.ollama` (`model_providers/models.py:14`) — unreachable enum member.
-- `AgentService.create` (`core/service.py:161–162`) — pass-through no router uses.
-- `SubagentResponse.color` declared but never populated (`schemas.py:167` vs `subagents/service.py:20–26`).
-- The half-finished `encrypt_api_key → encrypt_value` rename: new names imported and aliased **back to the old names** (`mcp/servers/repository.py:8–11`, `connectivity.py:31`).
-- CORS `allow_origins=["*"]` + `allow_credentials=True` (`main.py:191–197`) — a combination browsers reject; all browser traffic rides the Next proxy anyway. Dead-but-misleading.
+- `ModelProviderType.ollama` (`model_providers/models.py:14`) — unreachable enum member. *(Deleted in Phase 0.)*
+- `AgentService.create` (`core/service.py:161–162`) — pass-through no router uses. *(Deleted in Phase 0.)*
+- `SubagentResponse.color` declared but never populated (`schemas.py:167` vs `subagents/service.py:20–26`). *(Fixed in Phase 0 — now populated from the agent row.)*
+- The half-finished `encrypt_api_key → encrypt_value` rename: new names imported and aliased **back to the old names** (`mcp/servers/repository.py:8–11`, `connectivity.py:31`). *(Completed in Phase 0; the shim module is gone.)*
+- CORS `allow_origins=["*"]` + `allow_credentials=True` (`main.py:191–197`) — a combination browsers reject; all browser traffic rides the Next proxy anyway. Dead-but-misleading. *(Fixed in Phase 0.)*
 - `UserCreate`/`UserPatch` expose `password_hash` as an API input field (`users/schemas.py:12,19`) — a storage column leaking through the DTO boundary; accept `password`, hash in the service.
 
 ### 4.4 Permissions: right algorithm, wrong type
@@ -269,7 +282,7 @@ Also worth stating as an invariant (it's correct but undocumented): **reaped run
 
 **Tier B (older CRUD) is mock-mirrors**: `AsyncMock` sessions with `execute.side_effect = [r1, r2]` hard-coding query count *and order* (any refactor breaks tests with opaque `StopIteration`), and ~70 `assert_awaited_once_with` delegation tautologies in `tests/agents/core/test_service.py` alone. These tests are the main *cost* of the refactors this review proposes — budget for deleting most of them, keeping only orchestration-order tests that encode real invariants.
 
-**Gaps, ranked**: (1) `app/auth/` — **zero tests**, and every router test overrides the auth dependencies, so `require_editor` etc. are never executed by any test; (2) no Postgres lane — `claim_next`'s `SKIP LOCKED` + the partial unique index (the most concurrency-critical SQL in the system) and all 47 migrations are never executed by tests (add a `postgres`-marked lane against `docker-compose.dev.yml`, skipped when absent); (3) `runtime.py`'s `Agent.build/stream`, the reaper loop, the trigger scanner's `claim_and_enqueue`, and `serialization.deserialize_to_ui_messages` are the scariest-to-touch code and the least tested.
+**Gaps, ranked**: (1) `app/auth/` — **zero tests** *(fixed in Phase 0: 42 tests, 63% coverage)*, and every router test overrides the auth dependencies, so `require_editor` etc. are never executed by any test; (2) no Postgres lane — `claim_next`'s `SKIP LOCKED` + the partial unique index (the most concurrency-critical SQL in the system) and all 47 migrations are never executed by tests (add a `postgres`-marked lane against `docker-compose.dev.yml`, skipped when absent); (3) `runtime.py`'s `Agent.build/stream`, the reaper loop, the trigger scanner's `claim_and_enqueue`, and `serialization.deserialize_to_ui_messages` are the scariest-to-touch code and the least tested.
 
 Alembic hygiene is genuinely good — 47 revisions, single root, single head, zero merges despite the multi-branch shared-DB workflow — with two foot-guns: hand-typed non-hex revision IDs, and `env.py`'s manual model-import registry (a forgotten import makes autogenerate emit a table *deletion*; add a metadata-completeness test).
 

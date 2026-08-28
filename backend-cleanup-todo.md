@@ -4,7 +4,7 @@ Checklist for the plan in [`backend-design-review.md` §9](./backend-design-revi
 The review is the specification (what and why, with `file:line` evidence); this file is
 just the state. Task IDs are stable — reference them in commits and PR titles.
 
-**Status legend:** `[ ]` not started · `[~]` partly done · `[x]` done
+**Status legend:** `[ ]` not started · `[~]` partly done · `[x]` done · `[!]` blocked
 
 Last updated: 2026-08-28
 
@@ -62,9 +62,30 @@ Last updated: 2026-08-28
 
 ## Phase 1 — Hot path & stability
 
-- [ ] **P1-1** PAT lookup → SHA-256 indexed digest (+ migration) — *the single biggest
-      latency win left; Argon2 on the event loop stalls in-flight SSE streams*
-- [ ] **P1-2** `to_thread` around remaining Argon2 (passwords)
+- [!] **P1-1** PAT lookup → SHA-256 indexed digest (+ migration) — **BLOCKED**, awaiting
+      an owner decision. Blocks nothing else; it is a leaf task, so the rest of Phase 1
+      proceeds without it.
+      *Decided so far:* clean cut (no dual verify-then-rehash code path), but existing
+      tokens are to be **preserved by manual backfill** rather than invalidated.
+      *Why it can't just be done:* the migration cannot backfill. `token_hash` is
+      Argon2id (one-way, salted) and the plaintext is never stored, so no digest is
+      derivable from the DB. A row can only gain a digest from someone holding the
+      plaintext.
+      *Agreed shape:* migration 1 adds nullable `token_sha256` + unique index and
+      **keeps** `token_hash`; a backfill script reads the token from stdin (never argv
+      — shell history and `ps`), locates the row by `prefix`, Argon2-verifies it against
+      the surviving `token_hash`, and only then writes the digest; migration 2 drops
+      `token_hash` + the `prefix` index and deletes rows still NULL. Between the two,
+      a NULL digest fails closed — no window where a stale token authenticates.
+      *To unblock, need:* (a) which database (dev vs production; production wants a
+      `pg_dump -t personal_access_tokens` first, since migration 2 is irreversible),
+      and (b) the owner to run the backfill script. The token must not be pasted into
+      a session transcript.
+- [ ] **P1-2** `to_thread` around remaining Argon2 — **do this next.** It was written as
+      the stopgap for P1-1 (§3.1b), so with P1-1 parked it *is* the mitigation: it takes
+      Argon2 off the event loop for the PAT prefix scan as well as for passwords, so
+      in-flight SSE streams stop stalling. No migration, no DB access, no token handling
+      — entirely independent of P1-1's decision
 - [ ] **P1-3** `TokenStorageFactory` on the shared Redis client
 - [ ] **P1-4** `AgentRepository.get_run_spec` — *blocks P1-5, P2-6*
 - [ ] **P1-5** Consume `RunSpec` in `runtime.py` / `collect_run_bindings` (drops the triple resolution)
@@ -108,11 +129,17 @@ Last updated: 2026-08-28
 - [ ] **P3-8** Repository cleanup in `auth` / `invites` / `subagents` (the modules that get copied).
       `app/auth/service.py` is still at 24% coverage and 6 raw queries — do the cleanup
       and the tests together
-- [~] **P3-9** **TypeVars linked** — `BaseRepository`/`BaseService` are now bound to
-      `BaseDBModel` instead of `SQLModel` (mypy proved `.id` was unchecked), and
-      `get_or_404`'s dishonest `UUID | str` narrowed to `UUID`. Still to do: collapse
-      the twin DTOs, the thrice-copied color validator → one `Annotated` alias, and
-      letting the base build its repository from a class attribute
+- [ ] **P3-9** Collapse the twin DTOs, the thrice-copied color validator → one
+      `Annotated` alias, and let the base build its repository from a class attribute.
+      **Also still open: making `BaseRepository.get`'s `self.model.id` statically
+      checkable.** An attempt to do it by binding `ModelType` to `BaseDBModel` was
+      reverted (cubic review on #297): `ThreadDB` and `RunDB` are `TimestampMixin,
+      SQLModel` with **string** primary keys by design — their ids travel through Redis
+      keys, SSE headers and URL paths — so 2 of the 14 repositories legitimately fail
+      that bound, and `get_or_404`'s `UUID | str` is load-bearing for the thread path,
+      not laziness. Doing this properly needs a shared "has an id" ancestor spanning
+      both PK conventions, which touches table definitions. `# type: ignore[attr-defined]`
+      marks the one unchecked line meanwhile
 - [x] **P3-10** Shared `ROOT_ENV` / `settings_config()` in `app/settings.py`, replacing 9
       files that each counted `.parent`s to find `.env` and annotated `model_config` as
       pydantic's `ConfigDict` — the wrong TypedDict, which is why a mistyped settings
@@ -132,6 +159,19 @@ Last updated: 2026-08-28
 - [ ] **P3-18** Stop mounting the FastMCP app at `/` (§2.3)
 
 ---
+
+## Process note: the mypy ratchet can hide a regression in a base class
+
+`app/repository.py` and `app/service.py` are checked, but most of their *subclasses*
+are on the ignore list, so a change to a shared base class is only verified against the
+minority of modules that are checked. That is exactly how the reverted `BaseDBModel`
+bound above passed CI: mypy was green, and lifting the ratchet on three modules showed
+a `type-var` violation and a Liskov violation immediately.
+
+**When you change anything in `app/repository.py`, `app/service.py`, `app/models.py` or
+`app/exceptions.py`, re-run mypy with the override list temporarily emptied** and read
+what appears. It will be noisy — that noise is the 50 modules still queued for cleanup —
+but a new `type-var`, `override` or `Liskov` line among it is yours.
 
 ## Catalog drift (resolved)
 

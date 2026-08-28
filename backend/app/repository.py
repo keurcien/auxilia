@@ -7,14 +7,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 from sqlmodel import SQLModel, select
 
-from app.models import BaseDBModel
 from app.pagination import PageParams
 
 
-# Bound to BaseDBModel, not SQLModel: `get` and `paginate` address rows by `id`,
-# so a repository over a model without a UUID PK would fail at runtime. All 14
-# repositories are over BaseDBModel tables — this makes that a checked contract.
-ModelType = TypeVar("ModelType", bound=BaseDBModel)
+# Deliberately bound to SQLModel, not BaseDBModel. 12 of the 14 repositories are
+# over BaseDBModel (UUID PK), but `ThreadDB` and `RunDB` are `TimestampMixin,
+# SQLModel` with **string** primary keys on purpose — their ids travel through
+# Redis keys, SSE headers and URL paths, and matching that avoids a conversion at
+# every seam. A `BaseDBModel` bound therefore rejects two legitimate repositories.
+#
+# The consequence is that `self.model.id` below is not statically checked. Making
+# it checkable needs a shared "has an id" ancestor for both PK conventions, which
+# is a schema-touching change — tracked as P3-9, not something to sneak in here.
+ModelType = TypeVar("ModelType", bound=SQLModel)
 
 
 class BaseRepository(Generic[ModelType]):
@@ -24,8 +29,11 @@ class BaseRepository(Generic[ModelType]):
         self.model = model
         self.db = db
 
-    async def get(self, entity_id: UUID) -> ModelType | None:
-        stmt = select(self.model).where(self.model.id == entity_id)
+    async def get(self, entity_id: UUID | str) -> ModelType | None:
+        # `.id` is unchecked because ModelType is bound to SQLModel (see above);
+        # every table this is instantiated over has one, but the type system can't
+        # say so until the two PK conventions share an ancestor (P3-9).
+        stmt = select(self.model).where(self.model.id == entity_id)  # type: ignore[attr-defined]
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 

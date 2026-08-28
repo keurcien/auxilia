@@ -65,7 +65,7 @@ Services raise exceptions from `app/exceptions.py`:
 | `PermissionDeniedError` | 403 |
 | `InvalidCredentialsError` | 401 |
 | `AlreadyExistsError` | 409 |
-| `ModelUnavailableError` | 409 (machine-readable body: `model_id`, `reason`) |
+| `ModelUnavailableError` | 409 (machine-readable body: `error`, `model_id`, `detail`) |
 | `DomainError` (base) | 500 |
 
 `DomainValidationError` is deliberately *not* named `ValidationError` — that name

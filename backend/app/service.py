@@ -2,15 +2,15 @@ from typing import Generic, TypeVar
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import SQLModel
 
 from app.exceptions import NotFoundError
-from app.models import BaseDBModel
 from app.repository import BaseRepository
 
 
-# Same bound as BaseRepository's, so `self.repository.get(...)` type-checks and a
-# service can't be parameterised over a model its repository can't address.
-ModelType = TypeVar("ModelType", bound=BaseDBModel)
+# Matches BaseRepository's bound — see the comment there for why it is SQLModel
+# and not BaseDBModel.
+ModelType = TypeVar("ModelType", bound=SQLModel)
 RepositoryType = TypeVar("RepositoryType", bound=BaseRepository)
 
 
@@ -29,9 +29,11 @@ class BaseService(Generic[ModelType, RepositoryType]):
         self.db = db
         self.repository = repository
 
-    async def get_or_404(self, entity_id: UUID) -> ModelType:
-        # Not `id` — shadowing the builtin in the most-called helper in the
-        # codebase is the kind of thing that reads fine until someone needs `id()`.
+    async def get_or_404(self, entity_id: UUID | str) -> ModelType:
+        # `UUID | str` is load-bearing, not laziness: `ThreadService` is a
+        # `BaseService[ThreadDB, ...]` and `ThreadDB.id` is a string, so narrowing
+        # this to UUID breaks the thread path. (Named `entity_id` rather than `id`
+        # only to stop shadowing the builtin in the most-called helper here.)
         obj = await self.repository.get(entity_id)
         if obj is None:
             raise NotFoundError(self.not_found_message)

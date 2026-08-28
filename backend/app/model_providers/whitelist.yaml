@@ -393,7 +393,7 @@ models:
   - provider: openrouter
     model_id: openrouter/auto
     display_name: Auto Router
-    chef: Openrouter
+    chef: OpenRouter
     chef_slug: openrouter
     multimodal: false
     supports_structured_output: false
