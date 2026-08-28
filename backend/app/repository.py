@@ -24,8 +24,8 @@ class BaseRepository(Generic[ModelType]):
         self.model = model
         self.db = db
 
-    async def get(self, id: UUID) -> ModelType | None:
-        stmt = select(self.model).where(self.model.id == id)
+    async def get(self, entity_id: UUID) -> ModelType | None:
+        stmt = select(self.model).where(self.model.id == entity_id)
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 

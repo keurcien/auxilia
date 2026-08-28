@@ -1,10 +1,24 @@
+import os
+
+
+# Must run before any `app.*` import. `app/utils/encryption.py` derives its Fernet
+# key from SALT at module scope, so importing `app.main` without it raises a
+# pydantic ValidationError and the whole suite fails to collect. Setting a default
+# here keeps the suite runnable from a cold clone with no .env; a real SALT in the
+# environment still wins, and production still fails loudly when it is missing.
+os.environ.setdefault("SALT", "test-salt-not-a-real-secret")
+
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.auth.dependencies import get_current_user, require_admin, require_editor
+from app.auth.dependencies import (
+    get_current_user,
+    require_admin,
+    require_editor,
+)
 from app.database import get_db
 from app.main import app
 from app.users.models import UserDB, WorkspaceRole

@@ -29,8 +29,10 @@ class BaseService(Generic[ModelType, RepositoryType]):
         self.db = db
         self.repository = repository
 
-    async def get_or_404(self, id: UUID) -> ModelType:
-        obj = await self.repository.get(id)
+    async def get_or_404(self, entity_id: UUID) -> ModelType:
+        # Not `id` — shadowing the builtin in the most-called helper in the
+        # codebase is the kind of thing that reads fine until someone needs `id()`.
+        obj = await self.repository.get(entity_id)
         if obj is None:
             raise NotFoundError(self.not_found_message)
         return obj

@@ -34,8 +34,12 @@ uv run pytest            # ~700 tests in about 5 seconds
 ```
 
 That property is deliberate and worth protecting: tests use `fakeredis` and
-SQLite. If a change of yours would need a real service to test, put that test
-behind a marker rather than making the default lane slow or flaky.
+SQLite, and `tests/conftest.py` sets a dummy `SALT` before the first `app.*`
+import (the app derives its Fernet key at module scope, so without it the suite
+fails to *collect*, not just to pass). If a change of yours would need a real
+service to test, put that test behind a marker rather than making the default
+lane slow or flaky — and if you add a setting that is required at import time,
+give the suite a default the same way.
 
 ## Before you open a PR
 

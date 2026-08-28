@@ -129,24 +129,24 @@ async def _open_session(
     if auth is not None:
         client_args["auth"] = auth
 
-    async with (
-        streamablehttp_client(**client_args, terminate_on_close=terminate_on_close) as (
-            read,
-            write,
-            _,
-        ),
-        ClientSession(read, write) as session,
-    ):
-        await session.initialize()
-        try:
-            tools = await _list_all_tools(session)
-            yield session, tools
-        except OAuthAuthorizationRequired:
-            # Let the caller (e.g. test_connection) translate this into an
-            # oauth_required result instead of a generic DomainError.
-            raise
-        except Exception as e:
-            raise DomainError(str(e)) from e
+    # Kept nested rather than combined into one parenthesized `async with`: the
+    # combined form hides that `read`/`write` are bound by the first context manager
+    # and consumed by the second, and Codacy's analyzer reads it as "using variable
+    # 'read' before assignment".
+    async with streamablehttp_client(  # noqa: SIM117
+        **client_args, terminate_on_close=terminate_on_close
+    ) as (read, write, _):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            try:
+                tools = await _list_all_tools(session)
+                yield session, tools
+            except OAuthAuthorizationRequired:
+                # Let the caller (e.g. test_connection) translate this into an
+                # oauth_required result instead of a generic DomainError.
+                raise
+            except Exception as e:
+                raise DomainError(str(e)) from e
 
 
 @asynccontextmanager
