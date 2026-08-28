@@ -15,11 +15,14 @@ Last updated: 2026-08-28
 - [x] **P0-1** Backend CI workflow — `.github/workflows/backend-ci.yml`: `uv sync --frozen`,
       `ruff check`, `ruff format --check`, `mypy app`, `pytest` + coverage artifact, on
       `backend/**` and `catalog/**` PRs. Third-party actions pinned to full commit SHAs.
-      **Its first run immediately earned its keep**: the suite could not collect on a
-      clean checkout, because `MCPServerSettings` requires `SALT` at import time and
-      every local run had been silently reading a developer's `.env`. The review's
-      "green from a cold clone" claim (§6.2) was false; `tests/conftest.py` now
-      defaults `SALT` before the first `app.*` import, so it is true
+      **Its first run immediately earned its keep**: the suite could not *collect* on
+      a clean checkout — `app/mcp/servers/settings.py` builds `MCPServerSettings()` at
+      module scope and its `require_salt` validator raises without a salt, and every
+      local run had been silently reading a developer's `.env`. The review's "green
+      from a cold clone" claim (§6.2) was false; `tests/conftest.py` now supplies a
+      fallback salt when neither the shell nor `.env` does, so it is true. Verified in
+      a copied tree with no `.env`: 700 passed, 2 skipped (the catalog snapshot tests
+      skip when `catalog/` is absent, by design)
 - [x] **P0-2** Ruff `ASYNC` / `SIM` / `RUF` / `BLE001` enabled and clean.
       Notes: `ASYNC` found **nothing** — it flags known-blocking stdlib calls, not
       CPU-bound library calls, so it does *not* catch the sync-Argon2 problem (§3.1);

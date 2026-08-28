@@ -34,12 +34,14 @@ uv run pytest            # ~700 tests in about 5 seconds
 ```
 
 That property is deliberate and worth protecting: tests use `fakeredis` and
-SQLite, and `tests/conftest.py` sets a dummy `SALT` before the first `app.*`
-import (the app derives its Fernet key at module scope, so without it the suite
-fails to *collect*, not just to pass). If a change of yours would need a real
-service to test, put that test behind a marker rather than making the default
-lane slow or flaky — and if you add a setting that is required at import time,
-give the suite a default the same way.
+SQLite, and `tests/conftest.py` supplies a dummy `SALT` when nothing else does.
+That last one is easy to trip over: `app/mcp/servers/settings.py` constructs
+`MCPServerSettings()` at module scope and its `require_salt` validator raises
+without a salt, so on a checkout with no `.env` the suite fails to *collect* —
+every test errors before it runs. If a change of yours would need a real service
+to test, put that test behind a marker rather than making the default lane slow
+or flaky; and if you add a setting that is validated at import time, give the
+suite a fallback the same way.
 
 ## Before you open a PR
 

@@ -1,12 +1,24 @@
 import os
 
+from pydantic import ValidationError
 
-# Must run before any `app.*` import. `app/utils/encryption.py` derives its Fernet
-# key from SALT at module scope, so importing `app.main` without it raises a
-# pydantic ValidationError and the whole suite fails to collect. Setting a default
-# here keeps the suite runnable from a cold clone with no .env; a real SALT in the
-# environment still wins, and production still fails loudly when it is missing.
-os.environ.setdefault("SALT", "test-salt-not-a-real-secret")
+
+# Must run before anything imports `app.main`. `app/mcp/servers/settings.py`
+# constructs `MCPServerSettings()` at module scope and its `require_salt`
+# validator raises without SALT, so on a checkout with no .env the suite fails to
+# *collect*, not merely to pass.
+#
+# Ask pydantic whether a salt is already configured rather than guessing: it reads
+# the shell environment *and* the repo .env, and env vars outrank .env. A plain
+# `os.environ.setdefault` would therefore override a developer's .env-only SALT
+# with the dummy — silently running the encryption tests against a different key
+# than the one their deployment uses.
+try:
+    import app.mcp.servers.settings
+except ValidationError:
+    # Genuinely unset (a cold clone, or CI). A failed module init is dropped from
+    # sys.modules, so the real import below re-executes with this in place.
+    os.environ["SALT"] = "test-salt-not-a-real-secret"
 
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
