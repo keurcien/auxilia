@@ -24,6 +24,11 @@ interface UserAvatarProps {
  *
  * `referrerPolicy="no-referrer"` is required: Google serves the OAuth picture
  * from lh3.googleusercontent.com and 403s requests that carry a referrer.
+ *
+ * `alt=""` is deliberate — every call site renders the person's name next to
+ * the avatar, so a real alt would just double it up for screen readers. A
+ * caller that shows the avatar *alone* inside a control (the collapsed
+ * sidebar account button) must label the control itself.
  */
 export function UserAvatar({
 	name,

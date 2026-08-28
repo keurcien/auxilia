@@ -469,6 +469,12 @@ export function AppSidebar() {
 									<SidebarMenuButton
 										size="lg"
 										tooltip={user?.name || "User"}
+										// Collapsed, the avatar is the button's only visible
+										// content and the name column is hidden — without this
+										// the trigger has no accessible name (the tooltip is
+										// aria-describedby, and the initials chip disappears
+										// the moment the profile picture loads).
+										aria-label={user?.name || "User"}
 										className="h-11 cursor-pointer rounded-lg pl-[5px] pr-2 hover:bg-sidebar-hover data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground group-data-[collapsible=icon]:h-11! group-data-[collapsible=icon]:w-[38px]! group-data-[collapsible=icon]:p-0! group-data-[collapsible=icon]:pl-[5px]!"
 									>
 										<UserAvatar
