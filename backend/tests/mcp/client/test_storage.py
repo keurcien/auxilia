@@ -4,6 +4,7 @@ from fnmatch import fnmatch
 import pytest
 from mcp.shared.auth import OAuthToken
 
+from app.mcp.client import storage as storage_module
 from app.mcp.client.storage import RedisTokenStorage, TokenStorageFactory
 
 
@@ -79,9 +80,20 @@ async def test_set_tokens_without_existing_token_stores_as_is():
 
 
 def _factory() -> TokenStorageFactory:
-    factory = TokenStorageFactory.__new__(TokenStorageFactory)
-    factory.redis = _FakeRedis()
-    return factory
+    return TokenStorageFactory(redis=_FakeRedis())
+
+
+def test_factory_borrows_the_app_wide_client_instead_of_opening_a_pool(monkeypatch):
+    """P1-3: the factory used to build its own never-closed `ConnectionPool` in
+    `__init__`, once per call at eight call sites. It must now hand back the
+    lifespan-managed client so nothing leaks."""
+    shared = _FakeRedis()
+    monkeypatch.setattr(storage_module, "get_redis", lambda: shared)
+
+    factory = TokenStorageFactory()
+
+    assert factory.redis is shared
+    assert factory.get_storage("u1", "s1").redis is shared
 
 
 @pytest.mark.asyncio

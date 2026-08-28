@@ -17,8 +17,11 @@ Two distinct questions live here, deliberately kept apart:
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from collections.abc import Collection
 from contextlib import asynccontextmanager
+from uuid import UUID
 
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
@@ -31,6 +34,7 @@ from app.mcp.client.storage import RedisTokenStorage, TokenStorageFactory
 from app.mcp.servers.models import MCPAuthType, MCPServerDB
 from app.mcp.servers.repository import MCPServerRepository
 from app.mcp.servers.schemas import ConnectionTestResult
+from app.redis_client import get_redis
 from app.utils.encryption import decrypt_value
 
 
@@ -120,8 +124,14 @@ async def _open_session(
 
     The low-level primitive shared by every handshake path: the DB-backed
     :func:`connect_to_server` and the stateless :func:`probe_candidate`. Errors
-    raised while listing tools (or from the ``async with`` body) are wrapped in
-    ``DomainError`` to give callers a clean message.
+    raised **while listing tools** are wrapped in ``DomainError`` to give callers
+    a clean message.
+
+    The ``yield`` deliberately sits *outside* that wrapping. It used to be
+    inside, which meant any exception raised by the caller's ``async with`` body
+    — a domain error, a bug, anything — travelled back through this generator
+    and got laundered into a ``DomainError``, i.e. a 500 with someone else's
+    message (design review §5.7).
     """
     client_args: dict = {"url": url}
     if headers:
@@ -140,13 +150,13 @@ async def _open_session(
             await session.initialize()
             try:
                 tools = await _list_all_tools(session)
-                yield session, tools
             except OAuthAuthorizationRequired:
                 # Let the caller (e.g. test_connection) translate this into an
                 # oauth_required result instead of a generic DomainError.
                 raise
             except Exception as e:
                 raise DomainError(str(e)) from e
+            yield session, tools
 
 
 @asynccontextmanager
@@ -228,6 +238,96 @@ async def is_authorized(
     await provider._initialize()
     tokens = await provider.context.storage.get_tokens()
     return tokens is not None
+
+
+# A probe of an *authorized* OAuth server is the expensive one: it decrypts the
+# stored token and, when it has expired, does a token-refresh POST to the IdP.
+# The frontend polls readiness in a loop, so without a cache every poll pays
+# that — per server, per agent, forever.
+#
+# Only positives are cached. A negative is already cheap (no stored token, so
+# the probe returns without any network work), and caching it would leave a
+# user who has just completed the OAuth popup staring at "not connected" for the
+# length of the TTL. The cost of that choice is the other direction: a token
+# revoked at the IdP keeps reading as authorized for up to the TTL. Thirty
+# seconds of lag before the run fails in-thread is the cheaper mistake.
+_PROBE_CACHE_TTL_SECONDS = 30
+
+
+def _probe_cache_key(user_id: str, server_id: UUID) -> str:
+    return f"mcp:authprobe:{user_id}:{server_id}"
+
+
+async def probe_authorization(
+    servers: Collection[MCPServerDB], user_id: str
+) -> dict[UUID, bool]:
+    """Whether the user is authorized for each server — concurrent, fail-open,
+    and memoized per (user, server).
+
+    The single implementation behind both the polled readiness endpoint and the
+    run-start preflight, which used to carry divergent copies: one sequential
+    and fail-loud (so a single probe raising 500'd the polled endpoint), one
+    concurrent and fail-open (design review §4.1).
+
+    **Fail-open**: a probe that raises counts as authorized. Readiness is a
+    convenience, not a security boundary — the server itself rejects an
+    unauthorized call — so an IdP outage must not make every agent unlaunchable.
+
+    Probes are independent per (user, server), so they run concurrently: the
+    check costs one round trip, not one per server.
+    """
+    if not servers:
+        return {}
+
+    redis = get_redis()
+    unique = {server.id: server for server in servers}
+
+    try:
+        cached = await redis.mget([_probe_cache_key(user_id, sid) for sid in unique])
+    except Exception:  # noqa: BLE001 — a cache outage degrades to probing, never to failing
+        logger.warning("Authorization probe cache read failed", exc_info=True)
+        cached = [None] * len(unique)
+
+    results: dict[UUID, bool] = {}
+    to_probe: list[MCPServerDB] = []
+    for (server_id, server), hit in zip(unique.items(), cached, strict=True):
+        if hit == "1":
+            results[server_id] = True
+        else:
+            to_probe.append(server)
+
+    async def _probe(server: MCPServerDB) -> bool:
+        try:
+            return await is_authorized(server, user_id)
+        except Exception:  # noqa: BLE001 — fail-open, see the docstring
+            logger.warning(
+                "Authorization probe for MCP server %s failed; treating as authorized",
+                server.id,
+                exc_info=True,
+            )
+            return True
+
+    probed = await asyncio.gather(*(_probe(server) for server in to_probe))
+    authorized_ids: list[UUID] = []
+    for server, ok in zip(to_probe, probed, strict=True):
+        results[server.id] = ok
+        if ok:
+            authorized_ids.append(server.id)
+
+    if authorized_ids:
+        try:
+            async with redis.pipeline(transaction=False) as pipe:
+                for server_id in authorized_ids:
+                    pipe.set(
+                        _probe_cache_key(user_id, server_id),
+                        "1",
+                        ex=_PROBE_CACHE_TTL_SECONDS,
+                    )
+                await pipe.execute()
+        except Exception:  # noqa: BLE001 — a cache outage degrades to probing, never to failing
+            logger.warning("Authorization probe cache write failed", exc_info=True)
+
+    return results
 
 
 async def initiate_oauth(server: MCPServerDB, user_id: str, db: AsyncSession) -> None:

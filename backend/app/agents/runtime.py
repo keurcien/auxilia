@@ -26,9 +26,9 @@ from langgraph.errors import GraphRecursionError
 from langgraph.types import Command
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.core.service import AgentService
+from app.agents.core.repository import AgentRepository
 from app.agents.current_date import CurrentDateMiddleware
-from app.agents.schemas import AgentResponse
+from app.agents.run_spec import AgentSpec
 from app.agents.settings import agent_settings
 from app.agents.stream import (
     LangGraphStreamAdapter,
@@ -43,12 +43,12 @@ from app.agents.structured_output import (
 from app.agents.tool_errors import RepairInvalidToolCallsMiddleware, ToolErrorMiddleware
 from app.agents.toolset import PreparedToolset, Toolset, sanitize_tool_name
 from app.database import get_checkpointer
-from app.integrations.langfuse.callback import langfuse_callback_handler
+from app.exceptions import NotFoundError
+from app.integrations.langfuse.callback import get_langfuse_callback_handler
 from app.model_providers.catalog import ChatModelFactory
 from app.model_providers.service import ModelService
 from app.sandbox.lazy import LazySandboxBackend
 from app.sandbox.provider import BaseSandboxProvider, build_provider
-from app.sandbox.repository import SandboxRepository
 from app.threads.models import ThreadDB
 
 
@@ -207,7 +207,7 @@ class ResolvedAgent:
     per-server MCP session, and is the toolset actually handed to the LLM.
     """
 
-    config: AgentResponse
+    config: AgentSpec
     prepared: PreparedToolset
     live: Toolset | None = None
     sandbox: ResolvedSandbox | None = None
@@ -215,29 +215,30 @@ class ResolvedAgent:
     @classmethod
     async def resolve(
         cls,
-        agent_id,
+        spec: AgentSpec,
         db: AsyncSession,
         user_id: str,
         *,
         is_parent: bool = False,
     ) -> "ResolvedAgent":
-        config = await AgentService(db).get(agent_id, include_archived=True)
+        """Bind one agent's spec to a prepared toolset.
+
+        Takes an already-read `AgentSpec` rather than an id: the whole graph
+        comes from a single `get_run_spec`, so resolving a subagent costs no
+        further agent queries (design review §2.2). It also keeps the runtime
+        off `AgentService`/`AgentResponse` — the run path has no business
+        depending on API response assembly.
+        """
         prepared = await Toolset.prepare(
-            config.mcp_servers, db, user_id, apply_ui=is_parent
+            spec.mcp_servers, db, user_id, apply_ui=is_parent
         )
-        sandbox = await cls._resolve_sandbox(config, db)
-        return cls(config=config, prepared=prepared, sandbox=sandbox)
+        return cls(config=spec, prepared=prepared, sandbox=cls._resolve_sandbox(spec))
 
     @staticmethod
-    async def _resolve_sandbox(
-        config: AgentResponse, db: AsyncSession
-    ) -> ResolvedSandbox | None:
-        binding = next(iter(config.sandboxes or []), None)
-        if binding is None:
+    def _resolve_sandbox(spec: AgentSpec) -> ResolvedSandbox | None:
+        if spec.sandbox is None:
             return None
-        row = await SandboxRepository(db).get(binding.sandbox_id)
-        if row is None:
-            return None
+        row = spec.sandbox.row
         try:
             provider = build_provider(row)
         except Exception:
@@ -245,7 +246,7 @@ class ResolvedAgent:
             # kill the whole run — the agent just runs without code execution.
             logger.exception("Failed to build sandbox provider %s", row.id)
             return None
-        return ResolvedSandbox(provider=provider, tools=binding.tools)
+        return ResolvedSandbox(provider=provider, tools=spec.sandbox.tools)
 
     def compile(self, model, created_at: datetime) -> CompiledSubAgent:
         """Compile into a CompiledSubAgent runnable (for subagent use).
@@ -346,9 +347,14 @@ class Agent:
     ) -> "Agent":
         user_id = str(thread.user_id)
 
-        agent = await ResolvedAgent.resolve(
-            thread.agent_id, db, user_id, is_parent=True
-        )
+        # One read for the whole graph. This used to be a full `AgentService.get`
+        # per agent, run sequentially for subagents (§1.2): ~8 + 7N round-trips
+        # before the first token.
+        spec = await AgentRepository(db).get_run_spec(thread.agent_id)
+        if spec is None:
+            raise NotFoundError("Agent not found")
+
+        agent = await ResolvedAgent.resolve(spec.agent, db, user_id, is_parent=True)
 
         # Backstop for the RunService.create gate: covers the race where the
         # model is disabled between enqueue and worker pickup, and any future
@@ -365,14 +371,16 @@ class Agent:
 
         middleware = build_parent_middleware(thread.created_at, agent.prepared)
 
-        subagents: list[ResolvedAgent] = []
-        if agent.config.subagents:
-            for sub in agent.config.subagents:
-                subagents.append(await ResolvedAgent.resolve(sub.id, db, user_id))
+        # Still sequential, and deliberately so: these share one AsyncSession,
+        # which is not concurrency-safe. What used to make that expensive was the
+        # per-agent DB read, and `get_run_spec` has already done all of it — each
+        # resolve is now Redis/CPU work over rows already in hand.
+        subagents = [
+            await ResolvedAgent.resolve(sub, db, user_id) for sub in spec.subagents
+        ]
 
-        callbacks = (
-            [langfuse_callback_handler] if langfuse_callback_handler is not None else []
-        )
+        handler = get_langfuse_callback_handler()
+        callbacks = [handler] if handler is not None else []
 
         return cls(
             thread=thread,

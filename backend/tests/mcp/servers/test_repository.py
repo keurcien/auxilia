@@ -1,5 +1,9 @@
-"""Tests for MCPServerRepository.update_oauth_credentials — the partial patch
-that lets the edit form change client_id while keeping the stored secret.
+"""Tests for MCPServerRepository.
+
+`update_oauth_credentials` — the partial patch that lets the edit form change
+client_id while keeping the stored secret — plus `list_by_ids`, the shared read
+that replaced three copies of `select(MCPServerDB).where(id.in_(...))` scattered
+across the agents module (design review §2.1 / P1-7).
 """
 
 from __future__ import annotations
@@ -70,3 +74,23 @@ async def test_no_existing_credentials_with_both_creates():
     repo.create_or_update_oauth_credentials.assert_awaited_once_with(
         sid, "id", "sec", None
     )
+
+
+async def test_list_by_ids_does_not_query_for_an_empty_id_set():
+    """`IN ()` is a round-trip for a known-empty answer, and every caller
+    reaches this with an empty set whenever an agent binds no servers."""
+    repo = _repo()
+
+    assert await repo.list_by_ids([]) == []
+
+    repo.db.execute.assert_not_awaited()
+
+
+async def test_list_by_ids_returns_the_rows():
+    rows = [SimpleNamespace(id=uuid4()), SimpleNamespace(id=uuid4())]
+    repo = _repo()
+    result = AsyncMock()
+    result.scalars = lambda: SimpleNamespace(all=lambda: rows)
+    repo.db.execute = AsyncMock(return_value=result)
+
+    assert await repo.list_by_ids([r.id for r in rows]) == rows

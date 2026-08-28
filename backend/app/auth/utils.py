@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -10,18 +11,28 @@ from app.auth.settings import auth_settings
 password_hash = PasswordHash.recommended()
 
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """
-    Verify a plain password against the stored hash.
-    """
-    return password_hash.verify(plain_password, hashed_password)
+# Argon2id is deliberately slow and memory-hard: one verify costs tens of
+# milliseconds of pure CPU. Called inline from a coroutine that blocks the event
+# loop for the whole time, stalling every in-flight SSE stream on the worker, and
+# the PAT prefix scan pays it once per candidate. Both entry points are therefore
+# async and hand the work to a thread: argon2-cffi releases the GIL inside the
+# hash, so the loop really does get that time back (design review §3.1b, P1-2).
 
 
-def get_password_hash(password: str) -> str:
+async def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
-    Hash a password using the recommended algorithm (Argon2id).
+    Verify a plain password against the stored hash, off the event loop.
     """
-    return password_hash.hash(password)
+    return await asyncio.to_thread(
+        password_hash.verify, plain_password, hashed_password
+    )
+
+
+async def get_password_hash(password: str) -> str:
+    """
+    Hash a password with the recommended algorithm (Argon2id), off the event loop.
+    """
+    return await asyncio.to_thread(password_hash.hash, password)
 
 
 def create_access_token(user_id: UUID, expires_delta: timedelta | None = None) -> str:

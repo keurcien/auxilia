@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, Request
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.core.service import AgentService, get_agent_service
 from app.agents.stream import _serialize_lc_message
 from app.agents.structured_output import is_structured_output_artifact
 from app.auth.dependencies import detect_auth_method, get_current_user
-from app.database import get_checkpointer
+from app.database import get_checkpointer, get_db
 from app.exceptions import PermissionDeniedError
 from app.pagination import Page, PageParams
 from app.threads.models import ThreadDB, ThreadSource
@@ -225,11 +226,18 @@ async def delete_thread(
     thread_id: str,
     current_user: UserDB = Depends(get_current_user),
     service: ThreadService = Depends(get_thread_service),
+    db: AsyncSession = Depends(get_db),  # dependency-cached: the service's session
 ) -> None:
     thread = await service.get(thread_id)
     if thread.user_id != current_user.id:
         raise PermissionDeniedError("Not authorized to delete this thread")
-    async with get_checkpointer() as checkpointer:
-        await checkpointer.adelete_thread(thread_id=thread_id)
-
     await service.delete(thread_id)
+    # Commit the row delete BEFORE purging checkpoints — the order
+    # `purge_checkpoints` documents, and the reverse of what this endpoint used
+    # to do. Checkpoints live on a separate auto-committed connection and cannot
+    # be rolled back, so purging first meant a failed commit left a thread whose
+    # entire history was irrecoverably gone (design review §5.5). The other
+    # direction fails safe: a purge that errors leaves a deleted thread's
+    # checkpoints orphaned, which is invisible and reclaimable.
+    await db.commit()
+    await service.purge_checkpoints([thread_id])

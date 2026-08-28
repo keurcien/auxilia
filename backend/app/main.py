@@ -17,6 +17,7 @@ from app.agents.runs.worker import RunDispatcher
 from app.auth.router import router as auth_router
 from app.auth.settings import auth_settings
 from app.auth.tokens.router import router as tokens_router
+from app.background import registry as background_loops
 from app.database import close_checkpointer_pool
 from app.exceptions import (
     AlreadyExistsError,
@@ -27,6 +28,7 @@ from app.exceptions import (
     NotFoundError,
     PermissionDeniedError,
 )
+from app.integrations.langfuse.callback import flush_langfuse
 from app.integrations.slack.consumer import build_slack_run_consumer
 from app.integrations.slack.router import router as slack_router
 from app.invites.router import router as invites_router
@@ -65,6 +67,10 @@ def _log_background_crash(task: asyncio.Task) -> None:
 async def lifespan(app: FastAPI):
     apply_mcp_client_patches()
     app.state.redis = get_redis()
+    # Loops register themselves on construction, so start from empty: a test
+    # app (or a reload) would otherwise accumulate entries for loops that no
+    # longer exist and report the instance unhealthy for ever.
+    background_loops.clear()
 
     # The dispatcher + reaper are background loops; they need an always-on
     # instance with CPU allocated (Cloud Run: --no-cpu-throttling, min-instances>=1).
@@ -103,6 +109,12 @@ async def lifespan(app: FastAPI):
             for task in background:
                 task.cancel()
             await asyncio.gather(*background, return_exceptions=True)
+            # Ship buffered traces before the instance is frozen. Langfuse
+            # batches spans on a background timer, and on Cloud Run there is no
+            # timer left once the last request drains — without this, the tail
+            # of every scale-to-zero cycle is lost. Runs in a thread: the SDK's
+            # flush is blocking, and this is the event loop's last breath.
+            await asyncio.to_thread(flush_langfuse)
             await close_checkpointer_pool()
             await close_redis()
 
@@ -213,6 +225,28 @@ app.add_middleware(
     same_site="lax",
     https_only=auth_settings.COOKIE_SECURE,
 )
+
+
+@app.get("/health", tags=["health"])
+async def health() -> JSONResponse:
+    """Liveness for the instance, including its background loops.
+
+    Returns 503 when a loop this process is supposed to be running has stopped
+    ticking. That is the point: a dead dispatcher used to leave an instance
+    answering 200s while no run ever executed again, so nothing recycled it and
+    the deployment looked healthy while being entirely broken (§2.3).
+
+    An instance with `RUN_DISPATCHER_ENABLED=false` registers no loops and is
+    simply healthy — request-only instances are a supported deployment, not a
+    degraded one.
+    """
+    loops = background_loops.snapshot()
+    healthy = background_loops.healthy
+    return JSONResponse(
+        status_code=200 if healthy else 503,
+        content={"status": "ok" if healthy else "degraded", "loops": loops},
+    )
+
 
 app.include_router(agents_router)
 app.include_router(runs_router)

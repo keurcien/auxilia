@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import re
+from collections.abc import Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
@@ -9,12 +10,11 @@ from langchain_core.tools import Tool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
 
-from app.agents.schemas import AgentMCPServerResponse
+from app.agents.models import AgentMCPServerBase
 from app.mcp.client.factory import MCPClientConfigFactory
 from app.mcp.client.tools import inject_ui_metadata_into_tool
-from app.mcp.servers.models import MCPServerDB
+from app.mcp.servers.repository import MCPServerRepository
 
 
 logger = logging.getLogger(__name__)
@@ -387,13 +387,18 @@ class Toolset:
     @classmethod
     async def prepare(
         cls,
-        agent_mcp_servers: list[AgentMCPServerResponse],
+        agent_mcp_servers: Sequence[AgentMCPServerBase],
         db: AsyncSession,
         user_id: str,
         *,
         apply_ui: bool,
     ) -> PreparedToolset:
         """Build-time phase: DB lookup -> configs -> interrupt_on. No network.
+
+        Typed on ``AgentMCPServerBase`` — the column set shared by the binding
+        row and its response DTO — because only ``mcp_server_id`` and ``tools``
+        are read here. The run path passes rows straight from ``RunSpec``; the
+        API paths pass their DTOs.
 
         All DB access happens here (request scope). ``interrupt_on`` is derived
         from the persisted per-agent tool map (synced at connect/save time), so
@@ -412,10 +417,7 @@ class Toolset:
 
         # 1. Load MCP server records from DB
         server_ids = [s.mcp_server_id for s in agent_mcp_servers]
-        result = await db.execute(
-            select(MCPServerDB).where(MCPServerDB.id.in_(server_ids))
-        )
-        mcp_servers = list(result.scalars().all())
+        mcp_servers = await MCPServerRepository(db).list_by_ids(server_ids)
 
         # 2. Build MCP client configs (resolves auth to Redis/header values — no
         #    live SQL handle is retained, so the client is safe to use later during

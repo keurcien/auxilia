@@ -7,13 +7,13 @@ from uuid import UUID
 from fastapi import Depends
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
 
 from app.agents.core.repository import AgentRepository
 from app.agents.mcp_servers.repository import AgentMCPServerRepository
 from app.agents.mcp_servers.service import AgentMCPServerService
 from app.agents.models import (
     AgentDB,
+    AgentMCPServerDB,
     AgentUserPermissionDB,
 )
 from app.agents.sandboxes.repository import AgentSandboxRepository
@@ -32,8 +32,8 @@ from app.agents.schemas import (
 from app.agents.subagents.service import SubagentService
 from app.database import get_db
 from app.exceptions import NotFoundError, PermissionDeniedError
-from app.mcp.client.connectivity import is_authorized
-from app.mcp.servers.models import MCPServerDB
+from app.mcp.client.connectivity import probe_authorization
+from app.mcp.servers.repository import MCPServerRepository
 from app.service import BaseService
 from app.tags.service import TagService
 from app.threads.service import ThreadService
@@ -57,6 +57,7 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         self.mcp_server_service = AgentMCPServerService(db)
         self.sandbox_repository = AgentSandboxRepository(db)
         self.sandbox_service = AgentSandboxService(db)
+        self.mcp_servers = MCPServerRepository(db)
 
     @staticmethod
     def _resolve_permission(
@@ -397,23 +398,20 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
     async def set_teams(self, agent_id: UUID, team_ids: list[UUID]) -> list[UUID]:
         return await self.repository.set_teams(agent_id, team_ids)
 
-    async def collect_run_bindings(
-        self, agent_id: UUID
-    ) -> list[AgentMCPServerResponse]:
+    async def collect_run_bindings(self, agent_id: UUID) -> list[AgentMCPServerDB]:
         """Every MCP binding a run of this agent touches: the agent's own plus
         each direct subagent's. One level only — matches `Agent.build`, which
         does not recurse into a subagent's own subagents.
 
-        NOT deduped: `tools` (configuration state) is per binding, so a server
-        configured on the parent but left unconfigured on a subagent must stay
-        visible to the readiness check. Callers doing per-server work (the OAuth
-        probe) dedupe by mcp_server_id themselves."""
-        agent = await self.get(agent_id, include_archived=True)
-        bindings: list[AgentMCPServerResponse] = list(agent.mcp_servers or [])
-        for sub in agent.subagents or []:
-            sub_agent = await self.get(sub.id, include_archived=True)
-            bindings.extend(sub_agent.mcp_servers or [])
-        return bindings
+        A projection of `RunSpec` — see `run_spec.all_mcp_bindings` for the
+        not-deduped contract. This used to be a full `AgentService.get` per
+        agent, i.e. (1+N)×~5 queries, and it sits on the endpoint the frontend
+        polls (design review §1.2).
+        """
+        spec = await self.repository.get_run_spec(agent_id)
+        if spec is None:
+            return []
+        return spec.all_mcp_bindings
 
     async def describe_readiness(self, agent_id: UUID, user_id: str) -> dict:
         # Includes subagents' servers: a subagent's unauthorized OAuth server
@@ -433,19 +431,20 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
                 }
 
         server_ids = {b.mcp_server_id for b in bindings}  # dedupe for the probe
-        stmt = select(MCPServerDB).where(MCPServerDB.id.in_(server_ids))
-        result = await self.db.execute(stmt)
-        servers = list(result.scalars().all())
+        servers = await self.mcp_servers.list_by_ids(server_ids)
 
-        disconnected: list[str] = []
-        for server in servers:
-            if not await is_authorized(server, user_id):
-                disconnected.append(str(server.id))
+        authorized = await probe_authorization(servers, user_id)
+        disconnected = [
+            str(server.id) for server in servers if not authorized.get(server.id, True)
+        ]
 
         return {
-            "ready": len(disconnected) == 0,
+            "ready": not disconnected,
             "disconnected_servers": disconnected,
-            "status": "disconnected",
+            # Was hardcoded to "disconnected" even when everything was connected
+            # (design review §4.1) — the frontend's own `ready` flag disagreed
+            # with the status string it was shown next to.
+            "status": "disconnected" if disconnected else "ready",
         }
 
 

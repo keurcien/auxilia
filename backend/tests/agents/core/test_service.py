@@ -11,6 +11,7 @@ from app.agents.models import (
     PermissionLevel,
     ToolStatus,
 )
+from app.agents.run_spec import AgentSpec, RunSpec
 from app.agents.schemas import (
     AgentConfig,
     AgentCreateDB,
@@ -56,6 +57,7 @@ def mock_repo():
     repo.set_teams = AsyncMock(return_value=[])
     repo.delete_all_teams = AsyncMock()
     repo.list_with_permissions = AsyncMock(return_value=[])
+    repo.get_run_spec = AsyncMock(return_value=None)
     return repo
 
 
@@ -889,11 +891,45 @@ async def test_delete_permanently_denied_for_editor(
 # ---------------------------------------------------------------------------
 
 
-async def test_check_ready_returns_ready_when_no_mcp_servers(service, mock_repo):
-    agent = make_agent()
-    mock_repo.list_with_permissions.return_value = [(agent, None)]
+def _binding(agent_id, server_id, *, tools_ok=True) -> AgentMCPServerDB:
+    return AgentMCPServerDB(
+        id=uuid4(),
+        agent_id=agent_id,
+        mcp_server_id=server_id,
+        tools=({"x": ToolStatus.always_allow} if tools_ok else None),
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
 
-    result = await service.describe_readiness(agent.id, "user-id")
+
+def _spec(agent_id, server_ids, *, tools_ok=True) -> AgentSpec:
+    return AgentSpec(
+        id=agent_id,
+        name="Agent",
+        instructions="do things",
+        description=None,
+        mcp_servers=[_binding(agent_id, sid, tools_ok=tools_ok) for sid in server_ids],
+        sandbox=None,
+    )
+
+
+def _run_spec(agent_id, server_ids, *, subagents=(), tools_ok=True) -> RunSpec:
+    """A `RunSpec` as `AgentRepository.get_run_spec` would return it.
+
+    Real dataclasses rather than duck-typed mocks: the readiness rules turn on
+    `tools is None` and on parent/subagent bindings staying separate, and a mock
+    would happily satisfy either reading."""
+    return RunSpec(
+        agent=_spec(agent_id, server_ids, tools_ok=tools_ok),
+        subagents=list(subagents),
+    )
+
+
+async def test_check_ready_returns_ready_when_no_mcp_servers(service, mock_repo):
+    agent_id = uuid4()
+    mock_repo.get_run_spec.return_value = _run_spec(agent_id, [])
+
+    result = await service.describe_readiness(agent_id, "user-id")
 
     assert result["ready"] is True
     assert result["status"] == "ready"
@@ -903,19 +939,10 @@ async def test_check_ready_returns_ready_when_no_mcp_servers(service, mock_repo)
 async def test_check_ready_returns_not_configured_when_tools_is_none(
     service, mock_repo
 ):
-    agent = make_agent()
-    server_id = uuid4()
-    binding = AgentMCPServerDB(
-        id=uuid4(),
-        agent_id=agent.id,
-        mcp_server_id=server_id,
-        tools=None,
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
-    )
-    mock_repo.list_with_permissions.return_value = [(agent, binding)]
+    agent_id = uuid4()
+    mock_repo.get_run_spec.return_value = _run_spec(agent_id, [uuid4()], tools_ok=False)
 
-    result = await service.describe_readiness(agent.id, "user-id")
+    result = await service.describe_readiness(agent_id, "user-id")
 
     assert result["ready"] is False
     assert result["status"] == "not_configured"
@@ -924,119 +951,88 @@ async def test_check_ready_returns_not_configured_when_tools_is_none(
 async def test_check_ready_returns_ready_when_all_servers_connected(
     service, mock_db, mock_repo
 ):
-    agent = make_agent()
-    server_id = uuid4()
-    binding = AgentMCPServerDB(
-        id=uuid4(),
-        agent_id=agent.id,
-        mcp_server_id=server_id,
-        tools={"search": ToolStatus.always_allow},
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
+    agent_id, server_id = uuid4(), uuid4()
+    mock_repo.get_run_spec.return_value = _run_spec(agent_id, [server_id])
+    mock_db.execute.return_value = _make_mock_execute_result(
+        scalars_list=[MagicMock(id=server_id)]
     )
-    mcp_server = MagicMock()
-    mcp_server.id = server_id
-
-    mock_repo.list_with_permissions.return_value = [(agent, binding)]
-    mock_db.execute.return_value = _make_mock_execute_result(scalars_list=[mcp_server])
 
     with patch(
-        "app.agents.core.service.is_authorized",
-        new=AsyncMock(return_value=True),
+        "app.agents.core.service.probe_authorization",
+        new=AsyncMock(return_value={server_id: True}),
     ):
-        result = await service.describe_readiness(agent.id, "user-id")
+        result = await service.describe_readiness(agent_id, "user-id")
 
     assert result["ready"] is True
     assert result["disconnected_servers"] == []
+    assert result["status"] == "ready"
 
 
 async def test_check_ready_returns_not_ready_when_server_disconnected(
     service, mock_db, mock_repo
 ):
-    agent = make_agent()
-    server_id = uuid4()
-    binding = AgentMCPServerDB(
-        id=uuid4(),
-        agent_id=agent.id,
-        mcp_server_id=server_id,
-        tools={"search": ToolStatus.always_allow},
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
+    agent_id, server_id = uuid4(), uuid4()
+    mock_repo.get_run_spec.return_value = _run_spec(agent_id, [server_id])
+    mock_db.execute.return_value = _make_mock_execute_result(
+        scalars_list=[MagicMock(id=server_id)]
     )
-    mcp_server = MagicMock()
-    mcp_server.id = server_id
-
-    mock_repo.list_with_permissions.return_value = [(agent, binding)]
-    mock_db.execute.return_value = _make_mock_execute_result(scalars_list=[mcp_server])
 
     with patch(
-        "app.agents.core.service.is_authorized",
-        new=AsyncMock(return_value=False),
+        "app.agents.core.service.probe_authorization",
+        new=AsyncMock(return_value={server_id: False}),
     ):
-        result = await service.describe_readiness(agent.id, "user-id")
+        result = await service.describe_readiness(agent_id, "user-id")
 
     assert result["ready"] is False
     assert str(server_id) in result["disconnected_servers"]
 
 
 async def test_check_ready_disconnected_status_label(service, mock_db, mock_repo):
-    agent = make_agent()
-    server_id = uuid4()
-    binding = AgentMCPServerDB(
-        id=uuid4(),
-        agent_id=agent.id,
-        mcp_server_id=server_id,
-        tools={"x": ToolStatus.always_allow},
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
+    agent_id, server_id = uuid4(), uuid4()
+    mock_repo.get_run_spec.return_value = _run_spec(agent_id, [server_id])
+    mock_db.execute.return_value = _make_mock_execute_result(
+        scalars_list=[MagicMock(id=server_id)]
     )
-    mcp_server = MagicMock()
-    mcp_server.id = server_id
-
-    mock_repo.list_with_permissions.return_value = [(agent, binding)]
-    mock_db.execute.return_value = _make_mock_execute_result(scalars_list=[mcp_server])
 
     with patch(
-        "app.agents.core.service.is_authorized",
-        new=AsyncMock(return_value=False),
+        "app.agents.core.service.probe_authorization",
+        new=AsyncMock(return_value={server_id: False}),
     ):
-        result = await service.describe_readiness(agent.id, "user-id")
+        result = await service.describe_readiness(agent_id, "user-id")
 
     assert result["status"] == "disconnected"
 
 
-def _readiness_resp(mcp_server_ids, *, subagent_ids=(), tools_ok=True):
-    """Duck-typed AgentResponse for readiness/enumeration tests."""
-    resp = MagicMock()
-    resp.mcp_servers = [
-        MagicMock(
-            mcp_server_id=sid,
-            tools=({"x": ToolStatus.always_allow} if tools_ok else None),
-        )
-        for sid in mcp_server_ids
-    ]
-    resp.subagents = [MagicMock(id=sub) for sub in subagent_ids]
-    return resp
+async def test_check_ready_on_a_missing_agent_reports_ready_with_no_servers(
+    service, mock_repo
+):
+    """`get_run_spec` returns None for an unknown agent; readiness must not
+    explode on the polled endpoint."""
+    mock_repo.get_run_spec.return_value = None
+
+    result = await service.describe_readiness(uuid4(), "user-id")
+
+    assert result["ready"] is True
 
 
-async def test_describe_readiness_includes_subagent_servers(service, mock_db):
+async def test_describe_readiness_includes_subagent_servers(
+    service, mock_db, mock_repo
+):
     # The bug: a subagent's unauthorized OAuth server must keep the agent "not
     # ready" — otherwise the run launches and fails mid-flight.
     parent_id, sub_id = uuid4(), uuid4()
     parent_server, sub_server = uuid4(), uuid4()
-    responses = {
-        parent_id: _readiness_resp([parent_server], subagent_ids=[sub_id]),
-        sub_id: _readiness_resp([sub_server]),
-    }
-    service.get = AsyncMock(side_effect=lambda aid, **_: responses[aid])
+    mock_repo.get_run_spec.return_value = _run_spec(
+        parent_id, [parent_server], subagents=[_spec(sub_id, [sub_server])]
+    )
     mock_db.execute.return_value = _make_mock_execute_result(
         scalars_list=[MagicMock(id=parent_server), MagicMock(id=sub_server)]
     )
 
     with patch(
-        "app.agents.core.service.is_authorized",
+        "app.agents.core.service.probe_authorization",
         # parent authorized, subagent's server is not
-        new=AsyncMock(side_effect=lambda s, _u: s.id == parent_server),
+        new=AsyncMock(return_value={parent_server: True, sub_server: False}),
     ):
         result = await service.describe_readiness(parent_id, "user-id")
 
@@ -1045,33 +1041,41 @@ async def test_describe_readiness_includes_subagent_servers(service, mock_db):
     assert str(parent_server) not in result["disconnected_servers"]
 
 
-async def test_collect_run_bindings_keeps_shared_server_across_agents(service):
+async def test_collect_run_bindings_keeps_shared_server_across_agents(
+    service, mock_repo
+):
     # `tools` is per binding, so a server shared by parent + subagent yields
     # BOTH bindings (not deduped) — the readiness check needs to see each one.
     parent_id, sub_id = uuid4(), uuid4()
     shared = uuid4()
-    responses = {
-        parent_id: _readiness_resp([shared], subagent_ids=[sub_id]),
-        sub_id: _readiness_resp([shared]),
-    }
-    service.get = AsyncMock(side_effect=lambda aid, **_: responses[aid])
+    mock_repo.get_run_spec.return_value = _run_spec(
+        parent_id, [shared], subagents=[_spec(sub_id, [shared])]
+    )
 
     bindings = await service.collect_run_bindings(parent_id)
 
     assert [b.mcp_server_id for b in bindings] == [shared, shared]
 
 
-async def test_describe_readiness_flags_unconfigured_shared_subagent_binding(service):
+async def test_collect_run_bindings_is_empty_for_a_missing_agent(service, mock_repo):
+    mock_repo.get_run_spec.return_value = None
+
+    assert await service.collect_run_bindings(uuid4()) == []
+
+
+async def test_describe_readiness_flags_unconfigured_shared_subagent_binding(
+    service, mock_repo
+):
     # Parent configures server X; a subagent binds the SAME X but leaves it
     # unconfigured (tools=None). Deduping by server id would hide the None and
     # wrongly report ready — it must be not_configured.
     parent_id, sub_id = uuid4(), uuid4()
     shared = uuid4()
-    responses = {
-        parent_id: _readiness_resp([shared], subagent_ids=[sub_id], tools_ok=True),
-        sub_id: _readiness_resp([shared], tools_ok=False),
-    }
-    service.get = AsyncMock(side_effect=lambda aid, **_: responses[aid])
+    mock_repo.get_run_spec.return_value = _run_spec(
+        parent_id,
+        [shared],
+        subagents=[_spec(sub_id, [shared], tools_ok=False)],
+    )
 
     result = await service.describe_readiness(parent_id, "user-id")
 

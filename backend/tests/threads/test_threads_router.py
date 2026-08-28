@@ -452,3 +452,61 @@ def test_delete_thread_not_found(mock_checkpointer, client: TestClient, mock_db)
     response = client.delete(f"/threads/{fake_id}")
     assert response.status_code == 404
     assert response.json()["detail"] == "Thread not found"
+
+
+# ---------------------------------------------------------------------------
+# delete ordering (design review §5.5)
+# ---------------------------------------------------------------------------
+
+
+def _thread_owned_by(user_id) -> ThreadDB:
+    return ThreadDB(
+        id=str(uuid4()),
+        user_id=user_id,
+        agent_id=uuid4(),
+        model_id="some-model",
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+
+
+def test_delete_commits_the_row_before_purging_checkpoints(
+    client: TestClient, mock_db, current_user
+):
+    """Checkpoints live on a separate auto-committed connection and cannot be
+    rolled back. Purging first meant a failed commit left a thread whose entire
+    history was irrecoverably gone."""
+    thread = _thread_owned_by(current_user.id)
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = thread
+    mock_db.execute.return_value = mock_result
+
+    calls = MagicMock()
+    calls.attach_mock(mock_db.commit, "commit")
+    with patch("app.threads.service.get_checkpointer") as checkpointer:
+        checkpointer.return_value.__aenter__.return_value = MagicMock(
+            adelete_thread=AsyncMock()
+        )
+        calls.attach_mock(
+            checkpointer.return_value.__aenter__.return_value.adelete_thread, "purge"
+        )
+        response = client.delete(f"/threads/{thread.id}")
+
+    assert response.status_code == 204
+    ordered = [name for name, _, _ in calls.mock_calls]
+    assert "commit" in ordered and "purge" in ordered
+    assert ordered.index("commit") < ordered.index("purge")
+
+
+def test_delete_refuses_another_users_thread(client: TestClient, mock_db, current_user):
+    thread = _thread_owned_by(uuid4())  # someone else's
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = thread
+    mock_db.execute.return_value = mock_result
+
+    with patch("app.threads.service.get_checkpointer") as checkpointer:
+        response = client.delete(f"/threads/{thread.id}")
+
+    assert response.status_code == 403
+    mock_db.delete.assert_not_called()
+    checkpointer.assert_not_called()
