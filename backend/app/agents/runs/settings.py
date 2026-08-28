@@ -1,3 +1,5 @@
+import math
+
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
@@ -70,6 +72,13 @@ class RunSettings(BaseSettings):
     @field_validator("claim_interval_seconds", "cancel_poll_seconds", mode="after")
     @classmethod
     def _sub_second_intervals_stay_positive(cls, value: float) -> float:
+        # `nan`/`inf` are rejected rather than clamped: `max(nan, x)` is `nan`,
+        # which then becomes a sleep timeout with undefined behaviour, and `inf`
+        # is a loop that never ticks again. Unlike 0 they express no intent
+        # worth honouring, so failing at boot with a clear error beats a
+        # dispatcher that silently stops dispatching.
+        if not math.isfinite(value):
+            raise ValueError("must be a finite number of seconds")
         return max(value, MIN_INTERVAL_SECONDS)
 
 

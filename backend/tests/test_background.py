@@ -9,6 +9,7 @@ import asyncio
 from contextlib import suppress
 
 import pytest
+from pydantic import ValidationError
 
 from app.background import MAX_BACKOFF_SECONDS, LoopHealth, LoopRegistry, PeriodicLoop
 
@@ -281,6 +282,19 @@ def test_the_loop_intervals_that_sleep_directly_are_clamped():
     # The whole-second fields must stay whole — they are typed `int`.
     assert isinstance(settings.heartbeat_interval_seconds, int)
     assert isinstance(settings.reaper_interval_seconds, int)
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_intervals_are_rejected_not_clamped(bad):
+    """`max(nan, x)` is `nan`, which then becomes a sleep timeout with undefined
+    behaviour, and `inf` is a loop that never ticks again. Neither expresses an
+    intent worth honouring the way 0 does, so this fails loudly at boot."""
+    from app.agents.runs.settings import RunSettings
+
+    with pytest.raises(ValidationError):
+        RunSettings(claim_interval_seconds=bad, _env_file=None)
+    with pytest.raises(ValidationError):
+        RunSettings(cancel_poll_seconds=bad, _env_file=None)
 
 
 def test_register_loop_resolves_the_registry_at_call_time(monkeypatch):
