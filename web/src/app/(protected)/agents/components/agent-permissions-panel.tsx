@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { SearchBar } from "@/components/ui/search-bar";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { UnderlineTabs } from "@/components/ui/underline-tabs";
+import { UserAvatar } from "@/components/ui/user-avatar";
 
 type PermissionLevel = "member" | "editor" | "admin";
 
@@ -14,6 +15,7 @@ interface User {
 	id: string;
 	name: string | null;
 	email: string | null;
+	pictureUrl: string | null;
 }
 
 interface Team {
@@ -37,16 +39,6 @@ const PERMISSION_LABELS: Record<PermissionLevel, string> = {
 	editor: "Editor",
 	member: "Member",
 };
-
-function getInitials(name: string | null): string {
-	if (!name) return "?";
-	return name
-		.split(" ")
-		.map((w) => w[0])
-		.join("")
-		.slice(0, 2)
-		.toUpperCase();
-}
 
 /**
  * The Permissions editor tab: who can use/edit this agent, plus team grants.
@@ -211,9 +203,12 @@ export default function AgentPermissionsPanel({
 										className="flex w-full cursor-pointer items-center gap-3 border-b border-hover px-4 py-2.5 text-left transition-colors last:border-b-0 hover:bg-sidebar dark:border-white/5"
 										onClick={() => { addUser(user.id); }}
 									>
-										<span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
-											{getInitials(user.name)}
-										</span>
+										<UserAvatar
+											name={user.name}
+											pictureUrl={user.pictureUrl}
+											className="size-7 shrink-0"
+											fallbackClassName="bg-primary text-[10px] text-primary-foreground dark:bg-primary"
+										/>
 										<span className="min-w-0 flex-1">
 											<span className="block truncate text-[13.5px] font-semibold text-foreground">
 												{user.name || "Unnamed"}
@@ -237,9 +232,12 @@ export default function AgentPermissionsPanel({
 					<div className="overflow-hidden rounded-[10px] border border-border bg-card">
 						{owner && (
 							<div className="flex items-center gap-3 border-b border-hover px-4 py-3 last:border-b-0 dark:border-white/5">
-								<span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
-									{getInitials(owner.name)}
-								</span>
+								<UserAvatar
+									name={owner.name}
+									pictureUrl={owner.pictureUrl}
+									className="size-7 shrink-0"
+									fallbackClassName="bg-primary text-[10px] text-primary-foreground dark:bg-primary"
+								/>
 								<span className="min-w-0 flex-1">
 									<span className="block truncate text-[13.5px] font-semibold text-foreground">
 										{owner.name || "Unnamed"}
@@ -259,9 +257,12 @@ export default function AgentPermissionsPanel({
 								key={user.id}
 								className="group flex items-center gap-3 border-b border-hover px-4 py-2.5 last:border-b-0 dark:border-white/5"
 							>
-								<span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
-									{getInitials(user.name)}
-								</span>
+								<UserAvatar
+									name={user.name}
+									pictureUrl={user.pictureUrl}
+									className="size-7 shrink-0"
+									fallbackClassName="bg-primary text-[10px] text-primary-foreground dark:bg-primary"
+								/>
 								<span className="min-w-0 flex-1">
 									<span className="block truncate text-[13.5px] font-semibold text-foreground">
 										{user.name || "Unnamed"}

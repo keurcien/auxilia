@@ -4,16 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { KeyRound, Unplug } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { UserAvatar } from "@/components/ui/user-avatar";
 import { MCPAuthType, MCPServerConnection } from "@/types/mcp-servers";
-
-function getInitials(name: string | null | undefined): string {
-	if (!name) return "?";
-	const parts = name.trim().split(" ");
-	if (parts.length >= 2) {
-		return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-	}
-	return name.substring(0, 2).toUpperCase();
-}
 
 function StatusBadge({ status }: { status: MCPServerConnection["status"] }) {
 	const active = status === "active";
@@ -205,9 +197,11 @@ export function ConnectedUsersPanel({
 							key={connection.userId}
 							className="flex items-center gap-3 border-b border-hairline px-4 py-[11px] transition-colors last:border-b-0 hover:bg-sidebar dark:border-white/5 dark:hover:bg-white/5"
 						>
-							<span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-[10.5px] font-bold text-white dark:bg-white/15">
-								{getInitials(connection.name)}
-							</span>
+							<UserAvatar
+								name={connection.name}
+								pictureUrl={connection.pictureUrl}
+								className="shrink-0"
+							/>
 							<span className="min-w-0 flex-1">
 								<span className="block truncate text-[13.5px] font-semibold text-foreground">
 									{connection.name || "Unknown user"}
