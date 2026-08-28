@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.3](https://github.com/keurcien/auxilia/compare/web-v0.6.2...web-v0.6.3) (2026-08-28)
+
+
+### Bug Fixes
+
+* render user profile pictures everywhere a person is shown ([#295](https://github.com/keurcien/auxilia/issues/295)) ([7bc3b72](https://github.com/keurcien/auxilia/commit/7bc3b72fa6864868eca5df544882ac73725750ea))
+
 ## [0.6.2](https://github.com/keurcien/auxilia/compare/web-v0.6.1...web-v0.6.2) (2026-08-27)
 
 

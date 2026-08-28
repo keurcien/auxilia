@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.3](https://github.com/keurcien/auxilia/compare/backend-v0.5.2...backend-v0.5.3) (2026-08-28)
+
+
+### Bug Fixes
+
+* render user profile pictures everywhere a person is shown ([#295](https://github.com/keurcien/auxilia/issues/295)) ([7bc3b72](https://github.com/keurcien/auxilia/commit/7bc3b72fa6864868eca5df544882ac73725750ea))
+
 ## [0.5.2](https://github.com/keurcien/auxilia/compare/backend-v0.5.1...backend-v0.5.2) (2026-08-27)
 
 
