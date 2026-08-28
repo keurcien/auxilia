@@ -108,25 +108,35 @@ class RunReaper:
         Redis restart makes every key missing at once. A single sample would
         turn a restart into "reap the entire queue".
         """
-        if await self.dispatchers.any_alive():
+        try:
+            if await self.dispatchers.any_alive():
+                self._saw_no_dispatcher = False
+                return
+            if not self._saw_no_dispatcher:
+                self._saw_no_dispatcher = True
+                logger.info(
+                    "No dispatcher alive; waiting for a second sweep to confirm"
+                )
+                return
+            cutoff = now - timedelta(seconds=run_settings.pending_timeout_seconds)
+            for record in await self.service.list_stuck_pending(cutoff):
+                logger.warning("Reaping stuck pending run %s", record.id)
+                # expected=pending: if a dispatcher claimed it between the list
+                # and this call, the guarded update is a no-op instead of marking
+                # a now-running run "never dispatched".
+                await self.service.finalize(
+                    record.id,
+                    RunStatus.error,
+                    error="Run was never dispatched.",
+                    expected=RunStatus.pending,
+                )
+        except Exception:
+            # A sweep that failed observed nothing reliable, so it must not leave
+            # half an observation behind: a Redis or Postgres blip could
+            # otherwise supply one of the two samples and turn the next single
+            # check into a reap. Same reasoning as `_suspect` above.
             self._saw_no_dispatcher = False
-            return
-        if not self._saw_no_dispatcher:
-            self._saw_no_dispatcher = True
-            logger.info("No dispatcher alive; waiting for a second sweep to confirm")
-            return
-        cutoff = now - timedelta(seconds=run_settings.pending_timeout_seconds)
-        for record in await self.service.list_stuck_pending(cutoff):
-            logger.warning("Reaping stuck pending run %s", record.id)
-            # expected=pending: if a dispatcher claimed it between the list
-            # and this call, the guarded update is a no-op instead of marking
-            # a now-running run "never dispatched".
-            await self.service.finalize(
-                record.id,
-                RunStatus.error,
-                error="Run was never dispatched.",
-                expected=RunStatus.pending,
-            )
+            raise
 
     async def _maybe_prune(self, now: datetime) -> None:
         """Daily retention pass: drop terminal run rows past `retention_days`.

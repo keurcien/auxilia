@@ -266,3 +266,32 @@ async def test_a_failed_sweep_does_not_carry_suspicion_into_the_next_one(redis):
     # ...so the run needs a fresh pair of sightings, not one.
     await reaper._reap_dead_running(_after_heartbeat_grace())
     assert (await service.get(run_id)).status == RunStatus.running
+
+
+async def test_a_failed_sweep_does_not_leave_half_a_no_dispatcher_observation(redis):
+    """Same latch bug as `_suspect`, one method over: a sweep that fails after
+    recording "no dispatcher" let the next single check reap the queue."""
+    service = RunService(redis)
+    record = await service.create(
+        thread_id="t-latch", user_id=str(uuid4()), input={"messages": []}
+    )
+    reaper = RunReaper(redis)
+
+    await reaper._reap_undispatched_pending(_after_pending_timeout())  # 1st sighting
+    assert reaper._saw_no_dispatcher is True
+
+    original = reaper.service.list_stuck_pending
+
+    async def _boom(_cutoff):
+        raise ConnectionError("postgres went away")
+
+    reaper.service.list_stuck_pending = _boom
+    with pytest.raises(ConnectionError):
+        await reaper._reap_undispatched_pending(_after_pending_timeout())
+    reaper.service.list_stuck_pending = original
+
+    assert reaper._saw_no_dispatcher is False
+
+    # ...so the next check is a first sighting again, not a reap.
+    await reaper._reap_undispatched_pending(_after_pending_timeout())
+    assert (await service.get(record.id)).status == RunStatus.pending

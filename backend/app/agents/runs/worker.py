@@ -24,7 +24,7 @@ from app.agents.runs.settings import run_settings
 from app.agents.runs.state import MCP_REAUTH_ERROR, RunStatus
 from app.agents.runtime import Agent
 from app.agents.stream import decode_sse_blocks
-from app.background import LoopHealth, registry
+from app.background import LoopHealth, register_loop
 from app.database import AsyncSessionLocal, get_checkpointer
 from app.exceptions import root_cause
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
@@ -263,7 +263,7 @@ class RunDispatcher:
         # cadence. Ticking from the claim loop would make a *fully occupied*
         # dispatcher look dead within a minute and get a healthy, busy worker
         # recycled mid-run — worse than the failure /health exists to catch.
-        self.health = registry.register(
+        self.health = register_loop(
             LoopHealth(
                 name="run-dispatcher",
                 interval=run_settings.heartbeat_interval_seconds,

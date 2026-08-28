@@ -123,6 +123,18 @@ class LoopRegistry:
 registry = LoopRegistry()
 
 
+def register_loop(health: LoopHealth) -> LoopHealth:
+    """Register a loop's health with the process-wide registry.
+
+    A function, not `registry.register(...)` at each call site, because
+    `from app.background import registry` binds the object *by value* at import
+    time: a test that swaps `app.background.registry` would then isolate itself
+    from the reader but not from the writers, which is exactly how an "isolated"
+    fixture ends up isolating nothing. This resolves the global on every call.
+    """
+    return registry.register(health)
+
+
 class PeriodicLoop:
     """Runs `tick` every `interval` seconds until stopped, surviving failures.
 
@@ -143,7 +155,7 @@ class PeriodicLoop:
         # sets 0 means "as often as possible", and refusing to start a loop over
         # a config typo is a worse outcome than running it a little slower.
         interval = max(interval, MIN_INTERVAL_SECONDS)
-        self.health = registry.register(LoopHealth(name=name, interval=interval))
+        self.health = register_loop(LoopHealth(name=name, interval=interval))
         self._name = name
         self._interval = interval
         self._tick = tick

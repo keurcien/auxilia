@@ -258,3 +258,39 @@ async def test_health_never_exposes_raw_exception_text(until):
 
     assert "hunter2" not in repr(loop.health.snapshot())
     assert loop.health.snapshot()["last_error_type"] == "RuntimeError"
+
+
+def test_the_loop_intervals_that_sleep_directly_are_clamped():
+    """`PeriodicLoop`'s floor does not reach the dispatcher's and the run
+    heartbeat's loops — they sleep directly — so the settings clamp at source.
+    Zero would otherwise burn a core for the life of the process."""
+    from app.agents.runs.settings import RunSettings
+
+    settings = RunSettings(
+        heartbeat_interval_seconds=0,
+        reaper_interval_seconds=0,
+        claim_interval_seconds=0,
+        cancel_poll_seconds=-1,
+        _env_file=None,
+    )
+
+    assert settings.heartbeat_interval_seconds == 1
+    assert settings.reaper_interval_seconds == 1
+    assert settings.claim_interval_seconds > 0
+    assert settings.cancel_poll_seconds > 0
+    # The whole-second fields must stay whole — they are typed `int`.
+    assert isinstance(settings.heartbeat_interval_seconds, int)
+    assert isinstance(settings.reaper_interval_seconds, int)
+
+
+def test_register_loop_resolves_the_registry_at_call_time(monkeypatch):
+    """The seam that makes registry isolation possible at all: callers that did
+    `from app.background import registry` kept writing to the original."""
+    swapped = LoopRegistry()
+    monkeypatch.setattr("app.background.registry", swapped)
+
+    from app.background import register_loop
+
+    register_loop(LoopHealth(name="somewhere-else", interval=1))
+
+    assert [loop.name for loop in swapped.loops] == ["somewhere-else"]

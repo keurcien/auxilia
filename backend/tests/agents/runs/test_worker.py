@@ -414,12 +414,32 @@ def isolated_registry(monkeypatch):
     """`RunDispatcher` registers its health in the process-wide registry on
     construction, and a cancelled task never reaches the cleanup that marks it
     stopped — so without this, later tests (and /health) see a dispatcher that
-    does not exist."""
+    does not exist.
+
+    Patching `app.background.registry` is enough only because registration goes
+    through `register_loop()`, which resolves that global at call time. The
+    first version of this fixture patched the attribute while `worker.py` held
+    the registry object it had imported by value, so it isolated nothing —
+    hence the seam.
+    """
     from app.background import LoopRegistry
 
     registry = LoopRegistry()
     monkeypatch.setattr("app.background.registry", registry)
     return registry
+
+
+async def test_the_isolated_registry_fixture_actually_isolates(
+    redis, isolated_registry
+):
+    """Guards the fixture itself: it silently isolated nothing while `worker.py`
+    used its own imported reference to the registry."""
+    from app.background import registry as process_registry
+
+    RunDispatcher(redis)
+
+    assert [loop.name for loop in isolated_registry.loops] == ["run-dispatcher"]
+    assert process_registry is isolated_registry
 
 
 async def test_dispatcher_announces_liveness_while_saturated(

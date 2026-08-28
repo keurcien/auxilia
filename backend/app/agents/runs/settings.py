@@ -1,5 +1,7 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
+from app.background import MIN_INTERVAL_SECONDS
 from app.settings import settings_config
 
 
@@ -50,6 +52,25 @@ class RunSettings(BaseSettings):
     dispatcher_enabled: bool = True
 
     model_config = settings_config(env_prefix="run_")
+
+    # Every interval below drives a `while` loop's sleep. Set to zero, each turns
+    # its loop into a busy spin that burns a core for the life of the process —
+    # and the dispatcher's and the run heartbeat's loops sleep directly, so
+    # `PeriodicLoop`'s own floor does not reach them. Clamped rather than
+    # rejected: an operator writing 0 means "as often as possible", and refusing
+    # to boot over a config typo is the worse failure.
+
+    @field_validator(
+        "heartbeat_interval_seconds", "reaper_interval_seconds", mode="after"
+    )
+    @classmethod
+    def _whole_second_intervals_stay_whole(cls, value: int) -> int:
+        return max(value, 1)
+
+    @field_validator("claim_interval_seconds", "cancel_poll_seconds", mode="after")
+    @classmethod
+    def _sub_second_intervals_stay_positive(cls, value: float) -> float:
+        return max(value, MIN_INTERVAL_SECONDS)
 
 
 run_settings: RunSettings = RunSettings()
