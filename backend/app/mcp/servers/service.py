@@ -194,8 +194,8 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
             deleted = await TokenStorageFactory().clear_server_data(str(server_id))
         except Exception:  # noqa: BLE001 — a cache outage must not fail the edit
             logger.warning(
-                "Could not purge stored tokens for MCP server %s after an edit; "
-                "users may need to reconnect manually",
+                "Could not purge stored authorization state for MCP server %s after "
+                "an edit; users may need to reconnect manually",
                 server_id,
                 exc_info=True,
             )

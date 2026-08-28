@@ -400,7 +400,7 @@ def test_update_thread_not_found(client: TestClient, mock_db):
     assert response.json()["detail"] == "Thread not found"
 
 
-@patch("app.threads.router.get_checkpointer")
+@patch("app.threads.service.get_checkpointer")
 def test_delete_thread(mock_checkpointer, client: TestClient, mock_db, current_user):
     """Test deleting a thread."""
     thread_id = str(uuid4())
@@ -429,10 +429,14 @@ def test_delete_thread(mock_checkpointer, client: TestClient, mock_db, current_u
     response = client.delete(f"/threads/{thread_id}")
     assert response.status_code == 204
     mock_db.delete.assert_called_once()
+    # Assert the checkpointer was actually the mock. Without this the patch
+    # target can drift (it did: the call moved from the router into the service)
+    # and the test silently opens a real Postgres pool instead of failing.
+    mock_saver_instance.adelete_thread.assert_awaited_once_with(thread_id=thread_id)
 
 
 @pytest.mark.usefixtures("current_user")
-@patch("app.threads.router.get_checkpointer")
+@patch("app.threads.service.get_checkpointer")
 def test_delete_thread_not_found(mock_checkpointer, client: TestClient, mock_db):
     """Test deleting a non-existent thread returns 404."""
     fake_id = uuid4()
