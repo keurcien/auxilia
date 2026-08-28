@@ -97,7 +97,7 @@ class RunWorker:
         status, error = RunStatus.success, None
         try:
             status, error = await self._execute(record, events, cancel_watch)
-        except Exception as exc:  # noqa: BLE001 — any failure finalizes as error
+        except Exception as exc:
             logger.exception("Run %s failed", record.id)
             status, error = RunStatus.error, str(root_cause(exc))
         finally:
@@ -118,7 +118,7 @@ class RunWorker:
             return None
         try:
             consumer = self._delivery_factory(record)
-        except Exception:  # noqa: BLE001 — delivery is best-effort
+        except Exception:
             logger.exception("Delivery factory failed for run %s", record.id)
             return None
         if consumer is None:
@@ -130,7 +130,7 @@ class RunWorker:
         """Run a delivery consumer; a delivery failure never fails the run."""
         try:
             await consumer.run()
-        except Exception:  # noqa: BLE001 — delivery is best-effort
+        except Exception:
             logger.exception("Delivery failed for run %s", run_id)
 
     async def _execute(
@@ -261,14 +261,14 @@ class RunDispatcher:
             # instant and won the one-running-per-thread index — not ours.
             logger.debug("Run claim lost a cross-instance race")
             return None
-        except Exception:  # noqa: BLE001 — keep polling through DB blips
+        except Exception:
             logger.exception("Run claim failed")
             return None
 
     async def _run_one(self, record: RunDB) -> None:
         try:
             await self.worker.run(record)
-        except Exception:  # noqa: BLE001 — never let one run kill the dispatcher
+        except Exception:
             logger.exception("Unhandled error running %s", record.id)
         finally:
             self._semaphore.release()

@@ -22,6 +22,7 @@ def _to_response(agent: AgentDB) -> SubagentResponse:
         id=agent.id,
         name=agent.name,
         emoji=agent.emoji,
+        color=agent.color,
         description=agent.description,
     )
 

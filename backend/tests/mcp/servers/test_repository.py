@@ -33,7 +33,7 @@ async def test_blank_secret_keeps_existing_and_patches_client_id():
 async def test_secret_update_reencrypts(monkeypatch):
     import app.mcp.servers.repository as repo_module
 
-    monkeypatch.setattr(repo_module, "encrypt_api_key", lambda v: f"enc:{v}")
+    monkeypatch.setattr(repo_module, "encrypt_value", lambda v: f"enc:{v}")
     creds = SimpleNamespace(
         client_id="id",
         client_secret_encrypted="enc-old",

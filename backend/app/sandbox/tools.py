@@ -38,7 +38,7 @@ def create_sandbox_tools(
         """
         try:
             backend, message = provider.connect(sandbox_id)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — surfaced to the model as a tool result, never raised
             return (
                 f"Failed to reconnect to sandbox {sandbox_id}: {e}. "
                 "Create a new sandbox instead."

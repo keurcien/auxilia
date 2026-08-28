@@ -77,7 +77,7 @@ class SlackRunConsumer(DeliveryConsumer):
         )
         try:
             status, text_chars = await self._stream_to_slack(channel_id, thread_ts)
-        except Exception:  # noqa: BLE001 — never leave the thread silent
+        except Exception:
             logger.exception("Slack delivery crashed for run %s", self.record.id)
             await self._post_failure_notice(channel_id, thread_ts)
             return
@@ -92,9 +92,11 @@ class SlackRunConsumer(DeliveryConsumer):
             await self._post_approvals(channel_id, thread_ts)
         elif status == RunStatus.success.value:
             await self._post_auxilia_link(channel_id, thread_ts)
-        elif status in (RunStatus.error.value, RunStatus.timeout.value):
-            if not await self._post_reauth_prompt_if_gated(channel_id, thread_ts):
-                await self._post_failure_notice(channel_id, thread_ts)
+        elif status in (
+            RunStatus.error.value,
+            RunStatus.timeout.value,
+        ) and not await self._post_reauth_prompt_if_gated(channel_id, thread_ts):
+            await self._post_failure_notice(channel_id, thread_ts)
 
     async def _stream_to_slack(
         self, channel_id: str, thread_ts: str
@@ -160,7 +162,7 @@ class SlackRunConsumer(DeliveryConsumer):
                 text="Please reconnect this agent's MCP servers on auxilia.",
             )
             return True
-        except Exception:  # noqa: BLE001 — fall back to the generic notice
+        except Exception:
             logger.exception(
                 "Reauth prompt failed for run %s; posting generic notice",
                 self.record.id,

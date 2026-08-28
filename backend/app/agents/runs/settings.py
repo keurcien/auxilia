@@ -1,11 +1,6 @@
-from pathlib import Path
-
-from pydantic import ConfigDict
 from pydantic_settings import BaseSettings
 
-
-BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
-ROOT_ENV = BASE_DIR.parent / ".env"
+from app.settings import settings_config
 
 
 class RunSettings(BaseSettings):
@@ -47,9 +42,7 @@ class RunSettings(BaseSettings):
     # request-only instances when a dedicated worker pool owns execution.
     dispatcher_enabled: bool = True
 
-    model_config: ConfigDict = ConfigDict(
-        env_prefix="run_", env_file=ROOT_ENV, extra="ignore"
-    )
+    model_config = settings_config(env_prefix="run_")
 
 
 run_settings: RunSettings = RunSettings()

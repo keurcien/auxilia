@@ -27,19 +27,20 @@ def repo(mock_db):
 
 
 def make_link(**kwargs):
-    defaults = dict(
-        id=uuid4(),
-        agent_id=uuid4(),
-        mcp_server_id=uuid4(),
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
-    )
+    defaults = {
+        "id": uuid4(),
+        "agent_id": uuid4(),
+        "mcp_server_id": uuid4(),
+        "created_at": datetime.now(),
+        "updated_at": datetime.now(),
+    }
     return AgentMCPServerDB(**{**defaults, **kwargs})
 
 
 # ---------------------------------------------------------------------------
 # get
 # ---------------------------------------------------------------------------
+
 
 async def test_get_returns_link(repo, mock_db):
     link = make_link()
@@ -67,6 +68,7 @@ async def test_get_returns_none_when_not_found(repo, mock_db):
 # create
 # ---------------------------------------------------------------------------
 
+
 async def test_create_creates_with_null_tools(repo, mock_db):
     agent_id = uuid4()
     server_id = uuid4()
@@ -89,6 +91,7 @@ async def test_create_creates_with_null_tools(repo, mock_db):
 # ---------------------------------------------------------------------------
 # update
 # ---------------------------------------------------------------------------
+
 
 async def test_update_applies_fields(repo, mock_db):
     link = make_link(tools=None)
@@ -115,6 +118,7 @@ async def test_update_with_empty_schema_is_noop(repo, mock_db):
 # ---------------------------------------------------------------------------
 # delete
 # ---------------------------------------------------------------------------
+
 
 async def test_delete_calls_delete_and_flushes(repo, mock_db):
     link = make_link()

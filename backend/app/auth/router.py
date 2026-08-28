@@ -187,7 +187,7 @@ async def google_callback(
     invite_token = request.session.pop("invite_token", None)
 
     try:
-        user, access_token = await service.oauth_signin_or_link(
+        _user, access_token = await service.oauth_signin_or_link(
             provider="google",
             sub_id=google_sub,
             email=email,

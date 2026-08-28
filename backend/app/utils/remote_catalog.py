@@ -18,6 +18,7 @@ instead of falling back, and returns the diff. The CDN is never on a request hot
 path in a way that can take the app down.
 """
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -164,11 +165,9 @@ class RemoteCatalog(Generic[T]):
 
     @staticmethod
     async def _release(lock: Lock) -> None:
-        try:
+        # The lock may have expired mid-fetch and belong to someone else now.
+        with contextlib.suppress(LockError):
             await lock.release()
-        except LockError:
-            # The lock expired mid-fetch and may belong to someone else now.
-            pass
 
     async def _refresh(self, redis: Redis, url: str) -> list[T] | None:
         """Cache-miss path: fetch behind a single-flight lock. Returns None when
@@ -180,7 +179,7 @@ class RemoteCatalog(Generic[T]):
             items, etag = await self._fetch(url)
             await self._store(redis, items, etag)
             return items
-        except Exception:
+        except Exception:  # noqa: BLE001 — any refresh failure falls back to a cached layer
             logger.warning(
                 "%s refresh from %s failed; falling back",
                 self.prefix,
@@ -214,7 +213,7 @@ class RemoteCatalog(Generic[T]):
                         last_good = await redis.get(self.last_good_key)
                         if last_good:
                             items = self._loads(last_good)
-            except Exception:
+            except Exception:  # noqa: BLE001 — any Redis failure falls back to the bundled snapshot
                 logger.warning(
                     "%s read from Redis failed; using bundled snapshot",
                     self.prefix,

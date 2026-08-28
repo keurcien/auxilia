@@ -58,7 +58,7 @@ class AgentMCPServerService(BaseService[AgentMCPServerDB, AgentMCPServerReposito
             self.db.add(db_link)
             await self.db.flush()
             await self.db.refresh(db_link)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — FIXME(P3-12): an explicit sync that fails still reports success
             logger.warning(f"Failed to fetch tools for MCP server {mcp_server.id}: {e}")
 
     async def create_or_update(

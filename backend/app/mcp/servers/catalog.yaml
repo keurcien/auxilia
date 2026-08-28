@@ -275,3 +275,11 @@ servers:
     supports_dcr: true
     description: >-
       TikTok for Business MCP Server is a standardized bridge built on the Model Context Protocol (MCP) that enables developers and advertisers to connect AI agents directly to the TikTok Ads platform. By exposing core advertising functions — campaign management, performance reporting, audience configuration, and creative operations — as a set of reliable, production-ready tools, the MCP Server allows AI agents to manage, optimize, and report on TikTok advertising through simple, structured instructions.
+
+  - name: Slides
+    url: "https://slidesmcp.googleapis.com/mcp/v1"
+    auth_type: oauth2
+    icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/slides.png"
+    supports_dcr: false
+    description: >-
+      Google Slides offers a remote Model Context Protocol (MCP) server that allows AI agents to securely interact with Google Slides data.

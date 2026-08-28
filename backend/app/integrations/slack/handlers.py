@@ -248,7 +248,7 @@ async def _is_agent_ready(agent_id: str, user_id: str, db: AsyncSession) -> bool
 
     try:
         readiness = await AgentService(db).describe_readiness(UUID(agent_id), user_id)
-    except Exception:
+    except Exception:  # noqa: BLE001 — fail-open, per the docstring above
         logger.warning(
             "Slack readiness check for agent %s failed; letting the run proceed",
             agent_id,

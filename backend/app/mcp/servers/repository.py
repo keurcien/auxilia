@@ -5,10 +5,6 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from app.mcp.servers.encryption import (
-    decrypt_value as decrypt_api_key,
-    encrypt_value as encrypt_api_key,
-)
 from app.mcp.servers.models import (
     MCPServerAPIKeyDB,
     MCPServerDB,
@@ -16,6 +12,7 @@ from app.mcp.servers.models import (
 )
 from app.mcp.servers.schemas import MCPServerCreate
 from app.repository import BaseRepository
+from app.utils.encryption import decrypt_value, encrypt_value
 
 
 class MCPServerRepository(BaseRepository[MCPServerDB]):
@@ -61,11 +58,11 @@ class MCPServerRepository(BaseRepository[MCPServerDB]):
         result = await self.db.execute(stmt)
         api_key_record = result.scalar_one_or_none()
         if api_key_record:
-            return decrypt_api_key(api_key_record.key_encrypted)
+            return decrypt_value(api_key_record.key_encrypted)
         return None
 
     async def create_or_update_api_key(self, server_id: UUID, api_key: str) -> None:
-        encrypted_key = encrypt_api_key(api_key)
+        encrypted_key = encrypt_value(api_key)
         stmt = select(MCPServerAPIKeyDB).where(
             MCPServerAPIKeyDB.mcp_server_id == server_id
         )
@@ -99,7 +96,7 @@ class MCPServerRepository(BaseRepository[MCPServerDB]):
         client_secret: str,
         auth_method: str | None,
     ) -> None:
-        encrypted_secret = encrypt_api_key(client_secret)
+        encrypted_secret = encrypt_value(client_secret)
         oauth_credentials = await self.get_oauth_credentials(server_id)
         if oauth_credentials:
             oauth_credentials.client_id = client_id
@@ -142,7 +139,7 @@ class MCPServerRepository(BaseRepository[MCPServerDB]):
         if client_id is not None:
             creds.client_id = client_id
         if client_secret is not None:
-            creds.client_secret_encrypted = encrypt_api_key(client_secret)
+            creds.client_secret_encrypted = encrypt_value(client_secret)
         if auth_method is not None:
             creds.token_endpoint_auth_method = auth_method
         await self.db.flush()

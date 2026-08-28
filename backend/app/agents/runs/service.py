@@ -168,7 +168,7 @@ class RunService:
         async def _probe(server) -> bool:
             try:
                 return await is_authorized(server, user_id)
-            except Exception:
+            except Exception:  # noqa: BLE001 — fail-open: a probe error must not block the run
                 logger.warning(
                     "OAuth pre-flight for MCP server %s failed; letting the run launch",
                     server.id,
@@ -188,7 +188,7 @@ class RunService:
                 await initiate_oauth(server, user_id, db)
             except OAuthAuthorizationRequired:
                 raise
-            except Exception:
+            except Exception:  # noqa: BLE001 — fail-open: a probe error must not block the run
                 logger.warning(
                     "OAuth pre-flight for MCP server %s failed; letting the run launch",
                     server.id,

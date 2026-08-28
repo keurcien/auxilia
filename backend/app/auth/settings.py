@@ -1,11 +1,6 @@
-from pathlib import Path
-
-from pydantic import ConfigDict
 from pydantic_settings import BaseSettings
 
-
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
-ROOT_ENV = BASE_DIR.parent / ".env"
+from app.settings import settings_config
 
 
 class AuthSettings(BaseSettings):
@@ -31,10 +26,7 @@ class AuthSettings(BaseSettings):
     # When True and Google OAuth is configured, password auth is disabled
     AUTH_GOOGLE_EXCLUSIVE: bool = False
 
-    model_config: ConfigDict = ConfigDict(
-        env_file=ROOT_ENV,
-        extra="ignore"
-    )
+    model_config = settings_config()
 
     @property
     def google_oauth_enabled(self) -> bool:

@@ -6,8 +6,8 @@ from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata, OAuthToke
 from pydantic import BaseModel
 from redis.asyncio import Redis
 
-from app.mcp.servers.encryption import decrypt_value, encrypt_value
 from app.settings import app_settings
+from app.utils.encryption import decrypt_value, encrypt_value
 
 
 logger = logging.getLogger(__name__)

@@ -367,18 +367,20 @@ async def test_all_attempts_invalid_raises_and_logs(caplog):
     )
     calls: list[ModelRequest] = []
 
-    with caplog.at_level("WARNING"):
-        with pytest.raises(StructuredOutputError, match="required property"):
-            await middleware.awrap_model_call(
-                request,
-                _handler_recording(
-                    [
-                        ModelResponse(result=[AIMessage("4")]),
-                        *([leaky] * MAX_FORMAT_ATTEMPTS),
-                    ],
-                    calls,
-                ),
-            )
+    with (
+        caplog.at_level("WARNING"),
+        pytest.raises(StructuredOutputError, match="required property"),
+    ):
+        await middleware.awrap_model_call(
+            request,
+            _handler_recording(
+                [
+                    ModelResponse(result=[AIMessage("4")]),
+                    *([leaky] * MAX_FORMAT_ATTEMPTS),
+                ],
+                calls,
+            ),
+        )
     # 1 loop turn + one call per formatting attempt.
     assert len(calls) == 1 + MAX_FORMAT_ATTEMPTS
     # Logged once per failed attempt, with the offending keys...

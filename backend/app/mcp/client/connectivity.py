@@ -28,10 +28,10 @@ from app.exceptions import DomainError
 from app.mcp.client.auth import WebOAuthClientProvider, build_oauth_client_metadata
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
 from app.mcp.client.storage import RedisTokenStorage, TokenStorageFactory
-from app.mcp.servers.encryption import decrypt_value as decrypt_api_key
 from app.mcp.servers.models import MCPAuthType, MCPServerDB
 from app.mcp.servers.repository import MCPServerRepository
 from app.mcp.servers.schemas import ConnectionTestResult
+from app.utils.encryption import decrypt_value
 
 
 logger = logging.getLogger(__name__)
@@ -62,7 +62,7 @@ async def build_oauth_provider(
         oauth_credentials = await repository.get_oauth_credentials(mcp_server.id)
         if oauth_credentials:
             client_id = oauth_credentials.client_id
-            client_secret = decrypt_api_key(oauth_credentials.client_secret_encrypted)
+            client_secret = decrypt_value(oauth_credentials.client_secret_encrypted)
             client_metadata.token_endpoint_auth_method = (
                 oauth_credentials.token_endpoint_auth_method or "client_secret_post"
             )
@@ -129,7 +129,11 @@ async def _open_session(
     if auth is not None:
         client_args["auth"] = auth
 
-    async with streamablehttp_client(
+    # Kept nested rather than combined into one parenthesized `async with`: the
+    # combined form hides that `read`/`write` are bound by the first context manager
+    # and consumed by the second, and Codacy's analyzer reads it as "using variable
+    # 'read' before assignment".
+    async with streamablehttp_client(  # noqa: SIM117
         **client_args, terminate_on_close=terminate_on_close
     ) as (read, write, _):
         async with ClientSession(read, write) as session:
@@ -259,7 +263,7 @@ async def test_connection(
             return ConnectionTestResult(
                 reachable=False, oauth_required=True, auth_url=e.url
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — any failure is reported as unreachable
             return ConnectionTestResult(reachable=False, error=str(e))
 
     try:
@@ -275,7 +279,7 @@ async def test_connection(
         return ConnectionTestResult(
             reachable=False, oauth_required=True, auth_url=e.url
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — any failure is reported as unreachable
         return ConnectionTestResult(reachable=False, error=str(e))
 
 
@@ -316,5 +320,5 @@ async def probe_candidate(
                 tool_count=len(tools),
                 tool_names=[tool.name for tool in tools],
             )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — any failure is reported as unreachable
         return ConnectionTestResult(reachable=False, error=str(e))

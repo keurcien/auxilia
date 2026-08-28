@@ -31,7 +31,7 @@ class TriggerScanner:
         while not self._stopping.is_set():
             try:
                 await self._tick()
-            except Exception:  # noqa: BLE001 — a bad tick must not kill the loop
+            except Exception:
                 logger.exception("Trigger scan failed")
             await self._sleep(trigger_settings.scan_interval_seconds)
 

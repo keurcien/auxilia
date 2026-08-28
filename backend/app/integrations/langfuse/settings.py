@@ -1,11 +1,7 @@
-from pathlib import Path
-
-from pydantic import ConfigDict, PositiveInt
+from pydantic import PositiveInt
 from pydantic_settings import BaseSettings
 
-
-BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
-ROOT_ENV = BASE_DIR.parent / ".env"
+from app.settings import settings_config
 
 
 class LangfuseSettings(BaseSettings):
@@ -14,10 +10,7 @@ class LangfuseSettings(BaseSettings):
     langfuse_base_url: str | None = None
     langfuse_timeout: PositiveInt = 15
 
-    model_config: ConfigDict = ConfigDict(
-        env_file=ROOT_ENV,
-        extra="ignore",
-    )
+    model_config = settings_config()
 
 
 langfuse_settings: LangfuseSettings = LangfuseSettings()

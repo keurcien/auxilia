@@ -1,0 +1,68 @@
+name: Backend CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "catalog/**"
+      - ".github/workflows/backend-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: backend
+
+jobs:
+  backend:
+    # Informational until maintainers require this status check in repository settings.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # The suite is deliberately zero-infrastructure (fakeredis + SQLite), so no
+      # services are declared here. If you add a test that needs Postgres, put it
+      # behind the `postgres` marker and a separate job — don't slow this lane down.
+      UV_FROZEN: "1"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        # Pinned to a full commit SHA (v5): a tag is mutable, and this action
+        # runs with the workflow's token.
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-groups
+
+      - name: Lint
+        run: uv run ruff check --output-format=github .
+
+      - name: Check formatting
+        run: uv run ruff format --check .
+
+      - name: Type check
+        run: uv run mypy app
+
+      - name: Run tests
+        run: uv run pytest -q --cov=app --cov-report=term-missing --cov-report=xml
+
+      - name: Upload coverage report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage.xml
+          if-no-files-found: ignore
+          retention-days: 14

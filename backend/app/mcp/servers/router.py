@@ -181,9 +181,11 @@ async def list_tools(
 ):
     """List available tools from an MCP server.
 
-    Uses raw HTTP (no GET SSE stream) to avoid the 15-second deadlock on
-    servers that return 202 Accepted for tools/list and only deliver the
-    result once the GET stream is open.
+    Goes through the MCP SDK transport (`ClientSession`). The raw-HTTP bypass
+    this docstring used to describe was removed; the upstream GET-SSE deadlock it
+    worked around is still unfixed in every released `mcp` SDK, so a POST-only
+    server that holds the standalone GET stream can still wedge this call for
+    ~15s. See `mcp-streamable-http-deadlock.md`.
     """
     return await MCPServerService(db).list_tools(mcp_server, str(current_user.id))
 

@@ -11,7 +11,6 @@ class ModelProviderType(str, Enum):
     deepseek = "deepseek"
     anthropic = "anthropic"
     google = "google"
-    ollama = "ollama"
     xiaomi = "xiaomi"
     openrouter = "openrouter"
     meta = "meta"

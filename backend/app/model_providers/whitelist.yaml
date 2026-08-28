@@ -382,11 +382,18 @@ models:
     reasoning_effort_levels: [low, xhigh]
     reasoning_effort_default: xhigh
   - provider: openrouter
-    model_id: qwen/qwen3.8-2.4t-a95b
-    display_name: Qwen3.8 2.4T
+    model_id: qwen/qwen3.8-flash
+    display_name: Qwen3.8 Flash
     chef: Qwen
     chef_slug: qwen
     multimodal: false
     supports_structured_output: false
     reasoning_effort_levels: [low, xhigh]
     reasoning_effort_default: xhigh
+  - provider: openrouter
+    model_id: openrouter/auto
+    display_name: Auto Router
+    chef: OpenRouter
+    chef_slug: openrouter
+    multimodal: false
+    supports_structured_output: false

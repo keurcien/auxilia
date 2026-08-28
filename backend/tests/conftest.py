@@ -1,10 +1,36 @@
+import os
+
+from pydantic import ValidationError
+
+
+# Must run before anything imports `app.main`. `app/mcp/servers/settings.py`
+# constructs `MCPServerSettings()` at module scope and its `require_salt`
+# validator raises without SALT, so on a checkout with no .env the suite fails to
+# *collect*, not merely to pass.
+#
+# Ask pydantic whether a salt is already configured rather than guessing: it reads
+# the shell environment *and* the repo .env, and env vars outrank .env. A plain
+# `os.environ.setdefault` would therefore override a developer's .env-only SALT
+# with the dummy — silently running the encryption tests against a different key
+# than the one their deployment uses.
+try:
+    import app.mcp.servers.settings
+except ValidationError:
+    # Genuinely unset (a cold clone, or CI). A failed module init is dropped from
+    # sys.modules, so the real import below re-executes with this in place.
+    os.environ["SALT"] = "test-salt-not-a-real-secret"
+
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.auth.dependencies import get_current_user, require_admin, require_editor
+from app.auth.dependencies import (
+    get_current_user,
+    require_admin,
+    require_editor,
+)
 from app.database import get_db
 from app.main import app
 from app.users.models import UserDB, WorkspaceRole
@@ -43,7 +69,7 @@ def current_user():
         name="Test User",
         email="test@test.com",
         role=WorkspaceRole.member,
-        password_hash="hashed_password"
+        password_hash="hashed_password",
     )
     app.dependency_overrides[get_current_user] = lambda: user
     yield user
@@ -58,7 +84,7 @@ def editor_user():
         name="Editor User",
         email="editor@test.com",
         role=WorkspaceRole.editor,
-        password_hash="hashed_password"
+        password_hash="hashed_password",
     )
     app.dependency_overrides[get_current_user] = lambda: user
     app.dependency_overrides[require_editor] = lambda: user
@@ -74,7 +100,7 @@ def admin_user():
         name="Admin User",
         email="admin@test.com",
         role=WorkspaceRole.admin,
-        password_hash="hashed_password"
+        password_hash="hashed_password",
     )
     app.dependency_overrides[get_current_user] = lambda: user
     app.dependency_overrides[require_editor] = lambda: user

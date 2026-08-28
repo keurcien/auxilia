@@ -103,7 +103,7 @@ class LazySandboxBackend(BaseSandbox):
         file_path: str,
         old_string: str,
         new_string: str,
-        replace_all: bool = False,  # noqa: FBT001, FBT002 - protocol signature
+        replace_all: bool = False,
     ) -> EditResult:
         if self._backend is None:
             return EditResult(error=NOT_CONNECTED_MSG)

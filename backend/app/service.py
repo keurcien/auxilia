@@ -8,6 +8,8 @@ from app.exceptions import NotFoundError
 from app.repository import BaseRepository
 
 
+# Matches BaseRepository's bound — see the comment there for why it is SQLModel
+# and not BaseDBModel.
 ModelType = TypeVar("ModelType", bound=SQLModel)
 RepositoryType = TypeVar("RepositoryType", bound=BaseRepository)
 
@@ -27,8 +29,12 @@ class BaseService(Generic[ModelType, RepositoryType]):
         self.db = db
         self.repository = repository
 
-    async def get_or_404(self, id: UUID | str) -> ModelType:
-        obj = await self.repository.get(id)
+    async def get_or_404(self, entity_id: UUID | str) -> ModelType:
+        # `UUID | str` is load-bearing, not laziness: `ThreadService` is a
+        # `BaseService[ThreadDB, ...]` and `ThreadDB.id` is a string, so narrowing
+        # this to UUID breaks the thread path. (Named `entity_id` rather than `id`
+        # only to stop shadowing the builtin in the most-called helper here.)
+        obj = await self.repository.get(entity_id)
         if obj is None:
             raise NotFoundError(self.not_found_message)
         return obj

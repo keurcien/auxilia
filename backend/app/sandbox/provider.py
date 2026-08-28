@@ -47,7 +47,7 @@ class BaseSandboxProvider(ABC):
             # Don't leak a running sandbox the caller never got an ID for.
             try:
                 self._destroy_backend(backend)
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort cleanup; the original error is re-raised
                 logger.warning("Failed to clean up sandbox after create failure")
             raise
         return backend, message

@@ -1,4 +1,4 @@
-.PHONY: dev-stack migrate dev-backend dev-frontend dev build up down reset rebuild
+.PHONY: dev-stack migrate dev-backend dev-frontend dev build up down reset rebuild sync-catalog
 
 dev-stack:
 	docker compose -f docker-compose.dev.yml up -d --remove-orphans
@@ -35,3 +35,12 @@ down:
 
 reset:
 	docker compose down -v --remove-orphans
+
+# Copy the publishable catalogs (uploaded to the CDN) over the snapshots bundled
+# into the backend image. The two must stay byte-identical or the CDN and the
+# offline fallback silently diverge — `test_publishable_copy_matches_bundled_snapshot`
+# fails otherwise. Run this after editing anything under catalog/.
+sync-catalog:
+	cp catalog/whitelist.yaml backend/app/model_providers/whitelist.yaml
+	cp catalog/catalog.yaml backend/app/mcp/servers/catalog.yaml
+	@echo "Bundled snapshots synced from catalog/."

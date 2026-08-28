@@ -117,7 +117,7 @@ class RepairInvalidToolCallsMiddleware(AgentMiddleware):
     def after_model(
         self,
         state: AgentState,
-        runtime: Runtime[Any],  # noqa: ARG002 - required by hook signature
+        runtime: Runtime[Any],
     ) -> dict[str, Any] | None:
         messages = state["messages"]
         if not messages:
