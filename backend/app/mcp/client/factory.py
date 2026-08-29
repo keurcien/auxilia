@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.mcp.client.auth import WebOAuthClientProvider, build_oauth_client_metadata
@@ -13,7 +15,18 @@ class MCPClientConfigFactory:
         self._token_storage_factory = TokenStorageFactory()
         self._servers = MCPServerRepository(db)
 
-    async def build(self, config: MCPServerDB) -> dict:
+    async def build(
+        self, config: MCPServerDB, api_keys: dict[UUID, str | None] | None = None
+    ) -> dict:
+        """The client config for one server.
+
+        ``api_keys`` is an optional caller-owned memo of decrypted keys, used
+        when several agents in one run graph bind the same server — the key is
+        the same for all of them, and decrypting it is a DB round-trip each
+        time. Only the key is shared: the OAuth branch returns a fresh
+        ``WebOAuthClientProvider`` per call, because it is stateful and the
+        graph's sessions are opened concurrently.
+        """
         base_config = {
             "transport": "http",
             "url": config.url,
@@ -23,8 +36,13 @@ class MCPClientConfigFactory:
             return base_config
 
         if config.auth_type == MCPAuthType.api_key:
-            api_key = await self._servers.get_api_key(config.id)
-            return {**base_config, "headers": {"Authorization": f"Bearer {api_key}"}}
+            if api_keys is None or config.id not in api_keys:
+                key = await self._servers.get_api_key(config.id)
+                if api_keys is not None:
+                    api_keys[config.id] = key
+            else:
+                key = api_keys[config.id]
+            return {**base_config, "headers": {"Authorization": f"Bearer {key}"}}
 
         if config.auth_type == MCPAuthType.oauth2:
             return {
