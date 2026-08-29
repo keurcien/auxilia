@@ -297,13 +297,77 @@ Last updated: 2026-08-29
 
 ## Phase 2 — Runtime unification (before the deepagents/langchain upgrades)
 
-- [ ] **P2-1** Behavioural `Agent.build`/`stream` tests with a scripted fake model — *blocks P2-3*
-- [ ] **P2-2** Spike: `FilesystemMiddleware` + `LazySandboxBackend` parity outside `create_deep_agent`
-- [ ] **P2-3** Unify `build_runnable` on `create_agent` + explicit middleware list
-- [ ] **P2-4** Share one middleware assembly with `ResolvedAgent.compile`
-- [ ] **P2-5** File issues for subagent HITL + subagent sandbox persistence gaps
-- [ ] **P2-6** Batch subagent resolution (queries, not `gather`)
-- [ ] **P2-7** `convert_to_messages` + O(1) regeneration checkpoint lookup
+- [x] **P2-1** Behavioural `Agent.build`/`stream` tests with a scripted fake model.
+      `tests/agents/scripted_model.py` (a `BaseChatModel` that replays a fixed script and
+      raises on an unscripted extra turn) + `tests/agents/test_runtime_behaviour.py`: 13
+      tests that run the real graph — tool round-trip, tool failure coming back as an
+      error ToolMessage, the recursion fallback persisting a resumable message, the HITL
+      gate stopping before the tool executes, a model failure ending the turn visibly with
+      the sandbox still persisted, the stale-`structured_response` reset, regeneration,
+      and the harness/no-harness toolsets
+- [x] **P2-2** Spike: parity **confirmed and made executable**. Write-up at repo root
+      `backend-harness-parity-finding.md`. `tests/agents/test_harness_parity.py` builds a
+      sandbox agent both ways for four model shapes and asserts the resulting
+      `create_agent(**kwargs)` match — middleware, tools, and the prompt byte for byte —
+      with an `EXPECTED_DEVIATIONS` list the test asserts is empty.
+      Two things the spike surfaced that were invisible at the call site: deepagents
+      **auto-adds a `general-purpose` subagent**, so every sandbox agent already has a
+      `task` tool and a hidden subagent inheriting its toolset; and its `.with_config`
+      binds `recursion_limit=9_999`, which is the budget a sandbox *subagent* actually
+      runs under (the `task` tool gives it a fresh config), so dropping that config would
+      have cut it 400×. The review's open question was which prompt fragment, if any, we
+      would have to append ourselves: the answer is the whole of `BASE_AGENT_PROMPT`,
+      plus the harness profile's suffix where one is registered, and `harness_system_prompt`
+      appends both
+- [x] **P2-3** `build_runnable` unified on `create_agent`. `app/agents/harness.py` holds
+      the explicit bundle; a sandbox now *adds middleware and tools to the same list*
+      instead of dispatching to a second builder. The `PatchToolCallsMiddleware`
+      strip-hack is no longer a workaround (one filter line beside the harness that
+      injects the replacement) and the dual `str`/`SystemMessage` prompt shape is gone —
+      every caller passes the instruction string, which `create_agent` normalises to
+      `SystemMessage(content=str)`, so parent bytes are unchanged.
+      **The sandbox assembly is reproduced exactly** — that is what the parity test
+      asserts, and no middleware, tool or prompt byte on that path changed. One thing did
+      change, deliberately and outside the parity test's scope: `ResolvedAgent.compile`
+      used to wrap a *subagent's* prompt as a single `{"type": "text"}` content block and
+      now passes the string, since `create_agent` normalises a `str` to
+      `SystemMessage(content=str)`. Same content, one less shape; parent bytes unchanged.
+      The three deliberate decisions the review wanted made (drop the auto-added subagent;
+      settle summarization + prompt caching for *all* agents; trim the harness prompt) are
+      now one-line diffs and are listed, un-taken, at the end of the finding — they change
+      a frozen-per-thread system prompt, so they are owner calls, not refactor side-effects
+- [x] **P2-4** One `build_agent_middleware(created_at, *, recursion_limit, interrupt_on)`
+      for parent and subagent. They differ in exactly two documented ways, both forced by
+      the subagent having no checkpointer: no approval gate and no tool-call patcher
+      (`interrupt_on=None`), and a tool budget sized to langgraph's default recursion
+      limit rather than ours
+- [x] **P2-5** Both gaps filed and cross-referenced from the code that documents them:
+      [#301](https://github.com/keurcien/auxilia/issues/301) subagent tool approvals are
+      silently dropped (`HumanInTheLoopMiddleware` needs a checkpointer; `task` gives a
+      subagent a fresh config without one) and
+      [#302](https://github.com/keurcien/auxilia/issues/302) subagent sandboxes never
+      persist (`_persist_sandbox` is the *parent's* teardown hook; a `CompiledSubAgent`
+      has none). Each issue carries the repro, why it is silent, and the two design
+      shapes worth weighing — including whether a subagent should get its own sandbox at
+      all rather than sharing the parent's
+- [x] **P2-6** Batch MCP resolution across the run graph. `Toolset.MCPResolutionScope`
+      preloads every server row the graph names in one `IN` query and shares the decrypted
+      API keys; `Agent.build` builds one scope from `RunSpec.all_mcp_bindings` and passes
+      it to the parent and every subagent. Was one `list_by_ids` **and** one API-key
+      decrypt per agent per server. Still sequential and still one `AsyncSession` — the
+      queries went away, the concurrency hazard was never worth taking.
+      Only reads are shared: the OAuth branch still builds a fresh
+      `WebOAuthClientProvider` per agent, because it is stateful and the graph's sessions
+      are opened concurrently
+- [x] **P2-7** `convert_to_messages` replaces the hand-rolled `_dicts_to_lc_messages`
+      (~30 lines). It rejects an unknown role instead of silently filing it as a user
+      turn, so `_resolve_input` raises `DomainValidationError` — run input is
+      client-supplied, and every producer we own already sends `type: human`.
+      `get_regeneration_checkpoint_id` now asks the checkpointer for the last
+      `source="input"` checkpoint (`filter=`, `limit=1`): **one state load**, verified
+      equal to the old walk across a three-turn thread with tool calls. Note the review's
+      premise was half right — the old loop early-terminated at the last human message, so
+      it walked the last *turn*, not the whole history; O(1) is real, O(turns) was not
 
 ## Phase 3 — Consolidation (order flexible)
 

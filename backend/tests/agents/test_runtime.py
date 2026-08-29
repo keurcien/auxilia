@@ -18,10 +18,15 @@ from app.agents.structured_output import (
     DeferredStructuredOutputMiddleware,
 )
 from app.agents.tool_errors import RepairInvalidToolCallsMiddleware, ToolErrorMiddleware
+from tests.agents.scripted_model import ScriptedChatModel
 
 
 def _build_agent(
-    *, sandbox: bool = False, middleware=None, provider: str | None = None
+    *,
+    sandbox: bool = False,
+    middleware=None,
+    provider: str | None = None,
+    model=None,
 ) -> Agent:
     resolved = MagicMock()
     resolved.sandbox = MagicMock() if sandbox else None
@@ -30,7 +35,7 @@ def _build_agent(
     return Agent(
         thread=MagicMock(),
         agent=resolved,
-        model=MagicMock(),
+        model=model if model is not None else MagicMock(),
         middleware=middleware if middleware is not None else [],
         callbacks=[],
         subagents=[],
@@ -118,25 +123,34 @@ def test_build_agent_appends_tool_error_middleware(mock_create_agent):
 
 
 @patch("app.sandbox.tools.create_sandbox_tools", return_value=[])
-@patch("app.agents.runtime.create_deep_agent")
-def test_build_agent_sandbox_dispatches_to_deep_agent(
-    mock_create_deep_agent, _mock_tools
+@patch("app.agents.runtime.create_agent")
+def test_build_agent_sandbox_uses_the_same_create_agent_path(
+    mock_create_agent, _mock_tools
 ):
-    """With a sandbox bound to the agent, the build goes through
-    create_deep_agent: ToolErrorMiddleware is appended and the caller's
-    PatchToolCallsMiddleware is dropped (deepagents injects its own)."""
+    """A sandbox no longer forks the construction path: it adds deepagents'
+    harness middleware to the same `create_agent` call. The caller's
+    PatchToolCallsMiddleware is dropped in favour of the harness's one (langchain
+    asserts against duplicates), and prompt caching closes the stack.
+
+    `tests/agents/test_harness_parity.py` pins the assembly to what
+    `create_deep_agent` built, middleware for middleware; this only checks that
+    the sandbox reaches it."""
     agent = _build_agent(
         sandbox=True,
+        # The harness sizes its summarization thresholds off the model, so this
+        # path needs a real BaseChatModel rather than a mock.
+        model=ScriptedChatModel(script=[]),
         middleware=[PatchToolCallsMiddleware(), DeferredStructuredOutputMiddleware()],
     )
 
     agent._build_agent(checkpointer=None)
 
-    middleware = mock_create_deep_agent.call_args.kwargs["middleware"]
-    # Our PatchToolCallsMiddleware is filtered out (deepagents adds its own).
-    assert not any(isinstance(m, PatchToolCallsMiddleware) for m in middleware)
-    # ToolErrorMiddleware is appended last so tool failures feed back as messages.
-    assert isinstance(middleware[-1], ToolErrorMiddleware)
+    middleware = mock_create_agent.call_args.kwargs["middleware"]
+    names = [type(m).__name__ for m in middleware]
+    assert names.count("PatchToolCallsMiddleware") == 1
+    assert "FilesystemMiddleware" in names
+    assert names[-1] == "AnthropicPromptCachingMiddleware"
+    assert "ToolErrorMiddleware" in names
 
 
 @patch("app.agents.runtime.create_agent")

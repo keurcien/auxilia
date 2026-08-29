@@ -14,6 +14,7 @@ from app.agents.toolset import (
     _sanitize_tools_in_place,
     sanitize_tool_name,
 )
+from app.utils.encryption import encrypt_value
 
 
 # ---------------------------------------------------------------------------
@@ -735,3 +736,102 @@ class TestSessionSupervisor:
             await supervisor.reopen("a")
         assert supervisor.replaced == set()
         await supervisor.close()
+
+
+# ---------------------------------------------------------------------------
+# MCPResolutionScope — one server read for a whole run graph
+# ---------------------------------------------------------------------------
+
+
+class _CountingDB:
+    """A DB that answers both queries `prepare` makes, and counts them."""
+
+    def __init__(self, servers, api_key_rows):
+        self._servers = servers
+        self._api_key_rows = api_key_rows
+        self.server_queries = 0
+        self.api_key_queries = 0
+
+    async def execute(self, stmt):
+        table = stmt.get_final_froms()[0].name
+        if table == "mcp_servers":
+            self.server_queries += 1
+            return _FakeResult(self._servers)
+        self.api_key_queries += 1
+        return _ScalarOneResult(self._api_key_rows)
+
+
+class _ScalarOneResult:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def scalar_one_or_none(self):
+        return self._rows[0] if self._rows else None
+
+
+class TestMCPResolutionScope:
+    """A run graph is a parent plus subagents, usually over the same servers.
+    Resolving each agent independently cost one server read and one API-key
+    decrypt per agent; the shared scope makes both O(1) for the graph."""
+
+    @staticmethod
+    def _fixture():
+        from types import SimpleNamespace
+
+        from app.mcp.servers.models import MCPAuthType, MCPServerDB
+
+        server_id = uuid4()
+        server = MCPServerDB(
+            id=server_id,
+            name="sheets",
+            url="http://mcp.example.com",
+            auth_type=MCPAuthType.api_key,
+        )
+        binding = SimpleNamespace(mcp_server_id=server_id, tools=None)
+        key_row = SimpleNamespace(key_encrypted=encrypt_value("s3cret"))
+        return server, binding, key_row
+
+    @pytest.mark.asyncio
+    async def test_a_shared_scope_reads_each_server_once(self):
+        from app.agents.toolset import MCPResolutionScope
+
+        server, binding, key_row = self._fixture()
+        db = _CountingDB([server], [key_row])
+
+        scope = await MCPResolutionScope.build([binding, binding], db, "u1")
+        for _ in range(3):  # a parent and two subagents on the same server
+            prepared = await Toolset.prepare(
+                [binding], db=db, user_id="u1", apply_ui=False, scope=scope
+            )
+            assert prepared.server_names == ["sheets"]
+
+        assert db.server_queries == 1
+        assert db.api_key_queries == 1
+
+    @pytest.mark.asyncio
+    async def test_without_a_scope_each_agent_reads_for_itself(self):
+        """The default stays per-agent, so the API paths that prepare a single
+        agent don't have to build a scope to call `prepare`."""
+        from app.agents.toolset import MCPResolutionScope  # noqa: F401
+
+        server, binding, key_row = self._fixture()
+        db = _CountingDB([server], [key_row])
+
+        for _ in range(3):
+            await Toolset.prepare([binding], db=db, user_id="u1", apply_ui=False)
+
+        assert db.server_queries == 3
+        assert db.api_key_queries == 3
+
+    @pytest.mark.asyncio
+    async def test_the_shared_key_still_reaches_the_client_config(self):
+        """Sharing the decrypted key must not change what the client is given."""
+        from app.agents.toolset import MCPResolutionScope
+
+        server, binding, key_row = self._fixture()
+        db = _CountingDB([server], [key_row])
+
+        scope = await MCPResolutionScope.build([binding], db, "u1")
+        config = await scope.config(server)
+
+        assert config["headers"] == {"Authorization": "Bearer s3cret"}

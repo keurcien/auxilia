@@ -1,9 +1,10 @@
 import asyncio
 import logging
 import re
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from uuid import UUID
 
 import anyio
 from langchain_core.tools import Tool
@@ -14,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.models import AgentMCPServerBase
 from app.mcp.client.factory import MCPClientConfigFactory
 from app.mcp.client.tools import inject_ui_metadata_into_tool
+from app.mcp.servers.models import MCPServerDB
 from app.mcp.servers.repository import MCPServerRepository
 
 
@@ -370,6 +372,55 @@ async def _open_sessions(
             raise result
 
 
+class MCPResolutionScope:
+    """Server rows and API keys read once for a whole run graph.
+
+    `Toolset.prepare` runs once per agent, and a run graph is a parent plus its
+    direct subagents — which routinely bind the same MCP servers. Resolved per
+    agent, that was one `list_by_ids` *and* one API-key decrypt per agent per
+    server: O(N) round-trips before the first token, for rows a single `IN`
+    query covers (design review §2.2).
+
+    Only reads are shared. Each agent still gets its own client config, because
+    an OAuth config carries a stateful `WebOAuthClientProvider` and the parent's
+    and subagents' sessions are opened concurrently.
+    """
+
+    def __init__(self, db: AsyncSession, user_id: str):
+        self._repo = MCPServerRepository(db)
+        self._factory = MCPClientConfigFactory(db=db, user_id=user_id)
+        self._rows: dict[UUID, MCPServerDB] = {}
+        self._api_keys: dict[UUID, str | None] = {}
+
+    @classmethod
+    async def build(
+        cls,
+        bindings: Sequence[AgentMCPServerBase],
+        db: AsyncSession,
+        user_id: str,
+    ) -> "MCPResolutionScope":
+        """Preload every server the graph's `bindings` name, in one query."""
+        scope = cls(db, user_id)
+        await scope.load([b.mcp_server_id for b in bindings])
+        return scope
+
+    async def load(self, server_ids: Collection[UUID]) -> None:
+        missing = [sid for sid in dict.fromkeys(server_ids) if sid not in self._rows]
+        for server in await self._repo.list_by_ids(missing):
+            self._rows[server.id] = server
+
+    def servers(self, server_ids: Sequence[UUID]) -> list[MCPServerDB]:
+        """The rows behind `server_ids`, skipping ids with no server left."""
+        rows = [
+            self._rows[sid] for sid in dict.fromkeys(server_ids) if sid in self._rows
+        ]
+        return rows
+
+    async def config(self, server: MCPServerDB) -> dict:
+        """This agent's client config for `server`, sharing the decrypted key."""
+        return await self._factory.build(server, api_keys=self._api_keys)
+
+
 class Toolset:
     """Resolved, ready-to-use tools from MCP servers."""
 
@@ -392,6 +443,7 @@ class Toolset:
         user_id: str,
         *,
         apply_ui: bool,
+        scope: MCPResolutionScope | None = None,
     ) -> PreparedToolset:
         """Build-time phase: DB lookup -> configs -> interrupt_on. No network.
 
@@ -403,6 +455,10 @@ class Toolset:
         All DB access happens here (request scope). ``interrupt_on`` is derived
         from the persisted per-agent tool map (synced at connect/save time), so
         no MCP session is opened — live discovery happens once, in :meth:`open`.
+
+        ``scope`` lets a caller resolving several agents (a run graph) share one
+        batched server read across them; without it this agent gets a scope of
+        its own and the reads stay per-agent.
         """
         empty = PreparedToolset(
             client=None,
@@ -417,15 +473,15 @@ class Toolset:
 
         # 1. Load MCP server records from DB
         server_ids = [s.mcp_server_id for s in agent_mcp_servers]
-        mcp_servers = await MCPServerRepository(db).list_by_ids(server_ids)
+        if scope is None:
+            scope = MCPResolutionScope(db, user_id)
+            await scope.load(server_ids)
+        mcp_servers = scope.servers(server_ids)
 
         # 2. Build MCP client configs (resolves auth to Redis/header values — no
         #    live SQL handle is retained, so the client is safe to use later during
         #    streaming, after the request DB session has closed).
-        mcp_factory = MCPClientConfigFactory(db=db, user_id=user_id)
-        configs = {
-            server.name: await mcp_factory.build(server) for server in mcp_servers
-        }
+        configs = {server.name: await scope.config(server) for server in mcp_servers}
 
         # 3. Build tool settings map
         tool_settings = {

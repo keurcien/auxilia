@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import uuid4
 
-from deepagents import create_deep_agent
 from deepagents.backends import StateBackend
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.subagents import CompiledSubAgent, SubAgentMiddleware
@@ -18,9 +17,7 @@ from langchain.agents.middleware import (
 from langchain_core.messages import (
     AIMessage,
     BaseMessage,
-    HumanMessage,
-    SystemMessage,
-    ToolMessage,
+    convert_to_messages,
 )
 from langgraph.errors import GraphRecursionError
 from langgraph.types import Command
@@ -28,6 +25,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.core.repository import AgentRepository
 from app.agents.current_date import CurrentDateMiddleware
+from app.agents.harness import (
+    HARNESS_CONFIG,
+    harness_middleware,
+    harness_system_prompt,
+    harness_trailing_middleware,
+)
 from app.agents.run_spec import AgentSpec
 from app.agents.settings import agent_settings
 from app.agents.stream import (
@@ -41,9 +44,14 @@ from app.agents.structured_output import (
     is_structured_output_artifact,
 )
 from app.agents.tool_errors import RepairInvalidToolCallsMiddleware, ToolErrorMiddleware
-from app.agents.toolset import PreparedToolset, Toolset, sanitize_tool_name
+from app.agents.toolset import (
+    MCPResolutionScope,
+    PreparedToolset,
+    Toolset,
+    sanitize_tool_name,
+)
 from app.database import get_checkpointer
-from app.exceptions import NotFoundError
+from app.exceptions import DomainValidationError, NotFoundError
 from app.integrations.langfuse.callback import get_langfuse_callback_handler
 from app.model_providers.catalog import ChatModelFactory
 from app.model_providers.service import ModelService
@@ -66,17 +74,18 @@ RECURSION_LIMIT_MESSAGE = (
 
 
 async def get_regeneration_checkpoint_id(agent, config: dict) -> str | None:
-    """Walk back checkpoint history to find the state before the last user message was added."""
-    current_state = await agent.aget_state(config)
-    current_messages = current_state.values.get("messages", [])
-    current_human_count = sum(1 for m in current_messages if m.type == "human")
+    """The checkpoint to fork from when regenerating the last answer.
 
-    async for state in agent.aget_state_history(config):
-        messages = state.values.get("messages", [])
-        human_count = sum(1 for m in messages if m.type == "human")
-        if human_count < current_human_count:
-            return state.config["configurable"]["checkpoint_id"]
-
+    That is the state as it was before the last user message was applied — the
+    turn's ``source="input"`` checkpoint, which holds the message as a pending
+    write rather than in its values. Asking the checkpointer for that one
+    directly is a single state load; counting human messages backwards through
+    the history was one full-state deserialization per step of the last turn.
+    """
+    async for state in agent.aget_state_history(
+        config, filter={"source": "input"}, limit=1
+    ):
+        return state.config["configurable"]["checkpoint_id"]
     return None
 
 
@@ -93,99 +102,151 @@ def build_runnable(
     output_schema: dict | None = None,
     format_mode: str = FORMAT_TOOL,
 ):
-    """Build a LangGraph runnable, dispatching on whether a sandbox is needed.
+    """Build a LangGraph runnable. One construction path, one middleware list.
 
-    Single construction path for both the parent agent and subagents. The
-    no-sandbox branch uses a plain ``create_agent`` (so simple agents avoid
-    deepagents' always-on filesystem/todo/patch scaffolding); the sandbox branch
-    uses ``create_deep_agent`` with the caller's ``sandbox_backend`` — a
-    ``LazySandboxBackend`` the caller keeps a reference to for turn-end
-    persistence (the sandbox itself is created on first tool call, not here).
+    Every agent — parent or subagent, sandboxed or not — is a ``create_agent``
+    with an explicit middleware stack. A sandbox adds deepagents' harness
+    (todos, filesystem, the ``task`` tool, summarization, the tool-call patcher
+    and prompt caching) plus the sandbox lifecycle tools, and appends the
+    harness prompt to the agent's instructions; ``app/agents/harness.py``
+    assembles that bundle and ``tests/agents/test_harness_parity.py`` pins it
+    to what ``create_deep_agent`` builds. Nothing else forks on the sandbox.
 
-    ``base_middleware`` is the caller's middleware stack — the parent passes
+    ``base_middleware`` is the caller's own stack — the parent passes
     ``build_parent_middleware``'s list; subagents pass their own retry/limit/
-    repair/date stack (see ``ResolvedAgent.compile``). ``DeferredStructuredOutputMiddleware`` is
-    appended whenever an ``output_schema`` is given (it keeps the schema off the
-    tool-calling loop and applies it on one final formatting turn).
-    ``ToolErrorMiddleware`` is appended on BOTH paths: without it the ToolNode
-    has no tool-call wrapper, and langgraph's default handler re-raises any
-    exception that isn't a ``ToolInvocationError`` — an MCP transport failure
-    in a tool (or in a subagent reached through ``task``) then kills the whole
-    run instead of feeding back to the model as an error ToolMessage. On the
-    sandbox path the caller's ``PatchToolCallsMiddleware`` is dropped, since
-    ``create_deep_agent`` injects its own and langchain asserts against
-    duplicates.
+    repair/date stack (see ``ResolvedAgent.compile``). It sits where deepagents
+    puts caller middleware: after the harness, before prompt caching.
 
-    ``subagents`` (already-compiled ``CompiledSubAgent`` runnables) wire in via
-    ``SubAgentMiddleware`` on the no-sandbox path and via the ``subagents=`` arg
-    on the sandbox path.
+    ``DeferredStructuredOutputMiddleware`` is appended whenever an
+    ``output_schema`` is given (it keeps the schema off the tool-calling loop
+    and applies it on one final formatting turn). ``ToolErrorMiddleware`` is
+    always appended: without it the ToolNode has no tool-call wrapper, and
+    langgraph's default handler re-raises any exception that isn't a
+    ``ToolInvocationError`` — an MCP transport failure in a tool (or in a
+    subagent reached through ``task``) would then kill the whole run instead of
+    feeding back to the model as an error ToolMessage.
+
+    ``subagents`` (already-compiled ``CompiledSubAgent`` runnables) wire in
+    through ``SubAgentMiddleware`` either way: the harness builds it, and
+    without a sandbox it is added here over the in-state filesystem.
     """
+    tools = list(tools)
+    harness: list = []
+
     if sandbox_backend is not None:
         from app.sandbox.tools import create_sandbox_tools
 
-        middleware = [
+        tools += create_sandbox_tools(sandbox_backend, sandbox_provider)
+        # The general-purpose subagent inherits the parent's tools, so the
+        # harness has to see the sandbox tools too — assemble it after the
+        # toolset is complete.
+        harness += harness_middleware(
+            model=model,
+            tools=tools,
+            backend=sandbox_backend,
+            subagents=subagents,
+        )
+        system_prompt = harness_system_prompt(model, system_prompt)
+        # The harness brings its own PatchToolCallsMiddleware and langchain
+        # asserts against duplicates, so the caller's copy is dropped.
+        base_middleware = [
             m for m in base_middleware if not isinstance(m, PatchToolCallsMiddleware)
         ]
-        if output_schema is not None:
-            middleware.append(DeferredStructuredOutputMiddleware(format_mode))
-        return create_deep_agent(
-            model=model,
-            tools=[*tools, *create_sandbox_tools(sandbox_backend, sandbox_provider)],
-            system_prompt=system_prompt,
-            backend=sandbox_backend,
-            middleware=[*middleware, ToolErrorMiddleware()],
-            subagents=subagents,
-            checkpointer=checkpointer,
-            response_format=output_schema,
-        )
 
-    middleware = list(base_middleware)
-    if subagents:
+    middleware = [*harness, *base_middleware]
+    if sandbox_backend is None and subagents:
+        # Deliberately on the far side of the caller's stack, where the plain
+        # path has always put it — the harness wires its own SubAgentMiddleware
+        # *before* the caller's, because that is where deepagents puts it. Both
+        # positions are load-bearing: a middleware's system-prompt fragment
+        # lands in list order, so moving this one rewrites the prompt (and
+        # thread prompts are frozen at creation).
         middleware.append(SubAgentMiddleware(backend=StateBackend, subagents=subagents))
     if output_schema is not None:
         middleware.append(DeferredStructuredOutputMiddleware(format_mode))
-    return create_agent(
+    middleware.append(ToolErrorMiddleware())
+    if sandbox_backend is not None:
+        middleware += harness_trailing_middleware(model)
+
+    agent = create_agent(
         model=model,
         tools=tools,
         system_prompt=system_prompt,
         checkpointer=checkpointer,
-        middleware=[*middleware, ToolErrorMiddleware()],
+        middleware=middleware,
         response_format=output_schema,
     )
+    # deepagents binds this onto every graph it builds; keep it on the sandbox
+    # path so a subagent invoked by `task` keeps the recursion budget it had.
+    return agent.with_config(HARNESS_CONFIG) if sandbox_backend is not None else agent
 
 
-def build_parent_middleware(created_at: datetime, prepared: PreparedToolset) -> list:
-    """The parent agent's middleware stack.
+def build_agent_middleware(
+    created_at: datetime,
+    *,
+    recursion_limit: int,
+    interrupt_on: dict[str, bool] | None = None,
+) -> list:
+    """The middleware stack every agent gets, parent or subagent.
 
-    PatchToolCallsMiddleware runs first so that any dangling tool_calls left
-    by a previous aborted turn (recursion limit, cancelled stream, etc.) get
-    synthetic ToolMessage responses before the model sees them.
-    RepairInvalidToolCallsMiddleware is placed *before* HITL so it runs
-    *after* it (after_model hooks execute last-to-first): HITL must see only
-    the genuine tool_calls and gate those, while the malformed calls stay in
-    invalid_tool_calls (invisible to HITL) until Repair promotes them into
-    tool_calls answered by error ToolMessages.
+    Order is load-bearing. PatchToolCallsMiddleware runs first so that any
+    dangling tool_calls left by a previous aborted turn (recursion limit,
+    cancelled stream, etc.) get synthetic ToolMessage responses before the model
+    sees them. ModelRetryMiddleware is listed early so a retry re-runs the whole
+    inner pipeline (date stamp, deferred formatting); it retries transient model
+    failures (rate limits, timeouts, connection drops — classified via
+    ``ModelError.is_retryable``) and, when retries are exhausted, persists the
+    failure as an AIMessage so the turn ends visibly instead of crashing.
+    Non-retryable errors (e.g. provider 400s) re-raise immediately and surface
+    through the run record. RepairInvalidToolCallsMiddleware is placed *before*
+    HITL so it runs *after* it (after_model hooks execute last-to-first): HITL
+    must see only the genuine tool_calls and gate those, while the malformed
+    calls stay in invalid_tool_calls (invisible to HITL) until Repair promotes
+    them into tool_calls answered by error ToolMessages.
+
+    Parent and subagent differ in exactly two documented ways:
+
+    - ``interrupt_on`` — a mapping (even an empty one) means this agent runs
+      against a checkpointer, so it can be interrupted for approval and can
+      have dangling tool calls persisted by an aborted turn. A subagent has
+      neither: the deepagents ``task`` tool invokes CompiledSubAgent runnables
+      with a fresh config and no checkpointer, so it passes ``None`` and loses
+      both the approval gate and the patcher. Approval gates on subagent tools
+      being silently dropped is a known product gap: issue #301.
+    - ``recursion_limit`` — the tool budget is sized to end the run gracefully
+      one step before the graph's own recursion limit trips. A subagent runs
+      under langgraph's default (``SUBAGENT_RECURSION_LIMIT``) rather than
+      ours, because ``task`` doesn't propagate the parent's config.
     """
+    checkpointed = interrupt_on is not None
     return [
-        PatchToolCallsMiddleware(),
-        # Retries transient model failures (rate limits, timeouts, connection
-        # drops — classified via ModelError.is_retryable) and, when retries
-        # are exhausted, persists the failure as an AIMessage so the turn ends
-        # visibly instead of crashing. Non-retryable errors (e.g. provider
-        # 400s) re-raise immediately and surface through the run record.
-        # Listed early so a retry re-runs the whole inner model pipeline
-        # (date stamp, deferred formatting).
+        *([PatchToolCallsMiddleware()] if checkpointed else []),
         ModelRetryMiddleware(),
         ToolCallLimitMiddleware(
-            run_limit=(agent_settings.recursion_limit - 1) // 2, exit_behavior="end"
+            run_limit=(recursion_limit - 1) // 2, exit_behavior="end"
         ),
         RepairInvalidToolCallsMiddleware(),
-        HumanInTheLoopMiddleware(
-            interrupt_on=prepared.interrupt_on,
-            description_prefix="Tool execution pending approval",
+        *(
+            [
+                HumanInTheLoopMiddleware(
+                    interrupt_on=interrupt_on,
+                    description_prefix="Tool execution pending approval",
+                )
+            ]
+            if checkpointed
+            else []
         ),
         CurrentDateMiddleware(created_at),
     ]
+
+
+def build_parent_middleware(created_at: datetime, prepared: PreparedToolset) -> list:
+    """The parent agent's stack: checkpointed, under our own recursion limit."""
+    return build_agent_middleware(
+        created_at,
+        recursion_limit=agent_settings.recursion_limit,
+        interrupt_on=prepared.interrupt_on,
+    )
 
 
 @dataclass
@@ -220,6 +281,7 @@ class ResolvedAgent:
         user_id: str,
         *,
         is_parent: bool = False,
+        scope: MCPResolutionScope | None = None,
     ) -> "ResolvedAgent":
         """Bind one agent's spec to a prepared toolset.
 
@@ -228,9 +290,12 @@ class ResolvedAgent:
         further agent queries (design review §2.2). It also keeps the runtime
         off `AgentService`/`AgentResponse` — the run path has no business
         depending on API response assembly.
+
+        `scope` carries the graph's MCP server rows, read once by `Agent.build`
+        for the parent and every subagent together.
         """
         prepared = await Toolset.prepare(
-            spec.mcp_servers, db, user_id, apply_ui=is_parent
+            spec.mcp_servers, db, user_id, apply_ui=is_parent, scope=scope
         )
         return cls(config=spec, prepared=prepared, sandbox=cls._resolve_sandbox(spec))
 
@@ -254,45 +319,28 @@ class ResolvedAgent:
         ``created_at`` is the thread's creation date, stamped onto the
         subagent's system prompt by ``CurrentDateMiddleware``.
 
-        Subagent-level HITL is intentionally not wired here: CompiledSubAgent
-        runnables don't inherit the parent's checkpointer, and HumanInTheLoopMiddleware
-        needs one. Approval gates on subagent tools are silently dropped today.
-
-        Unlike the parent, subagents DO need their own repair/limit/retry
-        middleware: the deepagents ``task`` tool invokes them with a fresh
-        config (parent middleware and recursion_limit don't propagate) and
-        reports back only ``messages[-1].text`` — a subagent that exits its
-        loop silently (invalid tool-call JSON) returns an empty ToolMessage,
-        and one that blows the recursion limit discards its progress.
+        A subagent gets its own copy of the shared middleware stack rather than
+        inheriting the parent's: the deepagents ``task`` tool invokes it with a
+        fresh config (parent middleware and recursion_limit don't propagate)
+        and reports back only ``messages[-1].text``, so a subagent that exits
+        its loop silently (invalid tool-call JSON) would return an empty
+        ToolMessage and one that blows the recursion limit would discard its
+        progress. It runs without a checkpointer, which is what drops the
+        approval gate — see ``build_agent_middleware`` for both differences.
         """
         sandbox = self.sandbox is not None
-        system_prompt = (
-            self.config.instructions or ""
-            if sandbox
-            else SystemMessage(
-                content=[{"type": "text", "text": self.config.instructions or ""}]
-            )
-        )
         # Subagent sandboxes get no turn-end persist hook: CompiledSubAgent
-        # runnables have no teardown point, same as the HITL limitation above.
+        # runnables have no teardown point, so whatever a subagent writes is
+        # lost when its `task` call ends — issue #302.
         runnable = build_runnable(
             model=model,
             tools=self.live.all,
-            system_prompt=system_prompt,
+            system_prompt=self.config.instructions or "",
             sandbox_backend=LazySandboxBackend() if sandbox else None,
             sandbox_provider=self.sandbox.provider if self.sandbox else None,
-            base_middleware=[
-                ModelRetryMiddleware(),
-                # The task tool doesn't propagate the parent's recursion_limit,
-                # so subagents run under langgraph's default of 25 — size the
-                # tool budget to end gracefully before that backstop trips.
-                ToolCallLimitMiddleware(
-                    run_limit=(SUBAGENT_RECURSION_LIMIT - 1) // 2,
-                    exit_behavior="end",
-                ),
-                RepairInvalidToolCallsMiddleware(),
-                CurrentDateMiddleware(created_at),
-            ],
+            base_middleware=build_agent_middleware(
+                created_at, recursion_limit=SUBAGENT_RECURSION_LIMIT
+            ),
         )
         return CompiledSubAgent(
             name=sanitize_tool_name(self.config.name),
@@ -354,7 +402,12 @@ class Agent:
         if spec is None:
             raise NotFoundError("Agent not found")
 
-        agent = await ResolvedAgent.resolve(spec.agent, db, user_id, is_parent=True)
+        # Every MCP server the graph touches, in one query — the parent's and
+        # each subagent's (design review §2.2 / P2-6).
+        scope = await MCPResolutionScope.build(spec.all_mcp_bindings, db, user_id)
+        agent = await ResolvedAgent.resolve(
+            spec.agent, db, user_id, is_parent=True, scope=scope
+        )
 
         # Backstop for the RunService.create gate: covers the race where the
         # model is disabled between enqueue and worker pickup, and any future
@@ -372,11 +425,12 @@ class Agent:
         middleware = build_parent_middleware(thread.created_at, agent.prepared)
 
         # Still sequential, and deliberately so: these share one AsyncSession,
-        # which is not concurrency-safe. What used to make that expensive was the
-        # per-agent DB read, and `get_run_spec` has already done all of it — each
-        # resolve is now Redis/CPU work over rows already in hand.
+        # which is not concurrency-safe. It no longer costs anything to be —
+        # `get_run_spec` read the agent rows and `scope` the MCP ones, so each
+        # resolve is Redis/CPU work over rows already in hand.
         subagents = [
-            await ResolvedAgent.resolve(sub, db, user_id) for sub in spec.subagents
+            await ResolvedAgent.resolve(sub, db, user_id, scope=scope)
+            for sub in spec.subagents
         ]
 
         handler = get_langfuse_callback_handler()
@@ -407,17 +461,10 @@ class Agent:
             if self.subagents
             else None
         )
-        # Deep agents take the raw instruction string; create_agent takes a
-        # SystemMessage. Keep each form as-is to avoid a prompt-shape change.
-        system_prompt = (
-            self.agent.config.instructions or ""
-            if sandbox
-            else SystemMessage(self.agent.config.instructions)
-        )
         return build_runnable(
             model=self.model,
             tools=self.agent.live.all,
-            system_prompt=system_prompt,
+            system_prompt=self.agent.config.instructions or "",
             sandbox_backend=self._sandbox_backend,
             sandbox_provider=self.agent.sandbox.provider
             if self.agent.sandbox
@@ -430,13 +477,26 @@ class Agent:
         )
 
     def _resolve_input(self, agent_input: dict | None, command: dict | None):
-        """Resolve raw input/command dicts into the value to pass to the agent."""
+        """Resolve raw input/command dicts into the value to pass to the agent.
+
+        The message dicts come from a client (the chat UI, a trigger, Slack), so
+        a malformed one is a bad request, not a server fault — `convert_to_messages`
+        rejects an unknown role instead of silently filing it as a user turn.
+        It signals rejection with whatever fits the shape it was handed:
+        `ValueError` for an unknown role or a dict missing `content`,
+        `NotImplementedError` for an item that is not a message at all (a bare
+        number, `None`, a nested list). All of them are the client's fault.
+        """
         if command is not None:
             return Command(resume=command.get("resume"))
-        lc_messages = _dicts_to_lc_messages(
-            agent_input.get("messages", []) if agent_input else []
-        )
-        return {"messages": lc_messages}
+        raw = agent_input.get("messages", []) if agent_input else []
+        if not isinstance(raw, list):
+            raise DomainValidationError("Invalid run input: `messages` must be a list")
+        try:
+            messages = convert_to_messages(raw)
+        except (ValueError, TypeError, KeyError, NotImplementedError) as e:
+            raise DomainValidationError(f"Invalid run input: {e}") from e
+        return {"messages": messages}
 
     async def _resolve_config(
         self,
@@ -619,33 +679,3 @@ def _extract_text(message: BaseMessage) -> str:
         for block in content
         if isinstance(block, dict) and block.get("type") == "text"
     )
-
-
-def _dicts_to_lc_messages(dicts: list[dict]) -> list[BaseMessage]:
-    """Convert message dicts (LangChain format) to LangChain BaseMessage objects."""
-    messages: list[BaseMessage] = []
-    for d in dicts:
-        msg_type = d.get("type", d.get("role", "human"))
-        content = d.get("content", "")
-        msg_id = d.get("id")
-
-        if msg_type in ("human", "user"):
-            messages.append(HumanMessage(content=content, id=msg_id))
-        elif msg_type in ("ai", "assistant"):
-            kwargs: dict = {"content": content, "id": msg_id}
-            if d.get("tool_calls"):
-                kwargs["tool_calls"] = d["tool_calls"]
-            messages.append(AIMessage(**kwargs))
-        elif msg_type == "tool":
-            messages.append(
-                ToolMessage(
-                    content=content,
-                    tool_call_id=d.get("tool_call_id", ""),
-                    id=msg_id,
-                )
-            )
-        elif msg_type == "system":
-            messages.append(SystemMessage(content=content, id=msg_id))
-        else:
-            messages.append(HumanMessage(content=content, id=msg_id))
-    return messages
