@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Collection
 from uuid import UUID
 
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -21,6 +23,19 @@ class MCPServerRepository(BaseRepository[MCPServerDB]):
 
     async def list(self) -> list[MCPServerDB]:
         stmt = select(MCPServerDB).order_by(MCPServerDB.created_at.asc())
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def list_by_ids(self, server_ids: Collection[UUID]) -> list[MCPServerDB]:
+        """The servers behind a set of agent bindings, in one `IN` query.
+
+        Order is unspecified — every caller looks rows up by id. An empty
+        `server_ids` short-circuits: `IN ()` is a round-trip for a known-empty
+        answer.
+        """
+        if not server_ids:
+            return []
+        stmt = select(MCPServerDB).where(MCPServerDB.id.in_(server_ids))
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
@@ -78,6 +93,19 @@ class MCPServerRepository(BaseRepository[MCPServerDB]):
                     created_by=None,
                 )
             )
+        await self.db.flush()
+
+    async def delete_credentials(self, server_id: UUID, *, api_key: bool) -> None:
+        """Drop the stored credentials a server no longer has any use for.
+
+        `api_key=True` removes the API-key row, otherwise the OAuth-credentials
+        row. Called when a server's `auth_type` changes: the leftover row is
+        dead config that `list_responses` already has to gate on the current
+        auth type to avoid showing.
+        """
+        model = MCPServerAPIKeyDB if api_key else MCPServerOAuthCredentialsDB
+        stmt = delete(model).where(model.mcp_server_id == server_id)
+        await self.db.execute(stmt)
         await self.db.flush()
 
     async def get_oauth_credentials(

@@ -41,6 +41,7 @@ Storage is split by **data lifetime**, not by module:
 | SSE event log (stream/reattach) | **Redis Stream** | per-token appends; TTL'd — it's a replay window, not a record |
 | Cancel signal | **Redis list** | transient coordination |
 | Worker liveness | **Redis key** (`SET … EX`) | a heartbeat every 5s would be MVCC dead-tuple churn in Postgres; a self-expiring key makes "silent = dead" free |
+| Dispatcher liveness | **Redis key** (`run:dispatchers:alive`) | one shared key, refreshed by every live dispatcher, so the reaper can tell "nothing is dispatching" from "dispatchers are busy" |
 
 On a terminal transition, `RunService.finalize` updates the run row **and**
 stamps `threads.last_run_status` in one transaction — the run outcome and the
@@ -248,10 +249,20 @@ copy).
 
 - `running` whose liveness key is gone AND whose last transition is older than
   `RUN_HEARTBEAT_TIMEOUT_SECONDS` (grace for the claim → first-stamp gap) →
-  `error` via `finalize` (sentinel + thread stamp included).
+  `error` via `finalize` (sentinel + thread stamp included). **Death must be
+  observed on two consecutive sweeps.** The liveness key is the only evidence,
+  and a Redis restart makes every key missing at once; a single-sample rule
+  would mass-reap a whole cluster of healthy streaming runs. Confirming costs
+  one reaper interval of extra latency on a genuinely dead run.
 - `pending` older than `RUN_PENDING_TIMEOUT_SECONDS` **whose thread isn't
-  busy** → `error` (queued zombie). A pending run behind a running one is a
-  legitimate `enqueue` waiter, however old.
+  busy**, and **only while no dispatcher in the cluster is alive** → `error`
+  (queued zombie). A pending run behind a running one is a legitimate `enqueue`
+  waiter, however old — and so is every run queued behind a saturated worker
+  pool, which has exactly the same shape (a burst of trigger firings, each on a
+  fresh thread, produces it). The `run:dispatchers:alive` key is what separates
+  the two. Deliberate trade-off: a dispatcher that is alive but wedged leaves
+  pending runs un-reaped — a supervision problem, and much cheaper than killing
+  runs that were about to run.
 - `interrupted` is never reaped.
 - Daily retention pass: DELETE terminal rows older than `RUN_RETENTION_DAYS`.
   Safe by construction — `threads.last_run_status` is denormalized, so pruning
@@ -286,6 +297,18 @@ not serving requests:
 `RUN_DISPATCHER_ENABLED=false` lets you split a dedicated worker deployment from
 request-serving instances later (run the dispatcher only on the worker pool)
 without code changes.
+
+**Point the platform's health check at `GET /health`.** The dispatcher, reaper
+and scanner publish liveness through `app/background.py`, and `/health` returns
+**503** when one of them has stopped ticking. Without that, a dead loop leaves
+an instance answering 200s while nothing executes runs ever again — so nothing
+recycles it and the deployment looks healthy while being entirely broken. An
+instance with `RUN_DISPATCHER_ENABLED=false` registers no loops and is simply
+healthy; request-only instances are a supported deployment, not a degraded one.
+
+A raising tick is logged and retried with exponential backoff (capped at 60s)
+rather than ending its loop, so a Postgres failover or a Redis blip costs a
+retry instead of the loop.
 
 Rollout from the Redis-records version: no data migration — the old Redis
 record keys were 1h-TTL ephemeral and simply expire; in-flight runs at deploy

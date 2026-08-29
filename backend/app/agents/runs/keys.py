@@ -20,3 +20,14 @@ def run_alive_key(run_id: str) -> str:
     """Self-expiring worker heartbeat; a missing key on a `running` run means
     its worker died (the reaper's signal)."""
     return f"run:{run_id}:alive"
+
+
+def dispatchers_alive_key() -> str:
+    """Self-expiring key stamped by every live `RunDispatcher` in the cluster.
+
+    Answers exactly one question for the reaper: is anything out there able to
+    claim runs? Deliberately one shared key rather than one per instance — the
+    reaper never needs to know *which* dispatcher is alive, and a shared key
+    means the check is one EXISTS instead of a SCAN.
+    """
+    return "run:dispatchers:alive"

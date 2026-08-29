@@ -1,14 +1,19 @@
+from collections import defaultdict
 from uuid import UUID
 
+from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.agents.models import (
     AgentDB,
     AgentMCPServerDB,
+    AgentSubagentDB,
     AgentTeamDB,
     AgentUserPermissionDB,
 )
+from app.agents.run_spec import AgentSpec, RunSpec, SandboxSpec
+from app.agents.sandboxes.repository import AgentSandboxRepository
 from app.agents.schemas import AgentPermissionCreate
 from app.repository import BaseRepository
 from app.users.models import WorkspaceRole
@@ -78,6 +83,86 @@ class AgentRepository(BaseRepository[AgentDB]):
 
         result = await self.db.execute(stmt)
         return result.all()
+
+    async def get_run_spec(self, agent_id: UUID) -> RunSpec | None:
+        """The parent agent and its direct subagents, with their MCP and sandbox
+        bindings, in three flat queries — regardless of how many subagents there
+        are (design review §2.2). Returns `None` if the agent does not exist.
+
+        Archived agents are included: a run already under way must survive its
+        agent being archived mid-flight, and a subagent is routinely archived
+        out of the agents list while still wired to a supervisor.
+        """
+        # One query for the whole first level. The outer join carries the link
+        # row's `created_at` so subagents come back in a stable order; the parent matches
+        # the first disjunct and joins to a NULL link, hence `nullsfirst`.
+        stmt = (
+            select(AgentDB, AgentSubagentDB.created_at)
+            .outerjoin(
+                AgentSubagentDB,
+                (AgentSubagentDB.subagent_id == AgentDB.id)
+                & (AgentSubagentDB.supervisor_id == agent_id),
+            )
+            .where(
+                or_(
+                    AgentDB.id == agent_id,
+                    AgentSubagentDB.supervisor_id == agent_id,
+                )
+            )
+            .order_by(
+                AgentSubagentDB.created_at.asc().nullsfirst(),
+                # `created_at` is the *transaction* timestamp, so subagents bound
+                # in one save all share it and would otherwise come back in
+                # whatever order the planner liked. The tie-break only buys
+                # repeatability — subagents are addressed by name, so their
+                # relative order carries no meaning.
+                AgentSubagentDB.id.asc(),
+            )
+        )
+        rows = (await self.db.execute(stmt)).all()
+
+        parent: AgentDB | None = None
+        subagent_rows: list[AgentDB] = []
+        for agent, link_created_at in rows:
+            if link_created_at is None and agent.id == agent_id:
+                parent = agent
+            else:
+                subagent_rows.append(agent)
+        if parent is None:
+            return None
+
+        agent_ids = [parent.id, *(a.id for a in subagent_rows)]
+
+        bindings_by_agent: dict[UUID, list[AgentMCPServerDB]] = defaultdict(list)
+        stmt = (
+            select(AgentMCPServerDB)
+            .where(AgentMCPServerDB.agent_id.in_(agent_ids))
+            .order_by(AgentMCPServerDB.created_at.asc())
+        )
+        for binding in (await self.db.execute(stmt)).scalars().all():
+            bindings_by_agent[binding.agent_id].append(binding)
+
+        # An agent binds at most one sandbox (uq_agent_sandbox), so last-wins is
+        # the same as only-one; the dict just avoids asserting that here.
+        sandbox_by_agent: dict[UUID, SandboxSpec] = {}
+        sandbox_repository = AgentSandboxRepository(self.db)
+        for link, sandbox in await sandbox_repository.list_for_agents(agent_ids):
+            sandbox_by_agent[link.agent_id] = SandboxSpec(row=sandbox, tools=link.tools)
+
+        def to_spec(agent: AgentDB) -> AgentSpec:
+            return AgentSpec(
+                id=agent.id,
+                name=agent.name,
+                instructions=agent.instructions,
+                description=agent.description,
+                mcp_servers=bindings_by_agent.get(agent.id, []),
+                sandbox=sandbox_by_agent.get(agent.id),
+            )
+
+        return RunSpec(
+            agent=to_spec(parent),
+            subagents=[to_spec(a) for a in subagent_rows],
+        )
 
     async def archive(self, agent: AgentDB) -> None:
         agent.is_archived = True

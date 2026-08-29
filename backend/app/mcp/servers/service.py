@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -36,6 +37,9 @@ from app.mcp.servers.schemas import (
 from app.service import BaseService
 from app.users.repository import UserRepository
 from app.utils.encryption import decrypt_value
+
+
+logger = logging.getLogger(__name__)
 
 
 class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
@@ -114,9 +118,17 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
 
     async def update(self, server_id: UUID, data: MCPServerPatch) -> MCPServerDB:
         server = await self.get_or_404(server_id)
+        # Read before the patch is applied: both are needed to decide what
+        # stored state the edit has invalidated (see `_purge_invalidated_state`).
+        previous_auth_type = server.auth_type
+        previous_url = server.url
         # Credential fields are excluded from serialization, so repository.update
         # only touches the mcp_servers row; secrets are persisted separately.
         updated = await self.repository.update(server, data)
+
+        await self._purge_invalidated_state(
+            server_id, updated, previous_auth_type, previous_url
+        )
 
         if data.api_key:
             await self.repository.create_or_update_api_key(server_id, data.api_key)
@@ -137,6 +149,64 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
             )
 
         return updated
+
+    async def _purge_invalidated_state(
+        self,
+        server_id: UUID,
+        updated: MCPServerDB,
+        previous_auth_type: MCPAuthType,
+        previous_url: str,
+    ) -> None:
+        """Drop stored state the edit has just made meaningless.
+
+        Two triggers, with deliberately different blast radii (design review
+        §5.8 — this used to do nothing at all, orphaning credential rows and
+        leaving every user holding tokens minted for the old resource):
+
+        * **URL changed** — every per-user Redis artefact was issued *for the
+          old resource*: access and refresh tokens, the DCR client registration,
+          the cached authorization-server metadata. None of it is valid against
+          a different URL, and a stale refresh token is worse than none because
+          `is_authorized` will keep reporting the user as connected.
+          Admin-entered credential rows are **kept**: a static client id/secret
+          is configuration the admin typed, and an admin re-pointing a server at
+          a new path of the same provider must not silently lose it.
+        * **Auth type changed** — the same Redis purge, plus the credential row
+          for the scheme being left. That row is dead config; `list_responses`
+          already has to gate `oauth_client_id` on the current auth type
+          precisely because it could linger.
+
+        Redis purging is best-effort: a cache that is down must not fail the
+        edit. The cost of a miss is a stale token, which the next authorization
+        overwrites anyway.
+        """
+        auth_type_changed = updated.auth_type != previous_auth_type
+        if not auth_type_changed and updated.url == previous_url:
+            return
+
+        if auth_type_changed:
+            if previous_auth_type == MCPAuthType.api_key:
+                await self.repository.delete_credentials(server_id, api_key=True)
+            elif previous_auth_type == MCPAuthType.oauth2:
+                await self.repository.delete_credentials(server_id, api_key=False)
+
+        try:
+            deleted = await TokenStorageFactory().clear_server_data(str(server_id))
+        except Exception:  # noqa: BLE001 — a cache outage must not fail the edit
+            logger.warning(
+                "Could not purge stored authorization state for MCP server %s after "
+                "an edit; users may need to reconnect manually",
+                server_id,
+                exc_info=True,
+            )
+            return
+        if deleted:
+            logger.info(
+                "Purged %s stored Redis keys for MCP server %s after an auth-type/URL "
+                "change; affected users must reconnect",
+                deleted,
+                server_id,
+            )
 
     async def list_agents(self, server_id: UUID) -> list[MCPServerAgentResponse]:
         """Agents currently bound to the server (delete-guard dialog)."""

@@ -6,7 +6,7 @@ from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata, OAuthToke
 from pydantic import BaseModel
 from redis.asyncio import Redis
 
-from app.settings import app_settings
+from app.redis_client import get_redis
 from app.utils.encryption import decrypt_value, encrypt_value
 
 
@@ -34,17 +34,12 @@ class RedisTokenStorage(TokenStorage):
         user_id: str,
         mcp_server_id: str,
         *,
-        host: str = "localhost",
-        port: int = 6379,
-        db: int = 0,
+        redis: Redis,
         prefix: str = "mcp",
-        redis: Redis | None = None,
     ):
         self.user_id = str(user_id)
         self.mcp_server_id = str(mcp_server_id)
-        self.redis: Redis = redis or Redis(
-            host=host, port=port, db=db, decode_responses=True
-        )
+        self.redis = redis
         self._prefix = prefix
 
     def _base(self) -> str:
@@ -166,21 +161,23 @@ class RedisTokenStorage(TokenStorage):
     async def delete_verifier(self, state: str) -> None:
         await self.redis.delete(self._state_key(state, self._prefix))
 
-    async def aclose(self) -> None:
-        await self.redis.close()
-
 
 class TokenStorageFactory:
-    """Factory for creating token storage instances."""
+    """Factory for creating token storage instances.
 
-    def __init__(self):
-        self.redis = Redis(
-            host=app_settings.redis_host,
-            port=app_settings.redis_port,
-            db=app_settings.redis_db,
-            password=app_settings.redis_password,
-            decode_responses=True,
-        )
+    Holds no connection of its own: it borrows the app-wide client from
+    `app.redis_client`, which the FastAPI lifespan closes on shutdown. This class
+    used to build a fresh `ConnectionPool` in its constructor and was constructed
+    per call at eight sites — every readiness probe, is-connected poll, agent
+    build and OAuth callback leaked a pool that nothing ever closed (design
+    review §3.3, P1-3). Constructing it is now cheap, so the call sites are left
+    as they are.
+
+    `redis` is injectable for tests; production always takes the default.
+    """
+
+    def __init__(self, redis: Redis | None = None):
+        self.redis = redis if redis is not None else get_redis()
 
     def get_storage(self, user_id: str, mcp_server_id: str) -> RedisTokenStorage:
         return RedisTokenStorage(user_id, mcp_server_id, redis=self.redis)

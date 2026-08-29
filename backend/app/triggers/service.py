@@ -290,6 +290,13 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         schedule.
         """
         now = now or datetime.now(UTC)
+        # Warm the whitelist cache *before* the claim, exactly as
+        # `RunService.create` does and for a sharper version of the same reason:
+        # `is_available` below runs inside this transaction, which holds
+        # `FOR UPDATE SKIP LOCKED` locks on every claimed trigger row. A cold or
+        # expired catalog cache makes that a multi-second CDN fetch with those
+        # locks held (design review §3.7).
+        await ModelService.list_whitelisted()
         claimed = await self.repository.claim_due(
             now, limit=trigger_settings.claim_batch_size
         )

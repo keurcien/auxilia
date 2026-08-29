@@ -25,18 +25,18 @@ class PersonalAccessTokenService(
         super().__init__(db, PersonalAccessTokenRepository(db))
 
     @staticmethod
-    def _generate_token() -> tuple[str, str, str]:
+    async def _generate_token() -> tuple[str, str, str]:
         """Generate a new token. Returns (plaintext, hash, prefix)."""
         raw = secrets.token_urlsafe(32)
         plaintext = f"{TOKEN_PREFIX}{raw}"
         prefix = plaintext[:12]
-        token_hash = get_password_hash(plaintext)
+        token_hash = await get_password_hash(plaintext)
         return plaintext, token_hash, prefix
 
     async def create(
         self, user_id: UUID, name: str
     ) -> tuple[PersonalAccessTokenDB, str]:
-        plaintext, token_hash, prefix = self._generate_token()
+        plaintext, token_hash, prefix = await self._generate_token()
         data = PersonalAccessTokenCreateDB(
             user_id=user_id,
             name=name,

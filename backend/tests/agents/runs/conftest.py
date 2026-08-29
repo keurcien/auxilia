@@ -49,3 +49,28 @@ async def run_db(tmp_path, monkeypatch):
     monkeypatch.setattr(service_mod.RunService, "_ensure_runnable_thread", AsyncMock())
     yield factory
     await engine.dispose()
+
+
+@pytest.fixture
+def count_appends(monkeypatch):
+    """Count *awaited* stream appends made directly on the Redis client.
+
+    This is the measurement P1-11 is about. Buffered writes go through
+    `pipeline.xadd`, which costs nothing until `execute()`, so a client-level
+    `xadd` here means one blocking round trip that a token had to wait for.
+    Counting calls to `publish_many` instead would prove nothing — that is the
+    method whose *implementation* is under test.
+    """
+
+    def _count(redis) -> dict:
+        counter = {"xadd": 0}
+        original = redis.xadd
+
+        async def _counting_xadd(*args, **kwargs):
+            counter["xadd"] += 1
+            return await original(*args, **kwargs)
+
+        monkeypatch.setattr(redis, "xadd", _counting_xadd)
+        return counter
+
+    return _count

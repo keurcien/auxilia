@@ -53,7 +53,7 @@ class AuthService:
         user = result.scalar_one_or_none()
         if user is None or user.password_hash is None:
             raise InvalidCredentialsError("Invalid email or password")
-        if not verify_password(data.password, user.password_hash):
+        if not await verify_password(data.password, user.password_hash):
             raise InvalidCredentialsError("Invalid email or password")
         return self.build_jwt_for_user(user)
 
@@ -63,7 +63,7 @@ class AuthService:
         user = UserDB(
             email=data.email,
             name=data.name,
-            password_hash=get_password_hash(data.password),
+            password_hash=await get_password_hash(data.password),
             role=WorkspaceRole.admin,
         )
         self.db.add(user)
@@ -81,7 +81,7 @@ class AuthService:
         user = UserDB(
             email=invite.email,
             name=data.name,
-            password_hash=get_password_hash(data.password),
+            password_hash=await get_password_hash(data.password),
             role=WorkspaceRole(invite.role),
             team_id=invite.team_id,
         )
