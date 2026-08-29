@@ -131,7 +131,7 @@ def build_runnable(
     without a sandbox it is added here over the in-state filesystem.
     """
     tools = list(tools)
-    middleware: list = []
+    harness: list = []
 
     if sandbox_backend is not None:
         from app.sandbox.tools import create_sandbox_tools
@@ -140,7 +140,7 @@ def build_runnable(
         # The general-purpose subagent inherits the parent's tools, so the
         # harness has to see the sandbox tools too — assemble it after the
         # toolset is complete.
-        middleware += harness_middleware(
+        harness += harness_middleware(
             model=model,
             tools=tools,
             backend=sandbox_backend,
@@ -152,10 +152,16 @@ def build_runnable(
         base_middleware = [
             m for m in base_middleware if not isinstance(m, PatchToolCallsMiddleware)
         ]
-    elif subagents:
-        middleware.append(SubAgentMiddleware(backend=StateBackend, subagents=subagents))
 
-    middleware += list(base_middleware)
+    middleware = [*harness, *base_middleware]
+    if sandbox_backend is None and subagents:
+        # Deliberately on the far side of the caller's stack, where the plain
+        # path has always put it — the harness wires its own SubAgentMiddleware
+        # *before* the caller's, because that is where deepagents puts it. Both
+        # positions are load-bearing: a middleware's system-prompt fragment
+        # lands in list order, so moving this one rewrites the prompt (and
+        # thread prompts are frozen at creation).
+        middleware.append(SubAgentMiddleware(backend=StateBackend, subagents=subagents))
     if output_schema is not None:
         middleware.append(DeferredStructuredOutputMiddleware(format_mode))
     middleware.append(ToolErrorMiddleware())
@@ -476,13 +482,19 @@ class Agent:
         The message dicts come from a client (the chat UI, a trigger, Slack), so
         a malformed one is a bad request, not a server fault — `convert_to_messages`
         rejects an unknown role instead of silently filing it as a user turn.
+        It signals rejection with whatever fits the shape it was handed:
+        `ValueError` for an unknown role or a dict missing `content`,
+        `NotImplementedError` for an item that is not a message at all (a bare
+        number, `None`, a nested list). All of them are the client's fault.
         """
         if command is not None:
             return Command(resume=command.get("resume"))
         raw = agent_input.get("messages", []) if agent_input else []
+        if not isinstance(raw, list):
+            raise DomainValidationError("Invalid run input: `messages` must be a list")
         try:
             messages = convert_to_messages(raw)
-        except ValueError as e:
+        except (ValueError, TypeError, KeyError, NotImplementedError) as e:
             raise DomainValidationError(f"Invalid run input: {e}") from e
         return {"messages": messages}
 

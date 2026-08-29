@@ -66,6 +66,10 @@ invisible.
 
 ## What P2-3 changed
 
+Nothing on the sandbox path: the parity test is the claim, and it holds. The changes
+below are to the *shape* of the code, plus one deliberate prompt-shape normalisation
+called out in the last bullet.
+
 - One construction path. `build_runnable` always calls `create_agent`; a sandbox adds
   middleware and tools to the same list instead of dispatching to a second builder.
 - The `PatchToolCallsMiddleware` strip-hack is gone as a *workaround* — the filter
@@ -75,6 +79,12 @@ invisible.
   so the parent's bytes are unchanged. One shape did change — `ResolvedAgent.compile`
   used to wrap a **subagent's** prompt as a single `{"type": "text"}` content block and
   now passes the string; same content, one less shape.
+- The plain path is unchanged, including where `SubAgentMiddleware` sits. It goes
+  *after* the caller's stack there and *before* it inside the harness, because those
+  are the two positions the two assemblers used. The position is load-bearing: a
+  middleware's system-prompt fragment lands in list order, so moving it rewrites the
+  prompt of every non-sandbox agent that has subagents. Two tests pin it — one on the
+  assembled middleware list, one on the prompt the model actually receives.
 - Parent and subagent share `build_agent_middleware`. They differ in exactly two
   documented ways, both forced by the subagent having no checkpointer: no approval gate
   and no tool-call patcher, and a tool budget sized to langgraph's default recursion

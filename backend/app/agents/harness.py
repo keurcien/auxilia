@@ -135,6 +135,14 @@ def harness_middleware(*, model, tools: list, backend, subagents=None) -> list:
     parent's full toolset.
     """
     profile = _profile(model)
+    supplied = list(subagents or [])
+    # deepagents adds its default subagent only when the caller supplies none by
+    # that name — an explicit spec is how a caller overrides it.
+    specs = (
+        supplied
+        if any(s["name"] == GENERAL_PURPOSE_SUBAGENT["name"] for s in supplied)
+        else [_general_purpose_subagent(model, tools, backend, profile), *supplied]
+    )
     return [
         TodoListMiddleware(),
         FilesystemMiddleware(
@@ -143,10 +151,7 @@ def harness_middleware(*, model, tools: list, backend, subagents=None) -> list:
         ),
         SubAgentMiddleware(
             backend=backend,
-            subagents=[
-                _general_purpose_subagent(model, tools, backend, profile),
-                *(subagents or []),
-            ],
+            subagents=specs,
             task_description=profile.tool_description_overrides.get("task"),
         ),
         create_summarization_middleware(model, backend),

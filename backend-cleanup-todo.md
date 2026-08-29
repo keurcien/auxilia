@@ -315,8 +315,10 @@ Last updated: 2026-08-29
       `task` tool and a hidden subagent inheriting its toolset; and its `.with_config`
       binds `recursion_limit=9_999`, which is the budget a sandbox *subagent* actually
       runs under (the `task` tool gives it a fresh config), so dropping that config would
-      have cut it 400×. On the review's open question — the answer is that the whole
-      `BASE_AGENT_PROMPT` has to be appended ourselves, and is
+      have cut it 400×. The review's open question was which prompt fragment, if any, we
+      would have to append ourselves: the answer is the whole of `BASE_AGENT_PROMPT`,
+      plus the harness profile's suffix where one is registered, and `harness_system_prompt`
+      appends both
 - [x] **P2-3** `build_runnable` unified on `create_agent`. `app/agents/harness.py` holds
       the explicit bundle; a sandbox now *adds middleware and tools to the same list*
       instead of dispatching to a second builder. The `PatchToolCallsMiddleware`
@@ -324,11 +326,16 @@ Last updated: 2026-08-29
       injects the replacement) and the dual `str`/`SystemMessage` prompt shape is gone —
       every caller passes the instruction string, which `create_agent` normalises to
       `SystemMessage(content=str)`, so parent bytes are unchanged.
-      **Reproduction is exact — no behaviour was changed.** The three deliberate
-      decisions the review wanted made (drop the auto-added subagent; settle summarization
-      + prompt caching for *all* agents; trim the harness prompt) are now one-line diffs
-      and are listed, un-taken, at the end of the finding — they change a frozen-per-thread
-      system prompt, so they are owner calls, not refactor side-effects
+      **The sandbox assembly is reproduced exactly** — that is what the parity test
+      asserts, and no middleware, tool or prompt byte on that path changed. One thing did
+      change, deliberately and outside the parity test's scope: `ResolvedAgent.compile`
+      used to wrap a *subagent's* prompt as a single `{"type": "text"}` content block and
+      now passes the string, since `create_agent` normalises a `str` to
+      `SystemMessage(content=str)`. Same content, one less shape; parent bytes unchanged.
+      The three deliberate decisions the review wanted made (drop the auto-added subagent;
+      settle summarization + prompt caching for *all* agents; trim the harness prompt) are
+      now one-line diffs and are listed, un-taken, at the end of the finding — they change
+      a frozen-per-thread system prompt, so they are owner calls, not refactor side-effects
 - [x] **P2-4** One `build_agent_middleware(created_at, *, recursion_limit, interrupt_on)`
       for parent and subagent. They differ in exactly two documented ways, both forced by
       the subagent having no checkpointer: no approval gate and no tool-call patcher

@@ -14,17 +14,19 @@ empty list means the reproduction is exact; anything else is a decision
 someone made on purpose, and this file is where it is recorded.
 """
 
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import deepagents.graph as deepagents_graph
 import pytest
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
-from deepagents.middleware.subagents import CompiledSubAgent
+from deepagents.middleware.subagents import CompiledSubAgent, SubAgentMiddleware
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import SystemMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
+from app.agents.current_date import CurrentDateMiddleware
 from app.agents.harness import HARNESS_CONFIG
 from app.agents.runtime import build_runnable
 from app.agents.structured_output import (
@@ -122,16 +124,46 @@ def describe(seen: dict) -> dict:
         "tools": [t.name for t in seen["tools"]],
         "system_prompt": _prompt_text(seen["system_prompt"]),
         "response_format": seen["response_format"],
-        "middleware": [
-            {
-                "class": type(m).__name__,
-                "name": m.name,
-                "tools": [t.name for t in getattr(m, "tools", [])],
-                "system_prompt": getattr(m, "system_prompt", None),
-            }
-            for m in seen["middleware"]
-        ],
+        "middleware": [_describe_middleware(m) for m in seen["middleware"]],
     }
+
+
+def _describe_middleware(m) -> dict:
+    described = {
+        "class": type(m).__name__,
+        "name": m.name,
+        "tools": [t.name for t in getattr(m, "tools", [])],
+        "system_prompt": getattr(m, "system_prompt", None),
+    }
+    if isinstance(m, SubAgentMiddleware):
+        # Recurse, or the auto-added general-purpose subagent goes uncompared:
+        # its own todo / filesystem / summarization / prompt-caching stack and
+        # its profile-suffixed prompt are all invisible from the outside, and
+        # dropping any of them would diverge from `create_deep_agent` silently.
+        described["subagents"] = [_describe_subagent(s) for s in m._subagents]
+    return described
+
+
+def _describe_subagent(spec) -> dict:
+    """A subagent spec as the harness handed it over.
+
+    A `CompiledSubAgent` is opaque by design — it carries a built runnable, and
+    the point of the caller-supplied ones is that we do not rebuild them here.
+    A declarative spec (which is what the general-purpose subagent is) still
+    carries its whole stack, so that is what gets compared.
+    """
+    described = {
+        "name": spec["name"],
+        "description": spec["description"],
+        "compiled": "runnable" in spec,
+    }
+    if "runnable" not in spec:
+        described |= {
+            "system_prompt": spec["system_prompt"],
+            "tools": [t.name for t in spec.get("tools") or []],
+            "middleware": [_describe_middleware(m) for m in spec["middleware"]],
+        }
+    return described
 
 
 def _prompt_text(prompt) -> str:
@@ -299,3 +331,53 @@ def test_no_sandbox_means_no_harness():
     assert described["system_prompt"] == "You are a test agent"
     assert described["tools"] == ["add"]
     assert [m["class"] for m in described["middleware"]] == ["ToolErrorMiddleware"]
+
+
+def test_a_caller_supplied_general_purpose_subagent_replaces_the_default():
+    """deepagents treats an explicit `general-purpose` spec as an override, not
+    an addition. Prepending ours unconditionally would give the agent two
+    subagents under one name."""
+    model = MODELS["openai"]()
+    subagents = [
+        CompiledSubAgent(
+            name="general-purpose", description="ours", runnable=_Sentinel()
+        )
+    ]
+
+    deep, ours = _both(model, subagents=subagents)
+
+    task = next(m for m in ours["middleware"] if m["name"] == "SubAgentMiddleware")
+    assert [s["name"] for s in task["subagents"]] == ["general-purpose"]
+    assert task["subagents"][0]["compiled"] is True
+    assert task == next(
+        m for m in deep["middleware"] if m["name"] == "SubAgentMiddleware"
+    )
+
+
+def test_plain_path_wires_subagents_after_the_caller_stack():
+    """The plain path has always put `SubAgentMiddleware` on the far side of the
+    caller's middleware, where the harness puts its own *before*. The position
+    is not cosmetic: a middleware's system-prompt fragment lands in list order,
+    so moving this one rewrites the prompt of every non-sandbox agent that has
+    subagents — and thread prompts are frozen at creation."""
+    seen, patcher = _capture("app.agents.runtime.create_agent")
+    caller = CurrentDateMiddleware(datetime(2026, 1, 1, tzinfo=UTC))
+    with patcher:
+        build_runnable(
+            model=MODELS["openai"](),
+            tools=TOOLS,
+            system_prompt="You are a test agent",
+            base_middleware=[caller],
+            subagents=[
+                CompiledSubAgent(
+                    name="helper", description="helps", runnable=_Sentinel()
+                )
+            ],
+        )
+
+    names = [type(m).__name__ for m in seen["middleware"]]
+    assert names == [
+        "CurrentDateMiddleware",
+        "SubAgentMiddleware",
+        "ToolErrorMiddleware",
+    ]

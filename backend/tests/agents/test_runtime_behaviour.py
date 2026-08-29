@@ -441,16 +441,61 @@ async def test_regeneration_on_a_first_turn_has_something_to_fork_from(
     ]
 
 
+@pytest.mark.parametrize(
+    "messages",
+    [
+        pytest.param([{"type": "wizard", "content": "hi"}], id="unknown-role"),
+        pytest.param([{"role": "user"}], id="missing-content"),
+        # Not a message at all: `convert_to_messages` raises NotImplementedError
+        # rather than ValueError for these, which would have been a 500.
+        pytest.param([42], id="not-a-message"),
+        pytest.param([None], id="null-message"),
+        pytest.param([["nested"]], id="nested-list"),
+        pytest.param("hi", id="messages-not-a-list"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_a_malformed_input_message_is_a_bad_request(in_memory_runtime):
+async def test_a_malformed_input_message_is_a_bad_request(in_memory_runtime, messages):
     """Run input is client-supplied. An unknown role used to be filed silently
-    as a user turn; it is a validation error now."""
+    as a user turn; every malformed shape is a validation error now, whichever
+    exception the converter picks for it."""
     from app.exceptions import DomainValidationError
 
     agent, _ = build_agent(script=["never reached"])
 
     with pytest.raises(DomainValidationError, match="Invalid run input"):
-        async for _ in agent.stream(
-            agent_input={"messages": [{"type": "wizard", "content": "hi"}]}
-        ):
+        async for _ in agent.stream(agent_input={"messages": messages}):
             pass
+
+
+@pytest.mark.asyncio
+async def test_subagent_wiring_keeps_the_caller_prompt_ahead_of_the_task_block():
+    """A plain agent with subagents assembles its prompt caller-fragments-first.
+    `SubAgentMiddleware` sitting on the wrong side of the caller's stack moves
+    the `task` block ahead of them — a silent prompt rewrite on every
+    non-sandbox agent that has subagents, whose prompts are frozen at creation.
+    """
+    from deepagents.middleware.subagents import CompiledSubAgent
+
+    from app.agents.current_date import CurrentDateMiddleware
+    from app.agents.runtime import build_runnable
+
+    class _Stub:
+        def with_config(self, config):
+            return self
+
+    model = ScriptedChatModel(script=["done"])
+    graph = build_runnable(
+        model=model,
+        tools=[],
+        system_prompt="You are a test agent",
+        base_middleware=[CurrentDateMiddleware(datetime(2026, 1, 1, tzinfo=UTC))],
+        subagents=[
+            CompiledSubAgent(name="helper", description="helps", runnable=_Stub())
+        ],
+    )
+
+    await graph.ainvoke({"messages": [{"role": "user", "content": "hi"}]})
+
+    system = system_text(model)
+    assert system.index("Current date:") < system.index("`task` (subagent spawner)")

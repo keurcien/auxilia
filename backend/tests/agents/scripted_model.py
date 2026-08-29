@@ -36,10 +36,15 @@ class ScriptedChatModel(BaseChatModel):
         return "scripted"
 
     def bind_tools(self, tools: Sequence[Any], **kwargs: Any) -> Runnable:
-        # create_agent binds the assembled toolset here; keep the same instance
-        # so `calls` / `index` stay observable from the test's reference.
+        """Bind like a real chat model, and record what was bound.
+
+        `tools` is forwarded onto the binding, not just recorded: it is the
+        binding the graph executes, and middleware that reads tool schemas off
+        the bound model would otherwise see an unbound one. The recording is
+        what lets a test assert which tools the model was actually offered.
+        """
         self.bound_tools = list(tools)
-        return self.bind(**kwargs)
+        return self.bind(tools=list(tools), **kwargs)
 
     def _next(self) -> AIMessage:
         if self.index >= len(self.script):
