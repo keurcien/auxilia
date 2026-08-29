@@ -10,7 +10,6 @@ request (worker, reaper, Slack, trigger scanner), and even router calls must
 commit before the response starts streaming.
 """
 
-import asyncio
 import logging
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
@@ -141,12 +140,11 @@ class RunService:
         # Local imports avoid an import cycle (runs.service is imported early by
         # the worker/reaper; AgentService and the MCP connectivity layer pull in
         # far more).
-        from sqlmodel import select
-
         from app.agents.core.service import AgentService
-        from app.mcp.client.connectivity import initiate_oauth, is_authorized
+        from app.mcp.client.connectivity import initiate_oauth, probe_authorization
         from app.mcp.client.exceptions import OAuthAuthorizationRequired
-        from app.mcp.servers.models import MCPAuthType, MCPServerDB
+        from app.mcp.servers.models import MCPAuthType
+        from app.mcp.servers.repository import MCPServerRepository
 
         bindings = await AgentService(db).collect_run_bindings(agent_id)
         if not bindings:
@@ -155,32 +153,18 @@ class RunService:
         # Auth is per (user, server), so dedupe server ids — a server shared by
         # the agent and a subagent need only be probed once.
         server_ids = {b.mcp_server_id for b in bindings}
-        stmt = select(MCPServerDB).where(MCPServerDB.id.in_(server_ids))
-        result = await db.execute(stmt)
-        servers = [
-            s for s in result.scalars().all() if s.auth_type == MCPAuthType.oauth2
-        ]
+        rows = await MCPServerRepository(db).list_by_ids(server_ids)
+        servers = [s for s in rows if s.auth_type == MCPAuthType.oauth2]
         # DB reads done — release the pooled connection before the probes'
         # network IO (token refresh, OAuth metadata discovery can take
         # seconds). expire_on_commit=False keeps the loaded rows usable.
         await db.commit()
 
-        async def _probe(server) -> bool:
-            try:
-                return await is_authorized(server, user_id)
-            except Exception:  # noqa: BLE001 — fail-open: a probe error must not block the run
-                logger.warning(
-                    "OAuth pre-flight for MCP server %s failed; letting the run launch",
-                    server.id,
-                    exc_info=True,
-                )
-                return True  # fail open
-
-        # Probes are independent per (user, server) — run them concurrently so
-        # the pre-flight costs one round trip, not one per server.
-        results = await asyncio.gather(*(_probe(s) for s in servers))
-        for server, authorized in zip(servers, results, strict=True):
-            if authorized:
+        # Concurrent, fail-open and memoized — shared with the readiness
+        # endpoint, which used to carry a sequential fail-loud copy (§4.1).
+        authorized = await probe_authorization(servers, user_id)
+        for server in servers:
+            if authorized.get(server.id, True):
                 continue
             try:
                 # Raises OAuthAuthorizationRequired(auth_url) for the first
@@ -326,6 +310,18 @@ class RunService:
             record = await repository.get(run_id)
         if thread_id is not None:
             await RunEventStream(run_id, self.redis).publish_end(status)
+        # `thread_id is None` means the guarded UPDATE matched nothing, which
+        # covers three different situations and only two of them are finished:
+        #   1. the run was already terminal — expire, it is over;
+        #   2. its row is gone (the thread was deleted mid-run and CASCADEd) —
+        #      expire, or the ephemera keep no TTL at all and sit in Redis for
+        #      ever, with no second chance because nothing will finalize it again;
+        #   3. it moved out of `expected` and is **still running** — a pending
+        #      cancel or a reaper sweep losing a race with a dispatcher claim.
+        # Expiring in case 3 would clear a live run's liveness key and hand the
+        # reaper a false "dead worker", which is precisely the failure the
+        # two-sample rule exists to prevent.
+        if thread_id is not None or record is None or is_terminal(record.status):
             await self._expire_ephemera(run_id)
         return record
 

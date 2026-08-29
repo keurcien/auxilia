@@ -1,5 +1,9 @@
+import math
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
+from app.background import MIN_INTERVAL_SECONDS
 from app.settings import settings_config
 
 
@@ -28,6 +32,13 @@ class RunSettings(BaseSettings):
     # the reattach/replay window. Run *records* live in Postgres and don't
     # expire; see `retention_days`.
     ttl_seconds: int = 3600
+    # SSE chunks coalesced into one pipelined append. Caps memory and pipeline
+    # size; the delay below is what caps latency.
+    event_buffer_max_chunks: int = 32
+    # Longest a chunk waits in the buffer before being shipped. These are the
+    # tokens a user watches appear, so this is a perceived-latency knob: raising
+    # it trades smoothness for fewer Redis round trips.
+    event_buffer_max_delay_ms: int = 50
     # Reattach tail: how many recent SSE chunks the event stream keeps (approx
     # MAXLEN). NOT the full run history — that lives in the LangGraph checkpoint
     # (Postgres), so trimmed chunks are recoverable and this only needs to cover
@@ -43,6 +54,32 @@ class RunSettings(BaseSettings):
     dispatcher_enabled: bool = True
 
     model_config = settings_config(env_prefix="run_")
+
+    # Every interval below drives a `while` loop's sleep. Set to zero, each turns
+    # its loop into a busy spin that burns a core for the life of the process —
+    # and the dispatcher's and the run heartbeat's loops sleep directly, so
+    # `PeriodicLoop`'s own floor does not reach them. Clamped rather than
+    # rejected: an operator writing 0 means "as often as possible", and refusing
+    # to boot over a config typo is the worse failure.
+
+    @field_validator(
+        "heartbeat_interval_seconds", "reaper_interval_seconds", mode="after"
+    )
+    @classmethod
+    def _whole_second_intervals_stay_whole(cls, value: int) -> int:
+        return max(value, 1)
+
+    @field_validator("claim_interval_seconds", "cancel_poll_seconds", mode="after")
+    @classmethod
+    def _sub_second_intervals_stay_positive(cls, value: float) -> float:
+        # `nan`/`inf` are rejected rather than clamped: `max(nan, x)` is `nan`,
+        # which then becomes a sleep timeout with undefined behaviour, and `inf`
+        # is a loop that never ticks again. Unlike 0 they express no intent
+        # worth honouring, so failing at boot with a clear error beats a
+        # dispatcher that silently stops dispatching.
+        if not math.isfinite(value):
+            raise ValueError("must be a finite number of seconds")
+        return max(value, MIN_INTERVAL_SECONDS)
 
 
 run_settings: RunSettings = RunSettings()

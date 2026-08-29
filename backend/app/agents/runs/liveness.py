@@ -32,3 +32,23 @@ class RunLiveness:
         """Drop the key on clean finish so the reaper never has to wait out
         the TTL for a run that already finalized."""
         await self.redis.delete(self._key)
+
+
+class DispatcherLiveness:
+    """Cluster-wide "is any dispatcher able to claim runs?" signal.
+
+    Separate from `RunLiveness`, which is per run. Every dispatcher refreshes
+    the same key on its own timer — not from the claim loop, which blocks on a
+    saturated semaphore and would therefore go silent exactly when the answer
+    matters most (see `RunReaper`).
+    """
+
+    def __init__(self, redis: Redis | None = None):
+        self.redis: Redis = redis or get_redis()
+        self._key = keys.dispatchers_alive_key()
+
+    async def stamp(self, *, ttl: int) -> None:
+        await self.redis.set(self._key, "1", ex=ttl)
+
+    async def any_alive(self) -> bool:
+        return bool(await self.redis.exists(self._key))

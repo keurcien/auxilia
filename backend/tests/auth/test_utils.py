@@ -4,6 +4,7 @@ The auth module had no tests at all (backend design review §6.2), which is a ba
 place for a coverage hole: these four functions gate every authenticated request.
 """
 
+import asyncio
 from datetime import timedelta
 from uuid import uuid4
 
@@ -24,26 +25,47 @@ from app.auth.utils import (
 # ---------------------------------------------------------------------------
 
 
-def test_hash_verifies_against_its_own_password():
-    hashed = get_password_hash("correct horse battery staple")
+async def test_hash_verifies_against_its_own_password():
+    hashed = await get_password_hash("correct horse battery staple")
 
-    assert verify_password("correct horse battery staple", hashed) is True
-
-
-def test_hash_rejects_a_wrong_password():
-    hashed = get_password_hash("correct horse battery staple")
-
-    assert verify_password("Correct horse battery staple", hashed) is False
+    assert await verify_password("correct horse battery staple", hashed) is True
 
 
-def test_hashes_are_salted_so_the_same_password_hashes_differently():
-    assert get_password_hash("same") != get_password_hash("same")
+async def test_hash_rejects_a_wrong_password():
+    hashed = await get_password_hash("correct horse battery staple")
+
+    assert await verify_password("Correct horse battery staple", hashed) is False
 
 
-def test_hash_is_argon2id():
+async def test_hashes_are_salted_so_the_same_password_hashes_differently():
+    assert await get_password_hash("same") != await get_password_hash("same")
+
+
+async def test_hash_is_argon2id():
     """PAT lookup scans candidates by prefix and verifies each one, so knowing
     which algorithm is on the request path matters (§3.1 / P1-1)."""
-    assert get_password_hash("x").startswith("$argon2id$")
+    assert (await get_password_hash("x")).startswith("$argon2id$")
+
+
+async def test_hashing_does_not_block_the_event_loop():
+    """P1-2: Argon2 must run in a thread. A coroutine sharing the loop with a
+    hash has to keep making progress while the hash is in flight — which it can
+    only do if the hash is not running on the loop itself."""
+    ticks = 0
+
+    async def heartbeat() -> None:
+        nonlocal ticks
+        while True:
+            ticks += 1
+            await asyncio.sleep(0)
+
+    beat = asyncio.create_task(heartbeat())
+    try:
+        await get_password_hash("some password")
+    finally:
+        beat.cancel()
+
+    assert ticks > 1
 
 
 # ---------------------------------------------------------------------------

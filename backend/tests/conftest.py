@@ -20,10 +20,12 @@ except ValidationError:
     # sys.modules, so the real import below re-executes with this in place.
     os.environ["SALT"] = "test-salt-not-a-real-secret"
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
+from fakeredis import FakeServer, aioredis
 from fastapi.testclient import TestClient
 
 from app.auth.dependencies import (
@@ -34,6 +36,23 @@ from app.auth.dependencies import (
 from app.database import get_db
 from app.main import app
 from app.users.models import UserDB, WorkspaceRole
+
+
+@pytest.fixture(autouse=True)
+def fake_shared_redis(monkeypatch):
+    """Every test gets a fresh in-memory Redis behind `app.redis_client`.
+
+    Autouse and unconditional on purpose. Code reached through the shared client
+    is often several layers below the thing under test — `probe_authorization`'s
+    memo, the token storage the MCP client builds — and if it fell through to the
+    real client the test would quietly connect to whatever is on localhost:6379,
+    passing on a developer's machine and hanging or erroring in CI.
+
+    Tests that need to inspect what was written can request this fixture by name.
+    """
+    client = aioredis.FakeRedis(server=FakeServer(), decode_responses=True)
+    monkeypatch.setattr("app.redis_client._redis", client)
+    return client
 
 
 @pytest.fixture
@@ -107,3 +126,27 @@ def admin_user():
     app.dependency_overrides[require_admin] = lambda: user
     yield user
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def until():
+    """Wait for a background task to make progress, with a deadline.
+
+    Several tests here assert that a task *keeps running* — the heartbeat, the
+    dispatcher's liveness announcement, the event buffer's periodic flusher. The
+    regression each one guards is that task dying, and with a plain `while` loop
+    that turns into a hung suite instead of a failing test.
+    """
+
+    async def _until(condition, *, what: str, seconds: float = 1.0) -> None:
+        try:
+            async with asyncio.timeout(seconds):
+                # Polling is the point: yielding hands control to the task under
+                # test. There is no event to wait on — that is what is being
+                # verified.
+                while not await condition():  # noqa: ASYNC110
+                    await asyncio.sleep(0.001)
+        except TimeoutError:
+            pytest.fail(f"timed out waiting for {what}")
+
+    return _until

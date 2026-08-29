@@ -16,14 +16,15 @@ from sqlalchemy.exc import IntegrityError
 
 from app.agents.runs.control import RunControl
 from app.agents.runs.delivery import DeliveryFactory
-from app.agents.runs.events import RunEventStream
-from app.agents.runs.liveness import RunLiveness
+from app.agents.runs.events import BufferedEventPublisher, RunEventStream
+from app.agents.runs.liveness import DispatcherLiveness, RunLiveness
 from app.agents.runs.models import RunDB
 from app.agents.runs.service import RunService
 from app.agents.runs.settings import run_settings
 from app.agents.runs.state import MCP_REAUTH_ERROR, RunStatus
 from app.agents.runtime import Agent
 from app.agents.stream import decode_sse_blocks
+from app.background import LoopHealth, register_loop
 from app.database import AsyncSessionLocal, get_checkpointer
 from app.exceptions import root_cause
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
@@ -49,6 +50,13 @@ def _error_event_message(sse: str) -> str:
                 return str(data.get("message") or "")
             return str(data or "")
     return ""
+
+
+async def _cancel(task: asyncio.Task) -> None:
+    """Cancel a background task and wait for it to unwind."""
+    task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task
 
 
 async def _mcp_unauthorized(db, thread: ThreadDB, user_id: str) -> bool:
@@ -84,7 +92,7 @@ class RunWorker:
         # Stamp before anything else: the reaper treats a running run with no
         # liveness key (past the grace window) as a dead worker.
         await liveness.stamp(ttl=run_settings.heartbeat_timeout_seconds)
-        heartbeat = asyncio.create_task(self._heartbeat(liveness))
+        heartbeat = asyncio.create_task(self._heartbeat(liveness, events))
         cancel_watch = asyncio.create_task(
             RunControl(record.id, self.redis).wait_for_cancel(
                 poll_seconds=run_settings.cancel_poll_seconds
@@ -101,8 +109,8 @@ class RunWorker:
             logger.exception("Run %s failed", record.id)
             status, error = RunStatus.error, str(root_cause(exc))
         finally:
-            await self._stop(heartbeat)
-            await self._stop(cancel_watch)
+            await _cancel(heartbeat)
+            await _cancel(cancel_watch)
         await self.service.finalize(record.id, status, error=error)
         if delivery is not None:
             await delivery  # the sentinel is published; let the consumer finish
@@ -145,7 +153,7 @@ class RunWorker:
             timeout=run_settings.max_duration_seconds or None,
         )
         if not done:  # wall-clock cap elapsed
-            await self._stop(stream_task)
+            await _cancel(stream_task)
             return RunStatus.timeout, None
 
         # A genuine cancel: the watcher completed cleanly with a signal. A failed
@@ -155,7 +163,7 @@ class RunWorker:
             and not cancel_watch.cancelled()
             and cancel_watch.exception() is None
         ):
-            await self._stop(stream_task)
+            await _cancel(stream_task)
             return RunStatus.cancelled, None
         if cancel_watch in done and cancel_watch.exception() is not None:
             logger.warning(
@@ -189,23 +197,44 @@ class RunWorker:
             if await _mcp_unauthorized(db, thread, str(record.user_id)):
                 raise RuntimeError(MCP_REAUTH_ERROR)
             agent = await Agent.build(thread=thread, db=db)
-            async for sse in agent.stream(
-                agent_input=record.input,
-                command=record.command,
-                trigger=record.trigger,
-                config_overrides=record.config_overrides,
-                output_schema=record.output_schema,
-            ):
-                if error_message is None and sse.startswith(_ERROR_EVENT_PREFIX):
-                    error_message = _error_event_message(sse)
-                await events.publish(sse)
+            # Buffered: one awaited XADD per chunk is one Redis round trip per
+            # token, serialized with the agent stream. Exiting the buffer drains
+            # it, which is what keeps the last chunks ahead of `finalize`'s end
+            # sentinel.
+            async with BufferedEventPublisher(events) as publisher:
+                async for sse in agent.stream(
+                    agent_input=record.input,
+                    command=record.command,
+                    trigger=record.trigger,
+                    config_overrides=record.config_overrides,
+                    output_schema=record.output_schema,
+                ):
+                    if error_message is None and sse.startswith(_ERROR_EVENT_PREFIX):
+                        error_message = _error_event_message(sse)
+                    await publisher.publish(sse)
         return error_message
 
-    async def _heartbeat(self, liveness: RunLiveness) -> None:
-        """Keep the liveness key fresh while the run executes."""
+    async def _heartbeat(self, liveness: RunLiveness, events: RunEventStream) -> None:
+        """Keep the liveness key fresh, and the event log's safety TTL pushed
+        out, while the run executes.
+
+        Every tick is wrapped: a single transient Redis error used to kill this
+        loop silently, after which liveness expired and the reaper finalized a
+        perfectly healthy streaming run as `error`. The cancel watcher already
+        got this treatment (`_execute` tolerates a failed watcher); the
+        heartbeat did not.
+        """
         while True:
             await asyncio.sleep(run_settings.heartbeat_interval_seconds)
-            await liveness.stamp(ttl=run_settings.heartbeat_timeout_seconds)
+            try:
+                await liveness.stamp(ttl=run_settings.heartbeat_timeout_seconds)
+                await events.touch_ttl()
+            except Exception:  # noqa: BLE001 — a blip must not end the heartbeat
+                logger.warning(
+                    "Heartbeat for run %s failed; retrying next tick",
+                    liveness.run_id,
+                    exc_info=True,
+                )
 
     async def _is_interrupted(self, thread_id: str) -> bool:
         async with get_checkpointer() as checkpointer:
@@ -213,12 +242,6 @@ class RunWorker:
                 config={"configurable": {"thread_id": thread_id}}
             )
         return checkpoint is not None and pending_interrupt(checkpoint) is not None
-
-    @staticmethod
-    async def _stop(task: asyncio.Task) -> None:
-        task.cancel()
-        with suppress(asyncio.CancelledError):
-            await task
 
 
 class RunDispatcher:
@@ -228,9 +251,24 @@ class RunDispatcher:
     def __init__(self, redis=None, delivery_factory: DeliveryFactory | None = None):
         self.worker = RunWorker(redis, delivery_factory=delivery_factory)
         self.service = self.worker.service
+        self.liveness = DispatcherLiveness(self.service.redis)
         self._semaphore = asyncio.Semaphore(run_settings.worker_concurrency)
         self._stopping = asyncio.Event()
         self._tasks: set[asyncio.Task] = set()
+        self._heartbeat: asyncio.Task | None = None
+        # Not a `PeriodicLoop`: this loop is not periodic — it blocks on the
+        # semaphore for as long as every slot is busy, which can be the whole
+        # length of an agent turn. Health is therefore ticked by
+        # `_announce_liveness`, not by the claim loop, and sized to that
+        # cadence. Ticking from the claim loop would make a *fully occupied*
+        # dispatcher look dead within a minute and get a healthy, busy worker
+        # recycled mid-run — worse than the failure /health exists to catch.
+        self.health = register_loop(
+            LoopHealth(
+                name="run-dispatcher",
+                interval=run_settings.heartbeat_interval_seconds,
+            )
+        )
 
     async def run(self) -> None:
         logger.info(
@@ -238,18 +276,63 @@ class RunDispatcher:
             run_settings.worker_concurrency,
             run_settings.claim_interval_seconds,
         )
-        # Acquire a slot *before* claiming so at most `concurrency` runs are
-        # ever in flight; the loop blocks on `acquire` when saturated.
+        self.health.started = True
+        self.health.mark_tick()
+        self._heartbeat = asyncio.create_task(self._announce_liveness())
+        try:
+            # Acquire a slot *before* claiming so at most `concurrency` runs are
+            # ever in flight; the loop blocks on `acquire` when saturated.
+            while not self._stopping.is_set():
+                try:
+                    await self._claim_and_dispatch()
+                except Exception as exc:
+                    # `_claim_one` already absorbs claim failures; reaching here
+                    # means the loop's own machinery broke. Without this the
+                    # dispatcher died for good and the instance kept serving 200s
+                    # while no run ever executed again (design review §2.3).
+                    self.health.mark_failure(exc)
+                    logger.exception("Run dispatch loop failed; retrying")
+                    await self._sleep(min(run_settings.claim_interval_seconds * 4, 5.0))
+        finally:
+            # The heartbeat is what ticks health, so it must not outlive this
+            # loop: an orphaned heartbeat would keep reporting a dispatcher that
+            # is no longer dispatching. `stopped` is set only for a shutdown we
+            # asked for — leaving any other exit to go stale and fail /health.
+            if self._heartbeat is not None:
+                await _cancel(self._heartbeat)
+                self._heartbeat = None
+            self.health.stopped = self._stopping.is_set()
+
+    async def _claim_and_dispatch(self) -> None:
+        """One pass: take a slot, claim a run, start it."""
+        await self._semaphore.acquire()
+        record = None if self._stopping.is_set() else await self._claim_one()
+        if record is None:
+            self._semaphore.release()
+            await self._sleep(run_settings.claim_interval_seconds)
+            return
+        task = asyncio.create_task(self._run_one(record))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    async def _announce_liveness(self) -> None:
+        """Tell the cluster a dispatcher is up, on an independent timer.
+
+        Not stamped from the claim loop above: that loop blocks on
+        `_semaphore.acquire()` while every slot is busy, which is precisely the
+        backlog the reaper must not mistake for "nothing is dispatching".
+        """
         while not self._stopping.is_set():
-            await self._semaphore.acquire()
-            record = None if self._stopping.is_set() else await self._claim_one()
-            if record is None:
-                self._semaphore.release()
-                await self._sleep(run_settings.claim_interval_seconds)
-                continue
-            task = asyncio.create_task(self._run_one(record))
-            self._tasks.add(task)
-            task.add_done_callback(self._tasks.discard)
+            try:
+                await self.liveness.stamp(ttl=run_settings.heartbeat_timeout_seconds)
+            except Exception as exc:  # noqa: BLE001 — a blip must not end the heartbeat
+                self.health.mark_failure(exc)
+                logger.warning("Dispatcher liveness stamp failed", exc_info=True)
+            else:
+                # This, not the claim loop, is the dispatcher's health signal —
+                # see the note on `self.health` above.
+                self.health.mark_tick()
+            await self._sleep(run_settings.heartbeat_interval_seconds)
 
     async def _claim_one(self) -> RunDB | None:
         """Claim the next dispatchable run; a claim failure (e.g. a transient
@@ -286,6 +369,9 @@ class RunDispatcher:
         closed connection; the reaper recovers anything left non-terminal.
         """
         self._stopping.set()
+        if self._heartbeat is not None:
+            await _cancel(self._heartbeat)
+            self._heartbeat = None
         if not self._tasks:
             return
         _, pending = await asyncio.wait(self._tasks, timeout=drain_timeout)

@@ -7,10 +7,9 @@ claim/commit/enqueue choreography. `FOR UPDATE SKIP LOCKED` in the claim query
 makes it safe to run the scanner on every instance; no leader election.
 """
 
-import asyncio
 import logging
-from contextlib import suppress
 
+from app.background import PeriodicLoop
 from app.database import AsyncSessionLocal
 from app.triggers.service import TriggerService
 from app.triggers.settings import trigger_settings
@@ -21,19 +20,12 @@ logger = logging.getLogger(__name__)
 
 class TriggerScanner:
     def __init__(self):
-        self._stopping = asyncio.Event()
+        self._loop = PeriodicLoop(
+            "trigger-scanner", trigger_settings.scan_interval_seconds, self._tick
+        )
 
     async def run(self) -> None:
-        logger.info(
-            "trigger scanner started: interval=%ss",
-            trigger_settings.scan_interval_seconds,
-        )
-        while not self._stopping.is_set():
-            try:
-                await self._tick()
-            except Exception:
-                logger.exception("Trigger scan failed")
-            await self._sleep(trigger_settings.scan_interval_seconds)
+        await self._loop.run()
 
     async def _tick(self) -> None:
         async with AsyncSessionLocal() as db:
@@ -41,10 +33,5 @@ class TriggerScanner:
         if run_ids:
             logger.info("Enqueued %d triggered run(s)", len(run_ids))
 
-    async def _sleep(self, seconds: float) -> None:
-        """Sleep, but wake early if asked to stop."""
-        with suppress(TimeoutError):
-            await asyncio.wait_for(self._stopping.wait(), timeout=seconds)
-
     def stop(self) -> None:
-        self._stopping.set()
+        self._loop.stop()

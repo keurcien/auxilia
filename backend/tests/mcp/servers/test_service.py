@@ -19,7 +19,7 @@ from app.mcp.client import connectivity as connectivity_module
 from app.mcp.client.connectivity import build_oauth_provider
 from app.mcp.servers import service as service_module
 from app.mcp.servers.models import MCPAuthType
-from app.mcp.servers.schemas import MCPServerCreate
+from app.mcp.servers.schemas import MCPServerCreate, MCPServerPatch
 from app.mcp.servers.service import MCPServerService
 
 
@@ -133,6 +133,7 @@ def mock_repo():
     repo.create_or_update_oauth_credentials = AsyncMock()
     repo.update_oauth_credentials = AsyncMock()
     repo.get_oauth_credentials = AsyncMock()
+    repo.delete_credentials = AsyncMock()
     return repo
 
 
@@ -215,8 +216,6 @@ async def test_create_still_validates_api_key_for_new_url(service, mock_repo):
 async def test_update_patches_client_id_without_secret(service, mock_repo):
     # Editing the client_id while leaving the secret blank must patch client_id
     # and pass client_secret=None so the stored secret is kept.
-    from app.mcp.servers.schemas import MCPServerPatch
-
     server = make_mcp_server()
     server.auth_type = MCPAuthType.oauth2
     mock_repo.get.return_value = server
@@ -231,8 +230,6 @@ async def test_update_patches_client_id_without_secret(service, mock_repo):
 
 
 async def test_update_skips_oauth_when_no_credential_fields(service, mock_repo):
-    from app.mcp.servers.schemas import MCPServerPatch
-
     server = make_mcp_server()
     server.auth_type = MCPAuthType.oauth2
     mock_repo.get.return_value = server
@@ -455,8 +452,6 @@ async def test_delete_connection_clears_only_that_users_keys(
 
 
 async def test_update_persists_auth_method_only(service, mock_repo):
-    from app.mcp.servers.schemas import MCPServerPatch
-
     server = make_mcp_server()
     server.auth_type = MCPAuthType.oauth2
     mock_repo.get.return_value = server
@@ -555,3 +550,116 @@ async def test_delete_with_detach_agents_removes_bindings_first(
 
     bindings.delete_all_for_server.assert_awaited_once_with(server_id)
     mock_repo.delete.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# update — purging state the edit invalidated (design review §5.8 / P1-15)
+# ---------------------------------------------------------------------------
+
+
+def _server_at(url: str, auth_type: MCPAuthType, server_id=None):
+    server = make_mcp_server(url=url)
+    if server_id is not None:
+        server.id = server_id
+    server.auth_type = auth_type
+    return server
+
+
+@pytest.fixture
+def token_storage(monkeypatch):
+    """A stand-in TokenStorageFactory reporting 3 purged keys."""
+    factory = MagicMock(clear_server_data=AsyncMock(return_value=3))
+    monkeypatch.setattr(
+        service_module, "TokenStorageFactory", MagicMock(return_value=factory)
+    )
+    return factory
+
+
+async def test_changing_the_url_purges_tokens_minted_for_the_old_resource(
+    service, mock_repo, token_storage
+):
+    """Access tokens, refresh tokens, the DCR registration and the cached AS
+    metadata were all issued for the old URL. A surviving refresh token is worse
+    than none: `is_authorized` keeps reporting the user as connected."""
+    before = _server_at("https://old.example.com/mcp", MCPAuthType.oauth2)
+    mock_repo.get.return_value = before
+    mock_repo.update.return_value = _server_at(
+        "https://new.example.com/mcp", MCPAuthType.oauth2, server_id=before.id
+    )
+
+    await service.update(before.id, MCPServerPatch(url="https://new.example.com/mcp"))
+
+    token_storage.clear_server_data.assert_awaited_once_with(str(before.id))
+    # Admin-entered config survives: re-pointing a server must not silently
+    # discard a client id/secret the admin typed.
+    mock_repo.delete_credentials.assert_not_awaited()
+
+
+async def test_leaving_oauth_deletes_the_now_dead_oauth_credentials(
+    service, mock_repo, token_storage
+):
+    before = _server_at("https://mcp.example.com/mcp", MCPAuthType.oauth2)
+    mock_repo.get.return_value = before
+    mock_repo.update.return_value = _server_at(
+        "https://mcp.example.com/mcp", MCPAuthType.api_key, server_id=before.id
+    )
+
+    await service.update(before.id, MCPServerPatch(auth_type=MCPAuthType.api_key))
+
+    mock_repo.delete_credentials.assert_awaited_once_with(before.id, api_key=False)
+    token_storage.clear_server_data.assert_awaited_once()
+
+
+async def test_leaving_api_key_deletes_the_now_dead_api_key_and_purges_redis(
+    service, mock_repo, token_storage
+):
+    before = _server_at("https://mcp.example.com/mcp", MCPAuthType.api_key)
+    mock_repo.get.return_value = before
+    mock_repo.update.return_value = _server_at(
+        "https://mcp.example.com/mcp", MCPAuthType.oauth2, server_id=before.id
+    )
+
+    await service.update(before.id, MCPServerPatch(auth_type=MCPAuthType.oauth2))
+
+    mock_repo.delete_credentials.assert_awaited_once_with(before.id, api_key=True)
+    # Both directions must purge: stale per-user OAuth state left behind here
+    # would report users as connected to a server they have never authorized.
+    token_storage.clear_server_data.assert_awaited_once_with(str(before.id))
+
+
+async def test_an_unrelated_edit_purges_nothing(service, mock_repo, token_storage):
+    """Renaming a server must not disconnect every user of it."""
+    before = _server_at("https://mcp.example.com/mcp", MCPAuthType.oauth2)
+    mock_repo.get.return_value = before
+    mock_repo.update.return_value = before
+
+    await service.update(before.id, MCPServerPatch(name="Renamed"))
+
+    token_storage.clear_server_data.assert_not_awaited()
+    mock_repo.delete_credentials.assert_not_awaited()
+
+
+async def test_a_redis_outage_does_not_fail_the_edit(service, mock_repo, monkeypatch):
+    """The cost of a missed purge is a stale token, which the next authorization
+    overwrites. The cost of a failed edit is an admin who cannot fix a server."""
+    before = _server_at("https://old.example.com/mcp", MCPAuthType.oauth2)
+    after = _server_at(
+        "https://new.example.com/mcp", MCPAuthType.oauth2, server_id=before.id
+    )
+    mock_repo.get.return_value = before
+    mock_repo.update.return_value = after
+    monkeypatch.setattr(
+        service_module,
+        "TokenStorageFactory",
+        MagicMock(
+            return_value=MagicMock(
+                clear_server_data=AsyncMock(side_effect=RuntimeError("redis down"))
+            )
+        ),
+    )
+
+    result = await service.update(
+        before.id, MCPServerPatch(url="https://new.example.com/mcp")
+    )
+
+    assert result is after

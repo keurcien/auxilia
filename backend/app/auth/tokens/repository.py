@@ -30,6 +30,6 @@ class PersonalAccessTokenRepository(BaseRepository[PersonalAccessTokenDB]):
         result = await self.db.execute(stmt)
         candidates = result.scalars().all()
         for pat in candidates:
-            if verify_password(plaintext, pat.token_hash):
+            if await verify_password(plaintext, pat.token_hash):
                 return pat
         return None

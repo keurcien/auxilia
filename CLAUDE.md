@@ -162,6 +162,8 @@ auxilia/
 │   │   │   └── router.py              # /triggers CRUD + /triggers/schedule/preview
 │   │   ├── users/                     # User management
 │   │   ├── utils/                     # remote_catalog.py — CDN-hosted catalogs; encryption.py — AES-GCM at rest
+│   │   ├── background.py              # PeriodicLoop + LoopHealth registry — supervised
+│   │   │                              # background loops; /health reports their liveness
 │   │   ├── database.py                # Async engine + request-scoped get_db
 │   │   ├── redis_client.py            # Shared async Redis client (durable runtime, out-of-request)
 │   │   ├── exceptions.py              # DomainError hierarchy + root_cause() ExceptionGroup unwrap
