@@ -1,4 +1,5 @@
 from collections import defaultdict
+from typing import NamedTuple
 from uuid import UUID
 
 from sqlalchemy import or_
@@ -11,12 +12,21 @@ from app.agents.models import (
     AgentSubagentDB,
     AgentTeamDB,
     AgentUserPermissionDB,
+    PermissionLevel,
 )
 from app.agents.run_spec import AgentSpec, RunSpec, SandboxSpec
 from app.agents.sandboxes.repository import AgentSandboxRepository
 from app.agents.schemas import AgentPermissionCreate
 from app.repository import BaseRepository
 from app.users.models import WorkspaceRole
+
+
+class AgentAccess(NamedTuple):
+    """Everything `AgentService._resolve_permission` needs about one agent."""
+
+    owner_id: UUID
+    granted: PermissionLevel | None
+    team_member: bool
 
 
 class AgentRepository(BaseRepository[AgentDB]):
@@ -83,6 +93,56 @@ class AgentRepository(BaseRepository[AgentDB]):
 
         result = await self.db.execute(stmt)
         return result.all()
+
+    async def get_access(
+        self,
+        agent_id: UUID,
+        *,
+        user_id: UUID | None,
+        user_team_id: UUID | None = None,
+        include_archived: bool = False,
+    ) -> AgentAccess | None:
+        """The three permission facts for one agent, in one narrow row.
+
+        `list_with_permissions` answers the same question, but it carries the
+        MCP-binding join and feeds a multi-query assembly — far too much work
+        for a gate that only needs to know who owns the agent and what this
+        user was granted. Returns `None` when the agent does not exist (or is
+        archived and the caller did not ask for archived ones), which the
+        service turns into the same 404 a read would raise.
+        """
+        include_team = user_id is not None and user_team_id is not None
+
+        columns = [AgentDB.owner_id, AgentUserPermissionDB.permission]
+        if include_team:
+            columns.append(AgentTeamDB.team_id)
+
+        stmt = select(*columns).outerjoin(
+            AgentUserPermissionDB,
+            (AgentDB.id == AgentUserPermissionDB.agent_id)
+            & (AgentUserPermissionDB.user_id == user_id),
+        )
+        if include_team:
+            stmt = stmt.outerjoin(
+                AgentTeamDB,
+                (AgentDB.id == AgentTeamDB.agent_id)
+                & (AgentTeamDB.team_id == user_team_id),
+            )
+        stmt = stmt.where(AgentDB.id == agent_id)
+        if not include_archived:
+            stmt = stmt.where(AgentDB.is_archived == False)  # noqa: E712
+
+        # Both joins match at most one row — the grant table is unique on
+        # (agent_id, user_id) and the team join is filtered to the user's
+        # single team — so there is exactly one row per existing agent.
+        row = (await self.db.execute(stmt)).first()
+        if row is None:
+            return None
+        return AgentAccess(
+            owner_id=row[0],
+            granted=row[1],
+            team_member=include_team and row[2] is not None,
+        )
 
     async def get_run_spec(self, agent_id: UUID) -> RunSpec | None:
         """The parent agent and its direct subagents, with their MCP and sandbox

@@ -117,21 +117,24 @@ class RunService:
         await ModelService(db).ensure_available(thread.model_id)
 
     @staticmethod
-    async def ensure_mcp_authorized(
+    async def required_oauth_url(
         db: AsyncSession, agent_id: UUID, user_id: str
-    ) -> None:
-        """Pre-flight gate: raise OAuthAuthorizationRequired(auth_url) if any
-        MCP server the agent OR a subagent uses is an unauthorized OAuth server
-        for this user — the global handler (main.py) turns it into a 401
-        {oauth_required, auth_url} (parsed today by the axios list-tools flows;
-        the chat stream path surfaces it as a plain error).
+    ) -> str | None:
+        """Pre-flight gate: the authorize URL a launch needs first, or None.
 
-        The single definition of "unauthorized" for every launch path: the run
-        endpoints 401 with it, the worker fails background runs fast with it,
-        and TriggerService.run_now rejects with it. Static — it needs no run
-        state, only the caller's session. Not wired into `RunService.create`
-        on purpose: that path is also internal (worker, reaper, seeding) and
-        the worker gates itself.
+        None means every OAuth server the agent **or a subagent** binds is
+        connected for this user; a URL means the first one that is not, and the
+        caller decides what that means — the HTTP run endpoints answer 401
+        {oauth_required, auth_url}, the worker fails a background run fast, and
+        `TriggerService.run_now` rejects with an actionable message.
+
+        It used to *raise* the URL and let an app-global handler turn the
+        exception into that 401. Returning it keeps the decision at the call
+        site, where the three callers already differed (design review §2.4).
+
+        Static — it needs no run state, only the caller's session. Not wired
+        into `RunService.create` on purpose: that path is also internal
+        (worker, reaper, seeding) and the worker gates itself.
 
         Fail-open: if probing or OAuth discovery breaks for infra reasons
         (provider down, no metadata), the run launches and the failure surfaces
@@ -148,7 +151,7 @@ class RunService:
 
         bindings = await AgentService(db).collect_run_bindings(agent_id)
         if not bindings:
-            return
+            return None
 
         # Auth is per (user, server), so dedupe server ids — a server shared by
         # the agent and a subagent need only be probed once.
@@ -167,17 +170,18 @@ class RunService:
             if authorized.get(server.id, True):
                 continue
             try:
-                # Raises OAuthAuthorizationRequired(auth_url) for the first
+                # Ends in OAuthAuthorizationRequired(auth_url) for the first
                 # unauthorized server; the caller connects it and retries.
                 await initiate_oauth(server, user_id, db)
-            except OAuthAuthorizationRequired:
-                raise
+            except OAuthAuthorizationRequired as exc:
+                return exc.url
             except Exception:  # noqa: BLE001 — fail-open: a probe error must not block the run
                 logger.warning(
                     "OAuth pre-flight for MCP server %s failed; letting the run launch",
                     server.id,
                     exc_info=True,
                 )
+        return None
 
     async def get(self, run_id: str) -> RunDB:
         async with AsyncSessionLocal() as db:

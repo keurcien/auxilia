@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 from sqlmodel import Field, SQLModel
@@ -111,6 +111,36 @@ class ConnectionProbeRequest(SQLModel):
     url: str
     auth_type: MCPAuthType = MCPAuthType.none
     api_key: str | None = Field(default=None, exclude=True)
+
+
+class MCPToolInfo(SQLModel):
+    name: str
+    description: str | None = None
+
+
+class ToolsListed(SQLModel):
+    """The tools a server exposes to this user."""
+
+    status: Literal["ok"] = "ok"
+    tools: list[MCPToolInfo]
+
+
+class AuthorizationRequired(SQLModel):
+    """The user must complete OAuth at ``auth_url`` before there are any tools.
+
+    A 200, not a 401: needing authorization is the expected answer for a server
+    the user has not connected yet, and this endpoint's job is connecting.
+    It used to be an exception that an app-global handler turned into a 401
+    (design review §2.4).
+    """
+
+    status: Literal["auth_required"] = "auth_required"
+    auth_url: str
+
+
+ListToolsResult = Annotated[
+    ToolsListed | AuthorizationRequired, Field(discriminator="status")
+]
 
 
 class ConnectionTestResult(SQLModel):

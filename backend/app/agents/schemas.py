@@ -7,6 +7,7 @@ from sqlmodel import SQLModel
 from app.agents.models import (
     ALLOWED_COLORS,
     AgentMCPServerBase,
+    EffectivePermission,
     PermissionLevel,
     ToolStatus,
 )
@@ -203,7 +204,7 @@ class AgentListResponse(SQLModel):
     tag: TagInfo | None = None
     owner: AgentOwnerInfo | None = None
     is_subagent: bool = False
-    current_user_permission: str | None = None
+    current_user_permission: EffectivePermission | None = None
 
 
 class AgentResponse(AgentListResponse):

@@ -44,6 +44,22 @@ export interface OAuthSecretHint {
 	length?: number | null;
 }
 
+export interface MCPServerTool {
+	name: string;
+	description?: string | null;
+}
+
+/**
+ * GET /mcp-servers/{id}/list-tools — a discriminated union, always 200.
+ *
+ * Needing OAuth is an expected answer for a server this user has not connected
+ * yet, so it is a variant rather than a 401 the caller has to catch. (It used
+ * to be an exception an app-global backend handler turned into a 401.)
+ */
+export type ListToolsResult =
+	| { status: "ok"; tools: MCPServerTool[] }
+	| { status: "auth_required"; authUrl: string };
+
 export interface ConnectionTestResult {
 	reachable: boolean;
 	toolCount?: number | null;

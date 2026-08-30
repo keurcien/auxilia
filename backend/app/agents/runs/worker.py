@@ -27,7 +27,7 @@ from app.agents.stream import decode_sse_blocks
 from app.background import LoopHealth, register_loop
 from app.database import AsyncSessionLocal, get_checkpointer
 from app.exceptions import root_cause
-from app.mcp.client.exceptions import OAuthAuthorizationRequired
+from app.mcp.client.exceptions import as_oauth_required
 from app.threads.models import ThreadDB
 from app.threads.serialization import pending_interrupt
 
@@ -70,11 +70,7 @@ async def _mcp_unauthorized(db, thread: ThreadDB, user_id: str) -> bool:
     of "unauthorized": probes all OAuth servers regardless of tools state,
     fails open on infra errors, and commits to release the connection before
     its network IO."""
-    try:
-        await RunService.ensure_mcp_authorized(db, thread.agent_id, user_id)
-    except OAuthAuthorizationRequired:
-        return True
-    return False
+    return await RunService.required_oauth_url(db, thread.agent_id, user_id) is not None
 
 
 class RunWorker:
@@ -177,6 +173,13 @@ class RunWorker:
             await stream_task
         exc = stream_task.exception()
         if exc is not None:
+            # A server whose stored token was revoked only fails once the run
+            # opens its sessions. `str()` of that exception is a bare authorize
+            # URL, which tells a Slack or web reader nothing — stamp the same
+            # error the pre-flight uses, so the reconnect affordance appears on
+            # both paths.
+            if as_oauth_required(exc) is not None:
+                return RunStatus.error, MCP_REAUTH_ERROR
             return RunStatus.error, str(root_cause(exc))
         if (stream_error := stream_task.result()) is not None:
             # An error SSE was emitted — persist its message on the record so

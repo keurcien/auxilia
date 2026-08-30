@@ -247,8 +247,9 @@ def test_get_thread_forbidden_for_non_owner(client: TestClient, mock_db):
 
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = thread
-    # The agent permission lookup returns no rows for a regular member.
-    mock_result.all.return_value = []
+    # The agent gate's `get_access` finds no agent for this member, so the
+    # thread resolves as neither owned nor administered.
+    mock_result.first.return_value = None
     mock_db.execute.return_value = mock_result
 
     response = client.get(f"/threads/{thread_id}")
@@ -288,7 +289,7 @@ def test_get_subagent_state_forbidden_for_non_owner(
 
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = thread
-    mock_result.all.return_value = []
+    mock_result.first.return_value = None  # the agent gate finds no access
     mock_db.execute.return_value = mock_result
 
     response = client.get(f"/threads/{thread_id}/subagents/call_1/state")

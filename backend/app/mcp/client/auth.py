@@ -1,5 +1,7 @@
 import logging
 import secrets
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from urllib.parse import parse_qsl, urlencode, urljoin
 
@@ -25,6 +27,114 @@ from app.settings import app_settings
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class OAuthQuirk:
+    """One provider's deviation from what the specs alone would give us.
+
+    Matched on the **issuer** when the provider is only known after metadata
+    discovery, and on the **server URL** when the deviation has to apply before
+    (or without) discovery — the OAuth callback, for instance, exchanges a code
+    on a fresh provider. Both keys exist because both moments exist, and a
+    quirk may set both: the Supabase one used to be written twice, once per
+    key, in two different layers, where the copies could disagree about which
+    servers they covered (design review §4.1).
+
+    Fields are the three things a quirk can change, all optional:
+
+    * ``token_endpoint_auth_method`` — how the token request authenticates.
+    * ``authorization_params`` — extra query params on the authorize URL.
+    * ``scope`` — a fixed scope string, used when the server advertises none
+      usable (see :func:`quirk_scope`).
+    """
+
+    name: str
+    issuer: str | None = None
+    server_url: str | None = None
+    token_endpoint_auth_method: str | None = None
+    authorization_params: Mapping[str, str] = field(default_factory=dict)
+    scope: str | None = None
+
+
+OAUTH_QUIRKS: tuple[OAuthQuirk, ...] = (
+    OAuthQuirk(
+        name="supabase",
+        issuer="https://api.supabase.com/",
+        server_url="https://mcp.supabase.com/mcp",
+        # Rejects client_secret_basic on the token endpoint.
+        token_endpoint_auth_method="client_secret_post",
+    ),
+    OAuthQuirk(
+        name="google",
+        issuer="https://accounts.google.com/",
+        # Google returns a refresh token only when both are present, and only
+        # on a consent screen the user actually sees — drop `prompt` and a
+        # returning user silently gets an access token that cannot be renewed.
+        authorization_params={"access_type": "offline", "prompt": "consent"},
+    ),
+    OAuthQuirk(
+        name="gmail",
+        server_url="https://gmailmcp.googleapis.com/mcp/v1",
+        # Google's MCP endpoint advertises no usable scopes, so they are named
+        # here. TODO: discover these instead of hardcoding them.
+        scope=(
+            "openid "
+            "https://www.googleapis.com/auth/userinfo.email "
+            "https://www.googleapis.com/auth/gmail.readonly "
+            "https://www.googleapis.com/auth/gmail.compose "
+            "https://www.googleapis.com/auth/gmail.modify"
+        ),
+    ),
+)
+
+
+def resolve_quirks(
+    *, server_url: str | AnyUrl | None = None, issuer: str | AnyHttpUrl | None = None
+) -> list[OAuthQuirk]:
+    """Every quirk matching this server — by URL, by issuer, or either.
+
+    A caller passes whichever keys it holds at that point in the flow; a quirk
+    matches when any key it declares matches one that was passed.
+    """
+    url = str(server_url) if server_url is not None else None
+    issuer_url = str(issuer) if issuer is not None else None
+    return [
+        quirk
+        for quirk in OAUTH_QUIRKS
+        if (quirk.server_url is not None and quirk.server_url == url)
+        or (quirk.issuer is not None and quirk.issuer == issuer_url)
+    ]
+
+
+def quirk_token_endpoint_auth_method(
+    *, server_url: str | AnyUrl | None = None, issuer: str | AnyHttpUrl | None = None
+) -> str | None:
+    """The token-endpoint auth method this server needs, if it needs one."""
+    for quirk in resolve_quirks(server_url=server_url, issuer=issuer):
+        if quirk.token_endpoint_auth_method:
+            return quirk.token_endpoint_auth_method
+    return None
+
+
+def quirk_authorization_params(
+    *, server_url: str | AnyUrl | None = None, issuer: str | AnyHttpUrl | None = None
+) -> dict[str, str]:
+    """Extra authorize-URL params for this server (empty for most)."""
+    params: dict[str, str] = {}
+    for quirk in resolve_quirks(server_url=server_url, issuer=issuer):
+        params.update(quirk.authorization_params)
+    return params
+
+
+def quirk_scope(
+    *, server_url: str | AnyUrl | None = None, issuer: str | AnyHttpUrl | None = None
+) -> str | None:
+    """A fixed scope string for this server, overriding discovery."""
+    for quirk in resolve_quirks(server_url=server_url, issuer=issuer):
+        if quirk.scope:
+            return quirk.scope
+    return None
 
 
 def strip_client_id_for_basic_auth(request: httpx.Request) -> httpx.Request:
@@ -99,13 +209,26 @@ class WebOAuthClientProvider(OAuthClientProvider):
                 await self.context.storage.get_oauth_metadata()
             )
 
-        if (
-            self.context.oauth_metadata
-            and self.context.oauth_metadata.issuer
-            == AnyHttpUrl("https://api.supabase.com/")
-        ):
-            logger.debug("Setting token endpoint auth method to client_secret_post")
-            self.context.client_info.token_endpoint_auth_method = "client_secret_post"
+        # Apply the quirk to the metadata *and* to any stored client_info: the
+        # client_info built below inherits it from the metadata, while one that
+        # came back from storage predates this provider and has to be corrected
+        # in place. Matching on both keys is what lets the OAuth callback drop
+        # its own copy of this — it exchanges a code on a fresh provider whose
+        # metadata discovery has not run, so only the URL is known there.
+        auth_method = quirk_token_endpoint_auth_method(
+            server_url=self.context.server_url,
+            issuer=(
+                self.context.oauth_metadata.issuer
+                if self.context.oauth_metadata
+                else None
+            ),
+        )
+        if auth_method:
+            logger.debug("Quirk: token endpoint auth method %s", auth_method)
+            if self.context.client_metadata:
+                self.context.client_metadata.token_endpoint_auth_method = auth_method
+            if self.context.client_info:
+                self.context.client_info.token_endpoint_auth_method = auth_method
 
         if (
             not self.context.client_info
@@ -300,18 +423,19 @@ class WebOAuthClientProvider(OAuthClientProvider):
                 if not ok:
                     break
 
-            # Step 3: scope selection — hardcoded per-server (e.g. Gmail),
+            # Step 3: scope selection — a quirk's fixed scopes (e.g. Gmail),
             # otherwise PRM scopes_supported if advertised, otherwise no scope
             # param (the server omits it, e.g. Notion).
-            # TODO: Handle scopes automatically
-            if str(self.context.server_url) == "https://gmailmcp.googleapis.com/mcp/v1":
-                self.context.client_metadata.scope = (
-                    "openid "
-                    "https://www.googleapis.com/auth/userinfo.email "
-                    "https://www.googleapis.com/auth/gmail.readonly "
-                    "https://www.googleapis.com/auth/gmail.compose "
-                    "https://www.googleapis.com/auth/gmail.modify"
-                )
+            fixed_scope = quirk_scope(
+                server_url=self.context.server_url,
+                issuer=(
+                    self.context.oauth_metadata.issuer
+                    if self.context.oauth_metadata
+                    else None
+                ),
+            )
+            if fixed_scope:
+                self.context.client_metadata.scope = fixed_scope
             else:
                 discovered_scopes = get_client_metadata_scopes(
                     None,
@@ -419,13 +543,16 @@ class WebOAuthClientProvider(OAuthClientProvider):
             "code_challenge_method": "S256",
         }
 
-        if (
-            self.context.oauth_metadata
-            and self.context.oauth_metadata.issuer
-            == AnyHttpUrl("https://accounts.google.com/")
-        ):
-            auth_params["access_type"] = "offline"
-            auth_params["prompt"] = "consent"
+        auth_params.update(
+            quirk_authorization_params(
+                server_url=self.context.server_url,
+                issuer=(
+                    self.context.oauth_metadata.issuer
+                    if self.context.oauth_metadata
+                    else None
+                ),
+            )
+        )
 
         # Include resource param if needed (SDK Logic)
         if self.context.should_include_resource_param(self.context.protocol_version):

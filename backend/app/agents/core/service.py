@@ -15,6 +15,8 @@ from app.agents.models import (
     AgentDB,
     AgentMCPServerDB,
     AgentUserPermissionDB,
+    EffectivePermission,
+    PermissionLevel,
 )
 from app.agents.sandboxes.repository import AgentSandboxRepository
 from app.agents.sandboxes.service import AgentSandboxService
@@ -61,28 +63,73 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
 
     @staticmethod
     def _resolve_permission(
-        agent: AgentDB,
+        *,
+        owner_id: UUID,
         user_id: UUID | None,
         user_role: WorkspaceRole | None,
-        granted: dict[UUID, str],
-        team_agent_ids: set[UUID] | None = None,
-    ) -> str | None:
-        if user_id and agent.owner_id == user_id:
-            return "owner"
+        granted: PermissionLevel | None,
+        team_member: bool = False,
+    ) -> EffectivePermission | None:
+        """Resolve one user's access to one agent. Two callers feed it: the
+        list/detail assembly (from maps built by one joined query) and
+        `require_permission` (from `AgentRepository.get_access`'s single row).
+        """
+        if user_id and owner_id == user_id:
+            return EffectivePermission.owner
         if user_role == WorkspaceRole.admin:
-            return "admin"
-        explicit = granted.get(agent.id)
-        if explicit:
-            return explicit
-        if team_agent_ids and agent.id in team_agent_ids:
-            return "member"
+            return EffectivePermission.admin
+        if granted is not None:
+            return EffectivePermission(granted.value)
+        if team_member:
+            return EffectivePermission.member
         return None
+
+    async def require_permission(
+        self,
+        agent_id: UUID,
+        *,
+        at_least: EffectivePermission,
+        action: str,
+        user_id: UUID | None = None,
+        user_role: WorkspaceRole | None = None,
+        user_team_id: UUID | None = None,
+        include_archived: bool = False,
+    ) -> EffectivePermission:
+        """The single gate on agent access — every check goes through here.
+
+        Raises `NotFoundError` for an agent the caller cannot see at all and
+        `PermissionDeniedError` when their permission is weaker than
+        `at_least`; `action` completes the sentence "Not authorized to …".
+
+        It costs one narrow query, not a full `get`: gates run on endpoints
+        that then do their own reads (and on one the frontend polls), so
+        resolving the permission must not drag the whole detail assembly
+        along.
+        """
+        access = await self.repository.get_access(
+            agent_id,
+            user_id=user_id,
+            user_team_id=user_team_id,
+            include_archived=include_archived,
+        )
+        if access is None:
+            raise NotFoundError(self.not_found_message)
+        permission = self._resolve_permission(
+            owner_id=access.owner_id,
+            user_id=user_id,
+            user_role=user_role,
+            granted=access.granted,
+            team_member=access.team_member,
+        )
+        if permission is None or not permission.covers(at_least):
+            raise PermissionDeniedError(f"Not authorized to {action}")
+        return permission
 
     async def _assemble(
         self,
         agents: list[AgentDB],
         mcp_map: dict[UUID, list[AgentMCPServerResponse]],
-        permissions_map: dict[UUID, str],
+        permissions_map: dict[UUID, PermissionLevel],
         user_id: UUID | None,
         user_role: WorkspaceRole | None,
         team_agent_ids: set[UUID] | None = None,
@@ -130,7 +177,11 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
                 ),
                 is_subagent=agent.id in is_subagent_ids,
                 current_user_permission=self._resolve_permission(
-                    agent, user_id, user_role, permissions_map, team_agent_ids
+                    owner_id=agent.owner_id,
+                    user_id=user_id,
+                    user_role=user_role,
+                    granted=permissions_map.get(agent.id),
+                    team_member=agent.id in team_agent_ids if team_agent_ids else False,
                 ),
             )
             for agent in agents
@@ -143,12 +194,12 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
     ) -> tuple[
         dict[UUID, AgentDB],
         dict[UUID, list[AgentMCPServerResponse]],
-        dict[UUID, str],
+        dict[UUID, PermissionLevel],
         set[UUID],
     ]:
         agents_map: dict[UUID, AgentDB] = {}
         mcp_map: dict[UUID, list[AgentMCPServerResponse]] = defaultdict(list)
-        permissions_map: dict[UUID, str] = {}
+        permissions_map: dict[UUID, PermissionLevel] = {}
         team_agent_ids: set[UUID] = set()
         for row in rows:
             agent = row[0]
@@ -159,7 +210,7 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
             if user_id and len(row) > 2:
                 permission = row[2]
                 if permission and agent.id not in permissions_map:
-                    permissions_map[agent.id] = permission.value
+                    permissions_map[agent.id] = permission
             if user_id and len(row) > 3 and row[3] is not None:
                 team_agent_ids.add(agent.id)
         return agents_map, mcp_map, permissions_map, team_agent_ids
@@ -258,11 +309,14 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         user_role: WorkspaceRole | None = None,
         user_team_id: UUID | None = None,
     ) -> AgentResponse:
-        existing = await self.get(
-            agent_id, user_id=user_id, user_role=user_role, user_team_id=user_team_id
+        await self.require_permission(
+            agent_id,
+            at_least=EffectivePermission.editor,
+            action="edit this agent",
+            user_id=user_id,
+            user_role=user_role,
+            user_team_id=user_team_id,
         )
-        if existing.current_user_permission not in ("owner", "admin", "editor"):
-            raise PermissionDeniedError("Not authorized to edit this agent")
         if data.tag_id is not None:
             await self.tag_service.get(data.tag_id)
         agent = await self.get_or_404(agent_id)
@@ -289,11 +343,14 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         """Atomic whole-config replace: scalars, MCP bindings and subagents in
         one request transaction. Performs zero network calls — the client
         already carries the complete per-tool maps (or None = never synced)."""
-        existing = await self.get(
-            agent_id, user_id=user_id, user_role=user_role, user_team_id=user_team_id
+        await self.require_permission(
+            agent_id,
+            at_least=EffectivePermission.editor,
+            action="edit this agent",
+            user_id=user_id,
+            user_role=user_role,
+            user_team_id=user_team_id,
         )
-        if existing.current_user_permission not in ("owner", "admin", "editor"):
-            raise PermissionDeniedError("Not authorized to edit this agent")
 
         agent = await self.get_or_404(agent_id)
         await self.repository.update(
@@ -321,9 +378,17 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         user_id: UUID | None = None,
         user_role: WorkspaceRole | None = None,
     ) -> None:
+        await self.require_permission(
+            agent_id,
+            at_least=EffectivePermission.admin,
+            action="delete this agent",
+            user_id=user_id,
+            user_role=user_role,
+            # Archiving is idempotent: an already-archived agent must resolve
+            # here rather than 404, or a repeated delete fails.
+            include_archived=True,
+        )
         agent = await self.get_or_404(agent_id)
-        if agent.owner_id != user_id and user_role != WorkspaceRole.admin:
-            raise PermissionDeniedError("Not authorized to delete this agent")
         await self.subagent_service.delete_all_for_agent(agent_id)
         await self.repository.archive(agent)
 
@@ -334,15 +399,15 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         user_role: WorkspaceRole | None = None,
         user_team_id: UUID | None = None,
     ) -> AgentResponse:
-        existing = await self.get(
+        await self.require_permission(
             agent_id,
+            at_least=EffectivePermission.admin,
+            action="restore this agent",
             user_id=user_id,
             user_role=user_role,
             user_team_id=user_team_id,
             include_archived=True,
         )
-        if existing.current_user_permission not in ("owner", "admin"):
-            raise PermissionDeniedError("Not authorized to restore this agent")
         agent = await self.get_or_404(agent_id)
         await self.repository.restore(agent)
         return await self.get(
@@ -360,17 +425,15 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         user_role: WorkspaceRole | None = None,
         user_team_id: UUID | None = None,
     ) -> None:
-        existing = await self.get(
+        await self.require_permission(
             agent_id,
+            at_least=EffectivePermission.admin,
+            action="permanently delete this agent",
             user_id=user_id,
             user_role=user_role,
             user_team_id=user_team_id,
             include_archived=True,
         )
-        if existing.current_user_permission not in ("owner", "admin"):
-            raise PermissionDeniedError(
-                "Not authorized to permanently delete this agent"
-            )
         agent = await self.get_or_404(agent_id)
         # Delete every DB row that references the agent first (threads must go
         # before the agent row due to the FK), then purge checkpoints last.

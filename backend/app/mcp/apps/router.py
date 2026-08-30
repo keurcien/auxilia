@@ -2,12 +2,14 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import SQLModel
 
 from app.auth.dependencies import get_current_user
 from app.database import get_db
 from app.mcp.client.connectivity import connect_to_server
+from app.mcp.client.exceptions import OAuthAuthorizationRequired
 from app.mcp.servers.service import (
     MCPServerService,
     get_mcp_server_service,
@@ -27,6 +29,19 @@ class MCPAppCallToolRequest(SQLModel):
     arguments: dict[str, Any] | None = None
 
 
+def _oauth_required_response(exc: OAuthAuthorizationRequired) -> JSONResponse:
+    """The widget's server needs (re)authorization.
+
+    Answered explicitly here rather than by an app-global handler: these two
+    endpoints act on a server the user is already using, so the only expected
+    reason to see this is a credential revoked or expired since the app
+    rendered. The body is unchanged — the widget branches on `error` (§2.4).
+    """
+    return JSONResponse(
+        status_code=401, content={"error": "oauth_required", "auth_url": exc.url}
+    )
+
+
 @router.post("/mcp-servers/{server_id}/app/read-resource")
 async def read_mcp_app_resource(
     server_id: UUID,
@@ -39,10 +54,13 @@ async def read_mcp_app_resource(
     # terminate_on_close=False: the resource HTML embeds a sessionToken bound to
     # this MCP session; DELETEing the session would kill the token before the
     # browser uses it. Let the server expire it by TTL instead.
-    async with connect_to_server(
-        mcp_server, str(current_user.id), db, terminate_on_close=False
-    ) as (session, _):
-        return await session.read_resource(body.uri)
+    try:
+        async with connect_to_server(
+            mcp_server, str(current_user.id), db, terminate_on_close=False
+        ) as (session, _):
+            return await session.read_resource(body.uri)
+    except OAuthAuthorizationRequired as exc:
+        return _oauth_required_response(exc)
 
 
 @router.post("/mcp-servers/{server_id}/app/call-tool")
@@ -56,7 +74,10 @@ async def call_mcp_app_tool(
     mcp_server = await service.get_or_404(server_id)
     # terminate_on_close=False: keep the session alive for the App's follow-up
     # data requests; it expires by the server's TTL.
-    async with connect_to_server(
-        mcp_server, str(current_user.id), db, terminate_on_close=False
-    ) as (session, _):
-        return await session.call_tool(body.tool_name, body.arguments)
+    try:
+        async with connect_to_server(
+            mcp_server, str(current_user.id), db, terminate_on_close=False
+        ) as (session, _):
+            return await session.call_tool(body.tool_name, body.arguments)
+    except OAuthAuthorizationRequired as exc:
+        return _oauth_required_response(exc)

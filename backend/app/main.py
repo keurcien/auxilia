@@ -1,6 +1,5 @@
 import asyncio
 import logging
-from builtins import ExceptionGroup
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -33,7 +32,6 @@ from app.integrations.slack.consumer import build_slack_run_consumer
 from app.integrations.slack.router import router as slack_router
 from app.invites.router import router as invites_router
 from app.mcp.apps.router import router as mcp_apps_router
-from app.mcp.client.exceptions import OAuthAuthorizationRequired
 from app.mcp.client.initialize import apply_mcp_client_patches
 from app.mcp.router import auxilia_mcp
 from app.mcp.servers.router import router as mcp_servers_router
@@ -122,37 +120,15 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
-@app.exception_handler(OAuthAuthorizationRequired)
-@app.exception_handler(ExceptionGroup)
-async def oauth_exception_handler(_request: Request, exc: Exception):
-    """Global exception handler for OAuth authorization requirements.
-
-    Handles both direct OAuthAuthorizationRequired exceptions and those
-    wrapped inside ExceptionGroups (e.g., from TaskGroups).
-    """
-
-    # 1. Check if the exception was raised directly
-    if isinstance(exc, OAuthAuthorizationRequired):
-        return JSONResponse(
-            status_code=401,
-            content={"error": "oauth_required", "auth_url": exc.url},
-        )
-
-    # 2. Check if it's an ExceptionGroup containing our target exception.
-    # .subgroup() searches the group (recursively) for matches.
-    if isinstance(exc, ExceptionGroup) and (
-        matching_group := exc.subgroup(OAuthAuthorizationRequired)
-    ):
-        # Extract the first match to get the URL
-        first_match = matching_group.exceptions[0]
-        return JSONResponse(
-            status_code=401,
-            content={"error": "oauth_required", "auth_url": first_match.url},
-        )
-
-    # 3. If it's an ExceptionGroup that doesn't contain our error,
-    # or an unrelated exception caught by accident, re-raise it.
-    raise exc
+# There is deliberately no `OAuthAuthorizationRequired` handler, and no
+# `ExceptionGroup` handler. "This MCP server needs authorization" is caught at
+# the MCP seam by whoever asked to connect (`connectivity._open_session`,
+# `Toolset.open`) and turned into a response only by the endpoints whose job is
+# connecting — `GET /mcp-servers/{id}/list-tools` returns it as an
+# `auth_required` variant, the run endpoints and the MCP-app endpoints answer
+# 401 explicitly. The global pair had two costs: any endpoint touching MCP could
+# answer 401 with an auth URL, and the `ExceptionGroup` registration swallowed
+# TaskGroup-wrapped *domain* exceptions into 500s (design review §2.3, §2.4).
 
 
 @app.exception_handler(NotFoundError)

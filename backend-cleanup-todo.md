@@ -371,13 +371,138 @@ Last updated: 2026-08-29
 
 ## Phase 3 — Consolidation (order flexible)
 
-- [ ] **P3-1** `EffectivePermission` enum + `require_permission` chokepoint; gate ungated endpoints
-- [ ] **P3-2** `resolve_transport_auth` + `OAUTH_QUIRKS`; fix `Bearer None` + silent unauth connect
-- [ ] **P3-3** Catch `OAuthAuthorizationRequired` at the MCP seam; delete the global ExceptionGroup handler
+- [x] **P3-1** `EffectivePermission` enum + `require_permission` chokepoint; gate ungated
+      endpoints. The enum (`app/agents/models.py`) is ordered and compared with
+      `covers()`, **not** `<`/`>` — it is a `str` enum, so the operators compare
+      alphabetically and "admin" < "editor" is true; a test pins that trap.
+      `AgentService.require_permission(agent_id, at_least=, action=)` is the one gate,
+      and it does **not** go through `get`: gates run on endpoints that then do their
+      own reads, and on one the frontend polls, so it reads a new narrow
+      `AgentRepository.get_access` (one row: owner, this user's grant, team match)
+      instead of dragging the detail assembly along. `update` / `set_config` /
+      `restore` / `delete_permanently` each shed a full `get` as a result.
+      Routes whose handler does not otherwise touch `AgentService` declare the gate
+      instead — `require_agent_permission(...)` in the new `app/agents/dependencies.py`,
+      the sibling of `auth/dependencies.py`'s `require_role`. Both paths end in
+      `require_permission`; no level tuple survives anywhere (threads router and
+      `TriggerService._ensure_agent_usable` included).
+      **Six endpoints were login-only and are now gated**: both `/permissions` routes
+      (admin — the sharing panel is already owner/admin-only in the UI) and the four
+      MCP-binding routes (editor). `is-ready` gained a `member` gate, `/threads` and
+      `/teams` keep the levels they had. Subagent create/delete keep `require_admin`
+      (workspace admin), matching `SubagentService`'s own rule — a per-agent admin
+      grant must not confer it.
+      Two deliberate behaviour changes: `delete` used to accept only the owner or a
+      workspace admin and now accepts a per-agent `admin` grant, which is what
+      `restore` and the permanent delete already did; and it passes
+      `include_archived=True`, so re-archiving stays idempotent instead of 404-ing.
+      *Frontend*: `sync-tools` is called on **view** to self-heal a stale tool map, so
+      a member merely opening an agent would have started 403-ing. `AgentToolList` /
+      `AgentMCPServer` take a `canEdit` prop (`readOnly` is the view mode, not the
+      permission) and skip the sync when it is false; covered by a vitest case,
+      verified to fail without the guard.
+      Tests: `tests/agents/core/test_access.py` — 14 against a **real** engine (each
+      way access is held, archived visibility, the 404-before-403 order, and that the
+      gate costs exactly one query) — plus 30 parametrized router cases asserting each
+      gated route rejects no-access *and* the level just below it. The mock-mirror
+      tests that hard-code `db.execute` sequences were updated, not deleted; the
+      `mock_repo` fixture now derives `get_access` from the same rows a test seeds for
+      `list_with_permissions`, so both paths cannot drift apart in a fixture
+- [x] **P3-2** `resolve_transport_auth` + `OAUTH_QUIRKS`; fix `Bearer None` + silent unauth
+      connect. One `match` in `app/mcp/client/connectivity.py` replaces the two dispatches
+      (the client-config factory and `connect_to_server`'s if/elif/else), returning a
+      `TransportAuth` both consumers splat — they take the same two kwargs, which is why
+      the dispatch could be one. `MCPClientConfigFactory.build` is now four lines.
+      Three real bugs went with the duplication:
+      - a missing API-key row sent `Authorization: Bearer None` and let the server answer
+        with an opaque 401; it now raises a `DomainValidationError` naming the server;
+      - an auth type outside the enum made the *handshake* path connect **unauthenticated**
+        (the factory raised) — both now raise;
+      - the run path built its OAuth provider with no static client id/secret at all, so a
+        server whose admin-entered credentials were needed relied entirely on `client_info`
+        surviving in Redis. Both paths now load them.
+      That last one would have added a query per agent per server on the TTFT path, so the
+      P2-6 memo grew from `dict[UUID, str | None]` of API keys into a `CredentialCache`
+      holding both credential kinds. Still reads-only: the provider is stateful and the
+      graph's sessions open concurrently, so it is built per call — pinned by a test.
+      `OAUTH_QUIRKS` (`client/auth.py`) is one table of `OAuthQuirk` rows matched on issuer,
+      server URL, **or either** — which is the fix: the Supabase quirk existed twice with
+      *different* match keys in two layers, and matching on both is what let
+      `handle_oauth_callback` delete its copy (it exchanges a code on a fresh provider that
+      has run no discovery, so only the URL is known there). Google's refresh-token params
+      and Gmail's hardcoded scopes moved in too; the Gmail `TODO` moved with them, now
+      attached to the data rather than to a conditional.
+      Tests: `tests/mcp/client/test_transport_auth.py` (10) and `test_quirks.py` (8);
+      5 verified to fail against the old behaviour (Bearer None, silent unauth connect,
+      the handshake opening a session anyway, and the Supabase quirk by URL both in the
+      table and through `_initialize`)
+- [x] **P3-3** Catch `OAuthAuthorizationRequired` at the MCP seam; delete the global
+      ExceptionGroup handler. The premise to keep straight: the exception was never
+      *uncatchable*. It is raised inside the SDK's httpx auth flow, which propagates out
+      of `AsyncClient.send()` normally — but `streamablehttp_client` runs that send inside
+      an anyio task group, so what crosses the boundary is a `BaseExceptionGroup`
+      containing it (sometimes nested, sometimes beside `CancelledError`s) and a plain
+      `except` misses. That is the whole reason the app-global handler existed, subgroup
+      call and all.
+      So `as_oauth_required(exc)` (`mcp/client/exceptions.py`) is the old handler's
+      subgroup logic moved down to the two MCP seams — `connectivity._open_session` and
+      `Toolset.open` — which re-raise the leaf. Everything downstream can then write a
+      plain `except`. Note the common case never needed this: `initiate_authorization`
+      discovers on a bare `httpx.AsyncClient` with no task group and always raised
+      unwrapped; the wrapped path is the *implicit* 401 (a stored token the server has
+      since revoked), which only fails mid-handshake.
+      With the seam contained, the response shapes became explicit:
+      - `GET /mcp-servers/{id}/list-tools` returns a discriminated union on `status` —
+        `ok` with the tools, or `auth_required` with the URL — **200 either way**, because
+        an unconnected server is an expected answer, not an error;
+      - `RunService.ensure_mcp_authorized` became `required_oauth_url(...) -> str | None`
+        and the three run endpoints turn a URL into the same 401 body they always sent;
+      - the two MCP-app endpoints catch and answer explicitly.
+      Then `main.py` lost **both** registrations, which also closes §2.3's bug: the
+      `ExceptionGroup` handler swallowed TaskGroup-wrapped *domain* exceptions into 500s.
+      A test asserts neither handler comes back.
+      One behaviour fix rode along: a mid-run 401 used to stamp `str(exc)` on the run,
+      i.e. a bare authorize URL. It now stamps `MCP_REAUTH_ERROR`, so Slack's reconnect
+      affordance fires on that path too.
+      *Frontend*: both `list-tools` callers consume the union (`agent-mcp-server.tsx`,
+      `connect-servers-dialog.tsx`) via a shared `ListToolsResult` type. Note the axios
+      interceptor camelCases 200 bodies but not error bodies — that is why the old code
+      read `auth_url` and the new code reads `authUrl`.
+      Tests: `tests/mcp/client/test_oauth_boundary.py` (10) covers the unwrap, the seam
+      leaving unrelated failures alone, P1-14's caller-body boundary, all three list-tools
+      answers, and the no-global-handler guard; plus 3 parametrized run-endpoint cases.
+      **Verified live** against a real Google Slides MCP server: connected →
+      `{"status":"ok",...}`; token parked in Redis → `{"status":"auth_required","auth_url":
+      "https://accounts.google.com/...&access_type=offline&prompt=consent..."}` (which
+      also confirms P3-2's Google quirk firing from the table). The wrapped/implicit path
+      is covered by a unit test, **not** by the live check — to exercise it for real,
+      revoke access at the IdP while leaving the token in Redis
+      *Found while doing P3-3, not part of it:* revocation is discovered and stored
+      already — `revocation_endpoint` (RFC 7009) rides in the AS metadata we cache at
+      `mcp:{user}:{server}:oauth_metadata`, and Google's is there today. What is missing
+      is the call: `MCPServerService.delete_connection` clears the three Redis keys and
+      stops, so "revoke this user's connection" is local amnesia and the refresh token
+      stays live at the IdP. The SDK has no revocation helper either. Small to add
+      (POST the refresh token, best-effort, clear Redis regardless); needs two decisions
+      first — whether a failed revoke is surfaced to the admin, and whether user-facing
+      disconnect does it too.
+
 - [ ] **P3-4** Exception handlers → status mapping + `root_cause` in the group branch
 - [ ] **P3-5** Bulk deletes, drop redundant refetches, `load_only` on the list query
 - [ ] **P3-6** Typed event envelopes + `error_code` column + machine-readable HITL block ids
 - [ ] **P3-7** Thread reads into the service; O(1) subagent state; one history encoding; stable message ids
+      **Found while doing P3-1, not fixed there — decide before closing P3-7:**
+      `POST /threads` takes an `agent_id` from the body and checks nothing, and the
+      run endpoints only check that the caller owns the *thread*
+      (`authorize_thread`). So any authenticated workspace member can open a thread
+      on an agent they have no permission on and run it — the UI hides those agents
+      (`agent-list.tsx` filters on `currentUserPermission`) and Slack filters too,
+      so nothing legitimate depends on it. The gate is
+      `require_permission(agent_id, at_least=member)`, but it cannot go in
+      `ThreadService.create`: `AgentService` already imports `ThreadService`, so the
+      call has to sit in the router (or wait for the P3-11 cycle work), and the
+      Slack + trigger paths create threads through the same method.
+
 - [ ] **P3-8** Repository cleanup in `auth` / `invites` / `subagents` (the modules that get copied).
       `app/auth/service.py` is still at 24% coverage and 6 raw queries — do the cleanup
       and the tests together

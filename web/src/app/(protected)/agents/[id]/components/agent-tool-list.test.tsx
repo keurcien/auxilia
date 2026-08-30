@@ -56,10 +56,12 @@ const SERVER: MCPServer = {
 function Harness({
 	initialServers,
 	readOnly,
+	canEdit,
 	onBindingPersisted,
 }: {
 	initialServers: AgentMCPServerForm[];
 	readOnly: boolean;
+	canEdit?: boolean;
 	onBindingPersisted?: (
 		serverId: string,
 		tools: Record<string, ToolStatus>,
@@ -75,6 +77,7 @@ function Harness({
 			<AgentToolList
 				agentId={AGENT_ID}
 				readOnly={readOnly}
+				canEdit={canEdit}
 				mcpServers={form.mcpServers}
 				sandboxes={form.sandboxes}
 				onMcpServersChange={(update) => {
@@ -108,7 +111,7 @@ function mockApi({
 		if (url === `/mcp-servers/${SERVER.id}/is-connected`)
 			return Promise.resolve({ data: { connected } });
 		if (url === `/mcp-servers/${SERVER.id}/list-tools`)
-			return Promise.resolve({ data: tools });
+			return Promise.resolve({ data: { status: "ok", tools } });
 		return Promise.reject(new Error(`unexpected GET ${url}`));
 	});
 }
@@ -201,16 +204,15 @@ describe("agent tool map persistence", () => {
 			if (url === `/mcp-servers/${SERVER.id}/is-connected`)
 				return Promise.resolve({ data: { connected } });
 			if (url === `/mcp-servers/${SERVER.id}/list-tools`) {
-				return connected
-					? Promise.resolve({ data: [{ name: "search" }] })
-					: Promise.reject(
-							Object.assign(new Error("Unauthorized"), {
-								response: {
-									status: 401,
-									data: { auth_url: "https://oauth.example.com" },
-								},
-							}),
-						);
+				// A 200 either way: the tools, or the URL to authorize at.
+				return Promise.resolve({
+					data: connected
+						? { status: "ok", tools: [{ name: "search" }] }
+						: {
+								status: "auth_required",
+								authUrl: "https://oauth.example.com",
+							},
+				});
 			}
 			return Promise.reject(new Error(`unexpected GET ${url}`));
 		});
@@ -287,6 +289,26 @@ describe("agent tool map persistence", () => {
 		expect(persisted).toHaveBeenCalledWith(SERVER.id, {
 			search: "always_allow",
 		});
+	});
+
+	it("read mode: a viewer who cannot edit the agent never calls sync-tools", async () => {
+		// sync-tools writes the agent's tool map, and the API gates it at
+		// editor — a member viewing the page would only get a 403.
+		mockApi({ connected: true, tools: [{ name: "search" }] });
+		render(
+			<Harness
+				readOnly
+				canEdit={false}
+				initialServers={[{ mcpServerId: SERVER.id, tools: null }]}
+			/>,
+		);
+
+		await waitFor(() => {
+			expect(api.get).toHaveBeenCalledWith(
+				`/mcp-servers/${SERVER.id}/list-tools`,
+			);
+		});
+		expect(api.post).not.toHaveBeenCalled();
 	});
 
 	it("read mode: a stale map (server gained a tool, no OAuth involved) self-heals on view", async () => {

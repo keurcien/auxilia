@@ -8,11 +8,10 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.core.service import AgentService
-from app.agents.models import AgentDB
+from app.agents.models import AgentDB, EffectivePermission
 from app.agents.runs.service import RunService
 from app.database import get_db
 from app.exceptions import DomainValidationError, PermissionDeniedError
-from app.mcp.client.exceptions import OAuthAuthorizationRequired
 from app.model_providers.service import ModelService
 from app.service import BaseService
 from app.threads.models import ThreadSource
@@ -57,16 +56,21 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
     async def _ensure_agent_usable(self, agent_id: UUID, owner: UserDB) -> None:
         """The trigger's agent must be one its *owner* is allowed to use —
         runs execute with the owner's identity and MCP credentials."""
-        agent = await self.agent_service.get(
-            agent_id,
-            user_id=owner.id,
-            user_role=owner.role,
-            user_team_id=owner.team_id,
-        )
-        if agent.current_user_permission is None:
+        try:
+            await self.agent_service.require_permission(
+                agent_id,
+                at_least=EffectivePermission.member,
+                action="use this agent",
+                user_id=owner.id,
+                user_role=owner.role,
+                user_team_id=owner.team_id,
+            )
+        except PermissionDeniedError as exc:
+            # The gate speaks for the *caller*; here the caller may be an admin
+            # creating a trigger for someone else, so name whose access failed.
             raise PermissionDeniedError(
                 "Trigger owner is not allowed to use this agent"
-            )
+            ) from exc
 
     async def _get_owner(self, trigger: TriggerDB) -> UserDB:
         owner = await self.db.get(UserDB, trigger.owner_id)
@@ -241,15 +245,13 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         # OAuth fails the request with an actionable message instead of a
         # doomed run. Scheduled firings get the same protection from the
         # worker's pre-flight (`_mcp_unauthorized`).
-        try:
-            await RunService.ensure_mcp_authorized(
-                self.db, trigger.agent_id, str(trigger.owner_id)
-            )
-        except OAuthAuthorizationRequired as exc:
+        if await RunService.required_oauth_url(
+            self.db, trigger.agent_id, str(trigger.owner_id)
+        ):
             raise DomainValidationError(
                 "The trigger owner must reconnect this agent's MCP servers "
                 "(from the agent's chat page) before it can run."
-            ) from exc
+            )
         thread = await self._create_fire_thread(trigger)
         await self.db.commit()
         record = await RunService().create(
