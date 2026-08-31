@@ -9,8 +9,10 @@ from app.database import get_db
 from app.mcp.client.connectivity import is_authorized, probe_candidate, test_connection
 from app.mcp.servers.models import MCPServerDB
 from app.mcp.servers.schemas import (
+    AuthorizationRequired,
     ConnectionProbeRequest,
     ConnectionTestResult,
+    ListToolsResult,
     MCPCatalogSyncResponse,
     MCPServerAgentResponse,
     MCPServerConnectionResponse,
@@ -19,6 +21,7 @@ from app.mcp.servers.schemas import (
     MCPServerResponse,
     OAuthSecretHint,
     OfficialMCPServerResponse,
+    ToolsListed,
 )
 from app.mcp.servers.service import MCPServerService, get_mcp_server_service
 from app.users.models import UserDB
@@ -173,13 +176,19 @@ async def oauth_callback(
     return JSONResponse(status_code=200, content=result)
 
 
-@router.get("/{server_id}/list-tools")
+@router.get("/{server_id}/list-tools", response_model=ListToolsResult)
 async def list_tools(
     mcp_server: MCPServerDB = Depends(get_mcp_server_dependency),
     current_user: UserDB = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> ToolsListed | AuthorizationRequired:
     """List available tools from an MCP server.
+
+    Returns a discriminated union on `status`: `ok` with the tools, or
+    `auth_required` with the URL the user must open first — a 200 either way.
+    An unconnected OAuth server is an expected answer here, not an error, and
+    this is one of the few endpoints allowed to start an OAuth flow at all
+    (design review §2.4).
 
     Goes through the MCP SDK transport (`ClientSession`). The raw-HTTP bypass
     this docstring used to describe was removed; the upstream GET-SSE deadlock it

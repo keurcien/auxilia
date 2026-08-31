@@ -460,6 +460,7 @@ export default function AgentEditor({
 					<AgentToolList
 						agentId={agent?.id}
 						readOnly={readOnly}
+						canEdit={canEditAgent}
 						mcpServers={form.mcpServers}
 						sandboxes={form.sandboxes}
 						onMcpServersChange={(update) => {

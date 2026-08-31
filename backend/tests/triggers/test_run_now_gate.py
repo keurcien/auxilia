@@ -8,7 +8,6 @@ import pytest
 
 import app.triggers.service as triggers_mod
 from app.exceptions import DomainValidationError
-from app.mcp.client.exceptions import OAuthAuthorizationRequired
 from app.triggers.service import TriggerService
 from app.users.models import WorkspaceRole
 
@@ -37,10 +36,10 @@ def _service():
 
 
 def _fake_run_service_cls(gate: AsyncMock) -> MagicMock:
-    """A stand-in for the RunService class: `ensure_mcp_authorized` is the
-    gate, instantiating it yields a service whose create() returns run1."""
+    """A stand-in for the RunService class: `required_oauth_url` is the gate,
+    instantiating it yields a service whose create() returns run1."""
     return MagicMock(
-        ensure_mcp_authorized=gate,
+        required_oauth_url=gate,
         return_value=MagicMock(
             create=AsyncMock(return_value=SimpleNamespace(id="run1"))
         ),
@@ -49,7 +48,7 @@ def _fake_run_service_cls(gate: AsyncMock) -> MagicMock:
 
 async def test_run_now_rejects_when_owner_mcp_unauthorized(monkeypatch):
     svc, trigger, user = _service()
-    gate = AsyncMock(side_effect=OAuthAuthorizationRequired("https://auth.example"))
+    gate = AsyncMock(return_value="https://auth.example")
     monkeypatch.setattr(triggers_mod, "RunService", _fake_run_service_cls(gate))
 
     with pytest.raises(DomainValidationError, match="reconnect"):

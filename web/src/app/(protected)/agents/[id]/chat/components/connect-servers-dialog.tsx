@@ -12,7 +12,7 @@ import {
 	DialogDescription,
 } from "@/components/ui/dialog";
 import { api } from "@/lib/api/client";
-import { MCPServer } from "@/types/mcp-servers";
+import { ListToolsResult, MCPServer } from "@/types/mcp-servers";
 import { CheckCircle2Icon, LoaderIcon } from "lucide-react";
 
 interface ConnectServersDialogProps {
@@ -70,27 +70,20 @@ export function ConnectServersDialog({
 		setConnectingId(server.id);
 
 		try {
-			// Trigger the list-tools call which will return 401 with auth_url for OAuth servers
-			await api.get(`/mcp-servers/${server.id}/list-tools`);
-			// If it succeeds without error, server is already connected
-			setConnectedIds((prev) => new Set(prev).add(server.id));
-			setConnectingId(null);
-		} catch (error: unknown) {
-			if (
-				error &&
-				typeof error === "object" &&
-				"response" in error &&
-				error.response &&
-				typeof error.response === "object" &&
-				"status" in error.response &&
-				error.response.status === 401 &&
-				"data" in error.response &&
-				error.response.data &&
-				typeof error.response.data === "object" &&
-				"auth_url" in error.response.data
-			) {
-				const authUrl = error.response.data.auth_url as string;
-				const popup = window.open(authUrl, "_blank", "width=600,height=700");
+			// list-tools answers with the tools, or with the URL the user must
+			// open first — both are 200s (a discriminated union on `status`).
+			const res = await api.get(`/mcp-servers/${server.id}/list-tools`);
+			const result = res.data as ListToolsResult;
+
+			if (result.status === "ok") {
+				setConnectedIds((prev) => new Set(prev).add(server.id));
+				setConnectingId(null);
+			} else {
+				const popup = window.open(
+					result.authUrl,
+					"_blank",
+					"width=600,height=700",
+				);
 				if (!popup) {
 					// Popup blocked: tell the user instead of silently timing out.
 					console.error("Popup blocked for", server.name);
@@ -128,10 +121,12 @@ export function ConnectServersDialog({
 					if (pollRef.current) clearInterval(pollRef.current);
 					setConnectingId(null);
 				}, 60000);
-			} else {
-				console.error("Failed to connect:", error);
-				setConnectingId(null);
 			}
+		} catch (error: unknown) {
+			// Only a real failure lands here now — needing authorization is a
+			// 200 with `status: "auth_required"`, handled above.
+			console.error("Failed to connect:", error);
+			setConnectingId(null);
 		}
 	}, []);
 

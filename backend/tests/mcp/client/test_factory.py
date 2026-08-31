@@ -1,7 +1,12 @@
+"""`MCPClientConfigFactory` — the config `MultiServerMCPClient` consumes.
+
+The auth dispatch itself lives in `resolve_transport_auth` and is tested in
+`test_transport_auth.py`; what is left here is the config shape.
+"""
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
+from app.mcp.client.connectivity import TransportAuth
 from app.mcp.client.factory import MCPClientConfigFactory
 from app.mcp.servers.models import MCPAuthType
 
@@ -14,75 +19,35 @@ def _config(auth_type, id="s1", url="https://mcp.example.com"):
     return c
 
 
-@pytest.mark.asyncio
-async def test_no_auth():
+async def test_carries_the_transport_and_url():
     factory = MCPClientConfigFactory(db=MagicMock(), user_id="u1")
+
     result = await factory.build(_config(MCPAuthType.none))
-    assert result["transport"] == "http"
+
+    assert result == {"transport": "http", "url": "https://mcp.example.com"}
+
+
+async def test_merges_whatever_the_seam_resolved():
+    factory = MCPClientConfigFactory(db=MagicMock(), user_id="u1")
+    with patch(
+        "app.mcp.client.factory.resolve_transport_auth",
+        new=AsyncMock(
+            return_value=TransportAuth(headers={"Authorization": "Bearer k"})
+        ),
+    ):
+        result = await factory.build(_config(MCPAuthType.api_key))
+
+    assert result["headers"] == {"Authorization": "Bearer k"}
     assert result["url"] == "https://mcp.example.com"
 
 
-@pytest.mark.asyncio
-async def test_api_key_auth():
-    with patch("app.mcp.client.factory.MCPServerRepository") as mock_repo_cls:
-        repo = MagicMock()
-        repo.get_api_key = AsyncMock(return_value="secret")
-        mock_repo_cls.return_value = repo
-
-        factory = MCPClientConfigFactory(db=MagicMock(), user_id="u1")
-        result = await factory.build(_config(MCPAuthType.api_key))
-        assert result["headers"] == {"Authorization": "Bearer secret"}
-
-
-@pytest.mark.asyncio
-@patch("app.mcp.client.factory.WebOAuthClientProvider")
-@patch(
-    "app.mcp.client.factory.build_oauth_client_metadata",
-    return_value={"client_id": "abc"},
-)
-@patch("app.mcp.client.factory.TokenStorageFactory")
-async def test_oauth_auth(mock_storage_factory_cls, mock_metadata, mock_provider):
-    storage = MagicMock()
-    mock_storage_factory_cls.return_value.get_storage.return_value = storage
-
+async def test_passes_the_callers_credential_memo_through():
+    """The run graph's shared memo has to reach the seam, or every agent
+    re-reads the same credential."""
     factory = MCPClientConfigFactory(db=MagicMock(), user_id="u1")
-    result = await factory.build(_config(MCPAuthType.oauth2))
+    memo = MagicMock()
+    resolve = AsyncMock(return_value=TransportAuth())
+    with patch("app.mcp.client.factory.resolve_transport_auth", new=resolve):
+        await factory.build(_config(MCPAuthType.none), credentials=memo)
 
-    assert "auth" in result
-    mock_metadata.assert_called_once_with()
-    mock_provider.assert_called_once_with(
-        server_url="https://mcp.example.com",
-        client_metadata={"client_id": "abc"},
-        storage=storage,
-    )
-
-
-@pytest.mark.asyncio
-@patch("app.mcp.client.factory.WebOAuthClientProvider")
-@patch(
-    "app.mcp.client.factory.build_oauth_client_metadata",
-    return_value={"client_id": "abc"},
-)
-@patch("app.mcp.client.factory.TokenStorageFactory")
-async def test_oauth_passes_server_id_as_str(
-    mock_storage_factory_cls, _mock_metadata, _mock_provider
-):
-    # Regression: config.id is a UUID; get_storage wants a str (pydantic v2
-    # rejects UUID for OAuthStateData.mcp_server_id). The old test used id="s1"
-    # (already a str) so it couldn't catch this.
-    from uuid import uuid4
-
-    get_storage = mock_storage_factory_cls.return_value.get_storage
-    sid = uuid4()
-
-    factory = MCPClientConfigFactory(db=MagicMock(), user_id="u1")
-    await factory.build(_config(MCPAuthType.oauth2, id=sid))
-
-    get_storage.assert_called_once_with("u1", str(sid))
-
-
-@pytest.mark.asyncio
-async def test_unsupported_auth_type_raises():
-    factory = MCPClientConfigFactory(db=MagicMock(), user_id="u1")
-    with pytest.raises(ValueError, match="Unsupported auth type"):
-        await factory.build(_config("weird"))
+    assert resolve.await_args.kwargs["credentials"] is memo

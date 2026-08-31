@@ -247,12 +247,14 @@ def test_get_thread_forbidden_for_non_owner(client: TestClient, mock_db):
 
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = thread
-    # The agent permission lookup returns no rows for a regular member.
-    mock_result.all.return_value = []
+    # The agent gate's `get_access` row: the agent exists and is owned by
+    # someone else, with no grant for this member — the *denial* branch. A
+    # `None` row here would 404 instead and never exercise it.
+    mock_result.first.return_value = (other_user_id, None)
     mock_db.execute.return_value = mock_result
 
     response = client.get(f"/threads/{thread_id}")
-    assert response.status_code in (403, 404)
+    assert response.status_code == 403
 
 
 @pytest.mark.usefixtures("current_user")
@@ -288,12 +290,14 @@ def test_get_subagent_state_forbidden_for_non_owner(
 
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = thread
-    mock_result.all.return_value = []
+    # The agent exists, owned by someone else, no grant for this user: the
+    # denial branch, not the not-found one.
+    mock_result.first.return_value = (uuid4(), None)
     mock_db.execute.return_value = mock_result
 
     response = client.get(f"/threads/{thread_id}/subagents/call_1/state")
 
-    assert response.status_code in (403, 404)
+    assert response.status_code == 403
     mock_checkpointer.assert_not_called()
 
 

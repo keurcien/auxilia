@@ -2,6 +2,7 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.agents.runs.models import RunDB
@@ -31,15 +32,18 @@ class _FakeRunService:
         self.create_kwargs: dict | None = None
         self.calls: list[str] = []
         self.gate_args: tuple | None = None
+        # Set by a test to make the gate report an unauthorized MCP server.
+        self.blocking_auth_url: str | None = None
         self._terminal = terminal
         self._error = error
 
-    async def ensure_mcp_authorized(self, db, agent_id, user_id) -> None:
+    async def required_oauth_url(self, db, agent_id, user_id) -> str | None:
         """Records the call: the gate itself is unit-tested in test_gate.py,
         but the router must invoke it (with the thread's identity) BEFORE
         creating the run — that wiring is the point of the gate."""
         self.calls.append("gate")
         self.gate_args = (agent_id, user_id)
+        return self.blocking_auth_url
 
     async def create(self, **kwargs) -> RunDB:
         self.calls.append("create")
@@ -196,6 +200,35 @@ def test_stream_gates_before_creating(client: TestClient, mock_db, current_user)
     assert response.headers["x-run-id"] == "run1"
     assert fake.calls == ["gate", "create"]
     assert fake.gate_args == (thread.agent_id, str(thread.user_id))
+
+
+@pytest.mark.parametrize("path", ["stream", "invoke", ""])
+def test_an_unauthorized_mcp_server_401s_and_creates_no_run(
+    client: TestClient, mock_db, current_user, path
+):
+    """The gate's answer becomes the response at the call site now — there is
+    no app-global handler turning an exception into this 401 any more, and it
+    must land on every launch endpoint (design review §2.4)."""
+    thread = _owned_thread(current_user)
+    _mock_thread_lookup(mock_db, thread)
+    fake = _FakeRunService()
+    fake.blocking_auth_url = "https://auth.example/authorize"
+    app.dependency_overrides[get_run_service] = lambda: fake
+
+    url = f"/threads/{thread.id}/runs/{path}".rstrip("/")
+    try:
+        response = client.post(
+            url, json={"input": {"messages": [{"type": "human", "content": "hi"}]}}
+        )
+    finally:
+        app.dependency_overrides.pop(get_run_service, None)
+
+    assert response.status_code == 401
+    assert response.json() == {
+        "error": "oauth_required",
+        "auth_url": "https://auth.example/authorize",
+    }
+    assert fake.calls == ["gate"]  # nothing was created
 
 
 def test_invoke_failed_run_is_500(client: TestClient, mock_db, current_user):

@@ -149,23 +149,21 @@ async def test_mcp_unauthorized_delegates_to_the_http_preflight(monkeypatch):
     True exactly when the HTTP gate would 401."""
     from types import SimpleNamespace
 
-    from app.mcp.client.exceptions import OAuthAuthorizationRequired
-
     thread = SimpleNamespace(agent_id="a1")
     calls: list = []
 
-    async def _raises(db, agent_id, user_id):
+    async def _blocked(db, agent_id, user_id):
         calls.append((agent_id, user_id))
-        raise OAuthAuthorizationRequired("https://auth.example")
+        return "https://auth.example"
 
     async def _passes(db, agent_id, user_id):
         return None
 
-    monkeypatch.setattr(RunService, "ensure_mcp_authorized", _raises)
+    monkeypatch.setattr(RunService, "required_oauth_url", _blocked)
     assert await worker_mod._mcp_unauthorized(None, thread, "u1") is True
     assert calls == [("a1", "u1")]
 
-    monkeypatch.setattr(RunService, "ensure_mcp_authorized", _passes)
+    monkeypatch.setattr(RunService, "required_oauth_url", _passes)
     assert await worker_mod._mcp_unauthorized(None, thread, "u1") is False
 
 

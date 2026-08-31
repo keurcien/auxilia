@@ -23,6 +23,7 @@ from app.exceptions import (
     PermissionDeniedError,
     StructuredOutputError,
 )
+from app.mcp.client.responses import oauth_required_response
 from app.redis_client import get_redis
 from app.threads.schemas import ThreadResponse
 from app.threads.service import ThreadService, get_thread_service
@@ -106,11 +107,17 @@ async def create_run_stream(
     db: AsyncSession = Depends(get_db),  # dependency-cached: same session auth used
 ):
     """Create a run and stream it. Same SSE protocol as before; durable underneath."""
-    # Pre-flight: refuse to launch if the agent or a subagent needs OAuth
-    # (401 {oauth_required, auth_url}); the gate commits/releases the pooled
-    # connection itself before probing, so no run is created when
-    # authorization is missing and no connection is held during network IO.
-    await runs.ensure_mcp_authorized(db, thread.agent_id, str(thread.user_id))
+    # Pre-flight: refuse to launch if the agent or a subagent needs OAuth; the
+    # gate commits/releases the pooled connection itself before probing, so no
+    # run is created when authorization is missing and no connection is held
+    # during network IO.
+    if auth_url := await runs.required_oauth_url(
+        db, thread.agent_id, str(thread.user_id)
+    ):
+        # Explicit at the call site: this used to be an exception the
+        # app-global handler turned into a response on *any* endpoint that
+        # touched MCP (design review §2.4).
+        return oauth_required_response(auth_url)
     # Auth queries are done — release the pooled connection before anything
     # else (RunService opens its own sessions; holding both risks pool
     # starvation) and before the response streams for the whole run.
@@ -148,11 +155,17 @@ async def invoke_run(
     that awaits the terminal result (and `structured_response`, when
     `output_schema` is given) instead of relaying the live stream.
     """
-    # Pre-flight: refuse to launch if the agent or a subagent needs OAuth
-    # (401 {oauth_required, auth_url}); the gate commits/releases the pooled
-    # connection itself before probing, so no run is created when
-    # authorization is missing and no connection is held during network IO.
-    await runs.ensure_mcp_authorized(db, thread.agent_id, str(thread.user_id))
+    # Pre-flight: refuse to launch if the agent or a subagent needs OAuth; the
+    # gate commits/releases the pooled connection itself before probing, so no
+    # run is created when authorization is missing and no connection is held
+    # during network IO.
+    if auth_url := await runs.required_oauth_url(
+        db, thread.agent_id, str(thread.user_id)
+    ):
+        # Explicit at the call site: this used to be an exception the
+        # app-global handler turned into a response on *any* endpoint that
+        # touched MCP (design review §2.4).
+        return oauth_required_response(auth_url)
     # Auth queries are done — release the pooled connection before anything
     # else (RunService opens its own sessions; holding both risks pool
     # starvation) and before blocking for the whole run.
@@ -197,9 +210,15 @@ async def create_run(
     db: AsyncSession = Depends(get_db),
 ) -> RunResponse:
     """Create a run without subscribing (caller streams later via `/{run_id}/stream`)."""
-    # Pre-flight: refuse to launch if the agent or a subagent needs OAuth
-    # (401 {oauth_required, auth_url}) before the run is created.
-    await runs.ensure_mcp_authorized(db, thread.agent_id, str(thread.user_id))
+    # Pre-flight: refuse to launch if the agent or a subagent needs OAuth,
+    # before the run is created.
+    if auth_url := await runs.required_oauth_url(
+        db, thread.agent_id, str(thread.user_id)
+    ):
+        # Explicit at the call site: this used to be an exception the
+        # app-global handler turned into a response on *any* endpoint that
+        # touched MCP (design review §2.4).
+        return oauth_required_response(auth_url)
     # Release the pooled connection before RunService opens its own session
     # (holding both risks pool starvation), matching /stream and /invoke.
     await db.commit()

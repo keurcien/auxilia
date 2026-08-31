@@ -1,4 +1,4 @@
-"""RunService.ensure_mcp_authorized — the pre-flight OAuth gate.
+"""RunService.required_oauth_url — the pre-flight OAuth gate.
 
 Tested directly (not via an endpoint) because it resolves agents and MCP
 servers, whose Postgres-only tables the SQLite `run_db` fixture doesn't create.
@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import httpx
-import pytest
 
 from app.agents.runs.service import RunService
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
@@ -24,7 +23,8 @@ def _binding(server_id):
 
 
 async def _run_gate(*, auth_type, probe_result, initiate=None):
-    """Drive the gate with one bound server. Returns the collaborator mocks."""
+    """Drive the gate with one bound server. Returns the collaborator mocks
+    plus the gate's answer (`auth_url`: the URL a launch needs, or None)."""
     server = MagicMock()
     server.id = uuid4()
     server.auth_type = auth_type
@@ -49,16 +49,27 @@ async def _run_gate(*, auth_type, probe_result, initiate=None):
         stack.enter_context(
             patch("app.mcp.client.connectivity.initiate_oauth", new=initiate_oauth)
         )
-        await RunService(redis=MagicMock()).ensure_mcp_authorized(db, uuid4(), "user-1")
-    return SimpleNamespace(server=server, probe=probe, initiate=initiate_oauth, db=db)
-
-
-async def test_gate_raises_when_oauth_server_unauthorized():
-    initiate = AsyncMock(side_effect=OAuthAuthorizationRequired("https://auth.example"))
-    with pytest.raises(OAuthAuthorizationRequired):
-        await _run_gate(
-            auth_type=MCPAuthType.oauth2, probe_result=False, initiate=initiate
+        auth_url = await RunService(redis=MagicMock()).required_oauth_url(
+            db, uuid4(), "user-1"
         )
+    return SimpleNamespace(
+        server=server,
+        probe=probe,
+        initiate=initiate_oauth,
+        db=db,
+        auth_url=auth_url,
+    )
+
+
+async def test_gate_returns_the_auth_url_when_oauth_server_unauthorized():
+    """The URL is a return value, not an exception: each caller decides what
+    to do with it (401, a failed background run, a rejected trigger)."""
+    initiate = AsyncMock(side_effect=OAuthAuthorizationRequired("https://auth.example"))
+    gate = await _run_gate(
+        auth_type=MCPAuthType.oauth2, probe_result=False, initiate=initiate
+    )
+
+    assert gate.auth_url == "https://auth.example"
     # Args matter: probing the wrong user (or swapped args) would authorize
     # against the wrong identity.
     initiate.assert_awaited_once()
@@ -69,6 +80,7 @@ async def test_gate_raises_when_oauth_server_unauthorized():
 
 async def test_gate_passes_when_authorized():
     gate = await _run_gate(auth_type=MCPAuthType.oauth2, probe_result=True)
+    assert gate.auth_url is None
     gate.probe.assert_awaited_once_with(gate.server, "user-1")
     gate.initiate.assert_not_awaited()
     # The gate releases the request connection before its network IO.
@@ -78,6 +90,7 @@ async def test_gate_passes_when_authorized():
 async def test_gate_ignores_non_oauth_servers():
     # api_key/none are always authorized — never probed, never gated.
     gate = await _run_gate(auth_type=MCPAuthType.api_key, probe_result=False)
+    assert gate.auth_url is None
     gate.probe.assert_not_awaited()
     gate.initiate.assert_not_awaited()
 
@@ -89,4 +102,5 @@ async def test_gate_fails_open_on_oauth_infra_errors():
     gate = await _run_gate(
         auth_type=MCPAuthType.oauth2, probe_result=False, initiate=initiate
     )
+    assert gate.auth_url is None
     gate.initiate.assert_awaited_once_with(gate.server, "user-1", gate.db)

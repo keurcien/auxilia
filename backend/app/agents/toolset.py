@@ -13,6 +13,8 @@ from langchain_mcp_adapters.tools import load_mcp_tools
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.models import AgentMCPServerBase
+from app.mcp.client.connectivity import CredentialCache
+from app.mcp.client.exceptions import as_oauth_required
 from app.mcp.client.factory import MCPClientConfigFactory
 from app.mcp.client.tools import inject_ui_metadata_into_tool
 from app.mcp.servers.models import MCPServerDB
@@ -373,11 +375,11 @@ async def _open_sessions(
 
 
 class MCPResolutionScope:
-    """Server rows and API keys read once for a whole run graph.
+    """Server rows and credentials read once for a whole run graph.
 
     `Toolset.prepare` runs once per agent, and a run graph is a parent plus its
     direct subagents — which routinely bind the same MCP servers. Resolved per
-    agent, that was one `list_by_ids` *and* one API-key decrypt per agent per
+    agent, that was one `list_by_ids` *and* one credential read per agent per
     server: O(N) round-trips before the first token, for rows a single `IN`
     query covers (design review §2.2).
 
@@ -390,7 +392,7 @@ class MCPResolutionScope:
         self._repo = MCPServerRepository(db)
         self._factory = MCPClientConfigFactory(db=db, user_id=user_id)
         self._rows: dict[UUID, MCPServerDB] = {}
-        self._api_keys: dict[UUID, str | None] = {}
+        self._credentials = CredentialCache()
 
     @classmethod
     async def build(
@@ -418,7 +420,7 @@ class MCPResolutionScope:
 
     async def config(self, server: MCPServerDB) -> dict:
         """This agent's client config for `server`, sharing the decrypted key."""
-        return await self._factory.build(server, api_keys=self._api_keys)
+        return await self._factory.build(server, credentials=self._credentials)
 
 
 class Toolset:
@@ -532,33 +534,48 @@ class Toolset:
         caught globally by ToolErrorMiddleware.
         """
         supervisor = _SessionSupervisor(prepared.client)
-        async with _open_sessions(
-            prepared.client, prepared.server_names, replaced=supervisor.replaced
-        ) as sessions:
-            try:
-                proxies = {
-                    name: ReconnectingSession(name, sessions[name], supervisor)
-                    for name in prepared.server_names
-                }
-                results = await asyncio.gather(
-                    *[
-                        load_mcp_tools(
-                            proxies[name], server_name=name, tool_name_prefix=True
-                        )
+        try:
+            async with _open_sessions(
+                prepared.client, prepared.server_names, replaced=supervisor.replaced
+            ) as sessions:
+                try:
+                    proxies = {
+                        name: ReconnectingSession(name, sessions[name], supervisor)
                         for name in prepared.server_names
-                    ]
-                )
-                tools_by_server = list(zip(prepared.server_names, results, strict=True))
+                    }
+                    results = await asyncio.gather(
+                        *[
+                            load_mcp_tools(
+                                proxies[name], server_name=name, tool_name_prefix=True
+                            )
+                            for name in prepared.server_names
+                        ]
+                    )
+                    tools_by_server = list(
+                        zip(prepared.server_names, results, strict=True)
+                    )
 
-                agent_tools = _assemble_agent_tools(
-                    tools_by_server, prepared.tool_settings, prepared.server_id_by_name
-                )
-                toolset = cls(tools=agent_tools)
-                if prepared.apply_ui:
-                    toolset.apply_ui_metadata()
-                yield toolset
-            finally:
-                await supervisor.close()
+                    agent_tools = _assemble_agent_tools(
+                        tools_by_server,
+                        prepared.tool_settings,
+                        prepared.server_id_by_name,
+                    )
+                    toolset = cls(tools=agent_tools)
+                    if prepared.apply_ui:
+                        toolset.apply_ui_metadata()
+                    yield toolset
+                finally:
+                    await supervisor.close()
+        except BaseException as exc:
+            # The other MCP seam (the first is `connectivity._open_session`):
+            # session opens run in host tasks and tool loading in a gather, so
+            # a server that needs authorization surfaces here inside an
+            # ExceptionGroup. Unwrap it so the run worker can recognise it —
+            # nothing else is altered (design review §2.4).
+            oauth = as_oauth_required(exc)
+            if oauth is not None and oauth is not exc:
+                raise oauth from exc
+            raise
 
     def apply_ui_metadata(self) -> None:
         """Inject UI metadata into tool coroutines.

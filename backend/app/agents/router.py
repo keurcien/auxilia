@@ -3,10 +3,12 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 
 from app.agents.core.service import AgentService, get_agent_service
+from app.agents.dependencies import require_agent_permission
 from app.agents.mcp_servers.service import (
     AgentMCPServerService,
     get_agent_mcp_server_service,
 )
+from app.agents.models import EffectivePermission
 from app.agents.schemas import (
     AgentConfig,
     AgentListResponse,
@@ -27,7 +29,6 @@ from app.auth.dependencies import (
     require_admin,
     require_editor,
 )
-from app.exceptions import PermissionDeniedError
 from app.pagination import Page, PageParams
 from app.threads.schemas import AgentThreadResponse
 from app.threads.service import ThreadService, get_thread_service
@@ -154,66 +155,87 @@ async def delete_agent_permanently(
     )
 
 
-@router.get("/{agent_id}/permissions", response_model=list[AgentPermissionResponse])
+@router.get(
+    "/{agent_id}/permissions",
+    response_model=list[AgentPermissionResponse],
+    dependencies=[
+        Depends(
+            require_agent_permission(
+                EffectivePermission.admin, action="view this agent's permissions"
+            )
+        )
+    ],
+)
 async def get_agent_permissions(
     agent_id: UUID,
-    _: UserDB = Depends(get_current_user),
     service: AgentService = Depends(get_agent_service),
 ) -> list[AgentPermissionResponse]:
     return await service.get_permissions(agent_id)
 
 
-@router.put("/{agent_id}/permissions", response_model=list[AgentPermissionResponse])
+@router.put(
+    "/{agent_id}/permissions",
+    response_model=list[AgentPermissionResponse],
+    dependencies=[
+        Depends(
+            require_agent_permission(
+                EffectivePermission.admin, action="manage this agent's permissions"
+            )
+        )
+    ],
+)
 async def set_agent_permissions(
     agent_id: UUID,
     permissions: list[AgentPermissionCreate],
-    _: UserDB = Depends(get_current_user),
     service: AgentService = Depends(get_agent_service),
 ) -> list[AgentPermissionResponse]:
     return await service.set_permissions(agent_id, permissions)
 
 
-async def _require_agent_editor(
-    agent_id: UUID, current_user: UserDB, service: AgentService
-) -> None:
-    """Allow only owner / workspace-admin / agent-editor to read or edit the
-    agent's team bindings (team grants confer Member access, so binding them is
-    an edit of the agent)."""
-    agent = await service.get(
-        agent_id,
-        user_id=current_user.id,
-        user_role=current_user.role,
-        user_team_id=current_user.team_id,
-    )
-    if agent.current_user_permission not in ("owner", "admin", "editor"):
-        raise PermissionDeniedError("Not authorized to manage this agent's teams")
+# Team grants confer Member access, so binding a team is an edit of the agent —
+# reading and writing the bindings both sit at editor.
+_require_team_manager = require_agent_permission(
+    EffectivePermission.editor, action="manage this agent's teams"
+)
 
 
-@router.get("/{agent_id}/teams", response_model=AgentTeamsResponse)
+@router.get(
+    "/{agent_id}/teams",
+    response_model=AgentTeamsResponse,
+    dependencies=[Depends(_require_team_manager)],
+)
 async def get_agent_teams(
     agent_id: UUID,
-    current_user: UserDB = Depends(get_current_user),
     service: AgentService = Depends(get_agent_service),
 ) -> AgentTeamsResponse:
-    await _require_agent_editor(agent_id, current_user, service)
     return AgentTeamsResponse(team_ids=await service.get_team_ids(agent_id))
 
 
-@router.put("/{agent_id}/teams", response_model=AgentTeamsResponse)
+@router.put(
+    "/{agent_id}/teams",
+    response_model=AgentTeamsResponse,
+    dependencies=[Depends(_require_team_manager)],
+)
 async def set_agent_teams(
     agent_id: UUID,
     data: AgentTeamsSet,
-    current_user: UserDB = Depends(get_current_user),
     service: AgentService = Depends(get_agent_service),
 ) -> AgentTeamsResponse:
-    await _require_agent_editor(agent_id, current_user, service)
     return AgentTeamsResponse(team_ids=await service.set_teams(agent_id, data.team_ids))
+
+
+# Binding an MCP server, retyping its tool map or syncing it are all edits of
+# the agent's configuration; they were login-only until now (design review §4.4).
+_require_binding_editor = require_agent_permission(
+    EffectivePermission.editor, action="edit this agent's MCP servers"
+)
 
 
 @router.post(
     "/{agent_id}/mcp-servers/{server_id}",
     response_model=AgentMCPServerResponse,
     status_code=201,
+    dependencies=[Depends(_require_binding_editor)],
 )
 async def create_or_update_mcp_server(
     agent_id: UUID,
@@ -228,23 +250,27 @@ async def create_or_update_mcp_server(
 
 
 @router.patch(
-    "/{agent_id}/mcp-servers/{server_id}", response_model=AgentMCPServerResponse
+    "/{agent_id}/mcp-servers/{server_id}",
+    response_model=AgentMCPServerResponse,
+    dependencies=[Depends(_require_binding_editor)],
 )
 async def update_mcp_server(
     agent_id: UUID,
     server_id: UUID,
     data: AgentMCPServerPatch,
-    _: UserDB = Depends(get_current_user),
     service: AgentMCPServerService = Depends(get_agent_mcp_server_service),
 ) -> AgentMCPServerResponse:
     return await service.update(agent_id, server_id, data)
 
 
-@router.delete("/{agent_id}/mcp-servers/{server_id}", status_code=204)
+@router.delete(
+    "/{agent_id}/mcp-servers/{server_id}",
+    status_code=204,
+    dependencies=[Depends(_require_binding_editor)],
+)
 async def delete_mcp_server(
     agent_id: UUID,
     server_id: UUID,
-    _: UserDB = Depends(get_current_user),
     service: AgentMCPServerService = Depends(get_agent_mcp_server_service),
 ) -> None:
     await service.delete(agent_id, server_id)
@@ -253,6 +279,7 @@ async def delete_mcp_server(
 @router.post(
     "/{agent_id}/mcp-servers/{server_id}/sync-tools",
     response_model=AgentMCPServerResponse,
+    dependencies=[Depends(_require_binding_editor)],
 )
 async def sync_tools(
     agent_id: UUID,
@@ -287,7 +314,16 @@ async def delete_subagent(
     await service.delete(agent_id, subagent_id)
 
 
-@router.get("/{agent_id}/is-ready")
+@router.get(
+    "/{agent_id}/is-ready",
+    dependencies=[
+        Depends(
+            require_agent_permission(
+                EffectivePermission.member, action="use this agent"
+            )
+        )
+    ],
+)
 async def is_ready(
     agent_id: UUID,
     current_user: UserDB = Depends(get_current_user),
@@ -296,22 +332,22 @@ async def is_ready(
     return await service.describe_readiness(agent_id, str(current_user.id))
 
 
-@router.get("/{agent_id}/threads", response_model=Page[AgentThreadResponse])
+@router.get(
+    "/{agent_id}/threads",
+    response_model=Page[AgentThreadResponse],
+    dependencies=[
+        Depends(
+            require_agent_permission(
+                EffectivePermission.admin, action="view this agent's threads"
+            )
+        )
+    ],
+)
 async def list_agent_threads(
     agent_id: UUID,
     page: PageParams = Depends(),
-    current_user: UserDB = Depends(get_current_user),
-    agent_service: AgentService = Depends(get_agent_service),
     thread_service: ThreadService = Depends(get_thread_service),
 ) -> Page[AgentThreadResponse]:
     """List an agent's threads across users, newest first. Restricted to agent
     owners and admins (workspace or agent-level)."""
-    agent = await agent_service.get(
-        agent_id,
-        user_id=current_user.id,
-        user_role=current_user.role,
-        user_team_id=current_user.team_id,
-    )
-    if agent.current_user_permission not in ("owner", "admin"):
-        raise PermissionDeniedError("Not authorized to view this agent's threads")
     return await thread_service.list_for_agent(agent_id, page)

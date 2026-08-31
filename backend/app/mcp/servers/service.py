@@ -20,19 +20,23 @@ from app.mcp.client.connectivity import (
     initiate_oauth,
     is_authorized,
 )
+from app.mcp.client.exceptions import OAuthAuthorizationRequired
 from app.mcp.client.storage import TokenStorageFactory
 from app.mcp.servers import catalog as mcp_catalog
 from app.mcp.servers.models import MCPAuthType, MCPServerDB
 from app.mcp.servers.repository import MCPServerRepository
 from app.mcp.servers.schemas import (
+    AuthorizationRequired,
     MCPCatalogSyncResponse,
     MCPServerAgentResponse,
     MCPServerConnectionResponse,
     MCPServerCreate,
     MCPServerPatch,
     MCPServerResponse,
+    MCPToolInfo,
     OAuthSecretHint,
     OfficialMCPServerResponse,
+    ToolsListed,
 )
 from app.service import BaseService
 from app.users.repository import UserRepository
@@ -342,13 +346,11 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
 
         provider = await build_oauth_provider(mcp_server, storage, self.repository)
 
+        # `_initialize` applies the per-provider OAuth quirks (`OAUTH_QUIRKS`
+        # in `client/auth.py`), including the token-endpoint auth method this
+        # exchange needs. It used to be re-applied here, matched by URL where
+        # the provider matched by issuer — two copies that could disagree.
         await provider._initialize()
-
-        if mcp_server.url == "https://mcp.supabase.com/mcp":
-            provider.context.client_metadata.token_endpoint_auth_method = (
-                "client_secret_post"
-            )
-
         await provider.manual_exchange(code, state)
 
         return {
@@ -356,19 +358,38 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
             "message": "Authorization code received and published",
         }
 
-    async def list_tools(self, server: MCPServerDB, user_id: str) -> list[dict]:
-        if server.auth_type == MCPAuthType.oauth2 and not await is_authorized(
-            server, user_id
-        ):
-            # Not connected: discover OAuth metadata and raise
-            # OAuthAuthorizationRequired (translated globally to
-            # 401 {oauth_required, auth_url}). No business tool is called.
-            await initiate_oauth(server, user_id, self.db)
+    async def list_tools(
+        self, server: MCPServerDB, user_id: str
+    ) -> ToolsListed | AuthorizationRequired:
+        """This user's tools for `server`, or the authorize URL they need first.
 
-        async with connect_to_server(server, user_id, self.db) as (_, tools):
-            return [
-                {"name": tool.name, "description": tool.description} for tool in tools
-            ]
+        Both are ordinary answers, so both are ordinary return values: needing
+        OAuth is the expected state of a server nobody has connected yet. It
+        used to raise, and an app-global handler turned the exception into the
+        response — which meant *any* endpoint touching MCP could answer 401
+        with an auth URL, whether or not connecting was its job (§2.4).
+        """
+        try:
+            if server.auth_type == MCPAuthType.oauth2 and not await is_authorized(
+                server, user_id
+            ):
+                # Not connected: discover OAuth metadata, which ends in
+                # OAuthAuthorizationRequired carrying the authorize URL. No
+                # business tool is called.
+                await initiate_oauth(server, user_id, self.db)
+
+            async with connect_to_server(server, user_id, self.db) as (_, tools):
+                return ToolsListed(
+                    tools=[
+                        MCPToolInfo(name=tool.name, description=tool.description)
+                        for tool in tools
+                    ]
+                )
+        except OAuthAuthorizationRequired as exc:
+            # Also catches the *implicit* 401 — a stored token that the server
+            # has since revoked only fails during the handshake, and the seam
+            # unwraps it out of the transport's ExceptionGroup for us.
+            return AuthorizationRequired(auth_url=exc.url)
 
 
 def get_mcp_server_service(db: AsyncSession = Depends(get_db)) -> MCPServerService:

@@ -17,6 +17,8 @@ interface AgentToolListProps {
 	mcpServers: AgentMCPServerForm[];
 	sandboxes: AgentSandboxForm[];
 	readOnly?: boolean;
+	/** Whether the viewer may edit this agent at all (default: yes). */
+	canEdit?: boolean;
 	/**
 	 * Functional updater — applied against the LATEST draft state. Never rebuild
 	 * the array from the `mcpServers` prop: several servers can seed their tool
@@ -43,6 +45,7 @@ export default function AgentToolList({
 	mcpServers,
 	sandboxes,
 	readOnly,
+	canEdit = true,
 	onMcpServersChange,
 	onSandboxesChange,
 	onBindingPersisted,
@@ -180,6 +183,7 @@ export default function AgentToolList({
 							server={server}
 							binding={bindingFor(server.id)}
 							readOnly={readOnly}
+							canEdit={canEdit}
 							onToolsChange={(tools) => {
 								handleToolsChange(server.id, tools);
 							}}

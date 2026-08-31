@@ -2,7 +2,11 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import Image from "next/image";
-import { MCPServer } from "@/types/mcp-servers";
+import {
+	ListToolsResult,
+	MCPServer,
+	MCPServerTool,
+} from "@/types/mcp-servers";
 import { ToolStatus } from "@/types/agents";
 import { ChevronRight } from "lucide-react";
 import AgentMCPTool from "./agent-mcp-tool";
@@ -15,6 +19,8 @@ interface AgentMCPServerProps {
 	server: MCPServer;
 	binding: AgentMCPServerForm;
 	readOnly?: boolean;
+	/** Whether the viewer may edit this agent at all (default: yes). */
+	canEdit?: boolean;
 	/** Draft update: the complete per-tool map for this server. */
 	onToolsChange?: (tools: Record<string, ToolStatus>) => void;
 	/**
@@ -32,16 +38,12 @@ interface AgentMCPServerProps {
 	onRemove?: () => void;
 }
 
-interface MCPServerTool {
-	name: string;
-	description?: string;
-}
-
 export default function AgentMCPServer({
 	agentId,
 	server,
 	binding,
 	readOnly,
+	canEdit = true,
 	onToolsChange,
 	onSeedTools,
 	onToolsPersisted,
@@ -117,7 +119,11 @@ export default function AgentMCPServer({
 	// up-to-date agent never writes.
 	const persistIfStale = useCallback(
 		async (fetchedTools: MCPServerTool[]) => {
-			if (!readOnly || !agentId) return;
+			// `canEdit` is the permission, `readOnly` only the view mode: a
+			// member may view this page but sync-tools writes the agent's tool
+			// map, and the API now rejects that below editor. Skipping keeps a
+			// viewer from firing a request that can only 403.
+			if (!readOnly || !agentId || !canEdit) return;
 			const existing = binding.tools;
 			const upToDate =
 				existing !== null &&
@@ -136,7 +142,7 @@ export default function AgentMCPServer({
 				console.error("Failed to sync tools:", error);
 			}
 		},
-		[readOnly, agentId, binding.tools, server.id, onToolsPersisted],
+		[readOnly, canEdit, agentId, binding.tools, server.id, onToolsPersisted],
 	);
 
 	// Keep `fetchTools` stable (identity keyed only on server.id) so a sibling
@@ -157,29 +163,17 @@ export default function AgentMCPServer({
 		setIsLoading(true);
 		try {
 			const res = await api.get(`/mcp-servers/${server.id}/list-tools`);
-			const fetchedTools = res.data as MCPServerTool[];
-			setTools(fetchedTools);
-			setToolsFetched(true);
-			seedRef.current(fetchedTools);
-			await persistRef.current(fetchedTools);
-		} catch (error: unknown) {
-			// Check if this is an OAuth authorization required error
-			if (
-				error &&
-				typeof error === "object" &&
-				"response" in error &&
-				error.response &&
-				typeof error.response === "object" &&
-				"status" in error.response &&
-				error.response.status === 401 &&
-				"data" in error.response &&
-				error.response.data &&
-				typeof error.response.data === "object" &&
-				"auth_url" in error.response.data
-			) {
-				const authUrl = error.response.data.auth_url as string;
+			const result = res.data as ListToolsResult;
 
-				const popup = window.open(authUrl, "_blank", "width=600,height=700");
+			// `auth_required` is an answer, not an error: the server simply is
+			// not connected for this user yet, and the backend hands back the
+			// URL to open. (This used to arrive as a 401 in the catch below.)
+			if (result.status === "auth_required") {
+				const popup = window.open(
+					result.authUrl,
+					"_blank",
+					"width=600,height=700",
+				);
 
 				// Poll ticks overlap when a response is slow — only the first
 				// tick that sees the connection may run the fetch/persist leg,
@@ -204,7 +198,11 @@ export default function AgentMCPServer({
 								const retryRes = await api.get(
 									`/mcp-servers/${server.id}/list-tools`,
 								);
-								const fetchedTools = retryRes.data as MCPServerTool[];
+								const retry = retryRes.data as ListToolsResult;
+								if (retry.status !== "ok") {
+									throw new Error("still not authorized after connect");
+								}
+								const fetchedTools = retry.tools;
 								setTools(fetchedTools);
 								setToolsFetched(true);
 								// Only after toolsFetched, in the same batch —
@@ -248,6 +246,11 @@ export default function AgentMCPServer({
 				return;
 			}
 
+			setTools(result.tools);
+			setToolsFetched(true);
+			seedRef.current(result.tools);
+			await persistRef.current(result.tools);
+		} catch (error: unknown) {
 			console.error("Failed to fetch tools:", error);
 			setTools([]);
 		} finally {
@@ -354,7 +357,7 @@ export default function AgentMCPServer({
 								<AgentMCPTool
 									key={tool.name}
 									toolName={tool.name}
-									toolDescription={tool.description}
+									toolDescription={tool.description ?? undefined}
 									status={statusFor(tool.name)}
 									readOnly={readOnly}
 									onStatusChange={(status) => {

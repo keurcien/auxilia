@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.core.service import AgentService, get_agent_service
+from app.agents.models import EffectivePermission
 from app.agents.stream import _serialize_lc_message
 from app.agents.structured_output import is_structured_output_artifact
 from app.auth.dependencies import detect_auth_method, get_current_user
@@ -35,12 +36,14 @@ async def _resolve_viewer_role(
     """
     if thread.user_id == current_user.id:
         return None
-    agent = await agent_service.get(
-        thread.agent_id, user_id=current_user.id, user_role=current_user.role
+    await agent_service.require_permission(
+        thread.agent_id,
+        at_least=EffectivePermission.admin,
+        action="view this thread",
+        user_id=current_user.id,
+        user_role=current_user.role,
     )
-    if agent.current_user_permission in ("owner", "admin"):
-        return "admin"
-    raise PermissionDeniedError("Not authorized to view this thread")
+    return "admin"
 
 
 @router.get("/{thread_id}")

@@ -4,10 +4,12 @@ from uuid import uuid4
 
 import pytest
 
+from app.agents.core.repository import AgentAccess
 from app.agents.core.service import AgentService
 from app.agents.models import (
     AgentDB,
     AgentMCPServerDB,
+    EffectivePermission,
     PermissionLevel,
     ToolStatus,
 )
@@ -44,6 +46,36 @@ def mock_db():
 @pytest.fixture
 def mock_repo():
     repo = MagicMock()
+
+    async def _access_from_rows(
+        agent_id, *, user_id=None, user_team_id=None, include_archived=False
+    ):
+        """`get_access` (what the permission gate reads) and
+        `list_with_permissions` (what a read returns) answer the same question
+        from the same rows, so derive one from the other: a test seeds its
+        agent once and both paths agree.
+
+        The kwargs are honoured, not ignored: the real query only joins the
+        team table when the caller forwards `user_team_id`, and hides an
+        archived agent unless asked for it. A mock that granted team access (or
+        resolved an archived agent) regardless would hide a service that forgot
+        to forward either one.
+        """
+        for row in repo.list_with_permissions.return_value:
+            agent = row[0]
+            if agent.id != agent_id:
+                continue
+            if agent.is_archived and not include_archived:
+                return None
+            team_linked = len(row) > 3 and row[3] is not None
+            return AgentAccess(
+                owner_id=agent.owner_id,
+                granted=row[2] if len(row) > 2 else None,
+                team_member=bool(user_team_id) and team_linked,
+            )
+        return None
+
+    repo.get_access = AsyncMock(side_effect=_access_from_rows)
     repo.get = AsyncMock()
     repo.create = AsyncMock()
     repo.update = AsyncMock()
@@ -746,6 +778,7 @@ async def test_delete_agent_delegates_to_repository(
 ):
     agent = make_agent()
     mock_repo.get.return_value = agent
+    mock_repo.list_with_permissions.return_value = [(agent, None)]
 
     await service.delete(agent.id, user_id=agent.owner_id)
 
@@ -769,6 +802,7 @@ async def test_delete_agent_raises_403_for_non_owner(
 ):
     agent = make_agent()
     mock_repo.get.return_value = agent
+    mock_repo.list_with_permissions.return_value = [(agent, None)]
 
     with pytest.raises(PermissionDeniedError):
         await service.delete(agent.id, user_id=uuid4())
@@ -782,6 +816,7 @@ async def test_delete_agent_allows_workspace_admin(
 ):
     agent = make_agent()
     mock_repo.get.return_value = agent
+    mock_repo.list_with_permissions.return_value = [(agent, None)]
 
     await service.delete(agent.id, user_id=uuid4(), user_role=WorkspaceRole.admin)
 
@@ -1090,81 +1125,93 @@ async def test_describe_readiness_flags_unconfigured_shared_subagent_binding(
 
 def test_resolve_permission_returns_owner_when_owner(service):
     owner_id = uuid4()
-    agent = make_agent(owner_id=owner_id)
 
-    result = service._resolve_permission(agent, owner_id, WorkspaceRole.member, {})
+    result = service._resolve_permission(
+        owner_id=owner_id,
+        user_id=owner_id,
+        user_role=WorkspaceRole.member,
+        granted=None,
+    )
 
-    assert result == "owner"
+    assert result is EffectivePermission.owner
 
 
 def test_resolve_permission_returns_admin_when_admin_role(service):
-    agent = make_agent()
+    result = service._resolve_permission(
+        owner_id=uuid4(), user_id=uuid4(), user_role=WorkspaceRole.admin, granted=None
+    )
 
-    result = service._resolve_permission(agent, uuid4(), WorkspaceRole.admin, {})
-
-    assert result == "admin"
+    assert result is EffectivePermission.admin
 
 
 def test_resolve_permission_owner_takes_priority_over_admin(service):
     owner_id = uuid4()
-    agent = make_agent(owner_id=owner_id)
 
-    result = service._resolve_permission(agent, owner_id, WorkspaceRole.admin, {})
+    result = service._resolve_permission(
+        owner_id=owner_id, user_id=owner_id, user_role=WorkspaceRole.admin, granted=None
+    )
 
-    assert result == "owner"
+    assert result is EffectivePermission.owner
 
 
 def test_resolve_permission_returns_granted_permission(service):
-    agent = make_agent()
-    granted = {agent.id: "editor"}
+    result = service._resolve_permission(
+        owner_id=uuid4(),
+        user_id=uuid4(),
+        user_role=WorkspaceRole.member,
+        granted=PermissionLevel.editor,
+    )
 
-    result = service._resolve_permission(agent, uuid4(), WorkspaceRole.member, granted)
-
-    assert result == "editor"
+    assert result is EffectivePermission.editor
 
 
 def test_resolve_permission_returns_none_when_no_match(service):
-    agent = make_agent()
-
-    result = service._resolve_permission(agent, uuid4(), WorkspaceRole.member, {})
+    result = service._resolve_permission(
+        owner_id=uuid4(), user_id=uuid4(), user_role=WorkspaceRole.member, granted=None
+    )
 
     assert result is None
 
 
 def test_resolve_permission_returns_none_when_no_user(service):
-    agent = make_agent()
-
-    result = service._resolve_permission(agent, None, None, {})
+    result = service._resolve_permission(
+        owner_id=uuid4(), user_id=None, user_role=None, granted=None
+    )
 
     assert result is None
 
 
 def test_resolve_permission_returns_member_when_team_granted(service):
-    agent = make_agent()
-
     result = service._resolve_permission(
-        agent, uuid4(), WorkspaceRole.member, {}, {agent.id}
+        owner_id=uuid4(),
+        user_id=uuid4(),
+        user_role=WorkspaceRole.member,
+        granted=None,
+        team_member=True,
     )
 
-    assert result == "member"
+    assert result is EffectivePermission.member
 
 
 def test_resolve_permission_explicit_grant_beats_team(service):
-    agent = make_agent()
-    granted = {agent.id: "editor"}
-
     result = service._resolve_permission(
-        agent, uuid4(), WorkspaceRole.member, granted, {agent.id}
+        owner_id=uuid4(),
+        user_id=uuid4(),
+        user_role=WorkspaceRole.member,
+        granted=PermissionLevel.editor,
+        team_member=True,
     )
 
-    assert result == "editor"
+    assert result is EffectivePermission.editor
 
 
-def test_resolve_permission_no_team_grant_when_agent_not_in_set(service):
-    agent = make_agent()
-
+def test_resolve_permission_no_team_grant_when_not_a_member(service):
     result = service._resolve_permission(
-        agent, uuid4(), WorkspaceRole.member, {}, {uuid4()}
+        owner_id=uuid4(),
+        user_id=uuid4(),
+        user_role=WorkspaceRole.member,
+        granted=None,
+        team_member=False,
     )
 
     assert result is None

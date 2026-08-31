@@ -20,9 +20,41 @@ ALLOWED_COLORS = {
 
 
 class PermissionLevel(str, Enum):
+    """What a grant row can hold — the levels an admin can hand out."""
+
     member = "member"
     editor = "editor"
     admin = "admin"
+
+
+class EffectivePermission(str, Enum):
+    """A user's *resolved* access to one agent, ordered weakest → strongest.
+
+    A superset of `PermissionLevel`: it adds `owner`, which no grant row can
+    express because it is derived from `AgentDB.owner_id`. Ordering is what
+    makes it worth having — "editor or better" was six hand-typed tuples
+    across two layers before, and they had drifted (design review §4.4).
+    Compare with `covers`, never with `<`: `str` already defines the
+    comparison operators lexicographically, and "admin" < "editor" is true
+    there.
+    """
+
+    member = "member"
+    editor = "editor"
+    admin = "admin"
+    owner = "owner"
+
+    def covers(self, at_least: "EffectivePermission") -> bool:
+        """True when this permission is `at_least` or stronger."""
+        return _PERMISSION_RANK[self] >= _PERMISSION_RANK[at_least]
+
+
+_PERMISSION_RANK: dict[EffectivePermission, int] = {
+    EffectivePermission.member: 0,
+    EffectivePermission.editor: 1,
+    EffectivePermission.admin: 2,
+    EffectivePermission.owner: 3,
+}
 
 
 class ToolStatus(str, Enum):

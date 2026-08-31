@@ -321,23 +321,32 @@ See **Backend conventions** above for the full layered architecture, naming rule
 
 ### Agent Permissions
 
-Workspace role levels (`WorkspaceRole`): `member`, `editor`, `admin`. Per-agent permission levels (`PermissionLevel`): `member`, `editor`, `admin`, plus a virtual `"owner"` derived from `AgentDB.owner_id`. Membership can also be team-derived (`AgentTeamDB`), which resolves to `member`.
+Workspace role levels (`WorkspaceRole`): `member`, `editor`, `admin`. A grant row (`AgentUserPermissionDB`) holds a `PermissionLevel`: `member`, `editor`, `admin`. What a *resolved* check deals in is `EffectivePermission` — the same three plus `owner`, derived from `AgentDB.owner_id` — ordered weakest → strongest. Membership can also be team-derived (`AgentTeamDB`), which resolves to `member`.
 
-`AgentService.list_agents(user_id, user_role)` and `AgentService.get_agent(agent_id, user_id, user_role)` return `AgentResponse` with `current_user_permission` resolved via `_resolve_permission`:
+`AgentService._resolve_permission` is the resolution, in precedence order:
 
-1. Owner of the agent → `"owner"`
-2. Workspace admin → `"admin"`
+1. Owner of the agent → `owner`
+2. Workspace admin → `admin`
 3. Explicit grant in `AgentUserPermissionDB` → `member` / `editor` / `admin`
 4. Membership of a team bound to the agent (`AgentTeamDB`) → `member`
 5. Otherwise → `None`
 
-The service does **not** filter unauthorized agents out of `list_agents`. Callers (e.g. Slack handlers) must filter on `current_user_permission is not None` when enforcing access.
+It feeds two callers. Reads (`list` / `get`) stamp it onto `AgentResponse.current_user_permission`. **Checks go through `AgentService.require_permission(agent_id, at_least=…, action=…)`** — the single gate, which costs one narrow query (`AgentRepository.get_access`), raises `NotFoundError` for an agent the caller cannot see and `PermissionDeniedError` when their level is too weak. Compare levels with `EffectivePermission.covers(at_least)`, never with `<`/`>`: it is a `str` enum, so the operators compare alphabetically.
+
+Never hand-type a tuple of level strings. Routes whose handler does not otherwise call `AgentService` declare the gate instead: `dependencies=[Depends(require_agent_permission(EffectivePermission.editor, action="…"))]` (`app/agents/dependencies.py`). Both paths end in `require_permission`.
+
+Current gates: edit / config save / MCP bindings / sync-tools / team bindings → `editor`; delete, restore, permanent delete, permission grants, cross-user thread lists → `admin` (owner covers it); `is-ready` → `member`.
+
+The service does **not** filter unauthorized agents out of `list`. Callers (e.g. Slack handlers) must filter on `current_user_permission is not None` when enforcing access.
 
 ### MCP Server Security
 
 - API keys are encrypted at rest with AES-GCM (`app/utils/encryption.py`)
 - OAuth tokens are stored per-user via `TokenStorageFactory`
 - Only remote (streamable HTTP) MCP servers are supported
+- **One auth dispatch**: `resolve_transport_auth(server, user_id, repository)` in `app/mcp/client/connectivity.py` turns an `MCPAuthType` into transport credentials, for both the client config the runtime builds and the raw handshake. Adding a scheme is one `match` arm; an unknown one raises on both paths rather than connecting unauthenticated.
+- **Per-provider OAuth deviations go in `OAUTH_QUIRKS`** (`app/mcp/client/auth.py`), matched on the issuer, the server URL, or either — never as a new inline `if url == …`.
+- **"Needs authorization" is caught at the MCP seam, never globally.** `OAuthAuthorizationRequired` can arrive wrapped in an `ExceptionGroup` (the implicit 401 fires inside the transport's anyio task group), so `connectivity._open_session` and `Toolset.open` unwrap it with `as_oauth_required()` and re-raise the leaf; callers then use a plain `except`. Only endpoints whose job is connecting turn it into a response — `list-tools` returns an `auth_required` variant (a 200), the run and MCP-app endpoints answer 401 explicitly. `main.py` has no handler for it and none for `ExceptionGroup`; don't add one.
 
 ### Slack Integration
 
