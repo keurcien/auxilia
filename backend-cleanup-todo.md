@@ -386,10 +386,11 @@ Last updated: 2026-08-29
       the sibling of `auth/dependencies.py`'s `require_role`. Both paths end in
       `require_permission`; no level tuple survives anywhere (threads router and
       `TriggerService._ensure_agent_usable` included).
-      **Six endpoints were login-only and are now gated**: both `/permissions` routes
-      (admin — the sharing panel is already owner/admin-only in the UI) and the four
-      MCP-binding routes (editor). `is-ready` gained a `member` gate, `/threads` and
-      `/teams` keep the levels they had. Subagent create/delete keep `require_admin`
+      **Seven endpoints were login-only and are now gated**: both `/permissions` routes
+      (admin — the sharing panel is already owner/admin-only in the UI), the four
+      MCP-binding routes (editor), and `is-ready` (member — the weakest gate there is,
+      because the chat UI polls it for any agent the user may use). `/threads` and
+      `/teams` were already gated and keep the levels they had. Subagent create/delete keep `require_admin`
       (workspace admin), matching `SubagentService`'s own rule — a per-agent admin
       grant must not confer it.
       Two deliberate behaviour changes: `delete` used to accept only the owner or a

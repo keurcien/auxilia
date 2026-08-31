@@ -93,6 +93,50 @@ async def test_the_seam_leaves_other_failures_wrapped_as_they_were(monkeypatch):
             pass
 
 
+async def test_a_tools_list_that_401s_is_not_laundered_into_a_domain_error(monkeypatch):
+    """`ExceptionGroup` is an `Exception`, so the `except Exception` that turns
+    tool-listing failures into a clean `DomainError` would swallow a wrapped
+    requirement before the seam's unwrap could see it."""
+
+    @asynccontextmanager
+    async def _transport(**_kwargs):
+        yield (MagicMock(), MagicMock(), None)
+
+    session = AsyncMock()
+    session.initialize = AsyncMock()
+    session.list_tools = AsyncMock(
+        side_effect=ExceptionGroup("tg", [OAuthAuthorizationRequired(AUTH_URL)])
+    )
+    monkeypatch.setattr(connectivity, "streamablehttp_client", _transport)
+    monkeypatch.setattr(
+        connectivity, "ClientSession", lambda *a, **k: _async_cm(session)
+    )
+
+    with pytest.raises(OAuthAuthorizationRequired) as exc_info:
+        async with connectivity._open_session("https://mcp.example.com"):
+            pass
+
+    assert exc_info.value.url == AUTH_URL
+
+
+async def test_a_tools_list_failure_is_still_a_domain_error(monkeypatch):
+    @asynccontextmanager
+    async def _transport(**_kwargs):
+        yield (MagicMock(), MagicMock(), None)
+
+    session = AsyncMock()
+    session.initialize = AsyncMock()
+    session.list_tools = AsyncMock(side_effect=RuntimeError("server hung up"))
+    monkeypatch.setattr(connectivity, "streamablehttp_client", _transport)
+    monkeypatch.setattr(
+        connectivity, "ClientSession", lambda *a, **k: _async_cm(session)
+    )
+
+    with pytest.raises(DomainError, match="server hung up"):
+        async with connectivity._open_session("https://mcp.example.com"):
+            pass
+
+
 async def test_the_seam_does_not_touch_an_error_from_the_callers_body(monkeypatch):
     """P1-14's boundary, re-checked now that a `try` wraps the yield again."""
 
@@ -153,19 +197,25 @@ async def test_list_tools_returns_the_auth_url_for_an_unconnected_server():
     assert result.auth_url == AUTH_URL
 
 
-async def test_list_tools_returns_the_auth_url_when_the_handshake_401s():
-    """A token the server revoked looks authorized until the handshake — the
-    implicit 401 has to reach the same answer as the explicit one."""
+async def test_list_tools_returns_the_auth_url_when_the_handshake_401s(monkeypatch):
+    """A token the server revoked looks authorized until the handshake, so the
+    *implicit* 401 must reach the same answer as the explicit one.
 
-    def _connect(*_args, **_kwargs):
-        @asynccontextmanager
-        async def _cm():
-            raise OAuthAuthorizationRequired(AUTH_URL)
-            yield  # pragma: no cover
+    This one runs the real `connect_to_server` and the real `_open_session`, and
+    fails the transport with the wrapped form the anyio task group actually
+    produces — a mocked `connect_to_server` would skip the seam that unwraps it
+    and prove nothing about this path. `auth_type=none` keeps the credential
+    resolution out of it.
+    """
+    needed = OAuthAuthorizationRequired(AUTH_URL)
+    monkeypatch.setattr(
+        connectivity,
+        "streamablehttp_client",
+        lambda **kwargs: _transport_raising(ExceptionGroup("tg", [needed])),
+    )
+    service = MCPServerService(AsyncMock())
 
-        return _cm()
-
-    result = await _list_tools(authorized=True, connect=_connect)
+    result = await service.list_tools(_server(MCPAuthType.none), "user-1")
 
     assert isinstance(result, AuthorizationRequired)
     assert result.auth_url == AUTH_URL

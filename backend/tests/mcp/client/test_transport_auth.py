@@ -70,44 +70,51 @@ async def test_an_unknown_auth_type_raises_instead_of_connecting_open():
         await resolve_transport_auth(server, "u1", _repository())
 
 
-async def test_oauth_builds_a_provider_and_persists_static_registration():
+async def test_oauth_builds_a_provider_from_decrypted_static_credentials():
     server = _server(MCPAuthType.oauth2)
-    credentials = MagicMock()
+    row = MagicMock(client_id="abc", token_endpoint_auth_method=None)
     provider = MagicMock()
     provider.persist_client_info = AsyncMock()
 
     with (
         patch("app.mcp.client.connectivity.TokenStorageFactory"),
+        patch("app.mcp.client.connectivity.decrypt_value", return_value="shhh"),
         patch(
             "app.mcp.client.connectivity.provider_with_credentials",
             return_value=provider,
         ) as build,
     ):
-        auth = await resolve_transport_auth(
-            server, "u1", _repository(oauth=credentials)
-        )
+        auth = await resolve_transport_auth(server, "u1", _repository(oauth=row))
 
     assert auth.auth is provider
-    # The credential row reaches provider construction — the run path used to
-    # build a provider with no static client id/secret at all.
-    assert build.call_args.args[2] is credentials
+    # The admin-entered registration reaches provider construction, decrypted —
+    # the run path used to build a provider with no client id/secret at all.
+    static = build.call_args.args[2]
+    assert (static.client_id, static.client_secret) == ("abc", "shhh")
+    assert static.token_endpoint_auth_method == "client_secret_post"  # the default
     provider.persist_client_info.assert_awaited_once()
 
 
-async def test_the_memo_reads_each_credential_once_per_run_graph():
+async def test_the_memo_resolves_each_credential_once_per_run_graph():
     """A parent and its subagents bind the same server; the credential behind
-    it is the same for all of them."""
+    it is the same for all of them, so the query, the decrypt and the storage
+    write each happen once — not once per agent."""
     key_server = _server(MCPAuthType.api_key)
     oauth_server = _server(MCPAuthType.oauth2)
-    repository = _repository(api_key="secret", oauth=MagicMock())
+    row = MagicMock(client_id="abc", token_endpoint_auth_method=None)
+    repository = _repository(api_key="secret", oauth=row)
     memo = CredentialCache()
+    provider = MagicMock(persist_client_info=AsyncMock())
 
     with (
         patch("app.mcp.client.connectivity.TokenStorageFactory"),
         patch(
+            "app.mcp.client.connectivity.decrypt_value", return_value="shhh"
+        ) as decrypt,
+        patch(
             "app.mcp.client.connectivity.provider_with_credentials",
-            return_value=MagicMock(persist_client_info=AsyncMock()),
-        ),
+            return_value=provider,
+        ) as build,
     ):
         for _ in range(3):
             await resolve_transport_auth(key_server, "u1", repository, credentials=memo)
@@ -117,6 +124,10 @@ async def test_the_memo_reads_each_credential_once_per_run_graph():
 
     repository.get_api_key.assert_awaited_once()
     repository.get_oauth_credentials.assert_awaited_once()
+    decrypt.assert_called_once()
+    provider.persist_client_info.assert_awaited_once()
+    # The provider itself is still built every time: it is stateful.
+    assert build.call_count == 3
 
 
 async def test_without_a_memo_every_call_reads():

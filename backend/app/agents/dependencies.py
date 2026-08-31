@@ -3,8 +3,10 @@
 The sibling of `app/auth/dependencies.py`: that one gates on the *workspace*
 role, this one on the caller's resolved permission for the agent named in the
 path. Both are factories, so a route reads as a declaration
-(`Depends(require_agent_permission(EffectivePermission.editor))`) instead of a
-check buried in the handler body.
+(`Depends(require_agent_permission(EffectivePermission.editor,
+action="edit this agent's MCP servers"))`) instead of a check buried in the
+handler body. `action` is required: it completes the sentence the caller reads
+back as "Not authorized to …".
 
 Endpoints whose service already gates (the `AgentService` mutations) do not
 use this — they call `AgentService.require_permission` themselves, because

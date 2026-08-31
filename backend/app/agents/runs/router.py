@@ -7,7 +7,7 @@ by replaying its event log from a cursor.
 """
 
 from fastapi import APIRouter, Body, Depends, Query
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.runs.schemas import RunCreate, RunResponse
@@ -23,6 +23,7 @@ from app.exceptions import (
     PermissionDeniedError,
     StructuredOutputError,
 )
+from app.mcp.client.responses import oauth_required_response
 from app.redis_client import get_redis
 from app.threads.schemas import ThreadResponse
 from app.threads.service import ThreadService, get_thread_service
@@ -43,18 +44,6 @@ _SSE_HEADERS = {
 
 def get_run_service() -> RunService:
     return RunService(get_redis())
-
-
-def _oauth_required_response(auth_url: str) -> JSONResponse:
-    """The launch is blocked until the user authorizes an MCP server.
-
-    Explicit at the call site: this used to be an exception the app-global
-    handler turned into a response on *any* endpoint that touched MCP
-    (design review §2.4). The body is unchanged — clients branch on `error`.
-    """
-    return JSONResponse(
-        status_code=401, content={"error": "oauth_required", "auth_url": auth_url}
-    )
 
 
 def _parse_run_config(config: dict | None) -> tuple[str | None, dict | None]:
@@ -125,7 +114,10 @@ async def create_run_stream(
     if auth_url := await runs.required_oauth_url(
         db, thread.agent_id, str(thread.user_id)
     ):
-        return _oauth_required_response(auth_url)
+        # Explicit at the call site: this used to be an exception the
+        # app-global handler turned into a response on *any* endpoint that
+        # touched MCP (design review §2.4).
+        return oauth_required_response(auth_url)
     # Auth queries are done — release the pooled connection before anything
     # else (RunService opens its own sessions; holding both risks pool
     # starvation) and before the response streams for the whole run.
@@ -170,7 +162,10 @@ async def invoke_run(
     if auth_url := await runs.required_oauth_url(
         db, thread.agent_id, str(thread.user_id)
     ):
-        return _oauth_required_response(auth_url)
+        # Explicit at the call site: this used to be an exception the
+        # app-global handler turned into a response on *any* endpoint that
+        # touched MCP (design review §2.4).
+        return oauth_required_response(auth_url)
     # Auth queries are done — release the pooled connection before anything
     # else (RunService opens its own sessions; holding both risks pool
     # starvation) and before blocking for the whole run.
@@ -220,7 +215,10 @@ async def create_run(
     if auth_url := await runs.required_oauth_url(
         db, thread.agent_id, str(thread.user_id)
     ):
-        return _oauth_required_response(auth_url)
+        # Explicit at the call site: this used to be an exception the
+        # app-global handler turned into a response on *any* endpoint that
+        # touched MCP (design review §2.4).
+        return oauth_required_response(auth_url)
     # Release the pooled connection before RunService opens its own session
     # (holding both risks pool starvation), matching /stream and /invoke.
     await db.commit()

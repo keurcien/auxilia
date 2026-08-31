@@ -47,19 +47,31 @@ def mock_db():
 def mock_repo():
     repo = MagicMock()
 
-    async def _access_from_rows(agent_id, **_kwargs):
+    async def _access_from_rows(
+        agent_id, *, user_id=None, user_team_id=None, include_archived=False
+    ):
         """`get_access` (what the permission gate reads) and
         `list_with_permissions` (what a read returns) answer the same question
         from the same rows, so derive one from the other: a test seeds its
-        agent once and both paths agree."""
+        agent once and both paths agree.
+
+        The kwargs are honoured, not ignored: the real query only joins the
+        team table when the caller forwards `user_team_id`, and hides an
+        archived agent unless asked for it. A mock that granted team access (or
+        resolved an archived agent) regardless would hide a service that forgot
+        to forward either one.
+        """
         for row in repo.list_with_permissions.return_value:
             agent = row[0]
             if agent.id != agent_id:
                 continue
+            if agent.is_archived and not include_archived:
+                return None
+            team_linked = len(row) > 3 and row[3] is not None
             return AgentAccess(
                 owner_id=agent.owner_id,
                 granted=row[2] if len(row) > 2 else None,
-                team_member=len(row) > 3 and row[3] is not None,
+                team_member=bool(user_team_id) and team_linked,
             )
         return None
 

@@ -2,7 +2,6 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
-from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import SQLModel
 
@@ -10,6 +9,7 @@ from app.auth.dependencies import get_current_user
 from app.database import get_db
 from app.mcp.client.connectivity import connect_to_server
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
+from app.mcp.client.responses import oauth_required_response
 from app.mcp.servers.service import (
     MCPServerService,
     get_mcp_server_service,
@@ -27,19 +27,6 @@ class MCPAppReadResourceRequest(SQLModel):
 class MCPAppCallToolRequest(SQLModel):
     tool_name: str
     arguments: dict[str, Any] | None = None
-
-
-def _oauth_required_response(exc: OAuthAuthorizationRequired) -> JSONResponse:
-    """The widget's server needs (re)authorization.
-
-    Answered explicitly here rather than by an app-global handler: these two
-    endpoints act on a server the user is already using, so the only expected
-    reason to see this is a credential revoked or expired since the app
-    rendered. The body is unchanged — the widget branches on `error` (§2.4).
-    """
-    return JSONResponse(
-        status_code=401, content={"error": "oauth_required", "auth_url": exc.url}
-    )
 
 
 @router.post("/mcp-servers/{server_id}/app/read-resource")
@@ -60,7 +47,11 @@ async def read_mcp_app_resource(
         ) as (session, _):
             return await session.read_resource(body.uri)
     except OAuthAuthorizationRequired as exc:
-        return _oauth_required_response(exc)
+        # Answered explicitly rather than by an app-global handler (§2.4).
+        # These endpoints act on a server the user is already using, so the
+        # only expected reason to land here is a credential revoked or expired
+        # since the app rendered.
+        return oauth_required_response(exc.url)
 
 
 @router.post("/mcp-servers/{server_id}/app/call-tool")
@@ -80,4 +71,8 @@ async def call_mcp_app_tool(
         ) as (session, _):
             return await session.call_tool(body.tool_name, body.arguments)
     except OAuthAuthorizationRequired as exc:
-        return _oauth_required_response(exc)
+        # Answered explicitly rather than by an app-global handler (§2.4).
+        # These endpoints act on a server the user is already using, so the
+        # only expected reason to land here is a credential revoked or expired
+        # since the app rendered.
+        return oauth_required_response(exc.url)

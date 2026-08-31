@@ -85,9 +85,15 @@ async def test_initialize_applies_the_quirk_by_url_alone():
     storage.get_client_info.return_value = stored
     storage.get_oauth_metadata.return_value = None
 
+    # Start from the *other* method on both, so neither assertion can pass by
+    # coincidence: `build_oauth_client_metadata()` already defaults to
+    # client_secret_post, which made the metadata half of this test vacuous.
+    metadata = build_oauth_client_metadata()
+    metadata.token_endpoint_auth_method = "client_secret_basic"
+
     provider = WebOAuthClientProvider(
         server_url=SUPABASE_URL,
-        client_metadata=build_oauth_client_metadata(),
+        client_metadata=metadata,
         storage=storage,
     )
     await provider._initialize()
@@ -110,15 +116,19 @@ async def test_initialize_leaves_an_unquirked_server_alone():
         token_endpoint="https://notion.so/token",
     )
 
+    metadata = build_oauth_client_metadata()
+    metadata.token_endpoint_auth_method = "client_secret_basic"
+
     provider = WebOAuthClientProvider(
         server_url="https://mcp.notion.com/mcp",
-        client_metadata=build_oauth_client_metadata(),
+        client_metadata=metadata,
         storage=storage,
     )
     await provider._initialize()
 
-    # build_oauth_client_metadata's own default, untouched.
+    # Untouched — and set to a value the quirk would have changed, so this
+    # cannot pass just because it matches the quirk's value.
     assert provider.context.client_metadata.token_endpoint_auth_method == (
-        "client_secret_post"
+        "client_secret_basic"
     )
     assert provider.context.client_info is None

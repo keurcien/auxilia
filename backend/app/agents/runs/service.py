@@ -69,7 +69,7 @@ class RunService:
         endpoints, Slack, triggers) funnels through here while still inside
         its initiating context, so ModelUnavailableError surfaces as a 409
         (or a Slack reply / skipped firing) *before* any stream opens or run
-        row leaks. Unlike `ensure_mcp_authorized`, internal callers are
+        row leaks. Unlike `required_oauth_url`, internal callers are
         deliberately gated too — a run on an unavailable model is invalid no
         matter who enqueues it.
         """

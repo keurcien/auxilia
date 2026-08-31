@@ -29,7 +29,11 @@ from mcp.client.streamable_http import streamablehttp_client
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions import DomainError, DomainValidationError
-from app.mcp.client.auth import WebOAuthClientProvider, build_oauth_client_metadata
+from app.mcp.client.auth import (
+    AUTH_METHOD_POST,
+    WebOAuthClientProvider,
+    build_oauth_client_metadata,
+)
 from app.mcp.client.exceptions import (
     OAuthAuthorizationRequired,
     as_oauth_required,
@@ -68,32 +72,58 @@ async def build_oauth_provider(
     This is the single place that turns a server into a provider; every other
     path (handshake, callback, authorization, refresh) routes through it.
     """
-    credentials = (
+    row = (
         await repository.get_oauth_credentials(mcp_server.id)
         if repository is not None
         else None
     )
-    return provider_with_credentials(mcp_server, storage, credentials)
+    return provider_with_credentials(mcp_server, storage, static_credentials(row))
+
+
+@dataclass(frozen=True)
+class StaticClientCredentials:
+    """An admin-entered OAuth client registration, decrypted and ready to use.
+
+    Servers without one register dynamically (DCR) during authorization.
+    """
+
+    client_id: str
+    client_secret: str
+    token_endpoint_auth_method: str
+
+
+def static_credentials(
+    row: MCPServerOAuthCredentialsDB | None,
+) -> StaticClientCredentials | None:
+    """Decrypt a credential row, once. `None` in, `None` out."""
+    if row is None:
+        return None
+    return StaticClientCredentials(
+        client_id=row.client_id,
+        client_secret=decrypt_value(row.client_secret_encrypted),
+        token_endpoint_auth_method=row.token_endpoint_auth_method or AUTH_METHOD_POST,
+    )
 
 
 def provider_with_credentials(
     mcp_server: MCPServerDB,
     storage: RedisTokenStorage,
-    credentials: MCPServerOAuthCredentialsDB | None,
+    credentials: StaticClientCredentials | None,
 ) -> WebOAuthClientProvider:
-    """The provider construction itself, once the credential row is in hand.
+    """The provider construction itself, once the credentials are in hand.
 
-    Split out so a caller that already holds the row — a run graph resolving
-    the same server for several agents — does not re-read and re-decrypt it per
-    agent. Everyone else goes through :func:`build_oauth_provider`.
+    Takes them already decrypted so a caller resolving the same server for
+    several agents pays neither the query nor the decrypt per agent — the
+    provider is what has to be fresh per call, not its inputs. Everyone else
+    goes through :func:`build_oauth_provider`.
     """
     client_metadata = build_oauth_client_metadata()
     client_id = client_secret = None
-    if credentials:
+    if credentials is not None:
         client_id = credentials.client_id
-        client_secret = decrypt_value(credentials.client_secret_encrypted)
+        client_secret = credentials.client_secret
         client_metadata.token_endpoint_auth_method = (
-            credentials.token_endpoint_auth_method or "client_secret_post"
+            credentials.token_endpoint_auth_method
         )
     return WebOAuthClientProvider(
         server_url=mcp_server.url,
@@ -106,18 +136,25 @@ def provider_with_credentials(
 
 @dataclass
 class CredentialCache:
-    """A caller-owned memo of one server's credentials, keyed by server id.
+    """A caller-owned memo of server credentials, keyed by server id.
 
     A run graph is a parent plus its direct subagents, which routinely bind the
     same MCP server; the credential behind it is the same for all of them and
-    reading it costs a query plus a decrypt each time. Only the *reads* are
-    shared — :func:`resolve_transport_auth` still builds a fresh
-    ``WebOAuthClientProvider`` per call, because it is stateful and the graph's
-    sessions are opened concurrently.
+    resolving it costs a query, a decrypt and (for a static OAuth registration)
+    a Redis write each time. All three are done once per server here.
+
+    One cache belongs to **one user and one graph** — `persisted` records writes
+    to that user's token storage, so sharing a cache across users would skip a
+    write that user still needs.
+
+    Only the inputs are shared: :func:`resolve_transport_auth` still builds a
+    fresh ``WebOAuthClientProvider`` per call, because it is stateful and the
+    graph's sessions are opened concurrently.
     """
 
     api_keys: dict[UUID, str | None] = field(default_factory=dict)
-    oauth: dict[UUID, MCPServerOAuthCredentialsDB | None] = field(default_factory=dict)
+    oauth: dict[UUID, StaticClientCredentials | None] = field(default_factory=dict)
+    persisted: set[UUID] = field(default_factory=set)
 
 
 @dataclass(frozen=True)
@@ -182,19 +219,26 @@ async def resolve_transport_auth(
 
         case MCPAuthType.oauth2:
             storage = TokenStorageFactory().get_storage(user_id, str(server.id))
-            oauth = credentials.oauth if credentials is not None else None
-            if oauth is not None and server.id in oauth:
-                row = oauth[server.id]
+            memo = credentials.oauth if credentials is not None else None
+            if memo is not None and server.id in memo:
+                static = memo[server.id]
             else:
-                row = await repository.get_oauth_credentials(server.id)
-                if oauth is not None:
-                    oauth[server.id] = row
-            provider = provider_with_credentials(server, storage, row)
+                static = static_credentials(
+                    await repository.get_oauth_credentials(server.id)
+                )
+                if memo is not None:
+                    memo[server.id] = static
+            provider = provider_with_credentials(server, storage, static)
             # Static registrations must reach storage before anything uses the
             # provider: the callback and the refresh path run in later requests
             # with fresh providers and can only recover them from there. No-op
-            # for a dynamically registered (DCR) server.
-            await provider.persist_client_info()
+            # for a dynamically registered (DCR) server — and idempotent, so
+            # one write per server per graph is enough (every agent would
+            # otherwise write the same bytes again).
+            if credentials is None or server.id not in credentials.persisted:
+                await provider.persist_client_info()
+                if credentials is not None:
+                    credentials.persisted.add(server.id)
             return TransportAuth(auth=provider)
 
         case _:
@@ -279,11 +323,17 @@ async def _open_session(
                 await session.initialize()
                 try:
                     tools = await _list_all_tools(session)
-                except OAuthAuthorizationRequired:
-                    # Let the caller (e.g. test_connection) translate this into
-                    # an oauth_required result instead of a generic DomainError.
-                    raise
                 except Exception as e:
+                    # Unwrap before wrapping. A `tools/list` that 401s can raise
+                    # the requirement inside an ExceptionGroup, and
+                    # `ExceptionGroup` is an `Exception` — so a bare
+                    # `except Exception` here would launder it into a
+                    # `DomainError` whose auth URL nobody can recover, past the
+                    # unwrap below. The caller (e.g. `test_connection`) needs it
+                    # as an oauth_required result, not a generic 500.
+                    oauth = as_oauth_required(e)
+                    if oauth is not None:
+                        raise oauth from e
                     raise DomainError(str(e)) from e
                 yield session, tools
     except BaseException as exc:
