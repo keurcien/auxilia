@@ -7,6 +7,8 @@ wrapping a domain exception that had already chosen its status (design review
 branch unwraps rather than swallows.
 """
 
+import logging
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -121,6 +123,32 @@ def test_it_unwraps_through_nesting():
 
     assert response.status_code == 403
     assert response.json() == {"detail": "not yours"}
+
+
+def test_other_failures_in_the_group_are_logged_not_dropped(caplog):
+    """The response can only carry one failure, and the domain status is the
+    useful one — but a concurrent crash beside it must not vanish, which is what
+    a plain `root_cause` dispatch would do."""
+    wrapped = ExceptionGroup(
+        "two tasks failed", [NotFoundError("gone"), ValueError("and the db exploded")]
+    )
+
+    with caplog.at_level(logging.ERROR, logger="app"):
+        response = _client(wrapped).get("/boom")
+
+    assert response.status_code == 404
+    assert "and the db exploded" in caplog.text
+
+
+def test_a_lone_domain_leaf_logs_nothing(caplog):
+    """The common case — one failure, wrapped by a task group — is not an
+    incident and must not be reported as one."""
+    wrapped = ExceptionGroup("one task failed", [NotFoundError("gone")])
+
+    with caplog.at_level(logging.ERROR, logger="app"):
+        assert _client(wrapped).get("/boom").status_code == 404
+
+    assert caplog.records == []
 
 
 def test_a_group_of_something_else_is_still_a_500():

@@ -155,9 +155,23 @@ async def exception_group_handler(request: Request, exc: ExceptionGroup):
     already chose, never to invent one — in particular it cannot resurrect the
     global OAuth 401, because `OAuthAuthorizationRequired` is not a
     `DomainError` and the seam unwraps it long before here.
+
+    A group can carry more than one failure — concurrent tasks that both blew
+    up. The response can only be one of them, and the domain status is the
+    useful one, but the rest must not vanish: they are logged in full, since a
+    500 would at least have surfaced them through the server-error handler.
     """
     inner = root_cause(exc)
     if isinstance(inner, DomainError):
+        _, others = exc.split(lambda leaf: leaf is inner)
+        if others is not None:
+            logger.error(
+                "%s answered %d; the group it arrived in carried other failures, "
+                "which are not in the response",
+                type(inner).__name__,
+                status_for(inner),
+                exc_info=others,
+            )
         return await domain_error_handler(request, inner)
     raise exc
 

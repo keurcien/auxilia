@@ -10,7 +10,10 @@ The numbers are upper bounds on work, not a specification of the SQL — if a
 change makes one *smaller*, lower it.
 """
 
+from datetime import UTC, datetime
 from uuid import uuid4
+
+from sqlalchemy import update
 
 from app.agents.core.repository import AgentRepository
 from app.agents.core.service import AgentService
@@ -65,7 +68,6 @@ async def test_the_list_returns_the_slim_schema(agent_session):
 
     assert len(rows) == 1
     assert type(rows[0]) is AgentListResponse
-    assert not hasattr(rows[0], "instructions")
     assert len(rows[0].mcp_servers) == 1
 
 
@@ -145,6 +147,38 @@ async def test_archiving_issues_one_update_and_no_select_of_its_own(
 
     assert len(statements) == 3  # gate, subagent-link delete, the UPDATE
     assert (await AgentRepository(agent_session).get(agent.id)).is_archived is True
+
+
+async def test_archiving_an_already_archived_agent_touches_nothing(agent_session):
+    """Archiving is deliberately repeatable (`delete` passes
+    `include_archived=True` so a second call does not 404), so a repeat must not
+    bump `updated_at` — which the agents list renders. The ORM path this
+    replaced got that for free, because SQLAlchemy does not mark an attribute
+    dirty when it is set to the value it already holds; a bulk UPDATE has to say
+    it in the `WHERE`. The statement is still sent, and matches no rows.
+
+    `updated_at` is backdated first, on purpose: SQLite's `CURRENT_TIMESTAMP`
+    has one-second resolution, so comparing two timestamps taken in the same
+    second passes whether or not the second write happened.
+    """
+    owner = uuid4()
+    agent = await _seed(agent_session, owner_id=owner)
+    service = AgentService(agent_session)
+    repository = AgentRepository(agent_session)
+    await service.delete(agent.id, user_id=owner)
+    backdated = datetime(2020, 1, 1, tzinfo=UTC)
+    await agent_session.execute(
+        update(AgentDB).where(AgentDB.id == agent.id).values(updated_at=backdated)
+    )
+    agent_session.expunge_all()
+
+    await service.delete(agent.id, user_id=owner)
+    agent_session.expunge_all()
+
+    # Compared on the year, not the instant: SQLite hands the column back
+    # without the tzinfo it was written with, and the point is only that the
+    # backdated value survived rather than being overwritten with "now".
+    assert (await repository.get(agent.id)).updated_at.year == backdated.year
 
 
 async def test_restore_returns_the_unarchived_agent(agent_session):

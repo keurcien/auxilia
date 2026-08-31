@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
+from typing import Literal, overload
 from uuid import UUID
 
 from fastapi import Depends
@@ -127,7 +128,33 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
             raise PermissionDeniedError(f"Not authorized to {action}")
         return permission
 
+    @overload
     async def _assemble(
+        self,
+        agents: list[AgentDB],
+        mcp_map: dict[UUID, list[AgentMCPServerResponse | AgentMCPServerListResponse]],
+        permissions_map: dict[UUID, PermissionLevel],
+        user_id: UUID | None,
+        user_role: WorkspaceRole | None,
+        team_agent_ids: set[UUID] | None = ...,
+        *,
+        slim: Literal[False] = ...,
+    ) -> list[AgentResponse]: ...
+
+    @overload
+    async def _assemble(
+        self,
+        agents: list[AgentDB],
+        mcp_map: dict[UUID, list[AgentMCPServerResponse | AgentMCPServerListResponse]],
+        permissions_map: dict[UUID, PermissionLevel],
+        user_id: UUID | None,
+        user_role: WorkspaceRole | None,
+        team_agent_ids: set[UUID] | None = ...,
+        *,
+        slim: Literal[True],
+    ) -> list[AgentListResponse]: ...
+
+    async def _assemble(  # type: ignore[misc]  # impl is wider than overload 1
         self,
         agents: list[AgentDB],
         mcp_map: dict[UUID, list[AgentMCPServerResponse | AgentMCPServerListResponse]],
@@ -139,6 +166,11 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         slim: bool = False,
     ) -> list[AgentListResponse]:
         """Hydrate agent rows into responses.
+
+        Overloaded on `slim` because the two modes return different types and
+        `get` needs the full one: `AgentResponse` is a *subclass* of
+        `AgentListResponse`, so a single widened annotation would silently make
+        `get`'s own `-> AgentResponse` contract unprovable.
 
         ``slim`` is the list projection: `AgentListResponse` instead of
         `AgentResponse`, which is not just a narrower serialization but a

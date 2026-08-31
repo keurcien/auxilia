@@ -286,8 +286,29 @@ class AgentRepository(BaseRepository[AgentDB]):
         await self.db.execute(stmt)
 
     async def set_archived(self, agent_id: UUID, *, archived: bool) -> None:
+        """Archive or restore, idempotently.
+
+        The `is_archived` predicate is not redundant: archiving is deliberately
+        repeatable (`AgentService.delete` passes `include_archived=True` so a
+        second delete does not 404), and without it a repeat would issue an
+        UPDATE whose only effect is bumping `updated_at` — which the agents list
+        renders. The ORM path this replaced got that for free, because
+        SQLAlchemy does not mark an attribute dirty when it is set to the value
+        it already holds.
+
+        The statement still goes out and simply matches no rows — one round-trip
+        the ORM path did not spend. Avoiding it would mean reading the row
+        first, which costs the same round-trip.
+
+        `update_by_id` deliberately does *not* do the same. Matching it there
+        would mean comparing against every current value, so the read this whole
+        change removed would come back, and a PATCH naming a field is an
+        explicit instruction to write it.
+        """
         stmt = (
-            update(AgentDB).where(AgentDB.id == agent_id).values(is_archived=archived)
+            update(AgentDB)
+            .where(AgentDB.id == agent_id, AgentDB.is_archived != archived)
+            .values(is_archived=archived)
         )
         await self.db.execute(stmt)
 
