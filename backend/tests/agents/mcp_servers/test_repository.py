@@ -130,29 +130,65 @@ async def test_delete_calls_delete_and_flushes(repo, mock_db):
 
 
 # ---------------------------------------------------------------------------
-# delete_all_for_agent
+# delete_all_for_agent / delete_all_for_server — one bulk DELETE each
+#
+# Against a real engine, not a mocked session: the mock versions asserted
+# `db.delete` was awaited once per link, which is a transcript of the loop that
+# used to be here rather than of what a caller can observe (P3-5, P3-16).
 # ---------------------------------------------------------------------------
 
 
-async def test_delete_all_for_agent_deletes_every_link(repo, mock_db):
+def _add_link(session, agent_id, server_id) -> None:
+    session.add(AgentMCPServerDB(agent_id=agent_id, mcp_server_id=server_id))
+
+
+async def test_delete_all_for_agent_clears_only_that_agent(agent_session):
+    mine, theirs = uuid4(), uuid4()
+    server = uuid4()
+    _add_link(agent_session, mine, server)
+    _add_link(agent_session, mine, uuid4())
+    _add_link(agent_session, theirs, server)
+    await agent_session.flush()
+    repo = AgentMCPServerRepository(agent_session)
+
+    await repo.delete_all_for_agent(mine)
+
+    assert await repo.list_for_agent(mine) == []
+    assert len(await repo.list_for_agent(theirs)) == 1
+
+
+async def test_delete_all_for_agent_is_one_statement_for_any_number_of_links(
+    agent_session, statements
+):
     agent_id = uuid4()
-    links = [make_link(agent_id=agent_id), make_link(agent_id=agent_id)]
-    mock_result = MagicMock()
-    mock_result.scalars.return_value.all.return_value = links
-    mock_db.execute.return_value = mock_result
+    for _ in range(4):
+        _add_link(agent_session, agent_id, uuid4())
+    await agent_session.flush()
+    statements.reset()
 
-    await repo.delete_all_for_agent(agent_id)
+    await AgentMCPServerRepository(agent_session).delete_all_for_agent(agent_id)
 
-    assert mock_db.delete.await_count == 2
-    mock_db.flush.assert_awaited_once()
+    assert len(statements) == 1
 
 
-async def test_delete_all_for_agent_noop_when_no_links(repo, mock_db):
-    mock_result = MagicMock()
-    mock_result.scalars.return_value.all.return_value = []
-    mock_db.execute.return_value = mock_result
+async def test_delete_all_for_agent_on_an_agent_with_no_links_is_harmless(
+    agent_session,
+):
+    await AgentMCPServerRepository(agent_session).delete_all_for_agent(uuid4())
 
-    await repo.delete_all_for_agent(uuid4())
 
-    mock_db.delete.assert_not_called()
-    mock_db.flush.assert_not_called()
+async def test_delete_all_for_server_clears_that_server_across_agents(agent_session):
+    server, other_server = uuid4(), uuid4()
+    agent_a, agent_b = uuid4(), uuid4()
+    _add_link(agent_session, agent_a, server)
+    _add_link(agent_session, agent_b, server)
+    _add_link(agent_session, agent_a, other_server)
+    await agent_session.flush()
+    repo = AgentMCPServerRepository(agent_session)
+
+    await repo.delete_all_for_server(server)
+
+    assert [link.mcp_server_id for link in await repo.list_for_agent(agent_a)] == [
+        other_server
+    ]
+    assert await repo.list_for_agent(agent_b) == []

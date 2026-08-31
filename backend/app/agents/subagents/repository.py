@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import or_
+from sqlalchemy import delete, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -75,15 +75,12 @@ class SubagentRepository:
         await self.db.flush()
 
     async def delete_all_for_agent(self, agent_id: UUID) -> None:
-        stmt = select(AgentSubagentDB).where(
+        """Both directions at once: an agent being deleted stops supervising
+        anyone and stops being anyone's subagent."""
+        stmt = delete(AgentSubagentDB).where(
             or_(
                 AgentSubagentDB.supervisor_id == agent_id,
                 AgentSubagentDB.subagent_id == agent_id,
             )
         )
-        result = await self.db.execute(stmt)
-        links = result.scalars().all()
-        for link in links:
-            await self.db.delete(link)
-        if links:
-            await self.db.flush()
+        await self.db.execute(stmt)

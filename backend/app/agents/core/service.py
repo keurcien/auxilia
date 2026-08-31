@@ -23,6 +23,8 @@ from app.agents.sandboxes.service import AgentSandboxService
 from app.agents.schemas import (
     AgentConfig,
     AgentCreateDB,
+    AgentListResponse,
+    AgentMCPServerListResponse,
     AgentMCPServerResponse,
     AgentOwnerInfo,
     AgentPatch,
@@ -128,37 +130,51 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
     async def _assemble(
         self,
         agents: list[AgentDB],
-        mcp_map: dict[UUID, list[AgentMCPServerResponse]],
+        mcp_map: dict[UUID, list[AgentMCPServerResponse | AgentMCPServerListResponse]],
         permissions_map: dict[UUID, PermissionLevel],
         user_id: UUID | None,
         user_role: WorkspaceRole | None,
         team_agent_ids: set[UUID] | None = None,
-    ) -> list[AgentResponse]:
+        *,
+        slim: bool = False,
+    ) -> list[AgentListResponse]:
+        """Hydrate agent rows into responses.
+
+        ``slim`` is the list projection: `AgentListResponse` instead of
+        `AgentResponse`, which is not just a narrower serialization but a
+        narrower *read* — the rows arrive without `instructions` (see
+        `AgentRepository.LIST_COLUMNS`), and sandbox bindings, which only the
+        detail response carries, are not queried at all.
+        """
         agent_ids = [a.id for a in agents]
         (
             subagents_map,
             is_subagent_ids,
         ) = await self.subagent_service.list_all_subagent_data(agent_ids)
         sandbox_map: dict[UUID, list[AgentSandboxResponse]] = defaultdict(list)
-        for link, sandbox in await self.sandbox_repository.list_for_agents(agent_ids):
-            sandbox_map[link.agent_id].append(
-                AgentSandboxResponse(
-                    sandbox_id=sandbox.id,
-                    tools=link.tools,
-                    name=sandbox.name,
-                    provider=sandbox.provider,
-                    url=sandbox.url,
+        if not slim:
+            for link, sandbox in await self.sandbox_repository.list_for_agents(
+                agent_ids
+            ):
+                sandbox_map[link.agent_id].append(
+                    AgentSandboxResponse(
+                        sandbox_id=sandbox.id,
+                        tools=link.tools,
+                        name=sandbox.name,
+                        provider=sandbox.provider,
+                        url=sandbox.url,
+                    )
                 )
-            )
         tag_ids = list({a.tag_id for a in agents if a.tag_id is not None})
         tags_by_id = {t.id: t for t in await self.tag_service.list_by_ids(tag_ids)}
         owner_ids = list({a.owner_id for a in agents})
         owners_by_id = {u.id: u for u in await self.user_service.list_by_ids(owner_ids)}
+        response_cls = AgentListResponse if slim else AgentResponse
         return [
-            AgentResponse(
+            response_cls(
                 **agent.model_dump(),
                 mcp_servers=mcp_map.get(agent.id, []),
-                sandboxes=sandbox_map.get(agent.id, []),
+                **({} if slim else {"sandboxes": sandbox_map.get(agent.id, [])}),
                 subagents=subagents_map.get(agent.id, []),
                 tag=(
                     TagInfo(id=tag.id, name=tag.name)
@@ -191,14 +207,25 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
     def _group_rows(
         rows: list,
         user_id: UUID | None,
+        *,
+        slim: bool = False,
     ) -> tuple[
         dict[UUID, AgentDB],
-        dict[UUID, list[AgentMCPServerResponse]],
+        dict[UUID, list[AgentMCPServerResponse | AgentMCPServerListResponse]],
         dict[UUID, PermissionLevel],
         set[UUID],
     ]:
+        """Collapse the join's fan-out into per-agent maps.
+
+        `slim` must match the flag the rows were read with: a slim binding row
+        has no per-tool map loaded, and validating it into the full
+        `AgentMCPServerResponse` would fetch one per row.
+        """
+        binding_cls = AgentMCPServerListResponse if slim else AgentMCPServerResponse
         agents_map: dict[UUID, AgentDB] = {}
-        mcp_map: dict[UUID, list[AgentMCPServerResponse]] = defaultdict(list)
+        mcp_map: dict[
+            UUID, list[AgentMCPServerResponse | AgentMCPServerListResponse]
+        ] = defaultdict(list)
         permissions_map: dict[UUID, PermissionLevel] = {}
         team_agent_ids: set[UUID] = set()
         for row in rows:
@@ -206,7 +233,7 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
             link = row[1]
             agents_map[agent.id] = agent
             if link is not None:
-                mcp_map[agent.id].append(AgentMCPServerResponse.model_validate(link))
+                mcp_map[agent.id].append(binding_cls.model_validate(link))
             if user_id and len(row) > 2:
                 permission = row[2]
                 if permission and agent.id not in permissions_map:
@@ -282,15 +309,20 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         user_role: WorkspaceRole | None = None,
         user_team_id: UUID | None = None,
         archived: bool = False,
-    ) -> list[AgentResponse]:
+    ) -> list[AgentListResponse]:
+        """The list projection — `AgentListResponse`, read as narrowly as it is
+        rendered. It is not an `AgentResponse` with fields hidden at
+        serialization time: `instructions` and the bindings' per-tool maps never
+        leave the database, and no caller of this method wants them (§3.5)."""
         rows = await self.repository.list_with_permissions(
             user_id=user_id,
             user_role=user_role,
             user_team_id=user_team_id,
             archived_only=archived,
+            slim=True,
         )
         agents_map, mcp_map, permissions_map, team_agent_ids = self._group_rows(
-            rows, user_id
+            rows, user_id, slim=True
         )
         return await self._assemble(
             list(agents_map.values()),
@@ -299,6 +331,7 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
             user_id,
             user_role,
             team_agent_ids,
+            slim=True,
         )
 
     async def update(
@@ -319,9 +352,8 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         )
         if data.tag_id is not None:
             await self.tag_service.get(data.tag_id)
-        agent = await self.get_or_404(agent_id)
         try:
-            await self.repository.update(agent, data)
+            await self.repository.update_by_id(agent_id, data)
         except IntegrityError as exc:
             if "fk_agents_tag_id_tags" not in str(getattr(exc, "orig", exc)):
                 raise
@@ -352,9 +384,8 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
             user_team_id=user_team_id,
         )
 
-        agent = await self.get_or_404(agent_id)
-        await self.repository.update(
-            agent,
+        await self.repository.update_by_id(
+            agent_id,
             AgentPatch(
                 name=config.name,
                 instructions=config.instructions,
@@ -388,9 +419,8 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
             # here rather than 404, or a repeated delete fails.
             include_archived=True,
         )
-        agent = await self.get_or_404(agent_id)
         await self.subagent_service.delete_all_for_agent(agent_id)
-        await self.repository.archive(agent)
+        await self.repository.set_archived(agent_id, archived=True)
 
     async def restore(
         self,
@@ -408,8 +438,7 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
             user_team_id=user_team_id,
             include_archived=True,
         )
-        agent = await self.get_or_404(agent_id)
-        await self.repository.restore(agent)
+        await self.repository.set_archived(agent_id, archived=False)
         return await self.get(
             agent_id,
             user_id=user_id,
@@ -424,7 +453,18 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         user_id: UUID | None = None,
         user_role: WorkspaceRole | None = None,
         user_team_id: UUID | None = None,
-    ) -> None:
+    ) -> list[str]:
+        """Delete every DB row that references the agent, and return the ids of
+        the threads that went with it.
+
+        Checkpoint purging is deliberately **not** done here — it is an
+        external, non-transactional side effect, so it must run after the
+        caller has *committed* these deletes, not merely flushed them. Same
+        contract as `ThreadService.delete_rows_for_agent`, and the same reason
+        the thread endpoint commits before purging (P1-9): a purge that ran
+        first and a commit that then failed would leave an agent whose entire
+        history is irrecoverably gone.
+        """
         await self.require_permission(
             agent_id,
             at_least=EffectivePermission.admin,
@@ -434,18 +474,14 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
             user_team_id=user_team_id,
             include_archived=True,
         )
-        agent = await self.get_or_404(agent_id)
-        # Delete every DB row that references the agent first (threads must go
-        # before the agent row due to the FK), then purge checkpoints last.
+        # Threads must go before the agent row, due to the FK.
         thread_ids = await self.thread_service.delete_rows_for_agent(agent_id)
         await self.subagent_service.delete_all_for_agent(agent_id)
         await self.mcp_server_repository.delete_all_for_agent(agent_id)
         await self.repository.delete_all_permissions(agent_id)
         await self.repository.delete_all_teams(agent_id)
-        await self.repository.delete(agent)
-        # Checkpoints live on a separate auto-committed connection and can't be
-        # rolled back, so purge them only after all DB deletes have succeeded.
-        await self.thread_service.purge_checkpoints(thread_ids)
+        await self.repository.delete_by_id(agent_id)
+        return thread_ids
 
     async def get_permissions(self, agent_id: UUID) -> list[AgentUserPermissionDB]:
         return await self.repository.get_permissions(agent_id)

@@ -42,7 +42,7 @@ Keep these layers honest. Don't write `db.execute(select(...))` in a router or i
 
 `get_db` (in `app/database.py`) runs one transaction per HTTP request: it commits on success, rolls back on any exception. Service methods should use `await self.db.flush()` when they need a server-generated value (PK, timestamp) and never call `self.db.commit()`.
 
-There are two documented exceptions:
+There are three documented exceptions:
 
 1. **Out-of-request code** manages its own transaction — Slack handlers, the run
    worker, the reaper and the trigger scanner use `AsyncSessionLocal()` directly
@@ -53,6 +53,14 @@ There are two documented exceptions:
    and only then start streaming or open their own sessions — holding a pooled
    connection for the length of an agent run risks pool starvation. Each such
    commit carries a comment saying why; if you add one, so should yours.
+3. **Request handlers commit before a non-rollbackable side effect.**
+   `DELETE /threads/{id}` and `DELETE /agents/{id}/permanent` delete their rows,
+   `await db.commit()`, and only then purge LangGraph checkpoints — those live on a
+   separate auto-committed connection, so purging first and then failing to commit
+   would leave a row whose entire history is irrecoverably gone. The service does the
+   deletes and *returns the thread ids*; it never purges. Past the commit the purge is
+   logged rather than raised: the operation succeeded, and orphaned checkpoints are
+   invisible and reclaimable.
 
 ### Domain exceptions
 
@@ -72,7 +80,11 @@ Services raise exceptions from `app/exceptions.py`:
 belongs to Pydantic's parse-time error. `NoInviteError` and `StructuredOutputError`
 subclass `DomainError` and are handled at their call sites (see below).
 
-Global handlers in `main.py` translate them to JSON responses. Routers don't catch or re-raise these — the only router-level `try/except` is for cases that need non-standard handling (e.g. OAuth callback catching `NoInviteError` to emit a 302 redirect instead of a 400).
+**That table is `STATUS` in `app/exceptions.py`**, and it is the whole translation: `main.py` registers *one* handler, on `DomainError`, because Starlette's handler lookup walks the exception's MRO. Adding an exception means adding a row — or no row at all, since `status_for` walks the MRO too and a subclass inherits its parent's status. The response body comes from the exception's own `body()`; override it only when a client must branch on the failure programmatically (`ModelUnavailableError` is the one case).
+
+A second handler, on `ExceptionGroup`, exists so a domain exception raised under an anyio task group (the MCP transport, the toolset gather) keeps the status it chose: it re-dispatches a `DomainError` leaf via `root_cause()` and **re-raises everything else**. Register it on `ExceptionGroup`, never `BaseExceptionGroup` — the latter is not an `Exception` subclass and Starlette asserts on that while building the middleware stack, i.e. on the first request, not at import.
+
+Routers don't catch or re-raise these — the only router-level `try/except` is for cases that need non-standard handling (e.g. OAuth callback catching `NoInviteError` to emit a 302 redirect instead of a 400).
 
 Use `BaseService.get_or_404(id)` instead of hand-rolling `if not x: raise NotFoundError(...)`.
 

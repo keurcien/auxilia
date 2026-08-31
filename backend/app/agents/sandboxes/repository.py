@@ -1,5 +1,6 @@
 from uuid import UUID
 
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -43,10 +44,5 @@ class AgentSandboxRepository(BaseRepository[AgentSandboxDB]):
         return list(result.scalars().all())
 
     async def delete_all_for_sandbox(self, sandbox_id: UUID) -> None:
-        stmt = select(AgentSandboxDB).where(AgentSandboxDB.sandbox_id == sandbox_id)
-        result = await self.db.execute(stmt)
-        links = result.scalars().all()
-        for link in links:
-            await self.db.delete(link)
-        if links:
-            await self.db.flush()
+        stmt = delete(AgentSandboxDB).where(AgentSandboxDB.sandbox_id == sandbox_id)
+        await self.db.execute(stmt)

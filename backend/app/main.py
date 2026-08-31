@@ -18,15 +18,7 @@ from app.auth.settings import auth_settings
 from app.auth.tokens.router import router as tokens_router
 from app.background import registry as background_loops
 from app.database import close_checkpointer_pool
-from app.exceptions import (
-    AlreadyExistsError,
-    DomainError,
-    DomainValidationError,
-    InvalidCredentialsError,
-    ModelUnavailableError,
-    NotFoundError,
-    PermissionDeniedError,
-)
+from app.exceptions import DomainError, root_cause, status_for
 from app.integrations.langfuse.callback import flush_langfuse
 from app.integrations.slack.consumer import build_slack_run_consumer
 from app.integrations.slack.router import router as slack_router
@@ -120,61 +112,54 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
-# There is deliberately no `OAuthAuthorizationRequired` handler, and no
-# `ExceptionGroup` handler. "This MCP server needs authorization" is caught at
-# the MCP seam by whoever asked to connect (`connectivity._open_session`,
-# `Toolset.open`) and turned into a response only by the endpoints whose job is
-# connecting — `GET /mcp-servers/{id}/list-tools` returns it as an
-# `auth_required` variant, the run endpoints and the MCP-app endpoints answer
-# 401 explicitly. The global pair had two costs: any endpoint touching MCP could
-# answer 401 with an auth URL, and the `ExceptionGroup` registration swallowed
-# TaskGroup-wrapped *domain* exceptions into 500s (design review §2.3, §2.4).
-
-
-@app.exception_handler(NotFoundError)
-async def not_found_handler(_request: Request, exc: NotFoundError):
-    return JSONResponse(status_code=404, content={"detail": exc.detail})
-
-
-@app.exception_handler(AlreadyExistsError)
-async def already_exists_handler(_request: Request, exc: AlreadyExistsError):
-    return JSONResponse(status_code=409, content={"detail": exc.detail})
-
-
-@app.exception_handler(DomainValidationError)
-async def domain_validation_error_handler(
-    _request: Request, exc: DomainValidationError
-):
-    return JSONResponse(status_code=400, content={"detail": exc.detail})
-
-
-@app.exception_handler(ModelUnavailableError)
-async def model_unavailable_handler(_request: Request, exc: ModelUnavailableError):
-    # Machine-readable body (like oauth_required) so clients can branch on
-    # `error` instead of string-matching the detail.
-    return JSONResponse(
-        status_code=409,
-        content={
-            "error": "model_unavailable",
-            "model_id": exc.model_id,
-            "detail": exc.detail,
-        },
-    )
-
-
-@app.exception_handler(PermissionDeniedError)
-async def permission_denied_handler(_request: Request, exc: PermissionDeniedError):
-    return JSONResponse(status_code=403, content={"detail": exc.detail})
-
-
-@app.exception_handler(InvalidCredentialsError)
-async def invalid_credentials_handler(_request: Request, exc: InvalidCredentialsError):
-    return JSONResponse(status_code=401, content={"detail": exc.detail})
+# There is deliberately no `OAuthAuthorizationRequired` handler. "This MCP
+# server needs authorization" is caught at the MCP seam by whoever asked to
+# connect (`connectivity._open_session`, `Toolset.open`) and turned into a
+# response only by the endpoints whose job is connecting — `GET
+# /mcp-servers/{id}/list-tools` returns it as an `auth_required` variant, the
+# run endpoints and the MCP-app endpoints answer 401 explicitly. A global one
+# meant any endpoint touching MCP could answer 401 with an auth URL (design
+# review §2.4).
 
 
 @app.exception_handler(DomainError)
 async def domain_error_handler(_request: Request, exc: DomainError):
-    return JSONResponse(status_code=500, content={"detail": exc.detail})
+    """The one translation from a domain failure to a response.
+
+    Status and body both come from `app/exceptions.py` — the table and the
+    exception's own `body()` — so adding an exception is a row, not a seventh
+    near-identical handler (design review §2.3).
+    """
+    return JSONResponse(status_code=status_for(exc), content=exc.body())
+
+
+@app.exception_handler(ExceptionGroup)
+async def exception_group_handler(request: Request, exc: ExceptionGroup):
+    """Give a TaskGroup-wrapped domain exception the status it asked for.
+
+    A `NotFoundError` raised under an anyio task group (the MCP transport, the
+    toolset gather) arrives here inside an `ExceptionGroup`, whose MRO does not
+    reach `DomainError` — so without this it would be a 500 with no detail,
+    which is what the old handler produced for *every* group (design review
+    §2.3).
+
+    Keyed on `ExceptionGroup`, not `BaseExceptionGroup`: the latter is not a
+    subclass of `Exception`, and Starlette asserts on that while *building the
+    middleware stack* — lazily, on the first request — so registering it passes
+    every import-time check and then 500s the whole app. Nothing is lost by
+    narrowing, because the middleware only catches `Exception` anyway: a group
+    holding a `BaseException` leaf was never going to reach a handler.
+
+    Anything else is re-raised unchanged and becomes a logged 500. That is the
+    line this handler must not cross: it exists to preserve a status the code
+    already chose, never to invent one — in particular it cannot resurrect the
+    global OAuth 401, because `OAuthAuthorizationRequired` is not a
+    `DomainError` and the seam unwraps it long before here.
+    """
+    inner = root_cause(exc)
+    if isinstance(inner, DomainError):
+        return await domain_error_handler(request, inner)
+    raise exc
 
 
 # Browser traffic normally rides the Next.js proxy (same-origin), so CORS only

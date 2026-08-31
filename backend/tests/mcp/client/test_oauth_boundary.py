@@ -256,16 +256,39 @@ async def test_list_tools_still_fails_loudly_on_a_real_error():
 # ---------------------------------------------------------------------------
 
 
-def test_the_app_registers_no_oauth_or_exception_group_handler():
-    """A guard, not a tautology: re-adding either handler would quietly restore
-    "any endpoint touching MCP can answer 401 with an auth URL", and the
-    ExceptionGroup one would again swallow TaskGroup-wrapped domain exceptions
-    into 500s (§2.3). If a new global handler is genuinely wanted, this test is
-    the place to argue for it."""
+def test_the_app_registers_no_oauth_handler():
+    """A guard, not a tautology: re-adding it would quietly restore "any
+    endpoint touching MCP can answer 401 with an auth URL". If a global handler
+    is genuinely wanted, this test is the place to argue for it.
+
+    The app *does* register an `ExceptionGroup` handler again (P3-4), and that
+    is not a relapse: it only re-dispatches a `DomainError` leaf to the status
+    the code already chose. `OAuthAuthorizationRequired` is not a `DomainError`,
+    so a group carrying one is re-raised as a 500 exactly as it is today — the
+    test below pins that rather than trusting the reasoning."""
     from app.main import app
 
-    registered = set(app.exception_handlers)
+    assert OAuthAuthorizationRequired not in set(app.exception_handlers)
 
-    assert OAuthAuthorizationRequired not in registered
-    assert ExceptionGroup not in registered
-    assert BaseExceptionGroup not in registered
+
+def test_the_exception_group_handler_cannot_answer_with_an_auth_url():
+    """The one way P3-4's group handler could undo P3-3: if a wrapped
+    `OAuthAuthorizationRequired` came back out as a 401 with an auth URL from
+    any endpoint at all."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    mirror = FastAPI()
+    for exc_type, handler in app.exception_handlers.items():
+        mirror.add_exception_handler(exc_type, handler)  # type: ignore[arg-type]
+
+    @mirror.get("/boom")
+    async def boom():
+        raise ExceptionGroup("tg", [OAuthAuthorizationRequired(AUTH_URL)])
+
+    response = TestClient(mirror, raise_server_exceptions=False).get("/boom")
+
+    assert response.status_code == 500
+    assert AUTH_URL not in response.text
