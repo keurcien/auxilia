@@ -218,14 +218,64 @@ async def test_update_with_empty_schema_leaves_agent_unchanged(repo, mock_db):
 # ---------------------------------------------------------------------------
 
 
-async def test_archive_sets_is_archived_and_flushes(repo, mock_db):
-    agent = make_agent()
+async def test_set_archived_flips_the_flag_in_place(agent_session):
+    repo = AgentRepository(agent_session)
+    agent = AgentDB(name="A", instructions="x", owner_id=uuid4())
+    agent_session.add(agent)
+    await agent_session.flush()
 
-    await repo.archive(agent)
+    await repo.set_archived(agent.id, archived=True)
+    assert (await repo.get(agent.id)).is_archived is True
 
-    assert agent.is_archived is True
-    mock_db.add.assert_called_once_with(agent)
-    mock_db.flush.assert_awaited_once()
+    await repo.set_archived(agent.id, archived=False)
+    assert (await repo.get(agent.id)).is_archived is False
+
+
+async def test_update_by_id_writes_only_the_set_fields_and_bumps_updated_at(
+    agent_session,
+):
+    repo = AgentRepository(agent_session)
+    agent = AgentDB(
+        name="A", instructions="keep me", owner_id=uuid4(), description="keep me too"
+    )
+    agent_session.add(agent)
+    await agent_session.flush()
+    before = agent.updated_at
+
+    await repo.update_by_id(agent.id, AgentPatch(name="B"))
+
+    reread = await repo.get(agent.id)
+    assert reread.name == "B"
+    assert reread.instructions == "keep me"
+    assert reread.description == "keep me too"
+    assert reread.updated_at >= before
+
+
+async def test_update_by_id_with_an_empty_patch_touches_nothing(
+    agent_session, statements
+):
+    """Matches what the ORM path did: `sqlmodel_update({})` leaves the instance
+    clean, so a PATCH naming no fields must not bump `updated_at` either."""
+    repo = AgentRepository(agent_session)
+    agent = AgentDB(name="A", instructions="x", owner_id=uuid4())
+    agent_session.add(agent)
+    await agent_session.flush()
+    statements.reset()
+
+    await repo.update_by_id(agent.id, AgentPatch())
+
+    assert len(statements) == 0
+
+
+async def test_delete_by_id_removes_the_row(agent_session):
+    repo = AgentRepository(agent_session)
+    agent = AgentDB(name="A", instructions="x", owner_id=uuid4())
+    agent_session.add(agent)
+    await agent_session.flush()
+
+    await repo.delete_by_id(agent.id)
+
+    assert await repo.get(agent.id) is None
 
 
 # ---------------------------------------------------------------------------
@@ -257,72 +307,144 @@ async def test_get_permissions_returns_empty_list_when_none(repo, mock_db):
 
 
 # ---------------------------------------------------------------------------
-# set_permissions
+# set_permissions / set_teams — whole-set replace, against a real engine
+#
+# These used to be mock mirrors: they asserted `db.delete` was awaited once per
+# existing row and counted `flush`es. That is a transcript of the old
+# implementation, not of its contract — rewriting the loop as one
+# `DELETE ... WHERE` broke every one of them while changing nothing a caller
+# can observe (design review §6.2, P3-16).
 # ---------------------------------------------------------------------------
 
 
-async def test_set_permissions_deletes_existing_before_inserting(repo, mock_db):
-    agent_id = uuid4()
-    existing = make_permission(agent_id=agent_id)
-    mock_result = MagicMock()
-    mock_result.scalars.return_value.all.return_value = [existing]
-    mock_db.execute.return_value = mock_result
+async def _permissions(session, agent_id) -> dict:
+    rows = await AgentRepository(session).get_permissions(agent_id)
+    return {row.user_id: row.permission for row in rows}
 
-    new_write = AgentPermissionCreate(
-        user_id=uuid4(), permission=PermissionLevel.editor
+
+async def test_set_permissions_replaces_the_whole_set(agent_session):
+    agent_id = uuid4()
+    kept, dropped, added = uuid4(), uuid4(), uuid4()
+    repo = AgentRepository(agent_session)
+    await repo.set_permissions(
+        agent_id,
+        [
+            AgentPermissionCreate(user_id=kept, permission=PermissionLevel.member),
+            AgentPermissionCreate(user_id=dropped, permission=PermissionLevel.admin),
+        ],
     )
-    await repo.set_permissions(agent_id, [new_write])
 
-    mock_db.delete.assert_awaited_once_with(existing)
-    assert mock_db.flush.await_count == 2
-
-
-async def test_set_permissions_inserts_new_permissions(repo, mock_db):
-    agent_id = uuid4()
-    mock_result = MagicMock()
-    mock_result.scalars.return_value.all.return_value = []
-    mock_db.execute.return_value = mock_result
-
-    new_user_id = uuid4()
-    new_write = AgentPermissionCreate(
-        user_id=new_user_id, permission=PermissionLevel.editor
+    result = await repo.set_permissions(
+        agent_id,
+        [
+            AgentPermissionCreate(user_id=kept, permission=PermissionLevel.editor),
+            AgentPermissionCreate(user_id=added, permission=PermissionLevel.member),
+        ],
     )
-    result = await repo.set_permissions(agent_id, [new_write])
 
-    mock_db.add.assert_called_once()
-    added = mock_db.add.call_args[0][0]
-    assert isinstance(added, AgentUserPermissionDB)
-    assert added.agent_id == agent_id
-    assert added.user_id == new_user_id
-    assert added.permission == PermissionLevel.editor
-    assert len(result) == 1
+    assert {p.user_id for p in result} == {kept, added}
+    assert await _permissions(agent_session, agent_id) == {
+        kept: PermissionLevel.editor,
+        added: PermissionLevel.member,
+    }
 
 
-async def test_set_permissions_with_empty_list_clears_all(repo, mock_db):
+async def test_set_permissions_with_an_empty_list_clears_the_agent(agent_session):
     agent_id = uuid4()
-    existing = make_permission(agent_id=agent_id)
-    mock_result = MagicMock()
-    mock_result.scalars.return_value.all.return_value = [existing]
-    mock_db.execute.return_value = mock_result
+    repo = AgentRepository(agent_session)
+    await repo.set_permissions(
+        agent_id,
+        [AgentPermissionCreate(user_id=uuid4(), permission=PermissionLevel.admin)],
+    )
 
-    result = await repo.set_permissions(agent_id, [])
-
-    mock_db.delete.assert_awaited_once_with(existing)
-    mock_db.add.assert_not_called()
-    assert result == []
+    assert await repo.set_permissions(agent_id, []) == []
+    assert await _permissions(agent_session, agent_id) == {}
 
 
-async def test_set_permissions_refreshes_each_new_permission(repo, mock_db):
+async def test_set_permissions_leaves_other_agents_alone(agent_session):
+    """The bulk `DELETE` is only correct if its `WHERE` is."""
+    mine, theirs = uuid4(), uuid4()
+    other_user = uuid4()
+    repo = AgentRepository(agent_session)
+    await repo.set_permissions(
+        theirs,
+        [AgentPermissionCreate(user_id=other_user, permission=PermissionLevel.admin)],
+    )
+
+    await repo.set_permissions(
+        mine,
+        [AgentPermissionCreate(user_id=uuid4(), permission=PermissionLevel.member)],
+    )
+
+    assert await _permissions(agent_session, theirs) == {
+        other_user: PermissionLevel.admin
+    }
+
+
+async def test_set_permissions_costs_two_statements_whatever_the_size(
+    agent_session, statements
+):
+    """One `DELETE`, one `INSERT` — no per-row delete, and no `refresh` loop
+    reading timestamps `AgentPermissionResponse` does not carry."""
     agent_id = uuid4()
-    mock_result = MagicMock()
-    mock_result.scalars.return_value.all.return_value = []
-    mock_db.execute.return_value = mock_result
+    repo = AgentRepository(agent_session)
+    await repo.set_permissions(
+        agent_id,
+        [AgentPermissionCreate(user_id=uuid4(), permission=PermissionLevel.member)],
+    )
+    statements.reset()
 
-    writes = [
-        AgentPermissionCreate(user_id=uuid4(), permission=PermissionLevel.member),
-        AgentPermissionCreate(user_id=uuid4(), permission=PermissionLevel.editor),
-    ]
-    result = await repo.set_permissions(agent_id, writes)
+    await repo.set_permissions(
+        agent_id,
+        [
+            AgentPermissionCreate(user_id=uuid4(), permission=PermissionLevel.editor)
+            for _ in range(5)
+        ],
+    )
 
-    assert mock_db.refresh.await_count == 2
-    assert len(result) == 2
+    assert len(statements) == 2
+
+
+async def test_set_teams_replaces_the_whole_set_and_dedupes(agent_session):
+    agent_id = uuid4()
+    kept, dropped, added = uuid4(), uuid4(), uuid4()
+    repo = AgentRepository(agent_session)
+    await repo.set_teams(agent_id, [kept, dropped])
+
+    result = await repo.set_teams(agent_id, [kept, added, added])
+
+    assert result == [kept, added]
+    assert set(await repo.get_team_ids(agent_id)) == {kept, added}
+
+
+async def test_delete_all_teams_clears_only_this_agent(agent_session):
+    mine, theirs = uuid4(), uuid4()
+    team = uuid4()
+    repo = AgentRepository(agent_session)
+    await repo.set_teams(mine, [team])
+    await repo.set_teams(theirs, [team])
+
+    await repo.delete_all_teams(mine)
+
+    assert await repo.get_team_ids(mine) == []
+    assert await repo.get_team_ids(theirs) == [team]
+
+
+async def test_delete_all_permissions_clears_only_this_agent(agent_session):
+    mine, theirs = uuid4(), uuid4()
+    other_user = uuid4()
+    repo = AgentRepository(agent_session)
+    await repo.set_permissions(
+        mine, [AgentPermissionCreate(user_id=uuid4(), permission=PermissionLevel.admin)]
+    )
+    await repo.set_permissions(
+        theirs,
+        [AgentPermissionCreate(user_id=other_user, permission=PermissionLevel.member)],
+    )
+
+    await repo.delete_all_permissions(mine)
+
+    assert await _permissions(agent_session, mine) == {}
+    assert await _permissions(agent_session, theirs) == {
+        other_user: PermissionLevel.member
+    }

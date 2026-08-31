@@ -79,9 +79,12 @@ def mock_repo():
     repo.get = AsyncMock()
     repo.create = AsyncMock()
     repo.update = AsyncMock()
-    repo.archive = AsyncMock()
-    repo.restore = AsyncMock()
-    repo.delete = AsyncMock()
+    # The mutation paths take the id, not a loaded row: `require_permission`
+    # already proved the agent exists, so there is nothing left for a `get` to
+    # establish (P3-5).
+    repo.update_by_id = AsyncMock()
+    repo.set_archived = AsyncMock()
+    repo.delete_by_id = AsyncMock()
     repo.delete_all_permissions = AsyncMock()
     repo.get_permissions = AsyncMock()
     repo.set_permissions = AsyncMock()
@@ -492,20 +495,20 @@ async def test_list_untagged_agents_attach_no_tag(service, mock_repo, mock_tag_s
 # ---------------------------------------------------------------------------
 
 
-async def test_update_agent_delegates_to_repository(service, mock_repo):
+async def test_update_agent_patches_by_id_and_returns_the_reread_agent(
+    service, mock_repo
+):
     agent = make_agent()
-    mock_repo.get.return_value = agent
     mock_repo.list_with_permissions.return_value = [(agent, None)]
 
     result = await service.update(
         agent.id, AgentPatch(name="Updated"), user_id=agent.owner_id
     )
 
-    mock_repo.get.assert_awaited_once_with(agent.id)
-    call_args = mock_repo.update.call_args[0]
-    assert call_args[0] is agent
-    assert isinstance(call_args[1], AgentPatch)
-    assert call_args[1].name == "Updated"
+    agent_id, patch = mock_repo.update_by_id.call_args[0]
+    assert agent_id == agent.id
+    assert isinstance(patch, AgentPatch)
+    assert patch.name == "Updated"
     assert isinstance(result, AgentResponse)
     assert result.id == agent.id
     assert result.mcp_servers == []
@@ -513,12 +516,11 @@ async def test_update_agent_delegates_to_repository(service, mock_repo):
 
 async def test_update_agent_passes_only_set_fields(service, mock_repo):
     agent = make_agent()
-    mock_repo.get.return_value = agent
     mock_repo.list_with_permissions.return_value = [(agent, None)]
 
     await service.update(agent.id, AgentPatch(name="New Name"), user_id=agent.owner_id)
 
-    update_schema = mock_repo.update.call_args[0][1]
+    update_schema = mock_repo.update_by_id.call_args[0][1]
     assert isinstance(update_schema, AgentPatch)
     assert update_schema.model_dump(exclude_unset=True) == {"name": "New Name"}
 
@@ -530,7 +532,7 @@ async def test_update_agent_raises_404_when_not_found(service, mock_repo):
         await service.update(uuid4(), AgentPatch(name="X"))
 
     assert exc_info.value.detail == "Agent not found"
-    mock_repo.update.assert_not_called()
+    mock_repo.update_by_id.assert_not_called()
 
 
 async def test_update_agent_raises_403_when_no_permission(service, mock_repo):
@@ -540,13 +542,11 @@ async def test_update_agent_raises_403_when_no_permission(service, mock_repo):
     with pytest.raises(PermissionDeniedError):
         await service.update(agent.id, AgentPatch(name="X"), user_id=uuid4())
 
-    mock_repo.get.assert_not_called()
-    mock_repo.update.assert_not_called()
+    mock_repo.update_by_id.assert_not_called()
 
 
 async def test_update_agent_allows_workspace_admin(service, mock_repo):
     agent = make_agent()
-    mock_repo.get.return_value = agent
     mock_repo.list_with_permissions.return_value = [(agent, None)]
 
     await service.update(
@@ -556,19 +556,18 @@ async def test_update_agent_allows_workspace_admin(service, mock_repo):
         user_role=WorkspaceRole.admin,
     )
 
-    mock_repo.update.assert_awaited_once()
+    mock_repo.update_by_id.assert_awaited_once()
 
 
 async def test_update_agent_validates_tag_exists(service, mock_repo, mock_tag_service):
     agent = make_agent()
-    mock_repo.get.return_value = agent
     mock_repo.list_with_permissions.return_value = [(agent, None)]
     tag_id = uuid4()
 
     await service.update(agent.id, AgentPatch(tag_id=tag_id), user_id=agent.owner_id)
 
     mock_tag_service.get.assert_awaited_once_with(tag_id)
-    mock_repo.update.assert_awaited_once()
+    mock_repo.update_by_id.assert_awaited_once()
 
 
 async def test_update_agent_raises_404_for_unknown_tag(
@@ -584,20 +583,19 @@ async def test_update_agent_raises_404_for_unknown_tag(
         )
 
     assert exc_info.value.detail == "Tag not found"
-    mock_repo.update.assert_not_called()
+    mock_repo.update_by_id.assert_not_called()
 
 
 async def test_update_agent_untag_skips_tag_lookup(
     service, mock_repo, mock_tag_service
 ):
     agent = make_agent()
-    mock_repo.get.return_value = agent
     mock_repo.list_with_permissions.return_value = [(agent, None)]
 
     await service.update(agent.id, AgentPatch(tag_id=None), user_id=agent.owner_id)
 
     mock_tag_service.get.assert_not_called()
-    update_schema = mock_repo.update.call_args[0][1]
+    update_schema = mock_repo.update_by_id.call_args[0][1]
     assert update_schema.model_dump(exclude_unset=True) == {"tag_id": None}
 
 
@@ -615,7 +613,6 @@ async def test_set_config_orchestrates_scalars_bindings_subagents(
     service, mock_repo, mock_mcp_server_service, mock_subagent_service
 ):
     agent = make_agent()
-    mock_repo.get.return_value = agent
     mock_repo.list_with_permissions.return_value = [(agent, None)]
     server_id = uuid4()
     sub_id = uuid4()
@@ -632,7 +629,7 @@ async def test_set_config_orchestrates_scalars_bindings_subagents(
 
     result = await service.set_config(agent.id, config, user_id=agent.owner_id)
 
-    patch_schema = mock_repo.update.call_args[0][1]
+    patch_schema = mock_repo.update_by_id.call_args[0][1]
     assert isinstance(patch_schema, AgentPatch)
     assert patch_schema.name == "Configured"
     assert patch_schema.description == "A description"
@@ -649,12 +646,11 @@ async def test_set_config_clears_unset_scalars(service, mock_repo):
     """Full replace: omitting description/emoji/color in the config clears
     them — every scalar field is explicitly written."""
     agent = make_agent(description="old", emoji="🤖")
-    mock_repo.get.return_value = agent
     mock_repo.list_with_permissions.return_value = [(agent, None)]
 
     await service.set_config(agent.id, make_config(), user_id=agent.owner_id)
 
-    patch_schema = mock_repo.update.call_args[0][1]
+    patch_schema = mock_repo.update_by_id.call_args[0][1]
     dumped = patch_schema.model_dump(exclude_unset=True)
     assert dumped["description"] is None
     assert dumped["emoji"] is None
@@ -671,7 +667,7 @@ async def test_set_config_denies_member(service, mock_repo):
     with pytest.raises(PermissionDeniedError):
         await service.set_config(agent.id, make_config(), user_id=uuid4())
 
-    mock_repo.update.assert_not_called()
+    mock_repo.update_by_id.assert_not_called()
 
 
 async def test_set_config_denies_without_permission(
@@ -688,33 +684,30 @@ async def test_set_config_denies_without_permission(
 
 async def test_set_config_allows_agent_editor(service, mock_repo):
     agent = make_agent()
-    mock_repo.get.return_value = agent
     mock_repo.list_with_permissions.return_value = [
         (agent, None, PermissionLevel.editor)
     ]
 
     await service.set_config(agent.id, make_config(), user_id=uuid4())
 
-    mock_repo.update.assert_awaited_once()
+    mock_repo.update_by_id.assert_awaited_once()
 
 
 async def test_set_config_allows_workspace_admin(service, mock_repo):
     agent = make_agent()
-    mock_repo.get.return_value = agent
     mock_repo.list_with_permissions.return_value = [(agent, None)]
 
     await service.set_config(
         agent.id, make_config(), user_id=uuid4(), user_role=WorkspaceRole.admin
     )
 
-    mock_repo.update.assert_awaited_once()
+    mock_repo.update_by_id.assert_awaited_once()
 
 
 async def test_set_config_passes_role_to_subagent_gate(
     service, mock_repo, mock_subagent_service
 ):
     agent = make_agent()
-    mock_repo.get.return_value = agent
     mock_repo.list_with_permissions.return_value = [(agent, None)]
     sub_id = uuid4()
 
@@ -736,7 +729,6 @@ async def test_set_config_subagent_denial_propagates(
     """A PermissionDeniedError from the subagent gate bubbles up — the request
     transaction rolls back, so the scalar/MCP writes never commit."""
     agent = make_agent()
-    mock_repo.get.return_value = agent
     mock_repo.list_with_permissions.return_value = [
         (agent, None, PermissionLevel.editor)
     ]
@@ -777,51 +769,47 @@ async def test_delete_agent_delegates_to_repository(
     service, mock_repo, mock_subagent_service
 ):
     agent = make_agent()
-    mock_repo.get.return_value = agent
     mock_repo.list_with_permissions.return_value = [(agent, None)]
 
     await service.delete(agent.id, user_id=agent.owner_id)
 
-    mock_repo.get.assert_awaited_once_with(agent.id)
     mock_subagent_service.delete_all_for_agent.assert_awaited_once_with(agent.id)
-    mock_repo.archive.assert_awaited_once_with(agent)
+    mock_repo.set_archived.assert_awaited_once_with(agent.id, archived=True)
 
 
 async def test_delete_agent_raises_404_when_not_found(service, mock_repo):
-    mock_repo.get.return_value = None
+    mock_repo.list_with_permissions.return_value = []
 
     with pytest.raises(NotFoundError) as exc_info:
         await service.delete(uuid4())
 
     assert exc_info.value.detail == "Agent not found"
-    mock_repo.archive.assert_not_called()
+    mock_repo.set_archived.assert_not_called()
 
 
 async def test_delete_agent_raises_403_for_non_owner(
     service, mock_repo, mock_subagent_service
 ):
     agent = make_agent()
-    mock_repo.get.return_value = agent
     mock_repo.list_with_permissions.return_value = [(agent, None)]
 
     with pytest.raises(PermissionDeniedError):
         await service.delete(agent.id, user_id=uuid4())
 
     mock_subagent_service.delete_all_for_agent.assert_not_called()
-    mock_repo.archive.assert_not_called()
+    mock_repo.set_archived.assert_not_called()
 
 
 async def test_delete_agent_allows_workspace_admin(
     service, mock_repo, mock_subagent_service
 ):
     agent = make_agent()
-    mock_repo.get.return_value = agent
     mock_repo.list_with_permissions.return_value = [(agent, None)]
 
     await service.delete(agent.id, user_id=uuid4(), user_role=WorkspaceRole.admin)
 
     mock_subagent_service.delete_all_for_agent.assert_awaited_once_with(agent.id)
-    mock_repo.archive.assert_awaited_once_with(agent)
+    mock_repo.set_archived.assert_awaited_once_with(agent.id, archived=True)
 
 
 # ---------------------------------------------------------------------------
@@ -831,22 +819,20 @@ async def test_delete_agent_allows_workspace_admin(
 
 async def test_restore_agent_sets_unarchived_for_owner(service, mock_repo):
     agent = make_agent(is_archived=True)
-    mock_repo.get.return_value = agent
     mock_repo.list_with_permissions.return_value = [(agent, None)]
 
     await service.restore(agent.id, user_id=agent.owner_id)
 
-    mock_repo.restore.assert_awaited_once_with(agent)
+    mock_repo.set_archived.assert_awaited_once_with(agent.id, archived=False)
 
 
 async def test_restore_agent_allows_workspace_admin(service, mock_repo):
     agent = make_agent(is_archived=True)
-    mock_repo.get.return_value = agent
     mock_repo.list_with_permissions.return_value = [(agent, None)]
 
     await service.restore(agent.id, user_id=uuid4(), user_role=WorkspaceRole.admin)
 
-    mock_repo.restore.assert_awaited_once_with(agent)
+    mock_repo.set_archived.assert_awaited_once_with(agent.id, archived=False)
 
 
 async def test_restore_agent_denied_for_editor(service, mock_repo):
@@ -858,7 +844,7 @@ async def test_restore_agent_denied_for_editor(service, mock_repo):
     with pytest.raises(PermissionDeniedError):
         await service.restore(agent.id, user_id=uuid4())
 
-    mock_repo.restore.assert_not_called()
+    mock_repo.set_archived.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -874,36 +860,38 @@ async def test_delete_permanently_cascades_for_owner(
     mock_agent_mcp_repo,
 ):
     agent = make_agent(is_archived=True)
-    mock_repo.get.return_value = agent
     mock_repo.list_with_permissions.return_value = [(agent, None)]
 
-    await service.delete_permanently(agent.id, user_id=agent.owner_id)
+    thread_ids = await service.delete_permanently(agent.id, user_id=agent.owner_id)
 
     mock_subagent_service.delete_all_for_agent.assert_awaited_once_with(agent.id)
     mock_agent_mcp_repo.delete_all_for_agent.assert_awaited_once_with(agent.id)
     mock_thread_service.delete_rows_for_agent.assert_awaited_once_with(agent.id)
     mock_repo.delete_all_permissions.assert_awaited_once_with(agent.id)
-    mock_repo.delete.assert_awaited_once_with(agent)
-    # Checkpoints are purged last, after every DB delete has run.
-    mock_thread_service.purge_checkpoints.assert_awaited_once_with(["t1", "t2"])
+    mock_repo.delete_by_id.assert_awaited_once_with(agent.id)
+    # The thread ids are handed back rather than acted on: purging checkpoints
+    # is an external, non-transactional side effect, so it belongs after the
+    # caller's commit, not inside this transaction (P1-9, §5.5).
+    assert thread_ids == ["t1", "t2"]
+    mock_thread_service.purge_checkpoints.assert_not_called()
 
 
-async def test_delete_permanently_purges_checkpoints_after_db_deletes(
+async def test_delete_permanently_deletes_threads_before_the_agent_row(
     service, mock_repo, mock_thread_service
 ):
-    """Checkpoint purge (non-rollbackable) must run after the agent row delete."""
+    """The agent row has FKs pointing at it from its threads, so the thread
+    delete has to land first."""
     agent = make_agent(is_archived=True)
-    mock_repo.get.return_value = agent
     mock_repo.list_with_permissions.return_value = [(agent, None)]
 
     manager = MagicMock()
-    manager.attach_mock(mock_repo.delete, "delete_agent")
-    manager.attach_mock(mock_thread_service.purge_checkpoints, "purge_checkpoints")
+    manager.attach_mock(mock_thread_service.delete_rows_for_agent, "delete_threads")
+    manager.attach_mock(mock_repo.delete_by_id, "delete_agent")
 
     await service.delete_permanently(agent.id, user_id=agent.owner_id)
 
     ordered = [name for name, _, _ in manager.mock_calls]
-    assert ordered.index("delete_agent") < ordered.index("purge_checkpoints")
+    assert ordered.index("delete_threads") < ordered.index("delete_agent")
 
 
 async def test_delete_permanently_denied_for_editor(
@@ -918,7 +906,7 @@ async def test_delete_permanently_denied_for_editor(
         await service.delete_permanently(agent.id, user_id=uuid4())
 
     mock_agent_mcp_repo.delete_all_for_agent.assert_not_called()
-    mock_repo.delete.assert_not_called()
+    mock_repo.delete_by_id.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -1291,7 +1279,6 @@ async def test_delete_permanently_cleans_team_links(
     service, mock_repo, mock_subagent_service
 ):
     agent = make_agent(is_archived=True)
-    mock_repo.get.return_value = agent
     mock_repo.list_with_permissions.return_value = [(agent, None)]
     mock_repo.delete_all_teams = AsyncMock()
 

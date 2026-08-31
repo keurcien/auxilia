@@ -1,8 +1,13 @@
-"""A real (SQLite) database for the agent-graph reads.
+"""A real (SQLite) database for the agent tables, shared by every `tests/agents`
+module.
 
 `get_run_spec`'s whole point is the *number* of round-trips it makes, and a
 mocked session can't tell you that — it only tells you what you told it to say.
 So these tests run against a real engine with a statement counter attached.
+The same goes for the whole-set-replace and bulk-delete paths (P3-5): a mocked
+session can only confirm the calls a test already knew to expect, which is why
+rewriting one to issue a single `DELETE ... WHERE` broke four tests without
+breaking any behaviour.
 
 Two accommodations make the Postgres schema loadable on SQLite:
 

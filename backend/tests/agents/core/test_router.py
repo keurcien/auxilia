@@ -271,15 +271,12 @@ def test_delete_agent(client: TestClient, mock_db, current_user):
         updated_at=datetime.now(),
     )
 
-    # One result serves both queries the delete makes: the gate's get_access
-    # row and get_or_404's scalar.
     mock_db.execute.return_value = make_result(
         scalar=agent, access=(agent.owner_id, None)
     )
 
     response = client.delete(f"/agents/{agent_id}")
     assert response.status_code == 204
-    assert agent.is_archived is True
 
 
 @pytest.mark.usefixtures("current_user")
@@ -337,7 +334,6 @@ def test_delete_agent_allows_workspace_admin(client: TestClient, mock_db, admin_
 
     response = client.delete(f"/agents/{agent.id}")
     assert response.status_code == 204
-    assert agent.is_archived is True
 
 
 def test_delete_agent_requires_auth(client: TestClient):
@@ -385,7 +381,6 @@ def test_restore_agent_as_owner(client: TestClient, mock_db, current_user):
 
     response = client.post(f"/agents/{agent.id}/restore")
     assert response.status_code == 200
-    assert agent.is_archived is False
 
 
 def test_restore_agent_requires_auth(client: TestClient):
@@ -417,6 +412,70 @@ def test_delete_agent_permanently_forbidden_for_non_manager(
 
     response = client.delete(f"/agents/{agent.id}/permanent")
     assert response.status_code == 403
+
+
+def test_delete_permanently_commits_before_purging_checkpoints(
+    client: TestClient, mock_db, current_user
+):
+    """Checkpoints live on a separate auto-committed connection and cannot be
+    rolled back, so they must be purged only once the row deletes are committed
+    — not merely flushed. Purging first meant a failed commit left an agent
+    whose entire history was irrecoverably gone (P1-9's residual, §5.5)."""
+    agent = AgentDB(
+        id=uuid4(),
+        name="Doomed",
+        instructions="...",
+        owner_id=current_user.id,
+        is_archived=True,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+    mock_db.execute.return_value = make_result(
+        access=(agent.owner_id, None), scalars_list=["t1"]
+    )
+
+    calls = MagicMock()
+    calls.attach_mock(mock_db.commit, "commit")
+    with patch("app.threads.service.get_checkpointer") as checkpointer:
+        checkpointer.return_value.__aenter__.return_value = MagicMock(
+            adelete_thread=AsyncMock()
+        )
+        calls.attach_mock(
+            checkpointer.return_value.__aenter__.return_value.adelete_thread, "purge"
+        )
+        response = client.delete(f"/agents/{agent.id}/permanent")
+
+    assert response.status_code == 204
+    ordered = [name for name, _, _ in calls.mock_calls]
+    assert "commit" in ordered and "purge" in ordered
+    assert ordered.index("commit") < ordered.index("purge")
+
+
+def test_delete_permanently_still_succeeds_when_the_purge_fails(
+    client: TestClient, mock_db, current_user
+):
+    """Past the commit the agent really is gone, so a purge failure must not
+    become a 500 the client would retry into a 404. The orphaned checkpoints are
+    logged instead."""
+    agent = AgentDB(
+        id=uuid4(),
+        name="Doomed",
+        instructions="...",
+        owner_id=current_user.id,
+        is_archived=True,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+    mock_db.execute.return_value = make_result(
+        access=(agent.owner_id, None), scalars_list=["t1"]
+    )
+
+    with patch("app.threads.service.get_checkpointer") as checkpointer:
+        checkpointer.return_value.__aenter__.side_effect = RuntimeError("redis gone")
+        response = client.delete(f"/agents/{agent.id}/permanent")
+
+    assert response.status_code == 204
+    mock_db.commit.assert_awaited()
 
 
 def make_count_result(total: int) -> MagicMock:

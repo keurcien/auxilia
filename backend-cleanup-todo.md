@@ -6,7 +6,7 @@ just the state. Task IDs are stable — reference them in commits and PR titles.
 
 **Status legend:** `[ ]` not started · `[~]` partly done · `[x]` done · `[!]` blocked
 
-Last updated: 2026-08-29
+Last updated: 2026-08-31
 
 ---
 
@@ -212,11 +212,12 @@ Last updated: 2026-08-29
       orphaned checkpoints, which is invisible and reclaimable.
       Covered by `test_delete_commits_the_row_before_purging_checkpoints` (verified to
       fail on the old ordering) plus a 403 test; the endpoint had **no** tests before.
-      *Residual, deliberately not expanded into:* `AgentService.delete_permanently`
-      purges after all DB deletes have *flushed* but still before the request commit, so
-      it keeps a narrower version of the same window. Its ordering is asserted by an
-      existing test and fixing it means committing mid-service, which changes that
-      method's contract — worth doing under P3-5 when that method is opened anyway
+      *Residual — closed under P3-5, 2026-08-31:* `AgentService.delete_permanently`
+      purged after all DB deletes had *flushed* but still before the request commit,
+      keeping a narrower version of the same window. It now returns the thread ids
+      instead (the same contract as `ThreadService.delete_rows_for_agent`) and
+      `DELETE /agents/{id}/permanent` commits, then purges, with the same
+      log-don't-500 guard the thread endpoint uses
 - [x] **P1-10** Slack: strong task references, Redis `SET NX EX` dedup (was per-process,
       so a retry on a second instance ran the agent twice), Optional-event guard.
       `app/integrations/slack/router.py` rewritten; 9 tests in
@@ -488,8 +489,82 @@ Last updated: 2026-08-29
       first — whether a failed revoke is surfaced to the admin, and whether user-facing
       disconnect does it too.
 
-- [ ] **P3-4** Exception handlers → status mapping + `root_cause` in the group branch
-- [ ] **P3-5** Bulk deletes, drop redundant refetches, `load_only` on the list query
+- [x] **P3-4** Exception handlers → status mapping + `root_cause` in the group branch.
+      Six near-identical handlers became one registration on `DomainError` —
+      Starlette's lookup walks the MRO, so the base class catches every subclass — with
+      the status coming from `STATUS: dict[type[DomainError], int]` in `app/exceptions.py`
+      and the body from the exception's own `body()`. The MRO walk in `status_for` is what
+      makes the table *partial*: `NoInviteError` and `StructuredOutputError` need no row
+      and inherit `DomainError`'s 500, which is what they get today. `body()` exists
+      because `ModelUnavailableError` is the one exception whose response is more than a
+      `detail` string, and an `isinstance` chain in the handler is exactly the
+      copy-paste being removed.
+      The group branch had to be **re-added**, which needs saying plainly: P3-3 deleted
+      the `ExceptionGroup` registration and left a test forbidding it. The old handler's
+      sin was owning the response for *every* group (a TaskGroup-wrapped `NotFoundError`
+      became a 500, §2.3); the new one re-dispatches a `DomainError` leaf via
+      `root_cause()` and **re-raises everything else**, so it can only preserve a status
+      the code already chose, never invent one. It cannot resurrect the global OAuth 401
+      either — `OAuthAuthorizationRequired` is not a `DomainError` — and a test raising a
+      wrapped one from an endpoint pins that it still 500s with no auth URL in the body.
+      The P3-3 guard was narrowed to what it actually protects (no OAuth handler) rather
+      than deleted.
+      **One trap, found by the tests and worth remembering**: registering on
+      `BaseExceptionGroup` imports cleanly and then 500s every route. It is not a
+      subclass of `Exception`, and Starlette asserts that while *building the middleware
+      stack* — which happens lazily, on the first request. `ExceptionGroup` is the right
+      key and loses nothing, since the middleware only catches `Exception` anyway.
+      `test_the_real_app_can_build_its_middleware_stack` now guards it.
+      Tests: `tests/test_exception_handlers.py` (14). They mirror the *real* app's
+      registration table into a one-route app rather than re-declaring it, so a handler
+      deleted from `main.py` fails them. Verified the group branch is load-bearing: with
+      it skipped, a wrapped `NotFoundError` is a 500
+- [x] **P3-5** Bulk deletes, drop redundant refetches, `load_only` on the list query.
+      Six select-then-delete-each loops became one `DELETE … WHERE` each
+      (`delete_all_permissions`, `delete_all_teams`, the two in `mcp_servers`, the
+      `or_`-both-directions one in `subagents`, `delete_all_for_sandbox`), and
+      `set_permissions`/`set_teams` now delegate to them instead of re-implementing the
+      loop. `set_permissions` also lost its `refresh` loop — one round-trip per grant to
+      read timestamps `AgentPermissionResponse` does not carry.
+      The mutation paths took the bigger cut. `require_permission` already proves the
+      agent exists and every mutation ends in a `get` that re-reads it, so the
+      `get_or_404` in between was fetching a row only `repository.update` looked at —
+      plus the `refresh` that ORM update did afterwards. Three new id-based repository
+      methods (`update_by_id`, `set_archived`, `delete_by_id`) replace it. **A one-column
+      PATCH went 8 → 6 statements and now reads the full agent row exactly once.**
+      `update_by_id` returns early on an empty patch, matching the ORM path: a PATCH
+      naming no fields must not bump `updated_at`, and a test pins that.
+      For §3.5 the review offered `load_only` *or* a separate `IN` query; `load_only` is
+      the smaller change and does the whole job. `list_with_permissions(slim=True)` loads
+      only the columns `AgentListResponse` renders, so `instructions` (tens of KB per
+      agent, repeated once per MCP binding by the join) and the bindings' per-tool JSONB
+      maps never leave the database. `AgentService.list` now *returns*
+      `AgentListResponse` — the narrowing is a narrower read, not a field hidden at
+      serialization time — and skips the sandbox query entirely, since that schema has no
+      `sandboxes` field. **The wire format is unchanged**: the router already declared
+      `response_model=list[AgentListResponse]`. Slack's picker was retyped with it (it
+      only reads id/name/emoji/permission).
+      The mechanism to know about: `model_dump()` on a `load_only`-ed instance silently
+      *omits* the deferred columns and does not emit a query — verified before relying on
+      it. That is what makes the slim path safe, and also why a slim row may only be
+      assembled into `AgentListResponse`: building an `AgentResponse` from one fails
+      validation instead of quietly N+1-ing.
+      Tests: `tests/agents/core/test_query_cost.py` (9, real engine) — the list never
+      selects `agents.instructions` or `agent_mcp_servers.tools`, never touches
+      `agent_sandboxes`, costs ≤4 statements for any number of agents, the detail read
+      still carries everything, and the PATCH/archive costs above. Plus real-engine
+      rewrites of the bulk-delete and whole-set-replace tests.
+      *Test debt paid down (P3-16)*: ~10 mock-mirror tests that asserted `db.delete` once
+      per row, counted `flush`es, or matched `repository.update(agent, patch)` broke on
+      this refactor without a single behaviour changing — the exact failure mode §6.2
+      describes. They were rewritten against the real engine, and
+      `tests/agents/core/conftest.py` moved up to `tests/agents/conftest.py` so every
+      agents module can reach the engine and statement counter.
+      *Rode along, because the method was open:* P1-9's residual (above) —
+      `delete_permanently` now hands its thread ids back and the router commits before
+      purging checkpoints, so a failed commit can no longer leave an agent whose history
+      is irrecoverably gone. Two router tests pin the ordering and that a failed purge
+      still answers 204
 - [ ] **P3-6** Typed event envelopes + `error_code` column + machine-readable HITL block ids
 - [ ] **P3-7** Thread reads into the service; O(1) subagent state; one history encoding; stable message ids
       **Found while doing P3-1, not fixed there — decide before closing P3-7:**

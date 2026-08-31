@@ -1,5 +1,6 @@
 from uuid import UUID
 
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -25,13 +26,8 @@ class AgentMCPServerRepository(BaseRepository[AgentMCPServerDB]):
         return list(result.scalars().all())
 
     async def delete_all_for_agent(self, agent_id: UUID) -> None:
-        stmt = select(AgentMCPServerDB).where(AgentMCPServerDB.agent_id == agent_id)
-        result = await self.db.execute(stmt)
-        links = result.scalars().all()
-        for link in links:
-            await self.db.delete(link)
-        if links:
-            await self.db.flush()
+        stmt = delete(AgentMCPServerDB).where(AgentMCPServerDB.agent_id == agent_id)
+        await self.db.execute(stmt)
 
     async def list_agents_for_server(self, server_id: UUID) -> list[AgentDB]:
         """Agents currently bound to the MCP server (for the delete-guard UI)."""
@@ -45,12 +41,7 @@ class AgentMCPServerRepository(BaseRepository[AgentMCPServerDB]):
         return list(result.scalars().all())
 
     async def delete_all_for_server(self, server_id: UUID) -> None:
-        stmt = select(AgentMCPServerDB).where(
+        stmt = delete(AgentMCPServerDB).where(
             AgentMCPServerDB.mcp_server_id == server_id
         )
-        result = await self.db.execute(stmt)
-        links = result.scalars().all()
-        for link in links:
-            await self.db.delete(link)
-        if links:
-            await self.db.flush()
+        await self.db.execute(stmt)

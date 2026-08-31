@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.core.service import AgentService
 from app.agents.models import AgentDB
-from app.agents.schemas import AgentResponse
+from app.agents.schemas import AgentListResponse
 from app.database import AsyncSessionLocal
 from app.integrations.slack.models import SlackInteractionPayload
 from app.integrations.slack.settings import slack_settings
@@ -35,7 +35,7 @@ async def list_pickable_agents(
     user_id: UUID,
     user_role: WorkspaceRole | None = None,
     user_team_id: UUID | None = None,
-) -> list[AgentResponse]:
+) -> list[AgentListResponse]:
     """Return the agents this user may pick, sorted by name."""
     all_agents = await AgentService(db).list(
         user_id=user_id, user_role=user_role, user_team_id=user_team_id
@@ -50,7 +50,7 @@ async def list_pickable_agents(
 # ---------------------------------------------------------------------------
 
 
-def _agent_option(agent: AgentResponse) -> dict:
+def _agent_option(agent: AgentListResponse) -> dict:
     return {
         "text": {
             "type": "plain_text",
@@ -61,7 +61,7 @@ def _agent_option(agent: AgentResponse) -> dict:
 
 
 def build_agent_picker_blocks(
-    agents: list[AgentResponse],
+    agents: list[AgentListResponse],
     *,
     header_text: str = DEFAULT_PICKER_HEADER,
 ) -> list[dict]:

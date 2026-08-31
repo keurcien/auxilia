@@ -1,6 +1,8 @@
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.core.service import AgentService, get_agent_service
 from app.agents.dependencies import require_agent_permission
@@ -29,11 +31,14 @@ from app.auth.dependencies import (
     require_admin,
     require_editor,
 )
+from app.database import get_db
 from app.pagination import Page, PageParams
 from app.threads.schemas import AgentThreadResponse
 from app.threads.service import ThreadService, get_thread_service
 from app.users.models import UserDB
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -146,13 +151,34 @@ async def delete_agent_permanently(
     agent_id: UUID,
     current_user: UserDB = Depends(get_current_user),
     service: AgentService = Depends(get_agent_service),
+    thread_service: ThreadService = Depends(get_thread_service),
+    db: AsyncSession = Depends(get_db),  # dependency-cached: the service's session
 ) -> None:
-    await service.delete_permanently(
+    thread_ids = await service.delete_permanently(
         agent_id,
         user_id=current_user.id,
         user_role=current_user.role,
         user_team_id=current_user.team_id,
     )
+    # Commit the DB deletes BEFORE purging checkpoints — the third transaction
+    # regime, for the reason `purge_checkpoints` documents. Checkpoints live on
+    # a separate auto-committed connection and cannot be rolled back, so purging
+    # while the deletes were merely flushed meant a failed commit left an agent
+    # whose entire history was irrecoverably gone. The other direction fails
+    # safe: orphaned checkpoints are invisible and reclaimable. Same shape as
+    # `DELETE /threads/{id}` (P1-9, design review §5.5).
+    await db.commit()
+    # Past the commit the agent is gone, so a purge failure must not become a
+    # 500 the client would retry into a 404.
+    try:
+        await thread_service.purge_checkpoints(thread_ids)
+    except Exception:
+        logger.exception(
+            "Agent %s was deleted but the checkpoints of its %d thread(s) could "
+            "not be purged; they are now orphaned",
+            agent_id,
+            len(thread_ids),
+        )
 
 
 @router.get(

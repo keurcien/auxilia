@@ -2,9 +2,10 @@ from collections import defaultdict
 from typing import NamedTuple
 from uuid import UUID
 
-from sqlalchemy import or_
+from sqlalchemy import delete, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlalchemy.orm import load_only
+from sqlmodel import SQLModel, select
 
 from app.agents.models import (
     AgentDB,
@@ -33,6 +34,34 @@ class AgentRepository(BaseRepository[AgentDB]):
     def __init__(self, db: AsyncSession):
         super().__init__(AgentDB, db)
 
+    #: The columns the list projection renders (`AgentListResponse`), plus
+    #: `tag_id`, which the service resolves into a `TagInfo`. Everything else
+    #: — `instructions` above all, which runs to tens of KB per agent and is
+    #: repeated once per MCP binding by the join — stays in the database
+    #: (design review §3.5).
+    LIST_COLUMNS = (
+        AgentDB.id,
+        AgentDB.name,
+        AgentDB.owner_id,
+        AgentDB.emoji,
+        AgentDB.color,
+        AgentDB.description,
+        AgentDB.is_archived,
+        AgentDB.tag_id,
+        AgentDB.created_at,
+        AgentDB.updated_at,
+    )
+
+    #: Same idea for the binding rows: `AgentMCPServerListResponse` identifies
+    #: the server and nothing else, so the per-tool JSONB maps stay put too.
+    LIST_BINDING_COLUMNS = (
+        AgentMCPServerDB.id,
+        AgentMCPServerDB.agent_id,
+        AgentMCPServerDB.mcp_server_id,
+        AgentMCPServerDB.created_at,
+        AgentMCPServerDB.updated_at,
+    )
+
     async def list_with_permissions(
         self,
         *,
@@ -42,8 +71,15 @@ class AgentRepository(BaseRepository[AgentDB]):
         agent_id: UUID | None = None,
         include_archived: bool = False,
         archived_only: bool = False,
+        slim: bool = False,
     ) -> list:
         """Join agent ↔ MCP links ↔ user permission ↔ team link in one shot.
+
+        ``slim`` loads only the columns the list projection renders. The rows
+        come back as the same ORM objects either way — a deferred column is
+        simply absent from ``model_dump()``, and reading one would emit a query,
+        which is why a slim row may only be assembled into
+        ``AgentListResponse``.
 
         When ``user_id`` is set and the user is not a workspace admin, the
         query includes a third tuple element: the user's permission row (or
@@ -71,6 +107,11 @@ class AgentRepository(BaseRepository[AgentDB]):
         stmt = select(*columns).outerjoin(
             AgentMCPServerDB, AgentDB.id == AgentMCPServerDB.agent_id
         )
+        if slim:
+            stmt = stmt.options(
+                load_only(*self.LIST_COLUMNS),
+                load_only(*self.LIST_BINDING_COLUMNS),
+            )
         if include_permissions:
             stmt = stmt.outerjoin(
                 AgentUserPermissionDB,
@@ -224,22 +265,62 @@ class AgentRepository(BaseRepository[AgentDB]):
             subagents=[to_spec(a) for a in subagent_rows],
         )
 
-    async def archive(self, agent: AgentDB) -> None:
-        agent.is_archived = True
-        self.db.add(agent)
-        await self.db.flush()
+    async def update_by_id(self, agent_id: UUID, data: SQLModel) -> None:
+        """Apply a patch to one agent without loading its row first.
 
-    async def restore(self, agent: AgentDB) -> None:
-        agent.is_archived = False
-        self.db.add(agent)
-        await self.db.flush()
+        Every mutation on `AgentService` is already preceded by
+        `require_permission`, which proves the row exists, and followed by a
+        `get`, which re-reads it in full. The ORM `update(db_obj, patch)` in
+        between therefore paid for a row nobody used — a `SELECT` to load it and
+        a `refresh` afterwards to re-read what the next `get` was about to read
+        anyway (design review §3.6).
+
+        An empty patch issues nothing, matching the ORM path: `sqlmodel_update({})`
+        leaves the instance clean, so no `UPDATE` — and no `updated_at` bump — is
+        emitted for a PATCH that names no fields.
+        """
+        values = data.model_dump(exclude_unset=True)
+        if not values:
+            return
+        stmt = update(AgentDB).where(AgentDB.id == agent_id).values(**values)
+        await self.db.execute(stmt)
+
+    async def set_archived(self, agent_id: UUID, *, archived: bool) -> None:
+        """Archive or restore, idempotently.
+
+        The `is_archived` predicate is not redundant: archiving is deliberately
+        repeatable (`AgentService.delete` passes `include_archived=True` so a
+        second delete does not 404), and without it a repeat would issue an
+        UPDATE whose only effect is bumping `updated_at` — which the agents list
+        renders. The ORM path this replaced got that for free, because
+        SQLAlchemy does not mark an attribute dirty when it is set to the value
+        it already holds.
+
+        The statement still goes out and simply matches no rows — one round-trip
+        the ORM path did not spend. Avoiding it would mean reading the row
+        first, which costs the same round-trip.
+
+        `update_by_id` deliberately does *not* do the same. Matching it there
+        would mean comparing against every current value, so the read this whole
+        change removed would come back, and a PATCH naming a field is an
+        explicit instruction to write it.
+        """
+        stmt = (
+            update(AgentDB)
+            .where(AgentDB.id == agent_id, AgentDB.is_archived != archived)
+            .values(is_archived=archived)
+        )
+        await self.db.execute(stmt)
+
+    async def delete_by_id(self, agent_id: UUID) -> None:
+        stmt = delete(AgentDB).where(AgentDB.id == agent_id)
+        await self.db.execute(stmt)
 
     async def delete_all_permissions(self, agent_id: UUID) -> None:
-        existing = await self.get_permissions(agent_id)
-        for perm in existing:
-            await self.db.delete(perm)
-        if existing:
-            await self.db.flush()
+        stmt = delete(AgentUserPermissionDB).where(
+            AgentUserPermissionDB.agent_id == agent_id
+        )
+        await self.db.execute(stmt)
 
     async def get_permissions(self, agent_id: UUID) -> list[AgentUserPermissionDB]:
         stmt = select(AgentUserPermissionDB).where(
@@ -251,10 +332,16 @@ class AgentRepository(BaseRepository[AgentDB]):
     async def set_permissions(
         self, agent_id: UUID, permissions: list[AgentPermissionCreate]
     ) -> list[AgentUserPermissionDB]:
-        existing = await self.get_permissions(agent_id)
-        for perm in existing:
-            await self.db.delete(perm)
-        await self.db.flush()
+        """Replace the agent's whole grant set.
+
+        Delete-then-insert rather than a diff: the payload *is* the new set, and
+        the sharing panel sends it whole. The rows carry nothing worth
+        preserving across a re-grant — no history, no created-by.
+
+        Deliberately no `refresh` loop after the flush: it cost one round-trip
+        per grant to read timestamps `AgentPermissionResponse` does not carry.
+        """
+        await self.delete_all_permissions(agent_id)
 
         new_permissions = [
             AgentUserPermissionDB(
@@ -264,11 +351,8 @@ class AgentRepository(BaseRepository[AgentDB]):
             )
             for p in permissions
         ]
-        for perm in new_permissions:
-            self.db.add(perm)
+        self.db.add_all(new_permissions)
         await self.db.flush()
-        for perm in new_permissions:
-            await self.db.refresh(perm)
         return new_permissions
 
     async def get_team_ids(self, agent_id: UUID) -> list[UUID]:
@@ -276,29 +360,18 @@ class AgentRepository(BaseRepository[AgentDB]):
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
-    async def _get_team_links(self, agent_id: UUID) -> list[AgentTeamDB]:
-        stmt = select(AgentTeamDB).where(AgentTeamDB.agent_id == agent_id)
-        result = await self.db.execute(stmt)
-        return list(result.scalars().all())
-
     async def delete_all_teams(self, agent_id: UUID) -> None:
-        existing = await self._get_team_links(agent_id)
-        for link in existing:
-            await self.db.delete(link)
-        if existing:
-            await self.db.flush()
+        stmt = delete(AgentTeamDB).where(AgentTeamDB.agent_id == agent_id)
+        await self.db.execute(stmt)
 
     async def set_teams(self, agent_id: UUID, team_ids: list[UUID]) -> list[UUID]:
-        existing = await self._get_team_links(agent_id)
-        for link in existing:
-            await self.db.delete(link)
-        await self.db.flush()
+        """Replace the agent's whole team set — see `set_permissions`."""
+        await self.delete_all_teams(agent_id)
 
         new_links = [
             AgentTeamDB(agent_id=agent_id, team_id=team_id)
             for team_id in dict.fromkeys(team_ids)
         ]
-        for link in new_links:
-            self.db.add(link)
+        self.db.add_all(new_links)
         await self.db.flush()
         return [link.team_id for link in new_links]
