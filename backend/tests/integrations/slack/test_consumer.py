@@ -145,6 +145,41 @@ async def test_consumer_posts_approval_blocks_on_interrupt(monkeypatch):
     assert "tool_reject" in action_ids
 
 
+async def test_approval_cards_carry_the_interrupt_id_block_id(monkeypatch):
+    """Each card is tied to the checkpoint's interrupt id via its block_id —
+    the key the batch-resume logic reads back (P3-6)."""
+    monkeypatch.setattr(
+        consumer_mod.RunService,
+        "stream",
+        _sse_stream('event: end\ndata: {"status": "interrupted"}\n\n'),
+    )
+
+    @asynccontextmanager
+    async def _checkpointer():
+        yield SimpleNamespace(aget_tuple=lambda config: _async(None))
+
+    monkeypatch.setattr(consumer_mod, "get_checkpointer", _checkpointer)
+    iid = "ab" * 16
+    monkeypatch.setattr(
+        consumer_mod,
+        "pending_interrupt",
+        lambda _cp: SimpleNamespace(id=iid, value={}),
+    )
+    monkeypatch.setattr(
+        consumer_mod,
+        "pending_approval_requests",
+        lambda _cp: [{"tool_call_id": "call_1", "tool_name": "t", "input": {}}],
+    )
+
+    consumer = SlackRunConsumer(_record(_slack_delivery()))
+    fake = _FakeClient()
+    consumer.client = fake
+    await consumer.run()
+
+    actions = next(b for b in fake.posts[0]["blocks"] if b.get("type") == "actions")
+    assert actions["block_id"] == f"hitl:{iid}:call_1"
+
+
 def _patch_run_get(monkeypatch, error: str | None):
     async def _get(self, run_id):
         return SimpleNamespace(error=error)

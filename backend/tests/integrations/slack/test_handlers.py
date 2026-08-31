@@ -40,7 +40,9 @@ async def test_approval_decision_round_trips_through_context_block():
     assert _extract_decision(msg) is None
 
     client = _RecordingClient()
-    await handlers_mod._update_approval_message(client, "C1", "111.1", blocks, True)
+    await handlers_mod._update_approval_message(
+        client, "C1", "111.1", blocks, "approve"
+    )
     updated = client.updated["blocks"]
 
     # Decision lands in a context block; the buttons are gone.
@@ -184,7 +186,9 @@ async def test_resume_agent_prompts_reconnect_when_mcp_unauthorized(monkeypatch)
     client, prompts, enqueued = _resume_fixture(monkeypatch, ready=False)
     payload = SimpleNamespace(user=SimpleNamespace(id="U1"), team=None)
 
-    await handlers_mod._resume_agent(client, payload, "C1", "111.1", ["approve"])
+    await handlers_mod._resume_agent(
+        client, payload, "C1", "111.1", {"resume": {"decisions": [{"type": "approve"}]}}
+    )
 
     assert prompts == ["a1"]
     assert enqueued == []
@@ -194,11 +198,17 @@ async def test_resume_agent_enqueues_resume_when_ready(monkeypatch):
     client, prompts, enqueued = _resume_fixture(monkeypatch, ready=True)
     payload = SimpleNamespace(user=SimpleNamespace(id="U1"), team={"id": "T1"})
 
-    await handlers_mod._resume_agent(client, payload, "C1", "111.1", ["approve"])
+    command = {
+        "resume": {
+            "interrupt_id": "ab" * 16,
+            "decisions": [{"tool_call_id": "call_1", "type": "approve"}],
+        }
+    }
+    await handlers_mod._resume_agent(client, payload, "C1", "111.1", command)
 
     assert prompts == []
     assert len(enqueued) == 1
-    assert enqueued[0]["command"] == {"resume": {"decisions": [{"type": "approve"}]}}
+    assert enqueued[0]["command"] == command
     assert enqueued[0]["team_id"] == "T1"
 
 
@@ -215,3 +225,228 @@ async def test_enqueue_swallows_active_run_conflict(monkeypatch):
         team_id=None,
         input={"messages": []},
     )
+
+
+# ---------------------------------------------------------------------------
+# Block-id protocol (P3-6): the card is tied to the checkpoint's interrupt id
+# ---------------------------------------------------------------------------
+
+IID = "ab" * 16
+OTHER_IID = "cd" * 16
+
+
+def _card(tool_call_id, iid=IID):
+    return {"blocks": build_tool_approval_blocks(tool_call_id, {}, interrupt_id=iid)}
+
+
+async def _decided_card(tool_call_id, decision, iid=IID):
+    client = _RecordingClient()
+    blocks = build_tool_approval_blocks(tool_call_id, {}, interrupt_id=iid)
+    await handlers_mod._update_approval_message(client, "C1", "1.1", blocks, decision)
+    return {"blocks": client.updated["blocks"]}
+
+
+def test_block_id_round_trips_the_decision():
+    blocks = build_tool_approval_blocks("call_1", {}, interrupt_id=IID)
+    actions = next(b for b in blocks if b["type"] == "actions")
+    assert handlers_mod._parse_hitl_block_id(actions["block_id"]) == (
+        IID,
+        "call_1",
+        None,
+    )
+    assert handlers_mod._card_interrupt_id(blocks) == IID
+
+
+async def test_decided_marker_carries_the_decision_in_its_block_id():
+    msg = await _decided_card("call_1", "approve")
+    marker = next(b for b in msg["blocks"] if b["type"] == "context")
+    assert handlers_mod._parse_hitl_block_id(marker["block_id"]) == (
+        IID,
+        "call_1",
+        "approve",
+    )
+    # The emoji is still there, but purely as presentation.
+    assert ":white_check_mark:" in _context_text(msg["blocks"])
+
+
+def test_parse_tolerates_colons_in_tool_call_ids():
+    assert handlers_mod._parse_hitl_block_id(f"hitl:{IID}:mcp:tool:1:reject") == (
+        IID,
+        "mcp:tool:1",
+        "reject",
+    )
+    assert handlers_mod._parse_hitl_block_id(f"hitl:{IID}:mcp:tool:1") == (
+        IID,
+        "mcp:tool:1",
+        None,
+    )
+    assert handlers_mod._parse_hitl_block_id("not-hitl") is None
+    assert handlers_mod._parse_hitl_block_id(None) is None
+
+
+async def test_addressed_batch_is_identified_not_guessed():
+    """An interleaved non-approval message and a card from an older interrupt
+    must not affect the batch — the contiguity heuristic did both wrong."""
+    interrupt = handlers_mod.PendingInterrupt(id=IID, value={})
+    requests = [
+        {"tool_call_id": "call_1", "tool_name": "a", "input": {}},
+        {"tool_call_id": "call_2", "tool_name": "b", "input": {}},
+    ]
+    messages = [
+        await _decided_card("call_9", "approve", iid=OTHER_IID),  # older batch
+        await _decided_card("call_1", "approve"),
+        {"text": "something went wrong, retry"},  # interleaved notice
+        await _decided_card("call_2", "reject"),
+    ]
+
+    command = handlers_mod._collect_batch_command(messages, interrupt, requests)
+
+    assert command == {
+        "resume": {
+            "interrupt_id": IID,
+            "decisions": [
+                {"tool_call_id": "call_1", "type": "approve"},
+                {"tool_call_id": "call_2", "type": "reject"},
+            ],
+        }
+    }
+
+
+async def test_addressed_batch_waits_while_a_card_is_pending():
+    interrupt = handlers_mod.PendingInterrupt(id=IID, value={})
+    requests = [
+        {"tool_call_id": "call_1", "tool_name": "a", "input": {}},
+        {"tool_call_id": "call_2", "tool_name": "b", "input": {}},
+    ]
+    messages = [await _decided_card("call_1", "approve"), _card("call_2")]
+    assert handlers_mod._collect_batch_command(messages, interrupt, requests) is None
+
+
+async def test_addressed_batch_with_a_vanished_card_never_resumes():
+    interrupt = handlers_mod.PendingInterrupt(id=IID, value={})
+    requests = [
+        {"tool_call_id": "call_1", "tool_name": "a", "input": {}},
+        {"tool_call_id": "call_2", "tool_name": "b", "input": {}},
+    ]
+    messages = [await _decided_card("call_1", "approve")]  # call_2's card deleted
+    assert handlers_mod._collect_batch_command(messages, interrupt, requests) is None
+
+
+def test_legacy_cards_fall_back_to_the_emoji_scan():
+    """Cards posted before the block-id protocol resume positionally."""
+    interrupt = handlers_mod.PendingInterrupt(id=IID, value={})
+    requests = [{"tool_call_id": "call_1", "tool_name": "a", "input": {}}]
+    legacy_decided = {
+        "blocks": [
+            {
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": ":white_check_mark: Approved"}],
+            }
+        ]
+    }
+    command = handlers_mod._collect_batch_command([legacy_decided], interrupt, requests)
+    assert command == {"resume": {"decisions": [{"type": "approve"}]}}
+
+
+def _interaction_payload(blocks):
+    return SimpleNamespace(
+        actions=[SimpleNamespace(action_id="tool_approve", value="call_1")],
+        container=SimpleNamespace(
+            channel_id="C1", thread_ts="111.1", message_ts="222.2"
+        ),
+        channel=None,
+        message=SimpleNamespace(blocks=blocks),
+        user=SimpleNamespace(id="U1"),
+        team=None,
+    )
+
+
+async def test_stale_click_marks_the_card_and_never_resumes(monkeypatch):
+    """A click on a card whose interrupt was already resolved elsewhere (web,
+    another batch) must not resume whatever the thread pends on now."""
+    resumed: list = []
+
+    async def _no_state(thread_id):
+        return None  # nothing pending on the checkpoint
+
+    async def _resume(*args, **kwargs):
+        resumed.append(args)
+
+    monkeypatch.setattr(handlers_mod, "_pending_hitl_state", _no_state)
+    monkeypatch.setattr(handlers_mod, "_resume_agent", _resume)
+    updates: list = []
+
+    async def _update(client, channel_id, message_ts, blocks, decision):
+        updates.append(decision)
+
+    monkeypatch.setattr(handlers_mod, "_update_approval_message", _update)
+
+    await handlers_mod.handle_interaction(
+        _interaction_payload(_card("call_1")["blocks"])
+    )
+
+    assert updates == ["stale"]
+    assert resumed == []
+
+
+async def test_click_on_an_older_batch_card_is_stale(monkeypatch):
+    """A *different* interrupt pends: the old card is marked, the new batch
+    is untouched."""
+
+    async def _state(thread_id):
+        return (
+            handlers_mod.PendingInterrupt(id=OTHER_IID, value={}),
+            [{"tool_call_id": "call_7", "tool_name": "t", "input": {}}],
+        )
+
+    resumed: list = []
+
+    async def _resume(*args, **kwargs):
+        resumed.append(args)
+
+    updates: list = []
+
+    async def _update(client, channel_id, message_ts, blocks, decision):
+        updates.append(decision)
+
+    monkeypatch.setattr(handlers_mod, "_pending_hitl_state", _state)
+    monkeypatch.setattr(handlers_mod, "_resume_agent", _resume)
+    monkeypatch.setattr(handlers_mod, "_update_approval_message", _update)
+
+    await handlers_mod.handle_interaction(
+        _interaction_payload(_card("call_1")["blocks"])
+    )
+
+    assert updates == ["stale"]
+    assert resumed == []
+
+
+async def test_resume_agent_reports_a_lost_race_as_already_handled(monkeypatch):
+    """`RunService.create` is the stale backstop; the Slack thread hears about
+    it instead of failing silently."""
+    from app.exceptions import StaleApprovalError
+
+    client, _prompts, _enqueued = _resume_fixture(monkeypatch, ready=True)
+
+    async def _stale_enqueue(**kwargs):
+        raise StaleApprovalError("already handled")
+
+    posts: list = []
+
+    async def _post(**kwargs):
+        posts.append(kwargs)
+
+    monkeypatch.setattr(handlers_mod, "_enqueue_slack_run", _stale_enqueue)
+    client.chat_postMessage = _post
+    payload = SimpleNamespace(user=SimpleNamespace(id="U1"), team=None)
+
+    await handlers_mod._resume_agent(
+        client,
+        payload,
+        "C1",
+        "111.1",
+        {"resume": {"interrupt_id": IID, "decisions": []}},
+    )
+
+    assert len(posts) == 1
+    assert "already handled" in posts[0]["text"].lower()

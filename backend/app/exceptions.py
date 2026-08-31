@@ -57,6 +57,17 @@ class StructuredOutputError(DomainError):
     """A run with an output schema failed to produce a valid structured response."""
 
 
+class StaleApprovalError(DomainError):
+    """A HITL resume addressed an interrupt that is no longer pending — the
+    thread moved on, usually because the approval was already handled from
+    another surface (web vs Slack, a second tab). Mapped to a 409 with a
+    machine-readable body so clients can tell it apart from
+    `ModelUnavailableError`, the other 409 on the run-create path."""
+
+    def body(self) -> dict[str, Any]:
+        return {"error": "stale_interrupt", "detail": self.detail}
+
+
 class ModelUnavailableError(DomainError):
     """The thread/trigger model can't be used right now: not in the whitelist,
     provider key missing, or disabled by a workspace admin. Mapped to a 409
@@ -90,6 +101,7 @@ STATUS: dict[type[DomainError], int] = {
     PermissionDeniedError: 403,
     InvalidCredentialsError: 401,
     ModelUnavailableError: 409,
+    StaleApprovalError: 409,
     DomainError: 500,
 }
 

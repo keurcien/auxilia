@@ -14,6 +14,7 @@ from contextlib import suppress
 
 from sqlalchemy.exc import IntegrityError
 
+from app.agents.hitl import pending_interrupt
 from app.agents.runs.control import RunControl
 from app.agents.runs.delivery import DeliveryFactory
 from app.agents.runs.events import BufferedEventPublisher, RunEventStream
@@ -29,7 +30,6 @@ from app.database import AsyncSessionLocal, get_checkpointer
 from app.exceptions import root_cause
 from app.mcp.client.exceptions import as_oauth_required
 from app.threads.models import ThreadDB
-from app.threads.serialization import pending_interrupt
 
 
 logger = logging.getLogger(__name__)

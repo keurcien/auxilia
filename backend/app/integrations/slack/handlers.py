@@ -11,10 +11,19 @@ from slack_sdk.web.async_client import AsyncWebClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.core.service import AgentService
+from app.agents.hitl import (
+    PendingInterrupt,
+    pending_approval_requests,
+    pending_interrupt,
+)
 from app.agents.runs.service import RunService
 from app.auth.settings import auth_settings
-from app.database import AsyncSessionLocal
-from app.exceptions import DomainValidationError, ModelUnavailableError
+from app.database import AsyncSessionLocal, get_checkpointer
+from app.exceptions import (
+    DomainValidationError,
+    ModelUnavailableError,
+    StaleApprovalError,
+)
 from app.integrations.slack.blocks import build_connect_prompt_blocks
 from app.integrations.slack.commands.chat import (
     build_agent_picker_blocks,
@@ -66,8 +75,75 @@ async def _enqueue_slack_run(
 
 
 # ---------------------------------------------------------------------------
-# Approval-message introspection  (stateless — reads from the thread itself)
+# Approval-message introspection  (stateless — reads from the thread itself,
+# keyed by the checkpoint's interrupt id via each card's block_id)
 # ---------------------------------------------------------------------------
+
+#: Marker text per decision — presentation only. The machine-readable copy of
+#: the decision lives in the marker's block_id; nothing reads these emoji back
+#: except the legacy scan over cards posted before the block-id protocol.
+_DECISION_MARKERS = {
+    "approve": ":white_check_mark: Approved",
+    "reject": ":no_entry_sign: Rejected",
+    "stale": ":information_source: Already handled elsewhere",
+}
+
+
+def _parse_hitl_block_id(block_id: object) -> tuple[str, str, str | None] | None:
+    """``hitl:<interrupt_id>:<tool_call_id>[:<decision>]`` → its parts, or None.
+
+    The decision suffix is split off only when it is a known marker key, so a
+    tool_call_id that itself contains ``:`` cannot be misread as decided.
+    """
+    if not isinstance(block_id, str) or not block_id.startswith("hitl:"):
+        return None
+    interrupt_id, _, rest = block_id[len("hitl:") :].partition(":")
+    if not interrupt_id or not rest:
+        return None
+    head, sep, tail = rest.rpartition(":")
+    if sep and tail in _DECISION_MARKERS:
+        return interrupt_id, head, tail
+    return interrupt_id, rest, None
+
+
+def _card_interrupt_id(blocks: list[dict]) -> str | None:
+    """The interrupt id a still-pending card was posted for, or None (legacy card)."""
+    for block in blocks or []:
+        if block.get("type") == "actions":
+            parsed = _parse_hitl_block_id(block.get("block_id"))
+            if parsed:
+                return parsed[0]
+    return None
+
+
+def _addressed_cards(
+    messages: list[dict], interrupt_id: str
+) -> tuple[dict[str, str], bool]:
+    """(decided ``{tool_call_id: decision}``, any_pending) among the cards tagged
+    with this interrupt id.
+
+    Identity, not adjacency: an interleaved notice (a failure message, the
+    "View in auxilia" link) can't truncate the batch, and cards left over from
+    an older interrupt are ignored rather than miscounted.
+    """
+    decided: dict[str, str] = {}
+    any_pending = False
+    for msg in messages:
+        for block in msg.get("blocks", []):
+            parsed = _parse_hitl_block_id(block.get("block_id"))
+            if not parsed or parsed[0] != interrupt_id:
+                continue
+            _, tool_call_id, decision = parsed
+            if block.get("type") == "actions" and decision is None:
+                any_pending = True
+            elif decision in ("approve", "reject"):
+                decided[tool_call_id] = decision
+    return decided, any_pending
+
+
+# --- Legacy scan (cards posted before the block-id protocol carried no id;
+# --- their decisions live only in the marker emoji). Delete once pre-block-id
+# --- pending approvals have drained.
 
 
 def _is_pending(msg: dict) -> bool:
@@ -136,28 +212,85 @@ def _collect_batch_decisions(thread_messages: list[dict]) -> list[str] | None:
     return commands or None
 
 
+async def _pending_hitl_state(
+    thread_id: str,
+) -> tuple[PendingInterrupt, list[dict]] | None:
+    """The pending interrupt and its approval requests, from the checkpoint.
+
+    The checkpoint is the source of truth for "this thread is waiting on
+    approvals" — it is what makes a card clicked days later still resumable,
+    and what exposes a card whose interrupt was already resolved elsewhere.
+    """
+    async with get_checkpointer() as checkpointer:
+        checkpoint = await checkpointer.aget_tuple(
+            config={"configurable": {"thread_id": thread_id}}
+        )
+    interrupt = pending_interrupt(checkpoint)
+    if interrupt is None:
+        return None
+    return interrupt, pending_approval_requests(checkpoint)
+
+
+def _collect_batch_command(
+    thread_messages: list[dict],
+    interrupt: PendingInterrupt,
+    requests: list[dict],
+) -> dict | None:
+    """The resume command for the pending interrupt, once every card is decided.
+
+    Prefers the addressed protocol — cards tagged ``hitl:<interrupt_id>:…`` —
+    and builds the addressed resume (`interrupt_id` + tool-call-keyed
+    decisions) that `RunService.create` validates and orders against the
+    checkpoint. Threads whose cards predate block ids fall back to the legacy
+    emoji scan and the positional resume shape. Returns None while any card
+    is undecided, or when a card vanished and the batch can't complete —
+    the web UI remains the escape hatch either way.
+    """
+    if interrupt.id is not None:
+        decided, any_pending = _addressed_cards(thread_messages, interrupt.id)
+        if decided or any_pending:
+            if any_pending:
+                return None
+            expected = [r["tool_call_id"] for r in requests]
+            if not set(expected) <= set(decided):
+                return None
+            return {
+                "resume": {
+                    "interrupt_id": interrupt.id,
+                    "decisions": [
+                        {"tool_call_id": tc, "type": decided[tc]} for tc in expected
+                    ],
+                }
+            }
+    commands = _collect_batch_decisions(thread_messages)
+    if commands is None:
+        return None
+    return {"resume": {"decisions": [{"type": c} for c in commands]}}
+
+
 async def _update_approval_message(
     client: AsyncWebClient,
     channel_id: str,
     message_ts: str,
     blocks: list[dict],
-    approved: bool,
+    decision: str,
 ) -> None:
     """Record the decision: drop the buttons and append a status context block.
 
     The card no longer carries a tool-name header (the streamed label above it
     already shows it), so the decision marker lives in its own `context` block.
-    That block is load-bearing, not cosmetic: the stateless batch-resume logic
-    (`_extract_decision`) recovers each card's decision by reading this emoji
-    back from the thread.
+    The marker's ``block_id`` (the actions block's id plus a ``:<decision>``
+    suffix) is what the batch-resume logic reads back; the emoji is
+    presentation. A legacy card has no id to carry over — its emoji stays
+    load-bearing for the legacy scan until those cards drain.
     """
-    status_emoji = ":white_check_mark:" if approved else ":no_entry_sign:"
-    status_label = "Approved" if approved else "Rejected"
-
-    marker = {
+    marker: dict = {
         "type": "context",
-        "elements": [{"type": "mrkdwn", "text": f"{status_emoji} {status_label}"}],
+        "elements": [{"type": "mrkdwn", "text": _DECISION_MARKERS[decision]}],
     }
+    actions = next((b for b in blocks if b.get("type") == "actions"), None)
+    if actions is not None and isinstance(actions.get("block_id"), str):
+        marker["block_id"] = f"{actions['block_id']}:{decision}"
     # Replace the Approve/Reject buttons in place with the decision marker, so it
     # sits where the buttons were (above the trailing divider). A card that's
     # already decided has no actions block to replace, so it's left untouched.
@@ -167,7 +300,7 @@ async def _update_approval_message(
         channel=channel_id,
         ts=message_ts,
         blocks=updated_blocks,
-        text=status_label,
+        text=_DECISION_MARKERS[decision].split(" ", 1)[1],
     )
 
 
@@ -349,9 +482,12 @@ async def handle_message(event: SlackEvent, *, team_id: str | None = None) -> No
 async def handle_interaction(payload: SlackInteractionPayload) -> None:
     """Handle a Slack block_actions interaction (Approve/Reject buttons).
 
-    Uses ``conversations.replies`` to derive approval state from the thread
-    itself — no external state store needed. The agent is resumed (via a new
-    durable run) only once every pending tool call has been decided.
+    Approval state is derived from the thread itself (``conversations.replies``)
+    and arbitrated by the checkpoint's pending interrupt — no external state
+    store, no TTL, so a card clicked days later still works. The agent is
+    resumed (via a new durable run) only once every card of the pending batch
+    has been decided; a click on a card whose interrupt was already resolved
+    elsewhere marks the card as handled and never resumes.
     """
     if not payload.actions:
         return
@@ -366,25 +502,45 @@ async def handle_interaction(payload: SlackInteractionPayload) -> None:
         return
 
     client = AsyncWebClient(token=slack_settings.slack_bot_token)
+    original_blocks = payload.message.blocks if payload.message else []
+
+    # The checkpoint arbitrates: which interrupt is pending, and is the
+    # clicked card part of it? A card for a resolved interrupt (approved from
+    # the web, an older batch) is marked, not counted.
+    state = await _pending_hitl_state(thread_ts)
+    card_interrupt_id = _card_interrupt_id(original_blocks)
+    stale = state is None or (
+        card_interrupt_id is not None
+        and state[0].id is not None
+        and card_interrupt_id != state[0].id
+    )
+    if stale:
+        if message_ts:
+            await _update_approval_message(
+                client, channel_id, message_ts, original_blocks, "stale"
+            )
+        return
 
     # Update the clicked message: buttons → status label
     if message_ts:
-        original_blocks = payload.message.blocks if payload.message else []
         await _update_approval_message(
             client,
             channel_id,
             message_ts,
             original_blocks,
-            approved,
+            "approve" if approved else "reject",
         )
 
-    # Check whether the latest batch of approvals is fully decided
-    commands = await _fetch_and_resolve_decisions(client, channel_id, thread_ts)
-    if commands is None:
+    # Check whether the pending batch is fully decided
+    interrupt, requests = state
+    command = await _fetch_and_resolve_command(
+        client, channel_id, thread_ts, interrupt, requests
+    )
+    if command is None:
         return
 
     # All decided — resume the agent via a new run
-    await _resume_agent(client, payload, channel_id, thread_ts, commands)
+    await _resume_agent(client, payload, channel_id, thread_ts, command)
 
 
 def _extract_interaction_context(
@@ -403,18 +559,20 @@ def _extract_interaction_context(
     return channel_id, thread_ts, message_ts
 
 
-async def _fetch_and_resolve_decisions(
+async def _fetch_and_resolve_command(
     client: AsyncWebClient,
     channel_id: str,
     thread_ts: str,
-) -> list[str] | None:
-    """Fetch thread replies and return decisions if the latest batch is complete."""
+    interrupt: PendingInterrupt,
+    requests: list[dict],
+) -> dict | None:
+    """Fetch thread replies and build the resume command if the batch is complete."""
     result = await client.conversations_replies(
         channel=channel_id,
         ts=thread_ts,
     )
     thread_messages = result.get("messages", [])
-    return _collect_batch_decisions(thread_messages)
+    return _collect_batch_command(thread_messages, interrupt, requests)
 
 
 async def _resume_agent(
@@ -422,9 +580,9 @@ async def _resume_agent(
     payload: SlackInteractionPayload,
     channel_id: str,
     thread_ts: str,
-    commands: list[str],
+    command: dict,
 ) -> None:
-    """Look up the thread and enqueue a HITL-resume run with *commands*."""
+    """Look up the thread and enqueue a HITL-resume run with *command*."""
     user = await resolve_user(payload.user.id)
     if not user:
         return
@@ -452,7 +610,16 @@ async def _resume_agent(
             channel_id=channel_id,
             slack_user_id=payload.user.id,
             team_id=(payload.team or {}).get("id"),
-            command={"resume": {"decisions": [{"type": cmd} for cmd in commands]}},
+            command=command,
+        )
+    except StaleApprovalError:
+        # Lost the race with another surface between the checkpoint check in
+        # `handle_interaction` and the enqueue — `RunService.create` is the
+        # backstop. Nothing to resume; say so instead of failing silently.
+        await client.chat_postMessage(
+            channel=channel_id,
+            thread_ts=thread_ts,
+            text="This approval was already handled elsewhere.",
         )
     except ModelUnavailableError as exc:
         # The approval buttons stay in the thread and decisions are re-derived

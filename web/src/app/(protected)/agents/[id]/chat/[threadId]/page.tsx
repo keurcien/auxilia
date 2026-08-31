@@ -451,6 +451,9 @@ const ChatPage = () => {
   const [rehydratedInterrupt, setRehydratedInterrupt] = useState(false);
   const [rehydratedInterruptValue, setRehydratedInterruptValue] =
     useState<unknown>(null);
+  const [rehydratedInterruptId, setRehydratedInterruptId] = useState<
+    string | null
+  >(null);
   // A failed last run leaves no trace in the checkpoint, so the live stream's
   // error state is lost on reload. Restored from the run record (which
   // persists the error text) when the thread's lastRunStatus says it failed.
@@ -517,6 +520,7 @@ const ChatPage = () => {
     (input, opts) => {
       setRehydratedInterrupt(false);
       setRehydratedInterruptValue(null);
+      setRehydratedInterruptId(null);
       setRehydratedError(null);
       rehydratedErrorStale.current = true;
       return rawSubmit(input, opts);
@@ -558,6 +562,16 @@ const ChatPage = () => {
     }
   }, [error]);
 
+  // A 409 stale_interrupt means this view resumed an approval that was
+  // already handled elsewhere (another tab, Slack). The checkpoint is the
+  // truth — reload so the thread renders its actual state instead of the
+  // stale cards.
+  useEffect(() => {
+    if (error instanceof globalThis.Error && error.name === "StaleInterruptError") {
+      window.location.reload();
+    }
+  }, [error]);
+
   // The way back without a page refresh: re-read the server-computed flag
   // (the banner's "Check again") so an admin re-enabling the model unlocks
   // the thread in place.
@@ -582,6 +596,14 @@ const ChatPage = () => {
       extractHitlToolNames(rehydratedInterruptValue)
     );
   }, [interrupt, rehydratedInterruptValue]);
+
+  // The pending interrupt's stable id (from the live SSE payload, or the
+  // thread read after a refresh). Echoed back on resume so a stale approval
+  // — already handled from another surface — is a 409, not a resume of
+  // whatever the thread is paused on now.
+  const interruptId =
+    (interrupt as { id?: string } | null | undefined)?.id ??
+    rehydratedInterruptId;
 
   // Tool calls: use stream tool calls when streaming, else compute from messages
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -729,6 +751,7 @@ const ChatPage = () => {
 
   const { decisions, recordDecision } = useHitlApprovals({
     isInterrupted,
+    interruptId: interruptId ?? null,
     pendingToolCalls,
     submit: (input, opts) => {
       void submit(input, opts);
@@ -827,6 +850,7 @@ const ChatPage = () => {
         if (data.interruptValue !== undefined) {
           setRehydratedInterruptValue(data.interruptValue);
         }
+        setRehydratedInterruptId((data.interruptId as string | undefined) ?? null);
       }
 
       // If a run is still in flight for this thread, reattach to its live

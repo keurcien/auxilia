@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.core.service import AgentService, get_agent_service
+from app.agents.hitl import pending_interrupt
 from app.agents.models import EffectivePermission
 from app.agents.stream import _serialize_lc_message
 from app.agents.structured_output import is_structured_output_artifact
@@ -13,7 +14,7 @@ from app.exceptions import PermissionDeniedError
 from app.pagination import Page, PageParams
 from app.threads.models import ThreadDB, ThreadSource
 from app.threads.schemas import ThreadCreate, ThreadPatch, ThreadResponse, ViewerRole
-from app.threads.serialization import deserialize_to_ui_messages, pending_interrupt
+from app.threads.serialization import deserialize_to_ui_messages
 from app.threads.service import ThreadService, get_thread_service
 from app.users.models import UserDB
 
@@ -89,14 +90,18 @@ async def read_thread(
         if (structured := channel_values.get("structured_response")) is not None:
             values["structured_response"] = structured
 
-        interrupt_value = pending_interrupt(checkpoint_tuple)
+        interrupt = pending_interrupt(checkpoint_tuple)
 
         return {
             "messages": deserialize_to_ui_messages(lc_messages),
             "values": values,
             "thread": thread_read,
-            "interrupted": interrupt_value is not None,
-            "interrupt_value": interrupt_value,
+            "interrupted": interrupt is not None,
+            "interrupt_value": interrupt.value if interrupt else None,
+            # The stable id of the pending interrupt (recomputed from the
+            # checkpoint). Clients echo it back when resuming so a stale
+            # approval is a 409, not a resume of whatever pends now.
+            "interrupt_id": interrupt.id if interrupt else None,
             "viewer_role": viewer_role,
         }
 

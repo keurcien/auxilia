@@ -14,6 +14,7 @@ import logging
 from redis.asyncio import Redis
 from slack_sdk.web.async_client import AsyncWebClient
 
+from app.agents.hitl import pending_approval_requests, pending_interrupt
 from app.agents.runs.delivery import DeliveryConsumer
 from app.agents.runs.models import RunDB
 from app.agents.runs.service import RunService
@@ -28,7 +29,6 @@ from app.integrations.slack.blocks import (
 )
 from app.integrations.slack.settings import slack_settings
 from app.threads.models import ThreadDB
-from app.threads.serialization import pending_approval_requests
 
 
 logger = logging.getLogger(__name__)
@@ -186,9 +186,13 @@ class SlackRunConsumer(DeliveryConsumer):
             checkpoint = await checkpointer.aget_tuple(
                 config={"configurable": {"thread_id": self.record.thread_id}}
             )
+        interrupt = pending_interrupt(checkpoint)
+        interrupt_id = interrupt.id if interrupt else None
         for request in pending_approval_requests(checkpoint):
             blocks = build_tool_approval_blocks(
-                request["tool_call_id"], request["input"]
+                request["tool_call_id"],
+                request["input"],
+                interrupt_id=interrupt_id,
             )
             await self.client.chat_postMessage(
                 channel=channel_id,
