@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.4](https://github.com/keurcien/auxilia/compare/web-v0.6.3...web-v0.6.4) (2026-08-31)
+
+
+### Bug Fixes
+
+* **backend:** Phase 3 — permission gate, MCP auth dispatch, explicit OAuth ([#304](https://github.com/keurcien/auxilia/issues/304)) ([d246094](https://github.com/keurcien/auxilia/commit/d2460947d4d94bd9e80ee3c5ff3c4d7139e03e5a))
+
 ## [0.6.3](https://github.com/keurcien/auxilia/compare/web-v0.6.2...web-v0.6.3) (2026-08-28)
 
 

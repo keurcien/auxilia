@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.4](https://github.com/keurcien/auxilia/compare/backend-v0.5.3...backend-v0.5.4) (2026-08-31)
+
+
+### Bug Fixes
+
+* **backend:** CI, type checking, and Phase 0 cleanup ([#297](https://github.com/keurcien/auxilia/issues/297)) ([50018b1](https://github.com/keurcien/auxilia/commit/50018b1e5998f80740b5e43142f4effb90f126d0))
+* **backend:** Phase 1 hot path & stability ([#299](https://github.com/keurcien/auxilia/issues/299)) ([2679c41](https://github.com/keurcien/auxilia/commit/2679c4164b8e91bda2863a43625e4cbf3df6d34d))
+* **backend:** Phase 3 — permission gate, MCP auth dispatch, explicit OAuth ([#304](https://github.com/keurcien/auxilia/issues/304)) ([d246094](https://github.com/keurcien/auxilia/commit/d2460947d4d94bd9e80ee3c5ff3c4d7139e03e5a))
+
+
+### Code Refactoring
+
+* **agents:** unify the runtime on create_agent with an explicit middleware stack ([#303](https://github.com/keurcien/auxilia/issues/303)) ([0bab267](https://github.com/keurcien/auxilia/commit/0bab2674701d44617359ad0bc071b1c482003911))
+
 ## [0.5.3](https://github.com/keurcien/auxilia/compare/backend-v0.5.2...backend-v0.5.3) (2026-08-28)
 
 
