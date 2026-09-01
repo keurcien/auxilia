@@ -263,20 +263,20 @@ def _collect_batch_command(
     vanished and the batch can't complete — the web UI remains the escape
     hatch either way.
 
-    ``allow_legacy`` is True only when the *clicked* card predates block ids:
-    then the legacy emoji scan and the positional resume shape apply. It must
-    stay off for an id-tagged click — the emoji scan cannot tell which
-    interrupt an untagged decided card answered, so falling back there could
-    replay an **older batch's** decisions onto the current interrupt.
+    The legacy emoji scan applies only when **both** the clicked card predates
+    block ids (``allow_legacy``) and the pending interrupt itself carries no
+    id: an untagged decided card cannot prove which interrupt it answered, so
+    once the checkpoint identifies the interrupt, resuming it from unprovable
+    cards could replay an **older batch's** decisions onto it — the exact bug
+    the block-id protocol exists to kill. Those clicks are answered with a
+    pointer to the web UI in `handle_interaction` instead.
     """
     if interrupt.id is not None:
         decided, any_pending = _addressed_cards(thread_messages, interrupt.id)
-        if decided or any_pending:
-            if any_pending:
-                return None
-            expected = [r["tool_call_id"] for r in requests]
-            if not set(expected) <= set(decided):
-                return None
+        if any_pending:
+            return None
+        expected = [r["tool_call_id"] for r in requests]
+        if decided and set(expected) <= set(decided):
             return {
                 "resume": {
                     "interrupt_id": interrupt.id,
@@ -285,6 +285,9 @@ def _collect_batch_command(
                     ],
                 }
             }
+        # An identifiable interrupt with no complete tagged batch: nothing
+        # here is safe to resume, whatever legacy cards the thread holds.
+        return None
     if not allow_legacy:
         return None
     commands = _collect_batch_decisions(thread_messages)
@@ -548,6 +551,23 @@ async def handle_interaction(payload: SlackInteractionPayload) -> None:
             )
         return
 
+    interrupt, requests = state
+    if card_interrupt_id is None and interrupt.id is not None:
+        # A pre-block-id card clicked against an interrupt the checkpoint can
+        # identify: nothing proves this card answers it, so never mark it or
+        # resume from it — the buttons stay, and the web UI (which verifies
+        # every resume against the checkpoint) takes over.
+        await client.chat_postMessage(
+            channel=channel_id,
+            thread_ts=thread_ts,
+            text=(
+                "This approval card predates an update and can't be matched "
+                "to the pending request — please approve or reject it from "
+                "auxilia."
+            ),
+        )
+        return
+
     # Update the clicked message: buttons → status label
     if message_ts:
         await _update_approval_message(
@@ -559,7 +579,6 @@ async def handle_interaction(payload: SlackInteractionPayload) -> None:
         )
 
     # Check whether the pending batch is fully decided
-    interrupt, requests = state
     command = await _fetch_and_resolve_command(
         client,
         channel_id,

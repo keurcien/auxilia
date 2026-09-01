@@ -354,8 +354,10 @@ async def test_addressed_batch_with_a_vanished_card_never_resumes():
 
 
 def test_legacy_cards_fall_back_to_the_emoji_scan():
-    """Cards posted before the block-id protocol resume positionally."""
-    interrupt = handlers_mod.PendingInterrupt(id=IID, value={})
+    """Cards posted before the block-id protocol resume positionally — but
+    only while the checkpoint's interrupt is id-less too, so the scan can't
+    be replaying decisions onto an identifiable interrupt they may not answer."""
+    interrupt = handlers_mod.PendingInterrupt(id=None, value={})
     requests = [{"tool_call_id": "call_1", "tool_name": "a", "input": {}}]
     legacy_decided = {
         "blocks": [
@@ -369,6 +371,71 @@ def test_legacy_cards_fall_back_to_the_emoji_scan():
         [legacy_decided], interrupt, requests, allow_legacy=True
     )
     assert command == {"resume": {"decisions": [{"type": "approve"}]}}
+
+
+def test_legacy_scan_never_touches_an_identifiable_interrupt():
+    """cubic P1 (round 2): even a legacy *click* (allow_legacy=True) must not
+    resume an id-bearing interrupt from emoji-scanned cards — same-size older
+    batches would be replayed onto it positionally."""
+    interrupt = handlers_mod.PendingInterrupt(id=IID, value={})
+    requests = [{"tool_call_id": "call_1", "tool_name": "a", "input": {}}]
+    legacy_decided = {
+        "blocks": [
+            {
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": ":white_check_mark: Approved"}],
+            }
+        ]
+    }
+    assert (
+        handlers_mod._collect_batch_command(
+            [legacy_decided], interrupt, requests, allow_legacy=True
+        )
+        is None
+    )
+
+
+async def test_legacy_click_on_identifiable_interrupt_points_to_the_web_ui(
+    monkeypatch,
+):
+    """A pre-block-id card against an interrupt the checkpoint identifies:
+    unprovable — the card keeps its buttons and the user is sent to the web."""
+
+    async def _state(thread_id):
+        return (
+            handlers_mod.PendingInterrupt(id=IID, value={}),
+            [{"tool_call_id": "call_1", "tool_name": "t", "input": {}}],
+        )
+
+    resumed: list = []
+    updates: list = []
+    posts: list = []
+
+    async def _resume(*args, **kwargs):
+        resumed.append(args)
+
+    async def _update(*args, **kwargs):
+        updates.append(args)
+
+    async def _post(**kwargs):
+        posts.append(kwargs)
+
+    monkeypatch.setattr(handlers_mod, "_pending_hitl_state", _state)
+    monkeypatch.setattr(handlers_mod, "_resume_agent", _resume)
+    monkeypatch.setattr(handlers_mod, "_update_approval_message", _update)
+    monkeypatch.setattr(
+        handlers_mod.AsyncWebClient,
+        "chat_postMessage",
+        lambda self, **kwargs: _post(**kwargs),
+    )
+
+    legacy_blocks = build_tool_approval_blocks("call_1", {})  # no interrupt_id
+    await handlers_mod.handle_interaction(_interaction_payload(legacy_blocks))
+
+    assert resumed == []
+    assert updates == []  # buttons stay — the card is never marked
+    assert len(posts) == 1
+    assert "auxilia" in posts[0]["text"]
 
 
 async def test_id_tagged_click_never_falls_back_to_the_emoji_scan():
@@ -395,7 +462,7 @@ async def test_id_tagged_click_never_falls_back_to_the_emoji_scan():
 def test_legacy_scan_requires_the_decision_count_to_match():
     """A legacy batch whose size disagrees with the pending requests answers
     some other batch — never resume with it."""
-    interrupt = handlers_mod.PendingInterrupt(id=IID, value={})
+    interrupt = handlers_mod.PendingInterrupt(id=None, value={})
     requests = [
         {"tool_call_id": "call_1", "tool_name": "a", "input": {}},
         {"tool_call_id": "call_2", "tool_name": "b", "input": {}},

@@ -215,6 +215,16 @@ def test_malformed_decisions_are_a_400_not_a_typeerror(decisions):
         build_resume_command(_two_call_checkpoint(), resume)
 
 
+@pytest.mark.parametrize("decisions", [{}, 0, "", False, None])
+def test_falsy_non_list_decisions_hit_the_type_check(decisions):
+    """cubic P3 (round 2): `or []` used to coerce falsy non-lists into "no
+    decisions supplied", yielding the misleading coverage error instead of
+    the type error."""
+    resume = {"interrupt_id": INTERRUPT_ID, "decisions": decisions}
+    with pytest.raises(DomainValidationError, match="must be a list"):
+        build_resume_command(_two_call_checkpoint(), resume)
+
+
 def test_extra_decision_fields_survive_for_edit_and_respond():
     ai = AIMessage(
         content="",

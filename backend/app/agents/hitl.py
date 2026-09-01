@@ -138,7 +138,9 @@ def build_resume_command(
     if pending.id is not None and resume.get("interrupt_id") != pending.id:
         raise StaleApprovalError("This approval request was already handled.")
 
-    decisions = resume.get("decisions") or []
+    # No `or []`: a falsy non-list ({}, 0, "", explicit null) must reach the
+    # type check and fail loudly, not coerce into "no decisions supplied".
+    decisions = resume.get("decisions", [])
     if not isinstance(decisions, list):
         raise DomainValidationError("`decisions` must be a list.")
     supplied: dict[str, dict[str, Any]] = {}
