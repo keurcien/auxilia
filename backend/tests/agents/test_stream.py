@@ -216,6 +216,39 @@ async def test_slack_subagent_messages_are_skipped():
     assert events == []
 
 
+# ── LangGraph adapter values trimming ─────────────────────────────────────
+
+
+async def test_values_events_strip_the_deepagents_files_dict():
+    """`values` snapshots re-send the whole graph state every superstep; the
+    deepagents virtual filesystem can be megabytes and no stream consumer
+    reads it, so the adapter must drop it — while keeping the channels the
+    web client does read (`messages`, `todos`, `__interrupt__`)."""
+    events = [
+        (
+            "values",
+            {
+                "messages": [HumanMessage(content="hi", id="user-msg-1")],
+                "todos": [{"content": "step 1", "status": "pending"}],
+                "files": {"notes.md": "x" * 10_000},
+            },
+        )
+    ]
+    sse = [
+        s
+        async for s in LangGraphStreamAdapter(subgraphs=False).stream(
+            _async_gen(events)
+        )
+    ]
+
+    assert len(sse) == 1
+    [(event, data)] = decode_sse_blocks(sse[0])
+    assert event == "values"
+    assert "files" not in data
+    assert data["todos"] == [{"content": "step 1", "status": "pending"}]
+    assert [m["id"] for m in data["messages"]] == ["user-msg-1"]
+
+
 # ── LangGraph adapter error events (what the run record persists) ────────
 
 
