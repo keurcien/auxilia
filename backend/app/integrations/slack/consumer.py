@@ -10,6 +10,7 @@ enqueues the run (see `router.py`).
 """
 
 import logging
+from typing import Final, Literal, TypedDict, cast
 
 from redis.asyncio import Redis
 from slack_sdk.web.async_client import AsyncWebClient
@@ -33,7 +34,24 @@ from app.threads.models import ThreadDB
 
 logger = logging.getLogger(__name__)
 
-SLACK_CHANNEL = "slack"
+# Final, so mypy sees Literal["slack"] and the SlackDelivery construction checks.
+SLACK_CHANNEL: Final = "slack"
+
+
+class SlackDelivery(TypedDict):
+    """The delivery descriptor stored on a Slack-bound run (`RunDB.delivery`).
+
+    Written by `build_slack_delivery`, read back as JSONB — the shape is a
+    contract between the enqueue path and this consumer, so it is a TypedDict
+    rather than an opaque dict: mistype a key on either side and mypy fails
+    instead of a KeyError mid-delivery.
+    """
+
+    channel: Literal["slack"]
+    channel_id: str
+    thread_ts: str
+    slack_user_id: str
+    team_id: str | None
 
 
 def build_slack_run_consumer(record: RunDB) -> "SlackRunConsumer | None":
@@ -46,8 +64,8 @@ def build_slack_run_consumer(record: RunDB) -> "SlackRunConsumer | None":
 
 def build_slack_delivery(
     *, channel_id: str, thread_ts: str, slack_user_id: str, team_id: str | None
-) -> dict:
-    """The opaque delivery descriptor stored on a Slack-bound run."""
+) -> SlackDelivery:
+    """The delivery descriptor stored on a Slack-bound run."""
     return {
         "channel": SLACK_CHANNEL,
         "channel_id": channel_id,
@@ -62,7 +80,9 @@ class SlackRunConsumer(DeliveryConsumer):
 
     def __init__(self, record: RunDB, redis: Redis | None = None):
         self.record = record
-        self.delivery = record.delivery or {}
+        # The factory only builds this consumer for a record whose delivery
+        # carries channel == "slack", so the JSONB dict is a SlackDelivery.
+        self.delivery = cast(SlackDelivery, record.delivery or {})
         self.redis = redis
         self.client = AsyncWebClient(token=slack_settings.slack_bot_token)
 
@@ -88,19 +108,26 @@ class SlackRunConsumer(DeliveryConsumer):
             status,
             text_chars,
         )
-        if status == RunStatus.interrupted.value:
+        if status is None:
+            # No recognizable terminal status (an unknown status from a newer
+            # producer, or a stream that ended without an end event): the
+            # streaming message is already stopped, so say *something* rather
+            # than leaving the thread hanging. `cancelled` stays silent below
+            # on purpose — the user stopped the run themselves.
+            await self._post_failure_notice(channel_id, thread_ts)
+        elif status is RunStatus.interrupted:
             await self._post_approvals(channel_id, thread_ts)
-        elif status == RunStatus.success.value:
+        elif status is RunStatus.success:
             await self._post_auxilia_link(channel_id, thread_ts)
         elif status in (
-            RunStatus.error.value,
-            RunStatus.timeout.value,
+            RunStatus.error,
+            RunStatus.timeout,
         ) and not await self._post_reauth_prompt_if_gated(channel_id, thread_ts):
             await self._post_failure_notice(channel_id, thread_ts)
 
     async def _stream_to_slack(
         self, channel_id: str, thread_ts: str
-    ) -> tuple[str | None, int]:
+    ) -> tuple[RunStatus | None, int]:
         """Relay the event log into a Slack streaming message.
 
         Returns the run's terminal status and how many characters of text were
@@ -115,25 +142,26 @@ class SlackRunConsumer(DeliveryConsumer):
             recipient_user_id=self.delivery.get("slack_user_id"),
         )
         adapter = SlackStreamAdapter()
-        status: str | None = None
+        status: RunStatus | None = None
         text_chars = 0
         try:
             async for event in adapter.stream(
                 RunService(self.redis).stream(self.record.id)
             ):
-                kind = event["type"]
-                if kind == "text":
+                # Tagged-union dispatch: comparing the Literal tag narrows the
+                # event, so each branch's field reads are type-checked.
+                if event["type"] == "text":
                     text_chars += len(event["content"])
                     await streamer.append(markdown_text=event["content"])
-                elif kind == "tool_start":
+                elif event["type"] == "tool_start":
                     await streamer.append(
                         markdown_text=format_tool_streamer_label(event["tool_name"])
                     )
-                elif kind == "error":
+                elif event["type"] == "error":
                     await streamer.append(
                         markdown_text=f"**`Error: {event['content']}`**\n\n"
                     )
-                elif kind == "end":
+                elif event["type"] == "end":
                     status = event["status"]
         finally:
             await streamer.stop()

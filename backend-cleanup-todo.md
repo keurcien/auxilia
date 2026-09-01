@@ -6,7 +6,7 @@ just the state. Task IDs are stable — reference them in commits and PR titles.
 
 **Status legend:** `[ ]` not started · `[~]` partly done · `[x]` done · `[!]` blocked
 
-Last updated: 2026-08-31
+Last updated: 2026-09-01
 
 ---
 
@@ -565,7 +565,36 @@ Last updated: 2026-08-31
       purging checkpoints, so a failed commit can no longer leave an agent whose history
       is irrecoverably gone. Two router tests pin the ordering and that a failed purge
       still answers 204
-- [ ] **P3-6** Typed event envelopes + `error_code` column + machine-readable HITL block ids
+- [~] **P3-6** Typed event envelopes + `error_code` column + machine-readable HITL block ids.
+      **HITL third done** (PR #307, merged 2026-09-01) — and keyed on the checkpoint's
+      `Interrupt.id` rather than an invented id: new leaf module `app/agents/hitl.py`
+      (moved out of `threads/serialization.py`, id no longer discarded), addressed
+      resume canonicalized + stale-checked in `RunService.create`
+      (`StaleApprovalError` → 409 `{"error": "stale_interrupt"}`), Slack `block_id`
+      protocol `hitl:<interrupt_id>:<tool_call_id>[:<decision>]` with the emoji
+      demoted to presentation, web echoes the id. The legacy emoji scan survives
+      only for id-less checkpoints and pre-deploy cards — delete it (and the
+      positional-resume acceptance) once those drain. Design + status:
+      `hitl-durability-assessment.md`.
+      **Typed-envelopes third done** (2026-09-01, uncommitted): `SlackStreamEvent`
+      tagged union in `app/agents/stream.py` (text / tool_start / error / end,
+      with `end.status` parsed into `RunStatus` — an unknown status from a newer
+      producer degrades to `None`/generic notice, never a crash); `SlackDelivery`
+      TypedDict shared by `build_slack_delivery` and the consumer;
+      `MultitaskStrategy` Literal shared by column, schema and service; consumer
+      dispatch narrowed by the Literal tag and compared as enum members, no
+      `.value` strings. Both `app.agents.stream` and
+      `app.integrations.slack.consumer` sit outside the mypy ratchet exemptions,
+      so the contracts are enforced (first run caught `SLACK_CHANNEL` needing
+      `Final`). Encoder↔decoder pinned by a round-trip test against
+      `events.end_sentinel`. **Deliberately not done:** §1.3's fuller "store
+      typed JSON in Redis, SSE-encode at the HTTP edge" — that changes the event
+      log format (reattach + rolling-deploy hazard) for no additional checking;
+      the one decode of our own SSE lives beside its encoder in
+      `app/agents/stream.py`, contract-tested, and no `app/integrations` code
+      parses SSE.
+      **Still open:** the `RunDB.error_code` column (+ one nullable-VARCHAR
+      migration) replacing exact-string `MCP_REAUTH_ERROR` matching
 - [ ] **P3-7** Thread reads into the service; O(1) subagent state; one history encoding; stable message ids
       **Found while doing P3-1, not fixed there — decide before closing P3-7:**
       `POST /threads` takes an `agent_id` from the body and checks nothing, and the

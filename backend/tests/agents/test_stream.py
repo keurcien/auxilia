@@ -1,5 +1,7 @@
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 
+from app.agents.runs.events import end_sentinel
+from app.agents.runs.state import RunStatus
 from app.agents.stream import (
     LangGraphStreamAdapter,
     SlackStreamAdapter,
@@ -164,11 +166,35 @@ async def test_slack_tool_message_content_is_not_streamed():
 
 
 async def test_slack_end_event_carries_status():
-    """The terminal sentinel is surfaced as an `end` event with its status."""
+    """The terminal sentinel is surfaced as an `end` event whose status is the
+    parsed `RunStatus` member (P3-6 typed envelopes) — consumers dispatch on
+    the enum, never on `.value` strings. Pinned with `is`, since the str-enum
+    would also `==` its raw string."""
     sentinel = 'event: end\ndata: {"status": "interrupted"}\n\n'
     events = await _collect(SlackStreamAdapter().stream(_async_gen([sentinel])))
 
-    assert events == [{"type": "end", "status": "interrupted"}]
+    assert events == [{"type": "end", "status": RunStatus.interrupted}]
+    assert events[0]["status"] is RunStatus.interrupted
+
+
+async def test_slack_end_event_round_trips_the_producers_sentinel():
+    """Encoder↔decoder contract: the exact chunk `events.end_sentinel` publishes
+    (the one producer) decodes back to the same `RunStatus` — the two sides
+    live in different modules and must not drift."""
+    events = await _collect(
+        SlackStreamAdapter().stream(_async_gen([end_sentinel(RunStatus.success)]))
+    )
+    assert events == [{"type": "end", "status": RunStatus.success}]
+
+
+async def test_slack_end_event_with_unknown_status_is_none():
+    """A status this build doesn't know (a newer producer mid-deploy) must not
+    crash the delivery — it surfaces as `None`, which falls through to the
+    generic failure notice rather than a wrong affordance."""
+    sentinel = 'event: end\ndata: {"status": "brand-new-status"}\n\n'
+    events = await _collect(SlackStreamAdapter().stream(_async_gen([sentinel])))
+
+    assert events == [{"type": "end", "status": None}]
 
 
 async def test_slack_error_event():

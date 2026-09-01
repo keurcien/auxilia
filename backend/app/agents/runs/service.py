@@ -26,7 +26,7 @@ from app.agents.runs.liveness import RunLiveness
 from app.agents.runs.models import RunDB
 from app.agents.runs.repository import RunRepository
 from app.agents.runs.settings import run_settings
-from app.agents.runs.state import RunStatus, is_terminal
+from app.agents.runs.state import MultitaskStrategy, RunStatus, is_terminal
 from app.database import AsyncSessionLocal, get_checkpointer
 from app.exceptions import DomainValidationError, NotFoundError
 from app.model_providers.service import ModelService
@@ -53,7 +53,7 @@ class RunService:
         config_overrides: dict | None = None,
         output_schema: dict | None = None,
         delivery: dict | None = None,
-        multitask_strategy: str = "reject",
+        multitask_strategy: MultitaskStrategy = "reject",
     ) -> RunDB:
         """Create a pending run. Caller has already authorized the thread.
 

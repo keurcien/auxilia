@@ -1,10 +1,9 @@
 from datetime import datetime
-from typing import Literal
 
 from pydantic import BaseModel
 
 from app.agents.runs.models import RunDB
-from app.agents.runs.state import RunStatus
+from app.agents.runs.state import MultitaskStrategy, RunStatus
 
 
 class RunCreate(BaseModel):
@@ -17,7 +16,7 @@ class RunCreate(BaseModel):
     input: dict | None = None
     command: dict | None = None
     config: dict | None = None
-    multitask_strategy: Literal["reject", "enqueue"] = "reject"
+    multitask_strategy: MultitaskStrategy = "reject"
 
 
 class RunResponse(BaseModel):
