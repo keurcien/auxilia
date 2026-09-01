@@ -135,6 +135,29 @@ class RunEventStream:
                 ended = True
         return cursor, chunks, ended
 
+    async def read_batch_with_ids(
+        self, cursor: str, *, block_ms: int = 15000
+    ) -> tuple[str, list[tuple[str, str, bool]], bool] | None:
+        """Like `read_batch`, but each chunk keeps its stream entry id:
+        `(new_cursor, [(entry_id, chunk, is_end)], ended)`. The protocol
+        facade derives stable per-event replay cursors (`event_id`/`seq`)
+        from the entry ids, so it needs them alongside the payloads."""
+        result = await self.redis.xread({self._key: cursor}, block=block_ms, count=100)
+        if not result:
+            return None
+        _, entries = result[0]
+        chunks: list[tuple[str, str, bool]] = []
+        ended = False
+        for entry_id, fields in entries:
+            cursor = entry_id
+            is_end = bool(fields.get(_END))
+            data = fields.get(_DATA)
+            if data is not None:
+                chunks.append((entry_id, data, is_end))
+            if is_end:
+                ended = True
+        return cursor, chunks, ended
+
     async def subscribe(
         self, last_event_id: str = "0", *, block_ms: int = 15000
     ) -> AsyncGenerator[str, None]:
