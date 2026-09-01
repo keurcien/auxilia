@@ -108,7 +108,14 @@ class SlackRunConsumer(DeliveryConsumer):
             status,
             text_chars,
         )
-        if status is RunStatus.interrupted:
+        if status is None:
+            # No recognizable terminal status (an unknown status from a newer
+            # producer, or a stream that ended without an end event): the
+            # streaming message is already stopped, so say *something* rather
+            # than leaving the thread hanging. `cancelled` stays silent below
+            # on purpose — the user stopped the run themselves.
+            await self._post_failure_notice(channel_id, thread_ts)
+        elif status is RunStatus.interrupted:
             await self._post_approvals(channel_id, thread_ts)
         elif status is RunStatus.success:
             await self._post_auxilia_link(channel_id, thread_ts)

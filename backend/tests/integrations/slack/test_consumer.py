@@ -250,5 +250,25 @@ async def test_consumer_posts_failure_notice_when_stream_crashes(monkeypatch):
     assert any("something went wrong" in p["text"].lower() for p in fake.posts)
 
 
+async def test_unknown_terminal_status_posts_the_failure_notice(monkeypatch):
+    """cubic P2 on #308: an end sentinel this build can't parse (a newer
+    producer mid-deploy) must not leave the thread with only a stopped
+    streaming message — `None` dispatches to the generic failure notice."""
+    monkeypatch.setattr(
+        consumer_mod.RunService,
+        "stream",
+        _sse_stream('event: end\ndata: {"status": "brand-new-status"}\n\n'),
+    )
+
+    consumer = SlackRunConsumer(_record(_slack_delivery()))
+    fake = _FakeClient()
+    consumer.client = fake
+    await consumer.run()
+
+    assert fake.streamer.stopped
+    assert len(fake.posts) == 1
+    assert "something went wrong" in fake.posts[0]["text"]
+
+
 async def _async(value):
     return value
