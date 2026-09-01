@@ -104,37 +104,48 @@ def build_connect_prompt_blocks(connect_url: str) -> list[dict]:
 def build_tool_approval_blocks(
     tool_call_id: str,
     tool_input: dict,
+    interrupt_id: str | None = None,
 ) -> list[dict]:
     """Build Block Kit blocks for a tool approval request with Approve/Reject buttons.
 
     The tool name is intentionally *not* repeated here: the streamed tool label
     (`format_tool_streamer_label`) already shows it immediately above this card,
     so a header would be redundant.
+
+    The actions block carries a machine-readable ``block_id``
+    (``hitl:<interrupt_id>:<tool_call_id>``) that ties the card to the
+    checkpoint interrupt it answers — that id, not the card's position in the
+    thread, is what the batch-resume logic keys on. `interrupt_id` is None
+    only when the checkpoint didn't round-trip one; the card then falls back
+    to the legacy emoji-scanned protocol.
     """
+    actions_block: dict = {
+        "type": "actions",
+        "elements": [
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Approve"},
+                "style": "primary",
+                "action_id": "tool_approve",
+                "value": tool_call_id,
+            },
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Reject"},
+                "style": "danger",
+                "action_id": "tool_reject",
+                "value": tool_call_id,
+            },
+        ],
+    }
+    if interrupt_id is not None:
+        actions_block["block_id"] = f"hitl:{interrupt_id}:{tool_call_id}"
     return [
         {
             "type": "section",
             "text": {"type": "mrkdwn", "text": _format_tool_input(tool_input)},
         },
-        {
-            "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "Approve"},
-                    "style": "primary",
-                    "action_id": "tool_approve",
-                    "value": tool_call_id,
-                },
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "Reject"},
-                    "style": "danger",
-                    "action_id": "tool_reject",
-                    "value": tool_call_id,
-                },
-            ],
-        },
+        actions_block,
         {
             "type": "divider",
         },

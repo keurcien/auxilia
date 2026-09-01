@@ -97,6 +97,16 @@ export function useDurableRun(threadId: string): DurableRun {
           err.name = "ModelUnavailableError";
           throw err;
         }
+        if (body?.error === "stale_interrupt") {
+          // The addressed approval was already handled from another surface
+          // (another tab, Slack). The page reloads on this error so the
+          // thread re-renders its actual checkpoint state.
+          const err = new Error(
+            body.detail ?? "This approval was already handled elsewhere.",
+          );
+          err.name = "StaleInterruptError";
+          throw err;
+        }
       }
       const runId = response.headers.get("X-Run-Id");
       if (runId) runIdRef.current = runId;

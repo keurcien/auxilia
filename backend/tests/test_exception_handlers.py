@@ -22,6 +22,7 @@ from app.exceptions import (
     NoInviteError,
     NotFoundError,
     PermissionDeniedError,
+    StaleApprovalError,
     StructuredOutputError,
     status_for,
 )
@@ -60,6 +61,7 @@ def _client(exc: BaseException) -> TestClient:
         (PermissionDeniedError("nope"), 403),
         (InvalidCredentialsError("wrong password"), 401),
         (ModelUnavailableError("gpt-9", "not whitelisted"), 409),
+        (StaleApprovalError("already handled"), 409),
         (DomainError("something broke"), 500),
     ],
 )
@@ -79,6 +81,18 @@ def test_a_subclass_with_no_row_inherits_its_parents_status(exc: DomainError):
     get `DomainError`'s 500 if one ever escapes."""
     assert status_for(exc) == 500
     assert _client(exc).get("/boom").status_code == 500
+
+
+def test_stale_approval_keeps_its_machine_readable_body():
+    """The other 409 on the run-create path: clients branch on `error` to tell
+    "this approval was already handled" from `model_unavailable`."""
+    response = _client(StaleApprovalError("already handled elsewhere")).get("/boom")
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "error": "stale_interrupt",
+        "detail": "already handled elsewhere",
+    }
 
 
 def test_model_unavailable_keeps_its_machine_readable_body():

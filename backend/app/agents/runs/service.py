@@ -18,6 +18,7 @@ from uuid import UUID
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.hitl import build_resume_command, is_addressed_resume
 from app.agents.runs import keys
 from app.agents.runs.control import RunControl
 from app.agents.runs.events import RunEventStream, end_sentinel
@@ -26,7 +27,7 @@ from app.agents.runs.models import RunDB
 from app.agents.runs.repository import RunRepository
 from app.agents.runs.settings import run_settings
 from app.agents.runs.state import RunStatus, is_terminal
-from app.database import AsyncSessionLocal
+from app.database import AsyncSessionLocal, get_checkpointer
 from app.exceptions import DomainValidationError, NotFoundError
 from app.model_providers.service import ModelService
 from app.redis_client import get_redis
@@ -75,6 +76,8 @@ class RunService:
         """
         if input is not None and command is not None:
             raise DomainValidationError("Provide either input or command, not both.")
+        if command is not None:
+            command = await self._canonical_command(thread_id, command)
         # Warm the whitelist cache before taking a pooled connection: on a
         # cold/expired catalog cache the CDN fetch can take seconds, and it
         # must not hold a DB session (pool exhaustion under load).
@@ -105,6 +108,27 @@ class RunService:
             )
             await db.commit()
         return run
+
+    @staticmethod
+    async def _canonical_command(thread_id: str, command: dict) -> dict:
+        """Resolve an addressed HITL resume against the thread's checkpoint.
+
+        An addressed resume (``{"resume": {"interrupt_id": ..., "decisions":
+        [...]}}``) is validated and ordered here — while still inside the
+        initiating context, so a stale approval surfaces as a 409 to whoever
+        clicked instead of failing a background run — and stored in its
+        canonical, replayable form (`hitl.build_resume_command`). Anything
+        else passes through untouched: the legacy positional resume, or a
+        replayed canonical command. Runs before any DB session opens, so the
+        checkpoint read never holds a pooled connection.
+        """
+        if not is_addressed_resume(command.get("resume")):
+            return command
+        async with get_checkpointer() as checkpointer:
+            checkpoint = await checkpointer.aget_tuple(
+                config={"configurable": {"thread_id": thread_id}}
+            )
+        return build_resume_command(checkpoint, command["resume"])
 
     @staticmethod
     async def _ensure_runnable_thread(db: AsyncSession, thread_id: str) -> None:

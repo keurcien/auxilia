@@ -142,6 +142,7 @@ auxilia/
 │   │   │   ├── runtime.py             # Agent runtime — Agent.build / .stream / .invoke (LangGraph)
 │   │   │   ├── stream.py              # AI SDK SSE & Slack stream adapters
 │   │   │   ├── toolset.py             # Tool binding for the agent
+│   │   │   ├── hitl.py                # HITL state from the checkpoint — pending interrupt id/requests + resume canonicalization
 │   │   │   ├── tool_errors.py         # ToolException middleware
 │   │   │   ├── router.py              # /agents endpoints (unified)
 │   │   │   ├── models.py              # AgentDB, AgentMCPServerDB, permissions, subagent links
