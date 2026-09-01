@@ -45,6 +45,7 @@ coverage.xml
 # next.js
 .next/
 .next-demo/
+.next-mem/
 out/
 
 # production
