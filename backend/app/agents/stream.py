@@ -9,12 +9,13 @@ import dataclasses
 import json
 import logging
 from collections.abc import AsyncGenerator, AsyncIterator
-from typing import Any
+from typing import Any, Literal, TypedDict
 
 from langchain_core.messages import BaseMessage
 from langgraph.errors import GraphRecursionError
 from langgraph.types import Overwrite
 
+from app.agents.runs.state import RunStatus
 from app.exceptions import root_cause
 
 
@@ -272,15 +273,52 @@ def _chunk_text(content: Any) -> str:
     return ""
 
 
+class TextEvent(TypedDict):
+    """A user-visible text delta from the AI message stream."""
+
+    type: Literal["text"]
+    content: str
+
+
+class ToolStartEvent(TypedDict):
+    """A tool call began (emitted once per tool_call_id)."""
+
+    type: Literal["tool_start"]
+    tool_call_id: str
+    tool_name: str
+
+
+class ErrorEvent(TypedDict):
+    """The run emitted an error event; `content` is the message."""
+
+    type: Literal["error"]
+    content: str
+
+
+class EndEvent(TypedDict):
+    """The run's terminal event. `status` is None when the sentinel carried
+    an unknown status (a newer producer during a rolling deploy)."""
+
+    type: Literal["end"]
+    status: RunStatus | None
+
+
+#: The typed envelope a delivery consumer dispatches on. A tagged union, so
+#: `event["type"] == "text"` narrows for the type checker — misspell a tag or
+#: read a field off the wrong variant and mypy fails instead of a KeyError in
+#: the Slack worker.
+SlackStreamEvent = TextEvent | ToolStartEvent | ErrorEvent | EndEvent
+
+
 class SlackStreamAdapter:
-    """Adapts the run's LangGraph SSE event log to typed Slack event dicts.
+    """Adapts the run's LangGraph SSE event log to typed `SlackStreamEvent`s.
 
     Reads the same byte-identical SSE the HTTP `/runs/stream` consumer relays
-    (so the worker publishes one canonical format) and yields:
-    - {"type": "text", "content": "..."}
-    - {"type": "tool_start", "tool_call_id": "...", "tool_name": "..."}
-    - {"type": "error", "content": "..."}
-    - {"type": "end", "status": "success" | "interrupted" | ...}
+    (so the worker publishes one canonical format) and yields the
+    `SlackStreamEvent` union — the decode of our own SSE happens here, in the
+    module that also *encodes* it (`_encode_lg_sse` / `decode_sse_blocks`),
+    never in a delivery consumer. The `end` status is parsed into `RunStatus`
+    so consumers compare enum members, not `.value` strings.
 
     Only top-level (non-namespaced) `messages` events are surfaced — subagent
     tokens stream under a `messages|<ns>` event and are intentionally skipped.
@@ -294,24 +332,28 @@ class SlackStreamAdapter:
 
     async def stream(
         self, sse_stream: AsyncIterator[str]
-    ) -> AsyncGenerator[dict[str, Any], None]:
+    ) -> AsyncGenerator[SlackStreamEvent, None]:
         async for sse in sse_stream:
             for event, data in decode_sse_blocks(sse):
                 for out in self._process(event, data):
                     yield out
 
-    def _process(self, event: str, data: Any) -> list[dict[str, Any]]:
+    def _process(self, event: str, data: Any) -> list[SlackStreamEvent]:
         if event == "messages":
             return self._process_message(data)
         if event == "error":
             message = data.get("message") if isinstance(data, dict) else str(data)
-            return [{"type": "error", "content": message or "Unknown error"}]
+            return [ErrorEvent(type="error", content=message or "Unknown error")]
         if event == "end":
-            status = data.get("status") if isinstance(data, dict) else None
-            return [{"type": "end", "status": status}]
+            raw = data.get("status") if isinstance(data, dict) else None
+            try:
+                status: RunStatus | None = RunStatus(raw)
+            except ValueError:
+                status = None
+            return [EndEvent(type="end", status=status)]
         return []
 
-    def _process_message(self, data: Any) -> list[dict[str, Any]]:
+    def _process_message(self, data: Any) -> list[SlackStreamEvent]:
         """Turn a top-level `messages` event ([chunk, metadata]) into events."""
         if not isinstance(data, list) or not data:
             return []
@@ -325,16 +367,18 @@ class SlackStreamAdapter:
         if chunk.get("type") not in ("AIMessageChunk", "ai", "AIMessage"):
             return []
 
-        events: list[dict[str, Any]] = []
+        events: list[SlackStreamEvent] = []
         for tc in chunk.get("tool_call_chunks") or chunk.get("tool_calls") or []:
             tc_id, name = tc.get("id"), tc.get("name")
             if tc_id and name and tc_id not in self._tools_started:
                 self._tools_started.add(tc_id)
                 events.append(
-                    {"type": "tool_start", "tool_call_id": tc_id, "tool_name": name}
+                    ToolStartEvent(
+                        type="tool_start", tool_call_id=tc_id, tool_name=name
+                    )
                 )
 
         text = _chunk_text(chunk.get("content", ""))
         if text:
-            events.append({"type": "text", "content": text})
+            events.append(TextEvent(type="text", content=text))
         return events

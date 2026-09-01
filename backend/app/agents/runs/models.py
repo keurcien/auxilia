@@ -11,7 +11,7 @@ from sqlalchemy import JSON, Enum as SAEnum, Index, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Column, Field, SQLModel, String, Text
 
-from app.agents.runs.state import RunStatus
+from app.agents.runs.state import MultitaskStrategy, RunStatus
 from app.models import TimestampMixin
 
 
@@ -65,7 +65,7 @@ class RunDB(TimestampMixin, SQLModel, table=True):
             nullable=False,
         ),
     )
-    multitask_strategy: str = Field(
+    multitask_strategy: MultitaskStrategy = Field(
         default="reject", sa_column=Column(String, nullable=False)
     )
 

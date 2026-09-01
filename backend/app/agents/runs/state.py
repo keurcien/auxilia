@@ -6,6 +6,14 @@ state stays in the LangGraph checkpoint.
 """
 
 from enum import Enum
+from typing import Literal
+
+
+#: What `create` does when the thread already has an active run: `reject`
+#: raises, `enqueue` waits for the per-thread mutex. One alias shared by the
+#: column, the API schema, and the service so the type checker sees a single
+#: vocabulary instead of three `str`s that happen to agree.
+MultitaskStrategy = Literal["reject", "enqueue"]
 
 
 class RunStatus(str, Enum):
