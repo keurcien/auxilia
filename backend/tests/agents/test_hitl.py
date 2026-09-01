@@ -197,6 +197,24 @@ def test_decision_without_tool_call_id_is_rejected():
         build_resume_command(_two_call_checkpoint(), resume)
 
 
+@pytest.mark.parametrize(
+    "decisions",
+    [
+        42,  # not a list at all — iterating would TypeError
+        {"call_1": "approve"},  # a dict is not the list shape
+        "approve",  # nor is a bare string
+        [{"tool_call_id": ["call_1"], "type": "approve"}],  # unhashable id
+        [{"tool_call_id": 7, "type": "approve"}],  # non-string id
+    ],
+)
+def test_malformed_decisions_are_a_400_not_a_typeerror(decisions):
+    """cubic P2: client payloads are the client's fault — every malformed
+    shape must surface as DomainValidationError, never a 500."""
+    resume = {"interrupt_id": INTERRUPT_ID, "decisions": decisions}
+    with pytest.raises(DomainValidationError):
+        build_resume_command(_two_call_checkpoint(), resume)
+
+
 def test_extra_decision_fields_survive_for_edit_and_respond():
     ai = AIMessage(
         content="",

@@ -249,7 +249,7 @@ async def _decided_card(tool_call_id, decision, iid=IID):
 def test_block_id_round_trips_the_decision():
     blocks = build_tool_approval_blocks("call_1", {}, interrupt_id=IID)
     actions = next(b for b in blocks if b["type"] == "actions")
-    assert handlers_mod._parse_hitl_block_id(actions["block_id"]) == (
+    assert handlers_mod._parse_hitl_block_id(actions["block_id"], decided=False) == (
         IID,
         "call_1",
         None,
@@ -260,7 +260,7 @@ def test_block_id_round_trips_the_decision():
 async def test_decided_marker_carries_the_decision_in_its_block_id():
     msg = await _decided_card("call_1", "approve")
     marker = next(b for b in msg["blocks"] if b["type"] == "context")
-    assert handlers_mod._parse_hitl_block_id(marker["block_id"]) == (
+    assert handlers_mod._parse_hitl_block_id(marker["block_id"], decided=True) == (
         IID,
         "call_1",
         "approve",
@@ -270,18 +270,27 @@ async def test_decided_marker_carries_the_decision_in_its_block_id():
 
 
 def test_parse_tolerates_colons_in_tool_call_ids():
-    assert handlers_mod._parse_hitl_block_id(f"hitl:{IID}:mcp:tool:1:reject") == (
-        IID,
-        "mcp:tool:1",
-        "reject",
-    )
-    assert handlers_mod._parse_hitl_block_id(f"hitl:{IID}:mcp:tool:1") == (
-        IID,
-        "mcp:tool:1",
-        None,
-    )
-    assert handlers_mod._parse_hitl_block_id("not-hitl") is None
-    assert handlers_mod._parse_hitl_block_id(None) is None
+    # Decided marker: the decision is always the appended last segment, so a
+    # tool_call_id containing ':' survives.
+    assert handlers_mod._parse_hitl_block_id(
+        f"hitl:{IID}:mcp:tool:1:reject", decided=True
+    ) == (IID, "mcp:tool:1", "reject")
+    # Pending actions block: never split a suffix — a tool_call_id that itself
+    # ends in ':approve' must not read as decided.
+    assert handlers_mod._parse_hitl_block_id(
+        f"hitl:{IID}:mcp:tool:approve", decided=False
+    ) == (IID, "mcp:tool:approve", None)
+    assert handlers_mod._parse_hitl_block_id("not-hitl", decided=False) is None
+    assert handlers_mod._parse_hitl_block_id(None, decided=True) is None
+
+
+async def test_pending_card_with_decisionlike_tool_call_id_stays_pending():
+    """cubic P2: a pending actions block whose tool_call_id ends in ':approve'
+    must count as pending, not decided — the block type decides, not the tail."""
+    messages = [_card("call:approve")]
+    decided, any_pending = handlers_mod._addressed_cards(messages, IID)
+    assert decided == {}
+    assert any_pending is True
 
 
 async def test_addressed_batch_is_identified_not_guessed():
@@ -299,7 +308,9 @@ async def test_addressed_batch_is_identified_not_guessed():
         await _decided_card("call_2", "reject"),
     ]
 
-    command = handlers_mod._collect_batch_command(messages, interrupt, requests)
+    command = handlers_mod._collect_batch_command(
+        messages, interrupt, requests, allow_legacy=False
+    )
 
     assert command == {
         "resume": {
@@ -319,7 +330,12 @@ async def test_addressed_batch_waits_while_a_card_is_pending():
         {"tool_call_id": "call_2", "tool_name": "b", "input": {}},
     ]
     messages = [await _decided_card("call_1", "approve"), _card("call_2")]
-    assert handlers_mod._collect_batch_command(messages, interrupt, requests) is None
+    assert (
+        handlers_mod._collect_batch_command(
+            messages, interrupt, requests, allow_legacy=False
+        )
+        is None
+    )
 
 
 async def test_addressed_batch_with_a_vanished_card_never_resumes():
@@ -329,7 +345,12 @@ async def test_addressed_batch_with_a_vanished_card_never_resumes():
         {"tool_call_id": "call_2", "tool_name": "b", "input": {}},
     ]
     messages = [await _decided_card("call_1", "approve")]  # call_2's card deleted
-    assert handlers_mod._collect_batch_command(messages, interrupt, requests) is None
+    assert (
+        handlers_mod._collect_batch_command(
+            messages, interrupt, requests, allow_legacy=False
+        )
+        is None
+    )
 
 
 def test_legacy_cards_fall_back_to_the_emoji_scan():
@@ -344,8 +365,55 @@ def test_legacy_cards_fall_back_to_the_emoji_scan():
             }
         ]
     }
-    command = handlers_mod._collect_batch_command([legacy_decided], interrupt, requests)
+    command = handlers_mod._collect_batch_command(
+        [legacy_decided], interrupt, requests, allow_legacy=True
+    )
     assert command == {"resume": {"decisions": [{"type": "approve"}]}}
+
+
+async def test_id_tagged_click_never_falls_back_to_the_emoji_scan():
+    """cubic P1: with the current interrupt's tagged cards gone, older legacy
+    decided cards must not be replayed onto it — unresolved, web UI takes over."""
+    interrupt = handlers_mod.PendingInterrupt(id=IID, value={})
+    requests = [{"tool_call_id": "call_1", "tool_name": "a", "input": {}}]
+    stale_legacy = {
+        "blocks": [
+            {
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": ":white_check_mark: Approved"}],
+            }
+        ]
+    }
+    assert (
+        handlers_mod._collect_batch_command(
+            [stale_legacy], interrupt, requests, allow_legacy=False
+        )
+        is None
+    )
+
+
+def test_legacy_scan_requires_the_decision_count_to_match():
+    """A legacy batch whose size disagrees with the pending requests answers
+    some other batch — never resume with it."""
+    interrupt = handlers_mod.PendingInterrupt(id=IID, value={})
+    requests = [
+        {"tool_call_id": "call_1", "tool_name": "a", "input": {}},
+        {"tool_call_id": "call_2", "tool_name": "b", "input": {}},
+    ]
+    one_legacy_decision = {
+        "blocks": [
+            {
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": ":white_check_mark: Approved"}],
+            }
+        ]
+    }
+    assert (
+        handlers_mod._collect_batch_command(
+            [one_legacy_decision], interrupt, requests, allow_legacy=True
+        )
+        is None
+    )
 
 
 def _interaction_payload(blocks):

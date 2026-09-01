@@ -749,9 +749,14 @@ const ChatPage = () => {
     [toolCalls, isInterrupted, hitlToolNames],
   );
 
+  // The addressed resume echoes tool-call ids the backend re-derives from
+  // the checkpoint. A tool call persisted without an id gets a synthesized
+  // `${msg.id}-tc-${i}` here but `approval-${i}` on the backend — those can
+  // never match, so fall back to the positional form for that batch.
+  const pendingIdsAreReal = pendingToolCalls.every((tc) => tc.call.id);
   const { decisions, recordDecision } = useHitlApprovals({
     isInterrupted,
-    interruptId: interruptId ?? null,
+    interruptId: pendingIdsAreReal ? (interruptId ?? null) : null,
     pendingToolCalls,
     submit: (input, opts) => {
       void submit(input, opts);

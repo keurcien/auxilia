@@ -138,10 +138,15 @@ def build_resume_command(
     if pending.id is not None and resume.get("interrupt_id") != pending.id:
         raise StaleApprovalError("This approval request was already handled.")
 
+    decisions = resume.get("decisions") or []
+    if not isinstance(decisions, list):
+        raise DomainValidationError("`decisions` must be a list.")
     supplied: dict[str, dict[str, Any]] = {}
-    for decision in resume.get("decisions") or []:
-        if not isinstance(decision, dict) or "tool_call_id" not in decision:
-            raise DomainValidationError("Each decision needs a tool_call_id.")
+    for decision in decisions:
+        if not isinstance(decision, dict) or not isinstance(
+            decision.get("tool_call_id"), str
+        ):
+            raise DomainValidationError("Each decision needs a string tool_call_id.")
         supplied[decision["tool_call_id"]] = {
             k: v for k, v in decision.items() if k != "tool_call_id"
         }

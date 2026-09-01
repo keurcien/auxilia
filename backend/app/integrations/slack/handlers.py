@@ -89,28 +89,38 @@ _DECISION_MARKERS = {
 }
 
 
-def _parse_hitl_block_id(block_id: object) -> tuple[str, str, str | None] | None:
-    """``hitl:<interrupt_id>:<tool_call_id>[:<decision>]`` → its parts, or None.
+def _parse_hitl_block_id(
+    block_id: object, *, decided: bool
+) -> tuple[str, str, str | None] | None:
+    """``hitl:<interrupt_id>:<tool_call_id>`` (pending) or
+    ``hitl:<interrupt_id>:<tool_call_id>:<decision>`` (decided) → parts, or None.
 
-    The decision suffix is split off only when it is a known marker key, so a
-    tool_call_id that itself contains ``:`` cannot be misread as decided.
+    Whether a decision suffix exists is told by the block that carries the id
+    (an actions block is pending by construction, a context marker is
+    decided), never by string-matching the tail — so a tool_call_id that
+    itself ends in ``:approve`` cannot make a pending card look decided. A
+    marker's suffix is appended last, so for a decided card the segment after
+    the final ``:`` is always the decision, even when the tool_call_id
+    contains ``:``.
     """
     if not isinstance(block_id, str) or not block_id.startswith("hitl:"):
         return None
     interrupt_id, _, rest = block_id[len("hitl:") :].partition(":")
     if not interrupt_id or not rest:
         return None
-    head, sep, tail = rest.rpartition(":")
-    if sep and tail in _DECISION_MARKERS:
-        return interrupt_id, head, tail
-    return interrupt_id, rest, None
+    if not decided:
+        return interrupt_id, rest, None
+    tool_call_id, sep, decision = rest.rpartition(":")
+    if not sep or decision not in _DECISION_MARKERS:
+        return None
+    return interrupt_id, tool_call_id, decision
 
 
 def _card_interrupt_id(blocks: list[dict]) -> str | None:
     """The interrupt id a still-pending card was posted for, or None (legacy card)."""
     for block in blocks or []:
         if block.get("type") == "actions":
-            parsed = _parse_hitl_block_id(block.get("block_id"))
+            parsed = _parse_hitl_block_id(block.get("block_id"), decided=False)
             if parsed:
                 return parsed[0]
     return None
@@ -130,14 +140,20 @@ def _addressed_cards(
     any_pending = False
     for msg in messages:
         for block in msg.get("blocks", []):
-            parsed = _parse_hitl_block_id(block.get("block_id"))
-            if not parsed or parsed[0] != interrupt_id:
-                continue
-            _, tool_call_id, decision = parsed
-            if block.get("type") == "actions" and decision is None:
-                any_pending = True
-            elif decision in ("approve", "reject"):
-                decided[tool_call_id] = decision
+            block_type = block.get("type")
+            if block_type == "actions":
+                parsed = _parse_hitl_block_id(block.get("block_id"), decided=False)
+                if parsed and parsed[0] == interrupt_id:
+                    any_pending = True
+            elif block_type == "context":
+                parsed = _parse_hitl_block_id(block.get("block_id"), decided=True)
+                if (
+                    parsed
+                    and parsed[0] == interrupt_id
+                    # "stale" markers are neither pending nor decided.
+                    and parsed[2] in ("approve", "reject")
+                ):
+                    decided[parsed[1]] = parsed[2]
     return decided, any_pending
 
 
@@ -235,16 +251,23 @@ def _collect_batch_command(
     thread_messages: list[dict],
     interrupt: PendingInterrupt,
     requests: list[dict],
+    *,
+    allow_legacy: bool,
 ) -> dict | None:
     """The resume command for the pending interrupt, once every card is decided.
 
     Prefers the addressed protocol — cards tagged ``hitl:<interrupt_id>:…`` —
     and builds the addressed resume (`interrupt_id` + tool-call-keyed
     decisions) that `RunService.create` validates and orders against the
-    checkpoint. Threads whose cards predate block ids fall back to the legacy
-    emoji scan and the positional resume shape. Returns None while any card
-    is undecided, or when a card vanished and the batch can't complete —
-    the web UI remains the escape hatch either way.
+    checkpoint. Returns None while any card is undecided, or when a card
+    vanished and the batch can't complete — the web UI remains the escape
+    hatch either way.
+
+    ``allow_legacy`` is True only when the *clicked* card predates block ids:
+    then the legacy emoji scan and the positional resume shape apply. It must
+    stay off for an id-tagged click — the emoji scan cannot tell which
+    interrupt an untagged decided card answered, so falling back there could
+    replay an **older batch's** decisions onto the current interrupt.
     """
     if interrupt.id is not None:
         decided, any_pending = _addressed_cards(thread_messages, interrupt.id)
@@ -262,8 +285,12 @@ def _collect_batch_command(
                     ],
                 }
             }
+    if not allow_legacy:
+        return None
     commands = _collect_batch_decisions(thread_messages)
-    if commands is None:
+    # The positional shape stands or falls with its length: a count mismatch
+    # means these decisions answer some other batch, not this interrupt.
+    if commands is None or len(commands) != len(requests):
         return None
     return {"resume": {"decisions": [{"type": c} for c in commands]}}
 
@@ -534,7 +561,12 @@ async def handle_interaction(payload: SlackInteractionPayload) -> None:
     # Check whether the pending batch is fully decided
     interrupt, requests = state
     command = await _fetch_and_resolve_command(
-        client, channel_id, thread_ts, interrupt, requests
+        client,
+        channel_id,
+        thread_ts,
+        interrupt,
+        requests,
+        allow_legacy=card_interrupt_id is None,
     )
     if command is None:
         return
@@ -565,6 +597,8 @@ async def _fetch_and_resolve_command(
     thread_ts: str,
     interrupt: PendingInterrupt,
     requests: list[dict],
+    *,
+    allow_legacy: bool,
 ) -> dict | None:
     """Fetch thread replies and build the resume command if the batch is complete."""
     result = await client.conversations_replies(
@@ -572,7 +606,9 @@ async def _fetch_and_resolve_command(
         ts=thread_ts,
     )
     thread_messages = result.get("messages", [])
-    return _collect_batch_command(thread_messages, interrupt, requests)
+    return _collect_batch_command(
+        thread_messages, interrupt, requests, allow_legacy=allow_legacy
+    )
 
 
 async def _resume_agent(

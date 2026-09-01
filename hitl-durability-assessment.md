@@ -218,7 +218,9 @@ Clients stop sending a positional list. New command shape:
 path), and:
 
 - **rejects a stale resume** — no pending interrupt, or a different id → 409
-  `DomainValidationError("this approval was already handled")`;
+  `StaleApprovalError` (body `{"error": "stale_interrupt"}`; a dedicated
+  exception, since `DomainValidationError` is a 400 and the client must tell
+  this apart from `model_unavailable`, the other 409 on this path);
 - **orders the decisions itself**, against `action_requests` from the checkpoint,
   because `HITLResponse.decisions` is still positional in
   `langchain/agents/middleware/human_in_the_loop.py` and always will be;
