@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.6.5](https://github.com/keurcien/auxilia/compare/web-v0.6.4...web-v0.6.5) (2026-09-02)
+
+
+### Features
+
+* **agents:** checkpoint-keyed HITL approvals via interrupt ids ([#307](https://github.com/keurcien/auxilia/issues/307)) ([4982321](https://github.com/keurcien/auxilia/commit/4982321c242e15af9030a6f7db0613a57d9e64f1))
+* **web:** migrate chat streaming to @langchain/react + Agent Streaming Protocol ([#312](https://github.com/keurcien/auxilia/issues/312)) ([590eeb8](https://github.com/keurcien/auxilia/commit/590eeb8a6677295d54ad0e1b562939f0ddd06d83))
+
+
+### Performance Improvements
+
+* **web:** cut streaming memory churn — memoized conversation body, SDK throttle, values trim ([#310](https://github.com/keurcien/auxilia/issues/310)) ([720e1ac](https://github.com/keurcien/auxilia/commit/720e1ac70ac94f01d26a9f6b4fa90e2915e08e4b))
+
 ## [0.6.4](https://github.com/keurcien/auxilia/compare/web-v0.6.3...web-v0.6.4) (2026-08-31)
 
 

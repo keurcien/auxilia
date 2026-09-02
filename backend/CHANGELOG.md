@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.5.5](https://github.com/keurcien/auxilia/compare/backend-v0.5.4...backend-v0.5.5) (2026-09-02)
+
+
+### Features
+
+* **agents:** checkpoint-keyed HITL approvals via interrupt ids ([#307](https://github.com/keurcien/auxilia/issues/307)) ([4982321](https://github.com/keurcien/auxilia/commit/4982321c242e15af9030a6f7db0613a57d9e64f1))
+* **backend:** Agent Streaming Protocol endpoints — delta-based streaming facade ([#311](https://github.com/keurcien/auxilia/issues/311)) ([8193b9a](https://github.com/keurcien/auxilia/commit/8193b9a5eb411786b13d01a2704d5a373ae864f6))
+* **web:** migrate chat streaming to @langchain/react + Agent Streaming Protocol ([#312](https://github.com/keurcien/auxilia/issues/312)) ([590eeb8](https://github.com/keurcien/auxilia/commit/590eeb8a6677295d54ad0e1b562939f0ddd06d83))
+
+
+### Bug Fixes
+
+* **backend:** Phase 3 part 2 — exception mapping, query slimming, purge ordering ([#305](https://github.com/keurcien/auxilia/issues/305)) ([53a320e](https://github.com/keurcien/auxilia/commit/53a320e6d7318544a8938051c3bba823ca6d97f8))
+
+
+### Performance Improvements
+
+* **web:** cut streaming memory churn — memoized conversation body, SDK throttle, values trim ([#310](https://github.com/keurcien/auxilia/issues/310)) ([720e1ac](https://github.com/keurcien/auxilia/commit/720e1ac70ac94f01d26a9f6b4fa90e2915e08e4b))
+
+
+### Code Refactoring
+
+* **agents:** typed event envelopes for run delivery ([#308](https://github.com/keurcien/auxilia/issues/308)) ([1a07ad6](https://github.com/keurcien/auxilia/commit/1a07ad694318aba219918a9f6a9b824bda1ac848))
+
 ## [0.5.4](https://github.com/keurcien/auxilia/compare/backend-v0.5.3...backend-v0.5.4) (2026-08-31)
 
 
