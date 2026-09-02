@@ -8,6 +8,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
+from app.agents.protocol.router import router as protocol_router
 from app.agents.router import router as agents_router
 from app.agents.runs.reaper import RunReaper
 from app.agents.runs.router import router as runs_router, user_runs_router
@@ -224,6 +225,7 @@ async def health() -> JSONResponse:
 
 
 app.include_router(agents_router)
+app.include_router(protocol_router)
 app.include_router(runs_router)
 app.include_router(user_runs_router)
 app.include_router(auth_router)
