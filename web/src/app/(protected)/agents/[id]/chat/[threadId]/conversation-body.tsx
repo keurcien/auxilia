@@ -92,7 +92,7 @@ export type ConversationBodyProps = {
   isLoading: boolean;
   isInterrupted: boolean;
   hitlToolNames: Set<string> | null;
-  decisions: Record<string, HitlDecision>;
+  decisions: Partial<Record<string, HitlDecision>>;
   recordDecision: (toolCallId: string, decision: HitlDecision) => void;
   modelUnavailable: boolean;
   onRegenerate: () => void;
@@ -385,11 +385,12 @@ export const ConversationBody = memo(function ConversationBody({
             (s) => s.kind === "tool" && !isTaskCall(s.tc),
           ).length;
           const subagentCount = chainSteps.length - toolCount;
+          // Last visible message: nothing after it, or only tool results
+          // (tool messages render via the chain, not as bubbles — parallel
+          // tool calls can leave several of them trailing).
           const isLastMessage =
             messageIndex === messages.length - 1 ||
-            // Last AI message before a potential loading indicator
-            (messageIndex === messages.length - 2 &&
-              messages[messages.length - 1]?.type === "tool");
+            messages.slice(messageIndex + 1).every((m) => m.type === "tool");
           const isLastAiMessage = !isLoading && isLastMessage && text.length > 0;
 
           return (
@@ -423,9 +424,11 @@ export const ConversationBody = memo(function ConversationBody({
                             subagent={sub}
                             mcpServers={mcpServers}
                             agent={findAgentForSubagentType(
-                              sub.toolCall?.args?.subagent_type as
-                                | string
-                                | undefined,
+                              (
+                                sub.toolCall as
+                                  | { args?: Record<string, unknown> }
+                                  | undefined
+                              )?.args?.subagent_type as string | undefined,
                             )}
                             onOpen={
                               sub.messages.length === 0 &&
@@ -674,7 +677,6 @@ export const ConversationBody = memo(function ConversationBody({
 
       {/* Streaming indicator when AI has started but text is still coming */}
       {assistantIsStreaming &&
-        lastMsg !== null &&
         getTextContent(lastMsg).length === 0 &&
         !getToolCallsForMessage(lastMsg).length && (
           <div>
