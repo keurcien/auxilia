@@ -360,3 +360,13 @@ async def test_finish_after_an_error_event_adds_no_second_terminal():
     ]
     assert len(terminals) == 1
     assert terminals[0] == {"event": "failed", "error": "boom"}
+
+
+async def test_unknown_terminal_status_reports_failed():
+    """A sentinel status this build doesn't know (a newer producer during a
+    rolling deploy) must surface as failed — never as a false completed."""
+    translator = ProtocolTranslator()
+    events = translator.finish(None)
+    assert [(e["method"], _data(e)["event"]) for e in events] == [
+        ("lifecycle", "failed")
+    ]

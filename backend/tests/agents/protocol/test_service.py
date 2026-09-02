@@ -62,14 +62,15 @@ async def test_input_respond_requires_a_response_or_interrupt_id():
 
 
 async def test_run_start_rejects_non_object_config():
-    with pytest.raises(DomainValidationError):
-        await _service().dispatch(
-            "t1",
-            "u1",
-            ProtocolCommand(
-                id=1, method="run.start", params={"input": {}, "config": "gpt-4o"}
-            ),
-        )
+    for bad in ("gpt-4o", 0, False, ""):
+        with pytest.raises(DomainValidationError):
+            await _service().dispatch(
+                "t1",
+                "u1",
+                ProtocolCommand(
+                    id=1, method="run.start", params={"input": {}, "config": bad}
+                ),
+            )
 
 
 async def test_input_respond_batch_form_requires_exactly_one_entry():
@@ -89,6 +90,15 @@ def test_seq_is_monotonic_and_js_safe():
     c = _seq_for_entry("1725000000124-0")
     assert a < b < c
     assert c < 2**53  # JS Number.MAX_SAFE_INTEGER
+    # 13-bit counter: a same-millisecond burst keeps strictly increasing
+    # seqs well past the old 3-digit clamp…
+    assert (
+        _seq_for_entry("1725000000123-1000")
+        < _seq_for_entry("1725000000123-5000")
+        < _seq_for_entry("1725000000124-0")
+    )
+    # …and a hypothetical overflow saturates into ties, never reordering.
+    assert _seq_for_entry("1725000000123-8191") == _seq_for_entry("1725000000123-99999")
     # Synthetic entry ids (expired-log terminals) degrade to 0, not a crash.
     assert _seq_for_entry("not-a-stream-id") == 0
 

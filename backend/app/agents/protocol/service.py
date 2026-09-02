@@ -48,19 +48,30 @@ _IDLE_POLL_SECONDS = 1.0
 _BLOCK_MS = 5000
 
 
+#: 2020-01-01 UTC. Offsetting the entry timestamp keeps the encoded seq
+#: below Number.MAX_SAFE_INTEGER (2^53) until ~2055 while leaving 13 bits
+#: for the per-millisecond counter.
+_SEQ_EPOCH_MS = 1_577_836_800_000
+_SEQ_COUNTER_BITS = 13  # 8,192 entries per millisecond
+
+
 def _seq_for_entry(entry_id: str) -> int:
     """A monotonic, JS-safe sequence number derived from a Redis stream entry
     id (`<ms>-<counter>`). Stable across sessions because it never depends on
     session state; monotonic across a thread's runs because time moves.
     Events translated from the same entry share a seq — the protocol allows
-    it, and the client only ever compares seqs with </>."""
+    it, and the client only ever compares seqs with </>. The counter field is
+    13 bits: even pipelined `publish_many` bursts stay far below 8,192 entries
+    in one millisecond, and a hypothetical overflow saturates (ties, never
+    reordering)."""
     ms_str, _, counter_str = entry_id.partition("-")
     try:
         ms = int(ms_str)
-        counter = min(int(counter_str or 0), 999)
+        counter = int(counter_str or 0)
     except ValueError:
         return 0
-    return ms * 1000 + counter
+    offset_ms = max(ms - _SEQ_EPOCH_MS, 0)
+    return (offset_ms << _SEQ_COUNTER_BITS) + min(counter, (1 << _SEQ_COUNTER_BITS) - 1)
 
 
 def _wrap(event: dict, *, event_id: str, seq: int) -> str:
@@ -115,9 +126,12 @@ class ProtocolService:
         )
 
     async def _run_start(self, thread_id: str, user_id: str, params: dict) -> RunDB:
-        config = params.get("config") or {}
-        if not isinstance(config, dict):
+        # Validate the raw value before defaulting — a falsey non-object
+        # (0, "", false) must be rejected, not coerced to {}.
+        raw_config = params.get("config")
+        if raw_config is not None and not isinstance(raw_config, dict):
             raise DomainValidationError("run.start `config` must be an object.")
+        config = raw_config or {}
         configurable = dict(config.get("configurable") or {})
         configurable.pop("thread_id", None)
         trigger = configurable.pop("trigger", None)

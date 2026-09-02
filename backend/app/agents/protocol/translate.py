@@ -132,12 +132,17 @@ class ProtocolTranslator:
 
     def finish(self, status: RunStatus | None) -> list[dict]:
         """Close every open message and emit the terminal root lifecycle —
-        unless an `error` event already emitted it with the failure message."""
+        unless an `error` event already emitted it with the failure message.
+
+        `status=None` means the sentinel carried a status this build doesn't
+        know (a newer producer mid-deploy): surface it as `failed` — the
+        conservative outcome, matching the Slack consumer's generic failure
+        notice — never as a false `completed`."""
         out = self._finish_all_open()
         if not self._terminal_emitted:
             self._terminal_emitted = True
             terminal = _TERMINAL_STATUS.get(status) if status is not None else None
-            out.append(ev.lifecycle_event([], terminal or "completed"))
+            out.append(ev.lifecycle_event([], terminal or "failed"))
         return out
 
     # --- messages mode ---------------------------------------------------------
