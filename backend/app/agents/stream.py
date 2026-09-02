@@ -94,6 +94,14 @@ def _serialize_state(state: dict[str, Any]) -> dict[str, Any]:
     """Serialize a LangGraph state dict for the values SSE event."""
     result: dict[str, Any] = {}
     for key, value in state.items():
+        # The deepagents virtual filesystem is re-sent in every values
+        # snapshot (one per superstep) and can be megabytes on sandbox-heavy
+        # threads, but no stream consumer reads it: the web client uses only
+        # `messages` / `todos` / `__interrupt__` from stream values, and the
+        # Slack adapter ignores values entirely. History reads (GET
+        # /threads/{id}) come from the checkpoint, not this path.
+        if key == "files":
+            continue
         # Unwrap Overwrite wrapper (used by deep agents)
         if isinstance(value, Overwrite):
             value = value.value
