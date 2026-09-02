@@ -336,3 +336,27 @@ async def test_cancelled_run_finishes_as_completed_lifecycle():
     assert [(e["method"], _data(e)["event"]) for e in events] == [
         ("lifecycle", "completed")
     ]
+
+
+async def test_finish_after_an_error_event_adds_no_second_terminal():
+    """The error event is the terminal that carries the message; the worker's
+    end sentinel (status=error) that follows must not add a second one."""
+
+    async def _gen():
+        yield ("messages", (AIMessageChunk(content="x", id="m1"), {}))
+        raise ValueError("boom")
+
+    translator = ProtocolTranslator()
+    out = []
+    async for sse in LangGraphStreamAdapter(subgraphs=False).stream(_gen()):
+        for event_name, data in decode_sse_blocks(sse):
+            out.extend(translator.translate(event_name, data))
+    out.extend(translator.finish(RunStatus.error))
+
+    terminals = [
+        _data(e)
+        for e in _of(out, "lifecycle")
+        if _data(e)["event"] in ("completed", "failed", "interrupted")
+    ]
+    assert len(terminals) == 1
+    assert terminals[0] == {"event": "failed", "error": "boom"}

@@ -116,6 +116,8 @@ class ProtocolService:
 
     async def _run_start(self, thread_id: str, user_id: str, params: dict) -> RunDB:
         config = params.get("config") or {}
+        if not isinstance(config, dict):
+            raise DomainValidationError("run.start `config` must be an object.")
         configurable = dict(config.get("configurable") or {})
         configurable.pop("thread_id", None)
         trigger = configurable.pop("trigger", None)
@@ -149,12 +151,28 @@ class ProtocolService:
             params = responses[0] if isinstance(responses[0], dict) else {}
         interrupt_id = params.get("interrupt_id")
         response = params.get("response")
-        if not isinstance(interrupt_id, str) or not interrupt_id:
-            raise DomainValidationError("input.respond requires an interrupt_id.")
-        if isinstance(response, dict) and "decisions" in response:
-            resume: Any = {"interrupt_id": interrupt_id, **response}
+        if response is None and not interrupt_id:
+            raise DomainValidationError(
+                "input.respond requires a response or an interrupt_id."
+            )
+        response_map = response if isinstance(response, dict) else None
+        decisions = response_map.get("decisions") if response_map else None
+        if (
+            isinstance(interrupt_id, str)
+            and interrupt_id
+            and response_map is not None
+            and isinstance(decisions, list)
+            and all(
+                isinstance(d, dict) and isinstance(d.get("tool_call_id"), str)
+                for d in decisions
+            )
+        ):
+            resume: Any = {"interrupt_id": interrupt_id, **response_map}
         else:
-            # Free-form resume value — pass through un-addressed.
+            # No usable interrupt id (pre-#307 checkpoints), positional
+            # decisions (tool calls persisted without ids), or a free-form
+            # resume value — pass through un-addressed; the graph still
+            # targets the single pending interrupt.
             resume = response
         return await self.runs.create(
             thread_id=thread_id, user_id=user_id, command={"resume": resume}
@@ -200,12 +218,21 @@ class ProtocolService:
         events = RunEventStream(run.id, self.redis)
 
         def frames(
-            protocol_events: list[dict], entry_id: str, counter_start: int = 0
+            protocol_events: list[dict],
+            entry_id: str,
+            counter_start: int = 0,
+            *,
+            bypass_since: bool = False,
         ) -> list[str]:
             seq = _seq_for_entry(entry_id)
             out = []
             for i, event in enumerate(protocol_events, start=counter_start):
-                if since is not None and seq <= since:
+                # Strictly-less filtering: every protocol event from one log
+                # entry shares its seq, so a reconnect at `since` must resend
+                # the whole boundary entry or same-entry siblings after the
+                # client's last frame would be lost. Resent frames carry
+                # their original `event_id`s and the client dedups on those.
+                if not bypass_since and since is not None and seq < since:
                     continue
                 if not sink.matches(event):
                     continue
@@ -216,8 +243,12 @@ class ProtocolService:
             record = await self.runs.get(run.id)
             if is_terminal(record.status):
                 # The log expired — synthesize the terminal lifecycle from the
-                # durable record (same backstop the legacy stream endpoint has).
-                for frame in frames(translator.finish(record.status), f"{run.id}-x"):
+                # durable record (same backstop the legacy stream endpoint
+                # has). Its synthetic entry id yields seq 0, so it must bypass
+                # the `since` filter or a reconnecting client never settles.
+                for frame in frames(
+                    translator.finish(record.status), f"{run.id}-x", bypass_since=True
+                ):
                     yield frame
                 return
 
@@ -229,7 +260,9 @@ class ProtocolService:
                 if is_terminal(record.status):
                     # Worker died between the DB commit and the sentinel.
                     for frame in frames(
-                        translator.finish(record.status), f"{run.id}-x"
+                        translator.finish(record.status),
+                        f"{run.id}-x",
+                        bypass_since=True,
                     ):
                         yield frame
                     return
@@ -268,6 +301,8 @@ class ProtocolService:
             }
             if todos := channel_values.get("todos"):
                 values["todos"] = todos
+            if (structured := channel_values.get("structured_response")) is not None:
+                values["structured_response"] = structured
             interrupt = pending_interrupt(checkpoint_tuple)
 
         active = await self.runs.get_active(thread_id)

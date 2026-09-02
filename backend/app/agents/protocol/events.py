@@ -124,15 +124,15 @@ def tool_started(
     *,
     tool_call_id: str,
     tool_name: str,
-    input: Any = None,
+    tool_input: Any = None,
 ) -> dict:
     data: dict[str, Any] = {
         "event": "tool-started",
         "tool_call_id": tool_call_id,
         "tool_name": tool_name,
     }
-    if input is not None:
-        data["input"] = input
+    if tool_input is not None:
+        data["input"] = tool_input
     return {"method": "tools", "params": _params(namespace, data, node)}
 
 

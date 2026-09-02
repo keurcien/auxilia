@@ -49,12 +49,26 @@ async def test_known_but_unsupported_method_is_not_supported():
     assert response["error"] == "not_supported"
 
 
-async def test_input_respond_requires_an_interrupt_id():
+async def test_input_respond_requires_a_response_or_interrupt_id():
+    """A bare input.respond with neither field is malformed; either one alone
+    is dispatchable (a missing interrupt id falls back to the positional
+    resume path for pre-interrupt-id checkpoints)."""
     with pytest.raises(DomainValidationError):
         await _service().dispatch(
             "t1",
             "u1",
-            ProtocolCommand(id=1, method="input.respond", params={"response": {}}),
+            ProtocolCommand(id=1, method="input.respond", params={}),
+        )
+
+
+async def test_run_start_rejects_non_object_config():
+    with pytest.raises(DomainValidationError):
+        await _service().dispatch(
+            "t1",
+            "u1",
+            ProtocolCommand(
+                id=1, method="run.start", params={"input": {}, "config": "gpt-4o"}
+            ),
         )
 
 

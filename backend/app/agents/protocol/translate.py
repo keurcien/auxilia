@@ -95,6 +95,7 @@ class ProtocolTranslator:
         self._tool_started_ids: set[str] = set()
         self._tool_finished_ids: set[str] = set()
         self._interrupt_ids: set[str] = set()
+        self._terminal_emitted = False
 
     # --- entry points --------------------------------------------------------
 
@@ -116,8 +117,12 @@ class ProtocolTranslator:
         elif mode == "updates":
             out.extend(self._on_updates(namespace, data))
         elif mode == "error":
+            # The error event is the terminal that carries the message; mark
+            # it emitted so `finish` (driven by the worker's end sentinel,
+            # which follows the error) doesn't add a second terminal.
             message = data.get("message") if isinstance(data, dict) else str(data)
             out.extend(self._finish_all_open())
+            self._terminal_emitted = True
             out.append(
                 ev.lifecycle_event([], "failed", error=message or "Unknown error")
             )
@@ -126,10 +131,13 @@ class ProtocolTranslator:
         return out
 
     def finish(self, status: RunStatus | None) -> list[dict]:
-        """Close every open message and emit the terminal root lifecycle."""
+        """Close every open message and emit the terminal root lifecycle —
+        unless an `error` event already emitted it with the failure message."""
         out = self._finish_all_open()
-        terminal = _TERMINAL_STATUS.get(status) if status is not None else None
-        out.append(ev.lifecycle_event([], terminal or "completed"))
+        if not self._terminal_emitted:
+            self._terminal_emitted = True
+            terminal = _TERMINAL_STATUS.get(status) if status is not None else None
+            out.append(ev.lifecycle_event([], terminal or "completed"))
         return out
 
     # --- messages mode ---------------------------------------------------------
@@ -403,7 +411,7 @@ class ProtocolTranslator:
                 node,
                 tool_call_id=tc["id"],
                 tool_name=tc.get("name") or "tool",
-                input=tc.get("args"),
+                tool_input=tc.get("args"),
             )
         ]
 
