@@ -73,10 +73,13 @@ export function getFileAttachments(message: LCMessage): AttachmentData[] {
       const url =
         typeof imgField === "string"
           ? imgField
-          : (imgField as Record<string, string>)?.url || "";
-      const dataUrl = url.startsWith("data:")
-        ? url
-        : `data:image/jpeg;base64,${url}`;
+          : ((imgField as Record<string, string> | undefined)?.url ?? "");
+      // Absolute URLs pass through untouched; only raw base64 payloads get
+      // wrapped into a data URL.
+      const dataUrl =
+        url.startsWith("data:") || /^https?:\/\//.test(url)
+          ? url
+          : `data:image/jpeg;base64,${url}`;
       attachments.push({
         id: `${message.id}-file-${idx++}`,
         url: dataUrl,
@@ -148,7 +151,7 @@ export const getToolMetadata = (
 
 export type LocalToolCall = {
   id: string;
-  call: { name: string; args: Record<string, unknown>; id?: string };
+  call: { name: string; args?: Record<string, unknown>; id?: string };
   result: LCMessage | undefined;
   aiMessage: LCMessage;
   index: number;
@@ -235,8 +238,7 @@ export function computeToolCallsFromMessages(
       Array.isArray(toolCalls) &&
       toolCalls.length > 0
     ) {
-      for (let i = 0; i < toolCalls.length; i++) {
-        const tc = toolCalls[i];
+      for (const [i, tc] of toolCalls.entries()) {
         const tcId = tc.id || `${msg.id}-tc-${i}`;
         const toolMsg = toolResults.get(tcId);
         result.push({
@@ -288,7 +290,7 @@ export function extractHitlToolNames(value: unknown): Set<string> | null {
   if (!value || typeof value !== "object") return null;
   const v = value as Record<string, unknown>;
   const arr = (v.action_requests ?? v.actionRequests) as
-    | Array<{ name?: string }>
+    | Array<{ name?: string } | null>
     | undefined;
   if (!Array.isArray(arr)) return null;
   const names = arr

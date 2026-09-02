@@ -185,7 +185,7 @@ const ChatPage = () => {
 
   // Supervisor todos from stream values
   const streamValues = thread.values as Record<string, unknown>;
-  const supervisorTodos = (streamValues?.todos ?? EMPTY_TODOS) as Todo[];
+  const supervisorTodos = (streamValues.todos ?? EMPTY_TODOS) as Todo[];
 
   // Messages: use stream messages when available, else initial.
   // Throttle to ~16Hz so streamed chunks don't trigger per-token re-renders
