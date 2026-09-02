@@ -8,6 +8,7 @@
 import type { AssembledToolCall } from "@langchain/langgraph-sdk/stream";
 import type { AttachmentData } from "@/components/ai-elements/attachments";
 import type { LCMessage } from "@/lib/utils/lc-messages";
+import { extractToolMessageText } from "@/lib/utils/tool-content";
 import type { McpAppToolInfo } from "../components/mcp-app-widget";
 
 export { baseMessageToLC } from "@/lib/utils/lc-messages";
@@ -259,8 +260,22 @@ export function computeToolCallsFromMessages(
 export type ToolRenderState =
   | "output-available"
   | "output-error"
+  | "rejected"
   | "approval-requested"
   | "input-available";
+
+// The notice langchain's HumanInTheLoopMiddleware writes as the error
+// ToolMessage of a denied call ("User rejected the tool call for `x` with
+// id …" / "… with reason: …"). It is the only signal that distinguishes a
+// denial from a tool that failed — the protocol's `tool-error` carries no
+// separate code the client keeps — so the render state is derived from it.
+const REJECTION_NOTICE = /^User rejected the tool call\b/;
+
+/** A tool call the user denied at the approval gate (never executed). */
+export function isRejectedToolCall(tc: LocalToolCall): boolean {
+  if (tc.state !== "error" || !tc.result) return false;
+  return REJECTION_NOTICE.test(extractToolMessageText(tc.result.content) ?? "");
+}
 
 export function getToolRenderState(
   tc: LocalToolCall,
@@ -268,7 +283,9 @@ export function getToolRenderState(
   hitlToolNames?: Set<string> | null,
 ): ToolRenderState {
   if (tc.state === "completed") return "output-available";
-  if (tc.state === "error") return "output-error";
+  if (tc.state === "error") {
+    return isRejectedToolCall(tc) ? "rejected" : "output-error";
+  }
   // pending
   if (isInterrupted && (!hitlToolNames || hitlToolNames.has(tc.call.name))) {
     return "approval-requested";

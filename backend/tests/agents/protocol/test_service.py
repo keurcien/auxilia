@@ -1,8 +1,9 @@
-"""ProtocolService: command envelopes and replay-cursor derivation.
+"""ProtocolService: command envelopes; the wire codec's replay cursors.
 
 DB-backed verbs (`run.start` / `input.respond` land in `RunService`, already
 covered by the runs tests); here we pin the protocol-level surface: envelope
-shapes for unknown/unsupported methods, seq derivation, and the SSE frame.
+shapes for unknown/unsupported methods, seq derivation, the SSE frame, and
+the stored-event codec.
 """
 
 import json
@@ -10,14 +11,14 @@ import json
 import pytest
 
 from app.agents.protocol.schemas import ProtocolCommand
-from app.agents.protocol.service import (
-    ProtocolService,
-    _sentinel_status,
-    _seq_for_entry,
-    _wrap,
+from app.agents.protocol.service import ProtocolService
+from app.agents.protocol.wire import (
+    decode_event,
+    encode_event,
+    encode_terminal,
+    frame,
+    seq_for_entry,
 )
-from app.agents.runs.events import end_sentinel
-from app.agents.runs.state import RunStatus
 from app.exceptions import DomainValidationError
 
 
@@ -85,43 +86,60 @@ async def test_input_respond_batch_form_requires_exactly_one_entry():
 
 
 def test_seq_is_monotonic_and_js_safe():
-    a = _seq_for_entry("1725000000123-0")
-    b = _seq_for_entry("1725000000123-1")
-    c = _seq_for_entry("1725000000124-0")
+    a = seq_for_entry("1725000000123-0")
+    b = seq_for_entry("1725000000123-1")
+    c = seq_for_entry("1725000000124-0")
     assert a < b < c
     assert c < 2**53  # JS Number.MAX_SAFE_INTEGER
-    # 13-bit counter: a same-millisecond burst keeps strictly increasing
-    # seqs well past the old 3-digit clamp…
+    # 13-bit counter: a same-millisecond burst keeps strictly increasing seqs…
     assert (
-        _seq_for_entry("1725000000123-1000")
-        < _seq_for_entry("1725000000123-5000")
-        < _seq_for_entry("1725000000124-0")
+        seq_for_entry("1725000000123-1000")
+        < seq_for_entry("1725000000123-5000")
+        < seq_for_entry("1725000000124-0")
     )
     # …and a hypothetical overflow saturates into ties, never reordering.
-    assert _seq_for_entry("1725000000123-8191") == _seq_for_entry("1725000000123-99999")
+    assert seq_for_entry("1725000000123-8191") == seq_for_entry("1725000000123-99999")
     # Synthetic entry ids (expired-log terminals) degrade to 0, not a crash.
-    assert _seq_for_entry("not-a-stream-id") == 0
+    assert seq_for_entry("not-a-stream-id") == 0
 
 
-def test_sentinel_status_round_trips():
-    assert (
-        _sentinel_status(end_sentinel(RunStatus.interrupted)) is RunStatus.interrupted
-    )
-    assert _sentinel_status('event: end\ndata: {"status": "future"}\n\n') is None
-
-
-def test_wrap_produces_a_protocol_event_envelope():
-    frame = _wrap(
+def test_frame_produces_a_protocol_event_envelope():
+    sse = frame(
         {
             "method": "lifecycle",
             "params": {"namespace": [], "data": {"event": "started"}},
         },
-        event_id="123-0.0",
-        seq=42,
+        entry_id="1725000000123-0",
     )
-    assert frame.startswith("id: 123-0.0\ndata: ")
-    payload = json.loads(frame.split("data: ", 1)[1])
+    assert sse.startswith("id: 1725000000123-0\ndata: ")
+    payload = json.loads(sse.split("data: ", 1)[1])
     assert payload["type"] == "event"
-    assert payload["event_id"] == "123-0.0"
-    assert payload["seq"] == 42
+    assert payload["event_id"] == "1725000000123-0"
+    assert payload["seq"] == seq_for_entry("1725000000123-0")
     assert payload["method"] == "lifecycle"
+
+
+def test_stored_events_round_trip_and_legacy_entries_are_skipped():
+    event = {
+        "method": "values",
+        "params": {"namespace": [], "timestamp": 1, "data": {}},
+    }
+    assert decode_event(encode_event(event)) == event
+    # A pre-protocol SSE chunk (a run in flight during the deploy) is not ours.
+    assert decode_event("event: messages\ndata: [{}, {}]\n\n") is None
+    assert decode_event("") is None
+    assert decode_event('{"no": "method"}') is None
+
+
+def test_terminal_entries_map_run_statuses():
+    def terminal(status, error=None):
+        return decode_event(encode_terminal(status, error=error))["params"]["data"]
+
+    assert terminal("success") == {"event": "completed"}
+    assert terminal("cancelled") == {"event": "completed"}  # a Stop is not a failure
+    assert terminal("interrupted") == {"event": "interrupted"}
+    assert terminal("error", "boom") == {"event": "failed", "error": "boom"}
+    assert terminal("timeout") == {"event": "failed"}
+    # A status this build doesn't know (a newer producer mid-deploy) must
+    # surface as failed — never as a false completed.
+    assert terminal("brand-new-status") == {"event": "failed"}

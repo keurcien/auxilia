@@ -1,26 +1,27 @@
 """Worker-side Slack delivery for durable runs.
 
 A Slack turn has no client connection to ride the event log, so the worker spawns
-a `SlackRunConsumer`: it subscribes to the run's SSE event log, relays text and
-tool labels into a Slack streaming message (`chat.startStream`/`appendStream`/
-`stopStream` via `slack_sdk`'s `chat_stream`), and on the terminal event posts
-either the tool-approval blocks (interrupted) or the "View in auxilia" link
-(success). This is the Slack half of the durable runtime — the web tier only
-enqueues the run (see `router.py`).
+a `SlackRunConsumer`: it subscribes to the run's event log (Agent Streaming
+Protocol events, see `app/agents/protocol/`), relays root text deltas and tool
+labels into a Slack streaming message (`chat.startStream`/`appendStream`/
+`stopStream` via `slack_sdk`'s `chat_stream`), and once the run is terminal
+posts either the tool-approval blocks (interrupted) or the "View in auxilia"
+link (success). This is the Slack half of the durable runtime — the web tier
+only enqueues the run (see `router.py`).
 """
 
 import logging
-from typing import Final, Literal, TypedDict, cast
+from typing import Any, Final, Literal, TypedDict, cast
 
 from redis.asyncio import Redis
 from slack_sdk.web.async_client import AsyncWebClient
 
 from app.agents.hitl import pending_approval_requests, pending_interrupt
+from app.agents.protocol.wire import decode_event
 from app.agents.runs.delivery import DeliveryConsumer
 from app.agents.runs.models import RunDB
 from app.agents.runs.service import RunService
-from app.agents.runs.state import MCP_REAUTH_ERROR, RunStatus
-from app.agents.stream import SlackStreamAdapter
+from app.agents.runs.state import MCP_REAUTH_ERROR, RunStatus, is_terminal
 from app.auth.settings import auth_settings
 from app.database import AsyncSessionLocal, get_checkpointer
 from app.integrations.slack.blocks import (
@@ -75,6 +76,68 @@ def build_slack_delivery(
     }
 
 
+class SlackProtocolAdapter:
+    """Turns stored protocol events into what the Slack streamer appends.
+
+    Only the **root** namespace is surfaced — subagent tokens stream under
+    `tools:<task-id>` namespaces and are intentionally skipped, as before.
+    `messages` text deltas are relayed only while the open message is
+    AI-authored (a `message-start` with role `ai`): the tool-role message
+    triple carries the raw tool result, and reasoning deltas are excluded.
+    `tool-started` yields the tool label. Approval requests are *not* derived
+    from `input.requested`: the HITL payload names tools without their
+    tool-call ids, so the consumer reads them off the checkpoint
+    (`pending_approval_requests`) once the run is terminal.
+    """
+
+    def __init__(self) -> None:
+        self._tools_started: set[str] = set()
+        # The role of the message currently open on the root namespace, per
+        # node — deltas from a tool-role message must not reach the chat.
+        self._open_role: dict[str, str] = {}
+
+    def texts(self, event: dict[str, Any]) -> list[str]:
+        """Markdown chunks to append for one protocol event (usually 0 or 1)."""
+        params = event.get("params") or {}
+        if params.get("namespace"):
+            return []
+        data = params.get("data")
+        if not isinstance(data, dict):
+            return []
+        method = event.get("method")
+        if method == "messages":
+            return self._on_message(str(params.get("node") or ""), data)
+        if method == "tools" and data.get("event") == "tool-started":
+            tool_call_id = data.get("tool_call_id")
+            tool_name = data.get("tool_name")
+            if tool_call_id and tool_name and tool_call_id not in self._tools_started:
+                self._tools_started.add(tool_call_id)
+                return [format_tool_streamer_label(str(tool_name))]
+        return []
+
+    def _on_message(self, node: str, data: dict[str, Any]) -> list[str]:
+        kind = data.get("event")
+        if kind == "message-start":
+            self._open_role[node] = str(data.get("role") or "ai")
+            return []
+        if kind == "message-finish":
+            self._open_role.pop(node, None)
+            return []
+        if self._open_role.get(node, "ai") != "ai":
+            return []
+        if kind == "content-block-start":
+            content = data.get("content")
+            if isinstance(content, dict) and content.get("type") == "text":
+                text = content.get("text")
+                return [text] if isinstance(text, str) and text else []
+        elif kind == "content-block-delta":
+            delta = data.get("delta")
+            if isinstance(delta, dict) and delta.get("type") == "text-delta":
+                text = delta.get("text")
+                return [text] if isinstance(text, str) and text else []
+        return []
+
+
 class SlackRunConsumer(DeliveryConsumer):
     """Relays one run's event log to its Slack thread."""
 
@@ -96,7 +159,8 @@ class SlackRunConsumer(DeliveryConsumer):
             thread_ts,
         )
         try:
-            status, text_chars = await self._stream_to_slack(channel_id, thread_ts)
+            text_chars = await self._stream_to_slack(channel_id, thread_ts)
+            status = await self._terminal_status()
         except Exception:
             logger.exception("Slack delivery crashed for run %s", self.record.id)
             await self._post_failure_notice(channel_id, thread_ts)
@@ -109,8 +173,8 @@ class SlackRunConsumer(DeliveryConsumer):
             text_chars,
         )
         if status is None:
-            # No recognizable terminal status (an unknown status from a newer
-            # producer, or a stream that ended without an end event): the
+            # The log ended but the record is not terminal (it vanished, or a
+            # producer this build doesn't understand finalized it): the
             # streaming message is already stopped, so say *something* rather
             # than leaving the thread hanging. `cancelled` stays silent below
             # on purpose — the user stopped the run themselves.
@@ -125,15 +189,13 @@ class SlackRunConsumer(DeliveryConsumer):
         ) and not await self._post_reauth_prompt_if_gated(channel_id, thread_ts):
             await self._post_failure_notice(channel_id, thread_ts)
 
-    async def _stream_to_slack(
-        self, channel_id: str, thread_ts: str
-    ) -> tuple[RunStatus | None, int]:
+    async def _stream_to_slack(self, channel_id: str, thread_ts: str) -> int:
         """Relay the event log into a Slack streaming message.
 
-        Returns the run's terminal status and how many characters of text were
-        streamed (0 is the tell-tale of an empty/never-answered turn). Always
-        closes the streaming message — a mid-stream error must not leave an
-        in-progress Slack message open.
+        Returns how many characters of answer text were streamed (0 is the
+        tell-tale of an empty/never-answered turn). Always closes the
+        streaming message — a mid-stream error must not leave an in-progress
+        Slack message open. Returns once the log's terminal entry is read.
         """
         streamer = await self.client.chat_stream(
             channel=channel_id,
@@ -141,31 +203,36 @@ class SlackRunConsumer(DeliveryConsumer):
             recipient_team_id=self.delivery.get("team_id"),
             recipient_user_id=self.delivery.get("slack_user_id"),
         )
-        adapter = SlackStreamAdapter()
-        status: RunStatus | None = None
+        adapter = SlackProtocolAdapter()
         text_chars = 0
         try:
-            async for event in adapter.stream(
-                RunService(self.redis).stream(self.record.id)
-            ):
-                # Tagged-union dispatch: comparing the Literal tag narrows the
-                # event, so each branch's field reads are type-checked.
-                if event["type"] == "text":
-                    text_chars += len(event["content"])
-                    await streamer.append(markdown_text=event["content"])
-                elif event["type"] == "tool_start":
+            async for raw in RunService(self.redis).stream(self.record.id):
+                event = decode_event(raw)
+                if event is None:
+                    continue
+                if _is_failed_terminal(event):
+                    error = (event["params"]["data"] or {}).get("error")
                     await streamer.append(
-                        markdown_text=format_tool_streamer_label(event["tool_name"])
+                        markdown_text=f"**`Error: {error or 'Unknown error'}`**\n\n"
                     )
-                elif event["type"] == "error":
-                    await streamer.append(
-                        markdown_text=f"**`Error: {event['content']}`**\n\n"
-                    )
-                elif event["type"] == "end":
-                    status = event["status"]
+                    continue
+                for text in adapter.texts(event):
+                    if not text.startswith("\n\n:"):  # tool labels aren't answer text
+                        text_chars += len(text)
+                    await streamer.append(markdown_text=text)
         finally:
             await streamer.stop()
-        return status, text_chars
+        return text_chars
+
+    async def _terminal_status(self) -> RunStatus | None:
+        """The run's terminal status, from the durable record.
+
+        `finalize` commits the record before it publishes the terminal entry,
+        so once the log has ended the record is authoritative — and, unlike
+        the protocol terminal event (which folds `cancelled` into
+        `completed`), it distinguishes a user Stop from a clean finish."""
+        record = await RunService(self.redis).get(self.record.id)
+        return record.status if is_terminal(record.status) else None
 
     async def _post_reauth_prompt_if_gated(
         self, channel_id: str, thread_ts: str
@@ -249,3 +316,15 @@ class SlackRunConsumer(DeliveryConsumer):
                 },
             ],
         )
+
+
+def _is_failed_terminal(event: dict[str, Any]) -> bool:
+    """A root lifecycle `failed` event — the run's error, surfaced inline."""
+    params = event.get("params") or {}
+    data = params.get("data")
+    return (
+        event.get("method") == "lifecycle"
+        and not params.get("namespace")
+        and isinstance(data, dict)
+        and data.get("event") == "failed"
+    )

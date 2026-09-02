@@ -139,8 +139,8 @@ auxilia/
 │   │   │   ├── mcp_servers/           # AgentMCPServerService (agent↔MCP bindings, tool sync)
 │   │   │   ├── subagents/             # SubagentService (supervisor/subagent links)
 │   │   │   ├── runs/                  # Durable run runtime — Redis-backed runs, queue, worker, reaper (see runs/SPEC.md)
-│   │   │   ├── runtime.py             # Agent runtime — Agent.build / .stream / .invoke (LangGraph)
-│   │   │   ├── stream.py              # AI SDK SSE & Slack stream adapters
+│   │   │   ├── protocol/              # Agent Streaming Protocol — emit.py (worker-side v3 → wire events), wire.py (log codec + replay cursors), service.py/router.py (/threads/{id}/commands, /stream/events, /state)
+│   │   │   ├── runtime.py             # Agent runtime — Agent.build / .stream (astream_events v3 → protocol events)
 │   │   │   ├── toolset.py             # Tool binding for the agent
 │   │   │   ├── hitl.py                # HITL state from the checkpoint — pending interrupt id/requests + resume canonicalization
 │   │   │   ├── tool_errors.py         # ToolException middleware
@@ -166,7 +166,6 @@ auxilia/
 │   │   ├── model_providers/           # LLM provider configuration & catalog
 │   │   ├── sandbox/                   # Sandboxed code execution
 │   │   ├── threads/                   # Chat thread management
-│   │   │   ├── serialization.py       # LangGraph checkpoint → UI message conversion
 │   │   │   └── router.py              # Thread CRUD, history & subagent state (runs live in agents/runs/)
 │   │   ├── triggers/                  # Scheduled agent runs
 │   │   │   ├── scanner.py             # TriggerScanner — due-trigger loop (sibling of runs/reaper)
@@ -181,7 +180,7 @@ auxilia/
 │   │   ├── redis_client.py            # Shared async Redis client (durable runtime, out-of-request)
 │   │   ├── exceptions.py              # DomainError hierarchy + root_cause() ExceptionGroup unwrap
 │   │   ├── main.py                    # FastAPI app + global exception handlers
-│   │   ├── models.py                  # BaseDBModel, UUIDMixin, TimestampMixin, AI SDK Message
+│   │   ├── models.py                  # BaseDBModel, UUIDMixin, TimestampMixin
 │   │   ├── repository.py              # BaseRepository[T] — generic CRUD
 │   │   ├── service.py                 # BaseService[M, R] — get_or_404 + shared helpers
 │   │   └── settings.py                # App-wide settings (pydantic-settings)
@@ -291,7 +290,7 @@ Releases are automated by the **release-please** GitHub Action (`.github/workflo
 - **Framework**: Next.js 16 (App Router)
 - **UI**: React 19, Tailwind CSS 4, shadcn/ui (Radix UI)
 - **State**: Zustand
-- **AI Streaming**: Vercel AI SDK (`@ai-sdk/react`)
+- **AI Streaming**: Agent Streaming Protocol via `@langchain/react` + `@langchain/langgraph-sdk` (`@ai-sdk/react` remains only for the `ai-elements` component types)
 - **HTTP**: Axios (with automatic snake_case/camelCase conversion)
 - **Backend Proxy**: All client-side API calls go through a Next.js catch-all route (`/api/backend/[...path]`) that proxies requests to the FastAPI backend (`BACKEND_URL`, defaults to `http://localhost:8000`). This avoids CORS issues and keeps the backend URL private from the browser.
 

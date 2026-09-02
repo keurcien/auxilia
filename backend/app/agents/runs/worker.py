@@ -1,8 +1,8 @@
 """Run execution: a single-run worker and the per-process dispatcher.
 
 `RunWorker.run(record)` executes one already-claimed run by wrapping the
-existing `Agent.stream(...)` and publishing each SSE chunk to the run's event
-log, while watching for cancel and enforcing the wall-clock cap.
+existing `Agent.stream(...)` and publishing each protocol event to the run's
+event log, while watching for cancel and enforcing the wall-clock cap.
 `RunDispatcher` polls Postgres for claimable pending runs (the trigger-scanner
 `SKIP LOCKED` pattern — claiming *is* the pending → running transition) and
 runs them, semaphore-capped at `RUN_WORKER_CONCURRENCY`.
@@ -15,6 +15,7 @@ from contextlib import suppress
 from sqlalchemy.exc import IntegrityError
 
 from app.agents.hitl import pending_interrupt
+from app.agents.protocol.wire import encode_event
 from app.agents.runs.control import RunControl
 from app.agents.runs.delivery import DeliveryFactory
 from app.agents.runs.events import BufferedEventPublisher, RunEventStream
@@ -24,7 +25,6 @@ from app.agents.runs.service import RunService
 from app.agents.runs.settings import run_settings
 from app.agents.runs.state import MCP_REAUTH_ERROR, RunStatus
 from app.agents.runtime import Agent
-from app.agents.stream import decode_sse_blocks
 from app.background import LoopHealth, register_loop
 from app.database import AsyncSessionLocal, get_checkpointer
 from app.exceptions import root_cause
@@ -33,23 +33,6 @@ from app.threads.models import ThreadDB
 
 
 logger = logging.getLogger(__name__)
-
-# `LangGraphStreamAdapter` swallows exceptions into an SSE error event rather
-# than raising, so a clean stream that emitted one of these still failed.
-_ERROR_EVENT_PREFIX = "event: error"
-
-
-def _error_event_message(sse: str) -> str:
-    """The `message` of an `event: error` SSE chunk ("" when malformed).
-
-    The event log TTLs away, but the run record doesn't — persisting the
-    message lets the UI surface the failure after a reload/reattach."""
-    for event, data in decode_sse_blocks(sse):
-        if event == "error":
-            if isinstance(data, dict):
-                return str(data.get("message") or "")
-            return str(data or "")
-    return ""
 
 
 async def _cancel(task: asyncio.Task) -> None:
@@ -95,8 +78,8 @@ class RunWorker:
             )
         )
         # A push consumer (e.g. Slack) relays the event log concurrently; it reads
-        # from id 0, so there's no race with the chunks we publish below, and it
-        # ends when `finalize` writes the sentinel.
+        # from id 0, so there's no race with the events we publish below, and it
+        # ends when `finalize` writes the terminal entry.
         delivery = self._start_delivery(record)
         status, error = RunStatus.success, None
         try:
@@ -109,7 +92,7 @@ class RunWorker:
             await _cancel(cancel_watch)
         await self.service.finalize(record.id, status, error=error)
         if delivery is not None:
-            await delivery  # the sentinel is published; let the consumer finish
+            await delivery  # the terminal is published; let the consumer finish
 
     def _start_delivery(self, record: RunDB) -> asyncio.Task | None:
         """Spawn the push-delivery consumer for this run, if one applies.
@@ -180,19 +163,19 @@ class RunWorker:
             # both paths.
             if as_oauth_required(exc) is not None:
                 return RunStatus.error, MCP_REAUTH_ERROR
-            return RunStatus.error, str(root_cause(exc))
-        if (stream_error := stream_task.result()) is not None:
-            # An error SSE was emitted — persist its message on the record so
-            # the failure survives the event log's TTL.
-            return RunStatus.error, stream_error or None
+            # Some failures stringify to "" (CancelledError leaks, closed
+            # resources) — fall back to the type name so the UI and the run
+            # record never carry a blank error. The record outlives the event
+            # log's TTL, so this is what a reload/reattach shows.
+            cause = root_cause(exc)
+            return RunStatus.error, str(cause) or type(cause).__name__
         if await self._is_interrupted(record.thread_id):
             return RunStatus.interrupted, None
         return RunStatus.success, None
 
-    async def _stream(self, record: RunDB, events: RunEventStream) -> str | None:
-        """Run the agent, publishing each SSE chunk. Returns the message of the
-        first error event emitted, or None if the stream was clean."""
-        error_message: str | None = None
+    async def _stream(self, record: RunDB, events: RunEventStream) -> None:
+        """Run the agent, publishing each protocol event to the log. A graph
+        failure propagates (the stream raises after its buffered events)."""
         async with AsyncSessionLocal() as db:
             thread = await db.get(ThreadDB, record.thread_id)
             if thread is None:
@@ -200,22 +183,19 @@ class RunWorker:
             if await _mcp_unauthorized(db, thread, str(record.user_id)):
                 raise RuntimeError(MCP_REAUTH_ERROR)
             agent = await Agent.build(thread=thread, db=db)
-            # Buffered: one awaited XADD per chunk is one Redis round trip per
+            # Buffered: one awaited XADD per event is one Redis round trip per
             # token, serialized with the agent stream. Exiting the buffer drains
-            # it, which is what keeps the last chunks ahead of `finalize`'s end
-            # sentinel.
+            # it, which is what keeps the last events ahead of `finalize`'s
+            # terminal entry.
             async with BufferedEventPublisher(events) as publisher:
-                async for sse in agent.stream(
+                async for event in agent.stream(
                     agent_input=record.input,
                     command=record.command,
                     trigger=record.trigger,
                     config_overrides=record.config_overrides,
                     output_schema=record.output_schema,
                 ):
-                    if error_message is None and sse.startswith(_ERROR_EVENT_PREFIX):
-                        error_message = _error_event_message(sse)
-                    await publisher.publish(sse)
-        return error_message
+                    await publisher.publish(encode_event(event))
 
     async def _heartbeat(self, liveness: RunLiveness, events: RunEventStream) -> None:
         """Keep the liveness key fresh, and the event log's safety TTL pushed

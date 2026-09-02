@@ -1,4 +1,5 @@
 import asyncio
+import json
 from unittest.mock import AsyncMock
 
 import pytest
@@ -10,15 +11,24 @@ from app.agents.runs.state import RunStatus
 
 async def test_publish_and_full_replay(redis):
     events = RunEventStream("r1", redis)
-    await events.publish("event: messages\ndata: 1\n\n")
-    await events.publish("event: messages\ndata: 2\n\n")
+    await events.publish('{"method": "values", "params": {"n": 1}}')
+    await events.publish('{"method": "values", "params": {"n": 2}}')
     await events.publish_end(RunStatus.success)
 
     chunks = [c async for c in events.subscribe("0", block_ms=200)]
     assert len(chunks) == 3
-    assert "data: 1" in chunks[0]
-    assert "event: end" in chunks[-1]
-    assert "success" in chunks[-1]
+    assert '"n": 1' in chunks[0]
+    # The terminal entry is the root lifecycle event for the run's status.
+    terminal = json.loads(chunks[-1])
+    assert terminal["method"] == "lifecycle"
+    assert terminal["params"]["data"] == {"event": "completed"}
+
+
+async def test_terminal_entry_carries_the_error(redis):
+    events = RunEventStream("r1", redis)
+    await events.publish_end(RunStatus.error, "boom")
+    [chunk] = [c async for c in events.subscribe("0", block_ms=200)]
+    assert json.loads(chunk)["params"]["data"] == {"event": "failed", "error": "boom"}
 
 
 async def test_stream_is_capped_at_max_events(redis, monkeypatch):
@@ -147,9 +157,8 @@ async def test_chunk_order_is_preserved(redis):
     await events.publish_end(RunStatus.success)
 
     chunks = [c async for c in events.subscribe("0", block_ms=200)]
-    assert [c for c in chunks if "event: end" not in c] == [
-        f"data: {i}\n\n" for i in range(10)
-    ]
+    assert chunks[:-1] == [f"data: {i}\n\n" for i in range(10)]
+    assert '"lifecycle"' in chunks[-1]  # the terminal entry closes the log
 
 
 async def test_a_flush_failure_surfaces_rather_than_dropping_output(redis):

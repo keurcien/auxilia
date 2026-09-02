@@ -191,7 +191,8 @@ app.add_middleware(
 
 # Compress JSON responses (the /agents list alone runs to hundreds of KB on
 # large workspaces). Starlette excludes text/event-stream by default, so the
-# /runs/stream SSE endpoints keep flushing tokens unbuffered.
+# protocol SSE endpoint (/threads/{id}/stream/events) keeps flushing tokens
+# unbuffered.
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 # SessionMiddleware is required for OAuth flows (stores state during authorization)

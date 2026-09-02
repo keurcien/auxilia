@@ -57,6 +57,7 @@ import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { useAgentsStore } from "@/stores/agents-store";
 import type { HitlDecision } from "@/hooks/use-hitl-approvals";
 import {
+  BanIcon,
   RefreshCcwIcon,
   CopyIcon,
   Loader2,
@@ -439,6 +440,10 @@ export const ConversationBody = memo(function ConversationBody({
                           <Loader2 className="size-3 animate-spin text-petrol" />
                         ) : toolState === "output-error" ? (
                           <XCircleIcon className="size-3.5 text-destructive" />
+                        ) : toolState === "rejected" ? (
+                          // Denied at the approval gate: the call never ran,
+                          // so it is a decision, not a failure — muted, not red.
+                          <BanIcon className="size-3.5 text-meta dark:text-panel-dim" />
                         ) : undefined;
                       const approvalFooter =
                         toolState === "approval-requested" ? (
@@ -472,7 +477,11 @@ export const ConversationBody = memo(function ConversationBody({
                           </div>
                         ) : null;
                       const resultSection =
-                        errorText !== undefined ? (
+                        toolState === "rejected" ? (
+                          <StepSection label="DENIED">
+                            <StepCode value="Denied by the user — the tool was not executed." />
+                          </StepSection>
+                        ) : errorText !== undefined ? (
                           <StepSection label="ERROR" error>
                             <StepCode value={errorText} />
                           </StepSection>

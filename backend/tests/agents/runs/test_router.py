@@ -182,27 +182,24 @@ def test_create_run_gates_before_creating(client: TestClient, mock_db, current_u
     assert fake.gate_args == (thread.agent_id, str(thread.user_id))
 
 
-def test_stream_gates_before_creating(client: TestClient, mock_db, current_user):
+def test_legacy_stream_endpoints_are_gone(client: TestClient, mock_db, current_user):
+    """Live streaming is the protocol's `/threads/{id}/stream/events` now; the
+    pre-protocol SSE routes must not linger as a second wire format."""
     thread = _owned_thread(current_user)
     _mock_thread_lookup(mock_db, thread)
     fake = _FakeRunService()
     app.dependency_overrides[get_run_service] = lambda: fake
-
     try:
-        response = client.post(
-            f"/threads/{thread.id}/runs/stream",
-            json={"input": {"messages": [{"type": "human", "content": "hi"}]}},
-        )
+        created = client.post(f"/threads/{thread.id}/runs/stream", json={"input": {}})
+        reattached = client.get(f"/threads/{thread.id}/runs/run1/stream")
     finally:
         app.dependency_overrides.pop(get_run_service, None)
-
-    assert response.status_code == 200
-    assert response.headers["x-run-id"] == "run1"
-    assert fake.calls == ["gate", "create"]
-    assert fake.gate_args == (thread.agent_id, str(thread.user_id))
+    assert created.status_code in (404, 405)
+    assert reattached.status_code in (404, 405)
+    assert fake.calls == []
 
 
-@pytest.mark.parametrize("path", ["stream", "invoke", ""])
+@pytest.mark.parametrize("path", ["invoke", ""])
 def test_an_unauthorized_mcp_server_401s_and_creates_no_run(
     client: TestClient, mock_db, current_user, path
 ):

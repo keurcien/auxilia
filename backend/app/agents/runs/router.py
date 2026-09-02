@@ -1,13 +1,12 @@
 """HTTP surface for the durable runtime, nested under a thread.
 
-`POST /stream` (create + subscribe) preserves the exact SSE wire shape the
-frontend already consumes — it just adds an `X-Run-Id` header and the run now
-outlives the request. `GET /{run_id}/stream` reattaches to a live or finished run
-by replaying its event log from a cursor.
+Run CRUD, `/invoke` (create + block for the result), `/cancel`, and the
+`/runs/active` poll. Live streaming is the Agent Streaming Protocol's job:
+`POST /threads/{id}/commands` starts runs and `POST /threads/{id}/stream/events`
+relays their event log (`app/agents/protocol/router.py`).
 """
 
 from fastapi import APIRouter, Body, Depends, Query
-from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.runs.schemas import RunCreate, RunResponse
@@ -34,12 +33,6 @@ router = APIRouter(prefix="/threads/{thread_id}/runs", tags=["runs"])
 
 # User-level surface (not nested under a thread).
 user_runs_router = APIRouter(prefix="/runs", tags=["runs"])
-
-_SSE_HEADERS = {
-    "Cache-Control": "no-cache, no-transform",
-    "Connection": "keep-alive",
-    "X-Accel-Buffering": "no",
-}
 
 
 def get_run_service() -> RunService:
@@ -96,48 +89,6 @@ async def list_active_runs(
     return [RunResponse.from_record(r) for r in records]
 
 
-@router.post("/stream")
-async def create_run_stream(
-    thread_id: str,
-    agent_input: dict | None = Body(None, embed=True, alias="input"),
-    command: dict | None = Body(None, embed=True),
-    config: dict | None = Body(None, embed=True),
-    thread: ThreadResponse = Depends(authorize_thread),
-    runs: RunService = Depends(get_run_service),
-    db: AsyncSession = Depends(get_db),  # dependency-cached: same session auth used
-):
-    """Create a run and stream it. Same SSE protocol as before; durable underneath."""
-    # Pre-flight: refuse to launch if the agent or a subagent needs OAuth; the
-    # gate commits/releases the pooled connection itself before probing, so no
-    # run is created when authorization is missing and no connection is held
-    # during network IO.
-    if auth_url := await runs.required_oauth_url(
-        db, thread.agent_id, str(thread.user_id)
-    ):
-        # Explicit at the call site: this used to be an exception the
-        # app-global handler turned into a response on *any* endpoint that
-        # touched MCP (design review §2.4).
-        return oauth_required_response(auth_url)
-    # Auth queries are done — release the pooled connection before anything
-    # else (RunService opens its own sessions; holding both risks pool
-    # starvation) and before the response streams for the whole run.
-    await db.commit()
-    trigger, config_overrides = _parse_run_config(config)
-    record = await runs.create(
-        thread_id=thread_id,
-        user_id=str(thread.user_id),
-        input=agent_input,
-        command=command,
-        trigger=trigger,
-        config_overrides=config_overrides,
-    )
-    return StreamingResponse(
-        runs.stream(record.id),
-        media_type="text/event-stream",
-        headers={**_SSE_HEADERS, "X-Run-Id": record.id},
-    )
-
-
 @router.post("/invoke")
 async def invoke_run(
     thread_id: str,
@@ -151,9 +102,10 @@ async def invoke_run(
 ) -> dict:
     """Create a run and block until it finishes, returning the final answer.
 
-    Same durable run as `/stream`; the open HTTP connection is just a consumer
-    that awaits the terminal result (and `structured_response`, when
-    `output_schema` is given) instead of relaying the live stream.
+    Same durable run the protocol's `run.start` creates; the open HTTP
+    connection is just a consumer that awaits the terminal result (and
+    `structured_response`, when `output_schema` is given) instead of relaying
+    the live stream.
     """
     # Pre-flight: refuse to launch if the agent or a subagent needs OAuth; the
     # gate commits/releases the pooled connection itself before probing, so no
@@ -209,7 +161,8 @@ async def create_run(
     runs: RunService = Depends(get_run_service),
     db: AsyncSession = Depends(get_db),
 ) -> RunResponse:
-    """Create a run without subscribing (caller streams later via `/{run_id}/stream`)."""
+    """Create a run without subscribing (a protocol event-stream session on the
+    thread picks it up as the thread's newest run)."""
     # Pre-flight: refuse to launch if the agent or a subagent needs OAuth,
     # before the run is created.
     if auth_url := await runs.required_oauth_url(
@@ -220,7 +173,7 @@ async def create_run(
         # touched MCP (design review §2.4).
         return oauth_required_response(auth_url)
     # Release the pooled connection before RunService opens its own session
-    # (holding both risks pool starvation), matching /stream and /invoke.
+    # (holding both risks pool starvation), matching /invoke.
     await db.commit()
     trigger, config_overrides = _parse_run_config(body.config)
     record = await runs.create(
@@ -264,34 +217,6 @@ async def read_run(
     record = await runs.get(run_id)
     _ensure_run_on_thread(record, thread_id)
     return RunResponse.from_record(record)
-
-
-@router.get("/{run_id}/stream")
-async def stream_run(
-    thread_id: str,
-    run_id: str,
-    last_event_id: str = Query("0"),
-    _: ThreadResponse = Depends(authorize_thread),
-    runs: RunService = Depends(get_run_service),
-    db: AsyncSession = Depends(get_db),  # dependency-cached: same session auth used
-):
-    """Reattach to a run, replaying its event log from `last_event_id`.
-
-    `last_event_id=0` replays the whole turn; the SDK passes the last Redis
-    stream id it saw to resume after a reconnect. Works on a finished run too —
-    the log (including the `end` sentinel) is replayed in full.
-    """
-    # Auth queries are done — release the pooled connection before anything
-    # else (RunService opens its own sessions; holding both risks pool
-    # starvation) and before the response streams for the whole run.
-    await db.commit()
-    record = await runs.get(run_id)
-    _ensure_run_on_thread(record, thread_id)
-    return StreamingResponse(
-        runs.stream(run_id, last_event_id),
-        media_type="text/event-stream",
-        headers={**_SSE_HEADERS, "X-Run-Id": run_id},
-    )
 
 
 @router.post("/{run_id}/cancel")

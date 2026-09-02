@@ -48,14 +48,55 @@ def _params(namespace: Namespace, data: Any, node: str | None = None) -> dict:
 # --- lifecycle ---------------------------------------------------------------
 
 
+#: Protocol `AgentStatus` values a lifecycle event may carry.
+AGENT_STATUSES = frozenset({"started", "running", "completed", "failed", "interrupted"})
+
+#: `RunStatus.value` → protocol AgentStatus for the terminal root lifecycle
+#: event. `cancelled` maps to completed: a user Stop is not a failure, and the
+#: protocol has no cancelled status. Anything unlisted (a newer producer
+#: mid-deploy) is reported as `failed` — never as a false `completed`.
+TERMINAL_STATUS: dict[str, str] = {
+    "success": "completed",
+    "interrupted": "interrupted",
+    "error": "failed",
+    "timeout": "failed",
+    "cancelled": "completed",
+}
+
+
 def lifecycle_event(
-    namespace: Namespace, status: str, *, error: str | None = None
+    namespace: Namespace,
+    status: str,
+    *,
+    error: str | None = None,
+    graph_name: str | None = None,
+    cause: dict | None = None,
 ) -> dict:
-    """`lifecycle` event: status ∈ started|running|completed|failed|interrupted."""
+    """`lifecycle` event: status ∈ started|running|completed|failed|interrupted.
+
+    `graph_name` and `cause` (`{"type": "toolCall", "tool_call_id": …}`) are
+    the subagent linkage the spec defines for namespaced `started` events."""
     data: dict[str, Any] = {"event": status}
+    if graph_name is not None:
+        data["graph_name"] = graph_name
+    if cause is not None:
+        data["cause"] = cause
     if error is not None:
         data["error"] = error
     return {"method": "lifecycle", "params": _params(namespace, data)}
+
+
+def terminal_lifecycle(run_status: str | None, *, error: str | None = None) -> dict:
+    """The root lifecycle event that ends a run, from its `RunStatus.value`.
+
+    `run_status=None` means the caller could not parse the status (a newer
+    producer during a rolling deploy) — surfaced as `failed`, the conservative
+    outcome. `error` rides along only on `failed`: the record's error text is
+    what a client shows after the log expired."""
+    status = TERMINAL_STATUS.get(run_status or "", "failed")
+    return lifecycle_event(
+        [], status, error=(error or None) if status == "failed" else None
+    )
 
 
 # --- messages ----------------------------------------------------------------

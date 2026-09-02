@@ -128,27 +128,14 @@ def in_memory_runtime():
 
 
 async def collect(agent: Agent, text: str = "hello", **kwargs) -> list[str]:
+    """Run a turn; each yielded protocol event, JSON-encoded, so tests can
+    grep the stream for the text that reached the wire."""
     chunks = []
-    async for chunk in agent.stream(
+    async for event in agent.stream(
         agent_input={"messages": [{"type": "human", "content": text}]}, **kwargs
     ):
-        chunks.append(chunk)
+        chunks.append(json.dumps(event, default=str))
     return chunks
-
-
-def sse_events(chunks: list[str]) -> list[tuple[str, object]]:
-    """Parse the adapter's SSE strings back into (event, data) pairs."""
-    events = []
-    for chunk in chunks:
-        event = data = None
-        for line in chunk.splitlines():
-            if line.startswith("event: "):
-                event = line[len("event: ") :]
-            elif line.startswith("data: "):
-                data = line[len("data: ") :]
-        if event is not None:
-            events.append((event, json.loads(data) if data else None))
-    return events
 
 
 def system_text(model: ScriptedChatModel, call: int = 0) -> str:

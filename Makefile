@@ -6,7 +6,10 @@ dev-stack:
 dev-backend: dev-stack
 	until docker exec auxilia-postgres pg_isready -q; do sleep 0.5; done
 	cd backend && uv run alembic upgrade head
-	cd backend && uv run uvicorn app.main:app --reload
+# --timeout-graceful-shutdown: a reload must not wait forever on the chat
+# page's long-lived protocol SSE session (POST /threads/{id}/stream/events);
+# uvicorn otherwise blocks the restart until every client disconnects.
+	cd backend && uv run uvicorn app.main:app --reload --timeout-graceful-shutdown 5
 
 dev-frontend:
 	cd web && npm i

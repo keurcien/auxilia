@@ -142,12 +142,23 @@ async def test_success_overwrites_previous_error_stamp(redis, run_db):
     assert (await _get_thread(run_db, "t6")).last_run_status == RunStatus.success
 
 
-async def test_finalize_publishes_end_sentinel(redis):
+async def test_finalize_publishes_the_terminal_lifecycle(redis):
     service = RunService(redis)
     record = await service.create(thread_id="t7", user_id=_user(), input={})
     await service.finalize(record.id, RunStatus.cancelled)
     chunks = [c async for c in service.stream(record.id, "0")]
-    assert any("event: end" in c and "cancelled" in c for c in chunks)
+    # A user Stop is not a failure: the protocol terminal is `completed`.
+    assert _terminal_of(chunks) == {"event": "completed"}
+
+
+def _terminal_of(chunks: list[str]) -> dict:
+    """The root lifecycle terminal data of a relayed log (its last entry)."""
+    from app.agents.protocol.wire import decode_event
+
+    event = decode_event(chunks[-1])
+    assert event is not None and event["method"] == "lifecycle"
+    assert event["params"]["namespace"] == []
+    return event["params"]["data"]
 
 
 async def test_cancel_pending_finalizes_immediately(redis):
@@ -183,27 +194,27 @@ async def test_finalize_refuses_illegal_source_status(redis):
     assert updated.status == RunStatus.error
 
 
-async def test_stream_missing_sentinel_backstop(redis, run_db):
-    """A worker crash between the Postgres commit and publishing the end
-    sentinel must not hang subscribers: an idle read on a terminal run yields
-    a synthetic end."""
+async def test_stream_missing_terminal_backstop(redis, run_db):
+    """A worker crash between the Postgres commit and publishing the terminal
+    entry must not hang subscribers: an idle read on a terminal run yields a
+    synthetic terminal carrying the record's error."""
     service = RunService(redis)
     record = await service.create(thread_id="t9c", user_id=_user(), input={})
     claimed = await service.claim_next()
     from app.agents.runs.events import RunEventStream
     from app.agents.runs.repository import RunRepository
 
-    await RunEventStream(record.id, redis).publish("event: messages\ndata: {}\n\n")
-    # Simulate the crash: terminal in Postgres, no sentinel in Redis.
+    await RunEventStream(record.id, redis).publish('{"method": "values", "params": {}}')
+    # Simulate the crash: terminal in Postgres, no terminal entry in Redis.
     async with run_db() as db:
         await RunRepository(db).finalize_run(claimed.id, RunStatus.error, error="x")
         await db.commit()
     chunks = [c async for c in service.stream(record.id, "0", block_ms=50)]
-    assert any("event: messages" in c for c in chunks)
-    assert "event: end" in chunks[-1] and "error" in chunks[-1]
+    assert any('"method": "values"' in c for c in chunks)
+    assert _terminal_of(chunks) == {"event": "failed", "error": "x"}
 
 
-async def test_stream_expired_events_yields_synthetic_end(redis):
+async def test_stream_expired_events_yields_synthetic_terminal(redis):
     """Reattaching to a terminal run after the event log TTL'd must terminate
     immediately instead of blocking on an empty stream."""
     service = RunService(redis)
@@ -212,7 +223,7 @@ async def test_stream_expired_events_yields_synthetic_end(redis):
     await redis.flushall()  # simulate the Redis TTL wiping the ephemera
     chunks = [c async for c in service.stream(record.id, "0")]
     assert len(chunks) == 1
-    assert "event: end" in chunks[0] and "cancelled" in chunks[0]
+    assert _terminal_of(chunks) == {"event": "completed"}
 
 
 async def test_list_active_for_user(redis):

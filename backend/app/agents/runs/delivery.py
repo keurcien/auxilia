@@ -1,9 +1,10 @@
 """Push delivery — the seam between a run and a non-HTTP recipient.
 
-Most runs are *pulled*: an HTTP subscriber rides the event log (`/runs/stream`).
-A push channel (e.g. Slack) has no client connection to ride, so its updates are
-delivered by a worker-side consumer that subscribes to the run's event log and
-relays each chunk to the channel.
+Most runs are *pulled*: an HTTP subscriber rides the event log (a protocol
+event-stream session, `POST /threads/{id}/stream/events`). A push channel (e.g.
+Slack) has no client connection to ride, so its updates are delivered by a
+worker-side consumer that subscribes to the run's event log and relays each
+event to the channel.
 
 This module stays channel-agnostic: it defines the consumer shape and the factory
 type only. The composition root (`main.py`) injects a concrete factory (the Slack

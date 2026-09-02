@@ -20,7 +20,7 @@ import { useAgentsStore } from "@/stores/agents-store";
 import { canConfigureAgent } from "@/types/agents";
 import { usePendingMessageStore } from "@/stores/pending-message-store";
 import { useAgentReadiness } from "@/hooks/use-agent-readiness";
-import { useHitlApprovals } from "@/hooks/use-hitl-approvals";
+import { type HitlResponse, useHitlApprovals } from "@/hooks/use-hitl-approvals";
 import { useThrottledValue } from "@/hooks/use-throttled-value";
 import { useProtocolFetch } from "@/hooks/use-protocol-fetch";
 import { useChatHeaderStore } from "@/stores/chat-header-store";
@@ -255,22 +255,25 @@ const ChatPage = () => {
   // `${msg.id}-tc-${i}` here but `approval-${i}` on the backend — those can
   // never match, so fall back to the positional form for that batch.
   const pendingIdsAreReal = pendingToolCalls.every((tc) => tc.call.id);
+  const respondToInterrupt = useCallback(
+    (response: HitlResponse, addressedId: string | null) => {
+      rehydratedErrorStale.current = true;
+      setRehydratedError(null);
+      // The protocol's `input.respond`: the backend maps it onto a resume run
+      // and stale-checks the interrupt id against the checkpoint (409).
+      const target = addressedId ?? interruptId;
+      void selectorStream.respond(
+        response,
+        target != null ? { interruptId: target } : undefined,
+      );
+    },
+    [selectorStream, interruptId],
+  );
   const { decisions, recordDecision } = useHitlApprovals({
     isInterrupted,
     interruptId: pendingIdsAreReal ? interruptId : null,
     pendingToolCalls,
-    submit: (_input, opts) => {
-      rehydratedErrorStale.current = true;
-      setRehydratedError(null);
-      const resume = opts.command.resume;
-      const interrupt_id =
-        "interrupt_id" in resume ? resume.interrupt_id : interruptId;
-      void stream.respond(
-        { decisions: resume.decisions },
-        interrupt_id != null ? { interruptId: interrupt_id } : undefined,
-      );
-    },
-    messages,
+    respond: respondToInterrupt,
   });
 
   const handleRegenerate = useCallback(() => {

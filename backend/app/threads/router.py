@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.core.service import AgentService, get_agent_service
 from app.agents.hitl import pending_interrupt
 from app.agents.models import EffectivePermission
-from app.agents.stream import _serialize_lc_message
+from app.agents.protocol.messages import serialize_message
 from app.agents.structured_output import is_structured_output_artifact
 from app.auth.dependencies import detect_auth_method, get_current_user
 from app.database import get_checkpointer, get_db
@@ -14,7 +14,6 @@ from app.exceptions import PermissionDeniedError
 from app.pagination import Page, PageParams
 from app.threads.models import ThreadDB, ThreadSource
 from app.threads.schemas import ThreadCreate, ThreadPatch, ThreadResponse, ViewerRole
-from app.threads.serialization import deserialize_to_ui_messages
 from app.threads.service import ThreadService, get_thread_service
 from app.users.models import UserDB
 
@@ -65,7 +64,6 @@ async def read_thread(
 
         if checkpoint_tuple is None:
             return {
-                "messages": [],
                 "values": {"messages": []},
                 "thread": thread_read,
                 "interrupted": False,
@@ -83,7 +81,7 @@ async def read_thread(
         ]
         todos = channel_values.get("todos", [])
         values: dict = {
-            "messages": [_serialize_lc_message(m) for m in lc_messages],
+            "messages": [serialize_message(m) for m in lc_messages],
         }
         if todos:
             values["todos"] = todos
@@ -93,7 +91,6 @@ async def read_thread(
         interrupt = pending_interrupt(checkpoint_tuple)
 
         return {
-            "messages": deserialize_to_ui_messages(lc_messages),
             "values": values,
             "thread": thread_read,
             "interrupted": interrupt is not None,
@@ -193,7 +190,7 @@ async def get_subagent_state(
             if checkpoint:
                 lc_messages = checkpoint["channel_values"].get("messages", [])
 
-        return {"messages": [_serialize_lc_message(m) for m in lc_messages]}
+        return {"messages": [serialize_message(m) for m in lc_messages]}
 
 
 @router.get("/")

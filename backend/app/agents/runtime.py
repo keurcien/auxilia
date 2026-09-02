@@ -20,6 +20,7 @@ from langchain_core.messages import (
     convert_to_messages,
 )
 from langgraph.errors import GraphRecursionError
+from langgraph.stream.transformers import UpdatesTransformer
 from langgraph.types import Command
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,12 +32,9 @@ from app.agents.harness import (
     harness_system_prompt,
     harness_trailing_middleware,
 )
+from app.agents.protocol.emit import ProtocolEmitter
 from app.agents.run_spec import AgentSpec
 from app.agents.settings import agent_settings
-from app.agents.stream import (
-    LangGraphStreamAdapter,
-    encode_synthetic_ai_message_sse,
-)
 from app.agents.structured_output import (
     FORMAT_TOOL,
     PROVIDER_FORMAT_MODES,
@@ -586,7 +584,15 @@ class Agent:
         config_overrides: dict | None = None,
         output_schema: dict | None = None,
     ):
-        """Stream using the native LangGraph SSE protocol.
+        """Run one turn, yielding Agent Streaming Protocol events (`{method,
+        params}` dicts — see `app/agents/protocol/emit.py`).
+
+        The graph is driven through langgraph's `astream_events(version="v3")`,
+        which emits the protocol grammar natively for every namespace
+        (subagents included); `ProtocolEmitter` applies the publish-side
+        policies the web client's contract needs. A graph failure propagates
+        to the caller — the worker finalizes the run as `error` and publishes
+        the terminal lifecycle with the root-cause message.
 
         Args:
             agent_input: Graph input dict (e.g. {"messages": [{"type": "human", ...}]}) or None for resume.
@@ -610,22 +616,28 @@ class Agent:
                 state = await agent.aget_state(config)
                 if state.values.get("structured_response") is not None:
                     await agent.aupdate_state(config, {"structured_response": None})
-            langchain_stream = agent.astream(
+            # The call itself must be awaited; iterating the returned run
+            # stream is what drives the graph (no background task). The
+            # context manager aborts the graph iterator on an early exit —
+            # the worker's cancel lands here as a CancelledError. `updates`
+            # is opt-in: the emitter reads each node's written messages off
+            # it to complete tool calls that never ran (see ProtocolEmitter).
+            run = await agent.astream_events(
                 stream_input,
                 config=config,
-                stream_mode=["messages", "values", "updates"],
-                subgraphs=True,
+                version="v3",
+                transformers=[UpdatesTransformer],
             )
-            adapter = LangGraphStreamAdapter(subgraphs=True)
-
+            emitter = ProtocolEmitter()
             try:
-                async for chunk in adapter.stream(langchain_stream):
-                    yield chunk
+                async with run:
+                    async for event in emitter.stream(run):
+                        yield event
             except GraphRecursionError:
                 ai_msg = await self._persist_recursion_fallback(agent, config)
                 state = await agent.aget_state(config)
-                for sse in encode_synthetic_ai_message_sse(ai_msg, state.values):
-                    yield sse
+                for event in emitter.synthetic_ai_message(ai_msg, state.values):
+                    yield event
             finally:
                 await self._persist_sandbox()
 
