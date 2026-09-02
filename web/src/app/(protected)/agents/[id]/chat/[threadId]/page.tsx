@@ -10,11 +10,8 @@ import { type PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { Button } from "@/components/ui/button";
 import ChatPromptInput from "../components/prompt-input";
 import { ArchiveIcon, CircleSlash, ShieldCheck } from "lucide-react";
-import {
-  useStream,
-  FetchStreamTransport,
-} from "@langchain/langgraph-sdk/react";
-import type { SubagentApi } from "@langchain/langgraph-sdk/ui";
+import { useStream } from "@langchain/react";
+import type { AnyStream } from "@langchain/react";
 import type { Todo } from "@/components/ai-elements/todo-list";
 import { useParams } from "next/navigation";
 import { api, API_BASE_URL } from "@/lib/api/client";
@@ -25,21 +22,28 @@ import { usePendingMessageStore } from "@/stores/pending-message-store";
 import { useAgentReadiness } from "@/hooks/use-agent-readiness";
 import { useHitlApprovals } from "@/hooks/use-hitl-approvals";
 import { useThrottledValue } from "@/hooks/use-throttled-value";
-import { useStreamTick } from "@/hooks/use-stream-tick";
-import { useDurableRun, REATTACH_RUN_FIELD } from "@/hooks/use-durable-run";
+import { useProtocolFetch } from "@/hooks/use-protocol-fetch";
 import { useChatHeaderStore } from "@/stores/chat-header-store";
 import { ConversationBody } from "./conversation-body";
 import {
-  type LCMessage,
+  baseMessageToLC,
   computeToolCallsFromMessages,
+  enrichToolCalls,
   extractHitlToolNames,
   getToolRenderState,
-  toSdkMessages,
 } from "./message-helpers";
 
 // Stable fallback so `values.todos ?? []` doesn't mint a new identity per
 // render and defeat the memoized conversation body.
 const EMPTY_TODOS: Todo[] = [];
+
+// The protocol client builds absolute request URLs (`new URL(apiUrl + path)`),
+// so the browser-side relative proxy base must be absolutized. Guarded for
+// the SSR pass of this client component, where no requests are ever fired.
+const PROTOCOL_API_URL =
+  typeof window === "undefined"
+    ? API_BASE_URL
+    : new URL(API_BASE_URL, window.location.origin).toString();
 
 // ---------------------------------------------------------------------------
 // Chat page component
@@ -60,16 +64,6 @@ const ChatPage = () => {
   // by an admin). Sending would 409, so the composer is replaced by a notice.
   const [modelUnavailable, setModelUnavailable] = useState(false);
   const [viewerRole, setViewerRole] = useState<"admin" | null>(null);
-  const [initialValues, setInitialValues] = useState<Record<
-    string,
-    unknown
-  > | null>(null);
-  const [rehydratedInterrupt, setRehydratedInterrupt] = useState(false);
-  const [rehydratedInterruptValue, setRehydratedInterruptValue] =
-    useState<unknown>(null);
-  const [rehydratedInterruptId, setRehydratedInterruptId] = useState<
-    string | null
-  >(null);
   // A failed last run leaves no trace in the checkpoint, so the live stream's
   // error state is lost on reload. Restored from the run record (which
   // persists the error text) when the thread's lastRunStatus says it failed.
@@ -93,110 +87,73 @@ const ChatPage = () => {
     refetch: refetchReady,
   } = useAgentReadiness(agentArchived ? undefined : agentId);
 
-  const { customFetch, cancel, fetchActiveRunId } = useDurableRun(threadId);
-
-  const transport = useMemo(
-    () =>
-      new FetchStreamTransport({
-        apiUrl: `${API_BASE_URL}/threads/${threadId}/runs/stream`,
-        fetch: customFetch,
-      }),
-    [threadId, customFetch],
-  );
-
-  const thread = useStream<Record<string, unknown>>({
-    transport,
-    threadId,
-    initialValues: initialValues ?? { messages: [] },
-    messagesKey: "messages",
-    filterSubagentMessages: true,
-    // Coalesce same-tick SSE bursts into one listener notification per
-    // macrotask (reattach replay is the worst case). Do NOT pass a number
-    // here — the SDK implements numeric throttle as a trailing debounce,
-    // which starves updates under a continuous token flow.
-    throttle: true,
-    onError: (err: unknown) => {
-      if (!(err instanceof globalThis.Error)) return;
-      // Mid-session race: an admin disabled the model after this page
-      // loaded. The gate 409s and use-durable-run rethrows it with this
-      // name — lock the send affordances (composer, Retry, HITL approvals)
-      // like the on-load flag.
-      if (err.name === "ModelUnavailableError") {
-        setModelUnavailable(true);
-      }
-      // A 409 stale_interrupt means this view resumed an approval that was
-      // already handled elsewhere (another tab, Slack). The checkpoint is
-      // the truth — reload so the thread renders its actual state instead
-      // of the stale cards.
-      if (err.name === "StaleInterruptError") {
-        window.location.reload();
-      }
+  const protocolFetch = useProtocolFetch(threadId, {
+    // Mid-session race: an admin disabled the model after this page loaded.
+    // The command 409s — lock the send affordances like the on-load flag.
+    onModelUnavailable: () => {
+      setModelUnavailable(true);
     },
-    onFinish: () => {
+    // A 409 stale_interrupt means this view resumed an approval that was
+    // already handled elsewhere (another tab, Slack). The checkpoint is the
+    // truth — reload so the thread renders its actual state.
+    onStaleInterrupt: () => {
+      window.location.reload();
+    },
+  });
+
+  // Agent Streaming Protocol stack (issue #309 Part 2): hydration via
+  // GET /threads/{id}/state, commands via POST /threads/{id}/commands, and
+  // one shared filtered SSE session on POST /threads/{id}/stream/events.
+  // Reattach-to-in-flight-run and interrupt rehydration are built in (the
+  // activity gate reads `next`/`tasks` from the state snapshot).
+  const stream = useStream({
+    assistantId: agentId,
+    apiUrl: PROTOCOL_API_URL,
+    threadId,
+    messagesKey: "messages",
+    fetch: protocolFetch,
+    onCompleted: () => {
       // Poll now so the sidebar spinner/badge flips with the stream instead
       // of on the next tick.
       useActiveRunsStore.getState().requestPoll();
       const audio = new Audio("/success.mp3");
       audio.play().catch(() => {});
     },
-  } as Parameters<typeof useStream<Record<string, unknown>>>[0]);
-
-  const { isLoading, error, interrupt, submit: rawSubmit, stop } = thread;
-
-  // Once anything is dispatched, the live stream owns interrupt state — drop
-  // the rehydrated fallback so it can't shadow a fresh post-resume answer.
-  const submit = useCallback<typeof rawSubmit>(
-    (input, opts) => {
-      setRehydratedInterrupt(false);
-      setRehydratedInterruptValue(null);
-      setRehydratedInterruptId(null);
-      setRehydratedError(null);
-      rehydratedErrorStale.current = true;
-      return rawSubmit(input, opts);
-    },
-    [rawSubmit],
-  );
-
-  // Stop both server-side (the run outlives this request) and locally.
-  const handleStop = useCallback(() => {
-    void cancel();
-    stop();
-  }, [cancel, stop]);
-
-  // The custom transport path exposes subagent methods at runtime but
-  // BaseStream types do not include them. Cast to access the API. The ref
-  // indirection gives the memoized conversation body an identity-stable
-  // lookup — the SDK rebuilds the thread object on every render, but every
-  // snapshot delegates to the same underlying StreamManager, so a
-  // one-render-stale ref still reads live subagent state.
-  const subagentApiRef = useRef(thread as unknown as SubagentApi);
-  useEffect(() => {
-    subagentApiRef.current = thread as unknown as SubagentApi;
   });
-  const getSubagentsByMessage = useCallback(
-    (messageId: string) =>
-      subagentApiRef.current.getSubagentsByMessage(messageId),
-    [],
-  );
 
-  // Bumps ≤16Hz on stream notifications; lets the memoized conversation body
-  // follow subagent-only updates (which change no other prop identity).
-  const streamTick = useStreamTick(60);
+  const { isLoading, error, interrupt } = stream;
 
-  // Supervisor todos from stream values
-  const streamValues = thread.values as Record<string, unknown>;
+  // Identity-stable handle for selector hooks inside memoized children
+  // (SubAgentCard's scoped useMessages/useValues) and for callbacks that
+  // must not churn at token rate. The hook return is rebuilt per store
+  // flush, but its controller — and every method, which just delegates to
+  // it — is created once per mount (the controller's deps are our constant
+  // options), so the first snapshot stays a live, valid handle.
+  const [selectorStream] = useState<AnyStream>(() => stream as AnyStream);
+
+  // Stop both server-side (the SDK cancels the active run via
+  // /runs/{id}/cancel) and locally.
+  const handleStop = useCallback(() => {
+    void selectorStream.stop();
+    useActiveRunsStore.getState().requestPoll();
+  }, [selectorStream]);
+
+  // Supervisor todos from the root values snapshot.
+  const streamValues = stream.values as Record<string, unknown>;
   const supervisorTodos = (streamValues.todos ?? EMPTY_TODOS) as Todo[];
 
-  // Messages: use stream messages when available, else initial.
-  // Throttle to ~16Hz so streamed chunks don't trigger per-token re-renders
-  // of the whole conversation (and per-token markdown re-parses).
-  const streamMessagesRaw = thread.messages as LCMessage[];
-  const streamMessages = useThrottledValue(streamMessagesRaw, 60);
-  const initMessages = (initialValues?.messages ?? []) as LCMessage[];
-  const messages =
-    streamMessages.length > 0 || isLoading ? streamMessages : initMessages;
+  // Messages: BaseMessage instances from the projection, mapped (per-instance
+  // cached) to the plain dicts the rendering layer consumes, throttled to
+  // ~16Hz so store flushes during token streams don't re-render the
+  // conversation more often than the eye can follow.
+  const lcMessagesRaw = useMemo(
+    () => stream.messages.map(baseMessageToLC),
+    [stream.messages],
+  );
+  const messages = useThrottledValue(lcMessagesRaw, 60);
 
-  const isInterrupted = interrupt != null || rehydratedInterrupt;
+  const isInterrupted = interrupt != null;
+  const interruptId = interrupt?.id ?? null;
 
   // The way back without a page refresh: re-read the server-computed flag
   // (the banner's "Check again") so an admin re-enabling the model unlocks
@@ -214,29 +171,17 @@ const ChatPage = () => {
   // Other parallel tool calls in the same AI message auto-execute on resume.
   // Scope approval UI and decisions to the hanging subset so the decision count
   // matches the backend's hanging count.
-  const hitlToolNames = useMemo(() => {
-    const liveValue = (interrupt as { value?: unknown } | null | undefined)
-      ?.value;
-    return (
-      extractHitlToolNames(liveValue) ??
-      extractHitlToolNames(rehydratedInterruptValue)
-    );
-  }, [interrupt, rehydratedInterruptValue]);
+  const hitlToolNames = useMemo(
+    () => extractHitlToolNames(interrupt?.value),
+    [interrupt],
+  );
 
-  // The pending interrupt's stable id (from the live SSE payload, or the
-  // thread read after a refresh). Echoed back on resume so a stale approval
-  // — already handled from another surface — is a 409, not a resume of
-  // whatever the thread is paused on now.
-  const interruptId =
-    (interrupt as { id?: string } | null | undefined)?.id ??
-    rehydratedInterruptId;
-
-  // Tool calls, derived once per (throttled) messages change. The SDK also
-  // exposes a `toolCalls` getter, but it rescans every message on each
-  // property read — per render, per token — so we never touch it.
+  // Tool calls: structure derived from the throttled messages, live state
+  // (status / errors / MCP artifacts) overlaid from the `tools` channel.
+  const streamToolCalls = useThrottledValue(stream.toolCalls, 60);
   const toolCalls = useMemo(
-    () => computeToolCallsFromMessages(messages),
-    [messages],
+    () => enrichToolCalls(computeToolCallsFromMessages(messages), streamToolCalls),
+    [messages, streamToolCalls],
   );
 
   const consumePendingMessage = usePendingMessageStore(
@@ -289,18 +234,10 @@ const ChatPage = () => {
         ? (contentParts[0].text as string)
         : contentParts;
 
-    submit(
-      { messages: [{ type: "human", content }] },
-      {
-        optimisticValues: {
-          messages: [
-            ...messages,
-            { type: "human", content, id: crypto.randomUUID() },
-          ],
-        },
-        streamSubgraphs: true,
-      },
-    );
+    rehydratedErrorStale.current = true;
+    setRehydratedError(null);
+    // Optimistic echo of the input is built into the stream stack.
+    void stream.submit({ messages: [{ type: "human", content }] });
   };
 
   const pendingToolCalls = useMemo(
@@ -320,10 +257,18 @@ const ChatPage = () => {
   const pendingIdsAreReal = pendingToolCalls.every((tc) => tc.call.id);
   const { decisions, recordDecision } = useHitlApprovals({
     isInterrupted,
-    interruptId: pendingIdsAreReal ? (interruptId ?? null) : null,
+    interruptId: pendingIdsAreReal ? interruptId : null,
     pendingToolCalls,
-    submit: (input, opts) => {
-      void submit(input, opts);
+    submit: (_input, opts) => {
+      rehydratedErrorStale.current = true;
+      setRehydratedError(null);
+      const resume = opts.command.resume;
+      const interrupt_id =
+        "interrupt_id" in resume ? resume.interrupt_id : interruptId;
+      void stream.respond(
+        { decisions: resume.decisions },
+        interrupt_id != null ? { interruptId: interrupt_id } : undefined,
+      );
     },
     messages,
   });
@@ -335,19 +280,16 @@ const ChatPage = () => {
       .find((m) => m.type === "human" || m.type === "user");
     if (!lastHuman) return;
 
-    submit(
+    rehydratedErrorStale.current = true;
+    setRehydratedError(null);
+    void selectorStream.submit(
       { messages: [{ type: "human", content: lastHuman.content }] },
-      {
-        config: {
-          configurable: { trigger: "regenerate-message" },
-        },
-        optimisticValues: { messages },
-        streamSubgraphs: true,
-      },
+      { config: { configurable: { trigger: "regenerate-message" } } },
     );
-  }, [messages, submit]);
+  }, [messages, selectorStream]);
 
-  // ---- Initialization ----
+  // ---- Initialization (thread metadata; conversation state hydrates via
+  // the protocol stack's GET /threads/{id}/state) ----
 
   useEffect(() => {
     return () => {
@@ -392,77 +334,54 @@ const ChatPage = () => {
         setViewerRole("admin");
       }
 
-      if (data.interrupted) {
-        setRehydratedInterrupt(true);
-        if (data.interruptValue !== undefined) {
-          setRehydratedInterruptValue(data.interruptValue);
-        }
-        setRehydratedInterruptId((data.interruptId as string | undefined) ?? null);
-      }
-
-      // If a run is still in flight for this thread, reattach to its live
-      // stream rather than rendering the (incomplete) checkpoint. The
-      // values replay rebuilds the full conversation, so start from empty
-      // to avoid a mid-flight rebuild flicker.
-      const activeRunId = await fetchActiveRunId();
-      if (activeRunId) {
-        setInitialValues({ messages: [] });
-        // Use the `submit` wrapper (not rawSubmit) so any rehydrated HITL
-        // state is cleared before the live replayed run owns it.
-        setTimeout(() => {
-          submit(
-            {
-              [REATTACH_RUN_FIELD]: activeRunId,
-            } as Parameters<typeof submit>[0],
-            { streamSubgraphs: true } as Parameters<typeof submit>[1],
-          );
-        }, 0);
+      const pendingMessage = consumePendingMessage(threadId);
+      if (pendingMessage) {
+        // Order the first submit AFTER hydration settles. Hydrate's
+        // converge-to-server-truth step drops optimistic messages the state
+        // snapshot doesn't contain — on a brand-new thread that snapshot is
+        // empty, so a submit racing the in-flight hydrate loses its
+        // optimistic echo (the user's message vanishes until the wire echo
+        // lands). Normally resolves in milliseconds; the timeout bounds a
+        // hung /state fetch so the consumed pending message always submits.
+        const hydrationSettled = Promise.race([
+          stream.hydrationPromise.catch(() => {}),
+          new Promise((resolve) => setTimeout(resolve, 4_000)),
+        ]);
+        hydrationSettled
+          .then(() => {
+            handleSubmit(pendingMessage);
+          })
+          .catch((err: unknown) => {
+            console.error("Pending message submit failed:", err);
+          });
         return;
       }
 
-      const values = data.values || { messages: [] };
-      // Restore snake_case message keys so the SDK can reconstruct subagents.
-      const normalizedValues = {
-        ...values,
-        messages: toSdkMessages((values.messages ?? []) as LCMessage[]),
-      };
-
-      const pendingMessage = consumePendingMessage(threadId);
-      if (pendingMessage) {
-        // Set initial values first so submit has proper history base
-        setInitialValues(normalizedValues);
-        // Defer submit to next tick so initialValues takes effect
-        setTimeout(() => {
-          handleSubmit(pendingMessage);
-        }, 0);
-      } else {
-        setInitialValues(normalizedValues);
-        // No run in flight and none about to start: if the last run failed,
-        // restore its error from the run record so a reload doesn't hide it.
-        const lastRunStatus = data.thread.lastRunStatus as string | undefined;
-        if (lastRunStatus === "error" || lastRunStatus === "timeout") {
-          const fallback =
-            lastRunStatus === "timeout"
-              ? "The last run exceeded the time limit."
-              : "The last run failed.";
-          try {
-            const res = await api.get(`/threads/${threadId}/runs`);
-            const runs = (res.data ?? []) as {
-              status?: string;
-              error?: string | null;
-            }[];
-            // Newest first; the run that stamped lastRunStatus is the first
-            // failed one.
-            const failed = runs.find(
-              (r) => r.status === "error" || r.status === "timeout",
-            );
-            if (!rehydratedErrorStale.current) {
-              setRehydratedError(failed?.error || fallback);
-            }
-          } catch {
-            if (!rehydratedErrorStale.current) {
-              setRehydratedError(fallback);
-            }
+      // If the last run failed, restore its error from the run record so a
+      // reload doesn't hide it (a failed run leaves no checkpoint trace).
+      const lastRunStatus = data.thread.lastRunStatus as string | undefined;
+      if (lastRunStatus === "error" || lastRunStatus === "timeout") {
+        const fallback =
+          lastRunStatus === "timeout"
+            ? "The last run exceeded the time limit."
+            : "The last run failed.";
+        try {
+          const res = await api.get(`/threads/${threadId}/runs`);
+          const runs = (res.data ?? []) as {
+            status?: string;
+            error?: string | null;
+          }[];
+          // Newest first; the run that stamped lastRunStatus is the first
+          // failed one.
+          const failed = runs.find(
+            (r) => r.status === "error" || r.status === "timeout",
+          );
+          if (!rehydratedErrorStale.current) {
+            setRehydratedError(failed?.error || fallback);
+          }
+        } catch {
+          if (!rehydratedErrorStale.current) {
+            setRehydratedError(fallback);
           }
         }
       }
@@ -483,7 +402,8 @@ const ChatPage = () => {
               threadId={threadId}
               messages={messages}
               toolCalls={toolCalls}
-              getSubagentsByMessage={getSubagentsByMessage}
+              subagents={stream.subagents}
+              stream={selectorStream}
               supervisorTodos={supervisorTodos}
               isLoading={isLoading}
               isInterrupted={isInterrupted}
@@ -494,7 +414,6 @@ const ChatPage = () => {
               onRegenerate={handleRegenerate}
               error={error}
               rehydratedError={rehydratedError}
-              streamTick={streamTick}
             />
           </ConversationContent>
           <ConversationScrollButton />

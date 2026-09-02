@@ -95,6 +95,8 @@ class ProtocolTranslator:
         self._tool_started_ids: set[str] = set()
         self._tool_finished_ids: set[str] = set()
         self._interrupt_ids: set[str] = set()
+        self._whole_message_ids: set[str] = set()
+        self._anonymous_message_seq = 0
         self._terminal_emitted = False
 
     # --- entry points --------------------------------------------------------
@@ -106,6 +108,9 @@ class ProtocolTranslator:
         if not self._started:
             self._started = True
             out.append(ev.lifecycle_event([], "started"))
+            # The client's LifecycleLoadingTracker flips `isLoading` only on
+            # `running` — `started` alone leaves the UI idle-looking.
+            out.append(ev.lifecycle_event([], "running"))
         if namespace and _ns_key(namespace) not in self._seen_namespaces:
             self._seen_namespaces.add(_ns_key(namespace))
             out.append(ev.lifecycle_event(namespace, "started"))
@@ -369,14 +374,17 @@ class ProtocolTranslator:
                     message=_text_of(message.get("content")),
                 )
             ]
-        finished = ev.tool_finished(
-            namespace, node, tool_call_id=tool_call_id, output=message.get("content")
-        )
-        # Extension field: MCP tool artifacts (structured content, app resource
-        # URIs) ride along for the MCP-app widgets. `Extensible` allows it.
+        # MCP tool artifacts (structured content, app resource URIs) must ride
+        # INSIDE `output`: the client's ToolCallAssembler keeps only
+        # output/status/error, dropping extension fields, and its
+        # `parseToolOutput` passes plain objects through untouched. The web
+        # adapter unwraps `{content, artifact}` back apart.
+        output: Any = message.get("content")
         if message.get("artifact") is not None:
-            finished["params"]["data"]["artifact"] = message["artifact"]
-        return [finished]
+            output = {"content": output, "artifact": message["artifact"]}
+        return [
+            ev.tool_finished(namespace, node, tool_call_id=tool_call_id, output=output)
+        ]
 
     # --- updates mode ----------------------------------------------------------
 
@@ -446,6 +454,27 @@ class ProtocolTranslator:
                     out.extend(self._tool_started_event([], "", tc))
             elif message.get("type") == "tool":
                 out.extend(self._tool_result_events([], "", message))
+            # The input human message never streams on `messages` mode and
+            # `values` snapshots are message-stripped, so without this echo no
+            # live subscriber ever sees the user's turn (a second tab, a
+            # reattach, or the sender itself when the hydration race drops its
+            # optimistic copy). Emitted once per id; the sender's optimistic
+            # copy has the same client-minted id, so its projection treats the
+            # echo as a no-op. Block-content human messages (attachments) are
+            # skipped: the client's assembler flattens human echoes to text,
+            # and replacing a richer optimistic copy with that would lose the
+            # attachments.
+            elif (
+                message.get("type") == "human"
+                and isinstance(message.get("content"), str)
+                and isinstance(message.get("id"), str)
+                and message.get("id")
+            ):
+                # Requires a non-empty id: every superstep's snapshot repeats
+                # the message, and only a real id makes the echo deduplicable
+                # (an empty string would take the anonymous path and duplicate
+                # the message once per superstep).
+                out.extend(self._emit_whole_message([], "", message, role="human"))
         if isinstance(interrupts, list):
             for interrupt in interrupts:
                 if not isinstance(interrupt, dict):
@@ -549,8 +578,24 @@ class ProtocolTranslator:
         self, namespace: list[str], node: str, chunk: dict, *, role: str
     ) -> list[dict]:
         """A complete non-AI message (human/system) delivered on the messages
-        stream — emit it as a closed start/block/finish triple."""
-        message_id = chunk.get("id") or f"{role}-message"
+        stream — emit it as a closed start/block/finish triple. Emitted once
+        per (namespace, role, id): the same human message can reach us via
+        messages mode AND the per-superstep values echo, while distinct
+        messages that happen to share an id across namespaces must not
+        swallow each other. Id-less messages get a deterministic synthetic
+        id from a per-translator counter (stable across session replays) and
+        are never deduped — each messages-mode occurrence is distinct.
+        Callers that can see the same id-less message repeatedly (the values
+        echo) must guard on a real id themselves."""
+        message_id = chunk.get("id")
+        if isinstance(message_id, str) and message_id:
+            dedupe_key = f"{_ns_key(namespace)}|{role}|{message_id}"
+            if dedupe_key in self._whole_message_ids:
+                return []
+            self._whole_message_ids.add(dedupe_key)
+        else:
+            self._anonymous_message_seq += 1
+            message_id = f"{role}-message-{self._anonymous_message_seq}"
         return [
             ev.message_start(namespace, node, role=role, message_id=message_id),
             ev.content_block_start(

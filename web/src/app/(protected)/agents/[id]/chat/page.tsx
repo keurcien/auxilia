@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { v4 as uuidv4 } from "uuid";
 import {
 	type PromptInputMessage,
 	usePromptInputController,
@@ -13,6 +12,7 @@ import { useThreadsStore } from "@/stores/threads-store";
 import { usePendingMessageStore } from "@/stores/pending-message-store";
 import { useModelsStore } from "@/stores/models-store";
 import { api } from "@/lib/api/client";
+import { generateUuid } from "@/lib/utils/uuid";
 import { ChevronDown } from "lucide-react";
 import { Agent, canConfigureAgent } from "@/types/agents";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
@@ -67,7 +67,7 @@ const StarterChatPage = () => {
 
 		try {
 			// Generate thread ID on frontend
-			const threadId = uuidv4();
+			const threadId = generateUuid();
 
 			// Store the pending message (with files) to be consumed by the thread page
 			setPendingMessage(threadId, message);

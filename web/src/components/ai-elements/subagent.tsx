@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { Loader2, XCircleIcon } from "lucide-react";
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Loader } from "@/components/ai-elements/loader";
 import {
 	ChainRail,
@@ -21,7 +21,10 @@ import { MessageResponse } from "@/components/ai-elements/message";
 import { TodoList } from "@/components/ai-elements/todo-list";
 import type { Todo } from "@/components/ai-elements/todo-list";
 import { extractToolErrorText } from "@/lib/utils/tool-content";
-import type { SubagentStreamInterface } from "@langchain/langgraph-sdk/ui";
+import { useMessages, useValues } from "@langchain/react";
+import type { AnyStream } from "@langchain/react";
+import type { SubagentDiscoverySnapshot } from "@langchain/langgraph-sdk/stream";
+import { baseMessageToLC } from "@/lib/utils/lc-messages";
 
 // ---------------------------------------------------------------------------
 // Petrol Mono (design 8a): a subagent call is a chain-of-thought step —
@@ -100,7 +103,7 @@ const SubAgentConversation = memo(
 		isStreaming: boolean;
 		mcpServers?: MCPServerInfo[];
 	}) => {
-		if (!messages || messages.length === 0) return null;
+		if (messages.length === 0) return null;
 
 		// Build a map of tool_call_id → tool message for result lookup
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -218,41 +221,48 @@ SubAgentConversation.displayName = "SubAgentConversation";
 // ---------------------------------------------------------------------------
 
 interface SubAgentCardProps {
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	subagent: SubagentStreamInterface<any, any, any>;
+	/** Discovery snapshot from `stream.subagents` (keyed by task tool-call id). */
+	subagent: SubagentDiscoverySnapshot;
+	/** The stream handle — the card opens its own scoped projections
+	 *  (mount = subscribe, unmount = unsubscribe). */
+	stream: AnyStream;
 	mcpServers?: MCPServerInfo[];
 	/** The workspace agent behind this subagent, for its emoji/pastel tile. */
 	agent?: { name: string; emoji?: string | null; color?: string | null };
 	onOpen?: () => void;
-	// Internal conversation restored from the subgraph checkpoint on refresh.
-	// The SDK can't inject these into the (reconstructed) subagent via the custom
-	// transport, so the page fetches them on demand and passes them here.
+	// Internal conversation restored from the subgraph checkpoint on refresh —
+	// covers historical threads whose execution namespace is no longer
+	// resolvable (no live events to subscribe to).
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	fallbackMessages?: any[];
 }
 
 export const SubAgentCard = memo(
-	({ subagent, mcpServers, agent, onOpen, fallbackMessages }: SubAgentCardProps) => {
-		const {
-			status,
-			toolCall,
-			result,
-			startedAt,
-			completedAt,
-			messages,
-			values,
-		} = subagent;
+	({ subagent, stream, mcpServers, agent, onOpen, fallbackMessages }: SubAgentCardProps) => {
+		const { status, startedAt, completedAt } = subagent;
+		// Scoped, ref-counted subscriptions on the subagent's namespace — they
+		// ride the shared SSE session (union filter), not extra connections.
+		const liveMessages = useMessages(stream, subagent);
+		const scopedValues = useValues<Record<string, unknown>>(stream, subagent);
+		const messages = useMemo(
+			() => liveMessages.map(baseMessageToLC),
+			[liveMessages],
+		);
 		const isStreaming = status === "running";
 		const isError = status === "error";
-		const description = toolCall?.args?.description as string | undefined;
-		const subagentType = toolCall?.args?.subagent_type as string | undefined;
-		const agentLabel =
-			agent?.name ?? subagentType?.replaceAll("_", " ") ?? "subagent";
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const todos = ((values as any)?.todos ?? []) as Todo[];
+		const description = subagent.taskInput;
+		const subagentType = subagent.name;
+		const agentLabel = agent?.name ?? subagentType.replaceAll("_", " ");
+		const todos = ((scopedValues?.todos ?? []) as Todo[]);
+		const result =
+			subagent.output == null
+				? undefined
+				: typeof subagent.output === "string"
+					? subagent.output
+					: JSON.stringify(subagent.output, null, 2);
 
 		const elapsed =
-			startedAt && completedAt
+			completedAt != null
 				? completedAt.getTime() - startedAt.getTime()
 				: undefined;
 
@@ -269,15 +279,16 @@ export const SubAgentCard = memo(
 			if (isStreaming) setAutoOpen(true);
 		}
 
+		const liveEmpty = messages.length === 0;
 		useEffect(() => {
-			if (isError && onOpen && !requestedInitialHistory.current) {
+			if (isError && liveEmpty && onOpen && !requestedInitialHistory.current) {
 				requestedInitialHistory.current = true;
 				onOpen();
 			}
-		}, [isError, onOpen]);
+		}, [isError, liveEmpty, onOpen]);
 
 		const convoMessages =
-			messages && messages.length > 0 ? messages : (fallbackMessages ?? []);
+			messages.length > 0 ? messages : (fallbackMessages ?? []);
 		const hasConversation = convoMessages.length > 0;
 
 		return (
@@ -295,10 +306,10 @@ export const SubAgentCard = memo(
 				lockOpen={autoOpen}
 				onOpenChange={(open) => {
 					setAutoOpen(false);
-					if (open) onOpen?.();
+					if (open && liveEmpty) onOpen?.();
 				}}
 				meta={
-					isStreaming || status === "pending" ? (
+					isStreaming ? (
 						<Loader2 className="size-3 animate-spin text-petrol" />
 					) : isError ? (
 						<XCircleIcon className="size-3.5 text-destructive" />
@@ -326,20 +337,14 @@ export const SubAgentCard = memo(
 					<StepSection label="RESULT">
 						<div className="min-w-0 rounded-[6px] border border-border bg-card px-3 py-2.5 text-[12.5px] leading-[1.6] text-body dark:text-panel-body">
 							<MessageResponse className="text-[12.5px] leading-[1.6]">
-								{String(result)}
+								{result}
 							</MessageResponse>
 						</div>
 					</StepSection>
 				)}
 				{isError && subagent.error != null && (
 					<StepSection label="ERROR" error>
-						<StepCode
-							value={
-								subagent.error instanceof Error
-									? subagent.error.message
-									: String(subagent.error)
-							}
-						/>
+						<StepCode value={subagent.error} />
 					</StepSection>
 				)}
 			</ChainStep>
@@ -354,8 +359,7 @@ SubAgentCard.displayName = "SubAgentCard";
 // ---------------------------------------------------------------------------
 
 interface SubAgentProgressProps {
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	subagents: SubagentStreamInterface<any, any, any>[];
+	subagents: SubagentDiscoverySnapshot[];
 }
 
 export const SubAgentProgress = memo(({ subagents }: SubAgentProgressProps) => {
@@ -390,8 +394,7 @@ SubAgentProgress.displayName = "SubAgentProgress";
 // ---------------------------------------------------------------------------
 
 interface SynthesisIndicatorProps {
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	subagents: SubagentStreamInterface<any, any, any>[];
+	subagents: SubagentDiscoverySnapshot[];
 	isCoordinatorStreaming: boolean;
 }
 
