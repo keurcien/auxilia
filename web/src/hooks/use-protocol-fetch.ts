@@ -79,6 +79,11 @@ export function useProtocolFetch(
       // pinned by construction and cannot reach another host.
       // nosemgrep
       const response = await fetch(url, { credentials: "include", ...init });
+      if (method === "run.start" && !response.ok) {
+        // The optimistic spinner must not outlive a rejected launch — ask
+        // the active-runs poller to reconcile with server truth now.
+        useActiveRunsStore.getState().requestPoll();
+      }
       if (response.status === 409) {
         const body = (await response
           .clone()
