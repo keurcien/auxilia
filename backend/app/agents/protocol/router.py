@@ -79,6 +79,21 @@ async def stream_events(
     )
 
 
+@router.post("/history")
+async def get_history(
+    _: ThreadResponse = Depends(authorize_thread),
+) -> list[dict]:
+    """Checkpoint history (LangGraph `client.threads.getHistory` shape).
+
+    Served empty on purpose: the client uses history pages only to promote
+    historical subagent namespaces (reading pregel task internals this
+    facade does not reconstruct), and it treats an empty page as "nothing
+    to promote" — the web app's own subagent-state fallback endpoint covers
+    viewing those conversations. Answering `[]` instead of 404 keeps the
+    client's discovery seed quiet."""
+    return []
+
+
 @router.get("/state")
 async def get_state(
     thread_id: str,

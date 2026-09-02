@@ -5,34 +5,13 @@
 // here is identity-stable so memoized consumers can rely on their inputs.
 // ---------------------------------------------------------------------------
 
-import type { SubagentStreamInterface } from "@langchain/langgraph-sdk/ui";
+import type { AssembledToolCall } from "@langchain/langgraph-sdk/stream";
 import type { AttachmentData } from "@/components/ai-elements/attachments";
+import type { LCMessage } from "@/lib/utils/lc-messages";
 import type { McpAppToolInfo } from "../components/mcp-app-widget";
 
-export type LCToolCallEntry = {
-  name: string;
-  args: Record<string, unknown>;
-  id?: string;
-};
-
-export type LCMessage = {
-  type: string;
-  content: string | Array<Record<string, unknown>>;
-  id?: string;
-  name?: string;
-  // snake_case (from stream / raw API)
-  tool_calls?: LCToolCallEntry[];
-  tool_call_id?: string;
-  // camelCase (after Axios interceptor)
-  toolCalls?: LCToolCallEntry[];
-  toolCallId?: string;
-  additionalKwargs?: Record<string, unknown>;
-  status?: string;
-  additional_kwargs?: Record<string, unknown>;
-  response_metadata?: Record<string, unknown>;
-  artifact?: Record<string, unknown>;
-  [key: string]: unknown;
-};
+export { baseMessageToLC } from "@/lib/utils/lc-messages";
+export type { LCMessage, LCToolCallEntry } from "@/lib/utils/lc-messages";
 
 export function getTextContent(message: LCMessage): string {
   if (typeof message.content === "string") return message.content;
@@ -46,11 +25,15 @@ export function getTextContent(message: LCMessage): string {
 }
 
 export function getReasoningContent(message: LCMessage): string | null {
-  // Anthropic: `thinking` blocks in content.
+  // Anthropic: `thinking` blocks; protocol v1 content: `reasoning` blocks.
   if (Array.isArray(message.content)) {
-    const thinking = message.content.filter((c) => c.type === "thinking");
+    const thinking = message.content.filter(
+      (c) => c.type === "thinking" || c.type === "reasoning",
+    );
     if (thinking.length > 0) {
-      return thinking.map((c) => (c.thinking as string) || "").join("\n");
+      return thinking
+        .map((c) => ((c.thinking ?? c.reasoning) as string) || "")
+        .join("\n");
     }
   }
   // DeepSeek: reasoning lives in additional_kwargs.reasoning_content, not in
@@ -158,56 +141,66 @@ export type LocalToolCall = {
   state: "pending" | "completed" | "error";
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type SubagentData = SubagentStreamInterface<any, any, any>;
-
 // A chain-of-thought step: a plain tool call, or a subagent call (a `task`
-// tool call the SDK paired with its subagent stream).
+// tool call paired with its discovered subagent snapshot).
 export type ChainStepData =
   | { kind: "tool"; tc: LocalToolCall }
-  | { kind: "subagent"; sub: SubagentData };
+  | { kind: "subagent"; tc: LocalToolCall };
 
-// The LangGraph SDK reconstructs subagent containers from history, but it reads
-// LangChain's snake_case keys (`tool_calls`, `tool_call_id`, `args.subagent_type`).
-// Our axios response interceptor camelCases API payloads, so messages loaded via
-// GET /threads/{id} arrive as `toolCalls` / `toolCallId` / `args.subagentType` and
-// the SDK builds zero subagents. Restore the snake_case shape the SDK expects
-// before handing it the initial values. Streaming is unaffected (SSE bypasses the
-// interceptor and is already snake_case).
-export function toSdkMessages(messages: LCMessage[]): LCMessage[] {
-  return messages.map((msg) => {
-    const m = msg as unknown as Record<string, unknown>;
-    const out: Record<string, unknown> = { ...m };
-
-    if ("toolCallId" in out) {
-      out.tool_call_id = out.toolCallId;
-      delete out.toolCallId;
+/**
+ * Overlay `tools`-channel results onto message-derived tool calls.
+ *
+ * `computeToolCallsFromMessages` provides the structure (pairing, owning AI
+ * message, position); the assembled handles carry what the message
+ * projection cannot: live status, the error text, and the MCP artifact the
+ * backend wraps into `tool-finished.output` as `{content, artifact}`.
+ */
+export function enrichToolCalls(
+  local: LocalToolCall[],
+  assembled: AssembledToolCall[],
+): LocalToolCall[] {
+  if (assembled.length === 0) return local;
+  const byId = new Map(assembled.map((tc) => [tc.id, tc]));
+  return local.map((tc) => {
+    const live = byId.get(tc.id);
+    if (live == null) return tc;
+    let { output } = live;
+    let artifact: Record<string, unknown> | undefined;
+    if (output != null && typeof output === "object" && "artifact" in output) {
+      const wrapped = output as { content?: unknown; artifact?: unknown };
+      artifact = wrapped.artifact as Record<string, unknown> | undefined;
+      output = wrapped.content;
     }
-
-    const toolCalls = (m.toolCalls ?? m.tool_calls) as
-      | Array<Record<string, unknown>>
-      | undefined;
-    if (Array.isArray(toolCalls)) {
-      out.tool_calls = toolCalls.map((tc) => {
-        // Subagent (task) args carry `subagent_type`; the interceptor
-        // camelCased it to `subagentType`. Restore it so the SDK's
-        // isValidSubagentType() check passes during reconstruction.
-        if (tc.name === "task" && tc.args && typeof tc.args === "object") {
-          const args = tc.args as Record<string, unknown>;
-          return {
-            ...tc,
-            args: {
-              ...args,
-              subagent_type: args.subagent_type ?? args.subagentType,
-            },
-          };
-        }
-        return tc;
-      });
-      delete out.toolCalls;
+    if (live.status === "error") {
+      return {
+        ...tc,
+        state: "error",
+        result: {
+          type: "tool",
+          content: tc.result?.content ?? live.error ?? "Tool failed",
+          status: "error",
+          tool_call_id: tc.id,
+        },
+      };
     }
-
-    return out as unknown as LCMessage;
+    if (live.status === "finished") {
+      const content =
+        tc.result?.content ??
+        (typeof output === "string" ? output : JSON.stringify(output ?? ""));
+      return {
+        ...tc,
+        state: "completed",
+        result: {
+          type: "tool",
+          content,
+          tool_call_id: tc.id,
+          ...(artifact != null || tc.result?.artifact != null
+            ? { artifact: tc.result?.artifact ?? artifact }
+            : {}),
+        },
+      };
+    }
+    return tc;
   });
 }
 

@@ -64,11 +64,12 @@ import {
 } from "lucide-react";
 import { ThinkingLoader } from "../components/loader";
 import { McpAppWidget } from "../components/mcp-app-widget";
+import type { SubagentDiscoverySnapshot } from "@langchain/langgraph-sdk/stream";
+import type { AnyStream } from "@langchain/react";
 import {
   type ChainStepData,
   type LCMessage,
   type LocalToolCall,
-  type SubagentData,
   getFileAttachments,
   getMcpAppInfoFromToolCall,
   getReasoningContent,
@@ -84,10 +85,13 @@ export type ConversationBodyProps = {
   threadId: string;
   /** Throttled stream messages (or initial history when idle). */
   messages: LCMessage[];
-  /** Tool calls derived (memoized) from `messages`. */
+  /** Tool calls derived (memoized) from `messages`, enriched from the
+   *  `tools` channel (status, errors, MCP artifacts). */
   toolCalls: LocalToolCall[];
-  /** Stable wrapper around the SDK's subagent lookup. */
-  getSubagentsByMessage: (messageId: string) => SubagentData[];
+  /** Subagent discovery snapshots keyed by their `task` tool-call id. */
+  subagents: ReadonlyMap<string, SubagentDiscoverySnapshot>;
+  /** The stream handle, for the cards' scoped selector subscriptions. */
+  stream: AnyStream;
   supervisorTodos: Todo[];
   isLoading: boolean;
   isInterrupted: boolean;
@@ -98,13 +102,6 @@ export type ConversationBodyProps = {
   onRegenerate: () => void;
   error: unknown;
   rehydratedError: string | null;
-  /**
-   * Bumped (throttled, ~16Hz) on stream notifications that change no other
-   * prop — subagent token streams only mutate SDK-internal state — so this
-   * memoized body still re-renders to show them. Not read; its only job is
-   * to break the memo comparison.
-   */
-  streamTick: number;
 };
 
 /**
@@ -117,7 +114,8 @@ export const ConversationBody = memo(function ConversationBody({
   threadId,
   messages,
   toolCalls,
-  getSubagentsByMessage,
+  subagents,
+  stream,
   supervisorTodos,
   isLoading,
   isInterrupted,
@@ -243,27 +241,16 @@ export const ConversationBody = memo(function ConversationBody({
       if ((m.type !== "ai" && m.type !== "assistant") || !m.id) continue;
       const hasText = getTextContent(m).trim().length > 0;
       const tcs = getToolCallsForMessage(m);
-      const subs = getSubagentsByMessage(m.id);
-      if (tcs.length === 0 && subs.length === 0) {
+      if (tcs.length === 0) {
         if (hasText) turnOwner = null;
         continue;
       }
 
-      const subById = new Map(subs.map((s) => [s.id, s]));
-      const paired = new Set<string>();
-      const steps: ChainStepData[] = [];
-      for (const tc of tcs) {
-        const sub = subById.get(tc.id);
-        if (sub) {
-          steps.push({ kind: "subagent", sub });
-          paired.add(sub.id);
-        } else {
-          steps.push({ kind: "tool", tc });
-        }
-      }
-      for (const sub of subs) {
-        if (!paired.has(sub.id)) steps.push({ kind: "subagent", sub });
-      }
+      const steps: ChainStepData[] = tcs.map((tc) =>
+        tc.call.name === "task" && subagents.has(tc.id)
+          ? { kind: "subagent", tc }
+          : { kind: "tool", tc },
+      );
 
       if (turnOwner == null) {
         turnOwner = m.id;
@@ -367,11 +354,12 @@ export const ConversationBody = memo(function ConversationBody({
               (s): s is Extract<ChainStepData, { kind: "subagent" }> =>
                 s.kind === "subagent",
             )
-            .map((s) => s.sub);
+            .map((s) => subagents.get(s.tc.id))
+            .filter((s): s is SubagentDiscoverySnapshot => s != null);
           const chainActive = chainSteps.some((s) =>
             s.kind === "tool"
               ? s.tc.state === "pending"
-              : s.sub.status === "running" || s.sub.status === "pending",
+              : subagents.get(s.tc.id)?.status === "running",
           );
           const chainLockOpen = chainSteps.some(
             (s) =>
@@ -417,26 +405,16 @@ export const ConversationBody = memo(function ConversationBody({
                   >
                     {chainSteps.map((step) => {
                       if (step.kind === "subagent") {
-                        const sub = step.sub;
+                        const sub = subagents.get(step.tc.id);
+                        if (sub == null) return null;
                         return (
                           <SubAgentCard
                             key={sub.id}
                             subagent={sub}
+                            stream={stream}
                             mcpServers={mcpServers}
-                            agent={findAgentForSubagentType(
-                              (
-                                sub.toolCall as
-                                  | { args?: Record<string, unknown> }
-                                  | undefined
-                              )?.args?.subagent_type as string | undefined,
-                            )}
-                            onOpen={
-                              sub.messages.length === 0 &&
-                              (sub.status === "complete" ||
-                                sub.status === "error")
-                                ? () => void loadSubagentHistory(sub.id)
-                                : undefined
-                            }
+                            agent={findAgentForSubagentType(sub.name)}
+                            onOpen={() => void loadSubagentHistory(sub.id)}
                             fallbackMessages={subagentMessages[sub.id]}
                           />
                         );

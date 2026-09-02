@@ -70,7 +70,7 @@ async def test_text_stream_becomes_message_deltas():
     assert _data(messages[2])["delta"] == {"type": "text-delta", "text": "lo"}
 
     lifecycle = [_data(e)["event"] for e in _of(events, "lifecycle")]
-    assert lifecycle == ["started", "completed"]
+    assert lifecycle == ["started", "running", "completed"]
 
 
 async def test_values_snapshot_is_trimmed_and_interrupt_becomes_input_requested():
@@ -102,6 +102,7 @@ async def test_values_snapshot_is_trimmed_and_interrupt_becomes_input_requested(
 
     assert [_data(e)["event"] for e in _of(events, "lifecycle")] == [
         "started",
+        "running",
         "interrupted",
     ]
 
@@ -338,6 +339,68 @@ async def test_cancelled_run_finishes_as_completed_lifecycle():
     ]
 
 
+async def test_tool_artifact_rides_inside_the_finished_output():
+    """The client's ToolCallAssembler drops event extension fields, so the
+    MCP artifact must be wrapped into `output` itself."""
+    msg = ToolMessage(
+        content='{"rows": 3}',
+        tool_call_id="call-1",
+        id="tm-1",
+        artifact={"mcp_app_resource_uri": "ui://x", "mcp_server_id": "s1"},
+    )
+    events = await _translate([("messages", (msg, {"langgraph_node": "tools"}))])
+    [finished] = _of(events, "tools")
+    data = _data(finished)
+    assert data["event"] == "tool-finished"
+    assert data["output"]["content"] == '{"rows": 3}'
+    assert data["output"]["artifact"]["mcp_server_id"] == "s1"
+
+
+async def test_human_input_is_echoed_once_on_the_messages_channel():
+    """The input human message never streams via messages mode and values are
+    message-stripped, so the translator must echo it — once, even though every
+    superstep's values snapshot repeats it — or no live subscriber (a second
+    tab, a reattach, the sender's own dropped optimistic copy) ever sees the
+    user's turn."""
+    human = HumanMessage(content="hello there", id="human-1")
+    snapshot = {"messages": [human]}
+    events = await _translate([("values", snapshot), ("values", snapshot)])
+
+    starts = [
+        _data(e)
+        for e in _of(events, "messages")
+        if _data(e)["event"] == "message-start"
+    ]
+    human_starts = [s for s in starts if s["role"] == "human"]
+    assert len(human_starts) == 1
+    assert human_starts[0]["id"] == "human-1"
+    blocks = [
+        _data(e)
+        for e in _of(events, "messages")
+        if _data(e)["event"] == "content-block-start"
+    ]
+    assert blocks[0]["content"] == {"type": "text", "text": "hello there"}
+
+
+async def test_block_content_human_messages_are_not_echoed():
+    """Attachment-carrying human messages (block content) are skipped: the
+    client's assembler flattens human echoes to text, and replacing the
+    sender's richer optimistic copy with that would lose the attachments."""
+    human = HumanMessage(
+        content=[
+            {"type": "text", "text": "look"},
+            {"type": "image_url", "image_url": {"url": "data:x"}},
+        ],
+        id="human-2",
+    )
+    events = await _translate([("values", {"messages": [human]})])
+    assert all(
+        _data(e).get("role") != "human"
+        for e in _of(events, "messages")
+        if _data(e)["event"] == "message-start"
+    )
+
+
 async def test_finish_after_an_error_event_adds_no_second_terminal():
     """The error event is the terminal that carries the message; the worker's
     end sentinel (status=error) that follows must not add a second one."""
@@ -362,6 +425,33 @@ async def test_finish_after_an_error_event_adds_no_second_terminal():
     assert terminals[0] == {"event": "failed", "error": "boom"}
 
 
+async def test_whole_message_dedupe_is_scoped_and_idless_messages_survive():
+    """Same-id messages in different namespaces both emit; id-less human
+    messages get deterministic synthetic ids instead of colliding."""
+    events = await _translate(
+        [
+            ((), "messages", (HumanMessage(content="root", id="h1"), {})),
+            (
+                ("tools:t1",),
+                "messages",
+                (HumanMessage(content="scoped", id="h1"), {}),
+            ),
+            ((), "messages", (HumanMessage(content="anon one"), {})),
+            ((), "messages", (HumanMessage(content="anon two"), {})),
+        ],
+        subgraphs=True,
+    )
+    starts = [
+        (_data(e)["id"], tuple(e["params"]["namespace"]))
+        for e in _of(events, "messages")
+        if _data(e)["event"] == "message-start"
+    ]
+    assert ("h1", ()) in starts
+    assert ("h1", ("tools:t1",)) in starts
+    anon_ids = [i for i, ns in starts if i.startswith("human-message-")]
+    assert len(anon_ids) == 2 and len(set(anon_ids)) == 2
+
+
 async def test_unknown_terminal_status_reports_failed():
     """A sentinel status this build doesn't know (a newer producer during a
     rolling deploy) must surface as failed — never as a false completed."""
@@ -370,3 +460,18 @@ async def test_unknown_terminal_status_reports_failed():
     assert [(e["method"], _data(e)["event"]) for e in events] == [
         ("lifecycle", "failed")
     ]
+
+
+async def test_empty_id_human_messages_are_not_echoed_from_values():
+    """An empty-string id would take the anonymous path and duplicate the
+    message once per superstep — the echo requires a real id."""
+    human = HumanMessage(content="hi", id="")
+    events = await _translate(
+        [("values", {"messages": [human]}), ("values", {"messages": [human]})]
+    )
+    human_starts = [
+        _data(e)
+        for e in _of(events, "messages")
+        if _data(e)["event"] == "message-start" and _data(e)["role"] == "human"
+    ]
+    assert human_starts == []
