@@ -70,7 +70,7 @@ describe("pairToolCalls", () => {
           status: "finished",
           output: {
             content: "ok",
-            artifact: { mcpAppResourceUri: "ui://x", mcpServerId: "s1" },
+            artifact: { mcp_app_resource_uri: "ui://x", mcp_server_id: "s1" },
           },
         }),
       ],

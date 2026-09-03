@@ -47,6 +47,7 @@ import { McpAppWidget } from "../components/mcp-app-widget";
 import {
   type ChainStepData,
   type ToolCallView,
+  type ToolStepState,
   getFileAttachments,
   getMcpAppInfo,
   getReasoning,
@@ -141,10 +142,7 @@ export const ConversationBody = memo(function ConversationBody({
     isLoading &&
     last != null &&
     (isHumanMessage(last) || (preamble && reasoningStreamingId == null));
-  let lastVisibleIndex = messages.length - 1;
-  while (lastVisibleIndex >= 0 && isToolMessage(messages[lastVisibleIndex])) {
-    lastVisibleIndex -= 1;
-  }
+  const lastVisibleIndex = messages.findLastIndex((m) => !isToolMessage(m));
 
   return (
     <>
@@ -314,10 +312,19 @@ type SubAgentCardAgent = NonNullable<
   React.ComponentProps<typeof SubAgentCard>["agent"]
 >;
 
+type ToolRow = {
+  kind: "tool";
+  tc: ToolCallView;
+  /** The discovered subagent, for a `task` call the SDK has bound. */
+  sub: SubagentDiscoverySnapshot | undefined;
+  state: ToolStepState;
+};
+type ChainRow = Extract<ChainStepData, { kind: "reasoning" }> | ToolRow;
+
 /** One turn's chain of thought: reasoning, tool steps and subagent cards on
  *  the rail, then the MCP app widgets of any tool that returned one. */
 const Chain = ({
-  steps: chainSteps,
+  steps,
   reasoningStreamingId,
   subagents,
   stream,
@@ -330,20 +337,22 @@ const Chain = ({
   modelUnavailable,
   coordinatorStreaming,
 }: ChainProps) => {
-  const steps = chainSteps
-    .filter((s): s is Extract<ChainStepData, { kind: "tool" }> => s.kind === "tool")
-    .map(({ tc }) => ({
-      tc,
-      sub: tc.name === "task" ? subagents.get(tc.id) : undefined,
-      state: getToolStepState(tc, isInterrupted, hitlToolNames),
-    }));
-  const byCall = new Map(steps.map((s) => [s.tc.id, s]));
-  const chainSubagents = steps
-    .map((s) => s.sub)
+  const rows: ChainRow[] = steps.map((step) =>
+    step.kind === "reasoning"
+      ? step
+      : {
+          kind: "tool",
+          tc: step.tc,
+          sub: step.tc.name === "task" ? subagents.get(step.tc.id) : undefined,
+          state: getToolStepState(step.tc, isInterrupted, hitlToolNames),
+        },
+  );
+  const tools = rows.filter((r): r is ToolRow => r.kind === "tool");
+  const chainSubagents = tools
+    .map((r) => r.sub)
     .filter((s): s is SubagentDiscoverySnapshot => s != null);
-  const subagentCount = steps.filter((s) => s.tc.name === "task").length;
-  const reasoningStreaming = chainSteps.some(
-    (s) => s.kind === "reasoning" && s.messageId === reasoningStreamingId,
+  const reasoningStreaming = rows.some(
+    (r) => r.kind === "reasoning" && r.messageId === reasoningStreamingId,
   );
 
   return (
@@ -351,27 +360,27 @@ const Chain = ({
       <ChainOfThought
         active={
           reasoningStreaming ||
-          steps.some((s) =>
-            s.sub ? s.sub.status === "running" : s.state === "running",
+          tools.some((r) =>
+            r.sub ? r.sub.status === "running" : r.state === "running",
           )
         }
-        lockOpen={steps.some(
-          (s) => !s.sub && s.state === "awaiting-approval" && !decisions[s.tc.id],
+        lockOpen={tools.some(
+          (r) => !r.sub && r.state === "awaiting-approval" && !decisions[r.tc.id],
         )}
-        toolCount={steps.length - subagentCount}
-        subagentCount={subagentCount}
+        toolCount={tools.length - chainSubagents.length}
+        subagentCount={chainSubagents.length}
       >
-        {chainSteps.map((step) => {
-          if (step.kind === "reasoning") {
+        {rows.map((row) => {
+          if (row.kind === "reasoning") {
             return (
               <ChainReasoningStep
-                key={step.id}
-                text={step.text}
-                streaming={step.messageId === reasoningStreamingId}
+                key={row.id}
+                text={row.text}
+                streaming={row.messageId === reasoningStreamingId}
               />
             );
           }
-          const { tc, sub, state } = byCall.get(step.id)!;
+          const { tc, sub, state } = row;
           return sub ? (
             <SubAgentCard
               key={sub.id}
@@ -410,7 +419,7 @@ const Chain = ({
           />
         </>
       )}
-      {steps.map(({ tc, sub }) => {
+      {tools.map(({ tc, sub }) => {
         const app = sub ? null : getMcpAppInfo(tc);
         if (!app) return null;
         return (

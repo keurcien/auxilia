@@ -63,12 +63,13 @@ export function getFileAttachments(message: BaseMessage): AttachmentData[] {
         mediaType: "image/jpeg",
       });
     } else if (b.type === "file") {
-      const mediaType = (b.mime_type as string) ?? "application/octet-stream";
+      const mediaType =
+        (b.mime_type as string | undefined) ?? "application/octet-stream";
       attachments.push({
         id: `${message.id}-file-${idx}`,
         type: "file",
-        url: `data:${mediaType};base64,${(b.base64 as string) ?? ""}`,
-        filename: (b.filename as string) ?? "file",
+        url: `data:${mediaType};base64,${(b.base64 as string | undefined) ?? ""}`,
+        filename: (b.filename as string | undefined) ?? "file",
         mediaType,
       });
     }
@@ -116,7 +117,11 @@ export const getToolMetadata = (
 // ---------------------------------------------------------------------------
 
 export type ToolCallView = {
+  /** Stable key: the call's own id, or `<message id>-tc-<index>` when the
+   *  provider persisted none. */
   id: string;
+  /** The call's own id, when it has one — the HITL resume is keyed by it. */
+  callId: string | undefined;
   name: string;
   args: Record<string, unknown> | undefined;
   /** Id of the AI message that made the call (chains group by it). */
@@ -184,6 +189,7 @@ function toView(
   const content = result?.content ?? wrapped?.content ?? handle?.output;
   return {
     id,
+    callId: call.id || undefined,
     name: call.name,
     args: call.args as Record<string, unknown> | undefined,
     messageId: message.id,
@@ -243,16 +249,18 @@ export function extractHitlToolNames(value: unknown): Set<string> | null {
   );
 }
 
+/** MCP app metadata the backend stamps into the artifact
+ *  (`app/mcp/client/tools.py`, snake_case on the wire). */
 export function getMcpAppInfo(tc: ToolCallView): McpAppToolInfo | null {
-  const resourceUri = tc.artifact?.mcpAppResourceUri as string | undefined;
-  const serverId = tc.artifact?.mcpServerId as string | undefined;
+  const resourceUri = tc.artifact?.mcp_app_resource_uri as string | undefined;
+  const serverId = tc.artifact?.mcp_server_id as string | undefined;
   return resourceUri && serverId ? { resourceUri, serverId } : null;
 }
 
 export function getStructuredContent(
   tc: ToolCallView,
 ): Record<string, unknown> | undefined {
-  const sc = tc.artifact?.structuredContent;
+  const sc = tc.artifact?.structuredContent ?? tc.artifact?.structured_content;
   return sc && typeof sc === "object" ? (sc as Record<string, unknown>) : undefined;
 }
 

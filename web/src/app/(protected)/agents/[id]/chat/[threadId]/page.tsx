@@ -244,21 +244,25 @@ const ChatPage = () => {
     [toolCalls, isInterrupted, hitlToolNames],
   );
 
+  // A tool call persisted without an id gets `<message>-tc-<i>` here but
+  // `approval-<i>` on the backend — those never match, so such a batch is
+  // resumed positionally instead of addressed.
+  const pendingIdsAreReal = pendingToolCalls.every((tc) => tc.callId != null);
   const respondToInterrupt = useCallback(
-    (response: HitlResponse) => {
+    (response: HitlResponse, addressedId: string | null) => {
       rehydratedErrorStale.current = true;
       setRehydratedError(null);
       // The protocol's `input.respond`: the backend maps it onto a resume run
       // and stale-checks the interrupt id against the checkpoint (409).
       void selectorStream.respond(
         response,
-        interruptId != null ? { interruptId } : undefined,
+        addressedId != null ? { interruptId: addressedId } : undefined,
       );
     },
-    [selectorStream, interruptId],
+    [selectorStream],
   );
   const { decisions, recordDecision } = useHitlApprovals({
-    interruptId,
+    interruptId: pendingIdsAreReal ? interruptId : null,
     pendingToolCalls,
     respond: respondToInterrupt,
   });

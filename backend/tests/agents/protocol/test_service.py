@@ -9,7 +9,7 @@ the stored-event codec.
 import json
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from app.agents.protocol.schemas import ProtocolCommand
 from app.agents.protocol.service import ProtocolService
@@ -153,26 +153,45 @@ def test_terminal_entries_map_run_statuses():
 
 
 class _Tuple:
-    def __init__(self, ns: str, messages: list):
+    def __init__(self, ns: str, messages: list, pending_writes: list | None = None):
         self.config = {"configurable": {"checkpoint_ns": ns}}
         self.checkpoint = {"channel_values": {"messages": messages}}
+        self.pending_writes = pending_writes or []
 
 
 class _Checkpointer:
-    """Root state plus two subagent namespaces keyed by pregel task ids."""
+    """Root state plus subagent namespaces keyed by pregel task ids.
 
-    def __init__(self, root: list, namespaces: dict[str, list]):
+    `task_writes` maps a pregel task id to the tool_call_id it answered — the
+    root checkpoint's pending writes."""
+
+    def __init__(
+        self,
+        root: list,
+        namespaces: dict[str, list],
+        task_writes: dict[str, str] | None = None,
+    ):
         self._root = root
         self._namespaces = namespaces
+        self._writes = [
+            (task_id, "messages", ToolMessage(content="done", tool_call_id=call_id))
+            for task_id, call_id in (task_writes or {}).items()
+        ]
 
     async def aget_tuple(self, config):
-        return _Tuple("", self._root)
+        return _Tuple("", self._root, self._writes)
 
     async def alist(self, config):
+        if config["configurable"].get("checkpoint_ns") == "":
+            yield _Tuple("", self._root, self._writes)
+            return
         for ns, messages in self._namespaces.items():
             yield _Tuple(ns, messages)
 
     async def aget(self, config):
+        ns = config["configurable"].get("checkpoint_ns")
+        if ns in self._namespaces:
+            return {"channel_values": {"messages": self._namespaces[ns]}}
         return None
 
 
@@ -248,3 +267,37 @@ async def test_history_for_an_unknown_task_call_is_empty(monkeypatch):
         "app.agents.protocol.service.get_checkpointer", _checkpointer_cm(checkpointer)
     )
     assert await _service().thread_history("t1", "tools:call_9") == []
+
+
+@pytest.mark.asyncio
+async def test_history_maps_duplicate_descriptions_by_task_id(monkeypatch):
+    """Two task calls with the same description resolve through the root
+    checkpoint's pending writes (task id → tool_call_id), not by text."""
+    root = [
+        HumanMessage(content="go", id="h1"),
+        AIMessage(
+            content="",
+            id="a1",
+            tool_calls=[
+                {"id": cid, "name": "task", "args": {"description": "Read the deck"}}
+                for cid in ("call_1", "call_2")
+            ],
+        ),
+    ]
+    first = [HumanMessage(content="Read the deck"), AIMessage("first result")]
+    second = [HumanMessage(content="Read the deck"), AIMessage("second result")]
+    checkpointer = _Checkpointer(
+        root,
+        {"tools:task-a": first, "tools:task-b": second},
+        task_writes={"task-a": "call_1", "task-b": "call_2"},
+    )
+    monkeypatch.setattr(
+        "app.agents.protocol.service.get_checkpointer", _checkpointer_cm(checkpointer)
+    )
+
+    svc = _service()
+    one = await svc.thread_history("t1", "tools:call_1")
+    two = await svc.thread_history("t1", "tools:call_2")
+
+    assert one[0]["values"]["messages"][-1]["content"] == "first result"
+    assert two[0]["values"]["messages"][-1]["content"] == "second result"

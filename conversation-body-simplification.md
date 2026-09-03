@@ -7,13 +7,15 @@ Assessed 2026-09-03 against `@langchain/react` 1.0.33 / `@langchain/langgraph-sd
 Question asked: do we use the "one event log, many views" model, and how much of the chat
 render path can be replaced by what the framework already offers?
 
-## Status (2026-09-03, branch `refactor/conversation-body-views`, uncommitted)
+## Status (2026-09-03, PR #315)
 
-Phases A–D below are implemented; E is not (the user's call).
+Phases A–D below are implemented, plus the reasoning-on-the-rail part of E. The
+"Plan" section is kept as the rationale for each step; the "Expected outcome" table
+records the estimate made before the work, against the actual numbers here.
 
 | | Before | After |
 | --- | ---: | ---: |
-| Web chat-render lines in scope | ≈ 2,390 | 1,840 (+ 150 lines of new unit tests) |
+| Web chat-render lines in scope | ≈ 2,390 | ≈ 1,850 (+ ~210 lines of new unit tests) |
 | Diff (backend + web, lockfile excluded) | | 26 files, +842 / −1,713 |
 | Bespoke chat endpoints | `GET /threads/{id}/subagents/{tool_call_id}/state` | none — `POST /threads/{id}/history` is real |
 | Home-grown message shape | `LCMessage` | none, `BaseMessage` rendered directly |
@@ -172,7 +174,7 @@ Unused deps: `@radix-ui/react-{checkbox,progress,scroll-area,select,separator,ta
 `DotsLoader`, `isRejectedToolCall`, `LCToolCallEntry` (×2), `PASTEL_MAP`,
 `OPTIMISTIC_RUN_TTL_MS`. Unlisted deps: `@modelcontextprotocol/sdk`, `@modelcontextprotocol/ext-apps`.
 
-## Plan
+## Plan (as written before the work; all of A–D implemented)
 
 Ordered so each step lands on its own and keeps the UI pixel-identical unless flagged.
 
@@ -258,11 +260,15 @@ Ordered so each step lands on its own and keeps the UI pixel-identical unless fl
 - `ai-elements/prompt-input.tsx` (1,049 lines, vendored): out of scope for the
   conversation body; 11 of its 26 exports are used. Separate pass.
 
-## Expected outcome
+## Expected outcome (estimate before the work)
+
+The estimate undershot: the actual figure is ≈ 1,850 (see Status), because the
+throttle hook, the subagent progress/synthesis indicators and the HITL positional
+fallback were kept, and the page's thread-metadata glue was out of scope.
 
 | | Today | After A–D |
 | --- | ---: | ---: |
-| Web chat-render lines in scope | ≈ 2,390 | ≈ 1,350–1,450 |
+| Web chat-render lines in scope | ≈ 2,390 | ≈ 1,350–1,450 (actual ≈ 1,850) |
 | Bespoke endpoints for the chat | 1 (`/subagents/{id}/state`) | 0 (`/history` becomes real) |
 | Home-grown message shape | `LCMessage` | none (`BaseMessage`) |
 | Tool-call pairings | 2 (root + nested) | 1 |

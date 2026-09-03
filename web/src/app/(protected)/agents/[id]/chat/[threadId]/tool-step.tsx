@@ -77,6 +77,10 @@ export const ToolStep = memo(function ToolStep({
 }: ToolStepProps) {
   const { serverName, toolName, icon } = describe(tc.name);
   const awaiting = state === "awaiting-approval";
+  const showResult =
+    state === "rejected" || state === "error" || tc.output !== undefined;
+  const showApproval = awaiting && approval != null;
+  const hasDetails = tc.args !== undefined || showResult || showApproval;
 
   const meta =
     state === "awaiting-approval" ? (
@@ -98,27 +102,29 @@ export const ToolStep = memo(function ToolStep({
       meta={meta}
       lockOpen={awaiting && approval?.decided == null}
     >
-      {tc.args !== undefined && (
-        <StepSection label="PARAMETERS">
-          <StepCode value={tc.args} />
-        </StepSection>
-      )}
-      {state === "rejected" ? (
-        <StepSection label="DENIED">
-          <StepCode value="Denied by the user — the tool was not executed." />
-        </StepSection>
-      ) : state === "error" ? (
-        <StepSection label="ERROR" error>
-          <StepCode value={tc.error} />
-        </StepSection>
-      ) : (
-        tc.output !== undefined && (
-          <StepSection label="RESULT">
-            <StepCode value={tc.output} />
-          </StepSection>
-        )
-      )}
-      {awaiting && approval && (
+      {hasDetails && (
+        <>
+          {tc.args !== undefined && (
+            <StepSection label="PARAMETERS">
+              <StepCode value={tc.args} />
+            </StepSection>
+          )}
+          {state === "rejected" ? (
+            <StepSection label="DENIED">
+              <StepCode value="Denied by the user — the tool was not executed." />
+            </StepSection>
+          ) : state === "error" ? (
+            <StepSection label="ERROR" error>
+              <StepCode value={tc.error} />
+            </StepSection>
+          ) : (
+            tc.output !== undefined && (
+              <StepSection label="RESULT">
+                <StepCode value={tc.output} />
+              </StepSection>
+            )
+          )}
+          {showApproval && (
         <div className="flex items-center gap-2 pt-1">
           <ApprovalButton
             approval={approval}
@@ -135,6 +141,8 @@ export const ToolStep = memo(function ToolStep({
             Deny
           </ApprovalButton>
         </div>
+          )}
+        </>
       )}
     </ChainStep>
   );

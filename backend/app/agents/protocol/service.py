@@ -23,6 +23,7 @@ import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 
+from langchain_core.messages import ToolMessage
 from redis.asyncio import Redis
 
 from app.agents.hitl import pending_interrupt
@@ -333,17 +334,26 @@ _TOOLS_NS_PREFIX = "tools:"
 async def _subagent_messages(checkpointer, thread_id: str, tool_call_id: str) -> list:
     """The subagent's internal messages for a ``task`` tool call.
 
-    A subagent runs as a Pregel subgraph whose checkpoint namespace is keyed
-    by an internal task id — not the ``tool_call_id`` that invoked it. The
-    subagent is seeded with ``HumanMessage(content=description)``, so the
-    task call's ``description`` (read off the root state) links the tool call
-    to its subgraph checkpoint: match it against each namespace's seed
-    message, strictly (a substring match could pick the wrong subagent when
-    one description contains another).
+    A subagent runs as a Pregel subgraph whose checkpoint namespace is
+    ``tools:<pregel task id>`` — not the ``tool_call_id`` that invoked it. The
+    exact link is in the root checkpoints' pending writes: the ``tools`` task
+    that ran the call wrote its ToolMessage under its own task id. Older
+    checkpoints fall back to matching the task call's ``description`` against
+    each namespace's seed ``HumanMessage`` (strict equality, first match), and
+    finally to the pre-subgraph ``tools:<tool_call_id>`` layout.
     """
-    parent = await checkpointer.aget_tuple(
-        config={"configurable": {"thread_id": thread_id, "checkpoint_ns": ""}}
-    )
+    root_config = {"configurable": {"thread_id": thread_id, "checkpoint_ns": ""}}
+    namespace = await _task_namespace(checkpointer, root_config, tool_call_id)
+    if namespace is not None:
+        checkpoint = await checkpointer.aget(
+            config={
+                "configurable": {"thread_id": thread_id, "checkpoint_ns": namespace}
+            }
+        )
+        if checkpoint:
+            return checkpoint["channel_values"].get("messages", [])
+
+    parent = await checkpointer.aget_tuple(config=root_config)
     description = (
         _task_description(
             parent.checkpoint["channel_values"].get("messages", []), tool_call_id
@@ -365,7 +375,6 @@ async def _subagent_messages(checkpointer, thread_id: str, tool_call_id: str) ->
             ns_messages = ct.checkpoint["channel_values"].get("messages", [])
             if _seed_human_content(ns_messages) == description:
                 return ns_messages
-    # Legacy fallback: threads that stored state under tools:{tool_call_id}.
     checkpoint = await checkpointer.aget(
         config={
             "configurable": {
@@ -375,6 +384,23 @@ async def _subagent_messages(checkpointer, thread_id: str, tool_call_id: str) ->
         }
     )
     return checkpoint["channel_values"].get("messages", []) if checkpoint else []
+
+
+async def _task_namespace(
+    checkpointer, root_config: dict, tool_call_id: str
+) -> str | None:
+    """``tools:<task id>`` of the Pregel task that answered ``tool_call_id``,
+    read off the root checkpoints' pending writes; ``None`` when no root
+    checkpoint recorded that write."""
+    async for ct in checkpointer.alist(config=root_config):
+        for task_id, _channel, value in getattr(ct, "pending_writes", None) or []:
+            written = value if isinstance(value, list) else [value]
+            if any(
+                isinstance(m, ToolMessage) and m.tool_call_id == tool_call_id
+                for m in written
+            ):
+                return f"{_TOOLS_NS_PREFIX}{task_id}"
+    return None
 
 
 def _task_description(messages: list, tool_call_id: str) -> str | None:
