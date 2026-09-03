@@ -26,6 +26,8 @@ from app.mcp.servers.settings import mcp_server_settings
 from app.utils.remote_catalog import RemoteCatalog
 
 
+# The single copy of the catalog: bundled into the image as the offline
+# fallback and uploaded as-is to the CDN (`MCP_CATALOG_URL`).
 _BUNDLED_PATH = Path(__file__).parent / "catalog.yaml"
 
 
