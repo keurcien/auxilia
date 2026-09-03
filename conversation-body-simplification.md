@@ -37,7 +37,7 @@ a tool thread and a two-subagent thread render with no console errors, opening
 a card issues `POST /history` with `checkpoint.checkpoint_ns = tools:<id>`,
 gets the subagent checkpoint back and shows the nested TASK section.
 
-Deviations from the plan (phase D): the HITL positional fallback is **kept**, not
+Deviations from the plan. Phase D: the HITL positional fallback is **kept**, not
 dropped as planned — review showed it is still load-bearing: a tool call persisted
 without an id is keyed `<message id>-tc-<index>` on the client but `approval-<index>`
 on the backend, so the addressed form can never match and such a batch must resume
