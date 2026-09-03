@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.protocol.schemas import EventStreamBody, ProtocolCommand
+from app.agents.protocol.schemas import EventStreamBody, HistoryBody, ProtocolCommand
 from app.agents.protocol.service import ProtocolService
 from app.agents.runs.router import authorize_thread, get_run_service
 from app.agents.runs.service import RunService
@@ -82,17 +82,18 @@ async def stream_events(
 
 @router.post("/history")
 async def get_history(
+    thread_id: str,
+    body: HistoryBody,
     _: ThreadResponse = Depends(authorize_thread),
+    service: ProtocolService = Depends(get_protocol_service),
 ) -> list[dict]:
     """Checkpoint history (LangGraph `client.threads.getHistory` shape).
 
-    Served empty on purpose: the client uses history pages only to promote
-    historical subagent namespaces (reading pregel task internals this
-    facade does not reconstruct), and it treats an empty page as "nothing
-    to promote" — the web app's own subagent-state fallback endpoint covers
-    viewing those conversations. Answering `[]` instead of 404 keeps the
-    client's discovery seed quiet."""
-    return []
+    Root pages are empty; a `checkpoint.checkpoint_ns` of
+    `tools:<tool_call_id>` returns that subagent's latest checkpoint, which
+    is how the client hydrates an idle thread's subagent cards (see
+    `ProtocolService.thread_history`). Served raw, like `/state`."""
+    return await service.thread_history(thread_id, body.checkpoint_ns)
 
 
 @router.get("/state")

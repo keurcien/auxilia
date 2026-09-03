@@ -8,13 +8,12 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import type { UIMessage } from "ai";
 import type { ComponentProps, HTMLAttributes } from "react";
 import { memo } from "react";
 import { Streamdown } from "streamdown";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
-	from: UIMessage["role"];
+	from: "user" | "assistant";
 };
 
 export const Message = ({ className, from, ...props }: MessageProps) => (

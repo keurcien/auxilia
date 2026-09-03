@@ -10,6 +10,7 @@ import { type PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { Button } from "@/components/ui/button";
 import ChatPromptInput from "../components/prompt-input";
 import { ArchiveIcon, CircleSlash, ShieldCheck } from "lucide-react";
+import { isHumanMessage } from "@langchain/core/messages";
 import { useStream } from "@langchain/react";
 import type { AnyStream } from "@langchain/react";
 import type { Todo } from "@/components/ai-elements/todo-list";
@@ -26,11 +27,9 @@ import { useProtocolFetch } from "@/hooks/use-protocol-fetch";
 import { useChatHeaderStore } from "@/stores/chat-header-store";
 import { ConversationBody } from "./conversation-body";
 import {
-  baseMessageToLC,
-  computeToolCallsFromMessages,
-  enrichToolCalls,
   extractHitlToolNames,
-  getToolRenderState,
+  getToolStepState,
+  pairToolCalls,
 } from "./message-helpers";
 
 // Stable fallback so `values.todos ?? []` doesn't mint a new identity per
@@ -146,11 +145,7 @@ const ChatPage = () => {
   // cached) to the plain dicts the rendering layer consumes, throttled to
   // ~16Hz so store flushes during token streams don't re-render the
   // conversation more often than the eye can follow.
-  const lcMessagesRaw = useMemo(
-    () => stream.messages.map(baseMessageToLC),
-    [stream.messages],
-  );
-  const messages = useThrottledValue(lcMessagesRaw, 60);
+  const messages = useThrottledValue(stream.messages, 60);
 
   const isInterrupted = interrupt != null;
   const interruptId = interrupt?.id ?? null;
@@ -180,7 +175,7 @@ const ChatPage = () => {
   // (status / errors / MCP artifacts) overlaid from the `tools` channel.
   const streamToolCalls = useThrottledValue(stream.toolCalls, 60);
   const toolCalls = useMemo(
-    () => enrichToolCalls(computeToolCallsFromMessages(messages), streamToolCalls),
+    () => pairToolCalls(messages, streamToolCalls),
     [messages, streamToolCalls],
   );
 
@@ -204,9 +199,8 @@ const ChatPage = () => {
     const contentParts: Array<Record<string, unknown>> = [];
     if (hasText) contentParts.push({ type: "text", text: message.text });
     for (const file of message.files ?? []) {
-      const fileAny = file as Record<string, unknown>;
-      const fileUrl = (fileAny.url as string) || "";
-      const mediaType = (fileAny.mediaType as string) || "";
+      const fileUrl = file.url;
+      const mediaType = file.mediaType;
 
       if (mediaType.startsWith("image/")) {
         // Images: standard LangChain image_url block
@@ -219,7 +213,7 @@ const ChatPage = () => {
         // LangChain adapters convert this to provider-native format
         const base64Match = fileUrl.match(/^data:[^;]*;base64,(.*)$/);
         const base64Data = base64Match ? base64Match[1] : fileUrl;
-        const filename = (fileAny.filename as string) || "file";
+        const filename = file.filename || "file";
         contentParts.push({
           type: "file",
           mime_type: mediaType || "application/octet-stream",
@@ -244,34 +238,27 @@ const ChatPage = () => {
     () =>
       toolCalls.filter(
         (tc) =>
-          getToolRenderState(tc, isInterrupted, hitlToolNames) ===
-          "approval-requested",
+          getToolStepState(tc, isInterrupted, hitlToolNames) ===
+          "awaiting-approval",
       ),
     [toolCalls, isInterrupted, hitlToolNames],
   );
 
-  // The addressed resume echoes tool-call ids the backend re-derives from
-  // the checkpoint. A tool call persisted without an id gets a synthesized
-  // `${msg.id}-tc-${i}` here but `approval-${i}` on the backend — those can
-  // never match, so fall back to the positional form for that batch.
-  const pendingIdsAreReal = pendingToolCalls.every((tc) => tc.call.id);
   const respondToInterrupt = useCallback(
-    (response: HitlResponse, addressedId: string | null) => {
+    (response: HitlResponse) => {
       rehydratedErrorStale.current = true;
       setRehydratedError(null);
       // The protocol's `input.respond`: the backend maps it onto a resume run
       // and stale-checks the interrupt id against the checkpoint (409).
-      const target = addressedId ?? interruptId;
       void selectorStream.respond(
         response,
-        target != null ? { interruptId: target } : undefined,
+        interruptId != null ? { interruptId } : undefined,
       );
     },
     [selectorStream, interruptId],
   );
   const { decisions, recordDecision } = useHitlApprovals({
-    isInterrupted,
-    interruptId: pendingIdsAreReal ? interruptId : null,
+    interruptId,
     pendingToolCalls,
     respond: respondToInterrupt,
   });
@@ -280,7 +267,7 @@ const ChatPage = () => {
     // Find the last human message and resubmit with regenerate trigger
     const lastHuman = [...messages]
       .reverse()
-      .find((m) => m.type === "human" || m.type === "user");
+      .find(isHumanMessage);
     if (!lastHuman) return;
 
     rehydratedErrorStale.current = true;
@@ -402,7 +389,6 @@ const ChatPage = () => {
         <Conversation>
           <ConversationContent className="max-w-4xl mx-auto w-full lg:px-10 sm:px-6 px-2">
             <ConversationBody
-              threadId={threadId}
               messages={messages}
               toolCalls={toolCalls}
               subagents={stream.subagents}

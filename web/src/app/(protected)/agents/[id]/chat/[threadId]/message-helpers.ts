@@ -1,103 +1,86 @@
-// ---------------------------------------------------------------------------
-// Pure helpers shared by the chat page and its conversation body: extracting
-// content from LangChain message dicts, pairing tool calls with results, and
-// normalizing snake_case/camelCase shapes. No React, no state — everything
-// here is identity-stable so memoized consumers can rely on their inputs.
-// ---------------------------------------------------------------------------
+/**
+ * Pure views over the `@langchain/react` stream: the message log is the one
+ * source of truth (`stream.messages` / `useMessages(stream, subagent)`), and
+ * everything the conversation renders — tool cards, chains, attachments,
+ * reasoning — is derived from it here. The `tools` channel (`stream.toolCalls`
+ * / `useToolCalls`) only overlays what a live ToolMessage cannot carry yet:
+ * status, error text and the MCP artifact.
+ */
 
-import type { AssembledToolCall } from "@langchain/langgraph-sdk/stream";
+import type {
+  AIMessage,
+  BaseMessage,
+  ToolCall,
+  ToolMessage,
+} from "@langchain/core/messages";
+import {
+  isAIMessage,
+  isHumanMessage,
+  isToolMessage,
+} from "@langchain/core/messages";
+import type { AssembledToolCall, ToolCallStatus } from "@langchain/react";
+import { parseToolPayload } from "@langchain/langgraph-sdk/stream";
 import type { AttachmentData } from "@/components/ai-elements/attachments";
-import type { LCMessage } from "@/lib/utils/lc-messages";
-import { extractToolMessageText } from "@/lib/utils/tool-content";
+import { extractToolErrorText } from "@/lib/utils/tool-content";
 import type { McpAppToolInfo } from "../components/mcp-app-widget";
 
-export { baseMessageToLC } from "@/lib/utils/lc-messages";
-export type { LCMessage, LCToolCallEntry } from "@/lib/utils/lc-messages";
+// ---------------------------------------------------------------------------
+// Message content
+// ---------------------------------------------------------------------------
 
-export function getTextContent(message: LCMessage): string {
-  if (typeof message.content === "string") return message.content;
-  if (Array.isArray(message.content)) {
-    return message.content
-      .filter((c) => c.type === "text")
-      .map((c) => c.text as string)
-      .join("");
-  }
-  return "";
+/** Reasoning text: v1 `reasoning` blocks, or DeepSeek's `reasoning_content`
+ *  on checkpoints written before the v3 protocol. */
+export function getReasoning(message: BaseMessage): string | null {
+  const blocks = message.contentBlocks
+    .filter((b) => b.type === "reasoning")
+    .map((b) => (b as { reasoning?: string }).reasoning ?? "");
+  if (blocks.length > 0) return blocks.join("\n");
+  const legacy = message.additional_kwargs?.reasoning_content;
+  return typeof legacy === "string" && legacy ? legacy : null;
 }
 
-export function getReasoningContent(message: LCMessage): string | null {
-  // Anthropic: `thinking` blocks; protocol v1 content: `reasoning` blocks.
-  if (Array.isArray(message.content)) {
-    const thinking = message.content.filter(
-      (c) => c.type === "thinking" || c.type === "reasoning",
-    );
-    if (thinking.length > 0) {
-      return thinking
-        .map((c) => ((c.thinking ?? c.reasoning) as string) || "")
-        .join("\n");
-    }
-  }
-  // DeepSeek: reasoning lives in additional_kwargs.reasoning_content, not in
-  // content. Streamed messages keep snake_case (SSE bypasses the Axios
-  // interceptor); history loaded via GET /threads/{id} is camelCased.
-  const kwargs = message.additional_kwargs ?? message.additionalKwargs;
-  const reasoning = kwargs?.reasoning_content ?? kwargs?.reasoningContent;
-  return typeof reasoning === "string" && reasoning ? reasoning : null;
-}
-
-export function getFileAttachments(message: LCMessage): AttachmentData[] {
+/** Attachments of a human turn — the `image_url` / `file` blocks the composer
+ *  submits (see `handleSubmit` on the chat page). */
+export function getFileAttachments(message: BaseMessage): AttachmentData[] {
   if (!Array.isArray(message.content)) return [];
   const attachments: AttachmentData[] = [];
-  let idx = 0;
-
-  for (const block of message.content) {
-    // Image blocks: "image_url" (snake_case from stream) or "imageUrl" (camelCase from Axios)
-    if (block.type === "image_url" || block.type === "imageUrl") {
-      const imgField = block.image_url ?? block.imageUrl;
+  message.content.forEach((block, idx) => {
+    const b = block as Record<string, unknown>;
+    if (b.type === "image_url") {
+      const image = b.image_url;
       const url =
-        typeof imgField === "string"
-          ? imgField
-          : ((imgField as Record<string, string> | undefined)?.url ?? "");
-      // Absolute URLs pass through untouched; only raw base64 payloads get
-      // wrapped into a data URL.
-      const dataUrl =
-        url.startsWith("data:") || /^https?:\/\//.test(url)
-          ? url
-          : `data:image/jpeg;base64,${url}`;
+        typeof image === "string"
+          ? image
+          : ((image as { url?: string } | undefined)?.url ?? "");
       attachments.push({
-        id: `${message.id}-file-${idx++}`,
-        url: dataUrl,
-        type: "file" as const,
+        id: `${message.id}-file-${idx}`,
+        type: "file",
+        url:
+          url.startsWith("data:") || /^https?:\/\//.test(url)
+            ? url
+            : `data:image/jpeg;base64,${url}`,
         filename: "Image.jpg",
         mediaType: "image/jpeg",
       });
-    }
-
-    // File blocks: {"type": "file", "mime_type"/"mimeType": "...", "base64": "...", "filename": "..."}
-    if (block.type === "file") {
-      const mimeType = (block.mime_type ??
-        block.mimeType ??
-        "application/octet-stream") as string;
-      const base64 = (block.base64 ?? "") as string;
-      const filename = (block.filename ?? "file") as string;
-      const dataUrl = `data:${mimeType};base64,${base64}`;
+    } else if (b.type === "file") {
+      const mediaType = (b.mime_type as string) ?? "application/octet-stream";
       attachments.push({
-        id: `${message.id}-file-${idx++}`,
-        url: dataUrl,
-        type: "file" as const,
-        filename,
-        mediaType: mimeType,
+        id: `${message.id}-file-${idx}`,
+        type: "file",
+        url: `data:${mediaType};base64,${(b.base64 as string) ?? ""}`,
+        filename: (b.filename as string) ?? "file",
+        mediaType,
       });
     }
-  }
-
+  });
   return attachments;
 }
 
 // ---------------------------------------------------------------------------
-// Tool name parsing (reused from old code)
+// Tool identity
 // ---------------------------------------------------------------------------
 
+/** How MCP tool names are namespaced on the backend: `<server>_<tool>`. */
 export const sanitizeToolIdentifier = (value: string): string => {
   const sanitized = value
     .replace(/[^a-zA-Z0-9_-]/g, "_")
@@ -105,13 +88,14 @@ export const sanitizeToolIdentifier = (value: string): string => {
   return sanitized || "tool";
 };
 
+/** Split `<server>_<tool>` back apart. `knownServerNames` must be sorted
+ *  longest-first so `google_sheets_read` is not claimed by `google`. */
 export const getToolMetadata = (
   toolName: string,
-  knownServerNames: string[],
+  knownServerNames: readonly string[],
 ) => {
   for (const serverName of knownServerNames) {
-    const aliases = [serverName, sanitizeToolIdentifier(serverName)];
-    for (const alias of aliases) {
+    for (const alias of [serverName, sanitizeToolIdentifier(serverName)]) {
       if (toolName === alias || toolName.startsWith(`${alias}_`)) {
         const suffix = toolName.slice(alias.length);
         const name = suffix.startsWith("_") ? suffix.slice(1) : suffix;
@@ -120,9 +104,7 @@ export const getToolMetadata = (
     }
   }
   const separatorIndex = toolName.indexOf("_");
-  if (separatorIndex === -1) {
-    return { serverName: toolName, toolName };
-  }
+  if (separatorIndex === -1) return { serverName: toolName, toolName };
   return {
     serverName: toolName.slice(0, separatorIndex),
     toolName: toolName.slice(separatorIndex + 1),
@@ -130,221 +112,203 @@ export const getToolMetadata = (
 };
 
 // ---------------------------------------------------------------------------
-// Compute tool calls from plain message dicts (for persisted history)
+// Tool calls
 // ---------------------------------------------------------------------------
 
-export type LocalToolCall = {
+export type ToolCallView = {
   id: string;
-  call: { name: string; args?: Record<string, unknown>; id?: string };
-  result: LCMessage | undefined;
-  aiMessage: LCMessage;
-  index: number;
-  state: "pending" | "completed" | "error";
+  name: string;
+  args: Record<string, unknown> | undefined;
+  /** Id of the AI message that made the call (chains group by it). */
+  messageId: string | undefined;
+  /** The `tools`-channel vocabulary: running → finished | error. */
+  status: ToolCallStatus;
+  /** Parsed tool result, once finished. */
+  output: unknown;
+  /** Error text, once failed. */
+  error: string | undefined;
+  /** MCP artifact (structured content, app resource URI), when returned. */
+  artifact: Record<string, unknown> | undefined;
 };
 
-// A chain-of-thought step: a plain tool call, or a subagent call (a `task`
-// tool call paired with its discovered subagent snapshot).
-export type ChainStepData =
-  | { kind: "tool"; tc: LocalToolCall }
-  | { kind: "subagent"; tc: LocalToolCall };
-
 /**
- * Overlay `tools`-channel results onto message-derived tool calls.
+ * Pair every AI tool call with its ToolMessage, then overlay the live handle
+ * from the `tools` channel.
  *
- * `computeToolCallsFromMessages` provides the structure (pairing, owning AI
- * message, position); the assembled handles carry what the message
- * projection cannot: live status, the error text, and the MCP artifact the
- * backend wraps into `tool-finished.output` as `{content, artifact}`.
+ * The overlay is needed live only: the SDK assembles a streamed tool-role
+ * message as `ToolMessage({id, content, tool_call_id})` — no `status`, no
+ * `artifact` — while hydrated messages carry both. Root `stream.toolCalls`
+ * is not seeded from the checkpoint on refresh, so the messages stay the
+ * durable view and the handles decorate it.
  */
-export function enrichToolCalls(
-  local: LocalToolCall[],
-  assembled: AssembledToolCall[],
-): LocalToolCall[] {
-  if (assembled.length === 0) return local;
-  const byId = new Map(assembled.map((tc) => [tc.id, tc]));
-  return local.map((tc) => {
-    const live = byId.get(tc.id);
-    if (live == null) return tc;
-    let { output } = live;
-    let artifact: Record<string, unknown> | undefined;
-    if (output != null && typeof output === "object" && "artifact" in output) {
-      const wrapped = output as { content?: unknown; artifact?: unknown };
-      artifact = wrapped.artifact as Record<string, unknown> | undefined;
-      output = wrapped.content;
-    }
-    if (live.status === "error") {
-      return {
-        ...tc,
-        state: "error",
-        result: {
-          type: "tool",
-          content: tc.result?.content ?? live.error ?? "Tool failed",
-          status: "error",
-          tool_call_id: tc.id,
-        },
-      };
-    }
-    if (live.status === "finished") {
-      const content =
-        tc.result?.content ??
-        (typeof output === "string" ? output : JSON.stringify(output ?? ""));
-      return {
-        ...tc,
-        state: "completed",
-        result: {
-          type: "tool",
-          content,
-          tool_call_id: tc.id,
-          ...(artifact != null || tc.result?.artifact != null
-            ? { artifact: tc.result?.artifact ?? artifact }
-            : {}),
-        },
-      };
-    }
-    return tc;
-  });
+export function pairToolCalls(
+  messages: readonly BaseMessage[],
+  live: readonly AssembledToolCall[] = [],
+): ToolCallView[] {
+  const results = new Map<string, ToolMessage>();
+  for (const m of messages) {
+    if (isToolMessage(m) && m.tool_call_id) results.set(m.tool_call_id, m);
+  }
+  const handles = new Map(live.map((tc) => [tc.id, tc]));
+
+  const out: ToolCallView[] = [];
+  for (const m of messages) {
+    if (!isAIMessage(m)) continue;
+    (m.tool_calls ?? []).forEach((call, index) => {
+      if (!call.name) return;
+      const id = call.id || `${m.id}-tc-${index}`;
+      out.push(toView(id, call, m, results.get(id), handles.get(id)));
+    });
+  }
+  return out;
 }
 
-export function computeToolCallsFromMessages(
-  messages: LCMessage[],
-): LocalToolCall[] {
-  // Axios camelCase interceptor converts snake_case keys from the API:
-  //   tool_call_id → toolCallId, tool_calls → toolCalls
-  // Handle both formats for robustness.
-  const getToolCallId = (msg: LCMessage): string | undefined =>
-    (msg.tool_call_id ?? msg.toolCallId) as string | undefined;
-  const getToolCalls = (msg: LCMessage): LCMessage["tool_calls"] | undefined =>
-    msg.tool_calls ?? (msg.toolCalls as LCMessage["tool_calls"]);
-
-  const toolResults = new Map<string, LCMessage>();
-  for (const msg of messages) {
-    if (msg.type === "tool") {
-      const tcId = getToolCallId(msg);
-      if (tcId) toolResults.set(tcId, msg);
-    }
-  }
-
-  const result: LocalToolCall[] = [];
-  for (const msg of messages) {
-    const toolCalls = getToolCalls(msg);
-    if (
-      (msg.type === "ai" || msg.type === "assistant") &&
-      Array.isArray(toolCalls) &&
-      toolCalls.length > 0
-    ) {
-      for (const [i, tc] of toolCalls.entries()) {
-        const tcId = tc.id || `${msg.id}-tc-${i}`;
-        const toolMsg = toolResults.get(tcId);
-        result.push({
-          id: tcId,
-          call: { name: tc.name, args: tc.args, id: tc.id },
-          result: toolMsg,
-          aiMessage: msg,
-          index: i,
-          state: toolMsg
-            ? toolMsg.status === "error"
-              ? "error"
-              : "completed"
-            : "pending",
-        });
-      }
-    }
-  }
-  return result;
+function toView(
+  id: string,
+  call: ToolCall,
+  message: AIMessage,
+  result: ToolMessage | undefined,
+  handle: AssembledToolCall | undefined,
+): ToolCallView {
+  const status: ToolCallStatus =
+    handle?.status ??
+    (result ? (result.status === "error" ? "error" : "finished") : "running");
+  // The backend wraps an MCP artifact inside `tool-finished.output` as
+  // `{content, artifact}` because the SDK's assembler drops extension fields.
+  const wrapped =
+    handle?.output != null &&
+    typeof handle.output === "object" &&
+    "artifact" in handle.output
+      ? (handle.output as { content?: unknown; artifact?: unknown })
+      : undefined;
+  const content = result?.content ?? wrapped?.content ?? handle?.output;
+  return {
+    id,
+    name: call.name,
+    args: call.args as Record<string, unknown> | undefined,
+    messageId: message.id,
+    status,
+    output:
+      status === "finished"
+        ? typeof content === "string"
+          ? parseToolPayload(content)
+          : content
+        : undefined,
+    error:
+      status === "error"
+        ? result
+          ? extractToolErrorText(result.content)
+          : (handle?.error ?? "Tool execution failed")
+        : undefined,
+    artifact: (result?.artifact ?? wrapped?.artifact) as
+      | Record<string, unknown>
+      | undefined,
+  };
 }
 
-// ---------------------------------------------------------------------------
-// Map ToolCallWithResult state to AI Elements component state
-// ---------------------------------------------------------------------------
-
-export type ToolRenderState =
-  | "output-available"
-  | "output-error"
+export type ToolStepState =
+  | "done"
+  | "error"
   | "rejected"
-  | "approval-requested"
-  | "input-available";
+  | "awaiting-approval"
+  | "running";
 
-// The notice langchain's HumanInTheLoopMiddleware writes as the error
-// ToolMessage of a denied call ("User rejected the tool call for `x` with
-// id …" / "… with reason: …"). It is the only signal that distinguishes a
-// denial from a tool that failed — the protocol's `tool-error` carries no
-// separate code the client keeps — so the render state is derived from it.
 const REJECTION_NOTICE = /^User rejected the tool call\b/;
 
-/** A tool call the user denied at the approval gate (never executed). */
-export function isRejectedToolCall(tc: LocalToolCall): boolean {
-  if (tc.state !== "error" || !tc.result) return false;
-  return REJECTION_NOTICE.test(extractToolMessageText(tc.result.content) ?? "");
+export function getToolStepState(
+  tc: ToolCallView,
+  isInterrupted = false,
+  hitlToolNames: ReadonlySet<string> | null = null,
+): ToolStepState {
+  if (tc.status === "finished") return "done";
+  if (tc.status === "error") {
+    return REJECTION_NOTICE.test(tc.error ?? "") ? "rejected" : "error";
+  }
+  if (isInterrupted && (!hitlToolNames || hitlToolNames.has(tc.name))) {
+    return "awaiting-approval";
+  }
+  return "running";
 }
 
-export function getToolRenderState(
-  tc: LocalToolCall,
-  isInterrupted: boolean,
-  hitlToolNames?: Set<string> | null,
-): ToolRenderState {
-  if (tc.state === "completed") return "output-available";
-  if (tc.state === "error") {
-    return isRejectedToolCall(tc) ? "rejected" : "output-error";
-  }
-  // pending
-  if (isInterrupted && (!hitlToolNames || hitlToolNames.has(tc.call.name))) {
-    return "approval-requested";
-  }
-  return "input-available";
-}
-
-// Extracts the set of tool names that require human approval from an HITL
-// interrupt payload. Tolerates both snake_case (live SSE) and camelCase
-// (rehydrated via the axios interceptor) shapes.
+/** The HITL middleware only hangs the tool calls named in the interrupt's
+ *  `action_requests`; sibling calls in the same turn run on resume. */
 export function extractHitlToolNames(value: unknown): Set<string> | null {
   if (!value || typeof value !== "object") return null;
-  const v = value as Record<string, unknown>;
-  const arr = (v.action_requests ?? v.actionRequests) as
-    | Array<{ name?: string } | null>
-    | undefined;
-  if (!Array.isArray(arr)) return null;
-  const names = arr
-    .map((r) => (r && typeof r.name === "string" ? r.name : null))
-    .filter((n): n is string => n != null);
-  return new Set(names);
+  const requests = (value as { action_requests?: unknown }).action_requests;
+  if (!Array.isArray(requests)) return null;
+  return new Set(
+    requests
+      .map((r: { name?: unknown } | null) => r?.name)
+      .filter((n): n is string => typeof n === "string"),
+  );
 }
 
-export function getMcpAppInfoFromToolCall(
-  tc: LocalToolCall,
-): McpAppToolInfo | null {
-  const artifact = tc.result?.artifact;
-  if (!artifact || typeof artifact !== "object") return null;
-  const a = artifact as Record<string, unknown>;
-  // Handle both camelCase (Axios/history) and snake_case (stream)
-  const resourceUri = (a.mcpAppResourceUri ?? a.mcp_app_resource_uri) as
-    | string
-    | undefined;
-  const serverId = (a.mcpServerId ?? a.mcp_server_id) as string | undefined;
-  if (!resourceUri || !serverId) return null;
-  return { resourceUri, serverId };
+export function getMcpAppInfo(tc: ToolCallView): McpAppToolInfo | null {
+  const resourceUri = tc.artifact?.mcpAppResourceUri as string | undefined;
+  const serverId = tc.artifact?.mcpServerId as string | undefined;
+  return resourceUri && serverId ? { resourceUri, serverId } : null;
 }
 
-export function getStructuredContentFromToolCall(
-  tc: LocalToolCall,
+export function getStructuredContent(
+  tc: ToolCallView,
 ): Record<string, unknown> | undefined {
-  const artifact = tc.result?.artifact;
-  if (!artifact || typeof artifact !== "object") return undefined;
-  const a = artifact as Record<string, unknown>;
-  // Handle both camelCase (Axios/history) and snake_case (stream/langchain-mcp-adapters)
-  const sc = a.structuredContent ?? a.structured_content;
-  if (sc && typeof sc === "object") return sc as Record<string, unknown>;
-  return undefined;
+  const sc = tc.artifact?.structuredContent;
+  return sc && typeof sc === "object" ? (sc as Record<string, unknown>) : undefined;
 }
 
-export function getToolOutputContent(tc: LocalToolCall): unknown {
-  if (!tc.result) return undefined;
-  const content = tc.result.content;
-  if (typeof content === "string") {
-    try {
-      return JSON.parse(content);
-    } catch {
-      return content;
-    }
+
+// ---------------------------------------------------------------------------
+// Chains
+// ---------------------------------------------------------------------------
+
+export type ChainStepData =
+  | { kind: "reasoning"; id: string; messageId: string; text: string }
+  | { kind: "tool"; id: string; tc: ToolCallView };
+
+/**
+ * Group a turn's work into chains of steps: each AI message's reasoning and
+ * tool calls, in order. Consecutive AI messages without text extend one chain,
+ * owned by the first of them; an AI message with text closes the chain (its
+ * own reasoning still lands in it, above the text), a human turn resets it.
+ * Returns `owner message id → steps`.
+ */
+export function groupChains(
+  messages: readonly BaseMessage[],
+  toolCalls: readonly ToolCallView[],
+): Map<string, ChainStepData[]> {
+  const callsByMessage = new Map<string, ToolCallView[]>();
+  for (const tc of toolCalls) {
+    if (!tc.messageId) continue;
+    const list = callsByMessage.get(tc.messageId);
+    if (list) list.push(tc);
+    else callsByMessage.set(tc.messageId, [tc]);
   }
-  return content;
+
+  const chains = new Map<string, ChainStepData[]>();
+  let owner: string | null = null;
+  for (const m of messages) {
+    if (isHumanMessage(m)) {
+      owner = null;
+      continue;
+    }
+    if (!isAIMessage(m) || !m.id) continue;
+    const hasText = m.text.trim().length > 0;
+    const reasoning = getReasoning(m);
+    const steps: ChainStepData[] = [
+      ...(reasoning
+        ? [{ kind: "reasoning" as const, id: `${m.id}-reasoning`, messageId: m.id, text: reasoning }]
+        : []),
+      ...(callsByMessage.get(m.id) ?? []).map((tc) => ({ kind: "tool" as const, id: tc.id, tc })),
+    ];
+    if (steps.length > 0) {
+      if (owner == null) {
+        owner = m.id;
+        chains.set(m.id, steps);
+      } else {
+        chains.get(owner)?.push(...steps);
+      }
+    }
+    if (hasText) owner = null;
+  }
+  return chains;
 }

@@ -1,6 +1,5 @@
 "use client";
 
-import type { UseChatHelpers } from "@ai-sdk/react";
 import { Button } from "@/components/ui/button";
 import Image from "next/image";
 import {
@@ -15,7 +14,7 @@ import {
 	InputGroupTextarea,
 } from "@/components/ui/input-group";
 import { cn } from "@/lib/utils";
-import type { FileUIPart } from "ai";
+import type { FileUIPart } from "./attachments";
 import { PaperclipIcon, PlusIcon, XIcon } from "lucide-react";
 import { nanoid } from "nanoid";
 import {
@@ -426,9 +425,10 @@ export const PromptInputAddAttachmentButton = ({
 	);
 };
 
-export type PromptInputMessage = Parameters<
-	UseChatHelpers<never>["sendMessage"]
->[0];
+export type PromptInputMessage = {
+	text?: string;
+	files?: FileUIPart[];
+};
 
 export type PromptInputProps = Omit<
 	HTMLAttributes<HTMLFormElement>,

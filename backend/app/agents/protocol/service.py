@@ -295,6 +295,104 @@ class ProtocolService:
             )
         return {"values": values, "next": next_nodes, "tasks": tasks}
 
+    async def thread_history(self, thread_id: str, checkpoint_ns: str | None) -> list:
+        """LangGraph-shaped history page (`client.threads.getHistory`).
+
+        The client reads history for two things. Root pages (no namespace)
+        would promote subagent execution namespaces from pregel task
+        internals this facade does not reconstruct — an empty page leaves the
+        default `tools:<tool_call_id>` namespace in place, which is exactly
+        what the client then asks for here. A `tools:<tool_call_id>` page is
+        answered with that subagent's latest checkpoint, so an idle thread's
+        subagent card hydrates from the SDK's own scoped seed
+        (`useMessages(stream, subagent)`), with no bespoke endpoint.
+        """
+        if checkpoint_ns is None or not checkpoint_ns.startswith(_TOOLS_NS_PREFIX):
+            return []
+        tool_call_id = checkpoint_ns[len(_TOOLS_NS_PREFIX) :]
+        async with get_checkpointer() as checkpointer:
+            messages = await _subagent_messages(checkpointer, thread_id, tool_call_id)
+        if not messages:
+            return []
+        return [
+            {
+                "values": {"messages": [serialize_message(m) for m in messages]},
+                "next": [],
+                "tasks": [],
+                "metadata": {},
+                # Echo the requested namespace: the client keys its seed by it.
+                "checkpoint": {"checkpoint_ns": checkpoint_ns},
+                "parent_checkpoint": None,
+            }
+        ]
+
+
+_TOOLS_NS_PREFIX = "tools:"
+
+
+async def _subagent_messages(checkpointer, thread_id: str, tool_call_id: str) -> list:
+    """The subagent's internal messages for a ``task`` tool call.
+
+    A subagent runs as a Pregel subgraph whose checkpoint namespace is keyed
+    by an internal task id — not the ``tool_call_id`` that invoked it. The
+    subagent is seeded with ``HumanMessage(content=description)``, so the
+    task call's ``description`` (read off the root state) links the tool call
+    to its subgraph checkpoint: match it against each namespace's seed
+    message, strictly (a substring match could pick the wrong subagent when
+    one description contains another).
+    """
+    parent = await checkpointer.aget_tuple(
+        config={"configurable": {"thread_id": thread_id, "checkpoint_ns": ""}}
+    )
+    description = (
+        _task_description(
+            parent.checkpoint["channel_values"].get("messages", []), tool_call_id
+        )
+        if parent
+        else None
+    )
+    if description:
+        # alist() with only thread_id walks every namespace's checkpoints
+        # newest-first; the first time we see a namespace is its latest.
+        seen_ns: set[str] = set()
+        async for ct in checkpointer.alist(
+            config={"configurable": {"thread_id": thread_id}}
+        ):
+            ns = ct.config["configurable"].get("checkpoint_ns") or ""
+            if not ns or ns in seen_ns:
+                continue
+            seen_ns.add(ns)
+            ns_messages = ct.checkpoint["channel_values"].get("messages", [])
+            if _seed_human_content(ns_messages) == description:
+                return ns_messages
+    # Legacy fallback: threads that stored state under tools:{tool_call_id}.
+    checkpoint = await checkpointer.aget(
+        config={
+            "configurable": {
+                "thread_id": thread_id,
+                "checkpoint_ns": f"{_TOOLS_NS_PREFIX}{tool_call_id}",
+            }
+        }
+    )
+    return checkpoint["channel_values"].get("messages", []) if checkpoint else []
+
+
+def _task_description(messages: list, tool_call_id: str) -> str | None:
+    """The ``description`` arg of the ``task`` tool call with this id."""
+    for msg in messages:
+        for tc in getattr(msg, "tool_calls", None) or []:
+            if tc.get("id") == tool_call_id:
+                return (tc.get("args") or {}).get("description")
+    return None
+
+
+def _seed_human_content(messages: list) -> str | None:
+    """The text content of a subgraph's seed (first) message, if any."""
+    if not messages:
+        return None
+    content = getattr(messages[0], "content", None)
+    return content if isinstance(content, str) else None
+
 
 def _success(command_id: int, result: dict) -> dict:
     return {"type": "success", "id": command_id, "result": result}

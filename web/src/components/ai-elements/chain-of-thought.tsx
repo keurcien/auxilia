@@ -6,11 +6,13 @@ import {
 	CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
-import { ChevronDownIcon } from "lucide-react";
+import { ChevronDownIcon, Loader2 } from "lucide-react";
 import Image from "next/image";
 import type { ComponentProps, ReactNode } from "react";
 import { useState } from "react";
 import { CodeBlock, SHIKI_MAX_CHARS } from "./code-block";
+import { MessageResponse } from "./message";
+import { Shimmer } from "./shimmer";
 
 // ---------------------------------------------------------------------------
 // Petrol Mono chain of thought (design 8a): the agent's work renders as a
@@ -131,12 +133,15 @@ export const ChainOfThought = ({
 			className={cn("not-prose group/cot w-full min-w-0", className)}
 		>
 			<CollapsibleTrigger className="flex w-full cursor-pointer items-center gap-2.5 py-0.5 text-left">
-				<span className="flex size-[22px] shrink-0 items-center justify-center text-xs text-petrol">
-					✦
-				</span>
-				<span className="text-[13px] font-semibold text-body dark:text-panel-body">
-					{active ? "Working…" : "Worked"}
-				</span>
+				{active ? (
+					<DotsLabel className="text-[13px] font-semibold text-body dark:text-panel-body">
+						Working
+					</DotsLabel>
+				) : (
+					<span className="text-[13px] font-semibold text-body dark:text-panel-body">
+						Worked
+					</span>
+				)}
 				{counts && (
 					<span className="font-mono text-[10.5px] text-meta dark:text-panel-dim">
 						{counts}
@@ -150,6 +155,41 @@ export const ChainOfThought = ({
 		</Collapsible>
 	);
 };
+
+/** A word followed by three dots pulsing in sequence — the header's
+ *  in-progress state. */
+const DotsLabel = ({
+	children,
+	className,
+}: {
+	children: string;
+	className?: string;
+}) => (
+	<span className={className}>
+		{children}
+		{[0, 1, 2].map((i) => (
+			<span
+				key={i}
+				className="inline-block animate-[dot-pulse_1.4s_ease-in-out_infinite]"
+				style={{ animationDelay: `${i * 0.2}s` }}
+			>
+				.
+			</span>
+		))}
+	</span>
+);
+
+/** The chain header before anything has arrived — same slot, type and
+ *  padding as the `ChainOfThought` trigger, so "Thinking…" becomes
+ *  "Working…" in place once the first step lands. Muted and shimmering on
+ *  purpose: the task has not started yet. */
+export const ChainThinking = ({ className }: { className?: string }) => (
+	<div className={cn("flex w-full items-center gap-2.5 py-0.5", className)}>
+		<Shimmer className="text-[13px] font-semibold">
+			Thinking…
+		</Shimmer>
+	</div>
+);
 
 /** The 1px vertical rail steps hang on. Also used for nested subagent work. */
 export const ChainRail = ({
@@ -205,7 +245,7 @@ export const ChainStepIcon = ({
 export type ChainStepProps = {
 	/** 22px node sitting on the rail (favicon chip, emoji tile, ✦). */
 	node: ReactNode;
-	title: string;
+	title: ReactNode;
 	summary?: string;
 	/** Right-side status (spinner, badge, elapsed). */
 	meta?: ReactNode;
@@ -370,4 +410,46 @@ export const NeedsApprovalBadge = () => (
 	<span className="rounded-[4px] bg-warning-bg px-2 py-0.5 font-mono text-[9.5px] font-semibold tracking-[0.05em] text-warning">
 		NEEDS APPROVAL
 	</span>
+);
+
+/** The model's reasoning as a step on the rail: open while it streams, folded
+ *  behind its first line once done. */
+export const ChainReasoningStep = ({
+	text,
+	streaming = false,
+}: {
+	text: string;
+	streaming?: boolean;
+}) => (
+	<ChainStep
+		node={
+			<span className="relative z-[1] flex size-[22px] shrink-0 items-center justify-center rounded-[6px] border border-border bg-card text-[11px] text-petrol">
+				✦
+			</span>
+		}
+		title={
+			streaming ? (
+				// A quiet shimmer, no ellipsis: the header already carries the motion.
+				<Shimmer
+					duration={1.6}
+					className="[--shimmer-color:var(--color-body)] dark:[--shimmer-color:var(--color-panel-body)]"
+				>
+					Reasoning
+				</Shimmer>
+			) : (
+				"Reasoned"
+			)
+		}
+		summary={text.split("\n").find((line) => line.trim()) ?? ""}
+		meta={
+			streaming ? (
+				<Loader2 className="size-3 animate-spin text-petrol" />
+			) : undefined
+		}
+		lockOpen={streaming}
+	>
+		<MessageResponse className="text-[12.5px] leading-[1.6] text-muted-foreground">
+			{text}
+		</MessageResponse>
+	</ChainStep>
 );

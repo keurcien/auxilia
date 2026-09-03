@@ -6,7 +6,6 @@ import {
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
 import { cn } from "@/lib/utils";
-import type { FileUIPart, SourceDocumentUIPart } from "ai";
 import {
   FileTextIcon,
   GlobeIcon,
@@ -21,6 +20,22 @@ import { createContext, useContext, useMemo } from "react";
 // ============================================================================
 // Types
 // ============================================================================
+
+/** A file the user attached: hosted URL or data URL. */
+export type FileUIPart = {
+  type: "file";
+  mediaType: string;
+  filename?: string;
+  url: string;
+};
+
+type SourceDocumentUIPart = {
+  type: "source-document";
+  sourceId: string;
+  mediaType: string;
+  title: string;
+  filename?: string;
+};
 
 export type AttachmentData =
   | (FileUIPart & { id: string })

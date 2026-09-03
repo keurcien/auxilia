@@ -9,6 +9,7 @@ the stored-event codec.
 import json
 
 import pytest
+from langchain_core.messages import AIMessage, HumanMessage
 
 from app.agents.protocol.schemas import ProtocolCommand
 from app.agents.protocol.service import ProtocolService
@@ -146,3 +147,104 @@ def test_terminal_entries_map_run_statuses():
     # A status this build doesn't know (a newer producer mid-deploy) must
     # surface as failed — never as a false completed.
     assert terminal("brand-new-status") == {"event": "failed"}
+
+
+# --- thread history -------------------------------------------------------------
+
+
+class _Tuple:
+    def __init__(self, ns: str, messages: list):
+        self.config = {"configurable": {"checkpoint_ns": ns}}
+        self.checkpoint = {"channel_values": {"messages": messages}}
+
+
+class _Checkpointer:
+    """Root state plus two subagent namespaces keyed by pregel task ids."""
+
+    def __init__(self, root: list, namespaces: dict[str, list]):
+        self._root = root
+        self._namespaces = namespaces
+
+    async def aget_tuple(self, config):
+        return _Tuple("", self._root)
+
+    async def alist(self, config):
+        for ns, messages in self._namespaces.items():
+            yield _Tuple(ns, messages)
+
+    async def aget(self, config):
+        return None
+
+
+def _checkpointer_cm(checkpointer):
+    class _CM:
+        async def __aenter__(self):
+            return checkpointer
+
+        async def __aexit__(self, *exc):
+            return False
+
+    return lambda: _CM()
+
+
+def _root_with_task(tool_call_id: str, description: str) -> list:
+    return [
+        HumanMessage(content="Look into it", id="h1"),
+        AIMessage(
+            content="",
+            id="a1",
+            tool_calls=[
+                {
+                    "id": tool_call_id,
+                    "name": "task",
+                    "args": {"description": description, "subagent_type": "r"},
+                }
+            ],
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_history_without_a_tools_namespace_is_empty(monkeypatch):
+    monkeypatch.setattr(
+        "app.agents.protocol.service.get_checkpointer",
+        _checkpointer_cm(_Checkpointer([], {})),
+    )
+    assert await _service().thread_history("t1", None) == []
+    assert await _service().thread_history("t1", "research:abc") == []
+
+
+@pytest.mark.asyncio
+async def test_history_resolves_a_task_call_to_its_subgraph_checkpoint(monkeypatch):
+    """`tools:<tool_call_id>` → the namespace whose seed message is the task
+    description — strictly, so a description that contains another one
+    cannot pick the wrong subagent."""
+    inner = [HumanMessage(content="Inspect the incident", id="s1"), AIMessage("done")]
+    decoy = [HumanMessage(content="Inspect the incident report", id="s2")]
+    checkpointer = _Checkpointer(
+        _root_with_task("call_1", "Inspect the incident"),
+        {"tools:task-b": decoy, "tools:task-a": inner},
+    )
+    monkeypatch.setattr(
+        "app.agents.protocol.service.get_checkpointer", _checkpointer_cm(checkpointer)
+    )
+
+    page = await _service().thread_history("t1", "tools:call_1")
+
+    assert len(page) == 1
+    state = page[0]
+    assert state["checkpoint"] == {"checkpoint_ns": "tools:call_1"}
+    assert state["next"] == [] and state["tasks"] == []
+    assert [m["content"] for m in state["values"]["messages"]] == [
+        "Inspect the incident",
+        "done",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_history_for_an_unknown_task_call_is_empty(monkeypatch):
+    checkpointer = _Checkpointer(_root_with_task("call_1", "x"), {"tools:t": []})
+    monkeypatch.setattr(
+        "app.agents.protocol.service.get_checkpointer", _checkpointer_cm(checkpointer)
+    )
+    assert await _service().thread_history("t1", "tools:call_9") == []

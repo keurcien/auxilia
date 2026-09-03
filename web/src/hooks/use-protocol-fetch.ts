@@ -11,16 +11,12 @@ export type ProtocolFetchHandlers = {
 
 /**
  * Fetch wrapper for the Agent Streaming Protocol transport
- * (`useStream({ apiUrl, fetch })`).
- *
- * The protocol stack replaces almost all of the old `use-durable-run` glue
- * (run-id capture, reattach redirects, abort plumbing — the SDK owns those
- * now); what remains ours is domain-error translation: the backend's
- * pre-run gates answer 409 with machine-readable bodies. The stream stack
- * exposes command failures only as an opaque `stream.error`, so the domain
- * side effects (locking the composer, reloading on a stale approval) fire
- * from here, where the body is still readable; the named error still
- * propagates so the SDK records the failure.
+ * (`useStream({ apiUrl, fetch })`): same-origin guard, active-run bookkeeping
+ * around `run.start`, and translation of the backend's pre-run 409 gates into
+ * domain side effects (lock the composer, reload on a stale approval). The
+ * stream stack only exposes command failures as an opaque `stream.error`, so
+ * this is where the machine-readable body is still readable; the named error
+ * still propagates so the SDK records the failure.
  */
 export function useProtocolFetch(
   threadId: string,

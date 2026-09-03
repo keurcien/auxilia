@@ -34,7 +34,7 @@ export const DEFAULT_SCHEDULE: Schedule = { kind: "daily", time: "09:00" };
 /** Chips render Monday-first. */
 export const WEEKDAY_CHIP_ORDER: Weekday[] = [1, 2, 3, 4, 5, 6, 0];
 
-export const WEEKDAY_NAMES: Record<Weekday, string> = {
+const WEEKDAY_NAMES: Record<Weekday, string> = {
 	0: "Sunday",
 	1: "Monday",
 	2: "Tuesday",
@@ -44,7 +44,7 @@ export const WEEKDAY_NAMES: Record<Weekday, string> = {
 	6: "Saturday",
 };
 
-export const WEEKDAY_SHORT_NAMES: Record<Weekday, string> = {
+const WEEKDAY_SHORT_NAMES: Record<Weekday, string> = {
 	0: "Sun",
 	1: "Mon",
 	2: "Tue",
