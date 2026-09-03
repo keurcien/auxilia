@@ -28,25 +28,22 @@ The agent itself — its instructions, its tools, its MCP server bindings — li
 - A **personal access token** (see [User Management](/deploy/user-management))
 - A host UI where you can add a chat input and display streamed text — could be React, a WebView in a native app, a Slack canvas, a Google Apps Script sidebar, etc.
 
-## The streaming endpoint
+## The streaming endpoints
 
-The path your UI hits is:
+**auxilia** speaks the [Agent Streaming Protocol](https://github.com/langchain-ai/agent-protocol/tree/main/streaming) — the same delta-based protocol the `@langchain/react` / `@langchain/langgraph-sdk` clients consume, so a React host can reuse those packages as-is (point `apiUrl` at your **auxilia** deployment's `/api/backend`). Two calls per thread:
 
 ```
-POST /api/backend/threads/runs/stream
+POST /api/backend/threads/{thread_id}/commands
+POST /api/backend/threads/{thread_id}/stream/events
 ```
 
-The request body looks similar to the non-streaming version:
+The first starts a turn:
 
 ```json
-{
-  "agent_id": "3f8a1c22-9b1e-4f9a-b2f0-cafeface1234",
-  "thread_id": "thr_optional_existing_thread",
-  "message": "What did this customer last ask us about?"
-}
+{ "id": 1, "method": "run.start", "params": { "input": { "messages": [{ "type": "human", "content": "What did this customer last ask us about?" }] } } }
 ```
 
-The response is a **Server-Sent Events** stream — your UI reads chunks and appends them to the message being rendered, exactly the way the **auxilia** chat app does.
+The second opens a **Server-Sent Events** session on the thread. Its body is the subscription filter — `{"channels": ["messages", "tools", "lifecycle", "values", "input"]}` — and every frame is one protocol event: `messages` events carry `message-start` / `content-block-delta` (the text tokens) / `message-finish`, `tools` events the tool calls and their results, and a root `lifecycle` event with `completed`, `failed` or `interrupted` ends the turn. Your UI appends the text deltas to the message being rendered, exactly the way the **auxilia** chat app does.
 
 For one-shot, non-streaming calls (useful for slower-moving surfaces like spreadsheet cells), use `/api/backend/threads/runs/invoke` — see **[Trigger agents over HTTP](/tutorials/http-invoke)**.
 

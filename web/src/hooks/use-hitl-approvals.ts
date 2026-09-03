@@ -2,22 +2,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 export type HitlDecision = "approve" | "reject";
 
-// The resume payload the backend's RunService canonicalizes. Addressed form
-// (interrupt id + tool-call-keyed decisions): the backend validates the id
-// against the checkpoint (a stale approval is a 409, not a resume of whatever
-// pends now) and orders the decisions itself, so this list is order-free.
-// Legacy positional form: only when no interrupt id reached the client.
-type ResumePayload =
-	| {
-			interrupt_id: string;
-			decisions: { tool_call_id: string; type: HitlDecision }[];
-	  }
-	| { decisions: { type: HitlDecision }[] };
-
-type SubmitOptions = {
-	command: { resume: ResumePayload };
-	optimisticValues: { messages: unknown[] };
-	streamSubgraphs: boolean;
+/**
+ * The `input.respond` payload the backend's RunService canonicalizes. In the
+ * addressed form (interrupt id + tool-call-keyed decisions) the backend
+ * validates the id against the checkpoint (a stale approval is a 409, not a
+ * resume of whatever pends now) and orders the decisions itself, so the list
+ * is order-free. The positional form is used only when no interrupt id
+ * reached the client (pre-id checkpoints).
+ */
+export type HitlResponse = {
+	decisions: { tool_call_id?: string; type: HitlDecision }[];
 };
 
 type UseHitlApprovalsArgs<TPending extends { id: string }> = {
@@ -25,16 +19,19 @@ type UseHitlApprovalsArgs<TPending extends { id: string }> = {
 	/** Stable id of the pending interrupt (live SSE or thread rehydrate). */
 	interruptId: string | null;
 	pendingToolCalls: TPending[];
-	submit: (input: null, opts: SubmitOptions) => void;
-	messages: unknown[];
+	/** Resume the run — `stream.respond(response, { interruptId })`. */
+	respond: (response: HitlResponse, interruptId: string | null) => void;
 };
 
+/**
+ * Collects one approve/reject decision per pending tool call and, once the
+ * batch is complete, resumes the interrupted run exactly once.
+ */
 export function useHitlApprovals<TPending extends { id: string }>({
 	isInterrupted,
 	interruptId,
 	pendingToolCalls,
-	submit,
-	messages,
+	respond,
 }: UseHitlApprovalsArgs<TPending>) {
 	const [decisions, setDecisions] = useState<Record<string, HitlDecision>>({});
 	const submittedForBatchRef = useRef<string | null>(null);
@@ -51,25 +48,15 @@ export function useHitlApprovals<TPending extends { id: string }>({
 		if (submittedForBatchRef.current === batchKey) return;
 		submittedForBatchRef.current = batchKey;
 
-		const resume: ResumePayload = interruptId
-			? {
-					interrupt_id: interruptId,
-					decisions: pendingToolCalls.map((tc) => ({
-						tool_call_id: tc.id,
-						type: decisions[tc.id],
-					})),
-				}
-			: {
-					decisions: pendingToolCalls.map((tc) => ({
-						type: decisions[tc.id],
-					})),
-				};
-		submit(null, {
-			command: { resume },
-			optimisticValues: { messages },
-			streamSubgraphs: true,
-		});
-	}, [isInterrupted, interruptId, pendingToolCalls, decisions, submit, messages]);
+		const response: HitlResponse = {
+			decisions: pendingToolCalls.map((tc) =>
+				interruptId
+					? { tool_call_id: tc.id, type: decisions[tc.id] }
+					: { type: decisions[tc.id] },
+			),
+		};
+		respond(response, interruptId);
+	}, [isInterrupted, interruptId, pendingToolCalls, decisions, respond]);
 
 	const recordDecision = useCallback(
 		(toolCallId: string, type: HitlDecision) => {

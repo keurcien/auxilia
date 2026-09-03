@@ -1,17 +1,19 @@
-"""The reattachable event log — a Redis Stream of SSE chunks per run.
+"""The reattachable event log — a Redis Stream of protocol events per run.
 
-The worker `publish`es each SSE string the agent emits; subscribers `subscribe`
-from a cursor and relay the raw strings to their HTTP response. Stream entry ids
-*are* the resume cursor, so reattach replays only what a client missed.
+The worker `publish`es each Agent Streaming Protocol event the agent emits
+(JSON-encoded by `app/agents/protocol/wire.py`, one event per entry);
+subscribers read from a cursor and relay the stored events. Stream entry ids
+*are* the resume cursor (and the client-visible `event_id`/`seq`), so reattach
+replays only what a client missed.
 """
 
 import asyncio
-import json
 from collections.abc import AsyncGenerator
 from contextlib import suppress
 
 from redis.asyncio import Redis
 
+from app.agents.protocol.wire import encode_terminal
 from app.agents.runs import keys
 from app.agents.runs.settings import run_settings
 from app.agents.runs.state import RunStatus
@@ -19,15 +21,16 @@ from app.redis_client import get_redis
 
 
 # Stream entry fields.
-_DATA = "data"  # the raw SSE chunk
+_DATA = "data"  # one JSON-encoded protocol event
 _MIN_FLUSH_DELAY_SECONDS = 0.001
-_END = "end"  # present ("1") only on the terminal sentinel
+_END = "end"  # present ("1") only on the terminal entry
 
 
-def end_sentinel(status: RunStatus) -> str:
-    """The SSE chunk that terminates a run's stream. Also emitted synthetically
-    when a subscriber attaches to a terminal run whose event log has expired."""
-    return f"event: end\ndata: {json.dumps({'status': status.value})}\n\n"
+def terminal_entry(status: RunStatus, error: str | None = None) -> str:
+    """The stored event that terminates a run's log: the root lifecycle
+    `completed` / `failed` / `interrupted` event. Also produced synthetically
+    when a subscriber attaches to a terminal run whose log has expired."""
+    return encode_terminal(status.value, error=error)
 
 
 class RunEventStream:
@@ -40,7 +43,7 @@ class RunEventStream:
         self._ttl_stamped = False
 
     async def publish(self, sse: str) -> str:
-        """Append an SSE chunk; returns its stream entry id.
+        """Append one encoded event; returns its stream entry id.
 
         The first append also stamps a safety TTL, so a stream can never
         outlive its run permanently. `RunService.finalize` normally sets that
@@ -72,7 +75,7 @@ class RunEventStream:
         return entry_id
 
     async def publish_many(self, chunks: list[str]) -> None:
-        """Append several SSE chunks in one round trip.
+        """Append several encoded events in one round trip.
 
         The whole point of `BufferedEventPublisher`: an awaited `XADD` per chunk
         means one Redis RTT per token, serialized with the agent stream, so a
@@ -100,12 +103,13 @@ class RunEventStream:
         while the log is still empty — EXPIRE on a missing key does nothing."""
         await self.redis.expire(self._key, run_settings.ttl_seconds)
 
-    async def publish_end(self, status: RunStatus) -> str:
-        """Append the terminal sentinel. Subscribers stop after reading it."""
-        # Sentinel is always the newest entry → MAXLEN never trims it away.
+    async def publish_end(self, status: RunStatus, error: str | None = None) -> str:
+        """Append the terminal entry — the root terminal lifecycle event,
+        flagged with `_END`. Subscribers stop after reading it."""
+        # The terminal is always the newest entry → MAXLEN never trims it away.
         return await self.redis.xadd(
             self._key,
-            {_DATA: end_sentinel(status), _END: "1"},
+            {_DATA: terminal_entry(status, error), _END: "1"},
             maxlen=run_settings.max_events,
             approximate=True,
         )
@@ -140,7 +144,7 @@ class RunEventStream:
     ) -> tuple[str, list[tuple[str, str, bool]], bool] | None:
         """Like `read_batch`, but each chunk keeps its stream entry id:
         `(new_cursor, [(entry_id, chunk, is_end)], ended)`. The protocol
-        facade derives stable per-event replay cursors (`event_id`/`seq`)
+        stream endpoint derives the client's replay cursors (`event_id`/`seq`)
         from the entry ids, so it needs them alongside the payloads."""
         result = await self.redis.xread({self._key: cursor}, block=block_ms, count=100)
         if not result:
@@ -161,11 +165,11 @@ class RunEventStream:
     async def subscribe(
         self, last_event_id: str = "0", *, block_ms: int = 15000
     ) -> AsyncGenerator[str, None]:
-        """Yield SSE chunks from `last_event_id` onward until the sentinel.
+        """Yield stored events from `last_event_id` onward until the terminal.
 
         `"0"` replays the whole log (fresh subscriber); pass a client's last seen
-        entry id to resume after a reattach. Blocks for live chunks in between.
-        The worker (or reaper) always publishes the sentinel on a terminal run,
+        entry id to resume after a reattach. Blocks for live entries in between.
+        The worker (or reaper) always publishes the terminal on a finished run,
         so this generator is guaranteed to end.
         """
         cursor = last_event_id or "0"
@@ -181,7 +185,7 @@ class RunEventStream:
 
 
 class BufferedEventPublisher:
-    """Coalesces SSE chunks into pipelined appends.
+    """Coalesces encoded events into pipelined appends.
 
     Bounded on both axes, because each bound fixes a different failure:
 
@@ -198,7 +202,7 @@ class BufferedEventPublisher:
     dropping its output.
 
     Use as an async context manager — exiting drains the buffer, which is what
-    orders the last chunks before `finalize`'s end sentinel.
+    orders the last events before `finalize`'s terminal entry.
     """
 
     def __init__(
@@ -247,7 +251,7 @@ class BufferedEventPublisher:
         `_flush_locked` takes the buffer before awaiting the write, so
         cancelling mid-write would destroy chunks that are no longer in the
         buffer for the drain below to pick up — losing the tail of a run, or
-        landing it after the end sentinel.
+        landing it after the terminal entry.
         """
         self._stopping.set()
         if self._flusher is not None:

@@ -7,12 +7,11 @@ A thin orchestration layer over `RunService` and the run event log:
   `RunService.create(command={"resume": …})` with the checkpoint-keyed
   canonicalization from PR #307).
 - `stream_events` serves one SSE session: it resolves the thread's newest
-  run, replays its log through a fresh `ProtocolTranslator` (deterministic —
-  a session that reopens reproduces identical `event_id`s, which is what the
-  client's rotation + dedup strategy expects), then follows onto newer runs
-  as they appear. A session is thread-scoped and lives until the client
-  closes it (the client's lifecycle watcher holds one open for the thread's
-  whole life).
+  run, relays its stored protocol events (filtered by the session's sink,
+  stamped with `event_id`/`seq` derived from the log entry ids — see
+  `wire.py`), then follows onto newer runs as they appear. A session is
+  thread-scoped and lives until the client closes it (the client's lifecycle
+  watcher holds one open for the thread's whole life).
 - `thread_state` builds the LangGraph-shaped `{values, next, tasks}` snapshot
   the client hydrates from; `next`/`tasks[].interrupts` drive its
   "is this thread active" gate, so they must reflect the active run and any
@@ -20,7 +19,6 @@ A thin orchestration layer over `RunService` and the run event log:
 """
 
 import asyncio
-import json
 import logging
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -28,14 +26,15 @@ from typing import Any
 from redis.asyncio import Redis
 
 from app.agents.hitl import pending_interrupt
+from app.agents.protocol.events import terminal_lifecycle
 from app.agents.protocol.filter import StreamFilter
+from app.agents.protocol.messages import serialize_message
 from app.agents.protocol.schemas import EventStreamBody, ProtocolCommand
-from app.agents.protocol.translate import ProtocolTranslator
+from app.agents.protocol.wire import decode_event, frame, seq_for_entry
 from app.agents.runs.events import RunEventStream
 from app.agents.runs.models import RunDB
 from app.agents.runs.service import RunService
-from app.agents.runs.state import RunStatus, is_terminal
-from app.agents.stream import _serialize_lc_message, decode_sse_blocks
+from app.agents.runs.state import is_terminal
 from app.database import get_checkpointer
 from app.exceptions import DomainValidationError
 from app.redis_client import get_redis
@@ -46,39 +45,6 @@ logger = logging.getLogger(__name__)
 _KEEP_ALIVE = ": keep-alive\n\n"
 _IDLE_POLL_SECONDS = 1.0
 _BLOCK_MS = 5000
-
-
-#: 2020-01-01 UTC. Offsetting the entry timestamp keeps the encoded seq
-#: below Number.MAX_SAFE_INTEGER (2^53) until ~2055 while leaving 13 bits
-#: for the per-millisecond counter.
-_SEQ_EPOCH_MS = 1_577_836_800_000
-_SEQ_COUNTER_BITS = 13  # 8,192 entries per millisecond
-
-
-def _seq_for_entry(entry_id: str) -> int:
-    """A monotonic, JS-safe sequence number derived from a Redis stream entry
-    id (`<ms>-<counter>`). Stable across sessions because it never depends on
-    session state; monotonic across a thread's runs because time moves.
-    Events translated from the same entry share a seq — the protocol allows
-    it, and the client only ever compares seqs with </>. The counter field is
-    13 bits: even pipelined `publish_many` bursts stay far below 8,192 entries
-    in one millisecond, and a hypothetical overflow saturates (ties, never
-    reordering)."""
-    ms_str, _, counter_str = entry_id.partition("-")
-    try:
-        ms = int(ms_str)
-        counter = int(counter_str or 0)
-    except ValueError:
-        return 0
-    offset_ms = max(ms - _SEQ_EPOCH_MS, 0)
-    return (offset_ms << _SEQ_COUNTER_BITS) + min(counter, (1 << _SEQ_COUNTER_BITS) - 1)
-
-
-def _wrap(event: dict, *, event_id: str, seq: int) -> str:
-    """The SSE frame for one protocol event. The `id:` line mirrors
-    `event_id` for standard SSE tooling; the client reads the JSON."""
-    envelope = {"type": "event", "event_id": event_id, "seq": seq, **event}
-    return f"id: {event_id}\ndata: {json.dumps(envelope, default=str)}\n\n"
 
 
 class ProtocolService:
@@ -94,7 +60,7 @@ class ProtocolService:
         """Execute one protocol command; returns the response envelope.
 
         Domain failures (stale approval → 409, model unavailable → 409, …)
-        propagate as the same HTTP errors the legacy endpoints raise — the
+        propagate as the same HTTP errors the run endpoints raise — the
         frontend's fetch layer already speaks them. Only protocol-level
         conditions (unknown/unsupported methods) come back as protocol
         `ErrorResponse` bodies.
@@ -208,8 +174,8 @@ class ProtocolService:
                 await asyncio.sleep(_IDLE_POLL_SECONDS)
                 continue
             current = run
-            async for frame in self._stream_run(run, sink, since=body.since):
-                yield frame
+            async for sse in self._stream_run(run, sink, since=body.since):
+                yield sse
 
     async def _next_run(self, thread_id: str, after: RunDB | None) -> RunDB | None:
         """The newest run of the thread — or, when we already served `after`,
@@ -228,42 +194,45 @@ class ProtocolService:
     async def _stream_run(
         self, run: RunDB, sink: StreamFilter, *, since: int | None
     ) -> AsyncGenerator[str, None]:
-        translator = ProtocolTranslator()
+        """Relay one run's stored events through the session filter.
+
+        Each log entry holds one protocol event; its entry id is the client's
+        `event_id` and encodes its `seq`, so a reopened session reproduces
+        identical cursors and the client's dedup does the rest. Entries this
+        codec doesn't own (a legacy-format log from a run in flight during
+        the deploy) are skipped — the `_END` marker still terminates them.
+        """
         events = RunEventStream(run.id, self.redis)
 
-        def frames(
-            protocol_events: list[dict],
-            entry_id: str,
-            counter_start: int = 0,
-            *,
-            bypass_since: bool = False,
-        ) -> list[str]:
-            seq = _seq_for_entry(entry_id)
-            out = []
-            for i, event in enumerate(protocol_events, start=counter_start):
-                # Strictly-less filtering: every protocol event from one log
-                # entry shares its seq, so a reconnect at `since` must resend
-                # the whole boundary entry or same-entry siblings after the
-                # client's last frame would be lost. Resent frames carry
-                # their original `event_id`s and the client dedups on those.
-                if not bypass_since and since is not None and seq < since:
-                    continue
-                if not sink.matches(event):
-                    continue
-                out.append(_wrap(event, event_id=f"{entry_id}.{i}", seq=seq))
-            return out
+        def relay(
+            event: dict, entry_id: str, *, bypass_since: bool = False
+        ) -> str | None:
+            if (
+                not bypass_since
+                and since is not None
+                and seq_for_entry(entry_id) <= since
+            ):
+                return None
+            if not sink.matches(event):
+                return None
+            return frame(event, run_id=run.id, entry_id=entry_id)
+
+        def synthetic_terminal(record: RunDB) -> str | None:
+            # The synthetic entry id yields seq 0, so it must bypass the
+            # `since` filter or a reconnecting client never settles.
+            return relay(
+                terminal_lifecycle(record.status.value, error=record.error),
+                "terminal",
+                bypass_since=True,
+            )
 
         if not await events.exists():
             record = await self.runs.get(run.id)
             if is_terminal(record.status):
                 # The log expired — synthesize the terminal lifecycle from the
-                # durable record (same backstop the legacy stream endpoint
-                # has). Its synthetic entry id yields seq 0, so it must bypass
-                # the `since` filter or a reconnecting client never settles.
-                for frame in frames(
-                    translator.finish(record.status), f"{run.id}-x", bypass_since=True
-                ):
-                    yield frame
+                # durable record, which outlives the log.
+                if (sse := synthetic_terminal(record)) is not None:
+                    yield sse
                 return
 
         cursor = "0"
@@ -272,29 +241,21 @@ class ProtocolService:
             if batch is None:
                 record = await self.runs.get(run.id)
                 if is_terminal(record.status):
-                    # Worker died between the DB commit and the sentinel.
-                    for frame in frames(
-                        translator.finish(record.status),
-                        f"{run.id}-x",
-                        bypass_since=True,
-                    ):
-                        yield frame
+                    # Worker died between the DB commit and the terminal entry.
+                    if (sse := synthetic_terminal(record)) is not None:
+                        yield sse
                     return
                 yield _KEEP_ALIVE
                 continue
-            cursor, entries, _ended = batch
-            for entry_id, sse, is_end in entries:
-                if is_end:
-                    status = _sentinel_status(sse)
-                    for frame in frames(translator.finish(status), entry_id):
-                        yield frame
-                    return
-                counter = 0
-                for event_name, data in decode_sse_blocks(sse):
-                    protocol_events = translator.translate(event_name, data)
-                    for frame in frames(protocol_events, entry_id, counter):
-                        yield frame
-                    counter += len(protocol_events)
+            cursor, entries, ended = batch
+            for entry_id, raw, _is_end in entries:
+                event = decode_event(raw)
+                if event is None:
+                    continue
+                if (sse := relay(event, entry_id)) is not None:
+                    yield sse
+            if ended:
+                return
 
     # --- thread state -------------------------------------------------------------
 
@@ -310,7 +271,7 @@ class ProtocolService:
             channel_values = checkpoint_tuple.checkpoint.get("channel_values", {})
             values = {
                 "messages": [
-                    _serialize_lc_message(m) for m in channel_values.get("messages", [])
+                    serialize_message(m) for m in channel_values.get("messages", [])
                 ]
             }
             if todos := channel_values.get("todos"):
@@ -341,13 +302,3 @@ def _success(command_id: int, result: dict) -> dict:
 
 def _error(command_id: int, code: str, message: str) -> dict:
     return {"type": "error", "id": command_id, "error": code, "message": message}
-
-
-def _sentinel_status(sse: str) -> RunStatus | None:
-    for event, data in decode_sse_blocks(sse):
-        if event == "end" and isinstance(data, dict):
-            try:
-                return RunStatus(data.get("status"))
-            except ValueError:
-                return None
-    return None

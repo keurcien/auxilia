@@ -38,7 +38,7 @@ Storage is split by **data lifetime**, not by module:
 | --- | --- | --- |
 | Run record: status, replay params (`input`/`command`/`config_overrides`), error, timestamps | **Postgres** (`runs` table, `RunDB`) | durable — powers `threads.last_run_status`, trigger run history, and failure reproduction; pruned after `RUN_RETENTION_DAYS` |
 | Queue + per-thread mutex | **Postgres** | claiming is an atomic `SKIP LOCKED` UPDATE; "one running run per thread" is a partial unique index (`uq_runs_one_running_per_thread`) |
-| SSE event log (stream/reattach) | **Redis Stream** | per-token appends; TTL'd — it's a replay window, not a record |
+| Protocol event log (stream/reattach) | **Redis Stream** | per-token appends; TTL'd — it's a replay window, not a record |
 | Cancel signal | **Redis list** | transient coordination |
 | Worker liveness | **Redis key** (`SET … EX`) | a heartbeat every 5s would be MVCC dead-tuple churn in Postgres; a self-expiring key makes "silent = dead" free |
 | Dispatcher liveness | **Redis key** (`run:dispatchers:alive`) | one shared key, refreshed by every live dispatcher, so the reaper can tell "nothing is dispatching" from "dispatchers are busy" |
@@ -61,7 +61,7 @@ them), plus `cancelled` for auxilia's explicit Stop:
 | `running`     | a worker claimed it and is streaming                           | no       |
 | `interrupted` | paused on a HITL approval (`__interrupt__` pending)            | yes\*    |
 | `success`     | completed cleanly                                              | yes      |
-| `error`       | failed (exception, error SSE, or reaped after dead liveness)   | yes      |
+| `error`       | failed (exception, stream error, or reaped after dead liveness) | yes      |
 | `timeout`     | exceeded `RUN_MAX_DURATION_SECONDS`                            | yes      |
 | `cancelled`   | stopped via the control channel                                | yes      |
 
@@ -82,7 +82,7 @@ stateDiagram-v2
     pending --> error: reaped (queued zombie)
     running --> success: stream completed
     running --> interrupted: HITL approval pending
-    running --> error: exception / error SSE / reaped (dead liveness)
+    running --> error: exception / stream error / reaped (dead liveness)
     running --> timeout: RUN_MAX_DURATION_SECONDS exceeded
     running --> cancelled: Stop via control channel
     interrupted --> [*]: resume creates a NEW run
@@ -114,7 +114,7 @@ Layered like the rest of the backend (router → service → repository):
 | `models.py`     | `RunDB` — the Postgres run record (String PK to match `threads.id` and Redis keys)      |
 | `repository.py` | `RunRepository` — SQL: create/get/list, `claim_next` (SKIP LOCKED), guarded `finalize_run`, reaper worklists, `prune_terminal` |
 | `keys.py`       | every Redis key builder — the one place the key schema is written down                  |
-| `events.py`     | `RunEventStream` — Redis Streams: `publish(sse)` / `subscribe(last_event_id)`           |
+| `events.py`     | `RunEventStream` — Redis Streams: `publish(event)` / `subscribe(last_event_id)` / `publish_end(status, error)` |
 | `control.py`    | `RunControl` — cancel signal (Redis list, polled via non-blocking `LPOP`)               |
 | `liveness.py`   | `RunLiveness` — self-expiring heartbeat key                                             |
 | `worker.py`     | `RunWorker` (executes one claimed run) + `RunDispatcher` (claim-poll loop, semaphore)   |
@@ -122,7 +122,7 @@ Layered like the rest of the backend (router → service → repository):
 | `reaper.py`     | `RunReaper` — periodic orphan recovery + daily retention prune                          |
 | `service.py`    | `RunService` — orchestrates Postgres + Redis; the public API                            |
 | `schemas.py`    | `RunResponse`, `RunCreate` — DTOs                                                       |
-| `router.py`     | HTTP surface (create / stream / reattach / get / cancel / list)                         |
+| `router.py`     | HTTP surface (create / invoke / get / cancel / list / active); live streaming is `app/agents/protocol/` |
 | `settings.py`   | `RunSettings` — concurrency, max duration, TTLs, heartbeat, retention                   |
 
 Deliberate deviation from the standard layering: `RunService` does **not**
@@ -151,27 +151,41 @@ Indexes:
 
 | Key                    | Type   | Contents                                       | TTL              |
 | ---------------------- | ------ | ---------------------------------------------- | ---------------- |
-| `run:{run_id}:events`  | stream | append-only SSE chunks (`{"data": "<sse>"}`)   | 1h after finish  |
+| `run:{run_id}:events`  | stream | append-only protocol events (`{"data": "<json>"}`; the last entry also carries `end: 1`) | 1h after finish  |
 | `run:{run_id}:control` | list   | cancel signal (polled via non-blocking `LPOP`) | 1h after finish  |
 | `run:{run_id}:alive`   | string | worker heartbeat                               | self-expiring    |
 
 The event-stream entry IDs (Redis Stream `XADD` ids) are the **resume cursor**:
 `subscribe(last_event_id)` does `XREAD` from that id, so reattach replays only
-what the client missed.
+what the client missed. They are also the client-visible `event_id`, and
+`seq` is a JS-safe monotonic encoding of them (`protocol/wire.py`) — so replay
+cursors need no producer-side counter shared between the worker and
+`finalize`.
 
 ## Event protocol
 
-The worker runs the existing `Agent.stream(...)`, which already yields
-fully-formed SSE strings (`event: messages\ndata: …`). Each chunk is `XADD`'d
-verbatim to `run:{id}:events`. Subscribers relay the raw strings to the HTTP
-response, so the wire shape on `/runs/stream` is **byte-identical** to the
-pre-durable endpoint — the frontend keeps working unchanged.
+The worker runs `Agent.stream(...)`, which drives the graph through
+langgraph's `astream_events(version="v3")` and yields **Agent Streaming
+Protocol** events (`{method, params}` — `messages` / `tools` / `values` /
+`lifecycle` / `input.requested`, see `app/agents/protocol/emit.py` for the
+publish-side policies). Each event is JSON-encoded and `XADD`'d to
+`run:{id}:events`, one event per entry. The protocol stream endpoint
+(`POST /threads/{id}/stream/events`, `app/agents/protocol/service.py`) relays
+the stored events through the session's channel/namespace filter, wrapping
+each in the wire envelope `{type: "event", event_id, seq, method, params}`;
+the Slack consumer reads the same entries. Nothing is translated on read.
 
-A terminal sentinel SSE event (`event: end`, `data: {"status": "<terminal>"}`)
-is the last entry; subscribers stop when they read it. Reattach to an
-already-finished run replays the whole log including the sentinel. Reattach
-*after the log expired* (>1h) yields a synthetic sentinel built from the
-Postgres record — the record outlives the log.
+The **terminal entry** is the root `lifecycle` event for the run's terminal
+status (`success`/`cancelled` → `completed`, `interrupted` → `interrupted`,
+`error`/`timeout` → `failed` with the record's error text), flagged with the
+format-agnostic `end` field; subscribers stop when they read it. It is
+published by `RunService.finalize` — never by the worker's stream — so the
+worker, the reaper and an expired-log reattach all end a run with exactly one
+terminal from the same source of truth. Reattach to an already-finished run
+replays the whole log including the terminal. Reattach *after the log expired*
+(>1h) yields a synthetic terminal built from the Postgres record — the record
+outlives the log. A stream failure propagates out of `Agent.stream`; the
+worker finalizes the run as `error` with the root-cause message.
 
 ## Execution flow
 
@@ -190,14 +204,15 @@ Postgres record — the record outlives the log.
 3. `RunWorker.run(record)` (already claimed):
    - stamp the liveness key, start the heartbeat task.
    - open its own `AsyncSessionLocal`, `Agent.build(thread, db)`, iterate
-     `agent.stream(...)`, `events.publish(chunk)` each SSE; concurrently watch
-     the control channel — a cancel signal cancels the stream task.
+     `agent.stream(...)`, `events.publish(event)` each protocol event (through
+     `BufferedEventPublisher`); concurrently watch the control channel — a
+     cancel signal cancels the stream task.
    - finalize: pick terminal status (interrupted if `__interrupt__` pending,
      else success / error / cancelled / timeout) →
      `RunService.finalize`: one transaction (run row + `threads.last_run_status`),
-     then the `end` sentinel + TTL the Redis ephemera.
-4. Subscribers (`/runs/stream`, `/runs/{run_id}/stream`) `subscribe(last_event_id)`
-   and relay until the sentinel.
+     then the terminal lifecycle entry + TTL the Redis ephemera.
+4. Subscribers (a protocol event-stream session on the thread, or the Slack
+   consumer) read from a cursor and relay until the terminal entry.
 
 Distribution: any instance's dispatcher can claim any run; the partial unique
 index keeps a thread to one running run cluster-wide. Cluster capacity =
@@ -205,10 +220,11 @@ index keeps a thread to one running run cluster-wide. Cluster capacity =
 
 ## Push delivery (sources with no client connection)
 
-Most consumers **pull**: an HTTP request rides the event log (`/runs/stream`) and
-can drop without affecting the run. Slack has no client connection to ride, so it
-is **pushed**: the worker spawns a `DeliveryConsumer` that subscribes to the run's
-event log and relays each chunk to the channel.
+Most consumers **pull**: an HTTP request rides the event log (the protocol
+event-stream session) and can drop without affecting the run. Slack has no
+client connection to ride, so it is **pushed**: the worker spawns a
+`DeliveryConsumer` that subscribes to the run's event log and relays each event
+to the channel.
 
 - A run carries an opaque `delivery` descriptor (`RunDB.delivery`); `None`
   means pull. The schema is owned by the channel (Slack writes
@@ -217,13 +233,16 @@ event log and relays each chunk to the channel.
 - The composition root (`main.py`) injects a `DeliveryFactory` into
   `RunDispatcher` → `RunWorker`. The worker builds a consumer from the claimed
   record (if the factory returns one) and runs it concurrently with the stream,
-  awaiting it after `finalize` publishes the `end` sentinel.
+  awaiting it after `finalize` publishes the terminal entry.
 - Delivery is best-effort: a consumer crash is logged and never changes the run's
   terminal status.
-- The Slack consumer (`app/integrations/slack/consumer.py`) parses the canonical
-  LangGraph SSE log via `SlackStreamAdapter`, streams text/tool labels through
-  `chat.startStream`/`appendStream`/`stopStream`, and on the terminal event posts
-  approval blocks (interrupted) or the auxilia link (success).
+- The Slack consumer (`app/integrations/slack/consumer.py`) decodes the stored
+  protocol events (`SlackProtocolAdapter`: root-namespace AI text deltas and
+  `tool-started` labels), streams them through
+  `chat.startStream`/`appendStream`/`stopStream`, and once the log ends reads
+  the terminal status off the durable record (the protocol terminal folds
+  `cancelled` into `completed`; the record tells them apart) to post approval
+  blocks (interrupted) or the auxilia link (success).
 
 ## Multitask strategy (per thread)
 
@@ -249,7 +268,7 @@ copy).
 
 - `running` whose liveness key is gone AND whose last transition is older than
   `RUN_HEARTBEAT_TIMEOUT_SECONDS` (grace for the claim → first-stamp gap) →
-  `error` via `finalize` (sentinel + thread stamp included). **Death must be
+  `error` via `finalize` (terminal entry + thread stamp included). **Death must be
   observed on two consecutive sweeps.** The liveness key is the only evidence,
   and a Redis restart makes every key missing at once; a single-sample rule
   would mass-reap a whole cluster of healthy streaming runs. Confirming costs

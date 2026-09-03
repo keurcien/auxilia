@@ -69,4 +69,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 
 # Use entrypoint to run migrations before starting the app
 ENTRYPOINT ["/app/entrypoint.sh"]
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
+# --timeout-graceful-shutdown: protocol SSE sessions live as long as a chat tab
+# is open, so a SIGTERM would otherwise wait on them past the platform's kill
+# deadline and the lifespan shutdown (Langfuse flush, pool close) never runs.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*", "--timeout-graceful-shutdown", "8"]

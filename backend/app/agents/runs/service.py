@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.hitl import build_resume_command, is_addressed_resume
 from app.agents.runs import keys
 from app.agents.runs.control import RunControl
-from app.agents.runs.events import RunEventStream, end_sentinel
+from app.agents.runs.events import RunEventStream, terminal_entry
 from app.agents.runs.liveness import RunLiveness
 from app.agents.runs.models import RunDB
 from app.agents.runs.repository import RunRepository
@@ -271,19 +271,20 @@ class RunService:
     async def stream(
         self, run_id: str, last_event_id: str = "0", *, block_ms: int = 15000
     ) -> AsyncGenerator[str, None]:
-        """Relay a run's SSE event log from `last_event_id` until it ends.
+        """Relay a run's stored events (raw log entries) from `last_event_id`
+        until the terminal entry.
 
         The Postgres record backstops the Redis log twice over: a terminal run
         whose log has expired (reattach later than the TTL) yields a synthetic
-        end sentinel immediately, and an idle block window on a terminal run
-        (worker died between the DB commit and publishing the sentinel) does
+        terminal immediately, and an idle block window on a terminal run
+        (worker died between the DB commit and publishing the terminal) does
         the same instead of waiting forever on a stream that will never end.
         """
         events = RunEventStream(run_id, self.redis)
         if not await events.exists():
             record = await self.get(run_id)
             if is_terminal(record.status):
-                yield end_sentinel(record.status)
+                yield terminal_entry(record.status, record.error)
                 return
         cursor = last_event_id or "0"
         while True:
@@ -291,7 +292,7 @@ class RunService:
             if batch is None:
                 record = await self.get(run_id)
                 if is_terminal(record.status):
-                    yield end_sentinel(record.status)
+                    yield terminal_entry(record.status, record.error)
                     return
                 continue
             cursor, chunks, ended = batch
@@ -307,7 +308,7 @@ class RunService:
         blocking read (no polling) and discards the chunks — it only needs to
         know the run finished, then reads the result back from the checkpoint."""
         async for _ in self.stream(run_id):
-            pass  # drain to the end sentinel
+            pass  # drain to the terminal entry
         return await self.get(run_id)
 
     async def finalize(
@@ -322,7 +323,8 @@ class RunService:
 
         One Postgres transaction covers the run's terminal update *and* the
         `threads.last_run_status` stamp, so they can never disagree. Then the
-        `end` sentinel is published and the Redis ephemera get their TTL.
+        terminal lifecycle event is published and the Redis ephemera get
+        their TTL.
         Idempotent — a run that's already terminal is left untouched (worker
         and reaper may both call this). Returns the current record, or `None`
         if the run doesn't exist.
@@ -337,7 +339,7 @@ class RunService:
             await db.commit()
             record = await repository.get(run_id)
         if thread_id is not None:
-            await RunEventStream(run_id, self.redis).publish_end(status)
+            await RunEventStream(run_id, self.redis).publish_end(status, error)
         # `thread_id is None` means the guarded UPDATE matched nothing, which
         # covers three different situations and only two of them are finished:
         #   1. the run was already terminal — expire, it is over;

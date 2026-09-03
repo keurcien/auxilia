@@ -7,7 +7,7 @@ module touches is built here so the layout is auditable from a single file.
 
 
 def run_events_key(run_id: str) -> str:
-    """Stream of SSE chunks for this run (the reattachable event log)."""
+    """Stream of protocol events for this run (the reattachable event log)."""
     return f"run:{run_id}:events"
 
 

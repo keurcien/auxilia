@@ -44,11 +44,12 @@ async def post_command(
     db: AsyncSession = Depends(get_db),  # dependency-cached: same session auth used
 ):
     """Execute one protocol command against the thread."""
-    # Same OAuth pre-flight as the legacy run endpoints: refuse to launch
+    # Same OAuth pre-flight as the run endpoints (`/runs/invoke`, `POST /runs`):
+    # refuse to launch
     # when a bound MCP server needs (re)authorization, answering the same
     # 401 body the frontend's connect affordance consumes. Covers resumes
     # too — a thread can sit at an interrupt long enough for OAuth to
-    # expire, and the legacy endpoints re-check on both paths.
+    # expire, and the run endpoints re-check on both paths.
     if command.method in ("run.start", "input.respond") and (
         auth_url := await runs.required_oauth_url(
             db, thread.agent_id, str(thread.user_id)

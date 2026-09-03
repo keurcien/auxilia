@@ -3,7 +3,8 @@
 Runs periodically (started in `lifespan` alongside the dispatcher). The
 worklist comes from Postgres (`running` / stale `pending` rows); death is
 detected via the Redis liveness key. Finalizing through `RunService` means a
-reaped run still emits the `end` sentinel (so any subscriber stops cleanly)
+reaped run still publishes the terminal lifecycle entry (so any subscriber
+stops cleanly)
 and still stamps `threads.last_run_status`. It also owns the daily retention
 prune of terminal run rows.
 """

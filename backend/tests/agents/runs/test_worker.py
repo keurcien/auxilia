@@ -18,21 +18,21 @@ from app.agents.runs.worker import RunDispatcher, RunWorker
 pytestmark = pytest.mark.usefixtures("run_db")
 
 
+def _event(n: int) -> dict:
+    """A protocol event stand-in (`Agent.stream` yields `{method, params}`)."""
+    return {"method": "values", "params": {"namespace": [], "data": {"t": n}}}
+
+
 class _FakeAgent:
-    """Stands in for the real Agent — yields SSE without touching an LLM."""
+    """Stands in for the real Agent — yields events without touching an LLM."""
 
     @classmethod
     async def build(cls, *, thread, db):
         return cls()
 
     async def stream(self, **kwargs):
-        yield 'event: messages\ndata: {"t": 1}\n\n'
-        yield 'event: messages\ndata: {"t": 2}\n\n'
-
-
-class _ErrorAgent(_FakeAgent):
-    async def stream(self, **kwargs):
-        yield 'event: error\ndata: {"message": "boom"}\n\n'
+        yield _event(1)
+        yield _event(2)
 
 
 class _FakeSession:
@@ -82,21 +82,9 @@ async def test_worker_runs_to_success_and_frees_thread(redis):
 
     assert (await service.get(record.id)).status == RunStatus.success
     chunks = [c async for c in service.stream(record.id, "0")]
-    assert any('"t": 1' in c for c in chunks)
-    assert any("event: end" in c for c in chunks)
+    assert any('"t":1' in c for c in chunks)
+    assert '"event":"completed"' in chunks[-1]
     assert await service.get_active("t1") is None
-
-
-@pytest.mark.usefixtures("patch_agent")
-async def test_worker_marks_error_on_error_event(redis, monkeypatch):
-    monkeypatch.setattr(worker_mod, "Agent", _ErrorAgent)
-    service = RunService(redis)
-    record = await _create_and_claim(service, thread_id="t2", input={"messages": []})
-    await RunWorker(redis).run(record)
-    back = await service.get(record.id)
-    assert back.status == RunStatus.error
-    # The event log TTLs away; the record must keep the message for reloads.
-    assert back.error == "boom"
 
 
 @pytest.mark.usefixtures("patch_agent")
@@ -112,7 +100,11 @@ async def test_worker_marks_error_when_agent_raises(redis, monkeypatch):
     await RunWorker(redis).run(record)
     back = await service.get(record.id)
     assert back.status == RunStatus.error
+    # The event log TTLs away; the record must keep the message for reloads,
+    # and the log's terminal entry carries it for live subscribers.
     assert "model exploded" in back.error
+    chunks = [c async for c in service.stream(record.id, "0")]
+    assert '"event":"failed"' in chunks[-1] and "model exploded" in chunks[-1]
 
 
 @pytest.mark.usefixtures("patch_agent")
@@ -207,7 +199,7 @@ async def test_cancel_mid_run_stops_and_frees_thread(redis, monkeypatch):
 
     class _SlowAgent(_FakeAgent):
         async def stream(self, **kwargs):
-            yield 'event: messages\ndata: {"t": 1}\n\n'
+            yield _event(1)
             started.set()
             await asyncio.sleep(10)  # long-running; cancel should interrupt here
 
@@ -243,7 +235,7 @@ async def test_worker_forwards_output_schema_to_agent(redis, monkeypatch):
     class _RecordingAgent(_FakeAgent):
         async def stream(self, **kwargs):
             captured.update(kwargs)
-            yield "event: messages\ndata: {}\n\n"
+            yield _event(0)
 
     monkeypatch.setattr(worker_mod, "Agent", _RecordingAgent)
 
@@ -265,7 +257,7 @@ async def test_worker_invokes_delivery_consumer_for_delivery_records(redis):
             self.record = record
 
         async def run(self):
-            # The sentinel is published by finalize before the worker awaits us,
+            # The terminal is published by finalize before the worker awaits us,
             # so a real consumer would drain the log here.
             seen.append(self.record.id)
 
@@ -507,7 +499,7 @@ async def test_a_chatty_run_does_not_pay_a_round_trip_per_chunk(
     class _ChattyAgent(_FakeAgent):
         async def stream(self, **kwargs):
             for i in range(50):
-                yield f'event: messages\ndata: {{"t": {i}}}\n\n'
+                yield _event(i)
 
     monkeypatch.setattr(worker_mod, "Agent", _ChattyAgent)
     monkeypatch.setattr(run_settings, "event_buffer_max_chunks", 25)
@@ -519,11 +511,11 @@ async def test_a_chatty_run_does_not_pay_a_round_trip_per_chunk(
 
     await RunWorker(redis).run(record)
 
-    # Only the end sentinel goes through a direct XADD; the 50 stream chunks
+    # Only the terminal entry goes through a direct XADD; the 50 stream events
     # ride in pipelines.
     assert appends["xadd"] == 1
     chunks = [c async for c in service.stream(record.id, "0")]
-    assert len([c for c in chunks if "event: messages" in c]) == 50
+    assert len([c for c in chunks if '"method":"values"' in c]) == 50
 
 
 async def test_a_losing_finalize_does_not_disturb_a_live_run(redis):
