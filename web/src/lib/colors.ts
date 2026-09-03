@@ -1,4 +1,4 @@
-export const PASTEL_MAP: Record<string, { pill: string; text: string }> = {
+const PASTEL_MAP: Record<string, { pill: string; text: string }> = {
 	"#6C5CE7": { pill: "#E4DFFF", text: "#5B4DC7" },
 	"#00B894": { pill: "#D0F5EA", text: "#00A381" },
 	"#E17055": { pill: "#FFE0D9", text: "#C9604A" },

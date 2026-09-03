@@ -1,7 +1,7 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 
-export function getInitials(name: string | null | undefined): string {
+function getInitials(name: string | null | undefined): string {
 	if (!name?.trim()) return "?";
 	const parts = name.trim().split(/\s+/);
 	if (parts.length >= 2) {

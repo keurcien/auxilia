@@ -274,35 +274,6 @@ def test_get_thread_not_found(client: TestClient, mock_db):
     assert response.json()["detail"] == "Thread not found"
 
 
-@pytest.mark.usefixtures("current_user")
-@patch("app.threads.router.get_checkpointer")
-def test_get_subagent_state_forbidden_for_non_owner(
-    mock_checkpointer, client: TestClient, mock_db
-):
-    """Checkpoint history must not be read before thread access is granted."""
-    thread_id = str(uuid4())
-    thread = ThreadDB(
-        id=thread_id,
-        user_id=uuid4(),
-        agent_id=uuid4(),
-        first_message_content="Someone else's thread",
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
-    )
-
-    mock_result = MagicMock()
-    mock_result.scalar_one_or_none.return_value = thread
-    # The agent exists, owned by someone else, no grant for this user: the
-    # denial branch, not the not-found one.
-    mock_result.first.return_value = (uuid4(), None)
-    mock_db.execute.return_value = mock_result
-
-    response = client.get(f"/threads/{thread_id}/subagents/call_1/state")
-
-    assert response.status_code == 403
-    mock_checkpointer.assert_not_called()
-
-
 def test_update_thread(client: TestClient, mock_db, current_user):
     """Owner can rename their own thread (updates first_message_content only)."""
     thread_id = str(uuid4())

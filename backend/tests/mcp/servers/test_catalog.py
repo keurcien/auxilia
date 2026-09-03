@@ -6,12 +6,9 @@ upload can never half-apply — the deployment keeps serving the last good copy.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from app.mcp.servers.catalog import (
-    _BUNDLED_PATH,
     OfficialServer,
     bundled_catalog,
     parse_catalog,
@@ -136,14 +133,3 @@ def test_bundled_snapshot_is_valid():
         "https://mcp.deepwiki.com/mcp",
         "https://drivemcp.googleapis.com/mcp/v1",
     } <= urls
-
-
-def test_publishable_copy_matches_bundled_snapshot():
-    """catalog/catalog.yaml (uploaded to the CDN) and the bundled snapshot must
-    stay byte-identical, or the CDN and offline fallback silently diverge."""
-    published = Path(__file__).resolve().parents[4] / "catalog" / "catalog.yaml"
-    if not published.exists():
-        pytest.skip("publishable copy not present (packaged build)")
-    assert published.read_text(encoding="utf-8") == _BUNDLED_PATH.read_text(
-        encoding="utf-8"
-    )

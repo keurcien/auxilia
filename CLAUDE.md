@@ -139,7 +139,7 @@ auxilia/
 │   │   │   ├── mcp_servers/           # AgentMCPServerService (agent↔MCP bindings, tool sync)
 │   │   │   ├── subagents/             # SubagentService (supervisor/subagent links)
 │   │   │   ├── runs/                  # Durable run runtime — Redis-backed runs, queue, worker, reaper (see runs/SPEC.md)
-│   │   │   ├── protocol/              # Agent Streaming Protocol — emit.py (worker-side v3 → wire events), wire.py (log codec + replay cursors), service.py/router.py (/threads/{id}/commands, /stream/events, /state)
+│   │   │   ├── protocol/              # Agent Streaming Protocol — emit.py (worker-side v3 → wire events), wire.py (log codec + replay cursors), service.py/router.py (/threads/{id}/commands, /stream/events, /state, /history)
 │   │   │   ├── runtime.py             # Agent runtime — Agent.build / .stream (astream_events v3 → protocol events)
 │   │   │   ├── toolset.py             # Tool binding for the agent
 │   │   │   ├── hitl.py                # HITL state from the checkpoint — pending interrupt id/requests + resume canonicalization
@@ -166,7 +166,7 @@ auxilia/
 │   │   ├── model_providers/           # LLM provider configuration & catalog
 │   │   ├── sandbox/                   # Sandboxed code execution
 │   │   ├── threads/                   # Chat thread management
-│   │   │   └── router.py              # Thread CRUD, history & subagent state (runs live in agents/runs/)
+│   │   │   └── router.py              # Thread CRUD & history (runs live in agents/runs/, protocol state in agents/protocol/)
 │   │   ├── triggers/                  # Scheduled agent runs
 │   │   │   ├── scanner.py             # TriggerScanner — due-trigger loop (sibling of runs/reaper)
 │   │   │   ├── schedule.py            # Pure cron/timezone math (croniter): validation, next_run_at

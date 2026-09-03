@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 /** How long an optimistic mark survives without server confirmation. */
-export const OPTIMISTIC_RUN_TTL_MS = 30_000;
+const OPTIMISTIC_RUN_TTL_MS = 30_000;
 
 interface ActiveRunsState {
 	/** Thread ids confirmed in-flight by the last `GET /runs/active` poll. */

@@ -274,6 +274,15 @@ models:
     supports_structured_output: true
     reasoning_effort_levels: [low, medium, high]
     reasoning_effort_default: medium
+  - provider: google
+    model_id: gemini-3.8-flash
+    display_name: Gemini 3.8 Flash
+    chef: Google
+    chef_slug: google
+    multimodal: true
+    supports_structured_output: true
+    reasoning_effort_levels: [low, medium, high]
+    reasoning_effort_default: medium
 
   # --- Xiaomi (native endpoint) ---
   # SO flags conservative: OpenRouter's listing says the models support
