@@ -32,6 +32,8 @@ SUPPORTED_PROVIDERS: frozenset[str] = frozenset(
 # model's levels means its thinking can be turned off entirely.
 ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
 
+# The single copy of the whitelist: bundled into the image as the offline
+# fallback and uploaded as-is to the CDN (`MODEL_WHITELIST_URL`).
 _BUNDLED_PATH = Path(__file__).parent / "whitelist.yaml"
 
 

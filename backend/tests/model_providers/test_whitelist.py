@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from app.model_providers.whitelist import (
@@ -110,22 +108,6 @@ def test_parse_rejects_bad_documents(text: str, match: str):
     # broken CDN upload can never half-apply.
     with pytest.raises(ValueError, match=match):
         parse_whitelist(text)
-
-
-def test_publishable_copy_matches_bundled_snapshot():
-    """catalog/whitelist.yaml (uploaded to the CDN) and the bundled snapshot
-    must stay byte-identical, or the CDN and offline fallback silently
-    diverge (same contract as the MCP server catalog)."""
-    published = Path(__file__).resolve().parents[3] / "catalog" / "whitelist.yaml"
-    if not published.exists():
-        pytest.skip("publishable copy not present (packaged build)")
-    bundled = (
-        Path(__file__).resolve().parents[2]
-        / "app"
-        / "model_providers"
-        / "whitelist.yaml"
-    )
-    assert published.read_text(encoding="utf-8") == bundled.read_text(encoding="utf-8")
 
 
 def test_bundled_snapshot_is_valid():

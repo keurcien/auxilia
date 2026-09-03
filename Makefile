@@ -39,11 +39,12 @@ down:
 reset:
 	docker compose down -v --remove-orphans
 
-# Copy the publishable catalogs (uploaded to the CDN) over the snapshots bundled
-# into the backend image. The two must stay byte-identical or the CDN and the
-# offline fallback silently diverge — `test_publishable_copy_matches_bundled_snapshot`
-# fails otherwise. Run this after editing anything under catalog/.
+# Copy the publishable MCP server catalog (uploaded to the CDN) over the snapshot
+# bundled into the backend image. The two must stay byte-identical or the CDN and
+# the offline fallback silently diverge — `test_publishable_copy_matches_bundled_snapshot`
+# fails otherwise. Run this after editing catalog/catalog.yaml.
+# The model whitelist has a single copy: upload
+# backend/app/model_providers/whitelist.yaml to the CDN directly.
 sync-catalog:
-	cp catalog/whitelist.yaml backend/app/model_providers/whitelist.yaml
 	cp catalog/catalog.yaml backend/app/mcp/servers/catalog.yaml
-	@echo "Bundled snapshots synced from catalog/."
+	@echo "Bundled snapshot synced from catalog/."
