@@ -109,12 +109,15 @@ def test_frame_produces_a_protocol_event_envelope():
             "method": "lifecycle",
             "params": {"namespace": [], "data": {"event": "started"}},
         },
+        run_id="run-a",
         entry_id="1725000000123-0",
     )
-    assert sse.startswith("id: 1725000000123-0\ndata: ")
+    # Redis stream ids are unique per stream only; the run id makes the
+    # event id unique across the several runs one thread session relays.
+    assert sse.startswith("id: run-a:1725000000123-0\ndata: ")
     payload = json.loads(sse.split("data: ", 1)[1])
     assert payload["type"] == "event"
-    assert payload["event_id"] == "1725000000123-0"
+    assert payload["event_id"] == "run-a:1725000000123-0"
     assert payload["seq"] == seq_for_entry("1725000000123-0")
     assert payload["method"] == "lifecycle"
 

@@ -215,14 +215,14 @@ class ProtocolService:
                 return None
             if not sink.matches(event):
                 return None
-            return frame(event, entry_id=entry_id)
+            return frame(event, run_id=run.id, entry_id=entry_id)
 
         def synthetic_terminal(record: RunDB) -> str | None:
             # The synthetic entry id yields seq 0, so it must bypass the
             # `since` filter or a reconnecting client never settles.
             return relay(
                 terminal_lifecycle(record.status.value, error=record.error),
-                f"{run.id}-x",
+                "terminal",
                 bypass_since=True,
             )
 

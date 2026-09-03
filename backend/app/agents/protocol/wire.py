@@ -6,14 +6,19 @@ endpoint wraps each stored event into the protocol `Message` envelope
 cursors are derived from the Redis stream entry id the event was stored
 under, which is what makes them free of any producer-side state:
 
-- `event_id` is the entry id itself — unique across every run, since Redis
-  stream ids are unique per instance, and stable across sessions so the
-  client's replay dedup works.
-- `seq` is a JS-safe monotonic encoding of the entry id (see
-  `seq_for_entry`). Entry ids are minted by Redis in insertion order, so
-  `seq` is monotonic across a thread's runs without any counter shared
-  between the worker that publishes tokens and the reaper/`finalize` that
-  publish the terminal event.
+- `event_id` is `<run id>:<entry id>`. Redis stream ids are unique only
+  within one stream, and a thread session follows several runs' streams, so
+  the run id is what makes the id unique across the session; it is stable
+  across sessions, which is what the client's replay dedup needs.
+- `seq` is a JS-safe monotonic encoding of the entry id's millisecond
+  timestamp and counter (see `seq_for_entry`). Entry ids are minted by Redis
+  in insertion order, so `seq` is monotonic within a run and, because a
+  thread's runs execute one after another, across them too — without any
+  counter shared between the worker that publishes tokens and the
+  reaper/`finalize` that publish the terminal event. Two runs can only tie
+  when the second's first entry lands in the same millisecond as the
+  first's last, and a tie is harmless: the client compares seqs with `<`/`>`
+  and dedups on `event_id`.
 
 A legacy-format entry (the pre-protocol `event: …\ndata: …` SSE string,
 possible only for a run in flight during the deploy that introduced this
@@ -75,14 +80,15 @@ def seq_for_entry(entry_id: str) -> int:
     return (offset_ms << _SEQ_COUNTER_BITS) + min(counter, (1 << _SEQ_COUNTER_BITS) - 1)
 
 
-def frame(event: dict, *, entry_id: str) -> str:
-    """The SSE frame for one protocol event stored under `entry_id`. The
-    `id:` line mirrors `event_id` for standard SSE tooling; the client reads
-    the JSON."""
+def frame(event: dict, *, run_id: str, entry_id: str) -> str:
+    """The SSE frame for one protocol event stored under `entry_id` in
+    `run_id`'s log. The `id:` line mirrors `event_id` for standard SSE
+    tooling; the client reads the JSON."""
+    event_id = f"{run_id}:{entry_id}"
     envelope: dict[str, Any] = {
         "type": "event",
-        "event_id": entry_id,
+        "event_id": event_id,
         "seq": seq_for_entry(entry_id),
         **event,
     }
-    return f"id: {entry_id}\ndata: {json.dumps(envelope, default=json_default)}\n\n"
+    return f"id: {event_id}\ndata: {json.dumps(envelope, default=json_default)}\n\n"

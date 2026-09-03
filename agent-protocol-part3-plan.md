@@ -285,11 +285,13 @@ checkpointer). Where the implementation deviates from the plan, and why:
   streams like `astream`. (3) Under v3 the persisted AIMessage of a streaming
   provider is the bridge-assembled message: content is a **v1 content-block
   list** with `output_version: "v1"` (providers convert back themselves; the
-  history endpoint renders it). DeepSeek's `reasoning_content` is not in
-  `content_blocks` (no "deepseek" translator in langchain-core), so it vanished
-  from the wire — fixed by registering one
-  (`app/model_providers/deepseek_blocks.py`). Anthropic/Gemini reasoning
-  already reach `content_blocks`. (4) v3 does not emit the input human message;
+  history endpoint renders it). Provider reasoning already reaches the wire:
+  langchain-core 1.6's best-effort `content_blocks` turns DeepSeek's
+  `additional_kwargs.reasoning_content` into a `reasoning` block and keeps
+  tool-call chunks intact (verified against `chunks_to_events`; a custom
+  "deepseek" translator was tried and dropped as redundant), and
+  Anthropic/Gemini have registered translators. (4) v3 does not emit the input
+  human message;
   the values-based echo is kept. (5) Volume: one `messages` event per token plus
   a few per superstep, no per-token state snapshots — `RUN_MAX_EVENTS` left at
   1,000.

@@ -172,6 +172,10 @@ def test_get_thread(mock_checkpointer, client: TestClient, mock_db, current_user
     data = response.json()
     assert "thread" in data
     assert data["thread"]["id"] == thread_id
+    # The AI SDK `messages` projection is gone; the protocol-shaped values
+    # snapshot is the one message payload left.
+    assert "messages" not in data
+    assert data["values"] == {"messages": []}
     assert data["viewer_role"] is None
 
 

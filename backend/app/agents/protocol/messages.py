@@ -53,7 +53,7 @@ def serialize_message(msg: Any) -> dict[str, Any]:
         d["name"] = msg.name
     if hasattr(msg, "status") and msg.status:
         d["status"] = msg.status
-    if hasattr(msg, "artifact") and msg.artifact:
+    if getattr(msg, "artifact", None) is not None:
         d["artifact"] = msg.artifact
     return d
 

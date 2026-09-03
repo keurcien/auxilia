@@ -7,13 +7,7 @@ from langchain_deepseek import ChatDeepSeek
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
-from app.model_providers.deepseek_blocks import register_deepseek_translator
 from app.model_providers.settings import model_provider_settings
-
-
-# DeepSeek reasoning must reach `content_blocks` for the v3 streaming bridge
-# (and the persisted message) to carry it — see `deepseek_blocks.py`.
-register_deepseek_translator()
 
 
 # provider_api_keys()'s "google" slot when no GOOGLE_API_KEY is configured but
