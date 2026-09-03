@@ -9,9 +9,10 @@ render path can be replaced by what the framework already offers?
 
 ## Status (2026-09-03, PR #315)
 
-Phases A–D below are implemented, plus the reasoning-on-the-rail part of E. The
-"Plan" section is kept as the rationale for each step; the "Expected outcome" table
-records the estimate made before the work, against the actual numbers here.
+Phases A–C below are implemented in full, D in part (see the deviations), plus the
+reasoning-on-the-rail part of E. The "Plan" section is kept as the rationale for each
+step; the "Expected outcome" table records the estimate made before the work, against
+the actual numbers here.
 
 | | Before | After |
 | --- | ---: | ---: |
@@ -36,7 +37,13 @@ a tool thread and a two-subagent thread render with no console errors, opening
 a card issues `POST /history` with `checkpoint.checkpoint_ns = tools:<id>`,
 gets the subagent checkpoint back and shows the nested TASK section.
 
-Deviations from the plan: `useThrottledValue` kept (rewritten to satisfy the
+Deviations from the plan (phase D): the HITL positional fallback is **kept**, not
+dropped as planned — review showed it is still load-bearing: a tool call persisted
+without an id is keyed `<message id>-tc-<index>` on the client but `approval-<index>`
+on the backend, so the addressed form can never match and such a batch must resume
+positionally (`pendingIdsAreReal` on the page, the `{type}`-only decisions in
+`useHitlApprovals`). Removing it needs the backend to synthesize the same id first.
+`useThrottledValue` kept (rewritten to satisfy the
 React Compiler lint, 36 lines) — the store ticks once per token macrotask, so
 the 60 ms bound still matters; measuring it away is a separate pass. The
 undiscovered-`task`-call card is gone; such a call now renders as a plain
@@ -240,7 +247,8 @@ Ordered so each step lands on its own and keeps the UI pixel-identical unless fl
 - HITL: drop the pre-id fallbacks — `pendingIdsAreReal`, the positional `{type}` decision
   form and `interruptId: null` path in `useHitlApprovals`. The checkpoint-keyed form has
   been the only writer since PR #307; the backend keeps accepting positional resumes for
-  one release, the client no longer needs to emit them.
+  one release, the client no longer needs to emit them. **Not done** — see the deviations
+  in Status: the fallback still covers tool calls persisted without an id.
 - `use-protocol-fetch.ts`: keep (domain 409 translation has no SDK equivalent), but rewrite
   the docstring — it still narrates the deleted `use-durable-run`.
 - Replace the three `ai`/`@ai-sdk/react` type imports with local unions; remove both
