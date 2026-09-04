@@ -483,16 +483,19 @@ export const ChainReasoningLine = ({
 		className={className}
 		node={<ChainLineNode className="text-petrol">✦</ChainLineNode>}
 	>
-		<MessageResponse
+		{/* The caret lives on this wrapper, not on MessageResponse: that one is
+		    memoized on `children` alone, so a className flip with unchanged
+		    text would never render and the caret would outlive the stream. */}
+		<div
 			className={cn(
-				"text-[12.5px] italic leading-[1.6] text-muted-foreground [&_[data-streamdown=strong]]:not-italic [&_[data-streamdown=strong]]:text-foreground",
-				// Caret on the last block while the text is still arriving.
 				streaming &&
-					"[&>*:last-child]:after:ml-0.5 [&>*:last-child]:after:inline-block [&>*:last-child]:after:h-3 [&>*:last-child]:after:w-1 [&>*:last-child]:after:animate-pulse [&>*:last-child]:after:rounded-sm [&>*:last-child]:after:bg-petrol [&>*:last-child]:after:align-text-bottom [&>*:last-child]:after:content-['']",
+					"[&>*>*:last-child]:after:ml-0.5 [&>*>*:last-child]:after:inline-block [&>*>*:last-child]:after:h-3 [&>*>*:last-child]:after:w-1 [&>*>*:last-child]:after:animate-pulse [&>*>*:last-child]:after:rounded-sm [&>*>*:last-child]:after:bg-petrol [&>*>*:last-child]:after:align-text-bottom [&>*>*:last-child]:after:content-['']",
 			)}
 		>
-			{text}
-		</MessageResponse>
+			<MessageResponse className="text-[12.5px] italic leading-[1.6] text-muted-foreground [&_[data-streamdown=strong]]:not-italic [&_[data-streamdown=strong]]:text-foreground">
+				{text}
+			</MessageResponse>
+		</div>
 	</ChainLine>
 );
 
