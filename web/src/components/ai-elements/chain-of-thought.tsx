@@ -8,7 +8,7 @@ import {
 import { cn } from "@/lib/utils";
 import { ChevronDownIcon, Loader2 } from "lucide-react";
 import Image from "next/image";
-import type { ComponentProps, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { useState } from "react";
 import { CodeBlock, SHIKI_MAX_CHARS } from "./code-block";
 import { MessageResponse } from "./message";
@@ -193,16 +193,23 @@ export const ChainThinking = ({ className }: { className?: string }) => (
 
 /** The 1px vertical rail steps hang on. Also used for nested subagent work. */
 export const ChainRail = ({
+	startAtFirstNode = false,
 	className,
 	children,
 }: {
+	/** Begin the line at the first node instead of the container's top edge —
+	 *  for rails with no header above them (a subagent's band). */
+	startAtFirstNode?: boolean;
 	className?: string;
 	children: ReactNode;
 }) => (
 	<div className={cn("relative", className)}>
 		<span
 			aria-hidden
-			className="absolute bottom-2 left-[10px] top-0 w-px bg-rail dark:bg-white/10"
+			className={cn(
+				"absolute bottom-2 left-[10px] w-px bg-rail dark:bg-white/10",
+				startAtFirstNode ? "top-[17px]" : "top-0",
+			)}
 		/>
 		{children}
 	</div>
@@ -344,13 +351,15 @@ export const ChainStep = ({
 export const StepSection = ({
 	label,
 	error = false,
+	className,
 	children,
 }: {
 	label: string;
 	error?: boolean;
+	className?: string;
 	children: ReactNode;
 }) => (
-	<div className="flex min-w-0 flex-col gap-1.5">
+	<div className={cn("flex min-w-0 flex-col gap-1.5", className)}>
 		<div
 			className={cn(
 				"font-mono text-[9.5px] font-semibold tracking-[0.09em]",
@@ -390,19 +399,101 @@ export const StepCode = ({ value }: { value: unknown }) => {
 	);
 };
 
-/** ✦ italic reasoning line (used inside subagent nested rails). */
-export const ChainReasoningLine = ({
-	children,
+/** Tinted band a step folds its nested work into (a subagent's own
+ *  conversation). Mono `// LABEL` header, optional plain text under it (the
+ *  task), then whatever hangs on the rail. */
+export const ChainBand = ({
+	label,
+	text,
 	className,
-}: ComponentProps<"div">) => (
-	<div className={cn("relative flex items-start gap-3 py-1.5", className)}>
-		<span className="relative z-[1] flex size-[22px] shrink-0 items-center justify-center bg-background text-[11px] text-petrol">
-			✦
-		</span>
-		<span className="min-w-0 whitespace-pre-wrap text-[12.5px] italic leading-[1.6] text-muted-foreground">
-			{children}
-		</span>
+	children,
+}: {
+	label: string;
+	text?: string;
+	className?: string;
+	children: ReactNode;
+}) => (
+	<div
+		className={cn(
+			"flex min-w-0 flex-col rounded-[10px] bg-hover/70 px-[18px] pb-4 pt-3.5 dark:bg-panel-card",
+			className,
+		)}
+	>
+		<div className="font-mono text-[10px] font-semibold tracking-[0.09em] text-meta dark:text-panel-dim">
+			{"// "}
+			{label}
+		</div>
+		{text && (
+			<div className="mt-2 whitespace-pre-wrap font-mono text-[11px] leading-[1.55] text-label dark:text-panel-dim">
+				{text}
+			</div>
+		)}
+		<div className="mt-3 flex min-w-0 flex-col">{children}</div>
 	</div>
+);
+
+/** 22px square node for a non-collapsible rail line — same tile as the
+ *  root chain's reasoning step. */
+export const ChainLineNode = ({
+	className,
+	children,
+}: {
+	className?: string;
+	children: ReactNode;
+}) => (
+	<span
+		className={cn(
+			"relative z-[1] flex size-[22px] shrink-0 items-center justify-center rounded-[6px] border border-border bg-card text-[11px]",
+			className,
+		)}
+	>
+		{children}
+	</span>
+);
+
+/** A plain (non-collapsible) line on the rail: a node and its text. */
+export const ChainLine = ({
+	node,
+	className,
+	children,
+}: {
+	node: ReactNode;
+	className?: string;
+	children: ReactNode;
+}) => (
+	<div className={cn("relative flex items-start gap-3 py-1.5", className)}>
+		{node}
+		<div className="min-w-0 flex-1 pt-[3px]">{children}</div>
+	</div>
+);
+
+/** ✦ italic line for a subagent's own text on its nested rail. Rendered as
+ *  markdown: its last line doubles as the subagent's result. */
+export const ChainReasoningLine = ({
+	text,
+	streaming = false,
+	className,
+}: {
+	text: string;
+	/** Show a caret after the text while it is still arriving. */
+	streaming?: boolean;
+	className?: string;
+}) => (
+	<ChainLine
+		className={className}
+		node={<ChainLineNode className="text-petrol">✦</ChainLineNode>}
+	>
+		<MessageResponse
+			className={cn(
+				"text-[12.5px] italic leading-[1.6] text-muted-foreground [&_[data-streamdown=strong]]:not-italic [&_[data-streamdown=strong]]:text-foreground",
+				// Caret on the last block while the text is still arriving.
+				streaming &&
+					"[&>*:last-child]:after:ml-0.5 [&>*:last-child]:after:inline-block [&>*:last-child]:after:h-3 [&>*:last-child]:after:w-1 [&>*:last-child]:after:animate-pulse [&>*:last-child]:after:rounded-sm [&>*:last-child]:after:bg-petrol [&>*:last-child]:after:align-text-bottom [&>*:last-child]:after:content-['']",
+			)}
+		>
+			{text}
+		</MessageResponse>
+	</ChainLine>
 );
 
 /** Amber approval badge for steps waiting on a human. */

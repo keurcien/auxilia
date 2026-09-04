@@ -8,6 +8,7 @@ import { useMessages, useToolCalls, useValues } from "@langchain/react";
 import type { AnyStream, SubagentDiscoverySnapshot } from "@langchain/react";
 import { Loader } from "@/components/ai-elements/loader";
 import {
+  ChainBand,
   ChainRail,
   ChainReasoningLine,
   ChainStep,
@@ -15,7 +16,6 @@ import {
   StepSection,
 } from "@/components/ai-elements/chain-of-thought";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
-import { MessageResponse } from "@/components/ai-elements/message";
 import { TodoList } from "@/components/ai-elements/todo-list";
 import type { Todo } from "@/components/ai-elements/todo-list";
 import { cn } from "@/lib/utils";
@@ -54,7 +54,7 @@ const SubAgentConversation = memo(function SubAgentConversation({
   const last = messages.length - 1;
 
   return (
-    <ChainRail>
+    <ChainRail startAtFirstNode>
       {messages.map((message, i) => {
         if (!isAIMessage(message)) return null;
         const text = message.text;
@@ -62,12 +62,10 @@ const SubAgentConversation = memo(function SubAgentConversation({
         return (
           <Fragment key={message.id ?? i}>
             {text && (
-              <ChainReasoningLine>
-                {text}
-                {isStreaming && i === last && calls.length === 0 && (
-                  <span className="ml-0.5 inline-block h-3 w-1 animate-pulse rounded-sm bg-petrol align-text-bottom" />
-                )}
-              </ChainReasoningLine>
+              <ChainReasoningLine
+                text={text}
+                streaming={isStreaming && i === last && calls.length === 0}
+              />
             )}
             {calls.map((tc) => (
               <ToolStep
@@ -115,12 +113,6 @@ export const SubAgentCard = memo(function SubAgentCard({
   const isStreaming = status === "running";
   const isError = status === "error";
   const todos = (values?.todos ?? []) as Todo[];
-  const result =
-    subagent.output == null
-      ? undefined
-      : typeof subagent.output === "string"
-        ? subagent.output
-        : JSON.stringify(subagent.output, null, 2);
   // Hydrated snapshots stamp both dates at load time — nothing to show then.
   const elapsed =
     completedAt != null && completedAt.getTime() > startedAt.getTime()
@@ -164,34 +156,20 @@ export const SubAgentCard = memo(function SubAgentCard({
         ) : undefined
       }
     >
-      {subagent.taskInput && (
-        <StepSection label="TASK">
-          <StepCode value={subagent.taskInput} />
-        </StepSection>
-      )}
-      {todos.length > 0 && <TodoList todos={todos} />}
-      {messages.some(isAIMessage) && (
+      <ChainBand label="TASK" text={subagent.taskInput}>
+        {todos.length > 0 && <TodoList todos={todos} className="mb-3" />}
         <SubAgentConversation
           messages={messages}
           toolCalls={toolCalls}
           isStreaming={isStreaming}
           describe={describe}
         />
-      )}
-      {result != null && result !== "" && (
-        <StepSection label="RESULT">
-          <div className="min-w-0 rounded-[6px] border border-border bg-card px-3 py-2.5 text-[12.5px] leading-[1.6] text-body dark:text-panel-body">
-            <MessageResponse className="text-[12.5px] leading-[1.6]">
-              {result}
-            </MessageResponse>
-          </div>
-        </StepSection>
-      )}
-      {isError && subagent.error != null && (
-        <StepSection label="ERROR" error>
-          <StepCode value={subagent.error} />
-        </StepSection>
-      )}
+        {isError && subagent.error != null && (
+          <StepSection label="ERROR" error className="mt-2">
+            <StepCode value={subagent.error} />
+          </StepSection>
+        )}
+      </ChainBand>
     </ChainStep>
   );
 });
