@@ -9,6 +9,7 @@ import {
   isToolMessage,
 } from "@langchain/core/messages";
 import type { AnyStream, SubagentDiscoverySnapshot } from "@langchain/react";
+import type { Interrupt } from "@langchain/langgraph-sdk";
 import { CopyIcon, RefreshCcwIcon } from "lucide-react";
 import {
   Message,
@@ -42,7 +43,7 @@ import { TodoList } from "@/components/ai-elements/todo-list";
 import type { Todo } from "@/components/ai-elements/todo-list";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { useAgentsStore } from "@/stores/agents-store";
-import type { HitlDecision } from "@/hooks/use-hitl-approvals";
+import type { HitlDecision, HitlResponse } from "@/hooks/use-hitl-approvals";
 import { McpAppWidget } from "../components/mcp-app-widget";
 import {
   type ChainStepData,
@@ -55,6 +56,7 @@ import {
   getToolStepState,
   groupChains,
   sanitizeToolIdentifier,
+  sameNamespace,
 } from "./message-helpers";
 import {
   SubAgentCard,
@@ -78,6 +80,11 @@ export type ConversationBodyProps = {
   hitlToolNames: Set<string> | null;
   decisions: Partial<Record<string, HitlDecision>>;
   recordDecision: (toolCallId: string, decision: HitlDecision) => void;
+  /** Interrupts raised inside subagents (`stream.interrupts` minus the root
+   *  one); each card claims its own and approves it itself. */
+  nestedInterrupts: Interrupt[];
+  /** Resume an interrupt — `stream.respond(response, { interruptId })`. */
+  respond: (response: HitlResponse, interruptId: string | null) => void;
   modelUnavailable: boolean;
   onRegenerate: () => void;
   error: unknown;
@@ -100,6 +107,8 @@ export const ConversationBody = memo(function ConversationBody({
   hitlToolNames,
   decisions,
   recordDecision,
+  nestedInterrupts,
+  respond,
   modelUnavailable,
   onRegenerate,
   error,
@@ -177,6 +186,8 @@ export const ConversationBody = memo(function ConversationBody({
                 hitlToolNames={hitlToolNames}
                 decisions={decisions}
                 recordDecision={recordDecision}
+                nestedInterrupts={nestedInterrupts}
+                respond={respond}
                 modelUnavailable={modelUnavailable}
                 coordinatorStreaming={assistantStreaming && isLast}
               />
@@ -304,6 +315,8 @@ type ChainProps = {
   hitlToolNames: Set<string> | null;
   decisions: Partial<Record<string, HitlDecision>>;
   recordDecision: (toolCallId: string, decision: HitlDecision) => void;
+  nestedInterrupts: Interrupt[];
+  respond: (response: HitlResponse, interruptId: string | null) => void;
   modelUnavailable: boolean;
   coordinatorStreaming: boolean;
 };
@@ -334,6 +347,8 @@ const Chain = ({
   hitlToolNames,
   decisions,
   recordDecision,
+  nestedInterrupts,
+  respond,
   modelUnavailable,
   coordinatorStreaming,
 }: ChainProps) => {
@@ -354,6 +369,18 @@ const Chain = ({
   const reasoningStreaming = rows.some(
     (r) => r.kind === "reasoning" && r.messageId === reasoningStreamingId,
   );
+  // A subagent of this chain may be paused on an approval. Exact by
+  // namespace when the SDK has bound it; otherwise any running card could be
+  // the one (the card itself matches by content), so keep the chain open.
+  const pausedSubagents = chainSubagents.filter(
+    (s) =>
+      s.status === "running" &&
+      (nestedInterrupts.some((i) => sameNamespace(i.namespace, s.namespace)) ||
+        (nestedInterrupts.length > 0 &&
+          !nestedInterrupts.some((i) =>
+            chainSubagents.some((c) => sameNamespace(i.namespace, c.namespace)),
+          ))),
+  );
 
   return (
     <div className="w-full space-y-2">
@@ -361,12 +388,17 @@ const Chain = ({
         active={
           reasoningStreaming ||
           tools.some((r) =>
-            r.sub ? r.sub.status === "running" : r.state === "running",
+            r.sub
+              ? r.sub.status === "running" && !pausedSubagents.includes(r.sub)
+              : r.state === "running",
           )
         }
-        lockOpen={tools.some(
-          (r) => !r.sub && r.state === "awaiting-approval" && !decisions[r.tc.id],
-        )}
+        lockOpen={
+          pausedSubagents.length > 0 ||
+          tools.some(
+            (r) => !r.sub && r.state === "awaiting-approval" && !decisions[r.tc.id],
+          )
+        }
         toolCount={tools.length - chainSubagents.length}
         subagentCount={chainSubagents.length}
       >
@@ -388,6 +420,9 @@ const Chain = ({
               stream={stream}
               describe={describe}
               agent={findAgent(sub.name)}
+              interrupts={nestedInterrupts}
+              respond={respond}
+              modelUnavailable={modelUnavailable}
             />
           ) : (
             <ToolStep

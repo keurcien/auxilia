@@ -3,11 +3,12 @@
 from types import SimpleNamespace
 
 import pytest
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 
 from app.agents.hitl import (
     build_resume_command,
     is_addressed_resume,
+    load_interrupt_scope,
     pending_approval_requests,
     pending_interrupt,
 )
@@ -80,7 +81,7 @@ def test_pending_interrupt_tolerates_dict_shape():
         checkpoint={"channel_values": {}},
     )
     out = pending_interrupt(cp)
-    assert out == (INTERRUPT_ID, {"a": 1})
+    assert out == (INTERRUPT_ID, {"a": 1}, "t")
 
 
 def test_pending_interrupt_id_none_when_absent():
@@ -319,3 +320,265 @@ async def test_extracted_id_resumes_a_real_graph_via_the_map_form():
 
     out = await graph.ainvoke(Command(resume=command["resume"]), config)
     assert out["answer"] == "approve"
+
+
+# ---------------------------------------------------------------------------
+# Subagent approvals — the interrupt is on the root, the tool call is not
+# ---------------------------------------------------------------------------
+
+
+def test_pending_approval_requests_reads_tool_calls_from_the_scope():
+    """A subagent's interrupt bubbles to the root, whose last AI message only
+    carries the `task` call; the gated call is in the subagent's checkpoint."""
+    root = _checkpoint(
+        {"action_requests": [{"name": "send_email", "args": {"to": "a@b.c"}}]},
+        [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "call_task",
+                        "name": "task",
+                        "args": {"description": "mail them", "subagent_type": "w"},
+                    }
+                ],
+            )
+        ],
+    )
+    sub = _checkpoint(
+        None,
+        [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {"id": "sub_call", "name": "send_email", "args": {"to": "a@b.c"}}
+                ],
+            )
+        ],
+    )
+    assert pending_approval_requests(root)[0]["tool_call_id"] == "approval-0"
+    assert pending_approval_requests(root, sub)[0]["tool_call_id"] == "sub_call"
+    command = build_resume_command(
+        root,
+        {
+            "interrupt_id": INTERRUPT_ID,
+            "decisions": [{"tool_call_id": "sub_call", "type": "reject"}],
+        },
+        sub,
+    )
+    assert command == {"resume": {INTERRUPT_ID: {"decisions": [{"type": "reject"}]}}}
+
+
+class _Checkpointer:
+    """`aget_tuple` over a dict keyed by checkpoint namespace."""
+
+    def __init__(self, by_ns):
+        self.by_ns = by_ns
+
+    async def aget_tuple(self, config):
+        return self.by_ns.get(config["configurable"].get("checkpoint_ns", ""))
+
+
+async def test_load_interrupt_scope_stays_at_the_root_for_a_parent_approval():
+    root = _two_call_checkpoint()
+    scope = await load_interrupt_scope(_Checkpointer({"": root}), "t")
+    assert scope is not None
+    assert scope.namespace == ""
+    assert scope.namespace_path == []
+    assert scope.checkpoint is root
+    assert scope.subagent_call is None
+    assert scope.subagent_type is None
+    assert scope.interrupt.id == INTERRUPT_ID
+    assert scope.interrupt.task_id == "task-1"
+
+
+async def test_load_interrupt_scope_is_none_when_nothing_pends():
+    assert (
+        await load_interrupt_scope(_Checkpointer({"": _checkpoint(None, [])}), "t")
+        is None
+    )
+    assert await load_interrupt_scope(_Checkpointer({}), "t") is None
+
+
+async def test_load_interrupt_scope_follows_the_task_into_the_subagent():
+    """The root pending write's task is the parent's `tools` task; the subagent
+    checkpointed under `tools:<that id>` pends on the same interrupt."""
+    value = {"action_requests": [{"name": "send_email", "args": {}}]}
+    task_call = {
+        "id": "call_task",
+        "name": "task",
+        "args": {"description": "mail them", "subagent_type": "mailer"},
+    }
+    other_call = {
+        "id": "call_task_2",
+        "name": "task",
+        "args": {"description": "something else", "subagent_type": "other"},
+    }
+    root = _checkpoint(
+        value, [AIMessage(content="", tool_calls=[other_call, task_call])]
+    )
+    sub = _checkpoint(
+        value,
+        [
+            HumanMessage(content="mail them"),
+            AIMessage(
+                content="",
+                tool_calls=[{"id": "sub_call", "name": "send_email", "args": {}}],
+            ),
+        ],
+    )
+    sub.pending_writes[0] = ("hitl-task", "__interrupt__", sub.pending_writes[0][2])
+    unrelated = _checkpoint(value, [], interrupt_id="cd" * 16)
+    checkpointer = _Checkpointer(
+        {"": root, "tools:task-1": sub, "tools:task-1|tools:hitl-task": unrelated}
+    )
+
+    scope = await load_interrupt_scope(checkpointer, "t")
+    assert scope is not None
+    assert scope.namespace == "tools:task-1"  # stops: the deeper one is another id
+    assert scope.namespace_path == ["tools:task-1"]
+    assert scope.checkpoint is sub
+    assert scope.root is root
+    # Told apart from the parallel sibling by the subagent's seed message.
+    assert scope.subagent_call is not None
+    assert scope.subagent_call["id"] == task_call["id"]
+    assert scope.subagent_type == "mailer"
+    assert pending_approval_requests(scope.root, scope.checkpoint) == [
+        {"tool_call_id": "sub_call", "tool_name": "send_email", "input": {}}
+    ]
+
+
+async def test_load_interrupt_scope_descent_is_bounded():
+    """A checkpointer that answers every namespace with the same paused
+    checkpoint (a test double, a misbehaving store) must not loop forever."""
+    from app.agents.hitl import MAX_SUBAGENT_DEPTH
+
+    class _Everywhere:
+        async def aget_tuple(self, config):
+            return _two_call_checkpoint()
+
+    scope = await load_interrupt_scope(_Everywhere(), "t")
+    assert scope is not None
+    assert scope.namespace.count("tools:") == MAX_SUBAGENT_DEPTH
+
+
+async def test_load_interrupt_scope_end_to_end_through_a_gated_subagent():
+    """The real thing: a supervisor delegates through deepagents' `task` to a
+    subagent whose tool is gated by our middleware stack. The interrupt lands
+    on the root checkpoint, the scope resolves to the subagent's namespace with
+    the real tool_call_id, and the canonical resume finishes both agents."""
+    from datetime import UTC, datetime
+
+    from deepagents.middleware.subagents import CompiledSubAgent
+    from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+    from langchain_core.messages import HumanMessage
+    from langchain_core.tools import tool
+    from langgraph.checkpoint.memory import InMemorySaver
+    from langgraph.types import Command
+
+    from app.agents.runtime import build_agent_middleware, build_runnable
+
+    class _ToolFake(GenericFakeChatModel):
+        def bind_tools(self, tools, **kwargs):
+            return self
+
+    @tool
+    def send_email(to: str) -> str:
+        """Send an email."""
+        return f"sent to {to}"
+
+    now = datetime.now(UTC)
+    worker = CompiledSubAgent(
+        name="mailer",
+        description="mailer: sends mail",
+        runnable=build_runnable(
+            model=_ToolFake(
+                messages=iter(
+                    [
+                        AIMessage(
+                            content="",
+                            id="sub-ai-1",
+                            tool_calls=[
+                                {
+                                    "id": "sub_call",
+                                    "name": "send_email",
+                                    "args": {"to": "a@b.c"},
+                                }
+                            ],
+                        ),
+                        AIMessage(content="mail sent", id="sub-ai-2"),
+                    ]
+                )
+            ),
+            tools=[send_email],
+            system_prompt="mailer",
+            base_middleware=build_agent_middleware(
+                now, recursion_limit=25, interrupt_on={"send_email": True}
+            ),
+        ),
+    )
+    saver = InMemorySaver()
+    parent = build_runnable(
+        model=_ToolFake(
+            messages=iter(
+                [
+                    AIMessage(
+                        content="",
+                        id="root-ai-1",
+                        tool_calls=[
+                            {
+                                "id": "call_task",
+                                "name": "task",
+                                "args": {
+                                    "description": "mail them",
+                                    "subagent_type": "mailer",
+                                },
+                            }
+                        ],
+                    ),
+                    AIMessage(content="done", id="root-ai-2"),
+                ]
+            )
+        ),
+        tools=[],
+        system_prompt="supervisor",
+        base_middleware=build_agent_middleware(
+            now, recursion_limit=50, interrupt_on={}
+        ),
+        subagents=[worker],
+        checkpointer=saver,
+    )
+    config = {"configurable": {"thread_id": "t-sub-hitl"}}
+    await parent.ainvoke({"messages": [HumanMessage("go")]}, config)  # pauses
+
+    scope = await load_interrupt_scope(saver, "t-sub-hitl")
+    assert scope is not None
+    assert scope.namespace.startswith("tools:")
+    assert scope.subagent_type == "mailer"
+    assert scope.interrupt.id is not None and len(scope.interrupt.id) == 32
+    requests = pending_approval_requests(scope.root, scope.checkpoint)
+    assert requests == [
+        {
+            "tool_call_id": "sub_call",
+            "tool_name": "send_email",
+            "input": {"to": "a@b.c"},
+        }
+    ]
+
+    command = build_resume_command(
+        scope.root,
+        {
+            "interrupt_id": scope.interrupt.id,
+            "decisions": [{"tool_call_id": "sub_call", "type": "approve"}],
+        },
+        scope.checkpoint,
+    )
+    out = await parent.ainvoke(Command(resume=command["resume"]), config)
+    assert out["messages"][-1].content == "done"
+    assert await load_interrupt_scope(saver, "t-sub-hitl") is None
+    sub_state = await saver.aget_tuple(
+        {"configurable": {"thread_id": "t-sub-hitl", "checkpoint_ns": scope.namespace}}
+    )
+    sub_messages = sub_state.checkpoint["channel_values"]["messages"]
+    assert [m.type for m in sub_messages] == ["human", "ai", "tool", "ai"]
+    assert sub_messages[2].content == "sent to a@b.c"

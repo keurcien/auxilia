@@ -13,8 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.core.service import AgentService
 from app.agents.hitl import (
     PendingInterrupt,
+    load_interrupt_scope,
     pending_approval_requests,
-    pending_interrupt,
 )
 from app.agents.runs.service import RunService
 from app.auth.settings import auth_settings
@@ -238,13 +238,11 @@ async def _pending_hitl_state(
     and what exposes a card whose interrupt was already resolved elsewhere.
     """
     async with get_checkpointer() as checkpointer:
-        checkpoint = await checkpointer.aget_tuple(
-            config={"configurable": {"thread_id": thread_id}}
-        )
-    interrupt = pending_interrupt(checkpoint)
-    if interrupt is None:
+        scope = await load_interrupt_scope(checkpointer, thread_id)
+    if scope is None:
         return None
-    return interrupt, pending_approval_requests(checkpoint)
+    # A subagent's approvals are matched in its own checkpoint (`scope`).
+    return scope.interrupt, pending_approval_requests(scope.root, scope.checkpoint)
 
 
 def _collect_batch_command(

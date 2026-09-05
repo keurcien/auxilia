@@ -55,7 +55,8 @@ def _paused_checkpoint():
 
 @pytest.fixture
 def service(run_db, monkeypatch):
-    """A RunService whose checkpointer serves `_paused_checkpoint`, counting reads."""
+    """A RunService whose checkpointer serves `_paused_checkpoint` at the root
+    (and nothing under any subagent namespace), counting reads."""
     monkeypatch.setattr(
         service_mod.ModelService, "list_whitelisted", AsyncMock(return_value=[])
     )
@@ -65,6 +66,8 @@ def service(run_db, monkeypatch):
     async def _checkpointer():
         async def _aget_tuple(config):
             reads["count"] += 1
+            if config["configurable"].get("checkpoint_ns"):
+                return None
             return _paused_checkpoint()
 
         yield SimpleNamespace(aget_tuple=_aget_tuple)
@@ -108,7 +111,9 @@ async def test_addressed_resume_is_stored_canonical(service, run_db):
             INTERRUPT_ID: {"decisions": [{"type": "approve"}, {"type": "reject"}]}
         }
     }
-    assert service._checkpoint_reads["count"] == 1
+    # The root checkpoint, plus one probe for a subagent namespace under the
+    # interrupting task (`hitl.load_interrupt_scope`) — nothing more.
+    assert service._checkpoint_reads["count"] == 2
 
 
 async def test_stale_addressed_resume_is_rejected_before_a_run_row_exists(

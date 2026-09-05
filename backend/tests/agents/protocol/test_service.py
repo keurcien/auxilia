@@ -301,3 +301,74 @@ async def test_history_maps_duplicate_descriptions_by_task_id(monkeypatch):
 
     assert one[0]["values"]["messages"][-1]["content"] == "first result"
     assert two[0]["values"]["messages"][-1]["content"] == "second result"
+
+
+# ── thread_state: the hydration snapshot names the paused agent ─────────────
+
+
+class _NsCheckpointer:
+    def __init__(self, by_ns):
+        self.by_ns = by_ns
+
+    async def aget_tuple(self, config):
+        return self.by_ns.get(config["configurable"].get("checkpoint_ns", ""))
+
+
+def _paused(messages, interrupt_id, task_id):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        pending_writes=[
+            (
+                task_id,
+                "__interrupt__",
+                [SimpleNamespace(value={"action_requests": []}, id=interrupt_id)],
+            )
+        ],
+        checkpoint={"channel_values": {"messages": messages}},
+    )
+
+
+@pytest.mark.parametrize(
+    ("by_ns_factory", "expected_namespace"),
+    [
+        (lambda iid: {"": _paused([], iid, "hitl-task")}, []),
+        (
+            lambda iid: {
+                "": _paused([], iid, "task-1"),
+                "tools:task-1": _paused([HumanMessage("do it")], iid, "hitl-task"),
+            },
+            ["tools:task-1"],
+        ),
+    ],
+)
+async def test_thread_state_interrupt_carries_the_paused_agents_namespace(
+    monkeypatch, by_ns_factory, expected_namespace
+):
+    """A subagent's interrupt hydrates with its namespace so the client lands
+    the approval on that card, exactly as the live `input.requested` does."""
+    from contextlib import asynccontextmanager
+
+    from app.agents.protocol import service as service_mod
+
+    iid = "ab" * 16
+    checkpointer = _NsCheckpointer(by_ns_factory(iid))
+
+    @asynccontextmanager
+    async def _checkpointer():
+        yield checkpointer
+
+    monkeypatch.setattr(service_mod, "get_checkpointer", _checkpointer)
+    service = _service()
+
+    async def _no_active(_thread_id):
+        return None
+
+    monkeypatch.setattr(service.runs, "get_active", _no_active)
+
+    state = await service.thread_state("t1")
+    assert state["next"] == ["agent"]
+    [task] = state["tasks"]
+    assert task["interrupts"] == [
+        {"id": iid, "value": {"action_requests": []}, "namespace": expected_namespace}
+    ]

@@ -179,6 +179,21 @@ async def test_consumer_streams_text_and_posts_link_on_success(monkeypatch):
     assert fake.streamer.kwargs["recipient_user_id"] == "U1"
 
 
+def _scope(interrupt, subagent_type=None):
+    """A `load_interrupt_scope` stand-in: the located pending interrupt."""
+
+    async def _load(_checkpointer, _thread_id):
+        return SimpleNamespace(
+            root=None,
+            checkpoint=None,
+            interrupt=interrupt,
+            namespace="tools:x" if subagent_type else "",
+            subagent_type=subagent_type,
+        )
+
+    return _load
+
+
 async def test_consumer_posts_approval_blocks_on_interrupt(monkeypatch):
     monkeypatch.setattr(
         consumer_mod.RunService, "stream", _log(status=RunStatus.interrupted)
@@ -191,9 +206,12 @@ async def test_consumer_posts_approval_blocks_on_interrupt(monkeypatch):
 
     monkeypatch.setattr(consumer_mod, "get_checkpointer", _checkpointer)
     monkeypatch.setattr(
+        consumer_mod, "load_interrupt_scope", _scope(SimpleNamespace(id=None, value={}))
+    )
+    monkeypatch.setattr(
         consumer_mod,
         "pending_approval_requests",
-        lambda _cp: [
+        lambda _root, _scope: [
             {
                 "tool_call_id": "call_1",
                 "tool_name": "get_weather",
@@ -235,13 +253,15 @@ async def test_approval_cards_carry_the_interrupt_id_block_id(monkeypatch):
     iid = "ab" * 16
     monkeypatch.setattr(
         consumer_mod,
-        "pending_interrupt",
-        lambda _cp: SimpleNamespace(id=iid, value={}),
+        "load_interrupt_scope",
+        _scope(SimpleNamespace(id=iid, value={}), subagent_type="mailer"),
     )
     monkeypatch.setattr(
         consumer_mod,
         "pending_approval_requests",
-        lambda _cp: [{"tool_call_id": "call_1", "tool_name": "t", "input": {}}],
+        lambda _root, _scope: [
+            {"tool_call_id": "call_1", "tool_name": "t", "input": {}}
+        ],
     )
 
     consumer = SlackRunConsumer(_record(_slack_delivery()))
@@ -251,6 +271,10 @@ async def test_approval_cards_carry_the_interrupt_id_block_id(monkeypatch):
 
     actions = next(b for b in fake.posts[0]["blocks"] if b.get("type") == "actions")
     assert actions["block_id"] == f"hitl:{iid}:call_1"
+    # A subagent's request says which subagent asked.
+    context = next(b for b in fake.posts[0]["blocks"] if b.get("type") == "context")
+    assert "mailer" in context["elements"][0]["text"]
+    assert fake.posts[0]["text"] == "Approve t for mailer?"
 
 
 async def test_consumer_posts_failure_notice_on_error(monkeypatch):

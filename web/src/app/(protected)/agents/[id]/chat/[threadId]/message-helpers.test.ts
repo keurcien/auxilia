@@ -3,11 +3,13 @@ import type { AssembledToolCall } from "@langchain/react";
 import { describe, expect, it } from "vitest";
 import {
   extractHitlToolNames,
+  findSubagentInterrupt,
   getMcpAppInfo,
   getReasoning,
   getToolStepState,
   groupChains,
   pairToolCalls,
+  splitInterrupts,
 } from "./message-helpers";
 
 const ai = (id: string, calls: { id: string; name: string; args?: object }[], text = "") =>
@@ -173,5 +175,52 @@ describe("getReasoning", () => {
     });
     expect(getReasoning(legacy)).toBe("old think");
     expect(getReasoning(new AIMessage("plain"))).toBeNull();
+  });
+});
+
+describe("subagent interrupts", () => {
+  const rootInterrupt = { id: "r".repeat(32), value: { action_requests: [] }, namespace: [] };
+  const nested = {
+    id: "n".repeat(32),
+    value: { action_requests: [{ name: "send_email", args: { to: "a@b.c" } }] },
+    namespace: ["tools:task-1"],
+  };
+
+  it("splits the root interrupt from the subagents'", () => {
+    expect(splitInterrupts([nested, rootInterrupt])).toEqual({
+      root: rootInterrupt,
+      nested: [nested],
+    });
+    expect(splitInterrupts([{ id: "x", value: {} }]).root?.id).toBe("x");
+    expect(splitInterrupts([]).root).toBeNull();
+  });
+
+  it("claims a subagent's interrupt by namespace first", () => {
+    const sub = { namespace: ["tools:task-1"] };
+    expect(findSubagentInterrupt([nested], sub, [])).toBe(nested);
+    expect(findSubagentInterrupt([nested], { namespace: ["tools:other"] }, [])).toBeNull();
+  });
+
+  it("falls back to matching the action requests against pending calls", () => {
+    // After a reload the SDK's snapshot namespace is `tools:<tool_call_id>`.
+    const sub = { namespace: ["tools:call_task_1"] };
+    const calls = pairToolCalls(
+      [ai("m1", [{ id: "c1", name: "send_email", args: { to: "a@b.c" } }])],
+      [],
+    );
+    expect(findSubagentInterrupt([nested], sub, calls)).toBe(nested);
+    const otherArgs = pairToolCalls(
+      [ai("m1", [{ id: "c1", name: "send_email", args: { to: "x@y.z" } }])],
+      [],
+    );
+    expect(findSubagentInterrupt([nested], sub, otherArgs)).toBeNull();
+    const finished = pairToolCalls(
+      [
+        ai("m1", [{ id: "c1", name: "send_email", args: { to: "a@b.c" } }]),
+        new ToolMessage({ tool_call_id: "c1", content: "sent" }),
+      ],
+      [],
+    );
+    expect(findSubagentInterrupt([nested], sub, finished)).toBeNull();
   });
 });

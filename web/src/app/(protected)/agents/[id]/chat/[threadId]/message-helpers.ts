@@ -19,6 +19,7 @@ import {
   isToolMessage,
 } from "@langchain/core/messages";
 import type { AssembledToolCall, ToolCallStatus } from "@langchain/react";
+import type { Interrupt } from "@langchain/langgraph-sdk";
 import { parseToolPayload } from "@langchain/langgraph-sdk/stream";
 import type { AttachmentData } from "@/components/ai-elements/attachments";
 import { extractToolErrorText } from "@/lib/utils/tool-content";
@@ -235,6 +236,92 @@ export function getToolStepState(
   }
   return "running";
 }
+
+// ---------------------------------------------------------------------------
+// Interrupts — root vs. subagent
+// ---------------------------------------------------------------------------
+
+/** `stream.interrupts` mirrors every namespace's pending interrupt; the root
+ *  one drives the root chain's approval UI, the nested ones belong to the
+ *  subagent cards (`findSubagentInterrupt`). */
+export function splitInterrupts(interrupts: readonly Interrupt[]): {
+  root: Interrupt | null;
+  nested: Interrupt[];
+} {
+  let root: Interrupt | null = null;
+  const nested: Interrupt[] = [];
+  for (const interrupt of interrupts) {
+    if (isRootNamespace(interrupt.namespace)) root ??= interrupt;
+    else nested.push(interrupt);
+  }
+  return { root, nested };
+}
+
+const isRootNamespace = (namespace: readonly string[] | undefined) =>
+  namespace == null || namespace.length === 0;
+
+export const sameNamespace = (
+  a: readonly string[] | undefined,
+  b: readonly string[],
+) => a != null && a.length === b.length && a.every((seg, i) => seg === b[i]);
+
+/**
+ * The pending interrupt raised inside one subagent, if any.
+ *
+ * Live, the backend stamps the subagent's checkpoint namespace
+ * (`tools:<pregel task id>`) on `input.requested`, and the SDK binds the same
+ * namespace onto the discovery snapshot — an exact match. After a reload the
+ * SDK rebuilds snapshots from history with a `tools:<tool_call_id>` namespace
+ * instead, so fall back to content: the interrupt's `action_requests` must
+ * all correspond to a still-pending call in this card (by name, and by args
+ * when both sides have them).
+ */
+export function findSubagentInterrupt(
+  nested: readonly Interrupt[],
+  subagent: { namespace: readonly string[] },
+  toolCalls: readonly ToolCallView[],
+): Interrupt | null {
+  const exact = nested.find((i) => sameNamespace(i.namespace, subagent.namespace));
+  if (exact) return exact;
+  const pending = toolCalls.filter((tc) => tc.status === "running");
+  if (pending.length === 0) return null;
+  return (
+    nested.find((interrupt) => {
+      const requests = actionRequests(interrupt.value);
+      return (
+        requests != null &&
+        requests.length > 0 &&
+        requests.every((r) =>
+          pending.some(
+            (tc) =>
+              tc.name === r.name &&
+              (r.args == null || tc.args == null || sameArgs(tc.args, r.args)),
+          ),
+        )
+      );
+    }) ?? null
+  );
+}
+
+type ActionRequest = { name: string; args?: Record<string, unknown> };
+
+function actionRequests(value: unknown): ActionRequest[] | null {
+  if (!value || typeof value !== "object") return null;
+  const requests = (value as { action_requests?: unknown }).action_requests;
+  if (!Array.isArray(requests)) return null;
+  return requests.filter(
+    (r): r is ActionRequest =>
+      r != null && typeof r === "object" && typeof (r as { name?: unknown }).name === "string",
+  );
+}
+
+const sameArgs = (a: Record<string, unknown>, b: Record<string, unknown>) => {
+  try {
+    return JSON.stringify(a, Object.keys(a).sort()) === JSON.stringify(b, Object.keys(b).sort());
+  } catch {
+    return false;
+  }
+};
 
 /** The HITL middleware only hangs the tool calls named in the interrupt's
  *  `action_requests`; sibling calls in the same turn run on resume. */

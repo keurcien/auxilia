@@ -53,6 +53,7 @@ root-cause message) instead of being swallowed into an event.
 """
 
 import logging
+import re
 from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Any
 
@@ -86,6 +87,11 @@ _SUBGRAPH_STATUS = {
     "interrupted": "interrupted",
     "drained": "completed",
 }
+
+
+#: `str(GraphInterrupt(...))` — the shape a bubbling interrupt takes on the
+#: `tools` channel's `tool-error` message.
+_INTERRUPT_REPR = re.compile(r"^\(?Interrupt\(")
 
 
 def _ns_key(namespace: list[str]) -> str:
@@ -227,6 +233,7 @@ class ProtocolEmitter:
                 if first_human is not None:
                     trimmed["messages"] = [serialize_message(first_human)]
             out.append(ev.values_event(namespace, trimmed))
+            out.extend(self._input_requested(namespace, interrupts))
             return out
 
         out.append(ev.values_event([], trimmed))
@@ -238,6 +245,20 @@ class ProtocolEmitter:
             # only an id makes the echo deduplicable.
             if isinstance(message, HumanMessage) and isinstance(message.content, str):
                 out.extend(self._whole_message([], None, message, role="human"))
+        out.extend(self._input_requested([], interrupts))
+        return out
+
+    def _input_requested(self, namespace: list[str], interrupts: Any) -> list[dict]:
+        """`input.requested` for each interrupt not yet announced.
+
+        A subagent's interrupt rides on two `values` envelopes: its own
+        namespace's first (langgraph streams the subgraph's superstep before
+        the parent's), then the root's, once it has bubbled up through the
+        `task` tool. The first one wins, so the event carries the namespace
+        of the agent that actually paused and the client can pin the approval
+        to that subagent's card; the root copy is dropped by id.
+        """
+        out: list[dict] = []
         for interrupt in interrupts or ():
             interrupt_id = getattr(interrupt, "id", None)
             value = getattr(interrupt, "value", interrupt)
@@ -246,7 +267,9 @@ class ProtocolEmitter:
             if not isinstance(interrupt_id, str) or interrupt_id in self._interrupt_ids:
                 continue
             self._interrupt_ids.add(interrupt_id)
-            out.append(ev.input_requested([], interrupt_id=interrupt_id, payload=value))
+            out.append(
+                ev.input_requested(namespace, interrupt_id=interrupt_id, payload=value)
+            )
         return out
 
     # --- updates ------------------------------------------------------------------
@@ -351,6 +374,15 @@ class ProtocolEmitter:
         if kind == "tool-error":
             if not tool_call_id or tool_call_id in self._tool_finished_ids:
                 return []
+            if self._is_bubbling_interrupt(data.get("message")):
+                # A subagent's approval interrupt bubbles up through the
+                # `task` tool, and langgraph reports that to the parent's
+                # tool callbacks as a failure. It is not one: the call is
+                # paused, its subagent resumes into the same call later, and
+                # forwarding this would have the client mark the subagent
+                # card errored (with the Interrupt repr as the message) for
+                # the length of the pause. Leave the call running.
+                return []
             self._tool_finished_ids.add(tool_call_id)
             return [
                 ev.tool_error(
@@ -367,6 +399,20 @@ class ProtocolEmitter:
             return self._tool_result(namespace, str(tool_call_id), data.get("output"))
         # `tool-output-delta` is not part of the client contract yet.
         return []
+
+    def _is_bubbling_interrupt(self, message: Any) -> bool:
+        """Whether a `tool-error` message is a `GraphInterrupt` in flight.
+
+        langgraph stringifies the exception: ``(Interrupt(value=..., id='…'),)``.
+        The subagent's own `values` envelope announced that id just before,
+        so the id is the primary match; the repr shape is the fallback for an
+        ordering we did not observe.
+        """
+        if not isinstance(message, str):
+            return False
+        if any(interrupt_id in message for interrupt_id in self._interrupt_ids):
+            return "Interrupt(" in message
+        return _INTERRUPT_REPR.match(message) is not None
 
     def _tool_result(
         self, namespace: list[str], tool_call_id: str, output: Any

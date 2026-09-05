@@ -1,7 +1,151 @@
 # Subagent HITL: what `@langchain/react` 1.0.33 changes, and what it implies for auxilia
 
-Assessment written 2026-09-04. No code changed. Companion to issue #301
+Assessment written 2026-09-04, verified by spike 2026-09-05 (see the update below). No code changed. Companion to issue #301
 ("Subagent tool approvals are silently dropped at run time").
+
+## Status 2026-09-05 — implemented (uncommitted, in the working tree)
+
+Everything in "Revised work, with sizes" below except the optional SDK bump is done:
+
+- Backend: `ResolvedAgent.compile` gates subagents; `hitl.load_interrupt_scope` follows the
+  root pending write into `tools:<task-id>` (nested levels too, bounded by
+  `MAX_SUBAGENT_DEPTH`; a root approval costs one extra keyed probe) and exposes the paused
+  `task` call; `pending_approval_requests` / `build_resume_command` take that scope;
+  `RunService._canonical_command`, `ProtocolService.thread_state` (interrupt `namespace`),
+  the Slack consumer (card names the subagent) and handlers use it. `ProtocolEmitter`
+  emits `input.requested` under the paused agent's namespace and swallows the `task`
+  `tool-error` that is the interrupt bubbling up.
+- Web: `page.tsx` splits `stream.interrupts` into the root one and the subagents' (keyed
+  by content so the memoized body is not re-rendered per token); `SubAgentCard` claims its
+  interrupt (`findSubagentInterrupt`: namespace first, action-request fallback after a
+  reload), renders nested `ToolStep`s as awaiting approval with the approve/deny footer,
+  shows the needs-approval badge instead of the spinner, and resumes through its own
+  `useHitlApprovals`; the chain stays open while a card is paused.
+- Tests: `tests/agents/test_hitl.py` (scope resolution, real gated subagent end to end),
+  `tests/agents/protocol/test_emit.py` (`subagent_scenario`: namespaced request, no task
+  tool-error, resume), `test_service.py` (state namespace), Slack consumer;
+  `message-helpers.test.ts` for the split/claim helpers. Backend suite 1035 passed, web
+  vitest/tsc/eslint clean.
+- First live test (2026-09-05, Slides subagent): the interrupt fired and the first approval
+  resumed correctly, but the card froze afterwards and the second approval failed with a 400
+  ("Decisions do not match the pending approvals"). Cause: the SDK pauses every subscription
+  on a run's terminal lifecycle and the scoped projections behind `useMessages` /
+  `useToolCalls` / `useValues` never resume (`resumeOnPause` is off for them, upstream `main`
+  included), so the resumed run's subagent events (tool result, retried call, new interrupt's
+  target) never reached the card; the stale call matched the new interrupt by name and the
+  recorded decision auto-resubmitted. Fix: `web/src/hooks/use-subagent-projections.ts` — the
+  SDK's own projection specs, subscribing through a thread whose handles resume across runs;
+  the card uses those. Unit-tested; the live flow still needs a second try.
+
+## Update 2026-09-05 — verified by running it
+
+Re-checked after the user reported that "latest langchain/langgraph detect subagent HITL".
+Upstream since the 09-04 assessment: langchain 1.4.0 (09-03) is the `langchain.mcp`
+adapter, nothing about subagents; deepagents 0.7.12/0.7.13 add subagent forking modes;
+langgraph Python is still 1.2.11 (08-11). The only relevant release is
+`@langchain/langgraph-sdk` 1.10.2 / `@langchain/react` 1.0.35 (09-04, langgraphjs#2780):
+`stream.interrupts` stays truthful after sequential `respond()` calls on parallel
+interrupts. Corroborating evidence that upstream treats nested subagent HITL as a working
+feature: deepagents-code #4771 "keep `task` timers monotonic across nested subagent HITL"
+and langchain-quickjs #4401 "propagate JS `task()` subagent interrupts" (July 2026).
+
+So nothing new is required from upstream: **the detection already works on the versions
+we have installed** (langgraph 1.2.11, deepagents 0.5.6, langchain 1.3.17, sdk 1.10.0).
+Two scratch spikes proved the 09-04 table instead of reasoning from source. Both used
+`build_runnable` + `build_agent_middleware` (our real stack), a scripted model, an
+`InMemorySaver`, and the real `hitl.py` helpers; the only change from production was
+passing `interrupt_on={"dangerous": True}` to the subagent's middleware.
+
+### Spike 1 — `astream(subgraphs=True)`, checkpoint, resume
+
+| Claim | Result |
+| --- | --- |
+| Subagent's gated tool interrupts | yes — `__interrupt__` on the `tools:<task-id>` values envelope |
+| Interrupt reaches the root checkpoint | yes — root `pending_writes` = `(<parent tools task id>, "__interrupt__", (Interrupt,))` |
+| Id is 32-hex, same in both namespaces | yes — e.g. `67678b50…7ab429` on root and on `tools:<task-id>` |
+| `hitl.pending_interrupt(root)` | works unchanged |
+| `hitl.pending_approval_requests(root)` | **wrong id**: `approval-0` (root's last AI call is `task`) |
+| `hitl.pending_approval_requests(<tools:<task-id>> tuple)` | **right id**: `sub-call-0` — the existing matcher is correct, it is just fed the wrong checkpoint |
+| Namespace derivation | `tools:<task_id of the root pending write>` — identical to `protocol/service._task_namespace` |
+| `build_resume_command` + `Command(resume={id: {...}})` | resumes; subagent ToolMessage lands under `tools:<task-id>`, parent continues to its final answer |
+| Two sequential gated calls in one subagent (deepagents #1762 caveat) | both interrupt with distinct ids and both resume cleanly |
+
+### Spike 2 — `astream_events(version="v3")` through `ProtocolEmitter` (the real wire)
+
+Envelope order at the pause: `values` on `["tools:<task-id>"]` carrying `interrupts=[…]`,
+then root `tools` **`tool-error` for the `task` call** with `message="(Interrupt(…),)"`,
+then root `values` carrying the same interrupt, then `lifecycle interrupted` for the
+subagent namespace. The emitter today produces:
+
+- `input.requested` once, with `namespace: []` — because `_on_values` returns early in the
+  namespaced branch before looking at `interrupts`, so the root copy is the one emitted.
+  Detection works; card scoping does not.
+- **`tools.tool-error` for `task-call-1`** — new finding, not in the 09-04 table. langgraph
+  reports the `GraphInterrupt` that bubbles through the `task` tool as a tool failure. The
+  SDK's `SubagentManager.complete(id, message, "error")` then marks the card *errored*
+  with the `Interrupt(...)` repr as its error text for the whole pause. On resume the
+  subagent streams again and `markRunning` flips it back, so it self-heals, but the paused
+  state is displayed as a failure. The emitter must swallow that one event (the message
+  starts with `(Interrupt(`; or hold `tool-error` until the next root `values` and drop
+  it when that envelope carries an interrupt).
+- On resume: root `tool-started` for the same `task-call-1` again, subagent `lifecycle
+  started` again, then the subagent's `dangerous` `tool-finished`, then `task`
+  `tool-finished` and `lifecycle completed`. Nothing to fix there.
+
+`aget_state` after the pause: `next=("tools",)`, `tasks=[("tools", [<id>])]` — the same
+shape a root HITL pause has, so `thread_state` needs only the namespace added.
+
+### Revised work, with sizes
+
+Backend (≈1.5–2 days)
+
+1. `ResolvedAgent.compile` passes `interrupt_on=self.prepared.interrupt_on`; rewrite the
+   three stale "no checkpointer" docstrings (`build_agent_middleware`, `compile`,
+   `SUBAGENT_RECURSION_LIMIT`). ~0.5 h.
+2. Namespace-aware approvals. `pending_interrupt` also returns the pending write's
+   `task_id`; add an async `pending_approvals(checkpointer, thread_id)` in `hitl.py` that
+   loads the root tuple, follows `tools:<task_id>` when the interrupting namespace is a
+   subagent, and runs the *existing* matcher on that tuple. Same for the checkpoint
+   `build_resume_command` validates against. Call sites: `threads/router.py`,
+   `protocol/service.thread_state`, `slack/consumer.py`, `slack/handlers.py`,
+   `RunService._canonical_command`; `runs/worker.py` only uses `pending_interrupt` and
+   is untouched. ~0.5 day incl. tests.
+3. Emitter: (a) handle `interrupts` in the namespaced `_on_values` branch and emit
+   `input.requested` with the real namespace (the id dedupe already drops the root copy);
+   (b) suppress the `task` `tool-error` caused by the interrupt and keep it out of
+   `_tool_finished_ids`. `tests/agents/protocol/test_emit.py` already drives a real
+   `create_agent` + `task` subagent with a scripted model, so the new case is one more
+   scenario. ~3 h.
+4. `thread_state`: put `namespace: ["tools:<task-id>"]` on the interrupt entry so a
+   reload lands the approval on the right card (SDK `Interrupt.namespace` exists). ~1 h.
+5. Slack: prefix the card title with the subagent name. ~1 h.
+
+Frontend (≈1.5 days)
+
+1. `SubAgentCard` picks `stream.interrupts.filter(i => sameNamespace(i.namespace,
+   subagent.namespace))`; fallback (until backend 3a ships): an interrupt with
+   `namespace: []` whose `action_requests` match none of the root tool calls but match the
+   card's. ~2 h.
+2. Nested `ToolStep` gets `state=getToolStepState(tc, cardInterrupted, cardHitlNames)`
+   and the `approval` prop; card `meta` shows the needs-approval badge instead of the
+   spinner; `ChainOfThought.lockOpen` includes nested pending approvals. ~3 h.
+3. One `useHitlApprovals` per card (the hook is already generic) calling
+   `stream.respond(response, { interruptId })`; the SDK resolves the namespace. ~2 h.
+4. Local "paused" status derived from the scoped interrupt (the SDK snapshot has no such
+   status). ~1 h.
+5. Reload path, depends on backend 4 and on how the SDK's hydrate copies
+   `tasks[].interrupts[].namespace` — verify before relying on it. ~2–3 h.
+
+Optional: bump `@langchain/langgraph-sdk` to 1.10.2 / `@langchain/react` to 1.0.35 for
+langgraphjs#2780 (parallel subagents each pausing) and #2788. Not a prerequisite.
+
+Total ≈ 3.5–4 developer-days for a complete feature (web + Slack + reload), about one
+day for the minimum that makes approvals stop being silently dropped (backend 1–3a +
+frontend 1–3). The editor toggle stays; drop the "hide the setting" suggestion from #301.
+
+Spike scripts (scratch, not committed): `subagent_hitl_spike.py`,
+`subagent_hitl_v3_spike.py` in the session scratchpad; the logic is small enough to
+re-create from the tables above.
 
 ## TL;DR
 

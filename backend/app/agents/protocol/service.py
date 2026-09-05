@@ -26,7 +26,7 @@ from typing import Any
 from langchain_core.messages import ToolMessage
 from redis.asyncio import Redis
 
-from app.agents.hitl import pending_interrupt
+from app.agents.hitl import load_interrupt_scope
 from app.agents.protocol.events import terminal_lifecycle
 from app.agents.protocol.filter import StreamFilter
 from app.agents.protocol.messages import serialize_message
@@ -279,19 +279,31 @@ class ProtocolService:
                 values["todos"] = todos
             if (structured := channel_values.get("structured_response")) is not None:
                 values["structured_response"] = structured
-            interrupt = pending_interrupt(checkpoint_tuple)
+            scope = await load_interrupt_scope(
+                checkpointer, thread_id, root=checkpoint_tuple
+            )
+            interrupt = scope.interrupt if scope else None
 
         active = await self.runs.get_active(thread_id)
         # `next` non-empty ⇔ a run is executing or a resume is awaited — the
         # client's activity gate opens its live pumps only then.
         next_nodes = ["agent"] if active is not None or interrupt is not None else []
         tasks = []
-        if interrupt is not None:
+        if interrupt is not None and scope is not None:
+            # `namespace` is the paused agent's — `[]` for the parent, the
+            # subagent's `["tools:<task-id>"]` otherwise — so hydration lands
+            # the approval on the same card the live stream would.
             tasks.append(
                 {
                     "id": interrupt.id or "interrupt",
                     "name": "agent",
-                    "interrupts": [{"id": interrupt.id, "value": interrupt.value}],
+                    "interrupts": [
+                        {
+                            "id": interrupt.id,
+                            "value": interrupt.value,
+                            "namespace": scope.namespace_path,
+                        }
+                    ],
                 }
             )
         return {"values": values, "next": next_nodes, "tasks": tasks}

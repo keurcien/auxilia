@@ -29,6 +29,7 @@ import { ConversationBody } from "./conversation-body";
 import {
   extractHitlToolNames,
   getToolStepState,
+  splitInterrupts,
   pairToolCalls,
 } from "./message-helpers";
 
@@ -120,7 +121,22 @@ const ChatPage = () => {
     },
   });
 
-  const { isLoading, error, interrupt } = stream;
+  const { isLoading, error, interrupts } = stream;
+  // The root interrupt drives the root chain's approval UI; a subagent's
+  // (namespaced) interrupt is handed to its card, which approves it itself.
+  // The hook rebuilds the `interrupts` array on every store tick, so the split
+  // is keyed by content (ids + namespaces) — otherwise the memoized body would
+  // re-render at token rate.
+  const interruptsRef = useRef(interrupts);
+  interruptsRef.current = interrupts;
+  const interruptsKey = interrupts
+    .map((i) => `${i.id ?? ""}@${(i.namespace ?? []).join("/")}`)
+    .join(",");
+  const { root: interrupt, nested: nestedInterrupts } = useMemo(
+    () => splitInterrupts(interruptsRef.current),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by content, see above
+    [interruptsKey],
+  );
 
   // Identity-stable handle for selector hooks inside memoized children
   // (SubAgentCard's scoped useMessages/useValues) and for callbacks that
@@ -403,6 +419,8 @@ const ChatPage = () => {
               hitlToolNames={hitlToolNames}
               decisions={decisions}
               recordDecision={recordDecision}
+              nestedInterrupts={nestedInterrupts}
+              respond={respondToInterrupt}
               modelUnavailable={modelUnavailable}
               onRegenerate={handleRegenerate}
               error={error}

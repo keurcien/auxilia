@@ -18,7 +18,11 @@ from uuid import UUID
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.hitl import build_resume_command, is_addressed_resume
+from app.agents.hitl import (
+    build_resume_command,
+    is_addressed_resume,
+    load_interrupt_scope,
+)
 from app.agents.runs import keys
 from app.agents.runs.control import RunControl
 from app.agents.runs.events import RunEventStream, terminal_entry
@@ -28,7 +32,7 @@ from app.agents.runs.repository import RunRepository
 from app.agents.runs.settings import run_settings
 from app.agents.runs.state import MultitaskStrategy, RunStatus, is_terminal
 from app.database import AsyncSessionLocal, get_checkpointer
-from app.exceptions import DomainValidationError, NotFoundError
+from app.exceptions import DomainValidationError, NotFoundError, StaleApprovalError
 from app.model_providers.service import ModelService
 from app.redis_client import get_redis
 from app.threads.models import ThreadDB
@@ -125,10 +129,12 @@ class RunService:
         if not is_addressed_resume(command.get("resume")):
             return command
         async with get_checkpointer() as checkpointer:
-            checkpoint = await checkpointer.aget_tuple(
-                config={"configurable": {"thread_id": thread_id}}
-            )
-        return build_resume_command(checkpoint, command["resume"])
+            scope = await load_interrupt_scope(checkpointer, thread_id)
+        if scope is None:
+            raise StaleApprovalError("No approval is pending on this thread.")
+        # The decisions are matched against the checkpoint that holds the
+        # gated tool calls — a subagent's own when a subagent paused.
+        return build_resume_command(scope.root, command["resume"], scope.checkpoint)
 
     @staticmethod
     async def _ensure_runnable_thread(db: AsyncSession, thread_id: str) -> None:

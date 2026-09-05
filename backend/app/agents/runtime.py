@@ -61,8 +61,9 @@ from app.threads.models import ThreadDB
 logger = logging.getLogger(__name__)
 
 
-# LangGraph's default recursion limit — what a subagent actually runs under,
-# since the deepagents task tool builds a fresh config without ours.
+# LangGraph's default recursion limit — what a subagent actually runs under:
+# the deepagents ``task`` tool forwards the parent's ``configurable`` (and so
+# its checkpointer and namespace) but not its ``recursion_limit``.
 SUBAGENT_RECURSION_LIMIT = 25
 
 RECURSION_LIMIT_MESSAGE = (
@@ -202,19 +203,21 @@ def build_agent_middleware(
     calls stay in invalid_tool_calls (invisible to HITL) until Repair promotes
     them into tool_calls answered by error ToolMessages.
 
-    Parent and subagent differ in exactly two documented ways:
+    ``interrupt_on`` — a mapping (even an empty one) means this agent runs
+    against a checkpointer, so it can be interrupted for approval and can have
+    dangling tool calls persisted by an aborted turn; ``None`` drops both the
+    approval gate and the patcher. Parent *and* subagents are checkpointed:
+    the deepagents ``task`` tool spreads the parent's ``configurable`` into the
+    subagent, which carries the checkpointer and the ``tools:<task-id>``
+    namespace, so a subagent's interrupt propagates to the root checkpoint
+    (with an id that encodes its namespace) and an id-keyed resume routes back
+    into it — see ``app/agents/hitl.py``. Only tests and the structured-output
+    formatting turn pass ``None``.
 
-    - ``interrupt_on`` — a mapping (even an empty one) means this agent runs
-      against a checkpointer, so it can be interrupted for approval and can
-      have dangling tool calls persisted by an aborted turn. A subagent has
-      neither: the deepagents ``task`` tool invokes CompiledSubAgent runnables
-      with a fresh config and no checkpointer, so it passes ``None`` and loses
-      both the approval gate and the patcher. Approval gates on subagent tools
-      being silently dropped is a known product gap: issue #301.
-    - ``recursion_limit`` — the tool budget is sized to end the run gracefully
-      one step before the graph's own recursion limit trips. A subagent runs
-      under langgraph's default (``SUBAGENT_RECURSION_LIMIT``) rather than
-      ours, because ``task`` doesn't propagate the parent's config.
+    ``recursion_limit`` — the tool budget is sized to end the run gracefully
+    one step before the graph's own recursion limit trips. A subagent runs
+    under langgraph's default (``SUBAGENT_RECURSION_LIMIT``) rather than ours,
+    because ``task`` doesn't forward the parent's ``recursion_limit``.
     """
     checkpointed = interrupt_on is not None
     return [
@@ -318,13 +321,14 @@ class ResolvedAgent:
         subagent's system prompt by ``CurrentDateMiddleware``.
 
         A subagent gets its own copy of the shared middleware stack rather than
-        inheriting the parent's: the deepagents ``task`` tool invokes it with a
-        fresh config (parent middleware and recursion_limit don't propagate)
-        and reports back only ``messages[-1].text``, so a subagent that exits
-        its loop silently (invalid tool-call JSON) would return an empty
-        ToolMessage and one that blows the recursion limit would discard its
-        progress. It runs without a checkpointer, which is what drops the
-        approval gate — see ``build_agent_middleware`` for both differences.
+        inheriting the parent's: the deepagents ``task`` tool invokes it as a
+        nested subgraph (parent middleware and recursion_limit don't propagate,
+        the checkpointer does) and reports back only ``messages[-1].text``, so
+        a subagent that exits its loop silently (invalid tool-call JSON) would
+        return an empty ToolMessage and one that blows the recursion limit
+        would discard its progress. Its own ``interrupt_on`` gates its tools:
+        the interrupt surfaces on the root checkpoint and the web client /
+        Slack approve it like a parent's (issue #301).
         """
         sandbox = self.sandbox is not None
         # Subagent sandboxes get no turn-end persist hook: CompiledSubAgent
@@ -337,7 +341,9 @@ class ResolvedAgent:
             sandbox_backend=LazySandboxBackend() if sandbox else None,
             sandbox_provider=self.sandbox.provider if self.sandbox else None,
             base_middleware=build_agent_middleware(
-                created_at, recursion_limit=SUBAGENT_RECURSION_LIMIT
+                created_at,
+                recursion_limit=SUBAGENT_RECURSION_LIMIT,
+                interrupt_on=self.prepared.interrupt_on,
             ),
         )
         return CompiledSubAgent(

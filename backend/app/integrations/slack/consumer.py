@@ -16,7 +16,7 @@ from typing import Any, Final, Literal, TypedDict, cast
 from redis.asyncio import Redis
 from slack_sdk.web.async_client import AsyncWebClient
 
-from app.agents.hitl import pending_approval_requests, pending_interrupt
+from app.agents.hitl import load_interrupt_scope, pending_approval_requests
 from app.agents.protocol.wire import decode_event
 from app.agents.runs.delivery import DeliveryConsumer
 from app.agents.runs.models import RunDB
@@ -278,22 +278,27 @@ class SlackRunConsumer(DeliveryConsumer):
     async def _post_approvals(self, channel_id: str, thread_ts: str) -> None:
         """Post a Block Kit approve/reject message per pending tool call."""
         async with get_checkpointer() as checkpointer:
-            checkpoint = await checkpointer.aget_tuple(
-                config={"configurable": {"thread_id": self.record.thread_id}}
-            )
-        interrupt = pending_interrupt(checkpoint)
-        interrupt_id = interrupt.id if interrupt else None
-        for request in pending_approval_requests(checkpoint):
+            scope = await load_interrupt_scope(checkpointer, self.record.thread_id)
+        if scope is None:
+            return
+        # A subagent's gated calls live in its own checkpoint; the card says
+        # which subagent asked, since the tool name alone is ambiguous.
+        subagent = scope.subagent_type
+        for request in pending_approval_requests(scope.root, scope.checkpoint):
             blocks = build_tool_approval_blocks(
                 request["tool_call_id"],
                 request["input"],
-                interrupt_id=interrupt_id,
+                interrupt_id=scope.interrupt.id,
+                subagent=subagent,
             )
+            text = f"Approve {request['tool_name']}?"
+            if subagent:
+                text = f"Approve {request['tool_name']} for {subagent}?"
             await self.client.chat_postMessage(
                 channel=channel_id,
                 thread_ts=thread_ts,
                 blocks=blocks,
-                text=f"Approve {request['tool_name']}?",
+                text=text,
             )
 
     async def _post_auxilia_link(self, channel_id: str, thread_ts: str) -> None:
