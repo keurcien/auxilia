@@ -175,22 +175,26 @@ export function resumingIterator<T>(
   const done: IteratorReturnResult<undefined> = { done: true, value: undefined };
   let inner: AsyncIterator<T> | null = null;
   let finished = false;
+  // Read through a call: TypeScript would otherwise narrow `finished` to
+  // `false` for the rest of `next()` after the first check, although
+  // `return()` can flip it while we await.
+  const isFinished = () => finished;
   return {
     async next() {
-      if (finished) return done;
+      if (isFinished()) return done;
       try {
         for (;;) {
           inner ??= iteratorOf(handle);
           const result = await inner.next();
           // `return()` may have run while we awaited: nothing after cleanup.
-          if (finished) break;
+          if (isFinished()) break;
           if (!result.done) return result;
           // The SDK's handle ends an iterator for a pause or a close.
           inner = null;
           if (isClosed(handle)) break;
           if (handle.isPaused) {
             await handle.waitForResume();
-            if (finished) break;
+            if (isFinished()) break;
             continue;
           }
           // Neither paused nor known-closed: treat as closed.
