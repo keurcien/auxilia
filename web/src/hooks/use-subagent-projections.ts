@@ -166,27 +166,49 @@ export function resumingHandle<H extends SubscriptionHandle>(handle: H): H {
 /** Ends only when the handle is closed (unsubscribed or the session ended).
  *  A failing handle ends the iteration too — the same outcome as the SDK's
  *  own projection loop, which catches and stops. */
-export async function* resumingIterator<T>(
+export function resumingIterator<T>(
   handle: AsyncIterable<T> & {
     readonly isPaused: boolean;
     waitForResume(): Promise<void>;
   },
-): AsyncGenerator<T, void, undefined> {
-  try {
-    for (;;) {
-      for await (const event of handle) yield event;
-      if (isClosed(handle)) return;
-      if (handle.isPaused) {
-        await handle.waitForResume();
-        continue;
+): AsyncIterableIterator<T> {
+  const done: IteratorReturnResult<undefined> = { done: true, value: undefined };
+  let inner: AsyncIterator<T> | null = null;
+  return {
+    async next() {
+      try {
+        for (;;) {
+          inner ??= handle[Symbol.asyncIterator]();
+          const result = await inner.next();
+          if (!result.done) return result;
+          // The SDK's handle ends an iterator for a pause or a close.
+          inner = null;
+          if (isClosed(handle)) return done;
+          if (handle.isPaused) {
+            await handle.waitForResume();
+            continue;
+          }
+          // Neither paused nor known-closed: treat as closed.
+          if (!knowsClosed(handle)) return done;
+        }
+      } catch {
+        return done;
       }
-      // Neither paused nor known-closed: the SDK's handle only ends an
-      // iterator for one of the two, so treat this as closed.
-      if (!knowsClosed(handle)) return;
-    }
-  } catch {
-    return;
-  }
+    },
+    async return() {
+      const current = inner ?? handle[Symbol.asyncIterator]();
+      inner = null;
+      try {
+        await current.return?.();
+      } catch {
+        // Closing a handle that is already gone is not an error.
+      }
+      return done;
+    },
+    [Symbol.asyncIterator]() {
+      return this;
+    },
+  };
 }
 
 // `closed` is a TypeScript-private field on the SDK's handle but a plain

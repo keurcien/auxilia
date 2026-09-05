@@ -108,7 +108,7 @@ describe("resumingIterator", () => {
     const it = resumingIterator(handle);
     handle.push("a");
     expect((await it.next()).value).toBe("a");
-    await it.return();
+    await it.return?.();
     expect(handle.closed).toBe(true);
   });
 });
