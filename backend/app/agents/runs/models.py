@@ -77,6 +77,7 @@ class RunDB(TimestampMixin, SQLModel, table=True):
     trigger: str | None = Field(default=None, sa_column=Column(String, nullable=True))
     config_overrides: dict | None = Field(default=None, sa_column=_json_column())
     # JSON Schema for a structured final answer (the invoke consumer reads it back).
+    skill_snapshot: dict | None = Field(default=None, sa_column=_json_column())
     output_schema: dict | None = Field(default=None, sa_column=_json_column())
     # Opaque push-delivery descriptor. `None` = pull (an HTTP subscriber rides
     # the event log). A push channel (e.g. Slack) sets it so the worker spawns a

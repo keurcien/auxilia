@@ -27,7 +27,7 @@ class _FakeAgent:
     """Stands in for the real Agent — yields events without touching an LLM."""
 
     @classmethod
-    async def build(cls, *, thread, db):
+    async def build(cls, *, thread, db, skill_snapshot=None):
         return cls()
 
     async def stream(self, **kwargs):
@@ -48,6 +48,11 @@ class _FakeSession:
 
 @pytest.fixture
 def patch_agent(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(
+        "app.skills.snapshots.prepare_run_skills", AsyncMock(return_value={})
+    )
     monkeypatch.setattr(worker_mod, "Agent", _FakeAgent)
     monkeypatch.setattr(worker_mod, "AsyncSessionLocal", lambda: _FakeSession())
 
@@ -115,7 +120,7 @@ async def test_worker_gates_unauthorized_mcp_before_building_agent(redis, monkey
 
     class _NeverBuiltAgent(_FakeAgent):
         @classmethod
-        async def build(cls, *, thread, db):
+        async def build(cls, *, thread, db, skill_snapshot=None):
             raise AssertionError("Agent.build must not run when MCP is unauthorized")
 
     gate_args: list = []
