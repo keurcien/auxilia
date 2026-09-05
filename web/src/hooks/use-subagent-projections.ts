@@ -182,12 +182,15 @@ export function resumingIterator<T>(
         for (;;) {
           inner ??= iteratorOf(handle);
           const result = await inner.next();
+          // `return()` may have run while we awaited: nothing after cleanup.
+          if (finished) break;
           if (!result.done) return result;
           // The SDK's handle ends an iterator for a pause or a close.
           inner = null;
           if (isClosed(handle)) break;
           if (handle.isPaused) {
             await handle.waitForResume();
+            if (finished) break;
             continue;
           }
           // Neither paused nor known-closed: treat as closed.

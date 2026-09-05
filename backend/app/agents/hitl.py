@@ -153,16 +153,9 @@ async def load_interrupt_scope(
 ) -> InterruptScope | None:
     """Locate the thread's pending interrupt, or None when nothing is pending.
 
-    Reads the root checkpoint (or takes it as `root`), picks the interrupt
-    (`interrupt_id` when an addressed resume names one, else the first), then
-    follows its task into `tools:<task_id>` for as long as a checkpoint exists
-    there and is paused on the *same* interrupt id: one hop for a subagent,
-    one more per nesting level, none for a parent-agent approval (its pending
-    write's task is the HITL node, which has no namespace of its own). The
-    descent is bounded by `MAX_SUBAGENT_DEPTH` so a checkpointer answering
-    every namespace can never make it loop. The root `task` call that started
-    the paused subagent is matched on the first hop, where the child's seed
-    message is that call's description.
+    Reads the root checkpoint (or takes it as `root`) and picks the interrupt
+    (`interrupt_id` when an addressed resume names one, else the first); see
+    `_scope_of` for the descent into the paused subagent.
     """
     if root is None:
         root = await checkpointer.aget_tuple(
@@ -171,6 +164,35 @@ async def load_interrupt_scope(
     interrupt = pending_interrupt(root, interrupt_id)
     if interrupt is None:
         return None
+    return await _scope_of(checkpointer, thread_id, root, interrupt)
+
+
+async def load_interrupt_scopes(
+    checkpointer: Any, thread_id: str, root: Any = None
+) -> list[InterruptScope]:
+    """Every pending interrupt on the thread, each located to its scope — by
+    its own pending write, so id-less (older) entries resolve too."""
+    if root is None:
+        root = await checkpointer.aget_tuple(
+            config={"configurable": {"thread_id": thread_id}}
+        )
+    return [
+        await _scope_of(checkpointer, thread_id, root, interrupt)
+        for interrupt in pending_interrupts(root)
+    ]
+
+
+async def _scope_of(
+    checkpointer: Any, thread_id: str, root: Any, interrupt: PendingInterrupt
+) -> InterruptScope:
+    """Follow `interrupt`'s task into `tools:<task_id>` for as long as a
+    checkpoint exists there and is paused on the *same* interrupt id: one hop
+    for a subagent, one more per nesting level, none for a parent-agent
+    approval (its pending write's task is the HITL node, which has no
+    namespace of its own). The descent is bounded by `MAX_SUBAGENT_DEPTH` so
+    a checkpointer answering every namespace can never make it loop. The root
+    `task` call that started the paused subagent is matched on the first hop,
+    where the child's seed message is that call's description."""
     namespace, scope, current = "", root, interrupt
     subagent_call: dict[str, Any] | None = None
     for _ in range(MAX_SUBAGENT_DEPTH):
@@ -195,24 +217,6 @@ async def load_interrupt_scope(
         checkpoint=scope,
         subagent_call=subagent_call,
     )
-
-
-async def load_interrupt_scopes(
-    checkpointer: Any, thread_id: str, root: Any = None
-) -> list[InterruptScope]:
-    """Every pending interrupt on the thread, each located to its scope."""
-    if root is None:
-        root = await checkpointer.aget_tuple(
-            config={"configurable": {"thread_id": thread_id}}
-        )
-    scopes: list[InterruptScope] = []
-    for interrupt in pending_interrupts(root):
-        scope = await load_interrupt_scope(
-            checkpointer, thread_id, root=root, interrupt_id=interrupt.id
-        )
-        if scope is not None:
-            scopes.append(scope)
-    return scopes
 
 
 def pending_approval_requests(

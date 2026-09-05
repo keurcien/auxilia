@@ -413,17 +413,20 @@ class ProtocolEmitter:
         langgraph stringifies the exception: ``(Interrupt(value=..., id='…'),)``.
         Three checks, so a genuine failure is never mistaken for a pause: the
         failing call is the `task` tool (name recorded at `tool-started`), the
-        message has the repr's shape, and every interrupt id it names is one
-        the subagent's own `values` envelope announced just before.
+        message has the repr's shape, and it names at least one interrupt id,
+        every one of which the subagent's own `values` envelope announced
+        just before.
         """
         if self._tool_names.get(tool_call_id) != "task":
             return False
         if not isinstance(message, str) or _INTERRUPT_REPR.match(message) is None:
             return False
         named = _INTERRUPT_ID_IN_REPR.findall(message)
-        return not named or all(
-            interrupt_id in self._interrupt_ids for interrupt_id in named
-        )
+        if not named:
+            # langgraph's repr always names the id; a shape without one is
+            # some other failure and must reach the client.
+            return False
+        return all(interrupt_id in self._interrupt_ids for interrupt_id in named)
 
     def _tool_result(
         self, namespace: list[str], tool_call_id: str, output: Any

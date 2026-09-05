@@ -642,10 +642,15 @@ def test_only_the_task_tools_own_interrupt_is_swallowed():
     assert _kinds(_errored(emitter, "call_task", f"state dump: {iid}")) == [
         "tool-error"
     ]
-    # …and an interrupt id nobody announced is not ours to hide.
+    # …an interrupt id nobody announced is not ours to hide…
     _started(emitter, "call_task_2", "task")
     other = f"(Interrupt(value={{}}, id='{'cd' * 16}'),)"
     assert _kinds(_errored(emitter, "call_task_2", other)) == ["tool-error"]
+    # …nor is the shape without any id (langgraph's repr always names one).
+    _started(emitter, "call_task_3", "task")
+    assert _kinds(_errored(emitter, "call_task_3", "(Interrupt(value={}),)")) == [
+        "tool-error"
+    ]
 
 
 async def test_graph_failure_propagates_after_buffered_events():

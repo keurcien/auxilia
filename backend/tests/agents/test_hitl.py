@@ -512,6 +512,27 @@ async def test_parallel_subagent_interrupts_are_addressed_by_id():
         )
 
 
+async def test_id_less_parallel_interrupts_resolve_by_their_own_write():
+    """Older checkpoints carry no interrupt id: the plural load must still
+    follow each pending write's task, not resolve every entry to the first."""
+    from types import SimpleNamespace
+
+    root = SimpleNamespace(
+        pending_writes=[
+            ("task-a", "__interrupt__", [SimpleNamespace(value={}, id=None)]),
+            ("task-b", "__interrupt__", [SimpleNamespace(value={}, id=None)]),
+        ],
+        checkpoint={"channel_values": {"messages": []}},
+    )
+    sub_a = _checkpoint({}, [HumanMessage("A")], interrupt_id=None)
+    sub_b = _checkpoint({}, [HumanMessage("B")], interrupt_id=None)
+    checkpointer = _Checkpointer(
+        {"": root, "tools:task-a": sub_a, "tools:task-b": sub_b}
+    )
+    scopes = await load_interrupt_scopes(checkpointer, "t")
+    assert [s.namespace for s in scopes] == ["tools:task-a", "tools:task-b"]
+
+
 async def test_load_interrupt_scope_descent_is_bounded():
     """A checkpointer that answers every namespace with the same paused
     checkpoint (a test double, a misbehaving store) must not loop forever."""
