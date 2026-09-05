@@ -229,6 +229,75 @@ def scenario():
     return agent, config, checkpointer
 
 
+@tool
+def send_email(to: str) -> str:
+    """Send an email."""
+    return f"sent to {to}"
+
+
+@pytest.fixture
+def subagent_scenario():
+    """A root agent that delegates to a subagent whose own tool is HITL-gated:
+    the subagent pauses mid-`task`, the root answers after the resume."""
+    now = datetime.now(UTC)
+    mailer = CompiledSubAgent(
+        name="mailer",
+        description="mailer: sends mail",
+        runnable=build_runnable(
+            model=ScriptedModel(
+                script=[
+                    AIMessage(
+                        content="",
+                        id="sub-ai-1",
+                        tool_calls=[
+                            {
+                                "id": "sub_call_1",
+                                "name": "send_email",
+                                "args": {"to": "a@b.c"},
+                            }
+                        ],
+                    ),
+                    AIMessage(content="mail sent", id="sub-ai-2"),
+                ]
+            ),
+            tools=[send_email],
+            system_prompt="you send mail",
+            base_middleware=build_agent_middleware(
+                now, recursion_limit=25, interrupt_on={"send_email": True}
+            ),
+        ),
+    )
+    root_model = ScriptedModel(
+        script=[
+            AIMessage(
+                content="",
+                id="root-ai-1",
+                tool_calls=[
+                    {
+                        "id": "call_task_1",
+                        "name": "task",
+                        "args": {"description": "mail them", "subagent_type": "mailer"},
+                    }
+                ],
+            ),
+            AIMessage(content="Done.", id="root-ai-2"),
+        ]
+    )
+    checkpointer = MemorySaver()
+    agent = build_runnable(
+        model=root_model,
+        tools=[],
+        system_prompt="you are root",
+        base_middleware=build_agent_middleware(
+            now, recursion_limit=50, interrupt_on={}
+        ),
+        subagents=[mailer],
+        checkpointer=checkpointer,
+    )
+    config = {"configurable": {"thread_id": "emit-sub-test"}, "recursion_limit": 50}
+    return agent, config, checkpointer
+
+
 # ── End to end: a real v3 run ─────────────────────────────────────────────
 
 
@@ -455,6 +524,133 @@ async def test_rejected_tool_call_is_completed_with_tool_error(scenario):
         and _data(e).get("tool_call_id") == "call_w_1"
     ]
     assert len(tool_role_starts) == 1
+
+
+async def test_subagent_interrupt_is_requested_under_its_namespace(subagent_scenario):
+    """A subagent's approval: `input.requested` carries the subagent's
+    namespace (the client pins it to that card), exactly once even though the
+    root's `values` repeats the interrupt, and its id is the root checkpoint's
+    pending interrupt — what the id-keyed resume addresses."""
+    agent, config, checkpointer = subagent_scenario
+    events = await _collect(
+        agent, {"messages": [HumanMessage(content="hi", id="human-1")]}, config
+    )
+    [requested] = _of(events, "input.requested")
+    ns = requested["params"]["namespace"]
+    assert len(ns) == 1 and ns[0].startswith("tools:")
+    payload = _data(requested)["payload"]
+    assert payload["action_requests"][0]["name"] == "send_email"
+
+    checkpoint = await checkpointer.aget_tuple(config)
+    [(task_id, channel, value)] = checkpoint.pending_writes
+    assert channel == "__interrupt__"
+    assert value[0].id == _data(requested)["interrupt_id"]
+    assert ns == [f"tools:{task_id}"]
+
+    # The subagent's own lifecycle reports the pause.
+    assert _kinds(_of(events, "lifecycle", ns)) == ["started", "interrupted"]
+
+
+async def test_bubbling_interrupt_does_not_fail_the_task_call(subagent_scenario):
+    """langgraph reports the interrupt bubbling through `task` to the parent's
+    tool callbacks as a `tool-error`; forwarded, the client would mark the
+    subagent card errored for the length of the pause. The call stays open
+    and completes normally on the resumed run."""
+    agent, config, _ = subagent_scenario
+    events = await _collect(
+        agent, {"messages": [HumanMessage(content="hi", id="human-1")]}, config
+    )
+    task_events = [
+        e for e in _of(events, "tools", []) if _data(e)["tool_call_id"] == "call_task_1"
+    ]
+    assert _kinds(task_events) == ["tool-started"]
+
+    resumed = await _collect(
+        agent, Command(resume={"decisions": [{"type": "approve"}]}), config
+    )
+    assert _of(resumed, "input.requested") == []
+    ns = next(e["params"]["namespace"] for e in resumed if e["params"]["namespace"])
+    sub_tool = [
+        e for e in _of(resumed, "tools", ns) if _data(e)["tool_call_id"] == "sub_call_1"
+    ]
+    assert "tool-finished" in _kinds(sub_tool)
+    task_events = [
+        e
+        for e in _of(resumed, "tools", [])
+        if _data(e)["tool_call_id"] == "call_task_1"
+    ]
+    assert _kinds(task_events)[-1] == "tool-finished"
+    assert _kinds(_of(resumed, "lifecycle", ns)) == ["started", "completed"]
+
+
+def _started(emitter, tool_call_id, tool_name):
+    emitter.translate(
+        _envelope(
+            "tools",
+            [],
+            {
+                "event": "tool-started",
+                "tool_call_id": tool_call_id,
+                "tool_name": tool_name,
+                "input": {},
+            },
+        )
+    )
+
+
+def _errored(emitter, tool_call_id, message):
+    return emitter.translate(
+        _envelope(
+            "tools",
+            [],
+            {"event": "tool-error", "tool_call_id": tool_call_id, "message": message},
+        )
+    )
+
+
+def test_tool_error_that_is_an_interrupt_repr_is_swallowed():
+    iid = "ab" * 16
+    repr_ = f"(Interrupt(value={{'action_requests': []}}, id='{iid}'),)"
+    emitter = ProtocolEmitter()
+    _started(emitter, "call_task", "task")
+    # The subagent's values envelope announced the interrupt first.
+    emitter.translate(
+        _envelope(
+            "values",
+            ["tools:t1"],
+            {},
+            interrupts=(Interrupt(value={"action_requests": []}, id=iid),),
+        )
+    )
+    assert _errored(emitter, "call_task", repr_) == []
+    # A genuine failure of the same call is still reported…
+    assert _kinds(_errored(emitter, "call_task", "boom")) == ["tool-error"]
+
+
+def test_only_the_task_tools_own_interrupt_is_swallowed():
+    iid = "ab" * 16
+    repr_ = f"(Interrupt(value={{}}, id='{iid}'),)"
+    emitter = ProtocolEmitter()
+    emitter.translate(
+        _envelope("values", ["tools:t1"], {}, interrupts=(Interrupt(value={}, id=iid),))
+    )
+    # …a non-`task` tool raising the same shape is a failure…
+    _started(emitter, "call_w", "get_weather")
+    assert _kinds(_errored(emitter, "call_w", repr_)) == ["tool-error"]
+    # …an error that merely mentions the id is a failure…
+    _started(emitter, "call_task", "task")
+    assert _kinds(_errored(emitter, "call_task", f"state dump: {iid}")) == [
+        "tool-error"
+    ]
+    # …an interrupt id nobody announced is not ours to hide…
+    _started(emitter, "call_task_2", "task")
+    other = f"(Interrupt(value={{}}, id='{'cd' * 16}'),)"
+    assert _kinds(_errored(emitter, "call_task_2", other)) == ["tool-error"]
+    # …nor is the shape without any id (langgraph's repr always names one).
+    _started(emitter, "call_task_3", "task")
+    assert _kinds(_errored(emitter, "call_task_3", "(Interrupt(value={}),)")) == [
+        "tool-error"
+    ]
 
 
 async def test_graph_failure_propagates_after_buffered_events():

@@ -492,7 +492,10 @@ export const ChainReasoningLine = ({
 					"[&>*>*:last-child]:after:ml-0.5 [&>*>*:last-child]:after:inline-block [&>*>*:last-child]:after:h-3 [&>*>*:last-child]:after:w-1 [&>*>*:last-child]:after:animate-pulse [&>*>*:last-child]:after:rounded-sm [&>*>*:last-child]:after:bg-petrol [&>*>*:last-child]:after:align-text-bottom [&>*>*:last-child]:after:content-['']",
 			)}
 		>
-			<MessageResponse className="text-[12.5px] italic leading-[1.6] text-muted-foreground [&_[data-streamdown=strong]]:not-italic [&_[data-streamdown=strong]]:text-foreground">
+			{/* The italic is the subagent's "voice" for prose; bold and markdown
+			    headings (data-streamdown="heading-N") stay upright so a
+			    structured result reads as a document, not as an aside. */}
+			<MessageResponse className="text-[12.5px] italic leading-[1.6] text-muted-foreground [&_[data-streamdown=strong]]:not-italic [&_[data-streamdown=strong]]:text-foreground [&_[data-streamdown^=heading-]]:not-italic [&_[data-streamdown^=heading-]]:text-foreground">
 				{text}
 			</MessageResponse>
 		</div>

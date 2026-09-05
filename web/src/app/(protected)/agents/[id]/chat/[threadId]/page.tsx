@@ -29,6 +29,7 @@ import { ConversationBody } from "./conversation-body";
 import {
   extractHitlToolNames,
   getToolStepState,
+  splitInterrupts,
   pairToolCalls,
 } from "./message-helpers";
 
@@ -120,7 +121,27 @@ const ChatPage = () => {
     },
   });
 
-  const { isLoading, error, interrupt } = stream;
+  const { isLoading, error, interrupts } = stream;
+  // The root interrupt drives the root chain's approval UI; a subagent's
+  // (namespaced) interrupt is handed to its card, which approves it itself.
+  // The hook rebuilds the `interrupts` array on every store tick, so hold the
+  // last array whose content (ids + namespaces) changed and split that one —
+  // otherwise the memoized body would re-render at token rate. Adjusting
+  // state during render is React's pattern for state derived from props.
+  const interruptsKey = interrupts
+    .map((i) => `${i.id ?? ""}@${(i.namespace ?? []).join("/")}`)
+    .join(",");
+  const [heldInterrupts, setHeldInterrupts] = useState({
+    key: interruptsKey,
+    list: interrupts,
+  });
+  if (heldInterrupts.key !== interruptsKey) {
+    setHeldInterrupts({ key: interruptsKey, list: interrupts });
+  }
+  const { root: interrupt, nested: nestedInterrupts } = useMemo(
+    () => splitInterrupts(heldInterrupts.list),
+    [heldInterrupts],
+  );
 
   // Identity-stable handle for selector hooks inside memoized children
   // (SubAgentCard's scoped useMessages/useValues) and for callbacks that
@@ -403,6 +424,8 @@ const ChatPage = () => {
               hitlToolNames={hitlToolNames}
               decisions={decisions}
               recordDecision={recordDecision}
+              nestedInterrupts={nestedInterrupts}
+              respond={respondToInterrupt}
               modelUnavailable={modelUnavailable}
               onRegenerate={handleRegenerate}
               error={error}

@@ -13,6 +13,11 @@ def _quote_lines(lines: list[str]) -> str:
     return "\n".join(f"> {physical}" for line in lines for physical in line.split("\n"))
 
 
+def _escape_mrkdwn(text: str) -> str:
+    """Slack mrkdwn control characters, so a name renders as typed."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def _format_tool_input(obj: Any, indent: int = 0) -> str:
     """Convert a JSON-compatible object into a clean YAML-like string."""
 
@@ -105,12 +110,15 @@ def build_tool_approval_blocks(
     tool_call_id: str,
     tool_input: dict,
     interrupt_id: str | None = None,
+    subagent: str | None = None,
 ) -> list[dict]:
     """Build Block Kit blocks for a tool approval request with Approve/Reject buttons.
 
     The tool name is intentionally *not* repeated here: the streamed tool label
     (`format_tool_streamer_label`) already shows it immediately above this card,
-    so a header would be redundant.
+    so a header would be redundant. `subagent` names the subagent that asked,
+    when one did: its tool activity is not streamed to Slack, so without it a
+    card would appear to belong to the agent the user is talking to.
 
     The actions block carries a machine-readable ``block_id``
     (``hitl:<interrupt_id>:<tool_call_id>``) that ties the card to the
@@ -140,7 +148,21 @@ def build_tool_approval_blocks(
     }
     if interrupt_id is not None:
         actions_block["block_id"] = f"hitl:{interrupt_id}:{tool_call_id}"
+    blocks: list[dict] = []
+    if subagent:
+        blocks.append(
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"Requested by subagent *{_escape_mrkdwn(subagent)}*",
+                    }
+                ],
+            }
+        )
     return [
+        *blocks,
         {
             "type": "section",
             "text": {"type": "mrkdwn", "text": _format_tool_input(tool_input)},

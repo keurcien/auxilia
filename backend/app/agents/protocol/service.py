@@ -26,7 +26,7 @@ from typing import Any
 from langchain_core.messages import ToolMessage
 from redis.asyncio import Redis
 
-from app.agents.hitl import pending_interrupt
+from app.agents.hitl import InterruptScope, load_interrupt_scopes
 from app.agents.protocol.events import terminal_lifecycle
 from app.agents.protocol.filter import StreamFilter
 from app.agents.protocol.messages import serialize_message
@@ -267,7 +267,7 @@ class ProtocolService:
                 config={"configurable": {"thread_id": thread_id}}
             )
         values: dict[str, Any] = {"messages": []}
-        interrupt = None
+        scopes: list[InterruptScope] = []
         if checkpoint_tuple is not None:
             channel_values = checkpoint_tuple.checkpoint.get("channel_values", {})
             values = {
@@ -279,21 +279,30 @@ class ProtocolService:
                 values["todos"] = todos
             if (structured := channel_values.get("structured_response")) is not None:
                 values["structured_response"] = structured
-            interrupt = pending_interrupt(checkpoint_tuple)
+            scopes = await load_interrupt_scopes(
+                checkpointer, thread_id, root=checkpoint_tuple
+            )
 
         active = await self.runs.get_active(thread_id)
         # `next` non-empty ⇔ a run is executing or a resume is awaited — the
         # client's activity gate opens its live pumps only then.
-        next_nodes = ["agent"] if active is not None or interrupt is not None else []
-        tasks = []
-        if interrupt is not None:
-            tasks.append(
-                {
-                    "id": interrupt.id or "interrupt",
-                    "name": "agent",
-                    "interrupts": [{"id": interrupt.id, "value": interrupt.value}],
-                }
-            )
+        next_nodes = ["agent"] if active is not None or scopes else []
+        # One task per pending interrupt (parallel subagents can pause
+        # together), each with the namespace the client should pin it to.
+        tasks = [
+            {
+                "id": scope.interrupt.id or "interrupt",
+                "name": "agent",
+                "interrupts": [
+                    {
+                        "id": scope.interrupt.id,
+                        "value": scope.interrupt.value,
+                        "namespace": _hydration_namespace(scope),
+                    }
+                ],
+            }
+            for scope in scopes
+        ]
         return {"values": values, "next": next_nodes, "tasks": tasks}
 
     async def thread_history(self, thread_id: str, checkpoint_ns: str | None) -> list:
@@ -329,6 +338,29 @@ class ProtocolService:
 
 
 _TOOLS_NS_PREFIX = "tools:"
+
+
+def _hydration_namespace(scope: InterruptScope) -> list[str]:
+    """The namespace a hydrating client can pin the interrupt to.
+
+    Live, a subagent's events carry its execution namespace
+    (`tools:<pregel task id>`), which the SDK binds onto the discovery
+    snapshot as they stream. A page that hydrates instead rebuilds the
+    snapshot from history under the SDK's *discovery* key,
+    `tools:<task tool_call_id>`, and never learns the execution namespace
+    until the subagent streams again. So the hydrated interrupt is addressed
+    with that key, which the card recognises in either state. A parent
+    approval is `[]`; a nested subagent's (no single task call to name) keeps
+    its real path.
+    """
+    if scope.namespace and scope.subagent_call and _NS_SEP not in scope.namespace:
+        call_id = scope.subagent_call.get("id")
+        if isinstance(call_id, str) and call_id:
+            return [f"{_TOOLS_NS_PREFIX}{call_id}"]
+    return scope.namespace_path
+
+
+_NS_SEP = "|"
 
 
 async def _subagent_messages(checkpointer, thread_id: str, tool_call_id: str) -> list:

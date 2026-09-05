@@ -3,11 +3,13 @@ import type { AssembledToolCall } from "@langchain/react";
 import { describe, expect, it } from "vitest";
 import {
   extractHitlToolNames,
+  findSubagentInterrupt,
   getMcpAppInfo,
   getReasoning,
   getToolStepState,
   groupChains,
   pairToolCalls,
+  splitInterrupts,
 } from "./message-helpers";
 
 const ai = (id: string, calls: { id: string; name: string; args?: object }[], text = "") =>
@@ -173,5 +175,42 @@ describe("getReasoning", () => {
     });
     expect(getReasoning(legacy)).toBe("old think");
     expect(getReasoning(new AIMessage("plain"))).toBeNull();
+  });
+});
+
+describe("subagent interrupts", () => {
+  const rootInterrupt = { id: "r".repeat(32), value: { action_requests: [] }, namespace: [] };
+  const nested = {
+    id: "n".repeat(32),
+    value: { action_requests: [{ name: "send_email", args: { to: "a@b.c" } }] },
+    namespace: ["tools:task-1"],
+  };
+
+  it("splits the root interrupt from the subagents'", () => {
+    expect(splitInterrupts([nested, rootInterrupt])).toEqual({
+      root: rootInterrupt,
+      nested: [nested],
+    });
+    expect(splitInterrupts([{ id: "x", value: {} }]).root?.id).toBe("x");
+    expect(splitInterrupts([]).root).toBeNull();
+  });
+
+  it("claims a subagent's interrupt by execution namespace or discovery key", () => {
+    // Live: the SDK bound the execution namespace onto the snapshot.
+    expect(findSubagentInterrupt([nested], { id: "call_1", namespace: ["tools:task-1"] })).toBe(
+      nested,
+    );
+    // Hydrated: the snapshot sits on `tools:<tool_call_id>` and the backend
+    // addresses the interrupt with the same key.
+    const hydrated = { ...nested, namespace: ["tools:call_1"] };
+    expect(findSubagentInterrupt([hydrated], { id: "call_1", namespace: ["tools:call_1"] })).toBe(
+      hydrated,
+    );
+    expect(findSubagentInterrupt([nested], { id: "call_9", namespace: ["tools:other"] })).toBeNull();
+  });
+
+  it("never matches by content: identical siblings do not share an interrupt", () => {
+    const sibling = { id: "call_2", namespace: ["tools:call_2"] };
+    expect(findSubagentInterrupt([nested], sibling)).toBeNull();
   });
 });
