@@ -195,32 +195,22 @@ describe("subagent interrupts", () => {
     expect(splitInterrupts([]).root).toBeNull();
   });
 
-  it("claims a subagent's interrupt by namespace first", () => {
-    const sub = { namespace: ["tools:task-1"] };
-    expect(findSubagentInterrupt([nested], sub, [])).toBe(nested);
-    expect(findSubagentInterrupt([nested], { namespace: ["tools:other"] }, [])).toBeNull();
+  it("claims a subagent's interrupt by execution namespace or discovery key", () => {
+    // Live: the SDK bound the execution namespace onto the snapshot.
+    expect(findSubagentInterrupt([nested], { id: "call_1", namespace: ["tools:task-1"] })).toBe(
+      nested,
+    );
+    // Hydrated: the snapshot sits on `tools:<tool_call_id>` and the backend
+    // addresses the interrupt with the same key.
+    const hydrated = { ...nested, namespace: ["tools:call_1"] };
+    expect(findSubagentInterrupt([hydrated], { id: "call_1", namespace: ["tools:call_1"] })).toBe(
+      hydrated,
+    );
+    expect(findSubagentInterrupt([nested], { id: "call_9", namespace: ["tools:other"] })).toBeNull();
   });
 
-  it("falls back to matching the action requests against pending calls", () => {
-    // After a reload the SDK's snapshot namespace is `tools:<tool_call_id>`.
-    const sub = { namespace: ["tools:call_task_1"] };
-    const calls = pairToolCalls(
-      [ai("m1", [{ id: "c1", name: "send_email", args: { to: "a@b.c" } }])],
-      [],
-    );
-    expect(findSubagentInterrupt([nested], sub, calls)).toBe(nested);
-    const otherArgs = pairToolCalls(
-      [ai("m1", [{ id: "c1", name: "send_email", args: { to: "x@y.z" } }])],
-      [],
-    );
-    expect(findSubagentInterrupt([nested], sub, otherArgs)).toBeNull();
-    const finished = pairToolCalls(
-      [
-        ai("m1", [{ id: "c1", name: "send_email", args: { to: "a@b.c" } }]),
-        new ToolMessage({ tool_call_id: "c1", content: "sent" }),
-      ],
-      [],
-    );
-    expect(findSubagentInterrupt([nested], sub, finished)).toBeNull();
+  it("never matches by content: identical siblings do not share an interrupt", () => {
+    const sibling = { id: "call_2", namespace: ["tools:call_2"] };
+    expect(findSubagentInterrupt([nested], sibling)).toBeNull();
   });
 });

@@ -9,8 +9,10 @@ from app.agents.hitl import (
     build_resume_command,
     is_addressed_resume,
     load_interrupt_scope,
+    load_interrupt_scopes,
     pending_approval_requests,
     pending_interrupt,
+    pending_interrupts,
 )
 from app.exceptions import DomainValidationError, StaleApprovalError
 
@@ -446,6 +448,68 @@ async def test_load_interrupt_scope_follows_the_task_into_the_subagent():
     assert pending_approval_requests(scope.root, scope.checkpoint) == [
         {"tool_call_id": "sub_call", "tool_name": "send_email", "input": {}}
     ]
+
+
+async def test_parallel_subagent_interrupts_are_addressed_by_id():
+    """Two subagents paused in one superstep: two root pending writes. An
+    addressed resume picks its own interrupt and follows *its* task, not the
+    first one's."""
+    from types import SimpleNamespace
+
+    id_a, id_b = "aa" * 16, "bb" * 16
+    calls = [
+        {
+            "id": "call_a",
+            "name": "task",
+            "args": {"description": "A", "subagent_type": "a"},
+        },
+        {
+            "id": "call_b",
+            "name": "task",
+            "args": {"description": "B", "subagent_type": "b"},
+        },
+    ]
+    root = SimpleNamespace(
+        pending_writes=[
+            (
+                "task-a",
+                "__interrupt__",
+                [SimpleNamespace(value={"action_requests": []}, id=id_a)],
+            ),
+            (
+                "task-b",
+                "__interrupt__",
+                [SimpleNamespace(value={"action_requests": []}, id=id_b)],
+            ),
+        ],
+        checkpoint={
+            "channel_values": {"messages": [AIMessage(content="", tool_calls=calls)]}
+        },
+    )
+    sub_a = _checkpoint({"action_requests": []}, [HumanMessage("A")], interrupt_id=id_a)
+    sub_b = _checkpoint({"action_requests": []}, [HumanMessage("B")], interrupt_id=id_b)
+    checkpointer = _Checkpointer(
+        {"": root, "tools:task-a": sub_a, "tools:task-b": sub_b}
+    )
+
+    assert [i.id for i in pending_interrupts(root)] == [id_a, id_b]
+    assert pending_interrupt(root).id == id_a
+    assert pending_interrupt(root, id_b).id == id_b
+    assert pending_interrupt(root, "cd" * 16) is None
+
+    scope_b = await load_interrupt_scope(checkpointer, "t", interrupt_id=id_b)
+    assert scope_b is not None
+    assert scope_b.namespace == "tools:task-b"
+    assert scope_b.subagent_type == "b"
+    scopes = await load_interrupt_scopes(checkpointer, "t")
+    assert [(s.interrupt.id, s.namespace, s.subagent_type) for s in scopes] == [
+        (id_a, "tools:task-a", "a"),
+        (id_b, "tools:task-b", "b"),
+    ]
+    with pytest.raises(StaleApprovalError):
+        build_resume_command(
+            root, {"interrupt_id": "cd" * 16, "decisions": []}, scope_b.checkpoint
+        )
 
 
 async def test_load_interrupt_scope_descent_is_bounded():

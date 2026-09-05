@@ -128,10 +128,21 @@ class RunService:
         """
         if not is_addressed_resume(command.get("resume")):
             return command
+        # Addressed by id: with parallel subagents paused together the resume
+        # must target the one the client answered, not the first pending.
+        interrupt_id = command["resume"].get("interrupt_id")
         async with get_checkpointer() as checkpointer:
-            scope = await load_interrupt_scope(checkpointer, thread_id)
+            scope = await load_interrupt_scope(
+                checkpointer,
+                thread_id,
+                interrupt_id=interrupt_id if isinstance(interrupt_id, str) else None,
+            )
         if scope is None:
-            raise StaleApprovalError("No approval is pending on this thread.")
+            raise StaleApprovalError(
+                "No approval is pending on this thread."
+                if interrupt_id is None
+                else "This approval request was already handled."
+            )
         # The decisions are matched against the checkpoint that holds the
         # gated tool calls — a subagent's own when a subagent paused.
         return build_resume_command(scope.root, command["resume"], scope.checkpoint)

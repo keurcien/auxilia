@@ -13,6 +13,11 @@ def _quote_lines(lines: list[str]) -> str:
     return "\n".join(f"> {physical}" for line in lines for physical in line.split("\n"))
 
 
+def _escape_mrkdwn(text: str) -> str:
+    """Slack mrkdwn control characters, so a name renders as typed."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def _format_tool_input(obj: Any, indent: int = 0) -> str:
     """Convert a JSON-compatible object into a clean YAML-like string."""
 
@@ -149,7 +154,10 @@ def build_tool_approval_blocks(
             {
                 "type": "context",
                 "elements": [
-                    {"type": "mrkdwn", "text": f"Requested by subagent *{subagent}*"}
+                    {
+                        "type": "mrkdwn",
+                        "text": f"Requested by subagent *{_escape_mrkdwn(subagent)}*",
+                    }
                 ],
             }
         )

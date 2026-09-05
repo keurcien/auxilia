@@ -135,6 +135,8 @@ export type SubAgentCardProps = {
   interrupts: readonly Interrupt[];
   /** Resume — `stream.respond(response, { interruptId })`. */
   respond: (response: HitlResponse, interruptId: string | null) => void;
+  /** A run is executing; approvals are held until it settles. */
+  resumeInFlight: boolean;
   modelUnavailable: boolean;
 };
 
@@ -145,6 +147,7 @@ export const SubAgentCard = memo(function SubAgentCard({
   agent,
   interrupts,
   respond,
+  resumeInFlight,
   modelUnavailable,
 }: SubAgentCardProps) {
   const { status, startedAt, completedAt } = subagent;
@@ -164,8 +167,8 @@ export const SubAgentCard = memo(function SubAgentCard({
   // and approves it in place — same collector as the root chain, one batch
   // per interrupt id, resumed through `input.respond`.
   const interrupt = useMemo(
-    () => findSubagentInterrupt(interrupts, subagent, toolCalls),
-    [interrupts, subagent, toolCalls],
+    () => findSubagentInterrupt(interrupts, subagent),
+    [interrupts, subagent],
   );
   const isInterrupted = interrupt != null;
   const hitlToolNames = useMemo(
@@ -183,10 +186,14 @@ export const SubAgentCard = memo(function SubAgentCard({
   );
   // Calls persisted without an id can only be resumed positionally.
   const pendingIdsAreReal = pendingToolCalls.every((tc) => tc.callId != null);
+  // Parallel subagents can pause together, each with its own interrupt;
+  // the thread runs one resume at a time, so a completed batch waits for
+  // the run in flight to settle and is sent when its interrupt still pends.
   const { decisions, recordDecision } = useHitlApprovals({
     interruptId: pendingIdsAreReal ? (interrupt?.id ?? null) : null,
     pendingToolCalls,
     respond,
+    enabled: !resumeInFlight,
   });
   const awaitingDecision = pendingToolCalls.some((tc) => !decisions[tc.id]);
 

@@ -583,29 +583,69 @@ async def test_bubbling_interrupt_does_not_fail_the_task_call(subagent_scenario)
     assert _kinds(_of(resumed, "lifecycle", ns)) == ["started", "completed"]
 
 
-def test_tool_error_that_is_an_interrupt_repr_is_swallowed():
-    emitter = ProtocolEmitter()
-    events = emitter.translate(
+def _started(emitter, tool_call_id, tool_name):
+    emitter.translate(
         _envelope(
             "tools",
             [],
             {
-                "event": "tool-error",
-                "tool_call_id": "call_task",
-                "message": "(Interrupt(value={'action_requests': []}, id='ab'),)",
+                "event": "tool-started",
+                "tool_call_id": tool_call_id,
+                "tool_name": tool_name,
+                "input": {},
             },
         )
     )
-    assert events == []
-    # A genuine failure of the same call is still reported.
-    events = emitter.translate(
+
+
+def _errored(emitter, tool_call_id, message):
+    return emitter.translate(
         _envelope(
             "tools",
             [],
-            {"event": "tool-error", "tool_call_id": "call_task", "message": "boom"},
+            {"event": "tool-error", "tool_call_id": tool_call_id, "message": message},
         )
     )
-    assert _kinds(events) == ["tool-error"]
+
+
+def test_tool_error_that_is_an_interrupt_repr_is_swallowed():
+    iid = "ab" * 16
+    repr_ = f"(Interrupt(value={{'action_requests': []}}, id='{iid}'),)"
+    emitter = ProtocolEmitter()
+    _started(emitter, "call_task", "task")
+    # The subagent's values envelope announced the interrupt first.
+    emitter.translate(
+        _envelope(
+            "values",
+            ["tools:t1"],
+            {},
+            interrupts=(Interrupt(value={"action_requests": []}, id=iid),),
+        )
+    )
+    assert _errored(emitter, "call_task", repr_) == []
+    # A genuine failure of the same call is still reported…
+    assert _kinds(_errored(emitter, "call_task", "boom")) == ["tool-error"]
+
+
+def test_only_the_task_tools_own_interrupt_is_swallowed():
+    iid = "ab" * 16
+    repr_ = f"(Interrupt(value={{}}, id='{iid}'),)"
+    emitter = ProtocolEmitter()
+    emitter.translate(
+        _envelope("values", ["tools:t1"], {}, interrupts=(Interrupt(value={}, id=iid),))
+    )
+    # …a non-`task` tool raising the same shape is a failure…
+    _started(emitter, "call_w", "get_weather")
+    assert _kinds(_errored(emitter, "call_w", repr_)) == ["tool-error"]
+    # …an error that merely mentions the id is a failure…
+    _started(emitter, "call_task", "task")
+    assert _kinds(_errored(emitter, "call_task", f"state dump: {iid}")) == [
+        "tool-error"
+    ]
+    # …and an interrupt id nobody announced is not ours to hide.
+    _started(emitter, "call_task_2", "task")
+    other = f"(Interrupt(value={{}}, id='{'cd' * 16}'),)"
+    assert _kinds(_errored(emitter, "call_task_2", other)) == ["tool-error"]
 
 
 async def test_graph_failure_propagates_after_buffered_events():

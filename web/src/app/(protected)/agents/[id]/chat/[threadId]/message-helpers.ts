@@ -266,62 +266,34 @@ export const sameNamespace = (
 ) => a != null && a.length === b.length && a.join("|") === b.join("|");
 
 /**
- * The pending interrupt raised inside one subagent, if any.
+ * Whether an interrupt was raised inside this subagent.
  *
- * Live, the backend stamps the subagent's checkpoint namespace
+ * Live, the backend stamps the subagent's execution namespace
  * (`tools:<pregel task id>`) on `input.requested`, and the SDK binds the same
- * namespace onto the discovery snapshot — an exact match. After a reload the
- * SDK rebuilds snapshots from history with a `tools:<tool_call_id>` namespace
- * instead, so fall back to content: the interrupt's `action_requests` must
- * all correspond to a still-pending call in this card (by name, and by args
- * when both sides have them).
+ * namespace onto the discovery snapshot as the subagent streams. A page that
+ * hydrates instead rebuilds the snapshot under the SDK's discovery key,
+ * `tools:<tool_call_id>`, and the backend addresses a hydrated interrupt with
+ * that key — so both are accepted, and nothing is matched by content (two
+ * siblings calling the same tool with the same arguments would otherwise
+ * claim one interrupt).
  */
+export function claimsInterrupt(
+  interrupt: Interrupt,
+  subagent: { id: string; namespace: readonly string[] },
+): boolean {
+  return (
+    sameNamespace(interrupt.namespace, subagent.namespace) ||
+    sameNamespace(interrupt.namespace, [`tools:${subagent.id}`])
+  );
+}
+
+/** The pending interrupt raised inside one subagent, if any. */
 export function findSubagentInterrupt(
   nested: readonly Interrupt[],
-  subagent: { namespace: readonly string[] },
-  toolCalls: readonly ToolCallView[],
+  subagent: { id: string; namespace: readonly string[] },
 ): Interrupt | null {
-  const exact = nested.find((i) => sameNamespace(i.namespace, subagent.namespace));
-  if (exact) return exact;
-  const pending = toolCalls.filter((tc) => tc.status === "running");
-  if (pending.length === 0) return null;
-  return (
-    nested.find((interrupt) => {
-      const requests = actionRequests(interrupt.value);
-      return (
-        requests != null &&
-        requests.length > 0 &&
-        requests.every((r) =>
-          pending.some(
-            (tc) =>
-              tc.name === r.name &&
-              (r.args == null || tc.args == null || sameArgs(tc.args, r.args)),
-          ),
-        )
-      );
-    }) ?? null
-  );
+  return nested.find((interrupt) => claimsInterrupt(interrupt, subagent)) ?? null;
 }
-
-type ActionRequest = { name: string; args?: Record<string, unknown> };
-
-function actionRequests(value: unknown): ActionRequest[] | null {
-  if (!value || typeof value !== "object") return null;
-  const requests = (value as { action_requests?: unknown }).action_requests;
-  if (!Array.isArray(requests)) return null;
-  return requests.filter(
-    (r): r is ActionRequest =>
-      r != null && typeof r === "object" && typeof (r as { name?: unknown }).name === "string",
-  );
-}
-
-const sameArgs = (a: Record<string, unknown>, b: Record<string, unknown>) => {
-  try {
-    return JSON.stringify(a, Object.keys(a).sort()) === JSON.stringify(b, Object.keys(b).sort());
-  } catch {
-    return false;
-  }
-};
 
 /** The HITL middleware only hangs the tool calls named in the interrupt's
  *  `action_requests`; sibling calls in the same turn run on resume. */

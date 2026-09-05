@@ -92,6 +92,8 @@ _SUBGRAPH_STATUS = {
 #: `str(GraphInterrupt(...))` — the shape a bubbling interrupt takes on the
 #: `tools` channel's `tool-error` message.
 _INTERRUPT_REPR = re.compile(r"^\(?Interrupt\(")
+#: The ``id='<xxh3-128 hex>'`` field(s) inside that repr.
+_INTERRUPT_ID_IN_REPR = re.compile(r"\bid='([0-9a-f]{32})'")
 
 
 def _ns_key(namespace: list[str]) -> str:
@@ -114,6 +116,9 @@ class ProtocolEmitter:
         self._echoed_message_ids: set[str] = set()
         self._bound_namespaces: set[str] = set()
         self._tool_started_ids: set[str] = set()
+        #: tool-call id -> tool name, from `tool-started`; a bubbling
+        #: interrupt is only ever reported against the `task` tool.
+        self._tool_names: dict[str, str] = {}
         self._tool_finished_ids: set[str] = set()
 
     async def stream(self, run: AsyncIterator[dict]) -> AsyncGenerator[dict, None]:
@@ -346,6 +351,8 @@ class ProtocolEmitter:
             return []
         if tool_call_id in self._tool_started_ids:
             return []
+        if isinstance(tool_name, str):
+            self._tool_names[tool_call_id] = tool_name
         self._tool_started_ids.add(tool_call_id)
         return [
             ev.tool_started(
@@ -374,7 +381,7 @@ class ProtocolEmitter:
         if kind == "tool-error":
             if not tool_call_id or tool_call_id in self._tool_finished_ids:
                 return []
-            if self._is_bubbling_interrupt(data.get("message")):
+            if self._is_bubbling_interrupt(str(tool_call_id), data.get("message")):
                 # A subagent's approval interrupt bubbles up through the
                 # `task` tool, and langgraph reports that to the parent's
                 # tool callbacks as a failure. It is not one: the call is
@@ -400,19 +407,23 @@ class ProtocolEmitter:
         # `tool-output-delta` is not part of the client contract yet.
         return []
 
-    def _is_bubbling_interrupt(self, message: Any) -> bool:
-        """Whether a `tool-error` message is a `GraphInterrupt` in flight.
+    def _is_bubbling_interrupt(self, tool_call_id: str, message: Any) -> bool:
+        """Whether a `task` call's `tool-error` is a `GraphInterrupt` in flight.
 
         langgraph stringifies the exception: ``(Interrupt(value=..., id='…'),)``.
-        The subagent's own `values` envelope announced that id just before,
-        so the id is the primary match; the repr shape is the fallback for an
-        ordering we did not observe.
+        Three checks, so a genuine failure is never mistaken for a pause: the
+        failing call is the `task` tool (name recorded at `tool-started`), the
+        message has the repr's shape, and every interrupt id it names is one
+        the subagent's own `values` envelope announced just before.
         """
-        if not isinstance(message, str):
+        if self._tool_names.get(tool_call_id) != "task":
             return False
-        if any(interrupt_id in message for interrupt_id in self._interrupt_ids):
-            return "Interrupt(" in message
-        return _INTERRUPT_REPR.match(message) is not None
+        if not isinstance(message, str) or _INTERRUPT_REPR.match(message) is None:
+            return False
+        named = _INTERRUPT_ID_IN_REPR.findall(message)
+        return not named or all(
+            interrupt_id in self._interrupt_ids for interrupt_id in named
+        )
 
     def _tool_result(
         self, namespace: list[str], tool_call_id: str, output: Any

@@ -329,10 +329,32 @@ def _paused(messages, interrupt_id, task_id):
     )
 
 
+_TASK_CALL = AIMessage(
+    content="",
+    tool_calls=[
+        {
+            "id": "call_task",
+            "name": "task",
+            "args": {"description": "do it", "subagent_type": "w"},
+        }
+    ],
+)
+
+
 @pytest.mark.parametrize(
     ("by_ns_factory", "expected_namespace"),
     [
         (lambda iid: {"": _paused([], iid, "hitl-task")}, []),
+        # The paused subagent's `task` call is known: address the interrupt
+        # with the SDK's discovery key, `tools:<tool_call_id>`.
+        (
+            lambda iid: {
+                "": _paused([_TASK_CALL], iid, "task-1"),
+                "tools:task-1": _paused([HumanMessage("do it")], iid, "hitl-task"),
+            },
+            ["tools:call_task"],
+        ),
+        # No task call to name (older checkpoint): the execution namespace.
         (
             lambda iid: {
                 "": _paused([], iid, "task-1"),

@@ -5,7 +5,7 @@ Assessment written 2026-09-04, verified by spike 2026-09-05 (see the update belo
 
 ## Status 2026-09-05 — implemented (uncommitted, in the working tree)
 
-Everything in "Revised work, with sizes" below except the optional SDK bump is done:
+Everything in "Revised work, with sizes" below is done (the optional SDK bump is not needed):
 
 - Backend: `ResolvedAgent.compile` gates subagents; `hitl.load_interrupt_scope` follows the
   root pending write into `tools:<task-id>` (nested levels too, bounded by
@@ -36,6 +36,14 @@ Everything in "Revised work, with sizes" below except the optional SDK bump is d
   recorded decision auto-resubmitted. Fix: `web/src/hooks/use-subagent-projections.ts` — the
   SDK's own projection specs, subscribing through a thread whose handles resume across runs;
   the card uses those. Unit-tested; the live flow still needs a second try.
+- Review round (Codacy + cubic): addressed resumes pick their interrupt by id and
+  `thread_state` reports every pending interrupt, so two subagents pausing together each
+  resume in turn (a card holds its completed batch while a run is in flight); a hydrated
+  interrupt is addressed with the SDK's discovery key `tools:<tool_call_id>` and the card
+  accepts either key, so no matching by content remains; the emitter swallows a
+  `tool-error` only for the `task` tool, with the repr shape and an exactly announced id;
+  the Slack context line is mrkdwn-escaped; the resuming iterator is an explicit
+  async-iterator object with a finished flag.
 
 ## Update 2026-09-05 — verified by running it
 
@@ -95,7 +103,7 @@ subagent namespace. The emitter today produces:
 `aget_state` after the pause: `next=("tools",)`, `tasks=[("tools", [<id>])]` — the same
 shape a root HITL pause has, so `thread_state` needs only the namespace added.
 
-### Revised work, with sizes
+### Revised work, with sizes — the plan as executed (see Status above; names below are the final ones)
 
 Backend (≈1.5–2 days)
 
@@ -103,10 +111,12 @@ Backend (≈1.5–2 days)
    three stale "no checkpointer" docstrings (`build_agent_middleware`, `compile`,
    `SUBAGENT_RECURSION_LIMIT`). ~0.5 h.
 2. Namespace-aware approvals. `pending_interrupt` also returns the pending write's
-   `task_id`; add an async `pending_approvals(checkpointer, thread_id)` in `hitl.py` that
-   loads the root tuple, follows `tools:<task_id>` when the interrupting namespace is a
-   subagent, and runs the *existing* matcher on that tuple. Same for the checkpoint
-   `build_resume_command` validates against. Call sites: `threads/router.py`,
+   `task_id`; `hitl.load_interrupt_scope(checkpointer, thread_id, interrupt_id=…)` loads
+   the root tuple, follows `tools:<task_id>` when the interrupting namespace is a subagent
+   (depth-capped), and `pending_approval_requests(root, scope)` runs the *existing* matcher
+   on that tuple. Same for the checkpoint `build_resume_command` validates against.
+   Parallel subagents pausing together: `pending_interrupts` lists them all,
+   `load_interrupt_scopes` locates each, an addressed resume picks its own by id. Call sites: `threads/router.py`,
    `protocol/service.thread_state`, `slack/consumer.py`, `slack/handlers.py`,
    `RunService._canonical_command`; `runs/worker.py` only uses `pending_interrupt` and
    is untouched. ~0.5 day incl. tests.

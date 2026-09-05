@@ -103,12 +103,16 @@ describe("resumingIterator", () => {
     expect(seen).toEqual(["a"]);
   });
 
-  it("closing the consumer closes the handle", async () => {
+  it("closing the consumer closes the handle and stays finished", async () => {
     const handle = new FakeHandle<string>();
     const it = resumingIterator(handle);
     handle.push("a");
     expect((await it.next()).value).toBe("a");
     await it.return?.();
     expect(handle.closed).toBe(true);
+    // A late next() after return() never re-enters the SDK iterator.
+    handle.closed = false;
+    handle.push("late");
+    expect((await it.next()).done).toBe(true);
   });
 });

@@ -174,29 +174,34 @@ export function resumingIterator<T>(
 ): AsyncIterableIterator<T> {
   const done: IteratorReturnResult<undefined> = { done: true, value: undefined };
   let inner: AsyncIterator<T> | null = null;
+  let finished = false;
   return {
     async next() {
+      if (finished) return done;
       try {
         for (;;) {
-          inner ??= handle[Symbol.asyncIterator]();
+          inner ??= iteratorOf(handle);
           const result = await inner.next();
           if (!result.done) return result;
           // The SDK's handle ends an iterator for a pause or a close.
           inner = null;
-          if (isClosed(handle)) return done;
+          if (isClosed(handle)) break;
           if (handle.isPaused) {
             await handle.waitForResume();
             continue;
           }
           // Neither paused nor known-closed: treat as closed.
-          if (!knowsClosed(handle)) return done;
+          if (!knowsClosed(handle)) break;
         }
       } catch {
-        return done;
+        // A failing handle ends the iteration, as in the SDK's own loop.
       }
+      finished = true;
+      return done;
     },
     async return() {
-      const current = inner ?? handle[Symbol.asyncIterator]();
+      finished = true;
+      const current = inner ?? iteratorOf(handle);
       inner = null;
       try {
         await current.return?.();
@@ -209,6 +214,12 @@ export function resumingIterator<T>(
       return this;
     },
   };
+}
+
+/** `iterable[Symbol.asyncIterator]()` without a computed member call. */
+function iteratorOf<T>(iterable: AsyncIterable<T>): AsyncIterator<T> {
+  const { [Symbol.asyncIterator]: open } = iterable;
+  return open.call(iterable);
 }
 
 // `closed` is a TypeScript-private field on the SDK's handle but a plain

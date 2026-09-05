@@ -56,7 +56,7 @@ import {
   getToolStepState,
   groupChains,
   sanitizeToolIdentifier,
-  sameNamespace,
+  claimsInterrupt,
 } from "./message-helpers";
 import {
   SubAgentCard,
@@ -188,6 +188,7 @@ export const ConversationBody = memo(function ConversationBody({
                 recordDecision={recordDecision}
                 nestedInterrupts={nestedInterrupts}
                 respond={respond}
+                resumeInFlight={isLoading}
                 modelUnavailable={modelUnavailable}
                 coordinatorStreaming={assistantStreaming && isLast}
               />
@@ -317,6 +318,8 @@ type ChainProps = {
   recordDecision: (toolCallId: string, decision: HitlDecision) => void;
   nestedInterrupts: Interrupt[];
   respond: (response: HitlResponse, interruptId: string | null) => void;
+  /** A run is executing: a card's approval waits for it to settle. */
+  resumeInFlight: boolean;
   modelUnavailable: boolean;
   coordinatorStreaming: boolean;
 };
@@ -349,6 +352,7 @@ const Chain = ({
   recordDecision,
   nestedInterrupts,
   respond,
+  resumeInFlight,
   modelUnavailable,
   coordinatorStreaming,
 }: ChainProps) => {
@@ -369,17 +373,12 @@ const Chain = ({
   const reasoningStreaming = rows.some(
     (r) => r.kind === "reasoning" && r.messageId === reasoningStreamingId,
   );
-  // A subagent of this chain may be paused on an approval. Exact by
-  // namespace when the SDK has bound it; otherwise any running card could be
-  // the one (the card itself matches by content), so keep the chain open.
+  // A subagent of this chain paused on an approval: its card shows the
+  // approval, the chain stays open and stops reading as active.
   const pausedSubagents = chainSubagents.filter(
     (s) =>
       s.status === "running" &&
-      (nestedInterrupts.some((i) => sameNamespace(i.namespace, s.namespace)) ||
-        (nestedInterrupts.length > 0 &&
-          !nestedInterrupts.some((i) =>
-            chainSubagents.some((c) => sameNamespace(i.namespace, c.namespace)),
-          ))),
+      nestedInterrupts.some((i) => claimsInterrupt(i, s)),
   );
 
   return (
@@ -422,6 +421,7 @@ const Chain = ({
               agent={findAgent(sub.name)}
               interrupts={nestedInterrupts}
               respond={respond}
+              resumeInFlight={resumeInFlight}
               modelUnavailable={modelUnavailable}
             />
           ) : (

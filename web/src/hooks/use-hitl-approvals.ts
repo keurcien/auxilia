@@ -21,6 +21,9 @@ type UseHitlApprovalsArgs<TPending extends { id: string }> = {
 	pendingToolCalls: TPending[];
 	/** Resume the run — `stream.respond(response, { interruptId })`. */
 	respond: (response: HitlResponse, interruptId: string | null) => void;
+	/** Hold a complete batch until this is true (e.g. another resume is in
+	 *  flight — the thread accepts one run at a time). Default: send at once. */
+	enabled?: boolean;
 };
 
 /**
@@ -31,12 +34,13 @@ export function useHitlApprovals<TPending extends { id: string }>({
 	interruptId,
 	pendingToolCalls,
 	respond,
+	enabled = true,
 }: UseHitlApprovalsArgs<TPending>) {
 	const [decisions, setDecisions] = useState<Record<string, HitlDecision>>({});
 	const submittedBatch = useRef<string | null>(null);
 
 	useEffect(() => {
-		if (pendingToolCalls.length === 0) return;
+		if (!enabled || pendingToolCalls.length === 0) return;
 		if (!pendingToolCalls.every((tc) => decisions[tc.id])) return;
 
 		const batchKey =
@@ -54,7 +58,7 @@ export function useHitlApprovals<TPending extends { id: string }>({
 			},
 			interruptId,
 		);
-	}, [interruptId, pendingToolCalls, decisions, respond]);
+	}, [enabled, interruptId, pendingToolCalls, decisions, respond]);
 
 	const recordDecision = useCallback(
 		(toolCallId: string, type: HitlDecision) => {
