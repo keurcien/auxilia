@@ -15,7 +15,7 @@ import {
 	PromptInputTools,
 	usePromptInputController,
 } from "@/components/ai-elements/prompt-input";
-import { BrainIcon, CheckIcon, PlugIcon } from "lucide-react";
+import { BrainIcon, CheckIcon, PlugIcon, BookOpenIcon } from "lucide-react";
 import { useRef, useState, useEffect, useMemo } from "react";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { useModelsStore } from "@/stores/models-store";
@@ -234,6 +234,15 @@ const ChatPromptInput = ({
 				</PromptInputBody>
 				<PromptInputFooter className="px-3 pt-0 pb-3">
 					<PromptInputTools className="gap-1.5">
+						{readOnlyModel && (
+							<SaveSkillButton
+								disabled={
+									status === "streaming" ||
+									status === "submitted" ||
+									agentReady === false
+								}
+							/>
+						)}
 						{noAttachments ? (
 							<Tooltip>
 								<TooltipTrigger asChild>
@@ -422,6 +431,25 @@ const ChatPromptInput = ({
 				onAllConnected={() => onAllConnected?.()}
 			/>
 		</>
+	);
+};
+
+const SaveSkillButton = ({ disabled }: { disabled: boolean }) => {
+	const controller = usePromptInputController();
+	return (
+		<PromptInputButton
+			type="button"
+			className={composerPillClass}
+			disabled={disabled || !!controller.textInput.value.trim()}
+			onClick={() =>
+				controller.textInput.setInput(
+					"Create a reusable skill draft from the procedure we developed in this conversation. Keep the general instructions and useful scripts or templates, remove private and one-off data, and save it with save_skill_draft for me to review in Skills. Do not publish it. Ask me if the intended procedure is unclear.",
+				)
+			}
+		>
+			<BookOpenIcon className="size-4" />
+			<span className="hidden sm:inline">Save as skill</span>
+		</PromptInputButton>
 	);
 };
 

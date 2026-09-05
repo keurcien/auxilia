@@ -66,6 +66,7 @@ const navItems: {
 		href: "/agents",
 		icon: Bot,
 	},
+	{ title: "Skills", href: "/skills", icon: Bot, match: "prefix" },
 	{
 		title: "Triggers",
 		href: "/triggers",

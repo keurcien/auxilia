@@ -8,6 +8,7 @@ import { ArchiveIcon, History, Pencil, Play } from "lucide-react";
 import { AGENT_COLORS, agentPastel } from "@/lib/colors";
 import { useTheme } from "next-themes";
 import { Agent } from "@/types/agents";
+import AgentSkills from "./agent-skills";
 import AgentToolList from "../[id]/components/agent-tool-list";
 import AgentSubagentList from "../[id]/components/agent-subagent-list";
 import AgentTagsPanel from "./agent-tags-panel";
@@ -457,6 +458,7 @@ export default function AgentEditor({
 
 				{/* Right: capabilities */}
 				<div className="min-w-0 overflow-y-auto bg-sidebar p-7 md:flex-1 dark:bg-white/[0.02] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+					{agent && <AgentSkills agent={agent} canEdit={canEditAgent} />}
 					<AgentToolList
 						agentId={agent?.id}
 						readOnly={readOnly}

@@ -111,7 +111,7 @@ function camelcaseKeysWithExclusions(
 }
 
 api.interceptors.response.use((res) => {
-	if (res.data && typeof res.data === "object") {
+	if (res.data && typeof res.data === "object" && !(res.data instanceof Blob)) {
 		res.data = camelcaseKeysWithExclusions(res.data, PRESERVE_KEYS_FIELDS);
 	}
 	return res;

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import shlex
+from pathlib import PurePosixPath
 from typing import Protocol, runtime_checkable
 
 from deepagents.backends.protocol import (
@@ -48,12 +50,31 @@ class LazySandboxBackend(BaseSandbox):
 
     def __init__(self) -> None:
         self._backend: BaseSandbox | None = None
+        self.skill_files: list[tuple[str, bytes]] = []
 
     @property
     def connected(self) -> bool:
         return self._backend is not None
 
     def connect(self, backend: BaseSandbox) -> None:
+        if self.skill_files:
+            directories = sorted(
+                {str(PurePosixPath(path).parent) for path, _ in self.skill_files}
+            )
+            created = backend.execute(
+                "mkdir -p " + " ".join(shlex.quote(path) for path in directories)
+            )
+            if created.exit_code != 0:
+                raise RuntimeError("Failed to create sandbox skill directories")
+            results = backend.upload_files(self.skill_files)
+            if len(results) != len(self.skill_files) or any(r.error for r in results):
+                raise RuntimeError("Failed to materialize skill files in sandbox")
+            downloaded = backend.download_files([path for path, _ in self.skill_files])
+            expected = dict(self.skill_files)
+            if len(downloaded) != len(expected) or any(
+                r.error or r.content != expected.get(r.path) for r in downloaded
+            ):
+                raise RuntimeError("Sandbox skill verification failed")
         self._backend = backend
 
     def persist(self) -> None:

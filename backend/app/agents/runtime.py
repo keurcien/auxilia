@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from contextlib import AsyncExitStack, asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from uuid import uuid4
 
@@ -270,6 +270,8 @@ class ResolvedAgent:
     prepared: PreparedToolset
     live: Toolset | None = None
     sandbox: ResolvedSandbox | None = None
+    skills: dict = field(default_factory=dict)
+    user_id: str | None = None
 
     @classmethod
     async def resolve(
@@ -280,6 +282,8 @@ class ResolvedAgent:
         *,
         is_parent: bool = False,
         scope: MCPResolutionScope | None = None,
+        thread_id: str | None = None,
+        skill_snapshot: dict | None = None,
     ) -> "ResolvedAgent":
         """Bind one agent's spec to a prepared toolset.
 
@@ -295,7 +299,20 @@ class ResolvedAgent:
         prepared = await Toolset.prepare(
             spec.mcp_servers, db, user_id, apply_ui=is_parent, scope=scope
         )
-        return cls(config=spec, prepared=prepared, sandbox=cls._resolve_sandbox(spec))
+        from app.skills.runtime import resolve_skills
+
+        skills = (
+            await resolve_skills(db, spec, user_id, thread_id, skill_snapshot)
+            if thread_id
+            else {}
+        )
+        return cls(
+            config=spec,
+            prepared=prepared,
+            sandbox=cls._resolve_sandbox(spec),
+            skills=skills,
+            user_id=user_id,
+        )
 
     @staticmethod
     def _resolve_sandbox(spec: AgentSpec) -> ResolvedSandbox | None:
@@ -330,11 +347,16 @@ class ResolvedAgent:
         # Subagent sandboxes get no turn-end persist hook: CompiledSubAgent
         # runnables have no teardown point, so whatever a subagent writes is
         # lost when its `task` call ends — issue #302.
+        from app.skills.runtime import catalog_tools, sandbox_files
+
+        backend = LazySandboxBackend() if sandbox else None
+        if backend:
+            backend.skill_files = sandbox_files(self.skills)
         runnable = build_runnable(
             model=model,
-            tools=self.live.all,
+            tools=[*self.live.all, *catalog_tools(self.skills)],
             system_prompt=self.config.instructions or "",
-            sandbox_backend=LazySandboxBackend() if sandbox else None,
+            sandbox_backend=backend,
             sandbox_provider=self.sandbox.provider if self.sandbox else None,
             base_middleware=build_agent_middleware(
                 created_at, recursion_limit=SUBAGENT_RECURSION_LIMIT
@@ -390,6 +412,7 @@ class Agent:
         cls,
         thread: ThreadDB,
         db: AsyncSession,
+        skill_snapshot: dict | None = None,
     ) -> "Agent":
         user_id = str(thread.user_id)
 
@@ -404,7 +427,15 @@ class Agent:
         # each subagent's (design review §2.2 / P2-6).
         scope = await MCPResolutionScope.build(spec.all_mcp_bindings, db, user_id)
         agent = await ResolvedAgent.resolve(
-            spec.agent, db, user_id, is_parent=True, scope=scope
+            spec.agent,
+            db,
+            user_id,
+            is_parent=True,
+            scope=scope,
+            thread_id=thread.id,
+            skill_snapshot=skill_snapshot.get(str(spec.agent.id), {"entries": []})
+            if skill_snapshot is not None
+            else None,
         )
 
         # Backstop for the RunService.create gate: covers the race where the
@@ -427,7 +458,16 @@ class Agent:
         # `get_run_spec` read the agent rows and `scope` the MCP ones, so each
         # resolve is Redis/CPU work over rows already in hand.
         subagents = [
-            await ResolvedAgent.resolve(sub, db, user_id, scope=scope)
+            await ResolvedAgent.resolve(
+                sub,
+                db,
+                user_id,
+                scope=scope,
+                thread_id=thread.id,
+                skill_snapshot=skill_snapshot.get(str(sub.id), {"entries": []})
+                if skill_snapshot is not None
+                else None,
+            )
             for sub in spec.subagents
         ]
 
@@ -453,7 +493,11 @@ class Agent:
         the parsed result surfaces in the run state under `structured_response`.
         """
         sandbox = self.agent.sandbox is not None
+        from app.skills.runtime import authoring_tools, catalog_tools, sandbox_files
+
         self._sandbox_backend = LazySandboxBackend() if sandbox else None
+        if self._sandbox_backend:
+            self._sandbox_backend.skill_files = sandbox_files(self.agent.skills)
         compiled = (
             [s.compile(self.model, self.thread.created_at) for s in self.subagents]
             if self.subagents
@@ -461,7 +505,11 @@ class Agent:
         )
         return build_runnable(
             model=self.model,
-            tools=self.agent.live.all,
+            tools=[
+                *self.agent.live.all,
+                *catalog_tools(self.agent.skills),
+                *(authoring_tools(self.agent.user_id) if self.agent.user_id else []),
+            ],
             system_prompt=self.agent.config.instructions or "",
             sandbox_backend=self._sandbox_backend,
             sandbox_provider=self.agent.sandbox.provider
