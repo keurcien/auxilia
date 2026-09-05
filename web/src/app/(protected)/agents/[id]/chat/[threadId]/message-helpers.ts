@@ -263,7 +263,7 @@ const isRootNamespace = (namespace: readonly string[] | undefined) =>
 export const sameNamespace = (
   a: readonly string[] | undefined,
   b: readonly string[],
-) => a != null && a.length === b.length && a.every((seg, i) => seg === b[i]);
+) => a != null && a.length === b.length && a.join("|") === b.join("|");
 
 /**
  * The pending interrupt raised inside one subagent, if any.

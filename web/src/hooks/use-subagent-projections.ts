@@ -92,7 +92,13 @@ export function useSubagentValues(
   );
 }
 
-const registryOf = (stream: AnyStream) => stream[STREAM_CONTROLLER].registry;
+/** The stream's controller (the SDK exposes it under a well-known symbol). */
+function controllerOf(stream: AnyStream) {
+  const { [STREAM_CONTROLLER]: controller } = stream;
+  return controller;
+}
+
+const registryOf = (stream: AnyStream) => controllerOf(stream).registry;
 
 /** Mirror of the SDK's internal `useResolveSubagentNamespace`: a snapshot
  *  still on its default `tools:<toolCallId>` namespace needs the controller
@@ -102,7 +108,7 @@ function useResolveSubagentNamespace(
   stream: AnyStream,
   subagent: SubagentDiscoverySnapshot,
 ) {
-  const controller = stream[STREAM_CONTROLLER];
+  const controller = controllerOf(stream);
   const needsResolution =
     subagent.namespace.length === 1 &&
     subagent.namespace[0] === `tools:${subagent.id}`;
@@ -157,23 +163,29 @@ export function resumingHandle<H extends SubscriptionHandle>(handle: H): H {
   });
 }
 
-/** Ends only when the handle is closed (unsubscribed or the session ended). */
+/** Ends only when the handle is closed (unsubscribed or the session ended).
+ *  A failing handle ends the iteration too — the same outcome as the SDK's
+ *  own projection loop, which catches and stops. */
 export async function* resumingIterator<T>(
   handle: AsyncIterable<T> & {
     readonly isPaused: boolean;
     waitForResume(): Promise<void>;
   },
 ): AsyncGenerator<T, void, undefined> {
-  for (;;) {
-    for await (const event of handle) yield event;
-    if (isClosed(handle)) return;
-    if (handle.isPaused) {
-      await handle.waitForResume();
-      continue;
+  try {
+    for (;;) {
+      for await (const event of handle) yield event;
+      if (isClosed(handle)) return;
+      if (handle.isPaused) {
+        await handle.waitForResume();
+        continue;
+      }
+      // Neither paused nor known-closed: the SDK's handle only ends an
+      // iterator for one of the two, so treat this as closed.
+      if (!knowsClosed(handle)) return;
     }
-    // Neither paused nor known-closed: the SDK's handle only ends an
-    // iterator for one of the two, so treat this as closed.
-    if (!knowsClosed(handle)) return;
+  } catch {
+    return;
   }
 }
 
