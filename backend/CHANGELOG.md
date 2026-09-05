@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.6.0](https://github.com/keurcien/auxilia/compare/backend-v0.5.5...backend-v0.6.0) (2026-09-05)
+
+
+### ⚠ BREAKING CHANGES
+
+* **agents:** POST /threads/{id}/runs/stream and GET /threads/{id}/runs/{run_id}/stream are removed (use the protocol endpoints /threads/{id}/commands + /threads/{id}/stream/events); the `messages` field of GET /threads/{id} (AI SDK UIMessage shape) is removed.
+
+### Features
+
+* **agents:** subagent tool approvals (HITL) surface and resume like the parent's ([#317](https://github.com/keurcien/auxilia/issues/317)) ([ddc00fc](https://github.com/keurcien/auxilia/commit/ddc00fccce6ede374f8dbb26209795b6370444d8))
+* **agents:** worker-native Agent Streaming Protocol, legacy SSE removed ([#313](https://github.com/keurcien/auxilia/issues/313)) ([a05cf12](https://github.com/keurcien/auxilia/commit/a05cf127b9a1ee45efbf4d47d9d15d17bf648c54))
+* **chat:** render the conversation from @langchain/react views, reasoning on the chain rail ([#315](https://github.com/keurcien/auxilia/issues/315)) ([766d123](https://github.com/keurcien/auxilia/commit/766d123f4f6da73efd06dac5241feeaa8f009389))
+
 ## [0.5.5](https://github.com/keurcien/auxilia/compare/backend-v0.5.4...backend-v0.5.5) (2026-09-02)
 
 

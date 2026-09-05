@@ -1,6 +1,6 @@
 [project]
 name = "backend"
-version = "0.5.5"
+version = "0.6.0"
 description = "auxilia backend — FastAPI service for hosting MCP-powered AI assistants"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
