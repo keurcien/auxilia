@@ -289,18 +289,18 @@ const ChatPage = () => {
   });
 
   const handleRegenerate = useCallback(() => {
-    // Find the last human message and resubmit with regenerate trigger
-    const lastHuman = [...messages]
-      .reverse()
-      .find(isHumanMessage);
-    if (!lastHuman) return;
+    if (!messages.some(isHumanMessage)) return;
 
     rehydratedErrorStale.current = true;
     setRehydratedError(null);
-    void selectorStream.submit(
-      { messages: [{ type: "human", content: lastHuman.content }] },
-      { config: { configurable: { trigger: "regenerate-message" } } },
-    );
+    // No input, as in the library's own regenerate flow (`submit(null, …)`):
+    // the SDK echoes nothing optimistically, so the question stays in place
+    // and only the answer changes once the run's first snapshot lands. The
+    // backend forks the thread from before its last turn and re-sends that
+    // turn's message itself, under its original id.
+    void selectorStream.submit(null, {
+      config: { configurable: { trigger: "regenerate-message" } },
+    });
   }, [messages, selectorStream]);
 
   // ---- Initialization (thread metadata; conversation state hydrates via

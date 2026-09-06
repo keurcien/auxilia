@@ -3,6 +3,7 @@ import logging
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 from uuid import uuid4
 
 from deepagents.backends import StateBackend
@@ -18,6 +19,7 @@ from langchain.agents.middleware import (
 from langchain_core.messages import (
     AIMessage,
     BaseMessage,
+    HumanMessage,
     convert_to_messages,
 )
 from langgraph.errors import GraphRecursionError
@@ -71,15 +73,17 @@ RECURSION_LIMIT_MESSAGE = (
 
 @dataclass(frozen=True)
 class RegenerationPoint:
-    """Where a regeneration restarts the thread from.
+    """Where a regeneration restarts the thread from, and with what.
 
     ``checkpoint_id`` is the checkpoint to fork from — the last one *before*
     the turn being redone. ``None`` means the turn being redone was the
     thread's first, so there is nothing earlier to fork from and the thread
-    restarts from scratch instead.
+    restarts from scratch instead. ``message`` is the user message that
+    opened the turn, re-sent as the fork's input under its original id.
     """
 
     checkpoint_id: str | None
+    message: HumanMessage | None
 
 
 async def get_regeneration_point(agent, config: dict) -> RegenerationPoint | None:
@@ -101,10 +105,25 @@ async def get_regeneration_point(agent, config: dict) -> RegenerationPoint | Non
     async for state in agent.aget_state_history(
         config, filter={"source": "input"}, limit=1
     ):
+        # The input snapshot's values are the state *before* the message was
+        # applied (it sits in the snapshot's pending writes), so the turn's
+        # message is read off the thread's latest state instead: its last
+        # human message.
+        latest = await agent.aget_state(config)
+        message = next(
+            (
+                m
+                for m in reversed(latest.values.get("messages", []))
+                if isinstance(m, HumanMessage)
+            ),
+            None,
+        )
         parent = state.parent_config
         if parent is None:
-            return RegenerationPoint(checkpoint_id=None)
-        return RegenerationPoint(checkpoint_id=parent["configurable"]["checkpoint_id"])
+            return RegenerationPoint(checkpoint_id=None, message=message)
+        return RegenerationPoint(
+            checkpoint_id=parent["configurable"]["checkpoint_id"], message=message
+        )
     return None
 
 
@@ -544,25 +563,41 @@ class Agent:
         checkpointer,
         trigger: str | None,
         config_overrides: dict | None,
-    ) -> dict:
+        resolved_input: Any,
+    ) -> tuple[dict, Any]:
         """Build the run config, applying overrides and regeneration logic.
 
-        Regenerating forks the thread from before its last turn (see
-        `get_regeneration_point`). When that turn was the thread's first there
-        is no earlier checkpoint: the thread's checkpoints are wiped and the
-        re-sent message starts it over — the same outcome, with no history to
-        fork from.
+        Returns the config and the input to run with. Regenerating forks the
+        thread from before its last turn (see `get_regeneration_point`) and
+        re-sends the message that opened it. The client submits *no* input
+        for a regeneration — the documented `submit(null, …)` shape, so it
+        echoes nothing optimistically and the page keeps the question in
+        place while only the answer changes — and the server supplies the
+        message, under its original id, from the turn's input checkpoint. A
+        client that does re-send the message (Slack, older pages) is honoured
+        as-is. When the turn was the thread's first there is no earlier
+        checkpoint: the thread's checkpoints are wiped and the message starts
+        it over — the same outcome, with no history to fork from.
         """
         config = self._stream_config
         if config_overrides and config_overrides.get("configurable"):
             config["configurable"].update(config_overrides["configurable"])
         if trigger == "regenerate-message":
             point = await get_regeneration_point(agent, config)
-            if point is not None and point.checkpoint_id is None:
-                await checkpointer.adelete_thread(self.thread.id)
-            elif point is not None:
-                config["configurable"]["checkpoint_id"] = point.checkpoint_id
-        return config
+            has_input = isinstance(resolved_input, dict) and bool(
+                resolved_input.get("messages")
+            )
+            if point is None:
+                if not has_input:
+                    raise DomainValidationError("Nothing to regenerate on this thread.")
+            else:
+                if not has_input and point.message is not None:
+                    resolved_input = {"messages": [point.message]}
+                if point.checkpoint_id is None:
+                    await checkpointer.adelete_thread(self.thread.id)
+                else:
+                    config["configurable"]["checkpoint_id"] = point.checkpoint_id
+        return config, resolved_input
 
     @asynccontextmanager
     async def _setup(
@@ -601,8 +636,8 @@ class Agent:
                 ra.live = live
             agent = self._build_agent(checkpointer, output_schema)
             resolved_input = self._resolve_input(agent_input, command)
-            config = await self._resolve_config(
-                agent, checkpointer, trigger, config_overrides
+            config, resolved_input = await self._resolve_config(
+                agent, checkpointer, trigger, config_overrides, resolved_input
             )
             yield agent, resolved_input, config
 

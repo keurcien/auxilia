@@ -232,6 +232,17 @@ streamed-only message was never listed because every snapshot after the first dr
 when the run's stream ends (`ProtocolEmitter.final_snapshot`), and the recursion-limit
 fallback lists them too. Two serializations per run; the per-superstep churn fix stands.
 
+Third round, the remaining flicker: the page re-sent the question on regenerate, so the SDK
+echoed a duplicate copy under the old answer until the first snapshot replaced both. The
+library's own regenerate flow is `submit(null, …)` — no input, nothing echoed — with the
+server picking the fork point. The page now submits `null` with the trigger, and
+`get_regeneration_point` supplies the turn's message itself (the last human message of the
+latest state, under its original id), so the first snapshot keeps the question in place and
+only the answer changes. Note the input snapshot's `values` are the state *before* its
+pending input write, which is why the message comes from the latest state. Verified by
+replaying the wire through `RootMessageProjection`: the page shows the question, the old
+answer disappears on the first snapshot, the new one streams in.
+
 **Verification** (`tests/agents/test_checkpoints.py` on `InMemorySaver`, plus
 `pg_smoke.py` / `pg_legacy.py` against the dev `AsyncPostgresSaver`): reader equals
 `graph.aget_state` past a snapshot (62-message thread, raw checkpoint without `messages`),

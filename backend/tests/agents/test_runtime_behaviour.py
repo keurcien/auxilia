@@ -22,6 +22,7 @@ from app.agents.checkpoints import get_checkpoint_state
 from app.agents.run_spec import AgentSpec
 from app.agents.runtime import RECURSION_LIMIT_MESSAGE, Agent, ResolvedAgent
 from app.agents.toolset import PreparedToolset, Toolset
+from app.exceptions import DomainValidationError
 from tests.agents.scripted_model import ScriptedChatModel
 
 
@@ -429,6 +430,51 @@ async def test_regeneration_on_a_first_turn_has_something_to_fork_from(
         ("human", "only question"),
         ("ai", "better answer"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_regeneration_without_input_replays_the_turns_message_under_its_id(
+    in_memory_runtime,
+):
+    """The page regenerates with `submit(null, …)` — no input, so it echoes
+    nothing optimistically. The server re-sends the turn's message itself,
+    under its original id, so the first snapshot the page receives keeps the
+    question in place and only the answer changes."""
+    agent, _ = build_agent(script=["first answer"])
+    await collect(agent, "question one")
+    agent, _ = build_agent(script=["second answer"])
+    async for _ in agent.stream(
+        agent_input={
+            "messages": [{"type": "human", "content": "question two", "id": "h2"}]
+        }
+    ):
+        pass
+
+    agent, _ = build_agent(script=["a different second answer"])
+    events = [event async for event in agent.stream(trigger="regenerate-message")]
+
+    final = await final_messages(in_memory_runtime)
+    assert [(m.type, m.content) for m in final] == [
+        ("human", "question one"),
+        ("ai", "first answer"),
+        ("human", "question two"),
+        ("ai", "a different second answer"),
+    ]
+    assert final[2].id == "h2"
+    first_snapshot = next(
+        e
+        for e in events
+        if e["method"] == "values" and "messages" in e["params"]["data"]
+    )
+    assert [m["id"] for m in first_snapshot["params"]["data"]["messages"]][-1] == "h2"
+
+
+@pytest.mark.asyncio
+async def test_regeneration_with_nothing_to_redo_is_rejected(in_memory_runtime):
+    agent, _ = build_agent(script=["hello"])
+    with pytest.raises(DomainValidationError):
+        async for _ in agent.stream(trigger="regenerate-message"):
+            pass
 
 
 @pytest.mark.asyncio
