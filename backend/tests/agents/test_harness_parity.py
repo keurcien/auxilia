@@ -44,9 +44,6 @@ from tests.agents.scripted_model import ScriptedChatModel
 EXPECTED_DEVIATIONS: list[str] = [
     "TodoListMiddleware leads the main stack: deepagents 0.7 dropped it from "
     "the default bundle, but the web client renders the `todos` channel.",
-    "No DeepAgentState: its DeltaChannel only materialises `messages` in "
-    "channel_values on snapshot steps, and hitl.py / protocol/service.py / "
-    "read_run_result / the thread read endpoint read that key raw.",
 ]
 """Differences we accept between the two assemblies. Each is asserted in
 `comparable()`; add an entry there when you add one here."""
@@ -208,7 +205,7 @@ def comparable(ours: dict, deep: dict) -> tuple[dict, dict]:
 
     Everything left has to match exactly.
     """
-    assert len(EXPECTED_DEVIATIONS) == 2
+    assert len(EXPECTED_DEVIATIONS) == 1
     # Shallow copies: the projections hold the model instance, which does not
     # deepcopy (its HTTP client carries a lock), and nothing below mutates deeper.
     ours = {**ours, "middleware": list(ours["middleware"])}
@@ -219,11 +216,6 @@ def comparable(ours: dict, deep: dict) -> tuple[dict, dict]:
     assert ours["middleware"][0]["tools"] == ["write_todos"]
     assert all(m["class"] != "TodoListMiddleware" for m in deep["middleware"])
     del ours["middleware"][0]
-
-    # 2. deepagents compiles with DeepAgentState; we keep create_agent's default.
-    assert deep["state_schema"] is DeepAgentState
-    assert ours["state_schema"] is None
-    del ours["state_schema"], deep["state_schema"]
 
     return ours, deep
 
@@ -398,6 +390,8 @@ def test_no_sandbox_means_no_harness():
     assert described["tools"] == ["add"]
     assert [m["class"] for m in described["middleware"]] == ["ToolErrorMiddleware"]
     assert seen["config"] is None
+    # The one thing the plain path shares with the harness: the state schema.
+    assert described["state_schema"] is DeepAgentState
 
 
 def test_a_caller_supplied_general_purpose_subagent_replaces_the_default():

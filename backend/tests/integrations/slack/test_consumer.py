@@ -185,7 +185,7 @@ def _scope(interrupt, subagent_type=None):
     async def _load(_checkpointer, _thread_id):
         return SimpleNamespace(
             root=None,
-            checkpoint=None,
+            state=None,
             interrupt=interrupt,
             namespace="tools:x" if subagent_type else "",
             subagent_type=subagent_type,

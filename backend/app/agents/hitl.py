@@ -5,8 +5,10 @@ on approvals": a graph paused on `HumanInTheLoopMiddleware` leaves an
 `__interrupt__` entry in the checkpoint's `pending_writes` carrying a stable
 interrupt id (a hash of the interrupting task's namespace — recomputed from
 the checkpoint on every read, stored nowhere by us). Everything here is a
-pure function of a checkpoint tuple plus client-supplied decisions: no
-session, no Redis, nothing that can expire.
+pure function of a `CheckpointState` (the raw tuple for its pending writes,
+the reconstructed channel values for the tool calls — see
+`app/agents/checkpoints.py`) plus client-supplied decisions: no session, no
+Redis, nothing that can expire.
 
 A subagent's gated tool interrupts too (deepagents' `task` runs it as a
 nested subgraph on the same checkpointer): the interrupt propagates to the
@@ -27,6 +29,7 @@ from typing import Any, NamedTuple
 
 from langchain_core.messages import ToolMessage
 
+from app.agents.checkpoints import CheckpointState, get_checkpoint_state
 from app.exceptions import DomainValidationError, StaleApprovalError
 
 
@@ -50,19 +53,19 @@ class PendingInterrupt(NamedTuple):
 class InterruptScope(NamedTuple):
     """A pending interrupt located to the checkpoint that holds its tool calls.
 
-    `root` is the thread's root checkpoint tuple (the interrupt, its id and the
-    resume target live there); `checkpoint` is the tuple whose `messages`
-    channel holds the gated tool calls — the root itself for a parent-agent
-    approval, the subagent's `tools:<task-id>` checkpoint (nested further as
+    `root` is the thread's root checkpoint state (the interrupt, its id and the
+    resume target live there); `state` is the one whose `messages` hold the
+    gated tool calls — the root itself for a parent-agent approval, the
+    subagent's `tools:<task-id>` checkpoint (nested further as
     `tools:<a>|tools:<b>` for a subagent's subagent) when a subagent paused.
     `namespace` is that checkpoint namespace (``""`` at the root) and
     `subagent_call` the root `task` tool call awaiting the paused subagent.
     """
 
-    root: Any
+    root: CheckpointState
     interrupt: PendingInterrupt
     namespace: str
-    checkpoint: Any
+    state: CheckpointState
     subagent_call: dict[str, Any] | None
 
     @property
@@ -94,19 +97,20 @@ _TOOLS_NS_PREFIX = "tools:"
 _INTERRUPT_ID_RE = re.compile(r"[0-9a-f]{32}")
 
 
-def pending_interrupts(checkpoint_tuple: Any) -> list[PendingInterrupt]:
-    """Every pending HITL interrupt on a checkpoint tuple, in write order.
+def pending_interrupts(checkpoint: Any) -> list[PendingInterrupt]:
+    """Every pending HITL interrupt on a checkpoint, in write order.
 
-    One per paused task: a parent approval or a paused subagent is one entry;
-    several subagents pausing in the same superstep are several. Tolerates
-    both an `Interrupt` object (the serde round-trips it) and a plain
+    Takes a `CheckpointState` or a raw checkpoint tuple (the run worker only
+    needs the pending writes and reads the tuple directly). One entry per
+    paused task: a parent approval or a paused subagent is one entry; several
+    subagents pausing in the same superstep are several. Tolerates both an
+    `Interrupt` object (the serde round-trips it) and a plain
     ``{"value": ..., "id": ...}`` dict, mirroring the two shapes the live
     stream and older checkpoints produce.
     """
+    saved = checkpoint.saved if isinstance(checkpoint, CheckpointState) else checkpoint
     found: list[PendingInterrupt] = []
-    for task_id, channel, value in (
-        getattr(checkpoint_tuple, "pending_writes", None) or []
-    ):
+    for task_id, channel, value in getattr(saved, "pending_writes", None) or []:
         if channel != "__interrupt__":
             continue
         batch = value if isinstance(value, (list, tuple)) else [value]
@@ -131,7 +135,7 @@ def pending_interrupts(checkpoint_tuple: Any) -> list[PendingInterrupt]:
 
 
 def pending_interrupt(
-    checkpoint_tuple: Any, interrupt_id: str | None = None
+    checkpoint: Any, interrupt_id: str | None = None
 ) -> PendingInterrupt | None:
     """The pending interrupt with `interrupt_id`, or the first one, or None.
 
@@ -139,7 +143,7 @@ def pending_interrupt(
     subagents can pause together; every other reader (terminal-status
     detection, Slack cards) deals with "the" pending interrupt.
     """
-    interrupts = pending_interrupts(checkpoint_tuple)
+    interrupts = pending_interrupts(checkpoint)
     if interrupt_id is not None:
         return next((i for i in interrupts if i.id == interrupt_id), None)
     return interrupts[0] if interrupts else None
@@ -148,7 +152,7 @@ def pending_interrupt(
 async def load_interrupt_scope(
     checkpointer: Any,
     thread_id: str,
-    root: Any = None,
+    root: CheckpointState | None = None,
     interrupt_id: str | None = None,
 ) -> InterruptScope | None:
     """Locate the thread's pending interrupt, or None when nothing is pending.
@@ -158,9 +162,7 @@ async def load_interrupt_scope(
     `_scope_of` for the descent into the paused subagent.
     """
     if root is None:
-        root = await checkpointer.aget_tuple(
-            config={"configurable": {"thread_id": thread_id}}
-        )
+        root = await get_checkpoint_state(checkpointer, thread_id)
     interrupt = pending_interrupt(root, interrupt_id)
     if interrupt is None:
         return None
@@ -168,14 +170,12 @@ async def load_interrupt_scope(
 
 
 async def load_interrupt_scopes(
-    checkpointer: Any, thread_id: str, root: Any = None
+    checkpointer: Any, thread_id: str, root: CheckpointState | None = None
 ) -> list[InterruptScope]:
     """Every pending interrupt on the thread, each located to its scope — by
     its own pending write, so id-less (older) entries resolve too."""
     if root is None:
-        root = await checkpointer.aget_tuple(
-            config={"configurable": {"thread_id": thread_id}}
-        )
+        root = await get_checkpoint_state(checkpointer, thread_id)
     return [
         await _scope_of(checkpointer, thread_id, root, interrupt)
         for interrupt in pending_interrupts(root)
@@ -183,7 +183,10 @@ async def load_interrupt_scopes(
 
 
 async def _scope_of(
-    checkpointer: Any, thread_id: str, root: Any, interrupt: PendingInterrupt
+    checkpointer: Any,
+    thread_id: str,
+    root: CheckpointState,
+    interrupt: PendingInterrupt,
 ) -> InterruptScope:
     """Follow `interrupt`'s task into `tools:<task_id>` for as long as a
     checkpoint exists there and is paused on the *same* interrupt id: one hop
@@ -199,28 +202,26 @@ async def _scope_of(
         if not current.task_id:
             break
         child_ns = f"{namespace}{_NS_SEP if namespace else ''}{_TOOLS_NS_PREFIX}{current.task_id}"
-        child = await checkpointer.aget_tuple(
-            config={"configurable": {"thread_id": thread_id, "checkpoint_ns": child_ns}}
-        )
+        child = await get_checkpoint_state(checkpointer, thread_id, child_ns)
         child_interrupt = (
-            pending_interrupt(child, interrupt.id) if child is not None else None
+            pending_interrupt(child, interrupt.id) if child.saved is not None else None
         )
         if child_interrupt is None:
             break
         if not namespace:
-            subagent_call = _paused_task_call(root, _messages_of(child))
+            subagent_call = _paused_task_call(root.messages, child.messages)
         namespace, scope, current = child_ns, child, child_interrupt
     return InterruptScope(
         root=root,
         interrupt=interrupt,
         namespace=namespace,
-        checkpoint=scope,
+        state=scope,
         subagent_call=subagent_call,
     )
 
 
 def pending_approval_requests(
-    checkpoint_tuple: Any, scope: Any = None
+    root: CheckpointState, scope: CheckpointState | None = None
 ) -> list[dict[str, Any]]:
     """Return the tool calls awaiting human approval on a paused checkpoint.
 
@@ -230,13 +231,13 @@ def pending_approval_requests(
     name+args, falling back to position) so callers get a stable
     `tool_call_id` for the approve/reject UI. Returns `[]` when not interrupted.
 
-    The interrupt is read off `checkpoint_tuple` (the root); the tool calls off
-    `scope` when given — the subagent checkpoint `load_interrupt_scope`
-    located — else off the same tuple. Without the scope, a subagent's
-    approvals fall back to positional `approval-<i>` ids: the root's last AI
-    message only carries the `task` call.
+    The interrupt is read off `root`; the tool calls off `scope` when given —
+    the subagent checkpoint `load_interrupt_scope` located — else off the
+    root. Without the scope, a subagent's approvals fall back to positional
+    `approval-<i>` ids: the root's last AI message only carries the `task`
+    call.
     """
-    interrupt = pending_interrupt(checkpoint_tuple)
+    interrupt = pending_interrupt(root)
     interrupt_value = interrupt.value if interrupt else None
     requests = (
         (interrupt_value or {}).get("action_requests")
@@ -247,7 +248,7 @@ def pending_approval_requests(
         return []
 
     tool_calls = _last_pending_tool_calls(
-        _messages_of(scope if scope is not None else checkpoint_tuple)
+        (scope if scope is not None else root).messages
     )
 
     approvals: list[dict[str, Any]] = []
@@ -276,7 +277,7 @@ def is_addressed_resume(resume: Any) -> bool:
 
 
 def build_resume_command(
-    checkpoint_tuple: Any, resume: dict[str, Any], scope: Any = None
+    root: CheckpointState, resume: dict[str, Any], scope: CheckpointState | None = None
 ) -> dict[str, Any]:
     """Turn an addressed resume into the canonical command to store and run.
 
@@ -298,7 +299,7 @@ def build_resume_command(
     another surface), and `DomainValidationError` when the decisions don't
     cover the pending requests exactly.
     """
-    pending = pending_interrupt(checkpoint_tuple)
+    pending = pending_interrupt(root)
     if pending is None:
         raise StaleApprovalError("No approval is pending on this thread.")
     if pending.id is not None and resume.get("interrupt_id") != pending.id:
@@ -319,9 +320,7 @@ def build_resume_command(
             k: v for k, v in decision.items() if k != "tool_call_id"
         }
 
-    expected = [
-        r["tool_call_id"] for r in pending_approval_requests(checkpoint_tuple, scope)
-    ]
+    expected = [r["tool_call_id"] for r in pending_approval_requests(root, scope)]
     missing = [tc for tc in expected if tc not in supplied]
     unknown = [tc for tc in supplied if tc not in expected]
     if missing or unknown:
@@ -336,15 +335,9 @@ def build_resume_command(
     return {"resume": {pending.id: payload}}
 
 
-def _messages_of(checkpoint_tuple: Any) -> list:
-    return (
-        (getattr(checkpoint_tuple, "checkpoint", None) or {})
-        .get("channel_values", {})
-        .get("messages", [])
-    )
-
-
-def _paused_task_call(root: Any, scope_messages: list) -> dict[str, Any] | None:
+def _paused_task_call(
+    root_messages: list, scope_messages: list
+) -> dict[str, Any] | None:
     """The root `task` tool call whose subagent is the paused one.
 
     Several subagents can run in parallel, so the pending `task` calls are
@@ -352,9 +345,7 @@ def _paused_task_call(root: Any, scope_messages: list) -> dict[str, Any] | None:
     `description` as the first human message.
     """
     pending = [
-        tc
-        for tc in _last_pending_tool_calls(_messages_of(root))
-        if tc.get("name") == "task"
+        tc for tc in _last_pending_tool_calls(root_messages) if tc.get("name") == "task"
     ]
     if not pending:
         return None

@@ -11,6 +11,7 @@ import json
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
+from app.agents.checkpoints import EMPTY_STATE
 from app.agents.protocol.schemas import ProtocolCommand
 from app.agents.protocol.service import ProtocolService
 from app.agents.protocol.wire import (
@@ -21,6 +22,7 @@ from app.agents.protocol.wire import (
     seq_for_entry,
 )
 from app.exceptions import DomainValidationError
+from tests.agents.fake_checkpoints import checkpoint_state
 
 
 class _NoRedis:
@@ -153,10 +155,26 @@ def test_terminal_entries_map_run_statuses():
 
 
 class _Tuple:
-    def __init__(self, ns: str, messages: list, pending_writes: list | None = None):
+    """What `alist` yields: enough of a checkpoint tuple to name its namespace
+    and carry the root's pending writes."""
+
+    def __init__(self, ns: str, pending_writes: list | None = None):
         self.config = {"configurable": {"checkpoint_ns": ns}}
-        self.checkpoint = {"channel_values": {"messages": messages}}
         self.pending_writes = pending_writes or []
+
+
+@pytest.fixture(autouse=True)
+def _route_fake_checkpointers(monkeypatch):
+    """The service and `hitl` read state through `get_checkpoint_state`; the
+    fakes below answer it per namespace via `state_for`."""
+    import app.agents.hitl as hitl_mod
+    from app.agents.protocol import service as service_mod
+
+    async def _get(checkpointer, thread_id, checkpoint_ns=""):
+        return checkpointer.state_for(checkpoint_ns)
+
+    monkeypatch.setattr(service_mod, "get_checkpoint_state", _get)
+    monkeypatch.setattr(hitl_mod, "get_checkpoint_state", _get)
 
 
 class _Checkpointer:
@@ -178,21 +196,19 @@ class _Checkpointer:
             for task_id, call_id in (task_writes or {}).items()
         ]
 
-    async def aget_tuple(self, config):
-        return _Tuple("", self._root, self._writes)
+    def state_for(self, checkpoint_ns: str):
+        if checkpoint_ns == "":
+            return checkpoint_state(self._root, pending_writes=self._writes)
+        if checkpoint_ns in self._namespaces:
+            return checkpoint_state(self._namespaces[checkpoint_ns])
+        return EMPTY_STATE
 
     async def alist(self, config):
         if config["configurable"].get("checkpoint_ns") == "":
-            yield _Tuple("", self._root, self._writes)
+            yield _Tuple("", self._writes)
             return
-        for ns, messages in self._namespaces.items():
-            yield _Tuple(ns, messages)
-
-    async def aget(self, config):
-        ns = config["configurable"].get("checkpoint_ns")
-        if ns in self._namespaces:
-            return {"channel_values": {"messages": self._namespaces[ns]}}
-        return None
+        for ns in self._namespaces:
+            yield _Tuple(ns)
 
 
 def _checkpointer_cm(checkpointer):
@@ -310,22 +326,13 @@ class _NsCheckpointer:
     def __init__(self, by_ns):
         self.by_ns = by_ns
 
-    async def aget_tuple(self, config):
-        return self.by_ns.get(config["configurable"].get("checkpoint_ns", ""))
+    def state_for(self, checkpoint_ns: str):
+        return self.by_ns.get(checkpoint_ns, EMPTY_STATE)
 
 
 def _paused(messages, interrupt_id, task_id):
-    from types import SimpleNamespace
-
-    return SimpleNamespace(
-        pending_writes=[
-            (
-                task_id,
-                "__interrupt__",
-                [SimpleNamespace(value={"action_requests": []}, id=interrupt_id)],
-            )
-        ],
-        checkpoint={"channel_values": {"messages": messages}},
+    return checkpoint_state(
+        messages, interrupts=[(task_id, {"action_requests": []}, interrupt_id)]
     )
 
 

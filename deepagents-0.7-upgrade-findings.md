@@ -8,6 +8,15 @@
 > mypy clean, the parity test re-pinned to 0.7.13 with two recorded deviations (todos on
 > the main stack, no `DeepAgentState`) and now also comparing tool descriptions and the
 > bound graph config. Not done: live QA (sandbox chat, subagent HITL, an Anthropic thread).
+>
+> **Follow-up (same day): `DeepAgentState` adopted too.** Every graph now compiles with
+> deepagents' `DeltaChannel` messages state; the six raw `channel_values["messages"]`
+> readers go through `app/agents/checkpoints.get_checkpoint_state`, a node-less reader
+> graph over `Pregel.aget_state`. That surfaced a real `DeltaChannel` bug on forks, so
+> regeneration now forks from the end of the previous turn instead of the input
+> checkpoint. See "`DeepAgentState` — adopted" below. 1047 tests, ruff, mypy green;
+> smoke-tested against the dev Postgres (`AsyncPostgresSaver`), including existing
+> pre-migration threads.
 
 **Date**: 2026-09-06. Follows the Stage 2 section of
 [`framework-upgrade-assessment.md`](./framework-upgrade-assessment.md). Method: a
@@ -122,7 +131,7 @@ Two things in that table matter more than the parity failure itself:
 | `LazySandboxBackend` per-method guards | **Keep, extend** | Probe: guarding only `execute` makes `ls` return a *silent* empty listing and `delete` say "not found", so the explicit guards stay. Add `max_count` to `grep`, `path: str \| None = None` to `glob`, and make `execute` return `ExecuteResponse(output=NOT_CONNECTED_MSG, exit_code=1)` instead of raising — that covers the new `awrite` preflight route and any future `BaseSandbox` helper. Delete the "only `execute` still raises" paragraph. |
 | `files_update`, `ls_info`/`glob_info`/`grep_raw` | n/a | We never used them. |
 | `_VALUES_DROP` includes `files` (emitter) | **Keep** | 0.7.8 only adds the `files` channel for state backends; harmless. |
-| `tests/agents/test_harness_parity.py` | **Re-pin** | Keep it — it is what made this spike a 15-minute diff. `EXPECTED_DEVIATIONS` finally gets entries if we keep todos on the GP subagent or vendor the base prompt. |
+| `tests/agents/test_harness_parity.py` | **Re-pin** | Keep it — it is what made this spike a 15-minute diff. `EXPECTED_DEVIATIONS` now has one entry (todos on the main stack); the test also compares tool descriptions and the bound graph config. |
 
 ## Probe: subagents inherit the parent's `recursion_limit`
 
@@ -150,17 +159,67 @@ versions. Consequences:
   50, not to 25.
 - The comments and the two docs should be corrected with the upgrade PR.
 
-## `DeepAgentState` — do not adopt without rewiring the checkpoint readers
+## `DeepAgentState` — adopted, with a state reader and a regeneration fix
 
-0.7's `create_deep_agent` passes `state_schema=DeepAgentState`, whose `messages`
-channel is a `DeltaChannel` (O(N) checkpoint growth instead of O(N²)). Migration of
-existing threads is safe (`from_checkpoint` accepts a plain-list blob). But a
-`DeltaChannel` writes `messages` into `channel_values` only on snapshot steps (every
-50 updates), and we read `checkpoint["channel_values"]["messages"]` raw in six places:
-`hitl.py:342`, `protocol/service.py:272-418`, `runtime.py:683`,
-`threads/router.py:73`. Every one of them would see stale or missing messages. Adopting
-it means moving those readers onto `graph.aget_state(...)`. Worth a separate ticket for
-long threads; not part of this upgrade.
+0.7's `create_deep_agent` passes `state_schema=DeepAgentState`, whose `messages` channel
+is a `DeltaChannel`: a checkpoint stores the step's writes and the full list only every
+50th update, so checkpoint growth over a thread is O(N) instead of O(N²). We compile
+*every* graph with it (`build_runnable`), plain agents and subagents included — they have
+the same long threads. Existing threads migrate transparently: `DeltaChannel.from_checkpoint`
+takes the old plain list as its seed (verified on the dev database's real threads).
+
+**What it broke, and how it is handled.** `checkpoint["channel_values"]["messages"]` is
+no longer the conversation — between snapshots the key is absent. Six readers used it
+raw: `hitl.py` (scope resolution), `protocol/service.py` (state snapshot, history page,
+subagent messages), `runtime.read_run_result`, `threads/router.read_thread`. All now go
+through `app/agents/checkpoints.py`:
+
+- `get_checkpoint_state(checkpointer, thread_id, checkpoint_ns="") -> CheckpointState`
+  returns the raw tuple (its `pending_writes` carry the HITL interrupts) plus the
+  reconstructed `values` (`messages`, `todos`, `structured_response`). Two point reads.
+- Reconstruction is `Pregel.aget_state` on a node-less `StateGraph(DeepAgentState + todos)`
+  — the public API, not a re-implementation of the history walk.
+- `hitl.InterruptScope.checkpoint` became `.state` (a `CheckpointState`);
+  `pending_approval_requests` / `build_resume_command` take states, and
+  `pending_interrupt(s)` accept either a state or a raw tuple (the run worker keeps the
+  tuple, it only needs pending writes).
+
+Two langgraph 1.2.11 facts the module depends on, both easy to break and both written
+into its docstring:
+
+1. **`aget_state` hydrates delta channels only through the graph's compiled-in
+   checkpointer.** A checkpointer passed in `configurable` fetches the tuple but is not
+   used for the history walk. So the reader is compiled *per call* against the caller's
+   checkpointer. Corollary, worth an upstream issue: a subagent graph compiled without a
+   checkpointer (deepagents' `CompiledSubAgent`) returns empty `messages` from its own
+   `aget_state` under a namespace — our reader is the only way to read a subagent's
+   state back.
+2. **A non-empty `checkpoint_ns` makes `aget_state` look for a structural subgraph** and
+   raise when none matches. Setting `CONFIG_KEY_CHECKPOINTER` in the config (as langgraph
+   does for nested snapshots) makes it read the namespace directly, which is how the
+   `tools:<task id>` subagent namespaces are read.
+
+**The fork bug.** Regeneration used to fork from the turn's `source="input"` checkpoint
+and re-send the message. Under `DeltaChannel` that shows the user's question twice —
+in every reader *and in the model's input on every later turn*. Probed to the mechanism
+(`fork_dump.py`): when langgraph time-travels to a checkpoint it writes a
+`source="fork"` checkpoint and **copies the loaded checkpoint's pending writes onto
+it**, so the input write exists under both the input checkpoint and the fork, and the
+delta replay collects both. `add_messages` never noticed because it forks from stored
+values, not writes. Resuming with `input=None` duplicates the same way. The fix in
+`get_regeneration_point`: fork from the input checkpoint's **parent** (the end of the
+previous turn, which has no pending writes) and re-send the message; when the turn being
+redone is the thread's first, there is no parent, so the thread's checkpoints are wiped
+(`adelete_thread`) and the message starts it over. Same result under both schemas;
+`test_regenerating_twice_keeps_one_copy_of_the_question` pins it via the model's input
+on the following turn. This is worth an upstream issue too.
+
+**Verification** (`tests/agents/test_checkpoints.py` on `InMemorySaver`, plus
+`pg_smoke.py` / `pg_legacy.py` against the dev `AsyncPostgresSaver`): reader equals
+`graph.aget_state` past a snapshot (62-message thread, raw checkpoint without `messages`),
+reads a `task` subagent's namespace, reads pre-migration threads identically (six real
+dev threads, ids equal), surfaces `todos` / `structured_response`, and parent-fork
+regeneration leaves one copy of the question on Postgres.
 
 ## Other behaviour changes to note
 

@@ -26,6 +26,7 @@ from typing import Any
 from langchain_core.messages import ToolMessage
 from redis.asyncio import Redis
 
+from app.agents.checkpoints import get_checkpoint_state
 from app.agents.hitl import InterruptScope, load_interrupt_scopes
 from app.agents.protocol.events import terminal_lifecycle
 from app.agents.protocol.filter import StreamFilter
@@ -262,26 +263,20 @@ class ProtocolService:
 
     async def thread_state(self, thread_id: str) -> dict:
         """LangGraph-shaped state snapshot for client hydration."""
-        async with get_checkpointer() as checkpointer:
-            checkpoint_tuple = await checkpointer.aget_tuple(
-                config={"configurable": {"thread_id": thread_id}}
-            )
-        values: dict[str, Any] = {"messages": []}
         scopes: list[InterruptScope] = []
-        if checkpoint_tuple is not None:
-            channel_values = checkpoint_tuple.checkpoint.get("channel_values", {})
-            values = {
-                "messages": [
-                    serialize_message(m) for m in channel_values.get("messages", [])
-                ]
+        async with get_checkpointer() as checkpointer:
+            state = await get_checkpoint_state(checkpointer, thread_id)
+            values: dict[str, Any] = {
+                "messages": [serialize_message(m) for m in state.messages]
             }
-            if todos := channel_values.get("todos"):
-                values["todos"] = todos
-            if (structured := channel_values.get("structured_response")) is not None:
-                values["structured_response"] = structured
-            scopes = await load_interrupt_scopes(
-                checkpointer, thread_id, root=checkpoint_tuple
-            )
+            if state.todos:
+                values["todos"] = state.todos
+            if state.structured_response is not None:
+                values["structured_response"] = state.structured_response
+            if state.saved is not None:
+                scopes = await load_interrupt_scopes(
+                    checkpointer, thread_id, root=state
+                )
 
         active = await self.runs.get_active(thread_id)
         # `next` non-empty ⇔ a run is executing or a resume is awaited — the
@@ -377,22 +372,12 @@ async def _subagent_messages(checkpointer, thread_id: str, tool_call_id: str) ->
     root_config = {"configurable": {"thread_id": thread_id, "checkpoint_ns": ""}}
     namespace = await _task_namespace(checkpointer, root_config, tool_call_id)
     if namespace is not None:
-        checkpoint = await checkpointer.aget(
-            config={
-                "configurable": {"thread_id": thread_id, "checkpoint_ns": namespace}
-            }
-        )
-        if checkpoint:
-            return checkpoint["channel_values"].get("messages", [])
+        state = await get_checkpoint_state(checkpointer, thread_id, namespace)
+        if state.saved is not None:
+            return state.messages
 
-    parent = await checkpointer.aget_tuple(config=root_config)
-    description = (
-        _task_description(
-            parent.checkpoint["channel_values"].get("messages", []), tool_call_id
-        )
-        if parent
-        else None
-    )
+    root = await get_checkpoint_state(checkpointer, thread_id)
+    description = _task_description(root.messages, tool_call_id)
     if description:
         # alist() with only thread_id walks every namespace's checkpoints
         # newest-first; the first time we see a namespace is its latest.
@@ -404,18 +389,15 @@ async def _subagent_messages(checkpointer, thread_id: str, tool_call_id: str) ->
             if not ns or ns in seen_ns:
                 continue
             seen_ns.add(ns)
-            ns_messages = ct.checkpoint["channel_values"].get("messages", [])
+            ns_messages = (
+                await get_checkpoint_state(checkpointer, thread_id, ns)
+            ).messages
             if _seed_human_content(ns_messages) == description:
                 return ns_messages
-    checkpoint = await checkpointer.aget(
-        config={
-            "configurable": {
-                "thread_id": thread_id,
-                "checkpoint_ns": f"{_TOOLS_NS_PREFIX}{tool_call_id}",
-            }
-        }
+    legacy = await get_checkpoint_state(
+        checkpointer, thread_id, f"{_TOOLS_NS_PREFIX}{tool_call_id}"
     )
-    return checkpoint["channel_values"].get("messages", []) if checkpoint else []
+    return legacy.messages
 
 
 async def _task_namespace(

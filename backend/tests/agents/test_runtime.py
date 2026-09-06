@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
+from deepagents.graph import DeepAgentState
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from langchain.agents.middleware import ModelRetryMiddleware, ToolCallLimitMiddleware
 
@@ -105,6 +106,17 @@ def test_build_agent_without_output_schema(mock_create_agent):
     assert not any(
         isinstance(m, DeferredStructuredOutputMiddleware) for m in middleware
     )
+
+
+@patch("app.agents.runtime.create_agent")
+def test_build_agent_compiles_with_deep_agent_state(mock_create_agent):
+    """Every graph — sandbox or not — carries deepagents' `DeltaChannel`
+    messages state, so checkpoints grow linearly with the thread."""
+    agent = _build_agent()
+
+    agent._build_agent(checkpointer=None)
+
+    assert mock_create_agent.call_args.kwargs["state_schema"] is DeepAgentState
 
 
 @patch("app.agents.runtime.create_agent")

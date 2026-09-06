@@ -242,7 +242,7 @@ async def _pending_hitl_state(
     if scope is None:
         return None
     # A subagent's approvals are matched in its own checkpoint (`scope`).
-    return scope.interrupt, pending_approval_requests(scope.root, scope.checkpoint)
+    return scope.interrupt, pending_approval_requests(scope.root, scope.state)
 
 
 def _collect_batch_command(
