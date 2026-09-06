@@ -5,6 +5,8 @@ from types import SimpleNamespace
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
+import app.agents.hitl as hitl_mod
+from app.agents.checkpoints import EMPTY_STATE, get_checkpoint_state
 from app.agents.hitl import (
     build_resume_command,
     is_addressed_resume,
@@ -15,28 +17,48 @@ from app.agents.hitl import (
     pending_interrupts,
 )
 from app.exceptions import DomainValidationError, StaleApprovalError
+from tests.agents.fake_checkpoints import checkpoint_state
 
 
 INTERRUPT_ID = "ab" * 16  # 32 hex chars — the xxh3-128 shape langgraph emits
 
 
 def _checkpoint(interrupt_value, messages, interrupt_id=INTERRUPT_ID):
-    """A minimal checkpoint tuple: `pending_writes` + `checkpoint.channel_values`."""
-    pending_writes = (
-        [
-            (
-                "task-1",
-                "__interrupt__",
-                [SimpleNamespace(value=interrupt_value, id=interrupt_id)],
-            )
-        ]
+    """A minimal checkpoint state: `messages`, paused on one interrupt."""
+    interrupts = (
+        [("task-1", interrupt_value, interrupt_id)]
         if interrupt_value is not None
         else []
     )
-    return SimpleNamespace(
-        pending_writes=pending_writes,
-        checkpoint={"channel_values": {"messages": messages}},
-    )
+    return checkpoint_state(messages, interrupts=interrupts)
+
+
+class _Checkpointer:
+    """Checkpoint states by namespace, served through `get_checkpoint_state`
+    (patched below); `everywhere` answers every namespace with one state."""
+
+    def __init__(self, by_ns, everywhere=None):
+        self.by_ns = by_ns
+        self.everywhere = everywhere
+
+    def state_for(self, checkpoint_ns: str):
+        if self.everywhere is not None:
+            return self.everywhere
+        return self.by_ns.get(checkpoint_ns, EMPTY_STATE)
+
+
+@pytest.fixture(autouse=True)
+def _route_fake_checkpointers(monkeypatch):
+    """`hitl` reads state through `get_checkpoint_state`; a `_Checkpointer`
+    answers from its map, anything else (a real saver) takes the real path."""
+    real = hitl_mod.get_checkpoint_state
+
+    async def _get(checkpointer, thread_id, checkpoint_ns=""):
+        if isinstance(checkpointer, _Checkpointer):
+            return checkpointer.state_for(checkpoint_ns)
+        return await real(checkpointer, thread_id, checkpoint_ns)
+
+    monkeypatch.setattr(hitl_mod, "get_checkpoint_state", _get)
 
 
 def _two_call_checkpoint():
@@ -304,7 +326,7 @@ async def test_extracted_id_resumes_a_real_graph_via_the_map_form():
 
     await graph.ainvoke({"answer": ""}, config)  # pauses on the interrupt
 
-    checkpoint = await graph.checkpointer.aget_tuple(config)
+    checkpoint = await get_checkpoint_state(graph.checkpointer, "t-hitl")
     pending = pending_interrupt(checkpoint)
     assert pending is not None
     assert pending.id is not None
@@ -371,23 +393,13 @@ def test_pending_approval_requests_reads_tool_calls_from_the_scope():
     assert command == {"resume": {INTERRUPT_ID: {"decisions": [{"type": "reject"}]}}}
 
 
-class _Checkpointer:
-    """`aget_tuple` over a dict keyed by checkpoint namespace."""
-
-    def __init__(self, by_ns):
-        self.by_ns = by_ns
-
-    async def aget_tuple(self, config):
-        return self.by_ns.get(config["configurable"].get("checkpoint_ns", ""))
-
-
 async def test_load_interrupt_scope_stays_at_the_root_for_a_parent_approval():
     root = _two_call_checkpoint()
     scope = await load_interrupt_scope(_Checkpointer({"": root}), "t")
     assert scope is not None
     assert scope.namespace == ""
     assert scope.namespace_path == []
-    assert scope.checkpoint is root
+    assert scope.state is root
     assert scope.subagent_call is None
     assert scope.subagent_type is None
     assert scope.interrupt.id == INTERRUPT_ID
@@ -429,7 +441,11 @@ async def test_load_interrupt_scope_follows_the_task_into_the_subagent():
             ),
         ],
     )
-    sub.pending_writes[0] = ("hitl-task", "__interrupt__", sub.pending_writes[0][2])
+    sub.saved.pending_writes[0] = (
+        "hitl-task",
+        "__interrupt__",
+        sub.saved.pending_writes[0][2],
+    )
     unrelated = _checkpoint(value, [], interrupt_id="cd" * 16)
     checkpointer = _Checkpointer(
         {"": root, "tools:task-1": sub, "tools:task-1|tools:hitl-task": unrelated}
@@ -439,13 +455,13 @@ async def test_load_interrupt_scope_follows_the_task_into_the_subagent():
     assert scope is not None
     assert scope.namespace == "tools:task-1"  # stops: the deeper one is another id
     assert scope.namespace_path == ["tools:task-1"]
-    assert scope.checkpoint is sub
+    assert scope.state is sub
     assert scope.root is root
     # Told apart from the parallel sibling by the subagent's seed message.
     assert scope.subagent_call is not None
     assert scope.subagent_call["id"] == task_call["id"]
     assert scope.subagent_type == "mailer"
-    assert pending_approval_requests(scope.root, scope.checkpoint) == [
+    assert pending_approval_requests(scope.root, scope.state) == [
         {"tool_call_id": "sub_call", "tool_name": "send_email", "input": {}}
     ]
 
@@ -454,8 +470,6 @@ async def test_parallel_subagent_interrupts_are_addressed_by_id():
     """Two subagents paused in one superstep: two root pending writes. An
     addressed resume picks its own interrupt and follows *its* task, not the
     first one's."""
-    from types import SimpleNamespace
-
     id_a, id_b = "aa" * 16, "bb" * 16
     calls = [
         {
@@ -469,22 +483,12 @@ async def test_parallel_subagent_interrupts_are_addressed_by_id():
             "args": {"description": "B", "subagent_type": "b"},
         },
     ]
-    root = SimpleNamespace(
-        pending_writes=[
-            (
-                "task-a",
-                "__interrupt__",
-                [SimpleNamespace(value={"action_requests": []}, id=id_a)],
-            ),
-            (
-                "task-b",
-                "__interrupt__",
-                [SimpleNamespace(value={"action_requests": []}, id=id_b)],
-            ),
+    root = checkpoint_state(
+        [AIMessage(content="", tool_calls=calls)],
+        interrupts=[
+            ("task-a", {"action_requests": []}, id_a),
+            ("task-b", {"action_requests": []}, id_b),
         ],
-        checkpoint={
-            "channel_values": {"messages": [AIMessage(content="", tool_calls=calls)]}
-        },
     )
     sub_a = _checkpoint({"action_requests": []}, [HumanMessage("A")], interrupt_id=id_a)
     sub_b = _checkpoint({"action_requests": []}, [HumanMessage("B")], interrupt_id=id_b)
@@ -508,22 +512,42 @@ async def test_parallel_subagent_interrupts_are_addressed_by_id():
     ]
     with pytest.raises(StaleApprovalError):
         build_resume_command(
-            root, {"interrupt_id": "cd" * 16, "decisions": []}, scope_b.checkpoint
+            root, {"interrupt_id": "cd" * 16, "decisions": []}, scope_b.state
         )
+    # The second subagent's approvals and resume are its own, not the first's:
+    # its interrupt is selected by id, both for the requests and the command.
+    root_b = checkpoint_state(
+        [AIMessage(content="", tool_calls=calls)],
+        interrupts=[
+            ("task-a", {"action_requests": [{"name": "tool_a", "args": {}}]}, id_a),
+            ("task-b", {"action_requests": [{"name": "tool_b", "args": {}}]}, id_b),
+        ],
+    )
+    sub_b_calls = _checkpoint(
+        None,
+        [
+            AIMessage(
+                content="", tool_calls=[{"id": "b_call", "name": "tool_b", "args": {}}]
+            )
+        ],
+    )
+    assert pending_approval_requests(root_b, sub_b_calls, interrupt_id=id_b) == [
+        {"tool_call_id": "b_call", "tool_name": "tool_b", "input": {}}
+    ]
+    assert build_resume_command(
+        root_b,
+        {
+            "interrupt_id": id_b,
+            "decisions": [{"tool_call_id": "b_call", "type": "approve"}],
+        },
+        sub_b_calls,
+    ) == {"resume": {id_b: {"decisions": [{"type": "approve"}]}}}
 
 
 async def test_id_less_parallel_interrupts_resolve_by_their_own_write():
     """Older checkpoints carry no interrupt id: the plural load must still
     follow each pending write's task, not resolve every entry to the first."""
-    from types import SimpleNamespace
-
-    root = SimpleNamespace(
-        pending_writes=[
-            ("task-a", "__interrupt__", [SimpleNamespace(value={}, id=None)]),
-            ("task-b", "__interrupt__", [SimpleNamespace(value={}, id=None)]),
-        ],
-        checkpoint={"channel_values": {"messages": []}},
-    )
+    root = checkpoint_state([], interrupts=[("task-a", {}, None), ("task-b", {}, None)])
     sub_a = _checkpoint({}, [HumanMessage("A")], interrupt_id=None)
     sub_b = _checkpoint({}, [HumanMessage("B")], interrupt_id=None)
     checkpointer = _Checkpointer(
@@ -538,11 +562,9 @@ async def test_load_interrupt_scope_descent_is_bounded():
     checkpoint (a test double, a misbehaving store) must not loop forever."""
     from app.agents.hitl import MAX_SUBAGENT_DEPTH
 
-    class _Everywhere:
-        async def aget_tuple(self, config):
-            return _two_call_checkpoint()
-
-    scope = await load_interrupt_scope(_Everywhere(), "t")
+    scope = await load_interrupt_scope(
+        _Checkpointer({}, everywhere=_two_call_checkpoint()), "t"
+    )
     assert scope is not None
     assert scope.namespace.count("tools:") == MAX_SUBAGENT_DEPTH
 
@@ -641,7 +663,7 @@ async def test_load_interrupt_scope_end_to_end_through_a_gated_subagent():
     assert scope.namespace.startswith("tools:")
     assert scope.subagent_type == "mailer"
     assert scope.interrupt.id is not None and len(scope.interrupt.id) == 32
-    requests = pending_approval_requests(scope.root, scope.checkpoint)
+    requests = pending_approval_requests(scope.root, scope.state)
     assert requests == [
         {
             "tool_call_id": "sub_call",
@@ -656,14 +678,13 @@ async def test_load_interrupt_scope_end_to_end_through_a_gated_subagent():
             "interrupt_id": scope.interrupt.id,
             "decisions": [{"tool_call_id": "sub_call", "type": "approve"}],
         },
-        scope.checkpoint,
+        scope.state,
     )
     out = await parent.ainvoke(Command(resume=command["resume"]), config)
     assert out["messages"][-1].content == "done"
     assert await load_interrupt_scope(saver, "t-sub-hitl") is None
-    sub_state = await saver.aget_tuple(
-        {"configurable": {"thread_id": "t-sub-hitl", "checkpoint_ns": scope.namespace}}
-    )
-    sub_messages = sub_state.checkpoint["channel_values"]["messages"]
+    sub_messages = (
+        await get_checkpoint_state(saver, "t-sub-hitl", scope.namespace)
+    ).messages
     assert [m.type for m in sub_messages] == ["human", "ai", "tool", "ai"]
     assert sub_messages[2].content == "sent to a@b.c"

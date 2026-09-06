@@ -3,6 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.checkpoints import get_checkpoint_state
 from app.agents.core.service import AgentService, get_agent_service
 from app.agents.hitl import pending_interrupt
 from app.agents.models import EffectivePermission
@@ -58,49 +59,41 @@ async def read_thread(
     thread_read = await service.get_with_agent(thread_id)
 
     async with get_checkpointer() as checkpointer:
-        checkpoint_tuple = await checkpointer.aget_tuple(
-            config={"configurable": {"thread_id": thread_id}}
-        )
+        state = await get_checkpoint_state(checkpointer, thread_id)
 
-        if checkpoint_tuple is None:
-            return {
-                "values": {"messages": []},
-                "thread": thread_read,
-                "interrupted": False,
-                "viewer_role": viewer_role,
-            }
-
-        channel_values = checkpoint_tuple.checkpoint["channel_values"]
-        # Formatting-turn artifacts (raw-JSON message or synthetic tool-call
-        # pair) are chat-history noise: the parsed object is exposed under
-        # values["structured_response"] instead.
-        lc_messages = [
-            m
-            for m in channel_values.get("messages", [])
-            if not is_structured_output_artifact(m)
-        ]
-        todos = channel_values.get("todos", [])
-        values: dict = {
-            "messages": [serialize_message(m) for m in lc_messages],
-        }
-        if todos:
-            values["todos"] = todos
-        if (structured := channel_values.get("structured_response")) is not None:
-            values["structured_response"] = structured
-
-        interrupt = pending_interrupt(checkpoint_tuple)
-
+    if state.saved is None:
         return {
-            "values": values,
+            "values": {"messages": []},
             "thread": thread_read,
-            "interrupted": interrupt is not None,
-            "interrupt_value": interrupt.value if interrupt else None,
-            # The stable id of the pending interrupt (recomputed from the
-            # checkpoint). Clients echo it back when resuming so a stale
-            # approval is a 409, not a resume of whatever pends now.
-            "interrupt_id": interrupt.id if interrupt else None,
+            "interrupted": False,
             "viewer_role": viewer_role,
         }
+
+    # Formatting-turn artifacts (raw-JSON message or synthetic tool-call
+    # pair) are chat-history noise: the parsed object is exposed under
+    # values["structured_response"] instead.
+    lc_messages = [m for m in state.messages if not is_structured_output_artifact(m)]
+    values: dict = {
+        "messages": [serialize_message(m) for m in lc_messages],
+    }
+    if state.todos:
+        values["todos"] = state.todos
+    if state.structured_response is not None:
+        values["structured_response"] = state.structured_response
+
+    interrupt = pending_interrupt(state)
+
+    return {
+        "values": values,
+        "thread": thread_read,
+        "interrupted": interrupt is not None,
+        "interrupt_value": interrupt.value if interrupt else None,
+        # The stable id of the pending interrupt (recomputed from the
+        # checkpoint). Clients echo it back when resuming so a stale
+        # approval is a 409, not a resume of whatever pends now.
+        "interrupt_id": interrupt.id if interrupt else None,
+        "viewer_role": viewer_role,
+    }
 
 
 @router.get("/")

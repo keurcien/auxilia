@@ -7,11 +7,17 @@ import pytest
 from app.sandbox.lazy import NOT_CONNECTED_MSG, LazySandboxBackend
 
 
-def test_disconnected_execute_raises():
+def test_disconnected_execute_returns_failed_response():
+    """`execute` is reached by the `execute` tool *and* by BaseSandbox helpers
+    called from middleware hooks (deepagents 0.7 preflights `awrite` through
+    `aexecute`), so it must degrade to a failed command, never raise."""
     backend = LazySandboxBackend()
     assert backend.connected is False
-    with pytest.raises(RuntimeError, match=NOT_CONNECTED_MSG):
-        backend.execute("echo hi")
+
+    result = backend.execute("echo hi")
+
+    assert result.exit_code == 1
+    assert result.output == NOT_CONNECTED_MSG
 
 
 def test_connected_delegates_execute():
@@ -59,12 +65,15 @@ def test_disconnected_file_ops_return_error_results():
     assert backend.edit("/f.txt", "a", "b").error == NOT_CONNECTED_MSG
     assert backend.glob("*.txt").error == NOT_CONNECTED_MSG
     assert backend.grep("needle").error == NOT_CONNECTED_MSG
+    # Inherited from BaseSandbox (routes through `execute`), not guarded here.
+    assert backend.delete("/f.txt").error
 
 
 @pytest.mark.asyncio
 async def test_disconnected_awrite_returns_error_result():
-    """The eviction path calls the async variant; it inherits the guard via
-    BackendProtocol's asyncio.to_thread delegation to the sync method."""
+    """The eviction path calls the async variant. Since deepagents 0.7 it
+    preflights through `aexecute` before reaching our `write` guard, so this
+    relies on `execute` returning a failed response while disconnected."""
     backend = LazySandboxBackend()
     result = await backend.awrite("/large_tool_results/x", "big payload")
     assert result.error == NOT_CONNECTED_MSG
@@ -85,5 +94,5 @@ def test_connected_file_ops_delegate():
     inner.ls.assert_called_once_with("/")
     backend.glob("*.py", path="/src")
     inner.glob.assert_called_once_with("*.py", path="/src")
-    backend.grep("needle", path="/src", glob="*.py")
-    inner.grep.assert_called_once_with("needle", path="/src", glob="*.py")
+    backend.grep("needle", path="/src", glob="*.py", max_count=50)
+    inner.grep.assert_called_once_with("needle", path="/src", glob="*.py", max_count=50)

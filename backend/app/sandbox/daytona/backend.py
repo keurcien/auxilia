@@ -47,8 +47,9 @@ class DaytonaSandbox(BaseSandbox):
             truncated=False,
         )
 
-    def delete(self) -> None:
-        """Terminate the sandbox (create-path cleanup)."""
+    def kill(self) -> None:
+        """Terminate the sandbox (create-path cleanup). Not the protocol's
+        file `delete`, which BaseSandbox implements over `execute`."""
         self._sandbox.delete()
 
     def download_files(self, paths: list[str]) -> list[FileDownloadResponse]:

@@ -116,7 +116,9 @@ class CloudRunSandbox(BaseSandbox):
             return
         self._snapshots.save(self._id, self.snapshot())
 
-    def delete(self) -> None:
+    def kill(self) -> None:
+        """Terminate the sandbox (create-path cleanup). Not the protocol's
+        file `delete`, which BaseSandbox implements over `execute`."""
         self._transport.delete(self._id)
 
     def download_files(self, paths: list[str]) -> list[FileDownloadResponse]:

@@ -3,9 +3,11 @@ import logging
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 from uuid import uuid4
 
 from deepagents.backends import StateBackend
+from deepagents.graph import DeepAgentState
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.subagents import CompiledSubAgent, SubAgentMiddleware
 from langchain.agents import create_agent
@@ -17,6 +19,7 @@ from langchain.agents.middleware import (
 from langchain_core.messages import (
     AIMessage,
     BaseMessage,
+    HumanMessage,
     convert_to_messages,
 )
 from langgraph.errors import GraphRecursionError
@@ -24,6 +27,7 @@ from langgraph.stream.transformers import UpdatesTransformer
 from langgraph.types import Command
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.checkpoints import get_checkpoint_state
 from app.agents.core.repository import AgentRepository
 from app.agents.current_date import CurrentDateMiddleware
 from app.agents.harness import (
@@ -61,30 +65,65 @@ from app.threads.models import ThreadDB
 logger = logging.getLogger(__name__)
 
 
-# LangGraph's default recursion limit — what a subagent actually runs under:
-# the deepagents ``task`` tool forwards the parent's ``configurable`` (and so
-# its checkpointer and namespace) but not its ``recursion_limit``.
-SUBAGENT_RECURSION_LIMIT = 25
-
 RECURSION_LIMIT_MESSAGE = (
     "I reached my step limit for this turn. Send any follow-up message "
     '(e.g. "continue") and I\'ll pick up where I left off.'
 )
 
 
-async def get_regeneration_checkpoint_id(agent, config: dict) -> str | None:
-    """The checkpoint to fork from when regenerating the last answer.
+@dataclass(frozen=True)
+class RegenerationPoint:
+    """Where a regeneration restarts the thread from, and with what.
 
-    That is the state as it was before the last user message was applied — the
-    turn's ``source="input"`` checkpoint, which holds the message as a pending
-    write rather than in its values. Asking the checkpointer for that one
-    directly is a single state load; counting human messages backwards through
-    the history was one full-state deserialization per step of the last turn.
+    ``checkpoint_id`` is the checkpoint to fork from — the last one *before*
+    the turn being redone. ``None`` means the turn being redone was the
+    thread's first, so there is nothing earlier to fork from and the thread
+    restarts from scratch instead. ``message`` is the user message that
+    opened the turn, re-sent as the fork's input under its original id.
+    """
+
+    checkpoint_id: str | None
+    message: HumanMessage | None
+
+
+async def get_regeneration_point(agent, config: dict) -> RegenerationPoint | None:
+    """Where to restart from when regenerating the last answer, or ``None``
+    when the thread has no turn to redo.
+
+    The turn's ``source="input"`` checkpoint is found in one history read; it
+    holds the user's message as a pending write. The fork target is that
+    checkpoint's **parent** — the end of the previous turn — not the input
+    checkpoint itself, and the message is re-sent as fresh input. Forking from
+    the input checkpoint would be the obvious choice and is wrong under
+    ``DeepAgentState``: langgraph copies the loaded checkpoint's pending
+    writes onto the fork checkpoint it creates, and the ``DeltaChannel``
+    replay then sees the user's message twice — once under each — so every
+    later turn (and every reader) shows the question duplicated. The parent
+    has no pending writes, so nothing is copied. Under ``add_messages`` both
+    forks are equivalent, since it forks from stored values, not writes.
     """
     async for state in agent.aget_state_history(
         config, filter={"source": "input"}, limit=1
     ):
-        return state.config["configurable"]["checkpoint_id"]
+        # The input snapshot's values are the state *before* the message was
+        # applied (it sits in the snapshot's pending writes), so the turn's
+        # message is read off the thread's latest state instead: its last
+        # human message.
+        latest = await agent.aget_state(config)
+        message = next(
+            (
+                m
+                for m in reversed(latest.values.get("messages", []))
+                if isinstance(m, HumanMessage)
+            ),
+            None,
+        )
+        parent = state.parent_config
+        if parent is None:
+            return RegenerationPoint(checkpoint_id=None, message=message)
+        return RegenerationPoint(
+            checkpoint_id=parent["configurable"]["checkpoint_id"], message=message
+        )
     return None
 
 
@@ -128,6 +167,15 @@ def build_runnable(
     ``subagents`` (already-compiled ``CompiledSubAgent`` runnables) wire in
     through ``SubAgentMiddleware`` either way: the harness builds it, and
     without a sandbox it is added here over the in-state filesystem.
+
+    Every graph is compiled with deepagents' ``DeepAgentState``: its
+    ``messages`` channel is a ``DeltaChannel``, so a checkpoint stores the
+    step's writes rather than the whole conversation (O(N) growth over a
+    thread instead of O(N²)). deepagents only does this for the deep agent;
+    plain agents and subagents have the same long threads, so they get it
+    too. The price is that ``channel_values["messages"]`` is no longer
+    readable raw — every out-of-request reader goes through
+    ``app.agents.checkpoints.get_checkpoint_state``.
     """
     tools = list(tools)
     harness: list = []
@@ -154,13 +202,15 @@ def build_runnable(
 
     middleware = [*harness, *base_middleware]
     if sandbox_backend is None and subagents:
-        # Deliberately on the far side of the caller's stack, where the plain
-        # path has always put it — the harness wires its own SubAgentMiddleware
-        # *before* the caller's, because that is where deepagents puts it. Both
-        # positions are load-bearing: a middleware's system-prompt fragment
-        # lands in list order, so moving this one rewrites the prompt (and
-        # thread prompts are frozen at creation).
-        middleware.append(SubAgentMiddleware(backend=StateBackend, subagents=subagents))
+        # On the far side of the caller's stack, where the plain path has
+        # always put it — the harness wires its own SubAgentMiddleware *before*
+        # the caller's, because that is where deepagents puts it. Since
+        # deepagents 0.7 the middleware injects no system-prompt fragment of
+        # its own (the `task` tool description carries the agent list), so the
+        # position only orders hooks now.
+        middleware.append(
+            SubAgentMiddleware(backend=StateBackend(), subagents=subagents)
+        )
     if output_schema is not None:
         middleware.append(DeferredStructuredOutputMiddleware(format_mode))
     middleware.append(ToolErrorMiddleware())
@@ -174,6 +224,7 @@ def build_runnable(
         checkpointer=checkpointer,
         middleware=middleware,
         response_format=output_schema,
+        state_schema=DeepAgentState,
     )
     # deepagents binds this onto every graph it builds; keep it on the sandbox
     # path so a subagent invoked by `task` keeps the recursion budget it had.
@@ -216,8 +267,11 @@ def build_agent_middleware(
 
     ``recursion_limit`` — the tool budget is sized to end the run gracefully
     one step before the graph's own recursion limit trips. A subagent runs
-    under langgraph's default (``SUBAGENT_RECURSION_LIMIT``) rather than ours,
-    because ``task`` doesn't forward the parent's ``recursion_limit``.
+    under the same limit as its parent: the ``task`` tool invokes it inside
+    the parent's tool node, and langgraph seeds the nested run from that
+    ambient config, ``recursion_limit`` included (on the sandbox path the
+    graph's bound ``HARNESS_CONFIG`` then wins the merge, so the tool budget
+    is the limit that actually ends the run).
     """
     checkpointed = interrupt_on is not None
     return [
@@ -322,13 +376,14 @@ class ResolvedAgent:
 
         A subagent gets its own copy of the shared middleware stack rather than
         inheriting the parent's: the deepagents ``task`` tool invokes it as a
-        nested subgraph (parent middleware and recursion_limit don't propagate,
-        the checkpointer does) and reports back only ``messages[-1].text``, so
-        a subagent that exits its loop silently (invalid tool-call JSON) would
-        return an empty ToolMessage and one that blows the recursion limit
-        would discard its progress. Its own ``interrupt_on`` gates its tools:
-        the interrupt surfaces on the root checkpoint and the web client /
-        Slack approve it like a parent's (issue #301).
+        nested subgraph (parent middleware doesn't propagate; the run config —
+        checkpointer, namespace, recursion limit — does) and reports back only
+        the last AI message's text, so a subagent that exits its loop silently
+        (invalid tool-call JSON) would return an empty ToolMessage and one that
+        blows the recursion limit would discard its progress. Its own
+        ``interrupt_on`` gates its tools: the interrupt surfaces on the root
+        checkpoint and the web client / Slack approve it like a parent's
+        (issue #301).
         """
         sandbox = self.sandbox is not None
         # Subagent sandboxes get no turn-end persist hook: CompiledSubAgent
@@ -342,7 +397,7 @@ class ResolvedAgent:
             sandbox_provider=self.sandbox.provider if self.sandbox else None,
             base_middleware=build_agent_middleware(
                 created_at,
-                recursion_limit=SUBAGENT_RECURSION_LIMIT,
+                recursion_limit=agent_settings.recursion_limit,
                 interrupt_on=self.prepared.interrupt_on,
             ),
         )
@@ -505,18 +560,44 @@ class Agent:
     async def _resolve_config(
         self,
         agent,
+        checkpointer,
         trigger: str | None,
         config_overrides: dict | None,
-    ) -> dict:
-        """Build the run config, applying overrides and regeneration logic."""
+        resolved_input: Any,
+    ) -> tuple[dict, Any]:
+        """Build the run config, applying overrides and regeneration logic.
+
+        Returns the config and the input to run with. Regenerating forks the
+        thread from before its last turn (see `get_regeneration_point`) and
+        re-sends the message that opened it. The client submits *no* input
+        for a regeneration — the documented `submit(null, …)` shape, so it
+        echoes nothing optimistically and the page keeps the question in
+        place while only the answer changes — and the server supplies the
+        message, under its original id, from the turn's input checkpoint. A
+        client that does re-send the message (Slack, older pages) is honoured
+        as-is. When the turn was the thread's first there is no earlier
+        checkpoint: the thread's checkpoints are wiped and the message starts
+        it over — the same outcome, with no history to fork from.
+        """
         config = self._stream_config
         if config_overrides and config_overrides.get("configurable"):
             config["configurable"].update(config_overrides["configurable"])
         if trigger == "regenerate-message":
-            checkpoint_id = await get_regeneration_checkpoint_id(agent, config)
-            if checkpoint_id:
-                config["configurable"]["checkpoint_id"] = checkpoint_id
-        return config
+            point = await get_regeneration_point(agent, config)
+            has_input = isinstance(resolved_input, dict) and bool(
+                resolved_input.get("messages")
+            )
+            if point is None or (not has_input and point.message is None):
+                if not has_input:
+                    raise DomainValidationError("Nothing to regenerate on this thread.")
+            else:
+                if not has_input:
+                    resolved_input = {"messages": [point.message]}
+                if point.checkpoint_id is None:
+                    await checkpointer.adelete_thread(self.thread.id)
+                else:
+                    config["configurable"]["checkpoint_id"] = point.checkpoint_id
+        return config, resolved_input
 
     @asynccontextmanager
     async def _setup(
@@ -555,7 +636,9 @@ class Agent:
                 ra.live = live
             agent = self._build_agent(checkpointer, output_schema)
             resolved_input = self._resolve_input(agent_input, command)
-            config = await self._resolve_config(agent, trigger, config_overrides)
+            config, resolved_input = await self._resolve_config(
+                agent, checkpointer, trigger, config_overrides, resolved_input
+            )
             yield agent, resolved_input, config
 
     async def _persist_sandbox(self) -> None:
@@ -675,16 +758,8 @@ async def read_run_result(thread_id: str) -> dict:
     the LangGraph checkpoint once the run is terminal.
     """
     async with get_checkpointer() as checkpointer:
-        checkpoint = await checkpointer.aget_tuple(
-            config={"configurable": {"thread_id": thread_id}}
-        )
-    if checkpoint is None:
-        return {"content": "", "structured_response": None}
-    channel_values = checkpoint.checkpoint["channel_values"]
-    return extract_invoke_result(
-        channel_values.get("messages", []),
-        channel_values.get("structured_response"),
-    )
+        state = await get_checkpoint_state(checkpointer, thread_id)
+    return extract_invoke_result(state.messages, state.structured_response)
 
 
 def _extract_text(message: BaseMessage) -> str:

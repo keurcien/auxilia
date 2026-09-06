@@ -14,10 +14,13 @@ from uuid import UUID
 import pytest
 from langchain_core.messages import AIMessage
 
+import app.agents.hitl as hitl_mod
 import app.agents.runs.service as service_mod
+from app.agents.checkpoints import EMPTY_STATE
 from app.agents.runs.service import RunService
 from app.exceptions import StaleApprovalError
 from app.threads.models import ThreadDB
+from tests.agents.fake_checkpoints import checkpoint_state
 
 
 INTERRUPT_ID = "ab" * 16
@@ -31,32 +34,19 @@ def _paused_checkpoint():
             {"id": "call_2", "name": "send_email", "args": {"to": "a@b.c"}},
         ],
     )
-    return SimpleNamespace(
-        pending_writes=[
-            (
-                "task-1",
-                "__interrupt__",
-                [
-                    SimpleNamespace(
-                        id=INTERRUPT_ID,
-                        value={
-                            "action_requests": [
-                                {"name": "get_weather", "args": {"city": "Paris"}},
-                                {"name": "send_email", "args": {"to": "a@b.c"}},
-                            ]
-                        },
-                    )
-                ],
-            )
-        ],
-        checkpoint={"channel_values": {"messages": [ai]}},
-    )
+    value = {
+        "action_requests": [
+            {"name": "get_weather", "args": {"city": "Paris"}},
+            {"name": "send_email", "args": {"to": "a@b.c"}},
+        ]
+    }
+    return checkpoint_state([ai], interrupts=[("task-1", value, INTERRUPT_ID)])
 
 
 @pytest.fixture
 def service(run_db, monkeypatch):
-    """A RunService whose checkpointer serves `_paused_checkpoint` at the root
-    (and nothing under any subagent namespace), counting reads."""
+    """A RunService whose checkpoint reader serves `_paused_checkpoint` at the
+    root (and nothing under any subagent namespace), counting reads."""
     monkeypatch.setattr(
         service_mod.ModelService, "list_whitelisted", AsyncMock(return_value=[])
     )
@@ -64,15 +54,14 @@ def service(run_db, monkeypatch):
 
     @asynccontextmanager
     async def _checkpointer():
-        async def _aget_tuple(config):
-            reads["count"] += 1
-            if config["configurable"].get("checkpoint_ns"):
-                return None
-            return _paused_checkpoint()
+        yield SimpleNamespace()
 
-        yield SimpleNamespace(aget_tuple=_aget_tuple)
+    async def _get_state(checkpointer, thread_id, checkpoint_ns=""):
+        reads["count"] += 1
+        return EMPTY_STATE if checkpoint_ns else _paused_checkpoint()
 
     monkeypatch.setattr(service_mod, "get_checkpointer", _checkpointer)
+    monkeypatch.setattr(hitl_mod, "get_checkpoint_state", _get_state)
     svc = RunService(redis=MagicMock())
     svc._checkpoint_reads = reads  # test-only counter
     return svc

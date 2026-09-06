@@ -6,8 +6,10 @@ import pytest
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage, HumanMessage
 
+from app.agents.checkpoints import EMPTY_STATE
 from app.agents.structured_output import STRUCTURED_OUTPUT_FLAG
 from app.threads.models import ThreadDB, ThreadSource
+from tests.agents.fake_checkpoints import checkpoint_state
 
 
 @pytest.fixture(autouse=True)
@@ -141,8 +143,11 @@ def test_get_threads_rejects_invalid_page_params(client: TestClient):
     assert client.get("/threads/", params={"offset": -1}).status_code == 422
 
 
+@patch("app.threads.router.get_checkpoint_state", new_callable=AsyncMock)
 @patch("app.threads.router.get_checkpointer")
-def test_get_thread(mock_checkpointer, client: TestClient, mock_db, current_user):
+def test_get_thread(
+    mock_checkpointer, mock_state, client: TestClient, mock_db, current_user
+):
     """Owner can read their own thread."""
     thread_id = str(uuid4())
     agent_id = uuid4()
@@ -160,12 +165,9 @@ def test_get_thread(mock_checkpointer, client: TestClient, mock_db, current_user
     mock_result.one_or_none.return_value = (thread, "Test Agent", "🤖", None, False)
     mock_db.execute.return_value = mock_result
 
-    mock_saver_instance = AsyncMock()
-    mock_saver_instance.aget_tuple = AsyncMock(return_value=None)
-    mock_checkpointer.return_value.__aenter__ = AsyncMock(
-        return_value=mock_saver_instance
-    )
+    mock_checkpointer.return_value.__aenter__ = AsyncMock(return_value=AsyncMock())
     mock_checkpointer.return_value.__aexit__ = AsyncMock(return_value=None)
+    mock_state.return_value = EMPTY_STATE
 
     response = client.get(f"/threads/{thread_id}")
     assert response.status_code == 200
@@ -179,9 +181,10 @@ def test_get_thread(mock_checkpointer, client: TestClient, mock_db, current_user
     assert data["viewer_role"] is None
 
 
+@patch("app.threads.router.get_checkpoint_state", new_callable=AsyncMock)
 @patch("app.threads.router.get_checkpointer")
 def test_get_thread_hides_structured_output_artifacts(
-    mock_checkpointer, client: TestClient, mock_db, current_user
+    mock_checkpointer, mock_state, client: TestClient, mock_db, current_user
 ):
     """Formatting-turn messages are filtered out of both message payloads and
     the parsed object is exposed under values.structured_response instead."""
@@ -200,27 +203,19 @@ def test_get_thread_hides_structured_output_artifacts(
     mock_result.one_or_none.return_value = (thread, "Test Agent", "🤖", None, False)
     mock_db.execute.return_value = mock_result
 
-    checkpoint_tuple = MagicMock()
-    checkpoint_tuple.checkpoint = {
-        "channel_values": {
-            "messages": [
-                HumanMessage("What is 2 + 2?"),
-                AIMessage("2 + 2 = 4"),
-                AIMessage(
-                    '{"answer": 4}',
-                    response_metadata={STRUCTURED_OUTPUT_FLAG: True},
-                ),
-            ],
-            "structured_response": {"answer": 4},
-        }
-    }
-    checkpoint_tuple.pending_writes = []
-    mock_saver_instance = AsyncMock()
-    mock_saver_instance.aget_tuple = AsyncMock(return_value=checkpoint_tuple)
-    mock_checkpointer.return_value.__aenter__ = AsyncMock(
-        return_value=mock_saver_instance
-    )
+    mock_checkpointer.return_value.__aenter__ = AsyncMock(return_value=AsyncMock())
     mock_checkpointer.return_value.__aexit__ = AsyncMock(return_value=None)
+    mock_state.return_value = checkpoint_state(
+        [
+            HumanMessage("What is 2 + 2?"),
+            AIMessage("2 + 2 = 4"),
+            AIMessage(
+                '{"answer": 4}',
+                response_metadata={STRUCTURED_OUTPUT_FLAG: True},
+            ),
+        ],
+        values={"structured_response": {"answer": 4}},
+    )
 
     response = client.get(f"/threads/{thread_id}")
     assert response.status_code == 200

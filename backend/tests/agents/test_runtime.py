@@ -1,16 +1,17 @@
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
+from deepagents.graph import DeepAgentState
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from langchain.agents.middleware import ModelRetryMiddleware, ToolCallLimitMiddleware
 
 from app.agents.current_date import CurrentDateMiddleware
 from app.agents.runtime import (
-    SUBAGENT_RECURSION_LIMIT,
     Agent,
     ResolvedAgent,
     build_parent_middleware,
 )
+from app.agents.settings import agent_settings
 from app.agents.structured_output import (
     FORMAT_JSON_OBJECT,
     FORMAT_PROVIDER_NATIVE,
@@ -108,6 +109,17 @@ def test_build_agent_without_output_schema(mock_create_agent):
 
 
 @patch("app.agents.runtime.create_agent")
+def test_build_agent_compiles_with_deep_agent_state(mock_create_agent):
+    """Every graph — sandbox or not — carries deepagents' `DeltaChannel`
+    messages state, so checkpoints grow linearly with the thread."""
+    agent = _build_agent()
+
+    agent._build_agent(checkpointer=None)
+
+    assert mock_create_agent.call_args.kwargs["state_schema"] is DeepAgentState
+
+
+@patch("app.agents.runtime.create_agent")
 def test_build_agent_appends_tool_error_middleware(mock_create_agent):
     """The non-sandbox path must also contain tool errors: without a
     wrap_tool_call middleware the ToolNode has no wrapper and langgraph's
@@ -156,11 +168,11 @@ def test_build_agent_sandbox_uses_the_same_create_agent_path(
 @patch("app.agents.runtime.create_agent")
 def test_compile_subagent_middleware_stack(mock_create_agent):
     """Subagents need their own repair/limit/retry middleware: the deepagents
-    task tool invokes them with a fresh config (parent middleware doesn't
+    task tool invokes them as a nested graph (parent middleware doesn't
     propagate) and reports back only the last message's text — a subagent that
     exits its loop silently on invalid tool-call JSON would return an empty
-    ToolMessage to the parent, and one that blows the default recursion limit
-    would discard its progress."""
+    ToolMessage to the parent, and one that blows the recursion limit would
+    discard its progress."""
     resolved = ResolvedAgent(config=MagicMock(), prepared=MagicMock())
     resolved.config.instructions = "You are a helper"
     resolved.config.name = "Helper"
@@ -176,11 +188,11 @@ def test_compile_subagent_middleware_stack(mock_create_agent):
     assert any(isinstance(m, RepairInvalidToolCallsMiddleware) for m in middleware)
     assert any(isinstance(m, CurrentDateMiddleware) for m in middleware)
     assert isinstance(middleware[-1], ToolErrorMiddleware)
-    # The task tool doesn't propagate the parent's recursion_limit, so the tool
-    # budget must end the run gracefully before langgraph's default (25) trips.
+    # A subagent inherits the parent's recursion_limit through the task tool's
+    # ambient config, so its tool budget is sized like the parent's.
     limiter = next(m for m in middleware if isinstance(m, ToolCallLimitMiddleware))
     assert limiter.exit_behavior == "end"
-    assert limiter.run_limit == (SUBAGENT_RECURSION_LIMIT - 1) // 2
+    assert limiter.run_limit == (agent_settings.recursion_limit - 1) // 2
 
 
 def test_parent_middleware_stack():

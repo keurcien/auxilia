@@ -145,7 +145,7 @@ class RunService:
             )
         # The decisions are matched against the checkpoint that holds the
         # gated tool calls — a subagent's own when a subagent paused.
-        return build_resume_command(scope.root, command["resume"], scope.checkpoint)
+        return build_resume_command(scope.root, command["resume"], scope.state)
 
     @staticmethod
     async def _ensure_runnable_thread(db: AsyncSession, thread_id: str) -> None:

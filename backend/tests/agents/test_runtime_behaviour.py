@@ -18,9 +18,11 @@ from langchain_core.messages import AIMessage
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
 
+from app.agents.checkpoints import get_checkpoint_state
 from app.agents.run_spec import AgentSpec
 from app.agents.runtime import RECURSION_LIMIT_MESSAGE, Agent, ResolvedAgent
 from app.agents.toolset import PreparedToolset, Toolset
+from app.exceptions import DomainValidationError
 from tests.agents.scripted_model import ScriptedChatModel
 
 
@@ -148,10 +150,10 @@ def system_text(model: ScriptedChatModel, call: int = 0) -> str:
     )
 
 
-def final_messages(saver: InMemorySaver, thread_id: str = "thread-1") -> list:
-    config = {"configurable": {"thread_id": thread_id}}
-    checkpoint = saver.get(config)
-    return checkpoint["channel_values"]["messages"] if checkpoint else []
+async def final_messages(saver: InMemorySaver, thread_id: str = "thread-1") -> list:
+    """The thread's messages as the graph sees them — through the state
+    reader, since a `DeltaChannel` checkpoint does not carry them raw."""
+    return (await get_checkpoint_state(saver, thread_id)).messages
 
 
 @pytest.mark.asyncio
@@ -162,7 +164,7 @@ async def test_stream_runs_the_graph_and_emits_the_model_answer(in_memory_runtim
     chunks = await collect(agent, "what is the answer?")
 
     assert any("42 is the answer" in chunk for chunk in chunks)
-    assert [m.content for m in final_messages(in_memory_runtime)][-1] == (
+    assert [m.content for m in await final_messages(in_memory_runtime)][-1] == (
         "42 is the answer"
     )
     # The instructions reached the model as its system prompt.
@@ -236,7 +238,9 @@ async def test_recursion_limit_persists_a_resumable_synthetic_message(
 
     # The SSE payload is JSON-encoded, so match the unescaped prefix.
     assert any("I reached my step limit" in chunk for chunk in chunks)
-    assert final_messages(in_memory_runtime)[-1].content == RECURSION_LIMIT_MESSAGE
+    assert (await final_messages(in_memory_runtime))[
+        -1
+    ].content == RECURSION_LIMIT_MESSAGE
 
 
 @pytest.mark.asyncio
@@ -261,7 +265,7 @@ async def test_hitl_interrupts_before_an_approval_gated_tool_runs(in_memory_runt
     assert len(model.calls) == 1
     state = in_memory_runtime.get_tuple({"configurable": {"thread_id": "thread-1"}})
     assert state is not None
-    assert not [m for m in final_messages(in_memory_runtime) if m.type == "tool"]
+    assert not [m for m in await final_messages(in_memory_runtime) if m.type == "tool"]
 
 
 @pytest.mark.asyncio
@@ -279,7 +283,7 @@ async def test_model_failure_ends_the_turn_visibly_and_still_persists_the_sandbo
 
     persist.assert_called_once()
     assert len(model.calls) > 1, "the failure was not retried"
-    last = final_messages(in_memory_runtime)[-1]
+    last = (await final_messages(in_memory_runtime))[-1]
     assert last.type == "ai"
     assert "Model call failed" in last.content
 
@@ -356,7 +360,7 @@ async def test_sandbox_agent_is_offered_the_full_harness_toolset(in_memory_runti
     assert "task" in names
     system = system_text(model)
     assert system.startswith("You are a test agent")
-    assert "You are a deep agent" in system
+    assert "write_todos" in system  # the todo middleware's prompt fragment
 
 
 @pytest.mark.asyncio
@@ -382,7 +386,7 @@ async def test_plain_agent_is_offered_only_its_own_tools(in_memory_runtime):
     assert {t.name for t in model.bound_tools} == {"add"}
     system = system_text(model)
     assert system.startswith("You are a test agent")
-    assert "You are a deep agent" not in system
+    assert "write_todos" not in system
 
 
 # --- Regeneration and input resolution --------------------------------------
@@ -401,7 +405,7 @@ async def test_regeneration_forks_from_before_the_last_user_message(in_memory_ru
     agent, _ = build_agent(script=["a different second answer"])
     await collect(agent, "question two", trigger="regenerate-message")
 
-    kinds = [(m.type, m.content) for m in final_messages(in_memory_runtime)]
+    kinds = [(m.type, m.content) for m in await final_messages(in_memory_runtime)]
     assert kinds == [
         ("human", "question one"),
         ("ai", "first answer"),
@@ -422,9 +426,82 @@ async def test_regeneration_on_a_first_turn_has_something_to_fork_from(
     agent, _ = build_agent(script=["better answer"])
     await collect(agent, "only question", trigger="regenerate-message")
 
-    assert [(m.type, m.content) for m in final_messages(in_memory_runtime)] == [
+    assert [(m.type, m.content) for m in await final_messages(in_memory_runtime)] == [
         ("human", "only question"),
         ("ai", "better answer"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_regeneration_without_input_replays_the_turns_message_under_its_id(
+    in_memory_runtime,
+):
+    """The page regenerates with `submit(null, …)` — no input, so it echoes
+    nothing optimistically. The server re-sends the turn's message itself,
+    under its original id, so the first snapshot the page receives keeps the
+    question in place and only the answer changes."""
+    agent, _ = build_agent(script=["first answer"])
+    await collect(agent, "question one")
+    agent, _ = build_agent(script=["second answer"])
+    async for _ in agent.stream(
+        agent_input={
+            "messages": [{"type": "human", "content": "question two", "id": "h2"}]
+        }
+    ):
+        pass
+
+    agent, _ = build_agent(script=["a different second answer"])
+    events = [event async for event in agent.stream(trigger="regenerate-message")]
+
+    final = await final_messages(in_memory_runtime)
+    assert [(m.type, m.content) for m in final] == [
+        ("human", "question one"),
+        ("ai", "first answer"),
+        ("human", "question two"),
+        ("ai", "a different second answer"),
+    ]
+    assert final[2].id == "h2"
+    first_snapshot = next(
+        e
+        for e in events
+        if e["method"] == "values" and "messages" in e["params"]["data"]
+    )
+    assert [m["id"] for m in first_snapshot["params"]["data"]["messages"]][-1] == "h2"
+
+
+@pytest.mark.asyncio
+async def test_regeneration_with_nothing_to_redo_is_rejected(in_memory_runtime):
+    agent, _ = build_agent(script=["hello"])
+    with pytest.raises(DomainValidationError):
+        async for _ in agent.stream(trigger="regenerate-message"):
+            pass
+
+
+@pytest.mark.asyncio
+async def test_regenerating_twice_keeps_one_copy_of_the_question(in_memory_runtime):
+    """Regeneration forks from the *end of the previous turn*, not from the
+    turn's input checkpoint. Under `DeepAgentState` the latter is a trap:
+    langgraph re-persists the input checkpoint's pending write on the fork it
+    creates, and the `DeltaChannel` replay then shows the question twice — to
+    every reader and, worse, to the model on the next turn."""
+    agent, _ = build_agent(script=["first answer"])
+    await collect(agent, "question one")
+    agent, _ = build_agent(script=["second answer"])
+    await collect(agent, "question two")
+    for answer in ("take two", "take three"):
+        agent, _ = build_agent(script=[answer])
+        await collect(agent, "question two", trigger="regenerate-message")
+
+    agent, model = build_agent(script=["third answer"])
+    await collect(agent, "question three")
+
+    seen = [(m.type, m.content) for m in model.calls[0] if m.type != "system"]
+    assert seen == [
+        ("human", "question one"),
+        ("ai", "first answer"),
+        ("human", "question two"),
+        ("ai", "take three"),
+        ("human", "question three"),
     ]
 
 
@@ -456,12 +533,13 @@ async def test_a_malformed_input_message_is_a_bad_request(in_memory_runtime, mes
 
 
 @pytest.mark.asyncio
-async def test_subagent_wiring_keeps_the_caller_prompt_ahead_of_the_task_block():
-    """A plain agent with subagents assembles its prompt caller-fragments-first.
-    `SubAgentMiddleware` sitting on the wrong side of the caller's stack moves
-    the `task` block ahead of them — a silent prompt rewrite on every
-    non-sandbox agent that has subagents, whose prompts are frozen at creation.
-    """
+async def test_plain_agent_with_subagents_binds_task_and_keeps_caller_fragments():
+    """A plain agent with subagents gets the `task` tool from the wired-in
+    `SubAgentMiddleware` and still carries the caller's own prompt fragments.
+    (deepagents 0.7's middleware injects no prompt fragment of its own, so its
+    position relative to the caller's stack is no longer visible in the
+    prompt; `test_plain_path_wires_subagents_after_the_caller_stack` pins the
+    order on the middleware list instead.)"""
     from deepagents.middleware.subagents import CompiledSubAgent
 
     from app.agents.current_date import CurrentDateMiddleware
@@ -484,5 +562,5 @@ async def test_subagent_wiring_keeps_the_caller_prompt_ahead_of_the_task_block()
 
     await graph.ainvoke({"messages": [{"role": "user", "content": "hi"}]})
 
-    system = system_text(model)
-    assert system.index("Current date:") < system.index("`task` (subagent spawner)")
+    assert "task" in {t.name for t in model.bound_tools}
+    assert "Current date:" in system_text(model)

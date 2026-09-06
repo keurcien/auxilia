@@ -33,17 +33,21 @@ class SupportsPersist(Protocol):
 class LazySandboxBackend(BaseSandbox):
     """A sandbox backend that starts disconnected and connects lazily.
 
-    All BaseSandbox file operations (ls, read, write, edit, grep, glob)
+    All BaseSandbox file operations (ls, read, write, edit, delete, grep, glob)
     route through execute(), so connecting the inner backend is sufficient.
 
-    While disconnected, the file operations return their protocol error
-    results instead of raising: deepagents calls them OUTSIDE any tool-call
-    wrapper — large-tool-result eviction and conversation-history eviction
-    both `backend.write()` from middleware hooks — so a raise there escapes
-    ToolErrorMiddleware and kills the whole run, while an error result makes
-    deepagents skip the eviction and carry on. Only `execute` (always reached
-    through the `execute` tool, whose exceptions ToolErrorMiddleware converts
-    to error ToolMessages) still raises.
+    While disconnected, the file operations and `execute` do not raise:
+    deepagents calls the backend OUTSIDE any tool-call wrapper —
+    large-tool-result eviction and conversation-history eviction both write
+    from middleware hooks — so a raise there escapes ToolErrorMiddleware and
+    kills the whole run, while an error result makes deepagents skip the
+    eviction and carry on. `ls`/`read`/`write`/`edit`/`glob`/`grep` return
+    their protocol error results with a clear message, and `execute` returns
+    a failed `ExecuteResponse`, so any BaseSandbox helper reaching it (0.7's
+    write preflight, the inherited `delete`, future ones) degrades the same
+    way; the `execute` tool shows that response to the model as an ordinary
+    failed command. `id`, `upload_files` and `download_files` still raise:
+    nothing reaches them outside a connected tool path.
     """
 
     def __init__(self) -> None:
@@ -77,7 +81,9 @@ class LazySandboxBackend(BaseSandbox):
         return self._inner.id
 
     def execute(self, command: str, *, timeout: int | None = None) -> ExecuteResponse:
-        return self._inner.execute(command, timeout=timeout)
+        if self._backend is None:
+            return ExecuteResponse(output=NOT_CONNECTED_MSG, exit_code=1)
+        return self._backend.execute(command, timeout=timeout)
 
     # File operations return protocol error results while disconnected (the
     # async variants inherit this: BackendProtocol's a* defaults delegate to
@@ -111,7 +117,7 @@ class LazySandboxBackend(BaseSandbox):
             file_path, old_string, new_string, replace_all=replace_all
         )
 
-    def glob(self, pattern: str, path: str = "/") -> GlobResult:
+    def glob(self, pattern: str, path: str | None = None) -> GlobResult:
         if self._backend is None:
             return GlobResult(error=NOT_CONNECTED_MSG)
         return self._backend.glob(pattern, path=path)
@@ -121,10 +127,12 @@ class LazySandboxBackend(BaseSandbox):
         pattern: str,
         path: str | None = None,
         glob: str | None = None,
+        *,
+        max_count: int | None = None,
     ) -> GrepResult:
         if self._backend is None:
             return GrepResult(error=NOT_CONNECTED_MSG)
-        return self._backend.grep(pattern, path=path, glob=glob)
+        return self._backend.grep(pattern, path=path, glob=glob, max_count=max_count)
 
     def download_files(self, paths: list[str]) -> list[FileDownloadResponse]:
         return self._inner.download_files(paths)

@@ -36,7 +36,7 @@ class CloudRunProvider(BaseSandboxProvider):
         )
 
     def _destroy_backend(self, backend: CloudRunSandbox) -> None:
-        backend.delete()
+        backend.kill()
 
     def connect(self, sandbox_id: str) -> tuple[CloudRunSandbox, str]:
         backend = CloudRunSandbox(

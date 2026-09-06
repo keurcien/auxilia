@@ -273,7 +273,9 @@ If you *did* add the middleware today, here is how far the rest of the stack wou
    which is correct now that we know they are checkpointed (a cancelled run can leave a dangling
    call in the subagent's namespace too). Rewrite the docstrings in `build_agent_middleware`,
    `ResolvedAgent.compile` and `SUBAGENT_RECURSION_LIMIT` that claim there is no checkpointer.
-   The recursion-limit remark stays true: `task` does not forward `recursion_limit`.
+   ~~The recursion-limit remark stays true: `task` does not forward `recursion_limit`.~~
+   *Correction 2026-09-06: probed false — the subagent inherits the parent's `recursion_limit`
+   through the ambient tool-node config (see `deepagents-0.7-upgrade-findings.md`).*
 2. **Locate the gated call in its namespace.** `hitl.pending_interrupt` should also return the
    pending write's `task_id`. For a propagated interrupt that task is the parent's `tools` Send,
    and the subagent's namespace is `tools:<task_id>`, the same derivation
