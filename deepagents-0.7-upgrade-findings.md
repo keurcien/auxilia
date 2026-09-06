@@ -223,6 +223,15 @@ root snapshot now carries the full message list â€” one serialization per run â€
 snapshots drop it again, so the page converges on the fork's branch as soon as the run
 starts.
 
+Second round, same symptom in a narrower form: regenerating an answer *streamed in the
+same page session* removed the old question but kept the old answer under the new one.
+Replaying the real run logs (Redis) through the SDK's `RootMessageProjection` reproduced
+it: the client only removes a message that an earlier `values` snapshot listed, and a
+streamed-only message was never listed because every snapshot after the first drops
+`messages`. The emitter now also re-emits the newest root `values` with its messages
+when the run's stream ends (`ProtocolEmitter.final_snapshot`), and the recursion-limit
+fallback lists them too. Two serializations per run; the per-superstep churn fix stands.
+
 **Verification** (`tests/agents/test_checkpoints.py` on `InMemorySaver`, plus
 `pg_smoke.py` / `pg_legacy.py` against the dev `AsyncPostgresSaver`): reader equals
 `graph.aget_state` past a snapshot (62-message thread, raw checkpoint without `messages`),
