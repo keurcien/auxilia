@@ -41,10 +41,6 @@ def _tool_turns(turns: int, *, then: str = "done") -> list:
     ]
 
 
-def _ids(messages: list) -> list:
-    return [m.id for m in messages]
-
-
 @pytest.mark.asyncio
 async def test_reader_matches_the_graph_past_a_snapshot():
     """30 tool turns = 60+ `messages` updates: past one `_DeltaSnapshot` (every
@@ -65,7 +61,7 @@ async def test_reader_matches_the_graph_past_a_snapshot():
     state = await get_checkpoint_state(saver, "t-delta")
     truth = (await graph.aget_state(config)).values["messages"]
     assert len(truth) == 62  # human + 30 × (ai, tool) + final ai
-    assert _ids(state.messages) == _ids(truth)
+    assert state.messages == truth  # whole messages, not just ids
     assert state.saved is not None
     assert state.saved.checkpoint["id"] == raw.checkpoint["id"]
 
@@ -136,7 +132,7 @@ async def test_reader_reads_a_pre_migration_thread():
 
     state = await get_checkpoint_state(saver, "t-legacy")
     truth = (await legacy.aget_state(config)).values["messages"]
-    assert _ids(state.messages) == _ids(truth) and len(truth) == 6
+    assert state.messages == truth and len(truth) == 6
 
 
 @pytest.mark.asyncio

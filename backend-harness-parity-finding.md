@@ -42,7 +42,7 @@ Two things that were true in production and visible nowhere at the call site:
   default of 25 — see `deepagents-0.7-upgrade-findings.md`*), not langgraph's
   default of 25. The `task` tool invokes a `CompiledSubAgent` with a fresh config, so
   the `.with_config` bound at build time is the budget that applies. Dropping it
-  would have silently cut it by 400×; `HARNESS_CONFIG` keeps it, and a test pins it.
+  would have silently cut it by ~200× (from 9_999 to the parent's 50); `HARNESS_CONFIG` keeps it, and a test pins it.
 
 ### The prompt fragment question
 

@@ -268,7 +268,7 @@ def _both(
 def test_sandbox_assembly_matches_create_deep_agent(model_name):
     """The whole point: same model, same tools, same middleware order, same
     prompt, same tool descriptions — whichever assembler built it, modulo the
-    two deviations on record."""
+    one deviation on record."""
     model = MODELS[model_name]()
 
     deep, ours = _both(model)
@@ -341,12 +341,19 @@ def test_a_system_message_prompt_is_extended_the_same_way():
     """`build_runnable`'s callers pass a plain string today, but the harness
     keeps deepagents' `SystemMessage` branch so the two stay interchangeable —
     including on a profiled model, where there is something to append."""
+    prompts = {}
     for model_name in ("openai", "anthropic-profiled"):
         deep, ours = _both(
             MODELS[model_name](), instructions=SystemMessage("You are a test agent")
         )
 
         assert ours["system_prompt"] == deep["system_prompt"]
+        prompts[model_name] = ours["system_prompt"]
+    # The branch has to append something on a profiled model, and nothing
+    # (not even a separator) on an unprofiled one.
+    assert prompts["openai"] == "You are a test agent"
+    assert prompts["anthropic-profiled"].startswith("You are a test agent\n\n")
+    assert "<use_parallel_tool_calls>" in prompts["anthropic-profiled"]
 
 
 def test_graph_config_matches_deepagents():

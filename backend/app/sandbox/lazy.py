@@ -36,16 +36,18 @@ class LazySandboxBackend(BaseSandbox):
     All BaseSandbox file operations (ls, read, write, edit, delete, grep, glob)
     route through execute(), so connecting the inner backend is sufficient.
 
-    While disconnected, nothing here raises: deepagents calls the backend
-    OUTSIDE any tool-call wrapper — large-tool-result eviction and
-    conversation-history eviction both write from middleware hooks — so a
-    raise there escapes ToolErrorMiddleware and kills the whole run, while an
-    error result makes deepagents skip the eviction and carry on. The file
-    operations return their protocol error results with a clear message, and
-    `execute` returns a failed `ExecuteResponse` so that any BaseSandbox
-    helper reaching it (0.7's write preflight, `delete`, future ones) degrades
-    the same way. The `execute` tool shows that response to the model as an
-    ordinary failed command.
+    While disconnected, the file operations and `execute` do not raise:
+    deepagents calls the backend OUTSIDE any tool-call wrapper —
+    large-tool-result eviction and conversation-history eviction both write
+    from middleware hooks — so a raise there escapes ToolErrorMiddleware and
+    kills the whole run, while an error result makes deepagents skip the
+    eviction and carry on. `ls`/`read`/`write`/`edit`/`glob`/`grep` return
+    their protocol error results with a clear message, and `execute` returns
+    a failed `ExecuteResponse`, so any BaseSandbox helper reaching it (0.7's
+    write preflight, the inherited `delete`, future ones) degrades the same
+    way; the `execute` tool shows that response to the model as an ordinary
+    failed command. `id`, `upload_files` and `download_files` still raise:
+    nothing reaches them outside a connected tool path.
     """
 
     def __init__(self) -> None:

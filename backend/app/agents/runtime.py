@@ -587,11 +587,11 @@ class Agent:
             has_input = isinstance(resolved_input, dict) and bool(
                 resolved_input.get("messages")
             )
-            if point is None:
+            if point is None or (not has_input and point.message is None):
                 if not has_input:
                     raise DomainValidationError("Nothing to regenerate on this thread.")
             else:
-                if not has_input and point.message is not None:
+                if not has_input:
                     resolved_input = {"messages": [point.message]}
                 if point.checkpoint_id is None:
                     await checkpointer.adelete_thread(self.thread.id)

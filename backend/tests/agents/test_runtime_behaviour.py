@@ -533,12 +533,13 @@ async def test_a_malformed_input_message_is_a_bad_request(in_memory_runtime, mes
 
 
 @pytest.mark.asyncio
-async def test_subagent_wiring_keeps_the_caller_prompt_ahead_of_the_task_block():
-    """A plain agent with subagents assembles its prompt caller-fragments-first.
-    `SubAgentMiddleware` sitting on the wrong side of the caller's stack moves
-    the `task` block ahead of them — a silent prompt rewrite on every
-    non-sandbox agent that has subagents, whose prompts are frozen at creation.
-    """
+async def test_plain_agent_with_subagents_binds_task_and_keeps_caller_fragments():
+    """A plain agent with subagents gets the `task` tool from the wired-in
+    `SubAgentMiddleware` and still carries the caller's own prompt fragments.
+    (deepagents 0.7's middleware injects no prompt fragment of its own, so its
+    position relative to the caller's stack is no longer visible in the
+    prompt; `test_plain_path_wires_subagents_after_the_caller_stack` pins the
+    order on the middleware list instead.)"""
     from deepagents.middleware.subagents import CompiledSubAgent
 
     from app.agents.current_date import CurrentDateMiddleware

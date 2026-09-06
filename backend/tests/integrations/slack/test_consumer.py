@@ -211,7 +211,7 @@ async def test_consumer_posts_approval_blocks_on_interrupt(monkeypatch):
     monkeypatch.setattr(
         consumer_mod,
         "pending_approval_requests",
-        lambda _root, _scope: [
+        lambda _root, _scope, **_: [
             {
                 "tool_call_id": "call_1",
                 "tool_name": "get_weather",
@@ -259,7 +259,7 @@ async def test_approval_cards_carry_the_interrupt_id_block_id(monkeypatch):
     monkeypatch.setattr(
         consumer_mod,
         "pending_approval_requests",
-        lambda _root, _scope: [
+        lambda _root, _scope, **_: [
             {"tool_call_id": "call_1", "tool_name": "t", "input": {}}
         ],
     )

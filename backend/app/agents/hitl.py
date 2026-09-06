@@ -221,7 +221,10 @@ async def _scope_of(
 
 
 def pending_approval_requests(
-    root: CheckpointState, scope: CheckpointState | None = None
+    root: CheckpointState,
+    scope: CheckpointState | None = None,
+    *,
+    interrupt_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Return the tool calls awaiting human approval on a paused checkpoint.
 
@@ -231,13 +234,16 @@ def pending_approval_requests(
     name+args, falling back to position) so callers get a stable
     `tool_call_id` for the approve/reject UI. Returns `[]` when not interrupted.
 
-    The interrupt is read off `root`; the tool calls off `scope` when given —
-    the subagent checkpoint `load_interrupt_scope` located — else off the
-    root. Without the scope, a subagent's approvals fall back to positional
-    `approval-<i>` ids: the root's last AI message only carries the `task`
-    call.
+    The interrupt is read off `root` — the one `interrupt_id` names, or the
+    first pending; with parallel subagents paused together, callers holding
+    an `InterruptScope` pass its `interrupt.id` so the requests are that
+    subagent's and not the first one's. The tool calls come off `scope` when
+    given — the subagent checkpoint `load_interrupt_scope` located — else off
+    the root. Without the scope, a subagent's approvals fall back to
+    positional `approval-<i>` ids: the root's last AI message only carries the
+    `task` call.
     """
-    interrupt = pending_interrupt(root)
+    interrupt = pending_interrupt(root, interrupt_id)
     interrupt_value = interrupt.value if interrupt else None
     requests = (
         (interrupt_value or {}).get("action_requests")
@@ -299,10 +305,19 @@ def build_resume_command(
     another surface), and `DomainValidationError` when the decisions don't
     cover the pending requests exactly.
     """
-    pending = pending_interrupt(root)
-    if pending is None:
+    if not pending_interrupts(root):
         raise StaleApprovalError("No approval is pending on this thread.")
-    if pending.id is not None and resume.get("interrupt_id") != pending.id:
+    # Addressed by id: with parallel subagents paused together the resume
+    # must answer the interrupt the client named, not the first pending one.
+    # An id that matches nothing falls back to the first pending interrupt,
+    # so the stale check below fires for a resolved id and an id-less (older)
+    # checkpoint keeps resuming through the plain form.
+    interrupt_id = resume.get("interrupt_id")
+    pending = pending_interrupt(
+        root, interrupt_id if isinstance(interrupt_id, str) else None
+    ) or pending_interrupt(root)
+    assert pending is not None  # guarded by `pending_interrupts(root)` above
+    if pending.id is not None and interrupt_id != pending.id:
         raise StaleApprovalError("This approval request was already handled.")
 
     # No `or []`: a falsy non-list ({}, 0, "", explicit null) must reach the
@@ -320,7 +335,10 @@ def build_resume_command(
             k: v for k, v in decision.items() if k != "tool_call_id"
         }
 
-    expected = [r["tool_call_id"] for r in pending_approval_requests(root, scope)]
+    expected = [
+        r["tool_call_id"]
+        for r in pending_approval_requests(root, scope, interrupt_id=pending.id)
+    ]
     missing = [tc for tc in expected if tc not in supplied]
     unknown = [tc for tc in supplied if tc not in expected]
     if missing or unknown:

@@ -1,22 +1,18 @@
 # deepagents 0.7 upgrade (Stage 2) — spike findings
 
-> **Status (2026-09-06): implemented on branch `feat/deepagents-0.7`, uncommitted.**
-> Decisions taken as recommended below: base prompt dropped, lean fragments accepted,
-> sandbox-scoped `delete` tool accepted (not yet in the sandbox `tools` map), the
-> general-purpose subagent kept but without `TodoListMiddleware`, subagent tool budget
-> sized from the parent's `recursion_limit`. Result: 1040 passed / 1 skipped, ruff and
-> mypy clean, the parity test re-pinned to 0.7.13 with two recorded deviations (todos on
-> the main stack, no `DeepAgentState`) and now also comparing tool descriptions and the
-> bound graph config. Not done: live QA (sandbox chat, subagent HITL, an Anthropic thread).
->
-> **Follow-up (same day): `DeepAgentState` adopted too.** Every graph now compiles with
-> deepagents' `DeltaChannel` messages state; the six raw `channel_values["messages"]`
-> readers go through `app/agents/checkpoints.get_checkpoint_state`, a node-less reader
-> graph over `Pregel.aget_state`. That surfaced a real `DeltaChannel` bug on forks, so
-> regeneration now forks from the end of the previous turn instead of the input
-> checkpoint. See "`DeepAgentState` — adopted" below. 1047 tests, ruff, mypy green;
-> smoke-tested against the dev Postgres (`AsyncPostgresSaver`), including existing
-> pre-migration threads.
+> **Status: shipped in PR #319 (2026-09-06).** Decisions taken as recommended below:
+> base prompt dropped, lean fragments accepted, sandbox-scoped `delete` tool accepted (not
+> yet in the sandbox `tools` map), the general-purpose subagent kept but without
+> `TodoListMiddleware`, subagent tool budget sized from the parent's `recursion_limit`.
+> `DeepAgentState` adopted for every graph, with the checkpoint reader
+> (`app/agents/checkpoints.py`) replacing the six raw `channel_values["messages"]` reads,
+> regeneration forking from the end of the previous turn, and the protocol emitter listing
+> messages on a run's first and closing `values` snapshots. The parity test is re-pinned to
+> 0.7.13 with one recorded deviation (todos on the main stack) and also compares tool
+> descriptions and the bound graph config. Verified: full pytest, ruff, mypy, a smoke run
+> against the dev Postgres saver including pre-migration threads, and the regeneration wire
+> replayed through the SDK's message projection. The sections below are the spike record
+> that led there, kept as written.
 
 **Date**: 2026-09-06. Follows the Stage 2 section of
 [`framework-upgrade-assessment.md`](./framework-upgrade-assessment.md). Method: a
@@ -292,9 +288,3 @@ All of 1–4 change the frozen-per-thread prompt once, which any framework upgra
 5. Re-pin `test_harness_parity.py`; fix the two other tests.
 6. Manual QA: one sandbox chat (create sandbox, write/edit/delete, `task`), one
    subagent HITL approve/reject, one Anthropic thread.
-
-## Spike artefacts
-
-Worktree: `/private/tmp/claude-501/-Users-keurcien-Documents-projects-auxilia/e59ee7db-3261-4e9d-bdf7-c9418014928f/scratchpad/wt-da07`
-on branch `spike/deepagents-0.7` (no commits; only `pyproject.toml` + `uv.lock` changed).
-Remove with `git worktree remove <path> --force && git branch -D spike/deepagents-0.7`.

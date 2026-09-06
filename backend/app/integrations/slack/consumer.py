@@ -284,7 +284,9 @@ class SlackRunConsumer(DeliveryConsumer):
         # A subagent's gated calls live in its own checkpoint; the card says
         # which subagent asked, since the tool name alone is ambiguous.
         subagent = scope.subagent_type
-        for request in pending_approval_requests(scope.root, scope.state):
+        for request in pending_approval_requests(
+            scope.root, scope.state, interrupt_id=scope.interrupt.id
+        ):
             blocks = build_tool_approval_blocks(
                 request["tool_call_id"],
                 request["input"],

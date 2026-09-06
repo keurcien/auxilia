@@ -514,6 +514,34 @@ async def test_parallel_subagent_interrupts_are_addressed_by_id():
         build_resume_command(
             root, {"interrupt_id": "cd" * 16, "decisions": []}, scope_b.state
         )
+    # The second subagent's approvals and resume are its own, not the first's:
+    # its interrupt is selected by id, both for the requests and the command.
+    root_b = checkpoint_state(
+        [AIMessage(content="", tool_calls=calls)],
+        interrupts=[
+            ("task-a", {"action_requests": [{"name": "tool_a", "args": {}}]}, id_a),
+            ("task-b", {"action_requests": [{"name": "tool_b", "args": {}}]}, id_b),
+        ],
+    )
+    sub_b_calls = _checkpoint(
+        None,
+        [
+            AIMessage(
+                content="", tool_calls=[{"id": "b_call", "name": "tool_b", "args": {}}]
+            )
+        ],
+    )
+    assert pending_approval_requests(root_b, sub_b_calls, interrupt_id=id_b) == [
+        {"tool_call_id": "b_call", "tool_name": "tool_b", "input": {}}
+    ]
+    assert build_resume_command(
+        root_b,
+        {
+            "interrupt_id": id_b,
+            "decisions": [{"tool_call_id": "b_call", "type": "approve"}],
+        },
+        sub_b_calls,
+    ) == {"resume": {id_b: {"decisions": [{"type": "approve"}]}}}
 
 
 async def test_id_less_parallel_interrupts_resolve_by_their_own_write():
