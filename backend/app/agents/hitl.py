@@ -305,8 +305,6 @@ def build_resume_command(
     another surface), and `DomainValidationError` when the decisions don't
     cover the pending requests exactly.
     """
-    if not pending_interrupts(root):
-        raise StaleApprovalError("No approval is pending on this thread.")
     # Addressed by id: with parallel subagents paused together the resume
     # must answer the interrupt the client named, not the first pending one.
     # An id that matches nothing falls back to the first pending interrupt,
@@ -316,7 +314,8 @@ def build_resume_command(
     pending = pending_interrupt(
         root, interrupt_id if isinstance(interrupt_id, str) else None
     ) or pending_interrupt(root)
-    assert pending is not None  # guarded by `pending_interrupts(root)` above
+    if pending is None:
+        raise StaleApprovalError("No approval is pending on this thread.")
     if pending.id is not None and interrupt_id != pending.id:
         raise StaleApprovalError("This approval request was already handled.")
 
