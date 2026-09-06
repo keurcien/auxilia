@@ -214,6 +214,15 @@ redone is the thread's first, there is no parent, so the thread's checkpoints ar
 `test_regenerating_twice_keeps_one_copy_of_the_question` pins it via the model's input
 on the following turn. This is worth an upstream issue too.
 
+**Regeneration on the page.** Found in local testing: after a regeneration the superseded
+question and answer stayed on screen until a refresh. Pre-existing, not caused by the
+fork change: the client seeds a run with the hydrated history and merges
+`values.messages` snapshots with the messages it streams, and the emitter had dropped
+`messages` from every root `values` event since the churn fix (PR #310). The run's first
+root snapshot now carries the full message list — one serialization per run — and later
+snapshots drop it again, so the page converges on the fork's branch as soon as the run
+starts.
+
 **Verification** (`tests/agents/test_checkpoints.py` on `InMemorySaver`, plus
 `pg_smoke.py` / `pg_legacy.py` against the dev `AsyncPostgresSaver`): reader equals
 `graph.aget_state` past a snapshot (62-message thread, raw checkpoint without `messages`),
