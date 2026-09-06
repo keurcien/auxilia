@@ -73,10 +73,11 @@ from app.agents.protocol.messages import serialize_message, text_of
 
 logger = logging.getLogger(__name__)
 
-#: State keys never forwarded on `values`: messages ride their own channel,
-#: interrupts become `input.requested`, and the deepagents virtual filesystem
-#: is re-sent on every superstep (megabytes on sandbox-heavy threads) while no
-#: stream consumer reads it — history comes from the checkpoint.
+#: State keys never forwarded on `values`: messages ride their own channel
+#: (except once per run, see `_on_values`), interrupts become
+#: `input.requested`, and the deepagents virtual filesystem is re-sent on
+#: every superstep (megabytes on sandbox-heavy threads) while no stream
+#: consumer reads it — history comes from the checkpoint.
 _VALUES_DROP = frozenset({"messages", "files", "__interrupt__"})
 
 #: langgraph `SubgraphStatus` → protocol `AgentStatus`.
@@ -115,6 +116,7 @@ class ProtocolEmitter:
         self._interrupt_ids: set[str] = set()
         self._echoed_message_ids: set[str] = set()
         self._bound_namespaces: set[str] = set()
+        self._root_snapshot_sent = False
         self._tool_started_ids: set[str] = set()
         #: tool-call id -> tool name, from `tool-started`; a bubbling
         #: interrupt is only ever reported against the `task` tool.
@@ -241,6 +243,19 @@ class ProtocolEmitter:
             out.extend(self._input_requested(namespace, interrupts))
             return out
 
+        if not self._root_snapshot_sent:
+            # The run's first root snapshot carries the whole message list, so
+            # the client converges on the server's history before this run
+            # adds to it. The client merges `values.messages` with the
+            # messages it streams; without the snapshot it keeps whatever it
+            # showed before the run, which is wrong whenever the run does not
+            # simply append — a regeneration forks the thread from before its
+            # last turn, and the old question and answer would linger until a
+            # refresh. Later supersteps repeat the list unchanged but for this
+            # run's own messages, which stream on their own channel, so they
+            # are dropped again (O(n²) wire churn on long threads — PR #310).
+            self._root_snapshot_sent = True
+            trimmed["messages"] = [serialize_message(m) for m in messages]
         out.append(ev.values_event([], trimmed))
         for message in messages:
             # Block-content human messages (attachments) are skipped: the

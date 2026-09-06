@@ -390,11 +390,16 @@ async def test_values_are_trimmed_and_interrupt_becomes_input_requested(scenario
     events = await _collect(
         agent, {"messages": [HumanMessage(content="hi", id="human-1")]}, config
     )
-    for values in _of(events, "values", []):
+    root_values = _of(events, "values", [])
+    # The run's first root snapshot carries the history the client converges
+    # on; every later one drops `messages` (they stream on their own channel).
+    assert [m["id"] for m in _data(root_values[0])["messages"]] == ["human-1"]
+    for values in root_values[1:]:
         assert "messages" not in _data(values)
+    for values in root_values:
         assert "files" not in _data(values)
         assert "__interrupt__" not in _data(values)
-    assert any("run_tool_call_count" in _data(v) for v in _of(events, "values", []))
+    assert any("run_tool_call_count" in _data(v) for v in root_values)
 
     [requested] = _of(events, "input.requested")
     assert requested["params"]["namespace"] == []
@@ -815,7 +820,9 @@ def test_block_content_and_idless_human_messages_are_not_echoed():
 
 
 def test_values_unwrap_overwrite_and_drop_files():
-    events = ProtocolEmitter().translate(
+    emitter = ProtocolEmitter()
+    emitter.translate(_envelope("values", [], {"messages": []}))  # the snapshot
+    events = emitter.translate(
         _envelope(
             "values",
             [],
@@ -827,6 +834,29 @@ def test_values_unwrap_overwrite_and_drop_files():
         )
     )
     assert _data(events[0]) == {"todos": [{"content": "x"}]}
+
+
+def test_first_root_values_carries_the_message_history_once():
+    """The client merges `values.messages` with what it streams; the run's first
+    root snapshot is where it learns the server's history. A regeneration
+    forks the thread from before its last turn, so that snapshot is what
+    removes the superseded question and answer from the page — without it they
+    linger until a refresh. Later snapshots drop `messages` again (churn)."""
+    emitter = ProtocolEmitter()
+    history = [HumanMessage("q1", id="h1"), AIMessage("a1", id="a1")]
+
+    first = emitter.translate(_envelope("values", [], {"messages": history}))
+    second = emitter.translate(
+        _envelope("values", [], {"messages": [*history, AIMessage("a2", id="a2")]})
+    )
+
+    assert [m["id"] for m in _data(first[0])["messages"]] == ["h1", "a1"]
+    assert "messages" not in _data(second[0])
+    # Namespaced snapshots keep their own contract: the first human message
+    # only, so the client can bind the namespace to its `task` call.
+    emitter = ProtocolEmitter()
+    scoped = emitter.translate(_envelope("values", ["tools:t1"], {"messages": history}))
+    assert [m["id"] for m in _data(scoped[0])["messages"]] == ["h1"]
 
 
 def test_interrupts_are_deduped_by_id():
