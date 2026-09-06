@@ -264,6 +264,6 @@ class TestLifecycle:
         backend.persist()
         assert store.saved == {}
 
-    def test_delete(self, backend, transport):
-        backend.delete()
+    def test_kill(self, backend, transport):
+        backend.kill()
         assert transport.deleted == ["sbx-test"]

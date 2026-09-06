@@ -356,7 +356,7 @@ async def test_sandbox_agent_is_offered_the_full_harness_toolset(in_memory_runti
     assert "task" in names
     system = system_text(model)
     assert system.startswith("You are a test agent")
-    assert "You are a deep agent" in system
+    assert "write_todos" in system  # the todo middleware's prompt fragment
 
 
 @pytest.mark.asyncio
@@ -382,7 +382,7 @@ async def test_plain_agent_is_offered_only_its_own_tools(in_memory_runtime):
     assert {t.name for t in model.bound_tools} == {"add"}
     system = system_text(model)
     assert system.startswith("You are a test agent")
-    assert "You are a deep agent" not in system
+    assert "write_todos" not in system
 
 
 # --- Regeneration and input resolution --------------------------------------
@@ -484,5 +484,5 @@ async def test_subagent_wiring_keeps_the_caller_prompt_ahead_of_the_task_block()
 
     await graph.ainvoke({"messages": [{"role": "user", "content": "hi"}]})
 
-    system = system_text(model)
-    assert system.index("Current date:") < system.index("`task` (subagent spawner)")
+    assert "task" in {t.name for t in model.bound_tools}
+    assert "Current date:" in system_text(model)

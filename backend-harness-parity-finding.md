@@ -37,7 +37,9 @@ Two things that were true in production and visible nowhere at the call site:
   hidden subagent that inherits the parent's full toolset and runs its own todo /
   filesystem / summarization / prompt-caching stack. Agents with no subagents
   configured are not subagent-free.
-- **`recursion_limit=9_999` is what a sandbox subagent runs under**, not langgraph's
+- **`recursion_limit=9_999` is what a sandbox subagent runs under** (*correction
+  2026-09-06: without it a subagent inherits the parent's limit, 50, not langgraph's
+  default of 25 — see `deepagents-0.7-upgrade-findings.md`*), not langgraph's
   default of 25. The `task` tool invokes a `CompiledSubAgent` with a fresh config, so
   the `.with_config` bound at build time is the budget that applies. Dropping it
   would have silently cut it by 400×; `HARNESS_CONFIG` keeps it, and a test pins it.

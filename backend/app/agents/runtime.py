@@ -61,11 +61,6 @@ from app.threads.models import ThreadDB
 logger = logging.getLogger(__name__)
 
 
-# LangGraph's default recursion limit — what a subagent actually runs under:
-# the deepagents ``task`` tool forwards the parent's ``configurable`` (and so
-# its checkpointer and namespace) but not its ``recursion_limit``.
-SUBAGENT_RECURSION_LIMIT = 25
-
 RECURSION_LIMIT_MESSAGE = (
     "I reached my step limit for this turn. Send any follow-up message "
     '(e.g. "continue") and I\'ll pick up where I left off.'
@@ -154,13 +149,15 @@ def build_runnable(
 
     middleware = [*harness, *base_middleware]
     if sandbox_backend is None and subagents:
-        # Deliberately on the far side of the caller's stack, where the plain
-        # path has always put it — the harness wires its own SubAgentMiddleware
-        # *before* the caller's, because that is where deepagents puts it. Both
-        # positions are load-bearing: a middleware's system-prompt fragment
-        # lands in list order, so moving this one rewrites the prompt (and
-        # thread prompts are frozen at creation).
-        middleware.append(SubAgentMiddleware(backend=StateBackend, subagents=subagents))
+        # On the far side of the caller's stack, where the plain path has
+        # always put it — the harness wires its own SubAgentMiddleware *before*
+        # the caller's, because that is where deepagents puts it. Since
+        # deepagents 0.7 the middleware injects no system-prompt fragment of
+        # its own (the `task` tool description carries the agent list), so the
+        # position only orders hooks now.
+        middleware.append(
+            SubAgentMiddleware(backend=StateBackend(), subagents=subagents)
+        )
     if output_schema is not None:
         middleware.append(DeferredStructuredOutputMiddleware(format_mode))
     middleware.append(ToolErrorMiddleware())
@@ -216,8 +213,11 @@ def build_agent_middleware(
 
     ``recursion_limit`` — the tool budget is sized to end the run gracefully
     one step before the graph's own recursion limit trips. A subagent runs
-    under langgraph's default (``SUBAGENT_RECURSION_LIMIT``) rather than ours,
-    because ``task`` doesn't forward the parent's ``recursion_limit``.
+    under the same limit as its parent: the ``task`` tool invokes it inside
+    the parent's tool node, and langgraph seeds the nested run from that
+    ambient config, ``recursion_limit`` included (on the sandbox path the
+    graph's bound ``HARNESS_CONFIG`` then wins the merge, so the tool budget
+    is the limit that actually ends the run).
     """
     checkpointed = interrupt_on is not None
     return [
@@ -322,13 +322,14 @@ class ResolvedAgent:
 
         A subagent gets its own copy of the shared middleware stack rather than
         inheriting the parent's: the deepagents ``task`` tool invokes it as a
-        nested subgraph (parent middleware and recursion_limit don't propagate,
-        the checkpointer does) and reports back only ``messages[-1].text``, so
-        a subagent that exits its loop silently (invalid tool-call JSON) would
-        return an empty ToolMessage and one that blows the recursion limit
-        would discard its progress. Its own ``interrupt_on`` gates its tools:
-        the interrupt surfaces on the root checkpoint and the web client /
-        Slack approve it like a parent's (issue #301).
+        nested subgraph (parent middleware doesn't propagate; the run config —
+        checkpointer, namespace, recursion limit — does) and reports back only
+        the last AI message's text, so a subagent that exits its loop silently
+        (invalid tool-call JSON) would return an empty ToolMessage and one that
+        blows the recursion limit would discard its progress. Its own
+        ``interrupt_on`` gates its tools: the interrupt surfaces on the root
+        checkpoint and the web client / Slack approve it like a parent's
+        (issue #301).
         """
         sandbox = self.sandbox is not None
         # Subagent sandboxes get no turn-end persist hook: CompiledSubAgent
@@ -342,7 +343,7 @@ class ResolvedAgent:
             sandbox_provider=self.sandbox.provider if self.sandbox else None,
             base_middleware=build_agent_middleware(
                 created_at,
-                recursion_limit=SUBAGENT_RECURSION_LIMIT,
+                recursion_limit=agent_settings.recursion_limit,
                 interrupt_on=self.prepared.interrupt_on,
             ),
         )

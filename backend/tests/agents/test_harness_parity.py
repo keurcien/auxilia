@@ -1,4 +1,4 @@
-"""`build_runnable` must build exactly what `create_deep_agent` built.
+"""`build_runnable` must build what `create_deep_agent` builds.
 
 The runtime used to have two construction paths: plain agents through
 `create_agent`, sandbox agents through `create_deep_agent`. P2-3 collapsed
@@ -7,11 +7,13 @@ explicitly (`app/agents/harness.py`) — which is only safe if the explicit
 assembly is a faithful reproduction. That is what these tests check: both
 paths are built for the same inputs, the `create_agent(**kwargs)` each one
 would issue is captured, and the two are compared middleware for middleware,
-tool for tool, byte for byte on the prompt.
+tool for tool, byte for byte on the prompt and on every tool description.
 
-Deliberate deviations are listed in `EXPECTED_DEVIATIONS` with a reason. An
-empty list means the reproduction is exact; anything else is a decision
-someone made on purpose, and this file is where it is recorded.
+Deliberate deviations are listed in `EXPECTED_DEVIATIONS` with a reason, and
+`comparable()` is where each one is asserted and then factored out of the
+comparison. Anything not on that list has to match exactly, so a deepagents
+upgrade that changes the bundle fails here first, and the decision to follow
+it or not gets written down in this file.
 """
 
 from datetime import UTC, datetime
@@ -19,6 +21,7 @@ from unittest.mock import patch
 
 import deepagents.graph as deepagents_graph
 import pytest
+from deepagents.graph import DeepAgentState
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.subagents import CompiledSubAgent, SubAgentMiddleware
 from langchain_anthropic import ChatAnthropic
@@ -38,8 +41,15 @@ from app.sandbox.lazy import LazySandboxBackend
 from tests.agents.scripted_model import ScriptedChatModel
 
 
-EXPECTED_DEVIATIONS: list[str] = []
-"""Differences we accept between the two assemblies. Keep it empty."""
+EXPECTED_DEVIATIONS: list[str] = [
+    "TodoListMiddleware leads the main stack: deepagents 0.7 dropped it from "
+    "the default bundle, but the web client renders the `todos` channel.",
+    "No DeepAgentState: its DeltaChannel only materialises `messages` in "
+    "channel_values on snapshot steps, and hitl.py / protocol/service.py / "
+    "read_run_result / the thread read endpoint read that key raw.",
+]
+"""Differences we accept between the two assemblies. Each is asserted in
+`comparable()`; add an entry there when you add one here."""
 
 
 @tool
@@ -76,21 +86,37 @@ MODELS = {
 class _Sentinel:
     """Stands in for the compiled graph so nothing is actually built."""
 
+    config: dict | None = None
+
     def with_config(self, config):
         self.config = config
         return self
 
 
 def _capture(target: str):
-    """Patch `create_agent` at `target` and record the kwargs it was called with."""
+    """Patch `create_agent` at `target` and record the kwargs it was called with.
+
+    The graph config bound afterwards with `.with_config` lands in
+    `seen["config"]` once the assembler returns.
+    """
     seen: dict = {}
+    graph = _Sentinel()
 
     def fake_create_agent(model=None, **kwargs):
         seen["model"] = model
         seen.update(kwargs)
-        return _Sentinel()
+        return graph
 
-    return seen, patch(target, fake_create_agent)
+    class _patcher:
+        def __enter__(self):
+            self._p = patch(target, fake_create_agent)
+            self._p.__enter__()
+
+        def __exit__(self, *exc):
+            self._p.__exit__(*exc)
+            seen["config"] = graph.config
+
+    return seen, _patcher()
 
 
 def via_deep_agent(model, **kwargs):
@@ -117,13 +143,15 @@ def describe(seen: dict) -> dict:
 
     Middleware instances are not comparable by identity or equality, so each
     is reduced to what actually reaches the model: its class, its registered
-    name, the tools it injects, and any system-prompt fragment it contributes.
+    name, the tools it injects (name and description), and any system-prompt
+    fragment it contributes.
     """
     return {
         "model": seen["model"],
         "tools": [t.name for t in seen["tools"]],
         "system_prompt": _prompt_text(seen["system_prompt"]),
         "response_format": seen["response_format"],
+        "state_schema": seen.get("state_schema"),
         "middleware": [_describe_middleware(m) for m in seen["middleware"]],
     }
 
@@ -133,12 +161,13 @@ def _describe_middleware(m) -> dict:
         "class": type(m).__name__,
         "name": m.name,
         "tools": [t.name for t in getattr(m, "tools", [])],
+        "tool_descriptions": {t.name: t.description for t in getattr(m, "tools", [])},
         "system_prompt": getattr(m, "system_prompt", None),
     }
     if isinstance(m, SubAgentMiddleware):
         # Recurse, or the auto-added general-purpose subagent goes uncompared:
-        # its own todo / filesystem / summarization / prompt-caching stack and
-        # its profile-suffixed prompt are all invisible from the outside, and
+        # its own filesystem / summarization / prompt-caching stack and its
+        # profile-suffixed prompt are all invisible from the outside, and
         # dropping any of them would diverge from `create_deep_agent` silently.
         described["subagents"] = [_describe_subagent(s) for s in m._subagents]
     return described
@@ -172,6 +201,31 @@ def _prompt_text(prompt) -> str:
     return "".join(
         block["text"] for block in prompt.content_blocks if block.get("type") == "text"
     )
+
+
+def comparable(ours: dict, deep: dict) -> tuple[dict, dict]:
+    """Assert each expected deviation, then return both projections without it.
+
+    Everything left has to match exactly.
+    """
+    assert len(EXPECTED_DEVIATIONS) == 2
+    # Shallow copies: the projections hold the model instance, which does not
+    # deepcopy (its HTTP client carries a lock), and nothing below mutates deeper.
+    ours = {**ours, "middleware": list(ours["middleware"])}
+    deep = {**deep, "middleware": list(deep["middleware"])}
+
+    # 1. TodoListMiddleware leads our main stack and is absent from deepagents'.
+    assert ours["middleware"][0]["class"] == "TodoListMiddleware"
+    assert ours["middleware"][0]["tools"] == ["write_todos"]
+    assert all(m["class"] != "TodoListMiddleware" for m in deep["middleware"])
+    del ours["middleware"][0]
+
+    # 2. deepagents compiles with DeepAgentState; we keep create_agent's default.
+    assert deep["state_schema"] is DeepAgentState
+    assert ours["state_schema"] is None
+    del ours["state_schema"], deep["state_schema"]
+
+    return ours, deep
 
 
 def _both(
@@ -221,12 +275,13 @@ def _both(
 @pytest.mark.parametrize("model_name", list(MODELS))
 def test_sandbox_assembly_matches_create_deep_agent(model_name):
     """The whole point: same model, same tools, same middleware order, same
-    prompt — whichever assembler built it."""
+    prompt, same tool descriptions — whichever assembler built it, modulo the
+    two deviations on record."""
     model = MODELS[model_name]()
 
     deep, ours = _both(model)
 
-    assert EXPECTED_DEVIATIONS == []
+    ours, deep = comparable(ours, deep)
     assert ours == deep
 
 
@@ -234,14 +289,18 @@ def test_sandbox_assembly_matches_create_deep_agent(model_name):
 def test_harness_prompt_is_reproduced_verbatim(model_name):
     """Called out separately because the prompt is the part a diff of class
     names would not catch — and the part a per-thread frozen prompt cannot
-    tolerate drifting."""
+    tolerate drifting. deepagents 0.7 ships no authored base prompt: only a
+    registered profile adds anything to the agent's own instructions."""
     model = MODELS[model_name]()
 
     deep, ours = _both(model)
 
     assert ours["system_prompt"] == deep["system_prompt"]
-    assert ours["system_prompt"].startswith("You are a test agent\n\n")
-    assert "You are a deep agent" in ours["system_prompt"]
+    assert ours["system_prompt"].startswith("You are a test agent")
+    if model_name == "anthropic-profiled":
+        assert "<use_parallel_tool_calls>" in ours["system_prompt"]
+    else:
+        assert ours["system_prompt"] == "You are a test agent"
 
 
 def test_caller_subagents_are_appended_after_the_general_purpose_one():
@@ -256,8 +315,8 @@ def test_caller_subagents_are_appended_after_the_general_purpose_one():
     deep, ours = _both(model, subagents=subagents)
 
     task = next(m for m in ours["middleware"] if m["name"] == "SubAgentMiddleware")
-    assert "general-purpose" in task["system_prompt"]
-    assert "helper" in task["system_prompt"]
+    listing = task["tool_descriptions"]["task"]
+    assert listing.index("general-purpose") < listing.index("helper")
     assert task == next(
         m for m in deep["middleware"] if m["name"] == "SubAgentMiddleware"
     )
@@ -274,6 +333,7 @@ def test_caller_middleware_keeps_its_place_in_the_stack():
         model, base_middleware=[PatchToolCallsMiddleware()], output_schema=schema
     )
 
+    ours, deep = comparable(ours, deep)
     names = [m["class"] for m in ours["middleware"]]
     assert names == [m["class"] for m in deep["middleware"]]
     assert names.index("PatchToolCallsMiddleware") < names.index(
@@ -287,18 +347,25 @@ def test_caller_middleware_keeps_its_place_in_the_stack():
 
 def test_a_system_message_prompt_is_extended_the_same_way():
     """`build_runnable`'s callers pass a plain string today, but the harness
-    keeps deepagents' `SystemMessage` branch so the two stay interchangeable."""
-    model = MODELS["openai"]()
-    deep, ours = _both(model, instructions=SystemMessage("You are a test agent"))
+    keeps deepagents' `SystemMessage` branch so the two stay interchangeable —
+    including on a profiled model, where there is something to append."""
+    for model_name in ("openai", "anthropic-profiled"):
+        deep, ours = _both(
+            MODELS[model_name](), instructions=SystemMessage("You are a test agent")
+        )
 
-    assert ours["system_prompt"] == deep["system_prompt"]
+        assert ours["system_prompt"] == deep["system_prompt"]
 
 
 def test_graph_config_matches_deepagents():
     """`create_deep_agent` binds a recursion budget and trace metadata onto the
-    graph. Dropping it would silently cut a sandbox subagent's budget from
-    9_999 to langgraph's default of 25."""
+    graph, and a bound config wins the merge with the parent's run config — so
+    it is what a sandbox *subagent* runs under. Compare against the real thing
+    rather than a constant, so a metadata rename upstream shows up here."""
     model = MODELS["openai"]()
+    deep = via_deep_agent(
+        model, tools=[*TOOLS, *SANDBOX_TOOLS], backend=LazySandboxBackend()
+    )
     with (
         patch("app.sandbox.tools.create_sandbox_tools", return_value=[create_sandbox]),
         patch("app.agents.runtime.create_agent", return_value=_Sentinel()),
@@ -310,9 +377,8 @@ def test_graph_config_matches_deepagents():
             sandbox_backend=LazySandboxBackend(),
         )
 
-    assert built.config == HARNESS_CONFIG
+    assert built.config == HARNESS_CONFIG == deep["config"]
     assert HARNESS_CONFIG["recursion_limit"] == 9_999
-    assert HARNESS_CONFIG["metadata"]["ls_integration"] == "deepagents"
 
 
 def test_no_sandbox_means_no_harness():
@@ -331,6 +397,7 @@ def test_no_sandbox_means_no_harness():
     assert described["system_prompt"] == "You are a test agent"
     assert described["tools"] == ["add"]
     assert [m["class"] for m in described["middleware"]] == ["ToolErrorMiddleware"]
+    assert seen["config"] is None
 
 
 def test_a_caller_supplied_general_purpose_subagent_replaces_the_default():
@@ -354,12 +421,30 @@ def test_a_caller_supplied_general_purpose_subagent_replaces_the_default():
     )
 
 
+def test_general_purpose_subagent_carries_no_todo_middleware():
+    """The parent keeps `TodoListMiddleware` for the UI; the hidden
+    general-purpose subagent has no UI, so it follows deepagents 0.7 and drops
+    the tool and its prompt fragment."""
+    deep, ours = _both(MODELS["openai"]())
+
+    task = next(m for m in ours["middleware"] if m["name"] == "SubAgentMiddleware")
+    (general_purpose,) = task["subagents"]
+    assert general_purpose["name"] == "general-purpose"
+    assert "TodoListMiddleware" not in [
+        m["class"] for m in general_purpose["middleware"]
+    ]
+    assert task == next(
+        m for m in deep["middleware"] if m["name"] == "SubAgentMiddleware"
+    )
+
+
 def test_plain_path_wires_subagents_after_the_caller_stack():
     """The plain path has always put `SubAgentMiddleware` on the far side of the
-    caller's middleware, where the harness puts its own *before*. The position
-    is not cosmetic: a middleware's system-prompt fragment lands in list order,
-    so moving this one rewrites the prompt of every non-sandbox agent that has
-    subagents — and thread prompts are frozen at creation."""
+    caller's middleware, where the harness puts its own *before*. Since
+    deepagents 0.7 the middleware injects no prompt fragment, so the position
+    only orders hooks — but it is still the position every plain agent with
+    subagents has run under, and a move is a behaviour change to make on
+    purpose."""
     seen, patcher = _capture("app.agents.runtime.create_agent")
     caller = CurrentDateMiddleware(datetime(2026, 1, 1, tzinfo=UTC))
     with patcher:

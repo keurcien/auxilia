@@ -64,7 +64,7 @@ class DaytonaProvider(BaseSandboxProvider):
         return DaytonaSandbox(sandbox, timeout=self.config.timeout)
 
     def _destroy_backend(self, backend: DaytonaSandbox) -> None:
-        backend.delete()
+        backend.kill()
 
     def connect(self, sandbox_id: str) -> tuple[DaytonaSandbox, str]:
         client = self._client()
