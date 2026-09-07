@@ -69,7 +69,10 @@ class LazySandboxBackend(BaseSandbox):
                 "mkdir -p " + " ".join(shlex.quote(path) for path in directories)
             )
             if created.exit_code != 0:
-                raise RuntimeError("Failed to create sandbox skill directories")
+                raise RuntimeError(
+                    "Failed to create sandbox skill directories "
+                    f"(exit code {created.exit_code}): {created.output[:2000]}"
+                )
             results = backend.upload_files(self.skill_files)
             if len(results) != len(self.skill_files) or any(r.error for r in results):
                 raise RuntimeError("Failed to materialize skill files in sandbox")

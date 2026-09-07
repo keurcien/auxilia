@@ -9,7 +9,7 @@ Branch: `feat/skills-preview`. No Git repository integration or synchronization 
 3. In **Try & teach**, select an agent and model and try a prompt. The new conversation uses a frozen copy of that draft without changing the agent's published skills. Return to the skill to mark the result passed or failed and save useful examples.
 4. Publish a version. In the **Agents** tab or an agent's editor, select that version. Publishing later versions does not update existing agent selections.
 5. Chat with the agent. Its `read_skill` tool advertises short skill descriptions and loads instructions/resources on demand. Instruction skills work without a sandbox.
-6. To test scripts, enable **Requires code execution**, add a file such as `scripts/check.py`, and attach the skill to an agent with a configured sandbox. After the sandbox connects, files are available under `/skills/<identifier>/<bundle-hash>/`. Invoke scripts through the sandbox's normal execution tools.
+6. To test scripts, enable **Requires code execution**, add a file such as `scripts/check.py`, and attach the skill to an agent with a configured sandbox. After the sandbox connects, files are available under `/tmp/auxilia-skills/<identifier>/<bundle-hash>/`. Invoke scripts through the sandbox's normal execution tools.
 
 ## Authoring and sharing
 
@@ -35,3 +35,5 @@ The implementation includes service/runtime tests for authorization, optimistic 
 Backend and frontend tests, TypeScript checking and a production frontend build were run locally. Browser smoke testing covered the library and draft authoring/publication using a disposable SQLite workspace. Live model-driven authoring and execution against a remote sandbox still need testing with your configured providers. Migration SQL was generated for Postgres, but a live Postgres migration could not be run in this environment.
 
 Examples and passed/failed results are manual feedback, not automated evaluations. Bundle contents are copied into run snapshots; for large installations, deduplicated blobs or a provider-neutral object-store adapter would be a later optimization. There is no dependency lockfile, Git integration or automatic publication.
+
+Skill files use `/tmp/auxilia-skills` so setup does not require permission to create directories at the filesystem root. After updating from the initial preview, ask the agent to call `read_skill` again for the new path, or start a new conversation. No database migration or republishing is needed for this path change.

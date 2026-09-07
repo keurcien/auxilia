@@ -75,6 +75,11 @@ async def resolve_skills(
     return catalog
 
 
+def skill_directory(bundle: SkillBundle) -> str:
+    """Use sandbox-writable storage, without requiring root permissions."""
+    return f"/tmp/auxilia-skills/{bundle.name}/{bundle.digest()}"
+
+
 def catalog_tools(catalog: dict):
     entries = {e["bundle"]["name"]: e for e in catalog.get("entries", [])}
     if not entries:
@@ -97,7 +102,7 @@ def catalog_tools(catalog: dict):
         if name not in entries:
             return "Skill is not in this agent's catalog."
         bundle = SkillBundle.model_validate(entries[name]["bundle"])
-        root = f"/skills/{name}/{bundle.digest()}"
+        root = skill_directory(bundle)
         if path == "SKILL.md":
             return (
                 f"Skill ID: {entries[name]['skill_id']}; version: {entries[name]['number']}\n"
@@ -121,7 +126,7 @@ def sandbox_files(catalog: dict) -> list[tuple[str, bytes]]:
     files = []
     for entry in catalog.get("entries", []):
         bundle = SkillBundle.model_validate(entry["bundle"])
-        root = f"/skills/{bundle.name}/{bundle.digest()}"
+        root = skill_directory(bundle)
         files.append((f"{root}/SKILL.md", skill_markdown(bundle).encode()))
         files.extend((f"{root}/{file.path}", file.bytes()) for file in bundle.files)
     return files

@@ -180,7 +180,9 @@ def test_plain_agent_reads_without_sandbox(bundle):
         ]
     }
     read = catalog_tools(catalog)[0]
-    assert "Read scripts/check.py" in read.invoke({"name": bundle.name})
+    instructions = read.invoke({"name": bundle.name})
+    assert "Read scripts/check.py" in instructions
+    assert f"/tmp/auxilia-skills/{bundle.name}/{bundle.digest()}" in instructions
     assert (
         read.invoke({"name": bundle.name, "path": "scripts/check.py"})
         == "print('checked')"
@@ -188,7 +190,7 @@ def test_plain_agent_reads_without_sandbox(bundle):
     assert "not in" in read.invoke({"name": "not-authorized"})
     assert (
         sandbox_files(catalog)[1][0]
-        == f"/skills/invoice-check/{bundle.digest()}/scripts/check.py"
+        == f"/tmp/auxilia-skills/invoice-check/{bundle.digest()}/scripts/check.py"
     )
 
 
@@ -202,16 +204,18 @@ def test_sandbox_uploads_before_connect_and_rejects_partial(mocker):
     backend = mocker.Mock()
     backend.execute.return_value = ExecuteResponse(output="", exit_code=0)
     backend.download_files.return_value = [
-        FileDownloadResponse(path="/skills/test/SKILL.md", content=b"test", error=None)
+        FileDownloadResponse(
+            path="/tmp/auxilia-skills/test/SKILL.md", content=b"test", error=None
+        )
     ]
     lazy = LazySandboxBackend()
-    lazy.skill_files = [("/skills/test/SKILL.md", b"test")]
+    lazy.skill_files = [("/tmp/auxilia-skills/test/SKILL.md", b"test")]
     backend.upload_files.return_value = []
     with pytest.raises(RuntimeError):
         lazy.connect(backend)
     assert not lazy.connected
     backend.upload_files.return_value = [
-        FileUploadResponse(path="/skills/test/SKILL.md", error=None)
+        FileUploadResponse(path="/tmp/auxilia-skills/test/SKILL.md", error=None)
     ]
     lazy.connect(backend)
     assert lazy.connected
@@ -289,3 +293,55 @@ async def test_draft_test_is_isolated_from_live_attachment(
 
 async def _available():
     return True
+
+
+def test_sandbox_directory_failure_preserves_diagnostic(mocker):
+    from deepagents.backends.protocol import ExecuteResponse
+
+    backend = mocker.Mock()
+    backend.execute.return_value = ExecuteResponse(
+        output="mkdir: cannot create directory: Permission denied", exit_code=1
+    )
+    lazy = LazySandboxBackend()
+    lazy.skill_files = [("/tmp/auxilia-skills/test/SKILL.md", b"test")]
+    with pytest.raises(RuntimeError, match=r"exit code 1.*Permission denied"):
+        lazy.connect(backend)
+    assert not lazy.connected
+    backend.upload_files.assert_not_called()
+
+
+def test_skill_materialization_uses_writable_temporary_storage(bundle, mocker):
+    """Simulate a non-root sandbox which rejects root-level directories."""
+    import shlex
+
+    from deepagents.backends.protocol import (
+        ExecuteResponse,
+        FileDownloadResponse,
+        FileUploadResponse,
+    )
+
+    catalog = {"entries": [{"bundle": bundle.model_dump(mode="json")}]}
+    files = sandbox_files(catalog)
+    backend = mocker.Mock()
+
+    def execute(command):
+        directories = shlex.split(command)[2:]
+        writable = all(path.startswith("/tmp/auxilia-skills/") for path in directories)
+        return ExecuteResponse(
+            output="" if writable else "Permission denied",
+            exit_code=0 if writable else 1,
+        )
+
+    backend.execute.side_effect = execute
+    backend.upload_files.return_value = [
+        FileUploadResponse(path=path, error=None) for path, _ in files
+    ]
+    backend.download_files.return_value = [
+        FileDownloadResponse(path=path, content=content, error=None)
+        for path, content in files
+    ]
+    lazy = LazySandboxBackend()
+    lazy.skill_files = files
+    lazy.connect(backend)
+    assert lazy.connected
+    backend.upload_files.assert_called_once_with(files)
