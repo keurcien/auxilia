@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.8.0](https://github.com/keurcien/auxilia/compare/web-v0.7.0...web-v0.8.0) (2026-09-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* **agents:** sandbox agents lose ~4KB of deepagents prompt fragments and the long `task` description, `write_file` now overwrites existing files, and a recursive sandbox-scoped `delete` tool is exposed. Existing threads see a one-time system prompt change.
+
+### Features
+
+* **agents:** upgrade to deepagents 0.7 with lean harness prompts ([#319](https://github.com/keurcien/auxilia/issues/319)) ([4522df3](https://github.com/keurcien/auxilia/commit/4522df37fd489bf5b7f1e6170fe305f369bae1fb))
+
 ## [0.7.0](https://github.com/keurcien/auxilia/compare/web-v0.6.5...web-v0.7.0) (2026-09-05)
 
 
