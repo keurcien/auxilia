@@ -2,6 +2,7 @@
 
 import base64
 import io
+import re
 import stat
 import zipfile
 
@@ -11,10 +12,11 @@ from app.skills.schemas import MAX_BUNDLE_BYTES, SkillBundle, SkillFile
 
 
 def skill_markdown(bundle: SkillBundle) -> str:
+    if bundle.content is not None:
+        return bundle.content
     metadata = {
         "name": bundle.name,
         "description": bundle.description,
-        "metadata": {"auxilia-requires-code": str(bundle.requires_code).lower()},
     }
     return (
         "---\n"
@@ -67,12 +69,6 @@ def import_bundle(data: bytes, filename: str) -> SkillBundle:
         raise ValueError("Import one bundle with exactly one SKILL.md")
     root = roots[0][: -len("SKILL.md")]
     markdown = files.pop(roots[0]).decode("utf-8-sig").replace("\r\n", "\n")
-    parts = markdown.split("---", 2)
-    if len(parts) != 3 or parts[0].strip():
-        raise ValueError("SKILL.md needs YAML frontmatter")
-    meta = yaml.safe_load(parts[1])
-    if not isinstance(meta, dict):
-        raise ValueError("Invalid YAML frontmatter")
     resources = []
     for path, content in files.items():
         if not path.startswith(root):
@@ -89,16 +85,23 @@ def import_bundle(data: bytes, filename: str) -> SkillBundle:
                     encoding="base64",
                 )
             )
-    metadata = meta.get("metadata", {})
+    return parse_skill(markdown, resources)
+
+
+def parse_skill(content: str, files: list[SkillFile]) -> SkillBundle:
+    match = re.match(r"\A---\r?\n(.*?)\r?\n---(?:\r?\n|$)(.*)\Z", content, re.DOTALL)
+    if match is None:
+        raise ValueError("SKILL.md needs YAML frontmatter with name and description")
+    try:
+        meta = yaml.safe_load(match[1])
+    except yaml.YAMLError as exc:
+        raise ValueError("Invalid YAML frontmatter") from exc
+    if not isinstance(meta, dict):
+        raise ValueError("Invalid YAML frontmatter")
     return SkillBundle(
         name=meta.get("name", ""),
-        title=meta.get("name", ""),
         description=meta.get("description", ""),
-        instructions=parts[2].strip(),
-        files=resources,
-        requires_code=any(f.path.startswith("scripts/") for f in resources)
-        or (
-            isinstance(metadata, dict)
-            and metadata.get("auxilia-requires-code") == "true"
-        ),
+        instructions=match[2].strip(),
+        content=content,
+        files=files,
     )

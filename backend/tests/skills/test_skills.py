@@ -19,7 +19,7 @@ from app.exceptions import (
     PermissionDeniedError,
 )
 from app.sandbox.lazy import LazySandboxBackend
-from app.skills.bundles import export_bundle, import_bundle
+from app.skills.bundles import export_bundle, import_bundle, parse_skill, skill_markdown
 from app.skills.runtime import catalog_tools, resolve_skills, sandbox_files
 from app.skills.schemas import SkillBundle, SkillFile, SkillSave
 from app.skills.service import SkillService
@@ -53,66 +53,69 @@ async def owner(db):
 def bundle():
     return SkillBundle(
         name="invoice-check",
-        title="Invoice check",
         description="Use to reconcile invoices",
         instructions="Read scripts/check.py and check invoices.",
         files=[SkillFile(path="scripts/check.py", content="print('checked')")],
     )
 
 
-async def test_versions_conflicts_and_private_permissions(db, owner, bundle):
+async def test_save_permissions_and_conflicts(db, owner, bundle):
     service = SkillService(db)
-    skill = await service.save(SkillSave(bundle=bundle), owner)
+    skill = await service.save(
+        SkillSave(content=skill_markdown(bundle), files=bundle.files), owner
+    )
     other = UserDB(email="other@skills.test")
     db.add(other)
     await db.flush()
     with pytest.raises(NotFoundError):
         await service.authorize(skill.id, other)
-    published = await service.publish(skill.id, skill.revision, owner)
     bundle.instructions = "New procedure"
     changed = await service.save(
-        SkillSave(bundle=bundle, revision=published.revision, visibility="workspace"),
+        SkillSave(
+            content=skill_markdown(bundle),
+            files=bundle.files,
+            revision=skill.revision,
+            visibility="workspace",
+        ),
         owner,
         skill.id,
     )
-    assert changed.versions[0].bundle.instructions != "New procedure"
+    assert "New procedure" in changed.content
     with pytest.raises(AlreadyExistsError):
-        await service.save(SkillSave(bundle=bundle, revision=1), owner, skill.id)
+        await service.save(
+            SkillSave(content=skill_markdown(bundle), revision=1), owner, skill.id
+        )
     with pytest.raises(PermissionDeniedError):
         await service.authorize(skill.id, other, edit=True)
-    restored = await service.restore(
-        skill.id, published.versions[0].id, changed.revision, owner
-    )
-    assert restored.draft.instructions == published.versions[0].bundle.instructions
+    assert (await service.authorize(skill.id, other)).id == skill.id
 
 
-async def test_attachment_authorization_compatibility_and_snapshot(db, owner, bundle):
+async def test_attachment_uses_saved_content_without_publish(db, owner, bundle):
     service = SkillService(db)
     agent = AgentDB(name="Analyst", owner_id=owner.id, instructions="Help")
     db.add(agent)
     await db.flush()
-    skill = await service.save(SkillSave(bundle=bundle), owner)
-    skill = await service.publish(skill.id, skill.revision, owner)
-    await service.attach(agent.id, skill.id, skill.versions[0].id, owner)
+    skill = await service.save(
+        SkillSave(content=skill_markdown(bundle), files=bundle.files), owner
+    )
+    await service.attach(agent.id, skill.id, owner)
+    await service.attach(agent.id, skill.id, owner)  # Idempotent checkbox updates.
     spec = (await AgentRepository(db).get_run_spec(agent.id)).agent
     frozen = await resolve_skills(db, spec, str(owner.id), "unused")
     bundle.instructions = "Changed"
-    changed = await service.save(
-        SkillSave(bundle=bundle, revision=skill.revision), owner, skill.id
+    await service.save(
+        SkillSave(
+            content=skill_markdown(bundle), files=bundle.files, revision=skill.revision
+        ),
+        owner,
+        skill.id,
     )
-    changed = await service.publish(skill.id, changed.revision, owner)
-    await service.attach(agent.id, skill.id, changed.versions[0].id, owner)
+    current = await resolve_skills(db, spec, str(owner.id), "unused")
+    assert current["entries"][0]["bundle"]["instructions"] == "Changed"
     resumed = await resolve_skills(db, spec, str(owner.id), "unused", frozen)
     assert resumed["entries"][0]["bundle"]["instructions"] != "Changed"
     with pytest.raises(DomainValidationError):
         await service.delete(skill.id, owner)
-    bundle.requires_code = True
-    changed = await service.save(
-        SkillSave(bundle=bundle, revision=changed.revision), owner, skill.id
-    )
-    changed = await service.publish(skill.id, changed.revision, owner)
-    with pytest.raises(DomainValidationError, match="Code execution"):
-        await service.attach(agent.id, skill.id, changed.versions[0].id, owner)
     other = UserDB(email="other@skills.test")
     db.add(other)
     await db.flush()
@@ -120,6 +123,7 @@ async def test_attachment_authorization_compatibility_and_snapshot(db, owner, bu
         await service.detach(agent.id, skill.id, other)
     await service.detach(agent.id, skill.id, owner)
     assert not await service.repository.bindings(agent_id=agent.id)
+    await service.delete(skill.id, owner)
 
 
 @pytest.mark.parametrize(
@@ -138,7 +142,6 @@ def test_bundle_roundtrip_binary_and_paths(bundle):
     assert imported.name == bundle.name
     assert imported.instructions == bundle.instructions
     assert imported.files[1].bytes() == b"\x00\xff"
-    assert imported.requires_code
 
 
 def test_archive_traversal():
@@ -221,7 +224,7 @@ def test_sandbox_uploads_before_connect_and_rejects_partial(mocker):
     assert lazy.connected
 
 
-async def test_run_snapshot_survives_publish_and_resume(db, owner, bundle):
+async def test_run_snapshot_survives_save_and_resume(db, owner, bundle):
     from app.agents.runs.models import RunDB
     from app.agents.runs.state import RunStatus
     from app.skills.snapshots import prepare_run_skills
@@ -234,19 +237,23 @@ async def test_run_snapshot_survives_publish_and_resume(db, owner, bundle):
     thread = ThreadDB(agent_id=agent.id, user_id=owner.id)
     db.add(thread)
     await db.flush()
-    skill = await service.save(SkillSave(bundle=bundle), owner)
-    skill = await service.publish(skill.id, skill.revision, owner)
-    await service.attach(agent.id, skill.id, skill.versions[0].id, owner)
+    skill = await service.save(
+        SkillSave(content=skill_markdown(bundle), files=bundle.files), owner
+    )
+    await service.attach(agent.id, skill.id, owner)
     first = RunDB(thread_id=thread.id, user_id=owner.id, status=RunStatus.interrupted)
     db.add(first)
     await db.flush()
     snapshot = await prepare_run_skills(db, first, thread)
     bundle.instructions = "Updated instructions"
     skill = await service.save(
-        SkillSave(bundle=bundle, revision=skill.revision), owner, skill.id
+        SkillSave(
+            content=skill_markdown(bundle), files=bundle.files, revision=skill.revision
+        ),
+        owner,
+        skill.id,
     )
-    skill = await service.publish(skill.id, skill.revision, owner)
-    await service.attach(agent.id, skill.id, skill.versions[0].id, owner)
+    await service.attach(agent.id, skill.id, owner)
     resume = RunDB(thread_id=thread.id, user_id=owner.id, command={"resume": True})
     db.add(resume)
     await db.flush()
@@ -259,40 +266,6 @@ async def test_run_snapshot_survives_publish_and_resume(db, owner, bundle):
         latest[str(agent.id)]["entries"][0]["bundle"]["instructions"]
         == "Updated instructions"
     )
-
-
-async def test_draft_test_is_isolated_from_live_attachment(
-    db, owner, bundle, monkeypatch
-):
-    from app.model_providers.service import ModelService
-    from app.skills.schemas import SkillTest
-
-    monkeypatch.setattr(ModelService, "is_available", lambda *a, **k: _available())
-    service = SkillService(db)
-    agent = AgentDB(name="Analyst", owner_id=owner.id, instructions="Help")
-    db.add(agent)
-    await db.flush()
-    skill = await service.save(SkillSave(bundle=bundle), owner)
-    skill = await service.publish(skill.id, skill.revision, owner)
-    await service.attach(agent.id, skill.id, skill.versions[0].id, owner)
-    bundle.instructions = "Draft only"
-    skill = await service.save(
-        SkillSave(bundle=bundle, revision=skill.revision), owner, skill.id
-    )
-    result = await service.test(
-        skill.id,
-        SkillTest(agent_id=agent.id, model_id="test", prompt="Check invoices"),
-        owner,
-    )
-    spec = (await AgentRepository(db).get_run_spec(agent.id)).agent
-    test = await resolve_skills(db, spec, str(owner.id), result["thread"].id)
-    live = await resolve_skills(db, spec, str(owner.id), "another-thread")
-    assert test["entries"][0]["bundle"]["instructions"] == "Draft only"
-    assert live["entries"][0]["bundle"]["instructions"] != "Draft only"
-
-
-async def _available():
-    return True
 
 
 def test_sandbox_directory_failure_preserves_diagnostic(mocker):
@@ -345,3 +318,22 @@ def test_skill_materialization_uses_writable_temporary_storage(bundle, mocker):
     lazy.connect(backend)
     assert lazy.connected
     backend.upload_files.assert_called_once_with(files)
+
+
+def test_yaml_source_roundtrips_exactly():
+    content = "---\n# Keep my comment\nname: greeting\ndescription: 'Say hello'\ncustom: preserved\n---\n\nSay hello.\n"
+    bundle = parse_skill(content, [])
+    assert skill_markdown(import_bundle(export_bundle(bundle), "skill.zip")) == content
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "no frontmatter",
+        "---\n- bad\n---\nBody",
+        "---\nname: Bad Name\ndescription: hello\n---\nBody",
+    ],
+)
+def test_invalid_yaml(content):
+    with pytest.raises(ValueError):
+        parse_skill(content, [])

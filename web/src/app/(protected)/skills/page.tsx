@@ -43,7 +43,7 @@ export default function SkillsPage() {
 		<WorkspacePage
 			slug="skills"
 			title="Skills"
-			intro="Teach your agents how your team works. Save reusable procedures, scripts and templates, then try them before publishing."
+			intro="Reusable instructions and scripts for your agents."
 			search={{
 				placeholder: "Search skills…",
 				value: query,
@@ -82,17 +82,16 @@ export default function SkillsPage() {
 				<p>Loading skills…</p>
 			) : skills.length === 0 ? (
 				<div className="rounded-xl border border-dashed p-10 text-center">
-					<p className="font-medium">Turn a successful task into a skill</p>
+					<p className="font-medium">Create your first skill</p>
 					<p className="mt-2 text-muted-foreground">
-						Ask any agent: “Save this procedure as a reusable skill.” Or create
-						one here.
+						Create a SKILL.md file and add any scripts, or import a bundle.
 					</p>
 				</div>
 			) : (
 				<div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
 					{skills
 						.filter((s) =>
-							`${s.draft.title} ${s.draft.description}`
+							`${s.name} ${s.description}`
 								.toLowerCase()
 								.includes(query.toLowerCase()),
 						)
@@ -103,26 +102,16 @@ export default function SkillsPage() {
 								className="rounded-xl border bg-card p-5 transition-colors hover:border-primary"
 							>
 								<div className="flex justify-between gap-3">
-									<h2 className="font-semibold">{s.draft.title}</h2>
+									<h2 className="font-semibold">{s.name}</h2>
 									<span className="text-xs text-muted-foreground">
 										{s.visibility}
 									</span>
 								</div>
 								<p className="mt-2 text-sm text-muted-foreground">
-									{s.draft.description}
+									{s.description}
 								</p>
 								<div className="mt-5 flex gap-3 text-xs">
-									<span>
-										{s.versions.length
-											? `Published v${s.versions[0].number}`
-											: "Draft"}
-									</span>
-									<span>
-										{s.draft.requiresCode
-											? "Needs code execution"
-											: "Instructions"}
-									</span>
-									<span>{s.draft.files.length} files</span>
+									<span>{s.files.length} files</span>
 								</div>
 							</Link>
 						))}

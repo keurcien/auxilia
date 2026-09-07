@@ -328,7 +328,6 @@ class ResolvedAgent:
     live: Toolset | None = None
     sandbox: ResolvedSandbox | None = None
     skills: dict = field(default_factory=dict)
-    user_id: str | None = None
 
     @classmethod
     async def resolve(
@@ -368,7 +367,6 @@ class ResolvedAgent:
             prepared=prepared,
             sandbox=cls._resolve_sandbox(spec),
             skills=skills,
-            user_id=user_id,
         )
 
     @staticmethod
@@ -554,7 +552,7 @@ class Agent:
         the parsed result surfaces in the run state under `structured_response`.
         """
         sandbox = self.agent.sandbox is not None
-        from app.skills.runtime import authoring_tools, catalog_tools, sandbox_files
+        from app.skills.runtime import catalog_tools, sandbox_files
 
         self._sandbox_backend = LazySandboxBackend() if sandbox else None
         if self._sandbox_backend:
@@ -569,7 +567,6 @@ class Agent:
             tools=[
                 *self.agent.live.all,
                 *catalog_tools(self.agent.skills),
-                *(authoring_tools(self.agent.user_id) if self.agent.user_id else []),
             ],
             system_prompt=self.agent.config.instructions or "",
             sandbox_backend=self._sandbox_backend,

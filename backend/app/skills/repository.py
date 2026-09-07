@@ -7,7 +7,7 @@ from sqlmodel import col, select
 from app.agents.runs.models import RunDB
 from app.agents.runs.state import RunStatus
 from app.repository import BaseRepository
-from app.skills.models import AgentSkillDB, SkillDB, SkillTestDB, SkillVersionDB
+from app.skills.models import AgentSkillDB, SkillDB
 
 
 class SkillRepository(BaseRepository[SkillDB]):
@@ -34,14 +34,6 @@ class SkillRepository(BaseRepository[SkillDB]):
         )
         return (await self.db.execute(stmt)).scalar_one_or_none()
 
-    async def versions(self, skill_id: UUID):
-        stmt = (
-            select(SkillVersionDB)
-            .where(SkillVersionDB.skill_id == skill_id)
-            .order_by(col(SkillVersionDB.number).desc())
-        )
-        return (await self.db.execute(stmt)).scalars().all()
-
     async def bindings(
         self, *, skill_id: UUID | None = None, agent_id: UUID | None = None
     ):
@@ -50,22 +42,6 @@ class SkillRepository(BaseRepository[SkillDB]):
             stmt = stmt.where(AgentSkillDB.skill_id == skill_id)
         if agent_id is not None:
             stmt = stmt.where(AgentSkillDB.agent_id == agent_id)
-        return (await self.db.execute(stmt)).scalars().all()
-
-    async def version(self, version_id: UUID):
-        return await self.db.get(SkillVersionDB, version_id)
-
-    async def test_for_thread(self, thread_id: str):
-        stmt = select(SkillTestDB).where(SkillTestDB.thread_id == thread_id)
-        return (await self.db.execute(stmt)).scalar_one_or_none()
-
-    async def tests(self, skill_id: UUID):
-        stmt = (
-            select(SkillTestDB)
-            .where(SkillTestDB.skill_id == skill_id)
-            .order_by(col(SkillTestDB.created_at).desc())
-            .limit(30)
-        )
         return (await self.db.execute(stmt)).scalars().all()
 
     async def interrupted_snapshot(self, record):

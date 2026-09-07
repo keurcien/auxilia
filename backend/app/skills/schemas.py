@@ -4,7 +4,6 @@ import base64
 import binascii
 import hashlib
 import re
-from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
@@ -41,23 +40,14 @@ class SkillFile(BaseModel):
             raise ValueError("Invalid base64 file content") from exc
 
 
-class SkillExample(BaseModel):
-    prompt: str = Field(min_length=1, max_length=10000)
-    expected: str = Field(default="", max_length=10000)
-
-
 class SkillBundle(BaseModel):
     name: str = Field(
         min_length=1, max_length=64, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$"
     )
-    title: str = Field(min_length=1, max_length=128)
     description: str = Field(min_length=1, max_length=1024)
     instructions: str = Field(min_length=1, max_length=100000)
-    requires_code: bool = False
-    required_mcp_server_ids: list[UUID] = Field(default_factory=list, max_length=20)
     files: list[SkillFile] = Field(default_factory=list, max_length=100)
-    examples: list[SkillExample] = Field(default_factory=list, max_length=20)
-    change_summary: str = Field(default="", max_length=2000)
+    content: str | None = Field(default=None, max_length=110000)
 
     @model_validator(mode="after")
     def validate_bundle(self):
@@ -78,16 +68,10 @@ class SkillBundle(BaseModel):
 
 
 class SkillSave(BaseModel):
-    bundle: SkillBundle
+    content: str = Field(min_length=1, max_length=110000)
+    files: list[SkillFile] = Field(default_factory=list, max_length=100)
     revision: int | None = None
     visibility: Literal["private", "workspace"] = "private"
-
-
-class SkillVersionResponse(BaseModel):
-    id: UUID
-    number: int
-    bundle: SkillBundle
-    created_at: datetime
 
 
 class SkillResponse(BaseModel):
@@ -95,23 +79,8 @@ class SkillResponse(BaseModel):
     owner_id: UUID
     visibility: str
     revision: int
-    draft: SkillBundle
+    name: str
+    description: str
+    content: str
+    files: list[SkillFile]
     can_edit: bool
-    versions: list[SkillVersionResponse]
-    used_by: list[UUID] = Field(default_factory=list)
-
-
-class SkillAttach(BaseModel):
-    version_id: UUID
-
-
-class SkillTest(BaseModel):
-    agent_id: UUID
-    model_id: str
-    prompt: str = Field(min_length=1, max_length=10000)
-    version_id: UUID | None = None
-
-
-class SkillTestFeedback(BaseModel):
-    result: Literal["passed", "failed"]
-    notes: str = Field(default="", max_length=2000)

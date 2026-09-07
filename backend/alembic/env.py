@@ -38,7 +38,7 @@ from app.auth.tokens.models import PersonalAccessTokenDB  # noqa: F401
 from app.model_providers.models import ModelDB  # noqa: F401
 from app.sandbox.models import SandboxDB  # noqa: F401
 
-from app.skills.models import SkillDB, SkillVersionDB, AgentSkillDB, SkillTestDB  # noqa: F401
+from app.skills.models import SkillDB, AgentSkillDB  # noqa: F401
 
 target_metadata = SQLModel.metadata
 

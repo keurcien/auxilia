@@ -1,4 +1,4 @@
-"""Freeze skill versions before a worker starts or resumes execution."""
+"""Freeze skill contents before a worker starts or resumes execution."""
 
 from app.agents.core.repository import AgentRepository
 from app.skills.repository import SkillRepository
