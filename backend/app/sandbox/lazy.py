@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import shlex
 from pathlib import PurePosixPath
 from typing import Protocol, runtime_checkable
@@ -18,6 +20,12 @@ from deepagents.backends.protocol import (
     WriteResult,
 )
 from deepagents.backends.sandbox import BaseSandbox
+from deepagents.backends.utils import slice_read_response
+
+from app.skills.schemas import MAX_BUNDLE_BYTES
+
+
+logger = logging.getLogger(__name__)
 
 
 NOT_CONNECTED_MSG = (
@@ -121,7 +129,52 @@ class LazySandboxBackend(BaseSandbox):
     def read(self, file_path: str, offset: int = 0, limit: int = 2000) -> ReadResult:
         if self._backend is None:
             return ReadResult(error=NOT_CONNECTED_MSG)
-        return self._backend.read(file_path, offset=offset, limit=limit)
+        result = self._backend.read(file_path, offset=offset, limit=limit)
+        return self._recover_skill_read(result, file_path, offset, limit)
+
+    async def aread(
+        self, file_path: str, offset: int = 0, limit: int = 2000
+    ) -> ReadResult:
+        # BaseSandbox.aread calls aexecute directly, bypassing our read method.
+        return await asyncio.to_thread(self.read, file_path, offset, limit)
+
+    def _recover_skill_read(
+        self, result: ReadResult, file_path: str, offset: int, limit: int
+    ) -> ReadResult:
+        if (
+            not result.error
+            or "unexpected server response" not in result.error
+            or not any(path == file_path for path, _ in self.skill_files)
+        ):
+            return result
+        # The helper wraps content in JSON on stdout. Some remote command
+        # responses cannot be parsed, even though upload verification succeeds.
+        # Fetch the current bytes through the independent file-transfer channel;
+        # never repair guessed escapes or serve the originally uploaded copy.
+        try:
+            downloads = self._inner.download_files([file_path])
+            if len(downloads) != 1:
+                return result
+            file = downloads[0]
+            if (
+                file.path != file_path
+                or file.error
+                or file.content is None
+                or len(file.content) > MAX_BUNDLE_BYTES
+            ):
+                return result
+            content = file.content.decode("utf-8")
+        except UnicodeDecodeError:
+            return result  # Keep the normal backend handling for binary files.
+        except Exception:  # noqa: BLE001 — preserve the original tool error
+            logger.warning(
+                "Skill read fallback failed for %s", file_path, exc_info=True
+            )
+            return result
+        logger.warning("Recovered malformed sandbox read response for %s", file_path)
+        return slice_read_response(
+            {"content": content, "encoding": "utf-8"}, offset, limit
+        )
 
     def write(self, file_path: str, content: str) -> WriteResult:
         if self._backend is None:

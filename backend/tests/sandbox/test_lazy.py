@@ -96,3 +96,104 @@ def test_connected_file_ops_delegate():
     inner.glob.assert_called_once_with("*.py", path="/src")
     backend.grep("needle", path="/src", glob="*.py", max_count=50)
     inner.grep.assert_called_once_with("needle", path="/src", glob="*.py", max_count=50)
+
+
+@pytest.mark.parametrize("asynchronous", [False, True])
+async def test_skill_read_recovers_current_bytes_and_pagination(asynchronous):
+    from deepagents.backends.protocol import FileDownloadResponse, ReadResult
+
+    path = "/tmp/auxilia-skills/greeting/hash/scripts/hello.py"
+    current = 'def hello():\n    return "hi"\n\nprint(hello())\n'
+    inner = MagicMock()
+    inner.read.return_value = ReadResult(
+        error=f"File '{path}': unexpected server response: invalid JSON"
+    )
+    inner.download_files.return_value = [
+        FileDownloadResponse(path=path, content=current.encode(), error=None)
+    ]
+    backend = LazySandboxBackend()
+    backend.connect(inner)
+    # Different from the sandbox file: a fallback must reflect edits.
+    backend.skill_files = [(path, b"old script")]
+    if asynchronous:
+        result = await backend.aread(path, offset=1, limit=2)
+    else:
+        result = backend.read(path, offset=1, limit=2)
+    assert result.error is None
+    assert result.file_data["content"] == '    return "hi"\n\n'
+    assert (
+        result.total_lines,
+        result.start_line,
+        result.end_line,
+        result.next_offset,
+    ) == (4, 2, 3, 3)
+    inner.download_files.assert_called_once_with([path])
+    inner.execute.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "skill_file,error",
+    [
+        (True, "File not found"),
+        (False, "unexpected server response"),
+        (True, None),
+    ],
+)
+def test_skill_read_does_not_retry_other_results(skill_file, error):
+    from deepagents.backends.protocol import ReadResult
+
+    inner = MagicMock()
+    expected = ReadResult(error=error)
+    inner.read.return_value = expected
+    backend = LazySandboxBackend()
+    backend.connect(inner)
+    backend.skill_files = [("/skill.py", b"content")] if skill_file else []
+    assert backend.read("/skill.py") is expected
+    inner.download_files.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "content,error", [(None, "permission_denied"), (b"\xff", None)]
+)
+def test_skill_read_keeps_error_if_native_download_cannot_recover(content, error):
+    from deepagents.backends.protocol import FileDownloadResponse, ReadResult
+
+    inner = MagicMock()
+    expected = ReadResult(error="unexpected server response")
+    inner.read.return_value = expected
+    inner.download_files.return_value = [
+        FileDownloadResponse(path="/skill.py", content=content, error=error)
+    ]
+    backend = LazySandboxBackend()
+    backend.connect(inner)
+    backend.skill_files = [("/skill.py", b"content")]
+    assert backend.read("/skill.py") is expected
+
+
+async def test_disconnected_aread_reports_connection_requirement():
+    assert (await LazySandboxBackend().aread("/skill.py")).error == NOT_CONNECTED_MSG
+
+
+async def test_real_sandbox_parser_failure_recovers_through_file_transfer():
+    """Exercise BaseSandbox's actual JSON parser, not a mocked read method."""
+    from app.sandbox.cloudrun.backend import CloudRunSandbox
+    from app.sandbox.cloudrun.transport import ExecResult
+
+    path = "/tmp/auxilia-skills/greeting/hash/scripts/hello.py"
+    source = b'def hello():\n    return "hi"\n\nprint(hello())\n'
+    # An unescaped newline inside JSON content makes an otherwise recognizable
+    # read payload invalid. Never guess how to repair the serialized content.
+    malformed = b'{"encoding":"utf-8","content":"def hello():\n    return \\"hi\\"","total_lines":4,"start_line":1,"end_line":4,"next_offset":null}'
+    transport = MagicMock()
+    transport.exec.side_effect = [
+        ExecResult(stdout=malformed, stderr=b"", returncode=0),
+        ExecResult(stdout=source, stderr=b"", returncode=0),
+    ]
+    backend = LazySandboxBackend()
+    backend.connect(CloudRunSandbox("test-sandbox", transport=transport))
+    backend.skill_files = [(path, b"previous contents")]
+    result = await backend.aread(path)
+    assert result.error is None
+    assert result.file_data["content"] == source.decode()
+    assert result.total_lines == 4
+    assert transport.exec.call_args_list[1].args[1] == ["/bin/cat", path]
