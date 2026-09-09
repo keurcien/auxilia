@@ -71,16 +71,15 @@ class SkillSave(BaseModel):
     content: str = Field(min_length=1, max_length=110000)
     files: list[SkillFile] = Field(default_factory=list, max_length=100)
     revision: int | None = None
-    visibility: Literal["private", "workspace"] = "private"
 
 
 class SkillResponse(BaseModel):
     id: UUID
     owner_id: UUID
-    visibility: str
     revision: int
     name: str
     description: str
+    instructions: str
     content: str
     files: list[SkillFile]
     can_edit: bool

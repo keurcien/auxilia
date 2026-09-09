@@ -6,10 +6,12 @@ export interface SkillFile {
 export interface Skill {
 	id: string;
 	ownerId: string;
-	visibility: "private" | "workspace";
 	revision: number;
 	name: string;
 	description: string;
+	/** SKILL.md body — everything after the frontmatter. */
+	instructions: string;
+	/** The full SKILL.md, frontmatter included. */
 	content: string;
 	files: SkillFile[];
 	canEdit: boolean;

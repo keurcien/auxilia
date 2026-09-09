@@ -101,17 +101,14 @@ export default function SkillsPage() {
 								href={`/skills/${s.id}`}
 								className="rounded-xl border bg-card p-5 transition-colors hover:border-primary"
 							>
-								<div className="flex justify-between gap-3">
-									<h2 className="font-semibold">{s.name}</h2>
-									<span className="text-xs text-muted-foreground">
-										{s.visibility}
-									</span>
-								</div>
+								<h2 className="font-mono font-semibold text-petrol">{s.name}</h2>
 								<p className="mt-2 text-sm text-muted-foreground">
 									{s.description}
 								</p>
-								<div className="mt-5 flex gap-3 text-xs">
-									<span>{s.files.length} files</span>
+								<div className="mt-5 flex gap-3 font-mono text-[11px] text-meta dark:text-panel-dim">
+									<span>
+										{s.files.length} {s.files.length === 1 ? "file" : "files"}
+									</span>
 								</div>
 							</Link>
 						))}

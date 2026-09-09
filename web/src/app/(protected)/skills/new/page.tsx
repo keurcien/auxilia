@@ -1,4 +1,19 @@
+"use client";
+
+import { useRouter } from "next/navigation";
 import SkillEditor from "../skill-editor";
+
 export default function NewSkillPage() {
-	return <SkillEditor />;
+	const router = useRouter();
+
+	return (
+		<SkillEditor
+			onSaved={(skill) => {
+				router.push(`/skills/${skill.id}`);
+			}}
+			onCancel={() => {
+				router.push("/skills");
+			}}
+		/>
+	);
 }

@@ -1,6 +1,5 @@
 from uuid import UUID
 
-from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
@@ -14,15 +13,8 @@ class SkillRepository(BaseRepository[SkillDB]):
     def __init__(self, db: AsyncSession):
         super().__init__(SkillDB, db)
 
-    async def visible(self, owner_id: UUID, admin: bool = False):
+    async def list_recent_first(self):
         stmt = select(SkillDB).order_by(col(SkillDB.updated_at).desc())
-        if not admin:
-            stmt = stmt.where(
-                or_(
-                    col(SkillDB.owner_id) == owner_id,
-                    col(SkillDB.visibility) == "workspace",
-                )
-            )
         return (await self.db.execute(stmt)).scalars().all()
 
     async def lock(self, skill_id: UUID):

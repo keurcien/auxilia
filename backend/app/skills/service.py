@@ -34,11 +34,7 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
             if lock
             else await self.repository.get(skill_id)
         )
-        if row is None or (
-            row.owner_id != user.id
-            and row.visibility != "workspace"
-            and user.role != WorkspaceRole.admin
-        ):
+        if row is None:
             raise NotFoundError("Skill not found")
         if edit and row.owner_id != user.id and user.role != WorkspaceRole.admin:
             raise PermissionDeniedError(
@@ -51,10 +47,10 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
         return SkillResponse(
             id=row.id,
             owner_id=row.owner_id,
-            visibility=row.visibility,
             revision=row.revision,
             name=bundle.name,
             description=bundle.description,
+            instructions=bundle.instructions,
             content=skill_markdown(bundle),
             files=bundle.files,
             can_edit=row.owner_id == user.id or user.role == WorkspaceRole.admin,
@@ -63,9 +59,7 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
     async def list(self, user: UserDB):
         return [
             await self.response(row, user)
-            for row in await self.repository.visible(
-                user.id, user.role == WorkspaceRole.admin
-            )
+            for row in await self.repository.list_recent_first()
         ]
 
     async def save(self, data: SkillSave, user: UserDB, skill_id: UUID | None = None):
@@ -75,11 +69,7 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
             raise DomainValidationError(str(exc)) from exc
         if skill_id is None:
             row = await self.repository.add(
-                SkillDB(
-                    owner_id=user.id,
-                    visibility=data.visibility,
-                    bundle=bundle.model_dump(mode="json"),
-                )
+                SkillDB(owner_id=user.id, bundle=bundle.model_dump(mode="json"))
             )
         else:
             row = await self.authorize(skill_id, user, edit=True, lock=True)
@@ -90,7 +80,6 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
             ):
                 raise DomainValidationError("Detach the skill before changing its name")
             row.bundle = bundle.model_dump(mode="json")
-            row.visibility = data.visibility
             row.revision += 1
             await self.repository.add(row)
         return await self.response(row, user)

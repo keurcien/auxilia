@@ -14,7 +14,6 @@ def json_column():
 class SkillDB(BaseDBModel, table=True):
     __tablename__ = "skills"
     owner_id: UUID = Field(foreign_key="users.id", ondelete="CASCADE", index=True)
-    visibility: str = "private"
     revision: int = 1
     bundle: dict = Field(sa_column=json_column())
 
