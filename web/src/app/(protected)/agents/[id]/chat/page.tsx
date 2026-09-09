@@ -42,6 +42,7 @@ const StarterChatPage = () => {
 	const {
 		ready: agentReady,
 		status,
+		detail: statusDetail,
 		disconnectedMcpServers,
 		refetch: refetchReady,
 	} = useAgentReadiness(agentId);
@@ -148,7 +149,7 @@ const StarterChatPage = () => {
 						</h1>
 						<ChevronDown className="size-5 text-muted-foreground ml-8 mt-1" />
 					</button>
-					{status !== "not_configured" && (
+					{status !== "not_configured" && status !== "sandbox_unavailable" && (
 						<p className="text-lg text-muted-foreground">
 							Ask me anything to begin
 						</p>
@@ -156,7 +157,23 @@ const StarterChatPage = () => {
 				</div>
 
 				<div className="w-full">
-					{status === "not_configured" ? (
+					{status === "sandbox_unavailable" ? (
+						<div className="flex items-center gap-3 rounded-lg border border-border bg-muted/50 px-4 py-3">
+							<p className="flex-1 text-sm text-muted-foreground">
+								{statusDetail ?? "This agent's sandbox is not available right now."}{" "}
+								Try again in a moment, or ask a workspace admin.
+							</p>
+							<button
+								type="button"
+								className="shrink-0 cursor-pointer rounded-[7px] border border-input bg-card px-3 py-1.5 text-[12.5px] font-semibold text-foreground transition-colors hover:border-border-hover"
+								onClick={() => {
+									void refetchReady();
+								}}
+							>
+								Check again
+							</button>
+						</div>
+					) : status === "not_configured" ? (
 						<Alert
 							variant="error"
 							message={
@@ -184,7 +201,9 @@ const StarterChatPage = () => {
 							onEffortChange={setReasoningEffort}
 							agentReady={agentReady}
 							disconnectedServers={disconnectedMcpServers}
-							onAllConnected={refetchReady}
+							onAllConnected={() => {
+              void refetchReady();
+            }}
 						/>
 					)}
 				</div>

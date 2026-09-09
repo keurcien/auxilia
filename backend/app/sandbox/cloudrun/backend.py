@@ -74,8 +74,15 @@ class CloudRunSandbox(BaseSandbox):
     ) -> ExecuteResponse:
         effective_timeout = timeout if timeout is not None else self._default_timeout
         try:
+            # A non-login shell on purpose. deepagents' file tools (`read_file`,
+            # `edit_file`, `write_file`…) run a script through `execute` and
+            # parse the *combined* output as JSON, so anything the shell itself
+            # prints breaks them. A login shell in this image sources an
+            # unreadable /root/.bash_profile and prints "Permission denied" to
+            # stderr on every command; `-c` is silent and resolves the same
+            # python3/pip.
             result = self._transport.exec(
-                self._id, ["/bin/bash", "-lc", command], timeout=effective_timeout
+                self._id, ["/bin/bash", "-c", command], timeout=effective_timeout
             )
         except SandboxTimeoutError:
             return ExecuteResponse(

@@ -1,7 +1,8 @@
 from enum import Enum
 from uuid import UUID, uuid4
 
-from sqlalchemy import Enum as SAEnum
+from sqlalchemy import JSON, Enum as SAEnum
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Column, Field, SQLModel, String, Text
 
 # `state` is a leaf module (stdlib-only), so this cannot cycle even though
@@ -60,6 +61,21 @@ class ThreadDB(ThreadBase, TimestampMixin, table=True):
         ondelete="SET NULL",
         index=True,
         nullable=True,
+    )
+    # The sandbox every run of this thread reconnects to. Stamped by the
+    # runtime when a run creates one (and again when a gone sandbox is
+    # replaced); NULL until then, or for agents without a sandbox binding.
+    # Server-side only — not in ThreadResponse.
+    sandbox_id: str | None = Field(
+        default=None, sa_column=Column(String, nullable=True)
+    )
+    # The skills the thread's current turn runs with, frozen as a list of
+    # `SkillBundle` JSON. Refreshed by every new turn, reused by a resume, so
+    # an approval never swaps skill contents under a pending tool call. NULL
+    # until the first run. JSONB on Postgres; plain JSON in the SQLite suite.
+    skill_snapshot: list | None = Field(
+        default=None,
+        sa_column=Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True),
     )
     # Terminal status of the thread's most recent run, stamped in the same
     # transaction as the run's terminal update. NULL = no finished run

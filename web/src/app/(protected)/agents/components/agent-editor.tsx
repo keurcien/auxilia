@@ -10,6 +10,7 @@ import { useTheme } from "next-themes";
 import { Agent } from "@/types/agents";
 import AgentToolList from "../[id]/components/agent-tool-list";
 import AgentSubagentList from "../[id]/components/agent-subagent-list";
+import AgentSkillList from "../[id]/components/agent-skill-list";
 import AgentTagsPanel from "./agent-tags-panel";
 import AgentPermissionsPanel from "./agent-permissions-panel";
 import { MessageResponse } from "@/components/ai-elements/message";
@@ -492,6 +493,14 @@ export default function AgentEditor({
 										: server,
 								),
 							});
+						}}
+					/>
+					<AgentSkillList
+						readOnly={readOnly}
+						skillIds={form.skillIds}
+						fallbackSkills={agent?.skills ?? []}
+						onChange={(skillIds) => {
+							setField("skillIds", skillIds);
 						}}
 					/>
 					{isAdmin && (

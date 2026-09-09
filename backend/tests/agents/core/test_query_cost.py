@@ -132,7 +132,8 @@ async def test_a_one_column_patch_reads_the_agent_row_once(agent_session, statem
     # The gate reads two columns; only the closing re-read pulls the whole row.
     full_reads = [s for s in statements.statements if "agents.instructions" in s]
     assert len(full_reads) == 1
-    assert len(statements) <= 6
+    # One of these is the detail read's skills hydration (agent_skills ⋈ skills).
+    assert len(statements) <= 7
 
 
 async def test_archiving_issues_one_update_and_no_select_of_its_own(

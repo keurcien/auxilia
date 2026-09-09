@@ -9,7 +9,7 @@ import {
 import { type PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { Button } from "@/components/ui/button";
 import ChatPromptInput from "../components/prompt-input";
-import { ArchiveIcon, CircleSlash, ShieldCheck } from "lucide-react";
+import { ArchiveIcon, CircleSlash, ServerCrash, ShieldCheck } from "lucide-react";
 import { isHumanMessage } from "@langchain/core/messages";
 import { useStream } from "@langchain/react";
 import type { AnyStream } from "@langchain/react";
@@ -83,15 +83,22 @@ const ChatPage = () => {
   const {
     ready: agentReady,
     status: agentStatus,
+    detail: agentStatusDetail,
     disconnectedMcpServers,
     refetch: refetchReady,
   } = useAgentReadiness(agentArchived ? undefined : agentId);
+  // The sandbox provider went down after the readiness poll: the command
+  // 409'd. Same notice as the on-load status, until "Check again" clears it.
+  const [sandboxUnavailable, setSandboxUnavailable] = useState<string | null>(null);
 
   const protocolFetch = useProtocolFetch(threadId, {
     // Mid-session race: an admin disabled the model after this page loaded.
     // The command 409s — lock the send affordances like the on-load flag.
     onModelUnavailable: () => {
       setModelUnavailable(true);
+    },
+    onSandboxUnavailable: (detail) => {
+      setSandboxUnavailable(detail);
     },
     // A 409 stale_interrupt means this view resumed an approval that was
     // already handled elsewhere (another tab, Slack). The checkpoint is the
@@ -480,6 +487,29 @@ const ChatPage = () => {
               </Button>
             </div>
           </div>
+        ) : agentStatus === "sandbox_unavailable" || sandboxUnavailable ? (
+          <div className="w-full max-w-4xl mx-auto lg:px-10 sm:px-6 px-3 py-6">
+            <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/50 px-4 py-3">
+              <ServerCrash className="size-5 shrink-0 text-muted-foreground" />
+              <p className="flex-1 text-sm text-muted-foreground">
+                {sandboxUnavailable ??
+                  agentStatusDetail ??
+                  "This agent's sandbox is not available right now."}{" "}
+                Try again in a moment, or ask a workspace admin.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 cursor-pointer"
+                onClick={() => {
+                  setSandboxUnavailable(null);
+                  void refetchReady();
+                }}
+              >
+                Check again
+              </Button>
+            </div>
+          </div>
         ) : agentStatus === "not_configured" ? (
           <div className="w-full max-w-4xl mx-auto lg:px-10 sm:px-6 px-3 py-4">
             <div className="w-full flex items-center justify-center border border-destructive/30 bg-destructive/10 rounded-lg px-4 py-8">
@@ -501,7 +531,9 @@ const ChatPage = () => {
             selectedEffort={threadEffort}
             agentReady={agentReady}
             disconnectedServers={disconnectedMcpServers}
-            onAllConnected={refetchReady}
+            onAllConnected={() => {
+              void refetchReady();
+            }}
           />
         )}
       </div>

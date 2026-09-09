@@ -24,6 +24,7 @@ from app.agents.runtime import RECURSION_LIMIT_MESSAGE, Agent, ResolvedAgent
 from app.agents.toolset import PreparedToolset, Toolset
 from app.exceptions import DomainValidationError
 from tests.agents.scripted_model import ScriptedChatModel
+from tests.sandbox.stub_sandbox import StubSandbox
 
 
 @tool
@@ -75,6 +76,7 @@ def _thread(thread_id: str = "thread-1") -> MagicMock:
     thread.user_id = "user-1"
     thread.agent_id = "agent-1"
     thread.created_at = datetime(2026, 1, 1, tzinfo=UTC)
+    thread.sandbox_id = None
     return thread
 
 
@@ -323,39 +325,61 @@ async def test_stale_structured_response_is_cleared_before_a_new_run(in_memory_r
 # instruction-for-instruction; these prove the result runs.
 
 
-def build_sandbox_agent(*, script: list, tools: list | None = None):
-    """An `Agent` with a sandbox binding, i.e. the deepagents-harness path."""
+def build_sandbox_agent(
+    *, script: list, tools: list | None = None, skills=(), sandbox_id=None
+):
+    """An `Agent` with a sandbox binding, i.e. the deepagents-harness path.
+
+    The provider is a fake whose `create`/`connect` hand out one `StubSandbox`
+    (returned third), and the thread stamp is intercepted (`remembered`)
+    since there is no database here.
+    """
     from app.agents.runtime import ResolvedSandbox, build_parent_middleware
 
     prepared = _prepared(tools or [])
     resolved = ResolvedAgent(config=_spec(), prepared=prepared)
-    resolved.sandbox = ResolvedSandbox(provider=MagicMock(), tools=None)
+    sandbox = StubSandbox("sbx-live")
+    provider = MagicMock()
+    provider.create.return_value = sandbox
+    provider.connect.return_value = sandbox
+    resolved.sandbox = ResolvedSandbox(provider=provider, tools=None)
     resolved.live = LiveToolsetStub(tools or [])
     model = ScriptedChatModel(script=script)
+    thread = _thread("thread-sandbox")
+    thread.sandbox_id = sandbox_id
     agent = Agent(
-        thread=_thread("thread-sandbox"),
+        thread=thread,
         agent=resolved,
         model=model,
         middleware=build_parent_middleware(datetime(2026, 1, 1, tzinfo=UTC), prepared),
         callbacks=[],
         subagents=[],
         provider="openai",
+        skills=skills,
     )
-    return agent, model
+    agent.remembered = []
+
+    async def remember(new_id):
+        agent.remembered.append(new_id)
+        thread.sandbox_id = new_id
+
+    agent._remember_sandbox = remember
+    return agent, model, sandbox
 
 
 @pytest.mark.asyncio
 async def test_sandbox_agent_is_offered_the_full_harness_toolset(in_memory_runtime):
-    """A sandbox agent gets deepagents' harness: todo, filesystem, `execute`,
-    the `task` tool (from the auto-added general-purpose subagent) and our own
-    sandbox lifecycle tools — plus the harness prompt appended to the agent's
-    instructions."""
-    agent, model = build_sandbox_agent(script=["done"], tools=[add])
+    """A sandbox agent gets deepagents' harness: todo, filesystem, `execute`
+    and the `task` tool (from the auto-added general-purpose subagent) — and
+    no lifecycle tools: the runtime opened the sandbox before the graph ran —
+    plus the harness prompt appended to the agent's instructions."""
+    agent, model, _ = build_sandbox_agent(script=["done"], tools=[add])
 
     await collect(agent, "hello")
 
     names = {t.name for t in model.bound_tools}
-    assert {"add", "create_sandbox", "connect_sandbox"} <= names
+    assert "add" in names
+    assert not {"create_sandbox", "connect_sandbox"} & names
     assert {"write_todos", "ls", "read_file", "write_file", "execute"} <= names
     assert "task" in names
     system = system_text(model)
@@ -365,13 +389,54 @@ async def test_sandbox_agent_is_offered_the_full_harness_toolset(in_memory_runti
 
 @pytest.mark.asyncio
 async def test_sandbox_agent_persists_the_sandbox_at_turn_end(in_memory_runtime):
-    """The snapshot hook runs once per turn, on the way out of `stream`."""
-    agent, _ = build_sandbox_agent(script=["done"])
+    """The snapshot hook runs once per turn, on the way out of `stream`, on
+    the sandbox the runtime opened."""
+    agent, _, sandbox = build_sandbox_agent(script=["done"])
 
-    with patch.object(Agent, "_persist_sandbox") as persist:
-        await collect(agent, "hello")
+    await collect(agent, "hello")
 
-    persist.assert_called_once()
+    assert sandbox.persisted == 1
+
+
+@pytest.mark.asyncio
+async def test_sandbox_is_created_once_and_reconnected_after(in_memory_runtime):
+    """First run of a thread: no sandbox id, so one is created and stamped on
+    the thread. Later runs reconnect to that id and stamp nothing."""
+    agent, _, _ = build_sandbox_agent(script=["done", "done"])
+    provider = agent.agent.sandbox.provider
+
+    await collect(agent, "hello")
+    assert provider.create.call_count == 1
+    assert agent.remembered == ["sbx-live"]
+
+    await collect(agent, "again")
+    provider.connect.assert_called_once_with("sbx-live")
+    assert provider.create.call_count == 1
+    assert agent.remembered == ["sbx-live"]
+
+
+@pytest.mark.asyncio
+async def test_replaced_sandbox_tells_the_model_once(in_memory_runtime):
+    """A gone sandbox is replaced, the thread re-stamped, and one host notice
+    lands in the checkpoint ahead of the user's message — so the model knows
+    its earlier files are gone. The notice is a `HumanMessage` tagged so the
+    chat renders it as an event, not as the user."""
+    from app.sandbox.provider import SandboxGoneError
+
+    agent, model, _ = build_sandbox_agent(script=["done"], sandbox_id="sbx-old")
+    agent.agent.sandbox.provider.connect.side_effect = SandboxGoneError("expired")
+
+    await collect(agent, "hello")
+
+    assert agent.remembered == ["sbx-live"]
+    state = await get_checkpoint_state(in_memory_runtime, "thread-sandbox")
+    [notice, question, _answer] = state.messages
+    assert notice.name == "host"
+    assert notice.additional_kwargs["host_notice"] == "sandbox_replaced"
+    assert "new, empty sandbox" in notice.content
+    assert question.content == "hello"
+    # The model saw it too, as a user-role turn ahead of the question.
+    assert "sandbox" in model.calls[0][1].content
 
 
 @pytest.mark.asyncio

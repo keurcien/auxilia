@@ -100,7 +100,9 @@ class TestExecute:
 
         sandbox_id, argv, timeout = transport.exec_calls[0]
         assert sandbox_id == "sbx-test"
-        assert argv == ["/bin/bash", "-lc", "echo hi"]
+        # Non-login shell: deepagents' file tools parse the combined output
+        # as JSON, and this image's login shell prints on stderr.
+        assert argv == ["/bin/bash", "-c", "echo hi"]
         assert timeout == 60
         assert response.output == "outerr"
         assert response.exit_code == 3
@@ -182,15 +184,14 @@ class TestProvider:
     def provider(self, transport):
         return make_provider(transport)
 
-    def test_create_launches_and_returns_message(self, provider, transport):
-        backend, message = provider.create(timeout_minutes=30)
+    def test_create_launches_a_fresh_sandbox(self, provider, transport):
+        backend = provider.create(timeout_minutes=30)
 
         [(sandbox_id, allow_egress, import_tar)] = transport.launched
         assert backend.id == sandbox_id
         assert sandbox_id.startswith("sbx-")
         assert allow_egress is False
         assert import_tar is None
-        assert sandbox_id in message
 
     def test_create_installs_default_packages(self, transport):
         provider = make_provider(transport, default_packages=["httpx", "rich"])
@@ -215,26 +216,48 @@ class TestProvider:
         assert transport.deleted == [sandbox_id]
 
     def test_connect_alive_fast_path(self, provider, transport):
-        backend, message = provider.connect("sbx-x")
+        backend = provider.connect("sbx-x")
 
         assert backend.id == "sbx-x"
-        assert "Reconnected" in message
         assert transport.launched == []
 
     def test_connect_restores_from_snapshot(self, transport):
         provider = make_provider(transport, snapshots=FakeSnapshotStore(tar=b"tar"))
         transport.queue(RuntimeError("not running"))  # is_alive probe fails
-        backend, message = provider.connect("sbx-old")
+        backend = provider.connect("sbx-old")
 
         assert backend.id == "sbx-old"
-        assert "Restored" in message
         assert transport.launched[0] == ("sbx-old", False, b"tar")
 
-    def test_connect_without_snapshot_raises(self, transport):
+    def test_connect_without_snapshot_is_gone(self, transport):
+        """No live sandbox and no snapshot is the one recoverable failure:
+        the runtime answers it by creating a replacement."""
+        from app.sandbox.provider import SandboxGoneError
+
         provider = make_provider(transport, snapshots=FakeSnapshotStore(tar=None))
         transport.queue(ExecResult(stdout=b"", stderr=b"", returncode=1))
-        with pytest.raises(RuntimeError, match="no snapshot"):
+        with pytest.raises(SandboxGoneError, match="no snapshot"):
             provider.connect("sbx-gone")
+
+    def test_probe_hits_the_gateway_health_route(self, transport):
+        transport.health_calls = 0
+
+        def health():
+            transport.health_calls += 1
+
+        transport.health = health
+        make_provider(transport).check_available()
+        assert transport.health_calls == 1
+
+    def test_probe_failure_is_unavailable(self, transport):
+        from app.exceptions import SandboxUnavailableError
+
+        def health():
+            raise ConnectionError("refused")
+
+        transport.health = health
+        with pytest.raises(SandboxUnavailableError, match="refused"):
+            make_provider(transport).check_available()
 
 
 class TestLifecycle:

@@ -86,6 +86,15 @@ class ThreadRepository(BaseRepository[ThreadDB]):
         )
         await self.db.execute(stmt)
 
+    async def set_sandbox_id(self, thread_id: str, sandbox_id: str) -> None:
+        """Record the sandbox the thread's runs reconnect to (single UPDATE)."""
+        stmt = (
+            update(ThreadDB)
+            .where(ThreadDB.id == thread_id)
+            .values(sandbox_id=sandbox_id)
+        )
+        await self.db.execute(stmt)
+
     async def list_for_agent(self, agent_id: UUID, page: PageParams):
         stmt = (
             select(

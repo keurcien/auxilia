@@ -16,12 +16,19 @@ from app.threads.service import get_thread_service
 
 
 @pytest.fixture(autouse=True)
-def _no_sandbox_bindings():
+def _no_sandbox_or_skill_bindings():
     """These tests drive db.execute with one shared mock result; the sandbox
-    hydration query would otherwise consume it. No test here binds one."""
-    with patch(
-        "app.agents.core.service.AgentSandboxRepository.list_for_agents",
-        new=AsyncMock(return_value=[]),
+    and skills hydration queries would otherwise consume it. No test here
+    binds either."""
+    with (
+        patch(
+            "app.agents.core.service.AgentSandboxRepository.list_for_agents",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "app.agents.core.service.SkillService.list_for_agent",
+            new=AsyncMock(return_value=[]),
+        ),
     ):
         yield
 

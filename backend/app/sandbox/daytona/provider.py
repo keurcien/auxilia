@@ -11,10 +11,12 @@ from daytona import (
     CreateSandboxFromSnapshotParams,
     Daytona,
     DaytonaConfig as DaytonaSDKConfig,
+    ListSandboxesQuery,
 )
+from daytona.common.errors import DaytonaNotFoundError
 
 from app.sandbox.daytona.backend import DaytonaSandbox
-from app.sandbox.provider import BaseSandboxProvider
+from app.sandbox.provider import BaseSandboxProvider, SandboxGoneError
 from app.sandbox.schemas import DaytonaConfig
 
 
@@ -51,6 +53,13 @@ class DaytonaProvider(BaseSandboxProvider):
             )
         )
 
+    def _probe(self) -> None:
+        # The iterator is lazy; pulling one item is the actual request.
+        next(
+            iter(self._client().list(ListSandboxesQuery(limit=1), request_timeout=15)),
+            None,
+        )
+
     def _create_backend(self, *, timeout_minutes: int) -> DaytonaSandbox:
         """`timeout_minutes` maps to Daytona's idle auto-stop when it exceeds
         the configured interval — the sandbox survives at least that long."""
@@ -66,23 +75,18 @@ class DaytonaProvider(BaseSandboxProvider):
     def _destroy_backend(self, backend: DaytonaSandbox) -> None:
         backend.kill()
 
-    def connect(self, sandbox_id: str) -> tuple[DaytonaSandbox, str]:
+    def connect(self, sandbox_id: str) -> DaytonaSandbox:
         client = self._client()
-        sandbox = client.get(sandbox_id)
+        try:
+            sandbox = client.get(sandbox_id)
+        except DaytonaNotFoundError as exc:
+            raise SandboxGoneError(f"sandbox {sandbox_id} no longer exists") from exc
         state = _state_of(sandbox)
         if state in _WAKEABLE_STATES:
             client.start(sandbox)
-            return (
-                DaytonaSandbox(sandbox, timeout=self.config.timeout),
-                f"Restarted sandbox {sandbox_id}. Files are preserved.",
-            )
-        # Unknown state (older SDK / missing attribute) is treated as usable —
-        # the first execute surfaces the truth. Known-dead states must raise:
-        # the base-class contract is "raise if it cannot be restored", and a
-        # false "Reconnected" would just defer the failure to the next tool.
-        if state and state not in _USABLE_STATES:
-            raise RuntimeError(f"sandbox {sandbox_id} is in state {state!r}")
-        return (
-            DaytonaSandbox(sandbox, timeout=self.config.timeout),
-            f"Reconnected to sandbox {sandbox_id}.",
-        )
+        elif state and state not in _USABLE_STATES:
+            # Unknown state (older SDK / missing attribute) is treated as usable —
+            # the first execute surfaces the truth. A known-dead state is gone:
+            # a false "reconnected" would just defer the failure to the next tool.
+            raise SandboxGoneError(f"sandbox {sandbox_id} is in state {state!r}")
+        return DaytonaSandbox(sandbox, timeout=self.config.timeout)
