@@ -31,9 +31,10 @@ from the name and description inputs (`web/src/app/(protected)/skills/lib/skill-
 
 ## 2. Data model
 
-Two tables, `skills` and `agent_skills`, plus one nullable column on `runs`.
-There are no versions: a save replaces the bundle in place, and every agent
-with the skill enabled picks the new content up on its next run.
+Two tables, `skills` and `agent_skills`, plus one nullable column on `runs`
+and one on `threads`. There are no versions: a save replaces the bundle in
+place, and every agent with the skill enabled picks the new content up on its
+next run.
 
 ```mermaid
 erDiagram
@@ -42,6 +43,9 @@ erDiagram
     agents ||--o{ agent_skills : has
     runs {
         jsonb skill_snapshot "frozen catalogs per agent id, nullable"
+    }
+    threads {
+        string sandbox_id "the sandbox every run of the thread reconnects to, nullable"
     }
     skills {
         uuid id PK
@@ -57,11 +61,11 @@ erDiagram
     }
 ```
 
-Three migrations, in order: `ab12cd34ef56` (original versioned model),
+Four migrations, in order: `ab12cd34ef56` (original versioned model),
 `cd34ef56ab78` (collapse to editable bundles; renames the legacy
 `skill_versions` / `skill_tests` tables instead of dropping them),
-`de56ab78cd90` (drop `visibility`). A fresh implementation would squash these
-into one.
+`de56ab78cd90` (drop `visibility`), `ef67ab89cd01` (`threads.sandbox_id`). A
+fresh implementation would squash these into one.
 
 Design points worth keeping in mind:
 
@@ -73,9 +77,10 @@ Design points worth keeping in mind:
   markdown and derive the rest.
 - **`revision`** is the optimistic-concurrency token. A save with a stale
   revision gets 409.
-- **`digest()`** is `sha256(model_dump_json())`. It names the sandbox directory,
-  so any byte change gives a fresh directory and old files can never shadow
-  new ones.
+- **`SkillBundle.digest()`** (`sha256(model_dump_json())`) used to name a
+  per-version sandbox directory. Since 2026-09-09 the sandbox holds one flat
+  root and freshness comes from a marker file hashing the materialized files
+  (`skills_digest`, section 9); the method is no longer used by the runtime.
 
 ## 3. Authorization
 
@@ -149,9 +154,14 @@ the run's one sandbox. The supervisor's prompt variant says so
 | Delete a skill (`DELETE /skills/{id}`) | Refused with 400 while any `agent_skills` row exists. Detach first. |
 | Delete an agent | `agent_skills` rows cascade. The skill is untouched. |
 | Delete a user | Their skills cascade, and so do those skills' `agent_skills` rows. Other users' agents lose the skill silently. |
-| Remove a file from a skill | Next run gets a new digest, hence a new sandbox directory. Old directories linger until the sandbox is recycled. |
+| Remove a file from a skill, or edit one | The digest marker no longer matches on the next run, so the skills root is recreated and re-uploaded; the removed file is gone. Sandbox-less agents get the diff in their state. |
+| Detach a skill | Gone from the graph's catalog on the next run; its folder is removed from the sandbox root, its state entries deleted. |
 | Edit a skill mid-run | Nothing changes for the running or interrupted run; it keeps its frozen snapshot. |
 | Detach during an interrupted run | The resume reuses the interrupted run's snapshot, so the skill stays available until that run finishes. |
+| Add a sandbox to an agent with live threads | Next run creates and stamps a sandbox, uploads the skills; the old state copies stay in the checkpoint unread. No notice. |
+| Remove the sandbox from an agent with live threads | `sandbox_id` stays but is ignored, the sandbox is orphaned, skills switch to state. Files the agent made in the sandbox vanish from its view; no notice today. |
+| Delete a thread | Checkpoints purged; the sandbox is **not** killed (provider TTL / auto-stop / instance recycling reclaims it). |
+| Regenerate a turn | The checkpoint forks to before the turn; the sandbox does not roll back. |
 
 ## 6. The original design, and how AI editing worked
 
@@ -201,18 +211,26 @@ single `read_skill` tool and the verified sandbox upload.
 
 ## 7. Size of the change
 
+As of `2ac4754` (2026-09-09), branch vs `main`:
+
 | Slice | Files | Lines |
 | --- | --- | --- |
-| Branch vs `main`, including today's uncommitted work | 35 | +2379 / −12 |
-| Backend (module, migrations, runtime hooks, tests) | 23 | ≈ +1230 |
-| Frontend (skills pages, files panel, form helpers, agent checkbox panel) | 12 | ≈ +1150 |
-| Touch points in existing code | `agents/runtime.py` +52, `sandbox/lazy.py` +24, `runs/worker.py` +5, `runs/models.py` +1, `main.py` +2, `alembic/env.py` +2 |
+| Whole branch | 71 | +4418 / −497 |
+| Backend (skills module, sandbox lifecycle, availability gate, migrations, tests) | 51 | +2731 / −473 |
+| Frontend (skills pages, files panel, form helpers, chat notices, readiness hooks) | 18 | +1234 / −24 |
+| Docs | 2 | +453 |
 
-Roughly 2 250 lines of source live in the skills module and pages today.
-Tests: 21 backend (service, runtime, bundles, router URL) and 5 frontend
-(YAML composition, name validation, upload routing).
+Tests: 225 backend tests across the skills, sandbox, runtime, harness-parity
+and agent-service suites (1104 in the whole backend suite), 62 frontend
+(5 for the skill form helpers). Commits: `2c5a80f` skills editor and
+visibility, `9be3457` eager sandbox + `SkillsMiddleware` (breaking: the two
+sandbox tools are gone), `422b2da` docs, `04b9c70` and `2ac4754` the shared
+skill set per graph.
 
 ## 8. How this compares with deepagents 0.7.13
+
+*Analysis written on 2026-09-08 before the switch; the outcome is in
+section 9. Kept because it records why each choice was made.*
 
 deepagents ships its own implementation of the same pattern:
 `SkillsMiddleware` (`deepagents/middleware/skills.py`), enabled with
@@ -298,9 +316,9 @@ maintaining a parallel one.
 
 ## 9. Decision: eager sandbox per run
 
-Decided and implemented 2026-09-08 (uncommitted on `feat/skills-preview`;
-verified live against the Cloud Run sandbox: skill script ran on turn one, a
-marker file written there was read back on turn two). An agent bound to a
+Decided and implemented 2026-09-08, pushed 2026-09-09 as `9be3457` (verified
+live against the Cloud Run sandbox: skill script ran on turn one, a marker
+file written there was read back on turn two). An agent bound to a
 sandbox gets a live sandbox as part of starting a run. The runtime owns the
 lifecycle; the model never creates or reconnects anything.
 
@@ -345,7 +363,7 @@ What changed:
    ready-timeout. Daytona: `DaytonaNotFoundError` or a dead state. Everything
    else (auth, quota, 5xx, network) fails the run — a provider outage must not
    silently spawn sandboxes.
-11. **Provider outage is a typed pre-run failure** (2026-09-09).
+10. **Provider outage is a typed pre-run failure** (2026-09-09).
     `SandboxUnavailableError` (409, body `{"error": "sandbox_unavailable",
     "sandbox_id", "detail"}`) mirrors `ModelUnavailableError`. Every provider
     has a cheap `_probe` (Cloud Run `GET /health`, OpenSandbox one-item
@@ -357,10 +375,50 @@ What changed:
     with a notice and a "Check again" button. `open_sandbox` raises the same
     error for a connect/create failure that is not "gone", covering the race
     between the gate and the worker. The model never sees any of it.
-10. **Non-login shell on Cloud Run** (2026-09-09). `bash -c`, not `-lc`: the
+11. **Non-login shell on Cloud Run** (2026-09-09). `bash -c`, not `-lc`: the
     image's login shell printed a `.bash_profile` permission error on stderr
     for every command, and deepagents' file tools parse `execute`'s combined
-    output as JSON.
+    output as JSON. (Supersedes `329084d`, a fallback that re-downloaded a
+    skill file when its read came back malformed.)
+12. **Sandbox-less agents read from state** (2026-09-09, `9be3457`).
+    `SkillFilesMiddleware` diffs the skill files into the agent's checkpointed
+    `files` channel; `StateBackend` serves them to `SkillsMiddleware` and to
+    `ls`/`read_file`, the only tools such an agent gets. No host disk, no
+    process. Replaced an earlier per-run temp dir on the worker.
+13. **One skill set per graph** (2026-09-09, `04b9c70`, `2ac4754`). Section 4.
+    A sandbox-less supervisor delegates a skill script to a sandboxed subagent
+    by absolute path; the shared root makes the path valid.
+
+**Decisions log** (the user's calls, in order):
+
+- Eager sandbox at run start; the model never manages the lifecycle.
+- One sandbox per thread, ephemeral; no cross-user sharing. Existing threads
+  had already lost their sandboxes, so no migration of old ids.
+- No GCS snapshot bucket for now (toy sandbox); reconnect works while the
+  gateway instance is alive, otherwise the sandbox is replaced.
+- Skills upload only when the sandbox is new or a skill changed, never on
+  every turn.
+- A provider outage blocks the agent like an unavailable model and never
+  reaches the model.
+- A sandbox-less agent must not touch any process or host filesystem.
+- One skill set for a supervisor and its subagents; name collisions refused.
+
+**Known limits** (accepted or deferred):
+
+- Sandboxes are never cleaned up: thread deletion, agent archive and trigger
+  firings leave them to the provider's TTL / auto-stop / instance recycling.
+- The availability probe runs on every run creation (one HTTP call to the
+  provider). Cache it if it ever shows in latency.
+- The one sandbox per run uses the first bound member's provider; subagents
+  bound to a different sandbox row still share it.
+- The host notice is skipped on a resume (`Command` has no messages) and is
+  not emitted when a sandbox binding is removed from an agent.
+- Old threads of sandbox-less agents keep stale per-agent `files` entries
+  from before the shared root; unread, a few KB each.
+- Edits the model makes inside the skills root are wiped when the root is
+  re-uploaded; the prompt tells it to copy scripts first.
+- The skill list lives in the system prompt, so attaching, detaching or
+  saving a skill costs one prompt-cache miss on that turn.
 
 **Telling the model its sandbox was replaced.** When step 2 falls back from
 connect to create, the runtime prepends one host-authored message to the
@@ -398,23 +456,49 @@ dir with `FilesystemBackend`; replaced on 2026-09-09 by `StateBackend` plus
 disk (`test_plain_agent_reads_skills_from_state_end_to_end` runs the real
 graph and checks the prompt, the tools offered and the state).
 
-## 10. Notes for a reimplementation
+## 10. Frontend
+
+- **Skill library** (`web/src/app/(protected)/skills/page.tsx`): cards with
+  name, description and file count; import of a `.zip` / `.skill` / `.md`.
+- **Skill editor** (`skill-editor.tsx`), built on the agent editor's layout:
+  breadcrumb header with UNSAVED pill, Discard / Save, kebab with Export and
+  Delete; read mode renders the body as markdown, Edit flips to inputs. Name
+  and description are inputs; `lib/skill-form.ts` composes the frontmatter
+  (`yamlScalar` quotes anything YAML could misread) and a SKILL.md tab shows
+  the exact file that will be sent. Client-side name validation mirrors the
+  backend pattern.
+- **Files panel** (`components/skill-files-panel.tsx`): one horizontally
+  scrollable tab per file, path input, mono editor, binary placeholder;
+  uploads land in `scripts/`, `references/` or `assets/` by type.
+- **Agent side** (`agents/components/agent-skills.tsx`): checkbox list to
+  enable skills on an agent. Still the unstyled preview version.
+- **Chat**: host notices render as a muted event line
+  (`isHostNotice` in `conversation-body.tsx`); `useAgentConnectionStatus`
+  carries `status: "sandbox_unavailable"` plus `detail`, and both chat pages
+  replace the composer with a notice and a "Check again" button;
+  `useProtocolFetch` turns a 409 `sandbox_unavailable` on a command into the
+  same state.
+
+## 11. Notes for a reimplementation
 
 Keep:
 
 - The bundle format and limits. They match the Agent Skills standard's minimum.
-- `read_skill` with the manifest in the tool description. It is cheap
-  progressive disclosure and keeps the system prompt frozen for prompt caching.
+- deepagents' `SkillsMiddleware` and `read_file` for disclosure, with the
+  per-run index refresh; no custom skill tool.
 - Freezing bundles per run and reusing them across retries and resumes.
-- Content-hashed sandbox directories with a read-back verification.
+- One flat skills root with a digest marker, so unchanged skills cost one
+  `cat` per turn and a change re-uploads everything.
+- The runtime owning the sandbox lifecycle, and `StateBackend` for agents
+  without one.
 - Explicit save with a revision token, no autosave.
 
 Change:
 
 - Store the raw markdown once; derive `name`, `description`, `instructions`.
 - Model the standard's optional frontmatter (`license`, `compatibility`,
-  `metadata`, `allowed-tools`) or reject unknown keys explicitly, so round-trips
-  are honest. Adopting `SkillsMiddleware` (section 8) gives this for free.
+  `metadata`, `allowed-tools`) in the editor; `SkillsMiddleware` already reads
+  and shows them, but a save from the editor drops them.
 - Split the list endpoint from file contents. Return `{id, name, description,
   file_count}` for the library and load files on the detail page.
 - Reference bundles by digest from run snapshots instead of copying them, once
