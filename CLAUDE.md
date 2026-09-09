@@ -8,6 +8,7 @@ Core features are MCP and agent management:
 
 - **MCP**: workspace admin users can add MCP servers to workspace. Workspace MCP servers are then available to all users, to be bound to any workspace agent.
 - **Agent**: an agent is defined by instructions and MCP tools. Tools can be individually configured to be disabled or to require user approval (Human-In-The-Loop).
+- **Skill**: a `SKILL.md` (YAML frontmatter `name` + `description`, then the procedure) plus optional files, following the open Agent Skills layout. Skills live in a workspace library (`app/skills/`), any user can read and use them, only the owner or an admin edits. Enabled on an agent as part of its config save; a supervisor and its subagents share one skill set at run time (names must be unique across the graph). The runtime freezes the set on the thread per turn, lists it in the system prompt through deepagents' `SkillsMiddleware`, and serves the files from an in-memory read-only backend (uploaded to the sandbox disk too, for scripts).
 - **Trigger**: a scheduled agent run — name + instructions bound to one agent and a model, on a cron + timezone schedule. Each firing creates a thread (`source=trigger`) and a background run on the durable runtime, executed as the trigger's owner (their MCP credentials). Owned by a user; created by workspace editors; pause/unpause via `is_active`.
 
 External integrations:
@@ -164,7 +165,12 @@ auxilia/
 │   │   │   │                          # catalog.py — official servers from a CDN YAML (see app/utils/remote_catalog.py)
 │   │   │   └── router.py              # auxilia_mcp (FastMCP) endpoint — advertises no tools yet
 │   │   ├── model_providers/           # LLM provider configuration & catalog
-│   │   ├── sandbox/                   # Sandboxed code execution
+│   │   ├── sandbox/                   # Sandboxed code execution — provider.py owns the lifecycle
+│   │   │                              # (open_sandbox at run start, SandboxGoneError → replace, availability probe)
+│   │   ├── skills/                    # Skill library + runtime
+│   │   │   ├── bundles.py             # SKILL.md parsing, zip import/export (pure)
+│   │   │   ├── runtime.py             # SkillsBackend (in-memory, read-only), freeze_run_skills, upload_skills
+│   │   │   └── middleware.py          # FreshSkillsMiddleware (deepagents' SkillsMiddleware, per-run index) + prompts
 │   │   ├── threads/                   # Chat thread management
 │   │   │   └── router.py              # Thread CRUD & history (runs live in agents/runs/, protocol state in agents/protocol/)
 │   │   ├── triggers/                  # Scheduled agent runs

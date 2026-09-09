@@ -12,6 +12,7 @@ import {
 	ChevronDown,
 	Loader2,
 	Server,
+	Sparkles,
 	SquarePen,
 	MoreVertical,
 	Pencil,
@@ -46,6 +47,7 @@ import { useUserStore } from "@/stores/user-store";
 import { useAgentsStore } from "@/stores/agents-store";
 import { useTriggersStore } from "@/stores/triggers-store";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
+import { useSkillsStore } from "@/stores/skills-store";
 import { api } from "@/lib/api/client";
 import { formatRunAt } from "@/lib/triggers/schedule";
 import { useActiveRunThreadIds } from "@/hooks/use-active-runs";
@@ -76,6 +78,12 @@ const navItems: {
 		title: "MCP Servers",
 		href: "/mcp-servers",
 		icon: Server,
+	},
+	{
+		title: "Skills",
+		href: "/skills",
+		icon: Sparkles,
+		match: "prefix",
 	},
 	{
 		title: "Users",
@@ -125,6 +133,9 @@ export function AppSidebar() {
 	const mcpServers = useMcpServersStore((state) => state.mcpServers);
 	const mcpServersReady = useMcpServersStore((state) => state.isInitialized);
 	const fetchMcpServers = useMcpServersStore((state) => state.fetchMcpServers);
+	const skills = useSkillsStore((state) => state.skills);
+	const skillsReady = useSkillsStore((state) => state.isInitialized);
+	const fetchSkills = useSkillsStore((state) => state.fetchSkills);
 	const hasMoreThreads = threads.length < total;
 	const { user, fetchUser, logout } = useUserStore();
 	const { resolvedTheme, setTheme } = useTheme();
@@ -140,12 +151,21 @@ export function AppSidebar() {
 		// pages. Failures just leave the counts blank — never unhandled.
 		fetchTriggers().catch(() => {});
 		fetchMcpServers().catch(() => {});
-	}, [fetchUser, fetchThreads, fetchAgents, fetchTriggers, fetchMcpServers]);
+		fetchSkills().catch(() => {});
+	}, [
+		fetchUser,
+		fetchThreads,
+		fetchAgents,
+		fetchTriggers,
+		fetchMcpServers,
+		fetchSkills,
+	]);
 
 	const navCounts: Record<string, number | undefined> = {
 		"/agents": agentsReady ? agents.length : undefined,
 		"/triggers": triggersReady ? triggers.length : undefined,
 		"/mcp-servers": mcpServersReady ? mcpServers.length : undefined,
+		"/skills": skillsReady ? skills.length : undefined,
 	};
 
 	const handleDeleteThread = (threadId: string) => {

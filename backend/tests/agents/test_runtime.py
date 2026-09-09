@@ -19,7 +19,9 @@ from app.agents.structured_output import (
     DeferredStructuredOutputMiddleware,
 )
 from app.agents.tool_errors import RepairInvalidToolCallsMiddleware, ToolErrorMiddleware
+from app.sandbox.provider import SandboxSession
 from tests.agents.scripted_model import ScriptedChatModel
+from tests.sandbox.stub_sandbox import StubSandbox
 
 
 def _build_agent(
@@ -28,12 +30,13 @@ def _build_agent(
     middleware=None,
     provider: str | None = None,
     model=None,
+    skills=(),
 ) -> Agent:
     resolved = MagicMock()
     resolved.sandbox = MagicMock() if sandbox else None
     resolved.config.instructions = "You are a test agent"
     resolved.live.all = []
-    return Agent(
+    agent = Agent(
         thread=MagicMock(),
         agent=resolved,
         model=model if model is not None else MagicMock(),
@@ -41,7 +44,13 @@ def _build_agent(
         callbacks=[],
         subagents=[],
         provider=provider,
+        skills=skills,
     )
+    if sandbox:
+        # `_setup` opens the run's sandbox before building the graph; stand in
+        # for that here so `_build_agent` sees a live backend.
+        agent._sandbox = SandboxSession(backend=StubSandbox(), sandbox_id="sbx-1")
+    return agent
 
 
 @patch("app.agents.runtime.create_agent")
@@ -134,11 +143,8 @@ def test_build_agent_appends_tool_error_middleware(mock_create_agent):
     assert isinstance(middleware[-1], ToolErrorMiddleware)
 
 
-@patch("app.sandbox.tools.create_sandbox_tools", return_value=[])
 @patch("app.agents.runtime.create_agent")
-def test_build_agent_sandbox_uses_the_same_create_agent_path(
-    mock_create_agent, _mock_tools
-):
+def test_build_agent_sandbox_uses_the_same_create_agent_path(mock_create_agent):
     """A sandbox no longer forks the construction path: it adds deepagents'
     harness middleware to the same `create_agent` call. The caller's
     PatchToolCallsMiddleware is dropped in favour of the harness's one (langchain

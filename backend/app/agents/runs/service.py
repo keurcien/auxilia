@@ -18,6 +18,7 @@ from uuid import UUID
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.core.repository import AgentRepository
 from app.agents.hitl import (
     build_resume_command,
     is_addressed_resume,
@@ -35,6 +36,7 @@ from app.database import AsyncSessionLocal, get_checkpointer
 from app.exceptions import DomainValidationError, NotFoundError, StaleApprovalError
 from app.model_providers.service import ModelService
 from app.redis_client import get_redis
+from app.sandbox.provider import ensure_sandboxes_available
 from app.threads.models import ThreadDB
 from app.threads.repository import ThreadRepository
 
@@ -149,13 +151,18 @@ class RunService:
 
     @staticmethod
     async def _ensure_runnable_thread(db: AsyncSession, thread_id: str) -> None:
-        """The model-availability gate behind `create`: the thread must exist
-        and its pinned model must resolve (whitelist ∧ provider key ∧
-        admin-enabled), else ModelUnavailableError."""
+        """The availability gates behind `create`: the thread must exist, its
+        pinned model must resolve (whitelist ∧ provider key ∧ admin-enabled),
+        else ModelUnavailableError; and every sandbox its agent graph binds
+        must answer a probe, else SandboxUnavailableError — a provider outage
+        is a 409 here, not a failed run the model gets to reason about."""
         thread = await db.get(ThreadDB, thread_id)
         if thread is None:
             raise NotFoundError("Thread not found")
         await ModelService(db).ensure_available(thread.model_id)
+        spec = await AgentRepository(db).get_run_spec(thread.agent_id)
+        if spec is not None:
+            await ensure_sandboxes_available(spec.all_sandbox_rows)
 
     @staticmethod
     async def required_oauth_url(

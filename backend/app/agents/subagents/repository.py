@@ -37,6 +37,13 @@ class SubagentRepository:
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def list_supervisor_ids(self, subagent_id: UUID) -> list[UUID]:
+        stmt = select(AgentSubagentDB.supervisor_id).where(
+            AgentSubagentDB.subagent_id == subagent_id
+        )
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
     async def has_subagents(self, agent_id: UUID) -> bool:
         stmt = (
             select(AgentSubagentDB.id)

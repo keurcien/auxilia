@@ -37,13 +37,21 @@ from app.agents.structured_output import (
     DeferredStructuredOutputMiddleware,
 )
 from app.agents.tool_errors import ToolErrorMiddleware
-from app.sandbox.lazy import LazySandboxBackend
+from app.skills.middleware import SKILLS_SOURCES, FreshSkillsMiddleware
+from app.skills.runtime import SkillsBackend
+from app.skills.schemas import SkillBundle
 from tests.agents.scripted_model import ScriptedChatModel
+from tests.sandbox.stub_sandbox import StubSandbox
 
 
 EXPECTED_DEVIATIONS: list[str] = [
     "TodoListMiddleware leads the main stack: deepagents 0.7 dropped it from "
     "the default bundle, but the web client renders the `todos` channel.",
+    "FreshSkillsMiddleware stands in for SkillsMiddleware wherever deepagents "
+    "places it: same slot, same name, but it re-reads the skill index on every "
+    "run (a skill saved between two turns must reach the next one), reads it "
+    "from the run's in-memory `SkillsBackend` rather than the sandbox, and "
+    "carries this app's prompt template.",
 ]
 """Differences we accept between the two assemblies. Each is asserted in
 `comparable()`; add an entry there when you add one here."""
@@ -55,14 +63,12 @@ def add(a: int, b: int) -> int:
     return a + b
 
 
-@tool
-def create_sandbox(timeout_minutes: int = 30) -> str:
-    """Stand-in for the sandbox lifecycle tools."""
-    return "ok"
-
-
 TOOLS = [add]
-SANDBOX_TOOLS = [create_sandbox]
+SKILL = SkillBundle(
+    name="report",
+    description="Write a report",
+    content="---\nname: report\ndescription: Write a report\n---\nDo it.",
+)
 
 
 MODELS = {
@@ -127,11 +133,8 @@ def via_deep_agent(model, **kwargs):
 def via_build_runnable(model, **kwargs):
     """What `build_runnable` hands to `create_agent` for the same inputs."""
     seen, patcher = _capture("app.agents.runtime.create_agent")
-    with (
-        patcher,
-        patch("app.sandbox.tools.create_sandbox_tools", return_value=SANDBOX_TOOLS),
-    ):
-        build_runnable(model=model, sandbox_provider=None, **kwargs)
+    with patcher:
+        build_runnable(model=model, **kwargs)
     return seen
 
 
@@ -205,7 +208,7 @@ def comparable(ours: dict, deep: dict) -> tuple[dict, dict]:
 
     Everything left has to match exactly.
     """
-    assert len(EXPECTED_DEVIATIONS) == 1
+    assert len(EXPECTED_DEVIATIONS) == 2
     # Shallow copies: the projections hold the model instance, which does not
     # deepcopy (its HTTP client carries a lock), and nothing below mutates deeper.
     ours = {**ours, "middleware": list(ours["middleware"])}
@@ -217,7 +220,39 @@ def comparable(ours: dict, deep: dict) -> tuple[dict, dict]:
     assert all(m["class"] != "TodoListMiddleware" for m in deep["middleware"])
     del ours["middleware"][0]
 
+    # 2. Our skills middleware is a subclass in deepagents' slot: fold the
+    #    class name so the position and everything around it still compare.
+    assert issubclass(FreshSkillsMiddleware, deepagents_graph.SkillsMiddleware)
+    ours["middleware"] = [_fold_skills(m) for m in ours["middleware"]]
+    assert "FreshSkillsMiddleware" not in _classes(deep["middleware"])
+
     return ours, deep
+
+
+def _classes(middleware: list[dict]) -> set[str]:
+    """Every middleware class in a described stack, subagents included."""
+    found = set()
+    for m in middleware:
+        found.add(m["class"])
+        for sub in m.get("subagents", []):
+            found |= _classes(sub.get("middleware", []))
+    return found
+
+
+def _fold_skills(described: dict) -> dict:
+    if described["class"] == "FreshSkillsMiddleware":
+        described = {**described, "class": "SkillsMiddleware"}
+    if "subagents" in described:
+        described = {
+            **described,
+            "subagents": [
+                {**sub, "middleware": [_fold_skills(m) for m in sub["middleware"]]}
+                if "middleware" in sub
+                else sub
+                for sub in described["subagents"]
+            ],
+        }
+    return described
 
 
 def _both(
@@ -227,17 +262,18 @@ def _both(
     subagents=None,
     instructions="You are a test agent",
     output_schema=None,
+    skills=False,
 ) -> tuple[dict, dict]:
     """Build both ways from one set of inputs and project each for comparison.
 
     The `create_deep_agent` side reproduces the *old call site*, not just the
-    old function: it appended the sandbox tools, dropped its own
-    `PatchToolCallsMiddleware` (deepagents injects one and langchain asserts on
-    duplicates), appended the deferred-formatting middleware when a schema was
-    given, and put `ToolErrorMiddleware` last. That call site is the behaviour
-    P2-3 had to preserve.
+    old function: it dropped its own `PatchToolCallsMiddleware` (deepagents
+    injects one and langchain asserts on duplicates), appended the
+    deferred-formatting middleware when a schema was given, and put
+    `ToolErrorMiddleware` last. That call site is the behaviour P2-3 had to
+    preserve. ``skills`` builds both sides with one skill source.
     """
-    backend = LazySandboxBackend()
+    backend = StubSandbox()
     deep_middleware = [
         m for m in base_middleware if not isinstance(m, PatchToolCallsMiddleware)
     ]
@@ -245,12 +281,13 @@ def _both(
         deep_middleware.append(DeferredStructuredOutputMiddleware(FORMAT_TOOL))
     deep = via_deep_agent(
         model,
-        tools=[*TOOLS, *SANDBOX_TOOLS],
+        tools=TOOLS,
         system_prompt=instructions,
         backend=backend,
         middleware=[*deep_middleware, ToolErrorMiddleware()],
         subagents=subagents,
         response_format=output_schema,
+        skills=[source for source, _label in SKILLS_SOURCES] if skills else None,
     )
     ours = via_build_runnable(
         model,
@@ -260,6 +297,7 @@ def _both(
         base_middleware=base_middleware,
         subagents=subagents,
         output_schema=output_schema,
+        skills=SkillsBackend([SKILL]) if skills else None,
     )
     return describe(deep), describe(ours)
 
@@ -275,6 +313,22 @@ def test_sandbox_assembly_matches_create_deep_agent(model_name):
 
     ours, deep = comparable(ours, deep)
     assert ours == deep
+
+
+@pytest.mark.parametrize("model_name", list(MODELS))
+def test_sandbox_assembly_with_skills_matches_create_deep_agent(model_name):
+    """With skills, deepagents puts `SkillsMiddleware` first on the main stack
+    and last on the general-purpose subagent's; ours lands in the same slots."""
+    model = MODELS[model_name]()
+
+    deep, ours = _both(model, skills=True)
+
+    ours, deep = comparable(ours, deep)
+    assert ours == deep
+    assert ours["middleware"][0]["class"] == "SkillsMiddleware"
+    gp = next(m for m in ours["middleware"] if m["name"] == "SubAgentMiddleware")
+    gp_classes = [m["class"] for m in gp["subagents"][0]["middleware"]]
+    assert "SkillsMiddleware" in gp_classes
 
 
 @pytest.mark.parametrize("model_name", list(MODELS))
@@ -362,18 +416,13 @@ def test_graph_config_matches_deepagents():
     it is what a sandbox *subagent* runs under. Compare against the real thing
     rather than a constant, so a metadata rename upstream shows up here."""
     model = MODELS["openai"]()
-    deep = via_deep_agent(
-        model, tools=[*TOOLS, *SANDBOX_TOOLS], backend=LazySandboxBackend()
-    )
-    with (
-        patch("app.sandbox.tools.create_sandbox_tools", return_value=[create_sandbox]),
-        patch("app.agents.runtime.create_agent", return_value=_Sentinel()),
-    ):
+    deep = via_deep_agent(model, tools=TOOLS, backend=StubSandbox())
+    with patch("app.agents.runtime.create_agent", return_value=_Sentinel()):
         built = build_runnable(
             model=model,
             tools=[add],
             system_prompt="hi",
-            sandbox_backend=LazySandboxBackend(),
+            sandbox_backend=StubSandbox(),
         )
 
     assert built.config == HARNESS_CONFIG == deep["config"]
