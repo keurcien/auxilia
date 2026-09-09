@@ -64,9 +64,10 @@ from app.sandbox.provider import (
     open_sandbox,
 )
 from app.skills.runtime import (
+    SKILLS_ROOT,
     materialize_skills,
+    merge_catalogs,
     skill_files,
-    skills_root,
     skills_sources,
 )
 from app.threads.models import ThreadDB
@@ -405,12 +406,12 @@ class ResolvedAgent:
     def skill_kwargs(self) -> dict:
         """`build_runnable`'s skills arguments for this agent: the sources, and
         the files themselves when there is no sandbox to upload them to."""
-        sources = skills_sources(self.config.id, self.skills)
+        sources = skills_sources(self.skills)
         if sources is None:
             return {"skills": None}
         files = None
         if self.sandbox is None:
-            files = skill_files(self.skills, skills_root(self.config.id))
+            files = skill_files(self.skills, SKILLS_ROOT)
         return {"skills": sources, "skill_files": files}
 
     def compile(
@@ -561,6 +562,12 @@ class Agent:
             )
             for sub in spec.subagents
         ]
+
+        # One skill set per graph: every agent lists, reads and runs the union
+        # of what the supervisor and its subagents have attached.
+        shared = merge_catalogs(ra.skills for ra in [agent, *subagents])
+        for ra in [agent, *subagents]:
+            ra.skills = shared
 
         handler = get_langfuse_callback_handler()
         callbacks = [handler] if handler is not None else []
@@ -750,14 +757,12 @@ class Agent:
         A sandbox that is gone and has no snapshot is replaced (and the model
         told, see `SANDBOX_REPLACED_NOTICE`); any other failure fails the run.
 
-        The skills of *every* agent in the graph are materialized, each under
-        its own root, not only those of the agents bound to the sandbox: a
-        supervisor without code execution reads its skill from state and
-        delegates the script to a sandboxed subagent by absolute path, and
-        that path has to exist in the sandbox the subagent runs in.
+        The graph shares one skill set (merged in `build`), so it is
+        materialized once under `SKILLS_ROOT`: a supervisor without code
+        execution reads a skill from state and delegates its script to a
+        sandboxed subagent by the same absolute path.
         """
-        graph = [self.agent, *self.subagents]
-        bound = [ra for ra in graph if ra.sandbox is not None]
+        bound = [ra for ra in [self.agent, *self.subagents] if ra.sandbox is not None]
         if not bound:
             return
         provider = bound[0].sandbox.provider
@@ -766,16 +771,12 @@ class Agent:
         )
         if session.sandbox_id != self.thread.sandbox_id:
             await self._remember_sandbox(session.sandbox_id)
-        for ra in graph:
-            # A bound agent is materialized even with no skills, so a root left
-            # by a detached skill is cleared; an unbound one only when it has
-            # skills to share.
-            if ra.sandbox is None and not ra.skills.get("entries"):
-                continue
-            root = skills_root(ra.config.id)
-            await asyncio.to_thread(
-                materialize_skills, session.backend, root, skill_files(ra.skills, root)
-            )
+        await asyncio.to_thread(
+            materialize_skills,
+            session.backend,
+            SKILLS_ROOT,
+            skill_files(self.agent.skills, SKILLS_ROOT),
+        )
         self._sandbox = session
 
     async def _remember_sandbox(self, sandbox_id: str) -> None:

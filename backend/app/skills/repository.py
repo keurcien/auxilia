@@ -17,6 +17,16 @@ class SkillRepository(BaseRepository[SkillDB]):
         stmt = select(SkillDB).order_by(col(SkillDB.updated_at).desc())
         return (await self.db.execute(stmt)).scalars().all()
 
+    async def bindings_for_agents(self, agent_ids):
+        stmt = select(AgentSkillDB).where(
+            col(AgentSkillDB.agent_id).in_(list(agent_ids))
+        )
+        return (await self.db.execute(stmt)).scalars().all()
+
+    async def get_many(self, skill_ids):
+        stmt = select(SkillDB).where(col(SkillDB.id).in_(list(skill_ids)))
+        return (await self.db.execute(stmt)).scalars().all()
+
     async def lock(self, skill_id: UUID):
         stmt = (
             select(SkillDB)

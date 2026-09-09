@@ -243,15 +243,14 @@ def test_host_notice_leaves_a_resume_command_alone():
     assert _with_host_notice(command, "note", "x") is command
 
 
-async def test_open_sandbox_materializes_the_supervisors_skills_too():
-    """A supervisor without code execution delegates a skill script to a
-    sandboxed subagent by absolute path — so its skill files must be in the
-    run's sandbox as well, under its own root, even though it never reads
-    them from there itself."""
+async def test_open_sandbox_materializes_the_graphs_shared_skills():
+    """One skill set per graph, materialized once under the shared root: a
+    supervisor without code execution delegates a skill script to a sandboxed
+    subagent by absolute path, and that path exists in the run's sandbox."""
     from unittest.mock import AsyncMock
 
     from app.sandbox.provider import SandboxSession
-    from app.skills.runtime import skills_root
+    from app.skills.runtime import SKILLS_ROOT
 
     bundle = {
         "name": "greeting",
@@ -261,13 +260,12 @@ async def test_open_sandbox_materializes_the_supervisors_skills_too():
             {"path": "scripts/upload.py", "content": "print(1)", "encoding": "utf-8"}
         ],
     }
+    shared = {"entries": [{"skill_id": "s", "bundle": bundle}]}  # as `build` merges it
     parent = MagicMock()
     parent.sandbox = None
-    parent.config.id = "parent-id"
-    parent.skills = {"entries": [{"skill_id": "s", "bundle": bundle}]}
-    worker = MagicMock()  # the sandboxed subagent, no skills of its own
-    worker.config.id = "worker-id"
-    worker.skills = {"entries": []}
+    parent.skills = shared
+    worker = MagicMock()  # the sandboxed subagent
+    worker.skills = shared
     agent = Agent(
         thread=MagicMock(sandbox_id=None),
         agent=parent,
@@ -285,14 +283,8 @@ async def test_open_sandbox_materializes_the_supervisors_skills_too():
     ):
         await agent._open_sandbox()
 
-    parent_root = skills_root("parent-id")
-    assert f"{parent_root}/greeting/scripts/upload.py" in backend.files
-    assert f"{parent_root}/greeting/SKILL.md" in backend.files
-    # The bound subagent's (empty) root is reset; an unbound agent with no
-    # skills would not have cost a sandbox call at all.
-    assert any(
-        cmd.startswith(f"rm -rf {skills_root('worker-id')}") for cmd in backend.commands
-    )
+    assert f"{SKILLS_ROOT}/greeting/scripts/upload.py" in backend.files
+    assert f"{SKILLS_ROOT}/greeting/SKILL.md" in backend.files
     agent._remember_sandbox.assert_awaited_once_with("sbx-1")
     assert agent._sandbox is not None and agent._sandbox_for(worker) is backend
     assert agent._sandbox_for(parent) is None

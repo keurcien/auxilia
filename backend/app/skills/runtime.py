@@ -4,22 +4,29 @@ deepagents' ``SkillsMiddleware``.
 There is no custom skill tool. The middleware (``app/skills/middleware.py``)
 appends the skill index to the system prompt and the agent reads a skill with
 the filesystem ``read_file`` tool, the way every deepagents agent does. This
-module's job is to put the files where the middleware looks —
-``skills_root(agent_id)`` on the backend the agent's filesystem tools use: its
-live sandbox, or (``SkillFilesMiddleware``) the agent's own graph state for an
-agent without one.
+module's job is to put the files where the middleware looks — ``SKILLS_ROOT``
+on the backend the agent's filesystem tools use: the run's live sandbox, or
+(``SkillFilesMiddleware``) the agent's own graph state for an agent without one.
+
+One skill set per graph: a supervisor and its subagents share the union of
+their attached skills (``merge_catalogs``), so any of them can read or run any
+skill file by the same absolute path. Two different skills with the same name
+in one graph are refused when they would be attached or when the graph is
+assembled (``SkillService.ensure_no_name_collision``); the merge here is the
+last line of defence and fails the run rather than pick one.
 """
 
 from __future__ import annotations
 
 import hashlib
 import shlex
+from collections.abc import Iterable
 from pathlib import PurePosixPath
 from uuid import UUID
 
 from deepagents.backends.sandbox import BaseSandbox
 
-from app.exceptions import NotFoundError
+from app.exceptions import DomainValidationError, NotFoundError
 from app.skills.bundles import skill_markdown
 from app.skills.schemas import SkillBundle
 from app.skills.service import SkillService
@@ -53,19 +60,38 @@ async def resolve_skills(
     return catalog
 
 
-def skills_root(agent_id) -> str:
-    """Where one agent's skills live. Per agent, so a parent and its
-    subagents sharing a sandbox each list only their own."""
-    return f"{SKILLS_ROOT}/{agent_id}"
+def merge_catalogs(catalogs: Iterable[dict]) -> dict:
+    """The graph's one catalog: the union of its agents' skills by id.
+
+    The same skill attached to two agents is one entry. Two *different* skills
+    with the same name cannot coexist, because the model addresses a skill by
+    name and the files by ``SKILLS_ROOT/<name>/``; that is refused when it
+    would arise, so hitting it here means the data changed under a run — fail
+    it rather than silently drop one.
+    """
+    entries: dict[str, dict] = {}
+    by_name: dict[str, str] = {}
+    for catalog in catalogs:
+        for entry in catalog.get("entries", []):
+            skill_id = str(entry["skill_id"])
+            name = entry["bundle"]["name"]
+            if by_name.get(name, skill_id) != skill_id:
+                raise DomainValidationError(
+                    f"Two different skills named '{name}' are attached to agents "
+                    "of this graph; detach one before running."
+                )
+            by_name[name] = skill_id
+            entries.setdefault(skill_id, entry)
+    return {"entries": list(entries.values())}
 
 
-def skills_sources(agent_id, catalog: dict) -> list[tuple[str, str]] | None:
-    """``SkillsMiddleware`` sources for one agent — ``None`` when it has no
-    skills, which (as in ``create_deep_agent``) means no middleware and no
-    prompt fragment at all."""
+def skills_sources(catalog: dict) -> list[tuple[str, str]] | None:
+    """``SkillsMiddleware`` sources — ``None`` when the graph has no skills,
+    which (as in ``create_deep_agent``) means no middleware and no prompt
+    fragment at all."""
     if not catalog.get("entries"):
         return None
-    return [(skills_root(agent_id), "Agent")]
+    return [(SKILLS_ROOT, "Agent")]
 
 
 def skill_files(catalog: dict, root: str) -> list[tuple[str, bytes]]:

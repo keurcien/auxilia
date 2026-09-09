@@ -20,11 +20,12 @@ from app.exceptions import (
 from app.skills.bundles import export_bundle, import_bundle, parse_skill, skill_markdown
 from app.skills.runtime import (
     DIGEST_MARKER,
+    SKILLS_ROOT,
     materialize_skills,
+    merge_catalogs,
     resolve_skills,
     skill_files,
     skills_digest,
-    skills_root,
     skills_sources,
 )
 from app.skills.schemas import SkillBundle, SkillFile, SkillSave
@@ -180,30 +181,31 @@ def test_duplicate_and_invalid_base64(bundle):
 
 def test_skill_files_follow_the_layout_the_middleware_scans(bundle):
     """`<root>/<skill-name>/SKILL.md` plus the bundle's files: what
-    deepagents' `SkillsMiddleware` lists from a source directory."""
+    deepagents' `SkillsMiddleware` lists from a source directory. One root for
+    the whole graph."""
     catalog = {
         "entries": [
             {"skill_id": str(uuid4()), "bundle": bundle.model_dump(mode="json")}
         ]
     }
-    root = skills_root("agent-1")
+    root = SKILLS_ROOT
 
     files = dict(skill_files(catalog, root))
 
-    assert root == "/tmp/auxilia-skills/agent-1"
+    assert root == "/tmp/auxilia-skills"
     assert set(files) == {
         f"{root}/invoice-check/SKILL.md",
         f"{root}/invoice-check/scripts/check.py",
     }
     assert files[f"{root}/invoice-check/scripts/check.py"] == b"print('checked')"
     assert b"name: invoice-check" in files[f"{root}/invoice-check/SKILL.md"]
-    assert skills_sources("agent-1", catalog) == [(root, "Agent")]
-    assert skills_sources("agent-1", {"entries": []}) is None
+    assert skills_sources(catalog) == [(root, "Agent")]
+    assert skills_sources({"entries": []}) is None
 
 
 def test_materialize_recreates_the_root_and_uploads_everything(bundle):
     catalog = {"entries": [{"bundle": bundle.model_dump(mode="json")}]}
-    root = skills_root("agent-1")
+    root = SKILLS_ROOT
     files = skill_files(catalog, root)
     backend = StubSandbox()
 
@@ -223,7 +225,7 @@ def test_materialize_skips_a_sandbox_that_already_has_these_skills(bundle):
     """Reconnecting to the thread's sandbox: the marker matches, so nothing is
     re-uploaded — one `cat` is the whole cost."""
     catalog = {"entries": [{"bundle": bundle.model_dump(mode="json")}]}
-    root = skills_root("agent-1")
+    root = SKILLS_ROOT
     files = skill_files(catalog, root)
     backend = StubSandbox()
     backend.outputs["cat "] = skills_digest(files) + "\n"
@@ -236,7 +238,7 @@ def test_materialize_skips_a_sandbox_that_already_has_these_skills(bundle):
 
 def test_materialize_reuploads_when_a_skill_changed(bundle):
     catalog = {"entries": [{"bundle": bundle.model_dump(mode="json")}]}
-    root = skills_root("agent-1")
+    root = SKILLS_ROOT
     stale = skills_digest(skill_files(catalog, root))
     bundle.instructions = "Updated procedure"
     files = skill_files({"entries": [{"bundle": bundle.model_dump(mode="json")}]}, root)
@@ -249,15 +251,15 @@ def test_materialize_reuploads_when_a_skill_changed(bundle):
 
 def test_materialize_clears_the_root_when_all_skills_were_detached():
     backend = StubSandbox()
-    backend.files = {"/tmp/auxilia-skills/agent-1/old/SKILL.md": b"x"}
+    backend.files = {f"{SKILLS_ROOT}/old/SKILL.md": b"x"}
 
-    assert materialize_skills(backend, skills_root("agent-1"), []) is False
-    assert backend.commands == ["rm -rf /tmp/auxilia-skills/agent-1"]
+    assert materialize_skills(backend, SKILLS_ROOT, []) is False
+    assert backend.commands == [f"rm -rf {SKILLS_ROOT}"]
 
 
 def test_materialize_fails_the_run_on_a_partial_upload(bundle):
     catalog = {"entries": [{"bundle": bundle.model_dump(mode="json")}]}
-    root = skills_root("agent-1")
+    root = SKILLS_ROOT
     files = skill_files(catalog, root)
     backend = StubSandbox()
     backend.fail_uploads.add(f"{root}/invoice-check/scripts/check.py")
@@ -268,7 +270,7 @@ def test_materialize_fails_the_run_on_a_partial_upload(bundle):
 
 def test_materialize_preserves_the_directory_diagnostic(bundle):
     catalog = {"entries": [{"bundle": bundle.model_dump(mode="json")}]}
-    root = skills_root("agent-1")
+    root = SKILLS_ROOT
     backend = StubSandbox(exit_code=1)
 
     with pytest.raises(RuntimeError, match=r"exit code 1.*Permission denied"):
@@ -283,7 +285,7 @@ def test_skill_files_middleware_diffs_against_the_threads_state(bundle):
     Files outside the root — the agent's own — are left alone."""
     from app.skills.middleware import SkillFilesMiddleware
 
-    root = skills_root("agent-1")
+    root = SKILLS_ROOT
     files = skill_files({"entries": [{"bundle": bundle.model_dump(mode="json")}]}, root)
     middleware = SkillFilesMiddleware(root, files)
 
@@ -316,14 +318,14 @@ def test_plain_agent_reads_skills_from_state_end_to_end(bundle):
     from app.agents.runtime import build_runnable
     from tests.agents.scripted_model import ScriptedChatModel
 
-    root = skills_root("agent-1")
+    root = SKILLS_ROOT
     catalog = {"entries": [{"bundle": bundle.model_dump(mode="json")}]}
     model = ScriptedChatModel(script=["ok"])
     graph = build_runnable(
         model=model,
         tools=[],
         system_prompt="You are a test agent",
-        skills=skills_sources("agent-1", catalog),
+        skills=skills_sources(catalog),
         skill_files=skill_files(catalog, root),
     )
 
@@ -423,3 +425,79 @@ def test_yaml_source_roundtrips_exactly():
 def test_invalid_yaml(content):
     with pytest.raises(ValueError):
         parse_skill(content, [])
+
+
+def _catalog(*bundles_with_ids):
+    return {
+        "entries": [
+            {"skill_id": skill_id, "bundle": bundle.model_dump(mode="json")}
+            for skill_id, bundle in bundles_with_ids
+        ]
+    }
+
+
+def test_merge_catalogs_unions_by_skill_id(bundle):
+    other = bundle.model_copy(update={"name": "other-skill"})
+    merged = merge_catalogs(
+        [_catalog(("a", bundle), ("b", other)), _catalog(("a", bundle))]
+    )
+    assert [e["skill_id"] for e in merged["entries"]] == ["a", "b"]
+
+
+def test_merge_catalogs_refuses_two_skills_with_one_name(bundle):
+    """Prevented at attach and at graph assembly; if it still shows up, the
+    run fails rather than silently dropping one skill."""
+    twin = bundle.model_copy(update={"instructions": "Different procedure"})
+    with pytest.raises(DomainValidationError, match="invoice-check"):
+        merge_catalogs([_catalog(("a", bundle)), _catalog(("b", twin))])
+
+
+async def test_attach_refuses_a_name_already_used_in_the_graph(db, owner, bundle):
+    """A supervisor and its subagents share one skill set, so a second skill
+    with the same name is refused on any member — while the *same* skill on
+    several members is fine."""
+    from app.agents.models import AgentSubagentDB
+
+    service = SkillService(db)
+    supervisor = AgentDB(name="Boss", owner_id=owner.id, instructions="Lead")
+    worker = AgentDB(name="Worker", owner_id=owner.id, instructions="Run")
+    db.add_all([supervisor, worker])
+    await db.flush()
+    db.add(AgentSubagentDB(supervisor_id=supervisor.id, subagent_id=worker.id))
+    await db.flush()
+    skill = await service.save(
+        SkillSave(content=skill_markdown(bundle), files=bundle.files), owner
+    )
+    twin = bundle.model_copy(update={"instructions": "Different procedure"})
+    twin_skill = await service.save(SkillSave(content=skill_markdown(twin)), owner)
+
+    await service.attach(supervisor.id, skill.id, owner)
+    await service.attach(worker.id, skill.id, owner)  # same skill: allowed
+    with pytest.raises(DomainValidationError, match="invoice-check"):
+        await service.attach(worker.id, twin_skill.id, owner)
+
+    assert sorted(await service.graph_members(worker.id)) == sorted(
+        [supervisor.id, worker.id]
+    )
+
+
+async def test_joining_a_supervisor_refuses_colliding_skill_sets(db, owner, bundle):
+    """Adding a subagent merges two skill sets — the collision check runs then
+    too, before the link exists."""
+    from app.agents.subagents.service import SubagentService
+
+    service = SkillService(db)
+    supervisor = AgentDB(name="Boss", owner_id=owner.id, instructions="Lead")
+    worker = AgentDB(name="Worker", owner_id=owner.id, instructions="Run")
+    db.add_all([supervisor, worker])
+    await db.flush()
+    skill = await service.save(
+        SkillSave(content=skill_markdown(bundle), files=bundle.files), owner
+    )
+    twin = bundle.model_copy(update={"instructions": "Different procedure"})
+    twin_skill = await service.save(SkillSave(content=skill_markdown(twin)), owner)
+    await service.attach(supervisor.id, skill.id, owner)
+    await service.attach(worker.id, twin_skill.id, owner)  # separate graphs: fine
+
+    with pytest.raises(DomainValidationError, match="invoice-check"):
+        await SubagentService(db).create_or_update(supervisor.id, worker.id)

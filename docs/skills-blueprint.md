@@ -88,10 +88,15 @@ requires `member`.
 ## 4. Attachment and runtime
 
 **Attach** (`PUT /agents/{agent_id}/skills/{skill_id}`) inserts one
-`agent_skills` row. It is idempotent, and refuses if another attached skill
-already has the same `name`, since the agent addresses skills by name.
-Detach deletes the row. Renaming a skill while it is attached anywhere is
-refused so a stale name can never appear in a running catalog.
+`agent_skills` row. It is idempotent. **One skill set per graph** (decided
+2026-09-09): a supervisor and its subagents share the union of their attached
+skills at run time, so the name must be free across the whole graph, not
+just on this agent — a second, different skill with the same `name` is
+refused on any member (`SkillService.ensure_no_name_collision`, which also
+runs when a subagent joins a supervisor, since that merges two sets). The
+same skill on several members is one entry. Detach deletes the row. Renaming
+a skill while it is attached anywhere is refused so a stale name can never
+appear in a running catalog.
 
 **Run creation.** The worker calls `prepare_run_skills` before building the
 agent (`backend/app/skills/snapshots.py`):
@@ -115,12 +120,13 @@ and supporting files with the filesystem `read_file` tool. No custom tool.
 An agent with no skills gets no middleware and no prompt fragment, as in
 `create_deep_agent`.
 
-**Materialization** (`backend/app/skills/runtime.py`). Files live under
-`/tmp/auxilia-skills/<agent-id>/<skill-name>/`, per agent so a parent and its
-subagents sharing one sandbox each list only their own. For a sandboxed
-agent, `materialize_skills` recreates that root and uploads every file when
-the run's sandbox is connected (`Agent._open_sandbox`), before the graph is
-built. For an agent without a sandbox, `SkillFilesMiddleware`
+**Materialization** (`backend/app/skills/runtime.py`). `Agent.build` merges
+the per-agent catalogs into one (`merge_catalogs`, which fails the run on a
+name collision that slipped past the attach-time check) and every agent in
+the graph gets it. Files live under `/tmp/auxilia-skills/<skill-name>/`,
+one root for the graph. For a sandboxed run, `materialize_skills` recreates
+that root and uploads every file once when the sandbox is connected
+(`Agent._open_sandbox`), before the graph is built. For an agent without a sandbox, `SkillFilesMiddleware`
 (`app/skills/middleware.py`) writes the same paths into the agent's own
 checkpointed `files` state, as a diff against what the thread already holds
 (unchanged files untouched, changed ones rewritten, paths under the agent's
@@ -130,12 +136,11 @@ that state to `SkillsMiddleware` and to the only two tools such an agent gets,
 runs: a sandbox-less agent reads data from its own state and nothing else.
 Sandbox copies are writable but never written back.
 
-The run's sandbox receives the skill files of *every* agent in the graph,
-each under its own root, not only of the agents bound to it (2026-09-09). A
-supervisor without code execution reads its skill from state and delegates
-the script to a sandboxed subagent by absolute path; that path exists in the
-subagent's sandbox because it is the run's one sandbox. Its prompt variant
-says so (`SKILLS_SYSTEM_PROMPT_NO_SANDBOX`).
+Because the set is shared, a supervisor without code execution reads a
+skill from its state and delegates the script to a sandboxed subagent by
+absolute path; the subagent lists the same skill and finds the same path in
+the run's one sandbox. The supervisor's prompt variant says so
+(`SKILLS_SYSTEM_PROMPT_NO_SANDBOX`).
 
 ## 5. What happens when something is removed
 
@@ -318,7 +323,7 @@ What changed:
    fails the run. Called from `Agent._open_sandbox` inside `_setup`, before
    the graph is built, in a worker thread.
 3. **Skills upload on that connect**, flat under
-   `/tmp/auxilia-skills/<agent-id>/<name>/`, root recreated each run.
+   `/tmp/auxilia-skills/<name>/`, root recreated each run.
 4. **`app/sandbox/lazy.py` and `app/sandbox/tools.py` deleted**, with their
    tests. deepagents ships no lifecycle tools either; its filesystem middleware
    assumes a live backend, which is what it now gets.

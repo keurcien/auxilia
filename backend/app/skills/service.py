@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.core.service import AgentService
 from app.agents.models import EffectivePermission
+from app.agents.subagents.repository import SubagentRepository
 from app.database import get_db
 from app.exceptions import (
     AlreadyExistsError,
@@ -113,13 +114,51 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
     async def attach(self, agent_id: UUID, skill_id: UUID, user: UserDB):
         await self.agent_gate(agent_id, user)
         row = await self.authorize(skill_id, user, lock=True)
-        for binding in await self.repository.bindings(agent_id=agent_id):
-            if binding.skill_id == skill_id:
-                return
-            other = await self.repository.get(binding.skill_id)
-            if other is not None and other.bundle["name"] == row.bundle["name"]:
-                raise DomainValidationError("An attached skill already uses this name")
+        if any(
+            b.skill_id == skill_id
+            for b in await self.repository.bindings(agent_id=agent_id)
+        ):
+            return
+        # A supervisor and its subagents share one skill set, so the name
+        # must be free across the whole graph, not just on this agent.
+        await self.ensure_no_name_collision(
+            await self.graph_members(agent_id), adding=(skill_id, row.bundle["name"])
+        )
         await self.repository.add(AgentSkillDB(agent_id=agent_id, skill_id=skill_id))
+
+    async def graph_members(self, agent_id: UUID) -> list[UUID]:
+        """The agents sharing a skill set with `agent_id`: its supervisor's
+        graph if it is a subagent, else its own — one level, like the run."""
+        links = SubagentRepository(self.db)
+        supervisor_link = await links.get_supervisor(agent_id)
+        supervisor_id = supervisor_link.supervisor_id if supervisor_link else agent_id
+        subagents = await links.list_for_supervisor(supervisor_id)
+        return [supervisor_id, *(link.subagent_id for link in subagents)]
+
+    async def ensure_no_name_collision(
+        self, agent_ids: list[UUID], *, adding: tuple[UUID, str] | None = None
+    ) -> None:
+        """Refuse a graph whose agents hold two different skills of one name.
+
+        Called before a skill is attached (`adding` is the candidate) and
+        before a subagent joins a supervisor (the union of both sets). The
+        same skill on several agents is fine — it is one entry in the graph's
+        catalog.
+        """
+        bindings = await self.repository.bindings_for_agents(agent_ids)
+        names: dict[str, UUID] = {}
+        if adding is not None:
+            names[adding[1]] = adding[0]
+        rows = await self.repository.get_many({b.skill_id for b in bindings})
+        for row in rows:
+            name = row.bundle["name"]
+            if names.get(name, row.id) != row.id:
+                raise DomainValidationError(
+                    f"Another skill named '{name}' is already attached to an agent "
+                    "of this graph (a supervisor and its subagents share one skill "
+                    "set). Rename one of them or detach it first."
+                )
+            names[name] = row.id
 
     async def detach(self, agent_id: UUID, skill_id: UUID, user: UserDB):
         await self.agent_gate(agent_id, user)
