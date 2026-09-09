@@ -1,15 +1,35 @@
-"""On-demand skill catalogs and sandbox files. No authoring tools."""
+"""Skills at run time: frozen bundles become files the agent reads through
+deepagents' ``SkillsMiddleware``.
 
-import json
+There is no custom skill tool. The middleware (``app/skills/middleware.py``)
+appends the skill index to the system prompt and the agent reads a skill with
+the filesystem ``read_file`` tool, the way every deepagents agent does. This
+module's job is to put the files where the middleware looks —
+``skills_root(agent_id)`` on the backend the agent's filesystem tools use: its
+live sandbox, or (``SkillFilesMiddleware``) the agent's own graph state for an
+agent without one.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import shlex
+from pathlib import PurePosixPath
 from uuid import UUID
 
-from langchain_core.tools import tool
+from deepagents.backends.sandbox import BaseSandbox
 
 from app.exceptions import NotFoundError
 from app.skills.bundles import skill_markdown
 from app.skills.schemas import SkillBundle
 from app.skills.service import SkillService
 from app.users.models import UserDB
+
+
+# Sandbox-writable without root; the same virtual path serves the local copy.
+SKILLS_ROOT = "/tmp/auxilia-skills"
+# Written next to the skills; holds `skills_digest` of what the sandbox has.
+DIGEST_MARKER = ".auxilia-digest"
 
 
 async def resolve_skills(
@@ -33,56 +53,81 @@ async def resolve_skills(
     return catalog
 
 
-def skill_directory(bundle: SkillBundle) -> str:
-    """Use sandbox-writable storage, without requiring root permissions."""
-    return f"/tmp/auxilia-skills/{bundle.name}/{bundle.digest()}"
+def skills_root(agent_id) -> str:
+    """Where one agent's skills live. Per agent, so a parent and its
+    subagents sharing a sandbox each list only their own."""
+    return f"{SKILLS_ROOT}/{agent_id}"
 
 
-def catalog_tools(catalog: dict):
-    entries = {e["bundle"]["name"]: e for e in catalog.get("entries", [])}
-    if not entries:
-        return []
-    manifest = [
-        {
-            "name": name,
-            "description": e["bundle"]["description"],
-        }
-        for name, e in entries.items()
-    ]
-
-    @tool(
-        description="Read a skill's instructions before following its procedure. Available skills: "
-        + json.dumps(manifest)
-    )
-    def read_skill(name: str, path: str = "SKILL.md") -> str:
-        """Load an attached skill or one of its supporting text files."""
-        if name not in entries:
-            return "Skill is not in this agent's catalog."
-        bundle = SkillBundle.model_validate(entries[name]["bundle"])
-        root = skill_directory(bundle)
-        if path == "SKILL.md":
-            return (
-                f"Sandbox path after connecting: {root}\n"
-                "Copy scripts to your working directory before adapting them. Sandbox edits do not update the saved skill.\n"
-                + skill_markdown(bundle)
-                + "\n\nFiles:\n"
-                + "\n".join(f.path for f in bundle.files)
-            )
-        file = next((f for f in bundle.files if f.path == path), None)
-        if file is None:
-            return "File not found in this skill."
-        if file.encoding != "utf-8":
-            return f"Binary asset available in the sandbox at {root}/{file.path}."
-        return file.content
-
-    return [read_skill]
+def skills_sources(agent_id, catalog: dict) -> list[tuple[str, str]] | None:
+    """``SkillsMiddleware`` sources for one agent — ``None`` when it has no
+    skills, which (as in ``create_deep_agent``) means no middleware and no
+    prompt fragment at all."""
+    if not catalog.get("entries"):
+        return None
+    return [(skills_root(agent_id), "Agent")]
 
 
-def sandbox_files(catalog: dict) -> list[tuple[str, bytes]]:
+def skill_files(catalog: dict, root: str) -> list[tuple[str, bytes]]:
+    """Every file of every skill in the catalog, as ``(path, bytes)`` under
+    ``root/<skill-name>/`` — the layout ``SkillsMiddleware`` scans."""
     files = []
     for entry in catalog.get("entries", []):
         bundle = SkillBundle.model_validate(entry["bundle"])
-        root = skill_directory(bundle)
-        files.append((f"{root}/SKILL.md", skill_markdown(bundle).encode()))
-        files.extend((f"{root}/{file.path}", file.bytes()) for file in bundle.files)
+        base = f"{root}/{bundle.name}"
+        files.append((f"{base}/SKILL.md", skill_markdown(bundle).encode()))
+        files.extend((f"{base}/{file.path}", file.bytes()) for file in bundle.files)
     return files
+
+
+def skills_digest(files: list[tuple[str, bytes]]) -> str:
+    """Content hash of one agent's skill files, path and bytes."""
+    digest = hashlib.sha256()
+    for path, content in sorted(files):
+        digest.update(path.encode())
+        digest.update(b"\0")
+        digest.update(content)
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def materialize_skills(
+    backend: BaseSandbox, root: str, files: list[tuple[str, bytes]]
+) -> bool:
+    """Put one agent's skill files in its sandbox, if they are not there yet.
+
+    A marker file under the root records the digest of what was uploaded, so
+    a reconnected sandbox that already holds the current skills costs one
+    `cat`. When the digest differs (new sandbox, or a skill was saved since)
+    the root is recreated from scratch — a file removed from a skill must not
+    linger — and everything is uploaded. Returns whether an upload happened.
+    A failure raises: a sandbox agent is expected to have its skills, and a
+    half-written skill is worse than a failed run.
+    """
+    marker = f"{root}/{DIGEST_MARKER}"
+    if not files:
+        backend.execute(f"rm -rf {shlex.quote(root)}")
+        return False
+    digest = skills_digest(files)
+    current = backend.execute(f"cat {shlex.quote(marker)} 2>/dev/null")
+    if current.exit_code == 0 and current.output.strip() == digest:
+        return False
+    directories = sorted({str(PurePosixPath(path).parent) for path, _ in files})
+    command = f"rm -rf {shlex.quote(root)} && mkdir -p " + " ".join(
+        shlex.quote(directory) for directory in directories
+    )
+    created = backend.execute(command)
+    if created.exit_code != 0:
+        raise RuntimeError(
+            "Failed to create sandbox skill directories "
+            f"(exit code {created.exit_code}): {created.output[:2000]}"
+        )
+    uploads = [*files, (marker, digest.encode())]
+    results = backend.upload_files(uploads)
+    failed = [result.path for result in results if result.error]
+    if len(results) != len(uploads) or failed:
+        raise RuntimeError(
+            "Failed to materialize skill files in sandbox: "
+            + (", ".join(failed) or "incomplete upload")
+        )
+    return True

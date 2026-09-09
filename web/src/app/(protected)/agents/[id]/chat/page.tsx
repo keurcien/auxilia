@@ -42,6 +42,7 @@ const StarterChatPage = () => {
 	const {
 		ready: agentReady,
 		status,
+		detail: readinessDetail,
 		disconnectedMcpServers,
 		refetch: refetchReady,
 	} = useAgentReadiness(agentId);
@@ -148,7 +149,7 @@ const StarterChatPage = () => {
 						</h1>
 						<ChevronDown className="size-5 text-muted-foreground ml-8 mt-1" />
 					</button>
-					{status !== "not_configured" && (
+					{status !== "not_configured" && status !== "sandbox_unavailable" && (
 						<p className="text-lg text-muted-foreground">
 							Ask me anything to begin
 						</p>
@@ -156,7 +157,13 @@ const StarterChatPage = () => {
 				</div>
 
 				<div className="w-full">
-					{status === "not_configured" ? (
+					{status === "sandbox_unavailable" ? (
+						<Alert
+							variant="error"
+							message={`${(readinessDetail ?? "This agent's sandbox is not available right now.").replace(/\.?$/, ".")} This agent runs its code in that sandbox, so it cannot start until the provider is back.`}
+							dismissible={false}
+						/>
+					) : status === "not_configured" ? (
 						<Alert
 							variant="error"
 							message={

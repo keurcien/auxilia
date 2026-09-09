@@ -5,6 +5,8 @@ import { useActiveRunsStore } from "@/stores/active-runs-store";
 export type ProtocolFetchHandlers = {
   /** The pre-run model gate 409'd: an admin disabled the thread's model. */
   onModelUnavailable?: () => void;
+  /** The pre-run sandbox gate 409'd: the agent's sandbox provider is down. */
+  onSandboxUnavailable?: (detail: string | null) => void;
   /** The addressed approval was already handled from another surface. */
   onStaleInterrupt?: () => void;
 };
@@ -92,6 +94,14 @@ export function useProtocolFetch(
               "This conversation's model is no longer available in this workspace.",
           );
           err.name = "ModelUnavailableError";
+          throw err;
+        }
+        if (body?.error === "sandbox_unavailable") {
+          handlersRef.current.onSandboxUnavailable?.(body.detail ?? null);
+          const err = new Error(
+            body.detail ?? "This agent's sandbox is not available right now.",
+          );
+          err.name = "SandboxUnavailableError";
           throw err;
         }
         if (body?.error === "stale_interrupt") {

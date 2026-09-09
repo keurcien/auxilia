@@ -1,12 +1,19 @@
 import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api/client";
 
-type AgentReadyStatus = "ready" | "not_configured" | "disconnected" | null;
+export type AgentReadyStatus =
+	| "ready"
+	| "not_configured"
+	| "disconnected"
+	| "sandbox_unavailable"
+	| null;
 
 interface AgentReadyState {
 	ready: boolean | null;
 	disconnectedServers: string[];
 	status: AgentReadyStatus;
+	/** Human-readable reason when `status` is "sandbox_unavailable". */
+	detail: string | null;
 	refetch: () => void;
 }
 
@@ -14,24 +21,37 @@ export function useAgentConnectionStatus(agentId: string | undefined): AgentRead
 	const [ready, setReady] = useState<boolean | null>(null);
 	const [disconnectedServers, setDisconnectedServers] = useState<string[]>([]);
 	const [status, setStatus] = useState<AgentReadyStatus>(null);
-
-	const refetch = useCallback(async () => {
-		if (!agentId) return;
-		try {
-			const res = await api.get(`/agents/${agentId}/is-ready`);
-			setReady(res.data.ready);
-			setDisconnectedServers(res.data.disconnectedServers);
-			setStatus(res.data.status);
-		} catch {
-			setReady(false);
-			setDisconnectedServers([]);
-			setStatus("disconnected");
-		}
-	}, [agentId]);
+	const [detail, setDetail] = useState<string | null>(null);
+	// Bumped by `refetch`; the effect below re-runs the probe.
+	const [version, setVersion] = useState(0);
 
 	useEffect(() => {
-		refetch();
-	}, [refetch]);
+		if (!agentId) return;
+		let cancelled = false;
+		api
+			.get(`/agents/${agentId}/is-ready`)
+			.then((res) => {
+				if (cancelled) return;
+				setReady(res.data.ready);
+				setDisconnectedServers(res.data.disconnectedServers);
+				setStatus(res.data.status);
+				setDetail(res.data.detail ?? null);
+			})
+			.catch(() => {
+				if (cancelled) return;
+				setReady(false);
+				setDisconnectedServers([]);
+				setStatus("disconnected");
+				setDetail(null);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [agentId, version]);
 
-	return { ready, disconnectedServers, status, refetch };
+	const refetch = useCallback(() => {
+		setVersion((v) => v + 1);
+	}, []);
+
+	return { ready, disconnectedServers, status, detail, refetch };
 }

@@ -14,11 +14,16 @@ differently-configured instances of the same vendor.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
+from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
 
 from deepagents.backends.sandbox import BaseSandbox
 
+from app.exceptions import SandboxUnavailableError
 from app.sandbox.models import SandboxDB, SandboxProviderType
 from app.sandbox.schemas import SandboxConfigBase, validate_config
 from app.utils.encryption import decrypt_value
@@ -26,14 +31,126 @@ from app.utils.encryption import decrypt_value
 
 logger = logging.getLogger(__name__)
 
+# Lifetime asked of providers that have a TTL (OpenSandbox). Every run of a
+# thread reconnects and renews, so this only bounds an abandoned thread.
+DEFAULT_TIMEOUT_MINUTES = 30
+
+
+class SandboxGoneError(RuntimeError):
+    """The sandbox no longer exists and cannot be restored.
+
+    Providers raise it from ``connect`` for the one failure the runtime can
+    recover from by creating a fresh sandbox. Anything else (network, quota,
+    credentials) propagates and fails the run.
+    """
+
+
+@runtime_checkable
+class SupportsPersist(Protocol):
+    """Backends that persist their state for cross-instance reconnects."""
+
+    def persist(self) -> None: ...
+
+
+@dataclass
+class SandboxSession:
+    """A live sandbox for one run."""
+
+    backend: BaseSandbox
+    sandbox_id: str
+    # True when the thread's previous sandbox was gone and this is its
+    # replacement — the model is told, since its files did not survive.
+    replaced: bool = False
+
+    def persist(self) -> None:
+        if isinstance(self.backend, SupportsPersist):
+            self.backend.persist()
+
+
+def open_sandbox(
+    provider: BaseSandboxProvider, sandbox_id: str | None
+) -> SandboxSession:
+    """Reconnect the thread's sandbox, or create one.
+
+    Runs at the start of every run of an agent bound to a sandbox — the
+    lifecycle belongs to the runtime, never to the model. A sandbox that is
+    gone and has no snapshot is replaced; any other failure raises.
+    """
+    replaced = False
+    if sandbox_id is not None:
+        try:
+            backend, _ = provider.connect(sandbox_id)
+            return SandboxSession(backend=backend, sandbox_id=sandbox_id)
+        except SandboxGoneError as exc:
+            logger.warning("Replacing sandbox %s: %s", sandbox_id, exc)
+            replaced = True
+        except Exception as exc:
+            raise provider.unavailable(f"reconnect failed: {_reason(exc)}") from exc
+    try:
+        backend, _ = provider.create(timeout_minutes=DEFAULT_TIMEOUT_MINUTES)
+    except Exception as exc:
+        raise provider.unavailable(f"create failed: {_reason(exc)}") from exc
+    return SandboxSession(backend=backend, sandbox_id=backend.id, replaced=replaced)
+
+
+def _reason(exc: BaseException) -> str:
+    return str(exc) or type(exc).__name__
+
+
+async def ensure_sandboxes_available(rows: Iterable[SandboxDB]) -> None:
+    """Pre-flight for a run: every sandbox the agent graph is bound to must
+    answer a cheap health probe, else `SandboxUnavailableError`.
+
+    Sits behind `RunService.create` (like the model gate) and `is-ready`, so an
+    outage blocks the composer and 409s a launch instead of failing a run the
+    model would then see. Rows are deduped by id; probes are sync SDK calls,
+    run off the loop.
+    """
+    seen: set = set()
+    for row in rows:
+        if row.id in seen:
+            continue
+        seen.add(row.id)
+        try:
+            provider = build_provider(row)
+        except Exception as exc:
+            raise SandboxUnavailableError(
+                str(row.id), row.name, f"invalid configuration: {_reason(exc)}"
+            ) from exc
+        await asyncio.to_thread(provider.check_available)
+
 
 class BaseSandboxProvider(ABC):
     """Template for a sandbox vendor: subclasses implement backend creation,
     cleanup and reconnect; the create → install-default-packages → describe
     choreography lives here once."""
 
-    def __init__(self, config: SandboxConfigBase) -> None:
+    def __init__(
+        self,
+        config: SandboxConfigBase,
+        *,
+        sandbox_id: str | None = None,
+        name: str | None = None,
+    ) -> None:
         self.config = config
+        # The workspace row this provider was built from — for error bodies.
+        self.sandbox_id = sandbox_id
+        self.name = name
+
+    def unavailable(self, reason: str) -> SandboxUnavailableError:
+        return SandboxUnavailableError(self.sandbox_id, self.name, reason)
+
+    def check_available(self) -> None:
+        """Raise `SandboxUnavailableError` unless the provider answers a cheap
+        probe. Any failure counts: unreachable, refusing, misconfigured."""
+        try:
+            self._probe()
+        except Exception as exc:
+            raise self.unavailable(_reason(exc)) from exc
+
+    @abstractmethod
+    def _probe(self) -> None:
+        """The cheapest call that proves the provider can serve sandboxes."""
 
     def create(self, *, timeout_minutes: int) -> tuple[BaseSandbox, str]:
         backend = self._create_backend(timeout_minutes=timeout_minutes)
@@ -60,8 +177,8 @@ class BaseSandboxProvider(ABC):
 
     @abstractmethod
     def connect(self, sandbox_id: str) -> tuple[BaseSandbox, str]:
-        """Reconnect to an existing sandbox; raise if it cannot be reached
-        or restored (the tool converts the error into a model message)."""
+        """Reconnect to an existing sandbox. Raise ``SandboxGoneError`` when
+        it no longer exists and cannot be restored; anything else propagates."""
         ...
 
     def _created_message(self, backend: BaseSandbox, timeout_minutes: int) -> str:
@@ -91,7 +208,9 @@ def build_provider(sandbox: SandboxDB) -> BaseSandboxProvider:
     config = validate_config(
         sandbox.provider, url=sandbox.url, secret=secret, config=sandbox.config
     )
-    return providers[sandbox.provider](config)
+    return providers[sandbox.provider](
+        config, sandbox_id=str(sandbox.id), name=sandbox.name
+    )
 
 
 def install_default_packages(backend: BaseSandbox, packages: list[str]) -> None:

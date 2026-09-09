@@ -87,6 +87,28 @@ class ModelUnavailableError(DomainError):
         }
 
 
+class SandboxUnavailableError(DomainError):
+    """The agent's sandbox provider cannot deliver a sandbox right now:
+    gateway unreachable, API refusing, create failing. Same contract as
+    ModelUnavailableError — a 409 with a machine-readable body so the composer,
+    Slack and triggers block *before* a run starts, and the model never gets
+    to reason about an infrastructure failure."""
+
+    def __init__(self, sandbox_id: str | None, name: str | None, reason: str):
+        self.sandbox_id = sandbox_id
+        self.name = name
+        self.reason = reason
+        label = f"Sandbox '{name}'" if name else "The agent's sandbox"
+        super().__init__(f"{label} is not available: {reason}")
+
+    def body(self) -> dict[str, Any]:
+        return {
+            "error": "sandbox_unavailable",
+            "sandbox_id": self.sandbox_id,
+            "detail": self.detail,
+        }
+
+
 #: HTTP status per domain exception — the whole translation table, in one place
 #: instead of one copy-paste handler each (design review §2.3).
 #:
@@ -101,6 +123,7 @@ STATUS: dict[type[DomainError], int] = {
     PermissionDeniedError: 403,
     InvalidCredentialsError: 401,
     ModelUnavailableError: 409,
+    SandboxUnavailableError: 409,
     StaleApprovalError: 409,
     DomainError: 500,
 }

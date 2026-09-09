@@ -131,3 +131,55 @@ def test_connect_renews_ttl(sdk_sandbox):
     sdk.connect.assert_called_once()
     sdk_sandbox.renew.assert_called_once()
     assert "TTL renewed" in message
+
+
+def test_connect_maps_a_vanished_sandbox_to_gone():
+    """A 404 (expired TTL or deleted) is the one failure the runtime replaces
+    the sandbox for; the provider says so with `SandboxGoneError`."""
+    from opensandbox.exceptions.sandbox import SandboxApiException
+
+    from app.sandbox.provider import SandboxGoneError
+
+    with patch("app.sandbox.opensandbox.provider.SandboxSync") as sdk:
+        sdk.connect.side_effect = SandboxApiException("gone", status_code=404)
+        with pytest.raises(SandboxGoneError):
+            make_provider().connect("osb-1")
+
+
+def test_connect_maps_an_unhealthy_sandbox_to_gone():
+    from opensandbox.exceptions.sandbox import SandboxUnhealthyException
+
+    from app.sandbox.provider import SandboxGoneError
+
+    with patch("app.sandbox.opensandbox.provider.SandboxSync") as sdk:
+        sdk.connect.side_effect = SandboxUnhealthyException("never ready")
+        with pytest.raises(SandboxGoneError):
+            make_provider().connect("osb-1")
+
+
+def test_connect_propagates_other_api_errors():
+    """Auth or quota problems must fail the run, not spawn a new sandbox."""
+    from opensandbox.exceptions.sandbox import SandboxApiException
+
+    with patch("app.sandbox.opensandbox.provider.SandboxSync") as sdk:
+        sdk.connect.side_effect = SandboxApiException("nope", status_code=401)
+        with pytest.raises(SandboxApiException):
+            make_provider().connect("osb-1")
+
+
+def test_probe_lists_one_sandbox_and_closes_the_manager():
+    with patch("app.sandbox.opensandbox.provider.SandboxManagerSync") as manager_cls:
+        manager = manager_cls.create.return_value
+        make_provider().check_available()
+
+    manager.list_sandbox_infos.assert_called_once()
+    manager.close.assert_called_once()
+
+
+def test_probe_failure_is_typed():
+    from app.sandbox.provider import SandboxUnavailableError
+
+    with patch("app.sandbox.opensandbox.provider.SandboxManagerSync") as manager_cls:
+        manager_cls.create.side_effect = ConnectionError("api down")
+        with pytest.raises(SandboxUnavailableError, match="api down"):
+            make_provider().check_available()

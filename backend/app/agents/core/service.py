@@ -36,9 +36,14 @@ from app.agents.schemas import (
 )
 from app.agents.subagents.service import SubagentService
 from app.database import get_db
-from app.exceptions import NotFoundError, PermissionDeniedError
+from app.exceptions import (
+    NotFoundError,
+    PermissionDeniedError,
+    SandboxUnavailableError,
+)
 from app.mcp.client.connectivity import probe_authorization
 from app.mcp.servers.repository import MCPServerRepository
+from app.sandbox.provider import ensure_sandboxes_available
 from app.service import BaseService
 from app.tags.service import TagService
 from app.threads.service import ThreadService
@@ -545,10 +550,22 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         return spec.all_mcp_bindings
 
     async def describe_readiness(self, agent_id: UUID, user_id: str) -> dict:
+        spec = await self.repository.get_run_spec(agent_id)
+        # The sandbox first: an outage blocks the agent outright, and there is
+        # nothing the user can click to fix it (unlike an MCP reconnect).
+        try:
+            await ensure_sandboxes_available(spec.all_sandbox_rows if spec else [])
+        except SandboxUnavailableError as exc:
+            return {
+                "ready": False,
+                "disconnected_servers": [],
+                "status": "sandbox_unavailable",
+                "detail": exc.detail,
+            }
         # Includes subagents' servers: a subagent's unauthorized OAuth server
         # must keep the agent "not ready" too, or the run launches and fails
         # mid-flight when the subagent calls it.
-        bindings = await self.collect_run_bindings(agent_id)
+        bindings = spec.all_mcp_bindings if spec else []
 
         if not bindings:
             return {"ready": True, "disconnected_servers": [], "status": "ready"}

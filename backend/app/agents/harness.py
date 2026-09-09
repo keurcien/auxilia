@@ -9,7 +9,7 @@ whether the agent happened to have a sandbox bound (design review §1.4).
 
 This module composes the same bundle by hand, so ``build_runnable`` has one
 path and the stack is one diffable list. It reproduces deepagents 0.7 for the
-one call shape the runtime uses (a pre-built model, no skills/memory/
+one call shape the runtime uses (a pre-built model, skills, no memory/
 permissions, `interrupt_on` handled by our own HITL middleware);
 ``tests/agents/test_harness_parity.py`` builds a graph both ways and asserts
 the resulting ``create_agent(...)`` calls match, middleware for middleware.
@@ -60,6 +60,8 @@ from deepagents.profiles.harness.harness_profiles import (
 from langchain.agents.middleware import TodoListMiddleware
 from langchain_core.messages import SystemMessage
 
+from app.skills.middleware import FreshSkillsMiddleware
+
 
 # `create_deep_agent` binds this onto the compiled graph. A subagent invoked by
 # the `task` tool inherits the parent's run config, and a bound config wins
@@ -102,10 +104,13 @@ def _profile(model) -> HarnessProfile:
     return profile
 
 
-def _base_harness_stack(model, backend, profile: HarnessProfile) -> list:
+def _base_harness_stack(model, backend, profile: HarnessProfile, skills=None) -> list:
     """The middleware every deepagents stack starts with — main agent and the
-    auto-added general-purpose subagent alike, minus the subagent wiring."""
-    return [
+    auto-added general-purpose subagent alike, minus the subagent wiring.
+
+    ``skills`` (``SkillsMiddleware`` sources) lands where deepagents puts it on
+    a subagent: after the patcher."""
+    stack = [
         FilesystemMiddleware(
             backend=backend,
             custom_tool_descriptions=profile.tool_description_overrides,
@@ -113,10 +118,13 @@ def _base_harness_stack(model, backend, profile: HarnessProfile) -> list:
         create_summarization_middleware(model, backend),
         PatchToolCallsMiddleware(),
     ]
+    if skills is not None:
+        stack.append(FreshSkillsMiddleware(backend=backend, sources=skills))
+    return stack
 
 
 def _general_purpose_subagent(
-    model, tools: list, backend, profile: HarnessProfile
+    model, tools: list, backend, profile: HarnessProfile, skills=None
 ) -> dict | None:
     """deepagents' default subagent: the parent's tools, its own harness stack.
 
@@ -129,7 +137,7 @@ def _general_purpose_subagent(
     gp_profile = profile.general_purpose_subagent or GeneralPurposeSubagentProfile()
     if gp_profile.enabled is False:
         return None
-    middleware = _base_harness_stack(model, backend, profile)
+    middleware = _base_harness_stack(model, backend, profile, skills)
     append_prompt_caching_middleware(middleware)
     spec: dict = {
         **GENERAL_PURPOSE_SUBAGENT,
@@ -153,14 +161,16 @@ def _general_purpose_subagent(
     return spec
 
 
-def harness_middleware(*, model, tools: list, backend, subagents=None) -> list:
+def harness_middleware(
+    *, model, tools: list, backend, subagents=None, skills=None
+) -> list:
     """The harness middleware that runs *before* the caller's own stack.
 
-    Order matters and mirrors deepagents exactly: filesystem, the task tool,
-    summarization, then the patcher — with our own `TodoListMiddleware` in
-    front (see the module docstring). ``tools`` must already include the
-    sandbox lifecycle tools — the general-purpose subagent inherits the
-    parent's full toolset.
+    Order matters and mirrors deepagents exactly: skills (when the agent has
+    any), filesystem, the task tool, summarization, then the patcher — with
+    our own `TodoListMiddleware` in front (see the module docstring). The
+    general-purpose subagent inherits the parent's full toolset and, as in
+    deepagents, the parent's skills.
     """
     profile = _profile(model)
     supplied = list(subagents or [])
@@ -169,15 +179,17 @@ def harness_middleware(*, model, tools: list, backend, subagents=None) -> list:
     if any(s["name"] == GENERAL_PURPOSE_SUBAGENT["name"] for s in supplied):
         specs = supplied
     else:
-        default = _general_purpose_subagent(model, tools, backend, profile)
+        default = _general_purpose_subagent(model, tools, backend, profile, skills)
         specs = [default, *supplied] if default is not None else supplied
-    middleware: list = [
-        TodoListMiddleware(),
+    middleware: list = [TodoListMiddleware()]
+    if skills is not None:
+        middleware.append(FreshSkillsMiddleware(backend=backend, sources=skills))
+    middleware.append(
         FilesystemMiddleware(
             backend=backend,
             custom_tool_descriptions=profile.tool_description_overrides,
-        ),
-    ]
+        )
+    )
     if specs:
         middleware.append(
             SubAgentMiddleware(

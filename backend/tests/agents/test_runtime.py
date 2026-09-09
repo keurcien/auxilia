@@ -19,7 +19,9 @@ from app.agents.structured_output import (
     DeferredStructuredOutputMiddleware,
 )
 from app.agents.tool_errors import RepairInvalidToolCallsMiddleware, ToolErrorMiddleware
+from app.sandbox.provider import SandboxSession
 from tests.agents.scripted_model import ScriptedChatModel
+from tests.sandbox.stub_sandbox import StubSandbox
 
 
 def _build_agent(
@@ -33,7 +35,8 @@ def _build_agent(
     resolved.sandbox = MagicMock() if sandbox else None
     resolved.config.instructions = "You are a test agent"
     resolved.live.all = []
-    return Agent(
+    resolved.skills = {"entries": []}
+    agent = Agent(
         thread=MagicMock(),
         agent=resolved,
         model=model if model is not None else MagicMock(),
@@ -42,6 +45,11 @@ def _build_agent(
         subagents=[],
         provider=provider,
     )
+    if sandbox:
+        # `_setup` connects the sandbox before building; stand in for it.
+        backend = StubSandbox()
+        agent._sandbox = SandboxSession(backend=backend, sandbox_id=backend.id)
+    return agent
 
 
 @patch("app.agents.runtime.create_agent")
@@ -134,11 +142,8 @@ def test_build_agent_appends_tool_error_middleware(mock_create_agent):
     assert isinstance(middleware[-1], ToolErrorMiddleware)
 
 
-@patch("app.sandbox.tools.create_sandbox_tools", return_value=[])
 @patch("app.agents.runtime.create_agent")
-def test_build_agent_sandbox_uses_the_same_create_agent_path(
-    mock_create_agent, _mock_tools
-):
+def test_build_agent_sandbox_uses_the_same_create_agent_path(mock_create_agent):
     """A sandbox no longer forks the construction path: it adds deepagents'
     harness middleware to the same `create_agent` call. The caller's
     PatchToolCallsMiddleware is dropped in favour of the harness's one (langchain
@@ -180,6 +185,7 @@ def test_compile_subagent_middleware_stack(mock_create_agent):
     resolved.live = MagicMock()
     resolved.live.all = []
     resolved.sandbox = None
+    resolved.skills = {"entries": []}
 
     resolved.compile(MagicMock(), datetime(2026, 1, 1, tzinfo=UTC))
 
@@ -209,3 +215,29 @@ def test_parent_middleware_stack():
     assert types.index("RepairInvalidToolCallsMiddleware") < types.index(
         "HumanInTheLoopMiddleware"
     )
+
+
+def test_host_notice_is_prepended_to_the_turn_input():
+    """A replaced sandbox is announced as a host-authored user-role message
+    ahead of the user's own, tagged so the UI can render it as an event."""
+    from langchain_core.messages import HumanMessage
+
+    from app.agents.runtime import SANDBOX_REPLACED_NOTICE, _with_host_notice
+
+    user = HumanMessage(content="hi")
+    out = _with_host_notice({"messages": [user]}, SANDBOX_REPLACED_NOTICE, "x")
+
+    notice, echoed = out["messages"]
+    assert echoed is user
+    assert notice.name == "host"
+    assert notice.additional_kwargs == {"host_notice": "x"}
+    assert "new, empty sandbox" in notice.content
+
+
+def test_host_notice_leaves_a_resume_command_alone():
+    from langgraph.types import Command
+
+    from app.agents.runtime import _with_host_notice
+
+    command = Command(resume={"a": True})
+    assert _with_host_notice(command, "note", "x") is command

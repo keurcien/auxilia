@@ -164,7 +164,11 @@ export const ConversationBody = memo(function ConversationBody({
       {messages.map((message, index) => {
         const key = message.id ?? index;
         if (isHumanMessage(message)) {
-          return <UserTurn key={key} message={message} />;
+          return isHostNotice(message) ? (
+            <HostNotice key={key} message={message} />
+          ) : (
+            <UserTurn key={key} message={message} />
+          );
         }
         if (!isAIMessage(message)) return null;
 
@@ -242,6 +246,28 @@ export const ConversationBody = memo(function ConversationBody({
     </>
   );
 });
+
+/**
+ * A message the runtime wrote into the thread on the user's behalf — e.g.
+ * "your previous sandbox is gone". It rides the user role so every provider
+ * accepts it mid-history, and is tagged so it renders as an event, not as
+ * something the user typed.
+ */
+const isHostNotice = (message: BaseMessage) =>
+  message.name === "host" || "host_notice" in (message.additional_kwargs ?? {});
+
+const HostNotice = ({ message }: { message: BaseMessage }) => (
+  <div
+    role="status"
+    className="my-3 flex items-center gap-2 font-mono text-[11.5px] text-meta dark:text-panel-dim"
+  >
+    <span className="h-px flex-1 bg-border" />
+    <span className="max-w-[70%] truncate" title={message.text}>
+      {message.text.replace(/^\[Host notice\]\s*/, "")}
+    </span>
+    <span className="h-px flex-1 bg-border" />
+  </div>
+);
 
 const UserTurn = ({ message }: { message: BaseMessage }) => {
   const text = message.text;

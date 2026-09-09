@@ -18,6 +18,7 @@ from uuid import UUID
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.core.repository import AgentRepository
 from app.agents.hitl import (
     build_resume_command,
     is_addressed_resume,
@@ -35,6 +36,7 @@ from app.database import AsyncSessionLocal, get_checkpointer
 from app.exceptions import DomainValidationError, NotFoundError, StaleApprovalError
 from app.model_providers.service import ModelService
 from app.redis_client import get_redis
+from app.sandbox.provider import ensure_sandboxes_available
 from app.threads.models import ThreadDB
 from app.threads.repository import ThreadRepository
 
@@ -156,6 +158,11 @@ class RunService:
         if thread is None:
             raise NotFoundError("Thread not found")
         await ModelService(db).ensure_available(thread.model_id)
+        # Same contract for the sandbox: a provider outage is a 409 here, not
+        # a failed run the model gets to reason about.
+        spec = await AgentRepository(db).get_run_spec(thread.agent_id)
+        if spec is not None:
+            await ensure_sandboxes_available(spec.all_sandbox_rows)
 
     @staticmethod
     async def required_oauth_url(

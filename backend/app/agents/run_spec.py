@@ -57,6 +57,16 @@ class RunSpec:
     subagents: list[AgentSpec]
 
     @property
+    def all_sandbox_rows(self) -> list[SandboxDB]:
+        """Every sandbox row a run of this graph connects to (parent first),
+        not deduped — the pre-flight gate dedupes by id."""
+        return [
+            spec.sandbox.row
+            for spec in [self.agent, *self.subagents]
+            if spec.sandbox is not None
+        ]
+
+    @property
     def all_mcp_bindings(self) -> list[AgentMCPServerDB]:
         """Every MCP binding a run of this agent touches: the agent's own plus
         each direct subagent's.

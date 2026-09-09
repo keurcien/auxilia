@@ -15,15 +15,22 @@ from app.agents.models import AgentDB
 from app.exceptions import (
     AlreadyExistsError,
     DomainValidationError,
-    NotFoundError,
     PermissionDeniedError,
 )
-from app.sandbox.lazy import LazySandboxBackend
 from app.skills.bundles import export_bundle, import_bundle, parse_skill, skill_markdown
-from app.skills.runtime import catalog_tools, resolve_skills, sandbox_files
+from app.skills.runtime import (
+    DIGEST_MARKER,
+    materialize_skills,
+    resolve_skills,
+    skill_files,
+    skills_digest,
+    skills_root,
+    skills_sources,
+)
 from app.skills.schemas import SkillBundle, SkillFile, SkillSave
 from app.skills.service import SkillService
 from app.users.models import UserDB
+from tests.sandbox.stub_sandbox import StubSandbox
 
 
 @compiles(JSONB, "sqlite")
@@ -67,15 +74,14 @@ async def test_save_permissions_and_conflicts(db, owner, bundle):
     other = UserDB(email="other@skills.test")
     db.add(other)
     await db.flush()
-    with pytest.raises(NotFoundError):
-        await service.authorize(skill.id, other)
+    # Every skill is readable by the whole workspace; only edits are gated.
+    assert (await service.authorize(skill.id, other)).id == skill.id
     bundle.instructions = "New procedure"
     changed = await service.save(
         SkillSave(
             content=skill_markdown(bundle),
             files=bundle.files,
             revision=skill.revision,
-            visibility="workspace",
         ),
         owner,
         skill.id,
@@ -172,56 +178,185 @@ def test_duplicate_and_invalid_base64(bundle):
         )
 
 
-def test_plain_agent_reads_without_sandbox(bundle):
+def test_skill_files_follow_the_layout_the_middleware_scans(bundle):
+    """`<root>/<skill-name>/SKILL.md` plus the bundle's files: what
+    deepagents' `SkillsMiddleware` lists from a source directory."""
     catalog = {
         "entries": [
-            {
-                "skill_id": str(uuid4()),
-                "number": 1,
-                "bundle": bundle.model_dump(mode="json"),
-            }
+            {"skill_id": str(uuid4()), "bundle": bundle.model_dump(mode="json")}
         ]
     }
-    read = catalog_tools(catalog)[0]
-    instructions = read.invoke({"name": bundle.name})
-    assert "Read scripts/check.py" in instructions
-    assert f"/tmp/auxilia-skills/{bundle.name}/{bundle.digest()}" in instructions
-    assert (
-        read.invoke({"name": bundle.name, "path": "scripts/check.py"})
-        == "print('checked')"
-    )
-    assert "not in" in read.invoke({"name": "not-authorized"})
-    assert (
-        sandbox_files(catalog)[1][0]
-        == f"/tmp/auxilia-skills/invoice-check/{bundle.digest()}/scripts/check.py"
-    )
+    root = skills_root("agent-1")
+
+    files = dict(skill_files(catalog, root))
+
+    assert root == "/tmp/auxilia-skills/agent-1"
+    assert set(files) == {
+        f"{root}/invoice-check/SKILL.md",
+        f"{root}/invoice-check/scripts/check.py",
+    }
+    assert files[f"{root}/invoice-check/scripts/check.py"] == b"print('checked')"
+    assert b"name: invoice-check" in files[f"{root}/invoice-check/SKILL.md"]
+    assert skills_sources("agent-1", catalog) == [(root, "Agent")]
+    assert skills_sources("agent-1", {"entries": []}) is None
 
 
-def test_sandbox_uploads_before_connect_and_rejects_partial(mocker):
-    from deepagents.backends.protocol import (
-        ExecuteResponse,
-        FileDownloadResponse,
-        FileUploadResponse,
+def test_materialize_recreates_the_root_and_uploads_everything(bundle):
+    catalog = {"entries": [{"bundle": bundle.model_dump(mode="json")}]}
+    root = skills_root("agent-1")
+    files = skill_files(catalog, root)
+    backend = StubSandbox()
+
+    assert materialize_skills(backend, root, files) is True
+
+    probe, command = backend.commands
+    assert probe.startswith(f"cat {root}/{DIGEST_MARKER}")
+    assert command.startswith(f"rm -rf {root} && mkdir -p ")
+    assert f"{root}/invoice-check/scripts" in command
+    assert backend.files == {
+        **dict(files),
+        f"{root}/{DIGEST_MARKER}": skills_digest(files).encode(),
+    }
+
+
+def test_materialize_skips_a_sandbox_that_already_has_these_skills(bundle):
+    """Reconnecting to the thread's sandbox: the marker matches, so nothing is
+    re-uploaded — one `cat` is the whole cost."""
+    catalog = {"entries": [{"bundle": bundle.model_dump(mode="json")}]}
+    root = skills_root("agent-1")
+    files = skill_files(catalog, root)
+    backend = StubSandbox()
+    backend.outputs["cat "] = skills_digest(files) + "\n"
+
+    assert materialize_skills(backend, root, files) is False
+
+    assert len(backend.commands) == 1
+    assert backend.files == {}
+
+
+def test_materialize_reuploads_when_a_skill_changed(bundle):
+    catalog = {"entries": [{"bundle": bundle.model_dump(mode="json")}]}
+    root = skills_root("agent-1")
+    stale = skills_digest(skill_files(catalog, root))
+    bundle.instructions = "Updated procedure"
+    files = skill_files({"entries": [{"bundle": bundle.model_dump(mode="json")}]}, root)
+    backend = StubSandbox()
+    backend.outputs["cat "] = stale + "\n"
+
+    assert materialize_skills(backend, root, files) is True
+    assert backend.files[f"{root}/{DIGEST_MARKER}"] == skills_digest(files).encode()
+
+
+def test_materialize_clears_the_root_when_all_skills_were_detached():
+    backend = StubSandbox()
+    backend.files = {"/tmp/auxilia-skills/agent-1/old/SKILL.md": b"x"}
+
+    assert materialize_skills(backend, skills_root("agent-1"), []) is False
+    assert backend.commands == ["rm -rf /tmp/auxilia-skills/agent-1"]
+
+
+def test_materialize_fails_the_run_on_a_partial_upload(bundle):
+    catalog = {"entries": [{"bundle": bundle.model_dump(mode="json")}]}
+    root = skills_root("agent-1")
+    files = skill_files(catalog, root)
+    backend = StubSandbox()
+    backend.fail_uploads.add(f"{root}/invoice-check/scripts/check.py")
+
+    with pytest.raises(RuntimeError, match=r"scripts/check\.py"):
+        materialize_skills(backend, root, files)
+
+
+def test_materialize_preserves_the_directory_diagnostic(bundle):
+    catalog = {"entries": [{"bundle": bundle.model_dump(mode="json")}]}
+    root = skills_root("agent-1")
+    backend = StubSandbox(exit_code=1)
+
+    with pytest.raises(RuntimeError, match=r"exit code 1.*Permission denied"):
+        materialize_skills(backend, root, skill_files(catalog, root))
+    assert backend.files == {}
+
+
+def test_skill_files_middleware_diffs_against_the_threads_state(bundle):
+    """Sandbox-less agents keep their skills in graph state: unchanged files are
+    not rewritten, changed ones are, and a path under the agent's root that no
+    longer belongs to a skill is deleted (`None` in the files reducer).
+    Files outside the root — the agent's own — are left alone."""
+    from app.skills.middleware import SkillFilesMiddleware
+
+    root = skills_root("agent-1")
+    files = skill_files({"entries": [{"bundle": bundle.model_dump(mode="json")}]}, root)
+    middleware = SkillFilesMiddleware(root, files)
+
+    fresh = middleware.before_agent({"files": {}}, None, {})
+    assert set(fresh["files"]) == {path for path, _ in files}
+    assert fresh["files"][f"{root}/invoice-check/SKILL.md"]["encoding"] == "utf-8"
+
+    settled = {**fresh["files"], "/notes.md": {"content": "mine", "encoding": "utf-8"}}
+    assert middleware.before_agent({"files": settled}, None, {}) is None
+
+    bundle.instructions = "Updated"
+    changed = SkillFilesMiddleware(
+        root,
+        skill_files({"entries": [{"bundle": bundle.model_dump(mode="json")}]}, root),
+    )
+    update = changed.before_agent({"files": settled}, None, {})
+    assert set(update["files"]) == {f"{root}/invoice-check/SKILL.md"}
+
+    detached = SkillFilesMiddleware(root, [])
+    update = detached.before_agent({"files": settled}, None, {})
+    assert update["files"] == {path: None for path, _ in files}
+
+
+def test_plain_agent_reads_skills_from_state_end_to_end(bundle):
+    """The whole sandbox-less path on a real graph: files land in state before
+    the index is built, the prompt lists the skill with its path, the model is
+    offered only `ls` and `read_file`, and a later run drops a detached skill."""
+    from langchain_core.messages import HumanMessage
+
+    from app.agents.runtime import build_runnable
+    from tests.agents.scripted_model import ScriptedChatModel
+
+    root = skills_root("agent-1")
+    catalog = {"entries": [{"bundle": bundle.model_dump(mode="json")}]}
+    model = ScriptedChatModel(script=["ok"])
+    graph = build_runnable(
+        model=model,
+        tools=[],
+        system_prompt="You are a test agent",
+        skills=skills_sources("agent-1", catalog),
+        skill_files=skill_files(catalog, root),
     )
 
-    backend = mocker.Mock()
-    backend.execute.return_value = ExecuteResponse(output="", exit_code=0)
-    backend.download_files.return_value = [
-        FileDownloadResponse(
-            path="/tmp/auxilia-skills/test/SKILL.md", content=b"test", error=None
-        )
-    ]
-    lazy = LazySandboxBackend()
-    lazy.skill_files = [("/tmp/auxilia-skills/test/SKILL.md", b"test")]
-    backend.upload_files.return_value = []
-    with pytest.raises(RuntimeError):
-        lazy.connect(backend)
-    assert not lazy.connected
-    backend.upload_files.return_value = [
-        FileUploadResponse(path="/tmp/auxilia-skills/test/SKILL.md", error=None)
-    ]
-    lazy.connect(backend)
-    assert lazy.connected
+    state = graph.invoke({"messages": [HumanMessage("hi")]})
+
+    system = _prompt_text(model.calls[0][0].content)
+    assert "invoice-check" in system
+    assert f"{root}/invoice-check/SKILL.md" in system
+    assert "Use to reconcile invoices" in system
+    assert sorted(t.name for t in model.bound_tools) == ["ls", "read_file"]
+    assert set(state["files"]) == {path for path, _ in skill_files(catalog, root)}
+
+    # Next run, skill detached: the files are removed from state.
+    model = ScriptedChatModel(script=["ok"])
+    graph = build_runnable(
+        model=model,
+        tools=[],
+        system_prompt="You are a test agent",
+        skills=[(root, "Agent")],
+        skill_files=[],
+    )
+    state = graph.invoke({"messages": [HumanMessage("hi")], "files": state["files"]})
+    assert state["files"] == {}
+    assert "invoice-check" not in _prompt_text(model.calls[0][0].content)
+
+
+def _prompt_text(content) -> str:
+    """A system message's text, whether it came as a string or text blocks."""
+    if isinstance(content, str):
+        return content
+    return "".join(
+        block.get("text", "") for block in content if isinstance(block, dict)
+    )
 
 
 async def test_run_snapshot_survives_save_and_resume(db, owner, bundle):
@@ -266,58 +401,6 @@ async def test_run_snapshot_survives_save_and_resume(db, owner, bundle):
         latest[str(agent.id)]["entries"][0]["bundle"]["instructions"]
         == "Updated instructions"
     )
-
-
-def test_sandbox_directory_failure_preserves_diagnostic(mocker):
-    from deepagents.backends.protocol import ExecuteResponse
-
-    backend = mocker.Mock()
-    backend.execute.return_value = ExecuteResponse(
-        output="mkdir: cannot create directory: Permission denied", exit_code=1
-    )
-    lazy = LazySandboxBackend()
-    lazy.skill_files = [("/tmp/auxilia-skills/test/SKILL.md", b"test")]
-    with pytest.raises(RuntimeError, match=r"exit code 1.*Permission denied"):
-        lazy.connect(backend)
-    assert not lazy.connected
-    backend.upload_files.assert_not_called()
-
-
-def test_skill_materialization_uses_writable_temporary_storage(bundle, mocker):
-    """Simulate a non-root sandbox which rejects root-level directories."""
-    import shlex
-
-    from deepagents.backends.protocol import (
-        ExecuteResponse,
-        FileDownloadResponse,
-        FileUploadResponse,
-    )
-
-    catalog = {"entries": [{"bundle": bundle.model_dump(mode="json")}]}
-    files = sandbox_files(catalog)
-    backend = mocker.Mock()
-
-    def execute(command):
-        directories = shlex.split(command)[2:]
-        writable = all(path.startswith("/tmp/auxilia-skills/") for path in directories)
-        return ExecuteResponse(
-            output="" if writable else "Permission denied",
-            exit_code=0 if writable else 1,
-        )
-
-    backend.execute.side_effect = execute
-    backend.upload_files.return_value = [
-        FileUploadResponse(path=path, error=None) for path, _ in files
-    ]
-    backend.download_files.return_value = [
-        FileDownloadResponse(path=path, content=content, error=None)
-        for path, content in files
-    ]
-    lazy = LazySandboxBackend()
-    lazy.skill_files = files
-    lazy.connect(backend)
-    assert lazy.connected
-    backend.upload_files.assert_called_once_with(files)
 
 
 def test_yaml_source_roundtrips_exactly():

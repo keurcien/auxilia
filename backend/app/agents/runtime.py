@@ -52,14 +52,25 @@ from app.agents.toolset import (
     Toolset,
     sanitize_tool_name,
 )
-from app.database import get_checkpointer
+from app.database import AsyncSessionLocal, get_checkpointer
 from app.exceptions import DomainValidationError, NotFoundError
 from app.integrations.langfuse.callback import get_langfuse_callback_handler
 from app.model_providers.catalog import ChatModelFactory
 from app.model_providers.service import ModelService
-from app.sandbox.lazy import LazySandboxBackend
-from app.sandbox.provider import BaseSandboxProvider, build_provider
+from app.sandbox.provider import (
+    BaseSandboxProvider,
+    SandboxSession,
+    build_provider,
+    open_sandbox,
+)
+from app.skills.runtime import (
+    materialize_skills,
+    skill_files,
+    skills_root,
+    skills_sources,
+)
 from app.threads.models import ThreadDB
+from app.threads.repository import ThreadRepository
 
 
 logger = logging.getLogger(__name__)
@@ -133,7 +144,8 @@ def build_runnable(
     tools,
     system_prompt,
     sandbox_backend=None,
-    sandbox_provider: BaseSandboxProvider | None = None,
+    skills=None,
+    skill_files=None,
     base_middleware=(),
     subagents=None,
     checkpointer=None,
@@ -144,11 +156,17 @@ def build_runnable(
 
     Every agent — parent or subagent, sandboxed or not — is a ``create_agent``
     with an explicit middleware stack. A sandbox adds deepagents' harness
-    (todos, filesystem, the ``task`` tool, summarization, the tool-call patcher
-    and prompt caching) plus the sandbox lifecycle tools, and appends the
-    harness prompt to the agent's instructions; ``app/agents/harness.py``
-    assembles that bundle and ``tests/agents/test_harness_parity.py`` pins it
-    to what ``create_deep_agent`` builds. Nothing else forks on the sandbox.
+    (todos, skills, filesystem, the ``task`` tool, summarization, the tool-call
+    patcher and prompt caching) and appends the harness prompt to the agent's
+    instructions; ``app/agents/harness.py`` assembles that bundle and
+    ``tests/agents/test_harness_parity.py`` pins it to what ``create_deep_agent``
+    builds. Nothing else forks on the sandbox.
+
+    ``sandbox_backend`` is a *live* sandbox — the runtime connects it before
+    the graph is built (``Agent._setup``); the model never creates or
+    reconnects one. ``skills`` are ``SkillsMiddleware`` sources; without a
+    sandbox the ``skill_files`` are placed in the agent's own state and read
+    with only the two read tools — no host filesystem, no process.
 
     ``base_middleware`` is the caller's own stack — the parent passes
     ``build_parent_middleware``'s list; subagents pass their own retry/limit/
@@ -181,17 +199,12 @@ def build_runnable(
     harness: list = []
 
     if sandbox_backend is not None:
-        from app.sandbox.tools import create_sandbox_tools
-
-        tools += create_sandbox_tools(sandbox_backend, sandbox_provider)
-        # The general-purpose subagent inherits the parent's tools, so the
-        # harness has to see the sandbox tools too — assemble it after the
-        # toolset is complete.
         harness += harness_middleware(
             model=model,
             tools=tools,
             backend=sandbox_backend,
             subagents=subagents,
+            skills=skills,
         )
         system_prompt = harness_system_prompt(model, system_prompt)
         # The harness brings its own PatchToolCallsMiddleware and langchain
@@ -199,6 +212,12 @@ def build_runnable(
         base_middleware = [
             m for m in base_middleware if not isinstance(m, PatchToolCallsMiddleware)
         ]
+
+    elif skills is not None:
+        from app.skills.middleware import skills_read_middleware
+
+        (root, _label), *_ = skills
+        harness += skills_read_middleware(root, skill_files or [], skills)
 
     middleware = [*harness, *base_middleware]
     if sandbox_backend is None and subagents:
@@ -383,11 +402,29 @@ class ResolvedAgent:
             return None
         return ResolvedSandbox(provider=provider, tools=spec.sandbox.tools)
 
-    def compile(self, model, created_at: datetime) -> CompiledSubAgent:
+    def skill_kwargs(self) -> dict:
+        """`build_runnable`'s skills arguments for this agent: the sources, and
+        the files themselves when there is no sandbox to upload them to."""
+        sources = skills_sources(self.config.id, self.skills)
+        if sources is None:
+            return {"skills": None}
+        files = None
+        if self.sandbox is None:
+            files = skill_files(self.skills, skills_root(self.config.id))
+        return {"skills": sources, "skill_files": files}
+
+    def compile(
+        self,
+        model,
+        created_at: datetime,
+        *,
+        sandbox_backend=None,
+    ) -> CompiledSubAgent:
         """Compile into a CompiledSubAgent runnable (for subagent use).
 
         ``created_at`` is the thread's creation date, stamped onto the
-        subagent's system prompt by ``CurrentDateMiddleware``.
+        subagent's system prompt by ``CurrentDateMiddleware``. ``sandbox_backend``
+        is the run's live sandbox (used when this subagent is bound to one).
 
         A subagent gets its own copy of the shared middleware stack rather than
         inheriting the parent's: the deepagents ``task`` tool invokes it as a
@@ -400,21 +437,15 @@ class ResolvedAgent:
         checkpoint and the web client / Slack approve it like a parent's
         (issue #301).
         """
-        sandbox = self.sandbox is not None
-        # Subagent sandboxes get no turn-end persist hook: CompiledSubAgent
-        # runnables have no teardown point, so whatever a subagent writes is
-        # lost when its `task` call ends — issue #302.
-        from app.skills.runtime import catalog_tools, sandbox_files
-
-        backend = LazySandboxBackend() if sandbox else None
-        if backend:
-            backend.skill_files = sandbox_files(self.skills)
+        # A subagent bound to a sandbox shares the run's one live sandbox
+        # (`sandbox_backend`), so the parent's turn-end persist covers what it
+        # wrote — closing the gap of issue #302.
         runnable = build_runnable(
             model=model,
-            tools=[*self.live.all, *catalog_tools(self.skills)],
+            tools=list(self.live.all),
             system_prompt=self.config.instructions or "",
-            sandbox_backend=backend,
-            sandbox_provider=self.sandbox.provider if self.sandbox else None,
+            sandbox_backend=sandbox_backend if self.sandbox else None,
+            **self.skill_kwargs(),
             base_middleware=build_agent_middleware(
                 created_at,
                 recursion_limit=agent_settings.recursion_limit,
@@ -445,7 +476,8 @@ class Agent:
         self.middleware = middleware
         self.callbacks = callbacks
         self.subagents = subagents
-        self._sandbox_backend: LazySandboxBackend | None = None
+        # Set by `_setup`, for the length of one run.
+        self._sandbox: SandboxSession | None = None
         self.provider = provider
 
     @property
@@ -551,28 +583,24 @@ class Agent:
         off the tool-calling loop and applies it on one final formatting turn;
         the parsed result surfaces in the run state under `structured_response`.
         """
-        sandbox = self.agent.sandbox is not None
-        from app.skills.runtime import catalog_tools, sandbox_files
-
-        self._sandbox_backend = LazySandboxBackend() if sandbox else None
-        if self._sandbox_backend:
-            self._sandbox_backend.skill_files = sandbox_files(self.agent.skills)
         compiled = (
-            [s.compile(self.model, self.thread.created_at) for s in self.subagents]
+            [
+                s.compile(
+                    self.model,
+                    self.thread.created_at,
+                    sandbox_backend=self._sandbox_for(s),
+                )
+                for s in self.subagents
+            ]
             if self.subagents
             else None
         )
         return build_runnable(
             model=self.model,
-            tools=[
-                *self.agent.live.all,
-                *catalog_tools(self.agent.skills),
-            ],
+            tools=list(self.agent.live.all),
             system_prompt=self.agent.config.instructions or "",
-            sandbox_backend=self._sandbox_backend,
-            sandbox_provider=self.agent.sandbox.provider
-            if self.agent.sandbox
-            else None,
+            sandbox_backend=self._sandbox_for(self.agent),
+            **self.agent.skill_kwargs(),
             base_middleware=self.middleware,
             subagents=compiled,
             checkpointer=checkpointer,
@@ -657,9 +685,9 @@ class Agent:
 
         Scaffolding for `stream`: opens one persistent MCP
         session per server (parent + subagents) on an AsyncExitStack that lives for
-        the whole astream/ainvoke loop, opens the AsyncPostgresSaver, builds the
-        LangGraph agent against the live tools, and resolves the request input and
-        run config in one place.
+        the whole astream/ainvoke loop, opens the AsyncPostgresSaver, connects the
+        run's sandbox and stages its skills, builds the LangGraph agent against the
+        live tools, and resolves the request input and run config in one place.
         """
         async with AsyncExitStack() as stack, get_checkpointer() as checkpointer:
             # Open every toolset (parent + subagents) concurrently.
@@ -679,8 +707,13 @@ class Agent:
                     raise result
             for ra, live in zip(resolved, results, strict=True):
                 ra.live = live
+            await self._open_sandbox()
             agent = self._build_agent(checkpointer, output_schema)
             resolved_input = self._resolve_input(agent_input, command)
+            if self._sandbox is not None and self._sandbox.replaced:
+                resolved_input = _with_host_notice(
+                    resolved_input, SANDBOX_REPLACED_NOTICE, "sandbox_replaced"
+                )
             config, resolved_input = await self._resolve_config(
                 agent, checkpointer, trigger, config_overrides, resolved_input
             )
@@ -694,13 +727,51 @@ class Agent:
         persist is a no-op. Failures are logged, never raised — a snapshot
         problem must not mask the run's result.
         """
-        backend = self._sandbox_backend
-        if backend is None or not backend.connected:
+        if self._sandbox is None:
             return
         try:
-            await asyncio.to_thread(backend.persist)
+            await asyncio.to_thread(self._sandbox.persist)
         except Exception:
             logger.exception("Failed to persist sandbox state")
+
+    def _sandbox_for(self, resolved: ResolvedAgent):
+        """The run's live sandbox, for an agent bound to one."""
+        if self._sandbox is None or resolved.sandbox is None:
+            return None
+        return self._sandbox.backend
+
+    async def _open_sandbox(self) -> None:
+        """Connect (or create) the thread's sandbox and put every sandboxed
+        agent's skills in it — before the graph runs, so the model only ever
+        sees a live filesystem.
+
+        One sandbox per run, shared by the parent and its subagents; the
+        thread remembers its id so the next run reconnects to the same files.
+        A sandbox that is gone and has no snapshot is replaced (and the model
+        told, see `SANDBOX_REPLACED_NOTICE`); any other failure fails the run.
+        """
+        bound = [ra for ra in [self.agent, *self.subagents] if ra.sandbox is not None]
+        if not bound:
+            return
+        provider = bound[0].sandbox.provider
+        session = await asyncio.to_thread(
+            open_sandbox, provider, self.thread.sandbox_id
+        )
+        if session.sandbox_id != self.thread.sandbox_id:
+            # Out-of-request: the worker's session is not ours to commit, so
+            # the stamp gets its own short transaction.
+            async with AsyncSessionLocal() as db:
+                await ThreadRepository(db).set_sandbox_id(
+                    self.thread.id, session.sandbox_id
+                )
+                await db.commit()
+            self.thread.sandbox_id = session.sandbox_id
+        for ra in bound:
+            root = skills_root(ra.config.id)
+            await asyncio.to_thread(
+                materialize_skills, session.backend, root, skill_files(ra.skills, root)
+            )
+        self._sandbox = session
 
     async def _persist_recursion_fallback(self, agent, config) -> AIMessage:
         """Persist a synthetic AI message after a GraphRecursionError so the
@@ -774,6 +845,31 @@ class Agent:
                     yield event
             finally:
                 await self._persist_sandbox()
+
+
+SANDBOX_REPLACED_NOTICE = (
+    "[Host notice] The sandbox used earlier in this conversation no longer "
+    "exists and had no snapshot. A new, empty sandbox has been created: files "
+    "written earlier are gone, so recreate anything you need before using it."
+)
+
+
+def _with_host_notice(resolved_input, text: str, kind: str):
+    """Prepend a host-authored message to a turn's input so it lands in the
+    checkpoint ahead of the user's message.
+
+    The user role is the one channel every provider accepts mid-history and
+    every harness uses for this (LangChain's summaries, OpenHands' environment
+    events, Claude Code's reminders); `name`/`host_notice` let the chat render
+    it as an event rather than as the user, and Slack skip it. A resume
+    (`Command`) carries no messages to prepend to and is left alone.
+    """
+    if not isinstance(resolved_input, dict):
+        return resolved_input
+    notice = HumanMessage(
+        content=text, name="host", additional_kwargs={"host_notice": kind}
+    )
+    return {**resolved_input, "messages": [notice, *resolved_input.get("messages", [])]}
 
 
 def extract_invoke_result(

@@ -42,6 +42,11 @@ class FakeTransport:
     def delete(self, sandbox_id):
         self.deleted.append(sandbox_id)
 
+    def health(self):
+        self.health_calls = getattr(self, "health_calls", 0) + 1
+        if getattr(self, "health_error", None):
+            raise self.health_error
+
 
 class FakeSnapshotStore:
     def __init__(self, tar=None, enabled=True):
@@ -94,13 +99,16 @@ class TestSandboxId:
 
 
 class TestExecute:
-    def test_runs_command_through_bash(self, backend, transport):
+    def test_runs_command_through_a_non_login_bash(self, backend, transport):
+        """`-c`, not `-lc`: deepagents' file tools parse the combined output
+        of `execute` as JSON, and the image's login shell prints a
+        `.bash_profile` permission error on stderr for every command."""
         transport.queue(ExecResult(stdout=b"out", stderr=b"err", returncode=3))
         response = backend.execute("echo hi")
 
         sandbox_id, argv, timeout = transport.exec_calls[0]
         assert sandbox_id == "sbx-test"
-        assert argv == ["/bin/bash", "-lc", "echo hi"]
+        assert argv == ["/bin/bash", "-c", "echo hi"]
         assert timeout == 60
         assert response.output == "outerr"
         assert response.exit_code == 3
@@ -267,3 +275,17 @@ class TestLifecycle:
     def test_kill(self, backend, transport):
         backend.kill()
         assert transport.deleted == ["sbx-test"]
+
+
+class TestAvailability:
+    def test_probe_hits_the_gateway_health_route(self, transport):
+        provider = make_provider(transport)
+        provider.check_available()
+        assert transport.health_calls == 1
+
+    def test_unreachable_gateway_is_typed(self, transport):
+        from app.exceptions import SandboxUnavailableError
+
+        transport.health_error = ConnectionError("gateway down")
+        with pytest.raises(SandboxUnavailableError, match="gateway down"):
+            make_provider(transport).check_available()

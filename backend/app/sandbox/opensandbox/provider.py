@@ -8,10 +8,16 @@ from pathlib import Path
 
 from opensandbox import SandboxSync
 from opensandbox.config import ConnectionConfigSync
-from opensandbox.models.sandboxes import Host, Volume
+from opensandbox.exceptions.sandbox import (
+    SandboxApiException,
+    SandboxReadyTimeoutException,
+    SandboxUnhealthyException,
+)
+from opensandbox.models.sandboxes import Host, SandboxFilter, Volume
+from opensandbox.sync.manager import SandboxManagerSync
 
 from app.sandbox.opensandbox.backend import OpenSandbox
-from app.sandbox.provider import BaseSandboxProvider
+from app.sandbox.provider import BaseSandboxProvider, SandboxGoneError
 from app.sandbox.schemas import OpenSandboxConfig
 
 
@@ -35,6 +41,14 @@ class OpenSandboxProvider(BaseSandboxProvider):
     def _destroy_backend(self, backend: OpenSandbox) -> None:
         backend.kill()
 
+    def _probe(self) -> None:
+        # One page of one sandbox: authenticated, cheap, proves the API is up.
+        manager = SandboxManagerSync.create(connection_config=self._connection_config())
+        try:
+            manager.list_sandbox_infos(SandboxFilter(page_size=1))
+        finally:
+            manager.close()
+
     def _created_message(self, backend: OpenSandbox, timeout_minutes: int) -> str:
         return (
             f"Sandbox created (ID: {backend.id}, TTL: {timeout_minutes}min). "
@@ -42,9 +56,24 @@ class OpenSandboxProvider(BaseSandboxProvider):
         )
 
     def connect(self, sandbox_id: str) -> tuple[OpenSandbox, str]:
-        sandbox = SandboxSync.connect(
-            sandbox_id, connection_config=self._connection_config()
-        )
+        try:
+            sandbox = SandboxSync.connect(
+                sandbox_id, connection_config=self._connection_config()
+            )
+        except SandboxApiException as exc:
+            # Expired (TTL) or deleted sandboxes come back as 404 from the API;
+            # that is the one failure the runtime recovers from by creating a
+            # fresh one. Auth, quota and 5xx errors propagate and fail the run.
+            if exc.status_code == 404:
+                raise SandboxGoneError(
+                    f"sandbox {sandbox_id} no longer exists"
+                ) from exc
+            raise
+        except (SandboxUnhealthyException, SandboxReadyTimeoutException) as exc:
+            # It exists but never became usable: nothing to restore from.
+            raise SandboxGoneError(
+                f"sandbox {sandbox_id} is not usable: {exc}"
+            ) from exc
         sandbox.renew(timeout=timedelta(minutes=30))
         backend = OpenSandbox(sandbox=sandbox, timeout=self.config.timeout)
         return backend, (

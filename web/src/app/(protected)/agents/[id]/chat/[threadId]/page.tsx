@@ -9,7 +9,7 @@ import {
 import { type PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { Button } from "@/components/ui/button";
 import ChatPromptInput from "../components/prompt-input";
-import { ArchiveIcon, CircleSlash, ShieldCheck } from "lucide-react";
+import { ArchiveIcon, CircleSlash, ServerCrash, ShieldCheck } from "lucide-react";
 import { isHumanMessage } from "@langchain/core/messages";
 import { useStream } from "@langchain/react";
 import type { AnyStream } from "@langchain/react";
@@ -63,6 +63,10 @@ const ChatPage = () => {
   // longer usable (removed from the catalog, provider key gone, or disabled
   // by an admin). Sending would 409, so the composer is replaced by a notice.
   const [modelUnavailable, setModelUnavailable] = useState(false);
+  // The agent's sandbox provider refused the pre-run probe — set from the
+  // 409 on a command (mid-session outage); the on-load flag comes from the
+  // readiness poll below. Both replace the composer, like an unavailable model.
+  const [sandboxOutage, setSandboxOutage] = useState<string | null>(null);
   const [viewerRole, setViewerRole] = useState<"admin" | null>(null);
   // A failed last run leaves no trace in the checkpoint, so the live stream's
   // error state is lost on reload. Restored from the run record (which
@@ -83,15 +87,24 @@ const ChatPage = () => {
   const {
     ready: agentReady,
     status: agentStatus,
+    detail: readinessDetail,
     disconnectedMcpServers,
     refetch: refetchReady,
   } = useAgentReadiness(agentArchived ? undefined : agentId);
+  const sandboxUnavailable =
+    sandboxOutage ??
+    (agentStatus === "sandbox_unavailable"
+      ? (readinessDetail ?? "This agent's sandbox is not available right now.")
+      : null);
 
   const protocolFetch = useProtocolFetch(threadId, {
     // Mid-session race: an admin disabled the model after this page loaded.
     // The command 409s — lock the send affordances like the on-load flag.
     onModelUnavailable: () => {
       setModelUnavailable(true);
+    },
+    onSandboxUnavailable: (detail) => {
+      setSandboxOutage(detail ?? "This agent's sandbox is not available right now.");
     },
     // A 409 stale_interrupt means this view resumed an approval that was
     // already handled elsewhere (another tab, Slack). The checkpoint is the
@@ -474,6 +487,28 @@ const ChatPage = () => {
                 className="shrink-0 cursor-pointer"
                 onClick={() => {
                   void recheckModelAvailability();
+                }}
+              >
+                Check again
+              </Button>
+            </div>
+          </div>
+        ) : sandboxUnavailable ? (
+          <div className="w-full max-w-4xl mx-auto lg:px-10 sm:px-6 px-3 py-6">
+            <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/50 px-4 py-3">
+              <ServerCrash className="size-5 shrink-0 text-muted-foreground" />
+              <p className="flex-1 text-sm text-muted-foreground">
+                {sandboxUnavailable.replace(/\.?$/, ".")} This agent runs its
+                code in that sandbox, so it cannot answer until the provider is
+                back.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 cursor-pointer"
+                onClick={() => {
+                  setSandboxOutage(null);
+                  refetchReady();
                 }}
               >
                 Check again

@@ -11,10 +11,12 @@ from daytona import (
     CreateSandboxFromSnapshotParams,
     Daytona,
     DaytonaConfig as DaytonaSDKConfig,
+    ListSandboxesQuery,
 )
+from daytona.common.errors import DaytonaNotFoundError
 
 from app.sandbox.daytona.backend import DaytonaSandbox
-from app.sandbox.provider import BaseSandboxProvider
+from app.sandbox.provider import BaseSandboxProvider, SandboxGoneError
 from app.sandbox.schemas import DaytonaConfig
 
 
@@ -66,9 +68,19 @@ class DaytonaProvider(BaseSandboxProvider):
     def _destroy_backend(self, backend: DaytonaSandbox) -> None:
         backend.kill()
 
+    def _probe(self) -> None:
+        # The iterator is lazy; pulling one item is the actual request.
+        next(
+            iter(self._client().list(ListSandboxesQuery(limit=1), request_timeout=15)),
+            None,
+        )
+
     def connect(self, sandbox_id: str) -> tuple[DaytonaSandbox, str]:
         client = self._client()
-        sandbox = client.get(sandbox_id)
+        try:
+            sandbox = client.get(sandbox_id)
+        except DaytonaNotFoundError as exc:
+            raise SandboxGoneError(f"sandbox {sandbox_id} no longer exists") from exc
         state = _state_of(sandbox)
         if state in _WAKEABLE_STATES:
             client.start(sandbox)
@@ -81,7 +93,7 @@ class DaytonaProvider(BaseSandboxProvider):
         # the base-class contract is "raise if it cannot be restored", and a
         # false "Reconnected" would just defer the failure to the next tool.
         if state and state not in _USABLE_STATES:
-            raise RuntimeError(f"sandbox {sandbox_id} is in state {state!r}")
+            raise SandboxGoneError(f"sandbox {sandbox_id} is in state {state!r}")
         return (
             DaytonaSandbox(sandbox, timeout=self.config.timeout),
             f"Reconnected to sandbox {sandbox_id}.",

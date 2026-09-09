@@ -1285,3 +1285,25 @@ async def test_delete_permanently_cleans_team_links(
     await service.delete_permanently(agent.id, user_id=agent.owner_id)
 
     mock_repo.delete_all_teams.assert_awaited_once_with(agent.id)
+
+
+async def test_check_ready_reports_a_sandbox_outage_first(service, mock_repo):
+    """A provider outage blocks the agent outright and has no user-side fix,
+    so it is reported before any MCP state — and never as `disconnected`,
+    which the UI would answer with a Connect button."""
+    from app.exceptions import SandboxUnavailableError
+
+    agent_id = uuid4()
+    mock_repo.get_run_spec.return_value = _run_spec(agent_id, [])
+    with patch(
+        "app.agents.core.service.ensure_sandboxes_available",
+        new=AsyncMock(
+            side_effect=SandboxUnavailableError("row", "Cloud Run prod", "gateway down")
+        ),
+    ):
+        result = await service.describe_readiness(agent_id, "user-id")
+
+    assert result["ready"] is False
+    assert result["status"] == "sandbox_unavailable"
+    assert result["disconnected_servers"] == []
+    assert "Cloud Run prod" in result["detail"]
