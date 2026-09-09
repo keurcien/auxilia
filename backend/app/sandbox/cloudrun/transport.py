@@ -61,6 +61,8 @@ class SandboxTransport(Protocol):
 
     def delete(self, sandbox_id: str) -> None: ...
 
+    def health(self) -> None: ...
+
 
 class GatewayTransport:
     """Drive the `sandbox` CLI on the gateway service over HTTP."""
@@ -150,6 +152,11 @@ class GatewayTransport:
                 sandbox_id,
                 _error_detail(response),
             )
+
+    def health(self) -> None:
+        """The gateway's liveness route; raises on anything but a 2xx."""
+        response = self._client.get("/health", timeout=10)
+        response.raise_for_status()
 
 
 def _error_detail(response: httpx.Response) -> str:

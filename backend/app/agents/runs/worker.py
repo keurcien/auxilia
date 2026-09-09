@@ -182,7 +182,14 @@ class RunWorker:
                 raise RuntimeError(f"Thread {record.thread_id} not found")
             if await _mcp_unauthorized(db, thread, str(record.user_id)):
                 raise RuntimeError(MCP_REAUTH_ERROR)
-            agent = await Agent.build(thread=thread, db=db)
+            agent = await Agent.build(
+                thread=thread, db=db, resume=record.command is not None
+            )
+            # `build` froze this run's skills on the thread. Commit here, on
+            # purpose (CLAUDE.md, transactions, exception 2): the stamp must
+            # outlive a run that then fails, and holding this pooled connection
+            # open for the length of an agent run risks pool starvation.
+            await db.commit()
             # Buffered: one awaited XADD per event is one Redis round trip per
             # token, serialized with the agent stream. Exiting the buffer drains
             # it, which is what keeps the last events ahead of `finalize`'s

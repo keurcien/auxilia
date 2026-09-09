@@ -32,14 +32,21 @@ from app.agents.schemas import (
     AgentPermissionCreate,
     AgentResponse,
     AgentSandboxResponse,
+    AgentSkillResponse,
     TagInfo,
 )
 from app.agents.subagents.service import SubagentService
 from app.database import get_db
-from app.exceptions import NotFoundError, PermissionDeniedError
+from app.exceptions import (
+    NotFoundError,
+    PermissionDeniedError,
+    SandboxUnavailableError,
+)
 from app.mcp.client.connectivity import probe_authorization
 from app.mcp.servers.repository import MCPServerRepository
+from app.sandbox.provider import ensure_sandboxes_available
 from app.service import BaseService
+from app.skills.service import SkillService
 from app.tags.service import TagService
 from app.threads.service import ThreadService
 from app.users.models import WorkspaceRole
@@ -62,6 +69,7 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         self.mcp_server_service = AgentMCPServerService(db)
         self.sandbox_repository = AgentSandboxRepository(db)
         self.sandbox_service = AgentSandboxService(db)
+        self.skill_service = SkillService(db)
         self.mcp_servers = MCPServerRepository(db)
 
     @staticmethod
@@ -184,7 +192,11 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
             is_subagent_ids,
         ) = await self.subagent_service.list_all_subagent_data(agent_ids)
         sandbox_map: dict[UUID, list[AgentSandboxResponse]] = defaultdict(list)
+        skills_map: dict[UUID, list[AgentSkillResponse]] = {}
         if not slim:
+            # Only the detail response carries bindings; `get` reads one agent.
+            for agent_id in agent_ids:
+                skills_map[agent_id] = await self.skill_service.list_for_agent(agent_id)
             for link, sandbox in await self.sandbox_repository.list_for_agents(
                 agent_ids
             ):
@@ -206,7 +218,14 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
             response_cls(
                 **agent.model_dump(),
                 mcp_servers=mcp_map.get(agent.id, []),
-                **({} if slim else {"sandboxes": sandbox_map.get(agent.id, [])}),
+                **(
+                    {}
+                    if slim
+                    else {
+                        "sandboxes": sandbox_map.get(agent.id, []),
+                        "skills": skills_map.get(agent.id, []),
+                    }
+                ),
                 subagents=subagents_map.get(agent.id, []),
                 tag=(
                     TagInfo(id=tag.id, name=tag.name)
@@ -300,6 +319,7 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         await self.subagent_service.set_for_supervisor(
             agent.id, config.subagent_ids, user_role=user_role
         )
+        await self.skill_service.set_for_agent(agent.id, config.skill_ids)
         return await self.get(
             agent.id, user_id=owner_id, user_role=user_role, user_team_id=user_team_id
         )
@@ -404,8 +424,8 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         user_role: WorkspaceRole | None = None,
         user_team_id: UUID | None = None,
     ) -> AgentResponse:
-        """Atomic whole-config replace: scalars, MCP bindings and subagents in
-        one request transaction. Performs zero network calls — the client
+        """Atomic whole-config replace: scalars, MCP bindings, subagents and
+        skills in one request transaction. Performs zero network calls — the client
         already carries the complete per-tool maps (or None = never synced)."""
         await self.require_permission(
             agent_id,
@@ -428,9 +448,12 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         )
         await self.mcp_server_service.set_for_agent(agent_id, config.mcp_servers)
         await self.sandbox_service.set_for_agent(agent_id, config.sandboxes)
+        # Subagents before skills: joining a graph merges two skill sets, and
+        # the skills check runs against the graph as it will be after this save.
         await self.subagent_service.set_for_supervisor(
             agent_id, config.subagent_ids, user_role=user_role
         )
+        await self.skill_service.set_for_agent(agent_id, config.skill_ids)
         return await self.get(
             agent_id, user_id=user_id, user_role=user_role, user_team_id=user_team_id
         )
@@ -545,10 +568,22 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         return spec.all_mcp_bindings
 
     async def describe_readiness(self, agent_id: UUID, user_id: str) -> dict:
+        spec = await self.repository.get_run_spec(agent_id)
+        # The sandbox first: an outage blocks the agent outright, and there is
+        # nothing the user can click to fix it (unlike an MCP reconnect).
+        try:
+            await ensure_sandboxes_available(spec.all_sandbox_rows if spec else [])
+        except SandboxUnavailableError as exc:
+            return {
+                "ready": False,
+                "disconnected_servers": [],
+                "status": "sandbox_unavailable",
+                "detail": exc.detail,
+            }
         # Includes subagents' servers: a subagent's unauthorized OAuth server
         # must keep the agent "not ready" too, or the run launches and fails
         # mid-flight when the subagent calls it.
-        bindings = await self.collect_run_bindings(agent_id)
+        bindings = spec.all_mcp_bindings if spec else []
 
         if not bindings:
             return {"ready": True, "disconnected_servers": [], "status": "ready"}

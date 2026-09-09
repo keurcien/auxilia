@@ -1,5 +1,6 @@
 import { MCPServer } from "./mcp-servers";
 import { SandboxProviderType } from "./sandboxes";
+import { AgentSkill } from "./skills";
 
 export type ToolStatus = "always_allow" | "needs_approval" | "disabled";
 
@@ -68,6 +69,8 @@ export interface Agent {
 	mcpServers: AgentMCPServer[];
 	/** Absent on list responses, like `instructions`; present on detail responses. */
 	sandboxes?: AgentSandbox[];
+	/** Skills enabled on the agent. Detail responses only, like sandboxes. */
+	skills?: AgentSkill[];
 	subagents: SubagentInfo[];
 	tag?: AgentTag | null;
 	owner?: AgentOwner | null;

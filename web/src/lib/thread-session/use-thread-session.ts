@@ -103,6 +103,9 @@ export type ThreadSession = {
 		stop: () => void;
 		respond: (response: HitlResponse, interruptId: string | null) => void;
 		recheckModel: () => Promise<void>;
+		/** Clear the mid-session sandbox gate so the composer comes back; the
+		 * page re-polls readiness alongside it. */
+		recheckSandbox: () => void;
 		/** Run the open sequence again after `meta.status === "error"`. A parked
 		 * first message is still parked — it is consumed only once the thread
 		 * metadata has loaded. */
@@ -137,6 +140,9 @@ export function useThreadSession({
 		baseFetch: transport.fetch,
 		onModelUnavailable: (forThread) => {
 			dispatch({ type: "model-unavailable", threadId: forThread });
+		},
+		onSandboxUnavailable: (forThread, detail) => {
+			dispatch({ type: "sandbox-unavailable", threadId: forThread, detail });
 		},
 		onStaleInterrupt: (forThread) => {
 			// A late 409 for the thread the page left must not reload this one.
@@ -235,6 +241,10 @@ export function useThreadSession({
 		},
 		[selectorStream, userActed],
 	);
+
+	const recheckSandbox = useCallback(() => {
+		dispatch({ type: "sandbox-rechecked", threadId });
+	}, [threadId]);
 
 	const recheckModel = useCallback(async () => {
 		const forThread = threadId;
@@ -357,6 +367,6 @@ export function useThreadSession({
 			decisions,
 			recordDecision,
 		},
-		actions: { send, regenerate, stop, respond, recheckModel, reopen },
+		actions: { send, regenerate, stop, respond, recheckModel, recheckSandbox, reopen },
 	};
 }

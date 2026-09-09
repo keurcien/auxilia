@@ -106,6 +106,18 @@ class SubagentService:
                 "This agent is already used as a subagent and cannot have subagents"
             )
 
+        # Joining a graph merges two skill sets, and one graph cannot hold two
+        # different skills of the same name (same circular-import note as above).
+        from app.skills.service import SkillService
+
+        siblings = [
+            link.subagent_id
+            for link in await self.repository.list_for_supervisor(supervisor_id)
+        ]
+        await SkillService(self.db).ensure_unique_names(
+            [supervisor_id, *siblings, subagent_id]
+        )
+
         return await self.repository.create_or_update(supervisor_id, subagent_id)
 
     async def set_for_supervisor(

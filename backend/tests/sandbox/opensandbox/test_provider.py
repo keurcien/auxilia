@@ -21,14 +21,12 @@ def make_provider(**overrides) -> OpenSandboxProvider:
     return OpenSandboxProvider(OpenSandboxConfig(**{**defaults, **overrides}))
 
 
-def test_create_returns_backend_and_ttl_message(sdk_sandbox):
+def test_create_returns_backend_with_ttl(sdk_sandbox):
     with patch("app.sandbox.opensandbox.provider.SandboxSync") as sdk:
         sdk.create.return_value = sdk_sandbox
-        backend, message = make_provider().create(timeout_minutes=45)
+        backend = make_provider().create(timeout_minutes=45)
 
     assert backend.id == "osb-1"
-    assert "osb-1" in message
-    assert "TTL: 45min" in message
     assert sdk.create.call_args.kwargs["timeout"].total_seconds() == 45 * 60
 
 
@@ -126,8 +124,27 @@ def test_connection_config_uses_url_and_secret(sdk_sandbox):
 def test_connect_renews_ttl(sdk_sandbox):
     with patch("app.sandbox.opensandbox.provider.SandboxSync") as sdk:
         sdk.connect.return_value = sdk_sandbox
-        _backend, message = make_provider().connect("osb-1")
+        backend = make_provider().connect("osb-1")
 
     sdk.connect.assert_called_once()
     sdk_sandbox.renew.assert_called_once()
-    assert "TTL renewed" in message
+    assert backend.id == "osb-1"
+
+
+def test_connect_maps_404_to_gone():
+    """An expired (TTL) or deleted sandbox is the recoverable failure; the
+    runtime replaces it. Anything else from the API fails the run."""
+    from opensandbox.exceptions.sandbox import SandboxApiException
+
+    from app.sandbox.provider import SandboxGoneError
+
+    with patch("app.sandbox.opensandbox.provider.SandboxSync") as sdk:
+        sdk.connect.side_effect = SandboxApiException(
+            "not found", None, status_code=404
+        )
+        with pytest.raises(SandboxGoneError):
+            make_provider().connect("osb-gone")
+
+        sdk.connect.side_effect = SandboxApiException("quota", None, status_code=429)
+        with pytest.raises(SandboxApiException):
+            make_provider().connect("osb-throttled")

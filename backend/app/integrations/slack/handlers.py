@@ -22,6 +22,7 @@ from app.database import AsyncSessionLocal, get_checkpointer
 from app.exceptions import (
     DomainValidationError,
     ModelUnavailableError,
+    SandboxUnavailableError,
     StaleApprovalError,
 )
 from app.integrations.slack.blocks import build_connect_prompt_blocks
@@ -507,6 +508,13 @@ async def handle_message(event: SlackEvent, *, team_id: str | None = None) -> No
                 "new conversation."
             ),
         )
+    except SandboxUnavailableError as exc:
+        # Infrastructure, not configuration: nothing to reconnect, just retry.
+        await client.chat_postMessage(
+            channel=event.channel,
+            thread_ts=thread_ts,
+            text=f"{exc.detail} Try again in a moment, or ask a workspace admin.",
+        )
 
 
 async def handle_interaction(payload: SlackInteractionPayload) -> None:
@@ -676,10 +684,10 @@ async def _resume_agent(
             thread_ts=thread_ts,
             text="This approval was already handled elsewhere.",
         )
-    except ModelUnavailableError as exc:
+    except (ModelUnavailableError, SandboxUnavailableError) as exc:
         # The approval buttons stay in the thread and decisions are re-derived
-        # from replies on every click, so re-approving after the model is
-        # restored retries this resume — say so.
+        # from replies on every click, so re-approving after the model (or the
+        # sandbox provider) is back retries this resume — say so.
         await client.chat_postMessage(
             channel=channel_id,
             thread_ts=thread_ts,
