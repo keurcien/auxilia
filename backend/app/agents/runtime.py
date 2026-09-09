@@ -741,16 +741,23 @@ class Agent:
         return self._sandbox.backend
 
     async def _open_sandbox(self) -> None:
-        """Connect (or create) the thread's sandbox and put every sandboxed
-        agent's skills in it — before the graph runs, so the model only ever
-        sees a live filesystem.
+        """Connect (or create) the thread's sandbox and put the graph's skill
+        files in it — before the graph runs, so the model only ever sees a
+        live filesystem.
 
         One sandbox per run, shared by the parent and its subagents; the
         thread remembers its id so the next run reconnects to the same files.
         A sandbox that is gone and has no snapshot is replaced (and the model
         told, see `SANDBOX_REPLACED_NOTICE`); any other failure fails the run.
+
+        The skills of *every* agent in the graph are materialized, each under
+        its own root, not only those of the agents bound to the sandbox: a
+        supervisor without code execution reads its skill from state and
+        delegates the script to a sandboxed subagent by absolute path, and
+        that path has to exist in the sandbox the subagent runs in.
         """
-        bound = [ra for ra in [self.agent, *self.subagents] if ra.sandbox is not None]
+        graph = [self.agent, *self.subagents]
+        bound = [ra for ra in graph if ra.sandbox is not None]
         if not bound:
             return
         provider = bound[0].sandbox.provider
@@ -758,20 +765,29 @@ class Agent:
             open_sandbox, provider, self.thread.sandbox_id
         )
         if session.sandbox_id != self.thread.sandbox_id:
-            # Out-of-request: the worker's session is not ours to commit, so
-            # the stamp gets its own short transaction.
-            async with AsyncSessionLocal() as db:
-                await ThreadRepository(db).set_sandbox_id(
-                    self.thread.id, session.sandbox_id
-                )
-                await db.commit()
-            self.thread.sandbox_id = session.sandbox_id
-        for ra in bound:
+            await self._remember_sandbox(session.sandbox_id)
+        for ra in graph:
+            # A bound agent is materialized even with no skills, so a root left
+            # by a detached skill is cleared; an unbound one only when it has
+            # skills to share.
+            if ra.sandbox is None and not ra.skills.get("entries"):
+                continue
             root = skills_root(ra.config.id)
             await asyncio.to_thread(
                 materialize_skills, session.backend, root, skill_files(ra.skills, root)
             )
         self._sandbox = session
+
+    async def _remember_sandbox(self, sandbox_id: str) -> None:
+        """Stamp the sandbox on the thread so the next run reconnects to it.
+
+        Out-of-request: the worker's session is not ours to commit, so the
+        stamp gets its own short transaction.
+        """
+        async with AsyncSessionLocal() as db:
+            await ThreadRepository(db).set_sandbox_id(self.thread.id, sandbox_id)
+            await db.commit()
+        self.thread.sandbox_id = sandbox_id
 
     async def _persist_recursion_fallback(self, agent, config) -> AIMessage:
         """Persist a synthetic AI message after a GraphRecursionError so the

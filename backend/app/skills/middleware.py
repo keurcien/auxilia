@@ -36,6 +36,18 @@ it. Supporting files live next to it; run scripts by their absolute path. \
 Copy a script before changing it — edits inside the sandbox do not change \
 the saved skill."""
 
+# The variant for an agent without code execution: same disclosure, but the
+# scripts can only run somewhere else. The files are also present, at the same
+# absolute paths, in the sandbox of any subagent this agent delegates to.
+SKILLS_SYSTEM_PROMPT_NO_SANDBOX = SKILLS_SYSTEM_PROMPT.replace(
+    "Supporting files live next to it; run scripts by their absolute path. "
+    "Copy a script before changing it — edits inside the sandbox do not change "
+    "the saved skill.",
+    "Supporting files live next to it. You cannot run scripts yourself: if you "
+    "have a subagent with code execution, delegate the run to it and give it "
+    "the script's absolute path — the same path exists in its sandbox.",
+)
+
 
 class FreshSkillsMiddleware(SkillsMiddleware):
     """``SkillsMiddleware`` that re-reads the skill index on every run.
@@ -52,10 +64,10 @@ class FreshSkillsMiddleware(SkillsMiddleware):
         # langchain de-duplicates by it, so this *is* the SkillsMiddleware.
         return "SkillsMiddleware"
 
-    def __init__(self, *, backend: BackendProtocol, sources) -> None:
-        super().__init__(
-            backend=backend, sources=sources, system_prompt=SKILLS_SYSTEM_PROMPT
-        )
+    def __init__(
+        self, *, backend: BackendProtocol, sources, system_prompt=SKILLS_SYSTEM_PROMPT
+    ) -> None:
+        super().__init__(backend=backend, sources=sources, system_prompt=system_prompt)
 
     def before_agent(self, state, runtime, config):
         return super().before_agent(_without_index(state), runtime, config)
@@ -134,7 +146,11 @@ def skills_read_middleware(
     backend = StateBackend()
     return [
         SkillFilesMiddleware(root, files),
-        FreshSkillsMiddleware(backend=backend, sources=sources),
+        FreshSkillsMiddleware(
+            backend=backend,
+            sources=sources,
+            system_prompt=SKILLS_SYSTEM_PROMPT_NO_SANDBOX,
+        ),
         FilesystemMiddleware(
             backend=backend,
             tools=["ls", "read_file"],

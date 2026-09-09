@@ -335,6 +335,9 @@ def test_plain_agent_reads_skills_from_state_end_to_end(bundle):
     assert "Use to reconcile invoices" in system
     assert sorted(t.name for t in model.bound_tools) == ["ls", "read_file"]
     assert set(state["files"]) == {path for path, _ in skill_files(catalog, root)}
+    # No code execution here: the prompt says to delegate scripts by path.
+    assert "delegate the run" in system
+    assert "run scripts by their absolute path" not in system
 
     # Next run, skill detached: the files are removed from state.
     model = ScriptedChatModel(script=["ok"])

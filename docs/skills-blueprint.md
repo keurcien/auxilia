@@ -130,6 +130,13 @@ that state to `SkillsMiddleware` and to the only two tools such an agent gets,
 runs: a sandbox-less agent reads data from its own state and nothing else.
 Sandbox copies are writable but never written back.
 
+The run's sandbox receives the skill files of *every* agent in the graph,
+each under its own root, not only of the agents bound to it (2026-09-09). A
+supervisor without code execution reads its skill from state and delegates
+the script to a sandboxed subagent by absolute path; that path exists in the
+subagent's sandbox because it is the run's one sandbox. Its prompt variant
+says so (`SKILLS_SYSTEM_PROMPT_NO_SANDBOX`).
+
 ## 5. What happens when something is removed
 
 | Event | Effect |

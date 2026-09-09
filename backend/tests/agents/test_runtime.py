@@ -241,3 +241,58 @@ def test_host_notice_leaves_a_resume_command_alone():
 
     command = Command(resume={"a": True})
     assert _with_host_notice(command, "note", "x") is command
+
+
+async def test_open_sandbox_materializes_the_supervisors_skills_too():
+    """A supervisor without code execution delegates a skill script to a
+    sandboxed subagent by absolute path — so its skill files must be in the
+    run's sandbox as well, under its own root, even though it never reads
+    them from there itself."""
+    from unittest.mock import AsyncMock
+
+    from app.sandbox.provider import SandboxSession
+    from app.skills.runtime import skills_root
+
+    bundle = {
+        "name": "greeting",
+        "description": "Use to greet",
+        "instructions": "Run scripts/upload.py",
+        "files": [
+            {"path": "scripts/upload.py", "content": "print(1)", "encoding": "utf-8"}
+        ],
+    }
+    parent = MagicMock()
+    parent.sandbox = None
+    parent.config.id = "parent-id"
+    parent.skills = {"entries": [{"skill_id": "s", "bundle": bundle}]}
+    worker = MagicMock()  # the sandboxed subagent, no skills of its own
+    worker.config.id = "worker-id"
+    worker.skills = {"entries": []}
+    agent = Agent(
+        thread=MagicMock(sandbox_id=None),
+        agent=parent,
+        model=MagicMock(),
+        middleware=[],
+        callbacks=[],
+        subagents=[worker],
+    )
+    backend = StubSandbox("sbx-1")
+    agent._remember_sandbox = AsyncMock()
+
+    with patch(
+        "app.agents.runtime.open_sandbox",
+        return_value=SandboxSession(backend=backend, sandbox_id="sbx-1"),
+    ):
+        await agent._open_sandbox()
+
+    parent_root = skills_root("parent-id")
+    assert f"{parent_root}/greeting/scripts/upload.py" in backend.files
+    assert f"{parent_root}/greeting/SKILL.md" in backend.files
+    # The bound subagent's (empty) root is reset; an unbound agent with no
+    # skills would not have cost a sandbox call at all.
+    assert any(
+        cmd.startswith(f"rm -rf {skills_root('worker-id')}") for cmd in backend.commands
+    )
+    agent._remember_sandbox.assert_awaited_once_with("sbx-1")
+    assert agent._sandbox is not None and agent._sandbox_for(worker) is backend
+    assert agent._sandbox_for(parent) is None
