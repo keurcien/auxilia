@@ -24,6 +24,7 @@ from app.database import get_db
 from app.mcp.client.responses import oauth_required_response
 from app.redis_client import get_redis
 from app.threads.dependencies import authorize_thread_read
+from app.threads.models import ThreadDB
 from app.threads.schemas import ThreadResponse
 
 
@@ -72,7 +73,7 @@ async def post_command(
 async def stream_events(
     thread_id: str,
     body: EventStreamBody,
-    _: ThreadResponse = Depends(authorize_thread_read),
+    _: ThreadDB = Depends(authorize_thread_read),
     service: ProtocolService = Depends(get_protocol_service),
     db: AsyncSession = Depends(get_db),  # dependency-cached: same session auth used
 ):
@@ -90,7 +91,7 @@ async def stream_events(
 async def get_history(
     thread_id: str,
     body: HistoryBody,
-    _: ThreadResponse = Depends(authorize_thread_read),
+    _: ThreadDB = Depends(authorize_thread_read),
     service: ProtocolService = Depends(get_protocol_service),
 ) -> list[dict]:
     """Checkpoint history (LangGraph `client.threads.getHistory` shape).
@@ -105,7 +106,7 @@ async def get_history(
 @router.get("/state")
 async def get_state(
     thread_id: str,
-    _: ThreadResponse = Depends(authorize_thread_read),
+    _: ThreadDB = Depends(authorize_thread_read),
     service: ProtocolService = Depends(get_protocol_service),
 ) -> dict:
     """LangGraph-shaped state snapshot (`values` / `next` / `tasks`) for
@@ -118,7 +119,7 @@ async def get_state(
 async def get_message(
     thread_id: str,
     message_id: str,
-    _: ThreadResponse = Depends(authorize_thread_read),
+    _: ThreadDB = Depends(authorize_thread_read),
     service: ProtocolService = Depends(get_protocol_service),
 ) -> dict:
     """One message, whole. `/state` and `/history` ship tool results cut at
