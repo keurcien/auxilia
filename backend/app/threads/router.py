@@ -4,13 +4,13 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.core.service import AgentService, get_agent_service
-from app.agents.models import EffectivePermission
 from app.auth.dependencies import detect_auth_method, get_current_user
 from app.database import get_db
 from app.exceptions import PermissionDeniedError
 from app.pagination import Page, PageParams
-from app.threads.models import ThreadDB, ThreadSource
-from app.threads.schemas import ThreadCreate, ThreadPatch, ThreadResponse, ViewerRole
+from app.threads.dependencies import resolve_viewer_role
+from app.threads.models import ThreadSource
+from app.threads.schemas import ThreadCreate, ThreadPatch, ThreadResponse
 from app.threads.service import ThreadService, get_thread_service
 from app.users.models import UserDB
 
@@ -18,29 +18,6 @@ from app.users.models import UserDB
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/threads", tags=["threads"])
-
-
-async def _resolve_viewer_role(
-    thread: ThreadDB,
-    current_user: UserDB,
-    agent_service: AgentService,
-) -> ViewerRole | None:
-    """Return the viewer's role on this thread, or raise 403.
-
-    - Owner of the thread → ``None`` (full access).
-    - Workspace admin or per-agent owner/admin → ``"admin"`` (read-only).
-    - Anyone else → ``PermissionDeniedError``.
-    """
-    if thread.user_id == current_user.id:
-        return None
-    await agent_service.require_permission(
-        thread.agent_id,
-        at_least=EffectivePermission.admin,
-        action="view this thread",
-        user_id=current_user.id,
-        user_role=current_user.role,
-    )
-    return "admin"
 
 
 @router.get("/{thread_id}")
@@ -59,7 +36,7 @@ async def read_thread(
     from the snapshot's `next` / `tasks`.
     """
     thread = await service.get(thread_id)
-    viewer_role = await _resolve_viewer_role(thread, current_user, agent_service)
+    viewer_role = await resolve_viewer_role(thread, current_user, agent_service)
     thread_read = await service.get_with_agent(thread_id)
     return {"thread": thread_read, "viewer_role": viewer_role}
 

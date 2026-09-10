@@ -123,7 +123,7 @@ export const ToolStep = memo(function ToolStep({
           ) : (
             tc.output !== undefined && (
               <StepSection label="RESULT">
-                <ToolResult tc={tc} />
+                <ToolResult key={tc.resultMessageId ?? tc.id} tc={tc} />
               </StepSection>
             )
           )}
@@ -159,8 +159,10 @@ export const ToolStep = memo(function ToolStep({
  * nobody looked at.
  */
 const ToolResult = ({ tc }: { tc: ToolCallView }) => {
+  // Keyed by the result message in `ToolStep`, so a different result mounts a
+  // fresh instance: no load state leaks from one message to the next.
   const params = useParams<{ threadId?: string }>();
-  const threadId = params?.threadId;
+  const threadId = params.threadId;
   const [full, setFull] = useState<{ forMessage: string; output: unknown } | null>(
     null,
   );
@@ -169,16 +171,18 @@ const ToolResult = ({ tc }: { tc: ToolCallView }) => {
 
   const loaded =
     full != null && full.forMessage === tc.resultMessageId ? full.output : undefined;
-  const truncated =
-    loaded === undefined && tc.truncatedChars != null && tc.resultMessageId != null;
-  // Loading is implied: a truncated result with no error yet is being fetched.
-  const loading = truncated && loadError == null;
+  const truncated = loaded === undefined && tc.truncatedChars != null;
+  // A result without a persisted message id (or outside a thread route) can
+  // only show its preview; the note still says so.
+  const canLoad = truncated && tc.resultMessageId != null && threadId != null;
+  // Loading is implied: a loadable result with no error yet is being fetched.
+  const loading = canLoad && loadError == null;
 
   useEffect(() => {
-    if (!truncated || !threadId || !tc.resultMessageId || loadError != null) return;
-    const messageId = tc.resultMessageId;
+    if (!canLoad || loadError != null) return;
+    const messageId = tc.resultMessageId as string;
     let cancelled = false;
-    fetchThreadMessage(threadId, messageId)
+    fetchThreadMessage(threadId as string, messageId)
       .then((message) => {
         if (cancelled) return;
         const content = message.content;
@@ -196,7 +200,7 @@ const ToolResult = ({ tc }: { tc: ToolCallView }) => {
     return () => {
       cancelled = true;
     };
-  }, [truncated, threadId, tc.resultMessageId, loadError, attempt]);
+  }, [canLoad, threadId, tc.resultMessageId, loadError, attempt]);
 
   return (
     <>
@@ -217,16 +221,18 @@ const ToolResult = ({ tc }: { tc: ToolCallView }) => {
                 {formatChars(tc.truncatedChars ?? 0)}.
               </span>
               {loadError && <span className="text-destructive">{loadError}</span>}
-              <button
-                type="button"
-                onClick={() => {
-                  setLoadError(null);
-                  setAttempt((n) => n + 1);
-                }}
-                className="cursor-pointer font-semibold text-petrol underline-offset-2 hover:underline"
-              >
-                Retry
-              </button>
+              {canLoad && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoadError(null);
+                    setAttempt((n) => n + 1);
+                  }}
+                  className="cursor-pointer font-semibold text-petrol underline-offset-2 hover:underline"
+                >
+                  Retry
+                </button>
+              )}
             </>
           )}
         </div>

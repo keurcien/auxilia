@@ -72,6 +72,22 @@ describe("ToolStep result loading", () => {
     expect(fetchThreadMessage).not.toHaveBeenCalled();
   });
 
+  it("shows the truncation note without fetching when the message has no id", () => {
+    render(
+      <ToolStep
+        tc={view({ output: "part", truncatedChars: 34_000 })}
+        state="done"
+        describe={describeTool}
+      />,
+    );
+    expand();
+    expect(
+      screen.getByText(/Showing the first 4 chars of 34 K chars/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Retry")).toBeNull();
+    expect(fetchThreadMessage).not.toHaveBeenCalled();
+  });
+
   it("fetches the whole result on expand and swaps it in", async () => {
     fetchThreadMessage.mockResolvedValue({
       id: "tool_1",

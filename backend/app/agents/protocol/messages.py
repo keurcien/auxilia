@@ -83,7 +83,9 @@ def serialize_message_preview(
     if d.get("type") != "tool":
         return d
     artifact = d.get("artifact")
-    if isinstance(artifact, dict) and not artifact.get(_APP_ARTIFACT_KEY):
+    if artifact is not None and (
+        not isinstance(artifact, dict) or not artifact.get(_APP_ARTIFACT_KEY)
+    ):
         del d["artifact"]
     text = text_of(d.get("content"))
     if len(text) > limit:

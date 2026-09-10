@@ -346,8 +346,13 @@ class ProtocolService:
         the cost is the writes scanned until the id matches (newest first),
         never the materialised conversation. The write scan covers every
         namespace, so a subagent's tool result resolves without knowing its
-        `tools:<task id>`. Threads whose writes are gone fall back to the
-        root state.
+        `tools:<task id>`.
+
+        Fallback, for threads whose writes are gone (pruned, or written before
+        the writes table existed): the materialised *root* state. A subagent
+        message without its writes is therefore a 404 — reading every
+        namespace's state to find one message would cost what the writes scan
+        exists to avoid, and the writes outlive the log in practice.
         """
         async with AsyncSessionLocal() as db:
             writes = CheckpointWriteRepository(db).iter_message_writes(thread_id)

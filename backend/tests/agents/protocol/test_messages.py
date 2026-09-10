@@ -58,6 +58,11 @@ def test_a_copy_artifact_is_dropped_but_an_app_artifact_is_kept():
     assert app["artifact"] == app_artifact
 
 
+def test_a_non_dict_artifact_is_dropped_too():
+    d = serialize_message_preview(_tool("ok", artifact=["raw", "blocks"]))
+    assert "artifact" not in d
+
+
 def test_non_tool_messages_are_serialized_whole():
     long = "z" * (TOOL_PREVIEW_CHARS * 3)
     for msg in (HumanMessage(content=long, id="h"), AIMessage(content=long, id="a")):

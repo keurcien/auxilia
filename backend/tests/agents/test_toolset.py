@@ -290,6 +290,41 @@ class TestBoundArtifacts:
         Toolset(tools=[AgentTool(tool=tool, ui_metadata=None)]).bound_artifacts(ui=True)
         assert tool.coroutine is not original_coro
 
+    @staticmethod
+    def _tool_returning(result) -> Tool:
+        async def coroutine(**kwargs):
+            return result
+
+        return Tool(name="t", description="", func=lambda: None, coroutine=coroutine)
+
+    @pytest.mark.asyncio
+    async def test_ui_true_stamps_app_tools_and_strips_plain_ones(self):
+        app_tool = self._tool_returning(("ok", {"structured_content": {"rows": [1]}}))
+        plain = self._tool_returning(("ok", {"structured_content": {"big": "x" * 10}}))
+        ui = {"mcp_app_resource_uri": "ui://app", "mcp_server_id": "s1"}
+        Toolset(
+            tools=[
+                AgentTool(tool=app_tool, ui_metadata=ui),
+                AgentTool(tool=plain, ui_metadata=None),
+            ]
+        ).bound_artifacts(ui=True)
+        _, app_artifact = await app_tool.coroutine()
+        _, plain_artifact = await plain.coroutine()
+        assert app_artifact == {"structured_content": {"rows": [1]}, **ui}
+        assert plain_artifact is None
+
+    @pytest.mark.asyncio
+    async def test_ui_false_strips_even_app_tools(self):
+        """Subagent toolsets never stream widgets, so their app tools are
+        bounded like any other tool."""
+        app_tool = self._tool_returning(("ok", {"structured_content": {"rows": [1]}}))
+        ui = {"mcp_app_resource_uri": "ui://app", "mcp_server_id": "s1"}
+        Toolset(tools=[AgentTool(tool=app_tool, ui_metadata=ui)]).bound_artifacts(
+            ui=False
+        )
+        _, artifact = await app_tool.coroutine()
+        assert artifact is None
+
     def test_idempotent(self):
         """Wrapping twice wraps twice, and does not crash."""
         tool = _make_tool("my_tool")
