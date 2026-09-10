@@ -106,3 +106,16 @@ async def get_state(
     client hydration. Served raw (never camelized) — the protocol client
     fetches it outside the axios interceptor."""
     return await service.thread_state(thread_id)
+
+
+@router.get("/messages/{message_id}")
+async def get_message(
+    thread_id: str,
+    message_id: str,
+    _: ThreadResponse = Depends(authorize_thread),
+    service: ProtocolService = Depends(get_protocol_service),
+) -> dict:
+    """One message, whole. `/state` and `/history` ship tool results cut at
+    `TOOL_PREVIEW_CHARS`; the client fetches the rest from here on demand.
+    Served raw, like `/state`."""
+    return await service.message(thread_id, message_id)

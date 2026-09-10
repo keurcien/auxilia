@@ -1,4 +1,4 @@
-"""Unit tests for Toolset — name sanitization, tool filtering, UI metadata, apply_ui_metadata()."""
+"""Unit tests for Toolset — name sanitization, tool filtering, UI metadata, bound_artifacts()."""
 
 from uuid import uuid4
 
@@ -262,12 +262,16 @@ class TestToolsetProperties:
 
 
 # ---------------------------------------------------------------------------
-# apply_ui_metadata
+# bound_artifacts
 # ---------------------------------------------------------------------------
 
 
-class TestApplyUiMetadata:
-    def test_injects_metadata(self):
+class TestBoundArtifacts:
+    """Every tool is wrapped — app tools to stamp their UI metadata, the rest to
+    drop structured content (the runtime behaviour is covered in
+    tests/mcp/client/test_tools.py)."""
+
+    def test_wraps_app_tools(self):
         tool = _make_tool("my_tool")
         original_coro = tool.coroutine
         at = AgentTool(
@@ -277,20 +281,17 @@ class TestApplyUiMetadata:
                 "mcp_server_id": "s1",
             },
         )
-        ts = Toolset(tools=[at])
-        ts.apply_ui_metadata()
+        Toolset(tools=[at]).bound_artifacts(ui=True)
         assert tool.coroutine is not original_coro
 
-    def test_no_metadata_leaves_unwrapped(self):
+    def test_wraps_plain_tools_too(self):
         tool = _make_tool("my_tool")
         original_coro = tool.coroutine
-        at = AgentTool(tool=tool, ui_metadata=None)
-        ts = Toolset(tools=[at])
-        ts.apply_ui_metadata()
-        assert tool.coroutine is original_coro
+        Toolset(tools=[AgentTool(tool=tool, ui_metadata=None)]).bound_artifacts(ui=True)
+        assert tool.coroutine is not original_coro
 
     def test_idempotent(self):
-        """Calling apply_ui_metadata twice should wrap twice but not crash."""
+        """Wrapping twice wraps twice, and does not crash."""
         tool = _make_tool("my_tool")
         at = AgentTool(
             tool=tool,
@@ -300,9 +301,9 @@ class TestApplyUiMetadata:
             },
         )
         ts = Toolset(tools=[at])
-        ts.apply_ui_metadata()
+        ts.bound_artifacts(ui=True)
         coro_after_first = tool.coroutine
-        ts.apply_ui_metadata()
+        ts.bound_artifacts(ui=True)
         assert tool.coroutine is not coro_after_first
 
 

@@ -16,7 +16,7 @@ from app.agents.models import AgentMCPServerBase
 from app.mcp.client.connectivity import CredentialCache
 from app.mcp.client.exceptions import as_oauth_required
 from app.mcp.client.factory import MCPClientConfigFactory
-from app.mcp.client.tools import inject_ui_metadata_into_tool
+from app.mcp.client.tools import bound_tool_artifact
 from app.mcp.servers.models import MCPServerDB
 from app.mcp.servers.repository import MCPServerRepository
 
@@ -561,8 +561,7 @@ class Toolset:
                         prepared.server_id_by_name,
                     )
                     toolset = cls(tools=agent_tools)
-                    if prepared.apply_ui:
-                        toolset.apply_ui_metadata()
+                    toolset.bound_artifacts(ui=prepared.apply_ui)
                     yield toolset
                 finally:
                     await supervisor.close()
@@ -577,12 +576,12 @@ class Toolset:
                 raise oauth from exc
             raise
 
-    def apply_ui_metadata(self) -> None:
-        """Inject UI metadata into tool coroutines.
-
-        Call for parent agent toolsets only. Subagents don't stream UI metadata
-        to the frontend, so skip this for subagent toolsets.
+    def bound_artifacts(self, *, ui: bool) -> None:
+        """Apply the per-tool artifact policy (`app/mcp/client/tools.py`) to
+        every tool: app tools keep and stamp their structured content, the rest
+        lose it. `ui` is True for the parent agent only — subagents never
+        stream widgets to the frontend, so their app tools are bounded like any
+        other.
         """
         for t in self.tools:
-            if t.ui_metadata:
-                inject_ui_metadata_into_tool(t.tool, t.ui_metadata)
+            bound_tool_artifact(t.tool, t.ui_metadata if ui else None)
