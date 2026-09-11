@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.8.0](https://github.com/keurcien/auxilia/compare/backend-v0.7.0...backend-v0.8.0) (2026-09-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* **threads:** `GET /threads/{id}` no longer returns `values`, `interrupted`, `interrupt_value` or `interrupt_id`; hydrate from `GET /threads/{id}/state`. Non-app MCP tools no longer carry `structured_content` in their ToolMessage artifact.
+
+### Features
+
+* **threads:** bound tool results in snapshots, cap MCP artifacts, load outputs on demand ([#322](https://github.com/keurcien/auxilia/issues/322)) ([206c243](https://github.com/keurcien/auxilia/commit/206c243c3281ccc5fe8dce089d78cb53a22a5871))
+
 ## [0.7.0](https://github.com/keurcien/auxilia/compare/backend-v0.6.0...backend-v0.7.0) (2026-09-06)
 
 
