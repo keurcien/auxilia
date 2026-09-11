@@ -3,18 +3,14 @@ import logging
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.checkpoints import get_checkpoint_state
 from app.agents.core.service import AgentService, get_agent_service
-from app.agents.hitl import pending_interrupt
-from app.agents.models import EffectivePermission
-from app.agents.protocol.messages import serialize_message
-from app.agents.structured_output import is_structured_output_artifact
 from app.auth.dependencies import detect_auth_method, get_current_user
-from app.database import get_checkpointer, get_db
+from app.database import get_db
 from app.exceptions import PermissionDeniedError
 from app.pagination import Page, PageParams
-from app.threads.models import ThreadDB, ThreadSource
-from app.threads.schemas import ThreadCreate, ThreadPatch, ThreadResponse, ViewerRole
+from app.threads.dependencies import resolve_viewer_role
+from app.threads.models import ThreadSource
+from app.threads.schemas import ThreadCreate, ThreadPatch, ThreadResponse
 from app.threads.service import ThreadService, get_thread_service
 from app.users.models import UserDB
 
@@ -24,29 +20,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/threads", tags=["threads"])
 
 
-async def _resolve_viewer_role(
-    thread: ThreadDB,
-    current_user: UserDB,
-    agent_service: AgentService,
-) -> ViewerRole | None:
-    """Return the viewer's role on this thread, or raise 403.
-
-    - Owner of the thread → ``None`` (full access).
-    - Workspace admin or per-agent owner/admin → ``"admin"`` (read-only).
-    - Anyone else → ``PermissionDeniedError``.
-    """
-    if thread.user_id == current_user.id:
-        return None
-    await agent_service.require_permission(
-        thread.agent_id,
-        at_least=EffectivePermission.admin,
-        action="view this thread",
-        user_id=current_user.id,
-        user_role=current_user.role,
-    )
-    return "admin"
-
-
 @router.get("/{thread_id}")
 async def read_thread(
     thread_id: str,
@@ -54,46 +27,18 @@ async def read_thread(
     service: ThreadService = Depends(get_thread_service),
     agent_service: AgentService = Depends(get_agent_service),
 ) -> dict:
+    """Thread metadata (`thread`, with its agent) and the caller's viewer role.
+
+    The conversation is not here. The client hydrates it from the protocol
+    snapshot (`GET /threads/{id}/state`), and this endpoint used to ship the
+    same messages a second time — for a heavy thread, 16 MB twice per page
+    load — so it no longer opens the checkpoint at all. Interrupt state comes
+    from the snapshot's `next` / `tasks`.
+    """
     thread = await service.get(thread_id)
-    viewer_role = await _resolve_viewer_role(thread, current_user, agent_service)
+    viewer_role = await resolve_viewer_role(thread, current_user, agent_service)
     thread_read = await service.get_with_agent(thread_id)
-
-    async with get_checkpointer() as checkpointer:
-        state = await get_checkpoint_state(checkpointer, thread_id)
-
-    if state.saved is None:
-        return {
-            "values": {"messages": []},
-            "thread": thread_read,
-            "interrupted": False,
-            "viewer_role": viewer_role,
-        }
-
-    # Formatting-turn artifacts (raw-JSON message or synthetic tool-call
-    # pair) are chat-history noise: the parsed object is exposed under
-    # values["structured_response"] instead.
-    lc_messages = [m for m in state.messages if not is_structured_output_artifact(m)]
-    values: dict = {
-        "messages": [serialize_message(m) for m in lc_messages],
-    }
-    if state.todos:
-        values["todos"] = state.todos
-    if state.structured_response is not None:
-        values["structured_response"] = state.structured_response
-
-    interrupt = pending_interrupt(state)
-
-    return {
-        "values": values,
-        "thread": thread_read,
-        "interrupted": interrupt is not None,
-        "interrupt_value": interrupt.value if interrupt else None,
-        # The stable id of the pending interrupt (recomputed from the
-        # checkpoint). Clients echo it back when resuming so a stale
-        # approval is a 409, not a resume of whatever pends now.
-        "interrupt_id": interrupt.id if interrupt else None,
-        "viewer_role": viewer_role,
-    }
+    return {"thread": thread_read, "viewer_role": viewer_role}
 
 
 @router.get("/")

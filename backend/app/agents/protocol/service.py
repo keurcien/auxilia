@@ -23,22 +23,25 @@ import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import BaseMessage, ToolMessage
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+from langgraph.types import Overwrite
 from redis.asyncio import Redis
 
 from app.agents.checkpoints import get_checkpoint_state
 from app.agents.hitl import InterruptScope, load_interrupt_scopes
 from app.agents.protocol.events import terminal_lifecycle
 from app.agents.protocol.filter import StreamFilter
-from app.agents.protocol.messages import serialize_message
+from app.agents.protocol.messages import serialize_message, serialize_message_preview
+from app.agents.protocol.repository import CheckpointWriteRepository
 from app.agents.protocol.schemas import EventStreamBody, ProtocolCommand
 from app.agents.protocol.wire import decode_event, frame, seq_for_entry
 from app.agents.runs.events import RunEventStream
 from app.agents.runs.models import RunDB
 from app.agents.runs.service import RunService
 from app.agents.runs.state import is_terminal
-from app.database import get_checkpointer
-from app.exceptions import DomainValidationError
+from app.database import AsyncSessionLocal, get_checkpointer
+from app.exceptions import DomainValidationError, NotFoundError
 from app.redis_client import get_redis
 
 
@@ -267,7 +270,7 @@ class ProtocolService:
         async with get_checkpointer() as checkpointer:
             state = await get_checkpoint_state(checkpointer, thread_id)
             values: dict[str, Any] = {
-                "messages": [serialize_message(m) for m in state.messages]
+                "messages": [serialize_message_preview(m) for m in state.messages]
             }
             if state.todos:
                 values["todos"] = state.todos
@@ -321,7 +324,9 @@ class ProtocolService:
             return []
         return [
             {
-                "values": {"messages": [serialize_message(m) for m in messages]},
+                "values": {
+                    "messages": [serialize_message_preview(m) for m in messages]
+                },
                 "next": [],
                 "tasks": [],
                 "metadata": {},
@@ -330,6 +335,37 @@ class ProtocolService:
                 "parent_checkpoint": None,
             }
         ]
+
+    # --- single message ---------------------------------------------------------
+
+    async def message(self, thread_id: str, message_id: str) -> dict:
+        """One message of the thread, whole — the other half of the bounded
+        snapshot (`serialize_message_preview`).
+
+        Read from `checkpoint_writes`, where each row is one task's output, so
+        the cost is the writes scanned until the id matches (newest first),
+        never the materialised conversation. The write scan covers every
+        namespace, so a subagent's tool result resolves without knowing its
+        `tools:<task id>`.
+
+        Fallback, for threads whose writes are gone (pruned, or written before
+        the writes table existed): the materialised *root* state. A subagent
+        message without its writes is therefore a 404 — reading every
+        namespace's state to find one message would cost what the writes scan
+        exists to avoid, and the writes outlive the log in practice.
+        """
+        async with AsyncSessionLocal() as db:
+            writes = CheckpointWriteRepository(db).iter_message_writes(thread_id)
+            async for type_tag, blob in writes:
+                for m in _messages_in_write(_SERDE.loads_typed((type_tag, blob))):
+                    if getattr(m, "id", None) == message_id:
+                        return serialize_message(m)
+        async with get_checkpointer() as checkpointer:
+            state = await get_checkpoint_state(checkpointer, thread_id)
+        for m in state.messages:
+            if getattr(m, "id", None) == message_id:
+                return serialize_message(m)
+        raise NotFoundError("Message not found")
 
 
 _TOOLS_NS_PREFIX = "tools:"
@@ -353,6 +389,21 @@ def _hydration_namespace(scope: InterruptScope) -> list[str]:
         if isinstance(call_id, str) and call_id:
             return [f"{_TOOLS_NS_PREFIX}{call_id}"]
     return scope.namespace_path
+
+
+_SERDE = JsonPlusSerializer()
+
+
+def _messages_in_write(value: Any) -> list:
+    """The messages a `messages`-channel write carries: a list, one message,
+    or either wrapped in deepagents' `Overwrite` reducer."""
+    if isinstance(value, Overwrite):
+        value = value.value
+    if isinstance(value, BaseMessage):
+        return [value]
+    if isinstance(value, list):
+        return [m for m in value if isinstance(m, BaseMessage)]
+    return []
 
 
 _NS_SEP = "|"

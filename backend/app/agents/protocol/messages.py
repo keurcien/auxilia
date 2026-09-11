@@ -58,6 +58,44 @@ def serialize_message(msg: Any) -> dict[str, Any]:
     return d
 
 
+# A tool result in a hydration snapshot is cut at this many characters. The
+# whole result stays one request away (`GET /threads/{id}/messages/{id}`), so
+# a thread's snapshot costs O(messages), not O(bytes the tools ever returned).
+TOOL_PREVIEW_CHARS = 16_000
+
+# The one artifact the client reads whole: an MCP-app tool's, whose
+# `structuredContent` feeds the app iframe. Every other artifact is a copy of
+# `content` (`structured_content`), i.e. dead weight on the wire.
+_APP_ARTIFACT_KEY = "mcp_app_resource_uri"
+
+
+def serialize_message_preview(
+    msg: Any, *, limit: int = TOOL_PREVIEW_CHARS
+) -> dict[str, Any]:
+    """`serialize_message`, bounded for a thread snapshot.
+
+    Tool messages only: `content` longer than `limit` characters is replaced
+    by its first `limit` characters (as text), with the full length recorded in
+    `additional_kwargs["truncated"]["chars"]` so the client can offer the rest;
+    a non-app `artifact` is dropped. Every other message is serialized whole.
+    """
+    d = serialize_message(msg)
+    if d.get("type") != "tool":
+        return d
+    artifact = d.get("artifact")
+    if artifact is not None and (
+        not isinstance(artifact, dict) or not artifact.get(_APP_ARTIFACT_KEY)
+    ):
+        del d["artifact"]
+    text = text_of(d.get("content"))
+    if len(text) > limit:
+        d["content"] = text[:limit]
+        kwargs = dict(d.get("additional_kwargs") or {})
+        kwargs["truncated"] = {"chars": len(text)}
+        d["additional_kwargs"] = kwargs
+    return d
+
+
 def json_default(obj: Any) -> Any:
     """`json.dumps(default=…)` for anything a LangGraph run can put in an
     event: messages, UUIDs, dataclasses (`Interrupt`), pydantic models, the

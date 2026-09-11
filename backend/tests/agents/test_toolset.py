@@ -1,4 +1,4 @@
-"""Unit tests for Toolset — name sanitization, tool filtering, UI metadata, apply_ui_metadata()."""
+"""Unit tests for Toolset — name sanitization, tool filtering, UI metadata, bound_artifacts()."""
 
 from uuid import uuid4
 
@@ -262,12 +262,16 @@ class TestToolsetProperties:
 
 
 # ---------------------------------------------------------------------------
-# apply_ui_metadata
+# bound_artifacts
 # ---------------------------------------------------------------------------
 
 
-class TestApplyUiMetadata:
-    def test_injects_metadata(self):
+class TestBoundArtifacts:
+    """Every tool is wrapped — app tools to stamp their UI metadata, the rest to
+    drop structured content (the runtime behaviour is covered in
+    tests/mcp/client/test_tools.py)."""
+
+    def test_wraps_app_tools(self):
         tool = _make_tool("my_tool")
         original_coro = tool.coroutine
         at = AgentTool(
@@ -277,20 +281,52 @@ class TestApplyUiMetadata:
                 "mcp_server_id": "s1",
             },
         )
-        ts = Toolset(tools=[at])
-        ts.apply_ui_metadata()
+        Toolset(tools=[at]).bound_artifacts(ui=True)
         assert tool.coroutine is not original_coro
 
-    def test_no_metadata_leaves_unwrapped(self):
+    def test_wraps_plain_tools_too(self):
         tool = _make_tool("my_tool")
         original_coro = tool.coroutine
-        at = AgentTool(tool=tool, ui_metadata=None)
-        ts = Toolset(tools=[at])
-        ts.apply_ui_metadata()
-        assert tool.coroutine is original_coro
+        Toolset(tools=[AgentTool(tool=tool, ui_metadata=None)]).bound_artifacts(ui=True)
+        assert tool.coroutine is not original_coro
+
+    @staticmethod
+    def _tool_returning(result) -> Tool:
+        async def coroutine(**kwargs):
+            return result
+
+        return Tool(name="t", description="", func=lambda: None, coroutine=coroutine)
+
+    @pytest.mark.asyncio
+    async def test_ui_true_stamps_app_tools_and_strips_plain_ones(self):
+        app_tool = self._tool_returning(("ok", {"structured_content": {"rows": [1]}}))
+        plain = self._tool_returning(("ok", {"structured_content": {"big": "x" * 10}}))
+        ui = {"mcp_app_resource_uri": "ui://app", "mcp_server_id": "s1"}
+        Toolset(
+            tools=[
+                AgentTool(tool=app_tool, ui_metadata=ui),
+                AgentTool(tool=plain, ui_metadata=None),
+            ]
+        ).bound_artifacts(ui=True)
+        _, app_artifact = await app_tool.coroutine()
+        _, plain_artifact = await plain.coroutine()
+        assert app_artifact == {"structured_content": {"rows": [1]}, **ui}
+        assert plain_artifact is None
+
+    @pytest.mark.asyncio
+    async def test_ui_false_strips_even_app_tools(self):
+        """Subagent toolsets never stream widgets, so their app tools are
+        bounded like any other tool."""
+        app_tool = self._tool_returning(("ok", {"structured_content": {"rows": [1]}}))
+        ui = {"mcp_app_resource_uri": "ui://app", "mcp_server_id": "s1"}
+        Toolset(tools=[AgentTool(tool=app_tool, ui_metadata=ui)]).bound_artifacts(
+            ui=False
+        )
+        _, artifact = await app_tool.coroutine()
+        assert artifact is None
 
     def test_idempotent(self):
-        """Calling apply_ui_metadata twice should wrap twice but not crash."""
+        """Wrapping twice wraps twice, and does not crash."""
         tool = _make_tool("my_tool")
         at = AgentTool(
             tool=tool,
@@ -300,9 +336,9 @@ class TestApplyUiMetadata:
             },
         )
         ts = Toolset(tools=[at])
-        ts.apply_ui_metadata()
+        ts.bound_artifacts(ui=True)
         coro_after_first = tool.coroutine
-        ts.apply_ui_metadata()
+        ts.bound_artifacts(ui=True)
         assert tool.coroutine is not coro_after_first
 
 

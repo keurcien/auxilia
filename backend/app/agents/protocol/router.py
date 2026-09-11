@@ -4,6 +4,11 @@ Default `@langchain/langgraph-sdk` `HttpAgentServerAdapter` paths are served
 as-is — `/threads/{id}/commands`, `/threads/{id}/stream/events`,
 `/threads/{id}/state` — so the frontend needs no `paths` override, only the
 `/api/backend` proxy prefix in `apiUrl`.
+
+Authorization: the read endpoints (`/state`, `/history`, `/messages/{id}`,
+`/stream/events`) accept the thread's owner *and* an admin of its agent
+(`authorize_thread_read`) — the same audience `GET /threads/{id}` serves, so an
+admin's read-only view hydrates. `/commands` stays owner-only.
 """
 
 from fastapi import APIRouter, Depends
@@ -18,6 +23,8 @@ from app.auth.dependencies import get_current_user  # noqa: F401 — via authori
 from app.database import get_db
 from app.mcp.client.responses import oauth_required_response
 from app.redis_client import get_redis
+from app.threads.dependencies import authorize_thread_read
+from app.threads.models import ThreadDB
 from app.threads.schemas import ThreadResponse
 
 
@@ -66,7 +73,7 @@ async def post_command(
 async def stream_events(
     thread_id: str,
     body: EventStreamBody,
-    _: ThreadResponse = Depends(authorize_thread),
+    _: ThreadDB = Depends(authorize_thread_read),
     service: ProtocolService = Depends(get_protocol_service),
     db: AsyncSession = Depends(get_db),  # dependency-cached: same session auth used
 ):
@@ -84,7 +91,7 @@ async def stream_events(
 async def get_history(
     thread_id: str,
     body: HistoryBody,
-    _: ThreadResponse = Depends(authorize_thread),
+    _: ThreadDB = Depends(authorize_thread_read),
     service: ProtocolService = Depends(get_protocol_service),
 ) -> list[dict]:
     """Checkpoint history (LangGraph `client.threads.getHistory` shape).
@@ -99,10 +106,23 @@ async def get_history(
 @router.get("/state")
 async def get_state(
     thread_id: str,
-    _: ThreadResponse = Depends(authorize_thread),
+    _: ThreadDB = Depends(authorize_thread_read),
     service: ProtocolService = Depends(get_protocol_service),
 ) -> dict:
     """LangGraph-shaped state snapshot (`values` / `next` / `tasks`) for
     client hydration. Served raw (never camelized) — the protocol client
     fetches it outside the axios interceptor."""
     return await service.thread_state(thread_id)
+
+
+@router.get("/messages/{message_id}")
+async def get_message(
+    thread_id: str,
+    message_id: str,
+    _: ThreadDB = Depends(authorize_thread_read),
+    service: ProtocolService = Depends(get_protocol_service),
+) -> dict:
+    """One message, whole. `/state` and `/history` ship tool results cut at
+    `TOOL_PREVIEW_CHARS`; the client fetches the rest from here on demand.
+    Served raw, like `/state`."""
+    return await service.message(thread_id, message_id)

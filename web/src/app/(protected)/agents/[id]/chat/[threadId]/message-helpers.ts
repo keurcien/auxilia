@@ -135,6 +135,11 @@ export type ToolCallView = {
   error: string | undefined;
   /** MCP artifact (structured content, app resource URI), when returned. */
   artifact: Record<string, unknown> | undefined;
+  /** Id of the ToolMessage holding the result — the key for fetching it whole. */
+  resultMessageId?: string;
+  /** Set when the snapshot carries only a preview of the result: the full
+   *  length in characters (backend `serialize_message_preview`). */
+  truncatedChars?: number;
 };
 
 /**
@@ -188,6 +193,9 @@ function toView(
       ? (handle.output as { content?: unknown; artifact?: unknown })
       : undefined;
   const content = result?.content ?? wrapped?.content ?? handle?.output;
+  const truncated = (
+    result?.additional_kwargs as { truncated?: { chars?: unknown } } | undefined
+  )?.truncated;
   return {
     id,
     callId: call.id || undefined,
@@ -210,6 +218,9 @@ function toView(
     artifact: (result?.artifact ?? wrapped?.artifact) as
       | Record<string, unknown>
       | undefined,
+    resultMessageId: result?.id,
+    truncatedChars:
+      typeof truncated?.chars === "number" ? truncated.chars : undefined,
   };
 }
 

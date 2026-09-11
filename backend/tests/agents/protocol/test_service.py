@@ -10,7 +10,10 @@ import json
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+from langgraph.types import Overwrite
 
+import app.agents.protocol.service as service_mod
 from app.agents.checkpoints import EMPTY_STATE
 from app.agents.protocol.schemas import ProtocolCommand
 from app.agents.protocol.service import ProtocolService
@@ -21,7 +24,7 @@ from app.agents.protocol.wire import (
     frame,
     seq_for_entry,
 )
-from app.exceptions import DomainValidationError
+from app.exceptions import DomainValidationError, NotFoundError
 from tests.agents.fake_checkpoints import checkpoint_state
 
 
@@ -401,3 +404,83 @@ async def test_thread_state_interrupt_carries_the_paused_agents_namespace(
     assert task["interrupts"] == [
         {"id": iid, "value": {"action_requests": []}, "namespace": expected_namespace}
     ]
+
+
+# ---------------------------------------------------------------------------
+# GET /threads/{id}/messages/{message_id} — one message, whole, off the writes
+# ---------------------------------------------------------------------------
+
+
+class _Session:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+def _writes_repo(values):
+    """A `CheckpointWriteRepository` stand-in streaming real serde blobs of
+    `values` (what langgraph stores per task on the `messages` channel) and
+    counting how many the caller consumed."""
+    serde = JsonPlusSerializer()
+    consumed = []
+
+    class _Repo:
+        def __init__(self, db):
+            pass
+
+        async def iter_message_writes(self, thread_id):
+            for v in values:
+                consumed.append(v)
+                yield serde.dumps_typed(v)
+
+    return _Repo, consumed
+
+
+@pytest.mark.asyncio
+async def test_message_is_read_from_the_writes_without_the_state(monkeypatch):
+    big = ToolMessage(content="x" * 50_000, tool_call_id="c2", id="t2")
+    repo, consumed = _writes_repo(
+        [
+            [AIMessage(content="later", id="a3")],  # newest checkpoint first
+            [big],
+            Overwrite([HumanMessage(content="hi", id="h1")]),
+        ]
+    )
+    monkeypatch.setattr(service_mod, "CheckpointWriteRepository", repo)
+    monkeypatch.setattr(service_mod, "AsyncSessionLocal", lambda: _Session())
+
+    async def _never(*_a, **_k):
+        raise AssertionError("the state must not be materialised")
+
+    monkeypatch.setattr(service_mod, "get_checkpointer", _never)
+
+    d = await _service().message("t1", "t2")
+
+    assert d["id"] == "t2" and d["content"] == "x" * 50_000
+    assert len(consumed) == 2, "scanning stops at the first matching write"
+
+
+@pytest.mark.asyncio
+async def test_message_inside_an_overwrite_write_is_found(monkeypatch):
+    repo, _ = _writes_repo([Overwrite([HumanMessage(content="hi", id="h1")])])
+    monkeypatch.setattr(service_mod, "CheckpointWriteRepository", repo)
+    monkeypatch.setattr(service_mod, "AsyncSessionLocal", lambda: _Session())
+    assert (await _service().message("t1", "h1"))["content"] == "hi"
+
+
+@pytest.mark.asyncio
+async def test_message_falls_back_to_the_state_when_the_writes_are_gone(monkeypatch):
+    repo, _ = _writes_repo([])
+    monkeypatch.setattr(service_mod, "CheckpointWriteRepository", repo)
+    monkeypatch.setattr(service_mod, "AsyncSessionLocal", lambda: _Session())
+    checkpointer = _Checkpointer(
+        [ToolMessage(content="old", tool_call_id="c", id="t9")], {}
+    )
+    monkeypatch.setattr(
+        "app.agents.protocol.service.get_checkpointer", _checkpointer_cm(checkpointer)
+    )
+    assert (await _service().message("t1", "t9"))["content"] == "old"
+    with pytest.raises(NotFoundError):
+        await _service().message("t1", "nope")

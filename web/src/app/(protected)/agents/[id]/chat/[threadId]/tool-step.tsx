@@ -1,7 +1,9 @@
 "use client";
 
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
+import { useParams } from "next/navigation";
 import { BanIcon, Loader2, XCircleIcon } from "lucide-react";
+import { parseToolPayload } from "@langchain/langgraph-sdk/stream";
 import {
   ChainStep,
   ChainStepIcon,
@@ -14,6 +16,7 @@ import {
   summarizeToolArgs,
 } from "@/components/ai-elements/chain-of-thought";
 import { cn } from "@/lib/utils";
+import { fetchThreadMessage } from "@/lib/api/thread-messages";
 import type { HitlDecision } from "@/hooks/use-hitl-approvals";
 import {
   type ToolCallView,
@@ -120,7 +123,7 @@ export const ToolStep = memo(function ToolStep({
           ) : (
             tc.output !== undefined && (
               <StepSection label="RESULT">
-                <StepCode value={tc.output} />
+                <ToolResult key={tc.resultMessageId ?? tc.id} tc={tc} />
               </StepSection>
             )
           )}
@@ -147,6 +150,103 @@ export const ToolStep = memo(function ToolStep({
     </ChainStep>
   );
 });
+
+/**
+ * A step's result. The thread snapshot carries at most a preview of a large
+ * result (`tc.truncatedChars`); the rest is fetched when the step is expanded
+ * — `ChainStep` mounts its content only while open, so mounting *is* the
+ * expand — and a page load never parses or lays out megabytes of tool output
+ * nobody looked at.
+ */
+const ToolResult = ({ tc }: { tc: ToolCallView }) => {
+  // Keyed by the result message in `ToolStep`, so a different result mounts a
+  // fresh instance: no load state leaks from one message to the next.
+  const params = useParams<{ threadId?: string }>();
+  const threadId = params.threadId;
+  const [full, setFull] = useState<{ forMessage: string; output: unknown } | null>(
+    null,
+  );
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+
+  const loaded =
+    full != null && full.forMessage === tc.resultMessageId ? full.output : undefined;
+  const truncated = loaded === undefined && tc.truncatedChars != null;
+  // A result without a persisted message id (or outside a thread route) can
+  // only show its preview; the note still says so.
+  const canLoad = truncated && tc.resultMessageId != null && threadId != null;
+  // Loading is implied: a loadable result with no error yet is being fetched.
+  const loading = canLoad && loadError == null;
+
+  useEffect(() => {
+    if (!canLoad || loadError != null) return;
+    const messageId = tc.resultMessageId as string;
+    let cancelled = false;
+    fetchThreadMessage(threadId as string, messageId)
+      .then((message) => {
+        if (cancelled) return;
+        const content = message.content;
+        setFull({
+          forMessage: messageId,
+          output: typeof content === "string" ? parseToolPayload(content) : content,
+        });
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setLoadError(
+          err instanceof Error ? err.message : "Could not load the tool output.",
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canLoad, threadId, tc.resultMessageId, loadError, attempt]);
+
+  return (
+    <>
+      <StepCode value={loaded ?? tc.output} />
+      {truncated && (
+        <div className="flex items-center gap-2 pt-1 text-[11.5px] text-meta dark:text-panel-dim">
+          {loading ? (
+            <>
+              <Loader2 className="size-3 animate-spin" />
+              <span>
+                Loading the full output ({formatChars(tc.truncatedChars ?? 0)})…
+              </span>
+            </>
+          ) : (
+            <>
+              <span>
+                Showing the first {formatChars(String(tc.output ?? "").length)} of{" "}
+                {formatChars(tc.truncatedChars ?? 0)}.
+              </span>
+              {loadError && <span className="text-destructive">{loadError}</span>}
+              {canLoad && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoadError(null);
+                    setAttempt((n) => n + 1);
+                  }}
+                  className="cursor-pointer font-semibold text-petrol underline-offset-2 hover:underline"
+                >
+                  Retry
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </>
+  );
+};
+
+const formatChars = (n: number): string =>
+  n >= 1_000_000
+    ? `${(n / 1_000_000).toFixed(1)} M chars`
+    : n >= 1_000
+      ? `${Math.round(n / 1_000)} K chars`
+      : `${n} chars`;
 
 const ApprovalButton = ({
   approval,
