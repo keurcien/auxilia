@@ -10,7 +10,7 @@ import {
   groupChains,
   pairToolCalls,
   splitInterrupts,
-} from "./message-helpers";
+} from ".";
 
 const ai = (id: string, calls: { id: string; name: string; args?: object }[], text = "") =>
   new AIMessage({

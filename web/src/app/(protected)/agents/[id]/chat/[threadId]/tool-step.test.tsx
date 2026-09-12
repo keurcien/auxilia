@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ToolCallView } from "./message-helpers";
+import type { ToolCallView } from "@/lib/transcript";
 import { ToolStep } from "./tool-step";
 
 vi.mock("next/navigation", () => ({

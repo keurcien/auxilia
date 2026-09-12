@@ -32,7 +32,7 @@ import {
   getToolStepState,
   splitInterrupts,
   pairToolCalls,
-} from "./message-helpers";
+} from "@/lib/transcript";
 
 // Stable fallback so `values.todos ?? []` doesn't mint a new identity per
 // render and defeat the memoized conversation body.

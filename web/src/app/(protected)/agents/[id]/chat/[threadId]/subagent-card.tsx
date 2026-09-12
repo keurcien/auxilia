@@ -36,7 +36,7 @@ import {
   findSubagentInterrupt,
   getToolStepState,
   pairToolCalls,
-} from "./message-helpers";
+} from "@/lib/transcript";
 import { type DescribeTool, ToolStep } from "./tool-step";
 
 const formatElapsed = (ms: number) => {

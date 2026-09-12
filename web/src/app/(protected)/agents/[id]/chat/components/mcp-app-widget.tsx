@@ -6,11 +6,10 @@ import { api } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { useMcpHostContext } from "@/hooks/use-mcp-host-context";
+import type { McpAppToolInfo } from "@/lib/transcript";
 
-export type McpAppToolInfo = {
-	resourceUri: string;
-	serverId: string;
-};
+
+export type { McpAppToolInfo };
 
 type McpAppWidgetProps = {
 	input?: Record<string, unknown>;

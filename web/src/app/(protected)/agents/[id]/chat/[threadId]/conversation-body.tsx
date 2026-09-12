@@ -57,7 +57,7 @@ import {
   groupChains,
   sanitizeToolIdentifier,
   claimsInterrupt,
-} from "./message-helpers";
+} from "@/lib/transcript";
 import {
   SubAgentCard,
   SubAgentProgress,

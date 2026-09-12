@@ -22,7 +22,7 @@ import {
   type ToolCallView,
   type ToolStepState,
   getToolMetadata,
-} from "./message-helpers";
+} from "@/lib/transcript";
 
 type ToolIdentity = {
   serverName: string;

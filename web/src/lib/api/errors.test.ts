@@ -27,6 +27,16 @@ describe("toApiError", () => {
 		expect(e.cause).toBe(raw);
 	});
 
+	it("reads an axios-shaped plain object (what a test double rejects with)", () => {
+		const e = toApiError({
+			status: 409,
+			response: { data: { detail: "already exists" } },
+		});
+		expect(e.status).toBe(409);
+		expect(e.detail).toBe("already exists");
+		expect(getApiErrorMessage(e, "fb")).toBe("already exists");
+	});
+
 	it("wraps anything else as a status-less error", () => {
 		const e = toApiError(new TypeError("fetch failed"));
 		expect(e.status).toBeNull();
