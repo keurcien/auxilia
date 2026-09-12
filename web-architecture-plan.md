@@ -27,7 +27,31 @@ reconciles the ESLint allowlist. Deviations from the plan as written:
 - **§3** `run` exposes both `status` and `isLoading`; the body needs the SDK's `isLoading`
   unchanged while a run is interrupted.
 - **§4** Slices were regrouped by shared files: A = mcp-servers + sandboxes (+ mcp-apps),
-  B = agents + tags + teams + users + invites + auth, C = triggers + models.
+  B = agents + tags + teams + users + invites + auth, C = triggers + models. All three landed in
+  one pass, so the allowlist was created and then deleted within the same branch; the boundary
+  rule is unconditional in `eslint.config.mjs`.
+- **§4** Server components (`triggers/[id]/page.tsx`, `mcp-servers/[id]/page.tsx`, `agents/[id]/page.tsx`)
+  pass the request cookie as `{ cookie }` to the resource function instead of reaching for axios headers.
+- **§4** New type files `src/types/users.ts` and `src/types/auth.ts`; `Team` and `PersonalAccessToken`
+  moved out of dialog components and are re-exported from there for untouched importers.
+
+### Result
+
+| Measure | Before (`main` @ 202e67a) | After |
+| --- | --- | --- |
+| Vitest files / tests | 12 / 62 | 30 / 166 |
+| `tsc --noEmit` | clean | clean |
+| ESLint (base) | 12 problems, 1 error | 11 warnings, 0 errors (all pre-existing) |
+| Axios call sites outside `src/lib/api/` | 100 in 44 files | 0 |
+| Files importing `@/lib/api/client` outside `src/lib/api/` | 50 | 0 (lint-enforced) |
+| Chat page (`[threadId]/page.tsx`) | 512 lines, 9 `useState`, 3 refs, 1 timer, 3 API calls | 162 lines, none of those |
+| Module-level mutable poll state | `lastPolledAt`, `pollSeq` in a hook | store state, tested |
+| Resource modules | — | agents, auth, invites, mcp-apps, mcp-servers, models, runs, sandboxes, teams, threads, triggers, users |
+
+Not done here: the manual QA checklist in §3 (needs a browser on `PORT=3100`) and a production
+`next build` (the dev server on `:3000` owns `.next`). Per-stage patches for splitting the branch
+into the PRs of §6 are in the session scratchpad (`stages/stage-1.patch` … `stage-6.patch`; stage 6
+is the three resource slices plus the allowlist removal).
 
 ## 0. Where the five candidates stand today
 

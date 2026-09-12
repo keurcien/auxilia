@@ -306,8 +306,8 @@ Last updated: 2026-09-01
       gate stopping before the tool executes, a model failure ending the turn visibly with
       the sandbox still persisted, the stale-`structured_response` reset, regeneration,
       and the harness/no-harness toolsets
-- [x] **P2-2** Spike: parity **confirmed and made executable**. Write-up at repo root
-      `backend-harness-parity-finding.md`. `tests/agents/test_harness_parity.py` builds a
+- [x] **P2-2** Spike: parity **confirmed and made executable** (the write-up that lived at
+      the repo root is gone; the test is the record). `tests/agents/test_harness_parity.py` builds a
       sandbox agent both ways for four model shapes and asserts the resulting
       `create_agent(**kwargs)` match — middleware, tools, and the prompt byte for byte —
       with an `EXPECTED_DEVIATIONS` list the test asserts is empty.
