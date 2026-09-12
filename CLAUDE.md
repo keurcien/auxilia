@@ -166,7 +166,7 @@ auxilia/
 │   │   ├── model_providers/           # LLM provider configuration & catalog
 │   │   ├── sandbox/                   # Sandboxed code execution
 │   │   ├── threads/                   # Chat thread management
-│   │   │   └── router.py              # Thread CRUD & history (runs live in agents/runs/, protocol state in agents/protocol/)
+│   │   │   └── router.py              # Thread CRUD + metadata read; the conversation itself is served by agents/protocol/ (/state, /history, /messages/{id}), runs by agents/runs/
 │   │   ├── triggers/                  # Scheduled agent runs
 │   │   │   ├── scanner.py             # TriggerScanner — due-trigger loop (sibling of runs/reaper)
 │   │   │   ├── schedule.py            # Pure cron/timezone math (croniter): validation, next_run_at

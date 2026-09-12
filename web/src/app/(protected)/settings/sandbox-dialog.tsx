@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api/client";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import type {
 	Sandbox,
 	SandboxProviderType,
@@ -179,20 +180,8 @@ const buildConfig = (form: SandboxFormState): Record<string, unknown> => {
 	};
 };
 
-const extractDetail = (error: unknown): string => {
-	if (
-		error instanceof Object &&
-		"response" in error &&
-		error.response instanceof Object &&
-		"data" in error.response &&
-		error.response.data instanceof Object &&
-		"detail" in error.response.data &&
-		typeof error.response.data.detail === "string"
-	) {
-		return error.response.data.detail;
-	}
-	return "Something went wrong. Please try again.";
-};
+const extractDetail = (error: unknown): string =>
+	getApiErrorMessage(error, "Something went wrong. Please try again.");
 
 const inputClass =
 	"w-full rounded-lg border border-input bg-card px-3 py-[9px] text-[13.5px] font-medium text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-meta dark:placeholder:text-panel-dim focus:border-petrol focus:shadow-[0_0_0_3px_rgba(22,96,110,0.10)]";

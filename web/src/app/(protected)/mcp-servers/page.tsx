@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import axios from "axios";
 import { Plus, RefreshCw } from "lucide-react";
 import MCPServerTable from "@/app/(protected)/mcp-servers/components/mcp-server-table";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
@@ -13,6 +12,7 @@ import {
 } from "@/components/layout/workspace-page";
 import { useQueryParamState } from "@/hooks/use-query-param-state";
 import { api } from "@/lib/api/client";
+import { isApiError } from "@/lib/api/errors";
 import { useUserStore } from "@/stores/user-store";
 import { MCPCatalogSyncResult } from "@/types/mcp-servers";
 
@@ -27,11 +27,7 @@ function syncSummary(result: MCPCatalogSyncResult): string {
 }
 
 function apiErrorDetail(error: unknown): string | null {
-	if (axios.isAxiosError(error)) {
-		const data = error.response?.data as { detail?: string } | undefined;
-		return data?.detail ?? null;
-	}
-	return null;
+	return isApiError(error) ? error.detail : null;
 }
 
 export default function MCPServersPage() {

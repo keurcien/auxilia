@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Copy, Check, X } from "lucide-react";
 import { api } from "@/lib/api/client";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { type Team } from "./new-team-dialog";
 
 type Role = "member" | "editor" | "admin";
@@ -51,14 +52,7 @@ export default function InviteDialog({
 			setInviteUrl(response.data.inviteUrl);
 			onInviteCreated?.(response.data);
 		} catch (err: unknown) {
-			if (err && typeof err === "object" && "response" in err) {
-				const axiosError = err as {
-					response?: { data?: { detail?: string } };
-				};
-				setError(axiosError.response?.data?.detail || "An error occurred");
-			} else {
-				setError("An error occurred");
-			}
+			setError(getApiErrorMessage(err, "An error occurred"));
 		} finally {
 			setIsLoading(false);
 		}

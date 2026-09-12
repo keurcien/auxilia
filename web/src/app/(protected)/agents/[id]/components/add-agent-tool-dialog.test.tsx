@@ -37,9 +37,16 @@ const availableSandbox: Sandbox = {
 	updatedAt: "2026-08-22T00:00:00Z",
 };
 
-function mockApi() {
+const secondServer: MCPServer = {
+	...availableServer,
+	id: "server-2",
+	name: "Docs Search",
+	url: "https://docs.example.com/mcp",
+};
+
+function mockApi(servers: MCPServer[] = [availableServer]) {
 	vi.mocked(api.get).mockImplementation(() =>
-		Promise.resolve({ data: [availableServer] }),
+		Promise.resolve({ data: servers }),
 	);
 }
 
@@ -74,6 +81,34 @@ describe("AddAgentToolDialog", () => {
 			expect(onAddServer).toHaveBeenCalledWith("server-1");
 			expect(onOpenChange).toHaveBeenCalledWith(false);
 		});
+	});
+
+	it("stays open when other servers remain to be added", async () => {
+		mockApi([availableServer, secondServer]);
+		const user = userEvent.setup();
+		const onOpenChange = vi.fn();
+		const onAddServer = vi.fn();
+
+		render(
+			<AddAgentToolDialog
+				open
+				onOpenChange={onOpenChange}
+				attachedServerIds={[]}
+				attachedSandboxIds={[]}
+				sandboxes={[availableSandbox]}
+				onAddServer={onAddServer}
+				onAddSandbox={vi.fn()}
+			/>,
+		);
+
+		await user.click(
+			await screen.findByRole("button", { name: "Add Internal Search" }),
+		);
+
+		await waitFor(() => {
+			expect(onAddServer).toHaveBeenCalledWith("server-1");
+		});
+		expect(onOpenChange).not.toHaveBeenCalled();
 	});
 
 	it("hides already-attached servers from the available list", async () => {

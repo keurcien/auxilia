@@ -15,7 +15,8 @@ import { useStream } from "@langchain/react";
 import type { AnyStream } from "@langchain/react";
 import type { Todo } from "@/components/ai-elements/todo-list";
 import { useParams } from "next/navigation";
-import { api, API_BASE_URL } from "@/lib/api/client";
+import { api } from "@/lib/api/client";
+import { protocolApiUrl } from "@/lib/api/protocol";
 import { useActiveRunsStore } from "@/stores/active-runs-store";
 import { useAgentsStore } from "@/stores/agents-store";
 import { canConfigureAgent } from "@/types/agents";
@@ -40,11 +41,6 @@ const EMPTY_TODOS: Todo[] = [];
 // The protocol client builds absolute request URLs (`new URL(apiUrl + path)`),
 // so the browser-side relative proxy base must be absolutized. Guarded for
 // the SSR pass of this client component, where no requests are ever fired.
-const PROTOCOL_API_URL =
-  typeof window === "undefined"
-    ? API_BASE_URL
-    : new URL(API_BASE_URL, window.location.origin).toString();
-
 // ---------------------------------------------------------------------------
 // Chat page component
 // ---------------------------------------------------------------------------
@@ -108,7 +104,7 @@ const ChatPage = () => {
   // activity gate reads `next`/`tasks` from the state snapshot).
   const stream = useStream({
     assistantId: agentId,
-    apiUrl: PROTOCOL_API_URL,
+    apiUrl: protocolApiUrl(),
     threadId,
     messagesKey: "messages",
     fetch: protocolFetch,

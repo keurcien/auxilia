@@ -595,7 +595,13 @@ Last updated: 2026-09-01
       parses SSE.
       **Still open:** the `RunDB.error_code` column (+ one nullable-VARCHAR
       migration) replacing exact-string `MCP_REAUTH_ERROR` matching
-- [ ] **P3-7** Thread reads into the service; O(1) subagent state; one history encoding; stable message ids
+- [~] **P3-7** Thread reads into the service; O(1) subagent state; stable message ids.
+      **One history encoding — done** (#313 deleted `threads/serialization.py`, the AI-SDK
+      `Message`/`*MessagePart` models and the `langchain-ai-sdk-adapter` fork; #322 made
+      `GET /threads/{id}` stop opening the checkpoint). The single encoder is
+      `app/agents/protocol/messages.py` (`serialize_message` for the stream,
+      `serialize_message_preview` for snapshots); `tests/threads/test_import_boundary.py`
+      keeps `app/threads` from growing a second one. Remaining sub-items are the ones below.
       **Found while doing P3-1, not fixed there — decide before closing P3-7:**
       `POST /threads` takes an `agent_id` from the body and checks nothing, and the
       run endpoints only check that the caller owns the *thread*

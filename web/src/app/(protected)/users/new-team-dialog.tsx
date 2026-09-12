@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { AGENT_COLORS } from "@/lib/colors";
 import { api } from "@/lib/api/client";
+import { getApiErrorMessage } from "@/lib/api/errors";
 
 export interface Team {
 	id: string;
@@ -70,12 +71,7 @@ export default function NewTeamDialog({
 			}
 			onOpenChange(false);
 		} catch (err: unknown) {
-			if (err && typeof err === "object" && "response" in err) {
-				const axiosError = err as { response?: { data?: { detail?: string } } };
-				setError(axiosError.response?.data?.detail || "An error occurred");
-			} else {
-				setError("An error occurred");
-			}
+			setError(getApiErrorMessage(err, "An error occurred"));
 		} finally {
 			setIsSubmitting(false);
 		}

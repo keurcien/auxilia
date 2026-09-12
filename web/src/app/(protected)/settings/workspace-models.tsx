@@ -1,12 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import axios from "axios";
 import { RefreshCw, Star } from "lucide-react";
 import { ModelSelectorLogo } from "@/components/ai-elements/model-selector";
 import { HeaderButton } from "@/components/layout/subpage-header";
 import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api/client";
+import { isApiError } from "@/lib/api/errors";
 import { useModelsStore } from "@/stores/models-store";
 import type { ManagedModel, WhitelistSyncResult } from "@/types/models";
 
@@ -25,11 +25,7 @@ function providerLabel(provider: string): string {
 }
 
 function apiErrorDetail(error: unknown): string | null {
-	if (axios.isAxiosError(error)) {
-		const data = error.response?.data as { detail?: string } | undefined;
-		return data?.detail ?? null;
-	}
-	return null;
+	return isApiError(error) ? error.detail : null;
 }
 
 function syncSummary(result: WhitelistSyncResult): string {
@@ -117,7 +113,7 @@ export default function WorkspaceModels({
 			// failed/pending load would show a misleading "Models 0" in the rail.
 			onCountChangeRef.current?.(response.data.length);
 		} catch (error: unknown) {
-			if (axios.isAxiosError(error) && error.response?.status === 403) {
+			if (isApiError(error) && error.status === 403) {
 				onForbiddenRef.current();
 			} else {
 				console.error("Error fetching workspace models:", error);
@@ -173,7 +169,7 @@ export default function WorkspaceModels({
 						: m,
 				),
 			);
-			if (axios.isAxiosError(error) && error.response?.status === 403) {
+			if (isApiError(error) && error.status === 403) {
 				onForbidden();
 			} else {
 				setStatus({
@@ -225,7 +221,7 @@ export default function WorkspaceModels({
 			// Refetch instead of reverting from a snapshot: the persisted state
 			// is the only reliable source after a failure.
 			await loadManaged();
-			if (axios.isAxiosError(error) && error.response?.status === 403) {
+			if (isApiError(error) && error.status === 403) {
 				onForbidden();
 			} else {
 				setStatus({
@@ -255,7 +251,7 @@ export default function WorkspaceModels({
 			);
 			summary = syncSummary(syncResponse.data);
 		} catch (error: unknown) {
-			if (axios.isAxiosError(error) && error.response?.status === 403) {
+			if (isApiError(error) && error.status === 403) {
 				onForbidden();
 			} else {
 				setStatus({

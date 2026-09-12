@@ -11,6 +11,7 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { api } from "@/lib/api/client";
+import { getApiErrorMessage } from "@/lib/api/errors";
 
 export interface PersonalAccessToken {
 	id: string;
@@ -54,14 +55,7 @@ export default function CreateTokenDialog({
 			);
 			handleClose(false);
 		} catch (err: unknown) {
-			if (err && typeof err === "object" && "response" in err) {
-				const axiosError = err as {
-					response?: { data?: { detail?: string } };
-				};
-				setError(axiosError.response?.data?.detail || "An error occurred");
-			} else {
-				setError("An error occurred");
-			}
+			setError(getApiErrorMessage(err, "An error occurred"));
 		} finally {
 			setIsLoading(false);
 		}

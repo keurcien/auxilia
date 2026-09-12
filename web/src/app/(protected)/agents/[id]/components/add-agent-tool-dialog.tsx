@@ -19,7 +19,6 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
-import { shouldCloseAddToolDialogAfterServerAdded } from "../lib/mcp-server-assignment";
 
 interface AddAgentToolDialogProps {
 	open: boolean;
@@ -174,12 +173,10 @@ function MCPServerSection({
 	const handleServerAdded = (addedServerId: string) => {
 		onAddServer(addedServerId);
 
-		if (
-			shouldCloseAddToolDialogAfterServerAdded(
-				availableServers.map((server) => server.id),
-				addedServerId,
-			)
-		) {
+		// Close once the last available server has been added — nothing is left to pick.
+		const wasLastAvailable =
+			availableServers.length === 1 && availableServers[0].id === addedServerId;
+		if (wasLastAvailable) {
 			onOpenChange(false);
 		}
 	};
