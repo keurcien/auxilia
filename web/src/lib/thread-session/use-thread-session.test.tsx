@@ -198,6 +198,39 @@ describe("useThreadSession", () => {
 		expect(usePendingMessageStore.getState().pendingMessages.get("t1")).toEqual({ text: "first!", files: [] });
 	});
 
+	it("switching away and back before hydration hands the parked message to the newer attempt", async () => {
+		usePendingMessageStore.getState().setPendingMessage("t1", { text: "first!", files: [] });
+		// Hydration never settles, so only the cap can fire each attempt's callback.
+		const { transport, calls } = transportWith({ thread: thread(), viewerRole: null }, [], {
+			state: new Promise(() => {}) as unknown,
+			commands: () => new Response("{}", { status: 500 }),
+		});
+		const { result, rerender } = renderHook(
+			({ threadId }: { threadId: string }) =>
+				useThreadSession({ threadId, agentId: "a1", transport, pendingMessageCapMs: 300 }),
+			{ initialProps: { threadId: "t1" } },
+		);
+		await waitFor(() => {
+			expect(result.current.meta.status).toBe("ready");
+		});
+		expect(usePendingMessageStore.getState().pendingMessages.size).toBe(0); // claimed by attempt 1
+
+		rerender({ threadId: "t2" });
+		// attempt 1's cleanup parked it again, synchronously — before attempt 2 could look
+		expect(usePendingMessageStore.getState().pendingMessages.get("t1")).toEqual({ text: "first!", files: [] });
+
+		rerender({ threadId: "t1" });
+		await waitFor(() => {
+			expect(usePendingMessageStore.getState().pendingMessages.size).toBe(0); // claimed by attempt 3
+		});
+
+		// Past attempt 1's cap: its cancelled callback must neither send nor re-park.
+		await new Promise((r) => setTimeout(r, 400));
+		expect(usePendingMessageStore.getState().pendingMessages.size).toBe(0);
+		const starts = calls.filter((c) => (c.body as { method?: string })?.method === "run.start");
+		expect(starts.length).toBeLessThanOrEqual(1); // attempt 3's own send at most, never attempt 1's
+	});
+
 	it("a model_unavailable rejection locks the model and surfaces the error", async () => {
 		const { transport } = transportWith({ thread: thread(), viewerRole: null }, [], {
 			commands: () =>

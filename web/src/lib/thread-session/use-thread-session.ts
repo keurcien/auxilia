@@ -167,6 +167,10 @@ export function useThreadSession({
 	// `stream` is a new object every tick; the cards subscribe through a
 	// handle whose identity never changes.
 	const [selectorStream] = useState<AnyStream>(() => stream as AnyStream);
+	// …but `hydrationPromise` is replaced by the SDK on every (re)hydrate, so
+	// waiting on it must read the latest rendered stream, not the handle.
+	const latestStream = useRef(stream);
+	latestStream.current = stream;
 
 	// --- interrupts: hold identity while the set is unchanged ----------------
 	const [held, setHeld] = useState(EMPTY_HELD);
@@ -273,6 +277,10 @@ export function useThreadSession({
 		// A newer attempt (thread switch or Retry) cancels this one's effects:
 		// its responses are dropped rather than landing on the newer state.
 		let cancelled = false;
+		// The parked message this attempt has taken out of the store and not yet
+		// sent. Handed back in the cleanup — synchronously, before a newer
+		// attempt's effect body runs — so the newer attempt finds it.
+		let claimed: PromptInputMessage | null = null;
 		dispatch({ type: "opened", threadId });
 
 		const open = async () => {
@@ -282,16 +290,15 @@ export function useThreadSession({
 
 			const pending = consumePendingMessage(threadId);
 			if (pending) {
+				claimed = pending;
 				await submitPendingAfterHydration(
-					selectorStream.hydrationPromise,
+					latestStream.current.hydrationPromise,
 					() => {
-						if (cancelled) {
-							// The page moved on while we waited: park the message
-							// again under its thread rather than sending it to a
-							// stream nobody is watching.
-							setPendingMessage(threadId, pending);
-							return;
-						}
+						// Cancelled while waiting: the cleanup has already parked
+						// the message again; sending it here would reach a stream
+						// nobody is watching.
+						if (cancelled) return;
+						claimed = null;
 						send(pending);
 					},
 					{ capMs: pendingMessageCapMs },
@@ -316,6 +323,10 @@ export function useThreadSession({
 		});
 		return () => {
 			cancelled = true;
+			if (claimed) {
+				setPendingMessage(threadId, claimed);
+				claimed = null;
+			}
 		};
 		// The open sequence runs once per thread (and per explicit reopen); the
 		// callbacks it uses are stable.
