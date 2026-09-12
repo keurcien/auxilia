@@ -11,7 +11,6 @@ import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { ThreadSourceBadge } from "@/components/ui/thread-source-badge";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import type { Agent } from "@/types/agents";
-import type { Paginated } from "@/types/api";
 import type { AgentThread } from "@/types/threads";
 
 const PAGE_SIZE = 10;

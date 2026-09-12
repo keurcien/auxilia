@@ -2,72 +2,24 @@
 
 import { useEffect, useMemo } from "react";
 import * as runsApi from "@/lib/api/resources/runs";
-import { ActiveRun, RunTerminalStatus } from "@/types/runs";
 import { Thread } from "@/types/threads";
 import { useActiveRunsStore } from "@/stores/active-runs-store";
 import { useThreadsStore } from "@/stores/threads-store";
-import { useTriggerRunsStore } from "@/stores/trigger-runs-store";
 
 const ACTIVE_POLL_MS = 5_000;
 const WATCH_POLL_MS = 15_000;
 /** Keep watching for this long after a trigger thread appears. */
 const RECENT_TRIGGER_WINDOW_MS = 10 * 60 * 1000;
-/** Padding on the recently-finished window, absorbing request latency and
- * server/client clock drift. */
-const RECENT_MARGIN_S = 30;
-/** Backend cap on `recent_seconds`; a gap wider than this (tab hidden for
- * over an hour) falls back to a full threads refetch instead. */
-const MAX_RECENT_S = 3600;
-
-/** Epoch ms of the last applied poll — sizes the next poll's
- * recently-finished window so no terminal transition falls between polls. */
-let lastPolledAt: number | null = null;
-/** Monotonic poll counter — a superseded (older, still in-flight) poll's
- * response is discarded so it can't overwrite fresher state. */
-let pollSeq = 0;
-
-function isInFlight(run: ActiveRun): boolean {
-	return run.status === "pending" || run.status === "running";
-}
-
-/** Stamp freshly-observed run outcomes where the UI reads them (sidebar
- * badge, trigger run history). Later entries win — the poll response is
- * ordered by `updatedAt`, so this keeps the latest outcome per thread. */
-function applyFinishedRuns(runs: ActiveRun[]): void {
-	const latestByThread = new Map<string, RunTerminalStatus>();
-	for (const run of runs) {
-		latestByThread.set(run.threadId, run.status as RunTerminalStatus);
-	}
-	for (const [threadId, status] of latestByThread) {
-		useThreadsStore.getState().setLastRunStatus(threadId, status);
-		useTriggerRunsStore.getState().setRunStatus(threadId, status);
-	}
-}
-
+/** One poll: claim a ticket, fetch, apply (the store drops a superseded
+ * response). Poll state lives in the store so it is resettable and testable. */
 async function pollActiveRuns(): Promise<void> {
-	const seq = ++pollSeq;
-	const polledAt = Date.now();
-	const elapsedSeconds =
-		lastPolledAt === null
-			? 0
-			: Math.max(0, Math.ceil((polledAt - lastPolledAt) / 1000));
-	const recentSeconds = Math.min(
-		elapsedSeconds + RECENT_MARGIN_S,
-		MAX_RECENT_S,
-	);
-	if (elapsedSeconds + RECENT_MARGIN_S > MAX_RECENT_S) {
-		// Gap wider than the window can cover — outcomes may have been
-		// missed, so refresh statuses from the source of truth instead.
+	const store = useActiveRunsStore.getState();
+	const ticket = store.beginPoll();
+	if (ticket.refetchThreads) {
 		void useThreadsStore.getState().fetchThreads();
 	}
-	const runs = await runsApi.listActiveRuns(recentSeconds);
-	if (seq !== pollSeq) return; // a newer poll supersedes this response
-	lastPolledAt = polledAt;
-	applyFinishedRuns(runs.filter((run) => !isInFlight(run)));
-	useActiveRunsStore.getState().setConfirmed(
-		runs.filter(isInFlight).map((run) => run.threadId),
-		polledAt,
-	);
+	const runs = await runsApi.listActiveRuns(ticket.recentSeconds);
+	store.applyPollResult(ticket, runs);
 }
 
 function storeHasActiveRuns(): boolean {
