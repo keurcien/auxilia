@@ -10,7 +10,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
-import { api } from "@/lib/api/client";
+import * as threadsApi from "@/lib/api/resources/threads";
 import { useThreadsStore } from "@/stores/threads-store";
 import { Thread } from "@/types/threads";
 
@@ -41,9 +41,7 @@ export function RenameThreadDialog({
 		}
 		setIsSubmitting(true);
 		try {
-			await api.patch(`/threads/${thread.id}`, {
-				firstMessageContent: trimmed,
-			});
+			await threadsApi.renameThread(thread.id, trimmed);
 			renameThread(thread.id, trimmed);
 			onOpenChange(false);
 		} catch (error) {

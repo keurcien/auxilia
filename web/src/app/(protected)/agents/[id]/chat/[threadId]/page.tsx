@@ -15,8 +15,8 @@ import { useStream } from "@langchain/react";
 import type { AnyStream } from "@langchain/react";
 import type { Todo } from "@/components/ai-elements/todo-list";
 import { useParams } from "next/navigation";
-import { api } from "@/lib/api/client";
 import { protocolApiUrl } from "@/lib/api/protocol";
+import * as threadsApi from "@/lib/api/resources/threads";
 import { useActiveRunsStore } from "@/stores/active-runs-store";
 import { useAgentsStore } from "@/stores/agents-store";
 import { canConfigureAgent } from "@/types/agents";
@@ -172,8 +172,8 @@ const ChatPage = () => {
   // the thread in place.
   const recheckModelAvailability = useCallback(async () => {
     try {
-      const response = await api.get(`/threads/${threadId}`);
-      setModelUnavailable(response.data.thread.modelAvailable === false);
+      const { thread } = await threadsApi.readThread(threadId);
+      setModelUnavailable(thread.modelAvailable === false);
     } catch {
       // Keep the lock; the user can retry.
     }
@@ -313,10 +313,9 @@ const ChatPage = () => {
     hasInitialized.current = true;
 
     const initializeChat = async () => {
-      const response = await api.get(`/threads/${threadId}`);
-      const data = response.data;
+      const data = await threadsApi.readThread(threadId);
 
-      setThreadModel(data.thread.modelId);
+      setThreadModel(data.thread.modelId ?? undefined);
       setThreadEffort(data.thread.reasoningEffort ?? null);
       if (data.thread.modelAvailable === false) {
         setModelUnavailable(true);
@@ -370,18 +369,14 @@ const ChatPage = () => {
 
       // If the last run failed, restore its error from the run record so a
       // reload doesn't hide it (a failed run leaves no checkpoint trace).
-      const lastRunStatus = data.thread.lastRunStatus as string | undefined;
+      const lastRunStatus = data.thread.lastRunStatus;
       if (lastRunStatus === "error" || lastRunStatus === "timeout") {
         const fallback =
           lastRunStatus === "timeout"
             ? "The last run exceeded the time limit."
             : "The last run failed.";
         try {
-          const res = await api.get(`/threads/${threadId}/runs`);
-          const runs = (res.data ?? []) as {
-            status?: string;
-            error?: string | null;
-          }[];
+          const runs = await threadsApi.listThreadRuns(threadId);
           // Newest first; the run that stamped lastRunStatus is the first
           // failed one.
           const failed = runs.find(

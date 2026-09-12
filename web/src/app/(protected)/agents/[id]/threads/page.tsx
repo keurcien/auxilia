@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { api } from "@/lib/api/client";
+import * as threadsApi from "@/lib/api/resources/threads";
 import { PageContainer } from "@/components/layout/page-container";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
@@ -58,13 +59,11 @@ export default function AgentThreadsPage() {
 			try {
 				const [agentRes, threadsRes] = await Promise.all([
 					api.get<Agent>(`/agents/${agentId}`),
-					api.get<Paginated<AgentThread>>(`/agents/${agentId}/threads`, {
-						params: { limit: PAGE_SIZE, offset },
-					}),
+					threadsApi.listAgentThreads(agentId, { limit: PAGE_SIZE, offset }),
 				]);
 				setAgent(agentRes.data);
-				setThreads(threadsRes.data.items);
-				setTotal(threadsRes.data.total);
+				setThreads(threadsRes.items);
+				setTotal(threadsRes.total);
 			} catch (error: unknown) {
 				if (
 					error instanceof Object &&

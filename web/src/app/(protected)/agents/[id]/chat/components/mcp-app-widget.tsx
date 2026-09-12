@@ -8,7 +8,6 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { useMcpHostContext } from "@/hooks/use-mcp-host-context";
 import type { McpAppToolInfo } from "@/lib/transcript";
 
-
 export type { McpAppToolInfo };
 
 type McpAppWidgetProps = {

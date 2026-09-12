@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
-import { api } from "@/lib/api/client";
+import * as runsApi from "@/lib/api/resources/runs";
 import { ActiveRun, RunTerminalStatus } from "@/types/runs";
 import { Thread } from "@/types/threads";
 import { useActiveRunsStore } from "@/stores/active-runs-store";
@@ -60,14 +60,12 @@ async function pollActiveRuns(): Promise<void> {
 		// missed, so refresh statuses from the source of truth instead.
 		void useThreadsStore.getState().fetchThreads();
 	}
-	const response = await api.get<ActiveRun[]>("/runs/active", {
-		params: { recentSeconds },
-	});
+	const runs = await runsApi.listActiveRuns(recentSeconds);
 	if (seq !== pollSeq) return; // a newer poll supersedes this response
 	lastPolledAt = polledAt;
-	applyFinishedRuns(response.data.filter((run) => !isInFlight(run)));
+	applyFinishedRuns(runs.filter((run) => !isInFlight(run)));
 	useActiveRunsStore.getState().setConfirmed(
-		response.data.filter(isInFlight).map((run) => run.threadId),
+		runs.filter(isInFlight).map((run) => run.threadId),
 		polledAt,
 	);
 }

@@ -46,7 +46,7 @@ import { useUserStore } from "@/stores/user-store";
 import { useAgentsStore } from "@/stores/agents-store";
 import { useTriggersStore } from "@/stores/triggers-store";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
-import { api } from "@/lib/api/client";
+import * as threadsApi from "@/lib/api/resources/threads";
 import { formatRunAt } from "@/lib/triggers/schedule";
 import { useActiveRunThreadIds } from "@/hooks/use-active-runs";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
@@ -149,8 +149,8 @@ export function AppSidebar() {
 	};
 
 	const handleDeleteThread = (threadId: string) => {
-		api
-			.delete(`/threads/${threadId}`)
+		threadsApi
+			.deleteThread(threadId)
 			.then(() => {
 				removeThread(threadId);
 			})

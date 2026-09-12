@@ -10,7 +10,8 @@ export type RunStatus =
 /** Statuses a finished run can settle on — what `lastRunStatus` fields carry. */
 export type RunTerminalStatus = Exclude<RunStatus, "pending" | "running">;
 
-export interface ActiveRun {
+/** API projection of a run (`RunResponse`) — operational state only. */
+export interface Run {
 	id: string;
 	threadId: string;
 	status: RunStatus;
@@ -18,3 +19,6 @@ export interface ActiveRun {
 	createdAt: string;
 	updatedAt: string;
 }
+
+/** What `GET /runs/active` returns: in-flight runs plus recently finished ones. */
+export type ActiveRun = Run;

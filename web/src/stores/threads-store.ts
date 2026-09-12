@@ -1,8 +1,7 @@
 import { create } from "zustand";
 import { Thread } from "@/types/threads";
-import { Paginated } from "@/types/api";
 import { RunTerminalStatus } from "@/types/runs";
-import { api } from "@/lib/api/client";
+import * as threadsApi from "@/lib/api/resources/threads";
 import { useTriggerRunsStore } from "@/stores/trigger-runs-store";
 
 const PAGE_SIZE = 30;
@@ -30,10 +29,8 @@ export const useThreadsStore = create<ThreadsState>((set, get) => ({
 	isLoadingMore: false,
 	fetchThreads: async () => {
 		try {
-			const response = await api.get<Paginated<Thread>>("/threads", {
-				params: { limit: PAGE_SIZE, offset: 0 },
-			});
-			set({ threads: response.data.items, total: response.data.total });
+			const page = await threadsApi.listThreads({ limit: PAGE_SIZE, offset: 0 });
+			set({ threads: page.items, total: page.total });
 		} catch (error) {
 			console.error("Error fetching threads:", error);
 		}
@@ -43,15 +40,16 @@ export const useThreadsStore = create<ThreadsState>((set, get) => ({
 		if (isLoadingMore || threads.length >= total) return;
 		set({ isLoadingMore: true });
 		try {
-			const response = await api.get<Paginated<Thread>>("/threads", {
-				params: { limit: PAGE_SIZE, offset: threads.length },
+			const page = await threadsApi.listThreads({
+				limit: PAGE_SIZE,
+				offset: threads.length,
 			});
 			set((state) => {
 				const seen = new Set(state.threads.map((t) => t.id));
-				const fresh = response.data.items.filter((t) => !seen.has(t.id));
+				const fresh = page.items.filter((t) => !seen.has(t.id));
 				return {
 					threads: [...state.threads, ...fresh],
-					total: response.data.total,
+					total: page.total,
 				};
 			});
 		} catch (error) {
