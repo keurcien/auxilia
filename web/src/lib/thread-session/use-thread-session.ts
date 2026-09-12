@@ -138,7 +138,9 @@ export function useThreadSession({
 		onModelUnavailable: (forThread) => {
 			dispatch({ type: "model-unavailable", threadId: forThread });
 		},
-		onStaleInterrupt: () => {
+		onStaleInterrupt: (forThread) => {
+			// A late 409 for the thread the page left must not reload this one.
+			if (forThread !== threadId) return;
 			callbacks.current.onStaleInterrupt?.();
 		},
 	});
@@ -262,6 +264,7 @@ export function useThreadSession({
 
 	// --- open the thread ------------------------------------------------------
 	const consumePendingMessage = usePendingMessageStore((s) => s.consumePendingMessage);
+	const setPendingMessage = usePendingMessageStore((s) => s.setPendingMessage);
 	const [openAttempt, setOpenAttempt] = useState(0);
 	const reopen = useCallback(() => {
 		setOpenAttempt((n) => n + 1);
@@ -282,6 +285,13 @@ export function useThreadSession({
 				await submitPendingAfterHydration(
 					selectorStream.hydrationPromise,
 					() => {
+						if (cancelled) {
+							// The page moved on while we waited: park the message
+							// again under its thread rather than sending it to a
+							// stream nobody is watching.
+							setPendingMessage(threadId, pending);
+							return;
+						}
 						send(pending);
 					},
 					{ capMs: pendingMessageCapMs },

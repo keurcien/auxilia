@@ -91,11 +91,19 @@ export function toApiError(error: unknown): ApiError {
 				: typeof e.status === "number"
 					? e.status
 					: null;
+		const body = e.response?.data ?? e.data;
 		return new ApiError(
 			{
 				status,
-				body: e.response?.data ?? e.data,
-				message: typeof e.message === "string" ? e.message : undefined,
+				body,
+				// A structured body speaks for itself (`detail` becomes the
+				// message); a raw message only stands in when there is none.
+				message:
+					body && typeof body === "object"
+						? undefined
+						: typeof e.message === "string"
+							? e.message
+							: undefined,
 			},
 			{ cause: error },
 		);

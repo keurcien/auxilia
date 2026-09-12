@@ -27,7 +27,10 @@ function scriptedFetch(script: {
 		const path = new URL(url, "http://localhost").pathname;
 		const body = typeof init?.body === "string" ? (JSON.parse(init.body) as unknown) : undefined;
 		calls.push({ path, body });
-		if (path.endsWith("/state")) return json(script.state ?? { values: { messages: [] }, next: [], tasks: [] });
+		if (path.endsWith("/state")) {
+			const state = await script.state;
+			return json(state ?? { values: { messages: [] }, next: [], tasks: [] });
+		}
 		if (path.endsWith("/history")) return json([]);
 		if (path.endsWith("/stream/events"))
 			return new Response("", { status: 200, headers: { "content-type": "text/event-stream" } });
@@ -174,6 +177,25 @@ describe("useThreadSession", () => {
 		expect(usePendingMessageStore.getState().pendingMessages.size).toBe(0);
 		// a run.start marks the thread running for the sidebar
 		expect(Object.keys(useActiveRunsStore.getState().optimisticMarkedAt)).toEqual(["t1"]);
+	});
+
+	it("unmounting while a parked message waits for hydration re-parks it instead of sending", async () => {
+		usePendingMessageStore.getState().setPendingMessage("t1", { text: "first!", files: [] });
+		// Hydration never settles: the state read hangs, so only the cap could fire.
+		const { transport, calls } = transportWith({ thread: thread(), viewerRole: null }, [], {
+			state: new Promise(() => {}) as unknown,
+		});
+		const { result, unmount } = renderHook(() =>
+			useThreadSession({ threadId: "t1", agentId: "a1", transport, pendingMessageCapMs: 300 }),
+		);
+		await waitFor(() => {
+			expect(result.current.meta.status).toBe("ready");
+		});
+		expect(usePendingMessageStore.getState().pendingMessages.size).toBe(0); // consumed, waiting
+		unmount();
+		await new Promise((r) => setTimeout(r, 400));
+		expect(calls.some((c) => (c.body as { method?: string })?.method === "run.start")).toBe(false);
+		expect(usePendingMessageStore.getState().pendingMessages.get("t1")).toEqual({ text: "first!", files: [] });
 	});
 
 	it("a model_unavailable rejection locks the model and surfaces the error", async () => {

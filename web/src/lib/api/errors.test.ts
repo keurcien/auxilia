@@ -41,9 +41,14 @@ describe("toApiError", () => {
 		const e = toApiError({ status: 403, message: "forbidden" });
 		expect(e.status).toBe(403);
 		expect(e.message).toBe("forbidden");
-		const withBody = toApiError({ status: 409, data: { error: "stale_interrupt", detail: "handled" } });
+		const withBody = toApiError({
+			status: 409,
+			message: "Request failed with status code 409",
+			data: { error: "stale_interrupt", detail: "handled" },
+		});
 		expect(withBody.code).toBe("stale_interrupt");
 		expect(withBody.detail).toBe("handled");
+		expect(withBody.message).toBe("handled");
 		expect(getApiErrorMessage(withBody, "fb")).toBe("handled");
 	});
 
