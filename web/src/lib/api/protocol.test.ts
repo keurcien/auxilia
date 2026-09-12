@@ -54,6 +54,8 @@ describe("protocolFetch with a Request input", () => {
 			method: "POST",
 			headers: { "content-type": "application/json", "x-test": "1" },
 			body: JSON.stringify({ method: "run.start" }),
+			redirect: "manual",
+			cache: "no-store",
 		});
 		await protocolFetch(req);
 		const [target, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -65,6 +67,8 @@ describe("protocolFetch with a Request input", () => {
 			JSON.stringify({ method: "run.start" }),
 		);
 		expect(init.signal).toBe(req.signal);
+		expect(init.redirect).toBe("manual");
+		expect(init.cache).toBe("no-store");
 	});
 });
 

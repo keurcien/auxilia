@@ -41,6 +41,14 @@ describe("mcp-apps resource", () => {
 		expect(lastRequest().body).toEqual({ tool_name: "search", arguments: null });
 	});
 
+	it("wraps a network failure as a status-less ApiError", async () => {
+		fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
+		const err = await readMcpAppResource("s1", "ui://x").catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(ApiError);
+		expect((err as ApiError).status).toBeNull();
+		expect((err as ApiError).message).toBe("Failed to fetch");
+	});
+
 	it("rejects with an ApiError carrying the backend detail", async () => {
 		fetchMock.mockResolvedValue(json({ detail: "server unreachable" }, 502));
 		const err = await callMcpAppTool("s1", "search", null).catch((e: unknown) => e);

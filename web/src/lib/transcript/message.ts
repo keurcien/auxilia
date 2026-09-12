@@ -26,7 +26,10 @@ export function getFileAttachments(message: BaseMessage): AttachmentData[] {
           ? image
           : ((image as { url?: string } | undefined)?.url ?? "");
       const mediaType = url.match(/^data:([^;,]+)/)?.[1] ?? "image/jpeg";
-      const extension = mediaType.split("/")[1]?.replace("jpeg", "jpg") ?? "jpg";
+      // `image/svg+xml` → svg, `image/x-icon` → icon, `image/jpeg` → jpg.
+      const extension =
+        mediaType.split("/")[1]?.split("+")[0].replace(/^x-/, "").replace("jpeg", "jpg") ??
+        "jpg";
       attachments.push({
         id: `${message.id}-file-${idx}`,
         type: "file",

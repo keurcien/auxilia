@@ -457,7 +457,7 @@ then `refactor(web): mcp-servers resource module`, … `refactor(web): drop the 
 
 ---
 
-## 6. Sequencing (as planned — executed as the seven commits of PR #325)
+## 6. Sequencing (as planned — executed as the commits of PR #325)
 
 ```
 PR 0a  docs(backend): close the history-encoding half of P3-7                       [§1]  docs

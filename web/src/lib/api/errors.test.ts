@@ -37,10 +37,14 @@ describe("toApiError", () => {
 		expect(getApiErrorMessage(e, "fb")).toBe("already exists");
 	});
 
-	it("reads a rejection that only carries a top-level status", () => {
+	it("reads a rejection that only carries a top-level status, with its body at the top level too", () => {
 		const e = toApiError({ status: 403, message: "forbidden" });
 		expect(e.status).toBe(403);
 		expect(e.message).toBe("forbidden");
+		const withBody = toApiError({ status: 409, data: { error: "stale_interrupt", detail: "handled" } });
+		expect(withBody.code).toBe("stale_interrupt");
+		expect(withBody.detail).toBe("handled");
+		expect(getApiErrorMessage(withBody, "fb")).toBe("handled");
 	});
 
 	it("wraps anything else as a status-less error", () => {

@@ -135,8 +135,8 @@ export function useThreadSession({
 
 	const protocolFetch = useProtocolFetch(threadId, {
 		baseFetch: transport.fetch,
-		onModelUnavailable: () => {
-			dispatch({ type: "model-unavailable" });
+		onModelUnavailable: (forThread) => {
+			dispatch({ type: "model-unavailable", threadId: forThread });
 		},
 		onStaleInterrupt: () => {
 			callbacks.current.onStaleInterrupt?.();
@@ -231,9 +231,14 @@ export function useThreadSession({
 	);
 
 	const recheckModel = useCallback(async () => {
+		const forThread = threadId;
 		try {
-			const { thread } = await transport.readThread(threadId);
-			dispatch({ type: "model-rechecked", available: thread.modelAvailable !== false });
+			const { thread } = await transport.readThread(forThread);
+			dispatch({
+				type: "model-rechecked",
+				threadId: forThread,
+				available: thread.modelAvailable !== false,
+			});
 		} catch {
 			// Leave the banner as it is; the user can try again.
 		}
@@ -262,10 +267,14 @@ export function useThreadSession({
 		setOpenAttempt((n) => n + 1);
 	}, []);
 	useEffect(() => {
+		// A newer attempt (thread switch or Retry) cancels this one's effects:
+		// its responses are dropped rather than landing on the newer state.
+		let cancelled = false;
 		dispatch({ type: "opened", threadId });
 
 		const open = async () => {
 			const read = await transport.readThread(threadId);
+			if (cancelled) return;
 			dispatch({ type: "thread-loaded", threadId, read });
 
 			const pending = consumePendingMessage(threadId);
@@ -286,13 +295,18 @@ export function useThreadSession({
 					.listThreadRuns(threadId)
 					.then((runs) => pickFailedRunError(runs, fallback))
 					.catch(() => fallback);
+				if (cancelled) return;
 				dispatch({ type: "last-run-error-loaded", threadId, error });
 			}
 		};
 		open().catch((error: unknown) => {
+			if (cancelled) return;
 			console.error("Could not open the thread:", error);
 			dispatch({ type: "open-failed", threadId, error });
 		});
+		return () => {
+			cancelled = true;
+		};
 		// The open sequence runs once per thread (and per explicit reopen); the
 		// callbacks it uses are stable.
 		// eslint-disable-next-line react-hooks/exhaustive-deps

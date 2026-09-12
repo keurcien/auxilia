@@ -148,6 +148,10 @@ const ChatPage = () => {
               </Button>
             </div>
           </div>
+        ) : meta.status !== "ready" ? (
+          // Metadata still loading (first open, or a Retry in flight): no
+          // composer yet, so nothing can be sent alongside a parked message.
+          <div className="w-full max-w-4xl mx-auto lg:px-10 sm:px-6 px-3 py-4" aria-busy="true" />
         ) : agentStatus === "not_configured" ? (
           <div className="w-full max-w-4xl mx-auto lg:px-10 sm:px-6 px-3 py-4">
             <div className="w-full flex items-center justify-center border border-destructive/30 bg-destructive/10 rounded-lg px-4 py-8">

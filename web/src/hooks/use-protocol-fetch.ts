@@ -9,10 +9,12 @@ import {
 import { useActiveRunsStore } from "@/stores/active-runs-store";
 
 export type ProtocolFetchHandlers = {
-  /** The pre-run model gate 409'd: an admin disabled the thread's model. */
-  onModelUnavailable?: () => void;
+  /** The pre-run model gate 409'd: an admin disabled the thread's model. Called
+   * with the thread the request was made for — a late response after the page
+   * moved to another thread must not be attributed to the new one. */
+  onModelUnavailable?: (threadId: string) => void;
   /** The addressed approval was already handled from another surface. */
-  onStaleInterrupt?: () => void;
+  onStaleInterrupt?: (threadId: string) => void;
   /** The transport underneath — `protocolFetch` in the app, a scripted one in tests. */
   baseFetch?: typeof fetch;
 };
@@ -53,9 +55,9 @@ export function useProtocolFetch(
         const rejection = decodeProtocolRejection(response.status, body);
         if (rejection) {
           if (rejection.kind === "model_unavailable") {
-            handlersRef.current.onModelUnavailable?.();
+            handlersRef.current.onModelUnavailable?.(threadId);
           } else {
-            handlersRef.current.onStaleInterrupt?.();
+            handlersRef.current.onStaleInterrupt?.(threadId);
           }
           throw protocolRejectionError(rejection);
         }

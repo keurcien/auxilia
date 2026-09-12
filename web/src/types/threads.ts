@@ -42,8 +42,11 @@ export interface ThreadRead {
 export interface ThreadCreate {
 	id?: string;
 	agentId: string;
-	/** Omit (or null) to let the server pick the workspace default model. */
-	modelId?: string | null;
+	/** Required: `POST /threads` persists what it is given and does not fall
+	 * back to the workspace default, so a thread created without a model fails
+	 * its first run ("no model is set"). The starter page resolves the default
+	 * before calling. */
+	modelId: string;
 	reasoningEffort: string | null;
 	firstMessageContent?: string;
 }

@@ -55,6 +55,8 @@ describe("opened", () => {
 		expect(sessionReducer(s, { type: "thread-loaded", threadId: "t1", read: read() })).toBe(s);
 		expect(sessionReducer(s, { type: "last-run-error-loaded", threadId: "t1", error: "late" })).toBe(s);
 		expect(sessionReducer(s, { type: "open-failed", threadId: "t1", error: new Error("x") })).toBe(s);
+		expect(sessionReducer(s, { type: "model-unavailable", threadId: "t1" })).toBe(s);
+		expect(sessionReducer(s, { type: "model-rechecked", threadId: "t1", available: false })).toBe(s);
 	});
 });
 
@@ -117,10 +119,10 @@ describe("the rehydrated error and the stale rule", () => {
 
 describe("model availability", () => {
 	it("a 409 gate flips the model unavailable; a recheck can flip it back", () => {
-		let s = sessionReducer(opened, { type: "model-unavailable" });
+		let s = sessionReducer(opened, { type: "model-unavailable", threadId: "t1" });
 		expect(s.meta.modelAvailable).toBe(false);
-		expect(sessionReducer(s, { type: "model-unavailable" })).toBe(s);
-		s = sessionReducer(s, { type: "model-rechecked", available: true });
+		expect(sessionReducer(s, { type: "model-unavailable", threadId: "t1" })).toBe(s);
+		s = sessionReducer(s, { type: "model-rechecked", threadId: "t1", available: true });
 		expect(s.meta.modelAvailable).toBe(true);
 	});
 });

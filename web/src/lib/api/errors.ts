@@ -82,6 +82,7 @@ export function toApiError(error: unknown): ApiError {
 		const e = error as {
 			status?: unknown;
 			message?: unknown;
+			data?: unknown;
 			response?: { status?: unknown; data?: unknown };
 		};
 		const status =
@@ -93,7 +94,7 @@ export function toApiError(error: unknown): ApiError {
 		return new ApiError(
 			{
 				status,
-				body: e.response?.data,
+				body: e.response?.data ?? e.data,
 				message: typeof e.message === "string" ? e.message : undefined,
 			},
 			{ cause: error },

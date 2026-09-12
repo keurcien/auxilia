@@ -11,18 +11,24 @@
 import type { CallToolResult, ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
 
 import { API_BASE_URL } from "@/lib/api/client";
-import { ApiError } from "@/lib/api/errors";
+import { ApiError, toApiError } from "@/lib/api/errors";
 import { protocolFetch } from "@/lib/api/protocol";
 
 async function postMcpApp<T>(serverId: string, action: string, body: unknown): Promise<T> {
-	const response = await protocolFetch(
-		`${API_BASE_URL}/mcp-servers/${encodeURIComponent(serverId)}/app/${action}`,
-		{
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify(body),
-		},
-	);
+	let response: Response;
+	try {
+		response = await protocolFetch(
+			`${API_BASE_URL}/mcp-servers/${encodeURIComponent(serverId)}/app/${action}`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(body),
+			},
+		);
+	} catch (error) {
+		// Network failure or abort: same typed contract as an HTTP failure.
+		throw toApiError(error);
+	}
 	const payload: unknown = await response.json().catch(() => null);
 	if (!response.ok) {
 		throw new ApiError({ status: response.status, body: payload });

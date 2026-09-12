@@ -42,7 +42,8 @@ export function resolveSameOriginUrl(input: RequestInfo | URL): string {
 
 /**
  * Same-origin `fetch` with the session cookie. No case conversion. A `Request`
- * input keeps its method, headers, body and signal; only its URL is re-pinned.
+ * input is reproduced (method, headers, body, signal and the other fetch
+ * options) with only its URL re-pinned; `credentials` is always `include`.
  */
 export const protocolFetch: typeof fetch = async (input, init) => {
 	const url = resolveSameOriginUrl(input);
@@ -54,10 +55,11 @@ export const protocolFetch: typeof fetch = async (input, init) => {
 	return fetch(url, { credentials: "include", ...fromRequest, ...init });
 };
 
-/** The parts of a `Request` that `fetch(url, init)` needs to reproduce it.
- *  (`new Request(url, request)` does not copy them: a Request is not a
+/** Everything of a `Request` that `fetch(url, init)` needs to reproduce it.
+ *  (`new Request(url, request)` does not copy these: a Request is not a
  *  RequestInit dictionary.) The body is buffered — protocol commands are
- *  small JSON — so no streaming-body constraints apply. */
+ *  small JSON — so no streaming-body constraints apply. `credentials` is
+ *  deliberately not copied: this transport always sends the session cookie. */
 async function requestInit(request: Request): Promise<RequestInit> {
 	const hasBody = request.method !== "GET" && request.method !== "HEAD";
 	return {
@@ -65,6 +67,13 @@ async function requestInit(request: Request): Promise<RequestInit> {
 		headers: request.headers,
 		body: hasBody ? await request.clone().arrayBuffer() : undefined,
 		signal: request.signal,
+		redirect: request.redirect,
+		mode: request.mode,
+		cache: request.cache,
+		referrer: request.referrer,
+		referrerPolicy: request.referrerPolicy,
+		integrity: request.integrity,
+		keepalive: request.keepalive,
 	};
 }
 

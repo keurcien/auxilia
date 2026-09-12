@@ -37,8 +37,8 @@ export type SessionEvent =
 	| { type: "open-failed"; threadId: string; error: unknown }
 	| { type: "last-run-error-loaded"; threadId: string; error: string }
 	| { type: "user-acted" }
-	| { type: "model-unavailable" }
-	| { type: "model-rechecked"; available: boolean };
+	| { type: "model-unavailable"; threadId: string }
+	| { type: "model-rechecked"; threadId: string; available: boolean };
 
 export const initialSessionState: SessionState = {
 	threadId: null,
