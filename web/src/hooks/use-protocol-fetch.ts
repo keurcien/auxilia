@@ -13,6 +13,8 @@ export type ProtocolFetchHandlers = {
   onModelUnavailable?: () => void;
   /** The addressed approval was already handled from another surface. */
   onStaleInterrupt?: () => void;
+  /** The transport underneath — `protocolFetch` in the app, a scripted one in tests. */
+  baseFetch?: typeof fetch;
 };
 
 /**
@@ -32,13 +34,14 @@ export function useProtocolFetch(
     handlersRef.current = handlers;
   });
 
+  const baseFetch = handlers.baseFetch ?? protocolFetch;
   return useMemo<typeof fetch>(() => {
     return async (input, init) => {
       const method = protocolCommandMethod(init);
       if (method === "run.start") {
         useActiveRunsStore.getState().markThreadRunning(threadId);
       }
-      const response = await protocolFetch(input, init);
+      const response = await baseFetch(input, init);
       if (method === "run.start" && !response.ok) {
         useActiveRunsStore.getState().requestPoll();
       }
@@ -59,5 +62,5 @@ export function useProtocolFetch(
       }
       return response;
     };
-  }, [threadId]);
+  }, [threadId, baseFetch]);
 }
