@@ -28,6 +28,14 @@ const eslintConfig = defineConfig([
                 "Catch ApiError from @/lib/api/errors; components never see axios.",
             },
           ],
+          // The same module reached by a relative path.
+          patterns: [
+            {
+              group: ["**/lib/api/client", "**/lib/api/client.ts"],
+              message:
+                "Use a resource module from @/lib/api/resources instead of the raw API client.",
+            },
+          ],
         },
       ],
     },

@@ -11,7 +11,7 @@ import type { Thread, ThreadRead, ViewerRole } from "@/types/threads";
  * error that arrives afterwards belongs to a run they have already moved past.
  */
 export type SessionMeta = {
-	status: "loading" | "ready";
+	status: "loading" | "ready" | "error";
 	thread: Thread | null;
 	viewerRole: ViewerRole | null;
 	/** False once a workspace admin disabled the thread's pinned model. */
@@ -20,20 +20,28 @@ export type SessionMeta = {
 };
 
 export type SessionState = {
+	/** The thread this state belongs to; events for another thread are ignored. */
+	threadId: string | null;
 	meta: SessionMeta;
+	/** Why opening failed (`meta.status === "error"`), for the retry banner. */
+	openError: unknown;
 	/** Error text of the last failed run, shown until the user acts. */
 	rehydratedError: string | null;
 	userActed: boolean;
 };
 
 export type SessionEvent =
-	| { type: "thread-loaded"; read: ThreadRead }
-	| { type: "last-run-error-loaded"; error: string }
+	/** A thread is being opened: every session-scoped field starts over. */
+	| { type: "opened"; threadId: string }
+	| { type: "thread-loaded"; threadId: string; read: ThreadRead }
+	| { type: "open-failed"; threadId: string; error: unknown }
+	| { type: "last-run-error-loaded"; threadId: string; error: string }
 	| { type: "user-acted" }
 	| { type: "model-unavailable" }
 	| { type: "model-rechecked"; available: boolean };
 
 export const initialSessionState: SessionState = {
+	threadId: null,
 	meta: {
 		status: "loading",
 		thread: null,
@@ -41,6 +49,7 @@ export const initialSessionState: SessionState = {
 		modelAvailable: true,
 		agentArchived: false,
 	},
+	openError: null,
 	rehydratedError: null,
 	userActed: false,
 };
@@ -49,11 +58,19 @@ export function sessionReducer(
 	state: SessionState,
 	event: SessionEvent,
 ): SessionState {
+	// Loads race thread switches: a response for the thread the page left
+	// must not land on the thread it moved to.
+	if ("threadId" in event && event.type !== "opened" && event.threadId !== state.threadId) {
+		return state;
+	}
 	switch (event.type) {
+		case "opened":
+			return { ...initialSessionState, threadId: event.threadId };
 		case "thread-loaded": {
 			const { thread, viewerRole } = event.read;
 			return {
 				...state,
+				openError: null,
 				meta: {
 					status: "ready",
 					thread,
@@ -63,6 +80,8 @@ export function sessionReducer(
 				},
 			};
 		}
+		case "open-failed":
+			return { ...state, openError: event.error, meta: { ...state.meta, status: "error" } };
 		case "last-run-error-loaded":
 			// A slow fetch must not resurrect the previous run's error.
 			return state.userActed ? state : { ...state, rehydratedError: event.error };

@@ -73,7 +73,7 @@ export const useAgentsStore = create<AgentsState>((set, get) => {
 		},
 		restoreAgent: async (agentId) => {
 			await agentsApi.restoreAgent(agentId);
-			await loader.refresh().catch(() => {});
+			await loader.refresh();
 		},
 		permanentlyDeleteAgent: async (agentId) => {
 			await agentsApi.permanentlyDeleteAgent(agentId);

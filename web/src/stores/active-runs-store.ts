@@ -52,6 +52,9 @@ interface ActiveRunsState {
 	pollEpoch: number;
 	/** Epoch ms of the last *applied* poll — sizes the next poll's window. */
 	lastPolledAt: number | null;
+	/** Epoch ms of the first poll attempted since the last applied one, so a
+	 * run of failed polls still widens the next successful window. */
+	pendingSince: number | null;
 	/** Monotonic poll counter — a superseded (older, still in-flight) poll's
 	 * response is discarded so it can't overwrite fresher state. */
 	pollSeq: number;
@@ -88,6 +91,7 @@ export const useActiveRunsStore = create<ActiveRunsState>((set, get) => ({
 	optimisticMarkedAt: {},
 	pollEpoch: 0,
 	lastPolledAt: null,
+	pendingSince: null,
 	pollSeq: 0,
 	markThreadRunning: (threadId) => {
 		set((state) => ({
@@ -102,13 +106,14 @@ export const useActiveRunsStore = create<ActiveRunsState>((set, get) => ({
 		set((state) => ({ pollEpoch: state.pollEpoch + 1 }));
 	},
 	beginPoll: (now = Date.now()) => {
-		const seq = get().pollSeq + 1;
-		set({ pollSeq: seq });
-		return { seq, polledAt: now, ...recentWindow(get().lastPolledAt, now) };
+		const { pollSeq, lastPolledAt, pendingSince } = get();
+		const seq = pollSeq + 1;
+		set({ pollSeq: seq, pendingSince: pendingSince ?? now });
+		return { seq, polledAt: now, ...recentWindow(lastPolledAt ?? pendingSince, now) };
 	},
 	applyPollResult: (ticket, runs) => {
 		if (ticket.seq !== get().pollSeq) return; // a newer poll supersedes this response
-		set({ lastPolledAt: ticket.polledAt });
+		set({ lastPolledAt: ticket.polledAt, pendingSince: null });
 		applyFinishedRuns(runs);
 		get().setConfirmed(
 			runs.filter(isInFlight).map((run) => run.threadId),

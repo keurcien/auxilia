@@ -8,13 +8,14 @@ import {
 } from "@/components/ai-elements/conversation";
 import { Button } from "@/components/ui/button";
 import ChatPromptInput from "../components/prompt-input";
-import { ArchiveIcon, CircleSlash, ShieldCheck } from "lucide-react";
+import { AlertTriangle, ArchiveIcon, CircleSlash, ShieldCheck } from "lucide-react";
 import { useParams } from "next/navigation";
 import { useAgentsStore } from "@/stores/agents-store";
 import { canConfigureAgent } from "@/types/agents";
 import { useAgentReadiness } from "@/hooks/use-agent-readiness";
 import { useChatHeaderStore } from "@/stores/chat-header-store";
 import { chatHeaderFromThread, useThreadSession } from "@/lib/thread-session";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { ConversationBody } from "./conversation-body";
 
 /**
@@ -27,7 +28,7 @@ const ChatPage = () => {
   const agentId = params.id as string;
   const threadId = params.threadId as string;
 
-  const { meta, run, transcript, hitl, actions } = useThreadSession({
+  const { meta, openError, run, transcript, hitl, actions } = useThreadSession({
     threadId,
     agentId,
     onStaleInterrupt: () => {
@@ -87,7 +88,24 @@ const ChatPage = () => {
         <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-background to-transparent z-10" />
       </div>
       <div className="w-full shrink-0 bg-background">
-        {meta.viewerRole === "admin" ? (
+        {meta.status === "error" ? (
+          <div className="w-full max-w-4xl mx-auto lg:px-10 sm:px-6 px-3 py-6">
+            <div className="flex items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3">
+              <AlertTriangle className="size-5 shrink-0 text-destructive" />
+              <p className="flex-1 text-sm text-destructive">
+                {getApiErrorMessage(openError, "This conversation could not be loaded.")}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 cursor-pointer"
+                onClick={actions.reopen}
+              >
+                Retry
+              </Button>
+            </div>
+          </div>
+        ) : meta.viewerRole === "admin" ? (
           <div className="w-full max-w-4xl mx-auto lg:px-10 sm:px-6 px-3 py-6">
             <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/50 px-4 py-3">
               <ShieldCheck className="size-5 shrink-0 text-muted-foreground" />

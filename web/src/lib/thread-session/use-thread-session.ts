@@ -70,6 +70,8 @@ export type ThreadSessionOptions = {
 
 export type ThreadSession = {
 	meta: SessionMeta;
+	/** Why opening failed, when `meta.status === "error"`. */
+	openError: unknown;
 	run: {
 		status: "idle" | "streaming" | "interrupted";
 		/** `stream.isLoading` — a run is in flight (also true while a resume is pending). */
@@ -101,6 +103,10 @@ export type ThreadSession = {
 		stop: () => void;
 		respond: (response: HitlResponse, interruptId: string | null) => void;
 		recheckModel: () => Promise<void>;
+		/** Run the open sequence again after `meta.status === "error"`. A parked
+		 * first message is still parked — it is consumed only once the thread
+		 * metadata has loaded. */
+		reopen: () => void;
 	};
 };
 
@@ -251,14 +257,16 @@ export function useThreadSession({
 
 	// --- open the thread ------------------------------------------------------
 	const consumePendingMessage = usePendingMessageStore((s) => s.consumePendingMessage);
-	const opened = useRef<string | null>(null);
+	const [openAttempt, setOpenAttempt] = useState(0);
+	const reopen = useCallback(() => {
+		setOpenAttempt((n) => n + 1);
+	}, []);
 	useEffect(() => {
-		if (opened.current === threadId) return;
-		opened.current = threadId;
+		dispatch({ type: "opened", threadId });
 
 		const open = async () => {
 			const read = await transport.readThread(threadId);
-			dispatch({ type: "thread-loaded", read });
+			dispatch({ type: "thread-loaded", threadId, read });
 
 			const pending = consumePendingMessage(threadId);
 			if (pending) {
@@ -278,15 +286,17 @@ export function useThreadSession({
 					.listThreadRuns(threadId)
 					.then((runs) => pickFailedRunError(runs, fallback))
 					.catch(() => fallback);
-				dispatch({ type: "last-run-error-loaded", error });
+				dispatch({ type: "last-run-error-loaded", threadId, error });
 			}
 		};
 		open().catch((error: unknown) => {
 			console.error("Could not open the thread:", error);
+			dispatch({ type: "open-failed", threadId, error });
 		});
-		// The open sequence runs once per thread; the callbacks it uses are stable.
+		// The open sequence runs once per thread (and per explicit reopen); the
+		// callbacks it uses are stable.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [threadId]);
+	}, [threadId, openAttempt]);
 
 	const runStatus: ThreadSession["run"]["status"] = isInterrupted
 		? "interrupted"
@@ -296,6 +306,7 @@ export function useThreadSession({
 
 	return {
 		meta: state.meta,
+		openError: state.openError,
 		run: {
 			status: runStatus,
 			isLoading: stream.isLoading,
@@ -311,6 +322,6 @@ export function useThreadSession({
 			decisions,
 			recordDecision,
 		},
-		actions: { send, regenerate, stop, respond, recheckModel },
+		actions: { send, regenerate, stop, respond, recheckModel, reopen },
 	};
 }

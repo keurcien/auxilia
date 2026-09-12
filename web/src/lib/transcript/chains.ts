@@ -34,8 +34,13 @@ export function groupChains(
       owner = null;
       continue;
     }
-    if (!isAIMessage(m) || !m.id) continue;
+    if (!isAIMessage(m)) continue;
     const hasText = m.text.trim().length > 0;
+    if (!m.id) {
+      // Nothing to attach steps to, but an answer still closes the chain.
+      if (hasText) owner = null;
+      continue;
+    }
     const reasoning = getReasoning(m);
     const steps: ChainStepData[] = [
       ...(reasoning

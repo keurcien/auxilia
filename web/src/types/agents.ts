@@ -66,7 +66,8 @@ export interface Agent {
 	description?: string | null;
 	isArchived: boolean;
 	mcpServers: AgentMCPServer[];
-	sandboxes: AgentSandbox[];
+	/** Absent on list responses, like `instructions`; present on detail responses. */
+	sandboxes?: AgentSandbox[];
 	subagents: SubagentInfo[];
 	tag?: AgentTag | null;
 	owner?: AgentOwner | null;

@@ -6,7 +6,8 @@ export interface Thread {
 	id: string;
 	agentId: string;
 	userId: string;
-	firstMessageContent: string;
+	/** The thread's title; null for threads created without one (Slack, API). */
+	firstMessageContent: string | null;
 	agentName: string | null;
 	agentEmoji: string | null;
 	agentColor: string | null;
@@ -41,7 +42,8 @@ export interface ThreadRead {
 export interface ThreadCreate {
 	id?: string;
 	agentId: string;
-	modelId: string;
+	/** Omit (or null) to let the server pick the workspace default model. */
+	modelId?: string | null;
 	reasoningEffort: string | null;
 	firstMessageContent?: string;
 }

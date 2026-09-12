@@ -78,7 +78,7 @@ export function toApiError(error: unknown): ApiError {
 	}
 	// An axios-shaped plain object (`{ status?, response?: { status?, data? } }`)
 	// — what a test double or an already-unwrapped rejection looks like.
-	if (error && typeof error === "object" && "response" in error) {
+	if (error && typeof error === "object" && ("response" in error || "status" in error)) {
 		const e = error as {
 			status?: unknown;
 			message?: unknown;

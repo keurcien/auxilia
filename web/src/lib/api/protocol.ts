@@ -40,9 +40,33 @@ export function resolveSameOriginUrl(input: RequestInfo | URL): string {
 	return `${origin}${parsed.pathname}${parsed.search}`;
 }
 
-/** Same-origin `fetch` with the session cookie. No case conversion. */
-export const protocolFetch: typeof fetch = (input, init) =>
-	fetch(resolveSameOriginUrl(input), { credentials: "include", ...init });
+/**
+ * Same-origin `fetch` with the session cookie. No case conversion. A `Request`
+ * input keeps its method, headers, body and signal; only its URL is re-pinned.
+ */
+export const protocolFetch: typeof fetch = async (input, init) => {
+	const url = resolveSameOriginUrl(input);
+	const fromRequest = input instanceof Request ? await requestInit(input) : {};
+	// The URL was just rebuilt from the page origin + the request's path and
+	// query (`resolveSameOriginUrl` throws on any other origin), so this is
+	// not a user-controlled destination.
+	// nosemgrep
+	return fetch(url, { credentials: "include", ...fromRequest, ...init });
+};
+
+/** The parts of a `Request` that `fetch(url, init)` needs to reproduce it.
+ *  (`new Request(url, request)` does not copy them: a Request is not a
+ *  RequestInit dictionary.) The body is buffered — protocol commands are
+ *  small JSON — so no streaming-body constraints apply. */
+async function requestInit(request: Request): Promise<RequestInit> {
+	const hasBody = request.method !== "GET" && request.method !== "HEAD";
+	return {
+		method: request.method,
+		headers: request.headers,
+		body: hasBody ? await request.clone().arrayBuffer() : undefined,
+		signal: request.signal,
+	};
+}
 
 /**
  * The JSON-RPC-style `method` of a protocol command body (`run.start`,

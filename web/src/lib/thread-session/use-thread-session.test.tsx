@@ -201,6 +201,36 @@ describe("useThreadSession", () => {
 		expect((result.current.run.error as Error).name).toBe("ModelUnavailableError");
 	});
 
+	it("a failed open is reported, keeps a parked message parked, and reopen() retries", async () => {
+		usePendingMessageStore.getState().setPendingMessage("t1", { text: "first!", files: [] });
+		const { transport, calls } = transportWith({ thread: thread(), viewerRole: null }, [], {
+			commands: () => new Response("{}", { status: 500 }),
+		});
+		vi.mocked(transport.readThread)
+			.mockRejectedValueOnce(Object.assign(new Error("offline"), { status: 503 }))
+			.mockResolvedValue({ thread: thread(), viewerRole: null });
+		const { result } = renderHook(() =>
+			useThreadSession({ threadId: "t1", agentId: "a1", transport, pendingMessageCapMs: 50 }),
+		);
+		await waitFor(() => {
+			expect(result.current.meta.status).toBe("error");
+		});
+		expect((result.current.openError as Error).message).toBe("offline");
+		expect(usePendingMessageStore.getState().pendingMessages.size).toBe(1);
+		expect(calls.some((c) => (c.body as { method?: string })?.method === "run.start")).toBe(false);
+
+		act(() => {
+			result.current.actions.reopen();
+		});
+		await waitFor(() => {
+			expect(result.current.meta.status).toBe("ready");
+		});
+		await waitFor(() => {
+			expect(calls.filter((c) => (c.body as { method?: string })?.method === "run.start")).toHaveLength(1);
+		});
+		expect(usePendingMessageStore.getState().pendingMessages.size).toBe(0);
+	});
+
 	it("recheckModel re-reads the thread and lifts the lock when the model is back", async () => {
 		const { transport } = transportWith({ thread: thread({ modelAvailable: false }), viewerRole: null });
 		const { result } = renderHook(() => useThreadSession({ threadId: "t1", agentId: "a1", transport }));

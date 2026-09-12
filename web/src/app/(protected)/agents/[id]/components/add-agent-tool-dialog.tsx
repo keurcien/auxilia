@@ -159,10 +159,17 @@ function MCPServerSection({
 	const [isLoading, setIsLoading] = useState(true);
 
 	useEffect(() => {
-		mcpServersApi.listMcpServers().then((servers) => {
-			setAllServers(servers);
-			setIsLoading(false);
-		});
+		mcpServersApi
+			.listMcpServers()
+			.then((servers) => {
+				setAllServers(servers);
+			})
+			.catch((error: unknown) => {
+				console.error("Error loading MCP servers:", error);
+			})
+			.finally(() => {
+				setIsLoading(false);
+			});
 	}, []);
 
 	const availableServers = useMemo(() => {

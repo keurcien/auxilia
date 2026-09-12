@@ -37,6 +37,12 @@ describe("toApiError", () => {
 		expect(getApiErrorMessage(e, "fb")).toBe("already exists");
 	});
 
+	it("reads a rejection that only carries a top-level status", () => {
+		const e = toApiError({ status: 403, message: "forbidden" });
+		expect(e.status).toBe(403);
+		expect(e.message).toBe("forbidden");
+	});
+
 	it("wraps anything else as a status-less error", () => {
 		const e = toApiError(new TypeError("fetch failed"));
 		expect(e.status).toBeNull();

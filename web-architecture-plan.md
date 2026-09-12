@@ -10,9 +10,11 @@ turns the surviving ones into PR-sized steps with tests and acceptance criteria.
 
 ## Implementation log (2026-09-12, branch `refactor/web-architecture`, uncommitted)
 
-Stages 0–5 below are implemented and verified (`tsc` clean, vitest green, pre-commit lint clean
-on touched files). Stages 6–9 (resource slices) were run as three parallel passes; stage 10
-reconciles the ESLint allowlist. Deviations from the plan as written:
+Everything below shipped in **PR #325** as one commit per stage (squash on merge). The §4
+slicing table, the "PR:" lines under each candidate and the §6 sequencing are the plan *as
+written*, kept so the commits can be read against it — not remaining work. Stages 6–9 (resource
+slices) were run as three parallel passes; stage 10 reconciles the ESLint allowlist. Deviations
+from the plan as written:
 
 - **§2** `useStream`'s hydration reads (`getState` / `getHistory`) go through the SDK client's own
   caller, not the `fetch` option. `useThreadSession` passes the same transport as
@@ -455,7 +457,7 @@ then `refactor(web): mcp-servers resource module`, … `refactor(web): drop the 
 
 ---
 
-## 6. Sequencing
+## 6. Sequencing (as planned — executed as the seven commits of PR #325)
 
 ```
 PR 0a  docs(backend): close the history-encoding half of P3-7                       [§1]  docs

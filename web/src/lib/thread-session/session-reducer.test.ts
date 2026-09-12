@@ -39,10 +39,41 @@ const run = (status: Run["status"], error: string | null): Run => ({
 	updatedAt: "",
 });
 
+const opened = sessionReducer(initialSessionState, { type: "opened", threadId: "t1" });
+
+describe("opened", () => {
+	it("starts every session-scoped field over for the new thread", () => {
+		let s = sessionReducer(opened, { type: "thread-loaded", threadId: "t1", read: read({ modelAvailable: false }) });
+		s = sessionReducer(s, { type: "last-run-error-loaded", threadId: "t1", error: "old failure" });
+		s = sessionReducer(s, { type: "user-acted" });
+		const next = sessionReducer(s, { type: "opened", threadId: "t2" });
+		expect(next).toEqual({ ...initialSessionState, threadId: "t2" });
+	});
+
+	it("ignores loads that belong to the thread the page left", () => {
+		const s = sessionReducer(opened, { type: "opened", threadId: "t2" });
+		expect(sessionReducer(s, { type: "thread-loaded", threadId: "t1", read: read() })).toBe(s);
+		expect(sessionReducer(s, { type: "last-run-error-loaded", threadId: "t1", error: "late" })).toBe(s);
+		expect(sessionReducer(s, { type: "open-failed", threadId: "t1", error: new Error("x") })).toBe(s);
+	});
+});
+
+describe("open-failed", () => {
+	it("marks the session errored and keeps the cause; a later success clears it", () => {
+		const failed = sessionReducer(opened, { type: "open-failed", threadId: "t1", error: new Error("offline") });
+		expect(failed.meta.status).toBe("error");
+		expect((failed.openError as Error).message).toBe("offline");
+		const ok = sessionReducer(failed, { type: "thread-loaded", threadId: "t1", read: read() });
+		expect(ok.meta.status).toBe("ready");
+		expect(ok.openError).toBeNull();
+	});
+});
+
 describe("thread-loaded", () => {
 	it("copies the metadata the page renders on", () => {
-		const s = sessionReducer(initialSessionState, {
+		const s = sessionReducer(opened, {
 			type: "thread-loaded",
+			threadId: "t1",
 			read: read({ modelAvailable: false, agentArchived: true }, "admin"),
 		});
 		expect(s.meta).toMatchObject({
@@ -55,8 +86,9 @@ describe("thread-loaded", () => {
 	});
 
 	it("treats a missing modelAvailable as available", () => {
-		const s = sessionReducer(initialSessionState, {
+		const s = sessionReducer(opened, {
 			type: "thread-loaded",
+			threadId: "t1",
 			read: read({ modelAvailable: undefined }),
 		});
 		expect(s.meta.modelAvailable).toBe(true);
@@ -65,27 +97,27 @@ describe("thread-loaded", () => {
 
 describe("the rehydrated error and the stale rule", () => {
 	it("shows the last run's error until the user acts", () => {
-		let s = sessionReducer(initialSessionState, { type: "last-run-error-loaded", error: "boom" });
+		let s = sessionReducer(opened, { type: "last-run-error-loaded", threadId: "t1", error: "boom" });
 		expect(s.rehydratedError).toBe("boom");
 		s = sessionReducer(s, { type: "user-acted" });
 		expect(s.rehydratedError).toBeNull();
 	});
 
 	it("drops an error that arrives after the user acted (slow fetch)", () => {
-		let s = sessionReducer(initialSessionState, { type: "user-acted" });
-		s = sessionReducer(s, { type: "last-run-error-loaded", error: "late" });
+		let s = sessionReducer(opened, { type: "user-acted" });
+		s = sessionReducer(s, { type: "last-run-error-loaded", threadId: "t1", error: "late" });
 		expect(s.rehydratedError).toBeNull();
 	});
 
 	it("user-acted is idempotent once the error is cleared", () => {
-		const s = sessionReducer(initialSessionState, { type: "user-acted" });
+		const s = sessionReducer(opened, { type: "user-acted" });
 		expect(sessionReducer(s, { type: "user-acted" })).toBe(s);
 	});
 });
 
 describe("model availability", () => {
 	it("a 409 gate flips the model unavailable; a recheck can flip it back", () => {
-		let s = sessionReducer(initialSessionState, { type: "model-unavailable" });
+		let s = sessionReducer(opened, { type: "model-unavailable" });
 		expect(s.meta.modelAvailable).toBe(false);
 		expect(sessionReducer(s, { type: "model-unavailable" })).toBe(s);
 		s = sessionReducer(s, { type: "model-rechecked", available: true });

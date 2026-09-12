@@ -25,6 +25,8 @@ export function getFileAttachments(message: BaseMessage): AttachmentData[] {
         typeof image === "string"
           ? image
           : ((image as { url?: string } | undefined)?.url ?? "");
+      const mediaType = url.match(/^data:([^;,]+)/)?.[1] ?? "image/jpeg";
+      const extension = mediaType.split("/")[1]?.replace("jpeg", "jpg") ?? "jpg";
       attachments.push({
         id: `${message.id}-file-${idx}`,
         type: "file",
@@ -32,8 +34,8 @@ export function getFileAttachments(message: BaseMessage): AttachmentData[] {
           url.startsWith("data:") || /^https?:\/\//.test(url)
             ? url
             : `data:image/jpeg;base64,${url}`,
-        filename: "Image.jpg",
-        mediaType: "image/jpeg",
+        filename: `Image.${extension}`,
+        mediaType,
       });
     } else if (b.type === "file") {
       const mediaType =

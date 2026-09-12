@@ -70,6 +70,18 @@ describe("poll sequencing", () => {
 		expect(useActiveRunsStore.getState().lastPolledAt).toBe(newer.polledAt);
 	});
 
+	it("failed polls widen the next window instead of resetting it", () => {
+		const store = useActiveRunsStore.getState();
+		store.beginPoll(); // never applied: the request failed
+		vi.advanceTimersByTime(2 * 3600 * 1000);
+		const retry = store.beginPoll();
+		expect(retry.refetchThreads).toBe(true);
+		expect(retry.recentSeconds).toBe(MAX_RECENT_S);
+		store.applyPollResult(retry, []);
+		vi.advanceTimersByTime(5_000);
+		expect(store.beginPoll().recentSeconds).toBe(5 + RECENT_MARGIN_S);
+	});
+
 	it("the next poll's window starts from the last applied poll", () => {
 		const store = useActiveRunsStore.getState();
 		const first = store.beginPoll();

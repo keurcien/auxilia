@@ -1,36 +1,48 @@
 /**
  * MCP-app host resource — what an embedded MCP app UI may ask its server for,
  * proxied through the backend so the app never holds credentials
- * (`app/mcp/apps/`). Bodies are MCP-shaped; the axios client preserves the
- * `arguments` key so tool inputs reach the server as authored.
+ * (`app/mcp/apps/`).
+ *
+ * Results are MCP payloads (`CallToolResult`, `ReadResourceResult`) whose
+ * `structuredContent` and resource `contents` are tool-authored JSON — the
+ * key spelling is data. They go through `protocolFetch`, not the axios
+ * client, so nothing is case-converted on the way to the app iframe.
  */
 import type { CallToolResult, ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
 
-import { api } from "@/lib/api/client";
+import { API_BASE_URL } from "@/lib/api/client";
+import { ApiError } from "@/lib/api/errors";
+import { protocolFetch } from "@/lib/api/protocol";
+
+async function postMcpApp<T>(serverId: string, action: string, body: unknown): Promise<T> {
+	const response = await protocolFetch(
+		`${API_BASE_URL}/mcp-servers/${encodeURIComponent(serverId)}/app/${action}`,
+		{
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(body),
+		},
+	);
+	const payload: unknown = await response.json().catch(() => null);
+	if (!response.ok) {
+		throw new ApiError({ status: response.status, body: payload });
+	}
+	return payload as T;
+}
 
 /** `resources/read` against the server, as the app UI requests it. */
-export async function readMcpAppResource(
-	serverId: string,
-	uri: string,
-): Promise<ReadResourceResult> {
-	const response = await api.post<ReadResourceResult>(
-		`/mcp-servers/${serverId}/app/read-resource`,
-		{ uri },
-	);
-	return response.data;
+export function readMcpAppResource(serverId: string, uri: string): Promise<ReadResourceResult> {
+	return postMcpApp<ReadResourceResult>(serverId, "read-resource", { uri });
 }
 
 /** `tools/call` against the server on the app's behalf. The result comes back
  * as the backend serialised it — `null`s for absent optional fields included,
  * which the renderer rejects; the caller strips them. */
-export async function callMcpAppTool(
+export function callMcpAppTool(
 	serverId: string,
 	toolName: string,
 	args: Record<string, unknown> | null,
 ): Promise<CallToolResult> {
-	const response = await api.post<CallToolResult>(
-		`/mcp-servers/${serverId}/app/call-tool`,
-		{ toolName, arguments: args },
-	);
-	return response.data;
+	// The backend body is snake_case by hand: no axios conversion on this path.
+	return postMcpApp<CallToolResult>(serverId, "call-tool", { tool_name: toolName, arguments: args });
 }

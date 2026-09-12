@@ -6,6 +6,7 @@ export interface CurrentUser {
 	name: string | null;
 	email: string | null;
 	role: WorkspaceRole;
+	teamId: string | null;
 	pictureUrl: string | null;
 	createdAt: string;
 	updatedAt: string;

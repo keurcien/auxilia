@@ -46,6 +46,28 @@ describe("protocolFetch", () => {
 	});
 });
 
+describe("protocolFetch with a Request input", () => {
+	it("keeps the request's method, headers and body, re-pinning only the URL", async () => {
+		const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+		vi.stubGlobal("fetch", fetchMock);
+		const req = new Request(`${window.location.origin}/api/backend/threads/t/commands`, {
+			method: "POST",
+			headers: { "content-type": "application/json", "x-test": "1" },
+			body: JSON.stringify({ method: "run.start" }),
+		});
+		await protocolFetch(req);
+		const [target, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+		expect(target).toBe(`${window.location.origin}/api/backend/threads/t/commands`);
+		expect(init.method).toBe("POST");
+		expect(init.credentials).toBe("include");
+		expect((init.headers as Headers).get("x-test")).toBe("1");
+		expect(new TextDecoder().decode(init.body as ArrayBuffer)).toBe(
+			JSON.stringify({ method: "run.start" }),
+		);
+		expect(init.signal).toBe(req.signal);
+	});
+});
+
 describe("protocolCommandMethod", () => {
 	it("reads the command method from a JSON body", () => {
 		expect(protocolCommandMethod({ body: JSON.stringify({ method: "run.start" }) })).toBe(

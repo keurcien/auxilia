@@ -250,7 +250,7 @@ export function AppSidebar() {
 												thread.createdAt,
 												Intl.DateTimeFormat().resolvedOptions().timeZone,
 											)
-										: thread.firstMessageContent;
+										: (thread.firstMessageContent ?? "Untitled conversation");
 									const subtitle = thread.agentArchived
 										? "Archived agent"
 										: isTriggerThread
