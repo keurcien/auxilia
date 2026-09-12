@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/keurcien/auxilia/compare/backend-v0.8.0...backend-v0.8.1) (2026-09-12)
+
+
+### Code Refactoring
+
+* **web:** resource modules, API import boundary and useThreadSession ([#325](https://github.com/keurcien/auxilia/issues/325)) ([62f6f1c](https://github.com/keurcien/auxilia/commit/62f6f1c45c49361af4cb53d5f779d3442cd7f5fa))
+
 ## [0.8.0](https://github.com/keurcien/auxilia/compare/backend-v0.7.0...backend-v0.8.0) (2026-09-11)
 
 
