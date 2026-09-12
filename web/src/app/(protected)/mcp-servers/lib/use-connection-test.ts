@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "@/lib/api/client";
+import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { ConnectionTestResult, MCPAuthType } from "@/types/mcp-servers";
 
@@ -115,9 +115,7 @@ export function useConnectionTest() {
 			setMessage(null);
 
 			try {
-				const { data } = await api.post<ConnectionTestResult>(
-					`/mcp-servers/${server.id}/test-connection`,
-				);
+				const data = await mcpServersApi.testMcpServerConnection(server.id);
 				if (isStale()) {
 					popup?.close();
 					return;
@@ -141,13 +139,11 @@ export function useConnectionTest() {
 							try {
 								let connected = false;
 								try {
-									const res = await api.get(
-										`/mcp-servers/${server.id}/is-connected`,
-									);
+									const live = await mcpServersApi.isMcpServerConnected(server.id);
 									// Stale = a newer run owns the shared timers now — just
 									// bail, clearing them would break that run.
 									if (isStale()) return;
-									connected = Boolean(res.data.connected);
+									connected = live;
 								} catch {
 									return; // transient — keep polling until timeout
 								}
@@ -155,11 +151,9 @@ export function useConnectionTest() {
 								clearPolling();
 								if (popup && !popup.closed) popup.close();
 								try {
-									const retry = await api.post<ConnectionTestResult>(
-										`/mcp-servers/${server.id}/test-connection`,
-									);
+									const retry = await mcpServersApi.testMcpServerConnection(server.id);
 									if (isStale()) return;
-									applyResult(retry.data);
+									applyResult(retry);
 								} catch (error) {
 									// Timers are already cleared — surface the failure
 									// instead of leaving the button on "Testing…" forever.
@@ -209,17 +203,14 @@ export function useConnectionTest() {
 			setMessage(null);
 
 			try {
-				const { data } = await api.post<ConnectionTestResult>(
-					"/mcp-servers/test-connection",
-					{
-						url: input.url,
-						authType: input.authType,
-						apiKey:
-							input.authType === "api_key"
-								? input.apiKey || undefined
-								: undefined,
-					},
-				);
+				const data = await mcpServersApi.testMcpConnection({
+					url: input.url,
+					authType: input.authType,
+					apiKey:
+						input.authType === "api_key"
+							? input.apiKey || undefined
+							: undefined,
+				});
 				if (isStale()) return;
 				applyResult(data);
 			} catch (error) {

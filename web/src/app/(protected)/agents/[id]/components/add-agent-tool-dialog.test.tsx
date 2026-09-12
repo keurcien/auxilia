@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { api } from "@/lib/api/client";
+import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 import type { MCPServer } from "@/types/mcp-servers";
 import type { Sandbox } from "@/types/sandboxes";
 import AddAgentToolDialog from "./add-agent-tool-dialog";
@@ -10,10 +10,8 @@ vi.mock("next/navigation", () => ({
 	useRouter: () => ({ push: vi.fn() }),
 }));
 
-vi.mock("@/lib/api/client", () => ({
-	api: {
-		get: vi.fn(),
-	},
+vi.mock("@/lib/api/resources/mcp-servers", () => ({
+	listMcpServers: vi.fn(),
 }));
 
 const availableServer: MCPServer = {
@@ -45,9 +43,7 @@ const secondServer: MCPServer = {
 };
 
 function mockApi(servers: MCPServer[] = [availableServer]) {
-	vi.mocked(api.get).mockImplementation(() =>
-		Promise.resolve({ data: servers }),
-	);
+	vi.mocked(mcpServersApi.listMcpServers).mockResolvedValue(servers);
 }
 
 describe("AddAgentToolDialog", () => {

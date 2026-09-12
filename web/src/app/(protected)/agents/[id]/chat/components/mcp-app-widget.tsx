@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo } from "react";
 import { AppRenderer } from "@mcp-ui/client";
-import { api } from "@/lib/api/client";
+import * as mcpAppsApi from "@/lib/api/resources/mcp-apps";
 import { cn } from "@/lib/utils";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { useMcpHostContext } from "@/hooks/use-mcp-host-context";
@@ -145,11 +145,7 @@ export const McpAppWidget = ({
 
 	const onReadResource = useCallback(
 		async ({ uri }: { uri: string }) => {
-			const response = await api.post(
-				`/mcp-servers/${serverId}/app/read-resource`,
-				{ uri },
-			);
-			return response.data;
+			return mcpAppsApi.readMcpAppResource(serverId, uri);
 		},
 		[serverId],
 	);
@@ -162,20 +158,19 @@ export const McpAppWidget = ({
 			name: string;
 			arguments?: Record<string, unknown> | null;
 		}) => {
-			const response = await api.post(
-				`/mcp-servers/${serverId}/app/call-tool`,
-				{ toolName: name, arguments: args ?? null },
-			);
-
-			const data = response.data;
+			const data = (await mcpAppsApi.callMcpAppTool(
+				serverId,
+				name,
+				args ?? null,
+			)) as CallToolResult & Record<string, unknown>;
 
 			if (data.content) {
-				data.content = data.content.map((block: Record<string, unknown>) => {
-					const cleaned = { ...block };
+				data.content = data.content.map((block) => {
+					const cleaned: Record<string, unknown> = { ...block };
 					if (cleaned.annotations === null) delete cleaned.annotations;
 					if (cleaned.Meta === null) delete cleaned.Meta;
 					if (cleaned._meta === null) delete cleaned._meta;
-					return cleaned;
+					return cleaned as typeof block;
 				});
 			}
 			if (data._meta === null) delete data._meta;

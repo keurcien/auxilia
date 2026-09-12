@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Check, MoreVertical, Pencil, Plus, Trash2 } from "lucide-react";
-import { api } from "@/lib/api/client";
+import * as agentsApi from "@/lib/api/resources/agents";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { useAgentsStore } from "@/stores/agents-store";
@@ -24,7 +24,7 @@ const byName = (a: AgentTag, b: AgentTag) => a.name.localeCompare(b.name);
  * the shared tag vocabulary is workspace-admin only.
  */
 export default function AgentTagsPanel({ agent, canAssign }: AgentTagsPanelProps) {
-	const updateAgent = useAgentsStore((state) => state.updateAgent);
+	const setAgentTag = useAgentsStore((state) => state.setAgentTag);
 	const applyTagUpdate = useAgentsStore((state) => state.applyTagUpdate);
 	const applyTagRemoval = useAgentsStore((state) => state.applyTagRemoval);
 	const user = useUserStore((state) => state.user);
@@ -43,10 +43,10 @@ export default function AgentTagsPanel({ agent, canAssign }: AgentTagsPanelProps
 	// that change would race the optimistic selection.
 	useEffect(() => {
 		setError(null);
-		api
-			.get<AgentTag[]>("/tags/")
-			.then((res) => {
-				setTags(res.data);
+		agentsApi
+			.listTags()
+			.then((loaded) => {
+				setTags(loaded);
 			})
 			.catch((err: unknown) => {
 				setError(getApiErrorMessage(err, "Failed to load tags"));
@@ -60,8 +60,7 @@ export default function AgentTagsPanel({ agent, canAssign }: AgentTagsPanelProps
 		setIsAssigning(true);
 		setError(null);
 		try {
-			const response = await api.patch(`/agents/${agent.id}`, { tagId });
-			updateAgent(agent.id, response.data as Agent);
+			await setAgentTag(agent.id, tagId);
 		} catch (err) {
 			setSelectedTagId(previous);
 			setError(getApiErrorMessage(err, "Failed to assign the tag"));
@@ -102,7 +101,7 @@ export default function AgentTagsPanel({ agent, canAssign }: AgentTagsPanelProps
 		}
 		setError(null);
 		try {
-			await api.delete(`/tags/${tag.id}`);
+			await agentsApi.deleteTag(tag.id);
 			setTags((prev) => prev.filter((t) => t.id !== tag.id));
 			// The backend FK is ON DELETE SET NULL — mirror it for every agent
 			// that carried the tag, not just the open one.

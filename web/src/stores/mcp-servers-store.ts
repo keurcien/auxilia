@@ -4,7 +4,8 @@ import {
 	MCPServerCreate,
 	MCPServerUpdate,
 } from "@/types/mcp-servers";
-import { api } from "@/lib/api/client";
+import { createOnce } from "@/lib/api/once";
+import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 
 interface McpServersState {
 	mcpServers: MCPServer[];
@@ -16,61 +17,50 @@ interface McpServersState {
 	resetMcpServerConnections: (id: string) => Promise<void>;
 }
 
-// Concurrent mounts (StoreInitializer + sidebar) both call fetch before
-// isInitialized flips — share one request instead of firing twice.
-let fetchInFlight: Promise<void> | null = null;
-
-export const useMcpServersStore = create<McpServersState>((set, get) => ({
-	mcpServers: [],
-	isInitialized: false,
-	fetchMcpServers: async () => {
-		if (get().isInitialized) {
-			return;
+/** Mutations own their cache update: callers state intent, never mirror HTTP results. */
+export const useMcpServersStore = create<McpServersState>((set, get) => {
+	const load = createOnce(async () => {
+		try {
+			const servers = await mcpServersApi.listMcpServers();
+			set({ mcpServers: servers, isInitialized: true });
+		} catch (error) {
+			console.error("Error fetching MCP servers:", error);
+			set({ isInitialized: true });
+			throw error;
 		}
-		if (fetchInFlight) {
-			return fetchInFlight;
-		}
+	});
 
-		fetchInFlight = (async () => {
-			try {
-				const response = await api.get("/mcp-servers");
-				set({ mcpServers: response.data, isInitialized: true });
-			} catch (error) {
-				console.error("Error fetching MCP servers:", error);
-				set({ isInitialized: true });
-				throw error;
-			} finally {
-				fetchInFlight = null;
+	return {
+		mcpServers: [],
+		isInitialized: false,
+		fetchMcpServers: async () => {
+			if (get().isInitialized) {
+				return;
 			}
-		})();
-		return fetchInFlight;
-	},
-	createMcpServer: async (payload) => {
-		const response = await api.post("/mcp-servers", payload);
-		const created: MCPServer = response.data;
-		set((state) => ({ mcpServers: [created, ...state.mcpServers] }));
-		return created;
-	},
-	updateMcpServer: async (id, payload) => {
-		const response = await api.patch(`/mcp-servers/${id}`, payload);
-		const updated: MCPServer = response.data;
-		set((state) => ({
-			mcpServers: state.mcpServers.map((server) =>
-				server.id === id ? updated : server,
-			),
-		}));
-		return updated;
-	},
-	deleteMcpServer: async (id, options) => {
-		// detach_agents: the guard dialog's explicit confirm — the backend
-		// refuses a plain delete while agents still bind the server.
-		const suffix = options?.detachAgents ? "?detach_agents=true" : "";
-		await api.delete(`/mcp-servers/${id}${suffix}`);
-		set((state) => ({
-			mcpServers: state.mcpServers.filter((server) => server.id !== id),
-		}));
-	},
-	resetMcpServerConnections: async (id) => {
-		await api.post(`/mcp-servers/${id}/reset`);
-	},
-}));
+			return load.run();
+		},
+		createMcpServer: async (payload) => {
+			const created = await mcpServersApi.createMcpServer(payload);
+			set((state) => ({ mcpServers: [created, ...state.mcpServers] }));
+			return created;
+		},
+		updateMcpServer: async (id, payload) => {
+			const updated = await mcpServersApi.updateMcpServer(id, payload);
+			set((state) => ({
+				mcpServers: state.mcpServers.map((server) =>
+					server.id === id ? updated : server,
+				),
+			}));
+			return updated;
+		},
+		deleteMcpServer: async (id, options) => {
+			await mcpServersApi.deleteMcpServer(id, options);
+			set((state) => ({
+				mcpServers: state.mcpServers.filter((server) => server.id !== id),
+			}));
+		},
+		resetMcpServerConnections: async (id) => {
+			await mcpServersApi.resetMcpServerConnections(id);
+		},
+	};
+});

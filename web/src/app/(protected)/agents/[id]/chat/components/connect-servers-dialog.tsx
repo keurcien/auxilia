@@ -11,8 +11,8 @@ import {
 	DialogTitle,
 	DialogDescription,
 } from "@/components/ui/dialog";
-import { api } from "@/lib/api/client";
-import { ListToolsResult, MCPServer } from "@/types/mcp-servers";
+import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
+import { MCPServer } from "@/types/mcp-servers";
 import { CheckCircle2Icon, LoaderIcon } from "lucide-react";
 
 interface ConnectServersDialogProps {
@@ -72,8 +72,7 @@ export function ConnectServersDialog({
 		try {
 			// list-tools answers with the tools, or with the URL the user must
 			// open first — both are 200s (a discriminated union on `status`).
-			const res = await api.get(`/mcp-servers/${server.id}/list-tools`);
-			const result = res.data as ListToolsResult;
+			const result = await mcpServersApi.listMcpServerTools(server.id);
 
 			if (result.status === "ok") {
 				setConnectedIds((prev) => new Set(prev).add(server.id));
@@ -94,10 +93,7 @@ export function ConnectServersDialog({
 				// Poll is-connected until connected
 				const poll = async () => {
 					try {
-						const res = await api.get(
-							`/mcp-servers/${server.id}/is-connected`,
-						);
-						if (res.data.connected) {
+						if (await mcpServersApi.isMcpServerConnected(server.id)) {
 							if (pollRef.current) clearInterval(pollRef.current);
 							if (timeoutRef.current) clearTimeout(timeoutRef.current);
 

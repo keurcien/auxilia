@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { KeyRound, Unplug } from "lucide-react";
-import { api } from "@/lib/api/client";
+import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { MCPAuthType, MCPServerConnection } from "@/types/mcp-servers";
@@ -79,10 +79,7 @@ export function ConnectedUsersPanel({
 
 	const fetchConnections = useCallback(async () => {
 		try {
-			const res = await api.get<MCPServerConnection[]>(
-				`/mcp-servers/${serverId}/connections`,
-			);
-			setConnections(res.data);
+			setConnections(await mcpServersApi.listMcpServerConnections(serverId));
 			setError(null);
 		} catch (err) {
 			setError(getApiErrorMessage(err, "Failed to load connections."));
@@ -124,7 +121,7 @@ export function ConnectedUsersPanel({
 			return;
 		setRevokingId(connection.userId);
 		try {
-			await api.delete(`/mcp-servers/${serverId}/connections/${connection.userId}`);
+			await mcpServersApi.deleteMcpServerConnection(serverId, connection.userId);
 			setConnections((prev) =>
 				prev.filter((c) => c.userId !== connection.userId),
 			);

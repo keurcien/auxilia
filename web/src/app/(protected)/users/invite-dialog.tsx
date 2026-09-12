@@ -2,20 +2,9 @@
 
 import { useState } from "react";
 import { Copy, Check, X } from "lucide-react";
-import { api } from "@/lib/api/client";
+import * as invitesApi from "@/lib/api/resources/invites";
 import { getApiErrorMessage } from "@/lib/api/errors";
-import { type Team } from "./new-team-dialog";
-
-type Role = "member" | "editor" | "admin";
-
-interface Invite {
-	id: string;
-	email: string;
-	role: string;
-	inviteUrl: string;
-	invitedByName: string | null;
-	createdAt: string;
-}
+import type { Invite, Team, WorkspaceRole as Role } from "@/types/users";
 
 interface InviteDialogProps {
 	open: boolean;
@@ -44,13 +33,13 @@ export default function InviteDialog({
 		setIsLoading(true);
 
 		try {
-			const response = await api.post("/invites/", {
+			const invite = await invitesApi.createInvite({
 				email,
 				role,
 				teamId: teamId || null,
 			});
-			setInviteUrl(response.data.inviteUrl);
-			onInviteCreated?.(response.data);
+			setInviteUrl(invite.inviteUrl);
+			onInviteCreated?.(invite);
 		} catch (err: unknown) {
 			setError(getApiErrorMessage(err, "An error occurred"));
 		} finally {

@@ -10,7 +10,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
-import { api } from "@/lib/api/client";
+import * as agentsApi from "@/lib/api/resources/agents";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { AgentTag } from "@/types/agents";
 
@@ -50,11 +50,9 @@ export default function NewTagDialog({
 		setIsSubmitting(true);
 		try {
 			if (tag) {
-				const response = await api.patch(`/tags/${tag.id}`, { name: trimmed });
-				onTagUpdated?.(response.data as AgentTag);
+				onTagUpdated?.(await agentsApi.renameTag(tag.id, trimmed));
 			} else {
-				const response = await api.post("/tags/", { name: trimmed });
-				onTagCreated?.(response.data as AgentTag);
+				onTagCreated?.(await agentsApi.createTag(trimmed));
 			}
 			onOpenChange(false);
 		} catch (err: unknown) {

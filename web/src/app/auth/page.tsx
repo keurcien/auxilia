@@ -2,8 +2,9 @@
 
 import { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { api } from "@/lib/api/client";
+import * as authApi from "@/lib/api/resources/auth";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import type { AuthProviders } from "@/types/auth";
 import { AuthShell } from "@/components/auth/auth-shell";
 import {
 	AuthErrorAlert,
@@ -11,11 +12,6 @@ import {
 	AuthSubmitButton,
 } from "@/components/auth/form";
 
-interface AuthProviders {
-	password: boolean;
-	google: boolean;
-	setupRequired: boolean;
-}
 
 function GoogleIcon() {
 	return (
@@ -62,8 +58,7 @@ function AuthPageContent() {
 	useEffect(() => {
 		const fetchProviders = async () => {
 			try {
-				const response = await api.get("/auth/providers");
-				const data = response.data as AuthProviders;
+				const data = await authApi.getAuthProviders();
 				setProviders(data);
 				if (data.setupRequired) {
 					router.replace("/setup");
@@ -81,7 +76,7 @@ function AuthPageContent() {
 		setIsLoading(true);
 
 		try {
-			await api.post("/auth/signin", { email, password });
+			await authApi.signIn(email, password);
 			router.push("/agents");
 		} catch (err: unknown) {
 			setError(getApiErrorMessage(err, "An error occurred"));

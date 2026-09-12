@@ -10,15 +10,11 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
-import { api } from "@/lib/api/client";
+import * as authApi from "@/lib/api/resources/auth";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import type { PersonalAccessToken } from "@/types/auth";
 
-export interface PersonalAccessToken {
-	id: string;
-	name: string;
-	prefix: string;
-	createdAt: string;
-}
+export type { PersonalAccessToken };
 
 interface CreateTokenDialogProps {
 	open: boolean;
@@ -43,16 +39,8 @@ export default function CreateTokenDialog({
 		setIsLoading(true);
 
 		try {
-			const response = await api.post("/auth/tokens", { name });
-			onTokenCreated?.(
-				{
-					id: response.data.id,
-					name: response.data.name,
-					prefix: response.data.prefix,
-					createdAt: response.data.createdAt,
-				},
-				response.data.token,
-			);
+			const { token, ...created } = await authApi.createToken(name);
+			onTokenCreated?.(created, token);
 			handleClose(false);
 		} catch (err: unknown) {
 			setError(getApiErrorMessage(err, "An error occurred"));

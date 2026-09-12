@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { TriggerThread } from "@/types/triggers";
 import { RunTerminalStatus } from "@/types/runs";
-import { api } from "@/lib/api/client";
+import * as triggersApi from "@/lib/api/resources/triggers";
 
 interface TriggerRunsState {
 	/** Past firings (threads) per trigger id; undefined = not fetched yet. */
@@ -17,14 +17,9 @@ export const useTriggerRunsStore = create<TriggerRunsState>((set) => ({
 	runsByTrigger: {},
 	fetchRuns: async (triggerId) => {
 		try {
-			const response = await api.get<TriggerThread[]>(
-				`/triggers/${triggerId}/threads`,
-			);
+			const runs = await triggersApi.listTriggerThreads(triggerId);
 			set((state) => ({
-				runsByTrigger: {
-					...state.runsByTrigger,
-					[triggerId]: response.data,
-				},
+				runsByTrigger: { ...state.runsByTrigger, [triggerId]: runs },
 			}));
 		} catch (error) {
 			console.error("Error fetching trigger runs:", error);

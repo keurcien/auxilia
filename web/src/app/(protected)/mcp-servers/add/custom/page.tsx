@@ -7,7 +7,7 @@ import { Eye, EyeOff, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import { Alert } from "@/components/ui/alert";
-import { api } from "@/lib/api/client";
+import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { MCPAuthType, OfficialMCPServer } from "@/types/mcp-servers";
@@ -150,10 +150,10 @@ export default function CustomMCPServerPage() {
 		const controller = new AbortController();
 		void (async () => {
 			try {
-				const res = await api.get<OfficialMCPServer[]>("/mcp-servers/official", {
+				const catalog = await mcpServersApi.listOfficialMcpServers({
 					signal: controller.signal,
 				});
-				const official = res.data.find((server) => server.url === officialUrl);
+				const official = catalog.find((server) => server.url === officialUrl);
 				if (!official) return;
 				setSelectedOfficial(official);
 				setForm({

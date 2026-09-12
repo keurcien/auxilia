@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { api } from "@/lib/api/client";
+import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import type { MCPServer } from "@/types/mcp-servers";
 import CustomMCPServerPage from "./page";
@@ -13,13 +13,9 @@ vi.mock("next/navigation", () => ({
 	useSearchParams: () => new URLSearchParams(),
 }));
 
-vi.mock("@/lib/api/client", () => ({
-	api: {
-		get: vi.fn(),
-		post: vi.fn(),
-		patch: vi.fn(),
-		delete: vi.fn(),
-	},
+vi.mock("@/lib/api/resources/mcp-servers", () => ({
+	listOfficialMcpServers: vi.fn(),
+	createMcpServer: vi.fn(),
 }));
 
 const createdServer: MCPServer = {
@@ -46,12 +42,12 @@ describe("CustomMCPServerPage", () => {
 			mcpServers: [],
 			isInitialized: false,
 		});
-		vi.mocked(api.get).mockResolvedValue({ data: [] });
+		vi.mocked(mcpServersApi.listOfficialMcpServers).mockResolvedValue([]);
 	});
 
 	it("creates a custom API-key server, publishes it to the store, and navigates back", async () => {
 		const user = userEvent.setup();
-		vi.mocked(api.post).mockResolvedValue({ data: createdServer });
+		vi.mocked(mcpServersApi.createMcpServer).mockResolvedValue(createdServer);
 
 		render(<CustomMCPServerPage />);
 
@@ -61,7 +57,7 @@ describe("CustomMCPServerPage", () => {
 		await user.click(screen.getByRole("button", { name: "Add server" }));
 
 		await waitFor(() => {
-			expect(api.post).toHaveBeenCalledWith("/mcp-servers", {
+			expect(mcpServersApi.createMcpServer).toHaveBeenCalledWith({
 				name: "Internal Search",
 				url: "https://search.example.com/mcp",
 				authType: "api_key",
@@ -78,7 +74,7 @@ describe("CustomMCPServerPage", () => {
 
 	it("surfaces a fallback error, stays on the page, and does not publish on failure", async () => {
 		const user = userEvent.setup();
-		vi.mocked(api.post).mockRejectedValue(new Error("network down"));
+		vi.mocked(mcpServersApi.createMcpServer).mockRejectedValue(new Error("network down"));
 
 		render(<CustomMCPServerPage />);
 
@@ -86,7 +82,7 @@ describe("CustomMCPServerPage", () => {
 		await user.click(screen.getByRole("button", { name: "Add server" }));
 
 		await waitFor(() => {
-			expect(api.post).toHaveBeenCalled();
+			expect(mcpServersApi.createMcpServer).toHaveBeenCalled();
 		});
 		expect(
 			await screen.findByText("Failed to create MCP server."),
@@ -100,7 +96,7 @@ describe("CustomMCPServerPage", () => {
 
 	it("surfaces the backend error detail when creation is rejected", async () => {
 		const user = userEvent.setup();
-		vi.mocked(api.post).mockRejectedValue({
+		vi.mocked(mcpServersApi.createMcpServer).mockRejectedValue({
 			status: 409,
 			response: { data: { detail: "An MCP server with this URL already exists" } },
 		});
@@ -118,7 +114,7 @@ describe("CustomMCPServerPage", () => {
 
 	it("hides 5xx detail and shows the generic fallback instead", async () => {
 		const user = userEvent.setup();
-		vi.mocked(api.post).mockRejectedValue({
+		vi.mocked(mcpServersApi.createMcpServer).mockRejectedValue({
 			status: 500,
 			response: { data: { detail: "psycopg.errors.UndefinedColumn: ..." } },
 		});

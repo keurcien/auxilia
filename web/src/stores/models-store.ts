@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { api } from "@/lib/api/client";
+import * as modelsApi from "@/lib/api/resources/models";
 import { Model } from "@/types/models";
 
 interface ModelsState {
@@ -22,8 +22,8 @@ export const useModelsStore = create<ModelsState>((set, get) => ({
 	// model selector reflects it without a page reload.
 	refreshModels: async () => {
 		try {
-			const response = await api.get("/model-providers/models");
-			set({ models: response.data, isInitialized: true });
+			const models = await modelsApi.listModels();
+			set({ models, isInitialized: true });
 		} catch (error) {
 			console.error("Error fetching models:", error);
 			// Not initialized on failure — the next fetchModels() retries

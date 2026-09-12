@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import { SearchBar } from "@/components/ui/search-bar";
 import { Alert } from "@/components/ui/alert";
-import { api } from "@/lib/api/client";
+import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { useUserStore } from "@/stores/user-store";
@@ -97,10 +97,10 @@ export default function AddMCPServerPage() {
 		const controller = new AbortController();
 		void (async () => {
 			try {
-				const res = await api.get<OfficialMCPServer[]>("/mcp-servers/official", {
+				const catalog = await mcpServersApi.listOfficialMcpServers({
 					signal: controller.signal,
 				});
-				setOfficialServers(res.data);
+				setOfficialServers(catalog);
 				setIsLoading(false);
 			} catch {
 				// Aborted, or the catalog is unavailable — the custom form still works.

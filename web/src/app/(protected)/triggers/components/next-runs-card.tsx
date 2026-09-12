@@ -2,10 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import { api } from "@/lib/api/client";
+import * as triggersApi from "@/lib/api/resources/triggers";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { formatRunAt } from "@/lib/triggers/schedule";
-import { SchedulePreview } from "@/types/triggers";
 
 interface NextRunsCardProps {
 	/** null = nothing to preview yet (incomplete schedule). */
@@ -42,13 +41,11 @@ export default function NextRunsCard({
 					}
 					return;
 				}
-				api
-					.get<SchedulePreview>("/triggers/schedule/preview", {
-						params: { cronExpression, timezone, count: 3 },
-					})
-					.then((response) => {
+				triggersApi
+					.previewSchedule(cronExpression, timezone)
+					.then((preview) => {
 						if (requestSeqRef.current !== seq) return;
-						setRuns(response.data.nextRunAts);
+						setRuns(preview.nextRunAts);
 						setError(null);
 					})
 					.catch((err: unknown) => {

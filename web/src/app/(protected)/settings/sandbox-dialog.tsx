@@ -13,7 +13,7 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
-import { api } from "@/lib/api/client";
+import * as sandboxesApi from "@/lib/api/resources/sandboxes";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import type {
 	Sandbox,
@@ -265,11 +265,9 @@ export default function SandboxDialog({
 		setError(null);
 		setSecretHint(null);
 		if (sandbox?.hasSecret) {
-			api
-				.get(`/sandboxes/${sandbox.id}/secret-hint`)
-				.then((response) => {
-					setSecretHint(response.data as SandboxSecretHint);
-				})
+			sandboxesApi
+				.getSandboxSecretHint(sandbox.id)
+				.then(setSecretHint)
 				.catch(() => {
 					// Hint is cosmetic — the placeholder falls back to a generic note.
 				});
@@ -300,10 +298,10 @@ export default function SandboxDialog({
 				config: buildConfig(form),
 				...(form.secret ? { secret: form.secret } : {}),
 			};
-			const response = isEdit
-				? await api.patch(`/sandboxes/${sandbox.id}`, payload)
-				: await api.post("/sandboxes", { ...payload, provider: form.provider });
-			onSaved(response.data as Sandbox);
+			const saved = isEdit
+				? await sandboxesApi.updateSandbox(sandbox.id, payload)
+				: await sandboxesApi.createSandbox({ ...payload, provider: form.provider });
+			onSaved(saved);
 			onOpenChange(false);
 		} catch (err: unknown) {
 			setError(extractDetail(err));

@@ -8,7 +8,7 @@ import ResourceInUseDialog from "@/components/resource-in-use-dialog";
 import { useDeleteMcpServer } from "@/hooks/use-delete-mcp-server";
 import { Alert } from "@/components/ui/alert";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
-import { api } from "@/lib/api/client";
+import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { useUserStore } from "@/stores/user-store";
@@ -140,12 +140,11 @@ export default function MCPServerDetail({
 		const controller = new AbortController();
 		void (async () => {
 			try {
-				const res = await api.get<OAuthSecretHint>(
-					`/mcp-servers/${server.id}/oauth-secret-hint`,
-					{ signal: controller.signal },
-				);
-				setSecretHint(res.data);
-				if (res.data.isSet) setHasStoredSecret(true);
+				const hint = await mcpServersApi.getMcpServerOAuthSecretHint(server.id, {
+					signal: controller.signal,
+				});
+				setSecretHint(hint);
+				if (hint.isSet) setHasStoredSecret(true);
 			} catch {
 				// Aborted, non-admin, or no hint — leave the generic mask.
 			}

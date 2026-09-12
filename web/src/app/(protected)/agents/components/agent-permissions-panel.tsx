@@ -2,32 +2,21 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { Trash2, ChevronDown, Check, Plus } from "lucide-react";
-import { api } from "@/lib/api/client";
+import * as agentsApi from "@/lib/api/resources/agents";
+import * as teamsApi from "@/lib/api/resources/teams";
+import * as usersApi from "@/lib/api/resources/users";
 import { cn } from "@/lib/utils";
 import { SearchBar } from "@/components/ui/search-bar";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { UnderlineTabs } from "@/components/ui/underline-tabs";
 import { UserAvatar } from "@/components/ui/user-avatar";
+import type { Team as WorkspaceTeam, User as WorkspaceUser } from "@/types/users";
 
-type PermissionLevel = "member" | "editor" | "admin";
+type PermissionLevel = agentsApi.GrantLevel;
+type PermissionRow = agentsApi.AgentPermissionRow;
 
-interface User {
-	id: string;
-	name: string | null;
-	email: string | null;
-	pictureUrl: string | null;
-}
-
-interface Team {
-	id: string;
-	name: string;
-	color: string | null;
-}
-
-interface PermissionRow {
-	userId: string;
-	permission: PermissionLevel;
-}
+type User = Pick<WorkspaceUser, "id" | "name" | "email" | "pictureUrl">;
+type Team = Pick<WorkspaceTeam, "id" | "name" | "color">;
 
 interface AgentPermissionsPanelProps {
 	agentId: string;
@@ -70,20 +59,19 @@ export default function AgentPermissionsPanel({
 		setSearch("");
 		Promise.all([
 			// The picker needs the whole workspace; 200 is the API's max page size.
-			api.get("/users", { params: { limit: 200 } }),
-			api.get(`/agents/${agentId}/permissions`),
-			api.get("/teams/"),
-			api.get(`/agents/${agentId}/teams`),
+			usersApi.listUsers({ limit: 200, offset: 0 }),
+			agentsApi.listAgentPermissions(agentId),
+			teamsApi.listTeams(),
+			agentsApi.listAgentTeamIds(agentId),
 		])
-			.then(([usersRes, permsRes, teamsRes, agentTeamsRes]) => {
-				setAllUsers((usersRes.data as { items: User[] }).items);
-				const perms = (permsRes.data as PermissionRow[]).map((p) => ({
+			.then(([usersPage, permissionRows, teams, teamIds]) => {
+				setAllUsers(usersPage.items);
+				const perms = permissionRows.map((p) => ({
 					userId: p.userId,
 					permission: p.permission,
 				}));
-				const teamIds = (agentTeamsRes.data as { teamIds: string[] }).teamIds;
 				setPermissions(perms);
-				setAllTeams(teamsRes.data);
+				setAllTeams(teams);
 				setSelectedTeamIds(teamIds);
 				setSavedSnapshot(snapshotOf(perms, teamIds));
 			})
@@ -149,8 +137,8 @@ export default function AgentPermissionsPanel({
 		setIsSaving(true);
 		try {
 			await Promise.all([
-				api.put(`/agents/${agentId}/permissions`, permissions),
-				api.put(`/agents/${agentId}/teams`, { teamIds: selectedTeamIds }),
+				agentsApi.setAgentPermissions(agentId, permissions),
+				agentsApi.setAgentTeamIds(agentId, selectedTeamIds),
 			]);
 			setSavedSnapshot(snapshotOf(permissions, selectedTeamIds));
 		} catch (err) {

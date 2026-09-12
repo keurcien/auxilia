@@ -13,7 +13,6 @@ import AgentSubagentList from "../[id]/components/agent-subagent-list";
 import AgentTagsPanel from "./agent-tags-panel";
 import AgentPermissionsPanel from "./agent-permissions-panel";
 import { MessageResponse } from "@/components/ai-elements/message";
-import { api } from "@/lib/api/client";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useAgentsStore } from "@/stores/agents-store";
 import { useThreadsStore } from "@/stores/threads-store";
@@ -56,8 +55,10 @@ export default function AgentEditor({
 	const router = useRouter();
 	const { resolvedTheme } = useTheme();
 	const updateAgent = useAgentsStore((state) => state.updateAgent);
-	const addAgent = useAgentsStore((state) => state.addAgent);
-	const removeAgent = useAgentsStore((state) => state.removeAgent);
+	const createAgent = useAgentsStore((state) => state.createAgent);
+	const saveAgentConfig = useAgentsStore((state) => state.saveAgentConfig);
+	const refreshAgent = useAgentsStore((state) => state.refreshAgent);
+	const archiveAgent = useAgentsStore((state) => state.archiveAgent);
 	const markAgentArchived = useThreadsStore((state) => state.markAgentArchived);
 	const user = useUserStore((state) => state.user);
 	const isAdmin = user?.role === "admin";
@@ -146,15 +147,9 @@ export default function AgentEditor({
 		setIsSaving(true);
 		setError(null);
 		try {
-			const response = agent
-				? await api.put(`/agents/${agent.id}/config`, toPayload(form))
-				: await api.post("/agents", toPayload(form));
-			const saved: Agent = response.data;
-			if (agent) {
-				updateAgent(agent.id, saved);
-			} else {
-				addAgent(saved);
-			}
+			const saved: Agent = agent
+				? await saveAgentConfig(agent.id, toPayload(form))
+				: await createAgent(toPayload(form));
 
 			// Refresh agents whose isSubagent flag changed with this save.
 			const before = new Set(initialForm.subagentIds);
@@ -163,16 +158,8 @@ export default function AgentEditor({
 				...form.subagentIds.filter((id) => !before.has(id)),
 				...initialForm.subagentIds.filter((id) => !after.has(id)),
 			];
-			await Promise.all(
-				affected.map((id) =>
-					api
-						.get(`/agents/${id}`)
-						.then((res) => {
-							updateAgent(id, res.data);
-						})
-						.catch(() => {}),
-				),
-			);
+			// Supervisor links changed: the linked agents' `isSubagent` flag did too.
+			await Promise.all(affected.map((id) => refreshAgent(id).catch(() => {})));
 
 			onSaved(saved);
 		} catch (err) {
@@ -195,8 +182,7 @@ export default function AgentEditor({
 			return;
 		}
 		try {
-			await api.delete(`/agents/${agent.id}`);
-			removeAgent(agent.id);
+			await archiveAgent(agent.id);
 			markAgentArchived(agent.id);
 			router.push("/agents");
 		} catch (err) {

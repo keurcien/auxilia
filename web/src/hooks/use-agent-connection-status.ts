@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback } from "react";
-import { api } from "@/lib/api/client";
+import * as agentsApi from "@/lib/api/resources/agents";
+import type { AgentReadyStatus as ReadyStatus } from "@/lib/api/resources/agents";
 
-type AgentReadyStatus = "ready" | "not_configured" | "disconnected" | null;
+type AgentReadyStatus = ReadyStatus | null;
 
 interface AgentReadyState {
 	ready: boolean | null;
@@ -15,18 +16,20 @@ export function useAgentConnectionStatus(agentId: string | undefined): AgentRead
 	const [disconnectedServers, setDisconnectedServers] = useState<string[]>([]);
 	const [status, setStatus] = useState<AgentReadyStatus>(null);
 
-	const refetch = useCallback(async () => {
+	const refetch = useCallback(() => {
 		if (!agentId) return;
-		try {
-			const res = await api.get(`/agents/${agentId}/is-ready`);
-			setReady(res.data.ready);
-			setDisconnectedServers(res.data.disconnectedServers);
-			setStatus(res.data.status);
-		} catch {
-			setReady(false);
-			setDisconnectedServers([]);
-			setStatus("disconnected");
-		}
+		agentsApi
+			.getAgentReadiness(agentId)
+			.then((readiness) => {
+				setReady(readiness.ready);
+				setDisconnectedServers(readiness.disconnectedServers);
+				setStatus(readiness.status);
+			})
+			.catch(() => {
+				setReady(false);
+				setDisconnectedServers([]);
+				setStatus("disconnected");
+			});
 	}, [agentId]);
 
 	useEffect(() => {

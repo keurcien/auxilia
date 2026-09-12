@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
-import { api } from "@/lib/api/client";
+import * as agentsApi from "@/lib/api/resources/agents";
 import * as threadsApi from "@/lib/api/resources/threads";
 import { PageContainer } from "@/components/layout/page-container";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
@@ -57,10 +57,10 @@ export default function AgentThreadsPage() {
 			setIsLoading(true);
 			try {
 				const [agentRes, threadsRes] = await Promise.all([
-					api.get<Agent>(`/agents/${agentId}`),
+					agentsApi.getAgent(agentId),
 					threadsApi.listAgentThreads(agentId, { limit: PAGE_SIZE, offset }),
 				]);
-				setAgent(agentRes.data);
+				setAgent(agentRes);
 				setThreads(threadsRes.items);
 				setTotal(threadsRes.total);
 			} catch (error: unknown) {

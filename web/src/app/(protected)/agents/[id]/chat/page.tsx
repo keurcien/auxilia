@@ -11,7 +11,7 @@ import { SelectAgentDialog } from "./components/select-agent-dialog";
 import { useThreadsStore } from "@/stores/threads-store";
 import { usePendingMessageStore } from "@/stores/pending-message-store";
 import { useModelsStore } from "@/stores/models-store";
-import { api } from "@/lib/api/client";
+import * as agentsApi from "@/lib/api/resources/agents";
 import * as threadsApi from "@/lib/api/resources/threads";
 import { generateUuid } from "@/lib/utils/uuid";
 import { ChevronDown } from "lucide-react";
@@ -121,10 +121,9 @@ const StarterChatPage = () => {
 
 	useEffect(() => {
 		const fetchAgent = async () => {
-			const response = await api.get(`/agents/${agentId}`);
-			const agent = response.data;
+			const agent = await agentsApi.getAgent(agentId);
 			setAgent(agent);
-			starterAgent.set({ name: agent.name, emoji: agent.emoji });
+			starterAgent.set({ name: agent.name, emoji: agent.emoji ?? null });
 		};
 		fetchAgent();
 	}, [agentId]);

@@ -13,15 +13,10 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/ui/card";
-import { api } from "@/lib/api/client";
+import * as authApi from "@/lib/api/resources/auth";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import type { InviteInfo } from "@/types/auth";
 
-interface InviteInfo {
-	email: string;
-	role: string;
-	passwordEnabled: boolean;
-	googleEnabled: boolean;
-}
 
 export default function InviteAcceptPage({
 	params,
@@ -42,8 +37,7 @@ export default function InviteAcceptPage({
 	useEffect(() => {
 		const fetchInviteInfo = async () => {
 			try {
-				const response = await api.get(`/auth/invite/${token}`);
-				setInviteInfo(response.data);
+				setInviteInfo(await authApi.getInviteInfo(token));
 			} catch {
 				setInvalidInvite(true);
 			} finally {
@@ -59,7 +53,7 @@ export default function InviteAcceptPage({
 		setIsLoading(true);
 
 		try {
-			await api.post("/auth/invite/accept", { token, password, name });
+			await authApi.acceptInvite({ token, password, name });
 			router.push("/agents");
 		} catch (err: unknown) {
 			setError(getApiErrorMessage(err, "An error occurred"));

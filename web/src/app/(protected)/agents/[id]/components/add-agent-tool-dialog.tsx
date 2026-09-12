@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { Plus } from "lucide-react";
-import { api } from "@/lib/api/client";
+import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 import { MCPServer } from "@/types/mcp-servers";
 import { Sandbox } from "@/types/sandboxes";
 import {
@@ -159,8 +159,8 @@ function MCPServerSection({
 	const [isLoading, setIsLoading] = useState(true);
 
 	useEffect(() => {
-		api.get("/mcp-servers").then((res) => {
-			setAllServers(res.data);
+		mcpServersApi.listMcpServers().then((servers) => {
+			setAllServers(servers);
 			setIsLoading(false);
 		});
 	}, []);

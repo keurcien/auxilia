@@ -11,7 +11,7 @@ import {
 	WorkspaceTopBarButton,
 } from "@/components/layout/workspace-page";
 import { useQueryParamState } from "@/hooks/use-query-param-state";
-import { api } from "@/lib/api/client";
+import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 import { isApiError } from "@/lib/api/errors";
 import { useUserStore } from "@/stores/user-store";
 import { MCPCatalogSyncResult } from "@/types/mcp-servers";
@@ -48,10 +48,8 @@ export default function MCPServersPage() {
 		setIsSyncing(true);
 		setSyncStatus(null);
 		try {
-			const response = await api.post<MCPCatalogSyncResult>(
-				"/mcp-servers/catalog/sync",
-			);
-			setSyncStatus({ kind: "info", text: syncSummary(response.data) });
+			const result = await mcpServersApi.syncMcpCatalog();
+			setSyncStatus({ kind: "info", text: syncSummary(result) });
 		} catch (error: unknown) {
 			setSyncStatus({
 				kind: "error",

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { TriangleAlert } from "lucide-react";
 import { Agent } from "@/types/agents";
-import { api } from "@/lib/api/client";
+import { useAgentsStore } from "@/stores/agents-store";
 import AgentDialogShell from "@/app/(protected)/agents/components/agent-dialog-shell";
 import { DialogButton } from "@/components/ui/dialog";
 
@@ -21,11 +21,15 @@ export default function ArchivedAgentDialog({
 }: ArchivedAgentDialogProps) {
 	const [confirmingDelete, setConfirmingDelete] = useState(false);
 	const [busy, setBusy] = useState(false);
+	const restoreAgent = useAgentsStore((state) => state.restoreAgent);
+	const permanentlyDeleteAgent = useAgentsStore(
+		(state) => state.permanentlyDeleteAgent,
+	);
 
 	const handleRestore = async () => {
 		setBusy(true);
 		try {
-			await api.post(`/agents/${agent.id}/restore`);
+			await restoreAgent(agent.id);
 			onRemoved(agent.id);
 			onClose();
 		} catch (error) {
@@ -38,7 +42,7 @@ export default function ArchivedAgentDialog({
 	const handleDelete = async () => {
 		setBusy(true);
 		try {
-			await api.delete(`/agents/${agent.id}/permanent`);
+			await permanentlyDeleteAgent(agent.id);
 			onRemoved(agent.id);
 			onClose();
 		} catch (error) {
