@@ -9,7 +9,8 @@ import AgentMCPServer from "./agent-mcp-server";
 import AgentSandbox from "./agent-sandbox";
 import AddAgentToolDialog from "./add-agent-tool-dialog";
 import { AgentMCPServerForm, AgentSandboxForm } from "../../lib/agent-form";
-import { api } from "@/lib/api/client";
+import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
+import * as sandboxesApi from "@/lib/api/resources/sandboxes";
 
 interface AgentToolListProps {
 	/** Saved agent id — undefined in create mode (`/agents/new`). */
@@ -55,12 +56,8 @@ export default function AgentToolList({
 	const [dialogOpen, setDialogOpen] = useState(false);
 
 	useEffect(() => {
-		api.get("/mcp-servers").then((res) => {
-			setAllMCPServers(res.data);
-		});
-		api.get("/sandboxes").then((res) => {
-			setAllSandboxes(res.data);
-		});
+		mcpServersApi.listMcpServers().then(setAllMCPServers);
+		sandboxesApi.listSandboxes().then(setAllSandboxes);
 	}, []);
 
 	const enabledServers = useMemo(() => {

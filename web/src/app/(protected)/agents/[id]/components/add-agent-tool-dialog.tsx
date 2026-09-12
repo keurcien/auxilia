@@ -4,7 +4,8 @@ import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { Plus } from "lucide-react";
-import { api } from "@/lib/api/client";
+import { getApiErrorMessage } from "@/lib/api/errors";
+import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 import { MCPServer } from "@/types/mcp-servers";
 import { Sandbox } from "@/types/sandboxes";
 import {
@@ -19,7 +20,6 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
-import { shouldCloseAddToolDialogAfterServerAdded } from "../lib/mcp-server-assignment";
 
 interface AddAgentToolDialogProps {
 	open: boolean;
@@ -158,12 +158,24 @@ function MCPServerSection({
 	const router = useRouter();
 	const [allServers, setAllServers] = useState<MCPServer[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
+	const [loadError, setLoadError] = useState<string | null>(null);
 
 	useEffect(() => {
-		api.get("/mcp-servers").then((res) => {
-			setAllServers(res.data);
-			setIsLoading(false);
-		});
+		mcpServersApi
+			.listMcpServers()
+			.then((servers) => {
+				setAllServers(servers);
+				setLoadError(null);
+			})
+			.catch((error: unknown) => {
+				console.error("Error loading MCP servers:", error);
+				setLoadError(
+					getApiErrorMessage(error, "Could not load the workspace's MCP servers."),
+				);
+			})
+			.finally(() => {
+				setIsLoading(false);
+			});
 	}, []);
 
 	const availableServers = useMemo(() => {
@@ -174,12 +186,10 @@ function MCPServerSection({
 	const handleServerAdded = (addedServerId: string) => {
 		onAddServer(addedServerId);
 
-		if (
-			shouldCloseAddToolDialogAfterServerAdded(
-				availableServers.map((server) => server.id),
-				addedServerId,
-			)
-		) {
+		// Close once the last available server has been added — nothing is left to pick.
+		const wasLastAvailable =
+			availableServers.length === 1 && availableServers[0].id === addedServerId;
+		if (wasLastAvailable) {
 			onOpenChange(false);
 		}
 	};
@@ -204,7 +214,11 @@ function MCPServerSection({
 			<h3 className="mb-3 font-mono text-[10.5px] font-semibold tracking-[0.09em] text-label dark:text-panel-dim animate-in fade-in duration-300">
 				MCP SERVERS
 			</h3>
-			{availableServers.length > 0 ? (
+			{loadError ? (
+				<p className="text-sm text-destructive" role="alert">
+					{loadError} Close and reopen this dialog to try again.
+				</p>
+			) : availableServers.length > 0 ? (
 				<div className="content-start grid md:grid-cols-2 grid-cols-1 gap-x-2.5 gap-y-2 animate-in fade-in duration-300">
 					{availableServers.map((server, i) => (
 						<div

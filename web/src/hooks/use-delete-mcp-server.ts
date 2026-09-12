@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { api } from "@/lib/api/client";
+import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import type { BoundAgent } from "@/types/agents";
 import type { MCPServer } from "@/types/mcp-servers";
@@ -30,8 +30,7 @@ export function useDeleteMcpServer({
 
 	const requestDelete = async (server: MCPServer): Promise<void> => {
 		try {
-			const response = await api.get(`/mcp-servers/${server.id}/agents`);
-			const agents = response.data as BoundAgent[];
+			const agents = await mcpServersApi.listMcpServerAgents(server.id);
 			if (agents.length > 0) {
 				setGuard({ server, agents });
 				return;

@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { api } from "@/lib/api/client";
+import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 import type { MCPServer } from "@/types/mcp-servers";
 import type { Sandbox } from "@/types/sandboxes";
 import AddAgentToolDialog from "./add-agent-tool-dialog";
@@ -10,10 +10,8 @@ vi.mock("next/navigation", () => ({
 	useRouter: () => ({ push: vi.fn() }),
 }));
 
-vi.mock("@/lib/api/client", () => ({
-	api: {
-		get: vi.fn(),
-	},
+vi.mock("@/lib/api/resources/mcp-servers", () => ({
+	listMcpServers: vi.fn(),
 }));
 
 const availableServer: MCPServer = {
@@ -37,10 +35,15 @@ const availableSandbox: Sandbox = {
 	updatedAt: "2026-08-22T00:00:00Z",
 };
 
-function mockApi() {
-	vi.mocked(api.get).mockImplementation(() =>
-		Promise.resolve({ data: [availableServer] }),
-	);
+const secondServer: MCPServer = {
+	...availableServer,
+	id: "server-2",
+	name: "Docs Search",
+	url: "https://docs.example.com/mcp",
+};
+
+function mockApi(servers: MCPServer[] = [availableServer]) {
+	vi.mocked(mcpServersApi.listMcpServers).mockResolvedValue(servers);
 }
 
 describe("AddAgentToolDialog", () => {
@@ -74,6 +77,34 @@ describe("AddAgentToolDialog", () => {
 			expect(onAddServer).toHaveBeenCalledWith("server-1");
 			expect(onOpenChange).toHaveBeenCalledWith(false);
 		});
+	});
+
+	it("stays open when other servers remain to be added", async () => {
+		mockApi([availableServer, secondServer]);
+		const user = userEvent.setup();
+		const onOpenChange = vi.fn();
+		const onAddServer = vi.fn();
+
+		render(
+			<AddAgentToolDialog
+				open
+				onOpenChange={onOpenChange}
+				attachedServerIds={[]}
+				attachedSandboxIds={[]}
+				sandboxes={[availableSandbox]}
+				onAddServer={onAddServer}
+				onAddSandbox={vi.fn()}
+			/>,
+		);
+
+		await user.click(
+			await screen.findByRole("button", { name: "Add Internal Search" }),
+		);
+
+		await waitFor(() => {
+			expect(onAddServer).toHaveBeenCalledWith("server-1");
+		});
+		expect(onOpenChange).not.toHaveBeenCalled();
 	});
 
 	it("hides already-attached servers from the available list", async () => {

@@ -1,12 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import axios from "axios";
 import { RefreshCw, Star } from "lucide-react";
 import { ModelSelectorLogo } from "@/components/ai-elements/model-selector";
 import { HeaderButton } from "@/components/layout/subpage-header";
 import { Switch } from "@/components/ui/switch";
-import { api } from "@/lib/api/client";
+import * as modelsApi from "@/lib/api/resources/models";
+import { isApiError } from "@/lib/api/errors";
 import { useModelsStore } from "@/stores/models-store";
 import type { ManagedModel, WhitelistSyncResult } from "@/types/models";
 
@@ -25,11 +25,7 @@ function providerLabel(provider: string): string {
 }
 
 function apiErrorDetail(error: unknown): string | null {
-	if (axios.isAxiosError(error)) {
-		const data = error.response?.data as { detail?: string } | undefined;
-		return data?.detail ?? null;
-	}
-	return null;
+	return isApiError(error) ? error.detail : null;
 }
 
 function syncSummary(result: WhitelistSyncResult): string {
@@ -109,15 +105,13 @@ export default function WorkspaceModels({
 		setIsLoading(true);
 		setLoadFailed(false);
 		try {
-			const response = await api.get<ManagedModel[]>(
-				"/model-providers/models/manage",
-			);
-			setModels(response.data);
+			const managed = await modelsApi.listManagedModels();
+			setModels(managed);
 			// Only a successful fetch reports a count — an empty array from a
 			// failed/pending load would show a misleading "Models 0" in the rail.
-			onCountChangeRef.current?.(response.data.length);
+			onCountChangeRef.current?.(managed.length);
 		} catch (error: unknown) {
-			if (axios.isAxiosError(error) && error.response?.status === 403) {
+			if (isApiError(error) && error.status === 403) {
 				onForbiddenRef.current();
 			} else {
 				console.error("Error fetching workspace models:", error);
@@ -159,10 +153,7 @@ export default function WorkspaceModels({
 			),
 		);
 		try {
-			await api.put(
-				`/model-providers/models/${encodeURIComponent(model.provider)}/${encodeURIComponent(model.modelId)}`,
-				{ isEnabled },
-			);
+			await modelsApi.setModelEnabled(model.provider, model.modelId, isEnabled);
 			// Every open model picker reflects the change without a reload.
 			await refreshModels().catch(() => {});
 		} catch (error: unknown) {
@@ -173,7 +164,7 @@ export default function WorkspaceModels({
 						: m,
 				),
 			);
-			if (axios.isAxiosError(error) && error.response?.status === 403) {
+			if (isApiError(error) && error.status === 403) {
 				onForbidden();
 			} else {
 				setStatus({
@@ -212,12 +203,9 @@ export default function WorkspaceModels({
 		);
 		try {
 			if (makeDefault) {
-				await api.put("/model-providers/models/default", {
-					provider: model.provider,
-					modelId: model.modelId,
-				});
+				await modelsApi.setDefaultModel(model.provider, model.modelId);
 			} else {
-				await api.delete("/model-providers/models/default");
+				await modelsApi.clearDefaultModel();
 			}
 			// Every open model picker preselects the new default without a reload.
 			await refreshModels().catch(() => {});
@@ -225,7 +213,7 @@ export default function WorkspaceModels({
 			// Refetch instead of reverting from a snapshot: the persisted state
 			// is the only reliable source after a failure.
 			await loadManaged();
-			if (axios.isAxiosError(error) && error.response?.status === 403) {
+			if (isApiError(error) && error.status === 403) {
 				onForbidden();
 			} else {
 				setStatus({
@@ -250,12 +238,9 @@ export default function WorkspaceModels({
 		setStatus(null);
 		let summary: string;
 		try {
-			const syncResponse = await api.post<WhitelistSyncResult>(
-				"/model-providers/whitelist/sync",
-			);
-			summary = syncSummary(syncResponse.data);
+			summary = syncSummary(await modelsApi.syncWhitelist());
 		} catch (error: unknown) {
-			if (axios.isAxiosError(error) && error.response?.status === 403) {
+			if (isApiError(error) && error.status === 403) {
 				onForbidden();
 			} else {
 				setStatus({
@@ -269,11 +254,9 @@ export default function WorkspaceModels({
 		// The sync itself succeeded — a refetch hiccup must not report it as
 		// failed (the backend has already applied the new catalog).
 		try {
-			const managedResponse = await api.get<ManagedModel[]>(
-				"/model-providers/models/manage",
-			);
-			setModels(managedResponse.data);
-			onCountChangeRef.current?.(managedResponse.data.length);
+			const managed = await modelsApi.listManagedModels();
+			setModels(managed);
+			onCountChangeRef.current?.(managed.length);
 			setStatus({ kind: "info", text: summary });
 		} catch {
 			setStatus({

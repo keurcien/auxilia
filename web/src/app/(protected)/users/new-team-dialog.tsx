@@ -11,15 +11,11 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { AGENT_COLORS } from "@/lib/colors";
-import { api } from "@/lib/api/client";
+import * as teamsApi from "@/lib/api/resources/teams";
+import { getApiErrorMessage } from "@/lib/api/errors";
+import type { Team } from "@/types/users";
 
-export interface Team {
-	id: string;
-	name: string;
-	color: string | null;
-	/** Only meaningful on the list endpoint; create/update responses report 0. */
-	memberCount: number;
-}
+export type { Team };
 
 interface NewTeamDialogProps {
 	open: boolean;
@@ -59,23 +55,13 @@ export default function NewTeamDialog({
 		setIsSubmitting(true);
 		try {
 			if (team) {
-				const response = await api.patch(`/teams/${team.id}`, {
-					name: trimmed,
-					color,
-				});
-				onTeamUpdated?.(response.data as Team);
+				onTeamUpdated?.(await teamsApi.updateTeam(team.id, { name: trimmed, color }));
 			} else {
-				const response = await api.post("/teams/", { name: trimmed, color });
-				onTeamCreated?.(response.data as Team);
+				onTeamCreated?.(await teamsApi.createTeam({ name: trimmed, color }));
 			}
 			onOpenChange(false);
 		} catch (err: unknown) {
-			if (err && typeof err === "object" && "response" in err) {
-				const axiosError = err as { response?: { data?: { detail?: string } } };
-				setError(axiosError.response?.data?.detail || "An error occurred");
-			} else {
-				setError("An error occurred");
-			}
+			setError(getApiErrorMessage(err, "An error occurred"));
 		} finally {
 			setIsSubmitting(false);
 		}

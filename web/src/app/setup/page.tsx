@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/api/client";
+import * as authApi from "@/lib/api/resources/auth";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { AuthShell } from "@/components/auth/auth-shell";
 import {
@@ -24,8 +24,8 @@ export default function SetupPage() {
 	useEffect(() => {
 		const checkSetup = async () => {
 			try {
-				const response = await api.get("/auth/setup/status");
-				if (!response.data.setupRequired) {
+				const { setupRequired } = await authApi.getSetupStatus();
+				if (!setupRequired) {
 					router.replace("/auth");
 				} else {
 					setIsChecking(false);
@@ -43,7 +43,7 @@ export default function SetupPage() {
 		setIsLoading(true);
 
 		try {
-			await api.post("/auth/setup", { email, password, name });
+			await authApi.completeSetup({ email, password, name });
 			router.push("/agents");
 		} catch (err: unknown) {
 			setError(getApiErrorMessage(err, "An error occurred"));

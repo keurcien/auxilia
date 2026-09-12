@@ -22,39 +22,14 @@ import {
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
-import { api } from "@/lib/api/client";
+import * as invitesApi from "@/lib/api/resources/invites";
+import * as teamsApi from "@/lib/api/resources/teams";
+import * as usersApi from "@/lib/api/resources/users";
 import { useUserStore } from "@/stores/user-store";
 import { useQueryParamState } from "@/hooks/use-query-param-state";
-import type { Paginated } from "@/types/api";
+import type { Invite, RoleCounts, User, WorkspaceRole } from "@/types/users";
 
-interface User {
-	id: string;
-	name: string | null;
-	email: string | null;
-	role: "member" | "editor" | "admin";
-	teamId: string | null;
-	pictureUrl: string | null;
-	createdAt: string;
-	updatedAt: string;
-}
-
-interface Invite {
-	id: string;
-	email: string;
-	role: string;
-	inviteUrl: string;
-	invitedByName: string | null;
-	createdAt: string;
-}
-
-interface RoleCounts {
-	total: number;
-	member: number;
-	editor: number;
-	admin: number;
-}
-
-type Role = "member" | "editor" | "admin";
+type Role = WorkspaceRole;
 
 const PAGE_SIZE = 20;
 
@@ -139,16 +114,14 @@ export default function UsersPage() {
 	const fetchUsers = useCallback(async () => {
 		setIsLoading(true);
 		try {
-			const response = await api.get<Paginated<User>>("/users", {
-				params: {
-					limit: PAGE_SIZE,
-					offset,
-					...(roleFilter !== "all" && { role: roleFilter }),
-					...(debouncedSearch && { search: debouncedSearch }),
-				},
+			const page = await usersApi.listUsers({
+				limit: PAGE_SIZE,
+				offset,
+				...(roleFilter !== "all" && { role: roleFilter }),
+				...(debouncedSearch && { search: debouncedSearch }),
 			});
-			setUsers(response.data.items);
-			setTotal(response.data.total);
+			setUsers(page.items);
+			setTotal(page.total);
 		} catch (error) {
 			console.error("Error fetching users:", error);
 		} finally {
@@ -158,8 +131,7 @@ export default function UsersPage() {
 
 	const fetchRoleCounts = useCallback(async () => {
 		try {
-			const response = await api.get<RoleCounts>("/users/role-counts");
-			setRoleCounts(response.data);
+			setRoleCounts(await usersApi.getRoleCounts());
 		} catch (error) {
 			console.error("Error fetching role counts:", error);
 		}
@@ -167,8 +139,7 @@ export default function UsersPage() {
 
 	const fetchTeams = useCallback(async () => {
 		try {
-			const response = await api.get<Team[]>("/teams/");
-			setTeams(response.data);
+			setTeams(await teamsApi.listTeams());
 		} catch (error) {
 			console.error("Error fetching teams:", error);
 		}
@@ -183,8 +154,7 @@ export default function UsersPage() {
 		void fetchTeams();
 		const fetchInvites = async () => {
 			try {
-				const response = await api.get("/invites/");
-				setInvites(response.data);
+				setInvites(await invitesApi.listInvites());
 			} catch (error) {
 				console.error("Error fetching invites:", error);
 			}
@@ -210,7 +180,7 @@ export default function UsersPage() {
 
 	const handleDeleteInvite = async (inviteId: string) => {
 		try {
-			await api.delete(`/invites/${inviteId}`);
+			await invitesApi.deleteInvite(inviteId);
 			setInvites((prev) => prev.filter((i) => i.id !== inviteId));
 		} catch (error: unknown) {
 			if (
@@ -227,7 +197,7 @@ export default function UsersPage() {
 
 	const handleRoleChange = async (userId: string, newRole: Role) => {
 		try {
-			await api.patch(`/users/${userId}/role`, { role: newRole });
+			await usersApi.setUserRole(userId, newRole);
 			if (roleFilter === "all") {
 				setUsers((prev) =>
 					prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u)),
@@ -252,7 +222,7 @@ export default function UsersPage() {
 
 	const handleTeamChange = async (userId: string, teamId: string | null) => {
 		try {
-			await api.patch(`/users/${userId}/team`, { teamId });
+			await usersApi.setUserTeam(userId, teamId);
 			setUsers((prev) =>
 				prev.map((u) => (u.id === userId ? { ...u, teamId } : u)),
 			);
@@ -320,7 +290,7 @@ export default function UsersPage() {
 		if (!confirmed) return;
 
 		try {
-			await api.delete(`/teams/${team.id}`);
+			await teamsApi.deleteTeam(team.id);
 			setTeams((prev) => prev.filter((t) => t.id !== team.id));
 			// Mirror the DB's ON DELETE SET NULL so the table reflects reality.
 			setUsers((prev) =>
@@ -346,7 +316,7 @@ export default function UsersPage() {
 		if (!confirmed) return;
 
 		try {
-			await api.delete(`/users/${userId}`);
+			await usersApi.deleteUser(userId);
 			// Resync page, counts and team membership from the server.
 			void fetchUsers();
 			void fetchRoleCounts();

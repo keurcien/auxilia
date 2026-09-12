@@ -9,7 +9,7 @@ import {
 	SANDBOX_PROVIDER_ICONS,
 	SANDBOX_PROVIDER_LABELS,
 } from "@/lib/sandbox-providers";
-import { api } from "@/lib/api/client";
+import * as sandboxesApi from "@/lib/api/resources/sandboxes";
 import type { BoundAgent } from "@/types/agents";
 import type { Sandbox } from "@/types/sandboxes";
 import SandboxDialog from "./sandbox-dialog";
@@ -53,8 +53,7 @@ export default function WorkspaceSandboxes({
 		setIsLoading(true);
 		setLoadFailed(false);
 		try {
-			const response = await api.get("/sandboxes");
-			setSandboxes(response.data as Sandbox[]);
+			setSandboxes(await sandboxesApi.listSandboxes());
 			setHasLoaded(true);
 		} catch (error: unknown) {
 			if (isForbidden(error)) {
@@ -93,14 +92,13 @@ export default function WorkspaceSandboxes({
 		try {
 			// A sandbox still enabled on agents can't be removed silently —
 			// the dialog lists them and asks for an explicit detach + delete.
-			const response = await api.get(`/sandboxes/${sandbox.id}/agents`);
-			const agents = response.data as BoundAgent[];
+			const agents = await sandboxesApi.listSandboxAgents(sandbox.id);
 			if (agents.length > 0) {
 				setDeleteTarget({ sandbox, agents });
 				return;
 			}
 			if (!window.confirm(`Delete "${sandbox.name}"?`)) return;
-			await api.delete(`/sandboxes/${sandbox.id}`);
+			await sandboxesApi.deleteSandbox(sandbox.id);
 			setSandboxes((prev) => prev.filter((s) => s.id !== sandbox.id));
 		} catch (error: unknown) {
 			if (isForbidden(error)) {
@@ -117,7 +115,7 @@ export default function WorkspaceSandboxes({
 		if (!deleteTarget) return;
 		const { sandbox } = deleteTarget;
 		try {
-			await api.delete(`/sandboxes/${sandbox.id}?detach_agents=true`);
+			await sandboxesApi.deleteSandbox(sandbox.id, { detachAgents: true });
 		} catch (error: unknown) {
 			if (isForbidden(error)) {
 				onForbiddenRef.current();

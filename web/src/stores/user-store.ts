@@ -1,18 +1,9 @@
 import { create } from "zustand";
-import { api } from "@/lib/api/client";
-
-interface User {
-	id: string;
-	name: string | null;
-	email: string | null;
-	role: "member" | "editor" | "admin";
-	pictureUrl: string | null;
-	createdAt: string;
-	updatedAt: string;
-}
+import * as authApi from "@/lib/api/resources/auth";
+import type { CurrentUser } from "@/types/auth";
 
 interface UserStore {
-	user: User | null;
+	user: CurrentUser | null;
 	isLoading: boolean;
 	isInitialized: boolean;
 	fetchUser: () => Promise<void>;
@@ -26,14 +17,12 @@ export const useUserStore = create<UserStore>((set, get) => ({
 	isInitialized: false,
 
 	fetchUser: async () => {
-		// isLoading doubles as an in-flight guard: sidebar and pages both call
-		// this on mount, and only one /auth/me request should go out.
 		if (get().isInitialized || get().isLoading) return;
 
 		set({ isLoading: true });
 		try {
-			const response = await api.get("/auth/me");
-			set({ user: response.data, isInitialized: true });
+			const user = await authApi.getCurrentUser();
+			set({ user, isInitialized: true });
 		} catch {
 			set({ user: null, isInitialized: true });
 		} finally {
@@ -43,7 +32,7 @@ export const useUserStore = create<UserStore>((set, get) => ({
 
 	logout: async () => {
 		try {
-			await api.post("/auth/signout");
+			await authApi.signOut();
 		} finally {
 			set({ user: null, isInitialized: false });
 			window.location.href = "/auth";

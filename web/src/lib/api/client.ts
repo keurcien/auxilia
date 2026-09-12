@@ -1,6 +1,8 @@
 import axios from "axios";
 import snakecaseKeys from "snakecase-keys";
 
+import { toApiError } from "@/lib/api/errors";
+
 const isServer = typeof window === "undefined";
 
 // API base URL:
@@ -21,6 +23,13 @@ export const api = axios.create({
 });
 
 // Fields that should not have their nested keys transformed to snake_case
+/**
+ * Keys whose *values* are passed through untouched in both directions: they
+ * hold user-authored or tool-authored JSON (the agent `tools` map, MCP tool
+ * `arguments`) whose key spelling is part of the data, not our API contract.
+ * Bodies that are protocol-shaped end to end do not use this client at all —
+ * see `lib/api/protocol.ts`.
+ */
 const PRESERVE_KEYS_FIELDS = ["tools", "arguments"];
 
 // Recursively transform keys to snake_case while preserving specified fields
@@ -110,9 +119,14 @@ function camelcaseKeysWithExclusions(
 	return obj;
 }
 
-api.interceptors.response.use((res) => {
-	if (res.data && typeof res.data === "object") {
-		res.data = camelcaseKeysWithExclusions(res.data, PRESERVE_KEYS_FIELDS);
-	}
-	return res;
-});
+api.interceptors.response.use(
+	(res) => {
+		if (res.data && typeof res.data === "object") {
+			res.data = camelcaseKeysWithExclusions(res.data, PRESERVE_KEYS_FIELDS);
+		}
+		return res;
+	},
+	// Every failure leaves this client as an `ApiError` — callers branch on
+	// `status` / `code` / `detail`, never on axios internals.
+	(error: unknown) => Promise.reject(toApiError(error)),
+);

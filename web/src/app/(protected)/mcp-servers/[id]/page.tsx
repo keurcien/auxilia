@@ -1,7 +1,6 @@
 import { cookies } from "next/headers";
-import { MCPServer } from "@/types/mcp-servers";
 import MCPServerDetail from "../components/mcp-server-detail";
-import { api } from "@/lib/api/client";
+import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 
 interface MCPServerPageProps {
 	params: Promise<{ id: string }>;
@@ -16,8 +15,8 @@ export default async function MCPServerPage({
 	const { edit } = await searchParams;
 	const cookieStore = await cookies();
 
-	const { data: server } = await api.get<MCPServer>(`/mcp-servers/${id}`, {
-		headers: { Cookie: cookieStore.toString() },
+	const server = await mcpServersApi.getMcpServer(id, {
+		cookie: cookieStore.toString(),
 	});
 
 	return <MCPServerDetail server={server} initialEdit={edit === "1"} />;

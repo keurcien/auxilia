@@ -12,7 +12,8 @@
 import { useMemo, useState } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { api } from "@/lib/api/client";
+import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
+import * as sandboxesApi from "@/lib/api/resources/sandboxes";
 import type { MCPServer } from "@/types/mcp-servers";
 import type { ToolStatus } from "@/types/agents";
 import AgentToolList from "./agent-tool-list";
@@ -24,8 +25,14 @@ import {
 	toPayload,
 } from "../../lib/agent-form";
 
-vi.mock("@/lib/api/client", () => ({
-	api: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
+vi.mock("@/lib/api/resources/mcp-servers", () => ({
+	listMcpServers: vi.fn(),
+	listMcpServerTools: vi.fn(),
+	isMcpServerConnected: vi.fn(),
+	syncAgentMcpServerTools: vi.fn(),
+}));
+vi.mock("@/lib/api/resources/sandboxes", () => ({
+	listSandboxes: vi.fn(),
 }));
 
 vi.mock("next/image", () => ({
@@ -105,14 +112,12 @@ function mockApi({
 	connected: boolean;
 	tools: { name: string }[];
 }) {
-	vi.mocked(api.get).mockImplementation((url: string) => {
-		if (url === "/mcp-servers") return Promise.resolve({ data: [SERVER] });
-		if (url === "/sandboxes") return Promise.resolve({ data: [] });
-		if (url === `/mcp-servers/${SERVER.id}/is-connected`)
-			return Promise.resolve({ data: { connected } });
-		if (url === `/mcp-servers/${SERVER.id}/list-tools`)
-			return Promise.resolve({ data: { status: "ok", tools } });
-		return Promise.reject(new Error(`unexpected GET ${url}`));
+	vi.mocked(mcpServersApi.listMcpServers).mockResolvedValue([SERVER]);
+	vi.mocked(sandboxesApi.listSandboxes).mockResolvedValue([]);
+	vi.mocked(mcpServersApi.isMcpServerConnected).mockResolvedValue(connected);
+	vi.mocked(mcpServersApi.listMcpServerTools).mockResolvedValue({
+		status: "ok",
+		tools,
 	});
 }
 
@@ -198,30 +203,23 @@ describe("agent tool map persistence", () => {
 	it("read mode: OAuth connect persists the map via sync-tools and reports it upward", async () => {
 		vi.useFakeTimers();
 		let connected = false;
-		vi.mocked(api.get).mockImplementation((url: string) => {
-			if (url === "/mcp-servers") return Promise.resolve({ data: [SERVER] });
-			if (url === "/sandboxes") return Promise.resolve({ data: [] });
-			if (url === `/mcp-servers/${SERVER.id}/is-connected`)
-				return Promise.resolve({ data: { connected } });
-			if (url === `/mcp-servers/${SERVER.id}/list-tools`) {
-				// A 200 either way: the tools, or the URL to authorize at.
-				return Promise.resolve({
-					data: connected
-						? { status: "ok", tools: [{ name: "search" }] }
-						: {
-								status: "auth_required",
-								authUrl: "https://oauth.example.com",
-							},
-				});
-			}
-			return Promise.reject(new Error(`unexpected GET ${url}`));
-		});
-		vi.mocked(api.post).mockResolvedValue({
-			data: {
-				agentId: AGENT_ID,
-				mcpServerId: SERVER.id,
-				tools: { search: "always_allow" },
-			},
+		vi.mocked(mcpServersApi.listMcpServers).mockResolvedValue([SERVER]);
+		vi.mocked(sandboxesApi.listSandboxes).mockResolvedValue([]);
+		vi.mocked(mcpServersApi.isMcpServerConnected).mockImplementation(() =>
+			Promise.resolve(connected),
+		);
+		// A 200 either way: the tools, or the URL to authorize at.
+		vi.mocked(mcpServersApi.listMcpServerTools).mockImplementation(() =>
+			Promise.resolve(
+				connected
+					? { status: "ok", tools: [{ name: "search" }] }
+					: { status: "auth_required", authUrl: "https://oauth.example.com" },
+			),
+		);
+		vi.mocked(mcpServersApi.syncAgentMcpServerTools).mockResolvedValue({
+			agentId: AGENT_ID,
+			mcpServerId: SERVER.id,
+			tools: { search: "always_allow" },
 		});
 		const openSpy = vi
 			.spyOn(window, "open")
@@ -255,8 +253,9 @@ describe("agent tool map persistence", () => {
 		connected = true;
 		await vi.advanceTimersByTimeAsync(2000);
 
-		expect(api.post).toHaveBeenCalledWith(
-			`/agents/${AGENT_ID}/mcp-servers/${SERVER.id}/sync-tools`,
+		expect(mcpServersApi.syncAgentMcpServerTools).toHaveBeenCalledWith(
+			AGENT_ID,
+			SERVER.id,
 		);
 		expect(persisted).toHaveBeenCalledWith(SERVER.id, {
 			search: "always_allow",
@@ -265,12 +264,10 @@ describe("agent tool map persistence", () => {
 
 	it("read mode: a never-synced binding self-heals on view via sync-tools", async () => {
 		mockApi({ connected: true, tools: [{ name: "search" }] });
-		vi.mocked(api.post).mockResolvedValue({
-			data: {
-				agentId: AGENT_ID,
-				mcpServerId: SERVER.id,
-				tools: { search: "always_allow" },
-			},
+		vi.mocked(mcpServersApi.syncAgentMcpServerTools).mockResolvedValue({
+			agentId: AGENT_ID,
+			mcpServerId: SERVER.id,
+			tools: { search: "always_allow" },
 		});
 		const persisted = vi.fn();
 		render(
@@ -282,8 +279,9 @@ describe("agent tool map persistence", () => {
 		);
 
 		await waitFor(() => {
-			expect(api.post).toHaveBeenCalledWith(
-				`/agents/${AGENT_ID}/mcp-servers/${SERVER.id}/sync-tools`,
+			expect(mcpServersApi.syncAgentMcpServerTools).toHaveBeenCalledWith(
+				AGENT_ID,
+				SERVER.id,
 			);
 		});
 		expect(persisted).toHaveBeenCalledWith(SERVER.id, {
@@ -304,11 +302,9 @@ describe("agent tool map persistence", () => {
 		);
 
 		await waitFor(() => {
-			expect(api.get).toHaveBeenCalledWith(
-				`/mcp-servers/${SERVER.id}/list-tools`,
-			);
+			expect(mcpServersApi.listMcpServerTools).toHaveBeenCalledWith(SERVER.id);
 		});
-		expect(api.post).not.toHaveBeenCalled();
+		expect(mcpServersApi.syncAgentMcpServerTools).not.toHaveBeenCalled();
 	});
 
 	it("read mode: a stale map (server gained a tool, no OAuth involved) self-heals on view", async () => {
@@ -316,12 +312,10 @@ describe("agent tool map persistence", () => {
 			connected: true,
 			tools: [{ name: "search" }, { name: "create_page" }],
 		});
-		vi.mocked(api.post).mockResolvedValue({
-			data: {
-				agentId: AGENT_ID,
-				mcpServerId: SERVER.id,
-				tools: { search: "needs_approval", create_page: "always_allow" },
-			},
+		vi.mocked(mcpServersApi.syncAgentMcpServerTools).mockResolvedValue({
+			agentId: AGENT_ID,
+			mcpServerId: SERVER.id,
+			tools: { search: "needs_approval", create_page: "always_allow" },
 		});
 		const persisted = vi.fn();
 		render(
@@ -335,8 +329,9 @@ describe("agent tool map persistence", () => {
 		);
 
 		await waitFor(() => {
-			expect(api.post).toHaveBeenCalledWith(
-				`/agents/${AGENT_ID}/mcp-servers/${SERVER.id}/sync-tools`,
+			expect(mcpServersApi.syncAgentMcpServerTools).toHaveBeenCalledWith(
+				AGENT_ID,
+				SERVER.id,
 			);
 		});
 		expect(persisted).toHaveBeenCalledWith(SERVER.id, {
@@ -358,7 +353,7 @@ describe("agent tool map persistence", () => {
 
 		await expandServerCard();
 		await screen.findByText("search");
-		expect(api.post).not.toHaveBeenCalled();
+		expect(mcpServersApi.syncAgentMcpServerTools).not.toHaveBeenCalled();
 	});
 
 	it("shows a CONNECTED pill on connected servers and NOT CONNECTED otherwise", async () => {

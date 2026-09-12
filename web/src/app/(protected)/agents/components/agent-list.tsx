@@ -6,7 +6,7 @@ import { Agent } from "@/types/agents";
 import AgentCard from "@/app/(protected)/agents/components/agent-card";
 import AgentTable from "@/app/(protected)/agents/components/agent-table";
 import type { ViewMode } from "@/components/ui/view-toggle";
-import { api } from "@/lib/api/client";
+import * as agentsApi from "@/lib/api/resources/agents";
 import { useAgentsStore } from "@/stores/agents-store";
 
 type View = "available" | "all" | "archived";
@@ -191,10 +191,10 @@ export default function AgentList({
 			fetchAgents().catch(console.error);
 			return;
 		}
-		api
-			.get<Agent[]>("/agents?archived=true")
-			.then((response) => {
-				setArchivedAgents(response.data);
+		agentsApi
+			.listArchivedAgents()
+			.then((agents) => {
+				setArchivedAgents(agents);
 			})
 			.catch(console.error)
 			.finally(() => {
@@ -207,13 +207,9 @@ export default function AgentList({
 
 	const handleRemoved = (agentId: string) => {
 		if (archived) {
+			// The store action (restore / permanent delete) already reconciled the
+			// live list; only this page-local archived list needs the row gone.
 			setArchivedAgents((prev) => prev.filter((a) => a.id !== agentId));
-			// A restored agent belongs in the live list again; a permanent delete
-			// changes nothing there. We can't tell which happened, so refresh.
-			void useAgentsStore
-				.getState()
-				.refreshAgents()
-				.catch(() => {});
 			return;
 		}
 		removeAgent(agentId);

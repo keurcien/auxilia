@@ -3,6 +3,7 @@ import type { AssembledToolCall } from "@langchain/react";
 import { describe, expect, it } from "vitest";
 import {
   extractHitlToolNames,
+  getFileAttachments,
   findSubagentInterrupt,
   getMcpAppInfo,
   getReasoning,
@@ -10,7 +11,7 @@ import {
   groupChains,
   pairToolCalls,
   splitInterrupts,
-} from "./message-helpers";
+} from ".";
 
 const ai = (id: string, calls: { id: string; name: string; args?: object }[], text = "") =>
   new AIMessage({
@@ -154,6 +155,29 @@ describe("groupChains", () => {
     const chains = groupChains(messages, pairToolCalls(messages));
     expect(chains.get("a1")?.map((s) => s.kind)).toEqual(["reasoning", "tool", "reasoning"]);
     expect(chains.has("a2")).toBe(false);
+  });
+});
+
+describe("getFileAttachments", () => {
+  it("names image attachments after their data-URL media type", () => {
+    const msg = new HumanMessage({
+      id: "h1",
+      content: [
+        { type: "text", text: "look" },
+        { type: "image_url", image_url: { url: "data:image/png;base64,AAA" } },
+        { type: "image_url", image_url: { url: "data:image/svg+xml;base64,BBB" } },
+        { type: "image_url", image_url: { url: "CCC" } },
+        { type: "file", mime_type: "text/csv", base64: "QkJC", filename: "rows.csv" },
+      ],
+    });
+    expect(
+      getFileAttachments(msg).map((a) => [a.filename, a.mediaType, "url" in a ? a.url : null]),
+    ).toEqual([
+      ["Image.png", "image/png", "data:image/png;base64,AAA"],
+      ["Image.svg", "image/svg+xml", "data:image/svg+xml;base64,BBB"],
+      ["Image.jpg", "image/jpeg", "data:image/jpeg;base64,CCC"],
+      ["rows.csv", "text/csv", "data:text/csv;base64,QkJC"],
+    ]);
   });
 });
 

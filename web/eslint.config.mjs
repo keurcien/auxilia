@@ -5,6 +5,41 @@ import nextTs from "eslint-config-next/typescript";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
+  // The API client is an implementation detail of `src/lib/api/**`. Pages,
+  // components, hooks and stores talk to a resource module
+  // (`@/lib/api/resources/<name>`) that owns the routes and response types, and
+  // catch `ApiError` (`@/lib/api/errors`) rather than axios internals.
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: ["src/lib/api/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@/lib/api/client",
+              message:
+                "Use a resource module from @/lib/api/resources instead of the raw API client.",
+            },
+            {
+              name: "axios",
+              message:
+                "Catch ApiError from @/lib/api/errors; components never see axios.",
+            },
+          ],
+          // The same module reached by a relative path.
+          patterns: [
+            {
+              group: ["**/lib/api/client", "**/lib/api/client.ts"],
+              message:
+                "Use a resource module from @/lib/api/resources instead of the raw API client.",
+            },
+          ],
+        },
+      ],
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:

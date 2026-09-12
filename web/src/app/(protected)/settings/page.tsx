@@ -8,7 +8,7 @@ import WorkspaceModels from "./workspace-models";
 import WorkspaceSandboxes from "./workspace-sandboxes";
 import { SubpageHeader } from "@/components/layout/subpage-header";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
-import { api } from "@/lib/api/client";
+import * as authApi from "@/lib/api/resources/auth";
 import { useQueryParamState } from "@/hooks/use-query-param-state";
 import { useUserStore } from "@/stores/user-store";
 
@@ -113,8 +113,7 @@ export default function SettingsPage() {
 		if (!isAdmin) return;
 		const fetchTokens = async () => {
 			try {
-				const response = await api.get("/auth/tokens");
-				setTokens(response.data);
+				setTokens(await authApi.listTokens());
 			} catch (error: unknown) {
 				if (
 					error instanceof Object &&
@@ -139,7 +138,7 @@ export default function SettingsPage() {
 		if (!confirmed) return;
 
 		try {
-			await api.delete(`/auth/tokens/${token.id}`);
+			await authApi.deleteToken(token.id);
 			setTokens((prev) => prev.filter((t) => t.id !== token.id));
 		} catch (error: unknown) {
 			if (

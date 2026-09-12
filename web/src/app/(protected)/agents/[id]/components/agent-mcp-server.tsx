@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Image from "next/image";
 import {
-	ListToolsResult,
 	MCPServer,
 	MCPServerTool,
 } from "@/types/mcp-servers";
@@ -11,7 +10,7 @@ import { ToolStatus } from "@/types/agents";
 import { ChevronRight } from "lucide-react";
 import AgentMCPTool from "./agent-mcp-tool";
 import { AgentMCPServerForm } from "../../lib/agent-form";
-import { api } from "@/lib/api/client";
+import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 
 interface AgentMCPServerProps {
 	/** Saved agent id — undefined in create mode. */
@@ -131,10 +130,11 @@ export default function AgentMCPServer({
 				fetchedTools.every((tool) => Object.hasOwn(existing, tool.name));
 			if (upToDate) return;
 			try {
-				const res = await api.post(
-					`/agents/${agentId}/mcp-servers/${server.id}/sync-tools`,
+				const binding = await mcpServersApi.syncAgentMcpServerTools(
+					agentId,
+					server.id,
 				);
-				const savedTools = res.data.tools as Record<string, ToolStatus> | null;
+				const savedTools = binding.tools;
 				if (savedTools) {
 					onToolsPersisted?.(savedTools);
 				}
@@ -162,8 +162,7 @@ export default function AgentMCPServer({
 	const fetchTools = useCallback(async () => {
 		setIsLoading(true);
 		try {
-			const res = await api.get(`/mcp-servers/${server.id}/list-tools`);
-			const result = res.data as ListToolsResult;
+			const result = await mcpServersApi.listMcpServerTools(server.id);
 
 			// `auth_required` is an answer, not an error: the server simply is
 			// not connected for this user yet, and the backend hands back the
@@ -181,12 +180,11 @@ export default function AgentMCPServer({
 				let connectHandled = false;
 				const poll = async () => {
 					try {
-						const statusRes = await api.get(
-							`/mcp-servers/${server.id}/is-connected`,
+						const connected = await mcpServersApi.isMcpServerConnected(
+							server.id,
 						);
-						const statusData = statusRes.data;
 
-						if (statusData.connected && !connectHandled) {
+						if (connected && !connectHandled) {
 							connectHandled = true;
 							clearInterval(pollInterval);
 
@@ -195,10 +193,7 @@ export default function AgentMCPServer({
 								// in the config: in edit mode the seed merges the
 								// tools into the draft (saved on Save), in read mode
 								// sync-tools persists the map server-side immediately.
-								const retryRes = await api.get(
-									`/mcp-servers/${server.id}/list-tools`,
-								);
-								const retry = retryRes.data as ListToolsResult;
+								const retry = await mcpServersApi.listMcpServerTools(server.id);
 								if (retry.status !== "ok") {
 									throw new Error("still not authorized after connect");
 								}
@@ -264,12 +259,10 @@ export default function AgentMCPServer({
 
 	useEffect(() => {
 		setIsCheckingConnection(true);
-		api
-			.get(`/mcp-servers/${server.id}/is-connected`)
-			.then((res) => {
-				setIsConnected(res.data.connected);
-			})
-			.catch((error) => {
+		mcpServersApi
+			.isMcpServerConnected(server.id)
+			.then(setIsConnected)
+			.catch((error: unknown) => {
 				console.error("Failed to check connection status:", error);
 				setIsConnected(false);
 			})

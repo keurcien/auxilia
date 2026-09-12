@@ -13,7 +13,8 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
-import { api } from "@/lib/api/client";
+import * as sandboxesApi from "@/lib/api/resources/sandboxes";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import type {
 	Sandbox,
 	SandboxProviderType,
@@ -179,20 +180,8 @@ const buildConfig = (form: SandboxFormState): Record<string, unknown> => {
 	};
 };
 
-const extractDetail = (error: unknown): string => {
-	if (
-		error instanceof Object &&
-		"response" in error &&
-		error.response instanceof Object &&
-		"data" in error.response &&
-		error.response.data instanceof Object &&
-		"detail" in error.response.data &&
-		typeof error.response.data.detail === "string"
-	) {
-		return error.response.data.detail;
-	}
-	return "Something went wrong. Please try again.";
-};
+const extractDetail = (error: unknown): string =>
+	getApiErrorMessage(error, "Something went wrong. Please try again.");
 
 const inputClass =
 	"w-full rounded-lg border border-input bg-card px-3 py-[9px] text-[13.5px] font-medium text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-meta dark:placeholder:text-panel-dim focus:border-petrol focus:shadow-[0_0_0_3px_rgba(22,96,110,0.10)]";
@@ -276,11 +265,9 @@ export default function SandboxDialog({
 		setError(null);
 		setSecretHint(null);
 		if (sandbox?.hasSecret) {
-			api
-				.get(`/sandboxes/${sandbox.id}/secret-hint`)
-				.then((response) => {
-					setSecretHint(response.data as SandboxSecretHint);
-				})
+			sandboxesApi
+				.getSandboxSecretHint(sandbox.id)
+				.then(setSecretHint)
 				.catch(() => {
 					// Hint is cosmetic — the placeholder falls back to a generic note.
 				});
@@ -311,10 +298,10 @@ export default function SandboxDialog({
 				config: buildConfig(form),
 				...(form.secret ? { secret: form.secret } : {}),
 			};
-			const response = isEdit
-				? await api.patch(`/sandboxes/${sandbox.id}`, payload)
-				: await api.post("/sandboxes", { ...payload, provider: form.provider });
-			onSaved(response.data as Sandbox);
+			const saved = isEdit
+				? await sandboxesApi.updateSandbox(sandbox.id, payload)
+				: await sandboxesApi.createSandbox({ ...payload, provider: form.provider });
+			onSaved(saved);
 			onOpenChange(false);
 		} catch (err: unknown) {
 			setError(extractDetail(err));
