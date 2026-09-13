@@ -112,6 +112,61 @@ By default the demo/docs projects target `http://localhost:3100` (the
 `localhost` URL — Next.js dev-origin protection 403s the JS chunks when the
 page is addressed as `127.0.0.1`, leaving pages unhydrated.
 
+## 2b. Record the Shopping assistant demo
+
+```sh
+cd web && npm run demo:video:shopping
+```
+
+`tests/demo/shopping.demo.spec.ts` is a second, shorter video about one agent
+bound to the **Choose Shop** MCP server — an [MCP App](https://modelcontextprotocol.io/docs/extensions/apps):
+its tool results render as an interactive carousel in a sandboxed iframe
+inside the conversation. It is not seeded by `demo:seed`; it expects, in the
+workspace the demo admin signs into:
+
+- an agent named **Shopping assistant** (override with `DEMO_SHOPPING_AGENT`)
+  bound to the Choose Shop server (`…/shop/mcp`, API-key auth) with all three
+  tools (`search_sales`, `search_products`, `get_product`) allowed — the app
+  drills down by calling them itself;
+- the **DeepSeek V4 Pro** model enabled. The spec picks it in the composer on
+  camera (unless it is the workspace default) together with reasoning effort
+  **Off** — `DEMO_MODEL_NAME` / `DEMO_REASONING_EFFORT` override both. That
+  configuration ran a single search for the gift prompt in 3 takes out of 5
+  (Pro with thinking on: 1 in 3; Flash: never; Flash with thinking off went
+  wild with 14–51 calls), so by default the spec re-records when that prompt
+  produced more than one carousel (`DEMO_SINGLE_SEARCH=0` to accept
+  multi-search takes). For the record, GPT-4o mini was single-search in 3/3
+  trials; Claude and Gemini models fanned out into 2–10 searches.
+
+Storyline: the product demo's intro card, then straight to the assistant's
+starter screen — the session is authenticated with a cookie, so there is no
+sign-in or agent picking on camera — a title slide about the assistant, then
+two French-language parts:
+
+1. **Entrée par les ventes** — "y a des ventes de mode homme en ce moment ?"
+   (`DEMO_SALES_PROMPT`) → sales carousel → click the first sale (the app
+   fetches its products) → add the first in-stock product to the (demo) cart
+   → back. The men's-clothing wording of the original storyline is a valid
+   override, but `search_sales` matches free text against the sale taxonomy
+   and the carousel is empty whenever no live sale mentions "homme".
+2. **Entrée par les produits** — a gift request with a budget
+   (`DEMO_GIFT_PROMPT`) → one product search → open a product sheet → browse
+   the gallery → add to cart.
+
+An empty carousel (or a multi-search gift take, see above) fails the test and
+Playwright re-records from scratch (`DEMO_RETRIES`, default 4) — a model can
+still pick a filter that matches nothing.
+
+The Choose carousel lives two iframes deep (`/sandbox.html` → a `blob:` app
+page); the spec drives it with `frameLocator`s, so the cursor and clicks are
+real. Re-runs delete the demo admin's previous threads on that agent first.
+
+The UI steps run at `DEMO_SPEED=4` by default (twice the walkthrough's pace;
+title cards keep their own timing) — override the variable to slow down.
+
+Output: `web/demo-output/auxilia-shopping-demo.webm` (1440×900); convert with
+the same ffmpeg command as above.
+
 ## 3. Capture docs screenshots
 
 ```sh

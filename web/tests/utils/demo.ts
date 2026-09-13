@@ -240,8 +240,9 @@ async function playCard(page: Page, inner: CardInner): Promise<void> {
 const pad2 = (n: number) => String(n).padStart(2, "0");
 
 export type TitleCardOpts = {
-	index: number;
-	total: number;
+	/** Chapter counter (`01 / 03`); omit both for an un-numbered card. */
+	index?: number;
+	total?: number;
 	eyebrow: string;
 	title: string;
 	sub: string;
@@ -256,10 +257,14 @@ export async function titleCard(page: Page, opts: TitleCardOpts): Promise<void> 
 				`<span class="dc-word" style="animation-delay:${140 + i * 90}ms">${w}</span>`,
 		)
 		.join(" ");
+	const counter =
+		opts.index !== undefined && opts.total !== undefined
+			? `<span style="color:#8a9aa0;font-weight:500;">${pad2(opts.index)} / ${pad2(opts.total)}</span>`
+			: "";
 	const html = `
 		<div class="dc-fade" style="animation-delay:80ms;display:flex;align-items:baseline;gap:16px;margin-bottom:28px;font-family:var(--font-ibm-plex-mono),ui-monospace,monospace;font-size:13px;font-weight:600;letter-spacing:0.16em;">
 			<span style="color:#16606e;">${opts.eyebrow}</span>
-			<span style="color:#8a9aa0;font-weight:500;">${pad2(opts.index)} / ${pad2(opts.total)}</span>
+			${counter}
 		</div>
 		<h1 style="margin:0;font-family:var(--font-space-grotesk),sans-serif;font-weight:700;font-size:64px;line-height:1.06;letter-spacing:-0.03em;color:#101820;">${words}</h1>
 		<div class="dc-bar" style="height:3px;background:#16606e;border-radius:2px;margin-top:28px;"></div>
