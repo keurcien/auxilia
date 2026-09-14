@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.4](https://github.com/keurcien/auxilia/compare/backend-v0.8.3...backend-v0.8.4) (2026-09-14)
+
+
+### Bug Fixes
+
+* **mcp:** log the server's own error body on a non-2xx MCP response ([#334](https://github.com/keurcien/auxilia/issues/334)) ([e7950bd](https://github.com/keurcien/auxilia/commit/e7950bdf24807f03822e51677a163fd196c04845))
+
 ## [0.8.3](https://github.com/keurcien/auxilia/compare/backend-v0.8.2...backend-v0.8.3) (2026-09-14)
 
 
