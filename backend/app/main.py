@@ -25,7 +25,6 @@ from app.integrations.slack.consumer import build_slack_run_consumer
 from app.integrations.slack.router import router as slack_router
 from app.invites.router import router as invites_router
 from app.mcp.apps.router import router as mcp_apps_router
-from app.mcp.client.initialize import apply_mcp_client_patches
 from app.mcp.router import auxilia_mcp
 from app.mcp.servers.router import router as mcp_servers_router
 from app.model_providers.router import router as model_providers_router
@@ -56,7 +55,6 @@ def _log_background_crash(task: asyncio.Task) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    apply_mcp_client_patches()
     app.state.redis = get_redis()
     # Loops register themselves on construction, so start from empty: a test
     # app (or a reload) would otherwise accumulate entries for loops that no
@@ -115,7 +113,7 @@ app = FastAPI(lifespan=lifespan)
 
 # There is deliberately no `OAuthAuthorizationRequired` handler. "This MCP
 # server needs authorization" is caught at the MCP seam by whoever asked to
-# connect (`connectivity._open_session`, `Toolset.open`) and turned into a
+# connect (`connection.open_client`, `Toolset.open`) and turned into a
 # response only by the endpoints whose job is connecting — `GET
 # /mcp-servers/{id}/list-tools` returns it as an `auth_required` variant, the
 # run endpoints and the MCP-app endpoints answer 401 explicitly. A global one
@@ -243,4 +241,4 @@ app.include_router(model_providers_router)
 app.include_router(sandboxes_router)
 app.include_router(slack_router)
 
-app.mount("/", auxilia_mcp.streamable_http_app())
+app.mount("/", auxilia_mcp.streamable_http_app(stateless_http=True, json_response=True))
