@@ -4,6 +4,7 @@ import warnings
 from collections.abc import Collection, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from typing import cast
 from uuid import UUID
 
 from fastmcp.client.group import ClientGroup
@@ -366,8 +367,9 @@ class Toolset:
             name: build_client(spec) for name, spec in prepared.connections.items()
         }
         adapter = MCPAdapter(ClientGroup(clients))
-        group = adapter.client
-        assert isinstance(group, ClientGroup)
+        # The adapter clones a group into a group (it arms each member for
+        # elicitation), so `adapter.client` is the `ClientGroup` we route on.
+        group = cast(ClientGroup, adapter.client)
         try:
             async with adapter:
                 lc_tools = await adapter.list_tools()
