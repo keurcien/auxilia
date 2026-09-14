@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.2](https://github.com/keurcien/auxilia/compare/backend-v0.8.1...backend-v0.8.2) (2026-09-14)
+
+
+### Bug Fixes
+
+* **mcp:** confirm transport debug logging is active at startup ([#330](https://github.com/keurcien/auxilia/issues/330)) ([292c4a5](https://github.com/keurcien/auxilia/commit/292c4a5849334aa209f53a355be6e01a2d930760))
+
 ## [0.8.1](https://github.com/keurcien/auxilia/compare/backend-v0.8.0...backend-v0.8.1) (2026-09-14)
 
 
