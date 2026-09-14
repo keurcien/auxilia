@@ -148,6 +148,17 @@ def quirk_scope(
     return None
 
 
+def refresh_failure_is_transient(status_code: int) -> bool:
+    """Whether a non-2xx from the token endpoint says nothing about the
+    refresh credential: 429 (throttled) or 5xx (AS down). Every other
+    non-2xx — 400/401 per RFC 6749 §5.2, but also a 403, 404, 3xx or anything
+    non-standard — is treated as a rejection of the token, since re-POSTing
+    a credential the AS will never accept is the retry storm this guards
+    against. Only consulted for non-2xx: ``ensure_valid_token`` handles every
+    2xx as a success first."""
+    return status_code == 429 or 500 <= status_code < 600
+
+
 def strip_client_id_for_basic_auth(request: httpx.Request) -> httpx.Request:
     """Rebuild a token request without ``client_id`` in the form body when it
     also carries a Basic ``Authorization`` header.
@@ -289,7 +300,11 @@ class WebOAuthClientProvider(OAuthClientProvider):
         — the Notion basic-auth fix, HTTP 201 handling, refresh-token carry-over)
         rather than hand-rolling the token POST. Returns False when no token is
         stored, the token is expired with no refresh token, the stored client
-        info/metadata is missing, or the refresh request fails.
+        info/metadata is missing, or the refresh request fails. A refresh the
+        AS *rejects* (any non-2xx other than 429 / 5xx — see
+        :func:`refresh_failure_is_transient`) also deletes the stored token
+        pair; a transport failure, 429 or 5xx keeps it so a transient outage
+        does not log the user out.
         """
         if not self._initialized:
             await self._initialize()
@@ -320,8 +335,34 @@ class WebOAuthClientProvider(OAuthClientProvider):
             request = await self._refresh_token()
             async with httpx.AsyncClient() as client:
                 response = await client.send(request)
+            if response.is_success:
+                # Any 2xx is the AS accepting the refresh (RFC 6749 §5.1 says
+                # 200; 201 is seen in the wild). An unexpected 2xx shape that
+                # `_handle_token_response` cannot parse raises into the
+                # `except` below and keeps the pair — it is never a rejection.
                 await self._handle_token_response(response)
-            return True
+                return True
+            if refresh_failure_is_transient(response.status_code):
+                # The AS is throttling or down; the credential may well be
+                # fine. Keep it and try again on the next check.
+                logger.warning(
+                    "OAuth refresh failed (%s) for %s — keeping stored tokens",
+                    response.status_code,
+                    self.context.server_url,
+                )
+                return False
+            # The AS rejected the refresh token. That is final — revoked,
+            # rotated away by a concurrent refresh, or expired (Metabase
+            # answers 400 for all three) — so drop the stored pair: the next
+            # check then prompts a clean re-authorization instead of retrying
+            # the dead token on every poll and every run.
+            logger.warning(
+                "OAuth refresh rejected (%s) for %s — clearing stored tokens",
+                response.status_code,
+                self.context.server_url,
+            )
+            await self.context.storage.delete_tokens()
+            return False
         except Exception:  # noqa: BLE001 — a failed refresh means "not authorized", not a crash
             logger.warning(
                 "OAuth refresh failed for %s", self.context.server_url, exc_info=True
