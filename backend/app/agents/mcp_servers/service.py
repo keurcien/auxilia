@@ -42,8 +42,8 @@ class AgentMCPServerService(BaseService[AgentMCPServerDB, AgentMCPServerReposito
         user_id: str,
     ) -> None:
         try:
-            async with connect_to_server(mcp_server, user_id, self.db) as (_, tools):
-                fetched_names = [tool.name for tool in tools]
+            async with connect_to_server(mcp_server, user_id, self.db) as client:
+                fetched_names = [tool.name for tool in await client.list_tools()]
             # The fetch can take seconds, so a concurrent save may have
             # rewritten the map meanwhile. Reload the row under a lock and
             # merge against the fresh state — otherwise this assignment

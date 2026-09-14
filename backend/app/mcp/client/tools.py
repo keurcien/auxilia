@@ -1,6 +1,6 @@
 """Per-tool policy for MCP results, at the seam where they become ToolMessages.
 
-langchain-mcp-adapters wraps every MCP tool with
+``langchain.mcp`` wraps every MCP tool with
 ``response_format="content_and_artifact"``: the text/image blocks become the
 model-visible ``content`` and the server's ``structuredContent`` becomes
 ``ToolMessage.artifact`` — whole, uncapped. The model never sees the artifact,
@@ -21,13 +21,13 @@ Two policies, chosen per tool when the toolset is built:
 """
 
 from langchain_core.messages import ToolMessage
-from langchain_core.tools import Tool
+from langchain_core.tools import BaseTool
 
 
 _STRUCTURED_CONTENT_KEYS = ("structured_content", "structuredContent")
 
 
-def bound_tool_artifact(tool: Tool, ui_metadata: dict | None) -> None:
+def bound_tool_artifact(tool: BaseTool, ui_metadata: dict | None) -> None:
     """Wrap a tool's coroutine in place so every result's artifact follows the
     policy above: stamped and kept whole for an app tool (`ui_metadata` carries
     `mcp_app_resource_uri` + `mcp_server_id`), stripped of structured content
@@ -36,7 +36,9 @@ def bound_tool_artifact(tool: Tool, ui_metadata: dict | None) -> None:
     server_id = (ui_metadata or {}).get("mcp_server_id")
     is_app_tool = bool(resource_uri and server_id)
 
-    original_coroutine = tool.coroutine
+    # Only a `StructuredTool` (what `langchain.mcp` builds) carries a coroutine
+    # to wrap; anything else is left alone.
+    original_coroutine = getattr(tool, "coroutine", None)
     if original_coroutine is None:
         return
 

@@ -6,7 +6,6 @@ pagination guards in tests/mcp/servers/test_connect_to_server.py.
 
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
@@ -14,9 +13,7 @@ from uuid import uuid4
 import pytest
 from fakeredis import FakeServer, aioredis
 
-from app.exceptions import DomainError, PermissionDeniedError
 from app.mcp.client import connectivity
-from app.mcp.client.exceptions import OAuthAuthorizationRequired
 from app.mcp.servers.models import MCPAuthType
 
 
@@ -49,21 +46,19 @@ async def test_is_authorized_oauth_refresh_uses_ensure_valid_token():
 
 
 async def test_is_authorized_oauth_no_refresh_checks_stored_token_only():
+    """`refresh=False` is a storage read — no provider, no network."""
     storage = SimpleNamespace(get_tokens=AsyncMock(return_value=None))
-    provider = SimpleNamespace(
-        _initialize=AsyncMock(),
-        context=SimpleNamespace(storage=storage),
-        ensure_valid_token=AsyncMock(),  # must NOT be used when refresh=False
-    )
-    with patch.object(
-        connectivity, "build_oauth_provider", AsyncMock(return_value=provider)
+    factory = SimpleNamespace(get_storage=lambda *_args: storage)
+    with (
+        patch.object(connectivity, "TokenStorageFactory", lambda: factory),
+        patch.object(connectivity, "build_oauth_provider", AsyncMock()) as build,
     ):
         result = await connectivity.is_authorized(
             _server(MCPAuthType.oauth2), "u1", refresh=False
         )
     assert result is False
-    provider.ensure_valid_token.assert_not_awaited()
-    provider._initialize.assert_awaited_once()
+    storage.get_tokens.assert_awaited_once()
+    build.assert_not_awaited()
 
 
 async def test_probe_candidate_rejects_oauth_before_saving():
@@ -201,84 +196,6 @@ async def test_probe_dedupes_a_server_bound_by_both_parent_and_subagent(probe_re
 
     assert result == {server.id: True}
     probe.assert_awaited_once()
-
-
-# ---------------------------------------------------------------------------
-# _open_session (P1-14) — the try wraps the handshake, not the caller's body
-# ---------------------------------------------------------------------------
-
-
-class _FakeSession:
-    def __init__(self, *_args, **_kwargs):
-        pass
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *_exc):
-        return False
-
-    async def initialize(self):
-        return None
-
-
-@pytest.fixture
-def open_session(monkeypatch):
-    """Stub the transport + SDK session so `_open_session` reaches its yield."""
-
-    @asynccontextmanager
-    async def _transport(**_kwargs):
-        yield (None, None, None)
-
-    monkeypatch.setattr(connectivity, "streamablehttp_client", _transport)
-    monkeypatch.setattr(connectivity, "ClientSession", _FakeSession)
-    monkeypatch.setattr(
-        connectivity, "_list_all_tools", AsyncMock(return_value=["tool-a"])
-    )
-
-
-async def test_open_session_yields_the_listed_tools(open_session):
-    async with connectivity._open_session("https://mcp.example.com/mcp") as (
-        _session,
-        tools,
-    ):
-        assert tools == ["tool-a"]
-
-
-async def test_a_caller_body_exception_propagates_unchanged(open_session):
-    """The regression: the `yield` used to sit inside the `except Exception`
-    wrapper, so a `PermissionDeniedError` raised by the caller came back out as
-    a `DomainError` — a 500 carrying someone else's message."""
-    with pytest.raises(PermissionDeniedError, match="the caller's own error"):
-        async with connectivity._open_session("https://mcp.example.com/mcp"):
-            raise PermissionDeniedError("the caller's own error")
-
-
-async def test_a_failing_tools_list_is_still_wrapped(open_session, monkeypatch):
-    """The wrapping that should stay: a handshake failure gets a clean message."""
-    monkeypatch.setattr(
-        connectivity,
-        "_list_all_tools",
-        AsyncMock(side_effect=RuntimeError("server hung up")),
-    )
-
-    with pytest.raises(DomainError, match="server hung up"):
-        async with connectivity._open_session("https://mcp.example.com/mcp"):
-            pass  # pragma: no cover — never reached
-
-
-async def test_an_oauth_requirement_is_not_wrapped(open_session, monkeypatch):
-    """`test_connection` translates this into an `oauth_required` result, so it
-    must not arrive as a generic DomainError."""
-    monkeypatch.setattr(
-        connectivity,
-        "_list_all_tools",
-        AsyncMock(side_effect=OAuthAuthorizationRequired("https://auth.example")),
-    )
-
-    with pytest.raises(OAuthAuthorizationRequired):
-        async with connectivity._open_session("https://mcp.example.com/mcp"):
-            pass  # pragma: no cover — never reached
 
 
 async def test_the_probe_cache_lives_where_the_purges_can_reach_it(probe_redis):

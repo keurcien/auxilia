@@ -2,7 +2,7 @@
 //
 // A ToolMessage `content` is either a plain string or a list of content blocks
 // (e.g. `[{ type: "text", text: "…" }]`). MCP tool *errors* (status="error")
-// surface via langchain-mcp-adapters as a content-block list, so reading the
+// surface via langchain.mcp as a content-block list, so reading the
 // error text means flattening those blocks — not just checking `typeof === "string"`.
 
 /**

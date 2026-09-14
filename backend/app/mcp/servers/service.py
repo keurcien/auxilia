@@ -345,12 +345,9 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
             raise NotFoundError("MCP server not found")
 
         provider = await build_oauth_provider(mcp_server, storage, self.repository)
-
-        # `_initialize` applies the per-provider OAuth quirks (`OAUTH_QUIRKS`
-        # in `client/auth.py`), including the token-endpoint auth method this
-        # exchange needs. It used to be re-applied here, matched by URL where
-        # the provider matched by issuer — two copies that could disagree.
-        await provider._initialize()
+        # The provider loads its stored state and applies the per-provider
+        # OAuth quirks (`OAUTH_QUIRKS` in `client/auth.py`) itself, including
+        # the token-endpoint auth method this exchange needs.
         await provider.manual_exchange(code, state)
 
         return {
@@ -378,7 +375,8 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
                 # business tool is called.
                 await initiate_oauth(server, user_id, self.db)
 
-            async with connect_to_server(server, user_id, self.db) as (_, tools):
+            async with connect_to_server(server, user_id, self.db) as client:
+                tools = await client.list_tools()
                 return ToolsListed(
                     tools=[
                         MCPToolInfo(name=tool.name, description=tool.description)
@@ -388,7 +386,7 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         except OAuthAuthorizationRequired as exc:
             # Also catches the *implicit* 401 — a stored token that the server
             # has since revoked only fails during the handshake, and the seam
-            # unwraps it out of the transport's ExceptionGroup for us.
+            # unwraps it out of the client's connect failure for us.
             return AuthorizationRequired(auth_url=exc.url)
 
 

@@ -44,8 +44,8 @@ async def read_mcp_app_resource(
     try:
         async with connect_to_server(
             mcp_server, str(current_user.id), db, terminate_on_close=False
-        ) as (session, _):
-            return await session.read_resource(body.uri)
+        ) as client:
+            return await client.read_resource_mcp(body.uri)
     except OAuthAuthorizationRequired as exc:
         # Answered explicitly rather than by an app-global handler (§2.4).
         # These endpoints act on a server the user is already using, so the
@@ -68,8 +68,8 @@ async def call_mcp_app_tool(
     try:
         async with connect_to_server(
             mcp_server, str(current_user.id), db, terminate_on_close=False
-        ) as (session, _):
-            return await session.call_tool(body.tool_name, body.arguments)
+        ) as client:
+            return await client.call_tool_mcp(body.tool_name, body.arguments or {})
     except OAuthAuthorizationRequired as exc:
         # Answered explicitly rather than by an app-global handler (§2.4).
         # These endpoints act on a server the user is already using, so the

@@ -476,12 +476,12 @@ async def test_sync_tools_calls_fetch_and_save_and_returns_link(
 
 
 def make_connect_to_server(tool_names):
-    """Async-context-manager stand-in for connect_to_server yielding tools."""
+    """Async-context-manager stand-in for connect_to_server yielding a client."""
     tools = [SimpleNamespace(name=name) for name in tool_names]
 
     @asynccontextmanager
     async def _connect(server, user_id, db):
-        yield (MagicMock(), tools)
+        yield SimpleNamespace(list_tools=AsyncMock(return_value=tools))
 
     return _connect
 

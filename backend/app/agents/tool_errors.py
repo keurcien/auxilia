@@ -9,8 +9,8 @@ crashing the stream or silently ending the run:
    tools) and transport/protocol failures from MCP tools, and re-raises
    langgraph control-flow signals (interrupts, parent commands) untouched.
    (MCP *tool execution* errors — ``isError=True`` — are surfaced as
-   ``ToolMessage(status="error")`` natively by langchain-mcp-adapters>=0.3.0,
-   so they never reach here.)
+   ``ToolMessage(status="error")`` natively by ``langchain.mcp``, so they
+   never reach here.)
 2. ``RepairInvalidToolCallsMiddleware`` — handles the case *before* execution,
    where the model emitted arguments that aren't valid JSON: it answers each
    such call with an error ToolMessage so the model can retry with valid JSON.

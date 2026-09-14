@@ -1,4 +1,4 @@
-"""`resolve_transport_auth` — the single auth-type → transport dispatch.
+"""`resolve_connection` — the single auth-type → transport dispatch.
 
 Two implementations used to answer this question (the client-config factory and
 the handshake path) and they had drifted: the factory raised on an unknown auth
@@ -7,17 +7,16 @@ missing API key into the header as the literal `Bearer None` (design review
 §4.1). These tests pin both fixes, and that the memo actually memoizes.
 """
 
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
 
 from app.exceptions import DomainValidationError
-from app.mcp.client.connectivity import (
-    CredentialCache,
-    TransportAuth,
-    resolve_transport_auth,
-)
+from app.mcp.client import connectivity
+from app.mcp.client.connection import ConnectionSpec
+from app.mcp.client.connectivity import CredentialCache, resolve_connection
 from app.mcp.servers.models import MCPAuthType, MCPServerDB
 
 
@@ -39,25 +38,26 @@ def _repository(*, api_key=None, oauth=None) -> MagicMock:
 
 
 async def test_no_auth_sends_nothing():
-    auth = await resolve_transport_auth(_server(MCPAuthType.none), "u1", _repository())
+    server = _server(MCPAuthType.none)
+    spec = await resolve_connection(server, "u1", _repository())
 
-    assert auth.headers is None and auth.auth is None
-    assert auth.as_kwargs() == {}
+    assert spec == ConnectionSpec(url=server.url)
 
 
 async def test_api_key_becomes_a_bearer_header():
-    auth = await resolve_transport_auth(
+    spec = await resolve_connection(
         _server(MCPAuthType.api_key), "u1", _repository(api_key="secret")
     )
 
-    assert auth.as_kwargs() == {"headers": {"Authorization": "Bearer secret"}}
+    assert spec.headers == {"Authorization": "Bearer secret"}
+    assert spec.auth is None
 
 
 async def test_a_missing_api_key_is_an_error_not_a_bearer_none():
     """The old code formatted `None` into the header and let the server answer
     with an opaque 401."""
     with pytest.raises(DomainValidationError, match="no API key stored"):
-        await resolve_transport_auth(
+        await resolve_connection(
             _server(MCPAuthType.api_key, name="Stripe"), "u1", _repository()
         )
 
@@ -67,7 +67,7 @@ async def test_an_unknown_auth_type_raises_instead_of_connecting_open():
     object.__setattr__(server, "auth_type", "totally-new-scheme")
 
     with pytest.raises(DomainValidationError, match="Unsupported MCP auth type"):
-        await resolve_transport_auth(server, "u1", _repository())
+        await resolve_connection(server, "u1", _repository())
 
 
 async def test_oauth_builds_a_provider_from_decrypted_static_credentials():
@@ -84,9 +84,10 @@ async def test_oauth_builds_a_provider_from_decrypted_static_credentials():
             return_value=provider,
         ) as build,
     ):
-        auth = await resolve_transport_auth(server, "u1", _repository(oauth=row))
+        spec = await resolve_connection(server, "u1", _repository(oauth=row))
 
-    assert auth.auth is provider
+    assert spec.auth is provider
+    assert spec.headers is None
     # The admin-entered registration reaches provider construction, decrypted —
     # the run path used to build a provider with no client id/secret at all.
     static = build.call_args.args[2]
@@ -117,10 +118,8 @@ async def test_the_memo_resolves_each_credential_once_per_run_graph():
         ) as build,
     ):
         for _ in range(3):
-            await resolve_transport_auth(key_server, "u1", repository, credentials=memo)
-            await resolve_transport_auth(
-                oauth_server, "u1", repository, credentials=memo
-            )
+            await resolve_connection(key_server, "u1", repository, credentials=memo)
+            await resolve_connection(oauth_server, "u1", repository, credentials=memo)
 
     repository.get_api_key.assert_awaited_once()
     repository.get_oauth_credentials.assert_awaited_once()
@@ -135,7 +134,7 @@ async def test_without_a_memo_every_call_reads():
     repository = _repository(api_key="secret")
 
     for _ in range(2):
-        await resolve_transport_auth(server, "u1", repository)
+        await resolve_connection(server, "u1", repository)
 
     assert repository.get_api_key.await_count == 2
 
@@ -156,10 +155,8 @@ async def test_oauth_providers_are_never_shared_between_calls():
             ),
         ),
     ):
-        first = await resolve_transport_auth(server, "u1", repository, credentials=memo)
-        second = await resolve_transport_auth(
-            server, "u1", repository, credentials=memo
-        )
+        first = await resolve_connection(server, "u1", repository, credentials=memo)
+        second = await resolve_connection(server, "u1", repository, credentials=memo)
 
     assert first.auth is not second.auth
 
@@ -169,48 +166,40 @@ async def test_oauth_providers_are_never_shared_between_calls():
 # ---------------------------------------------------------------------------
 
 
-async def test_connect_to_server_hands_the_resolved_auth_to_the_session():
+async def test_connect_to_server_hands_the_resolved_spec_to_the_client():
     """The handshake used to carry its own auth-type branch; the only thing it
-    should do now is splat what the seam resolved."""
-    from contextlib import asynccontextmanager
-
-    from app.mcp.client import connectivity
-
+    should do now is open what the seam resolved."""
     opened: dict = {}
 
     @asynccontextmanager
-    async def _fake_open_session(url, **kwargs):
-        opened["url"] = url
+    async def _fake_open_client(spec, **kwargs):
+        opened["spec"] = spec
         opened["kwargs"] = kwargs
-        yield ("session", [])
+        yield "client"
 
+    resolved = ConnectionSpec(
+        url="https://mcp.example.com", headers={"Authorization": "Bearer k"}
+    )
     with (
-        patch.object(connectivity, "_open_session", _fake_open_session),
+        patch.object(connectivity, "open_client", _fake_open_client),
         patch.object(connectivity, "MCPServerRepository"),
         patch.object(
-            connectivity,
-            "resolve_transport_auth",
-            new=AsyncMock(
-                return_value=TransportAuth(headers={"Authorization": "Bearer k"})
-            ),
+            connectivity, "resolve_connection", new=AsyncMock(return_value=resolved)
         ),
     ):
         server = _server(MCPAuthType.api_key)
         async with connectivity.connect_to_server(server, "u1", MagicMock()) as result:
-            assert result == ("session", [])
+            assert result == "client"
 
-    assert opened["url"] == server.url
-    assert opened["kwargs"]["headers"] == {"Authorization": "Bearer k"}
-    assert opened["kwargs"]["terminate_on_close"] is True
+    assert opened["spec"] is resolved
+    assert opened["kwargs"] == {"terminate_on_close": True}
 
 
 async def test_connect_to_server_opens_nothing_when_the_credential_is_missing():
     """An api_key server with no stored key must fail before the handshake,
     not connect with `Bearer None` and get an opaque 401 back."""
-    from app.mcp.client import connectivity
-
     with (
-        patch.object(connectivity, "_open_session") as open_session,
+        patch.object(connectivity, "open_client") as open_client,
         patch.object(connectivity, "MCPServerRepository", return_value=_repository()),
         pytest.raises(DomainValidationError),
     ):
@@ -219,4 +208,4 @@ async def test_connect_to_server_opens_nothing_when_the_credential_is_missing():
         ):
             pass
 
-    open_session.assert_not_called()
+    open_client.assert_not_called()
