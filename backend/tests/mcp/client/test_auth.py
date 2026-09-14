@@ -449,27 +449,36 @@ async def test_refresh_request_for_basic_omits_client_id_in_body():
 
 
 class _ExpiredTokenStorage(_FakeStorage):
-    """Holds an expired-but-refreshable token; records deletions."""
+    """Holds an expired-but-refreshable token until ``delete_tokens`` is called."""
 
     def __init__(self):
         super().__init__()
-        self.deleted = False
-
-    async def get_stored_token(self):
         from datetime import UTC, datetime, timedelta
 
         from app.mcp.client.storage import StoredToken
 
-        return StoredToken(
+        self.stored = StoredToken(
             token_payload=OAuthToken(access_token="stale", refresh_token="rt"),
             expires_at=datetime.now(UTC) - timedelta(minutes=1),
         )
 
+    async def get_stored_token(self):
+        return self.stored
+
     async def delete_tokens(self):
-        self.deleted = True
+        self.stored = None
 
 
-def _expired_provider(send):
+def _expired_provider(respond):
+    """Provider holding an expired token; ``respond`` answers the refresh POST.
+    Returns the provider, an ``httpx.AsyncClient`` stand-in and the list of
+    requests that reached the token endpoint."""
+    calls = []
+
+    async def send(request):
+        calls.append(request)
+        return await respond(request)
+
     provider = WebOAuthClientProvider(
         server_url=BIGQUERY_URL,
         client_metadata=build_oauth_client_metadata(),
@@ -499,7 +508,7 @@ def _expired_provider(send):
         async def send(self, request):
             return await send(request)
 
-    return provider, _Client
+    return provider, _Client, calls
 
 
 async def test_rejected_refresh_drops_stored_tokens(monkeypatch):
@@ -510,11 +519,32 @@ async def test_rejected_refresh_drops_stored_tokens(monkeypatch):
     async def reject(request):
         return httpx.Response(400, json={"error": "invalid_request"}, request=request)
 
-    provider, client_cls = _expired_provider(reject)
+    provider, client_cls, calls = _expired_provider(reject)
     monkeypatch.setattr(auth_module.httpx, "AsyncClient", client_cls)
 
     assert await provider.ensure_valid_token() is False
-    assert provider.context.storage.deleted is True
+    assert await provider.context.storage.get_stored_token() is None
+    # The pair is gone: the next check finds nothing stored and does not
+    # hit the token endpoint again — that is what lets the UI re-prompt.
+    assert await provider.ensure_valid_token() is False
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("status", [429, 500, 502, 503])
+async def test_as_outage_on_refresh_keeps_stored_tokens(monkeypatch, status):
+    """429 / 5xx say the AS is throttling or down, not that the credential is
+    dead: keep the pair and retry on the next check."""
+
+    async def outage(request):
+        return httpx.Response(status, request=request)
+
+    provider, client_cls, calls = _expired_provider(outage)
+    monkeypatch.setattr(auth_module.httpx, "AsyncClient", client_cls)
+
+    assert await provider.ensure_valid_token() is False
+    assert await provider.context.storage.get_stored_token() is not None
+    assert await provider.ensure_valid_token() is False
+    assert len(calls) == 2
 
 
 async def test_transport_failure_on_refresh_keeps_stored_tokens(monkeypatch):
@@ -523,8 +553,8 @@ async def test_transport_failure_on_refresh_keeps_stored_tokens(monkeypatch):
     async def blow_up(request):
         raise httpx.ConnectError("boom", request=request)
 
-    provider, client_cls = _expired_provider(blow_up)
+    provider, client_cls, _calls = _expired_provider(blow_up)
     monkeypatch.setattr(auth_module.httpx, "AsyncClient", client_cls)
 
     assert await provider.ensure_valid_token() is False
-    assert provider.context.storage.deleted is False
+    assert await provider.context.storage.get_stored_token() is not None
