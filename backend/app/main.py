@@ -52,6 +52,10 @@ logger.setLevel(app_settings.log_level.upper())
 # afterwards — DEBUG makes every MCP call verbose.
 if app_settings.log_level.upper() == "DEBUG":
     logging.getLogger("mcp.client.streamable_http").setLevel(logging.DEBUG)
+    logger.info(
+        "MCP streamable-HTTP transport logging is at DEBUG (LOG_LEVEL=DEBUG); "
+        "set LOG_LEVEL=INFO to quiet it once a repro is captured."
+    )
 
 
 def _log_background_crash(task: asyncio.Task) -> None:
