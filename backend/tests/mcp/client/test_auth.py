@@ -552,6 +552,23 @@ async def test_as_outage_on_refresh_keeps_stored_tokens(monkeypatch, status):
     assert len(calls) == 2
 
 
+@pytest.mark.parametrize("status", [202, 204])
+async def test_unexpected_2xx_on_refresh_never_drops_stored_tokens(monkeypatch, status):
+    """A 2xx the AS should not send (no parseable token body) is not a
+    rejection: the pair survives and is retried, never deleted."""
+
+    async def odd_success(request):
+        return httpx.Response(status, request=request)
+
+    provider, client_cls, calls = _expired_provider(odd_success)
+    monkeypatch.setattr(auth_module.httpx, "AsyncClient", client_cls)
+
+    assert await provider.ensure_valid_token() is False
+    assert await provider.context.storage.get_stored_token() is not None
+    assert await provider.ensure_valid_token() is False
+    assert len(calls) == 2
+
+
 async def test_transport_failure_on_refresh_keeps_stored_tokens(monkeypatch):
     """A network error is not a rejection: the token pair must survive it."""
 

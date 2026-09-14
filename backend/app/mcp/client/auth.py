@@ -150,11 +150,12 @@ def quirk_scope(
 
 def refresh_failure_is_transient(status_code: int) -> bool:
     """Whether a non-2xx from the token endpoint says nothing about the
-    refresh credential: 429 (throttled) or 5xx (AS down). Every other status
-    — 400/401 per RFC 6749 §5.2, but also a 403, 404, 3xx or anything
+    refresh credential: 429 (throttled) or 5xx (AS down). Every other
+    non-2xx — 400/401 per RFC 6749 §5.2, but also a 403, 404, 3xx or anything
     non-standard — is treated as a rejection of the token, since re-POSTing
     a credential the AS will never accept is the retry storm this guards
-    against."""
+    against. Only consulted for non-2xx: ``ensure_valid_token`` handles every
+    2xx as a success first."""
     return status_code == 429 or 500 <= status_code < 600
 
 
@@ -334,7 +335,11 @@ class WebOAuthClientProvider(OAuthClientProvider):
             request = await self._refresh_token()
             async with httpx.AsyncClient() as client:
                 response = await client.send(request)
-            if response.status_code in {200, 201}:
+            if response.is_success:
+                # Any 2xx is the AS accepting the refresh (RFC 6749 §5.1 says
+                # 200; 201 is seen in the wild). An unexpected 2xx shape that
+                # `_handle_token_response` cannot parse raises into the
+                # `except` below and keeps the pair — it is never a rejection.
                 await self._handle_token_response(response)
                 return True
             if refresh_failure_is_transient(response.status_code):
