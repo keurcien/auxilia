@@ -43,6 +43,16 @@ from app.users.router import router as users_router
 logger = logging.getLogger("app")
 logger.setLevel(app_settings.log_level.upper())
 
+# At DEBUG, also surface the MCP streamable-HTTP transport so we can see whether
+# a tool call's response is silently dropped (a `202 Accepted` to a request, or
+# an SSE stream that ends without a response) — the two paths behind the
+# BigQuery `execute_sql_readonly` hang. This logger prints JSON-RPC frames only,
+# never the Authorization header, so no bearer token is exposed; do NOT raise
+# `httpx`/`httpcore` here, which can log headers. Set LOG_LEVEL back to INFO
+# afterwards — DEBUG makes every MCP call verbose.
+if app_settings.log_level.upper() == "DEBUG":
+    logging.getLogger("mcp.client.streamable_http").setLevel(logging.DEBUG)
+
 
 def _log_background_crash(task: asyncio.Task) -> None:
     """Surface a crashed background loop as a single ERROR line (a swallowed

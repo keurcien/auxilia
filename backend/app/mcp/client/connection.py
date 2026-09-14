@@ -127,16 +127,20 @@ class SessionKeepingTransport(StreamableHttpTransport):
         http_client.event_hooks.setdefault("response", []).append(
             self._capture_session_id
         )
-        async with (
+        # The session context is nested, not folded into the parenthesized
+        # `async with`: the streams are bound by the transport context and
+        # consumed by the session one, and Codacy's analyzer reads the folded
+        # form as "using variable 'read_stream' before assignment".
+        async with (  # noqa: SIM117 — nesting is deliberate, see above
             http_client,
             streamable_http_client(
                 self.url, http_client=http_client, terminate_on_close=False
             ) as (read_stream, write_stream),
-            options.session_class(
-                read_stream, write_stream, **session_kwargs
-            ) as session,
         ):
-            yield session
+            async with options.session_class(
+                read_stream, write_stream, **session_kwargs
+            ) as session:
+                yield session
 
 
 def build_client(spec: ConnectionSpec, *, terminate_on_close: bool = True) -> Client:
@@ -165,11 +169,16 @@ async def open_client(
     """Connect to ``spec`` for the duration of the block.
 
     This is the MCP seam for the per-request paths: a server that needs
-    authorization fails the connect with our ``OAuthAuthorizationRequired``,
-    which FastMCP reports as the cause of its own "failed to connect" error.
-    It is unwrapped here so every caller can catch it plainly; nothing else
-    about the exception — including one raised by the caller's own body — is
-    touched.
+    authorization fails with our ``OAuthAuthorizationRequired``, which FastMCP
+    reports as the cause of its own "failed to connect" / dead-session error.
+    It is unwrapped here so every caller can catch it plainly.
+
+    The ``try`` deliberately covers the caller's body too: servers such as
+    Google's answer ``initialize`` unauthenticated and challenge only later
+    requests, so the requirement can surface from the caller's
+    ``list_tools()`` rather than from the connect. Only an exception that
+    *carries* the requirement is rewritten; any other failure from the body
+    propagates untouched.
     """
     client = build_client(spec, terminate_on_close=terminate_on_close)
     try:

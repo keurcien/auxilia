@@ -40,6 +40,7 @@ dependencies = [
     "google-auth>=2.50.0",
     "daytona>=0.205.1",
     "fastmcp>=4.0.1,<5",
+    "httpx2>=2.12.0",
 ]
 
 [dependency-groups]

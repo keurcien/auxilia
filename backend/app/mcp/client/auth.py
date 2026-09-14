@@ -558,6 +558,10 @@ class WebOAuthClientProvider(OAuthClientProvider):
                     request = await flow.asend(response)
             except StopAsyncIteration:
                 return
+            finally:
+                # A transport error from `client.send` leaves the generator
+                # suspended at its yield; close it rather than leave it to GC.
+                await flow.aclose()
 
     async def _recover_registration_context(self) -> bool:
         """Repair the discovery context after a failed dynamic registration,

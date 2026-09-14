@@ -39,8 +39,10 @@ def as_oauth_required(exc: BaseException) -> OAuthAuthorizationRequired | None:
         seen.add(id(current))
         if isinstance(current, OAuthAuthorizationRequired):
             return current
-        if isinstance(current, BaseExceptionGroup):
-            pending.extend(current.exceptions)
         if current.__cause__ is not None:
             pending.append(current.__cause__)
+        if isinstance(current, BaseExceptionGroup):
+            # LIFO stack: push in reverse so siblings are visited in the
+            # group's own order and the first failed server wins.
+            pending.extend(reversed(current.exceptions))
     return None
