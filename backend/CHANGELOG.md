@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.3](https://github.com/keurcien/auxilia/compare/backend-v0.8.2...backend-v0.8.3) (2026-09-14)
+
+
+### Bug Fixes
+
+* **mcp:** add a stdout log handler so DEBUG transport logs surface ([#332](https://github.com/keurcien/auxilia/issues/332)) ([8d0dce4](https://github.com/keurcien/auxilia/commit/8d0dce4c975ae94ae2f24bc747bef095bd30a761))
+
 ## [0.8.2](https://github.com/keurcien/auxilia/compare/backend-v0.8.1...backend-v0.8.2) (2026-09-14)
 
 
