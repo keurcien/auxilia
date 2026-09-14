@@ -30,6 +30,7 @@ reason the runtime used to host every session in a dedicated task is gone.
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -61,6 +62,58 @@ _fastmcp_logger.handlers.clear()
 _fastmcp_logger.propagate = True
 
 
+def _log_bigquery_diagnostic(response: httpx2.Response) -> None:
+    """Temporary probe for production's empty-project routing error.
+
+    Only the literal hello query is eligible for WARNING logging. Project only
+    known fields: arbitrary arguments, metadata and auth headers can hold secrets.
+    Inspect the buffered request without consuming either HTTP stream.
+    """
+    request = response.request
+    if request.url.host != "bigquery.googleapis.com" or request.method != "POST":
+        return
+    try:
+        payload = json.loads(request.content)
+    except (ValueError, httpx2.RequestNotRead):
+        return
+    if not isinstance(payload, dict) or payload.get("method") != "tools/call":
+        return
+    params = payload.get("params")
+    if not isinstance(params, dict) or params.get("name") != "execute_sql_readonly":
+        return
+    arguments = params.get("arguments")
+    if (
+        not isinstance(arguments, dict)
+        or arguments.get("query") != "SELECT 'hello' AS greeting"
+    ):
+        return
+    allowed_headers = {
+        "content-type",
+        "accept",
+        "mcp-protocol-version",
+        "mcp-method",
+        "mcp-name",
+        "x-goog-user-project",
+        "content-length",
+    }
+    logger.warning(
+        "BQ_DIAGNOSTIC request=%s headers=%s status=%s response_content_type=%s",
+        json.dumps(
+            {
+                "id": payload.get("id"),
+                "method": payload["method"],
+                "params": {
+                    "name": params["name"],
+                    "arguments": {k: arguments.get(k) for k in ("projectId", "query")},
+                },
+            }
+        ),
+        {k: v for k, v in request.headers.items() if k.lower() in allowed_headers},
+        response.status_code,
+        response.headers.get("content-type"),
+    )
+
+
 async def _log_non_2xx_body(response: httpx2.Response) -> None:
     """Log a remote MCP server's own error text on a non-2xx response.
 
@@ -76,6 +129,7 @@ async def _log_non_2xx_body(response: httpx2.Response) -> None:
     to capture it. 2xx is the success path; 401 is the routine "needs
     authorization" the OAuth flow handles — both are skipped.
     """
+    _log_bigquery_diagnostic(response)
     if 200 <= response.status_code < 300 or response.status_code == 401:
         return
     try:
