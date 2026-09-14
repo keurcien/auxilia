@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.1](https://github.com/keurcien/auxilia/compare/web-v0.9.0...web-v0.9.1) (2026-09-14)
+
+
+### Features
+
+* **mcp:** migrate to MCP SDK v2, FastMCP client and langchain.mcp ([#328](https://github.com/keurcien/auxilia/issues/328)) ([4bbe6b3](https://github.com/keurcien/auxilia/commit/4bbe6b38054e6b7d5299447e2c6321ad9349bda1))
+
+
+### Code Refactoring
+
+* **web:** resource modules, API import boundary and useThreadSession ([#325](https://github.com/keurcien/auxilia/issues/325)) ([62f6f1c](https://github.com/keurcien/auxilia/commit/62f6f1c45c49361af4cb53d5f779d3442cd7f5fa))
+
 ## [0.9.0](https://github.com/keurcien/auxilia/compare/web-v0.8.0...web-v0.9.0) (2026-09-11)
 
 
