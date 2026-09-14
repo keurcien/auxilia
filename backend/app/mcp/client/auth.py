@@ -289,7 +289,9 @@ class WebOAuthClientProvider(OAuthClientProvider):
         — the Notion basic-auth fix, HTTP 201 handling, refresh-token carry-over)
         rather than hand-rolling the token POST. Returns False when no token is
         stored, the token is expired with no refresh token, the stored client
-        info/metadata is missing, or the refresh request fails.
+        info/metadata is missing, or the refresh request fails. A refresh the
+        AS *rejects* (non-2xx) also deletes the stored token pair; a transport
+        failure keeps it so a transient outage does not log the user out.
         """
         if not self._initialized:
             await self._initialize()
@@ -320,7 +322,20 @@ class WebOAuthClientProvider(OAuthClientProvider):
             request = await self._refresh_token()
             async with httpx.AsyncClient() as client:
                 response = await client.send(request)
-                await self._handle_token_response(response)
+            if response.status_code not in {200, 201}:
+                # The AS rejected the refresh token. That is final — revoked,
+                # rotated away by a concurrent refresh, or expired (Metabase
+                # answers 400 for all three) — so drop the stored pair: the
+                # next check then prompts a clean re-authorization instead of
+                # retrying the dead token on every poll and every run.
+                logger.warning(
+                    "OAuth refresh rejected (%s) for %s — clearing stored tokens",
+                    response.status_code,
+                    self.context.server_url,
+                )
+                await self.context.storage.delete_tokens()
+                return False
+            await self._handle_token_response(response)
             return True
         except Exception:  # noqa: BLE001 — a failed refresh means "not authorized", not a crash
             logger.warning(

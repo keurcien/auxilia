@@ -112,6 +112,11 @@ class RedisTokenStorage(TokenStorage):
             encrypt_value(stored_token.model_dump_json()),
         )
 
+    async def delete_tokens(self) -> None:
+        """Forget the stored token pair, keeping client info and AS metadata so
+        the next authorization skips dynamic registration."""
+        await self.redis.delete(self._tokens_key())
+
     async def get_client_info(self) -> OAuthClientInformationFull | None:
         raw = await self.redis.get(self._client_info_key())
         if not raw:

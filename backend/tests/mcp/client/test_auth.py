@@ -443,3 +443,88 @@ async def test_refresh_request_for_basic_omits_client_id_in_body():
     assert "client_id" not in body
     assert body["refresh_token"] == ["rt"]
     assert body["grant_type"] == ["refresh_token"]
+
+
+# --- ensure_valid_token: a rejected refresh must not be retried forever -----
+
+
+class _ExpiredTokenStorage(_FakeStorage):
+    """Holds an expired-but-refreshable token; records deletions."""
+
+    def __init__(self):
+        super().__init__()
+        self.deleted = False
+
+    async def get_stored_token(self):
+        from datetime import UTC, datetime, timedelta
+
+        from app.mcp.client.storage import StoredToken
+
+        return StoredToken(
+            token_payload=OAuthToken(access_token="stale", refresh_token="rt"),
+            expires_at=datetime.now(UTC) - timedelta(minutes=1),
+        )
+
+    async def delete_tokens(self):
+        self.deleted = True
+
+
+def _expired_provider(send):
+    provider = WebOAuthClientProvider(
+        server_url=BIGQUERY_URL,
+        client_metadata=build_oauth_client_metadata(),
+        storage=_ExpiredTokenStorage(),
+        client_id="client-123",
+        client_secret="secret-xyz",
+    )
+    provider._initialized = True
+    provider.context.oauth_metadata = _asm()
+    provider.context.client_info = OAuthClientInformationFull(
+        client_id="client-123",
+        client_secret="secret-xyz",
+        redirect_uris=["https://app.example/cb"],
+        token_endpoint_auth_method="client_secret_post",
+    )
+    provider.context.current_tokens = OAuthToken(
+        access_token="stale", refresh_token="rt"
+    )
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def send(self, request):
+            return await send(request)
+
+    return provider, _Client
+
+
+async def test_rejected_refresh_drops_stored_tokens(monkeypatch):
+    """Metabase answers 400 for a revoked/rotated/expired refresh token. Keeping
+    the pair would retry the dead token on every poll; drop it instead so the
+    next check prompts a clean re-authorization."""
+
+    async def reject(request):
+        return httpx.Response(400, json={"error": "invalid_request"}, request=request)
+
+    provider, client_cls = _expired_provider(reject)
+    monkeypatch.setattr(auth_module.httpx, "AsyncClient", client_cls)
+
+    assert await provider.ensure_valid_token() is False
+    assert provider.context.storage.deleted is True
+
+
+async def test_transport_failure_on_refresh_keeps_stored_tokens(monkeypatch):
+    """A network error is not a rejection: the token pair must survive it."""
+
+    async def blow_up(request):
+        raise httpx.ConnectError("boom", request=request)
+
+    provider, client_cls = _expired_provider(blow_up)
+    monkeypatch.setattr(auth_module.httpx, "AsyncClient", client_cls)
+
+    assert await provider.ensure_valid_token() is False
+    assert provider.context.storage.deleted is False

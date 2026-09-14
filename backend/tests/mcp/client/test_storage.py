@@ -143,3 +143,17 @@ async def test_set_tokens_updates_expiry_on_refresh():
     assert stored.expires_at is not None
     remaining = (stored.expires_at - datetime.now(UTC)).total_seconds()
     assert remaining > 60
+
+
+@pytest.mark.asyncio
+async def test_delete_tokens_keeps_client_info_and_metadata():
+    storage = _storage()
+    await storage.set_tokens(OAuthToken(access_token="AT1", refresh_token="RT1"))
+    storage.redis.store[storage._client_info_key()] = "{}"
+    storage.redis.store[storage._oauth_metadata_key()] = "{}"
+
+    await storage.delete_tokens()
+
+    assert await storage.get_stored_token() is None
+    assert storage._client_info_key() in storage.redis.store
+    assert storage._oauth_metadata_key() in storage.redis.store
