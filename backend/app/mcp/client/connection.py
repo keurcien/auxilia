@@ -60,6 +60,54 @@ _fastmcp_logger = logging.getLogger("fastmcp")
 _fastmcp_logger.handlers.clear()
 _fastmcp_logger.propagate = True
 
+
+async def _log_non_2xx_body(response: httpx2.Response) -> None:
+    """Log a remote MCP server's own error text on a non-2xx response.
+
+    The MCP SDK reads a non-2xx body that isn't a JSON-RPC error, discards it,
+    and hands back a generic ``ErrorData("Server returned an error response")``,
+    so the real message — e.g. the intermittent HTTP 400 the Google BigQuery MCP
+    endpoint returns on ``execute_sql`` — never reaches the logs or the model.
+    Log it here instead.
+
+    At DEBUG, not WARNING: an error body can echo request content — a rejected
+    ``execute_sql`` may quote the query, its table/column names, even literal
+    values — so it must not land in steady-state logs. Raise LOG_LEVEL to DEBUG
+    to capture it. 2xx is the success path; 401 is the routine "needs
+    authorization" the OAuth flow handles — both are skipped.
+    """
+    if 200 <= response.status_code < 300 or response.status_code == 401:
+        return
+    try:
+        body = await response.aread()
+    except Exception:  # noqa: BLE001 — best-effort diagnostic, never fatal
+        return
+    logger.debug(
+        "MCP %s %s -> HTTP %s: %s",
+        response.request.method,
+        response.request.url,
+        response.status_code,
+        body.decode("utf-8", "replace")[:800],
+    )
+
+
+def _logging_http_client_factory(
+    *,
+    headers: dict[str, str] | None = None,
+    auth: httpx2.Auth | None = None,
+    timeout: Any = None,
+    **_kwargs: Any,
+) -> httpx2.AsyncClient:
+    """``create_mcp_http_client`` plus the non-2xx body logger, as the factory the
+    transport builds its client from (see :func:`build_client`). Extra kwargs are
+    accepted and ignored so a future FastMCP that passes more never breaks the one
+    seam every MCP path uses; ``timeout`` stays untyped because FastMCP may hand it
+    as a float or an ``httpx2.Timeout``."""
+    client = create_mcp_http_client(headers=headers, timeout=timeout, auth=auth)
+    client.event_hooks.setdefault("response", []).append(_log_non_2xx_body)
+    return client
+
+
 # MCP Apps extension identifier and the capability payload a host advertises.
 # https://github.com/modelcontextprotocol/ext-apps (spec 2026-01-26).
 UI_EXTENSION = "io.modelcontextprotocol/ui"
@@ -127,6 +175,9 @@ class SessionKeepingTransport(StreamableHttpTransport):
         http_client.event_hooks.setdefault("response", []).append(
             self._capture_session_id
         )
+        # SessionKeepingTransport builds its own client (it does not go through
+        # `httpx_client_factory`), so attach the non-2xx body logger here too.
+        http_client.event_hooks["response"].append(_log_non_2xx_body)
         # The session context is nested, not folded into the parenthesized
         # `async with`: the streams are bound by the transport context and
         # consumed by the session one, and Codacy's analyzer reads the folded
@@ -152,7 +203,16 @@ def build_client(spec: ConnectionSpec, *, terminate_on_close: bool = True) -> Cl
     transport_cls: type[StreamableHttpTransport] = (
         StreamableHttpTransport if terminate_on_close else SessionKeepingTransport
     )
-    transport = transport_cls(spec.url, headers=spec.headers, auth=spec.auth)
+    transport = transport_cls(
+        spec.url,
+        headers=spec.headers,
+        auth=spec.auth,
+        # The base transport builds its httpx client from this factory, so the
+        # runtime path (default transport) logs the server's own error body on a
+        # non-2xx — the detail the SDK otherwise drops. SessionKeepingTransport
+        # ignores the factory and attaches the same hook itself.
+        httpx_client_factory=_logging_http_client_factory,
+    )
     client: Client[Any] = Client(
         transport, extensions=[advertise(UI_EXTENSION, UI_CAPABILITY)]
     )
