@@ -511,13 +511,17 @@ def _expired_provider(respond):
     return provider, _Client, calls
 
 
-async def test_rejected_refresh_drops_stored_tokens(monkeypatch):
-    """Metabase answers 400 for a revoked/rotated/expired refresh token. Keeping
-    the pair would retry the dead token on every poll; drop it instead so the
-    next check prompts a clean re-authorization."""
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 302])
+async def test_rejected_refresh_drops_stored_tokens(monkeypatch, status):
+    """Metabase answers 400 for a revoked/rotated/expired refresh token; other
+    servers use 401, 403 or non-standard codes. Keeping the pair would retry
+    the dead token on every poll; drop it instead so the next check prompts a
+    clean re-authorization."""
 
     async def reject(request):
-        return httpx.Response(400, json={"error": "invalid_request"}, request=request)
+        return httpx.Response(
+            status, json={"error": "invalid_request"}, request=request
+        )
 
     provider, client_cls, calls = _expired_provider(reject)
     monkeypatch.setattr(auth_module.httpx, "AsyncClient", client_cls)
@@ -530,10 +534,11 @@ async def test_rejected_refresh_drops_stored_tokens(monkeypatch):
     assert len(calls) == 1
 
 
-@pytest.mark.parametrize("status", [429, 500, 502, 503])
+@pytest.mark.parametrize("status", [429, 500, 502, 503, 599])
 async def test_as_outage_on_refresh_keeps_stored_tokens(monkeypatch, status):
     """429 / 5xx say the AS is throttling or down, not that the credential is
-    dead: keep the pair and retry on the next check."""
+    dead: keep the pair and retry on the next check. Only these keep it —
+    see ``test_rejected_refresh_drops_stored_tokens`` for the rest."""
 
     async def outage(request):
         return httpx.Response(status, request=request)

@@ -148,10 +148,14 @@ def quirk_scope(
     return None
 
 
-# Token-endpoint statuses that mean the refresh credential itself is dead
-# (RFC 6749 §5.2: invalid_grant → 400, invalid_client → 401). Anything else
-# non-2xx (429, 5xx) is the AS misbehaving, not the token.
-_REFRESH_REJECTED_STATUSES = frozenset({400, 401})
+def refresh_failure_is_transient(status_code: int) -> bool:
+    """Whether a non-2xx from the token endpoint says nothing about the
+    refresh credential: 429 (throttled) or 5xx (AS down). Every other status
+    — 400/401 per RFC 6749 §5.2, but also a 403, 404, 3xx or anything
+    non-standard — is treated as a rejection of the token, since re-POSTing
+    a credential the AS will never accept is the retry storm this guards
+    against."""
+    return status_code == 429 or 500 <= status_code < 600
 
 
 def strip_client_id_for_basic_auth(request: httpx.Request) -> httpx.Request:
@@ -296,10 +300,10 @@ class WebOAuthClientProvider(OAuthClientProvider):
         rather than hand-rolling the token POST. Returns False when no token is
         stored, the token is expired with no refresh token, the stored client
         info/metadata is missing, or the refresh request fails. A refresh the
-        AS *rejects* (400 / 401 — RFC 6749 §5.2's ``invalid_grant`` and
-        ``invalid_client``) also deletes the stored token pair; a transport
-        failure, 429 or 5xx keeps it so a transient outage does not log the
-        user out.
+        AS *rejects* (any non-2xx other than 429 / 5xx — see
+        :func:`refresh_failure_is_transient`) also deletes the stored token
+        pair; a transport failure, 429 or 5xx keeps it so a transient outage
+        does not log the user out.
         """
         if not self._initialized:
             await self._initialize()
@@ -333,26 +337,26 @@ class WebOAuthClientProvider(OAuthClientProvider):
             if response.status_code in {200, 201}:
                 await self._handle_token_response(response)
                 return True
-            if response.status_code in _REFRESH_REJECTED_STATUSES:
-                # The AS rejected the refresh token. That is final — revoked,
-                # rotated away by a concurrent refresh, or expired (Metabase
-                # answers 400 for all three) — so drop the stored pair: the
-                # next check then prompts a clean re-authorization instead of
-                # retrying the dead token on every poll and every run.
+            if refresh_failure_is_transient(response.status_code):
+                # The AS is throttling or down; the credential may well be
+                # fine. Keep it and try again on the next check.
                 logger.warning(
-                    "OAuth refresh rejected (%s) for %s — clearing stored tokens",
+                    "OAuth refresh failed (%s) for %s — keeping stored tokens",
                     response.status_code,
                     self.context.server_url,
                 )
-                await self.context.storage.delete_tokens()
                 return False
-            # 429 / 5xx: the AS is throttling or down, the credential may well
-            # be fine. Keep it and try again on the next check.
+            # The AS rejected the refresh token. That is final — revoked,
+            # rotated away by a concurrent refresh, or expired (Metabase
+            # answers 400 for all three) — so drop the stored pair: the next
+            # check then prompts a clean re-authorization instead of retrying
+            # the dead token on every poll and every run.
             logger.warning(
-                "OAuth refresh failed (%s) for %s — keeping stored tokens",
+                "OAuth refresh rejected (%s) for %s — clearing stored tokens",
                 response.status_code,
                 self.context.server_url,
             )
+            await self.context.storage.delete_tokens()
             return False
         except Exception:  # noqa: BLE001 — a failed refresh means "not authorized", not a crash
             logger.warning(
