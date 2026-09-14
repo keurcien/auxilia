@@ -48,6 +48,20 @@ def test_finds_the_requirement_however_deeply_it_is_wrapped():
     assert as_oauth_required(nested) is needed
 
 
+def test_the_first_failed_server_wins_when_several_need_authorization():
+    """Concurrent connects can each fail with their own requirement; the
+    caller shows one authorize URL, so it must be the first server's."""
+    first = OAuthAuthorizationRequired("https://first.example/authorize")
+    second = OAuthAuthorizationRequired("https://second.example/authorize")
+    group = ExceptionGroup("tg", [ValueError("noise"), first, second])
+
+    assert as_oauth_required(group) is first
+    # A wrapper's own cause is still preferred over a sibling's.
+    wrapped = RuntimeError("Client failed to connect")
+    wrapped.__cause__ = first
+    assert as_oauth_required(ExceptionGroup("tg", [wrapped, second])) is first
+
+
 def test_leaves_unrelated_failures_alone():
     assert as_oauth_required(ValueError("noise")) is None
     assert as_oauth_required(ExceptionGroup("g", [ValueError("noise")])) is None
@@ -110,6 +124,23 @@ async def test_the_seam_leaves_other_failures_as_they_were(monkeypatch):
             ConnectionSpec(url="https://mcp.example.com")
         ):
             pass
+
+
+async def test_a_requirement_raised_from_the_callers_body_is_unwrapped(monkeypatch):
+    """Google-style servers answer `initialize` unauthenticated and challenge
+    only later requests, so the requirement can arrive from the caller's own
+    `list_tools()` — wrapped by FastMCP the same way. It must still come out
+    plain, or `test_connection` would report a 500 instead of `oauth_required`."""
+    needed = OAuthAuthorizationRequired(AUTH_URL)
+    monkeypatch.setattr(connection, "build_client", lambda *a, **k: _ConnectedClient())
+
+    with pytest.raises(OAuthAuthorizationRequired) as exc_info:
+        async with connection.open_client(
+            ConnectionSpec(url="https://mcp.example.com")
+        ):
+            raise RuntimeError("Server session was closed unexpectedly") from needed
+
+    assert exc_info.value is needed
 
 
 async def test_the_seam_does_not_touch_an_error_from_the_callers_body(monkeypatch):

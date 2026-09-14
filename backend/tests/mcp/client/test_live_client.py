@@ -186,6 +186,18 @@ async def test_an_mcp_app_resource_serializes_in_wire_case(live_server):
     assert encoded["contents"][0]["text"] == "<html>widget</html>"
 
 
+async def test_build_client_wires_the_lenient_session_into_the_connection(live_server):
+    """`LenientClientSession` reaches the wire only if FastMCP honours the
+    `_transport_options` hook `build_client` sets; assert on the live session
+    rather than trust the private attribute."""
+    async with open_client(ConnectionSpec(url=live_server.url)) as client:
+        assert isinstance(client.session, LenientClientSession)
+
+    client = build_client(ConnectionSpec(url=live_server.url), terminate_on_close=False)
+    async with client:
+        assert isinstance(client.session, LenientClientSession)
+
+
 async def test_the_lenient_session_logs_instead_of_raising(caplog):
     schema = {"type": "object", "properties": {"a": {"type": "integer"}}}
     result = CallToolResult(content=[], structured_content={"a": "not-an-int"})
