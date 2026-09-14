@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.5](https://github.com/keurcien/auxilia/compare/backend-v0.8.4...backend-v0.8.5) (2026-09-14)
+
+
+### Bug Fixes
+
+* **mcp:** add scoped BigQuery request diagnostic ([905a910](https://github.com/keurcien/auxilia/commit/905a910e0b44c37d24ac9a2ab188e2fda44e4ed3))
+
 ## [0.8.4](https://github.com/keurcien/auxilia/compare/backend-v0.8.3...backend-v0.8.4) (2026-09-14)
 
 
