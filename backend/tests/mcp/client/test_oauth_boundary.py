@@ -5,8 +5,8 @@ MCP could answer 401 with an auth URL, and the `ExceptionGroup` registration it
 needed (the implicit 401 fires inside anyio task groups) swallowed unrelated
 TaskGroup-wrapped exceptions on the way (design review §2.3, §2.4).
 
-Now: the seam unwraps the group, the endpoints whose job is connecting answer
-explicitly, and nothing else can.
+Now: the seam unwraps the client's connect failure, the endpoints whose job is
+connecting answer explicitly, and nothing else can.
 """
 
 from contextlib import asynccontextmanager
@@ -16,7 +16,8 @@ from uuid import uuid4
 import pytest
 
 from app.exceptions import DomainError, NotFoundError
-from app.mcp.client import connectivity
+from app.mcp.client import connection
+from app.mcp.client.connection import ConnectionSpec
 from app.mcp.client.exceptions import OAuthAuthorizationRequired, as_oauth_required
 from app.mcp.servers.models import MCPAuthType, MCPServerDB
 from app.mcp.servers.schemas import AuthorizationRequired, ToolsListed
@@ -57,103 +58,68 @@ def test_leaves_unrelated_failures_alone():
 # ---------------------------------------------------------------------------
 
 
-@asynccontextmanager
-async def _transport_raising(exc):
-    """A `streamablehttp_client` whose handshake fails with `exc`."""
-    raise exc
-    yield  # pragma: no cover — unreachable, keeps this an async generator
+class _FailingClient:
+    """A FastMCP client whose connect fails the way the real one reports it:
+    its own RuntimeError, raised *from* the actual failure."""
+
+    def __init__(self, cause):
+        self._cause = cause
+
+    async def __aenter__(self):
+        raise RuntimeError("Client failed to connect: nope") from self._cause
+
+    async def __aexit__(self, *_exc):  # pragma: no cover — never entered
+        return False
 
 
-async def test_the_seam_unwraps_the_transports_exception_group(monkeypatch):
+class _ConnectedClient:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_exc):
+        return False
+
+    async def list_tools(self):
+        return []
+
+
+async def test_the_seam_unwraps_the_clients_connect_failure(monkeypatch):
     """The whole reason the global handler existed: the implicit 401 arrives
     wrapped, so a plain `except OAuthAuthorizationRequired` used to miss it."""
     needed = OAuthAuthorizationRequired(AUTH_URL)
     monkeypatch.setattr(
-        connectivity,
-        "streamablehttp_client",
-        lambda **kwargs: _transport_raising(ExceptionGroup("tg", [needed])),
+        connection, "build_client", lambda *a, **k: _FailingClient(needed)
     )
 
     with pytest.raises(OAuthAuthorizationRequired) as exc_info:
-        async with connectivity._open_session("https://mcp.example.com"):
+        async with connection.open_client(
+            ConnectionSpec(url="https://mcp.example.com")
+        ):
             pass
 
     assert exc_info.value.url == AUTH_URL
 
 
-async def test_the_seam_leaves_other_failures_wrapped_as_they_were(monkeypatch):
+async def test_the_seam_leaves_other_failures_as_they_were(monkeypatch):
     monkeypatch.setattr(
-        connectivity,
-        "streamablehttp_client",
-        lambda **kwargs: _transport_raising(ExceptionGroup("tg", [ValueError("boom")])),
+        connection, "build_client", lambda *a, **k: _FailingClient(ValueError("boom"))
     )
 
-    with pytest.raises(ExceptionGroup):
-        async with connectivity._open_session("https://mcp.example.com"):
-            pass
-
-
-async def test_a_tools_list_that_401s_is_not_laundered_into_a_domain_error(monkeypatch):
-    """`ExceptionGroup` is an `Exception`, so the `except Exception` that turns
-    tool-listing failures into a clean `DomainError` would swallow a wrapped
-    requirement before the seam's unwrap could see it."""
-
-    @asynccontextmanager
-    async def _transport(**_kwargs):
-        yield (MagicMock(), MagicMock(), None)
-
-    session = AsyncMock()
-    session.initialize = AsyncMock()
-    session.list_tools = AsyncMock(
-        side_effect=ExceptionGroup("tg", [OAuthAuthorizationRequired(AUTH_URL)])
-    )
-    monkeypatch.setattr(connectivity, "streamablehttp_client", _transport)
-    monkeypatch.setattr(
-        connectivity, "ClientSession", lambda *a, **k: _async_cm(session)
-    )
-
-    with pytest.raises(OAuthAuthorizationRequired) as exc_info:
-        async with connectivity._open_session("https://mcp.example.com"):
-            pass
-
-    assert exc_info.value.url == AUTH_URL
-
-
-async def test_a_tools_list_failure_is_still_a_domain_error(monkeypatch):
-    @asynccontextmanager
-    async def _transport(**_kwargs):
-        yield (MagicMock(), MagicMock(), None)
-
-    session = AsyncMock()
-    session.initialize = AsyncMock()
-    session.list_tools = AsyncMock(side_effect=RuntimeError("server hung up"))
-    monkeypatch.setattr(connectivity, "streamablehttp_client", _transport)
-    monkeypatch.setattr(
-        connectivity, "ClientSession", lambda *a, **k: _async_cm(session)
-    )
-
-    with pytest.raises(DomainError, match="server hung up"):
-        async with connectivity._open_session("https://mcp.example.com"):
+    with pytest.raises(RuntimeError, match="failed to connect"):
+        async with connection.open_client(
+            ConnectionSpec(url="https://mcp.example.com")
+        ):
             pass
 
 
 async def test_the_seam_does_not_touch_an_error_from_the_callers_body(monkeypatch):
     """P1-14's boundary, re-checked now that a `try` wraps the yield again."""
-
-    @asynccontextmanager
-    async def _transport(**_kwargs):
-        yield (MagicMock(), MagicMock(), None)
-
-    session = AsyncMock()
-    session.initialize = AsyncMock()
-    session.list_tools = AsyncMock(return_value=MagicMock(tools=[], nextCursor=None))
-    monkeypatch.setattr(connectivity, "streamablehttp_client", _transport)
-    monkeypatch.setattr(
-        connectivity, "ClientSession", lambda *a, **k: _async_cm(session)
-    )
+    monkeypatch.setattr(connection, "build_client", lambda *a, **k: _ConnectedClient())
 
     with pytest.raises(NotFoundError):
-        async with connectivity._open_session("https://mcp.example.com"):
+        async with connection.open_client(
+            ConnectionSpec(url="https://mcp.example.com")
+        ):
             raise NotFoundError("the caller's own problem")
 
 
@@ -183,7 +149,7 @@ async def _list_tools(*, authorized: bool, connect=None, initiate=None):
         ),
         patch(
             "app.mcp.servers.service.connect_to_server",
-            connect or (lambda *a, **k: _async_cm((MagicMock(), []))),
+            connect or (lambda *a, **k: _async_cm(_ConnectedClient())),
         ),
     ):
         return await service.list_tools(_server(), "user-1")
@@ -201,17 +167,15 @@ async def test_list_tools_returns_the_auth_url_when_the_handshake_401s(monkeypat
     """A token the server revoked looks authorized until the handshake, so the
     *implicit* 401 must reach the same answer as the explicit one.
 
-    This one runs the real `connect_to_server` and the real `_open_session`, and
-    fails the transport with the wrapped form the anyio task group actually
-    produces — a mocked `connect_to_server` would skip the seam that unwraps it
-    and prove nothing about this path. `auth_type=none` keeps the credential
-    resolution out of it.
+    This one runs the real `connect_to_server` and the real `open_client`, and
+    fails the connect with the wrapped form FastMCP actually produces — a
+    mocked `connect_to_server` would skip the seam that unwraps it and prove
+    nothing about this path. `auth_type=none` keeps the credential resolution
+    out of it.
     """
     needed = OAuthAuthorizationRequired(AUTH_URL)
     monkeypatch.setattr(
-        connectivity,
-        "streamablehttp_client",
-        lambda **kwargs: _transport_raising(ExceptionGroup("tg", [needed])),
+        connection, "build_client", lambda *a, **k: _FailingClient(needed)
     )
     service = MCPServerService(AsyncMock())
 
@@ -225,9 +189,11 @@ async def test_list_tools_returns_tools_when_connected():
     tool = MagicMock()
     tool.name = "search"
     tool.description = "Search things"
+    client = _ConnectedClient()
+    client.list_tools = AsyncMock(return_value=[tool])  # type: ignore[method-assign]
 
     def _connect(*_args, **_kwargs):
-        return _async_cm((MagicMock(), [tool]))
+        return _async_cm(client)
 
     result = await _list_tools(authorized=True, connect=_connect)
 

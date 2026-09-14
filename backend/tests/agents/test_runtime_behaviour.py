@@ -47,8 +47,7 @@ class LiveToolsetStub:
 
 def _prepared(tools: list) -> PreparedToolset:
     prepared = PreparedToolset(
-        client=None,
-        server_names=[],
+        connections={},
         tool_settings={},
         server_id_by_name={},
         interrupt_on={},

@@ -9,7 +9,9 @@ Add real tools here — backed by `AgentService` and the durable run runtime, an
 authenticated like every other endpoint — not stubs.
 """
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 
-auxilia_mcp = FastMCP("auxilia MCP", stateless_http=True, json_response=True)
+# Transport options (stateless, JSON responses) are given where the ASGI app is
+# built, in `main.py` — MCP SDK v2 moved them off the constructor.
+auxilia_mcp = MCPServer("auxilia MCP")

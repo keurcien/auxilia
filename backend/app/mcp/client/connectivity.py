@@ -19,25 +19,22 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Collection
+from collections.abc import AsyncIterator, Collection
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from uuid import UUID
 
-from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from fastmcp.client import Client
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.exceptions import DomainError, DomainValidationError
+from app.exceptions import DomainValidationError
 from app.mcp.client.auth import (
     AUTH_METHOD_POST,
     WebOAuthClientProvider,
     build_oauth_client_metadata,
 )
-from app.mcp.client.exceptions import (
-    OAuthAuthorizationRequired,
-    as_oauth_required,
-)
+from app.mcp.client.connection import ConnectionSpec, open_client
+from app.mcp.client.exceptions import OAuthAuthorizationRequired
 from app.mcp.client.storage import RedisTokenStorage, TokenStorageFactory
 from app.mcp.servers.models import (
     MCPAuthType,
@@ -147,7 +144,7 @@ class CredentialCache:
     to that user's token storage, so sharing a cache across users would skip a
     write that user still needs.
 
-    Only the inputs are shared: :func:`resolve_transport_auth` still builds a
+    Only the inputs are shared: :func:`resolve_connection` still builds a
     fresh ``WebOAuthClientProvider`` per call, because it is stateful and the
     graph's sessions are opened concurrently.
     """
@@ -157,48 +154,25 @@ class CredentialCache:
     persisted: set[UUID] = field(default_factory=set)
 
 
-@dataclass(frozen=True)
-class TransportAuth:
-    """How to authenticate the transport for one (server, user) pair.
-
-    At most one field is set — an API key becomes a header, OAuth2 an httpx
-    auth flow, and a ``none`` server neither. Both consumers take the same two
-    kwargs (the ``MultiServerMCPClient`` config the runtime builds, and the raw
-    ``streamablehttp_client`` handshake below), which is why the dispatch can
-    live in one place.
-    """
-
-    headers: dict[str, str] | None = None
-    auth: WebOAuthClientProvider | None = None
-
-    def as_kwargs(self) -> dict:
-        kwargs: dict = {}
-        if self.headers is not None:
-            kwargs["headers"] = self.headers
-        if self.auth is not None:
-            kwargs["auth"] = self.auth
-        return kwargs
-
-
-async def resolve_transport_auth(
+async def resolve_connection(
     server: MCPServerDB,
     user_id: str,
     repository: MCPServerRepository,
     *,
     credentials: CredentialCache | None = None,
-) -> TransportAuth:
-    """Auth type → transport credentials. The single dispatch site.
+) -> ConnectionSpec:
+    """Auth type → how the transport authenticates. The single dispatch site.
 
-    There were two, and they had drifted (design review §4.1): the client-config
-    factory raised on an unknown auth type while the handshake path fell through
-    to an ``else`` that connected **unauthenticated**, and both formatted a
-    missing API key straight into the header as the literal ``Bearer None``.
-    Adding an auth scheme is now one ``match`` arm rather than eight scattered
-    edits.
+    An API key becomes a Bearer header, OAuth2 the user's provider (an
+    ``httpx2.Auth``), a ``none`` server neither. There used to be two copies of
+    this and they had drifted (design review §4.1): one raised on an unknown
+    auth type while the other fell through to connecting **unauthenticated**,
+    and both formatted a missing API key straight into the header as the
+    literal ``Bearer None``. Adding an auth scheme is one ``match`` arm.
     """
     match server.auth_type:
         case MCPAuthType.none:
-            return TransportAuth()
+            return ConnectionSpec(url=server.url)
 
         case MCPAuthType.api_key:
             api_keys = credentials.api_keys if credentials is not None else None
@@ -215,7 +189,9 @@ async def resolve_transport_auth(
                     f"MCP server '{server.name}' is configured for API-key auth "
                     "but has no API key stored"
                 )
-            return TransportAuth(headers={"Authorization": f"Bearer {key}"})
+            return ConnectionSpec(
+                url=server.url, headers={"Authorization": f"Bearer {key}"}
+            )
 
         case MCPAuthType.oauth2:
             storage = TokenStorageFactory().get_storage(user_id, str(server.id))
@@ -239,7 +215,7 @@ async def resolve_transport_auth(
                 await provider.persist_client_info()
                 if credentials is not None:
                     credentials.persisted.add(server.id)
-            return TransportAuth(auth=provider)
+            return ConnectionSpec(url=server.url, auth=provider)
 
         case _:
             # Unreachable while the arms above cover `MCPAuthType`. Kept as a
@@ -253,102 +229,6 @@ async def resolve_transport_auth(
 
 # --- Session handshake ------------------------------------------------------
 
-# Safety bound for tools/list pagination. A well-behaved server eventually returns
-# a falsy nextCursor; this caps a misbehaving one that emits endless new cursors.
-MAX_TOOL_LIST_PAGES = 1000
-
-
-async def _list_all_tools(session: ClientSession) -> list:
-    """Page through ``tools/list``, guarding against a server that never ends
-    pagination. A repeated or cyclic ``nextCursor`` is detected and a runaway page
-    count is capped — otherwise the loop would spin forever, accumulating tools.
-    """
-    tools = []
-    cursor: str | None = None
-    seen_cursors: set[str] = set()
-    for _ in range(MAX_TOOL_LIST_PAGES):
-        response = await session.list_tools(cursor=cursor)
-        tools.extend(response.tools)
-        cursor = response.nextCursor
-        if not cursor:
-            return tools
-        if cursor in seen_cursors:
-            raise DomainError(
-                "MCP server returned a repeated tools/list cursor; "
-                "aborting to avoid an infinite pagination loop."
-            )
-        seen_cursors.add(cursor)
-    raise DomainError(
-        f"MCP server exceeded {MAX_TOOL_LIST_PAGES} tools/list pages; "
-        "aborting to avoid an unbounded pagination loop."
-    )
-
-
-@asynccontextmanager
-async def _open_session(
-    url: str,
-    *,
-    headers: dict[str, str] | None = None,
-    auth=None,
-    terminate_on_close: bool = True,
-):
-    """Open a Streamable HTTP MCP session, initialize it, and list its tools.
-
-    The low-level primitive shared by every handshake path: the DB-backed
-    :func:`connect_to_server` and the stateless :func:`probe_candidate`. Errors
-    raised **while listing tools** are wrapped in ``DomainError`` to give callers
-    a clean message.
-
-    The ``yield`` deliberately sits *outside* that wrapping. It used to be
-    inside, which meant any exception raised by the caller's ``async with`` body
-    — a domain error, a bug, anything — travelled back through this generator
-    and got laundered into a ``DomainError``, i.e. a 500 with someone else's
-    message (design review §5.7).
-    """
-    client_args: dict = {"url": url}
-    if headers:
-        client_args["headers"] = headers
-    if auth is not None:
-        client_args["auth"] = auth
-
-    try:
-        # Kept nested rather than combined into one parenthesized `async with`: the
-        # combined form hides that `read`/`write` are bound by the first context
-        # manager and consumed by the second, and Codacy's analyzer reads it as
-        # "using variable 'read' before assignment".
-        async with streamablehttp_client(  # noqa: SIM117
-            **client_args, terminate_on_close=terminate_on_close
-        ) as (read, write, _):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                try:
-                    tools = await _list_all_tools(session)
-                except Exception as e:
-                    # Unwrap before wrapping. A `tools/list` that 401s can raise
-                    # the requirement inside an ExceptionGroup, and
-                    # `ExceptionGroup` is an `Exception` — so a bare
-                    # `except Exception` here would launder it into a
-                    # `DomainError` whose auth URL nobody can recover, past the
-                    # unwrap below. The caller (e.g. `test_connection`) needs it
-                    # as an oauth_required result, not a generic 500.
-                    oauth = as_oauth_required(e)
-                    if oauth is not None:
-                        raise oauth from e
-                    raise DomainError(str(e)) from e
-                yield session, tools
-    except BaseException as exc:
-        # This is the MCP seam. The implicit 401 fires inside the transport's
-        # anyio task group, so it arrives here wrapped in an ExceptionGroup —
-        # which is why it used to need an app-global ExceptionGroup handler to
-        # become a response at all (design review §2.4). Unwrapping it here
-        # means every caller can catch it plainly, and nothing else about the
-        # exception is touched: an unrelated failure, including one raised by
-        # the caller's own `async with` body, propagates unchanged.
-        oauth = as_oauth_required(exc)
-        if oauth is not None and oauth is not exc:
-            raise oauth from exc
-        raise
-
 
 @asynccontextmanager
 async def connect_to_server(
@@ -357,12 +237,15 @@ async def connect_to_server(
     db: AsyncSession,
     *,
     terminate_on_close: bool = True,
-):
-    """Connect to an MCP server for a specific user and initialize the session.
+) -> AsyncIterator[Client]:
+    """Connect to an MCP server for a specific user.
 
-    Resolves the auth type through :func:`resolve_transport_auth` — the user's
+    Resolves the auth type through :func:`resolve_connection` — the user's
     OAuth provider, a Bearer ``Authorization`` header from the stored API key,
-    or nothing at all — then opens the session via :func:`_open_session`.
+    or nothing at all — then opens the connection via ``open_client``. Callers
+    list tools themselves (``await client.list_tools()``) when they need them;
+    the MCP-app paths, which only read a resource or call one tool, no longer
+    pay a ``tools/list`` per request.
 
     Args:
         mcp_server: MCP server configuration.
@@ -374,20 +257,14 @@ async def connect_to_server(
             session — DELETEing it kills the token before the browser uses it.
 
     Yields:
-        tuple: (session, tools) - Initialized session and available tools.
+        The connected FastMCP ``Client``.
 
     Raises:
         OAuthAuthorizationRequired: If OAuth authorization is needed.
     """
-    transport_auth = await resolve_transport_auth(
-        mcp_server, user_id, MCPServerRepository(db)
-    )
-    async with _open_session(
-        mcp_server.url,
-        terminate_on_close=terminate_on_close,
-        **transport_auth.as_kwargs(),
-    ) as result:
-        yield result
+    spec = await resolve_connection(mcp_server, user_id, MCPServerRepository(db))
+    async with open_client(spec, terminate_on_close=terminate_on_close) as client:
+        yield client
 
 
 # --- Authorization ----------------------------------------------------------
@@ -407,14 +284,11 @@ async def is_authorized(
         return True
 
     storage = TokenStorageFactory().get_storage(user_id, str(server.id))
+    if not refresh:
+        return await storage.get_tokens() is not None
+
     provider = await build_oauth_provider(server, storage)
-
-    if refresh:
-        return await provider.ensure_valid_token()
-
-    await provider._initialize()
-    tokens = await provider.context.storage.get_tokens()
-    return tokens is not None
+    return await provider.ensure_valid_token()
 
 
 # A probe of an *authorized* OAuth server is the expensive one: it decrypts the
@@ -561,7 +435,8 @@ async def test_connection(
             return ConnectionTestResult(reachable=False, error=str(e))
 
     try:
-        async with connect_to_server(server, user_id, db) as (_, tools):
+        async with connect_to_server(server, user_id, db) as client:
+            tools = await client.list_tools()
             return ConnectionTestResult(
                 reachable=True,
                 tool_count=len(tools),
@@ -608,7 +483,8 @@ async def probe_candidate(
         else None
     )
     try:
-        async with _open_session(url, headers=headers) as (_, tools):
+        async with open_client(ConnectionSpec(url=url, headers=headers)) as client:
+            tools = await client.list_tools()
             return ConnectionTestResult(
                 reachable=True,
                 tool_count=len(tools),

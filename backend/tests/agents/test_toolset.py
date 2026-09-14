@@ -10,7 +10,6 @@ from app.agents.toolset import (
     Toolset,
     _build_tool_ui_metadata,
     _extract_mcp_app_resource_uri,
-    _resolve_server_name_from_prefixed_tool_name,
     _sanitize_tools_in_place,
     sanitize_tool_name,
 )
@@ -124,21 +123,25 @@ class TestSanitizeToolsInPlace:
 # ---------------------------------------------------------------------------
 
 
+def _mcp_meta(meta: dict | None) -> dict:
+    """The tool metadata `langchain.mcp` attaches: the server's `_meta` under
+    `metadata["mcp"]["tool"]`."""
+    return {"mcp": {"tool": {"_meta": meta}}}
+
+
 class TestExtractMcpAppResourceUri:
     def test_standard_ui_key(self):
         tool = _make_tool(
-            "t", metadata={"_meta": {"ui": {"resourceUri": "https://example.com"}}}
+            "t", metadata=_mcp_meta({"ui": {"resourceUri": "https://example.com"}})
         )
         assert _extract_mcp_app_resource_uri(tool) == "https://example.com"
 
     def test_namespaced_ui_key(self):
         tool = _make_tool(
             "t",
-            metadata={
-                "_meta": {
-                    "io.modelcontextprotocol/ui": {"resourceUri": "https://x.com"}
-                }
-            },
+            metadata=_mcp_meta(
+                {"io.modelcontextprotocol/ui": {"resourceUri": "https://x.com"}}
+            ),
         )
         assert _extract_mcp_app_resource_uri(tool) == "https://x.com"
 
@@ -146,51 +149,23 @@ class TestExtractMcpAppResourceUri:
         tool = _make_tool("t")
         assert _extract_mcp_app_resource_uri(tool) is None
 
+    def test_metadata_without_mcp_provenance(self):
+        tool = _make_tool("t", metadata={"_meta": {"ui": {"resourceUri": "x"}}})
+        assert _extract_mcp_app_resource_uri(tool) is None
+
     def test_no_resource_uri(self):
-        tool = _make_tool("t", metadata={"_meta": {"ui": {"other": "val"}}})
+        tool = _make_tool("t", metadata=_mcp_meta({"ui": {"other": "val"}}))
         assert _extract_mcp_app_resource_uri(tool) is None
 
     def test_whitespace_stripped(self):
         tool = _make_tool(
-            "t",
-            metadata={"_meta": {"ui": {"resourceUri": "  https://x.com  "}}},
+            "t", metadata=_mcp_meta({"ui": {"resourceUri": "  https://x.com  "}})
         )
         assert _extract_mcp_app_resource_uri(tool) == "https://x.com"
 
     def test_empty_string_returns_none(self):
-        tool = _make_tool("t", metadata={"_meta": {"ui": {"resourceUri": "  "}}})
+        tool = _make_tool("t", metadata=_mcp_meta({"ui": {"resourceUri": "  "}}))
         assert _extract_mcp_app_resource_uri(tool) is None
-
-
-# ---------------------------------------------------------------------------
-# _resolve_server_name_from_prefixed_tool_name
-# ---------------------------------------------------------------------------
-
-
-class TestResolveServerName:
-    def test_exact_match(self):
-        assert (
-            _resolve_server_name_from_prefixed_tool_name("sheets", ["sheets"])
-            == "sheets"
-        )
-
-    def test_prefix_match(self):
-        assert (
-            _resolve_server_name_from_prefixed_tool_name("sheets_read", ["sheets"])
-            == "sheets"
-        )
-
-    def test_longest_prefix_wins(self):
-        result = _resolve_server_name_from_prefixed_tool_name(
-            "google-sheets_read", ["google", "google-sheets"]
-        )
-        assert result == "google-sheets"
-
-    def test_no_match(self):
-        assert (
-            _resolve_server_name_from_prefixed_tool_name("unknown_tool", ["sheets"])
-            is None
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -199,41 +174,19 @@ class TestResolveServerName:
 
 
 class TestBuildToolUiMetadata:
-    def test_returns_metadata_for_matching_tool(self):
+    def test_returns_metadata_for_app_tool(self):
         tool = _make_tool(
             "sheets_read",
-            metadata={"_meta": {"ui": {"resourceUri": "https://example.com"}}},
+            metadata=_mcp_meta({"ui": {"resourceUri": "https://example.com"}}),
         )
-        result = _build_tool_ui_metadata(
-            tool,
-            server_id_by_name={"sheets": "server-1"},
-            server_names=["sheets"],
-        )
-        assert result == {
+        assert _build_tool_ui_metadata(tool, "server-1") == {
             "mcp_app_resource_uri": "https://example.com",
             "mcp_server_id": "server-1",
         }
 
     def test_no_resource_uri_returns_none(self):
         tool = _make_tool("sheets_read")  # no metadata
-        result = _build_tool_ui_metadata(
-            tool,
-            server_id_by_name={"sheets": "s1"},
-            server_names=["sheets"],
-        )
-        assert result is None
-
-    def test_no_matching_server_returns_none(self):
-        tool = _make_tool(
-            "sheets_read",
-            metadata={"_meta": {"ui": {"resourceUri": "https://example.com"}}},
-        )
-        result = _build_tool_ui_metadata(
-            tool,
-            server_id_by_name={"other": "s1"},
-            server_names=["other"],
-        )
-        assert result is None
+        assert _build_tool_ui_metadata(tool, "s1") is None
 
 
 # ---------------------------------------------------------------------------
@@ -353,7 +306,7 @@ class TestToolsetPrepareEmpty:
         prepared = await Toolset.prepare([], db=None, user_id="u1", apply_ui=True)
         assert prepared.server_names == []
         assert prepared.interrupt_on == {}
-        assert prepared.client is None
+        assert prepared.connections == {}
 
     @pytest.mark.asyncio
     async def test_empty_bindings_open_yields_empty_toolset(self):
@@ -434,349 +387,6 @@ class TestPrepareDerivesInterruptOn:
             [binding], db=_FakeDB([server]), user_id="u1", apply_ui=True
         )
         assert prepared.interrupt_on == {}
-
-
-# ---------------------------------------------------------------------------
-# _open_sessions — concurrent, task-owned session lifecycles
-# ---------------------------------------------------------------------------
-
-
-class _FakeSessionCM:
-    """Records which task enters/exits, to assert anyio-safe ownership."""
-
-    def __init__(self, name, log, delay=0.0, fail_enter=False, fail_exit=False):
-        self.name = name
-        self.log = log
-        self.delay = delay
-        self.fail_enter = fail_enter
-        self.fail_exit = fail_exit
-
-    async def __aenter__(self):
-        import asyncio
-
-        self.log.append(("enter", self.name, asyncio.current_task()))
-        if self.delay:
-            await asyncio.sleep(self.delay)
-        if self.fail_enter:
-            raise RuntimeError(f"enter failed: {self.name}")
-        return f"session-{self.name}"
-
-    async def __aexit__(self, *exc):
-        import asyncio
-
-        self.log.append(("exit", self.name, asyncio.current_task()))
-        if self.fail_exit:
-            raise RuntimeError(f"exit failed: {self.name}")
-        return False
-
-
-class _FakeClient:
-    def __init__(self, cms):
-        self._cms = cms
-
-    def session(self, name):
-        return self._cms[name]
-
-
-class TestOpenSessions:
-    @pytest.mark.asyncio
-    async def test_sessions_open_concurrently(self):
-        import time as time_mod
-
-        from app.agents.toolset import _open_sessions
-
-        log = []
-        cms = {
-            "a": _FakeSessionCM("a", log, delay=0.05),
-            "b": _FakeSessionCM("b", log, delay=0.05),
-        }
-        t0 = time_mod.perf_counter()
-        async with _open_sessions(_FakeClient(cms), ["a", "b"]) as sessions:
-            assert sessions == {"a": "session-a", "b": "session-b"}
-        elapsed = time_mod.perf_counter() - t0
-        assert elapsed < 0.09  # serial would be >= 0.10
-
-    @pytest.mark.asyncio
-    async def test_enter_and_exit_happen_in_same_task(self):
-        import asyncio
-
-        from app.agents.toolset import _open_sessions
-
-        log = []
-        cms = {"a": _FakeSessionCM("a", log), "b": _FakeSessionCM("b", log)}
-        async with _open_sessions(_FakeClient(cms), ["a", "b"]):
-            pass
-        main_task = asyncio.current_task()
-        by_name: dict[str, dict] = {}
-        for event, name, task in log:
-            by_name.setdefault(name, {})[event] = task
-        for name, events in by_name.items():
-            assert events["enter"] is events["exit"], name
-            assert events["enter"] is not main_task, name
-
-    @pytest.mark.asyncio
-    async def test_enter_failure_propagates_and_cleans_up_others(self):
-        from app.agents.toolset import _open_sessions
-
-        log = []
-        cms = {
-            "ok": _FakeSessionCM("ok", log, delay=0.01),
-            "bad": _FakeSessionCM("bad", log, fail_enter=True),
-        }
-        with pytest.raises(RuntimeError, match="enter failed: bad"):
-            async with _open_sessions(_FakeClient(cms), ["ok", "bad"]):
-                pytest.fail("body must not run when a session fails to open")
-        assert any(e == "exit" and n == "ok" for e, n, _ in log)
-
-    @pytest.mark.asyncio
-    async def test_teardown_failure_propagates(self):
-        from app.agents.toolset import _open_sessions
-
-        log = []
-        cms = {"a": _FakeSessionCM("a", log, fail_exit=True)}
-        with pytest.raises(RuntimeError, match="exit failed: a"):
-            async with _open_sessions(_FakeClient(cms), ["a"]):
-                pass
-
-    @pytest.mark.asyncio
-    async def test_body_exception_wins_over_teardown_error(self):
-        from app.agents.toolset import _open_sessions
-
-        log = []
-        cms = {"a": _FakeSessionCM("a", log, fail_exit=True)}
-        with pytest.raises(ValueError, match="body boom"):
-            async with _open_sessions(_FakeClient(cms), ["a"]):
-                raise ValueError("body boom")
-        assert any(e == "exit" and n == "a" for e, n, t in log)
-
-    @pytest.mark.asyncio
-    async def test_replaced_session_teardown_error_is_excused(self):
-        """A dead primary that was replaced mid-stream tears down noisily —
-        that error must be logged, not raised at the end of a successful run."""
-        from app.agents.toolset import _open_sessions
-
-        log = []
-        cms = {
-            "dead": _FakeSessionCM("dead", log, fail_exit=True),
-            "ok": _FakeSessionCM("ok", log),
-        }
-        async with _open_sessions(
-            _FakeClient(cms), ["dead", "ok"], replaced={"dead"}
-        ) as sessions:
-            assert sessions["dead"] == "session-dead"
-
-    @pytest.mark.asyncio
-    async def test_unreplaced_teardown_error_still_raises(self):
-        from app.agents.toolset import _open_sessions
-
-        log = []
-        cms = {"a": _FakeSessionCM("a", log, fail_exit=True)}
-        with pytest.raises(RuntimeError, match="exit failed: a"):
-            async with _open_sessions(_FakeClient(cms), ["a"], replaced={"other"}):
-                pass
-
-
-# ---------------------------------------------------------------------------
-# ReconnectingSession — retry-once on dead transport
-# ---------------------------------------------------------------------------
-
-
-class _FakeSession:
-    """Stand-in ClientSession: fails every request with `fail_with` if set."""
-
-    def __init__(self, name: str, fail_with: BaseException | None = None):
-        self.name = name
-        self.calls: list[str] = []
-        self.fail_with = fail_with
-
-    async def call_tool(self, tool_name, args=None, **kwargs):
-        self.calls.append(tool_name)
-        if self.fail_with is not None:
-            raise self.fail_with
-        return f"{self.name}:{tool_name}"
-
-    async def list_tools(self, cursor=None):
-        if self.fail_with is not None:
-            raise self.fail_with
-        return f"tools-from-{self.name}"
-
-
-class _FakeSupervisor:
-    """Hands out pre-baked replacement sessions and counts reopens."""
-
-    def __init__(self, replacements: list[_FakeSession]):
-        self._replacements = list(replacements)
-        self.reopened: list[str] = []
-        self.replaced: set[str] = set()
-
-    async def reopen(self, name: str):
-        self.reopened.append(name)
-        self.replaced.add(name)
-        return self._replacements.pop(0)
-
-
-class TestReconnectingSession:
-    @pytest.mark.asyncio
-    async def test_dead_transport_reconnects_and_retries(self):
-        import anyio
-
-        from app.agents.toolset import ReconnectingSession
-
-        dead = _FakeSession("dead", fail_with=anyio.ClosedResourceError())
-        fresh = _FakeSession("fresh")
-        supervisor = _FakeSupervisor([fresh])
-        proxy = ReconnectingSession("slack", dead, supervisor)
-
-        result = await proxy.call_tool("read_channel")
-
-        assert result == "fresh:read_channel"
-        assert supervisor.reopened == ["slack"]
-        # The failed call never reached the server; the retry did.
-        assert dead.calls == ["read_channel"]
-        assert fresh.calls == ["read_channel"]
-
-    @pytest.mark.asyncio
-    async def test_non_transport_errors_are_not_retried(self):
-        from app.agents.toolset import ReconnectingSession
-
-        dead = _FakeSession("dead", fail_with=ValueError("mid-flight failure"))
-        supervisor = _FakeSupervisor([])
-        proxy = ReconnectingSession("slack", dead, supervisor)
-
-        with pytest.raises(ValueError, match="mid-flight failure"):
-            await proxy.call_tool("send_message")
-        assert supervisor.reopened == []
-
-    @pytest.mark.asyncio
-    async def test_concurrent_failures_reconnect_once(self):
-        """N concurrent calls on a dead session must trigger ONE reopen, and
-        all of them must retry on the same replacement."""
-        import asyncio
-
-        import anyio
-
-        from app.agents.toolset import ReconnectingSession
-
-        dead = _FakeSession("dead", fail_with=anyio.ClosedResourceError())
-        fresh = _FakeSession("fresh")
-        supervisor = _FakeSupervisor([fresh])
-        proxy = ReconnectingSession("slack", dead, supervisor)
-
-        results = await asyncio.gather(
-            proxy.call_tool("a"), proxy.call_tool("b"), proxy.call_tool("c")
-        )
-
-        assert sorted(results) == ["fresh:a", "fresh:b", "fresh:c"]
-        assert supervisor.reopened == ["slack"]
-
-    @pytest.mark.asyncio
-    async def test_second_death_reconnects_again(self):
-        import anyio
-
-        from app.agents.toolset import ReconnectingSession
-
-        dead1 = _FakeSession("dead1", fail_with=anyio.BrokenResourceError())
-        dead2 = _FakeSession("dead2", fail_with=anyio.BrokenResourceError())
-        fresh = _FakeSession("fresh")
-        supervisor = _FakeSupervisor([dead2, fresh])
-        proxy = ReconnectingSession("slack", dead1, supervisor)
-
-        # First call: dead1 -> reopen -> dead2 -> retry fails (one retry only).
-        with pytest.raises(anyio.BrokenResourceError):
-            await proxy.call_tool("a")
-        # Next call fails on dead2, reopens again onto fresh, succeeds.
-        assert await proxy.call_tool("b") == "fresh:b"
-        assert supervisor.reopened == ["slack", "slack"]
-
-    @pytest.mark.asyncio
-    async def test_list_tools_reconnects_and_retries(self):
-        """Tool discovery (Toolset.open → load_mcp_tools → list_tools) must
-        survive a transport that died right after the session opened, not
-        abort the whole run at setup."""
-        import anyio
-
-        from app.agents.toolset import ReconnectingSession
-
-        dead = _FakeSession("dead", fail_with=anyio.ClosedResourceError())
-        fresh = _FakeSession("fresh")
-        supervisor = _FakeSupervisor([fresh])
-        proxy = ReconnectingSession("slack", dead, supervisor)
-
-        assert await proxy.list_tools() == "tools-from-fresh"
-        assert supervisor.reopened == ["slack"]
-
-    @pytest.mark.asyncio
-    async def test_getattr_delegates_to_current_session(self):
-        import anyio
-
-        from app.agents.toolset import ReconnectingSession
-
-        dead = _FakeSession("dead", fail_with=anyio.ClosedResourceError())
-        fresh = _FakeSession("fresh")
-        supervisor = _FakeSupervisor([fresh])
-        proxy = ReconnectingSession("slack", dead, supervisor)
-
-        # `name` is not a wrapped method — it resolves on the live session.
-        assert proxy.name == "dead"
-        await proxy.call_tool("t")
-        assert proxy.name == "fresh"
-
-
-# ---------------------------------------------------------------------------
-# _SessionSupervisor — replacement host lifecycle
-# ---------------------------------------------------------------------------
-
-
-class TestSessionSupervisor:
-    @pytest.mark.asyncio
-    async def test_reopen_hosts_session_and_records_replacement(self):
-        import asyncio
-
-        from app.agents.toolset import _SessionSupervisor
-
-        log = []
-        cms = {"a": _FakeSessionCM("a", log)}
-        supervisor = _SessionSupervisor(_FakeClient(cms))
-
-        session = await supervisor.reopen("a")
-        assert session == "session-a"
-        assert supervisor.replaced == {"a"}
-        # Entered in a dedicated task, not the caller's.
-        enter_task = next(t for e, n, t in log if e == "enter")
-        assert enter_task is not asyncio.current_task()
-
-        await supervisor.close()
-        exit_task = next(t for e, n, t in log if e == "exit")
-        assert exit_task is enter_task
-
-    @pytest.mark.asyncio
-    async def test_close_logs_teardown_errors_instead_of_raising(self):
-        from app.agents.toolset import _SessionSupervisor
-
-        log = []
-        cms = {"a": _FakeSessionCM("a", log, fail_exit=True)}
-        supervisor = _SessionSupervisor(_FakeClient(cms))
-        await supervisor.reopen("a")
-
-        await supervisor.close()  # must not raise
-
-    @pytest.mark.asyncio
-    async def test_reopen_failure_propagates_to_caller(self):
-        from app.agents.toolset import _SessionSupervisor
-
-        log = []
-        cms = {"a": _FakeSessionCM("a", log, fail_enter=True)}
-        supervisor = _SessionSupervisor(_FakeClient(cms))
-
-        with pytest.raises(RuntimeError, match="enter failed: a"):
-            await supervisor.reopen("a")
-        assert supervisor.replaced == set()
-        await supervisor.close()
-
-
-# ---------------------------------------------------------------------------
-# MCPResolutionScope — one server read for a whole run graph
-# ---------------------------------------------------------------------------
 
 
 class _CountingDB:
@@ -860,7 +470,7 @@ class TestMCPResolutionScope:
         assert db.api_key_queries == 3
 
     @pytest.mark.asyncio
-    async def test_the_shared_key_still_reaches_the_client_config(self):
+    async def test_the_shared_key_still_reaches_the_connection_spec(self):
         """Sharing the decrypted key must not change what the client is given."""
         from app.agents.toolset import MCPResolutionScope
 
@@ -868,6 +478,6 @@ class TestMCPResolutionScope:
         db = _CountingDB([server], [key_row])
 
         scope = await MCPResolutionScope.build([binding], db, "u1")
-        config = await scope.config(server)
+        spec = await scope.connection(server)
 
-        assert config["headers"] == {"Authorization": "Bearer s3cret"}
+        assert spec.headers == {"Authorization": "Bearer s3cret"}

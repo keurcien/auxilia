@@ -159,10 +159,10 @@ auxilia/
 │   │   ├── invites/                   # Admin invites (email → pending role)
 │   │   ├── mcp/                       # MCP server management & client
 │   │   │   ├── apps/                  # MCP-app UI endpoints (read resource / call tool)
-│   │   │   ├── client/                # MCP client, OAuth provider, Redis storage, connectivity probes
+│   │   │   ├── client/                # connection.py — FastMCP Client construction (UI extension, lenient validation); auth.py — serverless OAuth provider; storage.py — Redis tokens; connectivity.py — auth dispatch + probes
 │   │   │   ├── servers/               # MCP server CRUD, API-key/OAuth credentials encryption
 │   │   │   │                          # catalog.py — official servers from a CDN YAML (see app/utils/remote_catalog.py)
-│   │   │   └── router.py              # auxilia_mcp (FastMCP) endpoint — advertises no tools yet
+│   │   │   └── router.py              # auxilia_mcp (MCPServer) endpoint — advertises no tools yet
 │   │   ├── model_providers/           # LLM provider configuration & catalog
 │   │   ├── sandbox/                   # Sandboxed code execution
 │   │   ├── threads/                   # Chat thread management
@@ -278,7 +278,7 @@ Releases are automated by the **release-please** GitHub Action (`.github/workflo
 - **Cache**: Redis 7
 - **Migrations**: Alembic
 - **LLM Orchestration**: LangChain + LangGraph
-- **MCP**: MCP SDK + langchain-mcp-adapters
+- **MCP**: MCP Python SDK v2 + FastMCP 4 client (`fastmcp.Client` / `ClientGroup`) + `langchain.mcp` (`MCPAdapter`) for tool conversion
 - **Auth**: JWT (HttpOnly cookies) + Google OAuth (Authlib)
 - **Password Hashing**: Argon2 (pwdlib)
 - **Package Manager**: uv
@@ -356,9 +356,9 @@ The service does **not** filter unauthorized agents out of `list`. Callers (e.g.
 - API keys are encrypted at rest with AES-GCM (`app/utils/encryption.py`)
 - OAuth tokens are stored per-user via `TokenStorageFactory`
 - Only remote (streamable HTTP) MCP servers are supported
-- **One auth dispatch**: `resolve_transport_auth(server, user_id, repository)` in `app/mcp/client/connectivity.py` turns an `MCPAuthType` into transport credentials, for both the client config the runtime builds and the raw handshake. Adding a scheme is one `match` arm; an unknown one raises on both paths rather than connecting unauthenticated.
+- **One auth dispatch**: `resolve_connection(server, user_id, repository)` in `app/mcp/client/connectivity.py` turns an `MCPAuthType` into a `ConnectionSpec` (URL + Bearer header or `httpx2.Auth`), for both the runtime's toolset and the per-request handshake paths. Adding a scheme is one `match` arm; an unknown one raises rather than connecting unauthenticated. **One client construction**: `connection.build_client(spec)` is the only place a FastMCP `Client` is built — it advertises the MCP Apps UI extension and installs lenient output validation; don't construct `Client(...)` elsewhere.
 - **Per-provider OAuth deviations go in `OAUTH_QUIRKS`** (`app/mcp/client/auth.py`), matched on the issuer, the server URL, or either — never as a new inline `if url == …`.
-- **"Needs authorization" is caught at the MCP seam, never globally.** `OAuthAuthorizationRequired` can arrive wrapped in an `ExceptionGroup` (the implicit 401 fires inside the transport's anyio task group), so `connectivity._open_session` and `Toolset.open` unwrap it with `as_oauth_required()` and re-raise the leaf; callers then use a plain `except`. Only endpoints whose job is connecting turn it into a response — `list-tools` returns an `auth_required` variant (a 200), the run and MCP-app endpoints answer 401 explicitly. `main.py` has no handler for it and none for `ExceptionGroup`; don't add one.
+- **"Needs authorization" is caught at the MCP seam, never globally.** `OAuthAuthorizationRequired` arrives as the `__cause__` of FastMCP's "Client failed to connect" `RuntimeError` (or inside an `ExceptionGroup`), so `connection.open_client` and `Toolset.open` unwrap it with `as_oauth_required()` and re-raise the leaf; callers then use a plain `except`. Only endpoints whose job is connecting turn it into a response — `list-tools` returns an `auth_required` variant (a 200), the run and MCP-app endpoints answer 401 explicitly. `main.py` has no handler for it and none for `ExceptionGroup`; don't add one.
 
 ### Slack Integration
 
