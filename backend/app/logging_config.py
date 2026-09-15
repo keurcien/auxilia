@@ -69,8 +69,9 @@ def _uvicorn_http_request(record: logging.LogRecord) -> dict[str, Any] | None:
     }
     if client_addr:
         # "%s:%d" % (host, port) — rsplit on the last ":" still works for an
-        # IPv6 host, which is itself colon-separated.
-        request["remoteIp"] = client_addr.rsplit(":", 1)[0]
+        # IPv6 host, which is itself colon-separated. `record.args` elements
+        # are typed `object` (logging's `_ArgsType`), hence the `str(...)`.
+        request["remoteIp"] = str(client_addr).rsplit(":", 1)[0]
     return request
 
 
