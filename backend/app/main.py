@@ -24,13 +24,13 @@ from app.integrations.langfuse.callback import flush_langfuse
 from app.integrations.slack.consumer import build_slack_run_consumer
 from app.integrations.slack.router import router as slack_router
 from app.invites.router import router as invites_router
+from app.logging_config import configure_logging
 from app.mcp.apps.router import router as mcp_apps_router
 from app.mcp.router import auxilia_mcp
 from app.mcp.servers.router import router as mcp_servers_router
 from app.model_providers.router import router as model_providers_router
 from app.redis_client import close_redis, get_redis
 from app.sandbox.router import sandboxes_router
-from app.settings import app_settings
 from app.tags.router import router as tags_router
 from app.teams.router import router as teams_router
 from app.threads.router import router as threads_router
@@ -40,8 +40,8 @@ from app.triggers.settings import trigger_settings
 from app.users.router import router as users_router
 
 
+configure_logging()
 logger = logging.getLogger("app")
-logger.setLevel(app_settings.log_level.upper())
 
 
 def _log_background_crash(task: asyncio.Task) -> None:

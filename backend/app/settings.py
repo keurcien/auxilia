@@ -1,6 +1,7 @@
 """App-wide settings, and the shared settings config every module reuses."""
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing_extensions import Unpack
@@ -35,6 +36,10 @@ class AppSettings(BaseSettings):
     redis_password: str | None = None
     backend_url: str = "http://localhost:8000"
     log_level: str = "INFO"
+    # "console": plain text for a terminal. "gcp": one JSON object per line in
+    # Cloud Logging's structured format (severity/sourceLocation/httpRequest
+    # as their own fields) — set this on Cloud Run, leave it alone elsewhere.
+    log_format: Literal["console", "gcp"] = "console"
 
     model_config = settings_config()
 
