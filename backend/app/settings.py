@@ -1,10 +1,8 @@
 """App-wide settings, and the shared settings config every module reuses."""
 
-from ipaddress import IPv4Address, IPv6Address
 from pathlib import Path
 from typing import Literal
 
-from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing_extensions import Unpack
 
@@ -42,16 +40,6 @@ class AppSettings(BaseSettings):
     # Cloud Logging's structured format (severity/sourceLocation/httpRequest
     # as their own fields) — set this on Cloud Run, leave it alone elsewhere.
     log_format: Literal["console", "gcp"] = "console"
-    # Unset restores normal DNS. An IP is a temporary routing workaround, not
-    # a stable Google backend version selector.
-    mcp_bigquery_pinned_ip: IPv4Address | IPv6Address | None = None
-
-    @field_validator("mcp_bigquery_pinned_ip", mode="before")
-    @classmethod
-    def empty_pin_is_disabled(cls, value: object) -> object:
-        if isinstance(value, str):
-            value = value.strip()
-        return None if value == "" else value
 
     model_config = settings_config()
 
