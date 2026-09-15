@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.7](https://github.com/keurcien/auxilia/compare/backend-v0.8.6...backend-v0.8.7) (2026-09-15)
+
+
+### Features
+
+* **logging:** add optional GCP structured log format ([#341](https://github.com/keurcien/auxilia/issues/341)) ([eccb568](https://github.com/keurcien/auxilia/commit/eccb56835e17ff27fe140829f32ab8f250c59df7))
+
+
+### Reverts
+
+* **mcp:** drop BigQuery debugging, logging and IP pinning ([#342](https://github.com/keurcien/auxilia/issues/342)) ([2f2d432](https://github.com/keurcien/auxilia/commit/2f2d43235eae4b0241cea45c9776dbfec9ea9dd2))
+
 ## [0.8.6](https://github.com/keurcien/auxilia/compare/backend-v0.8.5...backend-v0.8.6) (2026-09-15)
 
 
