@@ -2,6 +2,7 @@
 
 from ipaddress import IPv4Address, IPv6Address
 from pathlib import Path
+from typing import Literal
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -37,6 +38,10 @@ class AppSettings(BaseSettings):
     redis_password: str | None = None
     backend_url: str = "http://localhost:8000"
     log_level: str = "INFO"
+    # "console": plain text for a terminal. "gcp": one JSON object per line in
+    # Cloud Logging's structured format (severity/sourceLocation/httpRequest
+    # as their own fields) — set this on Cloud Run, leave it alone elsewhere.
+    log_format: Literal["console", "gcp"] = "console"
     # Unset restores normal DNS. An IP is a temporary routing workaround, not
     # a stable Google backend version selector.
     mcp_bigquery_pinned_ip: IPv4Address | IPv6Address | None = None

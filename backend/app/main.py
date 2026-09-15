@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -25,13 +24,13 @@ from app.integrations.langfuse.callback import flush_langfuse
 from app.integrations.slack.consumer import build_slack_run_consumer
 from app.integrations.slack.router import router as slack_router
 from app.invites.router import router as invites_router
+from app.logging_config import configure_logging
 from app.mcp.apps.router import router as mcp_apps_router
 from app.mcp.router import auxilia_mcp
 from app.mcp.servers.router import router as mcp_servers_router
 from app.model_providers.router import router as model_providers_router
 from app.redis_client import close_redis, get_redis
 from app.sandbox.router import sandboxes_router
-from app.settings import app_settings
 from app.tags.router import router as tags_router
 from app.teams.router import router as teams_router
 from app.threads.router import router as threads_router
@@ -41,39 +40,8 @@ from app.triggers.settings import trigger_settings
 from app.users.router import router as users_router
 
 
+configure_logging()
 logger = logging.getLogger("app")
-logger.setLevel(app_settings.log_level.upper())
-
-# At DEBUG, surface the MCP streamable-HTTP transport so we can see whether a
-# tool call's response is silently dropped (a `202 Accepted` to a request, or an
-# SSE stream that ends without a response) — the two paths behind the BigQuery
-# `execute_sql_readonly` hang. That logger prints JSON-RPC frames only, never the
-# Authorization header, so no bearer token is exposed; `httpx`/`httpcore` are
-# left alone because they can log headers.
-#
-# The app installs no logging handler otherwise, so it falls back to
-# `logging.lastResort`, which only emits WARNING and above — raising a logger to
-# DEBUG surfaces nothing without a handler. Add a stdout handler here, gated on
-# DEBUG so normal (INFO) operation is unchanged. Root keeps its default level, so
-# only the loggers named below are lowered; third-party loggers stay quiet. Set
-# LOG_LEVEL back to INFO once a repro is captured.
-if app_settings.log_level.upper() == "DEBUG":
-    _root = logging.getLogger()
-    # Idempotent: re-importing this module (a test re-import, importlib.reload,
-    # an in-process --reload) must not stack a second handler and print every
-    # line twice. Name ours and add it only if it isn't already attached.
-    if not any(h.get_name() == "auxilia-debug" for h in _root.handlers):
-        _debug_handler = logging.StreamHandler(sys.stdout)
-        _debug_handler.set_name("auxilia-debug")
-        _debug_handler.setFormatter(
-            logging.Formatter("%(levelname)s %(name)s: %(message)s")
-        )
-        _root.addHandler(_debug_handler)
-    logging.getLogger("mcp.client.streamable_http").setLevel(logging.DEBUG)
-    logger.info(
-        "MCP streamable-HTTP transport logging is at DEBUG (LOG_LEVEL=DEBUG); "
-        "set LOG_LEVEL=INFO to quiet it once a repro is captured."
-    )
 
 
 def _log_background_crash(task: asyncio.Task) -> None:
