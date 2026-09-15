@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from fastapi import Depends
@@ -21,6 +22,7 @@ from app.mcp.client.connectivity import (
     is_authorized,
 )
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
+from app.mcp.client.pinned_transport import BIGQUERY_HOST
 from app.mcp.client.storage import TokenStorageFactory
 from app.mcp.servers import catalog as mcp_catalog
 from app.mcp.servers.models import MCPAuthType, MCPServerDB
@@ -377,6 +379,14 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
 
             async with connect_to_server(server, user_id, self.db) as client:
                 tools = await client.list_tools()
+                if urlsplit(server.url).hostname == BIGQUERY_HOST:
+                    logger.debug(
+                        "BQ_EDITOR_TOOLS client=%s server=%s count=%s names=%s",
+                        id(client),
+                        server.id,
+                        len(tools),
+                        [tool.name for tool in tools],
+                    )
                 return ToolsListed(
                     tools=[
                         MCPToolInfo(name=tool.name, description=tool.description)

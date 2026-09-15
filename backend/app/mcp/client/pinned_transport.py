@@ -1,9 +1,12 @@
 """Optional BigQuery routing workaround; never changes OAuth destinations."""
 
+import logging
+
 import httpx2
 
 
 BIGQUERY_HOST = "bigquery.googleapis.com"
+logger = logging.getLogger(__name__)
 
 
 class PinnedBigQueryTransport(httpx2.AsyncBaseTransport):
@@ -31,7 +34,14 @@ class PinnedBigQueryTransport(httpx2.AsyncBaseTransport):
             stream=request.stream,
             extensions={**request.extensions, "sni_hostname": BIGQUERY_HOST},
         )
-        return await self.inner.handle_async_request(forwarded)
+        response = await self.inner.handle_async_request(forwarded)
+        logger.debug(
+            "BQ_ROUTE transport=%s destination=%s status=%s",
+            id(self),
+            self.address,
+            response.status_code,
+        )
+        return response
 
     async def aclose(self) -> None:
         await self.inner.aclose()

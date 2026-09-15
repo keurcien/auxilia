@@ -36,6 +36,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx2
 from fastmcp.client import Client
@@ -53,7 +54,7 @@ from mcp.types import CallToolResult
 from typing_extensions import Unpack
 
 from app.mcp.client.exceptions import as_oauth_required
-from app.mcp.client.pinned_transport import PinnedBigQueryTransport
+from app.mcp.client.pinned_transport import BIGQUERY_HOST, PinnedBigQueryTransport
 from app.settings import app_settings
 
 
@@ -165,6 +166,14 @@ def _logging_http_client_factory(
     if app_settings.mcp_bigquery_pinned_ip is None:
         client = create_mcp_http_client(headers=headers, timeout=timeout, auth=auth)
     else:
+        pinned_transport = PinnedBigQueryTransport(
+            str(app_settings.mcp_bigquery_pinned_ip)
+        )
+        logger.debug(
+            "BQ_ROUTE factory transport=%s configured_pin=%s",
+            id(pinned_transport),
+            app_settings.mcp_bigquery_pinned_ip,
+        )
         # A host-specific mount wins over proxy mounts for this endpoint only.
         # All other MCP servers and OAuth endpoints retain normal routing.
         client = httpx2.AsyncClient(
@@ -177,9 +186,7 @@ def _logging_http_client_factory(
             if timeout is not None
             else httpx2.Timeout(MCP_DEFAULT_TIMEOUT, read=MCP_DEFAULT_SSE_READ_TIMEOUT),
             mounts={
-                "https://bigquery.googleapis.com": PinnedBigQueryTransport(
-                    str(app_settings.mcp_bigquery_pinned_ip)
-                ),
+                "https://bigquery.googleapis.com": pinned_transport,
             },
         )
     client.event_hooks.setdefault("response", []).append(_log_non_2xx_body)
@@ -294,6 +301,13 @@ def build_client(spec: ConnectionSpec, *, terminate_on_close: bool = True) -> Cl
     # FastMCP's own proxy swaps the session class the same way; the attribute
     # is the only way in until `Client` takes transport options directly.
     client._transport_options = TransportOptions(session_class=LenientClientSession)
+    if urlsplit(spec.url).hostname == BIGQUERY_HOST:
+        logger.debug(
+            "BQ_ROUTE client=%s configured_pin=%s auth_provider=%s",
+            id(client),
+            app_settings.mcp_bigquery_pinned_ip,
+            type(spec.auth).__name__,
+        )
     return client
 
 
