@@ -44,6 +44,8 @@ class AppSettings(BaseSettings):
     @field_validator("mcp_bigquery_pinned_ip", mode="before")
     @classmethod
     def empty_pin_is_disabled(cls, value: object) -> object:
+        if isinstance(value, str):
+            value = value.strip()
         return None if value == "" else value
 
     model_config = settings_config()

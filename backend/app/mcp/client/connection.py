@@ -168,6 +168,9 @@ def _logging_http_client_factory(
         # A host-specific mount wins over proxy mounts for this endpoint only.
         # All other MCP servers and OAuth endpoints retain normal routing.
         client = httpx2.AsyncClient(
+            # Match MCP SDK v2: stream_within_origin handles same-origin
+            # redirects; unrestricted HTTP redirects must remain disabled.
+            follow_redirects=False,
             headers=headers,
             auth=auth,
             timeout=timeout

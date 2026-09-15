@@ -45,6 +45,7 @@ async def test_factory_pins_only_bigquery_and_preserves_defaults(monkeypatch):
     monkeypatch.setattr(app_settings, "mcp_bigquery_pinned_ip", None)
     async with _logging_http_client_factory() as normal:
         default_timeout = normal.timeout
+        default_follow_redirects = normal.follow_redirects
         assert not isinstance(
             normal._transport_for_url(
                 httpx2.URL("https://bigquery.googleapis.com/mcp")
@@ -56,7 +57,7 @@ async def test_factory_pins_only_bigquery_and_preserves_defaults(monkeypatch):
     )
     async with _logging_http_client_factory() as pinned:
         assert pinned.timeout == default_timeout
-        assert not pinned.follow_redirects
+        assert pinned.follow_redirects == default_follow_redirects
         assert isinstance(
             pinned._transport_for_url(
                 httpx2.URL("https://bigquery.googleapis.com/mcp")
@@ -73,10 +74,15 @@ async def test_factory_pins_only_bigquery_and_preserves_defaults(monkeypatch):
             )
 
 
-@pytest.mark.parametrize("value", [None, "", "172.217.20.42", "::1"])
+@pytest.mark.parametrize(
+    "value", [None, "", " \t ", "172.217.20.42", " 172.217.20.42 ", "::1", " ::1 "]
+)
 def test_pin_setting(value):
     settings = AppSettings(_env_file=None, mcp_bigquery_pinned_ip=value)
-    assert settings.mcp_bigquery_pinned_ip == (ip_address(value) if value else None)
+    normalized = value.strip() if isinstance(value, str) else value
+    assert settings.mcp_bigquery_pinned_ip == (
+        ip_address(normalized) if normalized else None
+    )
 
 
 def test_pin_rejects_hostname():
