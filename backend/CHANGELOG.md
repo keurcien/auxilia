@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.6](https://github.com/keurcien/auxilia/compare/backend-v0.8.5...backend-v0.8.6) (2026-09-15)
+
+
+### Bug Fixes
+
+* **mcp:** allow optional BigQuery destination IP pinning ([#338](https://github.com/keurcien/auxilia/issues/338)) ([8b0d067](https://github.com/keurcien/auxilia/commit/8b0d067a7ed6565d7f85b9e97c7ffea4f081716e))
+
 ## [0.8.5](https://github.com/keurcien/auxilia/compare/backend-v0.8.4...backend-v0.8.5) (2026-09-14)
 
 
