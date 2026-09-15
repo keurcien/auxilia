@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -44,31 +43,14 @@ from app.users.router import router as users_router
 logger = logging.getLogger("app")
 logger.setLevel(app_settings.log_level.upper())
 
-# At DEBUG, surface the MCP streamable-HTTP transport so we can see whether a
-# tool call's response is silently dropped (a `202 Accepted` to a request, or an
-# SSE stream that ends without a response) — the two paths behind the BigQuery
-# `execute_sql_readonly` hang. That logger prints JSON-RPC frames only, never the
-# Authorization header, so no bearer token is exposed; `httpx`/`httpcore` are
-# left alone because they can log headers.
-#
-# The app installs no logging handler otherwise, so it falls back to
-# `logging.lastResort`, which only emits WARNING and above — raising a logger to
-# DEBUG surfaces nothing without a handler. Add a stdout handler here, gated on
-# DEBUG so normal (INFO) operation is unchanged. Root keeps its default level, so
-# only the loggers named below are lowered; third-party loggers stay quiet. Set
-# LOG_LEVEL back to INFO once a repro is captured.
+# At DEBUG, also surface the MCP streamable-HTTP transport so we can see whether
+# a tool call's response is silently dropped (a `202 Accepted` to a request, or
+# an SSE stream that ends without a response) — the two paths behind the
+# BigQuery `execute_sql_readonly` hang. This logger prints JSON-RPC frames only,
+# never the Authorization header, so no bearer token is exposed; do NOT raise
+# `httpx`/`httpcore` here, which can log headers. Set LOG_LEVEL back to INFO
+# afterwards — DEBUG makes every MCP call verbose.
 if app_settings.log_level.upper() == "DEBUG":
-    _root = logging.getLogger()
-    # Idempotent: re-importing this module (a test re-import, importlib.reload,
-    # an in-process --reload) must not stack a second handler and print every
-    # line twice. Name ours and add it only if it isn't already attached.
-    if not any(h.get_name() == "auxilia-debug" for h in _root.handlers):
-        _debug_handler = logging.StreamHandler(sys.stdout)
-        _debug_handler.set_name("auxilia-debug")
-        _debug_handler.setFormatter(
-            logging.Formatter("%(levelname)s %(name)s: %(message)s")
-        )
-        _root.addHandler(_debug_handler)
     logging.getLogger("mcp.client.streamable_http").setLevel(logging.DEBUG)
     logger.info(
         "MCP streamable-HTTP transport logging is at DEBUG (LOG_LEVEL=DEBUG); "
