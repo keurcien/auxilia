@@ -44,11 +44,17 @@ from fastmcp.client.transports.base import SessionKwargs, TransportOptions
 from mcp import ClientSession
 from mcp.client import advertise
 from mcp.client.streamable_http import streamable_http_client
-from mcp.shared._httpx_utils import create_mcp_http_client
+from mcp.shared._httpx_utils import (
+    MCP_DEFAULT_SSE_READ_TIMEOUT,
+    MCP_DEFAULT_TIMEOUT,
+    create_mcp_http_client,
+)
 from mcp.types import CallToolResult
 from typing_extensions import Unpack
 
 from app.mcp.client.exceptions import as_oauth_required
+from app.mcp.client.pinned_transport import PinnedBigQueryTransport
+from app.settings import app_settings
 
 
 logger = logging.getLogger(__name__)
@@ -146,10 +152,9 @@ async def _log_non_2xx_body(response: httpx2.Response) -> None:
 
 
 def _logging_http_client_factory(
-    *,
     headers: dict[str, str] | None = None,
-    auth: httpx2.Auth | None = None,
     timeout: Any = None,
+    auth: httpx2.Auth | None = None,
     **_kwargs: Any,
 ) -> httpx2.AsyncClient:
     """``create_mcp_http_client`` plus the non-2xx body logger, as the factory the
@@ -157,7 +162,26 @@ def _logging_http_client_factory(
     accepted and ignored so a future FastMCP that passes more never breaks the one
     seam every MCP path uses; ``timeout`` stays untyped because FastMCP may hand it
     as a float or an ``httpx2.Timeout``."""
-    client = create_mcp_http_client(headers=headers, timeout=timeout, auth=auth)
+    if app_settings.mcp_bigquery_pinned_ip is None:
+        client = create_mcp_http_client(headers=headers, timeout=timeout, auth=auth)
+    else:
+        # A host-specific mount wins over proxy mounts for this endpoint only.
+        # All other MCP servers and OAuth endpoints retain normal routing.
+        client = httpx2.AsyncClient(
+            # Match MCP SDK v2: stream_within_origin handles same-origin
+            # redirects; unrestricted HTTP redirects must remain disabled.
+            follow_redirects=False,
+            headers=headers,
+            auth=auth,
+            timeout=timeout
+            if timeout is not None
+            else httpx2.Timeout(MCP_DEFAULT_TIMEOUT, read=MCP_DEFAULT_SSE_READ_TIMEOUT),
+            mounts={
+                "https://bigquery.googleapis.com": PinnedBigQueryTransport(
+                    str(app_settings.mcp_bigquery_pinned_ip)
+                ),
+            },
+        )
     client.event_hooks.setdefault("response", []).append(_log_non_2xx_body)
     return client
 
@@ -222,16 +246,13 @@ class SessionKeepingTransport(StreamableHttpTransport):
         read_timeout_seconds = session_kwargs.get("read_timeout_seconds")
         if read_timeout_seconds is not None:
             timeout = httpx2.Timeout(30.0, read=read_timeout_seconds)
-        http_client = create_mcp_http_client(
+        http_client = _logging_http_client_factory(
             headers=dict(self.headers), timeout=timeout, auth=self.auth
         )
         self._session_id = None
         http_client.event_hooks.setdefault("response", []).append(
             self._capture_session_id
         )
-        # SessionKeepingTransport builds its own client (it does not go through
-        # `httpx_client_factory`), so attach the non-2xx body logger here too.
-        http_client.event_hooks["response"].append(_log_non_2xx_body)
         # The session context is nested, not folded into the parenthesized
         # `async with`: the streams are bound by the transport context and
         # consumed by the session one, and Codacy's analyzer reads the folded
@@ -264,7 +285,7 @@ def build_client(spec: ConnectionSpec, *, terminate_on_close: bool = True) -> Cl
         # The base transport builds its httpx client from this factory, so the
         # runtime path (default transport) logs the server's own error body on a
         # non-2xx — the detail the SDK otherwise drops. SessionKeepingTransport
-        # ignores the factory and attaches the same hook itself.
+        # uses the same factory so diagnostics and IP overrides stay consistent.
         httpx_client_factory=_logging_http_client_factory,
     )
     client: Client[Any] = Client(

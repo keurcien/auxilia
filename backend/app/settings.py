@@ -1,7 +1,9 @@
 """App-wide settings, and the shared settings config every module reuses."""
 
+from ipaddress import IPv4Address, IPv6Address
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing_extensions import Unpack
 
@@ -35,6 +37,16 @@ class AppSettings(BaseSettings):
     redis_password: str | None = None
     backend_url: str = "http://localhost:8000"
     log_level: str = "INFO"
+    # Unset restores normal DNS. An IP is a temporary routing workaround, not
+    # a stable Google backend version selector.
+    mcp_bigquery_pinned_ip: IPv4Address | IPv6Address | None = None
+
+    @field_validator("mcp_bigquery_pinned_ip", mode="before")
+    @classmethod
+    def empty_pin_is_disabled(cls, value: object) -> object:
+        if isinstance(value, str):
+            value = value.strip()
+        return None if value == "" else value
 
     model_config = settings_config()
 
