@@ -30,7 +30,6 @@ reason the runtime used to host every session in a dedicated task is gone.
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -44,17 +43,11 @@ from fastmcp.client.transports.base import SessionKwargs, TransportOptions
 from mcp import ClientSession
 from mcp.client import advertise
 from mcp.client.streamable_http import streamable_http_client
-from mcp.shared._httpx_utils import (
-    MCP_DEFAULT_SSE_READ_TIMEOUT,
-    MCP_DEFAULT_TIMEOUT,
-    create_mcp_http_client,
-)
+from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.types import CallToolResult
 from typing_extensions import Unpack
 
 from app.mcp.client.exceptions import as_oauth_required
-from app.mcp.client.pinned_transport import PinnedBigQueryTransport
-from app.settings import app_settings
 
 
 logger = logging.getLogger(__name__)
@@ -66,125 +59,6 @@ logger = logging.getLogger(__name__)
 _fastmcp_logger = logging.getLogger("fastmcp")
 _fastmcp_logger.handlers.clear()
 _fastmcp_logger.propagate = True
-
-
-def _log_bigquery_diagnostic(response: httpx2.Response) -> None:
-    """Temporary probe for production's empty-project routing error.
-
-    Only the literal hello query is eligible for WARNING logging. Project only
-    known fields: arbitrary arguments, metadata and auth headers can hold secrets.
-    Inspect the buffered request without consuming either HTTP stream.
-    """
-    request = response.request
-    if request.url.host != "bigquery.googleapis.com" or request.method != "POST":
-        return
-    try:
-        payload = json.loads(request.content)
-    except (ValueError, httpx2.RequestNotRead):
-        return
-    if not isinstance(payload, dict) or payload.get("method") != "tools/call":
-        return
-    params = payload.get("params")
-    if not isinstance(params, dict) or params.get("name") != "execute_sql_readonly":
-        return
-    arguments = params.get("arguments")
-    if (
-        not isinstance(arguments, dict)
-        or arguments.get("query") != "SELECT 'hello' AS greeting"
-    ):
-        return
-    allowed_headers = {
-        "content-type",
-        "accept",
-        "mcp-protocol-version",
-        "mcp-method",
-        "mcp-name",
-        "x-goog-user-project",
-        "content-length",
-    }
-    logger.warning(
-        "BQ_DIAGNOSTIC request=%s headers=%s status=%s response_content_type=%s",
-        json.dumps(
-            {
-                "id": payload.get("id"),
-                "method": payload["method"],
-                "params": {
-                    "name": params["name"],
-                    "arguments": {k: arguments.get(k) for k in ("projectId", "query")},
-                },
-            }
-        ),
-        {k: v for k, v in request.headers.items() if k.lower() in allowed_headers},
-        response.status_code,
-        response.headers.get("content-type"),
-    )
-
-
-async def _log_non_2xx_body(response: httpx2.Response) -> None:
-    """Log a remote MCP server's own error text on a non-2xx response.
-
-    The MCP SDK reads a non-2xx body that isn't a JSON-RPC error, discards it,
-    and hands back a generic ``ErrorData("Server returned an error response")``,
-    so the real message — e.g. the intermittent HTTP 400 the Google BigQuery MCP
-    endpoint returns on ``execute_sql`` — never reaches the logs or the model.
-    Log it here instead.
-
-    At DEBUG, not WARNING: an error body can echo request content — a rejected
-    ``execute_sql`` may quote the query, its table/column names, even literal
-    values — so it must not land in steady-state logs. Raise LOG_LEVEL to DEBUG
-    to capture it. 2xx is the success path; 401 is the routine "needs
-    authorization" the OAuth flow handles — both are skipped.
-    """
-    _log_bigquery_diagnostic(response)
-    if 200 <= response.status_code < 300 or response.status_code == 401:
-        return
-    try:
-        body = await response.aread()
-    except Exception:  # noqa: BLE001 — best-effort diagnostic, never fatal
-        return
-    logger.debug(
-        "MCP %s %s -> HTTP %s: %s",
-        response.request.method,
-        response.request.url,
-        response.status_code,
-        body.decode("utf-8", "replace")[:800],
-    )
-
-
-def _logging_http_client_factory(
-    headers: dict[str, str] | None = None,
-    timeout: Any = None,
-    auth: httpx2.Auth | None = None,
-    **_kwargs: Any,
-) -> httpx2.AsyncClient:
-    """``create_mcp_http_client`` plus the non-2xx body logger, as the factory the
-    transport builds its client from (see :func:`build_client`). Extra kwargs are
-    accepted and ignored so a future FastMCP that passes more never breaks the one
-    seam every MCP path uses; ``timeout`` stays untyped because FastMCP may hand it
-    as a float or an ``httpx2.Timeout``."""
-    if app_settings.mcp_bigquery_pinned_ip is None:
-        client = create_mcp_http_client(headers=headers, timeout=timeout, auth=auth)
-    else:
-        # A host-specific mount wins over proxy mounts for this endpoint only.
-        # All other MCP servers and OAuth endpoints retain normal routing.
-        client = httpx2.AsyncClient(
-            # Match MCP SDK v2: stream_within_origin handles same-origin
-            # redirects; unrestricted HTTP redirects must remain disabled.
-            follow_redirects=False,
-            headers=headers,
-            auth=auth,
-            timeout=timeout
-            if timeout is not None
-            else httpx2.Timeout(MCP_DEFAULT_TIMEOUT, read=MCP_DEFAULT_SSE_READ_TIMEOUT),
-            mounts={
-                "https://bigquery.googleapis.com": PinnedBigQueryTransport(
-                    str(app_settings.mcp_bigquery_pinned_ip)
-                ),
-            },
-        )
-    client.event_hooks.setdefault("response", []).append(_log_non_2xx_body)
-    return client
-
 
 # MCP Apps extension identifier and the capability payload a host advertises.
 # https://github.com/modelcontextprotocol/ext-apps (spec 2026-01-26).
@@ -246,7 +120,7 @@ class SessionKeepingTransport(StreamableHttpTransport):
         read_timeout_seconds = session_kwargs.get("read_timeout_seconds")
         if read_timeout_seconds is not None:
             timeout = httpx2.Timeout(30.0, read=read_timeout_seconds)
-        http_client = _logging_http_client_factory(
+        http_client = create_mcp_http_client(
             headers=dict(self.headers), timeout=timeout, auth=self.auth
         )
         self._session_id = None
@@ -278,16 +152,7 @@ def build_client(spec: ConnectionSpec, *, terminate_on_close: bool = True) -> Cl
     transport_cls: type[StreamableHttpTransport] = (
         StreamableHttpTransport if terminate_on_close else SessionKeepingTransport
     )
-    transport = transport_cls(
-        spec.url,
-        headers=spec.headers,
-        auth=spec.auth,
-        # The base transport builds its httpx client from this factory, so the
-        # runtime path (default transport) logs the server's own error body on a
-        # non-2xx — the detail the SDK otherwise drops. SessionKeepingTransport
-        # uses the same factory so diagnostics and IP overrides stay consistent.
-        httpx_client_factory=_logging_http_client_factory,
-    )
+    transport = transport_cls(spec.url, headers=spec.headers, auth=spec.auth)
     client: Client[Any] = Client(
         transport, extensions=[advertise(UI_EXTENSION, UI_CAPABILITY)]
     )
