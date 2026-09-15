@@ -128,7 +128,14 @@ def configure_logging() -> None:
 
     root = logging.getLogger()
     root.handlers = [handler]
-    root.setLevel(app_settings.log_level.upper())
+    # Root's own level is deliberately left at its default (WARNING), not
+    # raised to LOG_LEVEL: a third-party logger with no level of its own
+    # (httpx, httpcore, sqlalchemy, ...) resolves its effective level by
+    # walking up to root, so raising root would make every one of them start
+    # emitting INFO — or, at LOG_LEVEL=DEBUG, their full debug stream — even
+    # though only this app's own logs (and, at DEBUG, one named MCP
+    # transport logger below) were meant to be affected.
+    logging.getLogger("app").setLevel(app_settings.log_level.upper())
 
     # "uvicorn" and "uvicorn.access" install their own handlers with
     # propagate=False (uvicorn.config.LOGGING_CONFIG), applied before this
