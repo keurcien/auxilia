@@ -42,10 +42,11 @@ coverage
 .coverage
 coverage.xml
 
-# next.js
+# next.js — any alternate dist dir too (NEXT_DIST_DIR): Tailwind's scanner
+# reads everything that is not ignored, and a half-written chunk yields
+# garbage class names in globals.css.
 .next/
-.next-demo/
-.next-mem/
+.next-*/
 out/
 
 # production

@@ -1,11 +1,69 @@
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import JSON, Column, Text
+from sqlalchemy import JSON, Column, DateTime, Enum as SAEnum, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, SQLModel
 
 from app.models import BaseDBModel, TimestampMixin
-from app.skills.schemas import SkillBundle, SkillFile
+from app.skills.schemas import SkillBundle, SkillFile, SkillSourceKind
+
+
+def _json():
+    return Column(JSON().with_variant(JSONB(), "postgresql"), nullable=False)
+
+
+class SkillSourceDB(BaseDBModel, table=True):
+    """A repository the workspace syncs skills from (GitHub or GitLab, any
+    instance). Sync reads the repository at `ref`, resolved to a commit,
+    and makes each skill *available*; it never changes what an agent runs.
+    The token is encrypted at rest and only ever decrypted to resolve.
+
+    `last_*` describe the last sync: `last_status` is one of ``ok``, ``auth``,
+    ``not_found``, ``unavailable``, ``invalid`` — the catalog's "not
+    configured" / "permanently broken" / "temporarily unavailable" states,
+    told apart by type, not by message.
+    """
+
+    __tablename__ = "skill_sources"
+
+    owner_id: UUID = Field(foreign_key="users.id", ondelete="CASCADE", index=True)
+    name: str = Field(max_length=120)
+    kind: SkillSourceKind = Field(
+        sa_column=Column(SAEnum(SkillSourceKind), nullable=False)
+    )
+    url: str = Field(max_length=500)
+    ref: str = Field(default="main", max_length=200)
+    subpath: str | None = Field(default=None, max_length=240)
+    encrypted_token: str | None = Field(
+        default=None, sa_column=Column(Text, nullable=True)
+    )
+    last_revision: str | None = Field(default=None, max_length=80)
+    last_synced_at: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
+    last_status: str | None = Field(default=None, max_length=20)
+    last_error: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    last_report: list = Field(default_factory=list, sa_column=_json())
+    skill_count: int = Field(default=0, nullable=False)
+
+
+class SkillVersionDB(BaseDBModel, table=True):
+    """A version of a sourced skill as its repository held it at some sync:
+    the frozen content and files, keyed by content digest. The newest row
+    that differs from the skill's own `digest` is the update waiting to be
+    adopted."""
+
+    __tablename__ = "skill_versions"
+    __table_args__ = (
+        UniqueConstraint("skill_id", "digest", name="uq_skill_versions_digest"),
+    )
+
+    skill_id: UUID = Field(foreign_key="skills.id", ondelete="CASCADE", index=True)
+    digest: str = Field(max_length=80, index=True)
+    revision: str = Field(max_length=80)
+    content: str = Field(sa_column=Column(Text, nullable=False))
+    files: list = Field(default_factory=list, sa_column=_json())
 
 
 class SkillDB(BaseDBModel, table=True):
@@ -32,6 +90,17 @@ class SkillDB(BaseDBModel, table=True):
     )
     # Optimistic-concurrency token: +1 per save, a stale one is refused.
     revision: int = Field(default=1, nullable=False)
+    # Provenance. `source_id` None = written in the app, live on the next run.
+    # Set = pinned to `digest` from `source_path` at `source_revision`; a
+    # newer `SkillVersionDB` is adopted explicitly. A skill the last sync no
+    # longer found upstream keeps working and is flagged.
+    source_id: UUID | None = Field(
+        default=None, foreign_key="skill_sources.id", ondelete="SET NULL", index=True
+    )
+    source_path: str | None = Field(default=None, max_length=240)
+    source_revision: str | None = Field(default=None, max_length=80)
+    digest: str | None = Field(default=None, max_length=80)
+    missing_upstream: bool = Field(default=False, nullable=False)
 
     def to_bundle(self) -> SkillBundle:
         return SkillBundle(

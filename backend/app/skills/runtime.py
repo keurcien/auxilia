@@ -21,22 +21,12 @@ same absolute path.
 
 from __future__ import annotations
 
-import base64
-import hashlib
 import shlex
 from collections.abc import Iterable
 from pathlib import PurePosixPath
 from uuid import UUID
 
-from deepagents.backends.protocol import (
-    DeleteResult,
-    EditResult,
-    FileUploadResponse,
-    WriteResult,
-)
 from deepagents.backends.sandbox import BaseSandbox
-from deepagents.backends.state import StateBackend
-from deepagents.backends.utils import create_file_data
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions import DomainValidationError
@@ -44,11 +34,23 @@ from app.skills.middleware import SKILLS_ROOT
 from app.skills.repository import SkillRepository
 from app.skills.schemas import SkillBundle
 from app.threads.models import ThreadDB
+from skillkit.adapters.deepagents import (
+    READ_ONLY,
+    InMemorySkillsBackend,
+    skill_files as _flatten,
+)
+from skillkit.digest import bundle_digest
 
 
 # Written next to the skills in a sandbox; holds the digest of what is there.
 DIGEST_MARKER = ".auxilia-digest"
-READ_ONLY = "Skill files are read-only. Copy the file elsewhere to change it."
+__all__ = [
+    "READ_ONLY",
+    "SkillsBackend",
+    "skill_files",
+    "skills_digest",
+    "upload_skills",
+]
 
 
 async def freeze_run_skills(
@@ -93,68 +95,24 @@ def ensure_unique_names(bundles: Iterable[SkillBundle]) -> None:
 def skill_files(bundles: Iterable[SkillBundle]) -> dict[str, bytes]:
     """Every file of every skill, keyed by its absolute path — the layout
     ``SkillsMiddleware`` scans: ``SKILLS_ROOT/<name>/SKILL.md`` plus files."""
-    files: dict[str, bytes] = {}
-    for bundle in bundles:
-        base = f"{SKILLS_ROOT}/{bundle.name}"
-        files[f"{base}/SKILL.md"] = bundle.content.encode()
-        for file in bundle.files:
-            files[f"{base}/{file.path}"] = file.bytes()
-    return files
+    return _flatten(
+        {bundle.name: bundle.file_bytes() for bundle in bundles}, SKILLS_ROOT
+    )
 
 
-class SkillsBackend(StateBackend):
-    """A read-only, in-memory backend over a run's skill files.
-
-    Inherits deepagents' in-state file semantics (``ls``, ``read``, ``glob``,
-    ``grep``, ``download_files`` — the calls ``SkillsMiddleware`` and the two
-    read tools make) but reads a fixed mapping instead of the graph's
-    ``files`` channel, so nothing lands in the checkpoint and it works
-    outside a graph context. Every write returns an error result: the tools
-    that could reach one are not offered to a sandbox-less agent, and a
-    sandboxed one writes to its sandbox, never here.
-    """
+class SkillsBackend(InMemorySkillsBackend):
+    """The run's read-only, in-memory view of its skill files (skillkit's
+    ``InMemorySkillsBackend`` over ``skill_files``). Nothing lands in the
+    checkpoint; it works outside a graph context; every write is refused."""
 
     def __init__(self, bundles: Iterable[SkillBundle]) -> None:
-        super().__init__()
-        self._files = {
-            path: _file_data(content) for path, content in skill_files(bundles).items()
-        }
-
-    def _read_files(self) -> dict:
-        return self._files
-
-    def _send_files_update(self, update: dict) -> None:  # pragma: no cover - guarded
-        raise RuntimeError(READ_ONLY)
-
-    def write(self, file_path: str, content: str) -> WriteResult:
-        return WriteResult(error=READ_ONLY)
-
-    def edit(self, file_path, old_string, new_string, replace_all=False) -> EditResult:
-        return EditResult(error=READ_ONLY)
-
-    def delete(self, file_path: str) -> DeleteResult:
-        return DeleteResult(error=READ_ONLY)
-
-    def upload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
-        return [FileUploadResponse(path=path, error=READ_ONLY) for path, _ in files]
-
-
-def _file_data(content: bytes):
-    try:
-        return create_file_data(content.decode("utf-8"))
-    except UnicodeDecodeError:
-        return create_file_data(base64.b64encode(content).decode(), encoding="base64")
+        super().__init__(skill_files(bundles))
 
 
 def skills_digest(files: dict[str, bytes]) -> str:
-    """Content hash of a skill set, path and bytes."""
-    digest = hashlib.sha256()
-    for path in sorted(files):
-        digest.update(path.encode())
-        digest.update(b"\0")
-        digest.update(files[path])
-        digest.update(b"\0")
-    return digest.hexdigest()
+    """Content hash of a skill set, path and bytes (skillkit's digest over
+    the flattened tree)."""
+    return bundle_digest(files)
 
 
 def upload_skills(backend: BaseSandbox, files: dict[str, bytes]) -> bool:

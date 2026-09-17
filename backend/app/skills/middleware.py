@@ -6,9 +6,11 @@ without pulling in the skills service layer.
 
 from __future__ import annotations
 
+from pathlib import PurePosixPath
+
 from deepagents.backends.protocol import BackendProtocol
 from deepagents.middleware.filesystem import FilesystemMiddleware
-from deepagents.middleware.skills import SkillsMiddleware
+from deepagents.middleware.skills import SkillMetadata, SkillsMiddleware
 
 
 # Where every skill of a run lives, on the sandbox disk and in the read-only
@@ -35,21 +37,26 @@ optional scripts or reference files.
 
 Use a skill when the user's request matches its description. Read its \
 SKILL.md first with `read_file(file_path="...", limit=1000)`, then follow \
-it. Supporting files live next to it; run scripts by their absolute path. \
-Copy a script before changing it — edits inside the sandbox do not change \
-the saved skill."""
+it. Its files are listed above with their absolute paths — run a script by \
+that path, no need to list the folder first. Copy a script before changing \
+it — edits inside the sandbox do not change the saved skill."""
 
 # The variant for an agent without code execution: same disclosure, but the
 # scripts can only run somewhere else. The files are also present, at the same
 # absolute paths, in the sandbox of any subagent this agent delegates to.
 SKILLS_PROMPT_READ_ONLY = SKILLS_PROMPT.replace(
-    "Supporting files live next to it; run scripts by their absolute path. "
-    "Copy a script before changing it — edits inside the sandbox do not change "
-    "the saved skill.",
-    "Supporting files live next to it. You cannot run scripts yourself: if you "
-    "have a subagent with code execution, delegate the run to it and give it "
-    "the script's absolute path — the same path exists in its sandbox.",
+    "Its files are listed above with their absolute paths — run a script by "
+    "that path, no need to list the folder first. Copy a script before changing "
+    "it — edits inside the sandbox do not change the saved skill.",
+    "Its files are listed above with their absolute paths. You cannot run "
+    "scripts yourself: if you have a subagent with code execution, delegate the "
+    "run to it and give it the script's absolute path — the same path exists in "
+    "its sandbox.",
 )
+
+# How many of a skill's files the index names before it says "+N more". A
+# skill can hold 100 files; the index is a table of contents, not a tree.
+INDEX_FILES_MAX = 20
 
 
 class FreshSkillsMiddleware(SkillsMiddleware):
@@ -70,12 +77,50 @@ class FreshSkillsMiddleware(SkillsMiddleware):
     def before_agent(self, state, runtime, config):
         return super().before_agent(_without_index(state), runtime, config)
 
+    def _format_skills_list(self, skills: list[SkillMetadata]) -> str:
+        """deepagents' lines per skill, plus one naming the skill's files by
+        absolute path. The model then reads the SKILL.md and runs a script in
+        two calls instead of listing the folder tree first — and a SKILL.md
+        that names a file loosely (``python new-script.py``) still resolves."""
+        lines = super()._format_skills_list(skills).split("\n")
+        out: list[str] = []
+        by_path = {skill["path"]: skill for skill in skills}
+        for line in lines:
+            out.append(line)
+            skill = _skill_of_read_line(line, by_path)
+            if skill is not None and (files := self._skill_files(skill["path"])):
+                out.append(f"  -> Files: {files}")
+        return "\n".join(out)
+
+    def _skill_files(self, skill_md_path: str) -> str:
+        folder = str(PurePosixPath(skill_md_path).parent)
+        result = self._backend.glob("*", path=folder)
+        if result.error or not result.matches:
+            return ""
+        paths = sorted(
+            info["path"]
+            for info in result.matches
+            if not info.get("is_dir") and info["path"] != skill_md_path
+        )
+        shown = ", ".join(f"`{path}`" for path in paths[:INDEX_FILES_MAX])
+        if len(paths) > INDEX_FILES_MAX:
+            shown += f" (+{len(paths) - INDEX_FILES_MAX} more, `ls {folder}`)"
+        return shown
+
     async def abefore_agent(self, state, runtime, config):
         return await super().abefore_agent(_without_index(state), runtime, config)
 
 
 def _without_index(state):
     return {key: value for key, value in state.items() if key != "skills_metadata"}
+
+
+def _skill_of_read_line(line: str, by_path: dict[str, SkillMetadata]):
+    """The skill whose "Read `<path>` for full instructions" line this is."""
+    if not line.startswith("  -> Read `"):
+        return None
+    path = line.removeprefix("  -> Read `").split("`", 1)[0]
+    return by_path.get(path)
 
 
 def skills_index_middleware(

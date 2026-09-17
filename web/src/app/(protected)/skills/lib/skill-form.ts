@@ -29,15 +29,19 @@ const FRONTMATTER = /^---[ \t]*\n([\s\S]*?)\n---[ \t]*(?:\n|$)([\s\S]*)$/;
 const SIMPLE_LINE = /^([A-Za-z0-9_-]+):[ \t]*(.*)$/;
 
 /**
- * Split a SKILL.md into editable fields, or `null` when its frontmatter is
- * not a flat list of `key: value` lines — the editor then edits it raw.
+ * Split a SKILL.md into editable fields, or `null` when a top-level line
+ * uses YAML the editor cannot round-trip (a folded scalar, a flow
+ * collection…) — the editor then shows the document read-only and says so.
  */
 export function splitSkillMarkdown(content: string): SkillFields | null {
 	const match = FRONTMATTER.exec(content.replace(/\r\n/g, "\n"));
 	if (!match) return null;
 	const fields: SkillFields = { name: "", description: "", extra: [], body: match[2] };
 	for (const line of match[1].split("\n")) {
-		if (!line.trim() || line.trimStart().startsWith("#")) {
+		// Blank lines, comments and indented lines (the inside of a nested
+		// block such as `metadata:`) are carried through verbatim, in order,
+		// so the block stays intact under its parent key.
+		if (!line.trim() || line.trimStart().startsWith("#") || /^\s/.test(line)) {
 			fields.extra.push(line);
 			continue;
 		}
@@ -51,6 +55,16 @@ export function splitSkillMarkdown(content: string): SkillFields | null {
 		else fields.extra.push(line);
 	}
 	return fields;
+}
+
+/**
+ * The markdown after the frontmatter, whatever the frontmatter holds — for
+ * rendering a document the form cannot edit (nested `metadata`, folded
+ * scalars…). `null` when there is no frontmatter block at all.
+ */
+export function skillBody(content: string): string | null {
+	const match = FRONTMATTER.exec(content.replace(/\r\n/g, "\n"));
+	return match ? match[2] : null;
 }
 
 /** Rebuild the document; the inverse of `splitSkillMarkdown`. */

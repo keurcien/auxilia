@@ -5,7 +5,13 @@ from fastapi.responses import Response
 
 from app.auth.dependencies import get_current_user
 from app.skills.bundles import import_archive
-from app.skills.schemas import MAX_BUNDLE_BYTES, SkillResponse, SkillSave, SkillSummary
+from app.skills.schemas import (
+    MAX_BUNDLE_BYTES,
+    SkillDiffResponse,
+    SkillResponse,
+    SkillSave,
+    SkillSummary,
+)
 from app.skills.service import SkillService, get_skill_service
 from app.users.models import UserDB
 
@@ -70,6 +76,24 @@ async def delete_skill(
     service: SkillService = Depends(get_skill_service),
 ):
     await service.delete(skill_id, user)
+
+
+@router.get("/{skill_id}/diff", response_model=SkillDiffResponse)
+async def diff_skill(
+    skill_id: UUID,
+    user: UserDB = Depends(get_current_user),
+    service: SkillService = Depends(get_skill_service),
+):
+    return await service.diff(skill_id, user)
+
+
+@router.post("/{skill_id}/adopt", response_model=SkillResponse)
+async def adopt_skill(
+    skill_id: UUID,
+    user: UserDB = Depends(get_current_user),
+    service: SkillService = Depends(get_skill_service),
+):
+    return await service.adopt(skill_id, user)
 
 
 @router.get("/{skill_id}/export")

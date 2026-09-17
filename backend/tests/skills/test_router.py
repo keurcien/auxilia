@@ -24,6 +24,8 @@ def _response(**overrides) -> SkillResponse:
         "description": "Write a report",
         "revision": 1,
         "file_count": 0,
+        "script_count": 0,
+        "agent_count": 0,
         "updated_at": datetime.now(UTC),
         "can_edit": True,
         "content": skill_markdown(),
@@ -37,7 +39,9 @@ def service(current_user):
     svc = MagicMock()
     svc.list_summaries = AsyncMock(
         return_value=[
-            SkillSummary(**_response().model_dump(exclude={"content", "files"}))
+            SkillSummary(
+                **_response().model_dump(exclude={"content", "files", "agents"})
+            )
         ]
     )
     svc.get = AsyncMock(return_value=_response())

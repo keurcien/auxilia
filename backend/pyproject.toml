@@ -117,6 +117,8 @@ lines-after-imports = 2
 # pytest fixtures are injected by name and are often present only for their
 # side effects (auth overrides, DB session), so they read as "unused args".
 "tests/**" = ["ARG001"]
+# The CLI prints; that is its job.
+"skillkit/__main__.py" = ["T201"]
 
 [tool.mypy]
 # Deliberately non-strict: the value here is catching the mistakes the generics in

@@ -224,6 +224,15 @@ async def test_plain_agent_lists_and_reads_its_skills_from_memory(in_memory_runt
     assert "**report**: Write a report" in system
     assert f"{SKILLS_ROOT}/triage/SKILL.md" in system
     assert "cannot run scripts yourself" in system
+    # The index names each skill's files by absolute path, so the model can
+    # run a script straight after reading the SKILL.md, without an `ls`.
+    assert (
+        f"  -> Files: `{SKILLS_ROOT}/report/assets/logo.png`, "
+        f"`{SKILLS_ROOT}/report/scripts/run.py`"
+    ) in system
+    files_line = next(line for line in system.split("\n") if "-> Files:" in line)
+    assert "SKILL.md" not in files_line  # the document has its own Read line
+    assert "-> Files:" not in system.split("**triage**")[1]  # triage has no files
     assert {t.name for t in model.bound_tools} == {"ls", "read_file"}
     # The tool result the model saw on its second call is the document.
     tool_message = next(m for m in model.calls[1] if m.type == "tool")
@@ -267,8 +276,29 @@ async def test_sandbox_agent_gets_skills_uploaded_and_listed(in_memory_runtime):
     assert f"{SKILLS_ROOT}/report/scripts/run.py" in sandbox.files
     system = system_text(model)
     assert "**report**" in system
-    assert "run scripts by their absolute path" in system
+    assert "run a script by that path" in system
+    assert f"  -> Files: `{SKILLS_ROOT}/report/assets/logo.png`" in system
     # The sandbox agent keeps the whole harness toolset, not the read-only pair.
     assert {"execute", "write_file", "read_file", "ls"} <= {
         t.name for t in model.bound_tools
     }
+
+
+def test_index_caps_the_files_it_names():
+    from deepagents.middleware.skills import _list_skills
+
+    from app.skills.middleware import INDEX_FILES_MAX, skills_index_middleware
+
+    many = parse_skill(
+        skill_markdown("many", "Lots of files"),
+        [SkillFile(path=f"references/{i:03d}.md", content="x") for i in range(30)],
+    )
+    middleware = skills_index_middleware(SkillsBackend([many]), sandbox=True)
+    skills = _list_skills(SkillsBackend([many]), SKILLS_ROOT)
+
+    text = middleware._format_skills_list(skills)
+    files_line = next(line for line in text.split("\n") if "-> Files:" in line)
+    assert files_line.count("`") == INDEX_FILES_MAX * 2 + 2  # 20 paths + the ls hint
+    assert f"(+{30 - INDEX_FILES_MAX} more, `ls {SKILLS_ROOT}/many`)" in files_line
+    assert f"`{SKILLS_ROOT}/many/references/000.md`" in files_line
+    assert f"references/{INDEX_FILES_MAX:03d}.md" not in files_line
