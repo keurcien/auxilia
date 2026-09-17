@@ -1,69 +1,76 @@
-"""SKILL.md parsing and Agent Skills archive import/export.
+"""SKILL.md parsing and Agent Skills archive import/export — over skillkit.
 
 Pure functions: no database, no disk. Everything user-supplied is validated
-here into a `SkillBundle`, and every rejection is a `DomainValidationError`
-(a 400) — the service and router add nothing.
+into a `SkillBundle`, and every rejection is a `DomainValidationError`
+(a 400) — the service and router add nothing. The rules themselves live in
+``skillkit`` (the spec's frontmatter rules, path safety, bounded archives);
+this module maps its issues and exceptions onto the app's error type and
+the app's ``SkillBundle`` shape.
 """
+
+from __future__ import annotations
 
 import base64
 import io
-import re
-import stat
 import zipfile
 
-import yaml  # type: ignore[import-untyped]
 from pydantic import ValidationError
 
 from app.exceptions import DomainValidationError
 from app.skills.schemas import MAX_BUNDLE_BYTES, MAX_FILES, SkillBundle, SkillFile
+from skillkit import (
+    Bundle,
+    LimitExceeded,
+    Limits,
+    ValidationError as SkillkitValidationError,
+    frontmatter as fm,
+)
+from skillkit.model import SKILL_MD
+from skillkit.sources.archive import extract
+from skillkit.sources.base import resolve_tree
+from skillkit.validate import validate_bundle
 
 
-# `---` fences around YAML, then the body. The closing fence may end the file.
-_FRONTMATTER = re.compile(r"\A---[ \t]*\n(.*?)\n---[ \t]*(?:\n|\Z)(.*)\Z", re.DOTALL)
-_SKILL_MD = "SKILL.md"
+# The app's bounds, passed to skillkit rather than duplicated there.
+LIMITS = Limits(
+    max_download_bytes=MAX_BUNDLE_BYTES,
+    max_extracted_bytes=MAX_BUNDLE_BYTES,
+    max_files=MAX_FILES + 1,  # the SKILL.md itself
+    max_skill_bytes=MAX_BUNDLE_BYTES,
+    max_skill_files=MAX_FILES,
+)
 
 
 def parse_skill(content: str, files: list[SkillFile] | None = None) -> SkillBundle:
     """Validate SKILL.md text (and its files) into a bundle.
 
     Only `name` and `description` are read from the frontmatter — the two
-    fields the standard requires. Any other key (`license`, `compatibility`,
-    `metadata`, `allowed-tools`) stays in `content`, where deepagents'
-    `SkillsMiddleware` reads and displays it at run time.
+    fields the standard requires. Any other spec key (`license`,
+    `compatibility`, `metadata`, `allowed-tools`) stays in `content`, where
+    deepagents' `SkillsMiddleware` reads and displays it at run time. Keys
+    the spec does not know are refused, as ``skills-ref`` refuses them. No
+    directory-name rule here: an in-app skill has no directory.
     """
     content = content.replace("\r\n", "\n")
-    match = _FRONTMATTER.match(content)
-    if match is None:
+    files = list(files or [])
+    bundle = Bundle({SKILL_MD: content.encode(), **{f.path: f.bytes() for f in files}})
+    parsed = fm.parse(content)
+    report = validate_bundle(bundle, limits=LIMITS, parsed=parsed)
+    if not report.ok:
         raise DomainValidationError(
-            "SKILL.md must start with YAML frontmatter between '---' lines, "
-            "with at least `name` and `description`"
+            "; ".join(_wording(i.message) for i in report.errors)
         )
-    try:
-        meta = yaml.safe_load(match[1])
-    except yaml.YAMLError as exc:
-        raise DomainValidationError(f"Invalid YAML frontmatter: {exc}") from exc
-    if not isinstance(meta, dict):
-        raise DomainValidationError("The frontmatter must be a YAML mapping")
-    if not match[2].strip():
-        raise DomainValidationError("SKILL.md needs instructions after the frontmatter")
+    frontmatter = parsed[0]
+    assert frontmatter is not None  # an unreadable frontmatter is an error above
     try:
         return SkillBundle(
-            name=str(meta.get("name") or "").strip(),
-            description=str(meta.get("description") or "").strip(),
+            name=frontmatter.name,
+            description=frontmatter.description,
             content=content,
-            files=list(files or []),
+            files=files,
         )
     except ValidationError as exc:
         raise DomainValidationError(_describe(exc)) from exc
-
-
-def _describe(exc: ValidationError) -> str:
-    """One readable line per failed field: `files.2.path: must be …`."""
-    return "; ".join(
-        f"{'.'.join(str(part) for part in error['loc']) or 'skill'}: "
-        f"{error['msg'].removeprefix('Value error, ')}"
-        for error in exc.errors()
-    )
 
 
 def import_archive(data: bytes, filename: str) -> SkillBundle:
@@ -76,22 +83,38 @@ def import_archive(data: bytes, filename: str) -> SkillBundle:
     if filename.lower().endswith(".md"):
         return parse_skill(_text(data))
     try:
-        entries = _zip_entries(data)
-    except zipfile.BadZipFile as exc:
-        raise DomainValidationError("Not a zip archive") from exc
-    roots = [p for p in entries if p == _SKILL_MD or p.endswith("/" + _SKILL_MD)]
-    if len(roots) != 1:
+        entries = extract(data, filename, LIMITS, strip_root=False)
+    except LimitExceeded as exc:
+        raise DomainValidationError(str(exc)) from exc
+    except SkillkitValidationError as exc:
+        if exc.code == "E001":
+            raise DomainValidationError("Not a zip archive") from exc
+        raise DomainValidationError(_wording(str(exc))) from exc
+    resolved = resolve_tree(
+        entries,
+        kind="archive",
+        url=filename,
+        ref=None,
+        revision="upload",
+        full_depth=True,
+        limits=LIMITS,
+        enforce_directory_name=False,
+    )
+    if len(resolved.all_skills) != 1:
         raise DomainValidationError("The archive must contain exactly one SKILL.md")
-    root = roots[0][: -len(_SKILL_MD)]
-    markdown = _text(entries.pop(roots[0]))
-    files = []
-    for path, content in entries.items():
+    [skill] = resolved.all_skills
+    root = f"{skill.path}/" if skill.path else ""
+    for path in entries:
         if not path.startswith(root):
             raise DomainValidationError(
-                f"'{path}' is outside the skill folder '{root or '/'}'"
+                f"'{path}' is outside the skill folder '{skill.path or '/'}'"
             )
-        files.append(_skill_file(path[len(root) :], content))
-    return parse_skill(markdown, files)
+    files = [
+        _skill_file(path, content)
+        for path, content in skill.bundle.files.items()  # archive order
+        if path != SKILL_MD
+    ]
+    return parse_skill(_text(skill.bundle.files[SKILL_MD]), files)
 
 
 def export_archive(bundle: SkillBundle) -> bytes:
@@ -99,32 +122,36 @@ def export_archive(bundle: SkillBundle) -> bytes:
     reads back and the one other Agent Skills tools expect."""
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr(f"{bundle.name}/{_SKILL_MD}", bundle.content)
+        archive.writestr(f"{bundle.name}/{SKILL_MD}", bundle.content)
         for file in bundle.files:
             archive.writestr(f"{bundle.name}/{file.path}", file.bytes())
     return output.getvalue()
 
 
-def _zip_entries(data: bytes) -> dict[str, bytes]:
-    with zipfile.ZipFile(io.BytesIO(data)) as archive:
-        infos = [info for info in archive.infolist() if not info.is_dir()]
-        if len(infos) > MAX_FILES + 1:
-            raise DomainValidationError(
-                f"The archive holds more than {MAX_FILES} files"
-            )
-        if sum(info.file_size for info in infos) > MAX_BUNDLE_BYTES:
-            raise DomainValidationError("The archive unpacks to more than 10 MB")
-        entries: dict[str, bytes] = {}
-        for info in infos:
-            if stat.S_ISLNK(info.external_attr >> 16):
-                raise DomainValidationError("Symbolic links are not supported")
-            path = info.filename
-            if path.startswith("/") or "\\" in path or ".." in path.split("/"):
-                raise DomainValidationError(f"Unsafe archive path '{path}'")
-            if path in entries:
-                raise DomainValidationError(f"Duplicate archive path '{path}'")
-            entries[path] = archive.read(info)
-    return entries
+def _wording(message: str) -> str:
+    """skillkit's messages, in the words this API always used: field errors
+    read `name: …` / `description: …`, like the pydantic ones."""
+    for field in ("name", "description"):
+        if message.startswith(field + " "):
+            message = f"{field}: {message[len(field) + 1 :]}"
+    return (
+        message.replace("Frontmatter is not valid YAML", "Invalid YAML frontmatter")
+        .replace(
+            "Frontmatter must be a YAML mapping",
+            "The frontmatter must be a YAML mapping",
+        )
+        .replace("unsafe archive path", "Unsafe archive path")
+        .replace("duplicate archive path", "Duplicate archive path")
+    )
+
+
+def _describe(exc: ValidationError) -> str:
+    """One readable line per failed field: `files.2.path: must be …`."""
+    return "; ".join(
+        f"{'.'.join(str(part) for part in error['loc']) or 'skill'}: "
+        f"{error['msg'].removeprefix('Value error, ')}"
+        for error in exc.errors()
+    )
 
 
 def _text(data: bytes) -> str:
@@ -132,6 +159,11 @@ def _text(data: bytes) -> str:
         return data.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
         raise DomainValidationError("SKILL.md must be UTF-8 text") from exc
+
+
+def skill_file_from_bytes(path: str, content: bytes) -> SkillFile:
+    """A `SkillFile` from raw bytes: text when UTF-8, base64 otherwise."""
+    return _skill_file(path, content)
 
 
 def _skill_file(path: str, content: bytes) -> SkillFile:

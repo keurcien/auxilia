@@ -167,10 +167,13 @@ auxilia/
 │   │   ├── model_providers/           # LLM provider configuration & catalog
 │   │   ├── sandbox/                   # Sandboxed code execution — provider.py owns the lifecycle
 │   │   │                              # (open_sandbox at run start, SandboxGoneError → replace, availability probe)
-│   │   ├── skills/                    # Skill library + runtime
-│   │   │   ├── bundles.py             # SKILL.md parsing, zip import/export (pure)
-│   │   │   ├── runtime.py             # SkillsBackend (in-memory, read-only), freeze_run_skills, upload_skills
-│   │   │   └── middleware.py          # FreshSkillsMiddleware (deepagents' SkillsMiddleware, per-run index) + prompts
+│   │   ├── skills/                    # Skill library + runtime (over `skillkit`, below)
+│   │   │   ├── bundles.py             # app-facing parse/import/export: skillkit issues → DomainValidationError, SkillBundle shape
+│   │   │   ├── runtime.py             # SkillsBackend (skillkit's in-memory backend), freeze_run_skills, upload_skills
+│   │   │   ├── middleware.py          # FreshSkillsMiddleware (deepagents' SkillsMiddleware, per-run index + Files line) + prompts
+│   │   │   └── sources/               # Skill sources — GitHub/GitLab repos synced into the library (router/service/repository);
+│   │   │                              # sync makes versions available, `POST /skills/{id}/adopt` applies one. Router prefix
+│   │   │                              # `/skills/sources` is registered before `/skills/{skill_id}`; clients use trailing slashes
 │   │   ├── threads/                   # Chat thread management
 │   │   │   └── router.py              # Thread CRUD + metadata read; the conversation itself is served by agents/protocol/ (/state, /history, /messages/{id}), runs by agents/runs/
 │   │   ├── triggers/                  # Scheduled agent runs
@@ -190,6 +193,9 @@ auxilia/
 │   │   ├── repository.py              # BaseRepository[T] — generic CRUD
 │   │   ├── service.py                 # BaseService[M, R] — get_or_404 + shared helpers
 │   │   └── settings.py                # App-wide settings (pydantic-settings)
+│   ├── skillkit/                      # Library (no `app.*` imports): resolve (GitHub/GitLab REST, archive, local), discover,
+│   │                                  # validate (E0xx/W0xx), digest, lock, diff, requirements check; adapters/deepagents.py
+│   │                                  # is the only deepagents import. Spec: docs/skillkit-spec.md. CLI: `python -m skillkit`
 │   ├── alembic/                       # Database migrations
 │   ├── scripts/                       # One-off utilities — gitignored, not in the repo
 │   ├── tests/                         # Pytest test suite (mirrors app/ layout)

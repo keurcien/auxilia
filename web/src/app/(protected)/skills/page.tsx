@@ -1,42 +1,61 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Sparkles, Upload } from "lucide-react";
-import {
-	WorkspacePage,
-	WorkspaceTopBarButton,
-} from "@/components/layout/workspace-page";
-import { HeaderButton } from "@/components/layout/subpage-header";
+import { Plus } from "lucide-react";
+import ConfirmDialog from "@/components/ui/confirm-dialog";
+import { UnderlineTabs } from "@/components/ui/underline-tabs";
+import { WorkspacePage, WorkspaceTopBarButton } from "@/components/layout/workspace-page";
+import { useQueryParamState } from "@/hooks/use-query-param-state";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useSkillsStore } from "@/stores/skills-store";
-import { SkillSummary } from "@/types/skills";
-import SkillCard from "./components/skill-card";
+import { useUserStore } from "@/stores/user-store";
+import { NewSkillChoices, NewSkillMenu } from "./components/new-skill-menu";
+import SkillInUseDialog from "./components/skill-in-use-dialog";
+import SkillSourceTable from "./components/skill-source-table";
+import SkillTable from "./components/skill-table";
+import { useDeleteSkill } from "./lib/use-delete-skill";
+
+type View = "library" | "sources";
 
 export default function SkillsPage() {
 	const router = useRouter();
+	const user = useUserStore((state) => state.user);
+	const isAdmin = user?.role === "admin";
 	const skills = useSkillsStore((state) => state.skills);
 	const isInitialized = useSkillsStore((state) => state.isInitialized);
 	const fetchSkills = useSkillsStore((state) => state.fetchSkills);
 	const importSkill = useSkillsStore((state) => state.importSkill);
-	const deleteSkill = useSkillsStore((state) => state.deleteSkill);
-	const [search, setSearch] = useState("");
+	const sources = useSkillsStore((state) => state.sources);
+	const sourcesInitialized = useSkillsStore((state) => state.sourcesInitialized);
+	const fetchSources = useSkillsStore((state) => state.fetchSources);
+	const [search, setSearch] = useQueryParamState("q");
+	const [viewParam, setViewParam] = useQueryParamState("view", "library");
+	const view: View = viewParam === "sources" ? "sources" : "library";
 	const [error, setError] = useState<string | null>(null);
 	const [isImporting, setIsImporting] = useState(false);
-	const fileInput = useRef<HTMLInputElement>(null);
 
 	useEffect(() => {
-		fetchSkills().catch(() => {});
-	}, [fetchSkills]);
+		fetchSkills().catch((err: unknown) => {
+			setError(getApiErrorMessage(err, "Failed to load the skills."));
+		});
+		fetchSources().catch((err: unknown) => {
+			setError(getApiErrorMessage(err, "Failed to load the skill sources."));
+		});
+	}, [fetchSkills, fetchSources]);
 
-	const term = search.trim().toLowerCase();
-	const visible = term
-		? skills.filter(
-				(skill) =>
-					skill.name.includes(term) ||
-					skill.description.toLowerCase().includes(term),
-			)
-		: skills;
+	const visible = useMemo(() => {
+		const term = search.trim().toLowerCase();
+		if (!term) return skills;
+		return skills.filter(
+			(skill) =>
+				skill.name.includes(term) || skill.description.toLowerCase().includes(term),
+		);
+	}, [skills, search]);
+
+	const handleWrite = () => {
+		router.push("/skills/new");
+	};
 
 	const handleImport = async (file: File) => {
 		setIsImporting(true);
@@ -51,93 +70,179 @@ export default function SkillsPage() {
 		}
 	};
 
-	const handleDelete = (skill: SkillSummary) => {
-		if (!confirm(`Delete the skill "${skill.name}"?`)) return;
-		setError(null);
-		deleteSkill(skill.id).catch((err: unknown) => {
+	const remove = useDeleteSkill({
+		onError: (err) => {
 			setError(getApiErrorMessage(err, "Failed to delete the skill."));
-		});
-	};
+		},
+	});
+
+	const isEmpty = isInitialized && skills.length === 0;
+	const updates = skills.filter((skill) => skill.updateAvailable).length;
 
 	return (
 		<WorkspacePage
 			slug="skills"
 			title="Skills"
-			intro="Reusable procedures — a SKILL.md with optional scripts and references — that any agent in the workspace can be given."
-			search={{ placeholder: "Search skills…", value: search, onChange: setSearch }}
+			intro={
+				view === "sources"
+					? "Repositories the workspace syncs skills from. Sync makes new versions available; each skill is adopted on its own, against a diff."
+					: "Procedures any agent in the workspace can be given: a SKILL.md that says when to use it and what to do, plus optional scripts and references."
+			}
+			fillHeight
+			search={
+				view === "library"
+					? { placeholder: "Search skills…", value: search, onChange: setSearch }
+					: undefined
+			}
+			headerRight={
+				<UnderlineTabs<View>
+					tabs={[
+						{ key: "library", label: "Library", count: isInitialized ? skills.length : undefined },
+						{ key: "sources", label: "Sources", count: sourcesInitialized ? sources.length : undefined },
+					]}
+					value={view}
+					onChange={(key) => {
+						setViewParam(key);
+					}}
+					className="border-b border-border"
+				/>
+			}
 			actions={
-				<>
-					<input
-						ref={fileInput}
-						type="file"
-						accept=".zip,.skill,.md"
-						className="hidden"
-						onChange={(e) => {
-							const file = e.target.files?.[0];
-							e.target.value = "";
-							if (file) void handleImport(file);
+				view === "sources" ? (
+					isAdmin ? (
+						<WorkspaceTopBarButton
+							onClick={() => {
+								router.push("/skills/sources/new");
+							}}
+						>
+							<Plus className="size-3.5" />
+							Connect repository
+						</WorkspaceTopBarButton>
+					) : null
+				) : (
+					<NewSkillMenu
+						disabled={isImporting}
+						onWrite={handleWrite}
+						onImport={(file) => {
+							void handleImport(file);
 						}}
 					/>
-					<HeaderButton
-						disabled={isImporting}
-						onClick={() => {
-							fileInput.current?.click();
-						}}
-					>
-						<Upload className="size-3.5" />
-						{isImporting ? "Importing…" : "Import"}
-					</HeaderButton>
-					<WorkspaceTopBarButton
-						onClick={() => {
-							router.push("/skills/new");
-						}}
-					>
-						<Plus className="size-3.5" />
-						New skill
-					</WorkspaceTopBarButton>
-				</>
+				)
 			}
 		>
+			<SkillInUseDialog
+				open={remove.guard !== null}
+				onOpenChange={(open) => {
+					if (!open) remove.clearGuard();
+				}}
+				skillName={remove.guard?.skill.name ?? null}
+				agents={remove.guard?.agents ?? []}
+			/>
+			<ConfirmDialog
+				open={remove.pending !== null}
+				onOpenChange={(open) => {
+					if (!open) remove.clearPending();
+				}}
+				title="Delete this skill?"
+				description={
+					<>
+						<span className="font-mono text-[12.5px] font-semibold text-petrol">
+							{remove.pending?.name}
+						</span>{" "}
+						isn&apos;t enabled on any agent. Deleting it removes the SKILL.md and its
+						files for everyone; threads that already used it are unaffected.
+					</>
+				}
+				confirmLabel="Delete skill"
+				destructive
+				onConfirm={remove.confirmDelete}
+				errorMessage="Could not delete the skill. Please try again."
+			/>
 			{error && (
-				<div className="mb-4 rounded-[10px] bg-destructive/10 px-4 py-3 text-[13.5px] font-medium text-destructive">
+				<div className="mb-3 shrink-0 rounded-[10px] bg-destructive/10 px-4 py-2.5 text-[13px] font-medium text-destructive">
 					{error}
 				</div>
 			)}
-			{isInitialized && skills.length === 0 ? (
-				<div className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-[#D7E0DB] dark:border-white/10 py-20">
-					<div className="flex items-center justify-center size-12 rounded-2xl bg-[#EDF4F0] dark:bg-emerald-950/40">
-						<Sparkles className="size-6 text-[#3D8B63] dark:text-emerald-400" />
-					</div>
-					<div className="text-center">
-						<p className="font-[family-name:var(--font-jakarta-sans)] text-[16px] font-bold text-[#1E2D28] dark:text-foreground">
-							No skills yet
+			{isImporting && (
+				<p className="mb-3 shrink-0 font-mono text-[11px] text-meta dark:text-panel-dim">
+					importing…
+				</p>
+			)}
+			{view === "sources" ? (
+				sourcesInitialized && sources.length === 0 ? (
+					<div className="rounded-[12px] border border-dashed border-input p-6 dark:border-white/10">
+						<p className="font-mono text-[10.5px] font-semibold tracking-[0.09em] text-label dark:text-muted-foreground">
+							NO REPOSITORY CONNECTED
 						</p>
-						<p className="mt-1 max-w-[380px] font-[family-name:var(--font-dm-sans)] text-[13.5px] text-[#6B7F76] dark:text-muted-foreground">
-							Write one here, or import a folder exported from another Agent
-							Skills tool.
+						<p className="mt-2 max-w-[560px] text-[13.5px] leading-[1.55] text-body dark:text-panel-body">
+							Keep the company&apos;s skills in one git repository, reviewed and versioned there. Connect it and every
+							<span className="font-mono text-[12px]"> skills/&lt;name&gt;/SKILL.md</span> becomes available in the
+							library, pinned to its content; changes upstream are adopted per skill after a review.
 						</p>
+						{isAdmin ? (
+							<button
+								type="button"
+								onClick={() => {
+									router.push("/skills/sources/new");
+								}}
+								className="mt-5 inline-flex cursor-pointer items-center gap-1.5 rounded-[7px] bg-primary px-3.5 py-[7px] text-[12.5px] font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+							>
+								<Plus className="size-3.5" />
+								Connect repository
+							</button>
+						) : (
+							<p className="mt-4 text-[12.5px] text-meta dark:text-panel-dim">A workspace admin can connect one.</p>
+						)}
 					</div>
-					<button
-						type="button"
-						onClick={() => {
-							router.push("/skills/new");
-						}}
-						className="inline-flex cursor-pointer items-center gap-1.5 rounded-[7px] bg-primary px-3.5 py-[7px] text-[12.5px] font-semibold text-primary-foreground transition-opacity hover:opacity-90"
-					>
-						<Plus className="size-4" />
-						New skill
-					</button>
-				</div>
-			) : visible.length === 0 && isInitialized ? (
-				<div className="py-16 text-center font-[family-name:var(--font-dm-sans)] text-[13.5px] text-[#A3B5AD] dark:text-muted-foreground">
-					No skill matches “{search}”.
+				) : (
+					<SkillSourceTable
+						sources={sources}
+						isLoading={!sourcesInitialized}
+						canManage={isAdmin}
+						onError={setError}
+					/>
+				)
+			) : isEmpty ? (
+				<div className="rounded-[12px] border border-dashed border-input p-6 dark:border-white/10">
+					<p className="font-mono text-[10.5px] font-semibold tracking-[0.09em] text-label dark:text-muted-foreground">
+						YOUR LIBRARY IS EMPTY
+					</p>
+					<p className="mt-2 max-w-[560px] text-[13.5px] leading-[1.55] text-body dark:text-panel-body">
+						A skill is a folder with a SKILL.md — its name, when to use it, the steps —
+						and optional files next to it. Every agent in the workspace can be given
+						one; a skill with scripts needs an agent that runs code.
+					</p>
+					<div className="mt-5">
+						<NewSkillChoices
+							disabled={isImporting}
+							onWrite={handleWrite}
+							onImport={(file) => {
+								void handleImport(file);
+							}}
+						/>
+					</div>
 				</div>
 			) : (
-				<div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-					{visible.map((skill) => (
-						<SkillCard key={skill.id} skill={skill} onDelete={handleDelete} />
-					))}
-				</div>
+				<>
+					{updates > 0 && (
+						<p className="mb-3 shrink-0 font-mono text-[11px] text-warning">
+							{updates} skill{updates === 1 ? " has" : "s have"} a newer version in{" "}
+							{updates === 1 ? "its" : "their"} repository — open {updates === 1 ? "it" : "them"} to review and adopt.
+						</p>
+					)}
+				<SkillTable
+					skills={visible}
+					isLoading={!isInitialized}
+					search={search}
+					onClearSearch={() => {
+						setSearch("");
+					}}
+					onDelete={(skill) => {
+						setError(null);
+						void remove.requestDelete(skill);
+					}}
+				/>
+				</>
 			)}
 		</WorkspacePage>
 	);

@@ -17,6 +17,7 @@ import { MessageResponse } from "@/components/ai-elements/message";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useAgentsStore } from "@/stores/agents-store";
 import { useThreadsStore } from "@/stores/threads-store";
+import { useSkillsStore } from "@/stores/skills-store";
 import { useUserStore } from "@/stores/user-store";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { UnderlineTabs } from "@/components/ui/underline-tabs";
@@ -63,6 +64,7 @@ export default function AgentEditor({
 	const markAgentArchived = useThreadsStore((state) => state.markAgentArchived);
 	const user = useUserStore((state) => state.user);
 	const isAdmin = user?.role === "admin";
+	const librarySkills = useSkillsStore((state) => state.skills);
 
 	const canManageAgent =
 		agent?.currentUserPermission === "owner" ||
@@ -82,10 +84,27 @@ export default function AgentEditor({
 		[agent],
 	);
 	const [form, setForm] = useState<AgentFormState>(initialForm);
+	// Enabled skills whose scripts need the sandbox — the tool list warns
+	// before the sandbox is removed while any exist.
+	const scriptSkillNames = useMemo(
+		() =>
+			form.skillIds
+				.map(
+					(id) =>
+						librarySkills.find((s) => s.id === id) ??
+						agent?.skills?.find((s) => s.id === id),
+				)
+				.filter((s) => s !== undefined && s.scriptCount > 0)
+				.map((s) => s!.name),
+		[form.skillIds, librarySkills, agent?.skills],
+	);
 	const [tab, setTab] = useState<EditorTab>("instructions");
 	const [isSaving, setIsSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+	// The "Add tool" dialog is controlled here so the Skills section can
+	// open it ("Turn on code execution") on a skill whose scripts need one.
+	const [addToolOpen, setAddToolOpen] = useState(false);
 	const emojiPickerRef = useRef<HTMLDivElement>(null);
 
 	const setField = <K extends keyof AgentFormState>(
@@ -459,6 +478,9 @@ export default function AgentEditor({
 						onSandboxesChange={(sandboxes) => {
 							setField("sandboxes", sandboxes);
 						}}
+						scriptSkillNames={scriptSkillNames}
+						addDialogOpen={addToolOpen}
+						onAddDialogOpenChange={setAddToolOpen}
 						onBindingPersisted={(serverId, tools) => {
 							// A read-mode sync wrote the binding server-side;
 							// mirror it into the store so the next edit-mode
@@ -485,8 +507,12 @@ export default function AgentEditor({
 						readOnly={readOnly}
 						skillIds={form.skillIds}
 						fallbackSkills={agent?.skills ?? []}
+						runsCode={form.sandboxes.length > 0}
 						onChange={(skillIds) => {
 							setField("skillIds", skillIds);
+						}}
+						onEnableCodeExecution={() => {
+							setAddToolOpen(true);
 						}}
 					/>
 					{isAdmin && (

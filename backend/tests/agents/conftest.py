@@ -40,7 +40,7 @@ from app.agents.models import (
     AgentTeamDB,
     AgentUserPermissionDB,
 )
-from app.skills.models import AgentSkillDB
+from app.skills.models import AgentSkillDB, SkillVersionDB
 
 
 @compiles(JSONB, "sqlite")
@@ -74,6 +74,9 @@ AGENT_TABLES = _fk_closure(
         # Skills reach the agent detail read (`skills` hydration) and the
         # config save; the closure pulls `skills` in through the link table.
         AgentSkillDB.__table__,
+        # Versions point at skills (not the other way), so the closure would
+        # not reach them; sources come along through `skills.source_id`.
+        SkillVersionDB.__table__,
     ]
 )
 

@@ -80,3 +80,35 @@ creation; the one sandbox per run uses the first bound member's provider; the
 host notice is skipped on a resume; the skill list in the system prompt costs
 one prompt-cache miss when it changes; edits the model makes inside the
 skills root are wiped on the next upload.
+
+## Naming: one noun, a requirement chip
+
+The design canvas explored two vocabularies for the library (App Screens 23a
+vs 23c). 23a split skills into two *types* — "playbook" (SKILL.md only) and
+"toolkit" (with scripts) — and 23d then needed a page of state transitions to
+keep that type honest (confirm when the last script goes, warn when a first
+one arrives, badge flips on every agent). 23c keeps one noun, **skill**, and
+states the only fact a reader needs at attach time as a chip: `runs anywhere`
+or `needs code execution · N scripts`. The branch implements 23c:
+
+- "Skill" is what the open Agent Skills layout, the `SKILL.md` file name, the
+  `/skills` URL, deepagents' `SkillsMiddleware` and every other tool call it.
+  A second noun would have to be learned, and "toolkit" collides with the
+  agent editor's TOOLS section (MCP servers + sandbox).
+- The distinction is *derived* from the files (anything under `scripts/`) and
+  flips when a file is added or removed. A derived property shown as a chip
+  updates itself; the same property promoted to a type needs the 23d cascade.
+- It has a gap: a skill whose only supporting files are references is neither
+  a playbook nor a toolkit. The chip has no gap.
+
+"Playbook" survives as the plain word for the markdown-only shape in copy —
+the New menu's "Write a skill — a step-by-step playbook any agent can
+follow" — not as a badge, a nav item or an API field. The chip is one
+component (`skill-requirement-chip.tsx`); swapping in typed badges later is a
+local change.
+
+The 23d rule is kept where it costs nothing: attaching is always allowed and
+the row shows `scripts inactive — this agent doesn't run code` (grey in read
+mode, amber with "Turn on code execution" in edit mode); removing the sandbox
+while enabled skills have scripts asks first and leaves them enabled; a
+skill in use cannot be deleted, and the guard links to each agent.

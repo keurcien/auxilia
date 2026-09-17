@@ -61,6 +61,37 @@ async def test_list_never_loads_files_and_counts_them(
     assert "json_array_length(skills.files)" in statements.statements[0]
 
 
+async def test_counts_scripts_and_agents_everywhere(agent_session, member):
+    """The requirement chip and the USED column read the same two numbers
+    from the list, the detail and the agent's own list: files under
+    `scripts/` are scripts, everything else is not."""
+    service = SkillService(agent_session)
+    files = [
+        SkillFile(path="scripts/clean.py", content=""),
+        SkillFile(path="scripts/lib/util.py", content=""),
+        SkillFile(path="references/guide.md", content=""),
+        SkillFile(path="scripts.md", content=""),  # a file, not the folder
+    ]
+    skill = await seed_skill(agent_session, owner_id=member.id, files=files)
+    await seed_skill(agent_session, owner_id=member.id, name="plain")
+    first = await seed_agent(agent_session)
+    second = await seed_agent(agent_session)
+    await attach(agent_session, first.id, skill.id)
+    await attach(agent_session, second.id, skill.id)
+
+    by_name = {s.name: s for s in await service.list_summaries(member)}
+    assert (by_name["report"].script_count, by_name["report"].agent_count) == (2, 2)
+    assert (by_name["plain"].script_count, by_name["plain"].agent_count) == (0, 0)
+
+    detail = await service.get(skill.id, member)
+    assert (detail.script_count, detail.agent_count) == (2, 2)
+    assert sorted(a.id for a in detail.agents) == sorted([first.id, second.id])
+    assert detail.agents[0].name == "Agent"
+
+    [attached] = await service.list_for_agent(first.id)
+    assert attached.script_count == 2
+
+
 async def test_every_user_reads_only_owner_or_admin_edits(agent_session, member, admin):
     owner = make_user()
     row = await seed_skill(agent_session, owner_id=owner.id)

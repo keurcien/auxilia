@@ -1,8 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { FileCode2, Plus, Trash2, Upload } from "lucide-react";
-import type { SkillFile } from "@/types/skills";
+import { FileText, Plus, TerminalSquare, Trash2, Upload } from "lucide-react";
+import { isScriptPath, type SkillFile } from "@/types/skills";
 import { cn } from "@/lib/utils";
 import { formatBytes, readSkillFile, skillFileSize } from "../lib/skill-form";
 
@@ -31,6 +31,9 @@ export function skillFilePathError(path: string, others: string[]): string | nul
  * The supporting files of a skill: one tab per file, the selected one
  * editable (path + text), binaries shown as a placeholder. Uploads land in
  * `scripts/`, `references/` or `assets/` by kind; the path stays editable.
+ * Anything under `scripts/` counts as a script — the one thing that makes a
+ * skill need an agent with code execution — so those tabs carry a terminal
+ * glyph and the panel says so.
  */
 export default function SkillFilesPanel({ files, readOnly, onChange }: SkillFilesPanelProps) {
 	const [selected, setSelected] = useState(0);
@@ -69,12 +72,19 @@ export default function SkillFilesPanel({ files, readOnly, onChange }: SkillFile
 			)
 		: null;
 
+	const scriptCount = files.filter((file) => isScriptPath(file.path)).length;
+
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
 			<div className="mb-3 flex min-h-[24px] shrink-0 items-center justify-between">
 				<span className="font-mono text-[10.5px] font-semibold tracking-[0.09em] text-label dark:text-muted-foreground">
 					FILES{" "}
 					<span className="tracking-normal text-meta dark:text-panel-dim">{files.length}</span>
+					{scriptCount > 0 && (
+						<span className="ml-2 tracking-normal text-meta dark:text-panel-dim">
+							· {scriptCount} script{scriptCount === 1 ? "" : "s"}
+						</span>
+					)}
 				</span>
 				{!readOnly && (
 					<div className="flex items-center gap-3">
@@ -116,8 +126,14 @@ export default function SkillFilesPanel({ files, readOnly, onChange }: SkillFile
 
 			{files.length === 0 ? (
 				<div className="rounded-[10px] border border-dashed border-input px-4 py-8 text-center text-[13px] text-meta dark:text-panel-dim">
-					No supporting files. Scripts, references and assets the skill needs go
-					here, next to SKILL.md.
+					No supporting files — this skill runs on any agent.
+					{!readOnly && (
+						<span className="mt-1 block text-[12px]">
+							References and assets go next to SKILL.md; anything under{" "}
+							<span className="font-mono">scripts/</span> needs an agent that runs
+							code.
+						</span>
+					)}
 				</div>
 			) : (
 				<div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[10px] border border-border bg-card">
@@ -136,7 +152,11 @@ export default function SkillFilesPanel({ files, readOnly, onChange }: SkillFile
 										: "text-meta hover:text-foreground dark:text-panel-dim",
 								)}
 							>
-								<FileCode2 className="size-3" />
+								{isScriptPath(file.path) ? (
+									<TerminalSquare className="size-3 text-petrol" />
+								) : (
+									<FileText className="size-3" />
+								)}
 								{file.path.split("/").pop() || "…"}
 							</button>
 						))}

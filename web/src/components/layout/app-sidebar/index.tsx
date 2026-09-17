@@ -12,7 +12,7 @@ import {
 	ChevronDown,
 	Loader2,
 	Server,
-	Sparkles,
+	ScrollText,
 	SquarePen,
 	MoreVertical,
 	Pencil,
@@ -82,7 +82,7 @@ const navItems: {
 	{
 		title: "Skills",
 		href: "/skills",
-		icon: Sparkles,
+		icon: ScrollText,
 		match: "prefix",
 	},
 	{
