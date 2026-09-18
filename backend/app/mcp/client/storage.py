@@ -2,7 +2,12 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from mcp.client.auth import TokenStorage
-from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata, OAuthToken
+from mcp.shared.auth import (
+    OAuthClientInformationFull,
+    OAuthMetadata,
+    OAuthToken,
+    ProtectedResourceMetadata,
+)
 from pydantic import BaseModel
 from redis.asyncio import Redis
 
@@ -16,6 +21,13 @@ logger = logging.getLogger(__name__)
 class StoredToken(BaseModel):
     token_payload: OAuthToken
     expires_at: datetime | None = None
+
+
+class OAuthResourceContext(BaseModel):
+    """SDK discovery state needed to select the RFC 8707 resource on resume."""
+
+    protected_resource_metadata: ProtectedResourceMetadata | None = None
+    protocol_version: str | None = None
 
 
 class OAuthStateData(BaseModel):
@@ -53,6 +65,9 @@ class RedisTokenStorage(TokenStorage):
 
     def _oauth_metadata_key(self) -> str:
         return f"{self._base()}:oauth_metadata"
+
+    def _resource_context_key(self) -> str:
+        return f"{self._base()}:resource_context"
 
     @staticmethod
     def _state_key(state: str, prefix: str = "mcp") -> str:
@@ -140,6 +155,15 @@ class RedisTokenStorage(TokenStorage):
         if not raw:
             return None
         return OAuthMetadata.model_validate_json(raw)
+
+    async def set_resource_context(self, context: OAuthResourceContext) -> None:
+        await self.redis.set(self._resource_context_key(), context.model_dump_json())
+
+    async def get_resource_context(self) -> OAuthResourceContext | None:
+        raw = await self.redis.get(self._resource_context_key())
+        if not raw:
+            return None
+        return OAuthResourceContext.model_validate_json(raw)
 
     async def set_verifier(self, state: str, verifier: str) -> None:
         """Store OAuth state data including user_id, mcp_server_id, and verifier."""

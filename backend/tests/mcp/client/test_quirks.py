@@ -84,6 +84,7 @@ async def test_initialize_applies_the_quirk_by_url_alone():
     storage.get_tokens.return_value = None
     storage.get_client_info.return_value = stored
     storage.get_oauth_metadata.return_value = None
+    storage.get_resource_context.return_value = None
 
     # Start from the *other* method on both, so neither assertion can pass by
     # coincidence: `build_oauth_client_metadata()` already defaults to
@@ -108,6 +109,7 @@ async def test_initialize_applies_the_quirk_by_url_alone():
 
 async def test_initialize_leaves_an_unquirked_server_alone():
     storage = AsyncMock()
+    storage.get_resource_context.return_value = None
     storage.get_tokens.return_value = None
     storage.get_client_info.return_value = None
     storage.get_oauth_metadata.return_value = OAuthMetadata(

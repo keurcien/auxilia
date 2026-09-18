@@ -102,6 +102,7 @@ async def test_list_connected_user_ids_matches_token_keys_only():
     factory.redis.store = {
         "mcp:u1:s1:tokens": "t",
         "mcp:u1:s1:client_info": "c",
+        "mcp:u1:s1:resource_context": "r",
         "mcp:u2:s1:tokens": "t",
         "mcp:u3:s2:tokens": "t",  # other server
         "mcp:oauth_states:abc": "s",  # state key, not a connection
@@ -118,13 +119,14 @@ async def test_clear_user_server_data_scopes_to_one_user():
     factory.redis.store = {
         "mcp:u1:s1:tokens": "t",
         "mcp:u1:s1:client_info": "c",
+        "mcp:u1:s1:resource_context": "r",
         "mcp:u2:s1:tokens": "t",
         "mcp:u1:s2:tokens": "t",
     }
 
     deleted = await factory.clear_user_server_data("u1", "s1")
 
-    assert deleted == 2
+    assert deleted == 3
     assert set(factory.redis.store) == {"mcp:u2:s1:tokens", "mcp:u1:s2:tokens"}
 
 

@@ -26,7 +26,7 @@ from mcp.shared.auth import (
 
 from app.mcp.client.auth import WebOAuthClientProvider, build_oauth_client_metadata
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
-from app.mcp.client.storage import StoredToken
+from app.mcp.client.storage import RedisTokenStorage, StoredToken
 
 
 BIGQUERY_URL = "https://bigquery.googleapis.com/mcp"
@@ -40,6 +40,7 @@ class _FakeStorage:
     def __init__(self):
         self.client_info = None
         self.oauth_metadata = None
+        self.resource_context = None
         self.verifier = None
 
     async def get_tokens(self):
@@ -59,6 +60,12 @@ class _FakeStorage:
 
     async def set_oauth_metadata(self, metadata):
         self.oauth_metadata = metadata
+
+    async def get_resource_context(self):
+        return self.resource_context
+
+    async def set_resource_context(self, context):
+        self.resource_context = context
 
     async def set_verifier(self, state, verifier):
         self.verifier = (state, verifier)
@@ -447,6 +454,7 @@ async def test_manual_exchange_finishes_from_persisted_state(monkeypatch):
     assert seen["body"]["code"] == ["the-code"]
     assert seen["body"]["code_verifier"] == ["verifier-abc"]
     assert seen["body"]["client_secret"] == ["secret-xyz"]
+    assert "resource" not in seen["body"]  # Existing records have no resource context.
     assert storage.tokens.access_token == "at"
     assert seen["deleted"] == "st"
 
@@ -465,6 +473,175 @@ async def test_manual_exchange_rejects_an_unknown_state():
 
     with pytest.raises(OAuthFlowError, match="invalid state"):
         await provider.manual_exchange("the-code", "stale")
+
+
+@pytest.mark.parametrize(
+    "resource", ["https://mcp.example/mcp", "https://mcp.example/"]
+)
+async def test_resource_survives_callback_and_refresh(
+    monkeypatch, fake_shared_redis, resource
+):
+    """Discovery, callback and refresh run on three independent providers.
+
+    A strict authorization server rejects token requests that lose the resource
+    selected at authorization, including a valid parent advertised by the PRM.
+    Use the real Redis storage so a live context cannot mask missing persistence.
+    """
+    server_url = "https://mcp.example/mcp"
+    exchanges = []
+
+    def token_endpoint(request):
+        body = parse_qs(request.content.decode())
+        exchanges.append(body)
+        if body.get("resource") != [resource]:
+            return httpx2.Response(400, json={"error": "invalid_target"})
+        return httpx2.Response(
+            200,
+            json={
+                "access_token": f"access-{len(exchanges)}",
+                "token_type": "Bearer",
+                "refresh_token": f"refresh-{len(exchanges)}",
+                "expires_in": 3600,
+            },
+        )
+
+    _serve(
+        monkeypatch,
+        {
+            "GET https://mcp.example/.well-known/oauth-protected-resource/mcp": {
+                "resource": resource,
+                "authorization_servers": ["https://mcp.example/"],
+            },
+            "GET https://mcp.example/.well-known/oauth-authorization-server": {
+                "issuer": "https://mcp.example/",
+                "authorization_endpoint": "https://mcp.example/authorize",
+                "token_endpoint": "https://mcp.example/token",
+                "registration_endpoint": "https://mcp.example/register",
+                "response_types_supported": ["code"],
+                "token_endpoint_auth_methods_supported": ["none"],
+            },
+            "POST https://mcp.example/register": httpx2.Response(
+                201,
+                json={
+                    "client_id": "public-client",
+                    "token_endpoint_auth_method": "none",
+                    "redirect_uris": [
+                        "http://localhost:8000/mcp-servers/oauth/callback"
+                    ],
+                },
+            ),
+            "POST https://mcp.example/token": token_endpoint,
+        },
+    )
+
+    def new_provider():
+        return WebOAuthClientProvider(
+            server_url=server_url,
+            client_metadata=build_oauth_client_metadata(),
+            storage=RedisTokenStorage("user", "server", redis=fake_shared_redis),
+        )
+
+    initial = new_provider()
+    with pytest.raises(OAuthAuthorizationRequired) as exc_info:
+        await initial.initiate_authorization()
+    query = parse_qs(urlparse(exc_info.value.url).query)
+    assert query["resource"] == [resource]
+
+    callback = new_provider()
+    await callback.manual_exchange("one-time-code", query["state"][0])
+    storage = callback.context.storage
+    assert (await storage.get_tokens()).access_token == "access-1"
+    assert await storage.get_verifier(query["state"][0]) is None
+
+    # Expire the access token, then recreate the provider as a later request does.
+    await storage.set_tokens(
+        OAuthToken(access_token="expired", refresh_token="refresh-1", expires_in=0)
+    )
+    refresh = new_provider()
+    assert await refresh.ensure_valid_token() is True
+    assert (await refresh.context.storage.get_tokens()).refresh_token == "refresh-2"
+    assert [body["grant_type"] for body in exchanges] == [
+        ["authorization_code"],
+        ["refresh_token"],
+    ]
+    assert all(body["resource"] == [resource] for body in exchanges)
+    assert all("client_secret" not in body for body in exchanges)
+
+
+@pytest.mark.parametrize("protocol_version", [None, "2025-03-26", "2025-06-18"])
+async def test_protocol_resource_decision_survives_without_prm(
+    monkeypatch, fake_shared_redis, protocol_version
+):
+    """Without PRM, retain the SDK's version gate, including legacy omission.
+
+    Unlike ensure_valid_token(), the SDK's automatic refresh runs after reading
+    the next MCP request's headers. An initialize request without a protocol
+    header must not erase the resource decision made during authorization.
+    """
+    url = "https://mcp.example/mcp"
+    expected_resource = [url] if protocol_version == "2025-06-18" else None
+    bodies = []
+
+    def token_endpoint(request):
+        body = parse_qs(request.content.decode())
+        bodies.append(body)
+        assert body.get("resource") == expected_resource
+        return httpx2.Response(
+            200,
+            json={
+                "access_token": "valid-access",
+                "token_type": "Bearer",
+                "refresh_token": "valid-refresh",
+                "expires_in": 3600,
+            },
+        )
+
+    def mcp_endpoint(request):
+        assert request.headers["Authorization"] == "Bearer valid-access"
+        return httpx2.Response(200, json={})
+
+    _serve(
+        monkeypatch,
+        {
+            "POST https://mcp.example/token": token_endpoint,
+            f"POST {url}": mcp_endpoint,
+        },
+    )
+
+    def new_provider():
+        return WebOAuthClientProvider(
+            server_url=url,
+            client_metadata=build_oauth_client_metadata(),
+            storage=RedisTokenStorage("user", "server", redis=fake_shared_redis),
+        )
+
+    initial = new_provider()
+    initial.context.protocol_version = protocol_version
+    initial.context.oauth_metadata = OAuthMetadata(
+        issuer="https://mcp.example/",
+        authorization_endpoint="https://mcp.example/authorize",
+        token_endpoint="https://mcp.example/token",
+    )
+    initial.context.client_info = OAuthClientInformationFull(
+        client_id="public-client", token_endpoint_auth_method="none"
+    )
+    with pytest.raises(OAuthAuthorizationRequired) as exc_info:
+        await initial._perform_authorization_code_grant()
+    query = parse_qs(urlparse(exc_info.value.url).query)
+    assert query.get("resource") == expected_resource
+
+    callback = new_provider()
+    await callback.manual_exchange("one-time-code", query["state"][0])
+    await callback.context.storage.set_tokens(
+        OAuthToken(access_token="expired", refresh_token="valid-refresh", expires_in=0)
+    )
+    async with httpx2.AsyncClient(auth=new_provider()) as client:
+        response = await client.post(url)
+    assert response.status_code == 200
+    assert [body["grant_type"] for body in bodies] == [
+        ["authorization_code"],
+        ["refresh_token"],
+    ]
 
 
 async def _resolve(value):

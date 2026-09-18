@@ -55,6 +55,7 @@ from mcp.shared.auth import (
 from pydantic import AnyHttpUrl, AnyUrl
 
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
+from app.mcp.client.storage import OAuthResourceContext
 from app.settings import app_settings
 
 
@@ -307,6 +308,7 @@ class WebOAuthClientProvider(OAuthClientProvider):
         super().__init__(*args, **kwargs)
         self._client_id = client_id
         self._client_secret = client_secret
+        self._resource_context: OAuthResourceContext | None = None
 
     def _issuer(self) -> AnyHttpUrl | None:
         metadata = self.context.oauth_metadata
@@ -316,8 +318,8 @@ class WebOAuthClientProvider(OAuthClientProvider):
         """Load stored state, then fill the gaps the SDK leaves.
 
         On top of the SDK's own ``_initialize`` (tokens + client info): restore
-        the persisted AS metadata (the SDK never stores it, but the stateless
-        callback/refresh requests need the token endpoint), apply the
+        the persisted AS metadata and resource context (the stateless
+        callback/refresh requests need both the endpoint and audience), apply the
         per-provider quirks, inject static client credentials when the server
         was configured with them, and set the token expiry from the stored
         token (the SDK skips this on load, so a restarted process would treat
@@ -329,6 +331,9 @@ class WebOAuthClientProvider(OAuthClientProvider):
             self.context.oauth_metadata = (
                 await self.context.storage.get_oauth_metadata()
             )
+
+        self._resource_context = await self.context.storage.get_resource_context()
+        self._restore_resource_context()
 
         # Apply the quirk to the metadata *and* to any stored client_info: the
         # client_info built below inherits it from the metadata, while one that
@@ -360,6 +365,22 @@ class WebOAuthClientProvider(OAuthClientProvider):
 
         if self.context.current_tokens:
             self.context.update_token_expiry(self.context.current_tokens)
+
+    def _restore_resource_context(self) -> None:
+        """Keep the SDK's resource selection on callback and refresh requests.
+
+        AS metadata alone does not tell the SDK whether to send ``resource``
+        or which canonical URI the protected resource advertised. Fill missing
+        discovery state without replacing metadata learned in this request.
+        """
+        if self._resource_context is None:
+            return
+        if self.context.protected_resource_metadata is None:
+            self.context.protected_resource_metadata = (
+                self._resource_context.protected_resource_metadata
+            )
+        if self.context.protocol_version is None:
+            self.context.protocol_version = self._resource_context.protocol_version
 
     async def persist_client_info(self) -> None:
         """Persist static client registration to storage so the OAuth callback
@@ -454,6 +475,10 @@ class WebOAuthClientProvider(OAuthClientProvider):
         return strip_client_id_for_basic_auth(request)
 
     async def _refresh_token(self) -> httpx2.Request:
+        # The SDK captures protocol_version from each outgoing MCP request,
+        # including None on an initialize request. Retain the discovered
+        # resource decision when refreshing before that request is sent.
+        self._restore_resource_context()
         request = await super()._refresh_token()
         return strip_client_id_for_basic_auth(request)
 
@@ -609,8 +634,8 @@ class WebOAuthClientProvider(OAuthClientProvider):
 
         Instead of opening a browser (``redirect_handler``) and blocking on a
         local callback (``callback_handler``), persist what the ``/callback``
-        request will need — the AS metadata, the client registration and the
-        PKCE verifier keyed by ``state`` — and raise
+        request will need — the AS metadata, resource context, client
+        registration and the PKCE verifier keyed by ``state`` — and raise
         :class:`OAuthAuthorizationRequired` carrying the authorize URL.
 
         Mirrors the SDK's URL construction because the verifier is local to
@@ -649,6 +674,12 @@ class WebOAuthClientProvider(OAuthClientProvider):
         # with a fresh provider) and the refresh path can recover the
         # client_id/secret from storage.
         await self.context.storage.set_client_info(self.context.client_info)
+
+        self._resource_context = OAuthResourceContext(
+            protected_resource_metadata=self.context.protected_resource_metadata,
+            protocol_version=self.context.protocol_version,
+        )
+        await self.context.storage.set_resource_context(self._resource_context)
 
         pkce_params = PKCEParameters.generate()
         state = secrets.token_urlsafe(32)
