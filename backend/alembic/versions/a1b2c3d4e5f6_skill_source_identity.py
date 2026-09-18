@@ -1,4 +1,4 @@
-"""Unique identity for a skill source: (url, ref, subpath).
+"""Skill source identity, and the provider a thread's sandbox belongs to.
 
 Two admins connecting the same repository at the same time both passed the
 application-level lookup, because nothing in the database said a source *is*
@@ -11,6 +11,8 @@ Revises: 9c1d2e3f4a5b
 """
 
 from collections.abc import Sequence
+
+import sqlalchemy as sa
 
 from alembic import op
 
@@ -38,7 +40,24 @@ def upgrade() -> None:
         "CREATE UNIQUE INDEX uq_skill_sources_identity "
         "ON skill_sources (url, ref, coalesce(subpath, ''))"
     )
+    # Which sandbox row the thread's `sandbox_id` was issued by. Without it a
+    # rebinding sent an id from the old provider to the new one, which cannot
+    # know it and fails the run instead of starting fresh.
+    op.add_column(
+        "threads",
+        sa.Column("sandbox_source_id", sa.Uuid(), nullable=True),
+    )
+    op.create_foreign_key(
+        "fk_threads_sandbox_source_id",
+        "threads",
+        "sandboxes",
+        ["sandbox_source_id"],
+        ["id"],
+        ondelete="SET NULL",
+    )
 
 
 def downgrade() -> None:
+    op.drop_constraint("fk_threads_sandbox_source_id", "threads", type_="foreignkey")
+    op.drop_column("threads", "sandbox_source_id")
     op.execute("DROP INDEX IF EXISTS uq_skill_sources_identity")

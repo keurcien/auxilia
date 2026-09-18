@@ -151,6 +151,11 @@ class BaseSandboxProvider(ABC):
     def create(self, *, timeout_minutes: int) -> BaseSandbox:
         backend = self._create_backend(timeout_minutes=timeout_minutes)
         try:
+            # `id` is a metadata lookup on some providers, so it can fail —
+            # and it used to be read by `open_sandbox`, outside this boundary,
+            # which left the sandbox running with nobody holding its id and
+            # the run escaping without SandboxUnavailableError.
+            _ = backend.id
             install_default_packages(backend, list(self.config.default_packages))
         except Exception:
             # Don't leak a running sandbox the caller never got an ID for.

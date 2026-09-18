@@ -76,6 +76,9 @@ def _thread(thread_id: str = "thread-1") -> MagicMock:
     thread.agent_id = "agent-1"
     thread.created_at = datetime(2026, 1, 1, tzinfo=UTC)
     thread.sandbox_id = None
+    # Explicit: an unset attribute on a MagicMock is a truthy mock, which
+    # would read as "a different sandbox issued this id".
+    thread.sandbox_source_id = None
     return thread
 
 
@@ -358,9 +361,10 @@ def build_sandbox_agent(
     )
     agent.remembered = []
 
-    async def remember(new_id):
+    async def remember(new_id, source_id=None):
         agent.remembered.append(new_id)
         thread.sandbox_id = new_id
+        thread.sandbox_source_id = source_id
 
     agent._remember_sandbox = remember
     return agent, model, sandbox
@@ -628,3 +632,22 @@ async def test_plain_agent_with_subagents_binds_task_and_keeps_caller_fragments(
 
     assert "task" in {t.name for t in model.bound_tools}
     assert "Current date:" in system_text(model)
+
+
+async def test_a_rebound_sandbox_ignores_the_previous_provider_s_id(in_memory_runtime):
+    """Review finding: the thread's `sandbox_id` was handed to whatever
+    provider the agent is bound to *now*. After a rebinding that id belongs to
+    the old provider, which cannot know it — the run failed instead of
+    starting a fresh sandbox."""
+    from uuid import uuid4
+
+    agent, _model, _ = build_sandbox_agent(script=["done"], sandbox_id="sbx-old")
+    # The id was issued by a sandbox the agent is no longer bound to.
+    agent.thread.sandbox_source_id = uuid4()
+    agent.agent.sandbox.row_id = uuid4()
+
+    await collect(agent, "hello")
+
+    # Reconnect was never attempted with the foreign id.
+    agent.agent.sandbox.provider.connect.assert_not_called()
+    assert agent.remembered == ["sbx-live"]

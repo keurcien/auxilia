@@ -4,7 +4,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from deepagents.backends import StateBackend
 from deepagents.graph import DeepAgentState
@@ -336,6 +336,10 @@ class ResolvedSandbox:
 
     provider: BaseSandboxProvider
     tools: dict | None
+    # The sandbox row this provider was built from: the thread stores it
+    # alongside the sandbox id, so a later run can tell whether the id it
+    # remembers was issued by *this* sandbox or a previous binding.
+    row_id: UUID | None = None
 
 
 @dataclass
@@ -387,7 +391,11 @@ class ResolvedAgent:
         # reports the same, so this only covers a change made in between.
         # Silently running without code execution would be worse.
         provider = build_provider(spec.sandbox.row)
-        return ResolvedSandbox(provider=provider, tools=spec.sandbox.tools)
+        return ResolvedSandbox(
+            provider=provider,
+            tools=spec.sandbox.tools,
+            row_id=spec.sandbox.row.id,
+        )
 
     def compile(
         self,
@@ -735,18 +743,24 @@ class Agent:
         bound = [ra for ra in [self.agent, *self.subagents] if ra.sandbox is not None]
         if not bound:
             return
-        provider = bound[0].sandbox.provider
-        session = await asyncio.to_thread(
-            open_sandbox, provider, self.thread.sandbox_id
+        source = bound[0].sandbox
+        # Only reconnect to an id this sandbox row issued. After a rebinding
+        # the stored id belongs to the previous provider, which cannot know
+        # it — reconnect failed the run instead of starting a fresh sandbox.
+        previous = (
+            self.thread.sandbox_id
+            if self.thread.sandbox_source_id in (None, source.row_id)
+            else None
         )
+        session = await asyncio.to_thread(open_sandbox, source.provider, previous)
         if session.sandbox_id != self.thread.sandbox_id:
-            await self._remember_sandbox(session.sandbox_id)
+            await self._remember_sandbox(session.sandbox_id, source.row_id)
         await asyncio.to_thread(
             upload_skills, session.backend, skill_files(self.skills)
         )
         self._sandbox = session
 
-    async def _remember_sandbox(self, sandbox_id: str) -> None:
+    async def _remember_sandbox(self, sandbox_id: str, source_id) -> None:
         """Stamp the sandbox on the thread so the next run reconnects to it.
 
         Out-of-request, and outside the worker's session (which `_setup` does
@@ -754,9 +768,12 @@ class Agent:
         even if the run then fails.
         """
         async with AsyncSessionLocal() as db:
-            await ThreadRepository(db).set_sandbox_id(self.thread.id, sandbox_id)
+            await ThreadRepository(db).set_sandbox_id(
+                self.thread.id, sandbox_id, source_id
+            )
             await db.commit()
         self.thread.sandbox_id = sandbox_id
+        self.thread.sandbox_source_id = source_id
 
     async def _persist_recursion_fallback(self, agent, config) -> AIMessage:
         """Persist a synthetic AI message after a GraphRecursionError so the

@@ -69,6 +69,12 @@ class ThreadDB(ThreadBase, TimestampMixin, table=True):
     sandbox_id: str | None = Field(
         default=None, sa_column=Column(String, nullable=True)
     )
+    # Which sandbox row issued `sandbox_id`. An agent rebound to a different
+    # sandbox would otherwise hand the old provider's id to the new one, which
+    # cannot know it: the run failed instead of starting a fresh sandbox.
+    sandbox_source_id: UUID | None = Field(
+        default=None, foreign_key="sandboxes.id", ondelete="SET NULL", nullable=True
+    )
     # The skills the thread's current turn runs with, frozen as a list of
     # `SkillBundle` JSON. Refreshed by every new turn, reused by a resume, so
     # an approval never swaps skill contents under a pending tool call. NULL

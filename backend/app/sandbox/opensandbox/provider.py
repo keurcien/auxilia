@@ -10,8 +10,6 @@ from opensandbox import SandboxSync
 from opensandbox.config import ConnectionConfigSync
 from opensandbox.exceptions.sandbox import (
     SandboxApiException,
-    SandboxReadyTimeoutException,
-    SandboxUnhealthyException,
 )
 from opensandbox.models.sandboxes import Host, SandboxFilter, Volume
 from opensandbox.sync.manager import SandboxManagerSync
@@ -63,11 +61,10 @@ class OpenSandboxProvider(BaseSandboxProvider):
                     f"sandbox {sandbox_id} no longer exists"
                 ) from exc
             raise
-        except (SandboxUnhealthyException, SandboxReadyTimeoutException) as exc:
-            # It exists but never became usable: nothing to restore from.
-            raise SandboxGoneError(
-                f"sandbox {sandbox_id} is not usable: {exc}"
-            ) from exc
+        # Unhealthy or slow to become ready is *not* gone: the sandbox and its
+        # files still exist, and replacing it would discard the thread's work
+        # over a passing wobble. Those propagate and `open_sandbox` reports
+        # them as SandboxUnavailableError; only the 404 above means gone.
         sandbox.renew(timeout=timedelta(minutes=30))
         return OpenSandbox(sandbox=sandbox, timeout=self.config.timeout)
 
