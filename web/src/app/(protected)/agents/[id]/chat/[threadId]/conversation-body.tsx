@@ -164,7 +164,11 @@ export const ConversationBody = memo(function ConversationBody({
       {messages.map((message, index) => {
         const key = message.id ?? index;
         if (isHumanMessage(message)) {
-          return <UserTurn key={key} message={message} />;
+          return isHostNotice(message) ? (
+            <HostNotice key={key} message={message} />
+          ) : (
+            <UserTurn key={key} message={message} />
+          );
         }
         if (!isAIMessage(message)) return null;
 
@@ -242,6 +246,27 @@ export const ConversationBody = memo(function ConversationBody({
     </>
   );
 });
+
+/**
+ * A user-role message the runtime authored, not the user: it carries
+ * `name: "host"` and `additional_kwargs.host_notice` (e.g. the sandbox of
+ * the thread was replaced). Rendered as a muted event line, never as a
+ * user bubble, so the transcript keeps who said what.
+ */
+export function isHostNotice(message: BaseMessage): boolean {
+  return (
+    message.name === "host" &&
+    typeof message.additional_kwargs?.host_notice === "string"
+  );
+}
+
+const HostNotice = ({ message }: { message: BaseMessage }) => (
+  <div className="my-2 flex justify-center">
+    <p className="max-w-[80%] rounded-md border border-dashed border-border px-3 py-1.5 text-center font-mono text-[11.5px] leading-[1.5] text-muted-foreground">
+      {message.text.replace(/^\[Host notice\]\s*/, "")}
+    </p>
+  </div>
+);
 
 const UserTurn = ({ message }: { message: BaseMessage }) => {
   const text = message.text;

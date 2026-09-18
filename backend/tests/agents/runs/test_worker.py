@@ -27,7 +27,7 @@ class _FakeAgent:
     """Stands in for the real Agent — yields events without touching an LLM."""
 
     @classmethod
-    async def build(cls, *, thread, db):
+    async def build(cls, *, thread, db, resume=False):
         return cls()
 
     async def stream(self, **kwargs):
@@ -44,6 +44,9 @@ class _FakeSession:
 
     async def get(self, model, pk):
         return object()  # a non-None ThreadDB stand-in
+
+    async def commit(self):
+        pass
 
 
 @pytest.fixture
@@ -115,7 +118,7 @@ async def test_worker_gates_unauthorized_mcp_before_building_agent(redis, monkey
 
     class _NeverBuiltAgent(_FakeAgent):
         @classmethod
-        async def build(cls, *, thread, db):
+        async def build(cls, *, thread, db, resume=False):
             raise AssertionError("Agent.build must not run when MCP is unauthorized")
 
     gate_args: list = []

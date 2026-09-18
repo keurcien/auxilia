@@ -23,6 +23,7 @@ export interface AgentFormState {
 	/** At most one — list-shaped to match the API. */
 	sandboxes: AgentSandboxForm[];
 	subagentIds: string[];
+	skillIds: string[];
 }
 
 /** Blank draft for the create page (`/agents/new`). */
@@ -36,6 +37,7 @@ export function defaultAgentForm(): AgentFormState {
 		mcpServers: [],
 		sandboxes: [],
 		subagentIds: [],
+		skillIds: [],
 	};
 }
 
@@ -55,6 +57,7 @@ export function fromAgent(agent: Agent): AgentFormState {
 			tools: sandbox.tools ? { ...sandbox.tools } : null,
 		})),
 		subagentIds: (agent.subagents || []).map((sub) => sub.id),
+		skillIds: (agent.skills || []).map((skill) => skill.id),
 	};
 }
 
@@ -89,6 +92,7 @@ export function toPayload(form: AgentFormState) {
 				tools: sortTools(sandbox.tools),
 			})),
 		subagentIds: [...form.subagentIds].sort(),
+		skillIds: [...form.skillIds].sort(),
 	};
 }
 

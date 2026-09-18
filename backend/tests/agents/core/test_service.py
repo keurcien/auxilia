@@ -145,6 +145,14 @@ def mock_agent_sandbox_service():
 
 
 @pytest.fixture
+def mock_skill_service():
+    svc = MagicMock()
+    svc.set_for_agent = AsyncMock()
+    svc.list_for_agent = AsyncMock(return_value=[])
+    return svc
+
+
+@pytest.fixture
 def mock_tag_service():
     svc = MagicMock()
     svc.get = AsyncMock()
@@ -171,6 +179,7 @@ def service(
     mock_mcp_server_service,
     mock_agent_sandbox_repo,
     mock_agent_sandbox_service,
+    mock_skill_service,
 ):
     svc = AgentService(mock_db)
     svc.repository = mock_repo
@@ -182,6 +191,7 @@ def service(
     svc.mcp_server_service = mock_mcp_server_service
     svc.sandbox_repository = mock_agent_sandbox_repo
     svc.sandbox_service = mock_agent_sandbox_service
+    svc.skill_service = mock_skill_service
     return svc
 
 
@@ -637,7 +647,7 @@ async def test_set_config_orchestrates_scalars_bindings_subagents(
         agent.id, config.mcp_servers
     )
     mock_subagent_service.set_for_supervisor.assert_awaited_once_with(
-        agent.id, [sub_id], user_role=None
+        agent.id, [sub_id], user_role=None, validate_skills=False
     )
     assert isinstance(result, AgentResponse)
 
@@ -719,7 +729,7 @@ async def test_set_config_passes_role_to_subagent_gate(
     )
 
     mock_subagent_service.set_for_supervisor.assert_awaited_once_with(
-        agent.id, [sub_id], user_role=WorkspaceRole.admin
+        agent.id, [sub_id], user_role=WorkspaceRole.admin, validate_skills=False
     )
 
 

@@ -16,6 +16,11 @@ export type SessionMeta = {
 	viewerRole: ViewerRole | null;
 	/** False once a workspace admin disabled the thread's pinned model. */
 	modelAvailable: boolean;
+	/** The backend's reason once a run 409'd because the agent's sandbox
+	 *  provider is down; null while it is fine. Unlike `modelAvailable` this
+	 *  is not read at open — readiness reports it separately — it is only set
+	 *  by a mid-session gate and cleared by "Check again". */
+	sandboxUnavailable: string | null;
 	agentArchived: boolean;
 };
 
@@ -38,7 +43,9 @@ export type SessionEvent =
 	| { type: "last-run-error-loaded"; threadId: string; error: string }
 	| { type: "user-acted" }
 	| { type: "model-unavailable"; threadId: string }
-	| { type: "model-rechecked"; threadId: string; available: boolean };
+	| { type: "model-rechecked"; threadId: string; available: boolean }
+	| { type: "sandbox-unavailable"; threadId: string; detail: string }
+	| { type: "sandbox-rechecked"; threadId: string };
 
 export const initialSessionState: SessionState = {
 	threadId: null,
@@ -47,6 +54,7 @@ export const initialSessionState: SessionState = {
 		thread: null,
 		viewerRole: null,
 		modelAvailable: true,
+		sandboxUnavailable: null,
 		agentArchived: false,
 	},
 	openError: null,
@@ -76,6 +84,7 @@ export function sessionReducer(
 					thread,
 					viewerRole: viewerRole === "admin" ? "admin" : null,
 					modelAvailable: thread.modelAvailable !== false,
+					sandboxUnavailable: null,
 					agentArchived: thread.agentArchived,
 				},
 			};
@@ -97,6 +106,14 @@ export function sessionReducer(
 			return state.meta.modelAvailable === event.available
 				? state
 				: { ...state, meta: { ...state.meta, modelAvailable: event.available } };
+		case "sandbox-unavailable":
+			return state.meta.sandboxUnavailable === event.detail
+				? state
+				: { ...state, meta: { ...state.meta, sandboxUnavailable: event.detail } };
+		case "sandbox-rechecked":
+			return state.meta.sandboxUnavailable === null
+				? state
+				: { ...state, meta: { ...state.meta, sandboxUnavailable: null } };
 	}
 }
 
