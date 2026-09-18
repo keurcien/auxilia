@@ -1,222 +1,123 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { FileText, Plus, TerminalSquare, Trash2, Upload } from "lucide-react";
-import { isScriptPath, type SkillFile } from "@/types/skills";
+import { useState } from "react";
+import Link from "next/link";
+import { isScriptPath, shortRevision, type Skill, type SkillFile } from "@/types/skills";
+import { CodeBlock } from "@/components/ai-elements/code-block";
+import { PETROL_MONO_THEME } from "@/lib/shiki-petrol-mono";
 import { cn } from "@/lib/utils";
-import { formatBytes, readSkillFile, skillFileSize } from "../lib/skill-form";
+import { formatBytes, skillFileSize } from "../lib/skill-form";
+import { FileTypeIcon, skillFileLanguage } from "./file-type-icon";
 
 interface SkillFilesPanelProps {
 	files: SkillFile[];
-	readOnly: boolean;
-	onChange: (files: SkillFile[]) => void;
-}
-
-const PATH_PATTERN = /^[A-Za-z0-9_.\-/]+$/;
-
-export function skillFilePathError(path: string, others: string[]): string | null {
-	if (!path) return "A path is required";
-	const parts = path.split("/");
-	if (!PATH_PATTERN.test(path) || parts.some((p) => p === "" || p === "." || p === "..")) {
-		return "Relative path, letters/digits/._-/ only, no empty or '..' segments";
-	}
-	if (parts[0].toLowerCase() === "skill.md") return "SKILL.md is the skill itself";
-	if (others.some((other) => other.toLowerCase() === path.toLowerCase())) {
-		return "Another file already has this path";
-	}
-	return null;
+	/** Undefined while creating; carries the provenance line when sourced. */
+	skill?: Skill;
 }
 
 /**
- * The supporting files of a skill: one tab per file, the selected one
- * editable (path + text), binaries shown as a placeholder. Uploads land in
- * `scripts/`, `references/` or `assets/` by kind; the path stays editable.
- * Anything under `scripts/` counts as a script — the one thing that makes a
- * skill need an agent with code execution — so those tabs carry a terminal
- * glyph and the panel says so.
+ * The supporting files of a skill: one tab per file, the selected one shown
+ * with syntax highlighting for its extension.
+ *
+ * Read-only, always. Files reach the library only through a repository, so
+ * this panel renders a sourced skill's pinned content and nothing here can
+ * change it — the repository is the editor. Anything under `scripts/` is
+ * what makes a skill need an agent with code execution, so the panel counts
+ * those separately.
  */
-export default function SkillFilesPanel({ files, readOnly, onChange }: SkillFilesPanelProps) {
+export default function SkillFilesPanel({ files, skill }: SkillFilesPanelProps) {
 	const [selected, setSelected] = useState(0);
-	const input = useRef<HTMLInputElement>(null);
 	const current = files[Math.min(selected, files.length - 1)];
 
-	const update = (index: number, patch: Partial<SkillFile>) => {
-		onChange(files.map((file, i) => (i === index ? { ...file, ...patch } : file)));
-	};
-
-	const add = (added: SkillFile[]) => {
-		const taken = new Set(files.map((f) => f.path.toLowerCase()));
-		const fresh = added.map((file) => {
-			let path = file.path;
-			let n = 2;
-			while (taken.has(path.toLowerCase())) {
-				path = file.path.replace(/(\.[^./]+)?$/, `-${n}$1`);
-				n += 1;
-			}
-			taken.add(path.toLowerCase());
-			return { ...file, path };
-		});
-		onChange([...files, ...fresh]);
-		setSelected(files.length);
-	};
-
-	const remove = (index: number) => {
-		onChange(files.filter((_, i) => i !== index));
-		setSelected(Math.max(0, index - 1));
-	};
-
-	const pathError = current
-		? skillFilePathError(
-				current.path,
-				files.filter((f) => f !== current).map((f) => f.path),
-			)
-		: null;
-
-	const scriptCount = files.filter((file) => isScriptPath(file.path)).length;
+	if (files.length === 0) {
+		return (
+			<div className="flex min-h-0 flex-1 flex-col">
+				<Heading count={0} skill={skill} />
+				<div className="rounded-[10px] border border-dashed border-input px-4 py-8 text-center text-[13px] text-meta dark:text-panel-dim">
+					No supporting files — this skill runs on any agent.
+				</div>
+			</div>
+		);
+	}
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
-			<div className="mb-3 flex min-h-[24px] shrink-0 items-center justify-between">
-				<span className="font-mono text-[10.5px] font-semibold tracking-[0.09em] text-label dark:text-muted-foreground">
-					FILES{" "}
-					<span className="tracking-normal text-meta dark:text-panel-dim">{files.length}</span>
-					{scriptCount > 0 && (
-						<span className="ml-2 tracking-normal text-meta dark:text-panel-dim">
-							· {scriptCount} script{scriptCount === 1 ? "" : "s"}
-						</span>
-					)}
-				</span>
-				{!readOnly && (
-					<div className="flex items-center gap-3">
-						<input
-							ref={input}
-							type="file"
-							multiple
-							className="hidden"
-							onChange={(e) => {
-								const picked = Array.from(e.target.files ?? []);
-								e.target.value = "";
-								if (picked.length === 0) return;
-								void Promise.all(picked.map(readSkillFile)).then(add);
-							}}
-						/>
+			<Heading count={files.length} skill={skill} />
+			<div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[10px] border border-border bg-card">
+				<div className="flex shrink-0 overflow-x-auto border-b border-border [scrollbar-width:thin]">
+					{files.map((file, index) => (
 						<button
+							key={`${index}-${file.path}`}
 							type="button"
-							className="flex cursor-pointer items-center gap-1 text-[12.5px] font-semibold text-petrol transition-opacity hover:opacity-80"
 							onClick={() => {
-								input.current?.click();
+								setSelected(index);
 							}}
+							className={cn(
+								"flex shrink-0 cursor-pointer items-center gap-1.5 border-r border-border px-3 py-2 font-mono text-[11.5px] transition-colors",
+								file === current
+									? "bg-sidebar text-foreground dark:bg-white/5"
+									: "text-meta hover:text-foreground dark:text-panel-dim",
+							)}
 						>
-							<Upload className="size-3" />
-							Upload
+							<FileTypeIcon path={file.path} className="size-3.5" />
+							{file.path.split("/").pop() || "…"}
 						</button>
-						<button
-							type="button"
-							className="flex cursor-pointer items-center gap-1 text-[12.5px] font-semibold text-petrol transition-opacity hover:opacity-80"
-							onClick={() => {
-								add([{ path: "scripts/new-script.py", content: "", encoding: "utf-8" }]);
-							}}
-						>
-							<Plus className="size-3" />
-							New file
-						</button>
+					))}
+				</div>
+				{current && (
+					<div className="flex min-h-0 flex-1 flex-col">
+						<div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
+							<span className="min-w-0 flex-1 truncate font-mono text-[12px] text-foreground">
+								{current.path}
+							</span>
+							{isScriptPath(current.path) && (
+								<span className="shrink-0 rounded-[4px] bg-petrol-tint px-1.5 py-px font-mono text-[9px] font-semibold tracking-[0.05em] text-petrol dark:bg-white/10">
+									SCRIPT
+								</span>
+							)}
+							<span className="shrink-0 font-mono text-[10.5px] text-meta dark:text-panel-dim">
+								{formatBytes(skillFileSize(current))}
+							</span>
+						</div>
+						{current.encoding === "base64" ? (
+							<div className="flex flex-1 items-center justify-center bg-panel p-8 text-center text-[13px] text-panel-dim">
+								Binary file — {formatBytes(skillFileSize(current))}.
+							</div>
+						) : (
+							// The dark panel the login showcase and the landing terminal
+							// use: code here is read, not edited, and it reads as the
+							// same surface in either app theme.
+							<div className="min-h-[260px] flex-1 overflow-auto bg-panel [scrollbar-width:thin]">
+								<CodeBlock
+									code={current.content}
+									language={skillFileLanguage(current.path)}
+									theme={PETROL_MONO_THEME}
+									className="rounded-none"
+								/>
+							</div>
+						)}
 					</div>
 				)}
 			</div>
+		</div>
+	);
+}
 
-			{files.length === 0 ? (
-				<div className="rounded-[10px] border border-dashed border-input px-4 py-8 text-center text-[13px] text-meta dark:text-panel-dim">
-					No supporting files — this skill runs on any agent.
-					{!readOnly && (
-						<span className="mt-1 block text-[12px]">
-							References and assets go next to SKILL.md; anything under{" "}
-							<span className="font-mono">scripts/</span> needs an agent that runs
-							code.
-						</span>
-					)}
-				</div>
-			) : (
-				<div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[10px] border border-border bg-card">
-					<div className="flex shrink-0 overflow-x-auto border-b border-border [scrollbar-width:thin]">
-						{files.map((file, index) => (
-							<button
-								key={`${index}-${file.path}`}
-								type="button"
-								onClick={() => {
-									setSelected(index);
-								}}
-								className={cn(
-									"flex shrink-0 cursor-pointer items-center gap-1.5 border-r border-border px-3 py-2 font-mono text-[11.5px] transition-colors",
-									file === current
-										? "bg-sidebar text-foreground dark:bg-white/5"
-										: "text-meta hover:text-foreground dark:text-panel-dim",
-								)}
-							>
-								{isScriptPath(file.path) ? (
-									<TerminalSquare className="size-3 text-petrol" />
-								) : (
-									<FileText className="size-3" />
-								)}
-								{file.path.split("/").pop() || "…"}
-							</button>
-						))}
-					</div>
-					{current && (
-						<div className="flex min-h-0 flex-1 flex-col">
-							<div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
-								<input
-									type="text"
-									value={current.path}
-									disabled={readOnly}
-									spellCheck={false}
-									onChange={(e) => {
-										update(files.indexOf(current), { path: e.target.value.trim() });
-									}}
-									className={cn(
-										"min-w-0 flex-1 bg-transparent font-mono text-[12px] text-foreground outline-none disabled:cursor-default",
-										pathError && "text-destructive",
-									)}
-								/>
-								<span className="shrink-0 font-mono text-[10.5px] text-meta dark:text-panel-dim">
-									{formatBytes(skillFileSize(current))}
-								</span>
-								{!readOnly && (
-									<button
-										type="button"
-										aria-label="Remove file"
-										className="cursor-pointer rounded p-1 text-meta transition-colors hover:text-destructive"
-										onClick={() => {
-											remove(files.indexOf(current));
-										}}
-									>
-										<Trash2 className="size-3.5" />
-									</button>
-								)}
-							</div>
-							{pathError && (
-								<div className="border-b border-border px-3 py-1.5 text-[11.5px] text-destructive">
-									{pathError}
-								</div>
-							)}
-							{current.encoding === "base64" ? (
-								<div className="flex flex-1 items-center justify-center p-8 text-center text-[13px] text-meta dark:text-panel-dim">
-									Binary file — {formatBytes(skillFileSize(current))}. Uploaded as-is;
-									replace it by removing and uploading again.
-								</div>
-							) : (
-								<textarea
-									value={current.content}
-									readOnly={readOnly}
-									spellCheck={false}
-									onChange={(e) => {
-										update(files.indexOf(current), { content: e.target.value });
-									}}
-									className="min-h-[260px] w-full flex-1 resize-none bg-transparent p-4 font-mono text-[12.5px] leading-[1.7] text-foreground outline-none [scrollbar-width:thin]"
-								/>
-							)}
-						</div>
-					)}
-				</div>
+function Heading({ count, skill }: { count: number; skill?: Skill }) {
+	return (
+		<div className="mb-3 flex min-h-[24px] shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+			<span className="flex items-center gap-2">
+				<span className="font-mono text-[10.5px] font-semibold tracking-[0.09em] text-label dark:text-muted-foreground">
+					FILES <span className="tracking-normal text-meta dark:text-panel-dim">{count}</span>
+				</span>
+			</span>
+			{skill?.sourceId && (
+				<span className="truncate font-mono text-[10.5px] text-meta dark:text-panel-dim">
+					<Link href="/skills?view=sources" className="font-semibold text-petrol hover:underline">
+						{skill.sourceName ?? "repository"}
+					</Link>
+					{skill.sourceRevision ? ` · ${shortRevision(skill.sourceRevision)}` : ""}
+				</span>
 			)}
 		</div>
 	);

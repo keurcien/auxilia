@@ -10,6 +10,7 @@ never changes what an agent runs.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from urllib.parse import urlsplit
 from uuid import UUID
@@ -21,7 +22,7 @@ from app.database import get_db
 from app.exceptions import DomainValidationError, PermissionDeniedError
 from app.service import BaseService
 from app.skills.bundles import LIMITS, parse_skill, skill_file_from_bytes
-from app.skills.models import SkillSourceDB
+from app.skills.models import SkillDB, SkillSourceDB
 from app.skills.repository import SkillRepository
 from app.skills.schemas import (
     SkillBundle,
@@ -34,12 +35,16 @@ from app.skills.schemas import (
     SkillSourcePreviewSkill,
     SkillSourceReportEntry,
     SkillSourceResponse,
+    SkillSyncEntry,
+    SkillSyncPlan,
+    count_scripts,
 )
 from app.skills.sources.repository import SkillSourceRepository
 from app.users.models import UserDB, WorkspaceRole
 from app.utils.encryption import decrypt_value, encrypt_value
 from skillkit import (
     AuthenticationError,
+    EmptyRepository,
     GitHubSource,
     GitLabSource,
     LimitExceeded,
@@ -72,9 +77,16 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
     # -- write --------------------------------------------------------------------
 
     async def preview(self, data: SkillSourceCreate) -> SkillSourcePreview:
-        """Resolve without persisting anything — the "test before adding" step."""
+        """Resolve without persisting anything — the "test before adding" step.
+
+        Unlike a sync, this one *raises*: there is no row yet to record a
+        status on, and the admin is waiting on an answer. Every failure the
+        resolver can produce is a 400 about what they typed — an unhandled
+        `SkillkitError` here is a 500, which is how a private repository came
+        to look like an unsupported one.
+        """
         kind = _kind_for(data)
-        resolved = await self._resolve(
+        resolved = await self._resolve_or_400(
             kind, data.url, data.ref, data.subpath, data.token
         )
         return SkillSourcePreview(
@@ -151,6 +163,55 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
         await self.db.refresh(row)
         return _response(row, user)
 
+    async def _resolve_or_400(
+        self,
+        kind: SkillSourceKind,
+        url: str,
+        ref: str,
+        subpath: str | None,
+        token: str | None,
+    ) -> ResolvedSource:
+        """Resolve for a *request*: every failure is a 400 about what the
+        caller asked for. `_sync_row` does not use this — it records a status
+        on the row instead of raising, because nobody is waiting on it."""
+        try:
+            return await self._resolve(kind, url, ref, subpath, token)
+        except EmptyRepository as exc:
+            raise DomainValidationError(f"{exc}. {_EMPTY_HINT}") from exc
+        except (AuthenticationError, RevisionNotFound) as exc:
+            raise DomainValidationError(f"{exc}.{_access_hint(bool(token))}") from exc
+        except (SourceUnavailable, LimitExceeded, SkillkitValidationError) as exc:
+            raise DomainValidationError(str(exc)) from exc
+
+    async def plan(self, source_id: UUID, user: UserDB) -> SkillSyncPlan:
+        """What syncing would do, without doing any of it.
+
+        Reads the repository exactly as a sync would and classifies every
+        skill against what the library already holds. Writes nothing, so it
+        can be run to decide whether to sync at all.
+        """
+        row = await self._manageable(source_id, user)
+        token = decrypt_value(row.encrypted_token) if row.encrypted_token else None
+        resolved = await self._resolve_or_400(
+            row.kind, row.url, row.ref, row.subpath, token
+        )
+        existing = {s.name: s for s in await self._skills.list_for_source(row.id)}
+        decisions, _report = _classify(resolved, existing)
+        return SkillSyncPlan(
+            revision=resolved.revision,
+            current_revision=row.last_revision,
+            entries=[
+                SkillSyncEntry(
+                    name=d.name,
+                    path=d.path,
+                    status=d.status,
+                    script_count=count_scripts(d.bundle.files) if d.bundle else 0,
+                    issues=d.issues,
+                )
+                for d in decisions
+            ],
+        )
+
     # -- the sync ------------------------------------------------------------------
 
     async def _sync_row(self, row: SkillSourceDB) -> None:
@@ -159,103 +220,88 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
             resolved = await self._resolve(
                 row.kind, row.url, row.ref, row.subpath, token
             )
+        except EmptyRepository as exc:
+            return await self._failed(row, "empty", f"{exc}. {_EMPTY_HINT}")
         except AuthenticationError as exc:
-            return await self._failed(row, "auth", str(exc))
+            return await self._failed(
+                row, "auth", f"{exc}.{_access_hint(token is not None)}"
+            )
         except RevisionNotFound as exc:
-            return await self._failed(row, "not_found", str(exc))
+            return await self._failed(
+                row, "not_found", f"{exc}.{_access_hint(token is not None)}"
+            )
         except SourceUnavailable as exc:
             return await self._failed(row, "unavailable", str(exc))
         except (LimitExceeded, SkillkitValidationError) as exc:
             return await self._failed(row, "invalid", str(exc))
 
         existing = {s.name: s for s in await self._skills.list_for_source(row.id)}
-        report: list[SkillSourceReportEntry] = []
-        seen: set[str] = set()
-        for skill in resolved.skills:
-            issues = _issues(skill)
-            if not skill.report.ok:
-                report.append(
-                    SkillSourceReportEntry(
-                        path=skill.path, name=skill.name, issues=issues
-                    )
-                )
+        decisions, report = _classify(resolved, existing)
+
+        for decision in decisions:
+            if decision.status == "skipped":
                 continue
-            if skill.name in seen:
-                report.append(
-                    SkillSourceReportEntry(
-                        path=skill.path,
-                        name=skill.name,
-                        issues=[
-                            SkillIssue(
-                                code="W003",
-                                severity="warning",
-                                message="another skill in this repository already has this name",
-                            )
-                        ],
-                    )
-                )
-                continue
-            try:
-                bundle = _app_bundle(skill)
-            except DomainValidationError as exc:
-                report.append(
-                    SkillSourceReportEntry(
-                        path=skill.path,
-                        name=skill.name,
-                        issues=[
-                            SkillIssue(code="E000", severity="error", message=str(exc))
-                        ],
-                    )
-                )
-                continue
-            seen.add(skill.name)
-            digest = bundle_digest(bundle.file_bytes())
-            current = existing.pop(skill.name, None)
-            if current is None:
+            if decision.status == "new":
+                assert decision.bundle is not None and decision.digest is not None
                 created = await self._skills.create(
                     SkillCreateDB(
                         owner_id=row.owner_id,
-                        name=bundle.name,
-                        description=bundle.description,
-                        content=bundle.content,
-                        files=[f.model_dump(mode="json") for f in bundle.files],
-                        digest=digest,
+                        name=decision.bundle.name,
+                        description=decision.bundle.description,
+                        content=decision.bundle.content,
+                        files=[
+                            f.model_dump(mode="json") for f in decision.bundle.files
+                        ],
+                        digest=decision.digest,
                         source_id=row.id,
-                        source_path=skill.path,
+                        source_path=decision.path,
                         source_revision=resolved.revision,
                     )
                 )
                 await self._skills.record_version(
                     created.id,
-                    digest=digest,
+                    digest=decision.digest,
                     revision=resolved.revision,
-                    content=bundle.content,
-                    files=[f.model_dump(mode="json") for f in bundle.files],
+                    content=decision.bundle.content,
+                    files=[f.model_dump(mode="json") for f in decision.bundle.files],
                 )
                 continue
-            current.source_path = skill.path
+
+            current = decision.current
+            assert current is not None
+            if decision.status == "gone":
+                current.missing_upstream = True
+                self.db.add(current)
+                continue
+
+            current.source_path = decision.path
             current.missing_upstream = False
-            if digest != current.digest:
+            if decision.status == "updated":
+                assert decision.bundle is not None and decision.digest is not None
+                # Recorded as *available*, never applied: what an agent runs
+                # changes only when someone adopts it.
                 await self._skills.record_version(
                     current.id,
-                    digest=digest,
+                    digest=decision.digest,
                     revision=resolved.revision,
-                    content=bundle.content,
-                    files=[f.model_dump(mode="json") for f in bundle.files],
+                    content=decision.bundle.content,
+                    files=[f.model_dump(mode="json") for f in decision.bundle.files],
                 )
-            else:
+            else:  # unchanged
                 current.source_revision = resolved.revision
             self.db.add(current)
-        for leftover in existing.values():
-            leftover.missing_upstream = True
-            self.db.add(leftover)
 
         row.last_revision = resolved.revision
         row.last_synced_at = datetime.now(UTC)
         row.last_status = "ok"
         row.last_error = None
         row.last_report = [entry.model_dump(mode="json") for entry in report]
-        row.skill_count = len(seen)
+        # What the repository currently contributes: present upstream and
+        # valid. A skipped skill was never counted, and a `gone` one is no
+        # longer there — counting it would keep a deleted skill in the total.
+        row.skill_count = sum(
+            1 for d in decisions if d.status in ("new", "updated", "unchanged")
+        )
         self.db.add(row)
         await self.db.flush()
 
@@ -298,6 +344,30 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
         return row
 
 
+_EMPTY_HINT = (
+    "Push a skill to it first — auxilia reads "
+    "skills/<name>/SKILL.md, a category folder one level deeper, or a "
+    "SKILL.md at the root."
+)
+
+
+def _access_hint(has_token: bool) -> str:
+    """Why a repository that exists can still read as "not found".
+
+    GitHub and GitLab answer 404, not 403, for a private repository the
+    caller cannot see — revealing that it exists would itself leak something.
+    So the resolver genuinely cannot tell a typo from a missing credential,
+    and the bare message ("repository, ref or path not found") reads as
+    "private repositories are not supported". Name the likelier cause.
+    """
+    if has_token:
+        return (
+            " If it is private, check the token still has read access to its "
+            "contents and has not expired."
+        )
+    return " If it is private, add an access token with read access to its contents."
+
+
 def _kind_for(data: SkillSourceCreate) -> SkillSourceKind:
     if data.kind is not None:
         return data.kind
@@ -313,6 +383,98 @@ def _kind_for(data: SkillSourceCreate) -> SkillSourceKind:
 
 def _name_for(url: str) -> str:
     return urlsplit(url).path.strip("/").removesuffix(".git")[:120] or url[:120]
+
+
+@dataclass
+class _Decision:
+    """What a sync would do to one skill, decided before anything is written
+    so the same call can answer "what would change?" and "change it"."""
+
+    name: str
+    path: str
+    status: str  # new | updated | unchanged | gone | skipped
+    issues: list[SkillIssue]
+    bundle: SkillBundle | None = None
+    digest: str | None = None
+    current: SkillDB | None = None
+
+
+def _classify(
+    resolved: ResolvedSource, existing: dict[str, SkillDB]
+) -> tuple[list[_Decision], list[SkillSourceReportEntry]]:
+    """Compare what the repository holds against what the library holds.
+
+    Pure: it reads the resolved source and the current rows and touches
+    neither. `_sync_row` applies the result and `plan` returns it, so the two
+    can never disagree about what a sync does.
+    """
+    remaining = dict(existing)
+    decisions: list[_Decision] = []
+    report: list[SkillSourceReportEntry] = []
+    seen: set[str] = set()
+
+    def skip(skill: Skill, issues: list[SkillIssue]) -> None:
+        report.append(
+            SkillSourceReportEntry(path=skill.path, name=skill.name, issues=issues)
+        )
+        decisions.append(
+            _Decision(name=skill.name, path=skill.path, status="skipped", issues=issues)
+        )
+
+    for skill in resolved.skills:
+        if not skill.report.ok:
+            skip(skill, _issues(skill))
+            continue
+        if skill.name in seen:
+            skip(
+                skill,
+                [
+                    SkillIssue(
+                        code="W003",
+                        severity="warning",
+                        message="another skill in this repository already has this name",
+                    )
+                ],
+            )
+            continue
+        try:
+            bundle = _app_bundle(skill)
+        except DomainValidationError as exc:
+            skip(skill, [SkillIssue(code="E000", severity="error", message=str(exc))])
+            continue
+
+        seen.add(skill.name)
+        digest = bundle_digest(bundle.file_bytes())
+        current = remaining.pop(skill.name, None)
+        decisions.append(
+            _Decision(
+                name=skill.name,
+                path=skill.path,
+                status=(
+                    "new"
+                    if current is None
+                    else "updated"
+                    if digest != current.digest
+                    else "unchanged"
+                ),
+                issues=_issues(skill),
+                bundle=bundle,
+                digest=digest,
+                current=current,
+            )
+        )
+
+    for name, leftover in remaining.items():
+        decisions.append(
+            _Decision(
+                name=name,
+                path=leftover.source_path or "",
+                status="gone",
+                issues=[],
+                current=leftover,
+            )
+        )
+    return decisions, report
 
 
 def _app_bundle(skill: Skill) -> SkillBundle:

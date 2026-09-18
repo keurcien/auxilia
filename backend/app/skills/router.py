@@ -1,12 +1,9 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, UploadFile
-from fastapi.responses import Response
+from fastapi import APIRouter, Depends
 
 from app.auth.dependencies import get_current_user
-from app.skills.bundles import import_archive
 from app.skills.schemas import (
-    MAX_BUNDLE_BYTES,
     SkillDiffResponse,
     SkillResponse,
     SkillSave,
@@ -34,20 +31,6 @@ async def create_skill(
     service: SkillService = Depends(get_skill_service),
 ):
     return await service.create(data, user)
-
-
-@router.post("/import", response_model=SkillResponse, status_code=201)
-async def import_skill(
-    file: UploadFile,
-    user: UserDB = Depends(get_current_user),
-    service: SkillService = Depends(get_skill_service),
-):
-    # One byte past the cap is enough for `import_archive` to refuse it.
-    data = await file.read(MAX_BUNDLE_BYTES + 1)
-    bundle = import_archive(data, file.filename or "skill.zip")
-    return await service.create(
-        SkillSave(content=bundle.content, files=bundle.files), user
-    )
 
 
 @router.get("/{skill_id}", response_model=SkillResponse)
@@ -94,17 +77,3 @@ async def adopt_skill(
     service: SkillService = Depends(get_skill_service),
 ):
     return await service.adopt(skill_id, user)
-
-
-@router.get("/{skill_id}/export")
-async def export_skill(
-    skill_id: UUID,
-    _: UserDB = Depends(get_current_user),  # any workspace user may export
-    service: SkillService = Depends(get_skill_service),
-):
-    name, archive = await service.export(skill_id)
-    return Response(
-        archive,
-        media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{name}.zip"'},
-    )

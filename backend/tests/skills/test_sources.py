@@ -10,7 +10,13 @@ from app.skills.schemas import SkillSave, SkillSourceCreate, SkillSourceKind
 from app.skills.service import SkillService
 from app.skills.sources.service import SkillSourceService
 from app.users.models import WorkspaceRole
-from skillkit import ArchiveSource, AuthenticationError, SourceUnavailable
+from skillkit import (
+    ArchiveSource,
+    AuthenticationError,
+    EmptyRepository,
+    RevisionNotFound,
+    SourceUnavailable,
+)
 from tests.skillkit.conftest import skill_md, tar_bytes
 from tests.skills.conftest import attach, make_user, seed_agent, skill_markdown
 
@@ -193,7 +199,11 @@ async def test_failed_syncs_keep_state_and_tell_the_failures_apart(
 
     host.error = AuthenticationError("bad token")
     failed = await sources.sync(source.id, admin)
-    assert (failed.last_status, failed.last_error) == ("auth", "bad token")
+    # The resolver's own words, kept, plus the hint that a credential is what
+    # the source is missing — the same hint preview raises.
+    assert failed.last_status == "auth"
+    assert failed.last_error.startswith("bad token")
+    assert "add an access token" in failed.last_error
     assert failed.last_revision == "aaa111" and failed.skill_count == 2  # untouched
 
     host.error = SourceUnavailable("502")
@@ -255,3 +265,119 @@ async def test_preview_resolves_without_persisting(agent_session, admin, host):
     }
     assert await sources.list(admin) == []
     assert await SkillService(agent_session).list_summaries(admin) == []
+
+
+async def test_preview_turns_a_private_repository_into_a_400_with_a_hint(
+    agent_session, admin, host
+):
+    """A private repository answers 404, not 403 — the host will not admit it
+    exists — so "not found" is what an admin sees after pasting a perfectly
+    good URL. Preview used to let the `SkillkitError` escape as a 500, which
+    read as "private repositories are unsupported"."""
+    sources = SkillSourceService(agent_session)
+    host.error = RevisionNotFound("acme/skills@main: repository, ref or path not found")
+
+    with pytest.raises(DomainValidationError, match="add an access token"):
+        await sources.preview(SkillSourceCreate(url=URL, ref="main"))
+
+    # With a token supplied, the same failure means the token is the problem.
+    with pytest.raises(DomainValidationError, match="still has read access"):
+        await sources.preview(SkillSourceCreate(url=URL, ref="main", token="ghp_x"))
+
+    host.error = AuthenticationError("github.com refused the request (401)")
+    with pytest.raises(DomainValidationError, match="refused the request"):
+        await sources.preview(SkillSourceCreate(url=URL, ref="main", token="ghp_x"))
+
+    assert await sources.list(admin) == []
+
+
+async def test_a_private_repository_syncs_when_the_token_reaches_the_resolver(
+    agent_session, admin, host
+):
+    """The token is stored encrypted and handed back to the resolver on every
+    sync — the whole of private-repository support."""
+    sources = SkillSourceService(agent_session)
+
+    source = await sources.create(
+        SkillSourceCreate(url=URL, ref="main", token="ghp_secret"), admin
+    )
+
+    assert source.has_token is True
+    assert source.last_status == "ok"
+    assert host.calls[-1][4] == "ghp_secret"  # reached the resolver, decrypted
+    row = await sources.repository.get(source.id)
+    assert row.encrypted_token and "ghp_secret" not in row.encrypted_token
+
+    host.calls.clear()
+    await sources.sync(source.id, admin)
+    assert host.calls[-1][4] == "ghp_secret"  # and again on every later sync
+
+
+async def test_an_empty_repository_is_its_own_state_not_an_unreachable_host(
+    agent_session, admin, host
+):
+    """GitHub answers 409 for a repository with no commits. Without its own
+    type that landed in the `status >= 400` catch-all and surfaced as
+    "github.com answered 409" under an UNREACHABLE badge — pointing at the
+    network instead of at the empty repository."""
+    sources = SkillSourceService(agent_session)
+    host.error = EmptyRepository("acme/skills has no commits yet on github.com")
+
+    with pytest.raises(DomainValidationError, match="no commits yet") as caught:
+        await sources.preview(SkillSourceCreate(url=URL, ref="main"))
+    # Not the credentials hint: the token is fine, the repository is bare.
+    assert "access token" not in str(caught.value)
+    assert "SKILL.md" in str(caught.value)
+
+    host.error = None
+    source = await sources.create(SkillSourceCreate(url=URL), admin)
+    host.error = EmptyRepository("acme/skills has no commits yet on github.com")
+    failed = await sources.sync(source.id, admin)
+    assert failed.last_status == "empty"
+    assert "no commits yet" in failed.last_error
+
+
+async def test_plan_says_what_a_sync_would_change_and_writes_nothing(
+    agent_session, admin, host
+):
+    """The confirmation before a sync. `unchanged` and `updated` both leave
+    the live skill alone — only `new` lands in the library on the spot — so
+    the plan has to tell them apart, and it must not itself sync."""
+    sources = SkillSourceService(agent_session)
+    skills = SkillService(agent_session)
+    source = await sources.create(SkillSourceCreate(url=URL), admin)
+
+    tree = tree_v1()
+    tree["skills/margin-audit/scripts/clean.py"] = b"print('v2')\n"  # changed
+    tree["skills/kyc-check/SKILL.md"] = skill_md(
+        "kyc-check", "Run the KYC checklist. Use when onboarding a brand."
+    )  # new
+    del tree["skills/weekly-brief/SKILL.md"]  # gone
+    host.tree, host.revision = tree, "bbb222"
+
+    plan = await sources.plan(source.id, admin)
+
+    assert (plan.revision, plan.current_revision) == ("bbb222", "aaa111")
+    assert {(e.name, e.status) for e in plan.entries} == {
+        ("margin-audit", "updated"),
+        ("kyc-check", "new"),
+        ("weekly-brief", "gone"),
+        ("Broken Name", "skipped"),
+    }
+
+    # Nothing was written: the source still sits on the old revision and the
+    # library has not gained the new skill.
+    unchanged = await sources.get(source.id, admin)
+    assert unchanged.last_revision == "aaa111"
+    assert "kyc-check" not in {s.name for s in await skills.list_summaries(admin)}
+
+    # And syncing after it does exactly what the plan said.
+    pinned = {s.name: s.digest for s in await skills.list_summaries(admin)}
+    await sources.sync(source.id, admin)
+    by_name = {s.name: s for s in await skills.list_summaries(admin)}
+    assert "kyc-check" in by_name  # the `new` one landed
+    assert by_name["weekly-brief"].missing_upstream  # the `gone` one was flagged
+    # The `updated` one is untouched: a sync makes a version available, it does
+    # not apply it. (Whether `update_available` resolves is a separate matter —
+    # `latest_version` breaks ties on a random UUID, so it is not assertable.)
+    assert by_name["margin-audit"].digest == pinned["margin-audit"]

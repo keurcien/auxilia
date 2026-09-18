@@ -3,8 +3,10 @@ import type { SkillSourceStatus } from "@/types/skills";
 
 /**
  * The last sync's outcome as a mono-caps chip. "Not configured" (auth),
- * "permanently broken" (not found / invalid) and "temporarily unavailable"
- * never share a label — the API tells them apart by type, the badge by copy.
+ * "permanently broken" (not found / invalid), "nothing pushed yet" (empty)
+ * and "temporarily unavailable" never share a label — the API tells them
+ * apart by type, the badge by copy. An empty repository used to read as
+ * UNREACHABLE, which pointed at the network instead of at the repository.
  */
 function badgeFor(status: SkillSourceStatus | null): { label: string; className: string } {
 	switch (status) {
@@ -12,6 +14,8 @@ function badgeFor(status: SkillSourceStatus | null): { label: string; className:
 			return { label: "SYNCED", className: "bg-success-bg text-success dark:bg-emerald-950 dark:text-emerald-300" };
 		case "auth":
 			return { label: "NEEDS A TOKEN", className: "bg-warning-bg text-warning" };
+		case "empty":
+			return { label: "EMPTY", className: "bg-neutral-bg text-subtle dark:bg-white/10 dark:text-panel-body" };
 		case "unavailable":
 			return { label: "UNREACHABLE", className: "bg-warning-bg text-warning" };
 		case "not_found":

@@ -1,13 +1,14 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Download, GitCompareArrows, Pencil, Trash2 } from "lucide-react";
+import { GitCompareArrows, Pencil, PencilLine, Trash2 } from "lucide-react";
+import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
-import { API_BASE_URL } from "@/lib/api/client";
+import type { BoundAgent } from "@/types/agents";
 import { shortRevision, type SkillSummary } from "@/types/skills";
 import { relativeTime } from "../lib/relative-time";
-import { SkillRequirementChip } from "./skill-requirement-chip";
+import { SourceHostTile } from "./source-host-tile";
 
 interface SkillTableProps {
 	skills: SkillSummary[];
@@ -22,6 +23,74 @@ interface SkillTableProps {
  * the requirement chip, how many agents use it, when it last changed, and a
  * row menu. Rows open the skill.
  */
+/**
+ * The agents a skill is enabled on, as overlapping avatars — a supervisor
+ * and the subagents sharing its skill set look like the group they are,
+ * which a bare "3 agents" never showed. Past four the rest become a count,
+ * and every avatar carries its agent's name for anyone hovering.
+ */
+function UsedByAvatars({ agents }: { agents: BoundAgent[] }) {
+	if (agents.length === 0) {
+		return <span className="font-mono text-[11px] text-ghost dark:text-panel-dim">—</span>;
+	}
+	const shown = agents.slice(0, 4);
+	const rest = agents.length - shown.length;
+	return (
+		<span className="flex items-center" title={agents.map((a) => a.name).join(", ")}>
+			{shown.map((agent) => (
+				<span
+					key={agent.id}
+					className="-ml-1.5 rounded-[5px] ring-2 ring-card first:ml-0 dark:ring-[#12191C]"
+				>
+					<AgentAvatar color={agent.color} emoji={agent.emoji} size="xs" shape="tile" />
+				</span>
+			))}
+			{rest > 0 && (
+				<span className="ml-1.5 font-mono text-[11px] text-meta dark:text-panel-dim">
+					+{rest}
+				</span>
+			)}
+		</span>
+	);
+}
+
+/**
+ * Where a skill comes from — and so where it is edited. Two kinds, said in
+ * the same place rather than left to be inferred from a missing line: a
+ * skill written in the app, and one pinned to a repository (with its host's
+ * mark and the commit it is pinned to).
+ */
+function SourceCell({ skill }: { skill: SkillSummary }) {
+	if (!skill.sourceId) {
+		return (
+			<span className="flex min-w-0 items-center gap-1.5" title="Written in auxilia — edit it here">
+				<PencilLine className="size-3.5 shrink-0 text-meta dark:text-panel-dim" />
+				<span className="truncate font-mono text-[11px] text-meta dark:text-panel-dim">in-app</span>
+			</span>
+		);
+	}
+	return (
+		<span
+			className="flex min-w-0 items-center gap-2"
+			title={`Synced from ${skill.sourceName ?? "a repository"}${
+				skill.sourcePath ? ` · ${skill.sourcePath}` : ""
+			}${skill.sourceRevision ? ` at ${shortRevision(skill.sourceRevision)}` : ""} — edited there, not here`}
+		>
+			<SourceHostTile kind={skill.sourceKind ?? "github"} size={20} />
+			<span className="min-w-0">
+				<span className="block truncate font-mono text-[11px] text-foreground">
+					{skill.sourceName ?? "repository"}
+				</span>
+				{skill.sourceRevision && (
+					<span className="block truncate font-mono text-[10px] text-meta dark:text-panel-dim">
+						{shortRevision(skill.sourceRevision)}
+					</span>
+				)}
+			</span>
+		</span>
+	);
+}
+
 export default function SkillTable({
 	skills,
 	isLoading,
@@ -59,35 +128,22 @@ export default function SkillTable({
 					<div className="mt-px truncate text-[12px] text-subtle dark:text-muted-foreground">
 						{skill.description}
 					</div>
-					{skill.sourceName && (
-						<div className="mt-0.5 truncate font-mono text-[10.5px] text-meta dark:text-panel-dim">
-							from {skill.sourceName}
-							{skill.sourceRevision ? ` @ ${shortRevision(skill.sourceRevision)}` : ""}
-						</div>
-					)}
 				</div>
 			),
 		},
 		{
-			key: "requires",
-			header: "Requires",
-			width: "230px",
+			key: "source",
+			header: "Source",
+			width: "200px",
 			mobileWidth: "auto",
-			cell: (skill) => <SkillRequirementChip scriptCount={skill.scriptCount} />,
+			cell: (skill) => <SourceCell skill={skill} />,
 		},
 		{
 			key: "used",
 			header: "Used by",
 			width: "110px",
 			hideBelowMd: true,
-			cell: (skill) =>
-				skill.agentCount > 0 ? (
-					<span className="font-mono text-[11px] text-subtle dark:text-muted-foreground">
-						{skill.agentCount} agent{skill.agentCount === 1 ? "" : "s"}
-					</span>
-				) : (
-					<span className="font-mono text-[11px] text-ghost dark:text-panel-dim">—</span>
-				),
+			cell: (skill) => <UsedByAvatars agents={skill.agents} />,
 		},
 		{
 			key: "updated",
@@ -132,13 +188,6 @@ export default function SkillTable({
 										},
 									]
 								: []),
-							{
-								label: "Export as zip",
-								icon: <Download />,
-								onClick: () => {
-									window.location.assign(`${API_BASE_URL}/skills/${skill.id}/export`);
-								},
-							},
 							...(skill.canManage
 								? [
 										{ separator: true as const },

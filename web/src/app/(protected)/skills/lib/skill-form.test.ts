@@ -15,8 +15,29 @@ describe("splitSkillMarkdown", () => {
 			name: "web-research",
 			description: "Research a topic",
 			extra: ["license: MIT", "# a comment", "allowed-tools: read_file"],
-			body: "\n# Steps\n\nDo it.\n",
+			body: "# Steps\n\nDo it.\n",
 		});
+	});
+
+	it("treats the blank line after the closing --- as the separator", () => {
+		// It is what `composeSkillMarkdown` writes, so leaving it on the body
+		// put an undeletable blank line at the top of the editor: removing it
+		// composed a byte-identical document and the split handed it back.
+		const doc = composeSkillMarkdown({
+			name: "deploy",
+			description: "Ship it",
+			extra: [],
+			body: "# When to use\n",
+		});
+		const fields = splitSkillMarkdown(doc);
+
+		expect(fields?.body).toBe("# When to use\n");
+		expect(composeSkillMarkdown(fields!)).toBe(doc);
+	});
+
+	it("keeps a blank line the author actually wrote", () => {
+		const fields = splitSkillMarkdown("---\nname: a\ndescription: b\n---\n\n\n# Steps\n");
+		expect(fields?.body).toBe("\n# Steps\n");
 	});
 
 	it("unquotes double and single quoted values", () => {

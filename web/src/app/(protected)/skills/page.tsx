@@ -10,7 +10,6 @@ import { useQueryParamState } from "@/hooks/use-query-param-state";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useSkillsStore } from "@/stores/skills-store";
 import { useUserStore } from "@/stores/user-store";
-import { NewSkillChoices, NewSkillMenu } from "./components/new-skill-menu";
 import SkillInUseDialog from "./components/skill-in-use-dialog";
 import SkillSourceTable from "./components/skill-source-table";
 import SkillTable from "./components/skill-table";
@@ -25,7 +24,6 @@ export default function SkillsPage() {
 	const skills = useSkillsStore((state) => state.skills);
 	const isInitialized = useSkillsStore((state) => state.isInitialized);
 	const fetchSkills = useSkillsStore((state) => state.fetchSkills);
-	const importSkill = useSkillsStore((state) => state.importSkill);
 	const sources = useSkillsStore((state) => state.sources);
 	const sourcesInitialized = useSkillsStore((state) => state.sourcesInitialized);
 	const fetchSources = useSkillsStore((state) => state.fetchSources);
@@ -33,7 +31,6 @@ export default function SkillsPage() {
 	const [viewParam, setViewParam] = useQueryParamState("view", "library");
 	const view: View = viewParam === "sources" ? "sources" : "library";
 	const [error, setError] = useState<string | null>(null);
-	const [isImporting, setIsImporting] = useState(false);
 
 	useEffect(() => {
 		fetchSkills().catch((err: unknown) => {
@@ -57,19 +54,6 @@ export default function SkillsPage() {
 		router.push("/skills/new");
 	};
 
-	const handleImport = async (file: File) => {
-		setIsImporting(true);
-		setError(null);
-		try {
-			const created = await importSkill(file);
-			router.push(`/skills/${created.id}`);
-		} catch (err) {
-			setError(getApiErrorMessage(err, "Failed to import the skill."));
-		} finally {
-			setIsImporting(false);
-		}
-	};
-
 	const remove = useDeleteSkill({
 		onError: (err) => {
 			setError(getApiErrorMessage(err, "Failed to delete the skill."));
@@ -86,7 +70,7 @@ export default function SkillsPage() {
 			intro={
 				view === "sources"
 					? "Repositories the workspace syncs skills from. Sync makes new versions available; each skill is adopted on its own, against a diff."
-					: "Procedures any agent in the workspace can be given: a SKILL.md that says when to use it and what to do, plus optional scripts and references."
+					: "Procedures any agent in the workspace can be given: a SKILL.md that says when to use it and what to do. Skills with scripts and references come from a connected repository."
 			}
 			fillHeight
 			search={
@@ -120,13 +104,10 @@ export default function SkillsPage() {
 						</WorkspaceTopBarButton>
 					) : null
 				) : (
-					<NewSkillMenu
-						disabled={isImporting}
-						onWrite={handleWrite}
-						onImport={(file) => {
-							void handleImport(file);
-						}}
-					/>
+					<WorkspaceTopBarButton onClick={handleWrite}>
+						<Plus className="size-3.5" />
+						New skill
+					</WorkspaceTopBarButton>
 				)
 			}
 		>
@@ -163,11 +144,6 @@ export default function SkillsPage() {
 					{error}
 				</div>
 			)}
-			{isImporting && (
-				<p className="mb-3 shrink-0 font-mono text-[11px] text-meta dark:text-panel-dim">
-					importing…
-				</p>
-			)}
 			{view === "sources" ? (
 				sourcesInitialized && sources.length === 0 ? (
 					<div className="rounded-[12px] border border-dashed border-input p-6 dark:border-white/10">
@@ -175,7 +151,7 @@ export default function SkillsPage() {
 							NO REPOSITORY CONNECTED
 						</p>
 						<p className="mt-2 max-w-[560px] text-[13.5px] leading-[1.55] text-body dark:text-panel-body">
-							Keep the company&apos;s skills in one git repository, reviewed and versioned there. Connect it and every
+							Keep the company&apos;s skills in one git repository, public or private, reviewed and versioned there. Connect it and every
 							<span className="font-mono text-[12px]"> skills/&lt;name&gt;/SKILL.md</span> becomes available in the
 							library, pinned to its content; changes upstream are adopted per skill after a review.
 						</p>
@@ -208,18 +184,31 @@ export default function SkillsPage() {
 						YOUR LIBRARY IS EMPTY
 					</p>
 					<p className="mt-2 max-w-[560px] text-[13.5px] leading-[1.55] text-body dark:text-panel-body">
-						A skill is a folder with a SKILL.md — its name, when to use it, the steps —
-						and optional files next to it. Every agent in the workspace can be given
-						one; a skill with scripts needs an agent that runs code.
+						A skill is a SKILL.md — its name, when to use it, the steps — that any
+						agent in the workspace can be given. Write one here, or connect a
+						repository to bring in skills with scripts and references, reviewed and
+						versioned there; those need an agent that runs code.
 					</p>
-					<div className="mt-5">
-						<NewSkillChoices
-							disabled={isImporting}
-							onWrite={handleWrite}
-							onImport={(file) => {
-								void handleImport(file);
-							}}
-						/>
+					<div className="mt-5 flex flex-wrap gap-2.5">
+						<button
+							type="button"
+							onClick={handleWrite}
+							className="inline-flex cursor-pointer items-center gap-1.5 rounded-[7px] bg-primary px-3.5 py-[7px] text-[12.5px] font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+						>
+							<Plus className="size-3.5" />
+							Write a skill
+						</button>
+						{isAdmin && (
+							<button
+								type="button"
+								onClick={() => {
+									router.push("/skills/sources/new");
+								}}
+								className="inline-flex cursor-pointer items-center gap-1.5 rounded-[7px] border border-input bg-card px-3.5 py-[7px] text-[12.5px] font-semibold text-foreground transition-colors hover:bg-sidebar dark:hover:bg-white/5"
+							>
+								Connect a repository
+							</button>
+						)}
 					</div>
 				</div>
 			) : (
@@ -239,7 +228,7 @@ export default function SkillsPage() {
 					}}
 					onDelete={(skill) => {
 						setError(null);
-						void remove.requestDelete(skill);
+						remove.requestDelete(skill);
 					}}
 				/>
 				</>

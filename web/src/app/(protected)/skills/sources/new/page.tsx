@@ -5,8 +5,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CircleAlert, CircleCheck, Eye, EyeOff, Loader2 } from "lucide-react";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
+import ConfirmDialog from "@/components/ui/confirm-dialog";
 import { HeaderButton, HeaderPrimaryButton, SubpageHeader } from "@/components/layout/subpage-header";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { cn } from "@/lib/utils";
 import { useSkillsStore } from "@/stores/skills-store";
 import { useUserStore } from "@/stores/user-store";
 import { shortRevision, type SkillSourceCreate, type SkillSourceKind, type SkillSourcePreview } from "@/types/skills";
@@ -15,6 +17,14 @@ import { SourceHostTile } from "../../components/source-host-tile";
 
 const LABEL_CLASS = "text-[13px] font-semibold text-foreground";
 const OPTIONAL_HINT = <span className="font-normal text-meta dark:text-panel-dim"> optional</span>;
+// The token field is the one thing that makes a private repository work,
+// so the label says so rather than leaving it under "optional".
+const PRIVATE_HINT = (
+	<span className="font-normal text-meta dark:text-panel-dim">
+		{" "}
+		required for a private repository
+	</span>
+);
 const INPUT_CLASS =
 	"w-full rounded-lg border border-input bg-card px-3 py-[9px] text-[13.5px] font-medium text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-meta dark:placeholder:text-panel-dim focus:border-petrol focus:shadow-[0_0_0_3px_rgba(22,96,110,0.10)]";
 const MONO_INPUT_CLASS = `${INPUT_CLASS} font-mono text-[12.5px] font-normal`;
@@ -75,18 +85,51 @@ function HostCards({ value, onChange, detected }: { value: SkillSourceKind; onCh
 	);
 }
 
-/** The "test before adding" result: revision, then every skill with its chip and findings. */
+/**
+ * The "test before adding" result: revision, then every skill with its chip
+ * and findings.
+ *
+ * A repository that resolves but holds no SKILL.md is the interesting case:
+ * it is reachable, the credentials work, and nothing is wrong — it simply
+ * is not a skills repository. That used to render as a green tick over
+ * "0 skills ready to import", which reads as success. It now says what was
+ * looked for and where.
+ */
 function PreviewPanel({ preview }: { preview: SkillSourcePreview }) {
 	const importable = preview.skills.filter((s) => s.ok).length;
+	const nothingToImport = importable === 0;
 	return (
 		<div className="overflow-hidden rounded-[10px] border border-border bg-card">
-			<div className="flex items-center gap-2.5 border-b border-hairline bg-sidebar px-4 py-2.5 dark:border-white/5 dark:bg-white/[0.02]">
-				<CircleCheck className="size-4 shrink-0 text-success" />
+			<div
+				className={cn(
+					"flex items-center gap-2.5 border-b border-hairline px-4 py-2.5 dark:border-white/5",
+					nothingToImport
+						? "bg-[#FDF9F0] dark:bg-[#7A5C1E]/10"
+						: "bg-sidebar dark:bg-white/[0.02]",
+				)}
+			>
+				{nothingToImport ? (
+					<CircleAlert className="size-4 shrink-0 text-warning" />
+				) : (
+					<CircleCheck className="size-4 shrink-0 text-success" />
+				)}
 				<span className="text-[13px] font-medium text-foreground">
-					{importable} skill{importable === 1 ? "" : "s"} ready to import
+					{nothingToImport
+						? "No skill found in this repository"
+						: `${importable} skill${importable === 1 ? "" : "s"} ready to import`}
 				</span>
 				<span className="ml-auto font-mono text-[11px] text-meta dark:text-panel-dim">@ {shortRevision(preview.revision)}</span>
 			</div>
+			{nothingToImport && (
+				<p className="border-b border-hairline px-4 py-2.5 text-[12.5px] leading-[1.5] text-subtle dark:border-white/5 dark:text-muted-foreground">
+					auxilia looked for <span className="font-mono text-[11.5px]">skills/&lt;name&gt;/SKILL.md</span>, a
+					category folder one level deeper, or a <span className="font-mono text-[11.5px]">SKILL.md</span> at
+					the root
+					{preview.skills.length > 0
+						? " — every SKILL.md it did find has an error below."
+						: ". Connecting is still fine if you are about to push one."}
+				</p>
+			)}
 			{preview.skills.map((skill) => (
 				<div key={skill.path} className="border-b border-hairline px-4 py-2.5 last:border-b-0 dark:border-white/5">
 					<div className="flex min-w-0 items-center gap-2">
@@ -116,6 +159,55 @@ function PreviewPanel({ preview }: { preview: SkillSourcePreview }) {
 	);
 }
 
+
+/**
+ * What connecting is about to bring into the library, as the confirmation
+ * body. Connecting used to import on the first click and only then show what
+ * arrived; the repository is read either way, so the read may as well be the
+ * thing you confirm against.
+ */
+function ImportSummary({ preview }: { preview: SkillSourcePreview }) {
+	const ready = preview.skills.filter((s) => s.ok);
+	const skipped = preview.skills.filter((s) => !s.ok);
+	return (
+		<span className="block">
+			<span className="block">
+				From <span className="font-mono text-[12.5px] font-semibold text-petrol">{preview.name}</span> at{" "}
+				<span className="font-mono text-[12.5px]">{shortRevision(preview.revision)}</span>. Every skill is
+				pinned to this commit; a later change is adopted one by one.
+			</span>
+			{ready.length > 0 && (
+				<span className="mt-3 block overflow-hidden rounded-[8px] border border-border">
+					{ready.map((skill) => (
+						<span
+							key={skill.path}
+							className="flex items-center gap-2 border-b border-hairline px-3 py-1.5 last:border-b-0 dark:border-white/5"
+						>
+							<span className="min-w-0 flex-1 truncate font-mono text-[12px] font-semibold text-petrol">
+								{skill.name}
+							</span>
+							<SkillRequirementChip scriptCount={skill.scriptCount} />
+						</span>
+					))}
+				</span>
+			)}
+			{skipped.length > 0 && (
+				<span className="mt-2.5 block text-[12.5px] text-warning">
+					{skipped.length} skill{skipped.length === 1 ? "" : "s"} will be skipped — {skipped
+						.map((s) => s.name)
+						.join(", ")}
+					. Fix {skipped.length === 1 ? "it" : "them"} in the repository and sync again.
+				</span>
+			)}
+			{ready.length === 0 && (
+				<span className="mt-2.5 block text-[12.5px] text-warning">
+					Nothing to import yet. Connecting now is fine — sync once you have pushed a skill.
+				</span>
+			)}
+		</span>
+	);
+}
+
 /**
  * Connect a repository as a skill source (design 15b: centred 640px form,
  * back link, header actions). Preview reads the repository without saving
@@ -136,10 +228,20 @@ export default function NewSkillSourcePage() {
 	const [preview, setPreview] = useState<SkillSourcePreview | null>(null);
 	const [busy, setBusy] = useState<"preview" | "create" | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	const [confirmOpen, setConfirmOpen] = useState(false);
+	const importableCount = preview?.skills.filter((skill) => skill.ok).length ?? 0;
 
 	const detected = useMemo(() => detectKind(url), [url]);
 	const effectiveKind = kindTouched ? kind : (detected ?? kind);
 	const urlValid = /^https:\/\/[^/\s]+\/[^/\s]+\/[^/\s]+/.test(url.trim());
+	// Preview and Connect are both gated on `urlValid`. A disabled button with
+	// nothing next to it is indistinguishable from a broken page — which is
+	// exactly how pasting "owner/repo" felt. Only complain once something has
+	// been typed: an empty required field is what the disabled button says.
+	const urlError =
+		url.trim().length > 0 && !urlValid
+			? "Paste the repository's full web address, starting with https:// — for example https://github.com/acme/skills"
+			: null;
 	const payload = (): SkillSourceCreate => ({
 		url: url.trim(),
 		kind: effectiveKind,
@@ -153,6 +255,29 @@ export default function NewSkillSourcePage() {
 		setError(null);
 		try {
 			setPreview(await previewSource(payload()));
+		} catch (err) {
+			setPreview(null);
+			setError(getApiErrorMessage(err, "Could not read the repository."));
+		} finally {
+			setBusy(null);
+		}
+	};
+
+	/**
+	 * Connect reads the repository before writing anything: the preview is the
+	 * confirmation. An already-loaded preview is reused, so pressing Preview
+	 * and then Connect does not read twice.
+	 */
+	const handleConnect = async () => {
+		if (preview) {
+			setConfirmOpen(true);
+			return;
+		}
+		setBusy("preview");
+		setError(null);
+		try {
+			setPreview(await previewSource(payload()));
+			setConfirmOpen(true);
 		} catch (err) {
 			setPreview(null);
 			setError(getApiErrorMessage(err, "Could not read the repository."));
@@ -189,6 +314,21 @@ export default function NewSkillSourcePage() {
 
 	return (
 		<div className="flex h-svh min-w-0 flex-1 flex-col bg-background">
+			{preview && (
+				<ConfirmDialog
+					open={confirmOpen}
+					onOpenChange={setConfirmOpen}
+					title={
+						importableCount === 1
+							? "Import 1 skill from this repository?"
+							: `Import ${importableCount} skills from this repository?`
+					}
+					description={<ImportSummary preview={preview} />}
+					confirmLabel="Connect repository"
+					onConfirm={handleCreate}
+					errorMessage="Could not connect the repository."
+				/>
+			)}
 			<SubpageHeader trail={[{ label: "workspace" }, { label: "skills", href: "/skills" }, { label: "connect repository" }]}>
 				<HeaderButton
 					disabled={busy !== null}
@@ -201,10 +341,14 @@ export default function NewSkillSourcePage() {
 				<HeaderPrimaryButton
 					disabled={!urlValid || busy !== null}
 					onClick={() => {
-						void handleCreate();
+						void handleConnect();
 					}}
 				>
-					{busy === "create" ? "Connecting…" : "Connect repository"}
+					{busy === "create"
+						? "Connecting…"
+						: busy === "preview"
+							? "Reading…"
+							: "Connect repository"}
 				</HeaderPrimaryButton>
 			</SubpageHeader>
 
@@ -240,9 +384,14 @@ export default function NewSkillSourcePage() {
 									setUrl(e.target.value);
 									setPreview(null);
 								}}
-								className={MONO_INPUT_CLASS}
+								aria-invalid={urlError !== null}
+								className={cn(MONO_INPUT_CLASS, urlError && "border-destructive")}
 							/>
-							<p className="text-[12px] text-meta dark:text-panel-dim">Public or private. The layout follows the Agent Skills convention: <span className="font-mono">skills/&lt;name&gt;/SKILL.md</span>, categories one level deep, or a root <span className="font-mono">SKILL.md</span>.</p>
+							{urlError ? (
+								<p className="text-[12px] text-destructive">{urlError}</p>
+							) : (
+								<p className="text-[12px] text-meta dark:text-panel-dim">Public or private. The layout follows the Agent Skills convention: <span className="font-mono">skills/&lt;name&gt;/SKILL.md</span>, categories one level deep, or a root <span className="font-mono">SKILL.md</span>.</p>
+							)}
 						</div>
 
 						<div className="flex flex-col gap-2">
@@ -298,7 +447,7 @@ export default function NewSkillSourcePage() {
 
 						<div className="flex flex-col gap-1.5">
 							<label htmlFor="source-token" className={LABEL_CLASS}>
-								Access token{OPTIONAL_HINT}
+								Access token{PRIVATE_HINT}
 							</label>
 							<div className="relative">
 								<input

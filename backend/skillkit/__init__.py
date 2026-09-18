@@ -5,6 +5,7 @@ from skillkit.diff import FileChange, SkillDiff, diff_bundles
 from skillkit.digest import bundle_digest, set_digest
 from skillkit.errors import (
     AuthenticationError,
+    EmptyRepository,
     LimitExceeded,
     LockfileError,
     RevisionNotFound,
@@ -49,6 +50,7 @@ __all__ = [
     "AuthenticationError",
     "Bundle",
     "CredentialsProvider",
+    "EmptyRepository",
     "EnvironmentManifest",
     "FileChange",
     "Frontmatter",

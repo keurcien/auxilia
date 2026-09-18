@@ -1,9 +1,9 @@
-"""SKILL.md parsing and Agent Skills archive import/export — over skillkit.
+"""SKILL.md parsing and validation — over skillkit.
 
 Pure functions: no database, no disk. Everything user-supplied is validated
 into a `SkillBundle`, and every rejection is a `DomainValidationError`
 (a 400) — the service and router add nothing. The rules themselves live in
-``skillkit`` (the spec's frontmatter rules, path safety, bounded archives);
+``skillkit`` (the spec's frontmatter rules, path safety, bounded bundles);
 this module maps its issues and exceptions onto the app's error type and
 the app's ``SkillBundle`` shape.
 """
@@ -11,23 +11,19 @@ the app's ``SkillBundle`` shape.
 from __future__ import annotations
 
 import base64
-import io
-import zipfile
 
 from pydantic import ValidationError
 
 from app.exceptions import DomainValidationError
-from app.skills.schemas import MAX_BUNDLE_BYTES, MAX_FILES, SkillBundle, SkillFile
-from skillkit import (
-    Bundle,
-    LimitExceeded,
-    Limits,
-    ValidationError as SkillkitValidationError,
-    frontmatter as fm,
+from app.skills.schemas import (
+    MAX_BUNDLE_BYTES,
+    MAX_FILES,
+    MAX_SOURCE_FILES,
+    SkillBundle,
+    SkillFile,
 )
+from skillkit import Bundle, Limits, frontmatter as fm
 from skillkit.model import SKILL_MD
-from skillkit.sources.archive import extract
-from skillkit.sources.base import resolve_tree
 from skillkit.validate import validate_bundle
 
 
@@ -35,7 +31,7 @@ from skillkit.validate import validate_bundle
 LIMITS = Limits(
     max_download_bytes=MAX_BUNDLE_BYTES,
     max_extracted_bytes=MAX_BUNDLE_BYTES,
-    max_files=MAX_FILES + 1,  # the SKILL.md itself
+    max_files=MAX_SOURCE_FILES,  # the whole repository tree
     max_skill_bytes=MAX_BUNDLE_BYTES,
     max_skill_files=MAX_FILES,
 )
@@ -73,61 +69,6 @@ def parse_skill(content: str, files: list[SkillFile] | None = None) -> SkillBund
         raise DomainValidationError(_describe(exc)) from exc
 
 
-def import_archive(data: bytes, filename: str) -> SkillBundle:
-    """A skill from an upload: a bare `.md`, or a zip (`.zip` / `.skill`)
-    holding exactly one SKILL.md at any depth — that folder becomes the
-    skill root, every other entry a supporting file. Nothing is extracted to
-    disk."""
-    if len(data) > MAX_BUNDLE_BYTES:
-        raise DomainValidationError("Upload exceeds 10 MB")
-    if filename.lower().endswith(".md"):
-        return parse_skill(_text(data))
-    try:
-        entries = extract(data, filename, LIMITS, strip_root=False)
-    except LimitExceeded as exc:
-        raise DomainValidationError(str(exc)) from exc
-    except SkillkitValidationError as exc:
-        if exc.code == "E001":
-            raise DomainValidationError("Not a zip archive") from exc
-        raise DomainValidationError(_wording(str(exc))) from exc
-    resolved = resolve_tree(
-        entries,
-        kind="archive",
-        url=filename,
-        ref=None,
-        revision="upload",
-        full_depth=True,
-        limits=LIMITS,
-        enforce_directory_name=False,
-    )
-    if len(resolved.all_skills) != 1:
-        raise DomainValidationError("The archive must contain exactly one SKILL.md")
-    [skill] = resolved.all_skills
-    root = f"{skill.path}/" if skill.path else ""
-    for path in entries:
-        if not path.startswith(root):
-            raise DomainValidationError(
-                f"'{path}' is outside the skill folder '{skill.path or '/'}'"
-            )
-    files = [
-        _skill_file(path, content)
-        for path, content in skill.bundle.files.items()  # archive order
-        if path != SKILL_MD
-    ]
-    return parse_skill(_text(skill.bundle.files[SKILL_MD]), files)
-
-
-def export_archive(bundle: SkillBundle) -> bytes:
-    """The bundle as a zip rooted at `<name>/`, the layout `import_archive`
-    reads back and the one other Agent Skills tools expect."""
-    output = io.BytesIO()
-    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr(f"{bundle.name}/{SKILL_MD}", bundle.content)
-        for file in bundle.files:
-            archive.writestr(f"{bundle.name}/{file.path}", file.bytes())
-    return output.getvalue()
-
-
 def _wording(message: str) -> str:
     """skillkit's messages, in the words this API always used: field errors
     read `name: …` / `description: …`, like the pydantic ones."""
@@ -152,13 +93,6 @@ def _describe(exc: ValidationError) -> str:
         f"{error['msg'].removeprefix('Value error, ')}"
         for error in exc.errors()
     )
-
-
-def _text(data: bytes) -> str:
-    try:
-        return data.decode("utf-8-sig")
-    except UnicodeDecodeError as exc:
-        raise DomainValidationError("SKILL.md must be UTF-8 text") from exc
 
 
 def skill_file_from_bytes(path: str, content: bytes) -> SkillFile:

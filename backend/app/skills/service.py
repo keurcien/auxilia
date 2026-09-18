@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Iterable
 from uuid import UUID
 
@@ -15,7 +16,7 @@ from app.exceptions import (
     StaleRevisionError,
 )
 from app.service import BaseService
-from app.skills.bundles import export_archive, parse_skill
+from app.skills.bundles import parse_skill
 from app.skills.models import SkillDB, SkillVersionDB
 from app.skills.repository import SkillRepository
 from app.skills.schemas import (
@@ -54,20 +55,32 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
     # -- the library ---------------------------------------------------------
 
     async def list_summaries(self, user: UserDB) -> list[SkillSummary]:
+        # Two queries for the whole library, never one per row: the rows, and
+        # every skill→agent binding grouped by skill for the avatar stacks.
+        rows = await self.repository.list_summaries()
+        by_skill: dict[UUID, list[SkillAgentRef]] = defaultdict(list)
+        for binding in await self.repository.list_agents_by_skill():
+            by_skill[binding.skill_id].append(
+                SkillAgentRef(
+                    **{k: v for k, v in binding._mapping.items() if k != "skill_id"}
+                )
+            )
         return [
             SkillSummary(
                 **{k: v for k, v in row._mapping.items() if k != "latest_digest"},
+                agents=by_skill.get(row.id, []),
                 can_edit=_can_edit(row.owner_id, user) and row.source_id is None,
                 can_manage=_can_edit(row.owner_id, user),
                 update_available=_update_available(row.digest, row.latest_digest),
             )
-            for row in await self.repository.list_summaries()
+            for row in rows
         ]
 
     async def get(self, skill_id: UUID, user: UserDB) -> SkillResponse:
         return await self._response(await self.get_or_404(skill_id), user)
 
     async def create(self, data: SkillSave, user: UserDB) -> SkillResponse:
+        _reject_files(data)
         bundle = parse_skill(data.content, data.files)
         row = await self.repository.create(
             SkillCreateDB(owner_id=user.id, **_columns(bundle))
@@ -77,6 +90,7 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
     async def update(
         self, skill_id: UUID, data: SkillSave, user: UserDB
     ) -> SkillResponse:
+        _reject_files(data)
         bundle = parse_skill(data.content, data.files)
         row = await self._editable(skill_id, user)
         if row.source_id is not None:
@@ -106,11 +120,6 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
                 "Disable this skill on every agent before deleting it"
             )
         await self.repository.delete(row)
-
-    async def export(self, skill_id: UUID) -> tuple[str, bytes]:
-        """`(name, zip bytes)` for the download endpoint."""
-        row = await self.get_or_404(skill_id)
-        return row.name, export_archive(row.to_bundle())
 
     # -- sourced skills: the version waiting upstream -------------------------
 
@@ -288,6 +297,21 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
             links = await self._links.list_for_supervisor(root)
             graphs.append({root, *(link.subagent_id for link in links)})
         return graphs
+
+
+def _reject_files(data: SkillSave) -> None:
+    """A skill written in the app is one SKILL.md and nothing else.
+
+    Supporting files — references, assets, and the `scripts/` a skill needs
+    code execution for — reach the library only through a repository, where
+    they are reviewed and versioned. This guards the two in-app writes; the
+    sync path builds its rows straight from `SkillCreateDB` and is untouched.
+    """
+    if data.files:
+        raise DomainValidationError(
+            "A skill written here is a single SKILL.md. Files and scripts come "
+            "from a connected repository."
+        )
 
 
 def _can_edit(owner_id: UUID, user: UserDB) -> bool:

@@ -2,22 +2,21 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Download, FileText, GitCompareArrows, Trash2 } from "lucide-react";
+import { FileText, GitCompareArrows, TerminalSquare, Trash2 } from "lucide-react";
 import { MessageResponse } from "@/components/ai-elements/message";
 import ConfirmDialog from "@/components/ui/confirm-dialog";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import {
 	HeaderButton,
 	HeaderPrimaryButton,
+	HeaderReadOnly,
 	SubpageHeader,
 	UnsavedBadge,
 } from "@/components/layout/subpage-header";
-import { API_BASE_URL } from "@/lib/api/client";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
 import { useSkillsStore } from "@/stores/skills-store";
 import { countScripts, shortRevision, type Skill, type SkillFile } from "@/types/skills";
-import { relativeTime } from "../lib/relative-time";
 import {
 	composeSkillMarkdown,
 	skillBody,
@@ -27,9 +26,8 @@ import {
 } from "../lib/skill-form";
 import { useDeleteSkill } from "../lib/use-delete-skill";
 import SkillDiffDialog from "./skill-diff-dialog";
-import SkillFilesPanel, { skillFilePathError } from "./skill-files-panel";
+import SkillFilesPanel from "./skill-files-panel";
 import SkillInUseDialog from "./skill-in-use-dialog";
-import { SkillRequirementChip } from "./skill-requirement-chip";
 import SkillUsedBy from "./skill-used-by";
 
 const NEW_SKILL = composeSkillMarkdown({
@@ -105,11 +103,8 @@ export default function SkillEditor({
 	const isDirty = !readOnly && JSON.stringify(draft) !== JSON.stringify(initial);
 	const name = fields?.name ?? skill?.name ?? "";
 	const description = fields?.description ?? skill?.description ?? "";
-	const scriptCount = countScripts(draft.files);
 	const agents = skill?.agents ?? [];
-	// The draft turns a skill that ran anywhere into one that needs code
-	// execution, while agents already use it (design 23d, "warn + list").
-	const gainsScripts = Boolean(skill) && skill!.scriptCount === 0 && scriptCount > 0;
+	const scriptCount = countScripts(draft.files);
 
 	const setFields = (patch: Partial<NonNullable<typeof fields>>) => {
 		if (!fields) return;
@@ -122,16 +117,8 @@ export default function SkillEditor({
 	const nameError = fields ? skillNameError(fields.name) : null;
 	const descriptionError = fields ? skillDescriptionError(fields.description) : null;
 	const bodyError = fields && !fields.body.trim() ? "Instructions are required" : null;
-	const filesValid = draft.files.every(
-		(file, i) =>
-			skillFilePathError(
-				file.path,
-				draft.files.filter((_, j) => j !== i).map((f) => f.path),
-			) === null,
-	);
 	const canSave =
 		!locked &&
-		filesValid &&
 		draft.content.trim().length > 0 &&
 		!nameError &&
 		!descriptionError &&
@@ -183,16 +170,6 @@ export default function SkillEditor({
 	const editorClass =
 		"min-h-[300px] w-full flex-1 resize-none rounded-lg border border-input bg-sidebar p-4 font-mono text-[12.5px] leading-[1.7] text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-meta dark:placeholder:text-panel-dim focus:border-petrol focus:shadow-[0_0_0_3px_rgba(22,96,110,0.10)] [scrollbar-width:thin]";
 
-	const meta = skill
-		? [
-				`${skill.fileCount} file${skill.fileCount === 1 ? "" : "s"}`,
-				skill.agentCount === 0
-					? "not enabled on any agent"
-					: `used by ${skill.agentCount} agent${skill.agentCount === 1 ? "" : "s"}`,
-				`updated ${relativeTime(skill.updatedAt)}`,
-			]
-		: [];
-
 	return (
 		<div className="flex h-svh min-w-0 flex-1 flex-col bg-background animate-in fade-in duration-300">
 			<SubpageHeader
@@ -215,6 +192,13 @@ export default function SkillEditor({
 				{readOnly && onEdit && !sourced && (
 					<HeaderPrimaryButton onClick={onEdit}>Edit</HeaderPrimaryButton>
 				)}
+				{readOnly && skill && sourced && (
+					<HeaderReadOnly
+						title={`Synced from ${skill.sourceName ?? "a repository"}${
+							skill.sourcePath ? ` · ${skill.sourcePath}` : ""
+						} — edited in the repository, not here`}
+					/>
+				)}
 				{!readOnly && (
 					<>
 						<HeaderButton disabled={isSaving} onClick={handleCancel}>
@@ -233,13 +217,6 @@ export default function SkillEditor({
 				{skill && (
 					<DropdownMenu
 						items={[
-							{
-								label: "Export as zip",
-								icon: <Download />,
-								onClick: () => {
-									window.location.assign(`${API_BASE_URL}/skills/${skill.id}/export`);
-								},
-							},
 							...(skill.updateAvailable
 								? [
 										{
@@ -260,7 +237,7 @@ export default function SkillEditor({
 											destructive: true,
 											onClick: () => {
 												setError(null);
-												void remove.requestDelete(skill);
+												remove.requestDelete(skill);
 											},
 										},
 									]
@@ -319,56 +296,16 @@ export default function SkillEditor({
 				</div>
 			)}
 
-			{skill && sourced && (
-				<div
-					className={cn(
-						"mx-7 mt-4 flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-[10px] border px-4 py-2.5 text-[12.5px]",
-						skill.updateAvailable
-							? "border-[#F0DCC2] bg-[#FDF9F0] text-[#7A5C1E] dark:border-[#7A5C1E]/40 dark:bg-[#7A5C1E]/10 dark:text-[#E8C27A]"
-							: "border-border bg-sidebar text-subtle dark:bg-white/[0.02] dark:text-panel-body",
-					)}
-				>
+			{skill && sourced && skill.missingUpstream && (
+				<div className="mx-7 mt-4 flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-[10px] border border-[#F0DCC2] bg-[#FDF9F0] px-4 py-2.5 text-[12.5px] text-[#7A5C1E] dark:border-[#7A5C1E]/40 dark:bg-[#7A5C1E]/10 dark:text-[#E8C27A]">
 					<span>
-						Synced from{" "}
-						<Link href="/skills?view=sources" className="font-semibold text-petrol hover:underline">
-							{skill.sourceName ?? "a repository"}
-						</Link>
-						{skill.sourcePath ? (
-							<>
-								{" "}
-								<span className="font-mono text-[11.5px]">{skill.sourcePath}</span>
-							</>
-						) : null}
-						{skill.sourceRevision ? (
-							<>
-								{" "}
-								at <span className="font-mono text-[11.5px]">{shortRevision(skill.sourceRevision)}</span>
-							</>
-						) : null}
-						. Edited in the repository, not here.
+						No longer in{" "}
+						<Link href="/skills?view=sources" className="font-semibold underline">
+							{skill.sourceName ?? "its repository"}
+						</Link>{" "}
+						as of the last sync — it keeps working, pinned to{" "}
+						<span className="font-mono text-[11.5px]">{shortRevision(skill.sourceRevision)}</span>.
 					</span>
-					{skill.updateAvailable && skill.available && (
-						<span className="flex items-center gap-2">
-							<span>
-								A newer version (<span className="font-mono text-[11.5px]">{shortRevision(skill.available.revision)}</span>) is
-								waiting.
-							</span>
-							<button
-								type="button"
-								onClick={() => {
-									setReviewOpen(true);
-								}}
-								className="cursor-pointer rounded-[6px] border border-[#E2C89A] bg-card px-2.5 py-[4px] text-[11.5px] font-semibold text-[#7A5C1E] transition-colors hover:bg-[#FBF3E2] dark:border-[#7A5C1E]/50 dark:text-[#E8C27A] dark:hover:bg-[#7A5C1E]/20"
-							>
-								Review changes
-							</button>
-						</span>
-					)}
-					{skill.missingUpstream && (
-						<span className="font-mono text-[11px] text-meta dark:text-panel-dim">
-							no longer in the repository since the last sync — keeps working as pinned
-						</span>
-					)}
 				</div>
 			)}
 
@@ -381,16 +318,23 @@ export default function SkillEditor({
 						</span>
 						{readOnly || locked ? (
 							<div className="min-w-0 flex-1">
-								<h1 className="truncate py-[2px] font-mono text-[19px] font-semibold tracking-[-0.01em] text-petrol">
-									{name || "untitled"}
-								</h1>
+								<div className="flex min-w-0 flex-wrap items-center gap-2">
+									<h1 className="min-w-0 truncate py-[2px] font-mono text-[19px] font-semibold tracking-[-0.01em] text-petrol">
+										{name || "untitled"}
+									</h1>
+									{skill?.updateAvailable && (
+										<span className="shrink-0 rounded-[4px] bg-warning-bg px-1.5 py-px font-mono text-[9px] font-semibold tracking-[0.05em] text-warning">
+											UPDATE
+										</span>
+									)}
+								</div>
 								<p className="py-[2px] text-[13.5px] font-medium text-label dark:text-muted-foreground">
 									{description || " "}
 								</p>
 								{locked && !readOnly && (
 									<p className="mt-2 text-[12px] text-warning">
 										This SKILL.md uses YAML the editor cannot rewrite safely (a folded or
-										multi-line value). Export it, edit the file, and import it again.
+										multi-line value). Export it, and keep it in a connected repository.
 									</p>
 								)}
 							</div>
@@ -432,25 +376,15 @@ export default function SkillEditor({
 						)}
 					</div>
 
-					<div className="mt-3 flex min-h-[22px] flex-wrap items-center gap-x-2.5 gap-y-1.5 pl-16">
-						<SkillRequirementChip scriptCount={scriptCount} />
-						{meta.map((item) => (
-							<span
-								key={item}
-								className="font-mono text-[11px] text-meta before:mr-2.5 before:content-['·'] dark:text-panel-dim"
-							>
-								{item}
-							</span>
-						))}
-					</div>
 
-					{gainsScripts && agents.length > 0 && (
-						<div className="mt-3 ml-16 rounded-[7px] border border-[#F0DCC2] bg-[#FDF9F0] px-3 py-2 text-[12px] leading-[1.5] text-[#7A5C1E] dark:border-[#7A5C1E]/40 dark:bg-[#7A5C1E]/10 dark:text-[#E8C27A]">
-							Saving makes{" "}
-							<span className="font-mono font-semibold">{name || skill?.name}</span> need
-							code execution. It&apos;s enabled on {agents.length} agent
-							{agents.length === 1 ? "" : "s"} — the instructions keep applying there;
-							the scripts only run on agents with code execution.
+					{scriptCount > 0 && (
+						<div className="mt-5 flex shrink-0 items-start gap-2.5 rounded-[7px] border border-input bg-petrol-tint px-3.5 py-2.5 dark:border-white/10 dark:bg-white/[0.04]">
+							<TerminalSquare className="mt-px size-3.5 shrink-0 text-petrol" />
+							<span className="min-w-0 text-[12.5px] leading-[1.5] text-body dark:text-panel-body">
+								This skill requires an agent with code execution. Its {scriptCount}{" "}
+								script{scriptCount === 1 ? "" : "s"} only run there — the instructions
+								apply on any agent.
+							</span>
 						</div>
 					)}
 
@@ -485,15 +419,22 @@ export default function SkillEditor({
 					</div>
 				</div>
 
-				{/* Right: files + where it's used */}
+				{/* Right: files (sourced skills only) + where it's used */}
 				<div className="flex min-w-0 flex-col overflow-y-auto bg-sidebar p-7 md:flex-1 dark:bg-white/[0.02] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-					<SkillFilesPanel
-						files={draft.files}
-						readOnly={readOnly}
-						onChange={(files) => {
-							setDraft((prev) => ({ ...prev, files }));
-						}}
-					/>
+					{sourced ? (
+						<SkillFilesPanel files={draft.files} skill={skill} />
+					) : (
+						<div className="rounded-[10px] border border-dashed border-input px-4 py-8 text-center text-[13px] text-meta dark:text-panel-dim">
+							A skill written here is one SKILL.md — it runs on any agent.
+							<span className="mt-1 block text-[12px]">
+								Scripts and reference files come from a{" "}
+								<Link href="/skills?view=sources" className="font-semibold text-petrol hover:underline">
+									connected repository
+								</Link>
+								, where they are reviewed and versioned.
+							</span>
+						</div>
+					)}
 					{skill && <SkillUsedBy agents={agents} />}
 				</div>
 			</div>
