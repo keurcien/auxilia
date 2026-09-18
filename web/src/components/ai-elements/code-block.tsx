@@ -89,10 +89,12 @@ export const SHIKI_MAX_CHARS = 30_000;
  * the DOM as markup. Do not call this with anything else.
  */
 function ShikiHtml({ className, html }: { className: string; html: string }) {
-	// nosemgrep
-	// biome-ignore lint/security/noDangerouslySetInnerHtml: shiki's own escaped output
 	const markup = { __html: html };
-	return <div className={className} dangerouslySetInnerHTML={markup} />;
+	// `nosemgrep` trails the statement rather than sitting above it: semgrep
+	// honours the match line or the one directly before, and the biome
+	// suppression has to occupy the line above.
+	// biome-ignore lint/security/noDangerouslySetInnerHtml: shiki's own escaped output
+	return <div className={className} dangerouslySetInnerHTML={markup} />; // nosemgrep
 }
 
 export const CodeBlock = ({
