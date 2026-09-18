@@ -343,7 +343,7 @@ export default function SkillEditor({
 								<input
 									type="text"
 									maxLength={64}
-									value={fields?.name ?? ""}
+									value={fields.name}
 									spellCheck={false}
 									onChange={(e) => {
 										setFields({ name: e.target.value.trim().toLowerCase() });
@@ -352,13 +352,13 @@ export default function SkillEditor({
 									className={cn(
 										fieldInputClass,
 										"font-mono text-[15px] font-semibold tracking-[-0.01em] text-petrol",
-										nameError && fields?.name && "border-destructive",
+										nameError && fields.name && "border-destructive",
 									)}
 								/>
 								<input
 									type="text"
 									maxLength={1024}
-									value={fields?.description ?? ""}
+									value={fields.description}
 									onChange={(e) => {
 										setFields({ description: e.target.value });
 									}}
@@ -367,9 +367,9 @@ export default function SkillEditor({
 								/>
 								{/* Rule violations only — an empty required field is what the
 								    disabled Create button says, not a red line on a blank form. */}
-								{(nameError && fields?.name) || (descriptionError && fields?.description) ? (
+								{(nameError && fields.name) || (descriptionError && fields.description) ? (
 									<p className="text-[11.5px] text-destructive">
-										{(fields?.name && nameError) || descriptionError}
+										{(fields.name && nameError) || descriptionError}
 									</p>
 								) : null}
 							</div>
@@ -408,7 +408,7 @@ export default function SkillEditor({
 							</div>
 						) : (
 							<textarea
-								value={fields?.body ?? ""}
+								value={fields.body}
 								onChange={(e) => {
 									setFields({ body: e.target.value });
 								}}

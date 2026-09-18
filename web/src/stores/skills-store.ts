@@ -9,7 +9,7 @@ import {
 	SkillSyncPlan,
 	SkillSummary,
 } from "@/types/skills";
-import { api } from "@/lib/api/client";
+import * as skillsApi from "@/lib/api/resources/skills";
 
 interface SkillsState {
 	skills: SkillSummary[];
@@ -49,26 +49,22 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
 			return;
 		}
 		try {
-			const response = await api.get("/skills");
-			set({ skills: response.data as SkillSummary[], isInitialized: true });
+			set({ skills: await skillsApi.listSkills(), isInitialized: true });
 		} catch (error) {
 			set({ isInitialized: true });
 			throw error;
 		}
 	},
 	getSkill: async (id) => {
-		const response = await api.get(`/skills/${id}`);
-		return response.data as Skill;
+		return skillsApi.getSkill(id);
 	},
 	createSkill: async (payload) => {
-		const response = await api.post("/skills", payload);
-		const created = response.data as Skill;
+		const created = await skillsApi.createSkill(payload);
 		set((state) => ({ skills: [summaryOf(created), ...state.skills] }));
 		return created;
 	},
 	updateSkill: async (id, payload) => {
-		const response = await api.put(`/skills/${id}`, payload);
-		const updated = response.data as Skill;
+		const updated = await skillsApi.updateSkill(id, payload);
 		set((state) => ({
 			skills: [
 				summaryOf(updated),
@@ -78,18 +74,16 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
 		return updated;
 	},
 	deleteSkill: async (id) => {
-		await api.delete(`/skills/${id}`);
+		await skillsApi.deleteSkill(id);
 		set((state) => ({
 			skills: state.skills.filter((skill) => skill.id !== id),
 		}));
 	},
 	getSkillDiff: async (id) => {
-		const response = await api.get(`/skills/${id}/diff`);
-		return response.data as SkillDiff;
+		return skillsApi.getSkillDiff(id);
 	},
 	adoptSkill: async (id) => {
-		const response = await api.post(`/skills/${id}/adopt`);
-		const adopted = response.data as Skill;
+		const adopted = await skillsApi.adoptSkill(id);
 		set((state) => ({
 			skills: state.skills.map((skill) => (skill.id === id ? summaryOf(adopted) : skill)),
 		}));
@@ -102,32 +96,27 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
 			return;
 		}
 		try {
-			const response = await api.get("/skills/sources");
-			set({ sources: response.data as SkillSource[], sourcesInitialized: true });
+			set({ sources: await skillsApi.listSkillSources(), sourcesInitialized: true });
 		} catch (error) {
 			set({ sourcesInitialized: true });
 			throw error;
 		}
 	},
 	previewSource: async (payload) => {
-		const response = await api.post("/skills/sources/preview", payload);
-		return response.data as SkillSourcePreview;
+		return skillsApi.previewSkillSource(payload);
 	},
 	createSource: async (payload) => {
-		const response = await api.post("/skills/sources", payload);
-		const created = response.data as SkillSource;
+		const created = await skillsApi.createSkillSource(payload);
 		set((state) => ({ sources: [...state.sources, created] }));
 		// The sync that ran on creation changed the library.
 		await get().fetchSkills(true);
 		return created;
 	},
 	planSync: async (id) => {
-		const response = await api.get(`/skills/sources/${id}/plan`);
-		return response.data as SkillSyncPlan;
+		return skillsApi.planSkillSourceSync(id);
 	},
 	syncSource: async (id) => {
-		const response = await api.post(`/skills/sources/${id}/sync`);
-		const synced = response.data as SkillSource;
+		const synced = await skillsApi.syncSkillSource(id);
 		set((state) => ({
 			sources: state.sources.map((source) => (source.id === id ? synced : source)),
 		}));
@@ -135,7 +124,7 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
 		return synced;
 	},
 	deleteSource: async (id) => {
-		await api.delete(`/skills/sources/${id}`);
+		await skillsApi.deleteSkillSource(id);
 		set((state) => ({
 			sources: state.sources.filter((source) => source.id !== id),
 		}));

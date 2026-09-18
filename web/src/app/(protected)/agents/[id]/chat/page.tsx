@@ -167,7 +167,7 @@ const StarterChatPage = () => {
 								type="button"
 								className="shrink-0 cursor-pointer rounded-[7px] border border-input bg-card px-3 py-1.5 text-[12.5px] font-semibold text-foreground transition-colors hover:border-border-hover"
 								onClick={() => {
-									void refetchReady();
+									refetchReady();
 								}}
 							>
 								Check again
@@ -202,8 +202,8 @@ const StarterChatPage = () => {
 							agentReady={agentReady}
 							disconnectedServers={disconnectedMcpServers}
 							onAllConnected={() => {
-              void refetchReady();
-            }}
+								refetchReady();
+							}}
 						/>
 					)}
 				</div>

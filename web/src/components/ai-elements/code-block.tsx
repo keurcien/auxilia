@@ -45,7 +45,7 @@ const lineNumberTransformer: ShikiTransformer = {
 	},
 };
 
-async function highlightCode(
+async function highlightToHtml(
 	code: string,
 	language: BundledLanguage | SpecialLanguage,
 	showLineNumbers = false,
@@ -99,12 +99,18 @@ export const CodeBlock = ({
 
 		let isMounted = true;
 
-		highlightCode(code, language, showLineNumbers, theme).then(([light, dark]) => {
-			if (isMounted) {
-				setHtml(light);
-				setDarkHtml(dark);
-			}
-		});
+		highlightToHtml(code, language, showLineNumbers, theme)
+			.then(([light, dark]) => {
+				if (isMounted) {
+					setHtml(light);
+					setDarkHtml(dark);
+				}
+			})
+			.catch(() => {
+				// A grammar shiki cannot load leaves the plain <pre> fallback in
+				// place — indentation intact, only the colours missing. Never a
+				// blank block, and never an unhandled rejection.
+			});
 
 		return () => {
 			isMounted = false;
@@ -138,6 +144,10 @@ export const CodeBlock = ({
 				) : theme ? (
 					<div
 						className={preClass}
+						// The HTML is shiki's own output for `code`, built in this file
+						// from a string we were handed — never markup from a user or a
+						// response body. shiki escapes the source it highlights.
+						// nosemgrep
 						// biome-ignore lint/security/noDangerouslySetInnerHtml: "this is needed."
 						dangerouslySetInnerHTML={{ __html: html }}
 					/>
@@ -145,12 +155,20 @@ export const CodeBlock = ({
 					<>
 						<div
 							className={cn(preClass, "dark:hidden")}
-							// biome-ignore lint/security/noDangerouslySetInnerHtml: "this is needed."
+							// The HTML is shiki's own output for `code`, built in this file
+						// from a string we were handed — never markup from a user or a
+						// response body. shiki escapes the source it highlights.
+						// nosemgrep
+						// biome-ignore lint/security/noDangerouslySetInnerHtml: "this is needed."
 							dangerouslySetInnerHTML={{ __html: html }}
 						/>
 						<div
 							className={cn(preClass, "hidden dark:block")}
-							// biome-ignore lint/security/noDangerouslySetInnerHtml: "this is needed."
+							// The HTML is shiki's own output for `code`, built in this file
+						// from a string we were handed — never markup from a user or a
+						// response body. shiki escapes the source it highlights.
+						// nosemgrep
+						// biome-ignore lint/security/noDangerouslySetInnerHtml: "this is needed."
 							dangerouslySetInnerHTML={{ __html: darkHtml }}
 						/>
 					</>

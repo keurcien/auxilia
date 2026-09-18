@@ -162,7 +162,14 @@ class SkillRepository(BaseRepository[SkillDB]):
     ) -> SkillVersionDB:
         """The newest version seen upstream. A digest seen before is moved to
         the front (its `created_at` bumped) rather than duplicated, so an
-        upstream revert reads as "this older version is now the latest"."""
+        upstream revert reads as "this older version is now the latest".
+
+        `created_at` is set here rather than left to the column default, on
+        both paths. The default is `now()`, which is *transaction* time on
+        Postgres and second-resolution on SQLite, so two versions recorded
+        close together tied — and `latest_version` broke the tie on a random
+        UUID, which is how `update_available` came to be a coin flip.
+        """
         version = await self.get_version(skill_id, digest)
         if version is None:
             version = SkillVersionDB(
@@ -171,6 +178,7 @@ class SkillRepository(BaseRepository[SkillDB]):
                 revision=revision,
                 content=content,
                 files=files,
+                created_at=datetime.now(UTC),
             )
         else:
             version.revision = revision

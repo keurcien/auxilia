@@ -94,8 +94,10 @@ export default function AgentEditor({
 						librarySkills.find((s) => s.id === id) ??
 						agent?.skills?.find((s) => s.id === id),
 				)
-				.filter((s) => s !== undefined && s.scriptCount > 0)
-				.map((s) => s!.name),
+				// A type predicate, so `map` sees a defined value: a plain boolean
+				// filter does not narrow, which is what the `!` was standing in for.
+				.filter((s): s is NonNullable<typeof s> => s !== undefined && s.scriptCount > 0)
+				.map((s) => s.name),
 		[form.skillIds, librarySkills, agent?.skills],
 	);
 	const [tab, setTab] = useState<EditorTab>("instructions");

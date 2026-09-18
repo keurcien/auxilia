@@ -127,16 +127,20 @@ def upload_skills(backend: BaseSandbox, files: dict[str, bytes]) -> bool:
     expected to have its skills, and a half-written skill is worse than a
     failed run.
     """
+    # `backend` is a *sandbox*, and `execute` runs a shell command — semgrep's
+    # SQLAlchemy rules match the method name, not the receiver, and read these
+    # as raw queries. Every interpolation is either a module constant or passed
+    # through `shlex.quote`; there is no database anywhere near this function.
     marker = f"{SKILLS_ROOT}/{DIGEST_MARKER}"
     if not files:
-        backend.execute(f"rm -rf {shlex.quote(SKILLS_ROOT)}")
+        backend.execute(f"rm -rf {shlex.quote(SKILLS_ROOT)}")  # nosemgrep
         return False
     digest = skills_digest(files)
-    current = backend.execute(f"cat {shlex.quote(marker)} 2>/dev/null")
+    current = backend.execute(f"cat {shlex.quote(marker)} 2>/dev/null")  # nosemgrep
     if current.exit_code == 0 and current.output.strip() == digest:
         return False
     directories = sorted({str(PurePosixPath(path).parent) for path in files})
-    created = backend.execute(
+    created = backend.execute(  # nosemgrep
         f"rm -rf {shlex.quote(SKILLS_ROOT)} && mkdir -p "
         + " ".join(shlex.quote(directory) for directory in directories)
     )

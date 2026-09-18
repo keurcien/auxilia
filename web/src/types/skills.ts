@@ -206,8 +206,26 @@ export interface AgentSkill {
 	scriptCount: number;
 }
 
-/** Same rule as the backend (`app/skills/schemas.py`) and the Agent Skills spec. */
-export const SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+/**
+ * Same rule as the backend (`app/skills/schemas.py`) and the Agent Skills
+ * spec: lowercase alphanumerics in hyphen-separated words.
+ *
+ * Written as one flat character class plus explicit edge checks rather than
+ * `[a-z0-9]+(?:-[a-z0-9]+)*`. The nested quantifier in that form is what
+ * ReDoS detectors flag; it is in fact linear, because the inner class cannot
+ * match `-`, but a shape no tool has to reason about is worth more than the
+ * argument.
+ */
+const SKILL_NAME_CHARS = /^[a-z0-9-]+$/;
+
+export function isValidSkillName(name: string): boolean {
+	return (
+		SKILL_NAME_CHARS.test(name) &&
+		!name.startsWith("-") &&
+		!name.endsWith("-") &&
+		!name.includes("--")
+	);
+}
 export const SKILL_NAME_MAX = 64;
 export const SKILL_DESCRIPTION_MAX = 1024;
 

@@ -11,7 +11,7 @@ import type { SkillFile } from "@/types/skills";
 import {
 	SKILL_DESCRIPTION_MAX,
 	SKILL_NAME_MAX,
-	SKILL_NAME_PATTERN,
+	isValidSkillName,
 } from "@/types/skills";
 
 export interface SkillFields {
@@ -126,7 +126,7 @@ function unquote(raw: string): string | null {
 export function skillNameError(name: string): string | null {
 	if (!name) return "A name is required";
 	if (name.length > SKILL_NAME_MAX) return `At most ${SKILL_NAME_MAX} characters`;
-	if (!SKILL_NAME_PATTERN.test(name)) {
+	if (!isValidSkillName(name)) {
 		return "Lowercase letters, digits and single hyphens only (e.g. web-research)";
 	}
 	return null;
