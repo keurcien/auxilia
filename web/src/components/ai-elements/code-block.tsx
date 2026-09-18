@@ -79,6 +79,22 @@ async function highlightToHtml(
 // fallback for these — indentation is preserved, only syntax colors are lost.
 export const SHIKI_MAX_CHARS = 30_000;
 
+/**
+ * Shiki's rendered output, injected as HTML.
+ *
+ * One place rather than three, so the reason this is safe is stated once and
+ * the suppressions sit on the line the scanners actually report. `html` is
+ * always `highlightToHtml`'s return value for `code` — shiki escapes the
+ * source it highlights, so nothing from a user or a response body reaches
+ * the DOM as markup. Do not call this with anything else.
+ */
+function ShikiHtml({ className, html }: { className: string; html: string }) {
+	// nosemgrep
+	// biome-ignore lint/security/noDangerouslySetInnerHtml: shiki's own escaped output
+	const markup = { __html: html };
+	return <div className={className} dangerouslySetInnerHTML={markup} />;
+}
+
 export const CodeBlock = ({
 	code,
 	language,
@@ -142,34 +158,13 @@ export const CodeBlock = ({
 						</pre>
 					</div>
 				) : theme ? (
-					<div
-						className={preClass}
-						// The HTML is shiki's own output for `code`, built in this file
-						// from a string we were handed — never markup from a user or a
-						// response body. shiki escapes the source it highlights.
-						// nosemgrep
-						// biome-ignore lint/security/noDangerouslySetInnerHtml: "this is needed."
-						dangerouslySetInnerHTML={{ __html: html }}
-					/>
+					<ShikiHtml className={preClass} html={html} />
 				) : (
 					<>
-						<div
-							className={cn(preClass, "dark:hidden")}
-							// The HTML is shiki's own output for `code`, built in this file
-						// from a string we were handed — never markup from a user or a
-						// response body. shiki escapes the source it highlights.
-						// nosemgrep
-						// biome-ignore lint/security/noDangerouslySetInnerHtml: "this is needed."
-							dangerouslySetInnerHTML={{ __html: html }}
-						/>
-						<div
+						<ShikiHtml className={cn(preClass, "dark:hidden")} html={html} />
+						<ShikiHtml
 							className={cn(preClass, "hidden dark:block")}
-							// The HTML is shiki's own output for `code`, built in this file
-						// from a string we were handed — never markup from a user or a
-						// response body. shiki escapes the source it highlights.
-						// nosemgrep
-						// biome-ignore lint/security/noDangerouslySetInnerHtml: "this is needed."
-							dangerouslySetInnerHTML={{ __html: darkHtml }}
+							html={darkHtml}
 						/>
 					</>
 				)}
