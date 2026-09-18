@@ -10,7 +10,7 @@ a SKILL.md says ``python new-script.py`` and the file is
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 
 from skillkit import frontmatter as fm
 from skillkit.model import SKILL_MD, Bundle, Frontmatter, Issue, Limits, Report
@@ -162,7 +162,7 @@ def duplicate_name_issues(names: Iterable[str]) -> list[Issue]:
     ]
 
 
-def _reference_issues(body: str, files: dict[str, bytes]) -> list[Issue]:
+def _reference_issues(body: str, files: Mapping[str, bytes]) -> list[Issue]:
     issues: list[Issue] = []
     by_basename: dict[str, list[str]] = {}
     for path in files:
