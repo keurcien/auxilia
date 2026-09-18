@@ -133,7 +133,14 @@ def upload_skills(backend: BaseSandbox, files: dict[str, bytes]) -> bool:
     # through `shlex.quote`; there is no database anywhere near this function.
     marker = f"{SKILLS_ROOT}/{DIGEST_MARKER}"
     if not files:
-        backend.execute(f"rm -rf {shlex.quote(SKILLS_ROOT)}")  # nosemgrep
+        # Checked like every other step: a failed removal leaves the previous
+        # run's skills on disk, and the model would go on reading them.
+        removed = backend.execute(f"rm -rf {shlex.quote(SKILLS_ROOT)}")  # nosemgrep
+        if removed.exit_code != 0:
+            raise RuntimeError(
+                "Failed to remove the skills directory from the sandbox: "
+                f"{removed.output[:2000]}"
+            )
         return False
     digest = skills_digest(files)
     current = backend.execute(f"cat {shlex.quote(marker)} 2>/dev/null")  # nosemgrep

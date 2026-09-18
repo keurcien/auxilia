@@ -381,3 +381,24 @@ async def test_plan_says_what_a_sync_would_change_and_writes_nothing(
     # not apply it. (Whether `update_available` resolves is a separate matter —
     # `latest_version` breaks ties on a random UUID, so it is not assertable.)
     assert by_name["margin-audit"].digest == pinned["margin-audit"]
+
+
+async def test_a_source_is_its_url_ref_and_path(agent_session, admin, host):
+    """Identity findings from review: `create` checked it, `update` did not,
+    and nothing in the database held the line when two admins raced."""
+    from app.skills.schemas import SkillSourcePatch
+
+    sources = SkillSourceService(agent_session)
+    first = await sources.create(SkillSourceCreate(url=URL, ref="main"), admin)
+    other = await sources.create(SkillSourceCreate(url=URL, ref="next"), admin)
+
+    # create: unchanged behaviour
+    with pytest.raises(DomainValidationError, match="already a source"):
+        await sources.create(SkillSourceCreate(url=URL, ref="main"), admin)
+
+    # update: moving `other` onto `first`'s ref is the same collision
+    with pytest.raises(DomainValidationError, match="already tracks"):
+        await sources.update(other.id, SkillSourcePatch(ref="main"), admin)
+
+    # and a no-op edit of a source onto its own identity is still fine
+    await sources.update(first.id, SkillSourcePatch(ref="main"), admin)

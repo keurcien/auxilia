@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 from fastapi import Depends
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -128,7 +129,15 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
             encrypted_token=encrypt_value(data.token) if data.token else None,
         )
         self.db.add(row)
-        await self.db.flush()
+        try:
+            await self.db.flush()
+        except IntegrityError as exc:
+            # The lookup above cannot see a row another transaction has not
+            # committed yet; `uq_skill_sources_identity` is what actually
+            # holds. Same message either way.
+            raise DomainValidationError(
+                "This repository, ref and path are already a source"
+            ) from exc
         await self._sync_row(row)
         await self.db.refresh(row)
         return _response(row, user)
@@ -137,10 +146,24 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
         self, source_id: UUID, data: SkillSourcePatch, user: UserDB
     ) -> SkillSourceResponse:
         row = await self._manageable(source_id, user)
-        if data.ref is not None:
-            row.ref = data.ref.strip()
-        if data.subpath is not None:
-            row.subpath = data.subpath.strip().strip("/") or None
+        # Same identity rule as `create`: a source *is* its (url, ref, path),
+        # and an edit can collide with an existing one just as a create can.
+        # Checked *before* the row is touched — assigning first makes the
+        # lookup autoflush the pending UPDATE, and the database raises the
+        # collision before this has a chance to phrase it.
+        ref = data.ref.strip() if data.ref is not None else row.ref
+        subpath = (
+            (data.subpath.strip().strip("/") or None)
+            if data.subpath is not None
+            else row.subpath
+        )
+        clash = await self.repository.get_by_url(row.url, ref, subpath)
+        if clash is not None and clash.id != row.id:
+            raise DomainValidationError(
+                "Another source already tracks this repository, ref and path"
+            )
+        row.ref = ref
+        row.subpath = subpath
         if data.clear_token:
             row.encrypted_token = None
         elif data.token:
@@ -439,6 +462,10 @@ def _classify(
         decisions.append(
             _Decision(name=skill.name, path=skill.path, status="skipped", issues=issues)
         )
+        # It is still upstream, just unusable this time round. Leaving it in
+        # `remaining` made the same sync mark it `gone` as well, so the
+        # library claimed the skill had been deleted from the repository.
+        remaining.pop(skill.name, None)
 
     for skill in resolved.skills:
         if not skill.report.ok:

@@ -1,7 +1,16 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import JSON, Column, DateTime, Enum as SAEnum, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Column,
+    DateTime,
+    Enum as SAEnum,
+    Index,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, SQLModel
 
@@ -26,6 +35,19 @@ class SkillSourceDB(BaseDBModel, table=True):
     """
 
     __tablename__ = "skill_sources"
+    # A source *is* its (url, ref, subpath). The application check cannot stop
+    # two admins connecting the same repository at once, and an expression
+    # index is needed because a plain unique constraint lets NULL subpaths
+    # collide freely.
+    __table_args__ = (
+        Index(
+            "uq_skill_sources_identity",
+            "url",
+            "ref",
+            text("coalesce(subpath, '')"),
+            unique=True,
+        ),
+    )
 
     owner_id: UUID = Field(foreign_key="users.id", ondelete="CASCADE", index=True)
     name: str = Field(max_length=120)
