@@ -186,10 +186,21 @@ class Lockfile:
                 )
                 for s in data.get("sources", [])
             )
-        except (KeyError, TypeError) as exc:
-            raise LockfileError(f"malformed lockfile: missing {exc}") from exc
+        except (KeyError, TypeError, AttributeError) as exc:
+            # AttributeError: `"skills": null` or a list reaches `.items()`
+            # before any of the key lookups do.
+            raise LockfileError(f"malformed lockfile: {exc}") from exc
         return cls(sources)
 
     @classmethod
     def read(cls, path: str | Path) -> Lockfile:
-        return cls.loads(Path(path).read_text("utf-8"))
+        """A missing, unreadable or non-UTF-8 lockfile is a `LockfileError`
+        like any other malformed one — callers should not have to catch
+        filesystem and decoding errors separately."""
+        try:
+            text = Path(path).read_text("utf-8")
+        except OSError as exc:
+            raise LockfileError(f"cannot read lockfile {path}: {exc}") from exc
+        except UnicodeDecodeError as exc:
+            raise LockfileError(f"lockfile {path} is not UTF-8") from exc
+        return cls.loads(text)

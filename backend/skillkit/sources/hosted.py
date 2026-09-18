@@ -53,8 +53,16 @@ class HostedSource:
         parts = urlsplit(self.url)
         if not parts.scheme or not parts.netloc or parts.path.count("/") < 2:
             raise ValueError(f"not a repository URL: {url}")
-        self.host = parts.netloc
-        self.api_base = f"{parts.scheme}://{parts.netloc}"
+        # Normalised once, here, so every adapter compares a canonical host:
+        # `GitHub.com` and `www.github.com` are github.com, and were otherwise
+        # taken for Enterprise instances and sent to `/api/v3` on a host that
+        # does not serve it. The api_base keeps the normalised form too, so the
+        # request goes where the comparison said it would.
+        netloc = parts.netloc.lower()
+        if netloc.startswith("www."):
+            netloc = netloc[4:]
+        self.host = netloc
+        self.api_base = f"{parts.scheme.lower()}://{netloc}"
         self.project_path = parts.path.strip("/")
 
     # -- what a host adapter provides ----------------------------------------

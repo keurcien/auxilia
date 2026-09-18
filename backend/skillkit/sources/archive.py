@@ -89,11 +89,14 @@ def extract(
 def _check_path(path: str) -> str:
     clean = path.replace("\\", "/")
     parts = clean.split("/")
+    # Every segment, not `parts[:-1]`: a trailing `..` (or a bare `..`) used to
+    # slip past and then be normalised into the tree. An empty segment is only
+    # allowed as the last one, which is how a directory entry ends.
     if (
         clean.startswith("/")
-        or any(p in ("..", "") for p in parts[:-1])
+        or any(p == ".." for p in parts)
+        or any(p == "" for p in parts[:-1])
         or ":" in parts[0]
-        or clean.endswith("/..")
     ):
         raise ValidationError(f"unsafe archive path '{path}'", "E005")
     return "/".join(p for p in parts if p != ".")

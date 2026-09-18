@@ -6,11 +6,14 @@ about agents, sandboxes or databases.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import cached_property
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal
 
 from skillkit.digest import bundle_digest
+from skillkit.errors import ValidationError
 
 
 if TYPE_CHECKING:
@@ -89,9 +92,18 @@ class Frontmatter:
 @dataclass(frozen=True)
 class Bundle:
     """The frozen bytes of one skill, keyed by POSIX path relative to the
-    skill directory (``SKILL.md``, ``scripts/run.py``…)."""
+    skill directory (``SKILL.md``, ``scripts/run.py``…).
 
-    files: dict[str, bytes]
+    `frozen=True` stops the *field* being reassigned, not the dict behind it,
+    and `digest` is cached — so a caller that mutated `files` afterwards left
+    every hash, lockfile entry and diff describing content the bundle no
+    longer held. The mapping is copied and wrapped on construction.
+    """
+
+    files: Mapping[str, bytes]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "files", MappingProxyType(dict(self.files)))
 
     @cached_property
     def digest(self) -> str:
@@ -194,4 +206,20 @@ class ResolvedSource:
 
     @property
     def by_name(self) -> dict[str, Skill]:
-        return {s.name: s for s in self.skills}
+        """Skills by name.
+
+        Duplicates are a caller error, not something to resolve by "last one
+        wins" — silently dropping a skill is how a source ends up importing
+        fewer skills than it reports. `discover` already flags the duplicate
+        with W003; this refuses to paper over it.
+        """
+        by: dict[str, Skill] = {}
+        for skill in self.skills:
+            if skill.name in by:
+                raise ValidationError(
+                    f"duplicate skill name '{skill.name}' at "
+                    f"'{by[skill.name].path}' and '{skill.path}'",
+                    "E009",
+                )
+            by[skill.name] = skill
+        return by

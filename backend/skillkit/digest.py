@@ -22,6 +22,20 @@ def normalize_path(path: str) -> str:
 
 
 def bundle_digest(files: Mapping[str, bytes]) -> str:
+    """The digest of a bundle's files.
+
+    Two distinct keys that normalise to the same path would otherwise hash
+    the first twice and ignore the second's content entirely, so a change to
+    it would not move the digest. That is a collision, not a bundle.
+    """
+    seen: dict[str, str] = {}
+    for original in files:
+        norm = normalize_path(original)
+        if norm in seen:
+            raise ValueError(
+                f"duplicate path after normalization: {seen[norm]!r} and {original!r}"
+            )
+        seen[norm] = original
     digest = hashlib.sha256()
     for path in sorted(normalize_path(p) for p in files):
         content = files[path] if path in files else _lookup(files, path)

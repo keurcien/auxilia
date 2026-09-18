@@ -39,24 +39,36 @@ class LocalSource:
 
 
 def read_tree(root: Path, limits: Limits) -> dict[str, bytes]:
+    # `is_dir()` follows a symlink, so a link pointing at another tree read as
+    # a perfectly good root while every path inside it escaped the check below.
+    if root.is_symlink():
+        raise ValidationError(f"symlink as root: {root}", "E006")
     if not root.is_dir():
         raise ValidationError(f"{root} is not a directory", "E001")
     tree: dict[str, bytes] = {}
     total = 0
-    for path in sorted(root.rglob("*")):
+    # `.git` is skipped while walking, not after: sorting the whole of a real
+    # checkout first meant holding every object path in memory before any
+    # limit applied.
+    paths = sorted(
+        p
+        for p in root.rglob("*")
+        if not any(part == ".git" for part in p.relative_to(root).parts)
+    )
+    for path in paths:
         if path.is_symlink():
             raise ValidationError(f"symlink in tree: {path.relative_to(root)}", "E006")
         if not path.is_file():
             continue
-        if any(part == ".git" for part in path.relative_to(root).parts):
-            continue
-        data = path.read_bytes()
-        total += len(data)
         if len(tree) >= limits.max_files:
             raise LimitExceeded(f"more than {limits.max_files} files under {root}")
-        if total > limits.max_extracted_bytes:
+        # Size first: `read_bytes()` on a huge file would already have spent
+        # the memory the limit exists to bound.
+        size = path.stat().st_size
+        if total + size > limits.max_extracted_bytes:
             raise LimitExceeded(
                 f"more than {limits.max_extracted_bytes} bytes under {root}"
             )
-        tree[path.relative_to(root).as_posix()] = data
+        total += size
+        tree[path.relative_to(root).as_posix()] = path.read_bytes()
     return tree
