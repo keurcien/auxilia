@@ -7,6 +7,7 @@ from skillkit import (
     AuthenticationError,
     GitHubSource,
     GitLabSource,
+    Limits,
     RevisionNotFound,
     SourceUnavailable,
     StaticCredentials,
@@ -117,3 +118,36 @@ def test_network_failure_is_unavailable():
 def test_not_a_repository_url():
     with pytest.raises(ValueError):
         GitHubSource("https://github.com/acme")
+
+
+def test_a_redirect_to_another_host_does_not_carry_the_token(repo_tree):
+    """httpx drops `Authorization` across origins but cannot know GitLab's
+    `PRIVATE-TOKEN` is a credential too, so following redirects was handing it
+    to whatever host the redirect named."""
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.host == "gitlab.example.com":
+            return httpx.Response(
+                302, headers={"location": "https://evil.example.net/commits/main"}
+            )
+        return httpx.Response(200, json={"id": "9f2c1ab3e5"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    source = GitLabSource(
+        "https://gitlab.example.com/acme/skills",
+        ref="main",
+        subpath=None,
+        credentials=StaticCredentials("glpat-secret"),
+        limits=Limits(),
+        client=client,
+    )
+    source.resolve_revision()
+
+    first, redirected = seen[0], seen[-1]
+    assert first.url.host == "gitlab.example.com"
+    assert first.headers.get("private-token") == "glpat-secret"
+    # The hop off-host is made, but without the credential.
+    assert redirected.url.host == "evil.example.net"
+    assert "private-token" not in {k.lower() for k in redirected.headers}

@@ -107,6 +107,28 @@ def requirements_text(frontmatter: Frontmatter | None) -> str | None:
     return value.strip() if value and value.strip() else None
 
 
+def _requirements_in(clause: str) -> list[Requirement]:
+    """One PEP 508 requirement, or a comma-separated list of them.
+
+    Returns `[]` when the clause is neither, so the caller can record it as
+    unknown rather than silently dropping half of it.
+    """
+    try:
+        return [Requirement(clause)]
+    except InvalidRequirement:
+        pass
+    parsed: list[Requirement] = []
+    for item in clause.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            parsed.append(Requirement(item))
+        except InvalidRequirement:
+            return []
+    return parsed
+
+
 def parse_requirements(text: str) -> Requirements:
     python = image = None
     packages: list[Requirement] = []
@@ -135,16 +157,12 @@ def parse_requirements(text: str) -> Requirements:
             else:
                 image = spec
             continue
-        parsed = []
-        for item in clause.split(","):
-            item = item.strip()
-            if not item:
-                continue
-            try:
-                parsed.append(Requirement(item))
-            except InvalidRequirement:
-                parsed = []
-                break
+        # The whole clause first: a comma is part of PEP 508's own grammar
+        # (`pandas>=2.1,<3`), so splitting on it blindly turned one valid
+        # requirement into `pandas>=2.1` plus a bare `<3` and threw the lot
+        # away as unknown. Only a clause that is *not* a single requirement
+        # is treated as a comma-separated list.
+        parsed = _requirements_in(clause)
         if parsed:
             packages.extend(parsed)
         else:
@@ -165,7 +183,15 @@ def check(requirements: Requirements | None, env: EnvironmentManifest) -> Verdic
         return Verdict(True)
     reasons: list[str] = []
     if requirements.python is not None:
-        if env.interpreter_version is None:
+        if env.language is not None and env.language.lower() != "python":
+            # An environment that declares another language still reports an
+            # `interpreter_version`; comparing it against a python specifier
+            # would read "node 22 satisfies python>=3.11".
+            reasons.append(
+                f"requires python{requirements.python}, environment has "
+                f"{env.language} interpreter"
+            )
+        elif env.interpreter_version is None:
             reasons.append(
                 f"requires python{requirements.python}, environment declares no interpreter"
             )

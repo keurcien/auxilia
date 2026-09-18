@@ -7,6 +7,7 @@ this class does the HTTP, the bounds and the error mapping.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from urllib.parse import urlsplit
 
 import httpx
@@ -24,6 +25,8 @@ from skillkit.sources.base import CredentialsProvider
 
 
 DEFAULT_TIMEOUT = 30.0
+MAX_REDIRECTS = 5
+_REDIRECT_CODES = frozenset({301, 302, 303, 307, 308})
 
 
 class HostedSource:
@@ -121,14 +124,51 @@ class HostedSource:
         return headers
 
     def _client_or_new(self) -> httpx.Client:
+        # `follow_redirects` is off on the clients we make: httpx drops
+        # `Authorization` when a redirect crosses origins, but it cannot know
+        # that GitLab's `PRIVATE-TOKEN` is a credential too, and would forward
+        # it to whatever host the redirect names. `_follow` does it by hand.
         return self._client or httpx.Client(
-            timeout=DEFAULT_TIMEOUT, follow_redirects=True
+            timeout=DEFAULT_TIMEOUT, follow_redirects=False
         )
+
+    def _follow(self, send, url: str):
+        """Send `url`, following redirects while the host does not change.
+
+        The auth header travels only to the host it belongs to; a redirect
+        that leaves it is followed without credentials.
+        """
+        host = httpx.URL(url).host
+        for _ in range(MAX_REDIRECTS):
+            response = send(
+                url,
+                self._headers()
+                if httpx.URL(url).host == host
+                else self._safe_headers(),
+            )
+            if response.status_code not in _REDIRECT_CODES:
+                return response
+            location = response.headers.get("location")
+            if not location:
+                return response
+            response.close()
+            url = str(httpx.URL(url).join(location))
+        raise SourceUnavailable(f"{self.host}: too many redirects")
+
+    def _safe_headers(self) -> dict[str, str]:
+        """`_headers` without the credential — for a redirect off-host."""
+        headers = self._headers()
+        for name in list(headers):
+            if name.lower() in ("authorization", "private-token"):
+                del headers[name]
+        return headers
 
     def _get(self, url: str) -> httpx.Response:
         client = self._client_or_new()
         try:
-            response = client.get(url, headers=self._headers())
+            response = self._follow(
+                lambda u, h: client.get(u, headers=h, follow_redirects=False), url
+            )
         except httpx.HTTPError as exc:
             raise SourceUnavailable(f"{self.host}: {exc.__class__.__name__}") from exc
         finally:
@@ -137,12 +177,32 @@ class HostedSource:
         self._raise_for(response)
         return response
 
+    @contextmanager
     def _stream(self, url: str):
+        """The archive response, with the client closed afterwards.
+
+        `_stream` used to hand back the raw stream context manager: a client
+        it had created for the call was never closed, and an `httpx` error
+        raised while the body was being read escaped as itself instead of
+        `SourceUnavailable`.
+        """
         client = self._client_or_new()
+        response = None
         try:
-            return client.stream("GET", url, headers=self._headers())
+            response = self._follow(
+                lambda u, h: client.send(
+                    client.build_request("GET", u, headers=h), stream=True
+                ),
+                url,
+            )
+            yield response
         except httpx.HTTPError as exc:
             raise SourceUnavailable(f"{self.host}: {exc.__class__.__name__}") from exc
+        finally:
+            if response is not None:
+                response.close()
+            if client is not self._client:
+                client.close()
 
     def _raise_for(self, response: httpx.Response) -> None:
         status = response.status_code
