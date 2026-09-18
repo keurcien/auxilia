@@ -46,9 +46,12 @@ _SCRIPTS_PREFIX = f"{SCRIPTS_DIR}/"
 
 @compiles(json_script_count)
 def _json_script_count(element, compiler, **kw) -> str:
+    # The only interpolations are `_SCRIPTS_PREFIX` and its length, both module
+    # constants; the JSON column itself is compiled by SQLAlchemy. Nothing here
+    # is user input, so the f-string cannot carry one.
     files = compiler.process(element.clauses, **kw)
     return (
-        f"(SELECT count(*) FROM json_each({files}) AS f "
+        f"(SELECT count(*) FROM json_each({files}) AS f "  # nosec B608
         f"WHERE substr(json_extract(f.value, '$.path'), 1, {len(_SCRIPTS_PREFIX)}) "
         f"= '{_SCRIPTS_PREFIX}')"
     )
@@ -56,9 +59,10 @@ def _json_script_count(element, compiler, **kw) -> str:
 
 @compiles(json_script_count, "postgresql")
 def _jsonb_script_count(element, compiler, **kw) -> str:
+    # Same as above: module constants only, never user input.
     files = compiler.process(element.clauses, **kw)
     return (
-        f"(SELECT count(*) FROM jsonb_array_elements({files}) AS f "
+        f"(SELECT count(*) FROM jsonb_array_elements({files}) AS f "  # nosec B608
         f"WHERE substr(f->>'path', 1, {len(_SCRIPTS_PREFIX)}) = '{_SCRIPTS_PREFIX}')"
     )
 

@@ -21,6 +21,9 @@ class StubSandbox(BaseSandbox):
         self.commands: list[str] = []
         self.uploads: list[list[tuple[str, bytes]]] = []
         self.fail_uploads = False
+        # Paths this stub reports as failed while still storing the rest —
+        # what OpenSandbox and Daytona do (per-file error, carry on).
+        self.fail_paths: set[str] = set()
         self.persisted = 0
 
     @property
@@ -56,9 +59,14 @@ class StubSandbox(BaseSandbox):
             return [
                 FileUploadResponse(path=p, error="permission_denied") for p, _ in files
             ]
+        results = []
         for path, content in files:
+            if path in self.fail_paths:
+                results.append(FileUploadResponse(path=path, error="permission_denied"))
+                continue
             self.files[path] = content
-        return [FileUploadResponse(path=p) for p, _ in files]
+            results.append(FileUploadResponse(path=path))
+        return results
 
     def download_files(self, paths: list[str]) -> list[FileDownloadResponse]:
         return [

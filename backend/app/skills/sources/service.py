@@ -239,20 +239,22 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
         decisions, report = _classify(resolved, existing)
 
         for decision in decisions:
+            # `assert` would be the obvious narrowing here, but it is compiled
+            # out under -O and static analysis rightly flags it. `_incoming`
+            # states the invariant once and raises for real if it is ever broken.
             if decision.status == "skipped":
                 continue
+
             if decision.status == "new":
-                assert decision.bundle is not None and decision.digest is not None
+                bundle, digest = _incoming(decision)
                 created = await self._skills.create(
                     SkillCreateDB(
                         owner_id=row.owner_id,
-                        name=decision.bundle.name,
-                        description=decision.bundle.description,
-                        content=decision.bundle.content,
-                        files=[
-                            f.model_dump(mode="json") for f in decision.bundle.files
-                        ],
-                        digest=decision.digest,
+                        name=bundle.name,
+                        description=bundle.description,
+                        content=bundle.content,
+                        files=[f.model_dump(mode="json") for f in bundle.files],
+                        digest=digest,
                         source_id=row.id,
                         source_path=decision.path,
                         source_revision=resolved.revision,
@@ -260,15 +262,18 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
                 )
                 await self._skills.record_version(
                     created.id,
-                    digest=decision.digest,
+                    digest=digest,
                     revision=resolved.revision,
-                    content=decision.bundle.content,
-                    files=[f.model_dump(mode="json") for f in decision.bundle.files],
+                    content=bundle.content,
+                    files=[f.model_dump(mode="json") for f in bundle.files],
                 )
                 continue
 
             current = decision.current
-            assert current is not None
+            if current is None:
+                raise RuntimeError(
+                    f"{decision.name}: a '{decision.status}' decision must carry a row"
+                )
             if decision.status == "gone":
                 current.missing_upstream = True
                 self.db.add(current)
@@ -277,15 +282,15 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
             current.source_path = decision.path
             current.missing_upstream = False
             if decision.status == "updated":
-                assert decision.bundle is not None and decision.digest is not None
+                bundle, digest = _incoming(decision)
                 # Recorded as *available*, never applied: what an agent runs
                 # changes only when someone adopts it.
                 await self._skills.record_version(
                     current.id,
-                    digest=decision.digest,
+                    digest=digest,
                     revision=resolved.revision,
-                    content=decision.bundle.content,
-                    files=[f.model_dump(mode="json") for f in decision.bundle.files],
+                    content=bundle.content,
+                    files=[f.model_dump(mode="json") for f in bundle.files],
                 )
             else:  # unchanged
                 current.source_revision = resolved.revision
@@ -397,6 +402,20 @@ class _Decision:
     bundle: SkillBundle | None = None
     digest: str | None = None
     current: SkillDB | None = None
+
+
+def _incoming(decision: _Decision) -> tuple[SkillBundle, str]:
+    """The content a `new` or `updated` decision carries.
+
+    `_classify` always fills both for those two statuses; this turns that
+    invariant into a real failure rather than an `assert` that disappears
+    under -O and reads as a security finding to static analysis.
+    """
+    if decision.bundle is None or decision.digest is None:
+        raise RuntimeError(
+            f"{decision.name}: a '{decision.status}' decision must carry a bundle"
+        )
+    return decision.bundle, decision.digest
 
 
 def _classify(

@@ -23,7 +23,9 @@ interface SkillDiffDialogProps {
 	onAdopted: (skill: Skill) => void;
 }
 
-const CATEGORY_COPY: Record<string, { label: string; note: string; tone: "warn" | "trust" | "plain" }> = {
+// A Map: `category` arrives from the API, so a bracket lookup on a plain
+// object would be an inherited-property sink.
+const CATEGORY_COPY = new Map<string, { label: string; note: string; tone: "warn" | "trust" | "plain" }>(Object.entries({
 	description: { label: "Trigger", note: "the description changed — the skill may now fire on different requests", tone: "warn" },
 	instructions: { label: "Instructions", note: "the SKILL.md body changed", tone: "plain" },
 	scripts: { label: "Scripts", note: "executable content changed — review before adopting", tone: "trust" },
@@ -31,7 +33,7 @@ const CATEGORY_COPY: Record<string, { label: string; note: string; tone: "warn" 
 	references: { label: "References", note: "reference files changed", tone: "plain" },
 	assets: { label: "Assets", note: "asset files changed", tone: "plain" },
 	other: { label: "Other", note: "metadata, license or other files changed", tone: "plain" },
-};
+}));
 
 function toneClass(tone: "warn" | "trust" | "plain"): string {
 	switch (tone) {
@@ -132,7 +134,7 @@ export default function SkillDiffDialog({ open, onOpenChange, skill, canAdopt, o
 					<div className="flex min-w-0 flex-col gap-4">
 						<div className="flex flex-col gap-1.5">
 							{diff.categories.map((category) => {
-								const copy = CATEGORY_COPY[category] ?? { label: category, note: "", tone: "plain" as const };
+								const copy = CATEGORY_COPY.get(category) ?? { label: category, note: "", tone: "plain" as const };
 								return (
 									<div key={category} className="flex items-center gap-2.5">
 										<span className={`inline-flex shrink-0 items-center rounded-[4px] px-2 py-[3px] font-mono text-[9.5px] font-semibold uppercase tracking-[0.05em] ${toneClass(copy.tone)}`}>

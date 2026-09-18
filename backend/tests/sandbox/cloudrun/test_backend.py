@@ -8,7 +8,11 @@ import pytest
 
 from app.sandbox.cloudrun.backend import CloudRunSandbox
 from app.sandbox.cloudrun.provider import CloudRunProvider
-from app.sandbox.cloudrun.transport import ExecResult, SandboxTimeoutError
+from app.sandbox.cloudrun.transport import (
+    ExecResult,
+    SandboxNotFoundError,
+    SandboxTimeoutError,
+)
 from app.sandbox.schemas import CloudRunConfig
 
 
@@ -223,11 +227,26 @@ class TestProvider:
 
     def test_connect_restores_from_snapshot(self, transport):
         provider = make_provider(transport, snapshots=FakeSnapshotStore(tar=b"tar"))
-        transport.queue(RuntimeError("not running"))  # is_alive probe fails
+        transport.queue(SandboxNotFoundError("sbx-old"))  # genuinely gone
         backend = provider.connect("sbx-old")
 
         assert backend.id == "sbx-old"
         assert transport.launched[0] == ("sbx-old", False, b"tar")
+
+    def test_a_transient_probe_failure_never_replaces_the_sandbox(self, transport):
+        """The P1 from review: with snapshots unavailable, one flaky gateway
+        call used to reach `SandboxGoneError`, so `open_sandbox` created a
+        replacement and the thread silently lost its files. A probe failure is
+        now the provider's problem, not the sandbox's."""
+        from app.sandbox.provider import SandboxUnavailableError, open_sandbox
+
+        provider = make_provider(transport, snapshots=FakeSnapshotStore(tar=None))
+        transport.queue(RuntimeError("temporary gateway failure"))
+
+        with pytest.raises(SandboxUnavailableError):
+            open_sandbox(provider, "sbx-existing")
+
+        assert transport.launched == []  # nothing was created in its place
 
     def test_connect_without_snapshot_is_gone(self, transport):
         """No live sandbox and no snapshot is the one recoverable failure:
@@ -265,8 +284,16 @@ class TestLifecycle:
         assert backend.is_alive() is True
         transport.queue(ExecResult(stdout=b"", stderr=b"", returncode=1))
         assert backend.is_alive() is False
-        transport.queue(RuntimeError("gateway unreachable"))
+        transport.queue(SandboxNotFoundError("sbx-1"))
         assert backend.is_alive() is False
+
+    def test_is_alive_propagates_a_probe_failure(self, backend, transport):
+        """An unreachable gateway says nothing about the sandbox. Reporting it
+        as "not alive" made a transient outage look like a dead sandbox, and
+        the caller replaced it — losing the thread's files."""
+        transport.queue(RuntimeError("temporary gateway failure"))
+        with pytest.raises(RuntimeError, match="temporary gateway failure"):
+            backend.is_alive()
 
     def test_snapshot_returns_overlay_tar(self, backend):
         assert backend.snapshot() == b"overlay-tar"

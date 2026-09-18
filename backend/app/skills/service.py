@@ -248,13 +248,29 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
             for row in await self.repository.list_attached(agent_id)
         ]
 
-    async def set_for_agent(self, agent_id: UUID, skill_ids: Iterable[UUID]) -> None:
-        """Whole-set replace of an agent's skills, from the config save."""
+    async def set_for_agent(
+        self,
+        agent_id: UUID,
+        skill_ids: Iterable[UUID],
+        *,
+        always_validate: bool = False,
+    ) -> None:
+        """Whole-set replace of an agent's skills, from the config save.
+
+        `always_validate` keeps the graph check even when the skill set is
+        unchanged: a config save may have just rewired the subagents, and this
+        is where the resulting graph is judged — the subagent step defers to
+        it, because only the final graph can be judged at all.
+        """
         wanted = set(skill_ids)
         if wanted - await self.repository.list_existing_ids(wanted):
             raise NotFoundError(self.not_found_message)
         current = await self.repository.list_attached_ids(agent_id)
+        if wanted == current and not always_validate:
+            return
         if wanted == current:
+            for graph in await self._graphs_of(agent_id):
+                await self.ensure_unique_names(graph)
             return
         # The agent's graph — a supervisor and its subagents — runs with one
         # skill set, so the names must stay unique across it, not just here.

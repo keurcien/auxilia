@@ -25,10 +25,10 @@ interface SkillSourceTableProps {
 	onError: (message: string | null) => void;
 }
 
-const STATUS_COPY: Record<
+const STATUS_COPY = new Map<
 	SkillSyncStatus,
 	{ label: string; className: string; note?: string }
-> = {
+>(Object.entries({
 	new: {
 		label: "NEW",
 		className: "bg-success-bg text-success dark:bg-emerald-950 dark:text-emerald-300",
@@ -50,7 +50,7 @@ const STATUS_COPY: Record<
 		className: "bg-neutral-bg text-subtle dark:bg-white/10 dark:text-panel-body",
 		note: "has an error",
 	},
-};
+}) as [SkillSyncStatus, { label: string; className: string; note?: string }][]);
 
 /**
  * What the sync is about to do, as the confirmation body.
@@ -91,7 +91,8 @@ function SyncPlanSummary({ plan }: { plan: SkillSyncPlan }) {
 			{shown.length > 0 && (
 				<span className="mt-3 block max-h-[280px] overflow-y-auto overflow-x-hidden rounded-[8px] border border-border [scrollbar-width:thin]">
 					{shown.map((entry) => {
-						const copy = STATUS_COPY[entry.status];
+						const copy = STATUS_COPY.get(entry.status);
+						if (!copy) return null;
 						return (
 							<span
 								key={`${entry.status}-${entry.name}-${entry.path}`}

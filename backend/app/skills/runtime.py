@@ -144,12 +144,24 @@ def upload_skills(backend: BaseSandbox, files: dict[str, bytes]) -> bool:
         raise RuntimeError(
             f"Failed to create the skills directory in the sandbox: {created.output[:2000]}"
         )
-    uploads = [*files.items(), (marker, digest.encode())]
+    # Two phases, and the order matters. Backends report a failed file and
+    # carry on with the rest, so a marker written in the same batch could
+    # land while a script did not: the next run's digest check would match,
+    # return early, and never repair the missing file. The marker goes last,
+    # once every skill file is known to be there — a run that fails between
+    # the two leaves no marker, so the next one re-uploads everything.
+    _upload_or_raise(backend, list(files.items()), "skill files")
+    _upload_or_raise(backend, [(marker, digest.encode())], "the digest marker")
+    return True
+
+
+def _upload_or_raise(
+    backend: BaseSandbox, uploads: list[tuple[str, bytes]], what: str
+) -> None:
     results = backend.upload_files(uploads)
     failed = [result.path for result in results if result.error]
     if failed or len(results) != len(uploads):
         raise RuntimeError(
-            "Failed to upload skill files to the sandbox: "
+            f"Failed to upload {what} to the sandbox: "
             + (", ".join(failed) or "incomplete upload")
         )
-    return True

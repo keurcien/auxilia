@@ -448,12 +448,18 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         )
         await self.mcp_server_service.set_for_agent(agent_id, config.mcp_servers)
         await self.sandbox_service.set_for_agent(agent_id, config.sandboxes)
-        # Subagents before skills: joining a graph merges two skill sets, and
-        # the skills check runs against the graph as it will be after this save.
+        # Subagents before skills, and the subagent step does not judge skill
+        # names: only the *final* graph can be, and this save is changing both
+        # halves of it. `set_for_agent` runs that check last, against the graph
+        # these links have just produced and the skill set being requested —
+        # so removing a conflicting skill and adding a subagent in one save is
+        # a valid atomic change instead of needing two.
         await self.subagent_service.set_for_supervisor(
-            agent_id, config.subagent_ids, user_role=user_role
+            agent_id, config.subagent_ids, user_role=user_role, validate_skills=False
         )
-        await self.skill_service.set_for_agent(agent_id, config.skill_ids)
+        await self.skill_service.set_for_agent(
+            agent_id, config.skill_ids, always_validate=True
+        )
         return await self.get(
             agent_id, user_id=user_id, user_role=user_role, user_team_id=user_team_id
         )

@@ -57,7 +57,10 @@ def parse_skill(content: str, files: list[SkillFile] | None = None) -> SkillBund
             "; ".join(_wording(i.message) for i in report.errors)
         )
     frontmatter = parsed[0]
-    assert frontmatter is not None  # an unreadable frontmatter is an error above
+    if frontmatter is None:
+        # Unreachable: an unreadable frontmatter is already an error above.
+        # Stated as a raise, not an `assert` — asserts vanish under -O.
+        raise DomainValidationError("Invalid YAML frontmatter")
     try:
         return SkillBundle(
             name=frontmatter.name,

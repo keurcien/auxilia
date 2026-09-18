@@ -18,7 +18,7 @@ from deepagents.middleware.skills import SkillMetadata, SkillsMiddleware
 # The same absolute path in both, so a supervisor can hand a script's path to
 # a sandboxed subagent. ``/tmp`` because it is writable without root in every
 # sandbox image.
-SKILLS_ROOT = "/tmp/auxilia-skills"
+SKILLS_ROOT = "/tmp/auxilia-skills"  # nosec B108 - deliberate, see above
 SKILLS_SOURCES: list[tuple[str, str]] = [(SKILLS_ROOT, "Agent")]
 
 # deepagents' template, minus its sentence about "Deepagents" vs "Agents"

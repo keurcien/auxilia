@@ -96,12 +96,14 @@ export type ProtocolRejection =
 	| { kind: "sandbox_unavailable"; detail: string }
 	| { kind: "stale_interrupt"; detail: string };
 
-const REJECTION_DEFAULTS: Record<ProtocolRejection["kind"], string> = {
-	model_unavailable:
+const REJECTION_DEFAULTS = new Map<ProtocolRejection["kind"], string>([
+	[
+		"model_unavailable",
 		"This conversation's model is no longer available in this workspace.",
-	sandbox_unavailable: "This agent's sandbox is not available right now.",
-	stale_interrupt: "This approval was already handled elsewhere.",
-};
+	],
+	["sandbox_unavailable", "This agent's sandbox is not available right now."],
+	["stale_interrupt", "This approval was already handled elsewhere."],
+]);
 
 /**
  * Decode the backend's pre-run 409 gates (`ModelUnavailableError`,
@@ -125,7 +127,8 @@ export function decodeProtocolRejection(
 	}
 	return {
 		kind: error,
-		detail: typeof detail === "string" ? detail : REJECTION_DEFAULTS[error],
+		detail:
+			typeof detail === "string" ? detail : (REJECTION_DEFAULTS.get(error) ?? ""),
 	};
 }
 

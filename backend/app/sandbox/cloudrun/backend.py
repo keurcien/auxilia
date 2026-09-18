@@ -26,6 +26,7 @@ from deepagents.backends.sandbox import BaseSandbox
 
 from app.sandbox.cloudrun.snapshots import SnapshotStore
 from app.sandbox.cloudrun.transport import (
+    SandboxNotFoundError,
     SandboxTimeoutError,
     SandboxTransport,
 )
@@ -101,10 +102,18 @@ class CloudRunSandbox(BaseSandbox):
         )
 
     def is_alive(self) -> bool:
-        """Probe whether the named sandbox still exists."""
+        """Probe whether the named sandbox still exists.
+
+        Only an explicit not-found answers `False`. A gateway that is
+        unreachable, timing out or erroring says nothing about the sandbox,
+        and swallowing that made a transient outage look like a dead sandbox:
+        the caller replaced it and the thread lost its files. Those failures
+        propagate, and `open_sandbox` turns them into `SandboxUnavailableError`
+        rather than creating a replacement.
+        """
         try:
             result = self._transport.exec(self._id, ["/bin/true"], timeout=30)
-        except Exception:  # noqa: BLE001 — any probe failure means "not alive"
+        except SandboxNotFoundError:
             return False
         return result.returncode == 0
 

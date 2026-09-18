@@ -21,7 +21,10 @@ export type SkillFileKind =
 	| "shell"
 	| "plain";
 
-const BY_EXTENSION: Record<string, SkillFileKind> = {
+// A Map, not a `Record`: the key is an extension taken from a repository
+// file name, so a file called `x.__proto__` would reach Object.prototype
+// through bracket lookup. `Map.get` has no such reach.
+const BY_EXTENSION = new Map<string, SkillFileKind>(Object.entries({
 	py: "python",
 	pyi: "python",
 	ts: "typescript",
@@ -37,7 +40,7 @@ const BY_EXTENSION: Record<string, SkillFileKind> = {
 	sh: "shell",
 	bash: "shell",
 	zsh: "shell",
-};
+}));
 
 /** The lowercase extension of a path, or "" when it has none. */
 export function fileExtension(path: string): string {
@@ -47,14 +50,14 @@ export function fileExtension(path: string): string {
 }
 
 export function skillFileKind(path: string): SkillFileKind {
-	return BY_EXTENSION[fileExtension(path)] ?? "plain";
+	return BY_EXTENSION.get(fileExtension(path)) ?? "plain";
 }
 
 /**
  * The shiki grammar for a path. Anything without a grammar we are sure of
  * renders as plain text rather than being highlighted as the wrong language.
  */
-const BY_LANGUAGE: Record<string, BundledLanguage> = {
+const BY_LANGUAGE = new Map<string, BundledLanguage>(Object.entries({
 	py: "python",
 	pyi: "python",
 	ts: "typescript",
@@ -78,10 +81,10 @@ const BY_LANGUAGE: Record<string, BundledLanguage> = {
 	html: "html",
 	css: "css",
 	xml: "xml",
-};
+}));
 
 export function skillFileLanguage(path: string): BundledLanguage | SpecialLanguage {
-	return BY_LANGUAGE[fileExtension(path)] ?? "plaintext";
+	return BY_LANGUAGE.get(fileExtension(path)) ?? "plaintext";
 }
 
 interface FileTypeIconProps {

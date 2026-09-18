@@ -88,6 +88,28 @@ def test_backend_refuses_every_write_without_raising():
 # --- the sandbox upload -----------------------------------------------------
 
 
+def test_a_failed_file_never_leaves_the_digest_marker_behind():
+    """The P2 from review: backends report a failed file and keep uploading
+    the rest, so a marker written in the same batch could land while a script
+    did not. The next run's digest check would then match and return early,
+    leaving the script missing until the bundle itself changed."""
+    sandbox = StubSandbox()
+    files = skill_files([REPORT])
+    script = next(path for path in files if path.endswith("run.py"))
+    sandbox.fail_paths = {script}
+
+    with pytest.raises(RuntimeError, match="skill files"):
+        upload_skills(sandbox, files)
+
+    # No marker, so the next attempt cannot short-circuit.
+    assert f"{SKILLS_ROOT}/{DIGEST_MARKER}" not in sandbox.files
+
+    sandbox.fail_paths = set()
+    assert upload_skills(sandbox, files) is True
+    assert sandbox.files[script] == files[script]
+    assert f"{SKILLS_ROOT}/{DIGEST_MARKER}" in sandbox.files
+
+
 def test_upload_writes_everything_once_then_reuses_by_digest():
     sandbox = StubSandbox()
     files = skill_files([REPORT])
@@ -95,10 +117,11 @@ def test_upload_writes_everything_once_then_reuses_by_digest():
     assert upload_skills(sandbox, files) is True
     assert set(files) <= set(sandbox.files)
     assert f"{SKILLS_ROOT}/{DIGEST_MARKER}" in sandbox.files
-    assert len(sandbox.uploads) == 1
+    # Two batches on purpose: the files, then the marker (see below).
+    assert len(sandbox.uploads) == 2
 
     assert upload_skills(sandbox, files) is False  # one `cat`, no upload
-    assert len(sandbox.uploads) == 1
+    assert len(sandbox.uploads) == 2  # unchanged: nothing was uploaded again
 
 
 def test_upload_recreates_the_root_when_a_skill_changed():
