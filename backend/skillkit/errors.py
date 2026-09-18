@@ -1,8 +1,9 @@
 """One base exception, specific subclasses, no bare raises.
 
-The three ``SourceError`` leaves are distinct *types* on purpose: a consumer
-must tell "not configured" (auth), "permanently broken" (revision gone) and
-"temporarily broken" (host unreachable) apart without matching strings.
+The ``SourceError`` leaves are distinct *types* on purpose: a consumer must
+tell "not configured" (auth), "permanently broken" (revision gone), "nothing
+there yet" (empty) and "temporarily broken" (host unreachable) apart without
+matching strings.
 """
 
 
@@ -20,6 +21,13 @@ class AuthenticationError(SourceError):
 
 class RevisionNotFound(SourceError):
     """The repository, ref or path does not exist at the host."""
+
+
+class EmptyRepository(SourceError):
+    """The repository exists and the credentials work, but it holds no
+    commits — so there is no ref to resolve and nothing to read. GitHub says
+    409 for this; without its own type it landed in the catch-all and was
+    reported as if the host were unreachable."""
 
 
 class SourceUnavailable(SourceError):

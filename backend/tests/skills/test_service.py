@@ -28,17 +28,43 @@ pytestmark = pytest.mark.asyncio
 
 async def test_create_derives_columns_from_the_document(agent_session, member):
     service = SkillService(agent_session)
-    files = [SkillFile(path="scripts/run.py", content="print(1)\n")]
 
     created = await service.create(
-        SkillSave(content=skill_markdown("deploy", "Ship it"), files=files), member
+        SkillSave(content=skill_markdown("deploy", "Ship it")), member
     )
 
     row = await agent_session.get(SkillDB, created.id)
     assert (row.name, row.description, row.revision) == ("deploy", "Ship it", 1)
-    assert created.file_count == 1
+    assert created.file_count == 0
     assert created.can_edit is True
-    assert created.files == files
+    assert created.files == []
+
+
+async def test_a_skill_written_here_is_refused_any_file(agent_session, member):
+    """Files — references, assets and `scripts/` alike — reach the library
+    only through a repository. Only the two in-app writes are guarded; the
+    sync path builds its rows straight from `SkillCreateDB`."""
+    service = SkillService(agent_session)
+    files = [SkillFile(path="scripts/run.py", content="print(1)\n")]
+
+    with pytest.raises(DomainValidationError, match=r"single SKILL\.md"):
+        await service.create(
+            SkillSave(content=skill_markdown("deploy", "Ship it"), files=files), member
+        )
+
+    created = await service.create(
+        SkillSave(content=skill_markdown("deploy", "Ship it")), member
+    )
+    with pytest.raises(DomainValidationError, match=r"single SKILL\.md"):
+        await service.update(
+            created.id,
+            SkillSave(
+                content=skill_markdown("deploy", "Ship it"),
+                files=[SkillFile(path="references/notes.md", content="x")],
+                revision=created.revision,
+            ),
+            member,
+        )
 
 
 async def test_list_never_loads_files_and_counts_them(
@@ -56,9 +82,13 @@ async def test_list_never_loads_files_and_counts_them(
 
     assert summary.file_count == 2
     assert summary.can_edit is False  # someone else's, and not an admin
-    assert len(statements) == 1
-    assert "skills.content" not in statements.statements[0]
-    assert "json_array_length(skills.files)" in statements.statements[0]
+    # Two statements for the whole library, however many skills it holds: the
+    # rows, then every skill->agent binding in one go for the avatar stacks.
+    # What must never appear is a third that scales with the row count.
+    assert len(statements) == 2
+    [rows_query] = [q for q in statements.statements if "FROM skills" in q]
+    assert "skills.content" not in rows_query
+    assert "json_array_length(skills.files)" in rows_query
 
 
 async def test_counts_scripts_and_agents_everywhere(agent_session, member):
@@ -159,13 +189,6 @@ async def test_delete_removes_an_unattached_skill(agent_session, member):
 
     with pytest.raises(NotFoundError):
         await service.get(row.id, member)
-
-
-async def test_export_names_the_archive_after_the_skill(agent_session):
-    row = await seed_skill(agent_session, owner_id=uuid4(), name="export-me")
-    name, archive = await SkillService(agent_session).export(row.id)
-    assert name == "export-me"
-    assert archive[:2] == b"PK"
 
 
 async def test_set_for_agent_replaces_the_whole_set(agent_session):

@@ -23,7 +23,11 @@ export interface SkillFields {
 	body: string;
 }
 
-const FRONTMATTER = /^---[ \t]*\n([\s\S]*?)\n---[ \t]*(?:\n|$)([\s\S]*)$/;
+// The blank line `composeSkillMarkdown` writes after the closing `---` is
+// the separator, not the first line of the body: consume it here too, or
+// the form shows a leading blank line that cannot be deleted (removing it
+// composes a byte-identical document, so the split puts it straight back).
+const FRONTMATTER = /^---[ \t]*\n([\s\S]*?)\n---[ \t]*(?:\n|$)\n?([\s\S]*)$/;
 // `key: value` on one line. Anything else (a folded `>` / `|` scalar, a
 // nested mapping, a list) means the document is not ours to rewrite.
 const SIMPLE_LINE = /^([A-Za-z0-9_-]+):[ \t]*(.*)$/;
@@ -136,38 +140,7 @@ export function skillDescriptionError(description: string): string | null {
 	return null;
 }
 
-/** Where an uploaded file lands by convention: scripts, references or assets. */
-export function defaultFolder(filename: string, binary: boolean): string {
-	if (binary) return "assets";
-	const extension = filename.split(".").pop()?.toLowerCase() ?? "";
-	if (["py", "sh", "js", "ts", "rb", "sql", "r", "bash", "zsh"].includes(extension)) {
-		return "scripts";
-	}
-	return "references";
-}
-
-/** Read a browser `File` into a `SkillFile`: text when it decodes as UTF-8, else base64. */
-export async function readSkillFile(file: File): Promise<SkillFile> {
-	const bytes = new Uint8Array(await file.arrayBuffer());
-	try {
-		const content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-		return {
-			path: `${defaultFolder(file.name, false)}/${file.name}`,
-			content,
-			encoding: "utf-8",
-		};
-	} catch {
-		let binary = "";
-		for (const byte of bytes) binary += String.fromCharCode(byte);
-		return {
-			path: `${defaultFolder(file.name, true)}/${file.name}`,
-			content: btoa(binary),
-			encoding: "base64",
-		};
-	}
-}
-
-/** Byte size of a file's content, for the panel's placeholder. */
+/** Byte size of a file's content, shown next to it in the viewer. */
 export function skillFileSize(file: SkillFile): number {
 	if (file.encoding === "base64") {
 		const padding = (file.content.match(/=+$/) ?? [""])[0].length;

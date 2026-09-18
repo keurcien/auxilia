@@ -20,8 +20,8 @@ class SkillSourceDB(BaseDBModel, table=True):
     The token is encrypted at rest and only ever decrypted to resolve.
 
     `last_*` describe the last sync: `last_status` is one of ``ok``, ``auth``,
-    ``not_found``, ``unavailable``, ``invalid`` — the catalog's "not
-    configured" / "permanently broken" / "temporarily unavailable" states,
+    ``not_found``, ``empty``, ``unavailable``, ``invalid`` — "not configured"
+    / "permanently broken" / "nothing there yet" / "temporarily unavailable",
     told apart by type, not by message.
     """
 

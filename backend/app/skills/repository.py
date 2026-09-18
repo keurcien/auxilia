@@ -110,6 +110,7 @@ class SkillRepository(BaseRepository[SkillDB]):
             SkillDB.digest,
             SkillDB.missing_upstream,
             SkillSourceDB.name.label("source_name"),
+            SkillSourceDB.kind.label("source_kind"),
             _latest_version_digest().label("latest_digest"),
         )
         stmt = stmt.select_from(SkillDB).outerjoin(
@@ -195,6 +196,23 @@ class SkillRepository(BaseRepository[SkillDB]):
                 missing_upstream=False,
             )
         )
+
+    async def list_agents_by_skill(self):
+        """`(skill_id, id, name, emoji, color)` for every enabled skill, in one
+        query — the library shows each row's agents as avatars, and a row per
+        skill would be a query per row."""
+        stmt = (
+            select(
+                AgentSkillDB.skill_id,
+                AgentDB.id,
+                AgentDB.name,
+                AgentDB.emoji,
+                AgentDB.color,
+            )
+            .join(AgentSkillDB, col(AgentSkillDB.agent_id) == col(AgentDB.id))
+            .order_by(col(AgentDB.name), col(AgentDB.id))
+        )
+        return (await self.db.execute(stmt)).all()
 
     async def list_agents_using(self, skill_id: UUID):
         """`(id, name, emoji, color)` of every agent the skill is enabled on,

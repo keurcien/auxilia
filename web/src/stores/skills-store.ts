@@ -6,6 +6,7 @@ import {
 	SkillSource,
 	SkillSourceCreate,
 	SkillSourcePreview,
+	SkillSyncPlan,
 	SkillSummary,
 } from "@/types/skills";
 import { api } from "@/lib/api/client";
@@ -16,7 +17,6 @@ interface SkillsState {
 	fetchSkills: (force?: boolean) => Promise<void>;
 	getSkill: (id: string) => Promise<Skill>;
 	createSkill: (payload: SkillSave) => Promise<Skill>;
-	importSkill: (file: File) => Promise<Skill>;
 	updateSkill: (id: string, payload: SkillSave) => Promise<Skill>;
 	deleteSkill: (id: string) => Promise<void>;
 	/** Sourced skills: what the newest synced version changes, and adopting it. */
@@ -28,13 +28,16 @@ interface SkillsState {
 	fetchSources: (force?: boolean) => Promise<void>;
 	previewSource: (payload: SkillSourceCreate) => Promise<SkillSourcePreview>;
 	createSource: (payload: SkillSourceCreate) => Promise<SkillSource>;
+	/** What the next sync would change; reads the repository, writes nothing. */
+	planSync: (id: string) => Promise<SkillSyncPlan>;
 	syncSource: (id: string) => Promise<SkillSource>;
 	deleteSource: (id: string) => Promise<void>;
 }
 
 const summaryOf = (skill: Skill): SkillSummary => {
+	// `agents` stays: the library row renders it as an avatar stack.
 	// eslint-disable-next-line @typescript-eslint/no-unused-vars
-	const { content, files, agents, available, ...summary } = skill;
+	const { content, files, available, ...summary } = skill;
 	return summary;
 };
 
@@ -59,14 +62,6 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
 	},
 	createSkill: async (payload) => {
 		const response = await api.post("/skills", payload);
-		const created = response.data as Skill;
-		set((state) => ({ skills: [summaryOf(created), ...state.skills] }));
-		return created;
-	},
-	importSkill: async (file) => {
-		const form = new FormData();
-		form.append("file", file);
-		const response = await api.post("/skills/import", form);
 		const created = response.data as Skill;
 		set((state) => ({ skills: [summaryOf(created), ...state.skills] }));
 		return created;
@@ -125,6 +120,10 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
 		// The sync that ran on creation changed the library.
 		await get().fetchSkills(true);
 		return created;
+	},
+	planSync: async (id) => {
+		const response = await api.get(`/skills/sources/${id}/plan`);
+		return response.data as SkillSyncPlan;
 	},
 	syncSource: async (id) => {
 		const response = await api.post(`/skills/sources/${id}/sync`);

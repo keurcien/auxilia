@@ -22,17 +22,15 @@ interface UseDeleteSkillOptions {
  * `pending`.
  */
 export function useDeleteSkill({ onDeleted, onError }: UseDeleteSkillOptions = {}) {
-	const getSkill = useSkillsStore((state) => state.getSkill);
 	const deleteSkill = useSkillsStore((state) => state.deleteSkill);
 	const [guard, setGuard] = useState<DeleteGuard | null>(null);
 	const [pending, setPending] = useState<SkillSummary | null>(null);
 
-	const requestDelete = async (skill: SkillSummary | Skill) => {
+	const requestDelete = (skill: SkillSummary | Skill) => {
 		if (skill.agentCount > 0) {
-			// A summary row doesn't carry the agents; the detail does.
-			const agents =
-				"agents" in skill ? skill.agents : (await getSkill(skill.id)).agents;
-			setGuard({ skill, agents });
+			// Summary and detail both carry the agents, so the guard never has
+			// to fetch the skill just to name them.
+			setGuard({ skill, agents: skill.agents });
 			return;
 		}
 		setPending(skill);

@@ -15,6 +15,13 @@ from sqlmodel import SQLModel
 
 MAX_BUNDLE_BYTES = 10 * 1024 * 1024
 MAX_FILES = 100
+# Files in a whole *repository* archive, not in one skill. A source is often a
+# monorepo whose skills sit under `subpath`, and the archive is fetched whole
+# before anything is filtered, so this counts everything the repository holds.
+# `MAX_BUNDLE_BYTES` is the real resource bound; this only stops a pathological
+# tree. Keep it far above MAX_FILES — conflating the two capped every source at
+# one skill's worth of files.
+MAX_SOURCE_FILES = 20_000
 # The Agent Skills layout folder whose files are programs an agent runs. A
 # skill with anything under it needs an agent that runs code; a skill without
 # is instructions and references only, and applies to every agent.
@@ -118,6 +125,20 @@ class SkillCreateDB(SQLModel):
     source_revision: str | None = None
 
 
+class SkillSourceKind(str, Enum):
+    github = "github"
+    gitlab = "gitlab"
+
+
+class SkillAgentRef(BaseModel):
+    """An agent a skill is enabled on — enough to name and link it."""
+
+    id: UUID
+    name: str
+    emoji: str | None = None
+    color: str | None = None
+
+
 class SkillSummary(BaseModel):
     """A library row — everything but the document and its files.
 
@@ -141,25 +162,20 @@ class SkillSummary(BaseModel):
     file_count: int
     script_count: int
     agent_count: int
+    # The same agents `agent_count` counts, for the library's avatar stack.
+    agents: list[SkillAgentRef] = []
     updated_at: datetime
     can_edit: bool
     can_manage: bool = False
     source_id: UUID | None = None
     source_name: str | None = None
+    # Which host, so the library can show its mark next to the repository.
+    source_kind: SkillSourceKind | None = None
     source_path: str | None = None
     source_revision: str | None = None
     digest: str | None = None
     update_available: bool = False
     missing_upstream: bool = False
-
-
-class SkillAgentRef(BaseModel):
-    """An agent a skill is enabled on — enough to name and link it."""
-
-    id: UUID
-    name: str
-    emoji: str | None = None
-    color: str | None = None
 
 
 class SkillVersionInfo(BaseModel):
@@ -217,9 +233,28 @@ class SkillDiffResponse(BaseModel):
 # -- sources -------------------------------------------------------------------
 
 
-class SkillSourceKind(str, Enum):
-    github = "github"
-    gitlab = "gitlab"
+class SkillSyncEntry(BaseModel):
+    """One skill in a sync plan — what syncing would do to it.
+
+    `unchanged` and `updated` both leave the live skill alone: a sync only
+    makes a new version *available*, and adopting it is a separate, per-skill
+    decision. `new` is the one status that changes the library on the spot,
+    and `gone` only flags the skill — it keeps working, pinned.
+    """
+
+    name: str
+    path: str
+    status: Literal["new", "updated", "unchanged", "gone", "skipped"]
+    script_count: int = 0
+    issues: list[SkillIssue] = []
+
+
+class SkillSyncPlan(BaseModel):
+    """What a sync would do, computed without writing anything."""
+
+    revision: str
+    current_revision: str | None = None
+    entries: list[SkillSyncEntry] = []
 
 
 class SkillSourceCreate(BaseModel):

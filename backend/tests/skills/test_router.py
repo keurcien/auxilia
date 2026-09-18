@@ -1,7 +1,5 @@
 """The /skills HTTP surface: status codes and shapes, service mocked."""
 
-import io
-import zipfile
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
@@ -48,7 +46,6 @@ def service(current_user):
     svc.create = AsyncMock(return_value=_response())
     svc.update = AsyncMock(return_value=_response(revision=2))
     svc.delete = AsyncMock()
-    svc.export = AsyncMock(return_value=("report", b"PK\x05\x06" + b"\0" * 18))
     app.dependency_overrides[get_skill_service] = lambda: svc
     yield svc
     app.dependency_overrides.pop(get_skill_service, None)
@@ -89,35 +86,6 @@ def test_invalid_document_is_a_400_with_the_reason(client: TestClient, service):
     response = client.post("/skills/", json={"content": "no frontmatter"})
     assert response.status_code == 400
     assert response.json()["detail"] == "name: bad"
-
-
-def test_import_accepts_a_zip(client: TestClient, service):
-    output = io.BytesIO()
-    with zipfile.ZipFile(output, "w") as archive:
-        archive.writestr("report/SKILL.md", skill_markdown())
-        archive.writestr("report/scripts/run.py", "print(1)")
-    response = client.post(
-        "/skills/import",
-        files={"file": ("report.zip", output.getvalue(), "application/zip")},
-    )
-    assert response.status_code == 201
-    save = service.create.call_args.args[0]
-    assert save.files[0].path == "scripts/run.py"
-
-
-def test_import_rejects_garbage_as_400(client: TestClient, service):
-    response = client.post(
-        "/skills/import", files={"file": ("x.zip", b"nope", "application/zip")}
-    )
-    assert response.status_code == 400
-    service.create.assert_not_called()
-
-
-def test_export_streams_a_zip_attachment(client: TestClient, service):
-    response = client.get(f"/skills/{uuid4()}/export")
-    assert response.status_code == 200
-    assert response.headers["content-type"] == "application/zip"
-    assert 'filename="report.zip"' in response.headers["content-disposition"]
 
 
 def test_delete_is_204(client: TestClient, service):

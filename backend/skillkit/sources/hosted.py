@@ -13,6 +13,7 @@ import httpx
 
 from skillkit.errors import (
     AuthenticationError,
+    EmptyRepository,
     LimitExceeded,
     RevisionNotFound,
     SourceUnavailable,
@@ -152,6 +153,10 @@ class HostedSource:
         if status == 404:
             raise RevisionNotFound(
                 f"{self.project_path}@{self.ref}: repository, ref or path not found on {self.host}"
+            )
+        if status == 409:
+            raise EmptyRepository(
+                f"{self.project_path} has no commits yet on {self.host}"
             )
         if status == 429 or status >= 500:
             raise SourceUnavailable(f"{self.host} answered {status}")

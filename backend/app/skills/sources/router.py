@@ -8,6 +8,7 @@ from app.skills.schemas import (
     SkillSourcePatch,
     SkillSourcePreview,
     SkillSourceResponse,
+    SkillSyncPlan,
 )
 from app.skills.sources.service import SkillSourceService, get_skill_source_service
 from app.users.models import UserDB
@@ -73,6 +74,16 @@ async def delete_source(
     service: SkillSourceService = Depends(get_skill_source_service),
 ):
     await service.delete(source_id, user)
+
+
+@router.get("/{source_id}/plan", response_model=SkillSyncPlan)
+async def plan_sync(
+    source_id: UUID,
+    user: UserDB = Depends(require_admin),
+    service: SkillSourceService = Depends(get_skill_source_service),
+):
+    """What the next sync would change. Reads the repository, writes nothing."""
+    return await service.plan(source_id, user)
 
 
 @router.post("/{source_id}/sync", response_model=SkillSourceResponse)

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Lock } from "lucide-react";
 import { Fragment } from "react";
 
 export interface BreadcrumbSegment {
@@ -62,6 +63,23 @@ export function UnsavedBadge() {
 	return (
 		<span className="rounded-[4px] bg-warning-bg px-2 py-0.5 font-mono text-[10px] font-semibold tracking-[0.05em] text-warning">
 			UNSAVED
+		</span>
+	);
+}
+
+/**
+ * Inert "Read-only" marker, sized like a header button so it sits in the
+ * slot the Edit button would occupy. Muted and cursor-default: it holds the
+ * place of an action rather than offering one.
+ */
+export function HeaderReadOnly({ title }: { title?: string }) {
+	return (
+		<span
+			title={title}
+			className="flex cursor-default items-center gap-1.5 rounded-[7px] border border-input bg-card px-3.5 py-2 text-[13px] font-semibold text-meta dark:text-panel-dim"
+		>
+			<Lock className="size-3.5" />
+			Read-only
 		</span>
 	);
 }
