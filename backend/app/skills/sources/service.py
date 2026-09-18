@@ -169,7 +169,14 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
         elif data.token:
             row.encrypted_token = encrypt_value(data.token)
         self.db.add(row)
-        await self.db.flush()
+        try:
+            await self.db.flush()
+        except IntegrityError as exc:
+            # Same race as `create`: the preflight above cannot see a row
+            # another transaction has not committed yet.
+            raise DomainValidationError(
+                "Another source already tracks this repository, ref and path"
+            ) from exc
         await self.db.refresh(row)
         return _response(row, user)
 

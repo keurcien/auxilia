@@ -127,6 +127,13 @@ class SandboxService(BaseService[SandboxDB, SandboxRepository]):
             raise DomainValidationError(
                 f"Sandbox is used by {len(agents)} agent(s) — detach it first"
             )
+        # The threads this sandbox issued ids to lose their stamp with it.
+        # `sandbox_source_id` is ON DELETE SET NULL, and a null source reads as
+        # "legacy, reconnect" — so without this the dead id would look reusable
+        # to whatever provider the agent is rebound to next.
+        from app.threads.repository import ThreadRepository
+
+        await ThreadRepository(self.db).clear_sandbox(sandbox_id)
         try:
             await self.repository.delete(row)
         except IntegrityError as exc:

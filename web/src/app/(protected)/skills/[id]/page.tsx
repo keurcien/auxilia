@@ -29,7 +29,12 @@ export default function SkillPage() {
 		let current = true;
 		getSkill(id)
 			.then((next) => {
-				if (current) setLoaded({ id, skill: next });
+				if (!current) return;
+				setLoaded({ id, skill: next });
+				// Clear a previous failure for this id: keyed state alone left
+				// the error on screen forever once a load had failed, because
+				// nothing ever unset it on a later success.
+				setFailed((prev) => (prev?.id === id ? null : prev));
 			})
 			.catch((err: unknown) => {
 				if (current) {

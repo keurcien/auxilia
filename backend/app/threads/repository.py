@@ -86,6 +86,19 @@ class ThreadRepository(BaseRepository[ThreadDB]):
         )
         await self.db.execute(stmt)
 
+    async def clear_sandbox(self, source_id: UUID) -> None:
+        """Forget the sandbox of every thread stamped by this sandbox row.
+
+        Called when the row is deleted: the id it issued is worthless, and
+        leaving it behind would let a later binding try to reconnect to it.
+        """
+        stmt = (
+            update(ThreadDB)
+            .where(ThreadDB.sandbox_source_id == source_id)
+            .values(sandbox_id=None, sandbox_source_id=None)
+        )
+        await self.db.execute(stmt)
+
     async def set_sandbox_id(
         self, thread_id: str, sandbox_id: str, source_id: UUID | None = None
     ) -> None:

@@ -747,6 +747,11 @@ class Agent:
         # Only reconnect to an id this sandbox row issued. After a rebinding
         # the stored id belongs to the previous provider, which cannot know
         # it — reconnect failed the run instead of starting a fresh sandbox.
+        # Reconnect only to an id this sandbox row issued. A null source means
+        # the thread was stamped before that column existed — still this
+        # sandbox, as far as anything knows, so it reconnects. Deleting a
+        # sandbox row clears the thread's stamp outright (`SandboxService`),
+        # so null never means "the issuer was deleted".
         previous = (
             self.thread.sandbox_id
             if self.thread.sandbox_source_id in (None, source.row_id)

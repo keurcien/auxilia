@@ -44,6 +44,8 @@ export function SourceHostTile({
 			<img
 				src={`https://www.google.com/s2/favicons?domain=${domain}&sz=64`}
 				alt={kind}
+				loading="lazy"
+				decoding="async"
 				width={iconPx}
 				height={iconPx}
 				className="object-contain"
