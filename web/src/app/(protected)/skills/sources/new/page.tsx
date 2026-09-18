@@ -233,6 +233,11 @@ export default function NewSkillSourcePage() {
 
 	const detected = useMemo(() => detectKind(url), [url]);
 	const effectiveKind = kindTouched ? kind : (detected ?? kind);
+	// Only github.com and gitlab.com are recognisable from the URL. For a
+	// self-hosted instance nothing is detected and `kind` sat on its default,
+	// so a GitLab Enterprise repository was quietly sent to GitHub's API.
+	// Make the choice explicit instead of guessing it.
+	const hostUnconfirmed = detected === null && !kindTouched;
 	const urlValid = /^https:\/\/[^/\s]+\/[^/\s]+\/[^/\s]+/.test(url.trim());
 	// Preview and Connect are both gated on `urlValid`. A disabled button with
 	// nothing next to it is indistinguishable from a broken page — which is
@@ -339,7 +344,7 @@ export default function NewSkillSourcePage() {
 					Cancel
 				</HeaderButton>
 				<HeaderPrimaryButton
-					disabled={!urlValid || busy !== null}
+					disabled={!urlValid || hostUnconfirmed || busy !== null}
 					onClick={() => {
 						void handleConnect();
 					}}
@@ -395,7 +400,14 @@ export default function NewSkillSourcePage() {
 						</div>
 
 						<div className="flex flex-col gap-2">
-							<span className={LABEL_CLASS}>Host</span>
+							<span className={LABEL_CLASS}>
+								Host
+								{hostUnconfirmed && urlValid && (
+									<span className="ml-2 font-normal text-destructive">
+										pick one — this host is not github.com or gitlab.com
+									</span>
+								)}
+							</span>
 							<HostCards
 								value={effectiveKind}
 								detected={detected}
@@ -491,7 +503,7 @@ export default function NewSkillSourcePage() {
 							<HeaderButton
 								accent
 								className="px-3.5 py-[7px] text-[12.5px]"
-								disabled={!urlValid || busy !== null}
+								disabled={!urlValid || hostUnconfirmed || busy !== null}
 								onClick={() => {
 									void handlePreview();
 								}}

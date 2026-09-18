@@ -13,19 +13,35 @@ export default function SkillPage() {
 	const searchParams = useSearchParams();
 	const id = params.id as string;
 	const getSkill = useSkillsStore((state) => state.getSkill);
-	const [skill, setSkill] = useState<Skill | null>(null);
-	const [error, setError] = useState<string | null>(null);
+	// Keyed by the id it was loaded for, rather than reset in an effect: a
+	// late response for the previous skill can neither paint over this one nor
+	// require a synchronous setState on navigation.
+	const [loaded, setLoaded] = useState<{ id: string; skill: Skill } | null>(null);
+	const [failed, setFailed] = useState<{ id: string; message: string } | null>(null);
+	const skill = loaded?.id === id ? loaded.skill : null;
+	const error = failed?.id === id ? failed.message : null;
 	// `?edit=1` (the library's row menu) opens straight in edit mode; a
 	// viewer who can't edit falls back to read mode below.
 	const [editing, setEditing] = useState(searchParams.get("edit") === "1");
 	const reviewOnOpen = searchParams.get("review") === "1";
 
 	useEffect(() => {
+		let current = true;
 		getSkill(id)
-			.then(setSkill)
+			.then((next) => {
+				if (current) setLoaded({ id, skill: next });
+			})
 			.catch((err: unknown) => {
-				setError(getApiErrorMessage(err, "This skill could not be loaded."));
+				if (current) {
+					setFailed({
+						id,
+						message: getApiErrorMessage(err, "This skill could not be loaded."),
+					});
+				}
 			});
+		return () => {
+			current = false;
+		};
 	}, [getSkill, id]);
 
 	if (error) {
@@ -52,7 +68,7 @@ export default function SkillPage() {
 					: undefined
 			}
 			onSaved={(saved) => {
-				setSkill(saved);
+				setLoaded({ id, skill: saved });
 				setEditing(false);
 			}}
 			onCancel={() => {

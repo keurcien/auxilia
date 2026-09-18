@@ -41,6 +41,16 @@ const summaryOf = (skill: Skill): SkillSummary => {
 	return summary;
 };
 
+/**
+ * Whichever library/source load started last is the only one allowed to
+ * land. `fetchSkills(true)` runs after every mutation, so without this an
+ * in-flight load started earlier could resolve afterwards and reinstate the
+ * list as it was before the mutation — the skill you just deleted coming
+ * back, the source you just synced showing its old revision.
+ */
+let skillsLoad = 0;
+let sourcesLoad = 0;
+
 export const useSkillsStore = create<SkillsState>((set, get) => ({
 	skills: [],
 	isInitialized: false,
@@ -48,10 +58,15 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
 		if (get().isInitialized && !force) {
 			return;
 		}
+		const ticket = ++skillsLoad;
 		try {
-			set({ skills: await skillsApi.listSkills(), isInitialized: true });
+			const skills = await skillsApi.listSkills();
+			if (ticket === skillsLoad) set({ skills, isInitialized: true });
+			else set({ isInitialized: true });
 		} catch (error) {
-			set({ isInitialized: true });
+			// Deliberately *not* marking it initialized: a failed load that
+			// claimed to be done left the nav count at 0 and made every later
+			// page skip its own fetch, so the list never recovered.
 			throw error;
 		}
 	},
@@ -95,10 +110,15 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
 		if (get().sourcesInitialized && !force) {
 			return;
 		}
+		const ticket = ++sourcesLoad;
 		try {
-			set({ sources: await skillsApi.listSkillSources(), sourcesInitialized: true });
+			const sources = await skillsApi.listSkillSources();
+			if (ticket === sourcesLoad) set({ sources, sourcesInitialized: true });
+			else set({ sourcesInitialized: true });
 		} catch (error) {
-			set({ sourcesInitialized: true });
+			// Deliberately *not* marking it initialized: a failed load that
+			// claimed to be done left the nav count at 0 and made every later
+			// page skip its own fetch, so the list never recovered.
 			throw error;
 		}
 	},

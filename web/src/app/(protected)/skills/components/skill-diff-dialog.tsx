@@ -84,13 +84,23 @@ export default function SkillDiffDialog({ open, onOpenChange, skill, canAdopt, o
 
 	useEffect(() => {
 		if (!open) return;
+		// Closing and reopening before the first comparison returns leaves it
+		// in flight; its answer must not replace the newer one.
+		let current = true;
 		setDiff(null);
 		setError(null);
 		getSkillDiff(skill.id)
-			.then(setDiff)
+			.then((loaded) => {
+				if (current) setDiff(loaded);
+			})
 			.catch((err: unknown) => {
-				setError(getApiErrorMessage(err, "Could not load the changes."));
+				if (current) {
+					setError(getApiErrorMessage(err, "Could not load the changes."));
+				}
 			});
+		return () => {
+			current = false;
+		};
 	}, [open, skill.id, skill.revision, getSkillDiff]);
 
 	const handleAdopt = async () => {

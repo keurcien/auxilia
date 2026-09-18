@@ -140,14 +140,18 @@ export const CodeBlock = ({
 	// dark panel is unreadable.
 	const preClass = cn(
 		"min-w-0 max-w-full overflow-x-auto [&>pre]:m-0 [&>pre]:bg-transparent! [&>pre]:px-3 [&>pre]:py-2.5 [&>pre]:text-[11.5px] [&>pre]:leading-[1.7] [&_code]:font-mono [&_code]:text-[11.5px]",
-		!theme && "[&>pre]:text-foreground!",
+		// A themed block sits on the dark panel, so the *fallback* — over
+		// SHIKI_MAX_CHARS, or shiki failing — needs the panel's own text
+		// colour. Inheriting `foreground` put near-black text on it in light
+		// mode, which is the theme's background.
+		theme ? "[&>pre]:text-panel-body!" : "[&>pre]:text-foreground!",
 	);
 
 	return (
 		<div
 			className={cn(
 				"group relative min-w-0 w-full max-w-full overflow-hidden rounded-[6px]",
-				!theme && "text-foreground",
+				theme ? "text-panel-body" : "text-foreground",
 				className,
 			)}
 			{...props}

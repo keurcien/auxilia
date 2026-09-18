@@ -1,4 +1,3 @@
-import Image from "next/image";
 import { cn } from "@/lib/utils";
 import type { SkillSourceKind } from "@/types/skills";
 
@@ -37,8 +36,12 @@ export function SourceHostTile({
 				className,
 			)}
 		>
-			<Image
-				unoptimized
+			{/* A plain <img>, not next/image: the favicon service is not in
+			    `images.remotePatterns`, and the optimizer validates the host
+			    whether or not the image is `unoptimized`. Nothing here needs
+			    the pipeline — it is a 16px icon from a third party. */}
+			{/* eslint-disable-next-line @next/next/no-img-element */}
+			<img
 				src={`https://www.google.com/s2/favicons?domain=${domain}&sz=64`}
 				alt={kind}
 				width={iconPx}
