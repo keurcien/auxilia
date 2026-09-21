@@ -8,6 +8,7 @@ import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import type { BoundAgent } from "@/types/agents";
 import { isDetached, isSourced, repoLabel, shortRevision, type SkillSummary } from "@/types/skills";
 import { relativeTime } from "../lib/relative-time";
+import { SkillRequirementChip } from "./skill-requirement-chip";
 import { SourceHostTile } from "./source-host-tile";
 
 interface SkillTableProps {
@@ -166,6 +167,28 @@ export default function SkillTable({
 			width: "200px",
 			mobileWidth: "auto",
 			cell: (skill) => <SourceCell skill={skill} />,
+		},
+		{
+			key: "requires",
+			header: "Requires",
+			width: "128px",
+			hideBelowMd: true,
+			// The constraint, not a boolean. Almost every skill runs anywhere, so
+			// a `false` column would be a column of "no" with the answer hidden
+			// among it; marking only the exceptions means the eye lands on the
+			// rows that actually restrict which agent can use them. Same rule the
+			// chip follows everywhere else it appears.
+			cell: (skill) =>
+				skill.scriptCount > 0 ? (
+					<SkillRequirementChip scriptCount={skill.scriptCount} />
+				) : (
+					<span
+						title="Instructions only — this skill runs on any agent."
+						className="font-mono text-[11px] text-ghost dark:text-panel-dim"
+					>
+						—
+					</span>
+				),
 		},
 		{
 			key: "used",
