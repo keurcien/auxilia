@@ -8,6 +8,7 @@ import { Sandbox } from "@/types/sandboxes";
 import AgentMCPServer from "./agent-mcp-server";
 import AgentSandbox from "./agent-sandbox";
 import AddAgentToolDialog from "./add-agent-tool-dialog";
+import ConfirmDialog from "@/components/ui/confirm-dialog";
 import { AgentMCPServerForm, AgentSandboxForm } from "../../lib/agent-form";
 import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 import * as sandboxesApi from "@/lib/api/resources/sandboxes";
@@ -32,6 +33,15 @@ interface AgentToolListProps {
 	/** Plain array in/out — sandbox bindings have no async seeding. */
 	onSandboxesChange?: (sandboxes: AgentSandboxForm[]) => void;
 	/**
+	 * Names of enabled skills whose scripts need the sandbox. Removing the
+	 * sandbox while any exist asks first (design 23d: the skills stay
+	 * enabled, their instructions keep applying, the scripts are skipped).
+	 */
+	scriptSkillNames?: string[];
+	/** Controlled "Add tool" dialog, so a sibling section can open it. */
+	addDialogOpen?: boolean;
+	onAddDialogOpenChange?: (open: boolean) => void;
+	/**
 	 * A read-mode connect persisted this binding's tool map server-side
 	 * (sync-tools) — lets the page refresh its copy of the saved agent.
 	 */
@@ -50,10 +60,20 @@ export default function AgentToolList({
 	onMcpServersChange,
 	onSandboxesChange,
 	onBindingPersisted,
+	scriptSkillNames = [],
+	addDialogOpen,
+	onAddDialogOpenChange,
 }: AgentToolListProps) {
 	const [allMCPServers, setAllMCPServers] = useState<MCPServer[]>([]);
 	const [allSandboxes, setAllSandboxes] = useState<Sandbox[]>([]);
-	const [dialogOpen, setDialogOpen] = useState(false);
+	const [internalDialogOpen, setInternalDialogOpen] = useState(false);
+	const dialogOpen = addDialogOpen ?? internalDialogOpen;
+	const setDialogOpen = (open: boolean) => {
+		setInternalDialogOpen(open);
+		onAddDialogOpenChange?.(open);
+	};
+	// The sandbox whose removal is waiting on the skills warning.
+	const [sandboxToRemove, setSandboxToRemove] = useState<string | null>(null);
 
 	useEffect(() => {
 		mcpServersApi.listMcpServers().then(setAllMCPServers);
@@ -140,6 +160,14 @@ export default function AgentToolList({
 		onSandboxesChange?.(sandboxes.filter((s) => s.sandboxId !== sandboxId));
 	};
 
+	const requestRemoveSandbox = (sandboxId: string) => {
+		if (scriptSkillNames.length > 0) {
+			setSandboxToRemove(sandboxId);
+			return;
+		}
+		handleRemoveSandbox(sandboxId);
+	};
+
 	const hasTools = enabledSandboxes.length > 0 || enabledServers.length > 0;
 
 	return (
@@ -169,7 +197,7 @@ export default function AgentToolList({
 							sandbox={sandbox}
 							readOnly={readOnly}
 							onRemove={() => {
-								handleRemoveSandbox(sandbox.id);
+								requestRemoveSandbox(sandbox.id);
 							}}
 						/>
 					))}
@@ -201,6 +229,31 @@ export default function AgentToolList({
 					No tools enabled
 				</div>
 			)}
+
+			<ConfirmDialog
+				open={sandboxToRemove !== null}
+				onOpenChange={(open) => {
+					if (!open) setSandboxToRemove(null);
+				}}
+				title="Turn off code execution?"
+				description={
+					<>
+						This leaves {scriptSkillNames.length} enabled skill
+						{scriptSkillNames.length === 1 ? "" : "s"} without{" "}
+						{scriptSkillNames.length === 1 ? "its" : "their"} scripts:{" "}
+						<span className="font-mono text-[12px] font-semibold text-petrol">
+							{scriptSkillNames.join(", ")}
+						</span>
+						. {scriptSkillNames.length === 1 ? "It stays" : "They stay"} enabled —
+						the instructions keep applying, the scripts are skipped.
+					</>
+				}
+				confirmLabel="Turn off"
+				destructive
+				onConfirm={() => {
+					if (sandboxToRemove) handleRemoveSandbox(sandboxToRemove);
+				}}
+			/>
 
 			{!readOnly && (
 				<AddAgentToolDialog

@@ -61,6 +61,19 @@ class ThreadDB(ThreadBase, TimestampMixin, table=True):
         index=True,
         nullable=True,
     )
+    # The sandbox every run of this thread reconnects to. Stamped by the
+    # runtime when a run creates one (and again when a gone sandbox is
+    # replaced); NULL until then, or for agents without a sandbox binding.
+    # Server-side only — not in ThreadResponse.
+    sandbox_id: str | None = Field(
+        default=None, sa_column=Column(String, nullable=True)
+    )
+    # Which sandbox row issued `sandbox_id`. An agent rebound to a different
+    # sandbox would otherwise hand the old provider's id to the new one, which
+    # cannot know it: the run failed instead of starting a fresh sandbox.
+    sandbox_source_id: UUID | None = Field(
+        default=None, foreign_key="sandboxes.id", ondelete="SET NULL", nullable=True
+    )
     # Terminal status of the thread's most recent run, stamped in the same
     # transaction as the run's terminal update. NULL = no finished run
     # recorded. Server-stamped only — deliberately not on ThreadBase so it

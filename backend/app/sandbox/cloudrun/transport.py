@@ -35,6 +35,15 @@ _MAX_RESTORE_BYTES = 30 * 1024 * 1024
 _LIFECYCLE_TIMEOUT = 120
 
 
+class SandboxNotFoundError(Exception):
+    """The gateway answered 404: this sandbox id does not exist there.
+
+    Distinct from every other transport failure on purpose — a probe that
+    cannot reach the gateway says nothing about whether the sandbox is still
+    there, and must not be read as "gone".
+    """
+
+
 class SandboxTimeoutError(Exception):
     """The command hit its timeout before completing."""
 
@@ -60,6 +69,8 @@ class SandboxTransport(Protocol):
     def export_tar(self, sandbox_id: str) -> bytes: ...
 
     def delete(self, sandbox_id: str) -> None: ...
+
+    def health(self) -> None: ...
 
 
 class GatewayTransport:
@@ -119,6 +130,8 @@ class GatewayTransport:
             raise RuntimeError(f"Sandbox gateway unreachable: {e}") from e
         except httpx.TimeoutException as e:
             raise SandboxTimeoutError() from e
+        if response.status_code == 404:
+            raise SandboxNotFoundError(sandbox_id)
         if response.status_code != 200:
             raise RuntimeError(
                 f"Gateway exec failed for {sandbox_id}: {_error_detail(response)}"
@@ -150,6 +163,11 @@ class GatewayTransport:
                 sandbox_id,
                 _error_detail(response),
             )
+
+    def health(self) -> None:
+        """The gateway's liveness route; raises on anything but a 2xx."""
+        response = self._client.get("/health", timeout=10)
+        response.raise_for_status()
 
 
 def _error_detail(response: httpx.Response) -> str:

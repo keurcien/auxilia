@@ -47,7 +47,7 @@ export function PageShell({ children }: { children: React.ReactNode }) {
 					{children}
 				</main>
 			) : (
-				<main className="flex-1 min-w-0 h-svh overflow-y-auto pt-16 px-4 pb-6 sm:px-6 md:pt-6 lg:px-8 lg:pb-10 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+				<main className="flex-1 min-w-0 h-svh overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 					{children}
 				</main>
 			)}

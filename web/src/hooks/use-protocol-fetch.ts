@@ -13,6 +13,9 @@ export type ProtocolFetchHandlers = {
    * with the thread the request was made for — a late response after the page
    * moved to another thread must not be attributed to the new one. */
   onModelUnavailable?: (threadId: string) => void;
+  /** The pre-run sandbox gate 409'd: the agent's sandbox provider is down.
+   * Carries the thread for the same reason, and the backend's reason text. */
+  onSandboxUnavailable?: (threadId: string, detail: string) => void;
   /** The addressed approval was already handled from another surface. */
   onStaleInterrupt?: (threadId: string) => void;
   /** The transport underneath — `protocolFetch` in the app, a scripted one in tests. */
@@ -56,6 +59,8 @@ export function useProtocolFetch(
         if (rejection) {
           if (rejection.kind === "model_unavailable") {
             handlersRef.current.onModelUnavailable?.(threadId);
+          } else if (rejection.kind === "sandbox_unavailable") {
+            handlersRef.current.onSandboxUnavailable?.(threadId, rejection.detail);
           } else {
             handlersRef.current.onStaleInterrupt?.(threadId);
           }

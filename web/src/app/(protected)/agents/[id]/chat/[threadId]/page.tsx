@@ -8,7 +8,7 @@ import {
 } from "@/components/ai-elements/conversation";
 import { Button } from "@/components/ui/button";
 import ChatPromptInput from "../components/prompt-input";
-import { AlertTriangle, ArchiveIcon, CircleSlash, ShieldCheck } from "lucide-react";
+import { AlertTriangle, ArchiveIcon, CircleSlash, ServerCrash, ShieldCheck } from "lucide-react";
 import { useParams } from "next/navigation";
 import { useAgentsStore } from "@/stores/agents-store";
 import { canConfigureAgent } from "@/types/agents";
@@ -49,9 +49,18 @@ const ChatPage = () => {
   const {
     ready: agentReady,
     status: agentStatus,
+    detail: agentStatusDetail,
     disconnectedMcpServers,
     refetch: refetchReady,
   } = useAgentReadiness(meta.agentArchived ? undefined : agentId);
+  // Two ways the sandbox can be down: readiness said so when the page opened,
+  // or a command 409'd mid-session after the provider fell over. One notice
+  // either way, cleared by "Check again".
+  const sandboxDown =
+    meta.sandboxUnavailable ??
+    (agentStatus === "sandbox_unavailable"
+      ? (agentStatusDetail ?? "This agent's sandbox is not available right now.")
+      : null);
 
   const { setCurrentChat, clearCurrentChat } = useChatHeaderStore();
   useEffect(() => {
@@ -152,6 +161,26 @@ const ChatPage = () => {
           // Metadata still loading (first open, or a Retry in flight): no
           // composer yet, so nothing can be sent alongside a parked message.
           <div className="w-full max-w-4xl mx-auto lg:px-10 sm:px-6 px-3 py-4" aria-busy="true" />
+        ) : sandboxDown ? (
+          <div className="w-full max-w-4xl mx-auto lg:px-10 sm:px-6 px-3 py-6">
+            <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/50 px-4 py-3">
+              <ServerCrash className="size-5 shrink-0 text-muted-foreground" />
+              <p className="flex-1 text-sm text-muted-foreground">
+                {sandboxDown} Try again in a moment, or ask a workspace admin.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 cursor-pointer"
+                onClick={() => {
+                  actions.recheckSandbox();
+                  refetchReady();
+                }}
+              >
+                Check again
+              </Button>
+            </div>
+          </div>
         ) : agentStatus === "not_configured" ? (
           <div className="w-full max-w-4xl mx-auto lg:px-10 sm:px-6 px-3 py-4">
             <div className="w-full flex items-center justify-center border border-destructive/30 bg-destructive/10 rounded-lg px-4 py-8">

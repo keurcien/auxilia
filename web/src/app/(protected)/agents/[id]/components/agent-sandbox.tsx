@@ -10,9 +10,9 @@ import {
 } from "@/lib/sandbox-providers";
 import type { Sandbox } from "@/types/sandboxes";
 
+// The filesystem tools deepagents gives a sandboxed agent. The sandbox
+// itself is opened by the runtime before every run — there is no tool for it.
 const SANDBOX_TOOLS = [
-	{ name: "create_sandbox", description: "Start a new code execution session" },
-	{ name: "connect_sandbox", description: "Reattach to an existing session by ID" },
 	{ name: "execute", description: "Run shell commands in the environment" },
 	{ name: "ls", description: "List files in a directory with metadata (size, modified time)" },
 	{ name: "read_file", description: "Read file contents with line numbers, supports offset/limit for large files" },

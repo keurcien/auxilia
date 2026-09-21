@@ -8,6 +8,8 @@ interface AgentReadyState {
 	ready: boolean | null;
 	disconnectedServers: string[];
 	status: AgentReadyStatus;
+	/** Human-readable reason, set with `sandbox_unavailable`. */
+	detail: string | null;
 	refetch: () => void;
 }
 
@@ -15,6 +17,7 @@ export function useAgentConnectionStatus(agentId: string | undefined): AgentRead
 	const [ready, setReady] = useState<boolean | null>(null);
 	const [disconnectedServers, setDisconnectedServers] = useState<string[]>([]);
 	const [status, setStatus] = useState<AgentReadyStatus>(null);
+	const [detail, setDetail] = useState<string | null>(null);
 
 	const refetch = useCallback(() => {
 		if (!agentId) return;
@@ -24,11 +27,13 @@ export function useAgentConnectionStatus(agentId: string | undefined): AgentRead
 				setReady(readiness.ready);
 				setDisconnectedServers(readiness.disconnectedServers);
 				setStatus(readiness.status);
+				setDetail(readiness.detail ?? null);
 			})
 			.catch(() => {
 				setReady(false);
 				setDisconnectedServers([]);
 				setStatus("disconnected");
+				setDetail(null);
 			});
 	}, [agentId]);
 
@@ -36,5 +41,5 @@ export function useAgentConnectionStatus(agentId: string | undefined): AgentRead
 		refetch();
 	}, [refetch]);
 
-	return { ready, disconnectedServers, status, refetch };
+	return { ready, disconnectedServers, status, detail, refetch };
 }

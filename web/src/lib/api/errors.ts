@@ -117,6 +117,28 @@ export function toApiError(error: unknown): ApiError {
 	);
 }
 
+/** "Value error, must be an https:// URL" -> "must be an https:// URL". */
+const clean = (msg: string) => msg.replace(/^Value error,\s*/, "").trim();
+
+/**
+ * FastAPI's request-validation body: `detail` is an *array* of
+ * `{ loc, msg, type }`, not a string, so `ApiError.detail` is null for a 422
+ * and the caller's fallback was all the user ever saw. Deduplicated — the
+ * same rule failing on two fields reads once.
+ */
+function validationMessage(body: unknown): string | null {
+	const detail =
+		body && typeof body === "object"
+			? (body as { detail?: unknown }).detail
+			: undefined;
+	if (!Array.isArray(detail)) return null;
+	const messages = detail
+		.filter((item): item is { msg?: unknown } => Boolean(item) && typeof item === "object")
+		.map((item) => (typeof item.msg === "string" ? clean(item.msg) : ""))
+		.filter(Boolean);
+	return messages.length > 0 ? [...new Set(messages)].join("; ") : null;
+}
+
 /**
  * Extract a user-facing API error message.
  *
@@ -125,8 +147,10 @@ export function toApiError(error: unknown): ApiError {
  */
 export function getApiErrorMessage(error: unknown, fallback: string): string {
 	const e = toApiError(error);
-	if (e.status != null && e.status >= 400 && e.status < 500 && e.detail) {
-		return e.detail;
+	if (e.status != null && e.status >= 400 && e.status < 500) {
+		if (e.detail) return e.detail;
+		const validation = validationMessage(e.body);
+		if (validation) return validation;
 	}
 	return fallback;
 }

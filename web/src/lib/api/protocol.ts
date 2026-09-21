@@ -93,17 +93,22 @@ export function protocolCommandMethod(init?: RequestInit): string | undefined {
 
 export type ProtocolRejection =
 	| { kind: "model_unavailable"; detail: string }
+	| { kind: "sandbox_unavailable"; detail: string }
 	| { kind: "stale_interrupt"; detail: string };
 
-const REJECTION_DEFAULTS: Record<ProtocolRejection["kind"], string> = {
-	model_unavailable:
+const REJECTION_DEFAULTS = new Map<ProtocolRejection["kind"], string>([
+	[
+		"model_unavailable",
 		"This conversation's model is no longer available in this workspace.",
-	stale_interrupt: "This approval was already handled elsewhere.",
-};
+	],
+	["sandbox_unavailable", "This agent's sandbox is not available right now."],
+	["stale_interrupt", "This approval was already handled elsewhere."],
+]);
 
 /**
  * Decode the backend's pre-run 409 gates (`ModelUnavailableError`,
- * `StaleInterruptError` in `app/exceptions.py`) from a response status and
+ * `SandboxUnavailableError`, `StaleInterruptError` in `app/exceptions.py`)
+ * from a response status and
  * body. Anything else — a different status, an unknown `error` key, a
  * non-object body — is `null`: not a gate this client knows how to handle.
  */
@@ -113,10 +118,17 @@ export function decodeProtocolRejection(
 ): ProtocolRejection | null {
 	if (status !== 409 || !body || typeof body !== "object") return null;
 	const { error, detail } = body as { error?: unknown; detail?: unknown };
-	if (error !== "model_unavailable" && error !== "stale_interrupt") return null;
+	if (
+		error !== "model_unavailable" &&
+		error !== "sandbox_unavailable" &&
+		error !== "stale_interrupt"
+	) {
+		return null;
+	}
 	return {
 		kind: error,
-		detail: typeof detail === "string" ? detail : REJECTION_DEFAULTS[error],
+		detail:
+			typeof detail === "string" ? detail : (REJECTION_DEFAULTS.get(error) ?? ""),
 	};
 }
 
@@ -126,6 +138,8 @@ export function protocolRejectionError(rejection: ProtocolRejection): Error {
 	err.name =
 		rejection.kind === "model_unavailable"
 			? "ModelUnavailableError"
-			: "StaleInterruptError";
+			: rejection.kind === "sandbox_unavailable"
+				? "SandboxUnavailableError"
+				: "StaleInterruptError";
 	return err;
 }

@@ -27,13 +27,19 @@ export interface AgentPatch {
 	tagId?: string | null;
 }
 
-export type AgentReadyStatus = "ready" | "not_configured" | "disconnected";
+export type AgentReadyStatus =
+	| "ready"
+	| "not_configured"
+	| "disconnected"
+	| "sandbox_unavailable";
 
 /** `GET /agents/{id}/is-ready` — can the agent run right now? */
 export interface AgentReadiness {
 	ready: boolean;
 	disconnectedServers: string[];
 	status: AgentReadyStatus;
+	/** Human-readable reason, set with `sandbox_unavailable`. */
+	detail?: string | null;
 }
 
 /** A grant row on the agent — everything but `owner`, which is derived. */
