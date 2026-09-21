@@ -15,7 +15,7 @@ describe("buildCronExpression", () => {
 			[{ kind: "weekly", day: 1, time: "07:30" }, "30 7 * * 1"],
 			[{ kind: "biweekly", day: 1, time: "09:00" }, "0 9 * * 1#1,1#3"],
 			[{ kind: "monthly", day: 1, time: "09:00" }, "0 9 1 * *"],
-			[{ kind: "monthly", day: 31, time: "09:00" }, "0 9 31 * *"],
+			[{ kind: "monthly", day: 28, time: "09:00" }, "0 9 28 * *"],
 			[
 				{ kind: "custom", interval: 3, unit: "day", days: [], time: "09:00" },
 				"0 9 */3 * *",
@@ -69,6 +69,21 @@ describe("buildCronExpression", () => {
 		expect(buildCronExpression({ kind: "daily", time: "25:00" })).toBeNull();
 		expect(buildCronExpression({ kind: "daily", time: "" })).toBeNull();
 	});
+
+	it("rejects a monthly day outside 1-28, so it can never skip a month", () => {
+		expect(
+			buildCronExpression({ kind: "monthly", day: 0, time: "09:00" }),
+		).toBeNull();
+		expect(
+			buildCronExpression({ kind: "monthly", day: 29, time: "09:00" }),
+		).toBeNull();
+		expect(
+			buildCronExpression({ kind: "monthly", day: 31, time: "09:00" }),
+		).toBeNull();
+		expect(
+			buildCronExpression({ kind: "monthly", day: 1.5, time: "09:00" }),
+		).toBeNull();
+	});
 });
 
 describe("parseCronExpression", () => {
@@ -79,7 +94,7 @@ describe("parseCronExpression", () => {
 			"30 7 * * 1",
 			"0 9 * * 1#1,1#3",
 			"0 9 1 * *",
-			"0 9 31 * *",
+			"0 9 28 * *",
 			"0 9 */3 * *",
 			"0 9 * * 1,5",
 			"0 9 * * 1#1,1#3,5#1,5#3",
@@ -137,6 +152,10 @@ describe("parseCronExpression", () => {
 			"0 9 * * 7",
 			"not a cron",
 			"0 9 * *",
+			// Days 29-31 don't exist in every month — never parsed as "monthly"
+			// so the round-trip can't silently drop a day out of range.
+			"0 9 29 * *",
+			"0 9 31 * *",
 		];
 		for (const cron of crons) {
 			expect(parseCronExpression(cron)).toEqual({

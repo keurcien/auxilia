@@ -5,6 +5,8 @@ import { ChevronDown, Clock, Repeat } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
 	describeSchedule,
+	MONTHLY_DAY_MAX,
+	MONTHLY_DAY_MIN,
 	ordinal,
 	Schedule,
 	Weekday,
@@ -104,7 +106,7 @@ function TimeBlockGhost({ time }: { time: string }) {
 	return (
 		<div aria-hidden className="invisible flex items-center gap-3">
 			<span className="shrink-0 text-[14px] font-medium">at</span>
-			<div className="flex items-center shrink-0 h-11 rounded-lg border border-input">
+			<div className="flex items-center shrink-0 h-11 rounded-lg border border-input text-[14px] font-medium">
 				<span className="flex items-center gap-1.5 pl-3.5 pr-3">
 					<Clock className="size-[15px] shrink-0" />
 					<span className="font-semibold">{time}</span>
@@ -234,7 +236,10 @@ export default function ScheduleBuilder({
 									<ChevronDown className="size-[18px] shrink-0 text-faint" />
 								</button>
 							}
-							items={Array.from({ length: 31 }, (_, i) => i + 1).map((day) => ({
+							items={Array.from(
+								{ length: MONTHLY_DAY_MAX - MONTHLY_DAY_MIN + 1 },
+								(_, i) => i + MONTHLY_DAY_MIN,
+							).map((day) => ({
 								label: ordinal(day),
 								active: value.day === day,
 								onClick: () => {
