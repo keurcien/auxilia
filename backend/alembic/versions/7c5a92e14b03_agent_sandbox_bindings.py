@@ -28,6 +28,7 @@ from uuid import uuid4
 
 import sqlalchemy as sa
 from cryptography.fernet import Fernet
+from dotenv import dotenv_values
 from sqlalchemy.dialects.postgresql import JSONB
 
 from alembic import op
@@ -59,25 +60,22 @@ def _dotenv() -> dict[str, str]:
     `os.environ` would have seen no sandbox configuration on a deployment that
     keeps it in the file, and silently decided none was configured.
 
-    The path is computed from this file rather than imported from
-    `app.settings`, for the same reason nothing else here is imported. The
-    parser handles what a settings `.env` holds — `KEY=value`, `export`,
-    quotes, `#` comments — and nothing more.
+    Read with `python-dotenv`, which is the library pydantic-settings itself
+    parses `.env` with — so the semantics are the same by construction rather
+    than by imitation. A hand-rolled parser got inline comments wrong
+    (`TIMEOUT=1800  # half an hour` kept the comment in the value), which
+    aborted the upgrade for an integer and silently corrupted a URL or a
+    secret; quoting, escapes and `export` are the same class of detail.
+
+    Importing it is not the thing this migration avoids: a pinned third-party
+    library is stable in a way `app.*` is not, and `cryptography` is imported
+    here already. The path is still computed from `__file__` rather than taken
+    from `app.settings`.
     """
     path = Path(__file__).resolve().parents[3] / ".env"
     if not path.is_file():
         return {}
-    values: dict[str, str] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip().removeprefix("export ").strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-            value = value[1:-1]
-        values[key.strip()] = value
-    return values
+    return {k: v for k, v in dotenv_values(path).items() if v is not None}
 
 
 def _env(name: str, default: str = "") -> str:
