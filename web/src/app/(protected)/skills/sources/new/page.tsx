@@ -56,20 +56,25 @@ function detectKind(url: string): SkillSourceKind | null {
 // it is private add a token". You would then add a token and fail again. A
 // list of the usual mistakes cannot be complete, and does not need to be: it
 // only has to stop the ones people actually type.
-const UNSUPPORTED: Record<string, string> = {
+// A Map, like `CATEGORY_COPY` in the diff dialog: the key is a hostname the
+// user typed, and a bracket lookup on a plain object reaches the prototype
+// chain — `https://constructor/a/b` would resolve to `Object`'s constructor
+// and have the form report that a function is not supported. `Map.get` has no
+// such chain, and Codacy reads the object form as an injection sink besides.
+const UNSUPPORTED = new Map<string, string>(Object.entries({
 	"bitbucket.org": "Bitbucket",
 	"dev.azure.com": "Azure DevOps",
 	"codeberg.org": "Codeberg",
 	"gitea.com": "Gitea",
 	"git.sr.ht": "SourceHut",
 	"sourceforge.net": "SourceForge",
-};
+}));
 
 /** The name of a host auxilia certainly cannot read, if this is one. */
 function unsupportedHost(url: string): string | null {
 	try {
 		const host = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
-		return UNSUPPORTED[host] ?? null;
+		return UNSUPPORTED.get(host) ?? null;
 	} catch {
 		return null;
 	}
