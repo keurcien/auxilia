@@ -1,0 +1,26 @@
+backend/app/model_providers/catalog.py
+  s_eaa9c10865fc73::t_4bf1302c35048b 78-87,114-116,120
+backend/tests/model_providers/test_catalog.py
+  s_eaa9c10865fc73::t_3490827328631c 4-5,152-219
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5a8a59c90799a5a5890289505cc8fdb4baad3e5e",
+  "prompts": {},
+  "humans": {
+    "h_df81e42269d667": {
+      "author": "tgensol <thibaut@appchoose.io>"
+    }
+  },
+  "sessions": {
+    "s_eaa9c10865fc73": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c36b-c690-7791-9534-f11de2b0621c",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}
