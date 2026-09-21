@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.10.0](https://github.com/keurcien/auxilia/compare/web-v0.9.1...web-v0.10.0) (2026-09-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* **skills:** the `create_sandbox` / `connect_sandbox` tools are gone; sandboxes are opened by the runtime, never by the model.
+
+### Features
+
+* **skills:** skill library sourced from git repositories, one skill set per agent graph ([#321](https://github.com/keurcien/auxilia/issues/321)) ([7a76e69](https://github.com/keurcien/auxilia/commit/7a76e692c4a258afdd3aa17a4be297274a32fc1e))
+
 ## [0.9.1](https://github.com/keurcien/auxilia/compare/web-v0.9.0...web-v0.9.1) (2026-09-14)
 
 

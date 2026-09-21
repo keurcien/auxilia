@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.9.0](https://github.com/keurcien/auxilia/compare/backend-v0.8.6...backend-v0.9.0) (2026-09-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* **skills:** the `create_sandbox` / `connect_sandbox` tools are gone; sandboxes are opened by the runtime, never by the model.
+
+### Features
+
+* **logging:** add optional GCP structured log format ([#341](https://github.com/keurcien/auxilia/issues/341)) ([eccb568](https://github.com/keurcien/auxilia/commit/eccb56835e17ff27fe140829f32ab8f250c59df7))
+* **skills:** skill library sourced from git repositories, one skill set per agent graph ([#321](https://github.com/keurcien/auxilia/issues/321)) ([7a76e69](https://github.com/keurcien/auxilia/commit/7a76e692c4a258afdd3aa17a4be297274a32fc1e))
+
+
+### Reverts
+
+* **mcp:** drop BigQuery debugging, logging and IP pinning ([#342](https://github.com/keurcien/auxilia/issues/342)) ([2f2d432](https://github.com/keurcien/auxilia/commit/2f2d43235eae4b0241cea45c9776dbfec9ea9dd2))
+
 ## [0.8.6](https://github.com/keurcien/auxilia/compare/backend-v0.8.5...backend-v0.8.6) (2026-09-15)
 
 
