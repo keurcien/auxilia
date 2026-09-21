@@ -94,11 +94,27 @@ jobs:
 
       - name: Create and push manifest list
         working-directory: ${{ runner.temp }}/digests
+        # `latest` follows `main`, never a branch. Release-please calls this
+        # workflow from `main`, so a release still moves it; a manual dispatch
+        # from a feature branch publishes its own tag and nothing else —
+        # `docker-compose.yml` defaults to `${VERSION:-latest}`, so tagging it
+        # from a branch would hand unreleased code to every plain `compose up`.
+        # Derived from the ref rather than an input: a test build must not be
+        # one forgotten checkbox away from overwriting the released image.
+        env:
+          VERSION: ${{ inputs.version }}
+          IS_MAIN: ${{ github.ref == 'refs/heads/main' }}
         run: |
-          docker buildx imagetools create \
-            -t ${{ env.IMAGE }}:${{ inputs.version }} \
-            -t ${{ env.IMAGE }}:latest \
-            $(printf '${{ env.IMAGE }}@sha256:%s ' *)
+          tags=(-t "$IMAGE:$VERSION")
+          # An `if`, not `[ … ] && …`: steps run under `bash -e`, where the
+          # test returning 1 on a branch build would fail the step outright.
+          if [ "$IS_MAIN" = "true" ]; then
+            tags+=(-t "$IMAGE:latest")
+          fi
+          docker buildx imagetools create "${tags[@]}" \
+            $(printf "$IMAGE@sha256:%s " *)
 
       - name: Inspect
-        run: docker buildx imagetools inspect ${{ env.IMAGE }}:${{ inputs.version }}
+        env:
+          VERSION: ${{ inputs.version }}
+        run: docker buildx imagetools inspect "$IMAGE:$VERSION"
