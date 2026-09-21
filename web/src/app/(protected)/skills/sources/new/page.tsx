@@ -29,9 +29,13 @@ const INPUT_CLASS =
 	"w-full rounded-lg border border-input bg-card px-3 py-[9px] text-[13.5px] font-medium text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-meta dark:placeholder:text-panel-dim focus:border-petrol focus:shadow-[0_0_0_3px_rgba(22,96,110,0.10)]";
 const MONO_INPUT_CLASS = `${INPUT_CLASS} font-mono text-[12.5px] font-normal`;
 
+// GitHub and GitLab are not two vendors to choose between — they are the two
+// APIs auxilia can read, and the whole list of them. Either can be reached at
+// any hostname (GitHub Enterprise, a self-hosted GitLab), which is why the
+// choice exists at all: `git.acme.com` does not say which API it serves.
 const HOSTS: { value: SkillSourceKind; label: string; description: string }[] = [
-	{ value: "github", label: "GitHub", description: "github.com or GitHub Enterprise. Read over the REST API." },
-	{ value: "gitlab", label: "GitLab", description: "gitlab.com or any self-hosted instance. Read over API v4." },
+	{ value: "github", label: "GitHub API", description: "github.com, or GitHub Enterprise on your own domain." },
+	{ value: "gitlab", label: "GitLab API", description: "gitlab.com, or a GitLab instance on your own domain." },
 ];
 
 /** github.com / gitlab.com are recognised; anything else needs a choice. */
@@ -44,6 +48,31 @@ function detectKind(url: string): SkillSourceKind | null {
 		// not a URL yet
 	}
 	return null;
+}
+
+// Hosts that are certainly neither API. Without this the form just asks you to
+// "pick one", and picking sends a GitHub or GitLab request to a server that
+// serves neither — which comes back as "repository, ref or path not found, if
+// it is private add a token". You would then add a token and fail again. A
+// list of the usual mistakes cannot be complete, and does not need to be: it
+// only has to stop the ones people actually type.
+const UNSUPPORTED: Record<string, string> = {
+	"bitbucket.org": "Bitbucket",
+	"dev.azure.com": "Azure DevOps",
+	"codeberg.org": "Codeberg",
+	"gitea.com": "Gitea",
+	"git.sr.ht": "SourceHut",
+	"sourceforge.net": "SourceForge",
+};
+
+/** The name of a host auxilia certainly cannot read, if this is one. */
+function unsupportedHost(url: string): string | null {
+	try {
+		const host = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+		return UNSUPPORTED[host] ?? null;
+	} catch {
+		return null;
+	}
 }
 
 function HostCards({ value, onChange, detected }: { value: SkillSourceKind; onChange: (v: SkillSourceKind) => void; detected: SkillSourceKind | null }) {
@@ -232,6 +261,7 @@ export default function NewSkillSourcePage() {
 	const importableCount = preview?.skills.filter((skill) => skill.ok).length ?? 0;
 
 	const detected = useMemo(() => detectKind(url), [url]);
+	const unsupported = useMemo(() => unsupportedHost(url), [url]);
 	const effectiveKind = kindTouched ? kind : (detected ?? kind);
 	// Only github.com and gitlab.com are recognisable from the URL. For a
 	// self-hosted instance nothing is detected and `kind` sat on its default,
@@ -348,7 +378,7 @@ export default function NewSkillSourcePage() {
 					Cancel
 				</HeaderButton>
 				<HeaderPrimaryButton
-					disabled={!urlValid || hostUnconfirmed || busy !== null}
+					disabled={!urlValid || hostUnconfirmed || unsupported !== null || busy !== null}
 					onClick={() => {
 						void handleConnect();
 					}}
@@ -405,10 +435,15 @@ export default function NewSkillSourcePage() {
 
 						<div className="flex flex-col gap-2">
 							<span className={LABEL_CLASS}>
-								Host
-								{hostUnconfirmed && urlValid && (
+								Which API this server speaks
+								{unsupported && (
 									<span className="ml-2 font-normal text-destructive">
-										pick one — this host is not github.com or gitlab.com
+										{unsupported} is not supported — auxilia reads GitHub and GitLab only
+									</span>
+								)}
+								{!unsupported && hostUnconfirmed && urlValid && (
+									<span className="ml-2 font-normal text-destructive">
+										say which — this domain is neither github.com nor gitlab.com
 									</span>
 								)}
 							</span>
@@ -507,7 +542,7 @@ export default function NewSkillSourcePage() {
 							<HeaderButton
 								accent
 								className="px-3.5 py-[7px] text-[12.5px]"
-								disabled={!urlValid || hostUnconfirmed || busy !== null}
+								disabled={!urlValid || hostUnconfirmed || unsupported !== null || busy !== null}
 								onClick={() => {
 									void handlePreview();
 								}}
