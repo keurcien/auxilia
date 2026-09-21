@@ -53,12 +53,16 @@ class StubHost:
         self.calls.append((kind, url, ref, subpath, token))
         if self.error:
             raise self.error
+        # `subpath` is passed through, as the real resolver does: it decides
+        # which part of the tree is walked, and a stub that swallowed it made
+        # every subpath test silently exercise the whole repository.
         return ArchiveSource(
             tar_bytes(self.tree),
             url=url,
             ref=ref,
             revision=self.revision,
             kind=kind.value,
+            subpath=subpath,
         ).resolve()
 
 
@@ -333,6 +337,58 @@ async def test_one_spelling_per_repository(agent_session, admin, host):
     assert again.url == URL
     assert {s.name: s.id for s in await skills.list_summaries(admin)} == before
     assert again.skill_count == 2
+
+
+async def test_one_subpath_cannot_reclaim_another_subpaths_skill(
+    agent_session, admin, host
+):
+    """A reclaim matches on where the skill sits in the repository, not on its
+    name. Two sources can share a URL with different subpaths — `discover`
+    strips the subpath, so both see a skill called `margin-audit` at the same
+    relative path — and the URL alone cannot tell them apart. Matching on the
+    name would hand one subpath's row, id and agent bindings to the other.
+    """
+    sources = SkillSourceService(agent_session)
+    skills = SkillService(agent_session)
+    host.tree = {
+        "team-a/skills/margin-audit/SKILL.md": skill_md(
+            "margin-audit", "Team A's audit. Use when margins look off."
+        ),
+        "team-b/skills/margin-audit/SKILL.md": skill_md(
+            "margin-audit", "Team B's audit, a different procedure entirely."
+        ),
+    }
+    team_a = await sources.create(SkillSourceCreate(url=URL, subpath="team-a"), admin)
+    [skill] = await skills.list_summaries(admin)
+    # Repo-root-relative, so the subpath is part of the identity.
+    assert skill.source_path == "team-a/skills/margin-audit"
+    await sources.delete(team_a.id, admin)
+
+    team_b = await sources.create(SkillSourceCreate(url=URL, subpath="team-b"), admin)
+
+    [still_a] = await skills.list_summaries(admin)
+    assert still_a.id == skill.id and still_a.source_id is None  # untouched
+    assert still_a.source_path == "team-a/skills/margin-audit"
+    assert team_b.skill_count == 0
+    [entry] = [e for e in team_b.last_report if e.name == "margin-audit"]
+    assert entry.status == "skipped" and entry.issues[0].code == "W004"
+    assert entry.path == "team-b/skills/margin-audit"
+
+
+async def test_reconnecting_reclaims_across_a_ref_change(agent_session, admin, host):
+    """Matching on the path rather than the full source identity is what lets
+    a repository be reconnected on a different branch and still re-pin its own
+    rows — the skill did not move, only the ref did."""
+    sources = SkillSourceService(agent_session)
+    skills = SkillService(agent_session)
+    source = await sources.create(SkillSourceCreate(url=URL, ref="main"), admin)
+    before = {s.name: s.id for s in await skills.list_summaries(admin)}
+    await sources.delete(source.id, admin)
+
+    again = await sources.create(SkillSourceCreate(url=URL, ref="v2"), admin)
+
+    assert {s.name: s.id for s in await skills.list_summaries(admin)} == before
+    assert {s.source_id for s in await skills.list_summaries(admin)} == {again.id}
 
 
 async def test_a_repository_cannot_take_over_another_ones_detached_skill(

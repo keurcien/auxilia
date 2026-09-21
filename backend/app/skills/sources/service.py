@@ -108,7 +108,9 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
                 SkillSourcePreviewSkill(
                     name=skill.name,
                     description=skill.description,
-                    path=skill.path,
+                    # Repo-root-relative, like the path a sync stores, so the
+                    # preview names a location the reader can actually open.
+                    path=_full_path(data.subpath, skill.path),
                     container=skill.container,
                     script_count=sum(
                         1 for p in skill.bundle.files if p.startswith("scripts/")
@@ -243,7 +245,7 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
         resolved = await self._resolve_or_400(
             row.kind, row.url, row.ref, row.subpath, token
         )
-        decisions, _report = _classify(resolved, await self._library(row))
+        decisions, _report = _classify(resolved, await self._library(row), row.subpath)
         return SkillSyncPlan(
             revision=resolved.revision,
             current_revision=row.last_revision,
@@ -282,7 +284,10 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
         except (LimitExceeded, SkillkitValidationError) as exc:
             return await self._failed(row, "invalid", str(exc))
 
-        decisions, report = _classify(resolved, await self._library(row))
+        decisions, report = _classify(resolved, await self._library(row), row.subpath)
+        # Decisions the unique index refused after `_classify` had cleared
+        # them — a concurrent sync of another repository took the name first.
+        taken: list[_Decision] = []
 
         for decision in decisions:
             # `assert` would be the obvious narrowing here, but it is compiled
@@ -293,20 +298,33 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
 
             if decision.status == "new":
                 bundle, digest = _incoming(decision)
-                created = await self._skills.create(
-                    SkillCreateDB(
-                        owner_id=row.owner_id,
-                        name=bundle.name,
-                        description=bundle.description,
-                        content=bundle.content,
-                        files=[f.model_dump(mode="json") for f in bundle.files],
-                        digest=digest,
-                        source_id=row.id,
-                        source_url=row.url,
-                        source_path=decision.path,
-                        source_revision=resolved.revision,
-                    )
-                )
+                # In a SAVEPOINT: `_classify` read the taken names a moment
+                # ago, and the lock this sync holds is on its *own* source
+                # row, so a concurrent sync of a *different* repository can
+                # take the name in between. The unique index is what actually
+                # decides, and losing that race is the ordinary name-taken
+                # outcome — not a reason to fail a sync that has already
+                # imported half a repository. The savepoint is what lets the
+                # rest of the loop keep using the session afterwards.
+                try:
+                    async with self.db.begin_nested():
+                        created = await self._skills.create(
+                            SkillCreateDB(
+                                owner_id=row.owner_id,
+                                name=bundle.name,
+                                description=bundle.description,
+                                content=bundle.content,
+                                files=[f.model_dump(mode="json") for f in bundle.files],
+                                digest=digest,
+                                source_id=row.id,
+                                source_url=row.url,
+                                source_path=decision.path,
+                                source_revision=resolved.revision,
+                            )
+                        )
+                except IntegrityError:
+                    taken.append(decision)
+                    continue
                 await self._skills.record_version(
                     created.id,
                     digest=digest,
@@ -356,6 +374,16 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
         # Every decision, not only the failures. A sync is the one operation
         # here that changes the library with nobody watching — the plan says
         # what it will do, and this is the only record of what it did.
+        # A name lost to a concurrent sync reads exactly like one that was
+        # already taken when `_classify` ran — same status, same issue, same
+        # remedy. Restated in both the report and the decisions so
+        # `skill_count` below counts what the library actually holds.
+        for decision in taken:
+            decision.status = "skipped"
+            for entry in report:
+                if entry.name == decision.name and entry.path == decision.path:
+                    entry.status = "skipped"
+                    entry.issues = [_NAME_TAKEN]
         row.last_report = [entry.model_dump(mode="json") for entry in report]
         # What the repository currently contributes: present upstream and
         # valid. A skipped skill was never counted, and a `gone` one is no
@@ -410,10 +438,18 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
             if source_id is not None
             else {}
         )
+        # Keyed by `source_path`, not by name — a detached row is reclaimed
+        # because it is *the same skill*, and what says so is where it sits in
+        # the repository. Keying on the name would let one subpath of a
+        # monorepo claim another's row: two sources on one URL with different
+        # subpaths see the same names, and the URL alone cannot tell them
+        # apart. `source_path` is repo-root-relative (`_full_path`), so the
+        # subpath is part of it and this is a true identity.
+        claimed = {s.id for s in mine.values()}
         reclaimable = {
-            s.name: s
+            s.source_path: s
             for s in await self._skills.list_reclaimable(url)
-            if s.name not in mine
+            if s.id not in claimed and s.source_path
         }
         ours = {s.id for s in (*mine.values(), *reclaimable.values())}
         return LibraryIndex(
@@ -504,8 +540,12 @@ class LibraryIndex:
       skill this sync updates, and a name *not* found again upstream is the
       one it marks `gone`.
     - `reclaimable` — rows this same repository left behind when it was
-      disconnected (`SkillRepository.list_reclaimable`). A name found here is
-      claimed: the row is re-pinned, keeping its id and every agent binding.
+      disconnected (`SkillRepository.list_reclaimable`), **by repo-root
+      `source_path`**, not by name. A path found here is claimed: the row is
+      re-pinned, keeping its id and every agent binding. The path is the
+      identity because the URL alone is not one — two sources can share a URL
+      with different `subpath`s, see the same skill names, and would
+      otherwise claim each other's rows.
     - `taken` — every other name in the library: another repository's skills,
       skills written in the app, and skills a *different* repository left
       behind. A name found here is not this sync's to touch, and the incoming
@@ -545,8 +585,24 @@ def _incoming(decision: _Decision) -> tuple[SkillBundle, str]:
     return decision.bundle, decision.digest
 
 
+def _full_path(subpath: str | None, path: str) -> str:
+    """A skill's location in the *repository*, not under the source's subpath.
+
+    `discover` strips the subpath before walking, so `Skill.path` is relative
+    to it: `team-a/skills/x` and `team-b/skills/x` both arrive as
+    `skills/x`. Stored as-is, two sources on one repository would record the
+    same `source_path` for different skills, and a reclaim keyed on it would
+    hand one subpath's row to the other. Putting the subpath back makes
+    `source_path` a location anyone can resolve in the repository, and makes
+    (`source_url`, `source_path`) a real identity.
+    """
+    prefix = (subpath or "").strip("/")
+    path = path.strip("/")
+    return f"{prefix}/{path}".strip("/") if prefix else path
+
+
 def _classify(
-    resolved: ResolvedSource, library: LibraryIndex
+    resolved: ResolvedSource, library: LibraryIndex, subpath: str | None = None
 ) -> tuple[list[_Decision], list[SkillSourceReportEntry]]:
     """Compare what the repository holds against what the library holds.
 
@@ -568,9 +624,10 @@ def _classify(
         )
 
     def skip(skill: Skill, issues: list[SkillIssue]) -> None:
-        report.append(record(skill.name, skill.path, "skipped", issues))
+        path = _full_path(subpath, skill.path)
+        report.append(record(skill.name, path, "skipped", issues))
         decisions.append(
-            _Decision(name=skill.name, path=skill.path, status="skipped", issues=issues)
+            _Decision(name=skill.name, path=path, status="skipped", issues=issues)
         )
         # It is still upstream, just unusable this time round. Leaving it in
         # `remaining` made the same sync mark it `gone` as well, so the
@@ -610,7 +667,10 @@ def _classify(
 
         seen.add(skill.name)
         digest = bundle_digest(bundle.file_bytes())
-        current = remaining.pop(skill.name, None) or unclaimed.pop(skill.name, None)
+        path = _full_path(subpath, skill.path)
+        # `mine` by name (that is what makes a skill missing upstream read as
+        # `gone`), `reclaimable` by path (that is what makes it the same skill).
+        current = remaining.pop(skill.name, None) or unclaimed.pop(path, None)
         status = (
             "new"
             if current is None
@@ -618,11 +678,11 @@ def _classify(
             if digest != current.digest
             else "unchanged"
         )
-        report.append(record(skill.name, skill.path, status, _issues(skill)))
+        report.append(record(skill.name, path, status, _issues(skill)))
         decisions.append(
             _Decision(
                 name=skill.name,
-                path=skill.path,
+                path=path,
                 status=status,
                 issues=_issues(skill),
                 bundle=bundle,

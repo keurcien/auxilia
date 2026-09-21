@@ -138,33 +138,47 @@ function SyncPlanSummary({ plan }: { plan: SkillSyncPlan }) {
  *
  * A sync is the one thing here that changes the library while nobody is
  * looking at the dialog that described it, so the row has to be able to
- * answer "what happened?" afterwards. `unchanged` is left out: it is the
- * majority of a steady-state sync and saying "14 unchanged" buries the one
- * line that matters. The title carries every skill by name.
+ * answer "what happened?" afterwards. A quiet `unchanged` is left out of the
+ * count — it is the majority of a steady-state sync and "14 unchanged" buries
+ * the line that matters — but one carrying a warning is not quiet, and is
+ * counted and listed. The title names every entry by skill *and* path.
  */
 function LastSyncOutcome({ report }: { report: SkillSourceReportEntry[] }) {
 	const counted: SkillSyncStatus[] = ["new", "updated", "gone", "skipped"];
 	const parts = counted
 		.map((status) => ({ status, n: report.filter((e) => e.status === status).length }))
 		.filter((part) => part.n > 0);
-	if (parts.length === 0) return null;
-	const tone = report.some((e) => e.status === "skipped" || e.status === "gone")
+	// An `unchanged` skill can still carry a warning — a validation issue that
+	// does not stop the import. Those are the entries a steady-state sync is
+	// made of, so dropping them silently is how a warning goes unseen forever.
+	const noted = report.filter((e) => e.status !== "unchanged" || e.issues.length > 0);
+	if (parts.length === 0 && noted.length === 0) return null;
+	const tone = noted.some(
+		(e) => e.status === "skipped" || e.status === "gone" || e.issues.length > 0,
+	)
 		? "text-warning"
 		: "text-meta dark:text-panel-dim";
+	const warnings = noted.filter((e) => e.status === "unchanged").length;
+	const summary = [
+		...parts.map((p) => `${p.n} ${STATUS_COPY.get(p.status)?.label.toLowerCase()}`),
+		...(warnings > 0 ? [`${warnings} warned`] : []),
+	].join(" · ");
 	return (
 		<span
 			className={cn("truncate font-mono text-[10px]", tone)}
-			title={report
-				.filter((e) => e.status !== "unchanged")
+			// The path, not just the name: two skills in one repository can
+			// share a name (that is the `W003` skip), and the name alone cannot
+			// say which folder to go and fix.
+			title={noted
 				.map((e) =>
 					[
-						`${e.name}: ${e.status}`,
+						`${e.name} (${e.path}): ${e.status}`,
 						...e.issues.map((i) => `  ${i.code} ${i.message}`),
 					].join("\n"),
 				)
 				.join("\n")}
 		>
-			{parts.map((part) => `${part.n} ${STATUS_COPY.get(part.status)?.label.toLowerCase()}`).join(" · ")}
+			{summary}
 		</span>
 	);
 }

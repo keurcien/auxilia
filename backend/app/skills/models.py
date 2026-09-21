@@ -125,11 +125,11 @@ class SkillDB(BaseDBModel, table=True):
     # only a sync or an adopt ever writes it — and `source_id` says whether
     # that repository is still connected:
     #
-    #   revision None             → written in the app; editable here.
-    #   revision + source_id      → pinned to `source_path` at that commit;
-    #                               edited in the repository, a newer
+    #   source_revision None             → written in the app; editable here.
+    #   source_revision + source_id      → pinned to `source_path` at that
+    #                               commit; edited in the repository, a newer
     #                               `SkillVersionDB` adopted explicitly.
-    #   revision, source_id None  → detached: the repository was
+    #   source_revision, source_id None  → detached: the repository was
     #                               disconnected. The document, the files and
     #                               the `scripts/` are all in this row, so the
     #                               skill keeps running exactly as it was.
@@ -154,7 +154,12 @@ class SkillDB(BaseDBModel, table=True):
     # the id agents are already bound to. It is also the only thing left that
     # can tell a reader where a detached skill came from.
     source_url: str | None = Field(default=None, max_length=500, index=True)
-    source_path: str | None = Field(default=None, max_length=240)
+    # Where the skill sits in the repository, relative to its *root* and not
+    # to the source's `subpath` (`sources.service._full_path`). Together with
+    # `source_url` it identifies the skill, which is what a reclaim matches
+    # on: two sources can share a URL with different subpaths and see the
+    # same names, so the name alone would let one claim the other's rows.
+    source_path: str | None = Field(default=None, max_length=500)
     source_revision: str | None = Field(default=None, max_length=80)
     digest: str | None = Field(default=None, max_length=80)
     missing_upstream: bool = Field(default=False, nullable=False)

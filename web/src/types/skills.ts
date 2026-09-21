@@ -227,15 +227,23 @@ export const shortRevision = (revision: string | null | undefined): string =>
 	revision ? (revision.length > 12 ? revision.slice(0, 7) : revision) : "";
 
 /**
- * `owner/repo` from a repository URL — what a detached skill has instead of a
+ * The repository path from its URL — what a detached skill has instead of a
  * `sourceName`, since the row that carried the name is gone. The whole URL is
- * kept as the title, so nothing is hidden, only shortened.
+ * kept as the title, so only the host is dropped, never a path segment.
+ *
+ * The *whole* path, not the last two segments: a GitLab repository can live
+ * in nested groups, where `group/team/tools` and `other/team/tools` would both
+ * shorten to `team/tools` and name two different repositories identically —
+ * in the one place whose job is to say which repository to reconnect.
  */
 export const repoLabel = (url: string | null | undefined): string => {
 	if (!url) return "";
-	const path = url.replace(/^https?:\/\//, "").replace(/\.git$/, "").replace(/\/+$/, "");
-	const parts = path.split("/");
-	return parts.length > 2 ? parts.slice(-2).join("/") : path;
+	const withoutScheme = url.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "");
+	const path = withoutScheme
+		.slice(withoutScheme.indexOf("/") + 1)
+		.replace(/\.git$/, "")
+		.replace(/^\/+|\/+$/g, "");
+	return path || withoutScheme;
 };
 
 export interface SkillSave {

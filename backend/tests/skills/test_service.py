@@ -235,6 +235,24 @@ async def test_the_library_is_one_namespace(agent_session, member):
         )
 
 
+async def test_losing_the_name_race_is_a_409_not_a_500(agent_session, member):
+    """Two requests naming the same skill at once both pass `_name_is_free` —
+    neither can see the other's uncommitted row — and the unique index refuses
+    the loser. That is the same answer as the lookup's, so it has to read the
+    same way and not escape as an unhandled IntegrityError."""
+    service = SkillService(agent_session)
+    await service.create(SkillSave(content=skill_markdown("report")), member)
+
+    # The lookup is what a concurrent writer would have missed; skipping it
+    # leaves exactly the flush the loser of the race reaches.
+    async def blind(_name: str) -> None:
+        return None
+
+    service._name_is_free = blind  # type: ignore[method-assign]
+    with pytest.raises(AlreadyExistsError, match="already in the library"):
+        await service.create(SkillSave(content=skill_markdown("report")), member)
+
+
 async def test_enabling_a_skill_on_a_graph_needs_no_name_check(agent_session):
     """The union of a supervisor's and its subagents' skills cannot collide,
     because two different skills of one name do not exist. A binding is just a

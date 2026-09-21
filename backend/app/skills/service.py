@@ -5,6 +5,7 @@ from collections.abc import Iterable
 from uuid import UUID
 
 from fastapi import Depends
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -83,9 +84,12 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
         _reject_files(data)
         bundle = parse_skill(data.content, data.files)
         await self._name_is_free(bundle.name)
-        row = await self.repository.create(
-            SkillCreateDB(owner_id=user.id, **_columns(bundle))
-        )
+        try:
+            row = await self.repository.create(
+                SkillCreateDB(owner_id=user.id, **_columns(bundle))
+            )
+        except IntegrityError as exc:
+            raise _name_taken(bundle.name) from exc
         return await self._response(row, user)
 
     async def update(
@@ -110,10 +114,7 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
                     "Disable this skill on every agent before renaming it"
                 )
         row.sqlmodel_update({**_columns(bundle), "revision": row.revision + 1})
-        self.db.add(row)
-        await self.db.flush()
-        await self.db.refresh(row)
-        return await self._response(row, user)
+        return await self._response(await self._flush(row), user)
 
     async def delete(self, skill_id: UUID, user: UserDB) -> None:
         # Deleting is not editing: a sourced skill, detached or not, is
@@ -192,10 +193,7 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
                 "missing_upstream": False,
             }
         )
-        self.db.add(row)
-        await self.db.flush()
-        await self.db.refresh(row)
-        return await self._response(row, user)
+        return await self._response(await self._flush(row), user)
 
     async def _name_is_free(self, name: str) -> None:
         """The library is one namespace. Refused here rather than at the
@@ -204,15 +202,23 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
         the remedy it offers ("rename one of them") may not exist — a skill
         synced from a repository is not renameable here at all.
 
-        The unique index is what actually holds; this is the wording.
+        The unique index is what actually holds; this is the wording. Two
+        requests naming the same skill at once both pass this lookup — neither
+        can see the other's uncommitted row — so `_flush` catches the index
+        refusing the loser and says the same thing rather than 500ing.
         """
-        other = await self.repository.get_by_name(name)
-        if other is not None:
-            raise AlreadyExistsError(
-                f"A skill named '{name}' is already in the library. Skill names "
-                "are unique across the workspace — agents address a skill by "
-                "its name."
-            )
+        if await self.repository.get_by_name(name) is not None:
+            raise _name_taken(name)
+
+    async def _flush(self, row: SkillDB) -> SkillDB:
+        """Persist a save, turning a lost name race into the 409 it is."""
+        self.db.add(row)
+        try:
+            await self.db.flush()
+        except IntegrityError as exc:
+            raise _name_taken(row.name) from exc
+        await self.db.refresh(row)
+        return row
 
     async def _editable(self, skill_id: UUID, user: UserDB) -> SkillDB:
         row = await self.repository.get_for_update(skill_id)
@@ -311,6 +317,13 @@ def _reject_files(data: SkillSave) -> None:
             "A skill written here is a single SKILL.md. Files and scripts come "
             "from a connected repository."
         )
+
+
+def _name_taken(name: str) -> AlreadyExistsError:
+    return AlreadyExistsError(
+        f"A skill named '{name}' is already in the library. Skill names are "
+        "unique across the workspace — agents address a skill by its name."
+    )
 
 
 def _can_edit(owner_id: UUID, user: UserDB) -> bool:
