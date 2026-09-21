@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	buildCronExpression,
 	describeSchedule,
+	ordinal,
 	parseCronExpression,
 	Schedule,
 } from "./schedule";
@@ -13,7 +14,8 @@ describe("buildCronExpression", () => {
 			[{ kind: "weekdays", time: "08:30" }, "30 8 * * 1-5"],
 			[{ kind: "weekly", day: 1, time: "07:30" }, "30 7 * * 1"],
 			[{ kind: "biweekly", day: 1, time: "09:00" }, "0 9 * * 1#1,1#3"],
-			[{ kind: "monthly", time: "09:00" }, "0 9 1 * *"],
+			[{ kind: "monthly", day: 1, time: "09:00" }, "0 9 1 * *"],
+			[{ kind: "monthly", day: 31, time: "09:00" }, "0 9 31 * *"],
 			[
 				{ kind: "custom", interval: 3, unit: "day", days: [], time: "09:00" },
 				"0 9 */3 * *",
@@ -77,6 +79,7 @@ describe("parseCronExpression", () => {
 			"30 7 * * 1",
 			"0 9 * * 1#1,1#3",
 			"0 9 1 * *",
+			"0 9 31 * *",
 			"0 9 */3 * *",
 			"0 9 * * 1,5",
 			"0 9 * * 1#1,1#3,5#1,5#3",
@@ -99,7 +102,16 @@ describe("parseCronExpression", () => {
 			day: 1,
 			time: "09:00",
 		});
-		expect(parseCronExpression("0 9 1 * *").kind).toBe("monthly");
+		expect(parseCronExpression("0 9 1 * *")).toEqual({
+			kind: "monthly",
+			day: 1,
+			time: "09:00",
+		});
+		expect(parseCronExpression("0 9 15 * *")).toEqual({
+			kind: "monthly",
+			day: 15,
+			time: "09:00",
+		});
 		expect(parseCronExpression("0 9 */2 * *")).toEqual({
 			kind: "custom",
 			interval: 2,
@@ -135,6 +147,22 @@ describe("parseCronExpression", () => {
 	});
 });
 
+describe("ordinal", () => {
+	it("formats English ordinal suffixes, including the 11-13 exception", () => {
+		expect(ordinal(1)).toBe("1st");
+		expect(ordinal(2)).toBe("2nd");
+		expect(ordinal(3)).toBe("3rd");
+		expect(ordinal(4)).toBe("4th");
+		expect(ordinal(11)).toBe("11th");
+		expect(ordinal(12)).toBe("12th");
+		expect(ordinal(13)).toBe("13th");
+		expect(ordinal(21)).toBe("21st");
+		expect(ordinal(22)).toBe("22nd");
+		expect(ordinal(23)).toBe("23rd");
+		expect(ordinal(31)).toBe("31st");
+	});
+});
+
 describe("describeSchedule", () => {
 	it("summarizes schedules for display", () => {
 		expect(describeSchedule({ kind: "daily", time: "08:00" })).toBe(
@@ -149,8 +177,11 @@ describe("describeSchedule", () => {
 		expect(describeSchedule({ kind: "biweekly", day: 5, time: "09:30" })).toBe(
 			"Every two weeks on Friday · 9:30",
 		);
-		expect(describeSchedule({ kind: "monthly", time: "09:00" })).toBe(
+		expect(describeSchedule({ kind: "monthly", day: 1, time: "09:00" })).toBe(
 			"Monthly on the 1st · 9:00",
+		);
+		expect(describeSchedule({ kind: "monthly", day: 22, time: "09:00" })).toBe(
+			"Monthly on the 22nd · 9:00",
 		);
 		expect(
 			describeSchedule({

@@ -19,7 +19,7 @@ export type Schedule =
 	| { kind: "weekdays"; time: string }
 	| { kind: "weekly"; day: Weekday; time: string }
 	| { kind: "biweekly"; day: Weekday; time: string }
-	| { kind: "monthly"; time: string }
+	| { kind: "monthly"; day: number; time: string } // day: 1-31
 	| {
 			kind: "custom";
 			interval: number;
@@ -118,7 +118,7 @@ export function buildCronExpression(schedule: Schedule): string | null {
 		case "biweekly":
 			return `${at} * * ${biweeklyField([schedule.day])}`;
 		case "monthly":
-			return `${at} 1 * *`;
+			return `${at} ${schedule.day} * *`;
 		case "custom": {
 			if (!Number.isInteger(schedule.interval) || schedule.interval < 1) {
 				return null;
@@ -202,8 +202,9 @@ export function parseCronExpression(cronExpression: string): Schedule {
 	}
 	const time = partsToTime(minute, hour);
 
-	if (dom === "1" && dow === "*") {
-		return { kind: "monthly", time };
+	const domDayMatch = /^([1-9]|[12]\d|3[01])$/.exec(dom);
+	if (domDayMatch && dow === "*") {
+		return { kind: "monthly", day: Number(domDayMatch[1]), time };
 	}
 
 	const dayIntervalMatch = /^\*\/(\d+)$/.exec(dom);
@@ -266,6 +267,24 @@ function shortDayList(days: Weekday[]): string {
 		.join(", ");
 }
 
+/** 1 -> "1st", 2 -> "2nd", 11 -> "11th", 22 -> "22nd", etc. */
+export function ordinal(n: number): string {
+	const lastTwo = n % 100;
+	if (lastTwo >= 11 && lastTwo <= 13) {
+		return `${n}th`;
+	}
+	switch (n % 10) {
+		case 1:
+			return `${n}st`;
+		case 2:
+			return `${n}nd`;
+		case 3:
+			return `${n}rd`;
+		default:
+			return `${n}th`;
+	}
+}
+
 /** Human summary, e.g. "Every day · 9:00" or "Every two weeks on Monday · 9:30". */
 export function describeSchedule(schedule: Schedule): string {
 	switch (schedule.kind) {
@@ -278,7 +297,7 @@ export function describeSchedule(schedule: Schedule): string {
 		case "biweekly":
 			return `Every two weeks on ${WEEKDAY_NAMES[schedule.day]} · ${formatTime(schedule.time)}`;
 		case "monthly":
-			return `Monthly on the 1st · ${formatTime(schedule.time)}`;
+			return `Monthly on the ${ordinal(schedule.day)} · ${formatTime(schedule.time)}`;
 		case "custom": {
 			const time = formatTime(schedule.time);
 			if (schedule.unit === "day") {

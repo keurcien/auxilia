@@ -5,6 +5,7 @@ import { ChevronDown, Clock, Repeat } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
 	describeSchedule,
+	ordinal,
 	Schedule,
 	Weekday,
 	WEEKDAY_CHIP_LABELS,
@@ -43,11 +44,13 @@ function withKind(
 	const time = value.kind === "raw" ? "09:00" : value.time;
 	const day: Weekday =
 		value.kind === "weekly" || value.kind === "biweekly" ? value.day : 1;
+	const monthDay = value.kind === "monthly" ? value.day : 1;
 	switch (kind) {
 		case "daily":
 		case "weekdays":
-		case "monthly":
 			return { kind, time };
+		case "monthly":
+			return { kind, day: monthDay, time };
 		case "weekly":
 		case "biweekly":
 			return { kind, day, time };
@@ -91,6 +94,29 @@ function DayChips({
 
 const fieldClassName =
 	"flex items-center justify-between h-11 px-3.5 rounded-lg border border-input dark:border-white/10 bg-card dark:bg-transparent text-[14px] font-medium text-foreground cursor-pointer transition-colors hover:border-border-hover";
+
+/**
+ * Invisible clone of the "at · time" block from the preset row. Sized but
+ * not rendered, so a lone dropdown on its own row (e.g. "On day") gets
+ * squeezed by the same width and lines up under the preset dropdown above.
+ */
+function TimeBlockGhost({ time }: { time: string }) {
+	return (
+		<div aria-hidden className="invisible flex items-center gap-3">
+			<span className="shrink-0 text-[14px] font-medium">at</span>
+			<div className="flex items-center shrink-0 h-11 rounded-lg border border-input">
+				<span className="flex items-center gap-1.5 pl-3.5 pr-3">
+					<Clock className="size-[15px] shrink-0" />
+					<span className="font-semibold">{time}</span>
+				</span>
+				<span className="w-px self-stretch shrink-0" />
+				<span className="flex items-center justify-center w-9.5 self-stretch shrink-0">
+					<ChevronDown className="size-4 shrink-0" />
+				</span>
+			</div>
+		</div>
+	);
+}
 
 export default function ScheduleBuilder({
 	value,
@@ -186,6 +212,40 @@ export default function ScheduleBuilder({
 							onChange({ ...value, day } as Schedule);
 						}}
 					/>
+				</div>
+			)}
+
+			{/* Day-of-month pick for monthly */}
+			{value.kind === "monthly" && (
+				<div className="flex flex-col gap-2.5">
+					<span className="text-[12.5px] font-semibold text-subtle dark:text-muted-foreground">
+						On day
+					</span>
+					<div className="flex items-center gap-3">
+						<DropdownMenu
+							align="start"
+							className="max-h-64 overflow-y-auto"
+							trigger={
+								<button
+									type="button"
+									className={cn(fieldClassName, "flex-1")}
+								>
+									{ordinal(value.day)}
+									<ChevronDown className="size-[18px] shrink-0 text-faint" />
+								</button>
+							}
+							items={Array.from({ length: 31 }, (_, i) => i + 1).map((day) => ({
+								label: ordinal(day),
+								active: value.day === day,
+								onClick: () => {
+									onChange({ ...value, day } as Schedule);
+								},
+							}))}
+						/>
+						{/* Same width as the "at" + time block above, invisibly, so
+						    this dropdown ends up exactly as wide as the preset one. */}
+						<TimeBlockGhost time={value.time} />
+					</div>
 				</div>
 			)}
 
