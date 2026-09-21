@@ -22,6 +22,8 @@ import hashlib
 import json
 import os
 from collections.abc import Sequence
+from functools import lru_cache
+from pathlib import Path
 from uuid import uuid4
 
 import sqlalchemy as sa
@@ -50,21 +52,72 @@ depends_on: str | Sequence[str] | None = None
 _DEFAULT_TIMEOUT = 30 * 60
 
 
+@lru_cache(maxsize=1)
+def _dotenv() -> dict[str, str]:
+    """The repository-root `.env`, which is where the settings this migration
+    replaced actually read from (`env_file=ROOT_ENV`). Reading only
+    `os.environ` would have seen no sandbox configuration on a deployment that
+    keeps it in the file, and silently decided none was configured.
+
+    The path is computed from this file rather than imported from
+    `app.settings`, for the same reason nothing else here is imported. The
+    parser handles what a settings `.env` holds — `KEY=value`, `export`,
+    quotes, `#` comments — and nothing more.
+    """
+    path = Path(__file__).resolve().parents[3] / ".env"
+    if not path.is_file():
+        return {}
+    values: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip().removeprefix("export ").strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        values[key.strip()] = value
+    return values
+
+
 def _env(name: str, default: str = "") -> str:
-    return os.environ.get(name, default).strip()
+    """A real environment variable first, then `.env` — pydantic-settings'
+    own precedence, so this reads what the deleted settings classes read."""
+    raw = os.environ.get(name)
+    if raw is None:
+        raw = _dotenv().get(name, default)
+    return raw.strip()
+
+
+def _invalid(name: str, raw: str, expected: str) -> RuntimeError:
+    """Malformed configuration stops the upgrade. Falling back to a default
+    would convert the environment into a sandbox row that says something the
+    operator never configured, and that row is what every agent then runs."""
+    return RuntimeError(
+        f"{name}={raw!r} is not {expected}. Fix it (or unset it) and run the "
+        "upgrade again."
+    )
 
 
 def _env_bool(name: str, default: bool) -> bool:
     raw = _env(name)
-    return raw.lower() in ("1", "true", "yes", "on") if raw else default
+    if not raw:
+        return default
+    if raw.lower() in ("1", "true", "yes", "on"):
+        return True
+    if raw.lower() in ("0", "false", "no", "off"):
+        return False
+    raise _invalid(name, raw, "a boolean")
 
 
 def _env_int(name: str, default: int) -> int:
     raw = _env(name)
-    try:
-        return int(raw) if raw else default
-    except ValueError:
+    if not raw:
         return default
+    try:
+        return int(raw)
+    except ValueError:
+        raise _invalid(name, raw, "an integer") from None
 
 
 def _env_list(name: str) -> list[str]:
@@ -74,9 +127,12 @@ def _env_list(name: str) -> list[str]:
         return []
     if raw.startswith("["):
         try:
-            return [str(item) for item in json.loads(raw)]
+            parsed = json.loads(raw)
         except ValueError:
-            return []
+            raise _invalid(name, raw, "a JSON array") from None
+        if not isinstance(parsed, list):
+            raise _invalid(name, raw, "a JSON array")
+        return [str(item) for item in parsed]
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
