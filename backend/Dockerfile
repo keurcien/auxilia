@@ -44,8 +44,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy virtual environment from builder
 COPY --from=builder /app/.venv /app/.venv
 
-# Copy application code
+# Copy application code. `pyproject.toml` declares no build-system, so uv
+# never installs this project into the venv — `app` and `skillkit` are both
+# imported from the working directory, and each one has to be copied here by
+# name. Missing `skillkit` is not a lint or test failure: it only surfaces as
+# `ModuleNotFoundError` when the container starts.
 COPY --from=builder /app/app /app/app
+COPY --from=builder /app/skillkit /app/skillkit
 COPY --from=builder /app/alembic /app/alembic
 COPY --from=builder /app/alembic.ini /app/alembic.ini
 COPY --from=builder /app/entrypoint.sh /app/entrypoint.sh

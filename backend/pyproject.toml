@@ -49,6 +49,9 @@ dev = [
     "pytest>=8.3.4",
     "pytest-asyncio>=0.24.0",
     "httpx>=0.28.1",
+    # Imported directly by skillkit (requirements parsing); not a transitive
+    # dependency we should rely on.
+    "packaging>=24.0",
     "pytest-mock>=3.14.0",
     "fakeredis[lua]>=2.36.2",
     "aiosqlite>=0.22.1",
@@ -118,6 +121,8 @@ lines-after-imports = 2
 # pytest fixtures are injected by name and are often present only for their
 # side effects (auth overrides, DB session), so they read as "unused args".
 "tests/**" = ["ARG001"]
+# The CLI prints; that is its job.
+"skillkit/__main__.py" = ["T201"]
 
 [tool.mypy]
 # Deliberately non-strict: the value here is catching the mistakes the generics in

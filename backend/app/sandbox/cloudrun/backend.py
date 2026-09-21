@@ -26,6 +26,7 @@ from deepagents.backends.sandbox import BaseSandbox
 
 from app.sandbox.cloudrun.snapshots import SnapshotStore
 from app.sandbox.cloudrun.transport import (
+    SandboxNotFoundError,
     SandboxTimeoutError,
     SandboxTransport,
 )
@@ -74,8 +75,15 @@ class CloudRunSandbox(BaseSandbox):
     ) -> ExecuteResponse:
         effective_timeout = timeout if timeout is not None else self._default_timeout
         try:
+            # A non-login shell on purpose. deepagents' file tools (`read_file`,
+            # `edit_file`, `write_file`…) run a script through `execute` and
+            # parse the *combined* output as JSON, so anything the shell itself
+            # prints breaks them. A login shell in this image sources an
+            # unreadable /root/.bash_profile and prints "Permission denied" to
+            # stderr on every command; `-c` is silent and resolves the same
+            # python3/pip.
             result = self._transport.exec(
-                self._id, ["/bin/bash", "-lc", command], timeout=effective_timeout
+                self._id, ["/bin/bash", "-c", command], timeout=effective_timeout
             )
         except SandboxTimeoutError:
             return ExecuteResponse(
@@ -94,10 +102,18 @@ class CloudRunSandbox(BaseSandbox):
         )
 
     def is_alive(self) -> bool:
-        """Probe whether the named sandbox still exists."""
+        """Probe whether the named sandbox still exists.
+
+        Only an explicit not-found answers `False`. A gateway that is
+        unreachable, timing out or erroring says nothing about the sandbox,
+        and swallowing that made a transient outage look like a dead sandbox:
+        the caller replaced it and the thread lost its files. Those failures
+        propagate, and `open_sandbox` turns them into `SandboxUnavailableError`
+        rather than creating a replacement.
+        """
         try:
             result = self._transport.exec(self._id, ["/bin/true"], timeout=30)
-        except Exception:  # noqa: BLE001 — any probe failure means "not alive"
+        except SandboxNotFoundError:
             return False
         return result.returncode == 0
 

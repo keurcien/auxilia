@@ -106,6 +106,9 @@ class SubagentService:
                 "This agent is already used as a subagent and cannot have subagents"
             )
 
+        # Joining a graph merges two skill sets, and nothing has to be checked
+        # about that: the skill library is one namespace, so two different
+        # skills of one name do not exist to be merged.
         return await self.repository.create_or_update(supervisor_id, subagent_id)
 
     async def set_for_supervisor(
@@ -128,10 +131,13 @@ class SubagentService:
             return
         if user_role != WorkspaceRole.admin:
             raise PermissionDeniedError("Only admins can modify subagents")
-        for subagent_id in wanted - current:
-            await self.create_or_update(supervisor_id, subagent_id)
+        # Removals first, so every validation an addition runs sees the graph
+        # this save asks for and not a transient union of the two. One
+        # transaction, so a failed addition rolls the removals back with it.
         for subagent_id in current - wanted:
             await self.delete(supervisor_id, subagent_id)
+        for subagent_id in wanted - current:
+            await self.create_or_update(supervisor_id, subagent_id)
 
     async def delete(self, supervisor_id: UUID, subagent_id: UUID) -> None:
         link = await self.repository.get(supervisor_id, subagent_id)

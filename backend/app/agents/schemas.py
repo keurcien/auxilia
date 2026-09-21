@@ -12,6 +12,7 @@ from app.agents.models import (
     ToolStatus,
 )
 from app.sandbox.models import SandboxProviderType
+from app.skills.schemas import AgentSkillResponse
 
 
 class AgentCreateDB(SQLModel):
@@ -69,6 +70,8 @@ class AgentConfig(SQLModel):
     mcp_servers: list[AgentMCPServerConfig] = []
     sandboxes: list[AgentSandboxConfig] = []
     subagent_ids: list[UUID] = []
+    # Skills enabled on the agent — whole-set, like the other bindings.
+    skill_ids: list[UUID] = []
 
     @field_validator("sandboxes")
     @classmethod
@@ -213,3 +216,5 @@ class AgentResponse(AgentListResponse):
     # Sandboxes ride only on the full response: the runtime and the agent
     # editor consume the binding; list rows never render it.
     sandboxes: list[AgentSandboxResponse] | None = None
+    # Skills too: the editor's selection and the runtime's catalog source.
+    skills: list[AgentSkillResponse] | None = None

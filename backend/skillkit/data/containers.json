@@ -1,0 +1,30 @@
+{
+  "_comment": "Skill container directories, mirrored from the Vercel `skills` CLI (github.com/vercel-labs/skills). Data, not logic: refreshed from upstream, never hand-edited in a feature PR. Order is precedence: a path claimed by an earlier, more specific container is not re-walked by a later one.",
+  "containers": [
+    "skills/.curated",
+    "skills/.experimental",
+    "skills/.system",
+    "skills",
+    ".agents/skills",
+    ".claude/skills",
+    ".cursor/skills",
+    ".windsurf/skills",
+    ".codex/skills",
+    ".continue/skills",
+    ".gemini/skills",
+    ".github/skills",
+    ".opencode/skills",
+    ".goose/skills",
+    ".kiro/skills",
+    ".roo/skills",
+    ".cline/skills",
+    ".augment/skills",
+    ".amp/skills",
+    ".trae/skills",
+    ".zed/skills",
+    ".copilot/skills",
+    ".junie/skills",
+    ".qwen/skills",
+    ".openhands/skills"
+  ]
+}

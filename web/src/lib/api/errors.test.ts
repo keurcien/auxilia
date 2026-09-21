@@ -70,11 +70,40 @@ describe("getApiErrorMessage", () => {
 		).toBe("dup");
 	});
 
+	it("reads FastAPI's 422 validation array, which `detail` cannot hold", () => {
+		// `ApiError.detail` is only set for a *string* detail, so before this a
+		// rejected field showed the caller's fallback — i.e. nothing useful.
+		const detail = [
+			{
+				type: "value_error",
+				loc: ["body", "url"],
+				msg: "Value error, must be an https:// repository URL",
+				input: "acme/skills",
+			},
+		];
+		expect(getApiErrorMessage(axios4xx(422, { detail }), "fb")).toBe(
+			"must be an https:// repository URL",
+		);
+	});
+
+	it("joins several invalid fields and says each rule once", () => {
+		const detail = [
+			{ loc: ["body", "url"], msg: "Value error, must be an https:// repository URL" },
+			{ loc: ["body", "ref"], msg: "Value error, must be an https:// repository URL" },
+			{ loc: ["body", "name"], msg: "field required" },
+		];
+		expect(getApiErrorMessage(axios4xx(422, { detail }), "fb")).toBe(
+			"must be an https:// repository URL; field required",
+		);
+	});
+
 	it("falls back on 5xx, blank detail, network errors and unknown shapes", () => {
 		expect(getApiErrorMessage(axios4xx(500, { detail: "trace" }), "fb")).toBe("fb");
 		expect(getApiErrorMessage(axios4xx(400, { detail: "   " }), "fb")).toBe("fb");
 		expect(getApiErrorMessage(axios4xx(400, "not json"), "fb")).toBe("fb");
 		expect(getApiErrorMessage(new Error("offline"), "fb")).toBe("fb");
 		expect(getApiErrorMessage(undefined, "fb")).toBe("fb");
+		expect(getApiErrorMessage(axios4xx(422, { detail: [] }), "fb")).toBe("fb");
+		expect(getApiErrorMessage(axios4xx(422, { detail: [{ loc: ["x"] }] }), "fb")).toBe("fb");
 	});
 });

@@ -183,6 +183,11 @@ class RunWorker:
             if await _mcp_unauthorized(db, thread, str(record.user_id)):
                 raise RuntimeError(MCP_REAUTH_ERROR)
             agent = await Agent.build(thread=thread, db=db)
+            # Commit here, on purpose (CLAUDE.md, transactions, exception 2):
+            # holding this pooled connection open for the length of an agent
+            # run risks pool starvation, so `build`'s transaction ends before
+            # the stream starts.
+            await db.commit()
             # Buffered: one awaited XADD per event is one Redis round trip per
             # token, serialized with the agent stream. Exiting the buffer drains
             # it, which is what keeps the last events ahead of `finalize`'s

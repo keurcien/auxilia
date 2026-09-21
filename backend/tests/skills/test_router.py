@@ -1,0 +1,109 @@
+"""The /skills HTTP surface: status codes and shapes, service mocked."""
+
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.exceptions import StaleRevisionError
+from app.main import app
+from app.skills.schemas import SkillResponse, SkillSummary
+from app.skills.service import get_skill_service
+from tests.skills.conftest import skill_markdown
+
+
+def _response(**overrides) -> SkillResponse:
+    defaults = {
+        "id": uuid4(),
+        "owner_id": uuid4(),
+        "name": "report",
+        "description": "Write a report",
+        "revision": 1,
+        "file_count": 0,
+        "script_count": 0,
+        "agent_count": 0,
+        "updated_at": datetime.now(UTC),
+        "can_edit": True,
+        "content": skill_markdown(),
+        "files": [],
+    }
+    return SkillResponse(**{**defaults, **overrides})
+
+
+@pytest.fixture
+def service(current_user):
+    svc = MagicMock()
+    svc.list_summaries = AsyncMock(
+        return_value=[
+            SkillSummary(
+                **_response().model_dump(exclude={"content", "files", "agents"})
+            )
+        ]
+    )
+    svc.get = AsyncMock(return_value=_response())
+    svc.create = AsyncMock(return_value=_response())
+    svc.update = AsyncMock(return_value=_response(revision=2))
+    svc.delete = AsyncMock()
+    app.dependency_overrides[get_skill_service] = lambda: svc
+    yield svc
+    app.dependency_overrides.pop(get_skill_service, None)
+
+
+def test_list_returns_summaries(client: TestClient, service):
+    response = client.get("/skills/")
+    assert response.status_code == 200
+    [row] = response.json()
+    assert row["name"] == "report" and "content" not in row
+
+
+def test_create_and_update_pass_the_payload_through(
+    client: TestClient, service, editor_user
+):
+    body = {"content": skill_markdown(), "files": [{"path": "a.py", "content": "x"}]}
+    assert client.post("/skills/", json=body).status_code == 201
+    assert service.create.call_args.args[0].files[0].path == "a.py"
+
+    skill_id = uuid4()
+    response = client.put(f"/skills/{skill_id}", json={**body, "revision": 1})
+    assert response.status_code == 200
+    assert response.json()["revision"] == 2
+    assert service.update.call_args.args[1].revision == 1
+
+
+def test_stale_revision_is_a_409(client: TestClient, service):
+    service.update.side_effect = StaleRevisionError("changed")
+    response = client.put(
+        f"/skills/{uuid4()}", json={"content": skill_markdown(), "revision": 1}
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == "changed"
+
+
+def test_invalid_document_is_a_400_with_the_reason(
+    client: TestClient, service, editor_user
+):
+    from app.exceptions import DomainValidationError
+
+    service.create.side_effect = DomainValidationError("name: bad")
+    response = client.post("/skills/", json={"content": "no frontmatter"})
+    assert response.status_code == 400
+    assert response.json()["detail"] == "name: bad"
+
+
+def test_delete_is_204(client: TestClient, service):
+    assert client.delete(f"/skills/{uuid4()}").status_code == 204
+
+
+def test_only_editors_put_a_skill_in_the_library(client: TestClient, service):
+    """`current_user` is a member. Reading and using a skill is open to the
+    whole workspace, but adding one is not: it is instructions every agent can
+    be given, under a name that is then nobody else's to use."""
+    response = client.post("/skills/", json={"content": skill_markdown()})
+    assert response.status_code == 403
+    service.create.assert_not_awaited()
+
+
+def test_requires_auth(client: TestClient):
+    assert client.get("/skills/").status_code == 401
