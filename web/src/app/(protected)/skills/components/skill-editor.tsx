@@ -1,8 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { cloneElement, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { FileText, GitCompareArrows, TerminalSquare, Trash2 } from "lucide-react";
+import {
+	CircleAlert,
+	FileText,
+	GitCompareArrows,
+	TerminalSquare,
+	Trash2,
+	TriangleAlert,
+	Unplug,
+} from "lucide-react";
 import { MessageResponse } from "@/components/ai-elements/message";
 import ConfirmDialog from "@/components/ui/confirm-dialog";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
@@ -38,6 +46,56 @@ import SkillDiffDialog from "./skill-diff-dialog";
 import SkillFilesPanel from "./skill-files-panel";
 import SkillInUseDialog from "./skill-in-use-dialog";
 import SkillUsedBy from "./skill-used-by";
+
+type NoticeTone = "plain" | "warning" | "alert";
+
+const NOTICE_TONE: Record<NoticeTone, { box: string; icon: string }> = {
+	plain: {
+		box: "border-input bg-petrol-tint text-body dark:border-white/10 dark:bg-white/[0.04] dark:text-panel-body",
+		icon: "text-petrol",
+	},
+	warning: {
+		box: "border-[#F0DCC2] bg-[#FDF9F0] text-[#7A5C1E] dark:border-[#7A5C1E]/40 dark:bg-[#7A5C1E]/10 dark:text-[#E8C27A]",
+		icon: "text-[#B98B2E] dark:text-[#E8C27A]",
+	},
+	alert: {
+		box: "border-destructive/20 bg-destructive/10 text-destructive",
+		icon: "text-destructive",
+	},
+};
+
+/**
+ * Everything the editor has to say about the skill it is showing, in one
+ * shape: an icon and a line, inside the definition panel.
+ *
+ * These used to be full-width banners stacked above the two panels, so each
+ * one pushed the layout down and the editor started lower the more there was
+ * to say — with the panels themselves reflowing as a skill's state changed.
+ * Inside the panel they read as notes about the definition, which is what
+ * they are, and the two-column layout stays put.
+ */
+function EditorNotice({
+	icon,
+	tone = "plain",
+	children,
+}: {
+	icon: React.ReactElement<{ className?: string }>;
+	tone?: NoticeTone;
+	children: React.ReactNode;
+}) {
+	const style = NOTICE_TONE[tone];
+	return (
+		<div
+			className={cn(
+				"mt-5 flex shrink-0 items-start gap-2.5 rounded-[7px] border px-3.5 py-2.5",
+				style.box,
+			)}
+		>
+			{cloneElement(icon, { className: cn("mt-px size-3.5 shrink-0", style.icon) })}
+			<span className="min-w-0 text-[12.5px] leading-[1.5]">{children}</span>
+		</div>
+	);
+}
 
 const NEW_SKILL = composeSkillMarkdown({
 	name: "",
@@ -300,42 +358,6 @@ export default function SkillEditor({
 				</>
 			)}
 
-			{error && (
-				<div className="mx-7 mt-4 shrink-0 rounded-md bg-destructive/10 px-4 py-2.5 text-[13px] text-destructive">
-					{error}
-				</div>
-			)}
-
-			{skill && detached && (
-				<div className="mx-7 mt-4 flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-[10px] border border-input bg-sidebar px-4 py-2.5 text-[12.5px] text-meta dark:border-white/10 dark:bg-white/[0.04] dark:text-panel-dim">
-					<span>
-						{/* The URL, not the word "repository": reconnecting is matched on
-						    it, so the one action this banner suggests needs it spelled out. */}
-						<Link href="/skills?view=sources" className="font-semibold text-petrol hover:underline">
-							{repoLabel(skill.sourceUrl) || "Its repository"}
-						</Link>{" "}
-						is no longer connected. The skill keeps running, pinned to{" "}
-						<span className="font-mono text-[11.5px]">{shortRevision(skill.sourceRevision)}</span> — connect{" "}
-						<span className="font-mono text-[11.5px]">{skill.sourceUrl ?? "the repository"}</span> again to change
-						it, and this skill is re-pinned rather than imported a second time. Deleting it from the library still
-						works.
-					</span>
-				</div>
-			)}
-
-			{skill && sourced && skill.missingUpstream && (
-				<div className="mx-7 mt-4 flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-[10px] border border-[#F0DCC2] bg-[#FDF9F0] px-4 py-2.5 text-[12.5px] text-[#7A5C1E] dark:border-[#7A5C1E]/40 dark:bg-[#7A5C1E]/10 dark:text-[#E8C27A]">
-					<span>
-						No longer in{" "}
-						<Link href="/skills?view=sources" className="font-semibold underline">
-							{skill.sourceName ?? "its repository"}
-						</Link>{" "}
-						as of the last sync — it keeps working, pinned to{" "}
-						<span className="font-mono text-[11.5px]">{shortRevision(skill.sourceRevision)}</span>.
-					</span>
-				</div>
-			)}
-
 			<div className="flex min-h-0 flex-1 flex-col md:flex-row">
 				{/* Left: definition */}
 				<div className="flex min-w-0 flex-col overflow-y-auto border-b border-border bg-background p-7 md:flex-[1.05] md:border-b-0 md:border-r [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -404,15 +426,44 @@ export default function SkillEditor({
 					</div>
 
 
+					{error && (
+						<EditorNotice tone="alert" icon={<CircleAlert />}>
+							{error}
+						</EditorNotice>
+					)}
+
+					{skill && detached && (
+						<EditorNotice icon={<Unplug />}>
+							{/* The URL, not the word "repository": reconnecting is matched on
+							    it, so the one action this suggests needs it spelled out. */}
+							<Link href="/skills?view=sources" className="font-semibold text-petrol hover:underline">
+								{repoLabel(skill.sourceUrl) || "Its repository"}
+							</Link>{" "}
+							is no longer connected. The skill keeps running, pinned to{" "}
+							<span className="font-mono text-[11.5px]">{shortRevision(skill.sourceRevision)}</span> — connect{" "}
+							<span className="font-mono text-[11.5px]">{skill.sourceUrl ?? "the repository"}</span> again to
+							change it, and this skill is re-pinned rather than imported a second time. Deleting it from the
+							library still works.
+						</EditorNotice>
+					)}
+
+					{skill && sourced && skill.missingUpstream && (
+						<EditorNotice tone="warning" icon={<TriangleAlert />}>
+							No longer in{" "}
+							<Link href="/skills?view=sources" className="font-semibold underline">
+								{skill.sourceName ?? "its repository"}
+							</Link>{" "}
+							as of the last sync — it keeps working, pinned to{" "}
+							<span className="font-mono text-[11.5px]">{shortRevision(skill.sourceRevision)}</span>.
+						</EditorNotice>
+					)}
+
 					{scriptCount > 0 && (
-						<div className="mt-5 flex shrink-0 items-start gap-2.5 rounded-[7px] border border-input bg-petrol-tint px-3.5 py-2.5 dark:border-white/10 dark:bg-white/[0.04]">
-							<TerminalSquare className="mt-px size-3.5 shrink-0 text-petrol" />
-							<span className="min-w-0 text-[12.5px] leading-[1.5] text-body dark:text-panel-body">
-								This skill requires an agent with code execution. Its {scriptCount}{" "}
-								script{scriptCount === 1 ? "" : "s"} only run there — the instructions
-								apply on any agent.
-							</span>
-						</div>
+						<EditorNotice icon={<TerminalSquare />}>
+							This skill requires an agent with code execution. Its {scriptCount}{" "}
+							script{scriptCount === 1 ? "" : "s"} only run there — the instructions
+							apply on any agent.
+						</EditorNotice>
 					)}
 
 					<div className="mt-6 flex min-h-[24px] shrink-0 items-center justify-between border-b border-border pb-2">
