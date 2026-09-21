@@ -89,7 +89,14 @@ async def test_create_syncs_and_imports_valid_skills_only(agent_session, admin, 
         "aaa111",
         2,
     )
-    [entry] = source.last_report
+    # The report is the whole sync, not only its failures: it is the only
+    # record of what the sync did once the confirmation dialog is gone.
+    assert {e.name: e.status for e in source.last_report} == {
+        "weekly-brief": "new",
+        "margin-audit": "new",
+        "Broken Name": "skipped",
+    }
+    [entry] = [e for e in source.last_report if e.status == "skipped"]
     assert entry.path == "skills/broken" and entry.issues[0].code == "E003"
 
     skills = SkillService(agent_session)
@@ -212,19 +219,184 @@ async def test_failed_syncs_keep_state_and_tell_the_failures_apart(
     assert len(await skills.list_summaries(admin)) == 2
 
 
-async def test_delete_detaches_skills_into_in_app_skills(agent_session, admin, host):
+async def test_delete_leaves_its_skills_detached_and_frozen(agent_session, admin, host):
     sources = SkillSourceService(agent_session)
     skills = SkillService(agent_session)
     source = await sources.create(SkillSourceCreate(url=URL), admin)
     await sources.delete(source.id, admin)
 
     assert await sources.list(admin) == []
-    for summary in await skills.list_summaries(admin):
-        assert (
-            summary.source_id is None
-            and summary.can_edit
-            and not summary.update_available
+    by_name = {s.name: s for s in await skills.list_summaries(admin)}
+    assert set(by_name) == {"weekly-brief", "margin-audit"}
+    margin = by_name["margin-audit"]
+    # Detached: the pin and everything the repository gave it stay, so the
+    # skill keeps running — the link, and only the link, is gone.
+    assert margin.source_id is None and margin.source_name is None
+    assert margin.digest is not None and margin.source_revision == "aaa111"
+    assert margin.script_count == 1 and margin.file_count == 1
+    detail = await skills.get(margin.id, admin)
+    assert detail.files[0].content == "print('v1')\n"
+
+    # Its content is frozen until the repository is connected again: the app
+    # never writes files it did not author. Removing the row is not editing,
+    # so that stays available, under the same in-use guard as any skill.
+    assert not margin.can_edit and margin.can_manage
+    assert not margin.update_available and not margin.missing_upstream
+    with pytest.raises(DomainValidationError, match="no longer connected"):
+        await skills.update(
+            margin.id,
+            SkillSave(content=skill_markdown("margin-audit"), revision=1),
+            admin,
         )
+
+    brief = by_name["weekly-brief"]
+    agent = await seed_agent(agent_session)
+    await attach(agent_session, agent.id, brief.id)
+    with pytest.raises(DomainValidationError, match="Disable this skill"):
+        await skills.delete(brief.id, admin)
+    await skills.delete(margin.id, admin)
+    assert [s.name for s in await skills.list_summaries(admin)] == ["weekly-brief"]
+
+
+async def test_connecting_the_repository_again_re_pins_the_detached_skills(
+    agent_session, admin, host
+):
+    sources = SkillSourceService(agent_session)
+    skills = SkillService(agent_session)
+    source = await sources.create(SkillSourceCreate(url=URL), admin)
+    before = {s.name: s.id for s in await skills.list_summaries(admin)}
+    agent = await seed_agent(agent_session)
+    await attach(agent_session, agent.id, before["weekly-brief"])
+    await sources.delete(source.id, admin)
+
+    # The repository moved on while it was disconnected.
+    host.tree["skills/margin-audit/scripts/clean.py"] = b"print('v2')\n"
+    host.revision = "bbb222"
+    reconnected = await sources.create(SkillSourceCreate(url=URL), admin)
+
+    by_name = {s.name: s for s in await skills.list_summaries(admin)}
+    # The same rows, claimed by name: no second copy of anything, and the
+    # agent's binding never pointed at a row that went away.
+    assert set(by_name) == {"weekly-brief", "margin-audit"}
+    assert {name: s.id for name, s in by_name.items()} == before
+    assert {s.source_id for s in by_name.values()} == {reconnected.id}
+    assert by_name["weekly-brief"].can_manage and not by_name["weekly-brief"].can_edit
+    # And the sync it missed is waiting, as an update rather than a rewrite.
+    assert by_name["margin-audit"].update_available
+    assert by_name["margin-audit"].source_revision == "aaa111"
+    assert (await skills.adopt(by_name["margin-audit"].id, admin)).source_revision == (
+        "bbb222"
+    )
+
+
+async def test_a_sync_never_claims_a_skill_written_in_the_app(
+    agent_session, admin, host
+):
+    """The pin is `source_revision`, not `digest`: every save computes a
+    digest, so an in-app skill must not read as detached and be swallowed by
+    a repository that happens to use its name. The name is simply taken, and
+    the repository's skill of that name is skipped and reported."""
+    skills = SkillService(agent_session)
+    mine = await skills.create(SkillSave(content=skill_markdown("margin-audit")), admin)
+    assert mine.digest is not None and mine.can_edit
+
+    sources = SkillSourceService(agent_session)
+    source = await sources.create(SkillSourceCreate(url=URL), admin)
+
+    still_mine = await skills.get(mine.id, admin)
+    assert still_mine.source_id is None and still_mine.source_revision is None
+    assert still_mine.can_edit and still_mine.can_manage
+    # Not imported beside it under the same name: reported, for a human.
+    assert {e.name: e.status for e in source.last_report}["margin-audit"] == "skipped"
+    [entry] = [e for e in source.last_report if e.name == "margin-audit"]
+    assert entry.issues[0].code == "W004"
+    assert source.skill_count == 1
+    assert [s.name for s in await skills.list_summaries(admin)].count(
+        "margin-audit"
+    ) == 1
+
+
+async def test_one_spelling_per_repository(agent_session, admin, host):
+    """A url is an identity twice over — a source *is* its (url, ref, path),
+    and a detached skill is reclaimed by the repository whose url it carries.
+    `…/skills.git` and `…/skills/` have to be the same repository, or
+    reconnecting with a slightly different spelling silently imports nothing
+    and reports every skill as a name already taken."""
+    sources = SkillSourceService(agent_session)
+    skills = SkillService(agent_session)
+    source = await sources.create(SkillSourceCreate(url=URL + "/"), admin)
+    assert source.url == URL
+    before = {s.name: s.id for s in await skills.list_summaries(admin)}
+    await sources.delete(source.id, admin)
+
+    again = await sources.create(SkillSourceCreate(url=URL + ".git"), admin)
+    assert again.url == URL
+    assert {s.name: s.id for s in await skills.list_summaries(admin)} == before
+    assert again.skill_count == 2
+
+
+async def test_a_repository_cannot_take_over_another_ones_detached_skill(
+    agent_session, admin, host
+):
+    """Reclaim is scoped to the origin, not the name.
+
+    A disconnected repository's skills keep their id and their agent bindings.
+    If any repository that happened to use one of those names could claim the
+    row, a sync would silently hand another repository's content to every
+    agent bound to it — under the same id, with no undo. The name is taken;
+    that is all a second repository gets to know about it.
+    """
+    sources = SkillSourceService(agent_session)
+    skills = SkillService(agent_session)
+    source = await sources.create(SkillSourceCreate(url=URL), admin)
+    before = {s.name: s.id for s in await skills.list_summaries(admin)}
+    await sources.delete(source.id, admin)
+
+    # A different repository, with a skill of the same name.
+    host.tree = {
+        "skills/margin-audit/SKILL.md": skill_md(
+            "margin-audit", "Something else entirely. Use when asked for it."
+        )
+    }
+    host.revision = "ccc333"
+    other = await sources.create(
+        SkillSourceCreate(url="https://github.com/someone-else/skills"), admin
+    )
+
+    by_name = {s.name: s for s in await skills.list_summaries(admin)}
+    assert by_name["margin-audit"].id == before["margin-audit"]
+    assert by_name["margin-audit"].source_id is None  # still detached, untouched
+    assert by_name["margin-audit"].source_revision == "aaa111"
+    assert not by_name["margin-audit"].update_available
+    assert other.skill_count == 0
+    [entry] = [e for e in other.last_report if e.name == "margin-audit"]
+    assert entry.status == "skipped" and entry.issues[0].code == "W004"
+
+
+async def test_another_repositorys_sync_leaves_detached_skills_alone(
+    agent_session, admin, host
+):
+    sources = SkillSourceService(agent_session)
+    skills = SkillService(agent_session)
+    source = await sources.create(SkillSourceCreate(url=URL), admin)
+    await sources.delete(source.id, admin)
+
+    host.tree = {
+        "skills/pricing/SKILL.md": skill_md(
+            "pricing", "Price a basket. Use when asked for a quote."
+        )
+    }
+    other = await sources.create(
+        SkillSourceCreate(url="https://github.com/acme/other"), admin
+    )
+
+    by_name = {s.name: s for s in await skills.list_summaries(admin)}
+    assert set(by_name) == {"weekly-brief", "margin-audit", "pricing"}
+    assert by_name["pricing"].source_id == other.id
+    for name in ("weekly-brief", "margin-audit"):
+        # Not this source's to claim, and so not this source's to flag.
+        assert by_name[name].source_id is None
+        assert not by_name[name].missing_upstream
 
 
 async def test_only_admins_manage_sources_and_hosts_need_a_kind(
@@ -265,6 +437,25 @@ async def test_preview_resolves_without_persisting(agent_session, admin, host):
     }
     assert await sources.list(admin) == []
     assert await SkillService(agent_session).list_summaries(admin) == []
+
+
+async def test_preview_flags_a_name_the_library_has_already_taken(
+    agent_session, admin, host
+):
+    """Whether a name is free is the library's answer, not the repository's.
+    A preview that calls a skill importable and a sync that then skips it
+    disagree about the same facts, and the admin only finds out afterwards."""
+    await SkillService(agent_session).create(
+        SkillSave(content=skill_markdown("margin-audit")), admin
+    )
+    preview = await SkillSourceService(agent_session).preview(
+        SkillSourceCreate(url=URL)
+    )
+
+    by_name = {s.name: s for s in preview.skills}
+    assert by_name["weekly-brief"].ok
+    assert not by_name["margin-audit"].ok
+    assert by_name["margin-audit"].issues[0].code == "W004"
 
 
 async def test_preview_turns_a_private_repository_into_a_400_with_a_hint(

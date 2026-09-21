@@ -647,7 +647,7 @@ async def test_set_config_orchestrates_scalars_bindings_subagents(
         agent.id, config.mcp_servers
     )
     mock_subagent_service.set_for_supervisor.assert_awaited_once_with(
-        agent.id, [sub_id], user_role=None, validate_skills=False
+        agent.id, [sub_id], user_role=None
     )
     assert isinstance(result, AgentResponse)
 
@@ -729,7 +729,7 @@ async def test_set_config_passes_role_to_subagent_gate(
     )
 
     mock_subagent_service.set_for_supervisor.assert_awaited_once_with(
-        agent.id, [sub_id], user_role=WorkspaceRole.admin, validate_skills=False
+        agent.id, [sub_id], user_role=WorkspaceRole.admin
     )
 
 

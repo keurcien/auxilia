@@ -105,7 +105,7 @@ async def test_set_for_supervisor_admin_adds_and_removes(service, mock_repo):
             supervisor_id, [kept_id, added_id], user_role=WorkspaceRole.admin
         )
 
-    mock_create.assert_awaited_once_with(supervisor_id, added_id, validate_skills=True)
+    mock_create.assert_awaited_once_with(supervisor_id, added_id)
     mock_repo.get.assert_awaited_once_with(supervisor_id, dropped_id)
 
 
@@ -130,39 +130,4 @@ async def test_set_for_supervisor_deduplicates_input(service, mock_repo):
             supervisor_id, [sub_id, sub_id], user_role=WorkspaceRole.admin
         )
 
-    mock_create.assert_awaited_once_with(supervisor_id, sub_id, validate_skills=True)
-
-
-async def test_replacing_a_subagent_with_a_same_named_skill_is_one_save(agent_session):
-    """The P3 from review: `set_for_supervisor` added before removing, so the
-    skill-name check saw the sibling this very save was dropping. Swapping A
-    for B failed whenever both carried a skill of the same name, even though
-    the requested graph holds only B."""
-    from uuid import uuid4
-
-    from app.agents.subagents.service import SubagentService
-    from app.users.models import WorkspaceRole
-    from tests.skills.conftest import attach, seed_agent, seed_skill
-
-    service = SubagentService(agent_session)
-    supervisor = await seed_agent(agent_session)
-    old = await seed_agent(agent_session)
-    new = await seed_agent(agent_session)
-    for member in (old, new):
-        await attach(
-            agent_session,
-            member.id,
-            (await seed_skill(agent_session, owner_id=uuid4(), name="report")).id,
-        )
-    await service.set_for_supervisor(
-        supervisor.id, [old.id], user_role=WorkspaceRole.admin
-    )
-
-    # One save, not two: the departing subagent leaves before the arriving one
-    # is judged against the graph.
-    await service.set_for_supervisor(
-        supervisor.id, [new.id], user_role=WorkspaceRole.admin
-    )
-
-    links = await service.repository.list_for_supervisor(supervisor.id)
-    assert [link.subagent_id for link in links] == [new.id]
+    mock_create.assert_awaited_once_with(supervisor_id, sub_id)

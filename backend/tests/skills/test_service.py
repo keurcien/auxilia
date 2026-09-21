@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 
 from app.exceptions import (
+    AlreadyExistsError,
     DomainValidationError,
     NotFoundError,
     PermissionDeniedError,
@@ -214,50 +215,36 @@ async def test_set_for_agent_rejects_unknown_skills(agent_session):
         await SkillService(agent_session).set_for_agent(agent.id, [uuid4()])
 
 
-async def test_one_skill_set_per_graph_refuses_two_skills_of_one_name(agent_session):
-    """A supervisor and its subagents run with the union of their skills, so
-    two *different* skills named alike cannot be enabled across the graph —
-    whichever side is being edited. The same skill on both sides is fine."""
+async def test_the_library_is_one_namespace(agent_session, member):
+    """A skill is addressed by its name, so the name is taken once, workspace
+    wide. Refused here — at the door, where the caller can still do something
+    about it — and not later at an agent's config save, where the remedy the
+    message offers ("rename one of them") may not exist at all."""
+    service = SkillService(agent_session)
+    await service.create(SkillSave(content=skill_markdown("report")), member)
+
+    with pytest.raises(AlreadyExistsError, match="already in the library"):
+        await service.create(
+            SkillSave(content=skill_markdown("report", "A different one")), member
+        )
+    # And a rename cannot walk onto a taken name either.
+    other = await service.create(SkillSave(content=skill_markdown("digest")), member)
+    with pytest.raises(AlreadyExistsError, match="already in the library"):
+        await service.update(
+            other.id, SkillSave(content=skill_markdown("report"), revision=1), member
+        )
+
+
+async def test_enabling_a_skill_on_a_graph_needs_no_name_check(agent_session):
+    """The union of a supervisor's and its subagents' skills cannot collide,
+    because two different skills of one name do not exist. A binding is just a
+    binding, and the same skill on both sides is one catalog entry."""
     service = SkillService(agent_session)
     supervisor = await seed_agent(agent_session)
     subagent = await seed_agent(agent_session)
     await link_subagent(agent_session, supervisor.id, subagent.id)
     report = await seed_skill(agent_session, owner_id=uuid4(), name="report")
-    other_report = await seed_skill(agent_session, owner_id=uuid4(), name="report")
-    await attach(agent_session, supervisor.id, report.id)
 
-    with pytest.raises(
-        DomainValidationError, match="Two different skills named 'report'"
-    ):
-        await service.set_for_agent(subagent.id, [other_report.id])
-    with pytest.raises(
-        DomainValidationError, match="Two different skills named 'report'"
-    ):
-        await service.set_for_agent(supervisor.id, [report.id, other_report.id])
-
-    await service.set_for_agent(subagent.id, [report.id])  # same skill: one entry
+    await service.set_for_agent(supervisor.id, [report.id])
+    await service.set_for_agent(subagent.id, [report.id])
     assert [s.id for s in await service.list_for_agent(subagent.id)] == [report.id]
-
-
-async def test_ensure_unique_names_guards_a_subagent_joining(agent_session):
-    """The check `SubagentService` runs before linking: the union of both
-    sets must have unique names."""
-    service = SkillService(agent_session)
-    supervisor = await seed_agent(agent_session)
-    joiner = await seed_agent(agent_session)
-    await attach(
-        agent_session,
-        supervisor.id,
-        (await seed_skill(agent_session, owner_id=uuid4(), name="x")).id,
-    )
-    await attach(
-        agent_session,
-        joiner.id,
-        (await seed_skill(agent_session, owner_id=uuid4(), name="x")).id,
-    )
-
-    with pytest.raises(DomainValidationError):
-        await service.ensure_unique_names([supervisor.id, joiner.id])
-    # Each side alone is fine.
-    await service.ensure_unique_names([supervisor.id])
-    await service.ensure_unique_names([joiner.id])

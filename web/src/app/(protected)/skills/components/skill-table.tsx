@@ -1,12 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { GitCompareArrows, Pencil, PencilLine, Trash2 } from "lucide-react";
+import { GitCompareArrows, Pencil, PencilLine, Trash2, Unplug } from "lucide-react";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import type { BoundAgent } from "@/types/agents";
-import { shortRevision, type SkillSummary } from "@/types/skills";
+import { isDetached, isSourced, repoLabel, shortRevision, type SkillSummary } from "@/types/skills";
 import { relativeTime } from "../lib/relative-time";
 import { SourceHostTile } from "./source-host-tile";
 
@@ -55,17 +55,46 @@ function UsedByAvatars({ agents }: { agents: BoundAgent[] }) {
 }
 
 /**
- * Where a skill comes from — and so where it is edited. Two kinds, said in
+ * Where a skill comes from — and so where it is edited. Three kinds, said in
  * the same place rather than left to be inferred from a missing line: a
- * skill written in the app, and one pinned to a repository (with its host's
- * mark and the commit it is pinned to).
+ * skill written in the app, one pinned to a connected repository (with its
+ * host's mark and the commit it is pinned to), and one whose repository has
+ * been disconnected — still pinned, still running, its content edited
+ * nowhere until it is connected again.
  */
 function SourceCell({ skill }: { skill: SkillSummary }) {
-	if (!skill.sourceId) {
+	if (!isSourced(skill)) {
 		return (
 			<span className="flex min-w-0 items-center gap-1.5" title="Written in auxilia — edit it here">
 				<PencilLine className="size-3.5 shrink-0 text-meta dark:text-panel-dim" />
 				<span className="truncate font-mono text-[11px] text-meta dark:text-panel-dim">in-app</span>
+			</span>
+		);
+	}
+	if (isDetached(skill)) {
+		// The repository is named even though it is gone: `sourceUrl` outlives
+		// the link precisely so "connect it again" is an instruction and not a
+		// riddle. Without it the row said only "disconnected", and the one
+		// action it suggested needed a URL nothing on the page still held.
+		const repo = repoLabel(skill.sourceUrl);
+		return (
+			<span
+				className="flex min-w-0 items-center gap-1.5"
+				title={`From ${skill.sourceUrl ?? "a repository"}, which is no longer connected${
+					skill.sourcePath ? ` · ${skill.sourcePath}` : ""
+				}${
+					skill.sourceRevision ? ` at ${shortRevision(skill.sourceRevision)}` : ""
+				} — connect it again to change this skill`}
+			>
+				<Unplug className="size-3.5 shrink-0 text-meta dark:text-panel-dim" />
+				<span className="min-w-0">
+					<span className="block truncate font-mono text-[11px] text-meta dark:text-panel-dim">
+						{repo || "disconnected"}
+					</span>
+					<span className="block truncate font-mono text-[10px] text-meta dark:text-panel-dim">
+						{repo ? "disconnected" : shortRevision(skill.sourceRevision)}
+					</span>
+				</span>
 			</span>
 		);
 	}

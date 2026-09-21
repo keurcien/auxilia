@@ -14,9 +14,18 @@ import {
 	UnsavedBadge,
 } from "@/components/layout/subpage-header";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { SkillDeleteDescription } from "./skill-delete-description";
 import { cn } from "@/lib/utils";
 import { useSkillsStore } from "@/stores/skills-store";
-import { countScripts, shortRevision, type Skill, type SkillFile } from "@/types/skills";
+import {
+	countScripts,
+	isDetached,
+	isSourced,
+	repoLabel,
+	shortRevision,
+	type Skill,
+	type SkillFile,
+} from "@/types/skills";
 import {
 	composeSkillMarkdown,
 	skillBody,
@@ -80,7 +89,10 @@ export default function SkillEditor({
 	const createSkill = useSkillsStore((state) => state.createSkill);
 	const updateSkill = useSkillsStore((state) => state.updateSkill);
 	const [reviewOpen, setReviewOpen] = useState(reviewOnOpen && Boolean(skill?.updateAvailable));
-	const sourced = Boolean(skill?.sourceId);
+	// The repository's, whether or not it is still connected: the files and
+	// scripts are in the row either way, so they are shown either way.
+	const sourced = skill ? isSourced(skill) : false;
+	const detached = skill ? isDetached(skill) : false;
 
 	const initial = useMemo<Draft>(
 		() =>
@@ -194,9 +206,15 @@ export default function SkillEditor({
 				)}
 				{readOnly && skill && sourced && (
 					<HeaderReadOnly
-						title={`Synced from ${skill.sourceName ?? "a repository"}${
-							skill.sourcePath ? ` · ${skill.sourcePath}` : ""
-						} — edited in the repository, not here`}
+						title={
+							detached
+								? `From a repository that is no longer connected${
+										skill.sourcePath ? ` · ${skill.sourcePath}` : ""
+									} — connect it again to change this skill`
+								: `Synced from ${skill.sourceName ?? "a repository"}${
+										skill.sourcePath ? ` · ${skill.sourcePath}` : ""
+									} — edited in the repository, not here`
+						}
 					/>
 				)}
 				{!readOnly && (
@@ -273,15 +291,7 @@ export default function SkillEditor({
 							if (!open) remove.clearPending();
 						}}
 						title="Delete this skill?"
-						description={
-							<>
-								<span className="font-mono text-[12.5px] font-semibold text-petrol">
-									{skill.name}
-								</span>{" "}
-								isn&apos;t enabled on any agent. Deleting it removes the SKILL.md and
-								its files for everyone; threads that already used it are unaffected.
-							</>
-						}
+						description={<SkillDeleteDescription skill={skill} />}
 						confirmLabel="Delete skill"
 						destructive
 						onConfirm={remove.confirmDelete}
@@ -293,6 +303,23 @@ export default function SkillEditor({
 			{error && (
 				<div className="mx-7 mt-4 shrink-0 rounded-md bg-destructive/10 px-4 py-2.5 text-[13px] text-destructive">
 					{error}
+				</div>
+			)}
+
+			{skill && detached && (
+				<div className="mx-7 mt-4 flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-[10px] border border-input bg-sidebar px-4 py-2.5 text-[12.5px] text-meta dark:border-white/10 dark:bg-white/[0.04] dark:text-panel-dim">
+					<span>
+						{/* The URL, not the word "repository": reconnecting is matched on
+						    it, so the one action this banner suggests needs it spelled out. */}
+						<Link href="/skills?view=sources" className="font-semibold text-petrol hover:underline">
+							{repoLabel(skill.sourceUrl) || "Its repository"}
+						</Link>{" "}
+						is no longer connected. The skill keeps running, pinned to{" "}
+						<span className="font-mono text-[11.5px]">{shortRevision(skill.sourceRevision)}</span> — connect{" "}
+						<span className="font-mono text-[11.5px]">{skill.sourceUrl ?? "the repository"}</span> again to change
+						it, and this skill is re-pinned rather than imported a second time. Deleting it from the library still
+						works.
+					</span>
 				</div>
 			)}
 

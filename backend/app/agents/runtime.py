@@ -66,7 +66,7 @@ from app.sandbox.provider import (
 from app.skills.middleware import skills_read_middleware
 from app.skills.runtime import (
     SkillsBackend,
-    freeze_run_skills,
+    resolve_run_skills,
     skill_files,
     upload_skills,
 )
@@ -487,19 +487,11 @@ class Agent:
         }
 
     @classmethod
-    async def build(
-        cls,
-        thread: ThreadDB,
-        db: AsyncSession,
-        *,
-        resume: bool = False,
-    ) -> "Agent":
+    async def build(cls, thread: ThreadDB, db: AsyncSession) -> "Agent":
         """Resolve everything a run needs from the database.
 
-        ``resume`` — this run continues an interrupted one (a HITL approval):
-        the skills frozen on the thread are reused instead of re-resolved.
-        Otherwise the graph's current skills are resolved and stamped on
-        ``thread`` for the caller's transaction to write.
+        A resume (a HITL approval) resolves exactly as a first run does —
+        there is no per-thread copy of anything to reuse.
         """
         user_id = str(thread.user_id)
 
@@ -543,7 +535,7 @@ class Agent:
 
         # One skill set per graph: every agent lists, reads and runs the union
         # of what the supervisor and its subagents have enabled.
-        skills = await freeze_run_skills(db, thread, spec.all_agent_ids, resume=resume)
+        skills = await resolve_run_skills(db, spec.all_agent_ids)
 
         handler = get_langfuse_callback_handler()
         callbacks = [handler] if handler is not None else []

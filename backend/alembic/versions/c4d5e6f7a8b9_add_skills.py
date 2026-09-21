@@ -5,9 +5,17 @@ Revises: b7e2f4a9c1d3
 Create Date: 2026-09-09 00:00:00.000000
 
 Skills: a `skills` table (one SKILL.md plus files per row, owned by a user),
-`agent_skills` (which agents have a skill enabled), and two thread columns
-for the runtime — the sandbox a thread's runs reconnect to, and the skill
-set its current turn runs with.
+`agent_skills` (which agents have a skill enabled), and the thread column the
+runtime needs — the sandbox a thread's runs reconnect to.
+
+`skills.name` is unique: the library is one namespace. An agent addresses a
+skill by that name and reads its files under `<root>/<name>/`, so two skills
+of one name can never be enabled together, and allowing the duplicate here
+only moves the collision to the agent's config save where it may no longer be
+fixable.
+
+Nothing freezes a run's skills onto its thread. An agent's capability surface
+— MCP tools, skills — is resolved at run start, every run, resumes included.
 """
 
 from typing import Sequence, Union
@@ -51,7 +59,7 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(op.f("ix_skills_owner_id"), "skills", ["owner_id"], unique=False)
-    op.create_index(op.f("ix_skills_name"), "skills", ["name"], unique=False)
+    op.create_index(op.f("ix_skills_name"), "skills", ["name"], unique=True)
 
     op.create_table(
         "agent_skills",
@@ -78,14 +86,10 @@ def upgrade() -> None:
     )
 
     op.add_column("threads", sa.Column("sandbox_id", sa.String(), nullable=True))
-    op.add_column(
-        "threads", sa.Column("skill_snapshot", postgresql.JSONB(), nullable=True)
-    )
 
 
 def downgrade() -> None:
     """Downgrade schema."""
-    op.drop_column("threads", "skill_snapshot")
     op.drop_column("threads", "sandbox_id")
     op.drop_index(op.f("ix_agent_skills_skill_id"), table_name="agent_skills")
     op.drop_table("agent_skills")

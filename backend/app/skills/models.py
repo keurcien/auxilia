@@ -97,12 +97,20 @@ class SkillDB(BaseDBModel, table=True):
     or parse the document. There are no versions: a save replaces the skill
     in place and every agent using it picks the new content up on its next
     run (a run in flight keeps the copy frozen on its thread).
+
+    The library is **one namespace**: `name` is unique across the workspace.
+    An agent addresses a skill by that name and reads its files under
+    ``<root>/<name>/``, so two skills of one name can never be enabled
+    together — and a library that allows the duplicate only moves the
+    collision to the agent's config save, where the remedy ("rename one") is
+    not always available. Refusing at the door is the same rule said once,
+    early, where the caller can still act on it.
     """
 
     __tablename__ = "skills"
 
     owner_id: UUID = Field(foreign_key="users.id", ondelete="CASCADE", index=True)
-    name: str = Field(max_length=64, index=True)
+    name: str = Field(max_length=64, index=True, unique=True)
     description: str = Field(max_length=1024)
     content: str = Field(sa_column=Column(Text, nullable=False))
     # JSONB on Postgres; plain JSON elsewhere (the test suite runs on SQLite).
@@ -112,13 +120,40 @@ class SkillDB(BaseDBModel, table=True):
     )
     # Optimistic-concurrency token: +1 per save, a stale one is refused.
     revision: int = Field(default=1, nullable=False)
-    # Provenance. `source_id` None = written in the app, live on the next run.
-    # Set = pinned to `digest` from `source_path` at `source_revision`; a
-    # newer `SkillVersionDB` is adopted explicitly. A skill the last sync no
-    # longer found upstream keeps working and is flagged.
+    # Provenance, as two existing columns and no third state column.
+    # `source_revision` is the pin — the commit the content was read at, and
+    # only a sync or an adopt ever writes it — and `source_id` says whether
+    # that repository is still connected:
+    #
+    #   revision None             → written in the app; editable here.
+    #   revision + source_id      → pinned to `source_path` at that commit;
+    #                               edited in the repository, a newer
+    #                               `SkillVersionDB` adopted explicitly.
+    #   revision, source_id None  → detached: the repository was
+    #                               disconnected. The document, the files and
+    #                               the `scripts/` are all in this row, so the
+    #                               skill keeps running exactly as it was.
+    #                               Its content is frozen — nothing here
+    #                               edits files it cannot write — until the
+    #                               repository is connected again, which
+    #                               re-pins this row rather than importing a
+    #                               second copy of it. Deleting the row is
+    #                               still allowed.
+    #
+    # Not `digest`: every save computes one, in-app skills included. A skill
+    # the last sync no longer found upstream keeps working and is flagged;
+    # `ON DELETE SET NULL` is what makes a disconnect detach.
     source_id: UUID | None = Field(
         default=None, foreign_key="skill_sources.id", ondelete="SET NULL", index=True
     )
+    # Which repository the content came from, as a URL rather than a foreign
+    # key: the key is nulled when the source row goes, and this has to outlive
+    # it. It is what a *reconnect* matches on, so only the repository that
+    # left a skill behind can claim it back — matching on the name alone let
+    # any repository that happened to use the name adopt another's row, under
+    # the id agents are already bound to. It is also the only thing left that
+    # can tell a reader where a detached skill came from.
+    source_url: str | None = Field(default=None, max_length=500, index=True)
     source_path: str | None = Field(default=None, max_length=240)
     source_revision: str | None = Field(default=None, max_length=80)
     digest: str | None = Field(default=None, max_length=80)

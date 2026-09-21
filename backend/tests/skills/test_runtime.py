@@ -2,7 +2,6 @@
 upload, and a sandbox-less agent reading a skill end to end."""
 
 import base64
-from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
@@ -15,7 +14,8 @@ from app.skills.runtime import (
     DIGEST_MARKER,
     READ_ONLY,
     SkillsBackend,
-    freeze_run_skills,
+    ensure_unique_names,
+    resolve_run_skills,
     skill_files,
     upload_skills,
 )
@@ -151,11 +151,13 @@ def test_upload_failure_raises_rather_than_half_writing():
         upload_skills(sandbox, skill_files([REPORT]))
 
 
-# --- freezing on the thread -------------------------------------------------
+# --- resolving the run's set ------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_freeze_resolves_the_graph_union_and_stamps_the_thread(agent_session):
+async def test_resolve_returns_the_graph_union_once_per_skill(agent_session):
+    """A supervisor and its subagents run with one skill set: the union of
+    what they each have enabled, with a skill on both sides counted once."""
     supervisor = await seed_agent(agent_session)
     subagent = await seed_agent(agent_session)
     await link_subagent(agent_session, supervisor.id, subagent.id)
@@ -167,54 +169,40 @@ async def test_freeze_resolves_the_graph_union_and_stamps_the_thread(agent_sessi
         subagent.id,
         (await seed_skill(agent_session, owner_id=uuid4(), name="sub-only")).id,
     )
-    thread = MagicMock(skill_snapshot=None)
 
-    bundles = await freeze_run_skills(
-        agent_session, thread, [supervisor.id, subagent.id], resume=False
-    )
+    bundles = await resolve_run_skills(agent_session, [supervisor.id, subagent.id])
 
-    assert [b.name for b in bundles] == ["shared", "sub-only"]  # one entry each
-    assert [entry["name"] for entry in thread.skill_snapshot] == ["shared", "sub-only"]
+    assert [b.name for b in bundles] == ["shared", "sub-only"]
 
 
 @pytest.mark.asyncio
-async def test_resume_reuses_the_frozen_set_new_turn_refreshes_it(agent_session):
+async def test_every_run_reads_the_library_including_a_resume(agent_session):
+    """Nothing is copied onto the thread, so there is no second code path: a
+    resume resolves exactly as a first run does, and a skill enabled or
+    disabled meanwhile takes effect."""
     agent = await seed_agent(agent_session)
-    thread = MagicMock(skill_snapshot=[TRIAGE.model_dump(mode="json")])
+    assert await resolve_run_skills(agent_session, [agent.id]) == []
 
-    frozen = await freeze_run_skills(agent_session, thread, [agent.id], resume=True)
-    assert [b.name for b in frozen] == ["triage"]  # the DB has none — untouched
-
-    fresh = await freeze_run_skills(agent_session, thread, [agent.id], resume=False)
-    assert fresh == []
-    assert thread.skill_snapshot == []
-
-    # A resume with nothing frozen yet resolves like a new turn.
-    thread.skill_snapshot = None
-    assert await freeze_run_skills(agent_session, thread, [agent.id], resume=True) == []
+    skill = await seed_skill(agent_session, owner_id=uuid4(), name="triage")
+    await attach(agent_session, agent.id, skill.id)
+    assert [b.name for b in await resolve_run_skills(agent_session, [agent.id])] == [
+        "triage"
+    ]
 
 
-@pytest.mark.asyncio
-async def test_freeze_fails_the_run_on_a_name_collision(agent_session):
-    """Refused at attach time; if the data changed under a run anyway, fail
-    rather than silently pick one."""
-    a = await seed_agent(agent_session)
-    b = await seed_agent(agent_session)
-    await attach(
-        agent_session,
-        a.id,
-        (await seed_skill(agent_session, owner_id=uuid4(), name="dup")).id,
-    )
-    await attach(
-        agent_session,
-        b.id,
-        (await seed_skill(agent_session, owner_id=uuid4(), name="dup")).id,
-    )
-
+def test_a_run_fails_rather_than_silently_drop_a_colliding_skill():
+    """The last backstop, and it should be unreachable: the library's unique
+    name is what stops two skills of one name existing at all. It stays
+    because the run is where a name becomes a *path* — two skills of one name
+    would overwrite each other under `SKILLS_ROOT/<name>/` and the model would
+    read whichever landed last. If the data ever says otherwise, fail the run
+    rather than pick one."""
+    pair = [
+        parse_skill(skill_markdown("dup")),
+        parse_skill(skill_markdown("dup", "A different one")),
+    ]
     with pytest.raises(DomainValidationError, match="'dup'"):
-        await freeze_run_skills(
-            agent_session, MagicMock(skill_snapshot=None), [a.id, b.id], resume=False
-        )
+        ensure_unique_names(pair)
 
 
 # --- a sandbox-less agent, end to end ---------------------------------------

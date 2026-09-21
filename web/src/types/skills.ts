@@ -31,18 +31,29 @@ export interface SkillSummary {
 	/** The same agents `agentCount` counts — the library's avatar stack. */
 	agents: BoundAgent[];
 	updatedAt: string;
-	/** May change the content — never for a skill synced from a repository. */
+	/** May change the content — never for a skill that came from a repository. */
 	canEdit: boolean;
 	/** May delete or adopt — the owner or a workspace admin. */
 	canManage: boolean;
-	/** Provenance: null = written in the app, live on the next run. */
+	/** The repository this skill is pinned to; null once it is disconnected. */
 	sourceId: string | null;
 	sourceName: string | null;
-	/** Which host, so the library can show its mark. Null for an in-app skill. */
+	/** Which host, so the library can show its mark. Null unless connected. */
 	sourceKind: SkillSourceKind | null;
+	/**
+	 * The repository the content came from. Unlike `sourceId` it outlives the
+	 * disconnect, so it is what names the repository of a detached skill — and
+	 * what a reconnect matches on, so only the repository that left a skill
+	 * behind can claim it back.
+	 */
+	sourceUrl: string | null;
 	sourcePath: string | null;
-	/** The commit the pinned content came from (sourced skills). */
+	/**
+	 * The commit the content was read at — the pin, and so what says this
+	 * skill came from a repository at all. Null for one written here.
+	 */
 	sourceRevision: string | null;
+	/** Content hash. Every skill has one, a skill written here included. */
 	digest: string | null;
 	/** A newer synced version is waiting to be adopted. */
 	updateAvailable: boolean;
@@ -110,9 +121,15 @@ export type SkillSourceStatus =
 	| "unavailable"
 	| "invalid";
 
+/**
+ * What the last sync did to one skill — every decision, not only the
+ * failures. The plan answers "what will this do?" before the button; this is
+ * the only answer to "what did it do?" once the dialog is gone.
+ */
 export interface SkillSourceReportEntry {
 	path: string;
 	name: string;
+	status: SkillSyncStatus;
 	issues: SkillIssue[];
 }
 
@@ -188,8 +205,38 @@ export interface SkillSourcePreview {
 }
 
 /** Seven characters of a commit SHA, or the whole thing when it is short. */
+/**
+ * Where a skill's content comes from, read off the two provenance fields —
+ * there is no third field, and so no state the API has to keep in step.
+ *
+ * `sourceRevision` is the pin: only a sync or an adopt writes it, so it marks
+ * the content as a repository's whatever happens to the repository later.
+ * `sourceId` is the live link. Neither → written here. Both → pinned and
+ * connected. Pin without link → detached: the document, files and scripts
+ * stay in the row and still run, and the content is frozen until the
+ * repository is connected again — the library can still drop the skill,
+ * which is not the same as editing it.
+ */
+export const isSourced = (skill: Pick<SkillSummary, "sourceRevision">): boolean =>
+	skill.sourceRevision !== null;
+
+export const isDetached = (skill: Pick<SkillSummary, "sourceRevision" | "sourceId">): boolean =>
+	isSourced(skill) && skill.sourceId === null;
+
 export const shortRevision = (revision: string | null | undefined): string =>
 	revision ? (revision.length > 12 ? revision.slice(0, 7) : revision) : "";
+
+/**
+ * `owner/repo` from a repository URL — what a detached skill has instead of a
+ * `sourceName`, since the row that carried the name is gone. The whole URL is
+ * kept as the title, so nothing is hidden, only shortened.
+ */
+export const repoLabel = (url: string | null | undefined): string => {
+	if (!url) return "";
+	const path = url.replace(/^https?:\/\//, "").replace(/\.git$/, "").replace(/\/+$/, "");
+	const parts = path.split("/");
+	return parts.length > 2 ? parts.slice(-2).join("/") : path;
+};
 
 export interface SkillSave {
 	content: string;

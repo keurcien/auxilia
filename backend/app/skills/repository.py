@@ -109,6 +109,7 @@ class SkillRepository(BaseRepository[SkillDB]):
             json_script_count(SkillDB.files).label("script_count"),
             _agent_count().label("agent_count"),
             SkillDB.source_id,
+            SkillDB.source_url,
             SkillDB.source_path,
             SkillDB.source_revision,
             SkillDB.digest,
@@ -188,8 +189,26 @@ class SkillRepository(BaseRepository[SkillDB]):
         return version
 
     async def detach_from_source(self, source_id: UUID) -> None:
-        """Its skills become in-app skills (editable, no pin); their stored
-        versions go with the source."""
+        """Its skills stay, detached: everything the repository gave them —
+        the document, the files, the `scripts/`, the commit they are pinned
+        to — is already in the row, so they keep running exactly as they
+        were. Only the link goes, which freezes the *content*: nothing here
+        writes a skill whose files came from somewhere else, and there is
+        nothing to adopt until the repository is connected again. Deleting
+        one from the library stays allowed.
+
+        `missing_upstream` is cleared with the link. It is the last sync's
+        answer about a repository this skill no longer has, and a detached
+        row saying "no longer in its repository" reads as a bug.
+
+        `source_url` is *not* cleared: it is the provenance, not the link,
+        and it is what makes reconnecting the same repository reclaim these
+        rows rather than import a second copy of each.
+
+        The stored versions go with the source: they are updates only an
+        adopt against a connected repository can apply, and the next sync
+        records whichever of them still exists.
+        """
         ids_stmt = select(SkillDB.id).where(SkillDB.source_id == source_id)
         skill_ids = list((await self.db.execute(ids_stmt)).scalars().all())
         if skill_ids:
@@ -201,13 +220,45 @@ class SkillRepository(BaseRepository[SkillDB]):
         await self.db.execute(
             update(SkillDB)
             .where(col(SkillDB.source_id) == source_id)
-            .values(
-                source_id=None,
-                source_path=None,
-                source_revision=None,
-                missing_upstream=False,
-            )
+            .values(source_id=None, missing_upstream=False)
         )
+
+    async def list_reclaimable(self, url: str) -> list[SkillDB]:
+        """The skills *this* repository left behind when it was disconnected:
+        the pin (`source_revision`, written only by a sync or an adopt), no
+        live link, and the same origin. A sync claims the ones whose names it
+        finds again, which is what makes reconnecting a repository re-pin its
+        own rows instead of importing a second copy of each.
+
+        Scoped to the URL, deliberately. Claiming on the name alone let *any*
+        repository that happened to use a name take over another's row —
+        content, id, and every agent binding pointing at it — and there is no
+        undo for that. Another repository's leftovers are not this sync's to
+        claim; they are simply a name already taken, reported as such.
+
+        The pin is `source_revision` and not `digest` — every save computes a
+        digest, so a skill written in the app would otherwise look detached.
+        """
+        stmt = (
+            select(SkillDB)
+            .where(
+                col(SkillDB.source_id).is_(None),
+                col(SkillDB.source_revision).is_not(None),
+                SkillDB.source_url == url,
+            )
+            .order_by(col(SkillDB.name))
+        )
+        return list((await self.db.execute(stmt)).scalars().all())
+
+    async def list_all_names(self):
+        """`(id, name)` for the whole library — the one namespace a sync and
+        a save both have to fit into, read in a single query."""
+        stmt = select(SkillDB.id, SkillDB.name)
+        return (await self.db.execute(stmt)).all()
+
+    async def get_by_name(self, name: str) -> SkillDB | None:
+        stmt = select(SkillDB).where(SkillDB.name == name)
+        return (await self.db.execute(stmt)).scalar_one_or_none()
 
     async def list_agents_by_skill(self):
         """`(skill_id, id, name, emoji, color)` for every enabled skill, in one
@@ -263,28 +314,6 @@ class SkillRepository(BaseRepository[SkillDB]):
             .order_by(col(SkillDB.name), col(SkillDB.id))
         )
         return list((await self.db.execute(stmt)).scalars().all())
-
-    async def list_names_for_agents(self, agent_ids: Iterable[UUID]):
-        """`(skill_id, name)` for every skill enabled on any of the agents —
-        what the graph-wide name check needs, and nothing heavier."""
-        ids = list(agent_ids)
-        if not ids:
-            return []
-        stmt = (
-            select(SkillDB.id, SkillDB.name)
-            .join(AgentSkillDB, col(AgentSkillDB.skill_id) == col(SkillDB.id))
-            .where(col(AgentSkillDB.agent_id).in_(ids))
-            .distinct()
-        )
-        return (await self.db.execute(stmt)).all()
-
-    async def list_names(self, skill_ids: Iterable[UUID]):
-        """`(skill_id, name)` for the given skills."""
-        ids = list(skill_ids)
-        if not ids:
-            return []
-        stmt = select(SkillDB.id, SkillDB.name).where(col(SkillDB.id).in_(ids))
-        return (await self.db.execute(stmt)).all()
 
     async def list_attached(self, agent_id: UUID):
         """`(id, name, description, script_count)` of the agent's skills, by name."""

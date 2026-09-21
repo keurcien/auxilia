@@ -107,7 +107,11 @@ export async function syncSkillSource(sourceId: string): Promise<SkillSource> {
 	return response.data;
 }
 
-/** Disconnecting keeps the skills; they become in-app skills. */
+/**
+ * Disconnecting keeps the skills, detached: pinned content with no live link.
+ * Read-only (deleting still works) until this repository is connected again,
+ * which re-pins the same rows rather than importing a second copy of each.
+ */
 export async function deleteSkillSource(sourceId: string): Promise<void> {
 	await api.delete(`/skills/sources/${sourceId}`);
 }

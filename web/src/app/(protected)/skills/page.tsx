@@ -10,6 +10,7 @@ import { useQueryParamState } from "@/hooks/use-query-param-state";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useSkillsStore } from "@/stores/skills-store";
 import { useUserStore } from "@/stores/user-store";
+import { SkillDeleteDescription } from "./components/skill-delete-description";
 import SkillInUseDialog from "./components/skill-in-use-dialog";
 import SkillSourceTable from "./components/skill-source-table";
 import SkillTable from "./components/skill-table";
@@ -125,15 +126,7 @@ export default function SkillsPage() {
 					if (!open) remove.clearPending();
 				}}
 				title="Delete this skill?"
-				description={
-					<>
-						<span className="font-mono text-[12.5px] font-semibold text-petrol">
-							{remove.pending?.name}
-						</span>{" "}
-						isn&apos;t enabled on any agent. Deleting it removes the SKILL.md and its
-						files for everyone; threads that already used it are unaffected.
-					</>
-				}
+				description={<SkillDeleteDescription skill={remove.pending} />}
 				confirmLabel="Delete skill"
 				destructive
 				onConfirm={remove.confirmDelete}

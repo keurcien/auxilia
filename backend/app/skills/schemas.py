@@ -121,6 +121,7 @@ class SkillCreateDB(SQLModel):
     files: list[dict]
     digest: str | None = None
     source_id: UUID | None = None
+    source_url: str | None = None
     source_path: str | None = None
     source_revision: str | None = None
 
@@ -171,6 +172,10 @@ class SkillSummary(BaseModel):
     source_name: str | None = None
     # Which host, so the library can show its mark next to the repository.
     source_kind: SkillSourceKind | None = None
+    # The repository it came from, which outlives the link: a detached skill
+    # has no `source_id` and no `source_name`, and this is what still names
+    # the repository to connect again.
+    source_url: str | None = None
     source_path: str | None = None
     source_revision: str | None = None
     digest: str | None = None
@@ -257,6 +262,25 @@ class SkillSyncPlan(BaseModel):
     entries: list[SkillSyncEntry] = []
 
 
+def normalize_repo_url(value: str) -> str:
+    """One spelling per repository.
+
+    The URL is an identity in two places — a source *is* its (url, ref, path),
+    and a detached skill is reclaimed by the repository whose url it carries —
+    so the three spellings a host hands out for the same repository must
+    collapse to one. Without this, connecting `…/skills.git` after having
+    connected `…/skills` is a different repository: a second source, and the
+    skills the first one left behind are never reclaimed, only reported as
+    names already taken. The user did nothing wrong and cannot see why.
+
+    Deliberately conservative — trailing slashes and a trailing `.git`, and
+    nothing that could change *which* server is addressed. The same
+    transformation has to be expressible in SQL for the migration that
+    normalises the rows already stored.
+    """
+    return value.strip().rstrip("/").removesuffix(".git").rstrip("/")
+
+
 class SkillSourceCreate(BaseModel):
     """Connect a repository. `kind` is detected from the host for github.com
     and gitlab.com and required otherwise (a self-hosted instance)."""
@@ -270,7 +294,7 @@ class SkillSourceCreate(BaseModel):
     @field_validator("url")
     @classmethod
     def _https_repository(cls, value: str) -> str:
-        value = value.strip().rstrip("/")
+        value = normalize_repo_url(value)
         if not value.startswith("https://"):
             raise ValueError("must be an https:// repository URL")
         return value
@@ -290,10 +314,18 @@ class SkillSourcePatch(BaseModel):
 
 
 class SkillSourceReportEntry(BaseModel):
-    """A skill the last sync found but did not import, and why."""
+    """What the last sync did to one skill — the whole story, not only the
+    failures. A sync is the one operation here that changes the library
+    without anyone watching it, so what it decided has to survive it; the
+    plan answers "what will happen?" and this answers "what happened?".
+
+    `status` defaults to `skipped` for rows written before the report carried
+    every decision, which is what those rows held.
+    """
 
     path: str
     name: str
+    status: Literal["new", "updated", "unchanged", "gone", "skipped"] = "skipped"
     issues: list[SkillIssue]
 
 

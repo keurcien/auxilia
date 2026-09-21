@@ -7,9 +7,9 @@ from uuid import UUID
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.subagents.repository import SubagentRepository
 from app.database import get_db
 from app.exceptions import (
+    AlreadyExistsError,
     DomainValidationError,
     NotFoundError,
     PermissionDeniedError,
@@ -50,7 +50,6 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
 
     def __init__(self, db: AsyncSession):
         super().__init__(db, SkillRepository(db))
-        self._links = SubagentRepository(db)
 
     # -- the library ---------------------------------------------------------
 
@@ -69,7 +68,8 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
             SkillSummary(
                 **{k: v for k, v in row._mapping.items() if k != "latest_digest"},
                 agents=by_skill.get(row.id, []),
-                can_edit=_can_edit(row.owner_id, user) and row.source_id is None,
+                can_edit=_can_edit(row.owner_id, user)
+                and not _is_sourced(row.source_revision),
                 can_manage=_can_edit(row.owner_id, user),
                 update_available=_update_available(row.digest, row.latest_digest),
             )
@@ -82,6 +82,7 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
     async def create(self, data: SkillSave, user: UserDB) -> SkillResponse:
         _reject_files(data)
         bundle = parse_skill(data.content, data.files)
+        await self._name_is_free(bundle.name)
         row = await self.repository.create(
             SkillCreateDB(owner_id=user.id, **_columns(bundle))
         )
@@ -93,20 +94,21 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
         _reject_files(data)
         bundle = parse_skill(data.content, data.files)
         row = await self._editable(skill_id, user)
-        if row.source_id is not None:
-            raise DomainValidationError(
-                "This skill is synced from a repository — change it there, then sync"
-            )
+        if _is_sourced(row.source_revision):
+            raise DomainValidationError(_repository_owns(row))
         if data.revision != row.revision:
             raise StaleRevisionError(
                 "This skill changed since you opened it. Reload it before saving."
             )
-        if bundle.name != row.name and await self.repository.is_attached(row.id):
-            # Agents address a skill by name and share one namespace per graph;
-            # renaming in place could collide with, or hide, a live catalog.
-            raise DomainValidationError(
-                "Disable this skill on every agent before renaming it"
-            )
+        if bundle.name != row.name:
+            await self._name_is_free(bundle.name)
+            if await self.repository.is_attached(row.id):
+                # Agents address a skill by name and share one namespace per
+                # graph; renaming in place could collide with, or hide, a live
+                # catalog.
+                raise DomainValidationError(
+                    "Disable this skill on every agent before renaming it"
+                )
         row.sqlmodel_update({**_columns(bundle), "revision": row.revision + 1})
         self.db.add(row)
         await self.db.flush()
@@ -114,6 +116,10 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
         return await self._response(row, user)
 
     async def delete(self, skill_id: UUID, user: UserDB) -> None:
+        # Deleting is not editing: a sourced skill, detached or not, is
+        # removed from the library here like any other. What the repository
+        # owns is the *content* — nothing here can write it — and dropping a
+        # row the repository still has is undone by a sync.
         row = await self._editable(skill_id, user)
         if await self.repository.is_attached(row.id):
             raise DomainValidationError(
@@ -169,10 +175,15 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
         if version is None or version.digest == row.digest:
             return await self._response(row, user)
         bundle = _version_bundle(version)
-        if bundle.name != row.name and await self.repository.is_attached(row.id):
-            raise DomainValidationError(
-                "This version renames the skill; disable it on every agent before adopting"
-            )
+        if bundle.name != row.name:
+            # Upstream renamed it. The library is one namespace, so the new
+            # name has to be free here too — an adopt is a save like any other.
+            await self._name_is_free(bundle.name)
+            if await self.repository.is_attached(row.id):
+                raise DomainValidationError(
+                    "This version renames the skill; disable it on every agent "
+                    "before adopting"
+                )
         row.sqlmodel_update(
             {
                 **_columns(bundle),
@@ -185,6 +196,23 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
         await self.db.flush()
         await self.db.refresh(row)
         return await self._response(row, user)
+
+    async def _name_is_free(self, name: str) -> None:
+        """The library is one namespace. Refused here rather than at the
+        agent's config save: an agent addresses a skill by name and a graph
+        cannot hold two of one name, and by the time the config save says so
+        the remedy it offers ("rename one of them") may not exist — a skill
+        synced from a repository is not renameable here at all.
+
+        The unique index is what actually holds; this is the wording.
+        """
+        other = await self.repository.get_by_name(name)
+        if other is not None:
+            raise AlreadyExistsError(
+                f"A skill named '{name}' is already in the library. Skill names "
+                "are unique across the workspace — agents address a skill by "
+                "its name."
+            )
 
     async def _editable(self, skill_id: UUID, user: UserDB) -> SkillDB:
         row = await self.repository.get_for_update(skill_id)
@@ -225,10 +253,12 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
             script_count=count_scripts(bundle.files),
             agent_count=len(agents),
             updated_at=row.updated_at,
-            can_edit=_can_edit(row.owner_id, user) and row.source_id is None,
+            can_edit=_can_edit(row.owner_id, user)
+            and not _is_sourced(row.source_revision),
             can_manage=_can_edit(row.owner_id, user),
             source_id=row.source_id,
             source_name=source.name if source else None,
+            source_url=row.source_url,
             source_path=row.source_path,
             source_revision=row.source_revision,
             digest=row.digest,
@@ -248,71 +278,24 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
             for row in await self.repository.list_attached(agent_id)
         ]
 
-    async def set_for_agent(
-        self,
-        agent_id: UUID,
-        skill_ids: Iterable[UUID],
-        *,
-        always_validate: bool = False,
-    ) -> None:
+    async def set_for_agent(self, agent_id: UUID, skill_ids: Iterable[UUID]) -> None:
         """Whole-set replace of an agent's skills, from the config save.
 
-        `always_validate` keeps the graph check even when the skill set is
-        unchanged: a config save may have just rewired the subagents, and this
-        is where the resulting graph is judged — the subagent step defers to
-        it, because only the final graph can be judged at all.
+        There is no graph-wide name check here, and there is nothing for one
+        to catch: the library is one namespace, so two *different* skills of
+        one name do not exist to be enabled together. Enabling a skill is a
+        binding, and a binding cannot create a collision the library already
+        refused. `SkillsBackend` keeps the last word at run time, for data
+        that changed under a run.
         """
         wanted = set(skill_ids)
         if wanted - await self.repository.list_existing_ids(wanted):
             raise NotFoundError(self.not_found_message)
         current = await self.repository.list_attached_ids(agent_id)
-        if wanted == current and not always_validate:
-            return
         if wanted == current:
-            for graph in await self._graphs_of(agent_id):
-                await self.ensure_unique_names(graph)
             return
-        # The agent's graph — a supervisor and its subagents — runs with one
-        # skill set, so the names must stay unique across it, not just here.
-        for graph in await self._graphs_of(agent_id):
-            await self.ensure_unique_names(graph - {agent_id}, adding=wanted)
         await self.repository.delete_links(agent_id, current - wanted)
         await self.repository.add_links(agent_id, wanted - current)
-
-    async def ensure_unique_names(
-        self, agent_ids: Iterable[UUID], *, adding: Iterable[UUID] = ()
-    ) -> None:
-        """Refuse a graph whose members hold two *different* skills of one
-        name (the same skill on several members is one catalog entry).
-
-        Called with a graph's members when a skill set changes
-        (`set_for_agent`) and when a subagent joins a supervisor
-        (`SubagentService`), since that merges two sets. `adding` are skill
-        ids about to join the set, on top of what the agents already hold.
-        """
-        by_name: dict[str, UUID] = {}
-        pairs = [
-            *await self.repository.list_names_for_agents(agent_ids),
-            *await self.repository.list_names(adding),
-        ]
-        for skill_id, name in pairs:
-            if by_name.setdefault(name, skill_id) != skill_id:
-                raise DomainValidationError(
-                    f"Two different skills named '{name}' would be enabled on "
-                    "this agent's graph (a supervisor and its subagents share "
-                    "one skill set). Rename one of them first."
-                )
-
-    async def _graphs_of(self, agent_id: UUID) -> list[set[UUID]]:
-        """Every graph the agent runs in: each supervisor's (supervisor plus
-        all its subagents) when it is a subagent, else its own. One level,
-        like the run itself."""
-        roots = await self._links.list_supervisor_ids(agent_id) or [agent_id]
-        graphs = []
-        for root in roots:
-            links = await self._links.list_for_supervisor(root)
-            graphs.append({root, *(link.subagent_id for link in links)})
-        return graphs
 
 
 def _reject_files(data: SkillSave) -> None:
@@ -332,6 +315,30 @@ def _reject_files(data: SkillSave) -> None:
 
 def _can_edit(owner_id: UUID, user: UserDB) -> bool:
     return owner_id == user.id or user.role == WorkspaceRole.admin
+
+
+def _is_sourced(source_revision: str | None) -> bool:
+    """Whether the content came from a repository. `source_revision` is the
+    pin — the commit it was read at — and only a sync or an adopt writes it.
+    Not `digest`, which every save computes, in-app skills included."""
+    return source_revision is not None
+
+
+def _is_detached(source_revision: str | None, source_id: UUID | None) -> bool:
+    """Pinned content whose repository is no longer connected: the pin
+    without the live link. Two columns, no third state to migrate."""
+    return _is_sourced(source_revision) and source_id is None
+
+
+def _repository_owns(row: SkillDB) -> str:
+    """Why a change was refused: a sourced skill is edited where its files
+    come from, and a detached one has to be connected again first."""
+    if _is_detached(row.source_revision, row.source_id):
+        return (
+            "This skill came from a repository that is no longer connected. "
+            "Connect it again to change it — or delete it from the library."
+        )
+    return "This skill is synced from a repository — change it there, then sync"
 
 
 def _columns(bundle: SkillBundle) -> dict:

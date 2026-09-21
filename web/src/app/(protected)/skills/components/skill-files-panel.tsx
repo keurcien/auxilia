@@ -2,7 +2,14 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { isScriptPath, shortRevision, type Skill, type SkillFile } from "@/types/skills";
+import {
+	isDetached,
+	isScriptPath,
+	isSourced,
+	shortRevision,
+	type Skill,
+	type SkillFile,
+} from "@/types/skills";
 import { CodeBlock } from "@/components/ai-elements/code-block";
 import { PETROL_MONO_THEME } from "@/lib/shiki-petrol-mono";
 import { cn } from "@/lib/utils";
@@ -21,7 +28,8 @@ interface SkillFilesPanelProps {
  *
  * Read-only, always. Files reach the library only through a repository, so
  * this panel renders a sourced skill's pinned content and nothing here can
- * change it — the repository is the editor. Anything under `scripts/` is
+ * change it — the repository is the editor, a detached skill included: its
+ * files are still in the row, and still run. Anything under `scripts/` is
  * what makes a skill need an agent with code execution, so the panel counts
  * those separately.
  */
@@ -111,10 +119,10 @@ function Heading({ count, skill }: { count: number; skill?: Skill }) {
 					FILES <span className="tracking-normal text-meta dark:text-panel-dim">{count}</span>
 				</span>
 			</span>
-			{skill?.sourceId && (
+			{skill && isSourced(skill) && (
 				<span className="truncate font-mono text-[10.5px] text-meta dark:text-panel-dim">
 					<Link href="/skills?view=sources" className="font-semibold text-petrol hover:underline">
-						{skill.sourceName ?? "repository"}
+						{skill.sourceName ?? (isDetached(skill) ? "disconnected" : "repository")}
 					</Link>
 					{skill.sourceRevision ? ` · ${shortRevision(skill.sourceRevision)}` : ""}
 				</span>

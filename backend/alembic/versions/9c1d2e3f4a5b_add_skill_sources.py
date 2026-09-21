@@ -95,6 +95,16 @@ def upgrade() -> None:
     )
 
     op.add_column("skills", sa.Column("source_id", sa.Uuid(), nullable=True))
+    # The repository the content came from, as a URL rather than a foreign key:
+    # `source_id` is nulled when the source row goes (ON DELETE SET NULL, which
+    # is what makes a disconnect *detach*), and this has to outlive it. It is
+    # what a reconnect matches on, so only the repository that left a skill
+    # behind can claim it back — matching on the name alone would let any
+    # repository that happened to use the name take over another's row, under
+    # the id agents are already bound to.
+    op.add_column(
+        "skills", sa.Column("source_url", sa.String(length=500), nullable=True)
+    )
     op.add_column(
         "skills", sa.Column("source_path", sa.String(length=240), nullable=True)
     )
@@ -120,16 +130,21 @@ def upgrade() -> None:
         ondelete="SET NULL",
     )
     op.create_index(op.f("ix_skills_source_id"), "skills", ["source_id"], unique=False)
+    op.create_index(
+        op.f("ix_skills_source_url"), "skills", ["source_url"], unique=False
+    )
 
 
 def downgrade() -> None:
     """Downgrade schema."""
+    op.drop_index(op.f("ix_skills_source_url"), table_name="skills")
     op.drop_index(op.f("ix_skills_source_id"), table_name="skills")
     op.drop_constraint(op.f("fk_skills_source_id_skill_sources"), "skills", type_="foreignkey")
     op.drop_column("skills", "missing_upstream")
     op.drop_column("skills", "digest")
     op.drop_column("skills", "source_revision")
     op.drop_column("skills", "source_path")
+    op.drop_column("skills", "source_url")
     op.drop_column("skills", "source_id")
     op.drop_index(op.f("ix_skill_versions_digest"), table_name="skill_versions")
     op.drop_index(op.f("ix_skill_versions_skill_id"), table_name="skill_versions")

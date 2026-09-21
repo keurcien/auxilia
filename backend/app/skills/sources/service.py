@@ -20,7 +20,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.exceptions import DomainValidationError, PermissionDeniedError
+from app.exceptions import (
+    DomainValidationError,
+    NotFoundError,
+    PermissionDeniedError,
+)
 from app.service import BaseService
 from app.skills.bundles import LIMITS, parse_skill, skill_file_from_bytes
 from app.skills.models import SkillDB, SkillSourceDB
@@ -85,11 +89,17 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
         resolver can produce is a 400 about what they typed — an unhandled
         `SkillkitError` here is a 500, which is how a private repository came
         to look like an unsupported one.
+
+        It also answers the question the *library* decides, not the
+        repository: whether each name is free. A preview that calls a skill
+        importable and a sync that then skips it disagree about the same
+        facts, and the admin finds out after connecting.
         """
         kind = _kind_for(data)
         resolved = await self._resolve_or_400(
             kind, data.url, data.ref, data.subpath, data.token
         )
+        library = await self._library_for(None, data.url)
         return SkillSourcePreview(
             kind=kind,
             name=_name_for(data.url),
@@ -103,8 +113,8 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
                     script_count=sum(
                         1 for p in skill.bundle.files if p.startswith("scripts/")
                     ),
-                    ok=skill.report.ok,
-                    issues=_issues(skill),
+                    ok=skill.report.ok and skill.name not in library.taken,
+                    issues=_issues(skill) + _taken_issue(skill.name, library),
                 )
                 for skill in resolved.skills
             ],
@@ -181,14 +191,22 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
         return _response(row, user)
 
     async def delete(self, source_id: UUID, user: UserDB) -> None:
-        """Its skills stay, as in-app skills: an agent must not lose a skill
-        because an admin disconnected a repository."""
-        row = await self._manageable(source_id, user)
+        """Its skills stay, detached: an agent must not lose a skill because
+        an admin disconnected a repository, and everything those skills need
+        — files and `scripts/` included — is already in their rows.
+
+        Detached is not "written here": the content still came from the
+        repository, so the library keeps it read-only rather than handing it
+        to an editor that cannot write files. Removing one from the library
+        stays allowed — that is not editing. Connecting the repository again
+        re-pins the same rows (`_classify`), so a disconnect is reversible
+        and never doubles the library."""
+        row = await self._manageable(source_id, user, lock=True)
         await self._skills.detach_from_source(row.id)
         await self.repository.delete(row)
 
     async def sync(self, source_id: UUID, user: UserDB) -> SkillSourceResponse:
-        row = await self._manageable(source_id, user)
+        row = await self._manageable(source_id, user, lock=True)
         await self._sync_row(row)
         await self.db.refresh(row)
         return _response(row, user)
@@ -225,8 +243,7 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
         resolved = await self._resolve_or_400(
             row.kind, row.url, row.ref, row.subpath, token
         )
-        existing = {s.name: s for s in await self._skills.list_for_source(row.id)}
-        decisions, _report = _classify(resolved, existing)
+        decisions, _report = _classify(resolved, await self._library(row))
         return SkillSyncPlan(
             revision=resolved.revision,
             current_revision=row.last_revision,
@@ -265,8 +282,7 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
         except (LimitExceeded, SkillkitValidationError) as exc:
             return await self._failed(row, "invalid", str(exc))
 
-        existing = {s.name: s for s in await self._skills.list_for_source(row.id)}
-        decisions, report = _classify(resolved, existing)
+        decisions, report = _classify(resolved, await self._library(row))
 
         for decision in decisions:
             # `assert` would be the obvious narrowing here, but it is compiled
@@ -286,6 +302,7 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
                         files=[f.model_dump(mode="json") for f in bundle.files],
                         digest=digest,
                         source_id=row.id,
+                        source_url=row.url,
                         source_path=decision.path,
                         source_revision=resolved.revision,
                     )
@@ -309,6 +326,12 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
                 self.db.add(current)
                 continue
 
+            # `source_id` for the rows this sync re-pins — a skill this same
+            # repository left detached by an earlier disconnect. `source_url`
+            # with it, so a source that moved host (an org rename, a mirror)
+            # re-pins the row to where it is read from now.
+            current.source_id = row.id
+            current.source_url = row.url
             current.source_path = decision.path
             current.missing_upstream = False
             if decision.status == "updated":
@@ -330,6 +353,9 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
         row.last_synced_at = datetime.now(UTC)
         row.last_status = "ok"
         row.last_error = None
+        # Every decision, not only the failures. A sync is the one operation
+        # here that changes the library with nobody watching — the plan says
+        # what it will do, and this is the only record of what it did.
         row.last_report = [entry.model_dump(mode="json") for entry in report]
         # What the repository currently contributes: present upstream and
         # valid. A skipped skill was never counted, and a `gone` one is no
@@ -370,8 +396,54 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
         self.db.add(row)
         await self.db.flush()
 
-    async def _manageable(self, source_id: UUID, user: UserDB) -> SkillSourceDB:
-        row = await self.get_or_404(source_id)
+    async def _library(self, row: SkillSourceDB) -> LibraryIndex:
+        return await self._library_for(row.id, row.url)
+
+    async def _library_for(self, source_id: UUID | None, url: str) -> LibraryIndex:
+        """The library as a sync of this repository sees it — three queries,
+        no matter how many skills the repository holds. `source_id` is None
+        for a repository that is not connected yet (`preview`), which owns no
+        rows but can still reclaim the ones it left behind.
+        """
+        mine = (
+            {s.name: s for s in await self._skills.list_for_source(source_id)}
+            if source_id is not None
+            else {}
+        )
+        reclaimable = {
+            s.name: s
+            for s in await self._skills.list_reclaimable(url)
+            if s.name not in mine
+        }
+        ours = {s.id for s in (*mine.values(), *reclaimable.values())}
+        return LibraryIndex(
+            mine=mine,
+            reclaimable=reclaimable,
+            taken=frozenset(
+                name
+                for skill_id, name in await self._skills.list_all_names()
+                if skill_id not in ours
+            ),
+        )
+
+    async def _manageable(
+        self, source_id: UUID, user: UserDB, *, lock: bool = False
+    ) -> SkillSourceDB:
+        """The source, and the right to change it.
+
+        `lock` takes the row for the rest of the transaction. Two syncs of one
+        source run the same classification against the same library and both
+        decide a skill is `new`; whichever loses the unique index on the name
+        then fails the whole request. The lock makes the second wait and
+        classify against what the first wrote, which is `unchanged`.
+        """
+        row = (
+            await self.repository.get_for_update(source_id)
+            if lock
+            else await self.repository.get(source_id)
+        )
+        if row is None:
+            raise NotFoundError(self.not_found_message)
         if not _can_manage(user):
             raise PermissionDeniedError(
                 "Only a workspace admin can change skill sources"
@@ -420,6 +492,31 @@ def _name_for(url: str) -> str:
     return urlsplit(url).path.strip("/").removesuffix(".git")[:120] or url[:120]
 
 
+@dataclass(frozen=True)
+class LibraryIndex:
+    """What the library already holds, as one sync needs to see it.
+
+    Three answers to the same question — "is this name already spoken for?" —
+    and they are not the same answer, which is why they are three fields and
+    not one dictionary:
+
+    - `mine` — this source's own rows, by name. A name found here is the
+      skill this sync updates, and a name *not* found again upstream is the
+      one it marks `gone`.
+    - `reclaimable` — rows this same repository left behind when it was
+      disconnected (`SkillRepository.list_reclaimable`). A name found here is
+      claimed: the row is re-pinned, keeping its id and every agent binding.
+    - `taken` — every other name in the library: another repository's skills,
+      skills written in the app, and skills a *different* repository left
+      behind. A name found here is not this sync's to touch, and the incoming
+      skill is skipped and reported rather than imported as a duplicate.
+    """
+
+    mine: dict[str, SkillDB]
+    reclaimable: dict[str, SkillDB]
+    taken: frozenset[str]
+
+
 @dataclass
 class _Decision:
     """What a sync would do to one skill, decided before anything is written
@@ -449,7 +546,7 @@ def _incoming(decision: _Decision) -> tuple[SkillBundle, str]:
 
 
 def _classify(
-    resolved: ResolvedSource, existing: dict[str, SkillDB]
+    resolved: ResolvedSource, library: LibraryIndex
 ) -> tuple[list[_Decision], list[SkillSourceReportEntry]]:
     """Compare what the repository holds against what the library holds.
 
@@ -457,15 +554,21 @@ def _classify(
     neither. `_sync_row` applies the result and `plan` returns it, so the two
     can never disagree about what a sync does.
     """
-    remaining = dict(existing)
+    remaining = dict(library.mine)
+    unclaimed = dict(library.reclaimable)
     decisions: list[_Decision] = []
     report: list[SkillSourceReportEntry] = []
     seen: set[str] = set()
 
-    def skip(skill: Skill, issues: list[SkillIssue]) -> None:
-        report.append(
-            SkillSourceReportEntry(path=skill.path, name=skill.name, issues=issues)
+    def record(
+        name: str, path: str, status: str, issues: list[SkillIssue]
+    ) -> SkillSourceReportEntry:
+        return SkillSourceReportEntry(
+            path=path, name=name, status=status, issues=issues
         )
+
+    def skip(skill: Skill, issues: list[SkillIssue]) -> None:
+        report.append(record(skill.name, skill.path, "skipped", issues))
         decisions.append(
             _Decision(name=skill.name, path=skill.path, status="skipped", issues=issues)
         )
@@ -490,6 +593,15 @@ def _classify(
                 ],
             )
             continue
+        if skill.name in library.taken:
+            # The library is one namespace and this name is somebody else's:
+            # another repository's skill, one written in the app, or one a
+            # *different* repository left behind. Importing it anyway would
+            # put two identically-named rows in front of every reader and
+            # defer the collision to the agent's config save, where it can no
+            # longer be resolved. Reported, and left for a human to settle.
+            skip(skill, [_NAME_TAKEN])
+            continue
         try:
             bundle = _app_bundle(skill)
         except DomainValidationError as exc:
@@ -498,18 +610,20 @@ def _classify(
 
         seen.add(skill.name)
         digest = bundle_digest(bundle.file_bytes())
-        current = remaining.pop(skill.name, None)
+        current = remaining.pop(skill.name, None) or unclaimed.pop(skill.name, None)
+        status = (
+            "new"
+            if current is None
+            else "updated"
+            if digest != current.digest
+            else "unchanged"
+        )
+        report.append(record(skill.name, skill.path, status, _issues(skill)))
         decisions.append(
             _Decision(
                 name=skill.name,
                 path=skill.path,
-                status=(
-                    "new"
-                    if current is None
-                    else "updated"
-                    if digest != current.digest
-                    else "unchanged"
-                ),
+                status=status,
                 issues=_issues(skill),
                 bundle=bundle,
                 digest=digest,
@@ -518,14 +632,10 @@ def _classify(
         )
 
     for name, leftover in remaining.items():
+        path = leftover.source_path or ""
+        report.append(record(name, path, "gone", []))
         decisions.append(
-            _Decision(
-                name=name,
-                path=leftover.source_path or "",
-                status="gone",
-                issues=[],
-                current=leftover,
-            )
+            _Decision(name=name, path=path, status="gone", issues=[], current=leftover)
         )
     return decisions, report
 
@@ -542,6 +652,23 @@ def _app_bundle(skill: Skill) -> SkillBundle:
 
 def _issues(skill: Skill) -> list[SkillIssue]:
     return [SkillIssue(**issue.__dict__) for issue in skill.report.issues]
+
+
+# One wording for "the library already has this name", used by the preview
+# (before connecting) and by `_classify` (at every sync), so the two never
+# describe the same refusal differently.
+_NAME_TAKEN = SkillIssue(
+    code="W004",
+    severity="warning",
+    message=(
+        "a different skill in the library already has this name — rename it "
+        "here or remove the other one, then sync again"
+    ),
+)
+
+
+def _taken_issue(name: str, library: LibraryIndex) -> list[SkillIssue]:
+    return [_NAME_TAKEN] if name in library.taken else []
 
 
 def _can_manage(user: UserDB) -> bool:

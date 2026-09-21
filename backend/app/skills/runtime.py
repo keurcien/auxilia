@@ -1,9 +1,9 @@
-"""Skills at run time: the frozen set, its in-memory view, and its upload.
+"""Skills at run time: the run's set, its in-memory view, and its upload.
 
 There is no custom skill tool. deepagents' ``SkillsMiddleware`` (subclassed in
 ``app/skills/middleware.py``) lists the skills in the system prompt and the
 agent reads them with the filesystem ``read_file`` tool. This module's job is
-to produce what that needs from a run's frozen bundles:
+to produce what that needs from a run's bundles:
 
 - ``SkillsBackend`` — a read-only, in-memory backend holding every file under
   ``SKILLS_ROOT/<name>/``. The index is always read from it; a sandbox-less
@@ -11,8 +11,8 @@ to produce what that needs from a run's frozen bundles:
   checkpoint.
 - ``upload_skills`` — the same files on a sandbox's disk, so scripts can run;
   skipped when the sandbox already holds this exact set.
-- ``freeze_run_skills`` — which bundles a run executes with, frozen on the
-  thread so a resume never swaps skill contents under a pending tool call.
+- ``resolve_run_skills`` — which bundles a run executes with, read from the
+  library on every run, resumes included.
 
 One skill set per graph: a supervisor and its subagents share the union of
 their enabled skills, so any of them can read or run any skill file by the
@@ -33,7 +33,6 @@ from app.exceptions import DomainValidationError
 from app.skills.middleware import SKILLS_ROOT
 from app.skills.repository import SkillRepository
 from app.skills.schemas import SkillBundle
-from app.threads.models import ThreadDB
 from skillkit.adapters.deepagents import (
     READ_ONLY,
     InMemorySkillsBackend,
@@ -53,27 +52,36 @@ __all__ = [
 ]
 
 
-async def freeze_run_skills(
-    db: AsyncSession, thread: ThreadDB, agent_ids: Iterable[UUID], *, resume: bool
+async def resolve_run_skills(
+    db: AsyncSession, agent_ids: Iterable[UUID]
 ) -> list[SkillBundle]:
-    """The skills this run executes with.
+    """The skills this run executes with — read from the library, every time.
 
-    A new turn resolves the graph's current skills and stamps them on the
-    thread — the caller's transaction writes the stamp. A resume reuses the
-    stamped set, so approving a tool call never swaps the skill it came from,
-    even if the skill was saved or disabled meanwhile. `agent_ids` are the
-    graph's members: a supervisor and its subagents share one skill set.
+    `agent_ids` are the graph's members: a supervisor and its subagents share
+    one skill set.
 
-    Access is not re-checked on a resume because there is nothing to check:
-    every workspace user may use every skill, so a frozen copy grants nothing
-    its reader lacked.
+    Nothing is copied onto the thread, and a resume (a HITL approval) re-reads
+    the library like any other run.
+
+    That is the same rule the rest of an agent's capability surface follows.
+    MCP tools are resolved at every run start (`Toolset.open`) and never
+    pinned: disable a tool, rotate a credential, or let the server change what
+    it exposes, and the next run — resume included — sees it. A skill is the
+    same kind of thing, so it behaves the same way. The alternative was a copy
+    of every bundle on every thread row, which bought one turn's stability for
+    skills alone while tools stayed live around them.
+
+    The edge lands in the same place too: an approval that sits pending while
+    the skill is edited resumes against the new content, exactly as it would
+    against a tool the server has since removed. Both surface as a tool error
+    and reach the model through `ToolErrorMiddleware`.
+
+    Access is not checked here because there is nothing to check: every
+    workspace user may read and use every skill.
     """
-    if resume and thread.skill_snapshot is not None:
-        return [SkillBundle.model_validate(entry) for entry in thread.skill_snapshot]
     rows = await SkillRepository(db).list_for_agents(agent_ids)
     bundles = [row.to_bundle() for row in rows]
     ensure_unique_names(bundles)
-    thread.skill_snapshot = [bundle.model_dump(mode="json") for bundle in bundles]
     return bundles
 
 

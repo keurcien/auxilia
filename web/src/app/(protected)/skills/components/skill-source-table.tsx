@@ -11,6 +11,7 @@ import { useSkillsStore } from "@/stores/skills-store";
 import {
 	shortRevision,
 	type SkillSource,
+	type SkillSourceReportEntry,
 	type SkillSyncPlan,
 	type SkillSyncStatus,
 } from "@/types/skills";
@@ -48,7 +49,10 @@ const STATUS_COPY = new Map<
 	skipped: {
 		label: "SKIPPED",
 		className: "bg-neutral-bg text-subtle dark:bg-white/10 dark:text-panel-body",
-		note: "has an error",
+		// Overridden by the entry's own issue, which is the actual reason —
+		// an invalid SKILL.md and a name already taken in the library are not
+		// the same problem and do not have the same fix.
+		note: "not imported",
 	},
 }) as [SkillSyncStatus, { label: string; className: string; note?: string }][]);
 
@@ -98,12 +102,15 @@ function SyncPlanSummary({ plan }: { plan: SkillSyncPlan }) {
 								key={`${entry.status}-${entry.name}-${entry.path}`}
 								className="flex items-center gap-2 border-b border-hairline px-3 py-1.5 last:border-b-0 dark:border-white/5"
 							>
-								<span className="min-w-0 flex-1 truncate font-mono text-[12px] font-semibold text-petrol">
+								<span className="min-w-0 shrink-0 max-w-[40%] truncate font-mono text-[12px] font-semibold text-petrol">
 									{entry.name}
 								</span>
-								{copy.note && (
-									<span className="shrink-0 text-[11px] text-meta dark:text-panel-dim">{copy.note}</span>
-								)}
+								<span
+									className="min-w-0 flex-1 truncate text-right text-[11px] text-meta dark:text-panel-dim"
+									title={entry.issues.map((i) => `${i.code} ${i.message}`).join("\n")}
+								>
+									{entry.issues[0]?.message ?? copy.note ?? ""}
+								</span>
 								<span
 									className={cn(
 										"shrink-0 rounded-[4px] px-1.5 py-px font-mono text-[9px] font-semibold tracking-[0.05em]",
@@ -121,6 +128,43 @@ function SyncPlanSummary({ plan }: { plan: SkillSyncPlan }) {
 				Syncing does not change what an agent runs: an updated skill stays on its
 				pinned version until you adopt it, one at a time, against a diff.
 			</span>
+		</span>
+	);
+}
+
+/**
+ * What the last sync did, under the status badge — the counterpart to the
+ * plan the Sync button shows beforehand.
+ *
+ * A sync is the one thing here that changes the library while nobody is
+ * looking at the dialog that described it, so the row has to be able to
+ * answer "what happened?" afterwards. `unchanged` is left out: it is the
+ * majority of a steady-state sync and saying "14 unchanged" buries the one
+ * line that matters. The title carries every skill by name.
+ */
+function LastSyncOutcome({ report }: { report: SkillSourceReportEntry[] }) {
+	const counted: SkillSyncStatus[] = ["new", "updated", "gone", "skipped"];
+	const parts = counted
+		.map((status) => ({ status, n: report.filter((e) => e.status === status).length }))
+		.filter((part) => part.n > 0);
+	if (parts.length === 0) return null;
+	const tone = report.some((e) => e.status === "skipped" || e.status === "gone")
+		? "text-warning"
+		: "text-meta dark:text-panel-dim";
+	return (
+		<span
+			className={cn("truncate font-mono text-[10px]", tone)}
+			title={report
+				.filter((e) => e.status !== "unchanged")
+				.map((e) =>
+					[
+						`${e.name}: ${e.status}`,
+						...e.issues.map((i) => `  ${i.code} ${i.message}`),
+					].join("\n"),
+				)
+				.join("\n")}
+		>
+			{parts.map((part) => `${part.n} ${STATUS_COPY.get(part.status)?.label.toLowerCase()}`).join(" · ")}
 		</span>
 	);
 }
@@ -232,16 +276,7 @@ export default function SkillSourceTable({ sources, isLoading, canManage, onErro
 			cell: (source) => (
 				<div className="flex min-w-0 flex-col items-start gap-1">
 					<SourceStatusBadge status={source.lastStatus} title={source.lastError} />
-					{source.lastReport.length > 0 && (
-						<span
-							className="font-mono text-[10px] text-warning"
-							title={source.lastReport
-								.map((entry) => `${entry.path}: ${entry.issues.map((i) => `${i.code} ${i.message}`).join("; ")}`)
-								.join("\n")}
-						>
-							{source.lastReport.length} skipped
-						</span>
-					)}
+					<LastSyncOutcome report={source.lastReport} />
 				</div>
 			),
 		},
@@ -308,7 +343,10 @@ export default function SkillSourceTable({ sources, isLoading, canManage, onErro
 					<>
 						<span className="font-mono text-[12.5px] font-semibold text-petrol">{toDisconnect?.name}</span> stops
 						syncing. Its {toDisconnect?.skillCount ?? 0} skill{toDisconnect?.skillCount === 1 ? "" : "s"} stay in the
-						library as in-app skills — editable here, no longer pinned to the repository — so no agent loses one.
+						library — files and scripts included, still running, frozen at the commit they are pinned to. Their
+						content is edited nowhere until you connect <span className="font-semibold">this same URL</span> again,
+						which re-pins the very same skills, keeping the agents that use them. Their names stay taken meanwhile,
+						so another repository cannot quietly take one over.
 					</>
 				}
 				confirmLabel="Disconnect"
