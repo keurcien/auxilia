@@ -2,17 +2,19 @@
 
 import { useRouter } from "next/navigation";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
-import { useUserStore } from "@/stores/user-store";
 import SkillEditor from "../components/skill-editor";
+import { useRoleGate } from "../lib/use-role-gate";
 
 export default function NewSkillPage() {
 	const router = useRouter();
-	const user = useUserStore((state) => state.user);
+	const gate = useRoleGate("editor");
 
-	// The same guard the sources page uses, for the same reason: the library
-	// buttons are already hidden, so anyone arriving here typed the URL and
-	// would otherwise write a whole skill before the save returned a 403.
-	if (user && user.role !== "admin" && user.role !== "editor") {
+	// Nothing until the role is known: `/auth/me` in flight looks exactly like
+	// "no user", so rendering the editor optimistically shows a member a whole
+	// skill form that only 403s on save.
+	if (gate === "pending") return null;
+
+	if (gate === "denied") {
 		return (
 			<ForbiddenErrorDialog
 				open

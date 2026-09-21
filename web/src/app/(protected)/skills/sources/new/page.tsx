@@ -5,12 +5,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CircleAlert, CircleCheck, Eye, EyeOff, Loader2 } from "lucide-react";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
+import { useRoleGate } from "../../lib/use-role-gate";
 import ConfirmDialog from "@/components/ui/confirm-dialog";
 import { HeaderButton, HeaderPrimaryButton, SubpageHeader } from "@/components/layout/subpage-header";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
 import { useSkillsStore } from "@/stores/skills-store";
-import { useUserStore } from "@/stores/user-store";
 import { shortRevision, type SkillSourceCreate, type SkillSourceKind, type SkillSourcePreview } from "@/types/skills";
 import { SkillRequirementChip } from "../../components/skill-requirement-chip";
 import { SourceHostTile } from "../../components/source-host-tile";
@@ -215,7 +215,7 @@ function ImportSummary({ preview }: { preview: SkillSourcePreview }) {
  */
 export default function NewSkillSourcePage() {
 	const router = useRouter();
-	const user = useUserStore((state) => state.user);
+	const gate = useRoleGate("admin");
 	const previewSource = useSkillsStore((state) => state.previewSource);
 	const createSource = useSkillsStore((state) => state.createSource);
 	const [url, setUrl] = useState("");
@@ -304,7 +304,11 @@ export default function NewSkillSourcePage() {
 		}
 	};
 
-	if (user && user.role !== "admin") {
+	// Same rule as `/skills/new`: withhold until the role is known, or the
+	// connect form renders for a member while `/auth/me` is still in flight.
+	if (gate === "pending") return null;
+
+	if (gate === "denied") {
 		return (
 			<ForbiddenErrorDialog
 				open
