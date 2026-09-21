@@ -17,11 +17,15 @@ Create Date: 2026-08-22 11:00:00.000000
 
 """
 
+import base64
+import hashlib
 import json
+import os
 from collections.abc import Sequence
 from uuid import uuid4
 
 import sqlalchemy as sa
+from cryptography.fernet import Fernet
 from sqlalchemy.dialects.postgresql import JSONB
 
 from alembic import op
@@ -34,45 +38,100 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+# This migration reads the environment and the database, and imports nothing
+# from `app`. It used to build `app.sandbox.settings.SandboxSettings` and call
+# `app.utils.encryption.encrypt_value`; the settings module was later deleted
+# by the multi-sandbox work, and from then on `alembic upgrade head` on an
+# empty database died here — several revisions before anything it was meant to
+# migrate. A migration is a historical record: the schema it describes stops
+# changing, while the application around it does not, so it cannot borrow the
+# application's code and stay correct. The env names, defaults and Fernet
+# format below are frozen copies of what those modules held at this revision.
+_DEFAULT_TIMEOUT = 30 * 60
+
+
+def _env(name: str, default: str = "") -> str:
+    return os.environ.get(name, default).strip()
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = _env(name)
+    return raw.lower() in ("1", "true", "yes", "on") if raw else default
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = _env(name)
+    try:
+        return int(raw) if raw else default
+    except ValueError:
+        return default
+
+
+def _env_list(name: str) -> list[str]:
+    """A JSON array (what pydantic-settings accepted) or a comma-separated one."""
+    raw = _env(name)
+    if not raw:
+        return []
+    if raw.startswith("["):
+        try:
+            return [str(item) for item in json.loads(raw)]
+        except ValueError:
+            return []
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def _encrypt(value: str) -> str:
+    """`app.utils.encryption.encrypt_value`, frozen: Fernet under a key derived
+    from the deployment-wide salt. Reproduced rather than imported so this
+    migration cannot break when that module moves."""
+    salt = _env("SALT") or _env("MCP_API_KEY_ENCRYPTION_SALT")
+    if not salt:
+        raise RuntimeError(
+            "A sandbox secret has to be encrypted to convert the environment "
+            "configuration into a sandboxes row, but SALT is not set."
+        )
+    key = base64.urlsafe_b64encode(hashlib.sha256(salt.encode()).digest())
+    return Fernet(key).encrypt(value.encode()).decode()
+
+
 def _env_sandbox() -> tuple[str, str, str | None, dict, str] | None:
     """(provider, url, secret, config_extras, name) from env, or None."""
-    from app.sandbox.settings import SandboxSettings
-
-    settings = SandboxSettings()
-    if not settings.enabled:
-        return None
-    if settings.provider == "cloudrun":
-        cr = settings.cloudrun
-        # `enabled` only checks for None — an empty-string URL or secret would
-        # produce a row that runtime validation rejects.
-        if not cr.gateway_url or not cr.gateway_secret:
+    provider = _env("SANDBOX_PROVIDER") or "opensandbox"
+    if provider == "cloudrun":
+        # Both are required: an empty-string URL or secret would produce a row
+        # that runtime validation rejects.
+        url, secret = _env("CLOUD_RUN_SANDBOX_GATEWAY_URL"), _env(
+            "CLOUD_RUN_SANDBOX_GATEWAY_SECRET"
+        )
+        if not url or not secret:
             return None
         return (
             "cloudrun",
-            cr.gateway_url,
-            cr.gateway_secret,
+            url,
+            secret,
             {
-                "default_packages": list(cr.default_packages),
-                "timeout": cr.timeout,
-                "gcs_bucket": cr.gcs_bucket,
-                "snapshot_prefix": cr.snapshot_prefix,
-                "allow_egress": cr.allow_egress,
+                "default_packages": _env_list("CLOUD_RUN_SANDBOX_DEFAULT_PACKAGES"),
+                "timeout": _env_int("CLOUD_RUN_SANDBOX_TIMEOUT", _DEFAULT_TIMEOUT),
+                "gcs_bucket": _env("CLOUD_RUN_SANDBOX_GCS_BUCKET") or None,
+                "snapshot_prefix": _env("CLOUD_RUN_SANDBOX_SNAPSHOT_PREFIX")
+                or "sandbox-snapshots/",
+                "allow_egress": _env_bool("CLOUD_RUN_SANDBOX_ALLOW_EGRESS", False),
             },
             "Cloud Run",
         )
-    osb = settings.opensandbox
-    if not osb.domain:
+    domain = _env("OPEN_SANDBOX_DOMAIN")
+    if not domain:
         return None
     return (
         "opensandbox",
-        osb.domain,
-        osb.api_key,
+        domain,
+        _env("OPEN_SANDBOX_API_KEY") or None,
         {
-            "default_packages": list(osb.default_packages),
-            "timeout": osb.timeout,
-            "default_image": osb.default_image,
-            "volume_mounts": osb.parsed_volume_mounts,
-            "use_server_proxy": osb.use_server_proxy,
+            "default_packages": _env_list("OPEN_SANDBOX_DEFAULT_PACKAGES"),
+            "timeout": _env_int("OPEN_SANDBOX_TIMEOUT", _DEFAULT_TIMEOUT),
+            "default_image": _env("OPEN_SANDBOX_DEFAULT_IMAGE") or "python:3.12-slim",
+            "volume_mounts": _env_list("OPEN_SANDBOX_VOLUME_MOUNTS"),
+            "use_server_proxy": _env_bool("OPEN_SANDBOX_USE_SERVER_PROXY", True),
         },
         "OpenSandbox",
     )
@@ -117,8 +176,6 @@ def upgrade() -> None:
         if existing:
             sandbox_id = existing[0]
         else:
-            from app.utils.encryption import encrypt_value
-
             sandbox_id = uuid4()
             bind.execute(
                 sa.text(
@@ -133,7 +190,7 @@ def upgrade() -> None:
                     "p": provider,
                     "url": url,
                     "config": json.dumps(config),
-                    "secret": encrypt_value(secret) if secret else None,
+                    "secret": _encrypt(secret) if secret else None,
                 },
             )
         bind.execute(

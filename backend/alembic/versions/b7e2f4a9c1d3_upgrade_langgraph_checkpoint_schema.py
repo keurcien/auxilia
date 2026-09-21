@@ -33,8 +33,15 @@ def upgrade() -> None:
     url = bind.engine.url.set(drivername="postgresql")
     db_url = url.render_as_string(hide_password=False)
 
-    with PostgresSaver.from_conn_string(db_url) as checkpointer:
-        checkpointer.setup()
+    # In an autocommit block: `setup()` runs on its own connection and issues
+    # `CREATE INDEX CONCURRENTLY`, which waits for every transaction already
+    # open to finish — including the one alembic is running this migration in.
+    # Neither side can move, so the upgrade hangs rather than failing. The
+    # block commits alembic's transaction first, which is what the escape
+    # hatch exists for.
+    with op.get_context().autocommit_block():
+        with PostgresSaver.from_conn_string(db_url) as checkpointer:
+            checkpointer.setup()
 
 
 def downgrade() -> None:
