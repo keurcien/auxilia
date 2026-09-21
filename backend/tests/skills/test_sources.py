@@ -375,6 +375,29 @@ async def test_one_subpath_cannot_reclaim_another_subpaths_skill(
     assert entry.path == "team-b/skills/margin-audit"
 
 
+async def test_a_root_level_skill_is_reclaimable(agent_session, admin, host):
+    """A repository that *is* one skill has its SKILL.md at the root, so its
+    `source_path` is the empty string. That is a location like any other, and
+    testing the path for truthiness rather than for None dropped exactly those
+    skills from the reclaimable set — reconnecting imported a second copy."""
+    sources = SkillSourceService(agent_session)
+    skills = SkillService(agent_session)
+    host.tree = {
+        "SKILL.md": skill_md(
+            "margin-audit", "Recompute margins. Use when margins look off."
+        )
+    }
+    source = await sources.create(SkillSourceCreate(url=URL), admin)
+    [skill] = await skills.list_summaries(admin)
+    assert skill.source_path == ""
+    await sources.delete(source.id, admin)
+
+    again = await sources.create(SkillSourceCreate(url=URL), admin)
+
+    [reclaimed] = await skills.list_summaries(admin)
+    assert reclaimed.id == skill.id and reclaimed.source_id == again.id
+
+
 async def test_reconnecting_reclaims_across_a_ref_change(agent_session, admin, host):
     """Matching on the path rather than the full source identity is what lets
     a repository be reconnected on a different branch and still re-pin its own

@@ -105,11 +105,10 @@ def upgrade() -> None:
     op.add_column(
         "skills", sa.Column("source_url", sa.String(length=500), nullable=True)
     )
-    op.add_column(
-        # 500, not 240: `source_path` is repo-root-relative, so a source's
-        # `subpath` (itself up to 240) is part of it.
-        "skills", sa.Column("source_path", sa.String(length=500), nullable=True)
-    )
+    # Unbounded: `source_path` is repo-root-relative, so a source's `subpath`
+    # is part of it and the repository decides the rest. Overflowing a varchar
+    # raises a `DataError`, which the sync's savepoint does not catch.
+    op.add_column("skills", sa.Column("source_path", sa.Text(), nullable=True))
     op.add_column(
         "skills", sa.Column("source_revision", sa.String(length=80), nullable=True)
     )

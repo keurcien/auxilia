@@ -159,7 +159,11 @@ class SkillDB(BaseDBModel, table=True):
     # `source_url` it identifies the skill, which is what a reclaim matches
     # on: two sources can share a URL with different subpaths and see the
     # same names, so the name alone would let one claim the other's rows.
-    source_path: str | None = Field(default=None, max_length=500)
+    # Text, not a bounded varchar: a repository decides how deeply it nests a
+    # skill, and a path longer than the bound raises a `DataError` — which is
+    # not an `IntegrityError`, so the sync's savepoint would not catch it and
+    # one pathological folder would abort the whole run mid-apply.
+    source_path: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     source_revision: str | None = Field(default=None, max_length=80)
     digest: str | None = Field(default=None, max_length=80)
     missing_upstream: bool = Field(default=False, nullable=False)

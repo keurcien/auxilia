@@ -449,7 +449,12 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
         reclaimable = {
             s.source_path: s
             for s in await self._skills.list_reclaimable(url)
-            if s.id not in claimed and s.source_path
+            # `is not None`, not truthiness: a repository whose SKILL.md sits at
+            # its root has the empty path, which is a location like any other.
+            # Testing the string itself dropped exactly those skills from the
+            # reclaimable set, so reconnecting such a repository imported a
+            # second copy instead of re-pinning the one it left behind.
+            if s.id not in claimed and s.source_path is not None
         }
         ours = {s.id for s in (*mine.values(), *reclaimable.values())}
         return LibraryIndex(
