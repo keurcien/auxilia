@@ -2,7 +2,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends
 
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, require_editor
 from app.skills.schemas import (
     SkillDiffResponse,
     SkillResponse,
@@ -27,7 +27,10 @@ async def list_skills(
 @router.post("/", response_model=SkillResponse, status_code=201)
 async def create_skill(
     data: SkillSave,
-    user: UserDB = Depends(get_current_user),
+    # Editors curate the library. A skill is instructions every agent in the
+    # workspace can be given, under a name nobody else can then use — reading
+    # and using one is open to everyone, but putting one there is not.
+    user: UserDB = Depends(require_editor),
     service: SkillService = Depends(get_skill_service),
 ):
     return await service.create(data, user)

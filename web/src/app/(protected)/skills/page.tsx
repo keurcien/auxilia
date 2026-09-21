@@ -22,6 +22,9 @@ export default function SkillsPage() {
 	const router = useRouter();
 	const user = useUserStore((state) => state.user);
 	const isAdmin = user?.role === "admin";
+	// Editors curate the library; admins cover editors. Reading and using a
+	// skill stays open to everyone, so only the *write* affordances check this.
+	const isEditor = isAdmin || user?.role === "editor";
 	const skills = useSkillsStore((state) => state.skills);
 	const isInitialized = useSkillsStore((state) => state.isInitialized);
 	const fetchSkills = useSkillsStore((state) => state.fetchSkills);
@@ -104,12 +107,12 @@ export default function SkillsPage() {
 							Connect repository
 						</WorkspaceTopBarButton>
 					) : null
-				) : (
+				) : isEditor ? (
 					<WorkspaceTopBarButton onClick={handleWrite}>
 						<Plus className="size-3.5" />
 						New skill
 					</WorkspaceTopBarButton>
-				)
+				) : null
 			}
 		>
 			<SkillInUseDialog
@@ -182,15 +185,23 @@ export default function SkillsPage() {
 						repository to bring in skills with scripts and references, reviewed and
 						versioned there; those need an agent that runs code.
 					</p>
+					{!isEditor && (
+						<p className="mt-4 text-[12.5px] text-meta dark:text-panel-dim">
+							An editor can add one. Every skill in the library is yours to use once
+							it is there.
+						</p>
+					)}
 					<div className="mt-5 flex flex-wrap gap-2.5">
-						<button
-							type="button"
-							onClick={handleWrite}
-							className="inline-flex cursor-pointer items-center gap-1.5 rounded-[7px] bg-primary px-3.5 py-[7px] text-[12.5px] font-semibold text-primary-foreground transition-opacity hover:opacity-90"
-						>
-							<Plus className="size-3.5" />
-							Write a skill
-						</button>
+						{isEditor && (
+							<button
+								type="button"
+								onClick={handleWrite}
+								className="inline-flex cursor-pointer items-center gap-1.5 rounded-[7px] bg-primary px-3.5 py-[7px] text-[12.5px] font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+							>
+								<Plus className="size-3.5" />
+								Write a skill
+							</button>
+						)}
 						{isAdmin && (
 							<button
 								type="button"

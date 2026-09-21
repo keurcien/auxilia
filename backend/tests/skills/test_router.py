@@ -58,7 +58,9 @@ def test_list_returns_summaries(client: TestClient, service):
     assert row["name"] == "report" and "content" not in row
 
 
-def test_create_and_update_pass_the_payload_through(client: TestClient, service):
+def test_create_and_update_pass_the_payload_through(
+    client: TestClient, service, editor_user
+):
     body = {"content": skill_markdown(), "files": [{"path": "a.py", "content": "x"}]}
     assert client.post("/skills/", json=body).status_code == 201
     assert service.create.call_args.args[0].files[0].path == "a.py"
@@ -79,7 +81,9 @@ def test_stale_revision_is_a_409(client: TestClient, service):
     assert response.json()["detail"] == "changed"
 
 
-def test_invalid_document_is_a_400_with_the_reason(client: TestClient, service):
+def test_invalid_document_is_a_400_with_the_reason(
+    client: TestClient, service, editor_user
+):
     from app.exceptions import DomainValidationError
 
     service.create.side_effect = DomainValidationError("name: bad")
@@ -90,6 +94,15 @@ def test_invalid_document_is_a_400_with_the_reason(client: TestClient, service):
 
 def test_delete_is_204(client: TestClient, service):
     assert client.delete(f"/skills/{uuid4()}").status_code == 204
+
+
+def test_only_editors_put_a_skill_in_the_library(client: TestClient, service):
+    """`current_user` is a member. Reading and using a skill is open to the
+    whole workspace, but adding one is not: it is instructions every agent can
+    be given, under a name that is then nobody else's to use."""
+    response = client.post("/skills/", json={"content": skill_markdown()})
+    assert response.status_code == 403
+    service.create.assert_not_awaited()
 
 
 def test_requires_auth(client: TestClient):
