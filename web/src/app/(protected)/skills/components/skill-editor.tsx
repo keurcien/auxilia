@@ -49,20 +49,29 @@ import SkillUsedBy from "./skill-used-by";
 
 type NoticeTone = "plain" | "warning" | "alert";
 
-const NOTICE_TONE: Record<NoticeTone, { box: string; icon: string }> = {
-	plain: {
-		box: "border-input bg-petrol-tint text-body dark:border-white/10 dark:bg-white/[0.04] dark:text-panel-body",
-		icon: "text-petrol",
-	},
-	warning: {
-		box: "border-[#F0DCC2] bg-[#FDF9F0] text-[#7A5C1E] dark:border-[#7A5C1E]/40 dark:bg-[#7A5C1E]/10 dark:text-[#E8C27A]",
-		icon: "text-[#B98B2E] dark:text-[#E8C27A]",
-	},
-	alert: {
-		box: "border-destructive/20 bg-destructive/10 text-destructive",
-		icon: "text-destructive",
-	},
-};
+// A switch, like `toneClass` in the diff dialog, not a keyed object: the
+// compiler checks every tone is covered so there is no missing-key case to
+// fall back from, and a bracket lookup — even on a typed union — reads to
+// static analysis as an object injection sink.
+function noticeTone(tone: NoticeTone): { box: string; icon: string } {
+	switch (tone) {
+		case "warning":
+			return {
+				box: "border-[#F0DCC2] bg-[#FDF9F0] text-[#7A5C1E] dark:border-[#7A5C1E]/40 dark:bg-[#7A5C1E]/10 dark:text-[#E8C27A]",
+				icon: "text-[#B98B2E] dark:text-[#E8C27A]",
+			};
+		case "alert":
+			return {
+				box: "border-destructive/20 bg-destructive/10 text-destructive",
+				icon: "text-destructive",
+			};
+		case "plain":
+			return {
+				box: "border-input bg-petrol-tint text-body dark:border-white/10 dark:bg-white/[0.04] dark:text-panel-body",
+				icon: "text-petrol",
+			};
+	}
+}
 
 /**
  * Everything the editor has to say about the skill it is showing, in one
@@ -83,7 +92,7 @@ function EditorNotice({
 	tone?: NoticeTone;
 	children: React.ReactNode;
 }) {
-	const style = NOTICE_TONE[tone];
+	const style = noticeTone(tone);
 	return (
 		<div
 			className={cn(
