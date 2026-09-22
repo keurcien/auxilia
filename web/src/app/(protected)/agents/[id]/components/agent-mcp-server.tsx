@@ -9,6 +9,7 @@ import {
 import { ToolStatus } from "@/types/agents";
 import { ChevronRight } from "lucide-react";
 import AgentMCPTool from "./agent-mcp-tool";
+import MCPToolsDialog from "./mcp-tools-dialog";
 import { AgentMCPServerForm } from "../../lib/agent-form";
 import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 
@@ -56,6 +57,7 @@ export default function AgentMCPServer({
 	const [toolsFetched, setToolsFetched] = useState(false);
 	const [isConnected, setIsConnected] = useState(false);
 	const [isCheckingConnection, setIsCheckingConnection] = useState(true);
+	const [detailsOpen, setDetailsOpen] = useState(false);
 
 	// Auto-expand when not connected
 	useEffect(() => {
@@ -278,6 +280,9 @@ export default function AgentMCPServer({
 		}
 	}, [toolsFetched, isConnected, fetchTools]);
 
+	const hasTools =
+		isConnected && !isLoading && !isCheckingConnection && tools.length > 0;
+
 	return (
 		<div className="overflow-hidden rounded-[10px] border border-border bg-card">
 			<div className="flex items-center gap-2.5 bg-card px-4 py-3">
@@ -364,19 +369,45 @@ export default function AgentMCPServer({
 							No tools available
 						</div>
 					)}
-					{!readOnly && (
-						<div className="flex justify-center border-t border-hover px-4 py-2 dark:border-white/5">
-							<button
-								className="cursor-pointer rounded-[7px] px-3 py-1.5 text-[12.5px] font-semibold text-[#B04A3A] transition-colors hover:bg-[#FBEFED] dark:hover:bg-[#B04A3A]/10"
-								onClick={() => {
-									onRemove?.();
-								}}
-							>
-								Disable {server.name}
-							</button>
+					{(hasTools || !readOnly) && (
+						<div
+							className={`flex items-center border-t border-hover px-4 py-2 dark:border-white/5 ${
+								hasTools ? "justify-between" : "justify-center"
+							}`}
+						>
+							{hasTools && (
+								<button
+									className="cursor-pointer rounded-[7px] px-3 py-1.5 text-[12.5px] font-semibold text-petrol transition-opacity hover:opacity-80"
+									onClick={() => {
+										setDetailsOpen(true);
+									}}
+								>
+									See full descriptions
+								</button>
+							)}
+							{!readOnly && (
+								<button
+									className="cursor-pointer rounded-[7px] px-3 py-1.5 text-[12.5px] font-semibold text-[#B04A3A] transition-colors hover:bg-[#FBEFED] dark:hover:bg-[#B04A3A]/10"
+									onClick={() => {
+										onRemove?.();
+									}}
+								>
+									Disable {server.name}
+								</button>
+							)}
 						</div>
 					)}
 				</div>
+			)}
+
+			{hasTools && (
+				<MCPToolsDialog
+					open={detailsOpen}
+					onOpenChange={setDetailsOpen}
+					server={server}
+					tools={tools}
+					statusFor={statusFor}
+				/>
 			)}
 		</div>
 	);
