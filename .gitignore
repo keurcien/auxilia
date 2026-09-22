@@ -73,3 +73,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# design references dropped into the design tool, never referenced
+design/uploads/

@@ -79,7 +79,10 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
 	return (
 		<div
 			data-slot="dialog-header"
-			className={cn("flex flex-col gap-1.5 text-left", className)}
+			// `min-w-0`: a grid item's automatic minimum width is its content's
+			// min-content, so one unbreakable line in a description widened the
+			// whole dialog instead of truncating.
+			className={cn("flex min-w-0 flex-col gap-1.5 text-left", className)}
 			{...props}
 		/>
 	);

@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@300..800&family=Space+Grotesk:wght@300..700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+body { margin: 0; background: #ECECE8; }
+a { color: #16606E; text-decoration: none; }
+a:hover { opacity: 0.85; }
+</style>
+</helmet>
+
+<section style="display: flex; flex-direction: column; gap: 40px; padding: 48px; font-family: 'Hanken Grotesk', sans-serif; color: #101820; max-width: 1480px;">
+
+  <div>
+    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 500; color: #16606E; letter-spacing: 0.06em;">// PETROL MONO — DESIGN SYSTEM</div>
+    <h1 style="font-family: 'Space Grotesk', sans-serif; font-size: 44px; font-weight: 700; letter-spacing: -0.035em; margin: 14px 0 0;">auxilia UI kit</h1>
+    <p style="font-size: 15px; line-height: 1.6; color: #46545A; margin: 12px 0 0; max-width: 640px;">Geometric sans + mono accents. Technical &amp; precise, white canvas, teal as the single accent. Source of truth for the landing, agents list, editor, chat, and login screens.</p>
+  </div>
+
+  <!-- ============ COLOR ============ -->
+  <div style="background: #FFFFFF; border: 1px solid #E9EEEE; border-radius: 16px; padding: 32px;">
+    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.09em; color: #6E7C80;">01 — COLOR</div>
+    <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; margin-top: 20px;">
+      <div><div style="height: 64px; border-radius: 8px; background: #101820;"></div><div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; margin-top: 8px;">#101820</div><div style="font-size: 12px; color: #6E7C80;">ink · primary btn · dark panel</div></div>
+      <div><div style="height: 64px; border-radius: 8px; background: #16606E;"></div><div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; margin-top: 8px;">#16606E</div><div style="font-size: 12px; color: #6E7C80;">petrol teal · accent, agent names, CTAs</div></div>
+      <div><div style="height: 64px; border-radius: 8px; background: #46545A;"></div><div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; margin-top: 8px;">#46545A</div><div style="font-size: 12px; color: #6E7C80;">body text</div></div>
+      <div><div style="height: 64px; border-radius: 8px; background: #6E7C80;"></div><div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; margin-top: 8px;">#6E7C80</div><div style="font-size: 12px; color: #6E7C80;">secondary text · mono labels</div></div>
+      <div><div style="height: 64px; border-radius: 8px; background: #8A9AA0;"></div><div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; margin-top: 8px;">#8A9AA0</div><div style="font-size: 12px; color: #6E7C80;">muted · placeholders · meta</div></div>
+      <div><div style="height: 64px; border-radius: 8px; background: #C4CED0;"></div><div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; margin-top: 8px;">#C4CED0</div><div style="font-size: 12px; color: #6E7C80;">disabled · chevrons</div></div>
+      <div><div style="height: 64px; border-radius: 8px; background: #F6F8F8; border: 1px solid #E9EEEE;"></div><div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; margin-top: 8px;">#F6F8F8</div><div style="font-size: 12px; color: #6E7C80;">page canvas (landing, login)</div></div>
+      <div><div style="height: 64px; border-radius: 8px; background: #FBFCFC; border: 1px solid #E9EEEE;"></div><div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; margin-top: 8px;">#FBFCFC</div><div style="font-size: 12px; color: #6E7C80;">sidebar · quiet surfaces</div></div>
+      <div><div style="height: 64px; border-radius: 8px; background: #F1F5F5; border: 1px solid #E9EEEE;"></div><div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; margin-top: 8px;">#F1F5F5</div><div style="font-size: 12px; color: #6E7C80;">hover · user bubble · pill bg</div></div>
+      <div><div style="height: 64px; border-radius: 8px; background: #EDF3F3; border: 1px solid #E9EEEE;"></div><div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; margin-top: 8px;">#EDF3F3</div><div style="font-size: 12px; color: #6E7C80;">active nav · selected · teal tint</div></div>
+      <div><div style="height: 64px; border-radius: 8px; background: #E9EEEE;"></div><div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; margin-top: 8px;">#E9EEEE</div><div style="font-size: 12px; color: #6E7C80;">hairline borders</div></div>
+      <div><div style="height: 64px; border-radius: 8px; background: #DCE4E4;"></div><div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; margin-top: 8px;">#DCE4E4</div><div style="font-size: 12px; color: #6E7C80;">input &amp; button borders</div></div>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; margin-top: 24px;">
+      <div><div style="display: flex; height: 44px; align-items: center; justify-content: center; border-radius: 8px; background: #E1F3EC; color: #1E7A56; font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600;">#1E7A56</div><div style="font-size: 12px; color: #6E7C80; margin-top: 6px;">success · allowed · running</div></div>
+      <div><div style="display: flex; height: 44px; align-items: center; justify-content: center; border-radius: 8px; background: #FBF3E2; color: #B07A2A; font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600;">#B07A2A</div><div style="font-size: 12px; color: #6E7C80; margin-top: 6px;">warning · approval · unsaved</div></div>
+      <div><div style="display: flex; height: 44px; align-items: center; justify-content: center; border-radius: 8px; background: #EDF1F1; color: #8A9AA0; font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600;">#8A9AA0</div><div style="font-size: 12px; color: #6E7C80; margin-top: 6px;">neutral · disabled · member</div></div>
+      <div><div style="display: flex; height: 44px; align-items: center; justify-content: center; border-radius: 8px; background: #101820; color: #9FD6CB; font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600;">#9FD6CB</div><div style="font-size: 12px; color: #6E7C80; margin-top: 6px;">dark panel: terminal text</div></div>
+      <div><div style="display: flex; height: 44px; align-items: center; justify-content: center; border-radius: 8px; background: #101820; color: #7BC7A9; font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600;">#7BC7A9</div><div style="font-size: 12px; color: #6E7C80; margin-top: 6px;">dark panel: success · highlights</div></div>
+      <div><div style="display: flex; height: 44px; align-items: center; justify-content: center; border-radius: 8px; background: #101820; color: #E8A085;">
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600;">#E8A085</span></div><div style="font-size: 12px; color: #6E7C80; margin-top: 6px;">dark panel: approval · attention</div></div>
+    </div>
+    <div style="display: flex; gap: 10px; margin-top: 24px; align-items: center;">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; color: #6E7C80; margin-right: 6px;">AGENT PASTELS</span>
+      <span style="width: 36px; height: 36px; border-radius: 9px; background: #D0F5EA;"></span>
+      <span style="width: 36px; height: 36px; border-radius: 9px; background: #E4DFFF;"></span>
+      <span style="width: 36px; height: 36px; border-radius: 9px; background: #FFE0D9;"></span>
+      <span style="width: 36px; height: 36px; border-radius: 9px; background: #FFF5CC;"></span>
+      <span style="width: 36px; height: 36px; border-radius: 9px; background: #D6EAFF;"></span>
+      <span style="width: 36px; height: 36px; border-radius: 9px; background: #FBE3EE;"></span>
+      <span style="font-size: 12px; color: #6E7C80; margin-left: 6px;">avatar tiles only — never as surface or accent colors</span>
+    </div>
+  </div>
+
+  <!-- ============ TYPOGRAPHY ============ -->
+  <div style="background: #FFFFFF; border: 1px solid #E9EEEE; border-radius: 16px; padding: 32px;">
+    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.09em; color: #6E7C80;">02 — TYPOGRAPHY</div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 32px; margin-top: 20px;">
+      <div>
+        <div style="font-family: 'Space Grotesk', sans-serif; font-size: 30px; font-weight: 700; letter-spacing: -0.035em;">Space Grotesk</div>
+        <p style="font-size: 13px; line-height: 1.6; color: #6E7C80; margin: 10px 0 0;">Display only: page H1s (28–68px, 700, −0.035em), the wordmark, card titles on the landing. Never in table rows, nav, or body copy.</p>
+      </div>
+      <div>
+        <div style="font-family: 'Hanken Grotesk', sans-serif; font-size: 30px; font-weight: 600;">Hanken Grotesk</div>
+        <p style="font-size: 13px; line-height: 1.6; color: #6E7C80; margin: 10px 0 0;">Workhorse UI: body 14.5/1.6, controls 13–14px 500–600, descriptions 12–13px 400–500. Weights 400–700 only.</p>
+      </div>
+      <div>
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 26px; font-weight: 500;">IBM Plex Mono</div>
+        <p style="font-size: 13px; line-height: 1.6; color: #6E7C80; margin: 10px 0 0;">The signature: eyebrows, section labels, agent names (teal 600), metadata, timestamps, counts, terminal &amp; code. 9.5–13px.</p>
+      </div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 14px; border-top: 1px solid #F1F5F5; margin-top: 24px; padding-top: 24px;">
+      <div style="display: flex; align-items: baseline; gap: 24px;"><span style="width: 220px; flex: none; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #8A9AA0;">EYEBROW · mono 11.5/500 teal +0.07em</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; color: #16606E; letter-spacing: 0.07em;">// OPEN-SOURCE MCP CLIENT FOR TEAMS</span></div>
+      <div style="display: flex; align-items: baseline; gap: 24px;"><span style="width: 220px; flex: none; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #8A9AA0;">H1 APP · grotesk 30/700 −0.035em</span><span style="font-family: 'Space Grotesk', sans-serif; font-size: 30px; font-weight: 700; letter-spacing: -0.035em;">Agents</span></div>
+      <div style="display: flex; align-items: baseline; gap: 24px;"><span style="width: 220px; flex: none; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #8A9AA0;">PAGE INTRO · hanken 15/400 #46545A</span><span style="font-size: 15px; line-height: 1.6; color: #46545A;">Assistants connected to your team's tools.</span></div>
+      <div style="display: flex; align-items: baseline; gap: 24px;"><span style="width: 220px; flex: none; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #8A9AA0;">AGENT NAME · mono 12.5/600 teal</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; font-weight: 600; color: #16606E;">Data analyst</span></div>
+      <div style="display: flex; align-items: baseline; gap: 24px;"><span style="width: 220px; flex: none; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #8A9AA0;">FIELD LABEL · mono 10.5/600 +0.09em</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; color: #6E7C80;">INSTRUCTIONS</span></div>
+      <div style="display: flex; align-items: baseline; gap: 24px;"><span style="width: 220px; flex: none; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #8A9AA0;">META · mono 10–11px #8A9AA0</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8A9AA0;">2m ago · 6 tools · ⌘K</span></div>
+    </div>
+  </div>
+
+  <!-- ============ BUTTONS ============ -->
+  <div style="background: #FFFFFF; border: 1px solid #E9EEEE; border-radius: 16px; padding: 32px;">
+    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.09em; color: #6E7C80;">03 — BUTTONS</div>
+    <div style="display: flex; align-items: center; gap: 16px; margin-top: 20px; flex-wrap: wrap;">
+      <button style="padding: 9px 18px; border: none; border-radius: 7px; background: #101820; color: #FFFFFF; font-family: 'Hanken Grotesk', sans-serif; font-size: 13.5px; font-weight: 600; cursor: pointer;">+ New agent</button>
+      <button style="padding: 9px 18px; border: none; border-radius: 7px; background: #16606E; color: #FFFFFF; font-family: 'Hanken Grotesk', sans-serif; font-size: 13.5px; font-weight: 600; cursor: pointer;">Save changes</button>
+      <button style="padding: 8px 16px; border: 1px solid #DCE4E4; border-radius: 7px; background: #FFFFFF; font-family: 'Hanken Grotesk', sans-serif; font-size: 13px; font-weight: 600; color: #101820; cursor: pointer;" style-hover="border-color: #B9CDD0;">Discard</button>
+      <span style="font-size: 13px; font-weight: 600; color: #16606E; cursor: pointer;">+ Add server</span>
+      <span style="display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; border-radius: 999px; background: #F1F5F5; font-size: 13px; font-weight: 500; color: #101820; cursor: pointer;">◍ Claude Sonnet 4.5</span>
+      <span style="display: flex; width: 38px; height: 38px; align-items: center; justify-content: center; border-radius: 999px; background: #16606E; color: #FFFFFF; font-size: 15px; cursor: pointer; box-shadow: 0 4px 12px -4px rgba(22,96,110,0.4);">↑</span>
+      <span style="display: flex; width: 38px; height: 38px; align-items: center; justify-content: center; border-radius: 999px; background: #EDF3F3; color: #A8B4B8; font-size: 15px; cursor: not-allowed;">↑</span>
+    </div>
+    <div style="font-size: 12px; color: #6E7C80; margin-top: 14px;">Ink = page-level primary · teal = save/confirm inside a context · outline = secondary · teal text = tertiary/add · pills = composer tools · round = submit (enabled/disabled). Radius 7px, pills 999px. No pure-black #000, no gradients.</div>
+  </div>
+
+  <!-- ============ FORMS ============ -->
+  <div style="background: #FFFFFF; border: 1px solid #E9EEEE; border-radius: 16px; padding: 32px;">
+    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.09em; color: #6E7C80;">04 — FORMS</div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; margin-top: 20px;">
+      <div>
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; color: #6E7C80; margin-bottom: 7px;">DEFAULT</div>
+        <input value="Data analyst" style="width: 100%; box-sizing: border-box; padding: 13px 16px; border-radius: 8px; border: 1px solid #DCE4E4; background: #FFFFFF; font-family: 'Hanken Grotesk', sans-serif; font-size: 14.5px; font-weight: 500; color: #101820; outline: none;">
+      </div>
+      <div>
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; color: #6E7C80; margin-bottom: 7px;">FOCUSED</div>
+        <input value="keurcien@appchoose.io" style="width: 100%; box-sizing: border-box; padding: 13px 16px; border-radius: 8px; border: 1px solid #16606E; box-shadow: 0 0 0 3px rgba(22,96,110,0.10); background: #FFFFFF; font-family: 'Hanken Grotesk', sans-serif; font-size: 14.5px; font-weight: 500; color: #101820; outline: none;">
+      </div>
+      <div>
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; color: #6E7C80; margin-bottom: 7px;">SEARCH</div>
+        <div style="display: flex; align-items: center; gap: 8px; padding: 11px 14px; border-radius: 7px; border: 1px solid #E9EEEE; background: #FBFCFC; color: #8A9AA0; font-size: 13px;">⌕ Search agents…<span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 10px; border: 1px solid #E2E8E8; border-radius: 4px; padding: 1px 5px;">⌘K</span></div>
+      </div>
+    </div>
+    <div style="margin-top: 20px;">
+      <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; color: #6E7C80; margin-bottom: 7px;">CODE / INSTRUCTIONS — always IBM Plex Mono on #FBFCFC</div>
+      <textarea style="width: 100%; height: 84px; box-sizing: border-box; padding: 14px 16px; border-radius: 8px; border: 1px solid #DCE4E4; background: #FBFCFC; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; line-height: 1.7; color: #101820; resize: none; outline: none;">You are the data analyst for Choose. Answer questions using the metabase MCP server.</textarea>
+    </div>
+    <div style="display: flex; align-items: center; gap: 24px; margin-top: 20px;">
+      <span style="display: inline-flex; align-items: center; gap: 10px;"><span style="width: 34px; height: 20px; border-radius: 999px; background: #16606E; position: relative; display: inline-block;"><span style="position: absolute; top: 2px; right: 2px; width: 16px; height: 16px; border-radius: 999px; background: #FFFFFF;"></span></span><span style="font-size: 13px; font-weight: 500;">Toggle on</span></span>
+      <span style="display: inline-flex; align-items: center; gap: 10px;"><span style="width: 34px; height: 20px; border-radius: 999px; background: #DCE4E4; position: relative; display: inline-block;"><span style="position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 999px; background: #FFFFFF;"></span></span><span style="font-size: 13px; font-weight: 500; color: #6E7C80;">Toggle off</span></span>
+      <span style="display: inline-flex; align-items: center; gap: 8px; padding: 9px 14px; border: 1px solid #16606E; border-radius: 7px; background: #EDF3F3; font-size: 13px; font-weight: 600;">claude-sonnet-4-5 <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #16606E;">default</span></span>
+      <span style="display: inline-flex; align-items: center; padding: 9px 14px; border: 1px solid #E9EEEE; border-radius: 7px; font-size: 13px; font-weight: 500; color: #56646A;">gpt-5</span>
+    </div>
+  </div>
+
+  <!-- ============ BADGES ============ -->
+  <div style="background: #FFFFFF; border: 1px solid #E9EEEE; border-radius: 16px; padding: 32px;">
+    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.09em; color: #6E7C80;">05 — BADGES &amp; CHIPS <span style="font-weight: 400; letter-spacing: 0; text-transform: none;">— always IBM Plex Mono, 9.5–11px, radius 4px</span></div>
+    <div style="display: flex; align-items: center; gap: 12px; margin-top: 20px; flex-wrap: wrap;">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; font-weight: 600; letter-spacing: 0.05em; padding: 3px 8px; border-radius: 4px; background: #E1F3EC; color: #1E7A56;">OWNER</span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; font-weight: 600; letter-spacing: 0.05em; padding: 3px 8px; border-radius: 4px; background: #FBF3E2; color: #B07A2A;">EDITOR</span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; font-weight: 600; letter-spacing: 0.05em; padding: 3px 8px; border-radius: 4px; background: #EDF1F1; color: #8A9AA0;">MEMBER</span>
+      <span style="width: 1px; height: 20px; background: #E9EEEE;"></span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 4px; background: #E1F3EC; color: #1E7A56;">ALWAYS ALLOW</span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 4px; background: #FBF3E2; color: #B07A2A;">NEEDS APPROVAL</span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 4px; background: #EDF1F1; color: #8A9AA0;">DISABLED</span>
+      <span style="width: 1px; height: 20px; background: #E9EEEE;"></span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: #B07A2A; background: #FBF3E2; border-radius: 4px; padding: 4px 10px;">unsaved changes</span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #16606E; background: #E3EEEE; border-radius: 4px; padding: 3px 7px;">v1.x</span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #8A9AA0; border: 1px solid #E9EEEE; border-radius: 4px; padding: 2px 6px;">choose</span>
+      <span style="width: 1px; height: 20px; background: #E9EEEE;"></span>
+      <span title="metabase" style="display: flex; width: 24px; height: 24px; align-items: center; justify-content: center; border-radius: 6px; border: 1px solid #E9EEEE; background: #FFFFFF;"><span role="img" aria-label="metabase" style="width: 14px; height: 14px; background-image: url('https://www.google.com/s2/favicons?domain=metabase.com&sz=64'); background-size: contain; background-repeat: no-repeat; background-position: center;"></span></span>
+      <span title="slack" style="display: flex; width: 24px; height: 24px; align-items: center; justify-content: center; border-radius: 6px; border: 1px solid #E9EEEE; background: #FFFFFF;"><span role="img" aria-label="slack" style="width: 14px; height: 14px; background-image: url('https://www.google.com/s2/favicons?domain=slack.com&sz=64'); background-size: contain; background-repeat: no-repeat; background-position: center;"></span></span>
+      <span style="font-size: 12px; color: #6E7C80;">← MCP servers shown as 24px favicon chips, never text lists</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 14px; margin-top: 20px;">
+      <span style="display: flex; width: 22px; height: 22px; align-items: center; justify-content: center; border-radius: 6px; background: #D0F5EA; font-size: 12px;">📊</span>
+      <span style="display: flex; width: 28px; height: 28px; align-items: center; justify-content: center; border-radius: 7px; background: #E4DFFF; font-size: 14px;">🎧</span>
+      <span style="display: flex; width: 32px; height: 32px; align-items: center; justify-content: center; border-radius: 8px; background: #FFE0D9; font-size: 16px;">🚨</span>
+      <span style="display: flex; width: 48px; height: 48px; align-items: center; justify-content: center; border-radius: 10px; background: #FFF5CC; font-size: 24px;">💶</span>
+      <span style="font-size: 12px; color: #6E7C80;">Agent avatars: emoji on pastel tile — 22/28/32/48px, radius ≈ size/4. Round (999px) only in chat header &amp; thread rows.</span>
+      <span style="display: flex; width: 28px; height: 28px; align-items: center; justify-content: center; border-radius: 999px; background: #101820; color: #FFFFFF; font-size: 10px; font-weight: 700; margin-left: auto;">KL</span>
+      <span style="font-size: 12px; color: #6E7C80;">Humans: ink circle + initials</span>
+    </div>
+  </div>
+
+  <!-- ============ NAVIGATION ============ -->
+  <div style="background: #FFFFFF; border: 1px solid #E9EEEE; border-radius: 16px; padding: 32px;">
+    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.09em; color: #6E7C80;">06 — NAVIGATION</div>
+    <div style="display: grid; grid-template-columns: 280px 1fr; gap: 32px; margin-top: 20px;">
+      <div style="background: #FBFCFC; border: 1px solid #E9EEEE; border-radius: 12px; padding: 14px 12px;">
+        <button style="display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 9px 12px; border: 1px solid #DCE4E4; border-radius: 8px; background: #FFFFFF; color: #101820; font-family: 'Hanken Grotesk', sans-serif; font-size: 13.5px; font-weight: 600; cursor: pointer; box-shadow: 0 1px 2px rgba(10,25,30,0.04);">New thread <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #8A9AA0;">⌘N</span></button>
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #8A9AA0; padding: 16px 8px 8px;">RECENT THREADS</div>
+        <div style="display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: 7px; background: #EDF3F3;"><span style="display: flex; width: 22px; height: 22px; flex: none; align-items: center; justify-content: center; border-radius: 6px; background: #D0F5EA; font-size: 12px;">📊</span><span style="font-size: 13px; font-weight: 600;">Active thread</span><span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #A8B4B8;">now</span></div>
+        <div style="display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: 7px;" style-hover="background: #F1F5F5;"><span style="display: flex; width: 22px; height: 22px; flex: none; align-items: center; justify-content: center; border-radius: 6px; background: #E4DFFF; font-size: 12px;">🎧</span><span style="font-size: 13px; font-weight: 500;">Resting thread</span><span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #A8B4B8;">1h</span></div>
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #8A9AA0; padding: 16px 8px 8px;">WORKSPACE</div>
+        <div style="display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 7px; background: #EDF3F3; font-size: 13.5px; font-weight: 600; color: #101820;">Agents<span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; font-weight: 500; color: #16606E;">12</span></div>
+        <div style="display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 7px; font-size: 13.5px; font-weight: 500; color: #56646A;" style-hover="background: #F1F5F5;">Triggers<span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; font-weight: 500; color: #8A9AA0;">4</span></div>
+      </div>
+      <div>
+        <div style="font-size: 12px; color: #6E7C80; line-height: 1.7;">Sidebar: 248px, #FBFCFC, order = New thread → Recent threads → Workspace → user card. Active = #EDF3F3 + weight 600 (no accent border). Hover = #F1F5F5. Counts in mono, teal when active.</div>
+        <div style="display: flex; align-items: center; gap: 12px; margin-top: 24px; padding: 14px 20px; border: 1px solid #E9EEEE; border-radius: 10px;">
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: #8A9AA0;">workspace <span style="color: #C4CED0;">/</span> <span style="color: #101820; font-weight: 500;">agents</span> <span style="color: #C4CED0;">/</span> <span style="color: #101820; font-weight: 500;">data-analyst</span></span>
+          <span style="font-size: 12px; color: #6E7C80; margin-left: auto;">← breadcrumb: mono 11.5, slug-cased, current segment ink</span>
+        </div>
+        <div style="display: flex; gap: 2px; margin-top: 24px; border-bottom: 1px solid #E9EEEE; align-self: flex-start;">
+          <span style="padding: 9px 14px; font-size: 13px; font-weight: 600; color: #101820; border-bottom: 2px solid #16606E; margin-bottom: -1px;">Active tab</span>
+          <span style="padding: 9px 14px; font-size: 13px; font-weight: 500; color: #6E7C80;">Tab</span>
+          <span style="padding: 9px 14px; font-size: 13px; font-weight: 500; color: #6E7C80;">Tab</span>
+        </div>
+        <div style="display: inline-flex; gap: 2px; background: #F1F5F5; border-radius: 7px; padding: 3px; margin-top: 20px;">
+          <span style="padding: 6px 13px; border-radius: 5px; background: #FFFFFF; box-shadow: 0 1px 2px rgba(10,25,30,0.07); font-size: 12.5px; font-weight: 600; color: #101820;">Segment</span>
+          <span style="padding: 6px 13px; border-radius: 5px; font-size: 12.5px; font-weight: 500; color: #6E7C80;">Segment</span>
+        </div>
+        <div style="font-size: 12px; color: #6E7C80; margin-top: 10px;">Underline tabs = page sections · segmented control = view filters.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ LIST ROW ============ -->
+  <div style="background: #FFFFFF; border: 1px solid #E9EEEE; border-radius: 16px; padding: 32px;">
+    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.09em; color: #6E7C80;">07 — LIST ROWS</div>
+    <div style="display: grid; grid-template-columns: minmax(0, 1.6fr) 150px 130px 120px 100px 32px; gap: 16px; align-items: center; padding: 18px 16px 8px; font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #8A9AA0;">
+      <span>AGENT</span><span>MCP SERVERS</span><span>LAST RUN</span><span>RUNS / 7D</span><span>ACCESS</span><span></span>
+    </div>
+    <div style="border: 1px solid #E9EEEE; border-radius: 10px; overflow: hidden;">
+      <div style="display: grid; grid-template-columns: minmax(0, 1.6fr) 150px 130px 120px 100px 32px; gap: 16px; align-items: center; padding: 13px 16px; border-bottom: 1px solid #F1F5F5; background: #FFFFFF; cursor: pointer;" style-hover="background: #FBFCFC;">
+        <span style="display: flex; align-items: center; gap: 12px; min-width: 0;">
+          <span style="display: flex; width: 32px; height: 32px; flex: none; align-items: center; justify-content: center; border-radius: 8px; background: #D0F5EA; font-size: 16px;">📊</span>
+          <span style="min-width: 0;">
+            <span style="display: block; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; font-weight: 600; letter-spacing: -0.01em; color: #16606E;">Data analyst</span>
+            <span style="display: block; font-size: 12px; color: #6E7C80; margin-top: 2px;">Answers analytics questions from the warehouse.</span>
+          </span>
+        </span>
+        <span style="display: flex; gap: 6px;">
+          <span style="display: flex; width: 24px; height: 24px; align-items: center; justify-content: center; border-radius: 6px; border: 1px solid #E9EEEE; background: #FFFFFF;"><span role="img" aria-label="metabase" style="width: 14px; height: 14px; background-image: url('https://www.google.com/s2/favicons?domain=metabase.com&sz=64'); background-size: contain; background-repeat: no-repeat; background-position: center;"></span></span>
+          <span style="display: flex; width: 24px; height: 24px; align-items: center; justify-content: center; border-radius: 6px; border: 1px solid #E9EEEE; background: #FFFFFF;"><span role="img" aria-label="slack" style="width: 14px; height: 14px; background-image: url('https://www.google.com/s2/favicons?domain=slack.com&sz=64'); background-size: contain; background-repeat: no-repeat; background-position: center;"></span></span>
+        </span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #1E7A56;">2m ago</span>
+        <span style="display: flex; align-items: flex-end; gap: 2px; height: 18px;"><span style="width: 5px; border-radius: 1px; background: #B9D6DB; height: 7px;"></span><span style="width: 5px; border-radius: 1px; background: #B9D6DB; height: 10px;"></span><span style="width: 5px; border-radius: 1px; background: #B9D6DB; height: 6px;"></span><span style="width: 5px; border-radius: 1px; background: #B9D6DB; height: 14px;"></span><span style="width: 5px; border-radius: 1px; background: #B9D6DB; height: 12px;"></span><span style="width: 5px; border-radius: 1px; background: #B9D6DB; height: 18px;"></span><span style="width: 5px; border-radius: 1px; background: #B9D6DB; height: 16px;"></span></span>
+        <span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; font-weight: 600; letter-spacing: 0.05em; padding: 3px 8px; border-radius: 4px; background: #E1F3EC; color: #1E7A56;">OWNER</span></span>
+        <span style="color: #C4CED0; text-align: right;">›</span>
+      </div>
+    </div>
+    <div style="font-size: 12px; color: #6E7C80; margin-top: 12px;">Rows in a bordered rounded container, 1px #F1F5F5 dividers. Column headers = mono caps. Sparkline bars #B9D6DB, 5px wide. Fresh timestamps go #1E7A56.</div>
+  </div>
+
+  <!-- ============ CHAIN OF THOUGHT ============ -->
+  <div style="background: #FFFFFF; border: 1px solid #E9EEEE; border-radius: 16px; padding: 32px;">
+    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.09em; color: #6E7C80;">08 — CHAIN OF THOUGHT (tool calls in chat)</div>
+    <div style="max-width: 720px; margin-top: 20px;">
+      <div style="display: flex; align-items: center; gap: 10px; padding: 2px 0;">
+        <span style="display: flex; width: 22px; height: 22px; align-items: center; justify-content: center; border-radius: 6px; color: #16606E; font-size: 12px;">✦</span>
+        <span style="font-size: 13px; font-weight: 600; color: #46545A;">Worked for 14 seconds</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #8A9AA0;">3 tool calls</span>
+        <span style="color: #8A9AA0; font-size: 11px;">⌄</span>
+      </div>
+      <div style="position: relative; padding: 6px 0 0;">
+        <span style="position: absolute; left: 10px; top: 0; bottom: 8px; width: 1px; background: #E2E8E8;"></span>
+        <div style="position: relative; display: flex; align-items: center; gap: 12px; padding: 7px 0;">
+          <span style="display: flex; width: 22px; height: 22px; flex: none; align-items: center; justify-content: center; border-radius: 6px; border: 1px solid #E9EEEE; background: #FFFFFF; position: relative; z-index: 1;"><span role="img" aria-label="metabase" style="width: 13px; height: 13px; background-image: url('https://www.google.com/s2/favicons?domain=metabase.com&sz=64'); background-size: contain; background-repeat: no-repeat; background-position: center;"></span></span>
+          <span style="font-size: 13.5px; font-weight: 600; color: #101820;">Run query</span>
+          <span style="font-size: 13px; color: #6E7C80;">GMV by category, Jul 20–26</span>
+          <span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #8A9AA0;">1.2s</span>
+          <span style="color: #C4CED0; font-size: 11px;">⌄</span>
+        </div>
+        <div style="margin: 4px 0 10px 34px; display: flex; flex-direction: column; gap: 6px;">
+          <div style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; font-weight: 600; letter-spacing: 0.09em; color: #8A9AA0;">PARAMETERS</div>
+          <div style="border-radius: 6px; background: #F1F5F5; padding: 10px 12px; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; line-height: 1.7; color: #46545A;">{ "query": "SELECT category, SUM(amount) FROM orders …" }</div>
+          <div style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; font-weight: 600; letter-spacing: 0.09em; color: #8A9AA0; margin-top: 4px;">RESULT</div>
+          <div style="border-radius: 6px; background: #F1F5F5; padding: 10px 12px; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; line-height: 1.7; color: #46545A;">[ { "category": "Fashion", "gmv": 1240000 }, … ]</div>
+        </div>
+        <div style="position: relative; display: flex; align-items: center; gap: 12px; padding: 7px 0;">
+          <span style="display: flex; width: 22px; height: 22px; flex: none; align-items: center; justify-content: center; border-radius: 6px; border: 1px solid #E9EEEE; background: #FFFFFF; position: relative; z-index: 1;"><span role="img" aria-label="slack" style="width: 13px; height: 13px; background-image: url('https://www.google.com/s2/favicons?domain=slack.com&sz=64'); background-size: contain; background-repeat: no-repeat; background-position: center;"></span></span>
+          <span style="font-size: 13.5px; font-weight: 600; color: #101820;">Search messages</span>
+          <span style="font-size: 13px; color: #6E7C80;">context in #sales-ops</span>
+          <span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #8A9AA0;">0.6s</span>
+          <span style="color: #C4CED0; font-size: 11px;">⌄</span>
+        </div>
+      </div>
+    </div>
+    <div style="font-size: 12px; color: #6E7C80; margin-top: 14px;">Mid-air timeline, no container. Header: "Worked for Ns" + call count, collapsible. Steps: 22px MCP favicon node on a 1px rail, humanized tool name (run_query → Run query) in 13.5/600 ink, plain-language summary in #6E7C80, duration in mono. Expanded PARAMETERS / RESULT blocks indent 34px: mono caps label + code on #F1F5F5, radius 6px, no border (matches today's tool.tsx). Subagent calls are steps too: node = emoji on its pastel tile, name = "Ask {agent}", expanded = TASK block → the subagent's own nested rail (its tool calls + ✦ italic reasoning lines, same pattern, one level max) → RESULT block.</div>
+  </div>
+
+  <!-- ============ CHAT & COMPOSER ============ -->
+  <div style="background: #FFFFFF; border: 1px solid #E9EEEE; border-radius: 16px; padding: 32px;">
+    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.09em; color: #6E7C80;">09 — CHAT &amp; COMPOSER</div>
+    <div style="max-width: 720px; margin-top: 20px; display: flex; flex-direction: column; gap: 16px;">
+      <div style="display: flex; align-items: center; justify-content: center; gap: 9px;">
+        <span style="display: flex; width: 28px; height: 28px; align-items: center; justify-content: center; border-radius: 999px; background: #D0F5EA; font-size: 14px;">📊</span>
+        <span style="font-size: 14px; font-weight: 600;">Data analyst</span>
+        <span style="font-size: 12px; color: #6E7C80; margin-left: 12px;">← header: 56px tall, centered, round avatar</span>
+      </div>
+      <div style="align-self: flex-end; max-width: 78%; background: #F1F5F5; border-radius: 12px 12px 3px 12px; padding: 12px 16px; font-size: 14.5px; line-height: 1.6;">User message — tinted bubble, right-aligned, max 78%.</div>
+      <div style="font-size: 14.5px; line-height: 1.7; color: #101820;">Assistant message — plain text, full width, no bubble. Content column max 780px.</div>
+      <div style="display: flex; flex-direction: column; min-height: 116px; border: 2px solid #DCE4E4; border-radius: 16px; background: #FFFFFF; box-shadow: 0 8px 24px -12px rgba(10,25,30,0.08);">
+        <div style="flex: 1; padding: 16px 18px 8px; font-size: 15px; font-weight: 500; color: #8A9AA0;">Reply to Data analyst…</div>
+        <div style="display: flex; align-items: center; gap: 6px; padding: 0 12px 12px;">
+          <span style="display: flex; width: 34px; height: 34px; align-items: center; justify-content: center; border-radius: 999px; background: #F1F5F5; color: #56646A; font-size: 15px; cursor: pointer;">+</span>
+          <span style="display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; border-radius: 999px; background: #F1F5F5; font-size: 13px; font-weight: 500; color: #101820; cursor: pointer;"><span role="img" aria-label="anthropic" style="width: 13px; height: 13px; background-image: url('https://www.google.com/s2/favicons?domain=anthropic.com&sz=64'); background-size: contain; background-repeat: no-repeat; background-position: center;"></span>Claude Sonnet 4.5</span>
+          <span style="margin-left: auto; display: flex; width: 38px; height: 38px; align-items: center; justify-content: center; border-radius: 999px; background: #16606E; color: #FFFFFF; font-size: 15px; cursor: pointer; box-shadow: 0 4px 12px -4px rgba(22,96,110,0.4);">↑</span>
+        </div>
+      </div>
+      <div style="font-size: 12px; color: #6E7C80;">Composer: 2px #DCE4E4 border → #16606E on focus, radius 16px, pills for tools, round teal submit.</div>
+    </div>
+  </div>
+
+  <!-- ============ DARK PANEL ============ -->
+  <div style="background: #101820; border-radius: 16px; padding: 32px; color: #E6EDEE;">
+    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.09em; color: #9FD6CB;">10 — DARK PANEL <span style="color: #5A6E74; font-weight: 400;">(landing terminal, test console, login showcase)</span></div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 20px;">
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <div style="display: flex; align-items: center; gap: 12px; font-family: 'IBM Plex Mono', monospace; font-size: 13px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); color: #9FD6CB; border-radius: 8px; padding: 13px 18px;">
+          <span style="color: #5A6E74;">$</span> git clone keurcien/auxilia &amp;&amp; make up
+          <span style="color: #5A6E74; border-left: 1px solid #2A3840; padding-left: 12px; cursor: pointer; margin-left: auto;">copy</span>
+        </div>
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: #9FD6CB; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 10px 14px;">
+          <span style="color: #5A6E74;">→ tool</span> metabase.run_query <span style="color: #5A6E74;">· 1.2s ·</span> <span style="color: #7BC7A9;">ok</span>
+        </div>
+        <div style="border: 1px solid rgba(232,160,133,0.35); background: rgba(232,160,133,0.07); border-radius: 10px; padding: 14px 16px;">
+          <div style="display: flex; align-items: center; gap: 8px; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; font-weight: 600; letter-spacing: 0.07em; color: #E8A085;">⏸ APPROVAL REQUIRED</div>
+          <div style="font-size: 13px; line-height: 1.55; margin-top: 8px; color: #C9D4D6;">Agent wants to run <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #FFFFFF;">metabase.create_dashboard</span>.</div>
+          <div style="display: flex; gap: 8px; margin-top: 12px;">
+            <button style="padding: 7px 16px; border: none; border-radius: 6px; background: #E6EDEE; color: #101820; font-family: 'Hanken Grotesk', sans-serif; font-size: 12.5px; font-weight: 700; cursor: pointer;">Approve</button>
+            <button style="padding: 7px 16px; border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; background: transparent; color: #C9D4D6; font-family: 'Hanken Grotesk', sans-serif; font-size: 12.5px; font-weight: 600; cursor: pointer;">Deny</button>
+          </div>
+        </div>
+      </div>
+      <div style="font-size: 13px; line-height: 1.8; color: #C9D4D6;">
+        Surface #101820 · cards rgba(255,255,255,0.04) with rgba(255,255,255,0.08–0.10) borders.<br>
+        Terminal text #9FD6CB · dim #5A6E74 · success #7BC7A9 · attention #E8A085 (35% border, 7% fill).<br>
+        Buttons on dark: light #E6EDEE fill = primary, outline = secondary.<br>
+        Optional 40px grid overlay: linear-gradient rgba(159,214,203,0.05) lines.<br>
+        Strong values in <strong style="color: #FFFFFF;">#FFFFFF bold</strong>.
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ LAYOUT ============ -->
+  <div style="background: #FFFFFF; border: 1px solid #E9EEEE; border-radius: 16px; padding: 32px;">
+    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.09em; color: #6E7C80;">11 — LAYOUT &amp; RADII</div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 16px; font-size: 13px; line-height: 1.9; color: #46545A;">
+      <div>
+        <strong>App shell.</strong> Sidebar 248px (#FBFCFC) · top bar 52px with breadcrumb · content pad 32px · chat/reading column max 780px.<br>
+        <strong>Canvas.</strong> App pages pure #FFFFFF; marketing/login #F6F8F8. Never tinted app backgrounds.<br>
+        <strong>Shadows.</strong> Almost none: 0 1px 2px rgba(10,25,30,0.04) on raised buttons, 0 8px 24px −12px on the composer. Depth comes from borders.
+      </div>
+      <div>
+        <strong>Radii.</strong> 4px badges · 6–7px chips, buttons, nav items · 8px inputs, cards-in-cards · 10–12px containers, tool cards · 16px composer, page frames · 999px pills, round buttons, human avatars.<br>
+        <strong>Spacing.</strong> Base 4px; common steps 8 / 12 / 16 / 20 / 24 / 32.<br>
+        <strong>Voice.</strong> Sentence case everywhere; CAPS reserved for mono labels. No emoji outside agent avatars.
+      </div>
+    </div>
+  </div>
+
+</section>
+
+</x-dc>
+</body>
+</html>

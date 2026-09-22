@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { useSkillsStore } from "@/stores/skills-store";
 import {
 	shortRevision,
+	type SkillIssue,
 	type SkillSource,
 	type SkillSourceReportEntry,
 	type SkillSyncPlan,
@@ -55,6 +56,11 @@ const STATUS_COPY = new Map<
 		note: "not imported",
 	},
 }) as [SkillSyncStatus, { label: string; className: string; note?: string }][]);
+
+/** Why a skill was skipped: the first blocking error, else the first issue. */
+function skipReason(issues: SkillIssue[]): string | undefined {
+	return (issues.find((i) => i.severity === "error") ?? issues[0])?.message;
+}
 
 /**
  * What the sync is about to do, as the confirmation body.
@@ -109,7 +115,19 @@ function SyncPlanSummary({ plan }: { plan: SkillSyncPlan }) {
 									className="min-w-0 flex-1 truncate text-right text-[11px] text-meta dark:text-panel-dim"
 									title={entry.issues.map((i) => `${i.code} ${i.message}`).join("\n")}
 								>
-									{entry.issues[0]?.message ?? copy.note ?? ""}
+									{
+										// The issue is the line only when it is the reason the
+										// skill is not imported. A warning on a skill that syncs
+										// fine (`W001`, an instructions reference) is a sentence
+										// long and says nothing about what this sync does; it
+										// stays in the tooltip here and in the row's outcome after.
+										// A skipped skill's list is skillkit's, warnings and errors
+										// in file order, so the error is looked for first — the
+										// name-taken skip is a lone warning and still shows.
+										entry.status === "skipped"
+											? (skipReason(entry.issues) ?? copy.note ?? "")
+											: (copy.note ?? "")
+									}
 								</span>
 								<span
 									className={cn(

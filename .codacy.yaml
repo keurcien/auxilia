@@ -7,6 +7,9 @@
 # backend/tests/ is pytest code: `assert` is the test mechanism itself, so
 # bandit's B101 (assert removed under -O) doesn't apply — tests never run
 # optimised, and flagging every assertion drowns real findings.
+# design/ is the Petrol Mono design handoff: generated, self-contained HTML
+# mockups and their support script, kept for reference and never served.
 exclude_paths:
   - "web/tests/**"
   - "backend/tests/**"
+  - "design/**"
