@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.1](https://github.com/keurcien/auxilia/compare/backend-v0.9.0...backend-v0.9.1) (2026-09-22)
+
+
+### Bug Fixes
+
+* préserver les arguments MCP optionnels avec Responses ([#347](https://github.com/keurcien/auxilia/issues/347)) ([f875371](https://github.com/keurcien/auxilia/commit/f87537121511ff3ecb7a98a227df85f0537e3e09))
+* **runs:** release auth connection before run lookups ([#352](https://github.com/keurcien/auxilia/issues/352)) ([b8d0faf](https://github.com/keurcien/auxilia/commit/b8d0faf1da2e3f221b05f2d5ded07c433b1f2dc6))
+
 ## [0.9.0](https://github.com/keurcien/auxilia/compare/backend-v0.8.6...backend-v0.9.0) (2026-09-21)
 
 
