@@ -75,6 +75,16 @@ def provider_api_keys() -> dict[str, str]:
     return {name: key for name, key in keys.items() if key}
 
 
+class ResponsesChatOpenAI(ChatOpenAI):
+    def bind_tools(self, tools, *, strict=None, **kwargs):
+        # Responses defaults to strict normalization, which makes optional MCP
+        # fields required. Preserve their schema; the MCP server still validates
+        # arguments. Explicit strict=True (structured output) remains supported.
+        return super().bind_tools(
+            tools, strict=False if strict is None else strict, **kwargs
+        )
+
+
 class ChatModelFactory:
     def create(
         self,
@@ -101,11 +111,13 @@ class ChatModelFactory:
                 # fine on the default chat-completions path. On the Responses
                 # path langchain translates reasoning_effort into
                 # `reasoning.effort` itself.
-                return ChatOpenAI(
+                use_responses_api = model_id in OPENAI_RESPONSES_API_MODELS
+                model_class = ResponsesChatOpenAI if use_responses_api else ChatOpenAI
+                return model_class(
                     model=model_id,
                     api_key=api_key,
                     max_retries=0,
-                    use_responses_api=model_id in OPENAI_RESPONSES_API_MODELS,
+                    use_responses_api=use_responses_api,
                     reasoning_effort=reasoning_effort,
                 )
             case "deepseek":
