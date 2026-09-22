@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { useSkillsStore } from "@/stores/skills-store";
 import {
 	shortRevision,
+	type SkillIssue,
 	type SkillSource,
 	type SkillSourceReportEntry,
 	type SkillSyncPlan,
@@ -55,6 +56,11 @@ const STATUS_COPY = new Map<
 		note: "not imported",
 	},
 }) as [SkillSyncStatus, { label: string; className: string; note?: string }][]);
+
+/** Why a skill was skipped: the first blocking error, else the first issue. */
+function skipReason(issues: SkillIssue[]): string | undefined {
+	return (issues.find((i) => i.severity === "error") ?? issues[0])?.message;
+}
 
 /**
  * What the sync is about to do, as the confirmation body.
@@ -115,8 +121,11 @@ function SyncPlanSummary({ plan }: { plan: SkillSyncPlan }) {
 										// fine (`W001`, an instructions reference) is a sentence
 										// long and says nothing about what this sync does; it
 										// stays in the tooltip here and in the row's outcome after.
+										// A skipped skill's list is skillkit's, warnings and errors
+										// in file order, so the error is looked for first — the
+										// name-taken skip is a lone warning and still shows.
 										entry.status === "skipped"
-											? (entry.issues[0]?.message ?? copy.note ?? "")
+											? (skipReason(entry.issues) ?? copy.note ?? "")
 											: (copy.note ?? "")
 									}
 								</span>
