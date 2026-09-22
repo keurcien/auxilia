@@ -109,7 +109,16 @@ function SyncPlanSummary({ plan }: { plan: SkillSyncPlan }) {
 									className="min-w-0 flex-1 truncate text-right text-[11px] text-meta dark:text-panel-dim"
 									title={entry.issues.map((i) => `${i.code} ${i.message}`).join("\n")}
 								>
-									{entry.issues[0]?.message ?? copy.note ?? ""}
+									{
+										// The issue is the line only when it is the reason the
+										// skill is not imported. A warning on a skill that syncs
+										// fine (`W001`, an instructions reference) is a sentence
+										// long and says nothing about what this sync does; it
+										// stays in the tooltip here and in the row's outcome after.
+										entry.status === "skipped"
+											? (entry.issues[0]?.message ?? copy.note ?? "")
+											: (copy.note ?? "")
+									}
 								</span>
 								<span
 									className={cn(
