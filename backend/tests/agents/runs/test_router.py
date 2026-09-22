@@ -75,6 +75,55 @@ def _mock_thread_lookup(mock_db, thread: ThreadDB) -> None:
     mock_db.execute.return_value = result
 
 
+def test_run_poll_releases_auth_connection_before_run_lookup(
+    client: TestClient, mock_db, current_user
+):
+    thread = _owned_thread(current_user)
+    _mock_thread_lookup(mock_db, thread)
+    events = []
+    mock_db.commit.side_effect = lambda: events.append("release")
+
+    class FakeRunService:
+        async def list_for_thread(self, thread_id):
+            assert thread_id == thread.id
+            events.append("lookup")
+            return []
+
+    app.dependency_overrides[get_run_service] = FakeRunService
+    try:
+        response = client.get(f"/threads/{thread.id}/runs")
+    finally:
+        app.dependency_overrides.pop(get_run_service, None)
+
+    assert response.status_code == 200
+    assert response.json() == []
+    assert events == ["release", "lookup"]
+
+
+def test_active_runs_poll_releases_auth_connection_before_run_lookup(
+    client: TestClient, mock_db, current_user
+):
+    events = []
+    mock_db.commit.side_effect = lambda: events.append("release")
+
+    class FakeRunService:
+        async def list_active_for_user(self, user_id, *, recent_seconds):
+            assert user_id == str(current_user.id)
+            assert recent_seconds == 0
+            events.append("lookup")
+            return []
+
+    app.dependency_overrides[get_run_service] = FakeRunService
+    try:
+        response = client.get("/runs/active")
+    finally:
+        app.dependency_overrides.pop(get_run_service, None)
+
+    assert response.status_code == 200
+    assert response.json() == []
+    assert events == ["release", "lookup"]
+
+
 @patch("app.agents.runs.router.read_run_result", new_callable=AsyncMock)
 def test_invoke_creates_run_and_returns_result(
     mock_read, client: TestClient, mock_db, current_user

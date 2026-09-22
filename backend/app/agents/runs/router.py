@@ -66,6 +66,15 @@ async def authorize_thread(
     return thread
 
 
+async def authorize_thread_for_run_service(
+    thread: ThreadResponse = Depends(authorize_thread),
+    db: AsyncSession = Depends(get_db),
+) -> ThreadResponse:
+    """Release the auth transaction before RunService opens its own session."""
+    await db.commit()
+    return thread
+
+
 def _ensure_run_on_thread(record, thread_id: str) -> None:
     """A run id from another thread must not leak across the nested route."""
     if record.thread_id != thread_id:
@@ -77,15 +86,16 @@ async def list_active_runs(
     recent_seconds: int = Query(0, ge=0, le=3600),
     current_user: UserDB = Depends(get_current_user),
     service: RunService = Depends(get_run_service),
+    db: AsyncSession = Depends(get_db),
 ) -> list[RunResponse]:
     """The caller's in-flight runs across all threads — one aggregate read
     backing the sidebar activity indicator (poll this, not per-thread).
 
     `recent_seconds` widens the read to runs that finished within that window,
     letting pollers observe error/success transitions between polls."""
-    records = await service.list_active_for_user(
-        str(current_user.id), recent_seconds=recent_seconds
-    )
+    user_id = str(current_user.id)
+    await db.commit()
+    records = await service.list_active_for_user(user_id, recent_seconds=recent_seconds)
     return [RunResponse.from_record(r) for r in records]
 
 
@@ -191,7 +201,7 @@ async def create_run(
 @router.get("")
 async def list_runs(
     thread_id: str,
-    _: ThreadResponse = Depends(authorize_thread),
+    _: ThreadResponse = Depends(authorize_thread_for_run_service),
     runs: RunService = Depends(get_run_service),
 ) -> list[RunResponse]:
     return [RunResponse.from_record(r) for r in await runs.list_for_thread(thread_id)]
@@ -200,7 +210,7 @@ async def list_runs(
 @router.get("/active")
 async def get_active_run(
     thread_id: str,
-    _: ThreadResponse = Depends(authorize_thread),
+    _: ThreadResponse = Depends(authorize_thread_for_run_service),
     runs: RunService = Depends(get_run_service),
 ) -> RunResponse | None:
     record = await runs.get_active(thread_id)
@@ -211,7 +221,7 @@ async def get_active_run(
 async def read_run(
     thread_id: str,
     run_id: str,
-    _: ThreadResponse = Depends(authorize_thread),
+    _: ThreadResponse = Depends(authorize_thread_for_run_service),
     runs: RunService = Depends(get_run_service),
 ) -> RunResponse:
     record = await runs.get(run_id)
@@ -223,7 +233,7 @@ async def read_run(
 async def cancel_run(
     thread_id: str,
     run_id: str,
-    _: ThreadResponse = Depends(authorize_thread),
+    _: ThreadResponse = Depends(authorize_thread_for_run_service),
     runs: RunService = Depends(get_run_service),
 ) -> RunResponse:
     record = await runs.get(run_id)
