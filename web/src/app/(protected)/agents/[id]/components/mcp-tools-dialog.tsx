@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Image from "next/image";
 import { Check, Copy } from "lucide-react";
 import { MCPServer, MCPServerTool } from "@/types/mcp-servers";
@@ -17,11 +17,15 @@ import {
 import { humanizeToolName } from "@/components/ai-elements/chain-of-thought";
 import { cn } from "@/lib/utils";
 
-export const TOOL_STATUS_LABELS: Record<ToolStatus, string> = {
-	always_allow: "Always allowed",
-	needs_approval: "Needs approval",
-	disabled: "Disabled",
-};
+const TOOL_STATUS_LABELS = new Map<ToolStatus, string>([
+	["always_allow", "Always allowed"],
+	["needs_approval", "Needs approval"],
+	["disabled", "Disabled"],
+]);
+
+export function toolStatusLabel(status: ToolStatus): string {
+	return TOOL_STATUS_LABELS.get(status) ?? status;
+}
 
 const SUBTITLE = "List of all tools available in the MCP server.";
 
@@ -36,7 +40,7 @@ export function buildToolsMarkdown(
 	statusFor: (toolName: string) => ToolStatus,
 ): string {
 	const sections = tools.map((tool) => {
-		const heading = `## ${humanizeToolName(tool.name)} - ${TOOL_STATUS_LABELS[statusFor(tool.name)]}`;
+		const heading = `## ${humanizeToolName(tool.name)} - ${toolStatusLabel(statusFor(tool.name))}`;
 		const description = tool.description?.trim();
 		return description ? `${heading}\n\n${description}` : heading;
 	});
@@ -76,21 +80,44 @@ export default function MCPToolsDialog({
 	tools,
 	statusFor,
 }: MCPToolsDialogProps) {
-	const [copied, setCopied] = useState(false);
+	const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
+		"idle",
+	);
+	const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+	const scheduleReset = () => {
+		if (resetTimer.current) clearTimeout(resetTimer.current);
+		resetTimer.current = setTimeout(() => {
+			setCopyState("idle");
+		}, 2000);
+	};
 
 	const handleOpenChange = (next: boolean) => {
-		if (!next) setCopied(false);
+		if (!next) {
+			if (resetTimer.current) clearTimeout(resetTimer.current);
+			setCopyState("idle");
+		}
 		onOpenChange(next);
 	};
 
-	const handleCopy = async () => {
-		await navigator.clipboard.writeText(
-			buildToolsMarkdown(server.name, tools, statusFor),
-		);
-		setCopied(true);
-		setTimeout(() => {
-			setCopied(false);
-		}, 2000);
+	const handleCopy = () => {
+		// navigator.clipboard is absent on insecure origins (self-hosted over
+		// plain HTTP) even though the DOM types claim otherwise.
+		const clipboard = navigator.clipboard as Clipboard | undefined;
+		if (!clipboard) {
+			setCopyState("failed");
+			scheduleReset();
+			return;
+		}
+		clipboard
+			.writeText(buildToolsMarkdown(server.name, tools, statusFor))
+			.then(() => {
+				setCopyState("copied");
+			})
+			.catch(() => {
+				setCopyState("failed");
+			})
+			.finally(scheduleReset);
 	};
 
 	return (
@@ -154,7 +181,7 @@ export default function MCPToolsDialog({
 												"bg-[#FBEFED] text-[#B04A3A] dark:bg-[#B04A3A]/10",
 										)}
 									>
-										{TOOL_STATUS_LABELS[status]}
+										{toolStatusLabel(status)}
 									</span>
 								</div>
 								<div
@@ -177,18 +204,17 @@ export default function MCPToolsDialog({
 				</div>
 
 				<DialogFooter className="border-t border-hover px-6 py-4 dark:border-white/5">
-					<DialogButton
-						variant="outline"
-						onClick={() => {
-							void handleCopy();
-						}}
-					>
-						{copied ? (
+					<DialogButton variant="outline" onClick={handleCopy}>
+						{copyState === "copied" ? (
 							<Check className="size-3.5" />
 						) : (
 							<Copy className="size-3.5" />
 						)}
-						{copied ? "Copied" : "Copy as Markdown"}
+						{copyState === "copied"
+							? "Copied"
+							: copyState === "failed"
+								? "Copy failed"
+								: "Copy as Markdown"}
 					</DialogButton>
 					<DialogButton
 						onClick={() => {

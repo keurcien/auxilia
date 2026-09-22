@@ -4,11 +4,11 @@ import { ToolStatus } from "@/types/agents";
 
 describe("buildToolsMarkdown", () => {
 	it("renders the server heading, subtitle, and one h2 per tool", () => {
-		const statuses: Record<string, ToolStatus> = {
-			run_query: "always_allow",
-			create_dashboard: "needs_approval",
-			delete_card: "disabled",
-		};
+		const statuses = new Map<string, ToolStatus>([
+			["run_query", "always_allow"],
+			["create_dashboard", "needs_approval"],
+			["delete_card", "disabled"],
+		]);
 		const markdown = buildToolsMarkdown(
 			"Metabase",
 			[
@@ -16,7 +16,7 @@ describe("buildToolsMarkdown", () => {
 				{ name: "create_dashboard", description: "  Create a dashboard.\n" },
 				{ name: "delete_card", description: null },
 			],
-			(name) => statuses[name],
+			(name) => statuses.get(name) ?? "always_allow",
 		);
 		expect(markdown).toBe(
 			[
