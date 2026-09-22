@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Auxilia — Subagent view (22b)</title>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; box-sizing: border-box; }
+  body { background: #F6F8F8; padding: 24px; font-family: 'Hanken Grotesk', sans-serif; }
+
+</style>
+</head>
+<body>
+<div style="width: 760px; background: #FFFFFF; border: 1px solid #E9EEEE; border-radius: 12px; box-shadow: 0 2px 24px rgba(10,25,30,0.08); padding: 24px 28px 28px; font-family: 'Hanken Grotesk', sans-serif; color: #101820;" data-screen-label="Subagent tinted band">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-size: 15px; font-weight: 700;">Worked</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8A9AA0;">1 subagent</span>
+        <span style="color: #8A9AA0; font-size: 10px;">▾</span>
+      </div>
+      <div style="display: flex; gap: 14px; margin-top: 18px;">
+        <div style="width: 24px; flex: none; display: flex; flex-direction: column; align-items: center;">
+          <span style="display: flex; width: 24px; height: 24px; align-items: center; justify-content: center; border: 1px solid #E9EEEE; border-radius: 999px; background: #FFFFFF; color: #16606E; font-size: 11px;">✦</span>
+          <span style="flex: 1; width: 1px; background: #E9EEEE; margin-top: 6px;"></span>
+        </div>
+        <div style="flex: 1; min-width: 0; padding-bottom: 18px;">
+          <span style="font-size: 13.5px;"><span style="font-weight: 700;">Reasoned</span> <span style="color: #6E7C80;">The user is asking about a Google Slides presentation. I have a "Slides_assistant" subagent…</span></span>
+        </div>
+      </div>
+      <div style="display: flex; gap: 14px;">
+        <div style="width: 24px; flex: none; display: flex; flex-direction: column; align-items: center;">
+          <span style="display: flex; width: 24px; height: 24px; align-items: center; justify-content: center; border-radius: 999px; background: #16606E; color: #EFF6F5; font-size: 11px;">🤖</span>
+          <span style="flex: 1; width: 1px; background: #E9EEEE; margin-top: 6px;"></span>
+        </div>
+        <div style="flex: 1; min-width: 0; padding-bottom: 18px;">
+          <div style="display: flex; align-items: baseline; gap: 10px;">
+            <span style="font-size: 13.5px; font-weight: 700; white-space: nowrap;">Ask Slides assistant</span>
+            <span style="font-size: 13px; color: #6E7C80; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Examine the Google Slides presentation at the URL…</span>
+            <span style="margin-left: auto; flex: none; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #8A9AA0;">25s ▾</span>
+          </div>
+          <div style="border-radius: 10px; background: #F6F9F9; margin-top: 12px; padding: 14px 18px 16px; display: flex; flex-direction: column;">
+            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #8A9AA0; margin-bottom: 12px;">// SLIDES ASSISTANT</div>
+            <div style="display: flex; gap: 12px;">
+              <div style="width: 24px; flex: none; display: flex; flex-direction: column; align-items: center;">
+                <span style="display: flex; width: 24px; height: 24px; flex: none; align-items: center; justify-content: center; border: 1px solid #DCE4E4; border-radius: 999px; background: #FFFFFF; color: #8A9AA0; font-size: 10px; font-family: 'IBM Plex Mono', monospace; font-weight: 600;">T</span>
+                <span style="flex: 1; width: 1px; background: #DCE4E4; margin-top: 6px;"></span>
+              </div>
+              <div style="flex: 1; min-width: 0; padding: 3px 0 16px;">
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #6E7C80; line-height: 1.55;">Examine the Google Slides presentation at the URL https://docs.google.com/presentation/d/1mo73… retrieve title, slide count, per-slide content…</span>
+              </div>
+            </div>
+            <div style="display: flex; gap: 12px;">
+              <div style="width: 24px; flex: none; display: flex; flex-direction: column; align-items: center;">
+                <span style="display: flex; width: 24px; height: 24px; flex: none; align-items: center; justify-content: center; border: 1px solid #DCE4E4; border-radius: 999px; background: #FFFFFF; color: #16606E; font-size: 11px;">✦</span>
+                <span style="flex: 1; width: 1px; background: #DCE4E4; margin-top: 6px;"></span>
+              </div>
+              <div style="flex: 1; min-width: 0; padding: 3px 0 16px;">
+                <span style="font-size: 13px; color: #56646A; font-style: italic;">I'll examine the Google Slides presentation for you. Let me retrieve the full content.</span>
+              </div>
+            </div>
+            <div style="display: flex; gap: 12px;">
+              <div style="width: 24px; flex: none; display: flex; flex-direction: column; align-items: center;">
+                <span style="display: flex; width: 24px; height: 24px; flex: none; align-items: center; justify-content: center; border-radius: 7px; background: #FFF5CC; font-size: 11px;">▦</span>
+                <span style="flex: 1; width: 1px; background: #DCE4E4; margin-top: 6px;"></span>
+              </div>
+              <div style="flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; padding: 3px 0 16px;">
+                <span style="font-size: 13px; font-weight: 600; white-space: nowrap;">Read presentation</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #8A9AA0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">1mo73K0cki16HoR22XKi24MwHLytIxOHsoa…</span>
+              </div>
+            </div>
+            <div style="display: flex; gap: 12px;">
+              <div style="width: 24px; flex: none; display: flex; justify-content: center;">
+                <span style="display: flex; width: 24px; height: 24px; flex: none; align-items: center; justify-content: center; border: 1px solid #DCE4E4; border-radius: 999px; background: #FFFFFF; color: #16606E; font-size: 11px;">✦</span>
+              </div>
+              <div style="flex: 1; min-width: 0; padding-top: 3px;">
+                <span style="font-size: 13px; color: #56646A; font-style: italic;">I've retrieved and analyzed the presentation. <strong style="color: #101820; font-style: normal;">Bilan Média — The Smilist — Juin 2026</strong>, 11 slides, written in French…</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="display: flex; gap: 14px;">
+        <div style="width: 24px; flex: none; display: flex; justify-content: center;">
+          <span style="display: flex; width: 24px; height: 24px; align-items: center; justify-content: center; border: 1px solid #E9EEEE; border-radius: 999px; background: #FFFFFF; color: #16606E; font-size: 11px;">✦</span>
+        </div>
+        <div style="flex: 1; min-width: 0; padding-top: 3px;">
+          <span style="font-size: 13.5px; color: #6E7C80;">Relaying the summary back to the user…</span>
+        </div>
+      </div>
+    </div>
+</body>
+</html>
