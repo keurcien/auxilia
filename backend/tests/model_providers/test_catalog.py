@@ -1,6 +1,8 @@
 from unittest.mock import patch
 
 import pytest
+from langchain_core.messages import HumanMessage
+from langchain_core.tools import StructuredTool
 
 from app.model_providers.catalog import (
     GOOGLE_ADC_SENTINEL,
@@ -147,3 +149,71 @@ def test_google_factory_uses_api_key_when_provided():
     model = ChatModelFactory().create("google", "gemini-3-pro-preview", "a-real-key")
     assert model.vertexai is None
     assert model.credentials is None
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "properties", "arguments"),
+    [
+        (
+            "find-product",
+            {
+                "product_variant_id": {"type": "string"},
+                "product_id": {"type": "string"},
+            },
+            {"product_variant_id": "known-variant"},
+        ),
+        (
+            "find-next-brand-sale",
+            {"sale_id": {"type": "string"}, "product_variant_id": {"type": "string"}},
+            {"sale_id": "known-sale"},
+        ),
+        (
+            "get-sale-info",
+            {"saleId": {"type": "string"}, "query": {"type": "string"}},
+            {"query": "Known brand"},
+        ),
+    ],
+)
+def test_responses_preserves_optional_mcp_arguments(tool_name, properties, arguments):
+    schema = {"type": "object", "properties": properties}
+    tool = StructuredTool(
+        name=tool_name,
+        description="Only provide known identifiers.",
+        args_schema=schema,
+        func=lambda **kwargs: kwargs,
+    )
+    model = ChatModelFactory().create(
+        "openai", "gpt-5.6-luna", "unit-test-key", reasoning_effort="high"
+    )
+    bound = model.bind_tools([tool])
+    payload = model._get_request_payload([HumanMessage(content="test")], **bound.kwargs)
+
+    # Assert the actual wire payload, not just a flag on the model: omitting
+    # strict lets Responses promote every property to a required argument.
+    assert payload["tools"][0]["strict"] is False
+    assert payload["tools"][0]["parameters"] == schema
+    assert tool.invoke(arguments) == arguments
+    assert payload["reasoning"]["effort"] == "high"
+    assert model.max_retries == 0
+
+
+def test_responses_preserves_explicit_strict_structured_output():
+    model = ChatModelFactory().create("openai", "gpt-5.6-luna", "unit-test-key")
+    tool = {
+        "name": "answer",
+        "parameters": {
+            "type": "object",
+            "properties": {"answer": {"type": "string"}},
+            "required": ["answer"],
+            "additionalProperties": False,
+        },
+    }
+    bound = model.bind_tools([tool], strict=True)
+    payload = model._get_request_payload([HumanMessage(content="test")], **bound.kwargs)
+    assert payload["tools"][0]["strict"] is True
+
+
+def test_chat_completions_keeps_its_default_tool_binding():
+    model = ChatModelFactory().create("openai", "gpt-5.5", "unit-test-key")
+    bound = model.bind_tools([{"name": "lookup", "parameters": {"type": "object"}}])
+    assert "strict" not in bound.kwargs["tools"][0]["function"]
