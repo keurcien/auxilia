@@ -84,9 +84,19 @@ export default function MCPToolsDialog({
 		"idle",
 	);
 	const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	// Bumped on every copy and on close, so a clipboard promise that settles
+	// after the dialog closed (or after a newer click) cannot touch the state.
+	const copyRequest = useRef(0);
 
-	const scheduleReset = () => {
+	const clearResetTimer = () => {
 		if (resetTimer.current) clearTimeout(resetTimer.current);
+		resetTimer.current = null;
+	};
+
+	const settleCopy = (request: number, state: "copied" | "failed") => {
+		if (request !== copyRequest.current) return;
+		setCopyState(state);
+		clearResetTimer();
 		resetTimer.current = setTimeout(() => {
 			setCopyState("idle");
 		}, 2000);
@@ -94,30 +104,30 @@ export default function MCPToolsDialog({
 
 	const handleOpenChange = (next: boolean) => {
 		if (!next) {
-			if (resetTimer.current) clearTimeout(resetTimer.current);
+			copyRequest.current += 1;
+			clearResetTimer();
 			setCopyState("idle");
 		}
 		onOpenChange(next);
 	};
 
 	const handleCopy = () => {
+		const request = ++copyRequest.current;
 		// navigator.clipboard is absent on insecure origins (self-hosted over
 		// plain HTTP) even though the DOM types claim otherwise.
 		const clipboard = navigator.clipboard as Clipboard | undefined;
 		if (!clipboard) {
-			setCopyState("failed");
-			scheduleReset();
+			settleCopy(request, "failed");
 			return;
 		}
 		clipboard
 			.writeText(buildToolsMarkdown(server.name, tools, statusFor))
 			.then(() => {
-				setCopyState("copied");
+				settleCopy(request, "copied");
 			})
 			.catch(() => {
-				setCopyState("failed");
-			})
-			.finally(scheduleReset);
+				settleCopy(request, "failed");
+			});
 	};
 
 	return (
