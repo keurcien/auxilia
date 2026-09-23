@@ -30,7 +30,16 @@ The agent itself — its instructions, its tools, its MCP server bindings — li
 
 ## The streaming endpoints
 
-**auxilia** speaks the [Agent Streaming Protocol](https://github.com/langchain-ai/agent-protocol/tree/main/streaming) — the same delta-based protocol the `@langchain/react` / `@langchain/langgraph-sdk` clients consume, so a React host can reuse those packages as-is (point `apiUrl` at your **auxilia** deployment's `/api/backend`). Two calls per thread:
+**auxilia** speaks the [Agent Streaming Protocol](https://github.com/langchain-ai/agent-protocol/tree/main/streaming) — the same delta-based protocol the `@langchain/react` / `@langchain/langgraph-sdk` clients consume, so a React host can reuse those packages as-is (point `apiUrl` at your **auxilia** deployment's `/api/backend`).
+
+First create the thread, once per conversation — the same call as in [Trigger agents over HTTP](/tutorials/http-invoke#step-3--create-a-thread):
+
+```
+POST /api/backend/threads/
+{ "agent_id": "…", "model_id": "claude-haiku-4-5" }
+```
+
+Then two calls per thread drive the conversation:
 
 ```
 POST /api/backend/threads/{thread_id}/commands
@@ -45,7 +54,7 @@ The first starts a turn:
 
 The second opens a **Server-Sent Events** session on the thread. Its body is the subscription filter — `{"channels": ["messages", "tools", "lifecycle", "values", "input"]}` — and every frame is one protocol event: `messages` events carry `message-start` / `content-block-delta` (the text tokens) / `message-finish`, `tools` events the tool calls and their results, and a root `lifecycle` event with `completed`, `failed` or `interrupted` ends the turn. Your UI appends the text deltas to the message being rendered, exactly the way the **auxilia** chat app does.
 
-For one-shot, non-streaming calls (useful for slower-moving surfaces like spreadsheet cells), use `/api/backend/threads/runs/invoke` — see **[Trigger agents over HTTP](/tutorials/http-invoke)**.
+For one-shot, non-streaming calls (useful for slower-moving surfaces like spreadsheet cells), use `POST /api/backend/threads/{thread_id}/runs/invoke`, which blocks and returns the final answer — see **[Trigger agents over HTTP](/tutorials/http-invoke)**.
 
 ## A typical integration plan
 

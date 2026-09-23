@@ -110,7 +110,7 @@ Update `FRONTEND_URL` on the backend to the new domain.
 
 ## Optional: agent code execution
 
-If you want agents to run code, Cloud Run is also the easiest place to host the sandbox runtime: deploy the `sandbox-gateway` service and set `SANDBOX_PROVIDER=cloudrun` on the backend. See [Cloud Run Sandboxes](/deploy/sandbox/cloud-run).
+If you want agents to run code, Cloud Run is also the easiest place to host the sandbox runtime: deploy the `sandbox-gateway` service, then register it as a **Cloud Run** sandbox under **Settings → Sandboxes** with its URL and secret. See [Cloud Run Sandboxes](/deploy/sandbox/cloud-run). If the sandbox uses a GCS snapshot bucket, the backend's service account needs write access to it.
 
 ## Notes on Cloud Run sizing
 

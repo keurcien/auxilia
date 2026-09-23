@@ -61,7 +61,6 @@ PostgreSQL and Redis are started and wired up by Docker Compose; every other set
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`                                    | Optional — Google OAuth sign-in (SSO).                                                                                                                    |
 | `SLACK_SIGNING_SECRET` / `SLACK_BOT_TOKEN`                                     | Optional — chat with agents from Slack.                                                                                                                   |
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY`                                  | Optional — tracing + cost attribution per agent and user.                                                                                                 |
-| `OPEN_SANDBOX_*`                                                               | Optional — isolated code execution for agents.                                                                                                            |
 | `RUN_*`                                                                        | Tuning for the background run worker (concurrency, timeouts). Defaults are fine.                                                                          |
 
 Developing? `make dev` runs PostgreSQL, Redis, the FastAPI backend (migrations applied) and the Next.js frontend in parallel, all with hot reload. Full walkthrough in the [Get Started guide](https://auxilia-docs.vercel.app/get-started).
@@ -76,7 +75,8 @@ Developing? `make dev` runs PostgreSQL, Redis, the FastAPI backend (migrations a
 | ✅ **Human-in-the-loop**       | Approve sensitive tool calls right from the chat — or from Slack, with Block Kit buttons.                                                                                                       |
 | ⏰ **Scheduled triggers**      | Give an agent standing instructions on a cron + timezone schedule ("every weekday at 8am"). Each firing runs in the background as its owner and lands in the thread list like any conversation. |
 | ⚙️ **Durable background runs** | Runs are Redis-backed and survive the browser: close the tab mid-answer, reopen the thread, and reattach to the live stream — or cancel it server-side.                                         |
-| 🧪 **Code sandbox**            | Give an agent an isolated Linux environment via [OpenSandbox](https://github.com/alibaba/opensandbox) — filesystem tools + shell — and turn it into a data analyst.                             |
+| 🧪 **Code sandbox**            | Give an agent an isolated Linux environment — filesystem tools + shell — and turn it into a data analyst. Bring your own runtime: [OpenSandbox](https://github.com/alibaba/opensandbox), Google Cloud Run sandboxes or [Daytona](https://www.daytona.io/), configured once in Settings. |
+| 📚 **Skills**                  | Reusable procedures — a `SKILL.md` plus scripts, in the open Agent Skills layout. Write them in the workspace library or sync them from a GitHub/GitLab repository, pinned and reviewed per update; enable them on any agent.  |
 | 📊 **Observability**           | Langfuse tracing on every LLM and tool call, with cost attribution per agent and per user.                                                                                                      |
 | 🔐 **Auth & security**         | JWT sessions (HttpOnly cookies), Google OAuth SSO, Personal Access Tokens for API access, Argon2 password hashing, AES-GCM encryption of stored API keys, per-user OAuth 2.1 token storage.     |
 
@@ -114,17 +114,20 @@ Full docs at **[auxilia-docs.vercel.app](https://auxilia-docs.vercel.app/)**:
 
 - [Get Started](https://auxilia-docs.vercel.app/get-started) — run auxilia locally
 - [Agents](https://auxilia-docs.vercel.app/agents) — configuration, permissions, subagents
-- [MCP Servers](https://auxilia-docs.vercel.app/mcp-servers) — registration, auth, examples
-- [Tools](https://auxilia-docs.vercel.app/tools) — per-tool approval rules
-- [Sandbox](https://auxilia-docs.vercel.app/sandbox) — enable code execution for an agent
-- [Deployment](https://auxilia-docs.vercel.app/deployment) — Docker Compose, Google Cloud Run
-- [Integrations](https://auxilia-docs.vercel.app/integrations) — Slack, Langfuse
+- [Skills](https://auxilia-docs.vercel.app/agents/skills) — reusable procedures, in-app or synced from a repository
+- [Triggers](https://auxilia-docs.vercel.app/agents/triggers) — scheduled agent runs
+- [MCP Servers](https://auxilia-docs.vercel.app/deploy/mcp-servers) — registration, auth, examples
+- [Tools](https://auxilia-docs.vercel.app/agents/tools) — per-tool approval rules
+- [Sandbox](https://auxilia-docs.vercel.app/agents/sandbox) — code execution for an agent
+- [Deployment](https://auxilia-docs.vercel.app/deploy) — environment, Google Cloud Run, sandboxes
+- [Integrations](https://auxilia-docs.vercel.app/deploy/slack) — Slack, [Langfuse](https://auxilia-docs.vercel.app/deploy/langfuse)
+- [Tutorials](https://auxilia-docs.vercel.app/tutorials) — HTTP, Slack, Google Sheets from a sandbox, slide decks from a GitHub skill
 
 ## 🗺 Roadmap
 
 - [x] Scheduled triggers
-- [ ] Skills
-- [ ] Support for more sandboxes (e.g. Daytona)
+- [x] Skills
+- [x] Support for more sandboxes (Daytona, Cloud Run)
 - [ ] Deployment guides
 - [ ] More SSO providers (Okta, Entra ID)
 

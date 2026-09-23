@@ -4,59 +4,62 @@ The sandbox lets an LLM run arbitrary shell commands against a filesystem. That 
 
 ## Isolation model
 
-Every sandbox is an isolated container, **per-conversation** — the sandbox tied to thread A cannot be reached from thread B — and created **on demand** when the LLM calls `create_sandbox`; no idle containers sit around.
+Every sandbox is an isolated container, **per-thread** — the sandbox tied to thread A cannot be reached from thread B — and opened by **auxilia** at the start of each run of a sandbox-bound agent. No idle containers sit around beyond the provider's own lifetime rules.
 
 The **auxilia** backend never executes commands itself — it always delegates to the sandbox runtime. So the blast radius of a malicious prompt is whatever your sandbox deployment allows the container to do.
 
-**With OpenSandbox** (`SANDBOX_PROVIDER=opensandbox`, the default), containers are managed by [OpenSandbox](https://github.com/langchain-ai/opensandbox) and have a **TTL** (default 30 minutes); after expiry they are destroyed and any state inside is lost.
+**With OpenSandbox**, containers are managed by [OpenSandbox](https://github.com/alibaba/OpenSandbox) and have a **TTL** of 30 minutes, renewed each time the thread runs; after expiry they are destroyed and any state inside is lost.
 
-**With Cloud Run sandboxes** (`SANDBOX_PROVIDER=cloudrun`):
+**With Daytona**, sandboxes run in Daytona's infrastructure, auto-stop after the configured idle period and are started again on the next run. Deleting them is up to you in the Daytona dashboard.
+
+**With Cloud Run sandboxes**:
 
 - Sandboxed code sees the gateway image's filesystem **read-only**, with a private writable overlay per sandbox
-- Sandboxes have **no outbound network access** unless the gateway is deployed with `ALLOW_EGRESS=true` *and* the backend sets `CLOUD_RUN_SANDBOX_ALLOW_EGRESS=true`
+- Sandboxes have **no outbound network access** unless the gateway is deployed with `ALLOW_EGRESS=true` *and* the sandbox's **Allow network egress** is on
 - The gateway requires a shared bearer secret on every request and **fails closed** if the secret is unset
-- If `CLOUD_RUN_SANDBOX_GCS_BUCKET` is set, the writable overlay is snapshotted to GCS at the end of each turn — treat that bucket as containing whatever agents write
+- If a **GCS bucket** is set, the writable overlay is snapshotted to GCS at the end of each turn — treat that bucket as containing whatever agents write
+
+## Credentials
+
+The API key or gateway secret you enter for a sandbox is **encrypted at rest** (AES-GCM, like MCP API keys) and never returned by the API — only a last-characters hint for admins. Put the OpenSandbox controller on a private network (VPC, internal DNS) and only let the **auxilia** backend reach it. **Use server proxy** routes file reads and writes through the controller rather than direct container ports, which is simpler in firewalled environments.
 
 ## Volume mounts (OpenSandbox only)
 
-You can mount host paths into every sandbox via `OPEN_SANDBOX_VOLUME_MOUNTS`:
+You can mount host paths into every sandbox created from a sandbox row via its **Volume mounts** field:
 
-```env
-OPEN_SANDBOX_VOLUME_MOUNTS=/srv/shared:/workspace:ro,/tmp/auxilia:/mnt/scratch
+```
+/srv/shared:/workspace:ro, /tmp/auxilia:/mnt/scratch
 ```
 
 Format: `host_path:sandbox_path[:ro]`, comma-separated.
 
-- Each entry becomes a volume on every sandbox spun up by this backend
+- Each entry becomes a volume on every sandbox spun up from this row
 - The `:ro` suffix mounts read-only
-- Host paths that don't exist are skipped with a warning at startup
-- Host paths with `~` are expanded to the backend's home directory
+- Paths are resolved (`~` expanded) and checked for existence on the **auxilia backend** host, and skipped with a warning when missing — mounts are meant for a controller running on the same host as the backend
 
-Treat the host paths you mount as **public** to any agent with the sandbox enabled. If you mount `/srv/data` read-only, every sandboxed agent can read it. If you mount `/tmp/auxilia` read-write, every sandbox can write to it — it is a shared scratch space.
+Treat the host paths you mount as **public** to any agent bound to that sandbox. If you mount `/srv/data` read-only, every such agent can read it. If you mount `/tmp/auxilia` read-write, every sandbox can write to it — it is a shared scratch space. This is also how a sandbox can be given a credential file (a service account key, a `gcloud` configuration) without baking it into the image: mount it read-only, and bind that sandbox only to the agents that should have it.
 
 ## Timeouts
 
 Two timeouts apply:
 
-- **Per-command timeout** — `OPEN_SANDBOX_TIMEOUT` (or `CLOUD_RUN_SANDBOX_TIMEOUT`), default 1800s. If a single `execute` call doesn't finish in this window, **auxilia** cancels it and returns `exit_code=124`.
-- **Container TTL** (OpenSandbox only) — default 30 minutes; renewed each time `connect_sandbox` is called. Cloud Run sandboxes have no TTL; their lifetime is bounded by the gateway instance, with GCS snapshots covering continuity.
+- **Per-command timeout** — the sandbox's **Timeout (seconds)**, default 1800. If a single `execute` call doesn't finish in this window, **auxilia** interrupts it and returns `exit_code=124`.
+- **Container lifetime** — 30 minutes on OpenSandbox (renewed on every run); the idle **Auto-stop** on Daytona (a stopped sandbox is woken, not lost); none on Cloud Run, where the gateway instance and GCS snapshots bound it.
 
-Keep the per-command timeout tight. Long-running commands are rare in practice and chew up OpenSandbox capacity.
+Keep the per-command timeout tight. Long-running commands are rare in practice and chew up sandbox capacity.
 
-## Authentication
+## Skills in the sandbox
 
-The OpenSandbox controller authenticates requests with the `OPEN_SANDBOX_API_KEY`. Put the controller on a private network (VPC, internal DNS) and only let the **auxilia** backend reach it.
-
-Setting `OPEN_SANDBOX_USE_SERVER_PROXY=true` routes the agent's file reads/writes through the OpenSandbox server rather than direct container ports, which is simpler in firewalled environments.
+The `scripts/` of every [skill](/agents/skills) enabled on the agent are uploaded into the sandbox at `/tmp/auxilia-skills/`. A skill synced from a repository is code your agents will run — review it in the repository's own review flow, and keep the **Sources** tab admin-only (it is).
 
 ## Recommended posture
 
 A safe default for most teams:
 
-- Run OpenSandbox on an **internal-only** host or VPC
-- **Never mount** sensitive host paths — let the sandbox stay ephemeral
+- Run OpenSandbox on an **internal-only** host or VPC, or use a managed provider
+- **Never mount** sensitive host paths — let the sandbox stay ephemeral, and give secrets to a dedicated sandbox row bound to a few trusted agents
 - Keep the per-command timeout at 30 min or less
-- Turn **Code execution** on only for agents whose owners trust the LLM to run code against the configured image
+- Bind a sandbox only to agents whose owners trust the LLM to run code against the configured image
 - Use **tool approvals** on non-sandbox write tools (HubSpot writes, GitHub PRs) to keep a human in the loop even when the agent is autonomous inside the sandbox
 
-If you need stronger guarantees, gate the sandbox toggle behind a workspace-admin-only agent, and use the [permissions model](/agents/permissions) to restrict who can chat with it.
+If you need stronger guarantees, keep sandboxed agents unshared or shared with a small team, using the [permissions model](/agents/permissions) to restrict who can chat with them.

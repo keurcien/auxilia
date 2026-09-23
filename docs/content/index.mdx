@@ -2,19 +2,23 @@
 title: Open-source MCP client for teams
 ---
 
-import { LandingHero, FeatureStrip, AgentChips } from "../src/components/landing";
+import {
+	LandingHero,
+	FeatureStrip,
+	AgentChips,
+} from "../src/components/landing";
 
 <div className="pm-landing">
 
 <LandingHero />
 
 <div className="pm-demo">
-  <video
-    controls
-    playsInline
-    preload="metadata"
-    src="https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/auxilia.mp4"
-  />
+	<video
+		controls
+		playsInline
+		preload="metadata"
+		src="https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/auxilia-demo.mp4"
+	/>
 </div>
 
 <FeatureStrip />
@@ -42,14 +46,14 @@ import { LandingHero, FeatureStrip, AgentChips } from "../src/components/landing
 
 ## Architecture
 
-**auxilia** is composed of three services plus an optional sandbox runtime:
+**auxilia** is composed of three services plus an optional sandbox provider:
 
-| Service      | Technology                    | Purpose                                       |
-| ------------ | ----------------------------- | --------------------------------------------- |
-| **Backend**  | FastAPI + LangGraph           | Agent runtime, MCP client, auth, API          |
-| **Web**      | Next.js 16 + React 19         | User interface and backend proxy              |
-| **Database** | PostgreSQL 17 + Redis 7       | Persistence, checkpoints, OAuth token storage |
-| **Sandbox**  | OpenSandbox (optional)        | Isolated code execution for agents            |
+| Service      | Technology                                   | Purpose                                       |
+| ------------ | -------------------------------------------- | --------------------------------------------- |
+| **Backend**  | FastAPI + LangGraph                          | Agent runtime, MCP client, auth, API          |
+| **Web**      | Next.js 16 + React 19                        | User interface and backend proxy              |
+| **Database** | PostgreSQL 17 + Redis 7                      | Persistence, checkpoints, OAuth token storage |
+| **Sandbox**  | OpenSandbox, Daytona or Cloud Run (optional) | Isolated code execution for agents            |
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌──────────────────┐
@@ -60,7 +64,7 @@ import { LandingHero, FeatureStrip, AgentChips } from "../src/components/landing
                                     ┌────────────┼────────────┐
                                     │            │            │
                          ┌──────────▼──┐ ┌───────▼──────┐ ┌───▼──────────┐
-                         │ Remote MCP  │ │  PostgreSQL  │ │  OpenSandbox │
+                         │ Remote MCP  │ │  PostgreSQL  │ │   Sandbox    │
                          │  Servers    │ │  + Redis     │ │  (optional)  │
                          └─────────────┘ └──────────────┘ └──────────────┘
 ```
@@ -69,7 +73,7 @@ import { LandingHero, FeatureStrip, AgentChips } from "../src/components/landing
 
 ### Agents
 
-An **agent** is defined by a system prompt, an avatar (emoji + color), a set of MCP server bindings, and optional subagents. Each agent can use tools from multiple MCP servers at once.
+An **agent** is defined by a system prompt, an avatar (emoji + color), its **tools** — MCP server bindings and optionally one sandbox — the **skills** it may follow, and optional subagents. Each agent can use tools from multiple MCP servers at once.
 
 ### MCP servers
 
@@ -81,25 +85,33 @@ Each tool exposed by an MCP server can be set to one of three states per agent: 
 
 ### Sandbox
 
-Turn on the **sandbox** for an agent to give it a Linux code-execution environment with `ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`, and `execute`. Useful for data analysis, scripting, and file manipulation tasks.
+Bind a **sandbox** to an agent to give it a Linux code-execution environment with `execute`, `ls`, `read_file`, `write_file`, `edit_file`, `glob` and `grep`. Sandboxes are workspace resources (OpenSandbox, Daytona or Cloud Run) an admin registers once; the runtime opens the thread's sandbox before every run.
+
+### Skills
+
+A **skill** is a `SKILL.md` procedure — plus optional files and scripts — kept in a workspace library, written in the app or synced from a GitHub/GitLab repository, and enabled per agent.
+
+### Triggers
+
+A **trigger** runs an agent on a cron schedule, in a timezone, as its owner — each firing is a new thread with a background run.
 
 ### Workspace roles
 
-- **admin** — manage MCP servers, invites, personal access tokens, agent permissions
-- **editor** — create and edit agents
-- **member** — chat with agents the admin has shared with them
+- **admin** — manage MCP servers, sandboxes, models, users and teams, invites, personal access tokens, and every agent
+- **editor** — create and edit agents, skills and triggers
+- **member** — chat with agents shared with them or their team
 
 ## Supported LLM providers
 
-| Provider  | Models                                                        |
-| --------- | ------------------------------------------------------------- |
-| Anthropic | Claude Haiku 4.5, Sonnet 4.6, Sonnet 5                        |
-| OpenAI    | GPT-4o mini                                                   |
-| Google    | Gemini 3 Flash Preview, Gemini 3 Pro Preview                  |
-| DeepSeek  | DeepSeek v4 Flash, v4 Pro                                     |
-| Xiaomi     | MiMo-V2.5-Pro, MiMo-V2.5                                      |
-| OpenRouter | GLM 5.2 (Max), GLM 5.2 (High)                                 |
-| Meta       | Muse Spark 1.2                                                |
+| Provider   | Models                                       |
+| ---------- | -------------------------------------------- |
+| Anthropic  | Claude Haiku 4.5, Sonnet 4.6, Sonnet 5       |
+| OpenAI     | GPT-4o mini                                  |
+| Google     | Gemini 3 Flash Preview, Gemini 3 Pro Preview |
+| DeepSeek   | DeepSeek v4 Flash, v4 Pro                    |
+| Xiaomi     | MiMo-V2.5-Pro, MiMo-V2.5                     |
+| OpenRouter | GLM 5.2 (Max), GLM 5.2 (High)                |
+| Meta       | Muse Spark 1.2                               |
 
 Configure one or more providers via environment variables. At least one is required.
 

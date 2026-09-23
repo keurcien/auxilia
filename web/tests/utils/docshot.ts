@@ -31,7 +31,10 @@ export async function docShot(
 	name: string,
 	{ fullPage = false, settle = 600 }: DocShotOptions = {},
 ): Promise<string> {
-	await page.waitForLoadState("networkidle").catch(() => {});
+	// Bounded: a chat page keeps its event stream open (a paused run never
+	// goes network-idle), and the default navigation timeout is unlimited —
+	// an unbounded wait here sank the approval-card shot for its whole budget.
+	await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
 	await page.waitForTimeout(settle);
 	const dir = screenshotDir();
 	fs.mkdirSync(dir, { recursive: true });

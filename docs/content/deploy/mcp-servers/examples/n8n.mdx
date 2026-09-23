@@ -50,7 +50,7 @@ Toggle the workflow to **Active** in n8n. The Production MCP URL only responds w
 
 In **auxilia**, navigate to **MCP Servers** (admin only):
 
-1. Click **Add MCP Server**
+1. Click **Add MCP server** → **Add a custom server**
 2. Fill in:
    - **Name** — e.g. `n8n Automations`
    - **URL** — the Production MCP URL from the trigger node
@@ -63,8 +63,8 @@ Because n8n uses a shared bearer token (not per-user OAuth), there's no **Connec
 
 ## 5. Add it to an agent
 
-1. Open an agent's configuration page
-2. Click **Add MCP Server** and pick **n8n Automations**
+1. Open the agent and click **Edit**
+2. Click **Add tool** and pick **n8n Automations**
 3. Review the discovered tools and set [tool settings](/agents/tools). Workflows that write to other systems are good candidates for **needs approval** until you trust the agent's judgment.
 
 If you later add or rename Tool sub-nodes in n8n, click **Sync tools** on the agent-server binding so **auxilia** picks up the changes.

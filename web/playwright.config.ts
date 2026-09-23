@@ -86,12 +86,17 @@ export default defineConfig({
 						testMatch: "**/*.docs.spec.ts",
 						timeout: 120_000,
 						retries: 0,
+						// One shot at a time: two live agent runs racing on the same
+						// worker pool made the approval-card run wait minutes.
+						fullyParallel: false,
 						// Remote MCP servers answer on their own schedule.
 						expect: { timeout: 30_000 },
 						use: {
 							...devices["Desktop Chrome"],
 							baseURL: demoStackBaseURL,
 							viewport: { width: 1440, height: 900 },
+							// Retina PNGs: docs images are shown scaled down, so 1x looks soft.
+							deviceScaleFactor: 2,
 							video: "off" as const,
 							trace: "off" as const,
 						},

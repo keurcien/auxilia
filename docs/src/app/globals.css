@@ -898,3 +898,259 @@ body {
   font-weight: 500;
   color: var(--auxilia-meta);
 }
+
+/* ------------------------------------------------------------------ */
+/* Case studies — Medium-like cards + article column                    */
+/* ------------------------------------------------------------------ */
+
+/* The section's pages render with layout: full (no sidebar, no toc); the
+   article element that holds the MDX is centred and given a reading width. */
+article:has(.pm-cs-hero) {
+  max-width: 1120px;
+  margin-inline: auto;
+}
+article:has(.pm-article-header) {
+  max-width: 740px;
+  margin-inline: auto;
+  padding-top: 24px;
+}
+
+.pm-cs-hero {
+  padding: 48px 0 28px;
+  border-bottom: 1px solid var(--auxilia-border, rgba(16, 24, 32, 0.08));
+  margin-bottom: 36px;
+}
+.pm-cs-hero-title {
+  font-family: "Space Grotesk", sans-serif;
+  font-size: clamp(36px, 4.5vw, 52px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  margin: 12px 0 14px;
+  color: var(--auxilia-fg);
+}
+.pm-cs-hero-sub {
+  font-size: 18px;
+  line-height: 1.55;
+  color: var(--auxilia-muted);
+  max-width: 640px;
+  margin: 0;
+}
+
+.pm-cs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 28px;
+  margin-bottom: 56px;
+}
+.pm-cs-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--auxilia-border, rgba(16, 24, 32, 0.1));
+  border-radius: 14px;
+  background: var(--auxilia-card, #fff);
+  overflow: hidden;
+  text-decoration: none !important;
+  color: inherit;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease;
+}
+.pm-cs-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--auxilia-border-strong, rgba(16, 24, 32, 0.18));
+  box-shadow: 0 18px 40px -22px rgba(10, 25, 30, 0.35);
+}
+.pm-cs-cover {
+  aspect-ratio: 16 / 9;
+  background: var(--auxilia-tint, #e8f1f2);
+  border-bottom: 1px solid var(--auxilia-border, rgba(16, 24, 32, 0.08));
+  overflow: hidden;
+}
+.pm-cs-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top left;
+  display: block;
+  margin: 0;
+}
+.pm-cs-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 20px 20px;
+  flex: 1;
+}
+.pm-cs-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pm-cs-tag {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--auxilia-primary, #16606e);
+  background: var(--auxilia-tint, #e8f1f2);
+  border-radius: 4px;
+  padding: 2px 7px;
+}
+.pm-cs-card-title {
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  margin: 2px 0 0;
+  color: var(--auxilia-fg);
+}
+.pm-cs-card-desc {
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--auxilia-muted);
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.pm-cs-byline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 8px;
+}
+.pm-cs-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--auxilia-primary, #16606e);
+  color: #fff;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.pm-cs-byline-lg .pm-cs-avatar {
+  width: 40px;
+  height: 40px;
+  font-size: 13px;
+}
+.pm-cs-byline-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
+.pm-cs-author {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--auxilia-fg);
+}
+.pm-cs-author-role {
+  font-weight: 400;
+  color: var(--auxilia-muted);
+}
+.pm-cs-meta {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11.5px;
+  color: var(--auxilia-meta, #6b7c82);
+}
+.pm-cs-byline-lg .pm-cs-author {
+  font-size: 15px;
+}
+.pm-cs-byline-lg .pm-cs-meta {
+  font-size: 12.5px;
+}
+.pm-cs-empty {
+  color: var(--auxilia-muted);
+}
+.pm-cs-outro {
+  max-width: 740px;
+  border-top: 1px solid var(--auxilia-border, rgba(16, 24, 32, 0.08));
+  padding-top: 8px;
+}
+
+/* Article */
+.pm-article-header {
+  margin-bottom: 40px;
+}
+.pm-cs-back {
+  display: inline-block;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12.5px;
+  color: var(--auxilia-muted);
+  text-decoration: none;
+  margin-bottom: 26px;
+}
+.pm-cs-back:hover {
+  color: var(--auxilia-primary, #16606e);
+}
+.pm-article-title {
+  font-family: "Space Grotesk", sans-serif;
+  font-size: clamp(34px, 4.2vw, 46px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  margin: 14px 0 16px;
+  color: var(--auxilia-fg);
+}
+.pm-article-sub {
+  font-size: 20px;
+  line-height: 1.5;
+  color: var(--auxilia-muted);
+  margin: 0 0 24px;
+}
+.pm-article-cover {
+  margin: 36px 0 0;
+}
+.pm-article-cover img {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid var(--auxilia-border, rgba(16, 24, 32, 0.1));
+  display: block;
+}
+.pm-article-cover figcaption {
+  text-align: center;
+  font-size: 13px;
+  color: var(--auxilia-meta, #6b7c82);
+  margin-top: 10px;
+}
+
+/* Reading typography for the article body */
+article:has(.pm-article-header) :is(p, li) {
+  font-size: 18px;
+  line-height: 1.75;
+}
+article:has(.pm-article-header) h2 {
+  font-size: 28px;
+  margin-top: 2.2em;
+}
+article:has(.pm-article-header) h3 {
+  font-size: 21px;
+}
+article:has(.pm-article-header) :is(pre, table) {
+  font-size: 14px;
+}
+article:has(.pm-article-header) img {
+  border-radius: 10px;
+}
+
+/* Nextra's h2 styling adds a rule and top margin; a card title wants neither. */
+.pm-cs-card-title,
+.pm-cs-card-title:where(h2) {
+  border-bottom: none !important;
+  padding-bottom: 0 !important;
+  margin-top: 2px !important;
+}
+/* Petrol on dark is a light teal — ink initials read on it, white ones don't. */
+.dark .pm-cs-avatar {
+  color: #101820;
+}

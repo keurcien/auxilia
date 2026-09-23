@@ -1,6 +1,8 @@
 # Agent Configuration
 
-Every field on an agent can be edited at any time. Changes take effect on the next message — existing threads are not recomputed.
+An agent's page opens in **read mode**. Click **Edit** to change anything, then **Save changes** — the whole draft (identity, instructions, tools, skills, subagents) is saved in one step, and **Discard** throws it away. Changes take effect on the next message — existing threads are not recomputed.
+
+![Agent detail page](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/agent-detail.png)
 
 ## Instructions (system prompt)
 
@@ -24,6 +26,8 @@ last-activity date. Format monetary values with currency symbols. If a record
 cannot be found, say so plainly rather than guessing.
 ```
 
+Procedures that several agents share belong in a [skill](/agents/skills) rather than in every agent's instructions.
+
 ## Avatar
 
 Agents have a two-part avatar:
@@ -35,34 +39,41 @@ Agents have a two-part avatar:
 
 A short description shown on the agent card in the **Agents** list. Keep it to one sentence — users pick agents by skimming this.
 
-## MCP server bindings
+## Tools
 
-After the agent exists, bind one or more workspace MCP servers from the agent's configuration page:
+The **Tools** section lists what the agent can call. Click **Add tool** to open the picker: it shows the workspace's MCP servers, and — when the workspace has one configured and the agent has none yet — the sandboxes available for code execution.
 
-1. Click **Add MCP Server**
-2. Pick a server from the workspace catalog
-3. **auxilia** fetches the server's tools and adds them to the binding
+![Add tool dialog](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/agent-add-tool-dialog.png)
 
-Each binding carries:
+### MCP server bindings
 
-- **Tools** — the list discovered at bind time, each one with a status (`always allow`, `needs approval`, `disabled`). See [Tool Settings](/agents/tools).
-- **Sync tools** — re-fetches the tool list from the MCP server. Use this when the server publishes new tools or changes descriptions.
+Adding a server connects to it and fetches its tools into the draft; the card shows **CONNECTED** once the list has arrived. Each binding carries the tool list with one status per tool (`Always allow`, `Needs approval`, `Disabled`) — see [Tools & Permissions](/agents/tools). The list is re-fetched and merged each time the server card connects, so tools the server publishes later appear as **Always allow** without losing your existing settings.
 
-## Code execution (sandbox)
+Expand a server card to change tool statuses, or open its tool descriptions dialog to read what each tool does.
 
-Toggle **Code execution** on the agent page to give the agent a Linux sandbox with shell, file, and search tools. See [Sandbox](/agents/sandbox) for the full toolset and security model.
+### Code execution (sandbox)
+
+An agent runs code when it is bound to **one** workspace sandbox — pick it in the **Add tool** dialog. Sandboxes are configured by a workspace admin under **Settings → Sandboxes**. See [Using the sandbox](/agents/sandbox) for what the agent gains and how the sandbox behaves across turns.
+
+## Skills
+
+The **Skills** section lists the skills enabled on the agent. Click **Add skill** to pick any skill from the workspace library; the selection is saved with the rest of the config. A skill with scripts stays attached on an agent without a sandbox — the row says its scripts won't run there and offers to turn code execution on. See [Skills](/agents/skills).
 
 ## Subagents
 
-Admins can attach **subagents** — specialized agents that the coordinator agent can call as tools. See [Subagents](/agents/subagents).
+Workspace admins can attach **subagents** — specialized agents the coordinator can call as tools — with **Add subagent**. See [Subagents](/agents/subagents).
+
+## Permissions
+
+The **Permissions** tab controls who can use and edit the agent — people, with a level each, and whole teams. See [Agent Permissions](/agents/permissions).
 
 ## Archiving and deleting
 
-Agents can be **archived** (hidden from the default list but preserved with their threads) or **deleted** outright. Deleting an agent removes:
+Agents can be **archived** (hidden from the default list but preserved with their threads, and restorable) or **deleted permanently**. Permanent deletion removes:
 
 - The agent config
-- All MCP server bindings for that agent
+- All MCP server, sandbox and skill bindings for that agent
 - All subagent links to or from it
 - All threads and checkpoints associated with it
 
-Archived agents remain queryable; deleted agents don't.
+An archived agent's triggers are paused automatically the next time they would fire.

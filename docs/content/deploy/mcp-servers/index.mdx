@@ -19,14 +19,14 @@ When an agent runs, the backend opens a fresh MCP session for each server bound 
 
 MCP servers are registered at the **workspace level** by an admin. Once registered, any agent in the workspace can bind them. This avoids duplicate setup across agents and centralizes credential management.
 
-Only users with the **admin** role can add, edit, or delete MCP servers. Editors and members can see which servers exist and bind them to agents they own.
+Only users with the **admin** role can add, edit, or delete MCP servers. Editors can see which servers exist and bind them to agents they can edit, from the agent editor's **Add tool** dialog.
 
 ## Adding an MCP server
 
-Navigate to **MCP Servers** in the sidebar. You have two options:
+Navigate to **MCP Servers** in the sidebar and click **Add MCP server**. You have two options:
 
-1. **Set up an official server** — a pre-configured server from the [official catalog](/deploy/mcp-servers/catalog) (Notion, Linear, GitHub, Sentry, Stripe, HubSpot, BigQuery, …). Click **Install** and, if required, supply OAuth client credentials.
-2. **Add a custom server** — any remote MCP server. Click **Add MCP Server** and supply the URL, a display name, and the authentication method.
+1. **Install an official server** — a pre-configured server from the [official catalog](/deploy/mcp-servers/catalog) (Notion, Linear, GitHub, Sentry, Stripe, HubSpot, BigQuery, …). Click **Add** on its card and, if required, supply OAuth client credentials.
+2. **Add a custom server** — any remote MCP server. Click **Add a custom server** and supply the URL, a display name, and the authentication method; **Test connection** checks it before you save.
 
 ![MCP servers page](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/mcp_servers_dialog.png)
 

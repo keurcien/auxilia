@@ -1,87 +1,70 @@
 # Using the Sandbox
 
-This page is the **agent-author's view** of the sandbox: how to turn it on for a specific agent, what tools the LLM gains, and a typical usage pattern.
+This page is the **agent-author's view** of the sandbox: how to give an agent code execution, what tools the LLM gains, and how the sandbox behaves across a conversation.
 
-If your workspace doesn't have a sandbox runtime configured yet — OpenSandbox or Cloud Run sandboxes — see **[Sandbox — Setup](/deploy/sandbox/setup)** first. Only workspace admins can run the sandbox runtime; agent authors just toggle it on.
+If your workspace has no sandbox yet, a workspace admin needs to add one under **Settings → Sandboxes** first — see **[Sandbox — Setup](/deploy/sandbox/setup)**. Agent authors only bind it.
 
-## Enable code execution on an agent
+## Give an agent code execution
 
-1. Open the agent's configuration page
-2. Scroll to **Code execution**
-3. Toggle it on
+1. Open the agent and click **Edit**
+2. In the **Tools** section, click **Add tool**
+3. Below the MCP servers, pick a **sandbox** and click **Add**
+4. **Save changes**
 
-The next message you send exposes the sandbox toolset (below) to the LLM. The agent decides when to spin up the container — usually right before it needs to run code.
+An agent binds **one** sandbox. From the next message on, every run of the agent has a live sandbox: **auxilia** opens it before the model sees the conversation — there is nothing for the LLM to create or connect.
 
-If the **auxilia** backend has no sandbox runtime configured (see [Setup](/deploy/sandbox/setup)), the toggle is still visible but has no effect.
+![Add tool dialog with a sandbox](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/agent-add-tool-dialog.png)
 
-## Lifecycle tools
+## What the agent gains
 
-When code execution is enabled, **auxilia** exposes two sandbox-lifecycle tools plus a full file-ops toolset.
+A sandboxed agent runs on deepagents' harness. On top of its MCP tools it gets:
 
-### `create_sandbox(timeout_minutes: int = 30)`
+| Tool | What it does |
+| --- | --- |
+| `execute(command, timeout=None)` | Run a shell command in the sandbox; returns stdout + stderr and the exit code. Commands are cut off at the sandbox's per-command **timeout** (default 30 minutes) with exit code `124`. |
+| `ls(path)` | List a directory |
+| `read_file(path, offset=0, limit=2000)` | Read a file with line numbers, paginated |
+| `write_file(path, content)` | Create a file (fails if it exists — use `edit_file` to change one) |
+| `edit_file(path, old_string, new_string, replace_all=false)` | Exact string replacement inside a file |
+| `glob(pattern)` | Find files by pattern, e.g. `**/*.py` |
+| `grep(pattern, path=".")` | Regex search over file contents |
+| `write_todos` | Keep a plan for multi-step work (rendered in the chat) |
+| `task` | Delegate a sub-task to a general-purpose helper that has the same tools and skills |
 
-Create a new container for this conversation. Returns the sandbox ID.
+All file tools operate on the sandbox's filesystem, never on the **auxilia** host. The packages listed as **Default packages** on the sandbox are pip-installed when a sandbox is created, so the agent doesn't have to.
 
-The LLM is instructed to call this **before** any code execution. A single sandbox is reused across turns until it expires or the user starts a new thread. On OpenSandbox, `timeout_minutes` sets the container TTL (default 30 minutes); on Cloud Run sandboxes there is no TTL and the parameter is ignored.
+## One sandbox per thread
 
-### `connect_sandbox(sandbox_id: str)`
+The thread remembers its sandbox. At the start of every run **auxilia**:
 
-Reconnect to an existing sandbox by ID. Useful when the conversation is resumed later. On OpenSandbox, success renews the TTL for another 30 minutes. On Cloud Run sandboxes, if the live sandbox is gone, it is restored from its last GCS snapshot (files and pip installs included) when a snapshot bucket is configured.
+1. **Reconnects** the thread's sandbox if it still exists — files written in earlier turns are there, and on OpenSandbox the 30-minute lifetime is renewed; on Daytona a sandbox that auto-stopped while idle is started again
+2. **Replaces** it with a fresh one if it is gone (expired, deleted, or lost with its host and no snapshot) — the model receives a host notice saying the earlier files are gone, so it recreates what it needs instead of assuming
+3. **Creates** one on the first run of the thread
 
-If the sandbox no longer exists (and can't be restored), the tool returns an error and the LLM is expected to call `create_sandbox` instead.
+At the end of each turn the sandbox state is persisted where the provider supports it (Cloud Run sandboxes snapshot to GCS). A new thread always starts with a new sandbox.
 
-## File-ops tools
+## When the sandbox is unavailable
 
-All of these operate against the container's filesystem. They come from the [OpenSandbox `BaseSandbox`](https://github.com/langchain-ai/opensandbox) implementation and route through a single `execute()` call under the hood.
+If the sandbox provider does not answer — wrong credentials, quota, outage — the agent is **not ready**: the chat replaces the composer with a notice, and a run launched over the API is refused with a `409 sandbox_unavailable`. The model never runs without the sandbox it was configured with, and never sees the outage. Fix the sandbox under **Settings → Sandboxes** and the agent recovers on its own.
 
-### `ls(path)`
+## Skills and scripts
 
-List a directory. Returns entries with their size and modification time, suitable for quick inspection.
-
-### `read_file(path, offset=0, limit=2000)`
-
-Read a file with line numbers. For files larger than the default limit, pass `offset` and `limit` to paginate. Good default behavior for the LLM: read what it needs, not the whole file.
-
-### `write_file(path, content)`
-
-Create a new file. Fails if the file already exists — use `edit_file` for updates.
-
-### `edit_file(path, old_string, new_string, replace_all=false)`
-
-Do an exact string replacement inside an existing file. If `old_string` is ambiguous (appears more than once) the tool errors unless `replace_all=true`.
-
-### `glob(pattern)`
-
-Find files matching a glob — e.g. `**/*.py`, `data/*.csv`. Returns paths sorted by mtime.
-
-### `grep(pattern, path=".", mode="files_with_matches")`
-
-Regex search over file contents. Modes:
-
-- `files_with_matches` — only paths
-- `content` — lines that match (supports `-A` / `-B` / `-C` context)
-- `count` — match counts per file
-
-### `execute(command, timeout=None)`
-
-Run an arbitrary shell command. The command runs in the background and is polled until it finishes or hits the timeout (default 30 min). Returns stdout + stderr combined and the exit code.
-
-Timeouts are enforced on the server side — if you pass a very large `timeout`, it is clamped by the OpenSandbox controller's own limits.
+Skills with `scripts/` need a sandboxed agent: the run uploads every enabled skill to `/tmp/auxilia-skills/<skill-name>/` in the sandbox, and the system prompt lists the scripts by absolute path, so the agent reads the `SKILL.md` and runs the script in two tool calls. See [Skills](/agents/skills).
 
 ## Typical usage pattern
 
-A data-analysis agent's first few turns look like:
+A data-analysis agent's turn looks like:
 
-1. `create_sandbox()` → sandbox `sb_abc123`, TTL 30 min
-2. `execute("pip install pandas matplotlib")` (only if not in `OPEN_SANDBOX_DEFAULT_PACKAGES`)
-3. `write_file("/tmp/analysis.py", "...")`
-4. `execute("python /tmp/analysis.py")`
-5. `read_file("/tmp/result.json")`
+1. `write_file("/tmp/analysis.py", "...")`
+2. `execute("python /tmp/analysis.py")`
+3. `read_file("/tmp/result.json")`
 
-Because the sandbox lives for the length of the conversation, subsequent turns can just `execute` or `read_file` without rebuilding state.
+Because the sandbox lives for the length of the thread, later turns can just `execute` or `read_file` without rebuilding state. The [tool call](/agents/tools#tool-calls-in-chat) for each step shows up in the chat's **Worked** timeline.
+
+![Sandbox tool calls in chat](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/chat-tool-call.png)
 
 ## Related
 
-- **[Sandbox — Setup](/deploy/sandbox/setup)** — deploying OpenSandbox alongside **auxilia**
+- **[Sandbox — Setup](/deploy/sandbox/setup)** — adding an OpenSandbox, Daytona or Cloud Run sandbox to the workspace
 - **[Sandbox — Security](/deploy/sandbox/security)** — isolation model, volume mounts, timeouts
-- **[Tools & Permissions](/agents/tools)** — approval settings for MCP tool calls (separate from sandbox calls)
+- **[Tools & Permissions](/agents/tools)** — approval settings for MCP tool calls (sandbox tools are always allowed)
