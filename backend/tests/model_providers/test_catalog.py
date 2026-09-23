@@ -59,14 +59,37 @@ def test_openai_factory_uses_responses_for_tool_conversations(model_id: str):
     assert result["output"] == "Found it"
 
 
-def test_openai_factory_passes_reasoning_effort_through():
+@pytest.mark.parametrize(
+    "model_id",
+    ["gpt-5", "gpt-5-mini", "gpt-5-nano", "gpt-5.1", "gpt-5.2", "gpt-5.4", "gpt-5.5"],
+)
+@pytest.mark.parametrize("reasoning_effort", [None, "none", "xhigh"])
+@pytest.mark.parametrize("with_tools", [False, True])
+def test_migrated_openai_models_serialize_responses_reasoning(
+    model_id, reasoning_effort, with_tools
+):
     model = ChatModelFactory().create(
-        "openai", "gpt-5.2", "unit-test-key", reasoning_effort="xhigh"
+        "openai", model_id, "unit-test-key", reasoning_effort=reasoning_effort
     )
-    assert model.reasoning_effort == "xhigh"
-    # No explicit choice → nothing sent, the provider default applies.
-    model = ChatModelFactory().create("openai", "gpt-5.2", "unit-test-key")
-    assert model.reasoning_effort is None
+    kwargs = {}
+    if with_tools:
+        bound = model.bind_tools([{"name": "lookup", "parameters": {"type": "object"}}])
+        kwargs = bound.kwargs
+    payload = model._get_request_payload([HumanMessage(content="test")], **kwargs)
+
+    # No tools must still use Responses, and explicit "none" must not be
+    # confused with an unset effort (which leaves the provider default intact).
+    assert "input" in payload
+    assert "messages" not in payload
+    assert "reasoning_effort" not in payload
+    if reasoning_effort is None:
+        assert "reasoning" not in payload
+    else:
+        assert payload["reasoning"] == {"effort": reasoning_effort}
+    if with_tools:
+        assert payload["tools"][0]["type"] == "function"
+    else:
+        assert "tools" not in payload
 
 
 def test_deepseek_factory_maps_effort_onto_thinking_params():
