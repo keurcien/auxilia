@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.2](https://github.com/keurcien/auxilia/compare/backend-v0.9.1...backend-v0.9.2) (2026-09-23)
+
+
+### Bug Fixes
+
+* **docker:** avoid duplicating the venv layer via chown -R ([#354](https://github.com/keurcien/auxilia/issues/354)) ([cde58c8](https://github.com/keurcien/auxilia/commit/cde58c864b0f03d58737d92e7f139df7e9f33f5f))
+
 ## [0.9.1](https://github.com/keurcien/auxilia/compare/backend-v0.9.0...backend-v0.9.1) (2026-09-22)
 
 
