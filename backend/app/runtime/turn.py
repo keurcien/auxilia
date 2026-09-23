@@ -40,7 +40,6 @@ from app.runtime.middleware.structured_output import is_structured_output_artifa
 from app.runtime.protocol.emit import ProtocolEmitter
 from app.runtime.resolve import ResolvedRun
 from app.runtime.resources import LiveResources
-from app.runtime.runs.models import RunDB
 from app.runtime.settings import agent_settings
 
 
@@ -60,7 +59,8 @@ SANDBOX_REPLACED_NOTICE = (
 
 @dataclass(frozen=True, kw_only=True)
 class TurnInput:
-    """One turn's replay parameters — exactly what the run record stores.
+    """One turn's replay parameters — exactly what the run record stores
+    (the worker maps `RunDB` onto it; this stage does not know the record).
 
     `input` is the graph input (e.g. `{"messages": [{"type": "human", …}]}`)
     or None for a resume; `command` a LangGraph Command dict
@@ -74,16 +74,6 @@ class TurnInput:
     trigger: str | None = None
     config_overrides: dict | None = None
     output_schema: dict | None = None
-
-    @classmethod
-    def from_record(cls, record: RunDB) -> "TurnInput":
-        return cls(
-            input=record.input,
-            command=record.command,
-            trigger=record.trigger,
-            config_overrides=record.config_overrides,
-            output_schema=record.output_schema,
-        )
 
 
 @dataclass(frozen=True)

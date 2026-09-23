@@ -28,7 +28,6 @@ from app.mcp.servers.repository import MCPServerRepository
 from app.mcp.servers.schemas import (
     AuthorizationRequired,
     MCPCatalogSyncResponse,
-    MCPServerAgentResponse,
     MCPServerConnectionResponse,
     MCPServerCreate,
     MCPServerPatch,
@@ -212,37 +211,11 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
                 server_id,
             )
 
-    async def list_agents(self, server_id: UUID) -> list[MCPServerAgentResponse]:
-        """Agents currently bound to the server (delete-guard dialog)."""
-        await self.get_or_404(server_id)
-        # Function-level import: agents.mcp_servers imports mcp.servers, so
-        # resolving it lazily keeps the modules cycle-free.
-        from app.agents.mcp_servers.repository import AgentMCPServerRepository
-
-        agents = await AgentMCPServerRepository(self.db).list_agents_for_server(
-            server_id
-        )
-        return [
-            MCPServerAgentResponse(
-                id=agent.id, name=agent.name, emoji=agent.emoji, color=agent.color
-            )
-            for agent in agents
-        ]
-
-    async def delete(self, server_id: UUID, *, detach_agents: bool = False) -> None:
-        """Refused while agents are bound, unless `detach_agents` — the
-        dialog's explicit confirm — removes the bindings first. Previously a
-        bound server's delete died on the FK instead of a clean 400."""
+    async def delete(self, server_id: UUID) -> None:
+        """Delete the row. Agent bindings are the agents module's business:
+        the router runs `AgentMCPServerService.release_server` first, so this
+        only has the FK left to guard against."""
         server = await self.get_or_404(server_id)
-        from app.agents.mcp_servers.repository import AgentMCPServerRepository
-
-        bindings = AgentMCPServerRepository(self.db)
-        if detach_agents:
-            await bindings.delete_all_for_server(server_id)
-        elif agents := await bindings.list_agents_for_server(server_id):
-            raise DomainValidationError(
-                f"MCP server is used by {len(agents)} agent(s) — detach it first"
-            )
         try:
             await self.repository.delete(server)
         except IntegrityError as exc:

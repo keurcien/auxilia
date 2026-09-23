@@ -98,9 +98,10 @@ def mock_repo():
 
 @pytest.fixture
 def mock_thread_service():
+    """Stands in for the `ThreadRepository` the service composes."""
     svc = MagicMock()
-    svc.delete_rows_for_agent = AsyncMock(return_value=["t1", "t2"])
-    svc.purge_checkpoints = AsyncMock()
+    svc.list_ids_for_agent = AsyncMock(return_value=["t1", "t2"])
+    svc.delete_for_agent = AsyncMock()
     return svc
 
 
@@ -113,32 +114,18 @@ def mock_agent_mcp_repo():
 
 @pytest.fixture
 def mock_subagent_service():
+    """The subagent verbs now live on `AgentService` itself; this bundle is
+    installed onto the service under test (see `service`) so the tests keep
+    one handle on them."""
     svc = MagicMock()
-    svc.list_subagents = AsyncMock(return_value=[])
     svc.list_all_subagent_data = AsyncMock(return_value=({}, set()))
     svc.delete_all_for_agent = AsyncMock()
     svc.set_for_supervisor = AsyncMock()
-    svc.repository = MagicMock()
-    svc.repository.is_subagent = AsyncMock(return_value=False)
     return svc
 
 
 @pytest.fixture
 def mock_mcp_server_service():
-    svc = MagicMock()
-    svc.set_for_agent = AsyncMock()
-    return svc
-
-
-@pytest.fixture
-def mock_agent_sandbox_repo():
-    repo = MagicMock()
-    repo.list_for_agents = AsyncMock(return_value=[])
-    return repo
-
-
-@pytest.fixture
-def mock_agent_sandbox_service():
     svc = MagicMock()
     svc.set_for_agent = AsyncMock()
     return svc
@@ -177,20 +164,20 @@ def service(
     mock_user_service,
     mock_agent_mcp_repo,
     mock_mcp_server_service,
-    mock_agent_sandbox_repo,
-    mock_agent_sandbox_service,
     mock_skill_service,
 ):
     svc = AgentService(mock_db)
     svc.repository = mock_repo
-    svc.subagent_service = mock_subagent_service
-    svc.thread_service = mock_thread_service
+    mock_repo.list_sandbox_bindings = AsyncMock(return_value=[])
+    mock_repo.delete_subagent_links = mock_subagent_service.delete_all_for_agent
+    svc._collect_subagent_data = mock_subagent_service.list_all_subagent_data
+    svc.set_subagents = mock_subagent_service.set_for_supervisor
+    svc.set_sandboxes = AsyncMock()
+    svc.threads = mock_thread_service
     svc.tag_service = mock_tag_service
     svc.user_service = mock_user_service
     svc.mcp_server_repository = mock_agent_mcp_repo
     svc.mcp_server_service = mock_mcp_server_service
-    svc.sandbox_repository = mock_agent_sandbox_repo
-    svc.sandbox_service = mock_agent_sandbox_service
     svc.skill_service = mock_skill_service
     return svc
 
@@ -876,14 +863,13 @@ async def test_delete_permanently_cascades_for_owner(
 
     mock_subagent_service.delete_all_for_agent.assert_awaited_once_with(agent.id)
     mock_agent_mcp_repo.delete_all_for_agent.assert_awaited_once_with(agent.id)
-    mock_thread_service.delete_rows_for_agent.assert_awaited_once_with(agent.id)
+    mock_thread_service.delete_for_agent.assert_awaited_once_with(agent.id)
     mock_repo.delete_all_permissions.assert_awaited_once_with(agent.id)
     mock_repo.delete_by_id.assert_awaited_once_with(agent.id)
     # The thread ids are handed back rather than acted on: purging checkpoints
     # is an external, non-transactional side effect, so it belongs after the
     # caller's commit, not inside this transaction (P1-9, §5.5).
     assert thread_ids == ["t1", "t2"]
-    mock_thread_service.purge_checkpoints.assert_not_called()
 
 
 async def test_delete_permanently_deletes_threads_before_the_agent_row(
@@ -895,7 +881,7 @@ async def test_delete_permanently_deletes_threads_before_the_agent_row(
     mock_repo.list_with_permissions.return_value = [(agent, None)]
 
     manager = MagicMock()
-    manager.attach_mock(mock_thread_service.delete_rows_for_agent, "delete_threads")
+    manager.attach_mock(mock_thread_service.delete_for_agent, "delete_threads")
     manager.attach_mock(mock_repo.delete_by_id, "delete_agent")
 
     await service.delete_permanently(agent.id, user_id=agent.owner_id)

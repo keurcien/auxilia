@@ -15,12 +15,12 @@ from app.agents.mcp_servers.service import AgentMCPServerService
 from app.agents.models import (
     AgentDB,
     AgentMCPServerDB,
+    AgentSandboxBase,
+    AgentSubagentDB,
     AgentUserPermissionDB,
     EffectivePermission,
     PermissionLevel,
 )
-from app.agents.sandboxes.repository import AgentSandboxRepository
-from app.agents.sandboxes.service import AgentSandboxService
 from app.agents.schemas import (
     AgentConfig,
     AgentCreateDB,
@@ -31,13 +31,15 @@ from app.agents.schemas import (
     AgentPatch,
     AgentPermissionCreate,
     AgentResponse,
+    AgentSandboxConfig,
     AgentSandboxResponse,
     AgentSkillResponse,
+    SubagentResponse,
     TagInfo,
 )
-from app.agents.subagents.service import SubagentService
 from app.database import get_db
 from app.exceptions import (
+    DomainValidationError,
     NotFoundError,
     PermissionDeniedError,
     SandboxUnavailableError,
@@ -45,10 +47,11 @@ from app.exceptions import (
 from app.mcp.client.connectivity import probe_authorization
 from app.mcp.servers.repository import MCPServerRepository
 from app.sandbox.provider import ensure_sandboxes_available
+from app.sandbox.repository import SandboxRepository
 from app.service import BaseService
 from app.skills.service import SkillService
 from app.tags.service import TagService
-from app.threads.service import ThreadService
+from app.threads.repository import ThreadRepository
 from app.users.models import WorkspaceRole
 from app.users.service import UserService
 
@@ -61,16 +64,19 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
 
     def __init__(self, db: AsyncSession):
         super().__init__(db, AgentRepository(db))
-        self.subagent_service = SubagentService(db)
-        self.thread_service = ThreadService(db)
         self.tag_service = TagService(db)
         self.user_service = UserService(db)
         self.mcp_server_repository = AgentMCPServerRepository(db)
         self.mcp_server_service = AgentMCPServerService(db)
-        self.sandbox_repository = AgentSandboxRepository(db)
-        self.sandbox_service = AgentSandboxService(db)
         self.skill_service = SkillService(db)
         self.mcp_servers = MCPServerRepository(db)
+        # Repositories of neighbouring modules, not their services: a sandbox
+        # binding needs the sandbox row to exist, and a permanent delete
+        # takes the agent's thread rows with it (FK order). Neither needs the
+        # other module's rules, and composing the services here is what made
+        # agents ↔ threads a two-way dependency.
+        self.sandboxes = SandboxRepository(db)
+        self.threads = ThreadRepository(db)
 
     @staticmethod
     def _resolve_permission(
@@ -190,16 +196,14 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         (
             subagents_map,
             is_subagent_ids,
-        ) = await self.subagent_service.list_all_subagent_data(agent_ids)
+        ) = await self._collect_subagent_data(agent_ids)
         sandbox_map: dict[UUID, list[AgentSandboxResponse]] = defaultdict(list)
         skills_map: dict[UUID, list[AgentSkillResponse]] = {}
         if not slim:
             # Only the detail response carries bindings; `get` reads one agent.
             for agent_id in agent_ids:
                 skills_map[agent_id] = await self.skill_service.list_for_agent(agent_id)
-            for link, sandbox in await self.sandbox_repository.list_for_agents(
-                agent_ids
-            ):
+            for link, sandbox in await self.repository.list_sandbox_bindings(agent_ids):
                 sandbox_map[link.agent_id].append(
                     AgentSandboxResponse(
                         sandbox_id=sandbox.id,
@@ -315,10 +319,8 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
             )
         )
         await self.mcp_server_service.set_for_agent(agent.id, config.mcp_servers)
-        await self.sandbox_service.set_for_agent(agent.id, config.sandboxes)
-        await self.subagent_service.set_for_supervisor(
-            agent.id, config.subagent_ids, user_role=user_role
-        )
+        await self.set_sandboxes(agent.id, config.sandboxes)
+        await self.set_subagents(agent.id, config.subagent_ids, user_role=user_role)
         await self.skill_service.set_for_agent(agent.id, config.skill_ids)
         return await self.get(
             agent.id, user_id=owner_id, user_role=user_role, user_team_id=user_team_id
@@ -447,10 +449,8 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
             ),
         )
         await self.mcp_server_service.set_for_agent(agent_id, config.mcp_servers)
-        await self.sandbox_service.set_for_agent(agent_id, config.sandboxes)
-        await self.subagent_service.set_for_supervisor(
-            agent_id, config.subagent_ids, user_role=user_role
-        )
+        await self.set_sandboxes(agent_id, config.sandboxes)
+        await self.set_subagents(agent_id, config.subagent_ids, user_role=user_role)
         await self.skill_service.set_for_agent(agent_id, config.skill_ids)
         return await self.get(
             agent_id, user_id=user_id, user_role=user_role, user_team_id=user_team_id
@@ -472,7 +472,7 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
             # here rather than 404, or a repeated delete fails.
             include_archived=True,
         )
-        await self.subagent_service.delete_all_for_agent(agent_id)
+        await self.repository.delete_subagent_links(agent_id)
         await self.repository.set_archived(agent_id, archived=True)
 
     async def restore(
@@ -512,11 +512,11 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
 
         Checkpoint purging is deliberately **not** done here — it is an
         external, non-transactional side effect, so it must run after the
-        caller has *committed* these deletes, not merely flushed them. Same
-        contract as `ThreadService.delete_rows_for_agent`, and the same reason
-        the thread endpoint commits before purging (P1-9): a purge that ran
-        first and a commit that then failed would leave an agent whose entire
-        history is irrecoverably gone.
+        caller has *committed* these deletes, not merely flushed them
+        (`ThreadService.purge_checkpoints`), for the same reason the thread
+        endpoint commits before purging (P1-9): a purge that ran first and a
+        commit that then failed would leave an agent whose entire history is
+        irrecoverably gone.
         """
         await self.require_permission(
             agent_id,
@@ -528,13 +528,176 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
             include_archived=True,
         )
         # Threads must go before the agent row, due to the FK.
-        thread_ids = await self.thread_service.delete_rows_for_agent(agent_id)
-        await self.subagent_service.delete_all_for_agent(agent_id)
+        thread_ids = await self.threads.list_ids_for_agent(agent_id)
+        if thread_ids:
+            await self.threads.delete_for_agent(agent_id)
+            await self.db.flush()
+        await self.repository.delete_subagent_links(agent_id)
         await self.mcp_server_repository.delete_all_for_agent(agent_id)
         await self.repository.delete_all_permissions(agent_id)
         await self.repository.delete_all_teams(agent_id)
         await self.repository.delete_by_id(agent_id)
         return thread_ids
+
+    # --- subagents ------------------------------------------------------------
+
+    @staticmethod
+    def _to_subagent_response(agent: AgentDB) -> SubagentResponse:
+        return SubagentResponse(
+            id=agent.id,
+            name=agent.name,
+            emoji=agent.emoji,
+            color=agent.color,
+            description=agent.description,
+        )
+
+    async def list_subagents(self, agent_id: UUID) -> list[SubagentResponse]:
+        links = await self.repository.list_subagent_links(agent_id)
+        sub_ids = [link.subagent_id for link in links]
+        agents = {a.id: a for a in await self.repository.list_by_ids(sub_ids)}
+        return [
+            self._to_subagent_response(agents[sid]) for sid in sub_ids if sid in agents
+        ]
+
+    async def _collect_subagent_data(
+        self, agent_ids: list[UUID]
+    ) -> tuple[dict[UUID, list[SubagentResponse]], set[UUID]]:
+        """For the list/detail hydration: each agent's subagents, and the set
+        of agents that are themselves someone's subagent."""
+        if not agent_ids:
+            return {}, set()
+        links = await self.repository.list_subagent_links_touching(agent_ids)
+        referenced = {b.supervisor_id for b in links} | {b.subagent_id for b in links}
+        lookup = {a.id: a for a in await self.repository.list_by_ids(list(referenced))}
+        subagents_map: dict[UUID, list[SubagentResponse]] = defaultdict(list)
+        is_subagent_ids: set[UUID] = set()
+        wanted = set(agent_ids)
+        for link in links:
+            if link.supervisor_id in wanted and (sub := lookup.get(link.subagent_id)):
+                subagents_map[link.supervisor_id].append(
+                    self._to_subagent_response(sub)
+                )
+            if link.subagent_id in wanted:
+                is_subagent_ids.add(link.subagent_id)
+        return subagents_map, is_subagent_ids
+
+    async def create_or_update_subagent(
+        self, supervisor_id: UUID, subagent_id: UUID
+    ) -> AgentSubagentDB:
+        """Link a subagent under a supervisor. One level only: an agent that
+        has subagents cannot become one, and vice versa."""
+        if supervisor_id == subagent_id:
+            raise DomainValidationError("Cannot add an agent as its own subagent")
+        supervisor = await self.repository.get(supervisor_id)
+        if not supervisor or supervisor.is_archived:
+            raise NotFoundError("Supervisor agent not found")
+        subagent = await self.repository.get(subagent_id)
+        if not subagent or subagent.is_archived:
+            raise NotFoundError("Subagent not found")
+        if await self.repository.has_subagents(subagent_id):
+            raise DomainValidationError(
+                "This agent already has subagents and cannot be used as a subagent"
+            )
+        if await self.repository.is_subagent(supervisor_id):
+            raise DomainValidationError(
+                "This agent is already used as a subagent and cannot have subagents"
+            )
+        # Joining a graph merges two skill sets, and nothing has to be checked
+        # about that: the skill library is one namespace, so two different
+        # skills of one name do not exist to be merged.
+        return await self.repository.create_subagent_link(supervisor_id, subagent_id)
+
+    async def set_subagents(
+        self,
+        supervisor_id: UUID,
+        subagent_ids: list[UUID],
+        *,
+        user_role: WorkspaceRole | None,
+    ) -> None:
+        """Whole-set replace of a supervisor's subagents, routed through
+        `create_or_update_subagent` so the self-link / archived / cycle
+        validations keep firing. Admin-gated only when the set actually
+        changes — an editor saving an agent whose subagents they didn't touch
+        passes."""
+        current = {
+            link.subagent_id
+            for link in await self.repository.list_subagent_links(supervisor_id)
+        }
+        wanted = set(subagent_ids)
+        if current == wanted:
+            return
+        if user_role != WorkspaceRole.admin:
+            raise PermissionDeniedError("Only admins can modify subagents")
+        # Removals first, so every validation an addition runs sees the graph
+        # this save asks for and not a transient union of the two. One
+        # transaction, so a failed addition rolls the removals back with it.
+        for subagent_id in current - wanted:
+            await self.delete_subagent(supervisor_id, subagent_id)
+        for subagent_id in wanted - current:
+            await self.create_or_update_subagent(supervisor_id, subagent_id)
+
+    async def delete_subagent(self, supervisor_id: UUID, subagent_id: UUID) -> None:
+        link = await self.repository.get_subagent_link(supervisor_id, subagent_id)
+        if not link:
+            raise NotFoundError("Subagent not found")
+        await self.repository.delete_subagent_link(link)
+
+    # --- sandbox binding --------------------------------------------------------
+
+    async def set_sandboxes(
+        self, agent_id: UUID, configs: list[AgentSandboxConfig]
+    ) -> None:
+        """Whole-set replace of an agent's sandbox binding (≤1 for now):
+        upsert the wanted link and delete the rest. Same semantics as
+        AgentMCPServerService.set_for_agent, minus tool discovery — the
+        sandbox tool surface is static."""
+        existing = await self.repository.get_sandbox_binding(agent_id)
+        wanted = configs[0] if configs else None
+
+        if wanted is None:
+            if existing:
+                await self.repository.delete_sandbox_binding(existing)
+            return
+
+        if not await self.sandboxes.get(wanted.sandbox_id):
+            raise NotFoundError("Sandbox not found")
+
+        if existing:
+            if existing.sandbox_id != wanted.sandbox_id:
+                # Replace, don't mutate: the unique constraint is on agent_id,
+                # so delete-then-create keeps the history unambiguous.
+                await self.repository.delete_sandbox_binding(existing)
+            else:
+                if existing.tools != wanted.tools:
+                    existing.tools = wanted.tools
+                    self.db.add(existing)
+                    await self.db.flush()
+                return
+
+        await self.repository.create_sandbox_binding(
+            AgentSandboxBase(
+                agent_id=agent_id, sandbox_id=wanted.sandbox_id, tools=wanted.tools
+            )
+        )
+
+    async def list_for_sandbox(self, sandbox_id: UUID) -> list[AgentDB]:
+        """Agents currently bound to the sandbox (the delete-guard dialog)."""
+        return await self.repository.list_agents_for_sandbox(sandbox_id)
+
+    async def release_sandbox(self, sandbox_id: UUID, *, detach_agents: bool) -> None:
+        """Before a sandbox row is deleted: refuse while agents are bound,
+        unless `detach_agents` — the dialog's explicit confirm — removes the
+        bindings. Threads are never bound to a sandbox, so detached agents
+        simply run without code execution afterwards."""
+        if detach_agents:
+            await self.repository.delete_sandbox_bindings(sandbox_id)
+            return
+        if agents := await self.repository.list_agents_for_sandbox(sandbox_id):
+            raise DomainValidationError(
+                f"Sandbox is used by {len(agents)} agent(s) — detach it first"
+            )
+
+    # --- permissions and teams --------------------------------------------------
 
     async def get_permissions(self, agent_id: UUID) -> list[AgentUserPermissionDB]:
         return await self.repository.get_permissions(agent_id)

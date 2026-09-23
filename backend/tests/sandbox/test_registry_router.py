@@ -4,10 +4,10 @@ from uuid import uuid4
 
 import pytest
 
+from app.agents.core.service import get_agent_service
 from app.main import app
 from app.sandbox.models import SandboxProviderType
 from app.sandbox.schemas import (
-    SandboxAgentResponse,
     SandboxResponse,
     SandboxSecretHint,
 )
@@ -20,6 +20,16 @@ def sandbox_service():
     app.dependency_overrides[get_sandbox_service] = lambda: service
     yield service
     app.dependency_overrides.pop(get_sandbox_service, None)
+
+
+@pytest.fixture
+def agent_service():
+    """The agents side of the delete guard, composed by the router."""
+    service = AsyncMock()
+    service.list_for_sandbox.return_value = []
+    app.dependency_overrides[get_agent_service] = lambda: service
+    yield service
+    app.dependency_overrides.pop(get_agent_service, None)
 
 
 def _response(**overrides) -> SandboxResponse:
@@ -111,13 +121,17 @@ def test_patch_passes_through(client, sandbox_service, admin_user):
     assert args[1].name == "Renamed lab"
 
 
-def test_delete_returns_204(client, sandbox_service, admin_user):
+def test_delete_returns_204(client, sandbox_service, agent_service, admin_user):
     sandbox_id = uuid4()
 
     response = client.delete(f"/sandboxes/{sandbox_id}")
 
     assert response.status_code == 204
-    sandbox_service.delete.assert_awaited_once_with(sandbox_id, detach_agents=False)
+    # The agents module gets to refuse first; then the row goes.
+    agent_service.release_sandbox.assert_awaited_once_with(
+        sandbox_id, detach_agents=False
+    )
+    sandbox_service.delete.assert_awaited_once_with(sandbox_id)
 
 
 def test_list_sandbox_agents_requires_admin(client, sandbox_service, current_user):
@@ -125,10 +139,12 @@ def test_list_sandbox_agents_requires_admin(client, sandbox_service, current_use
     assert response.status_code == 403
 
 
-def test_list_sandbox_agents(client, sandbox_service, admin_user):
+def test_list_sandbox_agents(client, sandbox_service, agent_service, admin_user):
+    from types import SimpleNamespace
+
     agent_id = uuid4()
-    sandbox_service.list_agents.return_value = [
-        SandboxAgentResponse(id=agent_id, name="Python developer", emoji="🐍")
+    agent_service.list_for_sandbox.return_value = [
+        SimpleNamespace(id=agent_id, name="Python developer", emoji="🐍", color=None)
     ]
 
     response = client.get(f"/sandboxes/{uuid4()}/agents")
@@ -137,12 +153,13 @@ def test_list_sandbox_agents(client, sandbox_service, admin_user):
     [agent] = response.json()
     assert agent["id"] == str(agent_id)
     assert agent["name"] == "Python developer"
+    sandbox_service.get_or_404.assert_awaited_once()  # 404 before the bindings
 
 
-def test_delete_in_use_is_refused(client, sandbox_service, admin_user):
+def test_delete_in_use_is_refused(client, sandbox_service, agent_service, admin_user):
     from app.exceptions import DomainValidationError
 
-    sandbox_service.delete.side_effect = DomainValidationError(
+    agent_service.release_sandbox.side_effect = DomainValidationError(
         "Sandbox is used by 2 agent(s) — detach it first"
     )
 
@@ -150,12 +167,18 @@ def test_delete_in_use_is_refused(client, sandbox_service, admin_user):
 
     assert response.status_code == 400
     assert "detach" in response.json()["detail"]
+    sandbox_service.delete.assert_not_awaited()
 
 
-def test_delete_with_detach_agents_passes_the_flag(client, sandbox_service, admin_user):
+def test_delete_with_detach_agents_passes_the_flag(
+    client, sandbox_service, agent_service, admin_user
+):
     sandbox_id = uuid4()
 
     response = client.delete(f"/sandboxes/{sandbox_id}?detach_agents=true")
 
     assert response.status_code == 204
-    sandbox_service.delete.assert_awaited_once_with(sandbox_id, detach_agents=True)
+    agent_service.release_sandbox.assert_awaited_once_with(
+        sandbox_id, detach_agents=True
+    )
+    sandbox_service.delete.assert_awaited_once_with(sandbox_id)

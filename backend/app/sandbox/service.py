@@ -10,7 +10,6 @@ from app.exceptions import DomainValidationError
 from app.sandbox.models import SandboxDB, SandboxProviderType
 from app.sandbox.repository import SandboxRepository
 from app.sandbox.schemas import (
-    SandboxAgentResponse,
     SandboxCreate,
     SandboxCreateDB,
     SandboxPatch,
@@ -95,38 +94,11 @@ class SandboxService(BaseService[SandboxDB, SandboxRepository]):
         await self.db.refresh(updated)
         return self.to_response(updated)
 
-    async def list_agents(self, sandbox_id: UUID) -> list[SandboxAgentResponse]:
-        """Agents currently bound to the sandbox (delete-guard dialog)."""
-        await self.get_or_404(sandbox_id)
-        # Function-level import: agents.sandboxes imports sandbox models, so
-        # resolving it lazily keeps the modules cycle-free.
-        from app.agents.sandboxes.repository import AgentSandboxRepository
-
-        agents = await AgentSandboxRepository(self.db).list_agents_for_sandbox(
-            sandbox_id
-        )
-        return [
-            SandboxAgentResponse(
-                id=agent.id, name=agent.name, emoji=agent.emoji, color=agent.color
-            )
-            for agent in agents
-        ]
-
-    async def delete(self, sandbox_id: UUID, *, detach_agents: bool = False) -> None:
-        """Refused while agents are bound (consistent with MCP bindings)
-        unless `detach_agents` — the dialog's explicit confirm — removes the
-        bindings first. Threads are never bound to a sandbox, so detached
-        agents simply run without code execution afterwards."""
+    async def delete(self, sandbox_id: UUID) -> None:
+        """Delete the row. Agent bindings are the agents module's business:
+        the router runs `AgentService.release_sandbox` first, so this only has
+        the FK left to guard against."""
         row = await self.get_or_404(sandbox_id)
-        from app.agents.sandboxes.repository import AgentSandboxRepository
-
-        bindings = AgentSandboxRepository(self.db)
-        if detach_agents:
-            await bindings.delete_all_for_sandbox(sandbox_id)
-        elif agents := await bindings.list_agents_for_sandbox(sandbox_id):
-            raise DomainValidationError(
-                f"Sandbox is used by {len(agents)} agent(s) — detach it first"
-            )
         # The threads this sandbox issued ids to lose their stamp with it.
         # `sandbox_source_id` is ON DELETE SET NULL, and a null source reads as
         # "legacy, reconnect" — so without this the dead id would look reusable

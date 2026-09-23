@@ -4,6 +4,10 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.mcp_servers.service import (
+    AgentMCPServerService,
+    get_agent_mcp_server_service,
+)
 from app.auth.dependencies import get_current_user, require_admin
 from app.database import get_db
 from app.mcp.client.connectivity import is_authorized, probe_candidate, test_connection
@@ -112,8 +116,15 @@ async def list_mcp_server_agents(
     server_id: UUID,
     _current_user: UserDB = Depends(require_admin),
     service: MCPServerService = Depends(get_mcp_server_service),
+    bindings: AgentMCPServerService = Depends(get_agent_mcp_server_service),
 ) -> list[MCPServerAgentResponse]:
-    return await service.list_agents(server_id)
+    await service.get(server_id)  # 404 before the bindings are read
+    return [
+        MCPServerAgentResponse(
+            id=agent.id, name=agent.name, emoji=agent.emoji, color=agent.color
+        )
+        for agent in await bindings.list_agents_for_server(server_id)
+    ]
 
 
 @router.delete("/{server_id}", status_code=204)
@@ -122,8 +133,12 @@ async def delete_mcp_server(
     detach_agents: bool = False,
     _current_user: UserDB = Depends(require_admin),
     service: MCPServerService = Depends(get_mcp_server_service),
+    bindings: AgentMCPServerService = Depends(get_agent_mcp_server_service),
 ) -> None:
-    await service.delete(server_id, detach_agents=detach_agents)
+    """Two services, composed here: the agents module releases (or refuses to
+    release) the bindings, then the server row goes."""
+    await bindings.release_server(server_id, detach_agents=detach_agents)
+    await service.delete(server_id)
 
 
 @router.post("/{server_id}/reset", status_code=200)

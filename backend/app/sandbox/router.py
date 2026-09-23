@@ -2,6 +2,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends
 
+from app.agents.core.service import AgentService, get_agent_service
 from app.auth.dependencies import get_current_user, require_admin
 from app.sandbox.schemas import (
     SandboxAgentResponse,
@@ -48,8 +49,15 @@ async def list_sandbox_agents(
     sandbox_id: UUID,
     _: UserDB = Depends(require_admin),
     service: SandboxService = Depends(get_sandbox_service),
+    agents: AgentService = Depends(get_agent_service),
 ) -> list[SandboxAgentResponse]:
-    return await service.list_agents(sandbox_id)
+    await service.get_or_404(sandbox_id)  # 404 before the bindings are read
+    return [
+        SandboxAgentResponse(
+            id=agent.id, name=agent.name, emoji=agent.emoji, color=agent.color
+        )
+        for agent in await agents.list_for_sandbox(sandbox_id)
+    ]
 
 
 @sandboxes_router.get("/{sandbox_id}/secret-hint", response_model=SandboxSecretHint)
@@ -77,5 +85,9 @@ async def delete_sandbox(
     detach_agents: bool = False,
     _: UserDB = Depends(require_admin),
     service: SandboxService = Depends(get_sandbox_service),
+    agents: AgentService = Depends(get_agent_service),
 ) -> None:
-    await service.delete(sandbox_id, detach_agents=detach_agents)
+    """Two services, composed here: the agents module releases (or refuses to
+    release) the bindings, then the sandbox row goes."""
+    await agents.release_sandbox(sandbox_id, detach_agents=detach_agents)
+    await service.delete(sandbox_id)

@@ -141,8 +141,8 @@ Relationship and filter qualifiers stay (`list_for_user`, `list_for_supervisor`,
 | Deterministic compose         | `build_*`                    | `build_invite_url`, `build_oauth_client_metadata`, `build_jwt_for_user`. Pure function-y. |
 | Pure derivation of a value    | `compute_*`                  | `compute_next_run_at` — arithmetic/temporal math that derives a scalar (or list of them), not an object/artifact. Prefer `build_*` when the result is a composed structure. |
 | Entropy / cryptographic       | `_generate_*` (private)      | `_generate_token` — anything that calls `secrets.token_*` or pulls randomness.            |
-| DB lookup + hydrate (factory) | `resolve(...)` (classmethod) | `ResolvedAgent.resolve(agent_id, db, user_id)`, `Toolset.resolve(...)`                    |
-| Orchestrate multiple resolves | `build(...)` (classmethod)   | `Agent.build(thread, db)` — composes multiple `resolve` calls + middleware/callbacks      |
+| DB lookup + hydrate (factory) | `resolve(...)`               | `ResolvedAgent.resolve(spec, db, user_id)` (classmethod), `runtime.resolve(thread, spec, db)` — the whole graph in one read |
+| Orchestrate multiple resolves | `build(...)` (classmethod)   | Reserved for a class that composes several `resolve` calls; the runtime no longer has one (`resolve()` + `assemble()` replaced `Agent.build`) |
 
 **Reserved — do not use**: `make_*`, `_issue_*` (use `build_*`), `new_*`, `from_*` (use `resolve` / `build`; future `from_spec(dict)` is allowed as a deliberate exception).
 
@@ -175,35 +175,36 @@ Cross-module service composition happens in the service's `__init__`:
 class AgentService(BaseService[AgentDB, AgentRepository]):
     def __init__(self, db: AsyncSession):
         super().__init__(db, AgentRepository(db))
-        self.subagents = SubagentService(db)  # composed, not reached into
+        self.mcp_server_service = AgentMCPServerService(db)  # composed, not reached into
 ```
 
 A router never instantiates a repository directly; only services do.
 
-### The Agent / ResolvedAgent split
+A join table with no behaviour of its own (subagent links, the sandbox binding, permissions, teams) does **not** get a service: it is repository methods on the aggregate's repository and verbs on the aggregate's service (`AgentService.set_subagents`, `.set_sandboxes`, `.set_teams`). A binding earns a service only when it has behaviour — `AgentMCPServerService` syncs tools over the network.
 
-Because agents have a persistent-store side and a runtime-execution side, two classes exist:
+When two modules meet at one endpoint — deleting an MCP server or a sandbox must first release the agents bound to it — the **router composes the two services** (`AgentMCPServerService.release_server` then `MCPServerService.delete`). Neither service imports the other; the dependency points from the owner of the FK (agents) to the referenced row (mcp, sandbox), never back.
 
-| Class                                        | What it holds                                                                                            | Methods                                                                    | Typical caller                                  |
-| -------------------------------------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------- |
-| `ResolvedAgent` (in `app/runtime/agent.py`) | `config: AgentResponse` + `toolset: Toolset`                                                             | `.resolve(...)` (classmethod factory), `.compile(model)`                   | Internal: subagent compilation, `Agent.build()` |
-| `Agent` (in `app/runtime/agent.py`)         | `thread`, `model`, `middleware`, `callbacks`, the resolved parent agent, `list[ResolvedAgent]` subagents | `.build(thread, db)` (classmethod factory), `.invoke(...)`, `.stream(...)` | Public: routers, integrations                   |
+### The configuration / execution split
 
-Public API reads:
+Agents have a persistent-store side (`app/agents`: `AgentDB`, `AgentService`, `AgentResponse`) and a runtime-execution side (`app/runtime`). The one type that crosses from the first to the second is `RunSpec` (`app/agents/run_spec.py`): the narrow read a graph is built from. The runtime never imports `AgentService` or a `*Response`.
 
-```python
-agent = await Agent.build(thread, db)
-await agent.invoke(...)
-async for event in agent.stream(...):
-    ...
-```
+The execution side is four stages, one verb each, importing leftward only:
 
-Subagents are typed as `list[ResolvedAgent]` — the type itself communicates that they aren't independently runnable; the parent calls `.compile(model)` on each to produce a `CompiledSubAgent` (deepagents `TypedDict`) that the `SubAgentMiddleware` consumes.
+| Stage                     | Module                    | Signature                                            | Holds / yields                                                                                   |
+| ------------------------- | ------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| read                      | `app/runtime/resolve.py`  | `resolve(thread, spec, db) -> ResolvedRun`           | model, `ResolvedAgent` per member (spec + `PreparedToolset` + sandbox provider), skills, callbacks |
+| connect                   | `app/runtime/resources.py`| `open_resources(resolved) -> LiveResources` (context) | checkpointer, one open MCP toolset per member, the sandbox; facts (`sandbox_stamp`, `sandbox_replaced`) |
+| build                     | `app/runtime/assemble.py` | `assemble(resolved, live, output_schema=) -> graph`  | `build_runnable` for the parent, `compile_subagent` per subagent; pure                            |
+| run                       | `app/runtime/turn.py`     | `run_turn(graph, resolved, live, turn) -> events`    | input parsing, regeneration fork, recursion fallback, protocol events                             |
+
+`RunWorker._stream` is that sequence, top to bottom. Starting a run is one stage earlier: `launch(LaunchRequest)` (`app/runtime/launch.py`) gates the request (`app/runtime/preflight.py`) and inserts the record; every ingress crosses that seam.
+
+Subagents are typed as `list[ResolvedAgent]` — the type itself communicates that they aren't independently runnable; `assemble` calls `compile_subagent` on each to produce a `CompiledSubAgent` (deepagents `TypedDict`) that the `SubAgentMiddleware` consumes.
 
 ### Factory naming
 
 - Classmethod that loads from DB: `Cls.resolve(...)`.
-- Classmethod that orchestrates resolve + setup: `Cls.build(...)`.
+- Classmethod that orchestrates resolve + setup: `Cls.build(...)` (none in the tree today).
 - Free functions for building strings/objects from pure inputs: `build_*`.
 
 Do not introduce `from_*` factory names unless you're deliberately exposing a Pydantic-AI-style declarative entry point (`Agent.from_spec(dict)` for tests is the only sanctioned case, and it doesn't exist yet).
@@ -326,7 +327,7 @@ Two acceptable styles, chosen by what's in the file:
 | Style                                               | When                                                         | Examples                                                                                                                                                            |
 | --------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Verb / abstract noun**                            | The file is a collection of pure helper functions on a topic | `serialization.py`, `encryption.py`, `connectivity.py`                                                                                                              |
-| **Concrete noun** (often a class name in lowercase) | The file is centered on one class                            | `toolset.py` (`Toolset`), `agent.py` (`Agent`, `ResolvedAgent`), `factory.py` (`*Factory`), `repository.py`, `service.py`, `router.py`, `models.py`, `schemas.py` |
+| **Concrete noun** (often a class name in lowercase) | The file is centered on one class                            | `toolset.py` (`Toolset`), `resolve.py` (`ResolvedRun`, `ResolvedAgent`), `factory.py` (`*Factory`), `repository.py`, `service.py`, `router.py`, `models.py`, `schemas.py` |
 
 Don't create `utils.py` catch-alls. If a helper has a topic, name the file after the topic.
 
@@ -381,7 +382,7 @@ A "don't" list, with the corrected version:
 | `coordinator_id` FK                                                           | `supervisor_id`                                            |
 | `PermissionLevel.user`                                                        | `PermissionLevel.member`                                   |
 | `ValidationError` (custom)                                                    | `DomainValidationError`                                    |
-| `class Agent` for the runtime dataclass + `class AgentRuntime` for the runner | `class ResolvedAgent` + `class Agent` (runner)             |
+| `class Agent` for the runtime dataclass + `class AgentRuntime` for the runner | `ResolvedRun` / `ResolvedAgent` (data) + stage functions   |
 | `{mcp_server_id}` and `{server_id}` in the same router                        | `{server_id}` consistently                                 |
 | Handler `create_invite_endpoint(...)`                                         | Handler `create_invite(...)`                               |
 | Handler `get_user_by_email_route(...)`                                        | Handler `get_user_by_email(...)`                           |

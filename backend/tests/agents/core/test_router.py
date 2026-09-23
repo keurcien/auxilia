@@ -22,7 +22,7 @@ def _no_sandbox_or_skill_bindings():
     binds either."""
     with (
         patch(
-            "app.agents.core.service.AgentSandboxRepository.list_for_agents",
+            "app.agents.core.repository.AgentRepository.list_sandbox_bindings",
             new=AsyncMock(return_value=[]),
         ),
         patch(

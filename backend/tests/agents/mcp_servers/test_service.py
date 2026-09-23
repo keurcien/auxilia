@@ -568,3 +568,39 @@ async def test_sync_tools_keeps_map_on_connect_failure(service):
         await service._sync_tools(link, server, "user-id")
 
     assert link.tools == original
+
+
+# ---------------------------------------------------------------------------
+# release_server — the delete guard the MCP server router composes in first
+# ---------------------------------------------------------------------------
+
+
+async def test_release_server_refuses_while_agents_are_bound(service, mock_repo):
+    from app.exceptions import DomainValidationError
+
+    mock_repo.list_agents_for_server = AsyncMock(return_value=[MagicMock()])
+    mock_repo.delete_all_for_server = AsyncMock()
+
+    with pytest.raises(DomainValidationError, match="detach"):
+        await service.release_server(uuid4(), detach_agents=False)
+
+    mock_repo.delete_all_for_server.assert_not_awaited()
+
+
+async def test_release_server_with_detach_removes_the_bindings(service, mock_repo):
+    mock_repo.list_agents_for_server = AsyncMock(return_value=[MagicMock()])
+    mock_repo.delete_all_for_server = AsyncMock()
+    server_id = uuid4()
+
+    await service.release_server(server_id, detach_agents=True)
+
+    mock_repo.delete_all_for_server.assert_awaited_once_with(server_id)
+
+
+async def test_release_server_passes_when_nothing_is_bound(service, mock_repo):
+    mock_repo.list_agents_for_server = AsyncMock(return_value=[])
+    mock_repo.delete_all_for_server = AsyncMock()
+
+    await service.release_server(uuid4(), detach_agents=False)
+
+    mock_repo.delete_all_for_server.assert_not_awaited()

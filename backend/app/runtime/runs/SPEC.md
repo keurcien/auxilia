@@ -47,7 +47,7 @@ On a terminal transition, `RunService.finalize` updates the run row **and**
 stamps `threads.last_run_status` in one transaction — the run outcome and the
 thread badge can never disagree. Relationship: a `ThreadDB` has many `RunDB`
 rows (`ondelete=CASCADE`); the worker reloads the thread and calls the existing
-`Agent.build(thread, db)` to execute — the durable layer wraps `runtime.py`, it
+the runtime stages (`resolve` → `open_resources` → `assemble` → `run_turn`) to execute — the durable layer wraps them, it
 does not replace it.
 
 ## Lifecycle (`RunStatus`)

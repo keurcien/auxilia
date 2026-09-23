@@ -229,9 +229,14 @@ class RunWorker:
             # it, which is what keeps the last events ahead of `finalize`'s
             # terminal entry.
             async with BufferedEventPublisher(events) as publisher:
-                async for event in run_turn(
-                    graph, resolved, live, TurnInput.from_record(record)
-                ):
+                turn = TurnInput(
+                    input=record.input,
+                    command=record.command,
+                    trigger=record.trigger,
+                    config_overrides=record.config_overrides,
+                    output_schema=record.output_schema,
+                )
+                async for event in run_turn(graph, resolved, live, turn):
                     await publisher.publish(encode_event(event))
 
     async def _heartbeat(self, liveness: RunLiveness, events: RunEventStream) -> None:

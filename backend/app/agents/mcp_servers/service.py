@@ -5,14 +5,14 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.mcp_servers.repository import AgentMCPServerRepository
-from app.agents.models import AgentMCPServerBase, AgentMCPServerDB
+from app.agents.models import AgentDB, AgentMCPServerBase, AgentMCPServerDB
 from app.agents.schemas import (
     AgentMCPServerConfig,
     AgentMCPServerCreate,
     AgentMCPServerPatch,
 )
 from app.database import get_db
-from app.exceptions import NotFoundError
+from app.exceptions import DomainValidationError, NotFoundError
 from app.mcp.client.connectivity import connect_to_server, is_authorized
 from app.mcp.servers.models import MCPAuthType, MCPServerDB
 from app.mcp.servers.repository import MCPServerRepository
@@ -28,6 +28,22 @@ class AgentMCPServerService(BaseService[AgentMCPServerDB, AgentMCPServerReposito
     def __init__(self, db: AsyncSession):
         super().__init__(db, AgentMCPServerRepository(db))
         self._servers = MCPServerRepository(db)
+
+    async def list_agents_for_server(self, server_id: UUID) -> list[AgentDB]:
+        """Agents currently bound to the server (the delete-guard dialog)."""
+        return await self.repository.list_agents_for_server(server_id)
+
+    async def release_server(self, server_id: UUID, *, detach_agents: bool) -> None:
+        """Before a server row is deleted: refuse while agents are bound,
+        unless `detach_agents` — the dialog's explicit confirm — removes the
+        bindings first."""
+        if detach_agents:
+            await self.repository.delete_all_for_server(server_id)
+            return
+        if agents := await self.repository.list_agents_for_server(server_id):
+            raise DomainValidationError(
+                f"MCP server is used by {len(agents)} agent(s) — detach it first"
+            )
 
     async def _ensure_server(self, server_id: UUID) -> MCPServerDB:
         server = await self._servers.get(server_id)

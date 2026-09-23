@@ -23,7 +23,7 @@ External integrations:
 Every backend feature follows `router → service → repository → model`. Each layer has a single responsibility:
 
 - **Router** (`router.py`) — HTTP surface. Declares the FastAPI endpoints, binds auth dependencies, shapes the response. No DB access, no branching on domain rules.
-- **Service** (`service.py`) — business logic. Inherits `BaseService[ModelDB, Repository]` (`app/service.py`), owns the request-scoped `db`, raises domain exceptions, and delegates IO to its repository. Cross-module orchestration (e.g. `AgentService` using `SubagentService`) happens here.
+- **Service** (`service.py`) — business logic. Inherits `BaseService[ModelDB, Repository]` (`app/service.py`), owns the request-scoped `db`, raises domain exceptions, and delegates IO to its repository. Cross-module orchestration (e.g. `AgentService` using `AgentMCPServerService`) happens here.
 - **Repository** (`repository.py`) — SQL. Inherits `BaseRepository[ModelDB]` (`app/repository.py`), which provides `get / create / update / delete` for anything that subclasses `BaseDBModel`. Subclasses add one method per query shape (e.g. `get_by_email`, `list_with_permissions`). Never raises domain exceptions — returns `None` / `[]`.
 - **Model** (`models.py`) — SQLModel table definitions. Inherit `BaseDBModel` (UUID PK + `created_at` / `updated_at` timestamps). For join tables skip the UUID and use `(TimestampMixin, SQLModel, table=True)`.
 - **Schema** (`schemas.py`) — request/response DTOs.
@@ -138,8 +138,8 @@ auxilia/
 │   │   ├── agents/                    # Agent *configuration* — CRUD, bindings, permissions. Exports RunSpec to the runtime; imports nothing from it
 │   │   │   ├── core/                  # AgentService + repository (CRUD, permissions, get_run_spec)
 │   │   │   ├── mcp_servers/           # AgentMCPServerService (agent↔MCP bindings, tool sync)
-│   │   │   ├── subagents/             # SubagentService (supervisor/subagent links)
-│   │   │   ├── sandboxes/             # AgentSandboxService (agent↔sandbox binding)
+│   │   │   │                          # Subagent links, sandbox binding, permissions and teams are join tables on the
+│   │   │   │                          # aggregate: repository methods on AgentRepository, verbs on AgentService (no service each)
 │   │   │   ├── run_spec.py            # RunSpec / AgentSpec — the narrow read the runtime builds a graph from
 │   │   │   ├── router.py              # /agents endpoints (unified)
 │   │   │   ├── models.py              # AgentDB, AgentMCPServerDB, permissions, subagent links
@@ -147,7 +147,10 @@ auxilia/
 │   │   ├── runtime/                   # Agent *execution* — the path from a user message to tokens. Stages import leftward only
 │   │   │   ├── launch.py              # launch(LaunchRequest) → RunDB — the ONE seam every ingress (web, /invoke, Slack, triggers) crosses
 │   │   │   ├── preflight.py           # The gates launch and the worker share: model available, sandboxes reachable, OAuth connected
-│   │   │   ├── agent.py               # Agent.build / .stream (resolve → open MCP+sandbox → compile → astream_events v3 → protocol events)
+│   │   │   ├── resolve.py             # resolve(thread, spec, db) → ResolvedRun — DB reads only (model, toolsets, sandbox providers, skills)
+│   │   │   ├── resources.py           # open_resources(resolved) → LiveResources — the network stage (MCP, checkpointer, sandbox); no DB writes
+│   │   │   ├── assemble.py            # assemble(resolved, live) → graph — build_runnable, middleware stacks, compile_subagent; pure
+│   │   │   ├── turn.py                # run_turn(graph, resolved, live, TurnInput) → protocol events; regeneration, recursion fallback, read_run_result
 │   │   │   ├── toolset.py             # Toolset.prepare (DB) / .open (network) — MCP tool binding
 │   │   │   ├── harness.py             # deepagents harness bundle (parity-tested against create_deep_agent)
 │   │   │   ├── middleware/            # Leaf AgentMiddleware: current_date, tool_errors, structured_output
@@ -330,7 +333,7 @@ See **Backend conventions** above for the full layered architecture, naming rule
 - **Async everywhere**: all database operations, HTTP calls, and MCP interactions use `async/await`
 - **Dependency injection**: use FastAPI `Depends()` for database sessions (`get_db`) and auth (`get_current_user` / `require_admin` / `require_editor`)
 - **Pure helpers stay out of services**: if a function doesn't need the DB, don't put it on the service. Connectivity probes live in `app/mcp/client/connectivity.py`, not on `MCPServerService`, so callers never have to pass `None` for an unused session.
-- **Cross-module service use**: a service can compose another service directly (e.g. `AgentService` constructs a `SubagentService` in its `__init__`). Avoid reaching into another module's repository from a router.
+- **Cross-module service use**: a service can compose another service directly (e.g. `AgentService` constructs an `AgentMCPServerService` in its `__init__`), or another module's *repository* when it only needs rows, not rules (`AgentService` uses `ThreadRepository` to take an agent's threads with it; composing `ThreadService` there made agents ↔ threads two-way). Avoid reaching into another module's repository from a router. When two modules meet at one endpoint (deleting an MCP server or sandbox must release the agents bound to it), the router composes both services in order rather than one service importing the other.
 
 ### Frontend Patterns
 
