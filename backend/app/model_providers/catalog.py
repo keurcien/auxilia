@@ -47,15 +47,6 @@ ADAPTIVE_THINKING_MODELS: frozenset[str] = frozenset(
     {"claude-opus-4-6", "claude-opus-4-8", "claude-sonnet-5", "claude-opus-5"}
 )
 
-# OpenAI reasoning models that reject function tools on /v1/chat/completions
-# ("Function tools with reasoning_effort are not supported ... use /v1/responses
-# or set reasoning_effort to 'none'"). Every agent binds tools, so route these
-# through the Responses API, which supports tools + reasoning. Verified: the
-# gpt-5.6 line needs this; gpt-5/5.1/5.2/5.4/5.5 work fine on chat completions.
-OPENAI_RESPONSES_API_MODELS: frozenset[str] = frozenset(
-    {"gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"}
-)
-
 
 def provider_api_keys() -> dict[str, str]:
     """Configured provider → API key, read at call time (not import time) so
@@ -106,18 +97,14 @@ class ChatModelFactory:
         # middleware_attempts × sdk_attempts provider requests.
         match provider:
             case "openai":
-                # gpt-5.6 reasoning models require the Responses API to use
-                # function tools (chat completions 400s); everything else is
-                # fine on the default chat-completions path. On the Responses
-                # path langchain translates reasoning_effort into
-                # `reasoning.effort` itself.
-                use_responses_api = model_id in OPENAI_RESPONSES_API_MODELS
-                model_class = ResponsesChatOpenAI if use_responses_api else ChatOpenAI
-                return model_class(
+                # Use Responses for every native OpenAI model so newly added
+                # reasoning models can bind tools without an endpoint allowlist.
+                # LangChain translates reasoning_effort to reasoning.effort.
+                return ResponsesChatOpenAI(
                     model=model_id,
                     api_key=api_key,
                     max_retries=0,
-                    use_responses_api=use_responses_api,
+                    use_responses_api=True,
                     reasoning_effort=reasoning_effort,
                 )
             case "deepseek":
