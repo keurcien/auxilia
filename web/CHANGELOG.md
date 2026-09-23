@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.10.1](https://github.com/keurcien/auxilia/compare/web-v0.10.0...web-v0.10.1) (2026-09-22)
+
+
+### Features
+
+* **agents:** full tool descriptions dialog for MCP server panels ([#353](https://github.com/keurcien/auxilia/issues/353)) ([1e51374](https://github.com/keurcien/auxilia/commit/1e513747e4e17c8d7e2fb11790d102cfd92cc20a))
+* **triggers:** pick a day of month for monthly schedules ([#346](https://github.com/keurcien/auxilia/issues/346)) ([db16902](https://github.com/keurcien/auxilia/commit/db1690251e5de8e548aab4a4d9aa0fdcd9a0109d))
+
+
+### Bug Fixes
+
+* **skills:** keep warnings out of the sync confirmation dialog ([#351](https://github.com/keurcien/auxilia/issues/351)) ([e0429b0](https://github.com/keurcien/auxilia/commit/e0429b088d81efe9726ee3a376098a346271a905))
+
 ## [0.10.0](https://github.com/keurcien/auxilia/compare/web-v0.9.1...web-v0.10.0) (2026-09-21)
 
 

@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.9.3](https://github.com/keurcien/auxilia/compare/backend-v0.9.2...backend-v0.9.3) (2026-09-23)
+
+
+### Bug Fixes
+
+* **models:** use Responses for all native OpenAI models ([#356](https://github.com/keurcien/auxilia/issues/356)) ([40dfece](https://github.com/keurcien/auxilia/commit/40dfececb951ce9972d29f046062e2c3150519f1))
+
+## [0.9.2](https://github.com/keurcien/auxilia/compare/backend-v0.9.1...backend-v0.9.2) (2026-09-23)
+
+
+### Bug Fixes
+
+* **docker:** avoid duplicating the venv layer via chown -R ([#354](https://github.com/keurcien/auxilia/issues/354)) ([cde58c8](https://github.com/keurcien/auxilia/commit/cde58c864b0f03d58737d92e7f139df7e9f33f5f))
+
+## [0.9.1](https://github.com/keurcien/auxilia/compare/backend-v0.9.0...backend-v0.9.1) (2026-09-22)
+
+
+### Bug Fixes
+
+* préserver les arguments MCP optionnels avec Responses ([#347](https://github.com/keurcien/auxilia/issues/347)) ([f875371](https://github.com/keurcien/auxilia/commit/f87537121511ff3ecb7a98a227df85f0537e3e09))
+* **runs:** release auth connection before run lookups ([#352](https://github.com/keurcien/auxilia/issues/352)) ([b8d0faf](https://github.com/keurcien/auxilia/commit/b8d0faf1da2e3f221b05f2d5ded07c433b1f2dc6))
+
 ## [0.9.0](https://github.com/keurcien/auxilia/compare/backend-v0.8.6...backend-v0.9.0) (2026-09-21)
 
 

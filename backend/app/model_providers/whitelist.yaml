@@ -36,9 +36,7 @@ schema_version: 1
 
 models:
   # --- OpenAI (native endpoint) ---
-  # The gpt-5.6 line (Luna/Sol/Terra) is served via the Responses API — the
-  # factory routes ids in OPENAI_RESPONSES_API_MODELS there, since chat
-  # completions rejects function tools on those reasoning models.
+  # All native OpenAI models use Responses to support tools with reasoning.
   - provider: openai
     model_id: gpt-4o-mini
     display_name: GPT-4o mini

@@ -41,27 +41,34 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy virtual environment from builder
-COPY --from=builder /app/.venv /app/.venv
+# Copy virtual environment from builder. `--chown` here (not a later
+# `RUN chown -R`) matters for image size: a chown after the fact touches every
+# file's metadata, and on the overlay filesystem that forces a full copy-up of
+# the venv into a brand-new layer -- silently doubling the image.
+COPY --from=builder --chown=appuser:appgroup /app/.venv /app/.venv
 
 # Copy application code. `pyproject.toml` declares no build-system, so uv
 # never installs this project into the venv — `app` and `skillkit` are both
 # imported from the working directory, and each one has to be copied here by
 # name. Missing `skillkit` is not a lint or test failure: it only surfaces as
 # `ModuleNotFoundError` when the container starts.
-COPY --from=builder /app/app /app/app
-COPY --from=builder /app/skillkit /app/skillkit
-COPY --from=builder /app/alembic /app/alembic
-COPY --from=builder /app/alembic.ini /app/alembic.ini
-COPY --from=builder /app/entrypoint.sh /app/entrypoint.sh
+COPY --from=builder --chown=appuser:appgroup /app/app /app/app
+COPY --from=builder --chown=appuser:appgroup /app/skillkit /app/skillkit
+COPY --from=builder --chown=appuser:appgroup /app/alembic /app/alembic
+COPY --from=builder --chown=appuser:appgroup /app/alembic.ini /app/alembic.ini
+COPY --from=builder --chown=appuser:appgroup /app/entrypoint.sh /app/entrypoint.sh
 
 # Set environment variables
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
-# Make entrypoint executable and change ownership to non-root user
-RUN chmod +x /app/entrypoint.sh && chown -R appuser:appgroup /app
+# `--chown` on the COPYs above only sets ownership on what they copy, never on
+# the pre-existing `/app` directory itself (created by `WORKDIR` as root) --
+# chown it too, non-recursively, so appuser can still write directly under
+# `/app` if something ever needs to. A single directory is cheap to chown,
+# unlike the old recursive copy-up of the whole tree.
+RUN chmod +x /app/entrypoint.sh && chown appuser:appgroup /app
 
 USER appuser
 
