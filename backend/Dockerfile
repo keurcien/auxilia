@@ -63,7 +63,12 @@ ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
-RUN chmod +x /app/entrypoint.sh
+# `--chown` on the COPYs above only sets ownership on what they copy, never on
+# the pre-existing `/app` directory itself (created by `WORKDIR` as root) --
+# chown it too, non-recursively, so appuser can still write directly under
+# `/app` if something ever needs to. A single directory is cheap to chown,
+# unlike the old recursive copy-up of the whole tree.
+RUN chmod +x /app/entrypoint.sh && chown appuser:appgroup /app
 
 USER appuser
 
