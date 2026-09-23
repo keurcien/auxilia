@@ -9,7 +9,7 @@ FastAPI backend for the auxilia project with MCP (Model Context Protocol) server
 - **Redis Pub/Sub**: Real-time communication for OAuth callbacks
 - **LangGraph Integration**: Agent-based conversation management
 - **Thread Management**: Persistent conversation threads with checkpointing
-- **Durable Agent Runtime**: Redis-backed runs that outlive the HTTP request — reattachable streams, server-side cancel, and orphan recovery, distributed across instances via a shared queue. The `/threads/{thread_id}/runs/*` API (stream, invoke, reattach, cancel) is served by `app/agents/runs/`; see [`app/agents/runs/SPEC.md`](app/agents/runs/SPEC.md).
+- **Durable Agent Runtime**: Redis-backed runs that outlive the HTTP request — reattachable streams, server-side cancel, and orphan recovery, distributed across instances via a shared queue. The `/threads/{thread_id}/runs/*` API (stream, invoke, reattach, cancel) is served by `app/runtime/runs/`; see [`app/runtime/runs/SPEC.md`](app/runtime/runs/SPEC.md).
 
 ## Prerequisites
 
@@ -127,11 +127,11 @@ python example_callback_handler.py <state-from-oauth-start>
 
 ## Sorties structurées (structured output)
 
-Un run peut fournir un `output_schema` (JSON Schema) pour obtenir une réponse validée dans `structured_response`. Le schéma est géré par `DeferredStructuredOutputMiddleware` (`app/agents/structured_output.py`).
+Un run peut fournir un `output_schema` (JSON Schema) pour obtenir une réponse validée dans `structured_response`. Le schéma est géré par `DeferredStructuredOutputMiddleware` (`app/runtime/middleware/structured_output.py`).
 
 **Le schéma n'est pas appliqué pendant la boucle ReAct.** Contraindre le décodage à chaque appel casse la boucle en pratique : le modèle arrête d'appeler les outils et remplit directement le schéma avec des valeurs inventées. Le middleware laisse donc la boucle tourner sans contrainte, puis applique le schéma sur **un seul dernier tour de formatage**, une fois la réponse finale atteinte.
 
-Sur ce tour de formatage, langchain résout le schéma par défaut en **`ToolStrategy`** : un appel d'outil forcé (`tool_choice` = `"required"` ou une fonction nommée). Cela fonctionne pour la plupart de nos fournisseurs, mais deux APIs rejettent l'appel forcé. La stratégie de formatage est donc choisie par fournisseur via `PROVIDER_FORMAT_MODES` (`app/agents/structured_output.py`) — un fournisseur absent utilise l'appel d'outil forcé par défaut.
+Sur ce tour de formatage, langchain résout le schéma par défaut en **`ToolStrategy`** : un appel d'outil forcé (`tool_choice` = `"required"` ou une fonction nommée). Cela fonctionne pour la plupart de nos fournisseurs, mais deux APIs rejettent l'appel forcé. La stratégie de formatage est donc choisie par fournisseur via `PROVIDER_FORMAT_MODES` (`app/runtime/middleware/structured_output.py`) — un fournisseur absent utilise l'appel d'outil forcé par défaut.
 
 | Mode | Fournisseur | Comment |
 | --- | --- | --- |

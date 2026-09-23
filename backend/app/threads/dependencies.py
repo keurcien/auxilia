@@ -6,7 +6,7 @@ router resolved that for `GET /threads/{id}`; the protocol endpoints the chat
 page hydrates from (`/state`, `/history`, `/messages/{id}`, `/stream/events`)
 must accept the same audience, or an admin sees the header and an empty
 conversation. Commands stay owner-only (`authorize_thread` in
-`app/agents/runs/router.py`).
+`app/runtime/runs/router.py`).
 """
 
 from fastapi import Depends

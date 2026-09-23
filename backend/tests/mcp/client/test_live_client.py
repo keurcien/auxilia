@@ -25,7 +25,6 @@ from mcp import ClientSession
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.types import CallToolResult
 
-from app.agents.toolset import PreparedToolset, Toolset
 from app.mcp.client.connection import (
     UI_EXTENSION,
     ConnectionSpec,
@@ -34,6 +33,7 @@ from app.mcp.client.connection import (
     open_client,
 )
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
+from app.runtime.toolset import PreparedToolset, Toolset
 
 
 AUTH_URL = "https://auth.example/authorize?client_id=abc"
