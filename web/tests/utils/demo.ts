@@ -602,8 +602,11 @@ export async function waitForTurn(page: Page, timeoutMs = 240_000): Promise<void
 	const stopButton = page.locator('form button[type="button"]:has(svg rect)');
 	const retry = page.getByRole("button", { name: "Retry" });
 	const working = page.getByText("Working", { exact: true });
+	// The transcript only (the conversation list carries role="log") — not
+	// the whole <main>, whose header, composer and relative timestamps keep
+	// changing after the turn and would hold the wait open until it timed out.
 	const transcriptLength = () =>
-		page.evaluate(() => document.querySelector("main")?.innerText.length ?? 0);
+		page.evaluate(() => document.querySelector('[role="log"]')?.textContent?.length ?? 0);
 	// The run is accepted within seconds; a turn that never starts streaming
 	// (e.g. refused by a pre-flight gate) surfaces as a Retry or times out.
 	await stopButton.or(retry).first().waitFor({ state: "visible", timeout: 60_000 });

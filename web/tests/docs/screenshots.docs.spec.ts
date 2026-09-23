@@ -24,20 +24,26 @@ interface Row {
 }
 
 /**
- * A named resource, or the first one of its kind. A missing kind FAILS the
- * run (not a skip) — a green suite must mean every PNG the docs embed was
- * actually written. `createdBy` names the command that produces the kind:
- * agents come from the seed, skills and triggers only from the walkthrough.
+ * A named resource. Agents fall back to the first one of their kind (a
+ * seeded agent is a fine subject for the agent shots); skills and triggers
+ * are strict — an unrelated one would silently become "the" skill-detail
+ * shot. Either way a miss FAILS the run (not a skip): a green suite must
+ * mean every PNG the docs embed was actually written. `createdBy` names the
+ * command that produces the resource.
  */
 async function firstNamed(
 	path: string,
 	preferred: string,
 	kind: string,
-	createdBy = "npm run demo:seed",
+	{ createdBy = "npm run demo:seed", fallback = true } = {},
 ): Promise<Row> {
 	const rows = (await api<Row[]>("GET", path)) ?? [];
-	const row = rows.find((r) => r.name === preferred) ?? rows[0];
-	if (!row) throw new Error(`no ${kind} found — run \`${createdBy}\` first`);
+	const row = rows.find((r) => r.name === preferred) ?? (fallback ? rows[0] : undefined);
+	if (!row) {
+		throw new Error(
+			`${kind} "${preferred}" not found${fallback ? ` (and no other ${kind})` : ""} — run \`${createdBy}\` first`,
+		);
+	}
 	return row;
 }
 
@@ -45,9 +51,15 @@ const seededAgent = () => firstNamed("/agents/", "Docs Researcher", "agent");
 /** The walkthrough's agent: a skill enabled and one tool on "Needs approval". */
 const walkthroughAgent = () => firstNamed("/agents/", WALKTHROUGH.agentName, "agent");
 const walkthroughSkill = () =>
-	firstNamed("/skills/", WALKTHROUGH.skillName, "skill", "npm run demo:video");
+	firstNamed("/skills/", WALKTHROUGH.skillName, "skill", {
+		createdBy: "npm run demo:video",
+		fallback: false,
+	});
 const walkthroughTrigger = () =>
-	firstNamed("/triggers/", WALKTHROUGH.triggerName, "trigger", "npm run demo:video");
+	firstNamed("/triggers/", WALKTHROUGH.triggerName, "trigger", {
+		createdBy: "npm run demo:video",
+		fallback: false,
+	});
 
 interface AgentDetail {
 	mcp_servers: { tools: Record<string, string> | null }[];
