@@ -1,6 +1,8 @@
 import { create } from "zustand";
 
 interface ChatHeaderState {
+  /** The thread's agent — the header links to its page when set. */
+  agentId: string | null;
   agentName: string | null;
   agentEmoji: string | null;
   agentColor: string | null;
@@ -10,6 +12,7 @@ interface ChatHeaderState {
   triggerName: string | null;
   triggerRunAt: string | null;
   setCurrentChat: (data: {
+    agentId?: string | null;
     agentName: string | null;
     agentEmoji: string | null;
     agentColor?: string | null;
@@ -22,6 +25,7 @@ interface ChatHeaderState {
 }
 
 export const useChatHeaderStore = create<ChatHeaderState>((set) => ({
+  agentId: null,
   agentName: null,
   agentEmoji: null,
   agentColor: null,
@@ -31,6 +35,7 @@ export const useChatHeaderStore = create<ChatHeaderState>((set) => ({
   triggerRunAt: null,
   setCurrentChat: (data) => {
     set({
+      agentId: null,
       agentColor: null,
       triggerId: null,
       triggerName: null,
@@ -40,6 +45,7 @@ export const useChatHeaderStore = create<ChatHeaderState>((set) => ({
   },
   clearCurrentChat: () => {
     set({
+      agentId: null,
       agentName: null,
       agentEmoji: null,
       agentColor: null,

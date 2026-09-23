@@ -1,10 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, X, Info } from "lucide-react";
+import { Plus, X, Info, ArrowUpRight } from "lucide-react";
 import { SubagentInfo } from "@/types/agents";
 import { useAgentsStore } from "@/stores/agents-store";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
+import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
+import {
+	AGENT_EDITOR_FORBIDDEN_MESSAGE,
+	useOpenAgentEditor,
+} from "@/hooks/use-open-agent-editor";
 import AddAgentSubagentDialog from "./add-agent-subagent-dialog";
 
 interface AgentSubagentListProps {
@@ -16,6 +21,9 @@ interface AgentSubagentListProps {
 	fallbackSubagents?: SubagentInfo[];
 	readOnly?: boolean;
 	onChange?: (subagentIds: string[]) => void;
+	/** Asked before a row navigates away to the subagent's page; return false
+	 * to stay (the editor uses it to guard an unsaved draft). */
+	confirmLeave?: () => boolean;
 }
 
 export default function AgentSubagentList({
@@ -25,9 +33,12 @@ export default function AgentSubagentList({
 	fallbackSubagents = [],
 	readOnly,
 	onChange,
+	confirmLeave,
 }: AgentSubagentListProps) {
 	const allAgents = useAgentsStore((state) => state.agents);
 	const [dialogOpen, setDialogOpen] = useState(false);
+	const { openAgentEditor, forbiddenOpen, setForbiddenOpen } =
+		useOpenAgentEditor();
 
 	const resolve = (id: string): SubagentInfo => {
 		const fromStore = allAgents.find((a) => a.id === id);
@@ -58,7 +69,13 @@ export default function AgentSubagentList({
 		onChange?.([...subagentIds, subagentId]);
 	};
 
-	// If this agent is used as a subagent elsewhere, show info banner instead
+	// A row leads to the subagent's own page, gated on `editor` there; the
+	// gate opens the "No access" dialog below when the viewer is too weak.
+	const handleOpen = (subagentId: string) => {
+		if (confirmLeave && !confirmLeave()) return;
+		openAgentEditor(subagentId);
+	};
+
 	if (isSubagent) {
 		return (
 			<div className="mt-7 flex flex-col">
@@ -97,9 +114,23 @@ export default function AgentSubagentList({
 			{subagents.length > 0 ? (
 				<div className="flex flex-col gap-2.5">
 					{subagents.map((sub) => (
+						// A div, not a button: the remove control nests inside.
 						<div
 							key={sub.id}
-							className="group flex items-center gap-3 rounded-[10px] border border-border bg-card px-4 py-3"
+							role="link"
+							tabIndex={0}
+							aria-label={`Open ${sub.name}`}
+							className="group flex cursor-pointer items-center gap-3 rounded-[10px] border border-border bg-card px-4 py-3 transition-colors hover:border-border-hover hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-petrol/40 dark:hover:bg-white/5"
+							onClick={() => {
+								handleOpen(sub.id);
+							}}
+							onKeyDown={(event) => {
+								if (event.target !== event.currentTarget) return;
+								if (event.key === "Enter" || event.key === " ") {
+									event.preventDefault();
+									handleOpen(sub.id);
+								}
+							}}
 						>
 							<AgentAvatar
 								color={sub.color}
@@ -119,11 +150,16 @@ export default function AgentSubagentList({
 									)}
 								</span>
 							</span>
+							<ArrowUpRight
+								aria-hidden
+								className="size-3.5 shrink-0 text-meta opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 dark:text-panel-dim"
+							/>
 							{!readOnly && (
 								<button
 									aria-label={`Remove ${sub.name}`}
 									className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-meta transition-colors hover:bg-hover hover:text-foreground dark:text-panel-dim dark:hover:bg-white/10"
-									onClick={() => {
+									onClick={(event) => {
+										event.stopPropagation();
 										handleRemove(sub.id);
 									}}
 								>
@@ -148,6 +184,13 @@ export default function AgentSubagentList({
 					onAdd={handleAdd}
 				/>
 			)}
+
+			<ForbiddenErrorDialog
+				open={forbiddenOpen}
+				onOpenChange={setForbiddenOpen}
+				title="No access"
+				message={AGENT_EDITOR_FORBIDDEN_MESSAGE}
+			/>
 		</div>
 	);
 }

@@ -5,14 +5,22 @@ import { useRouter } from "next/navigation";
 import { useChatHeaderStore } from "@/stores/chat-header-store";
 import { formatRunAt } from "@/lib/triggers/schedule";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
+import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
+import {
+	AGENT_EDITOR_FORBIDDEN_MESSAGE,
+	useOpenAgentEditor,
+} from "@/hooks/use-open-agent-editor";
 
 /**
  * Petrol Mono chat header (design 8a): 56px, centered round avatar +
- * agent name, hairline bottom border like the other page top bars.
+ * agent name, hairline bottom border like the other page top bars. The agent
+ * name leads to the agent's page, gated on `editor` there (the gate opens a
+ * "No access" dialog when the viewer is too weak).
  */
 export function ChatHeader() {
 	const router = useRouter();
 	const {
+		agentId,
 		agentName,
 		agentEmoji,
 		agentColor,
@@ -20,6 +28,8 @@ export function ChatHeader() {
 		triggerName,
 		triggerRunAt,
 	} = useChatHeaderStore();
+	const { openAgentEditor, forbiddenOpen, setForbiddenOpen } =
+		useOpenAgentEditor();
 
 	if (triggerName) {
 		return (
@@ -60,9 +70,28 @@ export function ChatHeader() {
 	return (
 		<div className="flex h-14 shrink-0 items-center justify-center gap-2 border-b border-border px-5">
 			<AgentAvatar color={agentColor} emoji={agentEmoji} size="xs" />
-			<span className="text-[14px] font-semibold tracking-[-0.01em] text-foreground">
-				{agentName}
-			</span>
+			{agentId ? (
+				<button
+					type="button"
+					onClick={() => {
+						openAgentEditor(agentId);
+					}}
+					className="cursor-pointer rounded-sm text-[14px] font-semibold tracking-[-0.01em] text-foreground transition-colors hover:text-petrol focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-petrol/40"
+				>
+					{agentName}
+				</button>
+			) : (
+				<span className="text-[14px] font-semibold tracking-[-0.01em] text-foreground">
+					{agentName}
+				</span>
+			)}
+
+			<ForbiddenErrorDialog
+				open={forbiddenOpen}
+				onOpenChange={setForbiddenOpen}
+				title="No access"
+				message={AGENT_EDITOR_FORBIDDEN_MESSAGE}
+			/>
 		</div>
 	);
 }

@@ -527,6 +527,9 @@ export default function AgentEditor({
 							onChange={(subagentIds) => {
 								setField("subagentIds", subagentIds);
 							}}
+							confirmLeave={() =>
+								!isDirty || confirm("Discard unsaved changes?")
+							}
 						/>
 					)}
 				</div>
