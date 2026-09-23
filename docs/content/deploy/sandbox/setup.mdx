@@ -1,80 +1,89 @@
 # Sandbox Setup
 
-The sandbox runtime is external — **auxilia** is a client of it. You can run [OpenSandbox](https://github.com/langchain-ai/opensandbox) alongside **auxilia** or point **auxilia** at a managed OpenSandbox instance.
+The sandbox runtime is external — **auxilia** is a client of it. A workspace admin registers each runtime once under **Settings → Sandboxes**; agent authors then bind it to agents. Nothing about the sandbox is configured through environment variables.
 
-## 0. Pick a provider
+This page covers the **OpenSandbox** and **Daytona** providers. For Google Cloud Run sandboxes, follow [Cloud Run Sandboxes](/deploy/sandbox/cloud-run).
 
-`SANDBOX_PROVIDER` selects the runtime:
+## Option A — OpenSandbox
 
-```env
-# "opensandbox" (default) or "cloudrun"
-SANDBOX_PROVIDER=opensandbox
-```
+### 1. Run the controller
 
-This page covers the **OpenSandbox** provider. For `cloudrun` — Google Cloud Run sandboxes reached through the dedicated sandbox gateway — follow [Cloud Run Sandboxes](/deploy/sandbox/cloud-run) instead; steps 1–3 below don't apply there.
-
-## 1. Run OpenSandbox
-
-Follow the [OpenSandbox installation guide](https://github.com/langchain-ai/opensandbox) to run the controller. The simplest setup is a Docker container on the same host or VPC as your **auxilia** backend.
+Follow the [OpenSandbox installation guide](https://github.com/alibaba/OpenSandbox) to run the controller. The simplest setup is a Docker container on the same host or VPC as your **auxilia** backend.
 
 Once it's running, note:
 
-- The **domain** (e.g. `localhost:8083` in dev, or a private DNS name in prod)
-- An **API key** if the controller is configured to require one
+- The **domain** it listens on (e.g. `sandbox.internal:8083` — a private DNS name in production)
+- The **API key**, if the controller is configured to require one
 
-## 2. Configure auxilia
+### 2. Bring your own image (optional)
 
-Set these environment variables on the backend:
+Every sandbox is created from the **Default image** you set on the sandbox; OpenSandbox pulls whatever image name you give it. `python:3.12-slim` works out of the box, but an image with your libraries pre-installed starts faster and doesn't need network access at run time:
 
-```env
-# Required: where OpenSandbox is reachable
-OPEN_SANDBOX_DOMAIN=localhost:8083
-
-# Optional: API key if your controller requires one
-OPEN_SANDBOX_API_KEY=your-key
-
-# Connect through the OpenSandbox server's proxy (recommended)
-OPEN_SANDBOX_USE_SERVER_PROXY=true
+```dockerfile filename="Dockerfile"
+FROM python:3.12-slim
+RUN pip install --no-cache-dir pandas==2.2.* matplotlib openpyxl gspread google-auth
 ```
 
-As soon as `OPEN_SANDBOX_DOMAIN` is set, the backend's `/sandbox/status` endpoint reports `{"enabled": true}` and agents with **Code execution** turned on will use the sandbox. If the variable is missing, the integration is silently disabled and the toggle on agents has no effect.
+Build it, push it to a registry the controller can pull from, and use its name as the default image. Lighter alternative: list the libraries under **Default packages** — they are `pip install`ed into every fresh sandbox, which needs the sandbox to reach PyPI.
 
-## 3. Tune the runtime (optional)
+### 3. Register it in auxilia
 
-The remaining variables let you shape the default container:
+In **Settings → Sandboxes**, click **Add sandbox** and pick **OpenSandbox**:
 
-```env
-# Base image — whatever OpenSandbox supports; defaults to python:3.12-slim
-OPEN_SANDBOX_DEFAULT_IMAGE=python:3.12-slim
+![Sandbox dialog — OpenSandbox](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/sandbox-dialog-opensandbox.png)
 
-# Packages installed via pip on first boot
-# (comma-separated or list syntax, depending on your loader)
-OPEN_SANDBOX_DEFAULT_PACKAGES=["pandas","matplotlib","duckdb"]
+| Field | Notes |
+| --- | --- |
+| **Name** / **Description** | What agent authors see in the **Add tool** dialog |
+| **Domain** | Where the controller is reachable, e.g. `sandbox.internal:8083` |
+| **API key** | Optional — if the controller requires one. Stored encrypted |
+| **Default image** | Image every sandbox starts from. Default `python:3.12-slim` |
+| **Default packages** | Comma-separated pip packages installed on creation |
+| **Timeout (seconds)** | Per-command limit for `execute`. Default `1800` |
+| **Volume mounts** | Host paths mounted into every sandbox, `host_path:sandbox_path[:ro]` — see [Security](/deploy/sandbox/security) |
+| **Use server proxy** | Route file operations through the controller rather than direct container ports (recommended; on by default) |
 
-# Per-command timeout (seconds). Default: 1800 (30 minutes)
-OPEN_SANDBOX_TIMEOUT=1800
+Saving validates the whole configuration. Sandboxes created by **auxilia** on OpenSandbox get a **30-minute TTL**, renewed at the start of every run of the thread.
 
-# Volume mounts — host_path:sandbox_path[:ro], comma-separated
-OPEN_SANDBOX_VOLUME_MOUNTS=/srv/shared:/workspace:ro,/tmp/auxilia:/mnt/scratch
-```
+## Option B — Daytona
 
-All settings live in `app/sandbox/settings.py` and use the `OPEN_SANDBOX_` prefix.
+[Daytona](https://www.daytona.io/) runs the containers for you, so there is nothing to host.
 
-## 4. Enable on an agent
+### 1. Get an API key
 
-1. Open the agent's configuration page
-2. Scroll to **Code execution**
-3. Toggle it on
+Create an API key in the Daytona dashboard (or on your self-hosted instance).
 
-The next message you send will expose `create_sandbox` / `connect_sandbox` (plus the file-ops toolset) to the LLM. The agent decides when to spin up the container — usually right before it needs to run code.
+### 2. Build a snapshot (optional)
 
-## Check the status
+A Daytona **snapshot** is a pre-built image. Create one from a Dockerfile with the libraries your agents need and note its name; without one, sandboxes start from Daytona's default image and rely on **Default packages**.
 
-From the backend, you can confirm the runtime is reachable:
+### 3. Register it in auxilia
 
-```bash
-curl -H "Cookie: auth_token=..." https://your-auxilia.example.com/api/backend/sandbox/status
-# {"enabled": true}
-```
+In **Settings → Sandboxes**, click **Add sandbox** and pick **Daytona**:
 
-If you get `{"enabled": false}`, the selected provider is missing its configuration — `OPEN_SANDBOX_DOMAIN` for `opensandbox`, or `CLOUD_RUN_SANDBOX_GATEWAY_URL` + `CLOUD_RUN_SANDBOX_GATEWAY_SECRET` for `cloudrun`. If the flag is `true` but `create_sandbox` fails at runtime, check the sandbox runtime's logs (the OpenSandbox controller or the sandbox gateway service).
+![Sandbox dialog — Daytona](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/sandbox-dialog-daytona.png)
+
+| Field | Notes |
+| --- | --- |
+| **API URL** | Default `https://app.daytona.io/api`; your instance URL if self-hosted |
+| **API key** | Required. Stored encrypted |
+| **Region** | Daytona target, default `us` |
+| **Snapshot** | Optional snapshot name to create sandboxes from |
+| **Auto-stop (min)** | Idle minutes before Daytona stops the sandbox. Default `15`, but **auxilia** asks for at least `30` when it creates a sandbox, so lower values are raised to 30. A stopped sandbox is started again on the thread's next run, files intact |
+| **Default packages** / **Timeout (seconds)** | As for OpenSandbox |
+
+## Bind it to an agent
+
+1. Open the agent and click **Edit**
+2. **Add tool** → pick the sandbox → **Add**
+3. **Save changes**
+
+From the next message on, every run of that agent has a live sandbox. See [Using the sandbox](/agents/sandbox) for the tools the LLM gains.
+
+## Check it works
+
+- The **Add tool** dialog only lists sandboxes the workspace has registered
+- Before every run **auxilia** probes the provider (one cheap authenticated call); if it fails, the agent's chat shows a *sandbox unavailable* notice and names the sandbox — check the controller (or Daytona) logs and the credential you entered
+- The sandbox's **Edit** dialog shows a non-reversible hint of the stored secret (last characters and length), so you can confirm which key is configured without exposing it
+
+Several sandboxes can coexist — e.g. one per team or per image. Deleting a sandbox that agents are still bound to lists those agents and asks you to confirm detaching them — they simply run without code execution afterwards.

@@ -1,49 +1,38 @@
 ---
 title: Case Studies
-description: Real stories from teams using auxilia — what they built, how they built it, and what surprised them.
+description: Real builds on auxilia — what the agent looked like, which tools it used, and what it took to make it useful.
 ---
 
-# Case Studies
+import { CaseStudyCards, CaseStudiesHero } from "../../src/components/case-studies";
 
-This is where teams and solo builders share what they've actually shipped with **auxilia** — the shape of the agent, the tools they connected, and the outcomes that mattered to them.
+<CaseStudiesHero />
 
-If you've built something — whether it's a side-project assistant that saves you ten minutes a day or a production workflow running across your whole company — we'd love to hear about it.
+<CaseStudyCards />
 
-## What makes a good case study
+<div className="pm-cs-outro">
 
-Case studies are most useful when they're **honest and concrete**. The best ones tend to cover:
+## Write one
 
-- **The problem you were trying to solve** — in plain terms, not in product-speak
-- **The agent's shape** — instructions in a few sentences, which MCP servers it uses, whether it uses subagents or the sandbox
-- **How you put it in front of users** — chat UI, Slack, an embedded widget, a scheduled job
-- **What worked and what didn't** — the iteration it took to get useful, the dead ends, the surprises
-- **Measurable impact (if any)** — tickets deflected, hours saved, decisions accelerated
+Case studies are most useful when they're honest and concrete: the problem in plain terms, the agent's shape (instructions in a few sentences, which MCP servers, skills or sandbox), how it reached users (chat, Slack, embedded, scheduled), what it took to get useful, and the impact if you measured it. Screenshots and snippets of the agent's actual output make them come alive.
 
-Screenshots, short videos, and snippets of the agent's actual output make these come alive.
+To submit one, open a pull request against the docs site: add an MDX file under `docs/content/case-studies/`, start it with the frontmatter below, add an entry to `_meta.js`, and we'll help with editing and framing.
 
-## How to submit one
+```md
+---
+title: "How {your team} built {your agent}"
+description: "One-sentence hook that shows on the card"
+date: "2026-09-23"
+author: "Your name"
+readingTime: "8 min read"
+tags: ["Slack", "HubSpot"]
+image: "https://…/cover.png"
+---
 
-The short version: open a pull request against the docs site.
+import { ArticleHeader } from "../../src/components/case-studies";
 
-1. Fork [the auxilia repo](https://github.com/keurcien/auxilia)
-2. Create a new MDX file under `docs/content/case-studies/`, e.g. `my-team-my-agent.mdx`
-3. Start the file with frontmatter:
-   ```md
-   ---
-   title: "How {your team} built {your agent}"
-   description: "One-sentence hook that shows up in the listing"
-   date: "2026-04-24"
-   author: "Your name — Your team"
-   ---
-   ```
-4. Write the story (see [What makes a good case study](#what-makes-a-good-case-study) for a template)
-5. Add an entry for your file to `docs/content/case-studies/_meta.js`
-6. Open a pull request
+<ArticleHeader {...metadata} />
+```
 
-We review quickly and are happy to help with editing and framing if you want a lighter lift.
+Prefer to talk it through first? Open a thread on [GitHub issues](https://github.com/keurcien/auxilia/issues).
 
-Don't feel you need to wait until your setup is "perfect." Honest, early stories are often the most useful for other teams deciding whether **auxilia** is right for them.
-
-## Prefer to tell us privately?
-
-If you'd rather not publish publicly — or want to talk through an idea before committing to a write-up — reach out on the [GitHub issues](https://github.com/keurcien/auxilia/issues) and we'll take it from there.
+</div>

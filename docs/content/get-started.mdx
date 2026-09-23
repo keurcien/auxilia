@@ -62,13 +62,6 @@ GOOGLE_CLIENT_SECRET=
 GOOGLE_REDIRECT_URI=http://localhost:8000/auth/google/callback
 AUTH_GOOGLE_EXCLUSIVE=false    # set to true to disable password signup
 
-# Code-execution sandbox (see /agents/sandbox)
-OPEN_SANDBOX_DOMAIN=localhost:8083
-OPEN_SANDBOX_API_KEY=your-key
-OPEN_SANDBOX_USE_SERVER_PROXY=true
-OPEN_SANDBOX_VOLUME_MOUNTS=    # e.g. "~/.config/gcloud:/root/.config/gcloud:ro"
-OPEN_SANDBOX_DEFAULT_IMAGE=    # e.g. keurcien/opensandbox-sandbox-image:latest
-
 # Langfuse observability (see /deploy/langfuse)
 LANGFUSE_PUBLIC_KEY=pk-...
 LANGFUSE_SECRET_KEY=sk-...
@@ -83,6 +76,8 @@ SLACK_BOT_TOKEN=xoxb-...
 LOG_LEVEL=INFO                 # set to DEBUG for verbose logs (MCP traces, etc.)
 RECURSION_LIMIT=100            # max LangGraph steps per agent invocation
 ```
+
+Code-execution sandboxes are not environment variables — they are added later in the UI (step 7).
 
 ## 3. Start the stack
 
@@ -113,25 +108,35 @@ make up              # docker compose up -d
 
 Open [http://localhost:3000](http://localhost:3000). The first account you create becomes the workspace **admin**. After that, new accounts require an invite from an admin.
 
-## 5. Add an MCP server
+## 5. Enable a model
 
-Navigate to **MCP Servers** in the sidebar and either:
+Go to **Settings → Models** and enable at least one model of the provider you configured. Starring one makes it the workspace default, preselected in every chat.
 
-- Click **Install** on one of the official servers (Notion, Linear, GitHub, HubSpot, BigQuery, …), or
-- Click **Add MCP Server** to register any remote MCP server by URL.
+## 6. Add an MCP server
+
+Navigate to **MCP Servers** in the sidebar, click **Add MCP server**, and either:
+
+- Click **Add** on one of the official servers (Notion, Linear, GitHub, HubSpot, BigQuery, DeepWiki, …), or
+- Click **Add a custom server** to register any remote MCP server by URL.
+
+![Add an MCP server from the catalog](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/mcp-server-catalog.png)
 
 See [MCP Servers](/deploy/mcp-servers) for the full registration flow and auth options.
 
-## 6. Create an agent
+## 7. Add a sandbox (optional)
 
-1. Go to **Agents** → **Create Agent**
+If you want agents to run code, go to **Settings → Sandboxes**, click **Add sandbox** and register an OpenSandbox controller, a Daytona API key or a Cloud Run sandbox gateway. See [Sandbox](/deploy/sandbox).
+
+## 8. Create an agent
+
+1. Go to **Agents** → **New agent**
 2. Set a name, emoji, and color
-3. Write a system prompt (instructions)
-4. Bind one or more MCP servers
-5. Open a chat and send a message
+3. Write the instructions (system prompt)
+4. Click **Add tool** to bind one or more MCP servers — and a sandbox, if you added one
+5. Click **Create agent**, then **Test in chat** and send a message
 
 ## Next steps
 
-- **[Build Agents](/agents)** — configuration, tools & permissions, subagents, sandbox
+- **[Build Agents](/agents)** — configuration, tools & permissions, sandbox, skills, subagents, triggers
 - **[Deploy & Configure](/deploy)** — move from local to production, add user management, MCP servers, Slack, Langfuse
 - **[Tutorials](/tutorials)** — trigger agents from Slack, from HTTP, from schedulers, or inside a custom UI

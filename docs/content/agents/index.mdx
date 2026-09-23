@@ -4,37 +4,34 @@ Agents are the core of **auxilia**. An agent is an AI assistant defined by:
 
 - A **name**, **emoji**, and **color** (the avatar shown in the sidebar and chat)
 - **Instructions** — the system prompt sent on every message
-- A set of **MCP server bindings** — which tools the agent can reach
+- **Tools** — the workspace **MCP servers** it may call, and optionally one **sandbox** for code execution
+- **Skills** — reusable procedures from the workspace library, listed in its system prompt
 - Optional **subagents** — specialized agents this agent can dispatch work to
-- A **sandbox** flag — whether the agent has access to a Linux code-execution environment
+
+![Agents list](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/agents.png)
 
 ## How agents run
 
 When a user sends a message to an agent, **auxilia**:
 
-1. Loads the agent configuration from Postgres
-2. Opens an MCP session to every bound server (reusing cached OAuth tokens per user)
-3. Discovers each server's tools and filters them by the agent's [tool settings](/agents/tools)
-4. If the **sandbox** is enabled, adds the `create_sandbox` / `connect_sandbox` tools and the standard file-ops toolset
-5. If subagents are configured, wraps them as tools the coordinator can call
-6. Sends the conversation to the LLM via LangGraph with the resolved toolset
-7. Streams tokens back to the UI (or Slack) and executes tool calls as they appear
-8. Persists state as a LangGraph checkpoint in Postgres so the thread can be resumed
-
-The underlying runtime is LangGraph's `create_agent` (or `create_deep_agent` when the sandbox is on), with middleware for HITL interrupts, tool errors, and optional subagent dispatch.
+1. Loads the agent configuration (and its subagents') from Postgres
+2. Checks the agent is **ready**: every bound sandbox answers a probe, every MCP binding has a synced tool map, and every OAuth server is connected for this user — otherwise the composer is blocked and the run refused
+3. Opens one MCP session per bound server (reusing the user's cached OAuth tokens) and filters each server's tools by the agent's [tool settings](/agents/tools)
+4. If the agent is bound to a **sandbox**, reconnects the thread's sandbox — or creates one — and uploads the run's skill files into it
+5. Builds a LangGraph `create_agent` graph: your instructions, the live tools, the skills index, human-in-the-loop interrupts for *needs approval* tools, and — for sandboxed agents — deepagents' harness (file tools, `task`, todo list, summarization)
+6. Streams tokens and tool calls back to the UI (or Slack) as a durable background run, and persists state as a LangGraph checkpoint in Postgres so the thread can be resumed
 
 ## Creating an agent
 
 1. Navigate to **Agents** in the sidebar
-2. Click **Create Agent**
-3. Fill in:
-   - **Name** — what users see in the agent list
-   - **Emoji** and **color** — the avatar
-   - **Description** — short summary shown on the agent card
-   - **Instructions** — the system prompt
-4. Save, then open the agent's configuration page to bind MCP servers
+2. Click **New agent**
+3. In the editor, fill in the **name**, **emoji**, **color**, **description** and **instructions**
+4. Click **Add tool** to bind MCP servers (and a sandbox), **Add skill** to enable skills
+5. Click **Create agent**
 
-Only users with the **editor** or **admin** role can create agents. The creator becomes the **owner** of the agent.
+![Agent editor](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/agent-editor.png)
+
+Only users with the **editor** or **admin** role can create agents. The creator becomes the **owner** of the agent. Once created, the agent page opens in read mode: **Edit** switches to the editor, **Save changes** applies the whole draft at once, and **Test in chat** opens a thread.
 
 ## Threads
 
@@ -43,9 +40,10 @@ Conversations with an agent are organized into **threads**. Each thread:
 - Is tied to one agent and one user
 - Persists its message history via LangGraph Postgres checkpoints
 - Remembers the model selected for that thread (not switchable)
+- Remembers its sandbox, so files written in one turn are there in the next
 - Is independent from other threads — each one has its own memory
 
-You can regenerate the last assistant message in a thread; **auxilia** rewinds the LangGraph checkpoint and re-streams.
+You can regenerate the last assistant message in a thread; **auxilia** rewinds the LangGraph checkpoint and re-streams. Threads can also be started by a [trigger](/agents/triggers) or over the [HTTP API](/tutorials/http-invoke).
 
 ## Available models
 
@@ -63,6 +61,8 @@ You can pick a different LLM per thread. A model appears in the selector when it
 
 The canonical list lives in the hosted model whitelist (`backend/app/model_providers/whitelist.yaml`, served from the CDN), which also declares each model's selectable **reasoning effort** levels and default.
 
+![Settings — Models](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/settings-models.png)
+
 ### Workspace default model
 
 Workspace admins can flag one model as the **workspace default** by clicking the star next to it in **Settings → Models**. The default model:
@@ -74,8 +74,10 @@ Clicking the star on the current default unsets it. Without an explicit default 
 
 ## Where to go next
 
-- **[Configuration](/agents/configuration)** — editing instructions, avatar, MCP bindings
-- **[Permissions](/agents/permissions)** — sharing agents across the workspace
-- **[Subagents](/agents/subagents)** — dispatching work to specialized agents
-- **[Sandbox](/agents/sandbox)** — enabling code execution
+- **[Configuration](/agents/configuration)** — editing instructions, avatar, tools and skills
 - **[Tool Settings](/agents/tools)** — approval rules per tool
+- **[Sandbox](/agents/sandbox)** — giving an agent code execution
+- **[Skills](/agents/skills)** — reusable procedures agents follow
+- **[Subagents](/agents/subagents)** — dispatching work to specialized agents
+- **[Triggers](/agents/triggers)** — running an agent on a schedule
+- **[Permissions](/agents/permissions)** — sharing agents across the workspace

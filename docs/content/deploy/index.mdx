@@ -13,7 +13,7 @@ If you only need a quick local run to try the product, head to **[Get Started](/
 | **Backend**  | FastAPI + LangGraph        | Agent runtime, MCP client, auth, API          |
 | **Web**      | Next.js 16 + React 19      | User interface and backend proxy              |
 | **Database** | PostgreSQL 17 + Redis 7    | Persistence, checkpoints, OAuth token storage |
-| **Sandbox**  | OpenSandbox (optional)     | Isolated code execution for agents            |
+| **Sandbox**  | OpenSandbox, Daytona or Cloud Run (optional) | Isolated code execution for agents |
 
 The repository ships with everything you need to build and run these:
 
@@ -30,9 +30,9 @@ A typical deployment goes through these steps — each one has its own page:
 
 1. **[Environment variables](/deploy/environment-variables)** — pick a database, configure secrets, choose at least one LLM provider
 2. **Deploy the services** — [Cloud Run](/deploy/cloud-run) or [VM / Docker host](/deploy/vm-docker)
-3. **[User management](/deploy/user-management)** — create the first admin, invite teammates, set up Google OAuth, mint personal access tokens
+3. **[User management](/deploy/user-management)** — create the first admin, invite teammates, create teams, set up Google OAuth, mint personal access tokens
 4. **[MCP servers](/deploy/mcp-servers)** — register the tools (Notion, HubSpot, BigQuery, …) you want agents to use
-5. **[Sandbox](/deploy/sandbox)** — run OpenSandbox if you want agents to execute code
+5. **[Sandbox](/deploy/sandbox)** — register a code-execution sandbox (OpenSandbox, Daytona or Cloud Run) under **Settings → Sandboxes** if you want agents to run code
 6. **[Observability (Langfuse)](/deploy/langfuse)** — trace LLM calls and tool calls
 7. **[Slack integration](/deploy/slack)** — connect your Slack workspace
 

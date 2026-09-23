@@ -55,45 +55,11 @@ Anthropic models run with thinking enabled by default; Google models run with `i
 
 Leaving these unset keeps email/password signup as the only path. See [User Management](/deploy/user-management) for the full flow.
 
-## Sandbox (optional)
+## Sandbox
 
-Agent code execution supports two providers, selected with:
+There are no sandbox environment variables. Code-execution sandboxes (OpenSandbox, Daytona, Google Cloud Run) are registered by a workspace admin under **Settings → Sandboxes**, with their endpoint and credential stored encrypted in the database, and bound to agents from the agent editor. See [Sandbox](/deploy/sandbox).
 
-| Variable           | Notes                                                                 |
-| ------------------ | --------------------------------------------------------------------- |
-| `SANDBOX_PROVIDER` | `opensandbox` (default) or `cloudrun`                                 |
-
-### OpenSandbox
-
-If you're running [OpenSandbox](https://github.com/langchain-ai/opensandbox):
-
-| Variable                         | Notes                                                                      |
-| -------------------------------- | -------------------------------------------------------------------------- |
-| `OPEN_SANDBOX_DOMAIN`            | e.g. `localhost:8083` or a private DNS name                                |
-| `OPEN_SANDBOX_API_KEY`           | If your OpenSandbox controller requires one                                |
-| `OPEN_SANDBOX_USE_SERVER_PROXY`  | `true` routes file ops through the OpenSandbox server (recommended)        |
-| `OPEN_SANDBOX_DEFAULT_IMAGE`     | Base image, e.g. `python:3.12-slim`                                        |
-| `OPEN_SANDBOX_DEFAULT_PACKAGES`  | Pre-installed packages, e.g. `["pandas","matplotlib"]`                     |
-| `OPEN_SANDBOX_TIMEOUT`           | Per-command timeout (seconds). Default `1800`                              |
-| `OPEN_SANDBOX_VOLUME_MOUNTS`     | Host mounts, comma-separated `host:sandbox[:ro]`                           |
-
-If `OPEN_SANDBOX_DOMAIN` is missing, the sandbox toggle on agents is silently disabled. Details: [Sandbox](/deploy/sandbox).
-
-### Cloud Run sandboxes
-
-If `SANDBOX_PROVIDER=cloudrun`, the backend drives Google Cloud Run sandboxes through the dedicated [sandbox gateway](/deploy/sandbox/cloud-run) service:
-
-| Variable                             | Notes                                                                          |
-| ------------------------------------ | ------------------------------------------------------------------------------ |
-| `CLOUD_RUN_SANDBOX_GATEWAY_URL`      | URL of the deployed `sandbox-gateway` Cloud Run service                        |
-| `CLOUD_RUN_SANDBOX_GATEWAY_SECRET`   | Shared secret, sent as a bearer token — the gateway fails closed without it    |
-| `CLOUD_RUN_SANDBOX_GCS_BUCKET`       | GCS bucket for turn-end snapshots (optional, enables cross-instance restore)   |
-| `CLOUD_RUN_SANDBOX_SNAPSHOT_PREFIX`  | Object prefix inside the bucket. Default `sandbox-snapshots/`                  |
-| `CLOUD_RUN_SANDBOX_ALLOW_EGRESS`     | `true` requests outbound network per sandbox (gateway must also allow egress)  |
-| `CLOUD_RUN_SANDBOX_DEFAULT_PACKAGES` | Extra packages pip-installed into each fresh sandbox                           |
-| `CLOUD_RUN_SANDBOX_TIMEOUT`          | Per-command timeout (seconds). Default `1800`                                  |
-
-Both `CLOUD_RUN_SANDBOX_GATEWAY_URL` and `CLOUD_RUN_SANDBOX_GATEWAY_SECRET` must be set for the sandbox toggle to be active. Details: [Cloud Run Sandboxes](/deploy/sandbox/cloud-run).
+The one indirect requirement: a Cloud Run sandbox with a GCS snapshot bucket needs the backend to hold [Application Default Credentials](#google-via-application-default-credentials) that can write to that bucket.
 
 ## Observability (optional)
 

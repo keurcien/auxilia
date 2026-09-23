@@ -43,6 +43,8 @@ export const WALKTHROUGH = {
 	docsAgentName: "Docs Researcher",
 	// Trigger created on camera.
 	triggerName: "Daily model digest",
+	// Skill written on camera and enabled on the Research Assistant.
+	skillName: "docs-brief",
 };
 
 let cachedToken: string | undefined;
@@ -99,8 +101,9 @@ export async function authenticate(context: BrowserContext, baseURL: string): Pr
 }
 
 /**
- * Delete the agent + MCP server the walkthrough creates on camera, so the
- * demo can be re-recorded (the MCP server URL has a unique constraint).
+ * Delete the trigger, agent, MCP servers and skill the walkthrough creates on
+ * camera, so the demo can be re-recorded (the MCP server URL has a unique
+ * constraint, skill names are workspace-unique).
  */
 export async function resetWalkthroughResources(): Promise<void> {
 	const triggers = await api<{ id: string; name: string }[]>("GET", "/triggers/");
@@ -119,6 +122,13 @@ export async function resetWalkthroughResources(): Promise<void> {
 	for (const server of servers ?? []) {
 		if (server.url === WALKTHROUGH.serverUrl || server.url === WALKTHROUGH.catalogServerUrl) {
 			await api("DELETE", `/mcp-servers/${server.id}?detach_agents=true`);
+		}
+	}
+	// After the agent: a skill still enabled on an agent cannot be deleted.
+	const skills = await api<{ id: string; name: string }[]>("GET", "/skills/");
+	for (const skill of skills ?? []) {
+		if (skill.name === WALKTHROUGH.skillName) {
+			await api("DELETE", `/skills/${skill.id}`);
 		}
 	}
 }
@@ -572,6 +582,52 @@ export async function humanType(page: Page, selector: string, text: string): Pro
 	const locator = page.locator(selector);
 	await cursorClick(page, locator);
 	await locator.pressSequentially(text, { delay: paced(22) });
+}
+
+/**
+ * Wait for the agent's turn to finish. The composer's submit button turns
+ * into a stop square (`type="button"`) while the run streams and back into
+ * the submit arrow when it ends — a whole-turn signal, unlike the "Worked"
+ * label, which appears as soon as the FIRST tool batch completes and misses
+ * a second round of tool calls (read a skill → search the docs → answer).
+ *
+ * The square also blinks off between a tool result and the model's next
+ * call, and that gap can be long (cold model, slow tool), so "over" is only
+ * declared once three things have held for ~3 s straight: no stop square,
+ * no "Working" step label in the transcript, and the transcript text has
+ * stopped growing. A failed run shows a Retry button instead; that ends the
+ * wait too.
+ */
+export async function waitForTurn(page: Page, timeoutMs = 240_000): Promise<void> {
+	const stopButton = page.locator('form button[type="button"]:has(svg rect)');
+	const retry = page.getByRole("button", { name: "Retry" });
+	const working = page.getByText("Working", { exact: true });
+	// The transcript only (the conversation list carries role="log") — not
+	// the whole <main>, whose header, composer and relative timestamps keep
+	// changing after the turn and would hold the wait open until it timed out.
+	const transcriptLength = () =>
+		page.evaluate(() => document.querySelector('[role="log"]')?.textContent?.length ?? 0);
+	// The run is accepted within seconds; a turn that never starts streaming
+	// (e.g. refused by a pre-flight gate) surfaces as a Retry or times out.
+	await stopButton.or(retry).first().waitFor({ state: "visible", timeout: 60_000 });
+	const deadline = Date.now() + timeoutMs;
+	let quiet = 0;
+	let lastLength = -1;
+	while (Date.now() < deadline) {
+		if (await retry.isVisible().catch(() => false)) return;
+		const streaming = await stopButton.isVisible().catch(() => false);
+		const stepActive = await working.first().isVisible().catch(() => false);
+		const length = await transcriptLength().catch(() => -1);
+		const grew = length !== lastLength;
+		lastLength = length;
+		if (streaming || stepActive || grew) {
+			quiet = 0;
+		} else if (++quiet >= 12) {
+			return; // nothing moved for ~3s — the turn is over
+		}
+		await page.waitForTimeout(250);
+	}
+	throw new Error(`agent turn still running after ${timeoutMs}ms`);
 }
 
 /** A beat between demo actions so the video is watchable (DEMO_SPEED-scaled). */

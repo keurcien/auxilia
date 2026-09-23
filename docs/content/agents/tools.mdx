@@ -1,19 +1,22 @@
 # Tools & Permissions
 
-Tools are the actions an agent can perform. Most tools come from the MCP servers bound to the agent; a few additional ones come from the [sandbox](/agents/sandbox) when code execution is enabled.
+Tools are the actions an agent can perform. Most tools come from the MCP servers bound to the agent; a few additional ones come from the [sandbox](/agents/sandbox) when the agent is bound to one.
 
 ## How tools flow through an agent
 
 1. The backend connects to every MCP server bound to the agent
 2. For each server it calls `tools/list` and receives the tool schemas
 3. It filters the list using the tool settings you set on this agent (disabled tools are removed; "needs approval" tools are marked as HITL interrupts)
-4. If the sandbox is on, it appends `create_sandbox`, `connect_sandbox`, and the standard file-ops tools (`ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `execute`)
-5. If subagents are attached, it wraps each one as a tool
-6. The resulting toolset is handed to the LLM via LangGraph
+4. If the agent has a sandbox, it appends the file and shell tools (`ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `execute`), a `write_todos` planning tool and a `task` tool that delegates to a general-purpose helper with the same tools
+5. If the agent has skills, it appends `ls` and `read_file` over the skill files (when there is no sandbox) and lists the skills in the system prompt
+6. If subagents are attached, it wraps each one as a tool
+7. The resulting toolset is handed to the LLM via LangGraph
 
 ## The three tool states
 
 Each tool on an agent-server binding has one of three statuses. This is how you give an agent tight, read-only access to one server and full write access to another — without having to juggle separate agents.
+
+![Tool settings on an agent](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/agent-tool-settings.png)
 
 ### Always allow
 
@@ -28,7 +31,9 @@ When the LLM calls the tool, the run pauses with a [human-in-the-loop interrupt]
 - **Approve** — the call proceeds and the agent resumes
 - **Reject** — the tool returns a rejection message to the LLM, which decides what to do next
 
-In Slack, approvals are posted as Block Kit messages with **Approve** and **Reject** buttons.
+![Approval card in chat](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/chat-approval.png)
+
+In Slack, approvals are posted as Block Kit messages with **Approve** and **Reject** buttons. A [trigger](/agents/triggers) run that hits an approval pauses the same way, until someone approves it from the thread.
 
 **Use for:** write operations, actions with side effects, tools that modify external data.
 
@@ -40,21 +45,14 @@ The tool is stripped from the toolset the LLM sees. The model cannot call it and
 
 ## Changing tool settings
 
-1. Open the agent's configuration page
-2. In the MCP server section, click through the tool list
-3. Cycle each tool through the three states
-
-```
-✓  Always allow
-⏸  Needs approval
-✗  Disabled
-```
+1. Open the agent and click **Edit**
+2. Expand the server card in the **Tools** section
+3. Set each tool's three-state toggle — **Always allow**, **Needs approval** or **Disabled**
+4. **Save changes**
 
 ## Tool discovery and sync
 
-Tool schemas are fetched from the MCP server when you bind it or click **Sync tools** on an agent-server binding. They are **not** re-fetched on every message.
-
-Use **Sync tools** whenever the underlying MCP server publishes new tools or changes descriptions.
+Tool schemas are fetched from the MCP server when you bind it, and again each time the server card connects in the editor. New tools are merged in as **Always allow**; your existing statuses are kept. They are **not** re-fetched on every message.
 
 ## Defaults
 
@@ -72,11 +70,13 @@ Changing settings takes effect on the next message — existing thread checkpoin
 
 ## Tool calls in chat
 
-Every tool call appears in the thread as an expandable block showing:
+Every tool call appears in the thread inside a collapsible **Worked** timeline showing:
 
 - The **tool name** and the MCP server it belongs to
 - The **input arguments** the LLM passed
 - The **result** the server returned (or the error, if it failed)
 - Whether the call was **auto-approved** or **user-approved**
+
+![Tool call in chat](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/chat-tool-call.png)
 
 Errors are surfaced inline. The LLM sees the error string as the tool result and decides whether to retry, call a different tool, or explain the problem to the user.

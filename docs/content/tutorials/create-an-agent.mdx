@@ -21,7 +21,7 @@ By the end you'll understand the four things that define every agent: **identity
 
 ## Step 1 — Create the agent and give it an identity
 
-Navigate to **Agents** in the sidebar and click **Create Agent**.
+Navigate to **Agents** in the sidebar and click **New agent**. The editor opens with everything on one page: the identity at the top, the instructions on the left, the tools on the right.
 
 ![Create agent dialog](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/agent_create.png)
 
@@ -34,20 +34,20 @@ Fill in the identity fields:
 
 The name, emoji, color, and description are all editable later — none of them affect how the agent behaves, only how people find and recognize it.
 
-Save the agent. You'll land on its configuration page, where the real work happens.
+Steps 2–4 all happen in this same editor; **Create agent** at the top saves everything at once. Later edits go through **Edit** → **Save changes**.
 
 ## Step 2 — Add MCP servers
 
 Tools are what turn a chatbot into an agent. They come from **MCP servers** bound to the agent.
 
-On the configuration page, click **Add MCP Server** and pick a server from the workspace catalog. For our example, add two:
+In the tools panel, click **Add tool**. The dialog lists the workspace's MCP servers (and, below them, any sandbox the workspace has configured — see [Using the sandbox](/agents/sandbox)). Add a server with its **+** button; for our example, add two:
 
 - **HubSpot** — for CRM lookups
 - A **web-search** server — for company research
 
 ![Add MCP server to agent](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/agent_add_mcp_server.png)
 
-When you add a server, **auxilia** fetches its tool list and attaches it to the agent.
+When you add a server, its card fetches the tool list from the MCP server and shows a **CONNECTED** badge once the tools are in — wait for it before saving, so the agent isn't created with an empty tool map.
 
 ### Connect OAuth servers once
 
@@ -68,12 +68,12 @@ Your tokens are stored privately and scoped to you — a teammate using the same
 
 Just because a server exposes 30 tools doesn't mean your agent should have all 30. A focused toolset makes the agent faster, cheaper, and more predictable.
 
-Expand each bound server to see its tools. Every tool has one of three states:
+Click **Expand** on a bound server card to see its tools. Each tool row carries a three-state toggle:
 
 | State | Icon | Behavior | Use for |
 | --- | --- | --- | --- |
 | **Always allow** | ✓ | Runs instantly when the agent calls it | Read-only and low-risk tools |
-| **Needs approval** | ⏸ | Pauses and asks a human before running | Writes and anything with side effects |
+| **Needs approval** | ✋ | Pauses and asks a human before running | Writes and anything with side effects |
 | **Disabled** | ✗ | Hidden from the agent entirely | Off-topic or risky tools |
 
 ![Tool settings on an agent](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/agent_tool_settings.png)
@@ -129,11 +129,11 @@ Notice what this does:
 - **Defines done** — exactly what a good research result contains.
 - **Handles failure** — what to do when a lookup comes up empty, so the model doesn't hallucinate.
 
-Save your instructions. Changes take effect on the next message; existing chat threads aren't recomputed. See [Configuration](/agents/configuration) for more prompt-writing tips.
+Click **Create agent**. Changes to a saved agent (**Edit** → **Save changes**) take effect on the next message; existing chat threads aren't recomputed. See [Configuration](/agents/configuration) for more prompt-writing tips.
 
 ## Step 5 — Test the agent in Chat
 
-Open a chat with the agent (the **Chat** button on the agent, or pick it from the **Agents** list) and try a realistic request:
+Click **Test in chat** on the agent's page (or pick the agent from the **Agents** list) and try a realistic request:
 
 ```text
 Research Maria Gomez at Northwind Logistics and draft a follow-up email.
@@ -162,8 +162,9 @@ Each change takes effect on your next message, so the loop is fast: chat, observ
 
 You now have a working agent. From here you can:
 
-- **[Share it with your workspace](/agents/permissions)** — grant teammates `user`, `editor`, or `admin` access
+- **[Share it with your workspace](/agents/permissions)** — grant teammates or whole teams **member**, **editor**, or **admin** access from the agent's **Permissions** tab
+- **[Give it a skill](/agents/skills)** — a reusable procedure from the Skills library, enabled with **Add skill**
 - **[Trigger it over HTTP](/tutorials/http-invoke)** — call it from scripts, webhooks, or spreadsheets
 - **[Trigger it from Slack](/tutorials/slack)** — let the team talk to it in threads
-- **[Run it on a schedule](/tutorials/n8n-cloud-scheduler)** — daily digests and recurring reports
-- **[Add subagents](/agents/subagents)** or the **[sandbox](/agents/sandbox)** for more advanced agents
+- **[Run it on a schedule](/agents/triggers)** — daily digests and recurring reports with built-in Triggers
+- **[Add subagents](/agents/subagents)** or a **[sandbox](/agents/sandbox)** for more advanced agents

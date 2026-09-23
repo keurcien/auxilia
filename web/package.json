@@ -12,6 +12,7 @@
 		"test:watch": "vitest",
 		"test:visual": "playwright test --project=visual",
 		"demo:seed": "node tests/demo/seed-demo.mjs",
+		"demo:reset": "node tests/demo/seed-demo.mjs --clean",
 		"demo:web": "NEXT_DIST_DIR=.next-demo next build && NEXT_DIST_DIR=.next-demo next start -p \"${DEMO_PORT:-3100}\"",
 		"demo:video": "PLAYWRIGHT_BASE_URL=\"${PLAYWRIGHT_BASE_URL:-http://localhost:${DEMO_PORT:-3100}}\" playwright test --project=demo",
 		"docs:screenshots": "PLAYWRIGHT_BASE_URL=\"${PLAYWRIGHT_BASE_URL:-http://localhost:${DEMO_PORT:-3100}}\" playwright test --project=docs",

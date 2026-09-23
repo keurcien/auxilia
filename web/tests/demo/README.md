@@ -31,19 +31,29 @@ builds into its own dist dir (`.next-demo`) and serves on **:3100**, so a
 ## 1. Seed demo data
 
 ```sh
-cd web && npm run demo:seed
+cd web && npm run demo:seed     # reconcile the seed on top of what exists
+cd web && npm run demo:reset    # wipe agents/threads/triggers/MCP servers, then seed
 ```
 
-Reconciling (its own named resources are deleted and recreated, so spec
-changes always converge). Creates the first admin (`demo@auxilia.dev` /
-`auxilia-demo-123` — override with `DEMO_EMAIL` / `DEMO_PASSWORD`), two
-public no-auth MCP servers (Hugging Face, Context7), agents bound to them
-with synced tool maps, a **Python Developer** agent bound to the workspace's
-first sandbox (skipped if none is configured in Settings → Sandboxes), four
-teams (Data, Engineering, Marketing, Finance) with three display-only
-teammates (Alice, Bob, John Doe) for the sharing chapter, and enables + defaults a model. It also
-uninstalls DeepWiki so the walkthrough can install it from the catalog on
-camera. Targets `BACKEND_URL` (default `http://localhost:8000`).
+`demo:reset` is the clean slate for a recording: it deletes **every** agent
+(with its threads and checkpoints), trigger and MCP server in the workspace,
+then seeds. Skills, sandboxes, users, teams and models are kept. It refuses
+to run against a non-local `BACKEND_URL` unless `DEMO_RESET_REMOTE=1`.
+
+`demo:seed` is reconciling (its own named resources are deleted and
+recreated, so spec changes always converge) and leaves everything else alone.
+Both create the first admin (`demo@auxilia.dev` / `auxilia-demo-123` —
+override with `DEMO_EMAIL` / `DEMO_PASSWORD`) on a fresh workspace, then:
+
+| | Seeded |
+| --- | --- |
+| MCP servers (7) | **Hugging Face** and **Context7** (public, no auth — the on-camera chats run against them); **Notion**, **Slack**, **HubSpot**, **BigQuery**, **GitHub** installed from the official catalog exactly as the one-click Add does (OAuth, connected per user later) |
+| Agents (6) | **Docs Researcher** (Context7) · **Model Scout** (Hugging Face) · **Python Developer** (bound to the workspace's first sandbox, or `DEMO_SANDBOX_NAME`; skipped if none) · **Data Analyst** (BigQuery + Slack) · **HR Assistant** (Notion) · **Sales Assistant** (HubSpot + Slack) — each with real instructions |
+| Teams + users | Data, Engineering, Marketing, Finance; display-only teammates Alice, Bob, John Doe for the sharing chapter |
+| Model | Enables one and sets it as the workspace default if none is set |
+
+It also uninstalls DeepWiki so the walkthrough can install it from the
+catalog on camera. Targets `BACKEND_URL` (default `http://localhost:8000`).
 
 The demo admin can only be created on a **fresh workspace** (first account).
 If your workspace already has users, seed with your own admin account
@@ -53,7 +63,8 @@ instead — the same variables also drive the on-camera sign-in of the video:
 DEMO_EMAIL=you@example.com DEMO_PASSWORD=... npm run demo:seed
 ```
 
-For a from-scratch demo, wipe the stack first: `make reset && make dev`.
+For a from-scratch database (new admin, no other users), wipe the stack
+first: `make reset && make dev`.
 
 ## 2. Record the demo video
 
@@ -64,22 +75,26 @@ cd web && npm run demo:video
 (If you seeded with your own account, pass the same `DEMO_EMAIL` /
 `DEMO_PASSWORD` here — they drive the on-camera sign-in.)
 
-`tests/demo/walkthrough.demo.spec.ts` plays eight chapters on camera:
+`tests/demo/walkthrough.demo.spec.ts` plays nine chapters on camera:
 
 1. **MCP servers** — one-click install of **DeepWiki** from the official
    catalog (success toast), then the **Cloudflare Docs** custom-server form.
 2. **Agents** — creates a **Research Assistant** (typed instructions,
    tool binding).
 3. **Chat** — asks it a docs question and waits for the live MCP tool call.
-4. **Human in the loop** — flips a Research Assistant tool to
+4. **Skills** — writes a **docs-brief** skill in the Skills library (name,
+   description, SKILL.md procedure), enables it on the Research Assistant
+   with **Add skill**, and asks for a brief — the agent reads the SKILL.md
+   and answers in the skill's format.
+5. **Human in the loop** — flips a Research Assistant tool to
    **Needs approval**, asks again, and approves the paused tool call.
-5. **Sharing** — in the Permissions tab, grants a seeded teammate Editor
+6. **Sharing** — in the Permissions tab, grants a seeded teammate Editor
    access and shares the agent with the Data and Marketing teams.
-6. **Code execution** — opens the seeded **Python Developer** (sandbox-bound)
-   and watches it run real Python (`Create sandbox` → `Execute` steps).
-7. **Triggers** — creates a **Daily model digest** trigger for Model Scout
+7. **Code execution** — opens the seeded **Python Developer** (sandbox-bound)
+   and watches it run real Python (`Execute` steps).
+8. **Triggers** — creates a **Daily model digest** trigger for Model Scout
    (agent picker, schedule builder, next-runs preview, detail page).
-8. **HTTP API** — a terminal scene types the `runs/invoke` curl call while
+9. **HTTP API** — a terminal scene types the `runs/invoke` curl call while
    the request really runs against **Docs Researcher**; the printed reply
    is the agent's actual answer.
 
@@ -89,7 +104,8 @@ fast; `DEMO_SPEED=1` restores the original feel). The terminal scene
 follows the same factor; title cards keep their own pace.
 
 Re-runs clean up all on-camera resources first (the trigger, the
-agent, and both MCP servers — server URLs are unique).
+agent, both MCP servers and the skill — server URLs and skill names are
+unique).
 
 The chapters are framed by **Petrol Mono title cards** (intro/close brand
 cards and `// EYEBROW`-style interstitials, like a Remotion edit) injected
@@ -118,23 +134,50 @@ page is addressed as `127.0.0.1`, leaving pages unhydrated.
 cd web && npm run docs:screenshots
 ```
 
-`tests/docs/screenshots.docs.spec.ts` writes light-mode 1440×900 PNGs to
-`docs/public/screenshots/` (override with `DOCS_SCREENSHOT_DIR`):
+`tests/docs/screenshots.docs.spec.ts` writes light-mode 1440×900 PNGs
+(rendered at 2× for crisp docs images) to `docs/public/screenshots/`
+(override with `DOCS_SCREENSHOT_DIR`). Several shots feature what the demo
+walkthrough leaves behind — record the demo first for the richest set; each
+falls back to seeded data otherwise.
 
 | File | Page |
 | --- | --- |
 | `auth.png` | Sign-in |
 | `agents.png` | Agents list |
-| `agent-detail.png` | Agent detail (seeded "Docs Researcher") |
+| `agent-detail.png` | Agent detail (Research Assistant) |
+| `agent-editor.png` | Agent editor in edit mode (tools + skills) |
+| `agent-tool-settings.png` | Expanded server card — per-tool three-state toggles |
+| `agent-add-tool-dialog.png` | "Add tool" dialog (MCP servers + sandboxes) |
+| `agent-skills.png` | "Add skill" dialog |
+| `agent-permissions.png` | Permissions tab (people + teams) |
+| `chat.png` | Chat starter screen |
+| `chat-tool-call.png` | A finished turn with the "Worked" steps expanded |
+| `chat-approval.png` | Human-in-the-loop approval card |
 | `mcp-servers.png` | MCP servers list |
 | `mcp-server-catalog.png` | Add server — catalog |
 | `mcp-server-custom.png` | Add server — custom form (pre-filled) |
-| `chat.png` | Chat starter screen |
+| `skills-library.png` | Skills library |
+| `skill-detail.png` | Skill detail (docs-brief) |
+| `skill-new.png` | New skill editor (pre-filled) |
+| `skills-sources.png` | Skills — Sources tab |
+| `skill-source-new.png` | Connect a repository, with preview |
+| `triggers.png` | Triggers list |
+| `trigger-detail.png` | Trigger detail (Daily model digest) |
+| `trigger-new.png` | New trigger (pre-filled, next-runs preview) |
+| `settings-tokens.png` | Settings — Access tokens |
+| `settings-models.png` | Settings — Models |
+| `settings-sandboxes.png` | Settings — Sandboxes |
+| `sandbox-dialog-opensandbox.png` | Add sandbox — OpenSandbox form (pre-filled) |
+| `sandbox-dialog-daytona.png` | Add sandbox — Daytona form (pre-filled) |
+| `users.png` | Users and teams |
 
-Embed in MDX:
+The docs pages reference these from the CDN, not from `/screenshots/`:
+upload the PNGs to the `docs/` prefix of the bucket
+(`https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/<name>.png`) and
+embed them in MDX as:
 
 ```mdx
-![Agents](/screenshots/agents.png)
+![Agents](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/agents.png)
 ```
 
 Add a new shot by appending a test to the spec and calling

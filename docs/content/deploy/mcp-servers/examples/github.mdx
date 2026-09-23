@@ -25,8 +25,8 @@ This guide walks through connecting the GitHub MCP server to **auxilia**. GitHub
 
 In **auxilia**, navigate to **MCP Servers**:
 
-1. Find **GitHub** in the official servers list
-2. Click **Install**
+1. Click **Add MCP server** and find **GitHub** in the catalog
+2. Click **Add**
 3. Enter the **Client ID** and **Client Secret**
 
 ## 3. Connect your account
@@ -37,8 +37,8 @@ In **auxilia**, navigate to **MCP Servers**:
 
 ## 4. Add to an agent
 
-1. Open an agent's configuration page
-2. Click **Add MCP Server** → **GitHub**
+1. Open the agent and click **Edit**
+2. Click **Add tool** → **GitHub**
 3. Set [tool permissions](/agents/tools) — PR / issue creation and commit-writing tools are good candidates for **needs approval**
 
 ## Alternative: personal access token
@@ -48,6 +48,6 @@ If you'd rather skip OAuth, connect with a GitHub PAT instead:
 1. Go to [GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens](https://github.com/settings/tokens?type=beta)
 2. **Generate new token** → pick the repositories and permissions the agent needs
 3. Copy the token
-4. In **auxilia**, **Add MCP Server** as a **custom** server, auth type **API key**, URL `https://api.githubcopilot.com/mcp`, token pasted into the **API key** field
+4. In **auxilia**, **Add MCP server** → **Add a custom server**, auth type **API key**, URL `https://api.githubcopilot.com/mcp`, token pasted into the **API key** field
 
 The PAT is tied to a single GitHub account and has a fixed expiration, but it's simpler than OAuth for personal or single-user workspaces.

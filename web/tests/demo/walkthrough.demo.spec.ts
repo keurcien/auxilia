@@ -15,6 +15,7 @@ import {
 	paced,
 	resetWalkthroughResources,
 	titleCard,
+	waitForTurn,
 	WALKTHROUGH,
 } from "../utils/demo";
 
@@ -22,7 +23,8 @@ import {
  * Records the product demo as a video (Playwright's built-in recorder).
  *
  * Storyline (each chapter opens on a title card): sign in → add MCP servers
- * (catalog + custom) → build an agent → chat with a live tool call → human
+ * (catalog + custom) → build an agent → chat with a live tool call → write a
+ * skill and enable it on the agent (it follows the procedure in chat) → human
  * in the loop (flip a tool to "Needs approval", approve on camera) → share
  * the agent (person + teams in the Permissions tab) → run code in a sandbox
  * → schedule a trigger → call an agent over HTTP (real invoke, rendered in
@@ -41,6 +43,22 @@ import {
 const OUTPUT = path.join(process.cwd(), "demo-output", "auxilia-demo.webm");
 
 const TAGLINE = "The open-source MCP client for teams";
+
+// The SKILL.md body typed on camera. The editor composes the frontmatter
+// (name + description) from its inputs; this is the procedure below it.
+const SKILL_BODY = [
+	"# When to use",
+	"The user asks for a brief, an overview or a quick explainer on a Cloudflare product.",
+	"",
+	"# Steps",
+	"1. Search the documentation with your tools. Never answer from memory.",
+	"2. Reply in exactly this shape, nothing else:",
+	"",
+	"**What it is** — one sentence.",
+	"**When to use it** — one sentence.",
+	"**Watch out for** — one gotcha.",
+	"**Source** — the documentation URL you used.",
+].join("\n");
 
 test.beforeAll(async () => {
 	// The walkthrough creates these on camera; MCP server URLs are unique,
@@ -103,7 +121,7 @@ test("demo walkthrough", async ({ page, baseURL }) => {
 	await test.step("add MCP servers", async () => {
 		await titleCard(page, {
 			index: 1,
-			total: 8,
+			total: 9,
 			eyebrow: "// MCP SERVERS",
 			title: "Connect your tools",
 			sub: "One-click installs from the official catalog — or any remote MCP server.",
@@ -117,13 +135,12 @@ test("demo walkthrough", async ({ page, baseURL }) => {
 		await beat(page, 1600);
 
 		// Install an official catalog server with one click. The card has no
-		// test id — the innermost div containing both the endpoint URL and an
-		// Add button is the card root.
+		// test id — its root is the rounded card div showing the endpoint URL.
+		// (Filtering on the Add button too breaks after the click: the button
+		// becomes the "✓ Added" badge and the locator climbs to a wrapper.)
 		const catalogCard = page
-			.locator("div")
-			.filter({ hasText: WALKTHROUGH.catalogServerUrl })
-			.filter({ has: page.getByRole("button", { name: "Add", exact: true }) })
-			.last();
+			.locator('div[class*="rounded-[14px]"]')
+			.filter({ hasText: WALKTHROUGH.catalogServerUrl });
 		await cursorClick(page, catalogCard.getByRole("button", { name: "Add", exact: true }), {
 			timeout: 20_000,
 		});
@@ -163,7 +180,7 @@ test("demo walkthrough", async ({ page, baseURL }) => {
 	await test.step("create and instruct an agent", async () => {
 		await titleCard(page, {
 			index: 2,
-			total: 8,
+			total: 9,
 			eyebrow: "// AGENTS",
 			title: "Build an agent",
 			sub: "Instructions plus the tools it may use — that's the whole setup.",
@@ -224,7 +241,7 @@ test("demo walkthrough", async ({ page, baseURL }) => {
 	await test.step("chat with the agent", async () => {
 		await titleCard(page, {
 			index: 3,
-			total: 8,
+			total: 9,
 			eyebrow: "// CHAT",
 			title: "Put it to work",
 			sub: "Ask a question and watch it call your tools, live.",
@@ -251,19 +268,84 @@ test("demo walkthrough", async ({ page, baseURL }) => {
 		await beat(page, 500);
 		await composer.press("Enter");
 
-		// The agent streams, calls the fetch tool (chain-of-thought shows
+		// The agent streams, calls the docs tool (chain-of-thought shows
 		// "Working…" → "Worked"), then writes its answer.
-		const done = page
-			.getByText("Worked", { exact: true })
-			.or(page.getByRole("button", { name: "Retry" }));
-		await expect(done.first()).toBeVisible({ timeout: 240_000 });
+		await waitForTurn(page);
 		await beat(page, 5000);
+	});
+
+	await test.step("teach it a skill", async () => {
+		await titleCard(page, {
+			index: 4,
+			total: 9,
+			eyebrow: "// SKILLS",
+			title: "Teach it your procedures",
+			sub: "Write a SKILL.md once — any agent in the workspace can follow it.",
+		});
+		await cursorClick(page, page.getByRole("link", { name: "Skills" }));
+		await page.waitForURL("**/skills**");
+		await beat(page, 1600);
+
+		await cursorClick(page, page.getByRole("button", { name: "New skill" }));
+		await page.waitForURL("**/skills/new");
+		await beat(page, 800);
+
+		await humanType(page, 'input[placeholder="skill-name"]', WALKTHROUGH.skillName);
+		await humanType(
+			page,
+			'input[placeholder^="What the skill does"]',
+			"Writes a one-screen brief on a Cloudflare product. Use when the user asks for a brief, an overview or a quick explainer.",
+		);
+		// The editor pre-fills a "# When to use / # Steps" template — replace it.
+		const body = page.getByPlaceholder(/The procedure the agent follows/);
+		await cursorClick(page, body);
+		await body.fill("");
+		await body.pressSequentially(SKILL_BODY, { delay: paced(10) });
+		await beat(page, 900);
+
+		await cursorClick(page, page.getByRole("button", { name: "Create skill" }));
+		await page.waitForURL(/\/skills\/[0-9a-f-]{36}$/, { timeout: 30_000 });
+		// Detail page: rendered instructions, "runs anywhere" chip, no agents yet.
+		await beat(page, 2200);
+
+		// Enable it on the Research Assistant — part of the agent's config.
+		await page.goto(agentUrl);
+		await beat(page, 1400);
+		await cursorClick(page, page.getByRole("button", { name: "Edit", exact: true }));
+		await beat(page, 900);
+		await cursorClick(page, page.getByRole("button", { name: "Add skill" }));
+		const dialog = page.getByRole("dialog");
+		await expect(dialog).toBeVisible();
+		await beat(page, 900);
+		await cursorClick(
+			page,
+			dialog.getByRole("button", { name: `Add ${WALKTHROUGH.skillName}` }),
+		);
+		await beat(page, 600);
+		if (await dialog.isVisible()) await page.keyboard.press("Escape");
+		await beat(page, 700);
+		await cursorClick(page, page.getByRole("button", { name: "Save changes" }));
+		await beat(page, 1600);
+
+		// The agent now reads the SKILL.md before answering, and follows it.
+		await cursorClick(page, page.getByRole("button", { name: "Test in chat" }));
+		await page.waitForURL("**/chat**");
+		await beat(page, 1000);
+		const composer = page.locator('textarea[name="message"]');
+		await cursorClick(page, composer);
+		await composer.pressSequentially("Give me a brief on Cloudflare Queues.", {
+			delay: paced(25),
+		});
+		await beat(page, 400);
+		await composer.press("Enter");
+		await waitForTurn(page);
+		await beat(page, 6000);
 	});
 
 	await test.step("human in the loop", async () => {
 		await titleCard(page, {
-			index: 4,
-			total: 8,
+			index: 5,
+			total: 9,
 			eyebrow: "// HUMAN IN THE LOOP",
 			title: "You stay in control",
 			sub: "Flip a tool to “Needs approval” and the agent waits for a human.",
@@ -302,17 +384,14 @@ test("demo walkthrough", async ({ page, baseURL }) => {
 		await beat(page, 2200);
 		await cursorClick(page, approve);
 
-		const done = page
-			.getByText("Worked", { exact: true })
-			.or(page.getByRole("button", { name: "Retry" }));
-		await expect(done.first()).toBeVisible({ timeout: 240_000 });
+		await waitForTurn(page);
 		await beat(page, 4000);
 	});
 
 	await test.step("share the agent", async () => {
 		await titleCard(page, {
-			index: 5,
-			total: 8,
+			index: 6,
+			total: 9,
 			eyebrow: "// SHARING",
 			title: "Share your agents",
 			sub: "Give a teammate — or a whole team — access, from member to admin.",
@@ -351,8 +430,8 @@ test("demo walkthrough", async ({ page, baseURL }) => {
 
 	await test.step("run code in a sandbox", async () => {
 		await titleCard(page, {
-			index: 6,
-			total: 8,
+			index: 7,
+			total: 9,
 			eyebrow: "// CODE EXECUTION",
 			title: "Run real code",
 			sub: "Give an agent a sandbox and it executes Python instead of guessing.",
@@ -373,17 +452,14 @@ test("demo walkthrough", async ({ page, baseURL }) => {
 
 		// The chain-of-thought shows "Create sandbox" then "Execute" steps
 		// while the code runs, then the streamed answer.
-		const done = page
-			.getByText("Worked", { exact: true })
-			.or(page.getByRole("button", { name: "Retry" }));
-		await expect(done.first()).toBeVisible({ timeout: 240_000 });
+		await waitForTurn(page);
 		await beat(page, 5000);
 	});
 
 	await test.step("schedule a trigger", async () => {
 		await titleCard(page, {
-			index: 7,
-			total: 8,
+			index: 8,
+			total: 9,
 			eyebrow: "// TRIGGERS",
 			title: "Put it on a schedule",
 			sub: "Agents that run by themselves — cron and timezone aware.",
@@ -434,8 +510,8 @@ test("demo walkthrough", async ({ page, baseURL }) => {
 
 	await test.step("call an agent over HTTP", async () => {
 		await titleCard(page, {
-			index: 8,
-			total: 8,
+			index: 9,
+			total: 9,
 			eyebrow: "// HTTP API",
 			title: "Call agents from anywhere",
 			sub: "Two requests and a token — n8n, scripts, your own apps.",

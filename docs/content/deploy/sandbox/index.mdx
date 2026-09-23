@@ -2,7 +2,7 @@
 
 The **sandbox** gives an agent a private, isolated Linux environment for executing code, reading and writing files, searching, and running shell commands. It turns any agent into a lightweight data-analysis or scripting agent without handing it access to the host.
 
-This page is the **operator's view** — what the sandbox is, how it's architected, and what you need to run. For how an agent author enables and uses the sandbox inside an agent, see [Using the sandbox](/agents/sandbox).
+This page is the **operator's view** — what the sandbox is, which providers exist, and what you need to run. For how an agent author uses it inside an agent, see [Using the sandbox](/agents/sandbox).
 
 ## Why a sandbox
 
@@ -11,53 +11,56 @@ MCP servers cover most structured actions (query HubSpot, search Sentry, open a 
 - Analyze a CSV the user uploads and produce a chart
 - Write, lint, and run a Python script against live data
 - Iterate on a SQL query using `bq` or `psql`
-- Transform a payload with `jq` before feeding it to another tool
+- Run the `scripts/` of a [skill](/agents/skills)
 
 The sandbox provides that environment and exposes it to the agent as a toolset.
 
-## How it works
+## Sandboxes are workspace resources
 
-**auxilia** supports two sandbox providers, selected with the `SANDBOX_PROVIDER` environment variable:
+A sandbox is a row the workspace admin creates under **Settings → Sandboxes**: a name, a **provider**, the provider's endpoint and credential, and a few runtime knobs. Agent authors then bind one sandbox to an agent from the agent editor's **Add tool** dialog. A workspace can hold several sandboxes — a locked-down one for support agents, a data-science image for analysts — and each agent picks the one it needs.
 
-- **`opensandbox`** (default) — [OpenSandbox](https://github.com/langchain-ai/opensandbox), an open-source sandbox runtime that spawns short-lived Linux containers on demand. You run the controller yourself, next to the backend.
-- **`cloudrun`** — [Google Cloud Run sandboxes](https://docs.cloud.google.com/run/docs/code-execution) (public preview), reached through a dedicated **sandbox gateway** Cloud Run service. Nothing to host beyond that one service — see [Cloud Run Sandboxes](/deploy/sandbox/cloud-run).
+![Settings — Sandboxes](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/settings-sandboxes.png)
 
-Whichever provider you pick, the agent sees the exact same toolset (`create_sandbox` / `connect_sandbox` + file ops) — the provider only changes where the container runs.
+Three providers are supported:
 
-With OpenSandbox, the wiring looks like this:
+| Provider | Where the container runs | Lifetime | Environment |
+| --- | --- | --- | --- |
+| **OpenSandbox** | An [OpenSandbox](https://github.com/alibaba/OpenSandbox) controller you host (Docker, a VM, Kubernetes) | 30-minute TTL, renewed on every run | The **Default image** you set (default `python:3.12-slim`), plus **Default packages** |
+| **Daytona** | [Daytona](https://www.daytona.io/) cloud or a self-hosted instance | Auto-stops when idle, woken on the next run | Daytona's default image, or a **Snapshot** you built |
+| **Cloud Run** | [Google Cloud Run sandboxes](https://docs.cloud.google.com/run/docs/code-execution) behind a small **sandbox gateway** service | No TTL; lives in one gateway instance, snapshotted to GCS at the end of each turn | The gateway container's image |
+
+Whichever provider you pick, the agent sees the exact same toolset — the provider only changes where the container runs and what is installed in it.
+
+## How a run uses it
 
 ```
-┌─────────────────────┐      create_sandbox()      ┌────────────────────┐
-│  Agent (LangGraph)  │ ───────────────────────▶   │   OpenSandbox      │
-│                     │ ◀───── sandbox_id ──────── │   controller       │
-└─────────────────────┘                            └─────────┬──────────┘
-         │                                                   │
-         │  execute("python script.py")                      │
-         │  read_file("/tmp/out.json")                       │
-         │  …                                                ▼
-         │                                        ┌──────────────────────┐
-         │                                        │   Container          │
-         └──────────────────────────────────────▶ │   (python:3.12-slim) │
-                                                  └──────────────────────┘
+┌─────────────────────┐   reconnect / create    ┌────────────────────┐
+│  auxilia run        │ ───────────────────────▶│  Sandbox provider  │
+│  (before the model) │ ◀──── sandbox id ────── │  (OpenSandbox,     │
+└─────────────────────┘                         │   Daytona, Cloud   │
+         │                                      │   Run gateway)     │
+         │  upload skill files                  └─────────┬──────────┘
+         │  execute("python script.py")                   │
+         │  read_file("/tmp/out.json")                     ▼
+         │  …                                    ┌──────────────────────┐
+         └──────────────────────────────────────▶│   Container          │
+                                                 │   (your image)       │
+                                                 └──────────────────────┘
 ```
 
-The sandbox is **lazy**: it is not created when an agent starts. The LLM decides when (and whether) to call `create_sandbox`, and only then does a container come up. A default OpenSandbox container has a **30-minute TTL** that can be renewed via `connect_sandbox`; Cloud Run sandboxes have no TTL; they live inside one gateway instance and persist across instance recycles only when a snapshot bucket (`CLOUD_RUN_SANDBOX_GCS_BUCKET`) is configured — without one, a recycled instance means a lost sandbox.
-
-Inside a conversation, the agent can create one sandbox, keep reusing it across turns, and reconnect to it after a browser refresh.
+The sandbox is **eager**: at the start of every run of a sandbox-bound agent, **auxilia** reconnects the thread's sandbox (renewing or waking it), or creates one and pip-installs the **Default packages**. The model never creates, connects or names a sandbox. A sandbox that is gone is replaced and the model is told; a provider that does not answer blocks the run *before* the model is involved (`409 sandbox_unavailable`), and the chat shows a notice instead of the composer.
 
 ## What you need to run it
 
 The sandbox runtime runs **outside** the **auxilia** backend. **auxilia** is a client of it — the backend never executes shell commands itself.
 
-You can either:
-
-- **Self-host OpenSandbox** — run the controller in a container on the same host, in the same VPC, or on Kubernetes, then configure **auxilia** with `OPEN_SANDBOX_DOMAIN` (and optionally `OPEN_SANDBOX_API_KEY`). The [Setup](/deploy/sandbox/setup) page walks through it.
-- **Point at a managed OpenSandbox instance** — anything reachable over HTTP with an API key
-- **Use Cloud Run sandboxes** — deploy the `sandbox-gateway` service on Google Cloud Run and set `SANDBOX_PROVIDER=cloudrun`. See [Cloud Run Sandboxes](/deploy/sandbox/cloud-run).
+- **Self-host OpenSandbox** — run the controller next to the backend and register its domain and API key. The [Setup](/deploy/sandbox/setup) page walks through it, including how to ship your own image.
+- **Use Daytona** — create an API key on Daytona, optionally build a snapshot with your libraries, register it. Also on the [Setup](/deploy/sandbox/setup) page.
+- **Use Cloud Run sandboxes** — deploy the `sandbox-gateway` service on Google Cloud Run and register its URL and secret. See [Cloud Run Sandboxes](/deploy/sandbox/cloud-run).
 
 ## Next
 
-- **[Setup](/deploy/sandbox/setup)** — pick a provider, run OpenSandbox and point **auxilia** at it
+- **[Setup](/deploy/sandbox/setup)** — add an OpenSandbox or Daytona sandbox to the workspace
 - **[Cloud Run Sandboxes](/deploy/sandbox/cloud-run)** — deploy the sandbox gateway and use Google Cloud Run sandboxes
 - **[Security](/deploy/sandbox/security)** — isolation, volume mounts, timeouts
-- **[Using the sandbox in an agent](/agents/sandbox)** — the agent-author side: enabling the toggle and the toolset the LLM sees
+- **[Using the sandbox in an agent](/agents/sandbox)** — the agent-author side: binding a sandbox and the toolset the LLM sees
