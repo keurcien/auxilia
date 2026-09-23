@@ -17,9 +17,11 @@ from app.exceptions import (
     PermissionDeniedError,
     StructuredOutputError,
 )
+from app.mcp.client.exceptions import OAuthAuthorizationRequired
 from app.mcp.client.responses import oauth_required_response
 from app.redis_client import get_redis
 from app.runtime.agent import read_run_result
+from app.runtime.launch import LaunchRequest, launch
 from app.runtime.middleware.structured_output import validate_structured_response
 from app.runtime.runs.schemas import RunCreate, RunResponse
 from app.runtime.runs.service import RunService
@@ -117,31 +119,29 @@ async def invoke_run(
     `structured_response`, when `output_schema` is given) instead of relaying
     the live stream.
     """
-    # Pre-flight: refuse to launch if the agent or a subagent needs OAuth; the
-    # gate commits/releases the pooled connection itself before probing, so no
-    # run is created when authorization is missing and no connection is held
-    # during network IO.
-    if auth_url := await runs.required_oauth_url(
-        db, thread.agent_id, str(thread.user_id)
-    ):
-        # Explicit at the call site: this used to be an exception the
-        # app-global handler turned into a response on *any* endpoint that
-        # touched MCP (design review §2.4).
-        return oauth_required_response(auth_url)
-    # Auth queries are done — release the pooled connection before anything
-    # else (RunService opens its own sessions; holding both risks pool
-    # starvation) and before blocking for the whole run.
+    # Auth queries are done — release the pooled connection before `launch`
+    # opens its own sessions (holding both risks pool starvation) and before
+    # blocking for the whole run.
     await db.commit()
     trigger, config_overrides = _parse_run_config(config)
-    record = await runs.create(
-        thread_id=thread_id,
-        user_id=str(thread.user_id),
-        input=agent_input,
-        command=command,
-        trigger=trigger,
-        config_overrides=config_overrides,
-        output_schema=output_schema,
-    )
+    try:
+        record = await launch(
+            LaunchRequest(
+                thread_id=thread_id,
+                user_id=str(thread.user_id),
+                input=agent_input,
+                command=command,
+                trigger=trigger,
+                config_overrides=config_overrides,
+                output_schema=output_schema,
+            ),
+            runs=runs,
+        )
+    except OAuthAuthorizationRequired as exc:
+        # Explicit at the call site: this used to be an exception the
+        # app-global handler turned into a response on *any* endpoint that
+        # touched MCP (design review §2.4). No run was created.
+        return oauth_required_response(exc.url)
     record = await runs.wait_for_terminal(record.id)
     # Only a clean success yields a result. cancelled/interrupted/error/timeout
     # would otherwise return stale or partial checkpoint data as if it succeeded.
@@ -173,28 +173,26 @@ async def create_run(
 ) -> RunResponse:
     """Create a run without subscribing (a protocol event-stream session on the
     thread picks it up as the thread's newest run)."""
-    # Pre-flight: refuse to launch if the agent or a subagent needs OAuth,
-    # before the run is created.
-    if auth_url := await runs.required_oauth_url(
-        db, thread.agent_id, str(thread.user_id)
-    ):
-        # Explicit at the call site: this used to be an exception the
-        # app-global handler turned into a response on *any* endpoint that
-        # touched MCP (design review §2.4).
-        return oauth_required_response(auth_url)
-    # Release the pooled connection before RunService opens its own session
+    # Release the pooled connection before `launch` opens its own sessions
     # (holding both risks pool starvation), matching /invoke.
     await db.commit()
     trigger, config_overrides = _parse_run_config(body.config)
-    record = await runs.create(
-        thread_id=thread_id,
-        user_id=str(thread.user_id),
-        input=body.input,
-        command=body.command,
-        trigger=trigger,
-        config_overrides=config_overrides,
-        multitask_strategy=body.multitask_strategy,
-    )
+    try:
+        record = await launch(
+            LaunchRequest(
+                thread_id=thread_id,
+                user_id=str(thread.user_id),
+                input=body.input,
+                command=body.command,
+                trigger=trigger,
+                config_overrides=config_overrides,
+                multitask_strategy=body.multitask_strategy,
+            ),
+            runs=runs,
+        )
+    except OAuthAuthorizationRequired as exc:
+        # Explicit at the call site (design review §2.4). No run was created.
+        return oauth_required_response(exc.url)
     return RunResponse.from_record(record)
 
 

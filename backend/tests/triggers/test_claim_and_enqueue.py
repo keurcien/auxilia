@@ -17,7 +17,7 @@ def service(monkeypatch) -> TriggerService:
     svc = TriggerService(AsyncMock())
     svc.repository = MagicMock(claim_due=AsyncMock(return_value=[]))
     svc.model_service = AsyncMock()
-    monkeypatch.setattr(triggers_mod, "RunService", MagicMock())
+    monkeypatch.setattr(triggers_mod, "launch", AsyncMock())
     return svc
 
 

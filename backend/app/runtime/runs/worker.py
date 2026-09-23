@@ -20,6 +20,7 @@ from app.exceptions import root_cause
 from app.mcp.client.exceptions import as_oauth_required
 from app.runtime.agent import Agent
 from app.runtime.hitl import pending_interrupt
+from app.runtime.preflight import required_oauth_url
 from app.runtime.protocol.wire import encode_event
 from app.runtime.runs.control import RunControl
 from app.runtime.runs.delivery import DeliveryFactory
@@ -49,11 +50,11 @@ async def _mcp_unauthorized(db, thread: ThreadDB, user_id: str) -> bool:
     net under every path that can't receive a 401 — the run fails fast with an
     actionable error instead of burning an MCP session build.
 
-    Delegates to the HTTP preflight so every launch path shares one definition
-    of "unauthorized": probes all OAuth servers regardless of tools state,
-    fails open on infra errors, and commits to release the connection before
-    its network IO."""
-    return await RunService.required_oauth_url(db, thread.agent_id, user_id) is not None
+    Delegates to `preflight.required_oauth_url` so every launch path shares one
+    definition of "unauthorized": probes all OAuth servers regardless of tools
+    state, fails open on infra errors, and commits to release the connection
+    before its network IO."""
+    return await required_oauth_url(db, thread.agent_id, user_id) is not None
 
 
 class RunWorker:

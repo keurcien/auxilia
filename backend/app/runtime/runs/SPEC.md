@@ -189,10 +189,15 @@ worker finalizes the run as `error` with the root-cause message.
 
 ## Execution flow
 
-1. `RunService.create(thread_id, input|command)` → INSERT `RunDB(status=pending)`.
-   `reject` strategy: a same-transaction check refuses a thread with a
-   pending/running run. Returns the record (HTTP layer captures `run_id` →
-   `X-Run-Id`).
+1. `launch(LaunchRequest(thread_id, user_id, input|command, …))`
+   (`app/runtime/launch.py`) — the one entry every ingress uses (protocol
+   commands, `/runs`, Slack, triggers). It canonicalises a HITL resume, runs
+   the gates in `app/runtime/preflight.py` (thread exists, model available,
+   sandboxes reachable, OAuth connected — refused as
+   `OAuthAuthorizationRequired(url)` for the ingress to render) and only then
+   calls `RunService.create` → INSERT `RunDB(status=pending)`. `reject`
+   strategy: a same-transaction check refuses a thread with a pending/running
+   run. Returns the record (HTTP layer captures `run_id` → `X-Run-Id`).
 2. A `RunDispatcher` (one per process, started in `lifespan`) polls
    `claim_next()` every `RUN_CLAIM_INTERVAL_SECONDS`: an atomic
    `UPDATE … WHERE id IN (SELECT … FOR UPDATE SKIP LOCKED)` that moves the

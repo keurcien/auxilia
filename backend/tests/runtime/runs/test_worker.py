@@ -139,9 +139,10 @@ async def test_worker_gates_unauthorized_mcp_before_building_agent(redis, monkey
     assert gate_args == [str(record.user_id)]
 
 
-async def test_mcp_unauthorized_delegates_to_the_http_preflight(monkeypatch):
+async def test_mcp_unauthorized_delegates_to_the_shared_preflight(monkeypatch):
     """One definition of "unauthorized" for every launch path: the helper is
-    True exactly when the HTTP gate would 401."""
+    True exactly when `preflight.required_oauth_url` would make `launch`
+    refuse."""
     from types import SimpleNamespace
 
     thread = SimpleNamespace(agent_id="a1")
@@ -154,11 +155,11 @@ async def test_mcp_unauthorized_delegates_to_the_http_preflight(monkeypatch):
     async def _passes(db, agent_id, user_id):
         return None
 
-    monkeypatch.setattr(RunService, "required_oauth_url", _blocked)
+    monkeypatch.setattr(worker_mod, "required_oauth_url", _blocked)
     assert await worker_mod._mcp_unauthorized(None, thread, "u1") is True
     assert calls == [("a1", "u1")]
 
-    monkeypatch.setattr(RunService, "required_oauth_url", _passes)
+    monkeypatch.setattr(worker_mod, "required_oauth_url", _passes)
     assert await worker_mod._mcp_unauthorized(None, thread, "u1") is False
 
 

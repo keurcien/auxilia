@@ -1,5 +1,6 @@
 """Tests for the thin Slack web tier — turns enqueue durable runs."""
 
+from dataclasses import asdict
 from types import SimpleNamespace
 
 import app.integrations.slack.handlers as handlers_mod
@@ -51,26 +52,24 @@ async def test_approval_decision_round_trips_through_context_block():
     assert _extract_decision({"blocks": updated}) == "approve"
 
 
-def _patch_run_service(monkeypatch, *, raises: Exception | None = None):
-    """Replace RunService with a recorder; returns the captured create kwargs."""
+def _patch_launch(monkeypatch, *, raises: Exception | None = None):
+    """Replace `launch` with a recorder; returns the captured LaunchRequest
+    fields plus the keyword options under `"options"`."""
     captured: dict = {}
 
-    class _FakeRunService:
-        def __init__(self, *args, **kwargs):
-            pass
+    async def _launch(request, **options):
+        if raises is not None:
+            raise raises
+        captured.update(asdict(request))
+        captured["options"] = options
+        return SimpleNamespace(id="run-1")
 
-        async def create(self, **kwargs):
-            if raises is not None:
-                raise raises
-            captured.update(kwargs)
-            return SimpleNamespace(id="run-1")
-
-    monkeypatch.setattr(handlers_mod, "RunService", _FakeRunService)
+    monkeypatch.setattr(handlers_mod, "launch", _launch)
     return captured
 
 
 async def test_enqueue_builds_slack_delivery_and_passes_input(monkeypatch):
-    captured = _patch_run_service(monkeypatch)
+    captured = _patch_launch(monkeypatch)
 
     await handlers_mod._enqueue_slack_run(
         thread_id="t1",
@@ -92,10 +91,13 @@ async def test_enqueue_builds_slack_delivery_and_passes_input(monkeypatch):
         "slack_user_id": "U1",
         "team_id": "T1",
     }
+    # Slack answered the OAuth question itself (`_is_agent_ready` → connect
+    # prompt) before enqueueing, so the launch gate is not probed twice.
+    assert captured["options"] == {"preflight_oauth": False}
 
 
 async def test_enqueue_passes_resume_command(monkeypatch):
-    captured = _patch_run_service(monkeypatch)
+    captured = _patch_launch(monkeypatch)
 
     await handlers_mod._enqueue_slack_run(
         thread_id="t1",
@@ -213,7 +215,7 @@ async def test_resume_agent_enqueues_resume_when_ready(monkeypatch):
 
 
 async def test_enqueue_swallows_active_run_conflict(monkeypatch):
-    _patch_run_service(monkeypatch, raises=DomainValidationError("active run"))
+    _patch_launch(monkeypatch, raises=DomainValidationError("active run"))
 
     # A duplicate that loses the per-thread mutex race must not raise — the
     # webhook still needs to ack cleanly.

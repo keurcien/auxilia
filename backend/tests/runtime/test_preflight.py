@@ -1,4 +1,4 @@
-"""RunService.required_oauth_url — the pre-flight OAuth gate.
+"""`preflight.required_oauth_url` — the OAuth gate `launch` and the worker share.
 
 Tested directly (not via an endpoint) because it resolves agents and MCP
 servers, whose Postgres-only tables the SQLite `run_db` fixture doesn't create.
@@ -13,7 +13,7 @@ import httpx
 
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
 from app.mcp.servers.models import MCPAuthType
-from app.runtime.runs.service import RunService
+from app.runtime.preflight import required_oauth_url
 
 
 def _binding(server_id):
@@ -22,16 +22,15 @@ def _binding(server_id):
     return b
 
 
-async def _run_gate(*, auth_type, probe_result, initiate=None):
+async def _run_gate(*, auth_type, probe_result, initiate=None, spec=None):
     """Drive the gate with one bound server. Returns the collaborator mocks
     plus the gate's answer (`auth_url`: the URL a launch needs, or None)."""
     server = MagicMock()
     server.id = uuid4()
     server.auth_type = auth_type
 
-    agent_service = MagicMock(
-        collect_run_bindings=AsyncMock(return_value=[_binding(server.id)])
-    )
+    read_spec = SimpleNamespace(all_mcp_bindings=[_binding(server.id)])
+    repository = MagicMock(get_run_spec=AsyncMock(return_value=read_spec))
     probe = AsyncMock(return_value=probe_result)
     initiate_oauth = initiate or AsyncMock()
     db = AsyncMock()
@@ -41,22 +40,21 @@ async def _run_gate(*, auth_type, probe_result, initiate=None):
 
     with ExitStack() as stack:
         stack.enter_context(
-            patch("app.agents.core.service.AgentService", return_value=agent_service)
+            patch("app.runtime.preflight.AgentRepository", return_value=repository)
         )
         stack.enter_context(
             patch("app.mcp.client.connectivity.is_authorized", new=probe)
         )
         stack.enter_context(
-            patch("app.mcp.client.connectivity.initiate_oauth", new=initiate_oauth)
+            patch("app.runtime.preflight.initiate_oauth", new=initiate_oauth)
         )
-        auth_url = await RunService(redis=MagicMock()).required_oauth_url(
-            db, uuid4(), "user-1"
-        )
+        auth_url = await required_oauth_url(db, uuid4(), "user-1", spec=spec)
     return SimpleNamespace(
         server=server,
         probe=probe,
         initiate=initiate_oauth,
         db=db,
+        repository=repository,
         auth_url=auth_url,
     )
 
@@ -104,3 +102,24 @@ async def test_gate_fails_open_on_oauth_infra_errors():
     )
     assert gate.auth_url is None
     gate.initiate.assert_awaited_once_with(gate.server, "user-1", gate.db)
+
+
+async def test_gate_uses_the_spec_it_is_handed_instead_of_reading_again():
+    """`launch` already read the graph for the availability gates; handing it
+    over keeps the launch at one `get_run_spec`."""
+    gate = await _run_gate(
+        auth_type=MCPAuthType.oauth2,
+        probe_result=True,
+        spec=SimpleNamespace(all_mcp_bindings=[_binding(uuid4())]),
+    )
+    assert gate.auth_url is None
+    gate.repository.get_run_spec.assert_not_awaited()
+
+
+async def test_gate_passes_an_agent_with_no_bindings_without_touching_servers():
+    db = AsyncMock()
+    with patch("app.runtime.preflight.AgentRepository") as repo_cls:
+        repo_cls.return_value.get_run_spec = AsyncMock(return_value=None)
+        assert await required_oauth_url(db, uuid4(), "user-1") is None
+    db.execute.assert_not_awaited()
+    db.commit.assert_not_awaited()

@@ -34,7 +34,7 @@ from app.runtime.hitl import (
     load_interrupt_scope,
     pending_approval_requests,
 )
-from app.runtime.runs.service import RunService
+from app.runtime.launch import LaunchRequest, launch
 from app.threads.models import ThreadDB
 from app.users.repository import UserRepository
 
@@ -64,12 +64,18 @@ async def _enqueue_slack_run(
         team_id=team_id,
     )
     try:
-        await RunService().create(
-            thread_id=thread_id,
-            user_id=user_id,
-            input=input,
-            command=command,
-            delivery=delivery,
+        # `_is_agent_ready` already answered the OAuth question with a connect
+        # prompt, and the worker's net covers a token revoked in between — so
+        # the launch gate is skipped here rather than probed a second time.
+        await launch(
+            LaunchRequest(
+                thread_id=thread_id,
+                user_id=user_id,
+                input=input,
+                command=command,
+                delivery=delivery,
+            ),
+            preflight_oauth=False,
         )
     except DomainValidationError:
         logger.info("Slack run for thread %s skipped: active run exists", thread_id)

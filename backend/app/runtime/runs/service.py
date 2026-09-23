@@ -1,8 +1,9 @@
-"""RunService — the public API of the durable runtime.
+"""RunService — the record verbs of the durable runtime.
 
 Orchestrates Postgres (the run record — `RunRepository`) and Redis (the
 per-run ephemera — event log, cancel channel, liveness) into the verbs the
-router, worker, and reaper call.
+launcher, router, worker, and reaper call. Starting a run is
+`app.runtime.launch.launch`, which gates the request and then calls `create`.
 
 Sessions: every verb opens its own short `AsyncSessionLocal()` transaction
 rather than riding `get_db` — the service is called from outside any HTTP
@@ -16,18 +17,10 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from redis.asyncio import Redis
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.core.repository import AgentRepository
-from app.database import AsyncSessionLocal, get_checkpointer
-from app.exceptions import DomainValidationError, NotFoundError, StaleApprovalError
-from app.model_providers.service import ModelService
+from app.database import AsyncSessionLocal
+from app.exceptions import DomainValidationError, NotFoundError
 from app.redis_client import get_redis
-from app.runtime.hitl import (
-    build_resume_command,
-    is_addressed_resume,
-    load_interrupt_scope,
-)
 from app.runtime.runs import keys
 from app.runtime.runs.control import RunControl
 from app.runtime.runs.events import RunEventStream, terminal_entry
@@ -36,8 +29,6 @@ from app.runtime.runs.models import RunDB
 from app.runtime.runs.repository import RunRepository
 from app.runtime.runs.settings import run_settings
 from app.runtime.runs.state import MultitaskStrategy, RunStatus, is_terminal
-from app.sandbox.provider import ensure_sandboxes_available
-from app.threads.models import ThreadDB
 from app.threads.repository import ThreadRepository
 
 
@@ -61,7 +52,13 @@ class RunService:
         delivery: dict | None = None,
         multitask_strategy: MultitaskStrategy = "reject",
     ) -> RunDB:
-        """Create a pending run. Caller has already authorized the thread.
+        """Insert a pending run. The record verb — not the launch.
+
+        Every ingress goes through `app.runtime.launch.launch`, which owns the
+        gates (thread exists, model available, sandboxes reachable, OAuth
+        connected) and canonicalises a HITL resume before calling this. What
+        stays here is what belongs to the record: `input` xor `command`, and
+        the per-thread mutex.
 
         With the default `reject` strategy, creating a run while the thread has
         a pending/running one raises `DomainValidationError`. With `enqueue`,
@@ -71,25 +68,10 @@ class RunService:
         `delivery` is an opaque push-target descriptor (e.g. Slack channel/
         thread) the worker hands to a delivery consumer; `None` means a pull
         subscriber rides the event log instead.
-
-        This is also the model-availability gate: every launch path (chat
-        endpoints, Slack, triggers) funnels through here while still inside
-        its initiating context, so ModelUnavailableError surfaces as a 409
-        (or a Slack reply / skipped firing) *before* any stream opens or run
-        row leaks. Unlike `required_oauth_url`, internal callers are
-        deliberately gated too — a run on an unavailable model is invalid no
-        matter who enqueues it.
         """
         if input is not None and command is not None:
             raise DomainValidationError("Provide either input or command, not both.")
-        if command is not None:
-            command = await self._canonical_command(thread_id, command)
-        # Warm the whitelist cache before taking a pooled connection: on a
-        # cold/expired catalog cache the CDN fetch can take seconds, and it
-        # must not hold a DB session (pool exhaustion under load).
-        await ModelService.list_whitelisted()
         async with AsyncSessionLocal() as db:
-            await self._ensure_runnable_thread(db, thread_id)
             repository = RunRepository(db)
             if multitask_strategy == "reject":
                 # Serialize concurrent creates on this thread so two reject
@@ -114,122 +96,6 @@ class RunService:
             )
             await db.commit()
         return run
-
-    @staticmethod
-    async def _canonical_command(thread_id: str, command: dict) -> dict:
-        """Resolve an addressed HITL resume against the thread's checkpoint.
-
-        An addressed resume (``{"resume": {"interrupt_id": ..., "decisions":
-        [...]}}``) is validated and ordered here — while still inside the
-        initiating context, so a stale approval surfaces as a 409 to whoever
-        clicked instead of failing a background run — and stored in its
-        canonical, replayable form (`hitl.build_resume_command`). Anything
-        else passes through untouched: the legacy positional resume, or a
-        replayed canonical command. Runs before any DB session opens, so the
-        checkpoint read never holds a pooled connection.
-        """
-        if not is_addressed_resume(command.get("resume")):
-            return command
-        # Addressed by id: with parallel subagents paused together the resume
-        # must target the one the client answered, not the first pending.
-        interrupt_id = command["resume"].get("interrupt_id")
-        async with get_checkpointer() as checkpointer:
-            scope = await load_interrupt_scope(
-                checkpointer,
-                thread_id,
-                interrupt_id=interrupt_id if isinstance(interrupt_id, str) else None,
-            )
-        if scope is None:
-            raise StaleApprovalError(
-                "No approval is pending on this thread."
-                if interrupt_id is None
-                else "This approval request was already handled."
-            )
-        # The decisions are matched against the checkpoint that holds the
-        # gated tool calls — a subagent's own when a subagent paused.
-        return build_resume_command(scope.root, command["resume"], scope.state)
-
-    @staticmethod
-    async def _ensure_runnable_thread(db: AsyncSession, thread_id: str) -> None:
-        """The availability gates behind `create`: the thread must exist, its
-        pinned model must resolve (whitelist ∧ provider key ∧ admin-enabled),
-        else ModelUnavailableError; and every sandbox its agent graph binds
-        must answer a probe, else SandboxUnavailableError — a provider outage
-        is a 409 here, not a failed run the model gets to reason about."""
-        thread = await db.get(ThreadDB, thread_id)
-        if thread is None:
-            raise NotFoundError("Thread not found")
-        await ModelService(db).ensure_available(thread.model_id)
-        spec = await AgentRepository(db).get_run_spec(thread.agent_id)
-        if spec is not None:
-            await ensure_sandboxes_available(spec.all_sandbox_rows)
-
-    @staticmethod
-    async def required_oauth_url(
-        db: AsyncSession, agent_id: UUID, user_id: str
-    ) -> str | None:
-        """Pre-flight gate: the authorize URL a launch needs first, or None.
-
-        None means every OAuth server the agent **or a subagent** binds is
-        connected for this user; a URL means the first one that is not, and the
-        caller decides what that means — the HTTP run endpoints answer 401
-        {oauth_required, auth_url}, the worker fails a background run fast, and
-        `TriggerService.run_now` rejects with an actionable message.
-
-        It used to *raise* the URL and let an app-global handler turn the
-        exception into that 401. Returning it keeps the decision at the call
-        site, where the three callers already differed (design review §2.4).
-
-        Static — it needs no run state, only the caller's session. Not wired
-        into `RunService.create` on purpose: that path is also internal
-        (worker, reaper, seeding) and the worker gates itself.
-
-        Fail-open: if probing or OAuth discovery breaks for infra reasons
-        (provider down, no metadata), the run launches and the failure surfaces
-        in-thread as before — only a confirmed-unauthorized server blocks.
-        """
-        # Local imports avoid an import cycle (runs.service is imported early by
-        # the worker/reaper; AgentService and the MCP connectivity layer pull in
-        # far more).
-        from app.agents.core.service import AgentService
-        from app.mcp.client.connectivity import initiate_oauth, probe_authorization
-        from app.mcp.client.exceptions import OAuthAuthorizationRequired
-        from app.mcp.servers.models import MCPAuthType
-        from app.mcp.servers.repository import MCPServerRepository
-
-        bindings = await AgentService(db).collect_run_bindings(agent_id)
-        if not bindings:
-            return None
-
-        # Auth is per (user, server), so dedupe server ids — a server shared by
-        # the agent and a subagent need only be probed once.
-        server_ids = {b.mcp_server_id for b in bindings}
-        rows = await MCPServerRepository(db).list_by_ids(server_ids)
-        servers = [s for s in rows if s.auth_type == MCPAuthType.oauth2]
-        # DB reads done — release the pooled connection before the probes'
-        # network IO (token refresh, OAuth metadata discovery can take
-        # seconds). expire_on_commit=False keeps the loaded rows usable.
-        await db.commit()
-
-        # Concurrent, fail-open and memoized — shared with the readiness
-        # endpoint, which used to carry a sequential fail-loud copy (§4.1).
-        authorized = await probe_authorization(servers, user_id)
-        for server in servers:
-            if authorized.get(server.id, True):
-                continue
-            try:
-                # Ends in OAuthAuthorizationRequired(auth_url) for the first
-                # unauthorized server; the caller connects it and retries.
-                await initiate_oauth(server, user_id, db)
-            except OAuthAuthorizationRequired as exc:
-                return exc.url
-            except Exception:  # noqa: BLE001 — fail-open: a probe error must not block the run
-                logger.warning(
-                    "OAuth pre-flight for MCP server %s failed; letting the run launch",
-                    server.id,
-                    exc_info=True,
-                )
-        return None
 
     async def get(self, run_id: str) -> RunDB:
         async with AsyncSessionLocal() as db:

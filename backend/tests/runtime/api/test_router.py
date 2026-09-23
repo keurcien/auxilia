@@ -89,3 +89,42 @@ def test_commands_stay_owner_only_even_for_an_admin(client: TestClient, mock_db)
         )
     assert response.status_code == 403
     gate.assert_not_awaited()
+
+
+def test_a_launch_refused_for_oauth_is_the_401_body_and_creates_nothing(
+    client: TestClient, mock_db, current_user
+):
+    """The gate runs inside `launch`, behind `dispatch`; the router renders its
+    refusal as the same `{oauth_required, auth_url}` body the run endpoints
+    answer — there is no app-global handler for it (design review §2.4)."""
+    from app.mcp.client.exceptions import OAuthAuthorizationRequired
+
+    class _Refusing(_Protocol):
+        async def dispatch(self, thread_id, user_id, command):
+            raise OAuthAuthorizationRequired("https://auth.example/authorize")
+
+    thread = ThreadDB(
+        id=str(uuid4()),
+        user_id=current_user.id,
+        agent_id=uuid4(),
+        first_message_content="mine",
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = thread
+    mock_db.execute.return_value = result
+    app.dependency_overrides[get_protocol_service] = lambda: _Refusing()
+    try:
+        response = client.post(
+            f"/threads/{thread.id}/commands",
+            json={"id": 1, "method": "run.start", "params": {"input": {}}},
+        )
+    finally:
+        app.dependency_overrides.pop(get_protocol_service, None)
+
+    assert response.status_code == 401
+    assert response.json() == {
+        "error": "oauth_required",
+        "auth_url": "https://auth.example/authorize",
+    }

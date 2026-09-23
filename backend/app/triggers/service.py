@@ -12,7 +12,8 @@ from app.agents.models import AgentDB, EffectivePermission
 from app.database import get_db
 from app.exceptions import DomainValidationError, PermissionDeniedError
 from app.model_providers.service import ModelService
-from app.runtime.runs.service import RunService
+from app.runtime.launch import LaunchRequest, launch
+from app.runtime.preflight import required_oauth_url
 from app.service import BaseService
 from app.threads.models import ThreadSource
 from app.threads.schemas import ThreadCreate
@@ -236,28 +237,31 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         agent = await self.db.get(AgentDB, trigger.agent_id)
         if agent is None or agent.is_archived:
             raise DomainValidationError("Trigger agent is archived or deleted")
-        # Before creating the fire thread — RunService.create would reject the
-        # run anyway, but this keeps a doomed request from leaving an orphan
-        # thread behind.
+        # Before creating the fire thread — `launch` would reject the run
+        # anyway, but gating here keeps a doomed request from leaving an
+        # orphan thread behind.
         await self.model_service.ensure_available(trigger.model_id)
         # Probe the OWNER's credentials (the run executes as them, even when an
         # admin presses the button) via the shared pre-flight gate, so a broken
         # OAuth fails the request with an actionable message instead of a
         # doomed run. Scheduled firings get the same protection from the
         # worker's pre-flight (`_mcp_unauthorized`).
-        if await RunService.required_oauth_url(
-            self.db, trigger.agent_id, str(trigger.owner_id)
-        ):
+        if await required_oauth_url(self.db, trigger.agent_id, str(trigger.owner_id)):
             raise DomainValidationError(
                 "The trigger owner must reconnect this agent's MCP servers "
                 "(from the agent's chat page) before it can run."
             )
         thread = await self._create_fire_thread(trigger)
         await self.db.commit()
-        record = await RunService().create(
-            thread_id=thread.id,
-            user_id=str(trigger.owner_id),
-            input={"messages": [{"type": "human", "content": trigger.instructions}]},
+        record = await launch(
+            LaunchRequest(
+                thread_id=thread.id,
+                user_id=str(trigger.owner_id),
+                input={
+                    "messages": [{"type": "human", "content": trigger.instructions}]
+                },
+            ),
+            preflight_oauth=False,  # gated above, before the thread existed
         )
         return TriggerRunResponse(thread_id=thread.id, run_id=record.id)
 
@@ -292,8 +296,8 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         schedule.
         """
         now = now or datetime.now(UTC)
-        # Warm the whitelist cache *before* the claim, exactly as
-        # `RunService.create` does and for a sharper version of the same reason:
+        # Warm the whitelist cache *before* the claim, exactly as `launch`
+        # does and for a sharper version of the same reason:
         # `is_available` below runs inside this transaction, which holds
         # `FOR UPDATE SKIP LOCKED` locks on every claimed trigger row. A cold or
         # expired catalog cache makes that a multi-second CDN fetch with those
@@ -345,14 +349,19 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
             launches.append((thread.id, str(trigger.owner_id), trigger.instructions))
         await self.db.commit()  # finish the claim, release the row locks
 
-        run_service = RunService()
         run_ids: list[str] = []
         for thread_id, owner_id, message in launches:
             try:
-                record = await run_service.create(
-                    thread_id=thread_id,
-                    user_id=owner_id,
-                    input={"messages": [{"type": "human", "content": message}]},
+                # A firing has nobody to answer an OAuth refusal to; the
+                # worker's net fails the run with the reconnect error instead,
+                # which the thread then shows.
+                record = await launch(
+                    LaunchRequest(
+                        thread_id=thread_id,
+                        user_id=owner_id,
+                        input={"messages": [{"type": "human", "content": message}]},
+                    ),
+                    preflight_oauth=False,
                 )
             except Exception:
                 logger.exception("Failed to enqueue run for thread %s", thread_id)

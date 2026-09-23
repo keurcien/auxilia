@@ -2,10 +2,10 @@
 
 A thin orchestration layer over `RunService` and the run event log:
 
-- `dispatch` maps protocol commands onto the existing run verbs
-  (`run.start` → `RunService.create(input=…)`, `input.respond` →
-  `RunService.create(command={"resume": …})` with the checkpoint-keyed
-  canonicalization from PR #307).
+- `dispatch` maps protocol commands onto `launch` (`run.start` →
+  `LaunchRequest(input=…)`, `input.respond` → `LaunchRequest(command=
+  {"resume": …})`; the launcher gates the request and canonicalises the
+  resume against the checkpoint, PR #307).
 - `stream_events` serves one SSE session: it resolves the thread's newest
   run, relays its stored protocol events (filtered by the session's sink,
   stamped with `event_id`/`seq` derived from the log entry ids — see
@@ -35,6 +35,7 @@ from app.runtime.api.repository import CheckpointWriteRepository
 from app.runtime.api.schemas import EventStreamBody, ProtocolCommand
 from app.runtime.checkpoints import get_checkpoint_state
 from app.runtime.hitl import InterruptScope, load_interrupt_scopes
+from app.runtime.launch import LaunchRequest, launch
 from app.runtime.protocol.events import terminal_lifecycle
 from app.runtime.protocol.filter import StreamFilter
 from app.runtime.protocol.messages import serialize_message, serialize_message_preview
@@ -109,12 +110,15 @@ class ProtocolService:
         config_overrides = (
             {**config, "configurable": configurable} if configurable else None
         )
-        return await self.runs.create(
-            thread_id=thread_id,
-            user_id=user_id,
-            input=params.get("input"),
-            trigger=trigger,
-            config_overrides=config_overrides,
+        return await launch(
+            LaunchRequest(
+                thread_id=thread_id,
+                user_id=user_id,
+                input=params.get("input"),
+                trigger=trigger,
+                config_overrides=config_overrides,
+            ),
+            runs=self.runs,
         )
 
     async def _input_respond(self, thread_id: str, user_id: str, params: dict) -> RunDB:
@@ -124,7 +128,7 @@ class ProtocolService:
         batched form carries `responses: [...]` — auxilia threads pause on at
         most one interrupt, so the batch must have exactly one entry. The
         `response` payload is the HITL decisions object the web client already
-        builds (`{"decisions": [...]}`); `RunService.create` canonicalizes and
+        builds (`{"decisions": [...]}`); `launch` canonicalizes and
         stale-checks it against the checkpoint (409 on a stale approval).
         """
         responses = params.get("responses")
@@ -159,8 +163,11 @@ class ProtocolService:
             # resume value — pass through un-addressed; the graph still
             # targets the single pending interrupt.
             resume = response
-        return await self.runs.create(
-            thread_id=thread_id, user_id=user_id, command={"resume": resume}
+        return await launch(
+            LaunchRequest(
+                thread_id=thread_id, user_id=user_id, command={"resume": resume}
+            ),
+            runs=self.runs,
         )
 
     # --- event stream -----------------------------------------------------------
