@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.3](https://github.com/keurcien/auxilia/compare/backend-v0.9.2...backend-v0.9.3) (2026-09-23)
+
+
+### Bug Fixes
+
+* **models:** use Responses for all native OpenAI models ([#356](https://github.com/keurcien/auxilia/issues/356)) ([40dfece](https://github.com/keurcien/auxilia/commit/40dfececb951ce9972d29f046062e2c3150519f1))
+
 ## [0.9.2](https://github.com/keurcien/auxilia/compare/backend-v0.9.1...backend-v0.9.2) (2026-09-23)
 
 
