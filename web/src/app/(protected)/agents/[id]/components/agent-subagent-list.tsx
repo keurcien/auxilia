@@ -115,14 +115,16 @@ export default function AgentSubagentList({
 				<div className="flex flex-col gap-2.5">
 					{subagents.map((sub) => (
 						// The row itself is inert; the link and the remove control
-						// are siblings so neither nests inside the other.
+						// are siblings so neither nests inside the other. The link
+						// carries the card's padding so its hit area is the whole
+						// card minus the remove control, matching the hover.
 						<div
 							key={sub.id}
-							className="group flex items-center gap-3 rounded-[10px] border border-border bg-card px-4 py-3 transition-colors hover:border-border-hover hover:bg-hover dark:hover:bg-white/5"
+							className="group flex items-center rounded-[10px] border border-border bg-card transition-colors hover:border-border-hover hover:bg-hover dark:hover:bg-white/5"
 						>
 							<button
 								type="button"
-								className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-[7px] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-petrol/40"
+								className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-[10px] px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-petrol/40"
 								onClick={() => {
 									handleOpen(sub.id);
 								}}
@@ -154,7 +156,7 @@ export default function AgentSubagentList({
 								<button
 									type="button"
 									aria-label={`Remove ${sub.name}`}
-									className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-meta transition-colors hover:bg-hover hover:text-foreground dark:text-panel-dim dark:hover:bg-white/10"
+									className="mr-2.5 flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-meta transition-colors hover:bg-hover hover:text-foreground dark:text-panel-dim dark:hover:bg-white/10"
 									onClick={() => {
 										handleRemove(sub.id);
 									}}
