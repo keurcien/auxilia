@@ -1,8 +1,10 @@
 """Run execution: a single-run worker and the per-process dispatcher.
 
-`RunWorker.run(record)` executes one already-claimed run by wrapping the
-existing `Agent.stream(...)` and publishing each protocol event to the run's
-event log, while watching for cancel and enforcing the wall-clock cap.
+`RunWorker.run(record)` executes one already-claimed run by driving the
+runtime pipeline — `resolve` → `open_resources` → `assemble` → `run_turn`
+(`RunWorker._stream` is that sequence, top to bottom) — and publishing each
+protocol event to the run's event log, while watching for cancel and
+enforcing the wall-clock cap.
 `RunDispatcher` polls Postgres for claimable pending runs (the trigger-scanner
 `SKIP LOCKED` pattern — claiming *is* the pending → running transition) and
 runs them, semaphore-capped at `RUN_WORKER_CONCURRENCY`.
@@ -14,14 +16,18 @@ from contextlib import suppress
 
 from sqlalchemy.exc import IntegrityError
 
+from app.agents.core.repository import AgentRepository
+from app.agents.run_spec import RunSpec
 from app.background import LoopHealth, register_loop
 from app.database import AsyncSessionLocal, get_checkpointer
-from app.exceptions import root_cause
+from app.exceptions import NotFoundError, root_cause
 from app.mcp.client.exceptions import as_oauth_required
-from app.runtime.agent import Agent
+from app.runtime.assemble import assemble
 from app.runtime.hitl import pending_interrupt
 from app.runtime.preflight import required_oauth_url
 from app.runtime.protocol.wire import encode_event
+from app.runtime.resolve import resolve
+from app.runtime.resources import open_resources
 from app.runtime.runs.control import RunControl
 from app.runtime.runs.delivery import DeliveryFactory
 from app.runtime.runs.events import BufferedEventPublisher, RunEventStream
@@ -30,7 +36,9 @@ from app.runtime.runs.models import RunDB
 from app.runtime.runs.service import RunService
 from app.runtime.runs.settings import run_settings
 from app.runtime.runs.state import MCP_REAUTH_ERROR, RunStatus
+from app.runtime.turn import TurnInput, run_turn
 from app.threads.models import ThreadDB
+from app.threads.repository import ThreadRepository
 
 
 logger = logging.getLogger(__name__)
@@ -43,7 +51,9 @@ async def _cancel(task: asyncio.Task) -> None:
         await task
 
 
-async def _mcp_unauthorized(db, thread: ThreadDB, user_id: str) -> bool:
+async def _mcp_unauthorized(
+    db, thread: ThreadDB, user_id: str, *, spec: RunSpec | None = None
+) -> bool:
     """Pre-flight for background-launched runs (trigger scanner, Slack, HITL
     resume): True when a bound OAuth server is confirmed unauthorized for this
     user. HTTP run creation already 401s before the run exists; this is the
@@ -54,7 +64,20 @@ async def _mcp_unauthorized(db, thread: ThreadDB, user_id: str) -> bool:
     definition of "unauthorized": probes all OAuth servers regardless of tools
     state, fails open on infra errors, and commits to release the connection
     before its network IO."""
-    return await required_oauth_url(db, thread.agent_id, user_id) is not None
+    return await required_oauth_url(db, thread.agent_id, user_id, spec=spec) is not None
+
+
+async def _remember_sandbox(thread: ThreadDB, sandbox_id: str, source_id) -> None:
+    """Stamp the sandbox on the thread so the next run reconnects to it.
+
+    Its own short transaction, outside the build session (already committed)
+    and before the graph runs, so the stamp lands even if the run then fails.
+    """
+    async with AsyncSessionLocal() as db:
+        await ThreadRepository(db).set_sandbox_id(thread.id, sandbox_id, source_id)
+        await db.commit()
+    thread.sandbox_id = sandbox_id
+    thread.sandbox_source_id = source_id
 
 
 class RunWorker:
@@ -175,31 +198,39 @@ class RunWorker:
         return RunStatus.success, None
 
     async def _stream(self, record: RunDB, events: RunEventStream) -> None:
-        """Run the agent, publishing each protocol event to the log. A graph
-        failure propagates (the stream raises after its buffered events)."""
+        """Run one turn, publishing each protocol event to the log. A graph
+        failure propagates (the stream raises after its buffered events).
+
+        This is the runtime pipeline, in order: read (resolve), connect
+        (open_resources), build (assemble), run (run_turn). Each stage takes
+        the previous one's output; nothing here reaches back.
+        """
         async with AsyncSessionLocal() as db:
-            thread = await db.get(ThreadDB, record.thread_id)
+            thread = await ThreadRepository(db).get(record.thread_id)
             if thread is None:
                 raise RuntimeError(f"Thread {record.thread_id} not found")
-            if await _mcp_unauthorized(db, thread, str(record.user_id)):
+            spec = await AgentRepository(db).get_run_spec(thread.agent_id)
+            if spec is None:
+                raise NotFoundError("Agent not found")
+            if await _mcp_unauthorized(db, thread, str(record.user_id), spec=spec):
                 raise RuntimeError(MCP_REAUTH_ERROR)
-            agent = await Agent.build(thread=thread, db=db)
+            resolved = await resolve(thread, spec, db)
             # Commit here, on purpose (CLAUDE.md, transactions, exception 2):
             # holding this pooled connection open for the length of an agent
-            # run risks pool starvation, so `build`'s transaction ends before
-            # the stream starts.
+            # run risks pool starvation, so the read stage's transaction ends
+            # before any connection is opened.
             await db.commit()
+        async with open_resources(resolved) as live:
+            if (stamp := live.sandbox_stamp(thread)) is not None:
+                await _remember_sandbox(thread, *stamp)
+            graph = assemble(resolved, live, output_schema=record.output_schema)
             # Buffered: one awaited XADD per event is one Redis round trip per
             # token, serialized with the agent stream. Exiting the buffer drains
             # it, which is what keeps the last events ahead of `finalize`'s
             # terminal entry.
             async with BufferedEventPublisher(events) as publisher:
-                async for event in agent.stream(
-                    agent_input=record.input,
-                    command=record.command,
-                    trigger=record.trigger,
-                    config_overrides=record.config_overrides,
-                    output_schema=record.output_schema,
+                async for event in run_turn(
+                    graph, resolved, live, TurnInput.from_record(record)
                 ):
                     await publisher.publish(encode_event(event))
 

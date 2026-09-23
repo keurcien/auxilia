@@ -583,7 +583,7 @@ async def test_load_interrupt_scope_end_to_end_through_a_gated_subagent():
     from langgraph.checkpoint.memory import InMemorySaver
     from langgraph.types import Command
 
-    from app.runtime.agent import build_agent_middleware, build_runnable
+    from app.runtime.assemble import build_agent_middleware, build_runnable
 
     class _ToolFake(GenericFakeChatModel):
         def bind_tools(self, tools, **kwargs):

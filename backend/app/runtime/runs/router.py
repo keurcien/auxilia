@@ -20,12 +20,12 @@ from app.exceptions import (
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
 from app.mcp.client.responses import oauth_required_response
 from app.redis_client import get_redis
-from app.runtime.agent import read_run_result
 from app.runtime.launch import LaunchRequest, launch
 from app.runtime.middleware.structured_output import validate_structured_response
 from app.runtime.runs.schemas import RunCreate, RunResponse
 from app.runtime.runs.service import RunService
 from app.runtime.runs.state import RunStatus
+from app.runtime.turn import read_run_result
 from app.threads.schemas import ThreadResponse
 from app.threads.service import ThreadService, get_thread_service
 from app.users.models import UserDB

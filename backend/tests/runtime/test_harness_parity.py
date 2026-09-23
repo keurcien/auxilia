@@ -29,7 +29,7 @@ from langchain_core.messages import SystemMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
-from app.runtime.agent import build_runnable
+from app.runtime.assemble import build_runnable
 from app.runtime.harness import HARNESS_CONFIG
 from app.runtime.middleware.current_date import CurrentDateMiddleware
 from app.runtime.middleware.structured_output import (
@@ -132,7 +132,7 @@ def via_deep_agent(model, **kwargs):
 
 def via_build_runnable(model, **kwargs):
     """What `build_runnable` hands to `create_agent` for the same inputs."""
-    seen, patcher = _capture("app.runtime.agent.create_agent")
+    seen, patcher = _capture("app.runtime.assemble.create_agent")
     with patcher:
         build_runnable(model=model, **kwargs)
     return seen
@@ -417,7 +417,7 @@ def test_graph_config_matches_deepagents():
     rather than a constant, so a metadata rename upstream shows up here."""
     model = MODELS["openai"]()
     deep = via_deep_agent(model, tools=TOOLS, backend=StubSandbox())
-    with patch("app.runtime.agent.create_agent", return_value=_Sentinel()):
+    with patch("app.runtime.assemble.create_agent", return_value=_Sentinel()):
         built = build_runnable(
             model=model,
             tools=[add],
@@ -432,7 +432,7 @@ def test_graph_config_matches_deepagents():
 def test_no_sandbox_means_no_harness():
     """The plain path is untouched by all of this: no todos, no filesystem, no
     prompt caching, and the agent's instructions are the whole prompt."""
-    seen, patcher = _capture("app.runtime.agent.create_agent")
+    seen, patcher = _capture("app.runtime.assemble.create_agent")
     with patcher:
         build_runnable(
             model=MODELS["openai"](),
@@ -495,7 +495,7 @@ def test_plain_path_wires_subagents_after_the_caller_stack():
     only orders hooks — but it is still the position every plain agent with
     subagents has run under, and a move is a behaviour change to make on
     purpose."""
-    seen, patcher = _capture("app.runtime.agent.create_agent")
+    seen, patcher = _capture("app.runtime.assemble.create_agent")
     caller = CurrentDateMiddleware(datetime(2026, 1, 1, tzinfo=UTC))
     with patcher:
         build_runnable(

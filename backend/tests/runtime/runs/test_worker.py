@@ -1,5 +1,8 @@
 import asyncio
-from contextlib import suppress
+from contextlib import asynccontextmanager, suppress
+from dataclasses import asdict
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -19,12 +22,14 @@ pytestmark = pytest.mark.usefixtures("run_db")
 
 
 def _event(n: int) -> dict:
-    """A protocol event stand-in (`Agent.stream` yields `{method, params}`)."""
+    """A protocol event stand-in (`run_turn` yields `{method, params}`)."""
     return {"method": "values", "params": {"namespace": [], "data": {"t": n}}}
 
 
 class _FakeAgent:
-    """Stands in for the real Agent — yields events without touching an LLM."""
+    """Stands in for the runtime pipeline — `build` plays `resolve`, `stream`
+    plays `run_turn` (called with the TurnInput's fields) — and yields events
+    without touching an LLM. See `_install`."""
 
     @classmethod
     async def build(cls, *, thread, db, resume=False):
@@ -33,6 +38,29 @@ class _FakeAgent:
     async def stream(self, **kwargs):
         yield _event(1)
         yield _event(2)
+
+
+def _install(monkeypatch, agent_cls=_FakeAgent) -> None:
+    """Route the worker's pipeline through `agent_cls`: `resolve` → `build`,
+    `open_resources` → a live stub with nothing to stamp, `assemble` → an
+    opaque graph, `run_turn` → `stream(**turn fields)`."""
+
+    async def _resolve(thread, spec, db):
+        return await agent_cls.build(thread=thread, db=db)
+
+    @asynccontextmanager
+    async def _resources(resolved):
+        yield SimpleNamespace(sandbox_stamp=lambda thread: None)
+
+    def _run_turn(graph, resolved, live, turn):
+        return resolved.stream(**asdict(turn))
+
+    monkeypatch.setattr(worker_mod, "resolve", _resolve)
+    monkeypatch.setattr(worker_mod, "open_resources", _resources)
+    monkeypatch.setattr(
+        worker_mod, "assemble", lambda resolved, live, output_schema=None: object()
+    )
+    monkeypatch.setattr(worker_mod, "run_turn", _run_turn)
 
 
 class _FakeSession:
@@ -51,13 +79,24 @@ class _FakeSession:
 
 @pytest.fixture
 def patch_agent(monkeypatch):
-    monkeypatch.setattr(worker_mod, "Agent", _FakeAgent)
+    _install(monkeypatch)
     monkeypatch.setattr(worker_mod, "AsyncSessionLocal", lambda: _FakeSession())
+    thread = SimpleNamespace(id="thread", agent_id="agent", user_id="user")
+    monkeypatch.setattr(
+        worker_mod,
+        "ThreadRepository",
+        lambda db: SimpleNamespace(get=AsyncMock(return_value=thread)),
+    )
+    monkeypatch.setattr(
+        worker_mod,
+        "AgentRepository",
+        lambda db: SimpleNamespace(get_run_spec=AsyncMock(return_value=object())),
+    )
 
     async def _no_interrupt(*_):
         return False
 
-    async def _authorized(*_):
+    async def _authorized(*_, **__):
         return False
 
     monkeypatch.setattr(RunWorker, "_is_interrupted", _no_interrupt)
@@ -97,7 +136,7 @@ async def test_worker_marks_error_when_agent_raises(redis, monkeypatch):
             raise RuntimeError("model exploded")
             yield  # pragma: no cover — makes this an async generator
 
-    monkeypatch.setattr(worker_mod, "Agent", _RaisingAgent)
+    _install(monkeypatch, _RaisingAgent)
     service = RunService(redis)
     record = await _create_and_claim(service, thread_id="t2b", input={"messages": []})
     await RunWorker(redis).run(record)
@@ -119,15 +158,15 @@ async def test_worker_gates_unauthorized_mcp_before_building_agent(redis, monkey
     class _NeverBuiltAgent(_FakeAgent):
         @classmethod
         async def build(cls, *, thread, db, resume=False):
-            raise AssertionError("Agent.build must not run when MCP is unauthorized")
+            raise AssertionError("resolve must not run when MCP is unauthorized")
 
     gate_args: list = []
 
-    async def _unauthorized(db, thread, user_id):
+    async def _unauthorized(db, thread, user_id, **_):
         gate_args.append(user_id)
         return True
 
-    monkeypatch.setattr(worker_mod, "Agent", _NeverBuiltAgent)
+    _install(monkeypatch, _NeverBuiltAgent)
     monkeypatch.setattr(worker_mod, "_mcp_unauthorized", _unauthorized)
     service = RunService(redis)
     record = await _create_and_claim(service, thread_id="t2c", input={"messages": []})
@@ -148,11 +187,11 @@ async def test_mcp_unauthorized_delegates_to_the_shared_preflight(monkeypatch):
     thread = SimpleNamespace(agent_id="a1")
     calls: list = []
 
-    async def _blocked(db, agent_id, user_id):
+    async def _blocked(db, agent_id, user_id, **_):
         calls.append((agent_id, user_id))
         return "https://auth.example"
 
-    async def _passes(db, agent_id, user_id):
+    async def _passes(db, agent_id, user_id, **_):
         return None
 
     monkeypatch.setattr(worker_mod, "required_oauth_url", _blocked)
@@ -176,7 +215,7 @@ async def test_worker_unwraps_exception_groups(redis, monkeypatch):
             )
             yield  # pragma: no cover — makes this an async generator
 
-    monkeypatch.setattr(worker_mod, "Agent", _GroupRaisingAgent)
+    _install(monkeypatch, _GroupRaisingAgent)
     service = RunService(redis)
     record = await _create_and_claim(service, thread_id="t2c", input={"messages": []})
     await RunWorker(redis).run(record)
@@ -207,7 +246,7 @@ async def test_cancel_mid_run_stops_and_frees_thread(redis, monkeypatch):
             started.set()
             await asyncio.sleep(10)  # long-running; cancel should interrupt here
 
-    monkeypatch.setattr(worker_mod, "Agent", _SlowAgent)
+    _install(monkeypatch, _SlowAgent)
     monkeypatch.setattr(run_settings, "cancel_poll_seconds", 0.02)
 
     service = RunService(redis)
@@ -241,7 +280,7 @@ async def test_worker_forwards_output_schema_to_agent(redis, monkeypatch):
             captured.update(kwargs)
             yield _event(0)
 
-    monkeypatch.setattr(worker_mod, "Agent", _RecordingAgent)
+    _install(monkeypatch, _RecordingAgent)
 
     service = RunService(redis)
     schema = {"type": "object"}
@@ -505,7 +544,7 @@ async def test_a_chatty_run_does_not_pay_a_round_trip_per_chunk(
             for i in range(50):
                 yield _event(i)
 
-    monkeypatch.setattr(worker_mod, "Agent", _ChattyAgent)
+    _install(monkeypatch, _ChattyAgent)
     monkeypatch.setattr(run_settings, "event_buffer_max_chunks", 25)
     service = RunService(redis)
     record = await _create_and_claim(

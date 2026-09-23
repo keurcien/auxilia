@@ -34,7 +34,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.stream.transformers import UpdatesTransformer
 from langgraph.types import Command, Interrupt, Overwrite
 
-from app.runtime.agent import build_agent_middleware, build_runnable
+from app.runtime.assemble import build_agent_middleware, build_runnable
 from app.runtime.protocol.emit import ProtocolEmitter
 from app.runtime.protocol.messages import serialize_message
 
