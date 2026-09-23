@@ -18,7 +18,7 @@ jobs:
       web_version: ${{ steps.release.outputs['web--version'] }}
       release_pr: ${{ steps.release.outputs.pr }}
     steps:
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@v5
         id: release
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -32,11 +32,13 @@ jobs:
     if: needs.release-please.outputs.release_pr != ''
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ fromJson(needs.release-please.outputs.release_pr).headBranchName }}
           token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: "0.12.17"
       - name: Sync uv.lock with bumped version
         working-directory: backend
         run: uv lock
