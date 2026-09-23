@@ -33,15 +33,17 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install uv
-        # Pinned to a full commit SHA (v5): a tag is mutable, and this action
-        # runs with the workflow's token.
-        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        # Pin the reviewed v10.2.0 commit because this action runs with the
+        # workflow's token.
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
         with:
+          version: "0.12.17"
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
+          prune-cache: true
 
       - name: Install dependencies
         run: uv sync --frozen --all-groups
@@ -60,7 +62,7 @@ jobs:
 
       - name: Upload coverage report
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: backend-coverage
           path: backend/coverage.xml
