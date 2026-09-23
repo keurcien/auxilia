@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
 import pytest
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import StructuredTool
 
 from app.model_providers.catalog import (
@@ -12,24 +12,51 @@ from app.model_providers.catalog import (
 
 
 @pytest.mark.parametrize(
-    ("model_id", "expects_responses_api"),
+    "model_id",
     [
-        # gpt-5.6 reasoning models reject function tools on chat completions —
-        # they must go through the Responses API.
-        ("gpt-5.6-luna", True),
-        ("gpt-5.6-sol", True),
-        ("gpt-5.6-terra", True),
-        # The rest of the family works on the default chat-completions path.
-        ("gpt-5.5", False),
-        ("gpt-5", False),
-        ("gpt-4o-mini", False),
+        "gpt-4o-mini",
+        "gpt-5",
+        "gpt-5-mini",
+        "gpt-5-nano",
+        "gpt-5.1",
+        "gpt-5.2",
+        "gpt-5.4",
+        "gpt-5.5",
+        "gpt-5.6-luna",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-6-luna",
+        "gpt-6-sol",
+        "gpt-6-astra",
+        "future-openai-model",
     ],
 )
-def test_openai_factory_routes_gpt56_through_responses_api(
-    model_id: str, expects_responses_api: bool
-):
+def test_openai_factory_uses_responses_for_tool_conversations(model_id: str):
     model = ChatModelFactory().create("openai", model_id, "unit-test-key")
-    assert model.use_responses_api is expects_responses_api
+    bound = model.bind_tools([{"name": "lookup", "parameters": {"type": "object"}}])
+    # Existing Chat Completions histories must still replay after migration.
+    messages = [
+        HumanMessage(content="Look it up"),
+        AIMessage(
+            content="",
+            tool_calls=[
+                {"name": "lookup", "args": {}, "id": "call_lookup", "type": "tool_call"}
+            ],
+        ),
+        ToolMessage(content="Found it", tool_call_id="call_lookup"),
+    ]
+    payload = model._get_request_payload(messages, **bound.kwargs)
+    assert model.use_responses_api is True
+    assert "messages" not in payload
+    assert payload["tools"][0]["strict"] is False
+    call = next(
+        item for item in payload["input"] if item.get("type") == "function_call"
+    )
+    result = next(
+        item for item in payload["input"] if item.get("type") == "function_call_output"
+    )
+    assert call["call_id"] == result["call_id"] == "call_lookup"
+    assert result["output"] == "Found it"
 
 
 def test_openai_factory_passes_reasoning_effort_through():
@@ -213,7 +240,14 @@ def test_responses_preserves_explicit_strict_structured_output():
     assert payload["tools"][0]["strict"] is True
 
 
-def test_chat_completions_keeps_its_default_tool_binding():
-    model = ChatModelFactory().create("openai", "gpt-5.5", "unit-test-key")
+@pytest.mark.parametrize(
+    ("provider", "model_id"),
+    [("openrouter", "z-ai/glm-5.2"), ("xiaomi", "mimo-v2-pro"), ("meta", "muse-spark")],
+)
+def test_compatible_providers_keep_chat_completions(provider, model_id):
+    model = ChatModelFactory().create(provider, model_id, "unit-test-key")
     bound = model.bind_tools([{"name": "lookup", "parameters": {"type": "object"}}])
     assert "strict" not in bound.kwargs["tools"][0]["function"]
+    payload = model._get_request_payload([HumanMessage(content="test")], **bound.kwargs)
+    assert "messages" in payload
+    assert "input" not in payload
