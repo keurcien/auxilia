@@ -70,10 +70,10 @@ export default function AgentSubagentList({
 	};
 
 	// A row leads to the subagent's own page, gated on `editor` there; the
-	// gate opens the "No access" dialog below when the viewer is too weak.
+	// gate opens the "No access" dialog below when the viewer is too weak, and
+	// only asks about leaving once access is confirmed.
 	const handleOpen = (subagentId: string) => {
-		if (confirmLeave && !confirmLeave()) return;
-		openAgentEditor(subagentId);
+		void openAgentEditor(subagentId, { beforeNavigate: confirmLeave });
 	};
 
 	if (isSubagent) {
@@ -114,52 +114,48 @@ export default function AgentSubagentList({
 			{subagents.length > 0 ? (
 				<div className="flex flex-col gap-2.5">
 					{subagents.map((sub) => (
-						// A div, not a button: the remove control nests inside.
+						// The row itself is inert; the link and the remove control
+						// are siblings so neither nests inside the other.
 						<div
 							key={sub.id}
-							role="link"
-							tabIndex={0}
-							aria-label={`Open ${sub.name}`}
-							className="group flex cursor-pointer items-center gap-3 rounded-[10px] border border-border bg-card px-4 py-3 transition-colors hover:border-border-hover hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-petrol/40 dark:hover:bg-white/5"
-							onClick={() => {
-								handleOpen(sub.id);
-							}}
-							onKeyDown={(event) => {
-								if (event.target !== event.currentTarget) return;
-								if (event.key === "Enter" || event.key === " ") {
-									event.preventDefault();
-									handleOpen(sub.id);
-								}
-							}}
+							className="group flex items-center gap-3 rounded-[10px] border border-border bg-card px-4 py-3 transition-colors hover:border-border-hover hover:bg-hover dark:hover:bg-white/5"
 						>
-							<AgentAvatar
-								color={sub.color}
-								emoji={sub.emoji}
-								size="sm"
-								className="text-base"
-							/>
-							<span className="min-w-0 flex-1">
-								<span className="block truncate font-mono text-[12.5px] font-semibold text-petrol">
-									{sub.name}
+							<button
+								type="button"
+								className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-[7px] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-petrol/40"
+								onClick={() => {
+									handleOpen(sub.id);
+								}}
+							>
+								<AgentAvatar
+									color={sub.color}
+									emoji={sub.emoji}
+									size="sm"
+									className="text-base"
+								/>
+								<span className="min-w-0 flex-1">
+									<span className="block truncate font-mono text-[12.5px] font-semibold text-petrol">
+										{sub.name}
+									</span>
+									<span className="mt-0.5 block truncate text-xs text-muted-foreground">
+										{sub.description || (
+											<span className="text-faint dark:text-panel-dim">
+												No description provided.
+											</span>
+										)}
+									</span>
 								</span>
-								<span className="mt-0.5 block truncate text-xs text-muted-foreground">
-									{sub.description || (
-										<span className="text-faint dark:text-panel-dim">
-											No description provided.
-										</span>
-									)}
-								</span>
-							</span>
-							<ArrowUpRight
-								aria-hidden
-								className="size-3.5 shrink-0 text-meta opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 dark:text-panel-dim"
-							/>
+								<ArrowUpRight
+									aria-hidden
+									className="size-3.5 shrink-0 text-meta opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 dark:text-panel-dim"
+								/>
+							</button>
 							{!readOnly && (
 								<button
+									type="button"
 									aria-label={`Remove ${sub.name}`}
 									className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-meta transition-colors hover:bg-hover hover:text-foreground dark:text-panel-dim dark:hover:bg-white/10"
-									onClick={(event) => {
-										event.stopPropagation();
+									onClick={() => {
 										handleRemove(sub.id);
 									}}
 								>

@@ -74,7 +74,7 @@ export function ChatHeader() {
 				<button
 					type="button"
 					onClick={() => {
-						openAgentEditor(agentId);
+						void openAgentEditor(agentId);
 					}}
 					className="cursor-pointer rounded-sm text-[14px] font-semibold tracking-[-0.01em] text-foreground transition-colors hover:text-petrol focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-petrol/40"
 				>
