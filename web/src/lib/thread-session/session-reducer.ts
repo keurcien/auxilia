@@ -138,6 +138,7 @@ export function pickFailedRunError(runs: readonly Run[], fallback: string): stri
 
 /** What the chat header shows for this thread. */
 export type ChatHeaderData = {
+	agentId: string | null;
 	agentName: string | null;
 	agentEmoji: string | null;
 	agentColor: string | null;
@@ -150,6 +151,7 @@ export type ChatHeaderData = {
 export function chatHeaderFromThread(thread: Thread): ChatHeaderData {
 	const isTrigger = thread.source === "trigger";
 	return {
+		agentId: thread.agentId,
 		agentName: thread.agentName ?? null,
 		agentEmoji: thread.agentEmoji ?? null,
 		agentColor: thread.agentColor ?? null,

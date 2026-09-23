@@ -1,10 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, X, Info } from "lucide-react";
+import { Plus, X, Info, ArrowUpRight } from "lucide-react";
 import { SubagentInfo } from "@/types/agents";
 import { useAgentsStore } from "@/stores/agents-store";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
+import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
+import {
+	AGENT_EDITOR_FORBIDDEN_MESSAGE,
+	useOpenAgentEditor,
+} from "@/hooks/use-open-agent-editor";
 import AddAgentSubagentDialog from "./add-agent-subagent-dialog";
 
 interface AgentSubagentListProps {
@@ -16,6 +21,9 @@ interface AgentSubagentListProps {
 	fallbackSubagents?: SubagentInfo[];
 	readOnly?: boolean;
 	onChange?: (subagentIds: string[]) => void;
+	/** Asked before a row navigates away to the subagent's page; return false
+	 * to stay (the editor uses it to guard an unsaved draft). */
+	confirmLeave?: () => boolean;
 }
 
 export default function AgentSubagentList({
@@ -25,9 +33,12 @@ export default function AgentSubagentList({
 	fallbackSubagents = [],
 	readOnly,
 	onChange,
+	confirmLeave,
 }: AgentSubagentListProps) {
 	const allAgents = useAgentsStore((state) => state.agents);
 	const [dialogOpen, setDialogOpen] = useState(false);
+	const { openAgentEditor, forbiddenOpen, setForbiddenOpen } =
+		useOpenAgentEditor();
 
 	const resolve = (id: string): SubagentInfo => {
 		const fromStore = allAgents.find((a) => a.id === id);
@@ -58,7 +69,13 @@ export default function AgentSubagentList({
 		onChange?.([...subagentIds, subagentId]);
 	};
 
-	// If this agent is used as a subagent elsewhere, show info banner instead
+	// A row leads to the subagent's own page, gated on `editor` there; the
+	// gate opens the "No access" dialog below when the viewer is too weak, and
+	// only asks about leaving once access is confirmed.
+	const handleOpen = (subagentId: string) => {
+		void openAgentEditor(subagentId, { beforeNavigate: confirmLeave });
+	};
+
 	if (isSubagent) {
 		return (
 			<div className="mt-7 flex flex-col">
@@ -97,32 +114,49 @@ export default function AgentSubagentList({
 			{subagents.length > 0 ? (
 				<div className="flex flex-col gap-2.5">
 					{subagents.map((sub) => (
+						// The row itself is inert; the link and the remove control
+						// are siblings so neither nests inside the other. The link
+						// carries the card's padding so its hit area is the whole
+						// card minus the remove control, matching the hover.
 						<div
 							key={sub.id}
-							className="group flex items-center gap-3 rounded-[10px] border border-border bg-card px-4 py-3"
+							className="group flex items-center rounded-[10px] border border-border bg-card transition-colors hover:border-border-hover hover:bg-hover dark:hover:bg-white/5"
 						>
-							<AgentAvatar
-								color={sub.color}
-								emoji={sub.emoji}
-								size="sm"
-								className="text-base"
-							/>
-							<span className="min-w-0 flex-1">
-								<span className="block truncate font-mono text-[12.5px] font-semibold text-petrol">
-									{sub.name}
+							<button
+								type="button"
+								className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-[10px] px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-petrol/40"
+								onClick={() => {
+									handleOpen(sub.id);
+								}}
+							>
+								<AgentAvatar
+									color={sub.color}
+									emoji={sub.emoji}
+									size="sm"
+									className="text-base"
+								/>
+								<span className="min-w-0 flex-1">
+									<span className="block truncate font-mono text-[12.5px] font-semibold text-petrol">
+										{sub.name}
+									</span>
+									<span className="mt-0.5 block truncate text-xs text-muted-foreground">
+										{sub.description || (
+											<span className="text-faint dark:text-panel-dim">
+												No description provided.
+											</span>
+										)}
+									</span>
 								</span>
-								<span className="mt-0.5 block truncate text-xs text-muted-foreground">
-									{sub.description || (
-										<span className="text-faint dark:text-panel-dim">
-											No description provided.
-										</span>
-									)}
-								</span>
-							</span>
+								<ArrowUpRight
+									aria-hidden
+									className="size-3.5 shrink-0 text-meta opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 dark:text-panel-dim"
+								/>
+							</button>
 							{!readOnly && (
 								<button
+									type="button"
 									aria-label={`Remove ${sub.name}`}
-									className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-meta transition-colors hover:bg-hover hover:text-foreground dark:text-panel-dim dark:hover:bg-white/10"
+									className="mr-2.5 flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-meta transition-colors hover:bg-hover hover:text-foreground dark:text-panel-dim dark:hover:bg-white/10"
 									onClick={() => {
 										handleRemove(sub.id);
 									}}
@@ -148,6 +182,13 @@ export default function AgentSubagentList({
 					onAdd={handleAdd}
 				/>
 			)}
+
+			<ForbiddenErrorDialog
+				open={forbiddenOpen}
+				onOpenChange={setForbiddenOpen}
+				title="No access"
+				message={AGENT_EDITOR_FORBIDDEN_MESSAGE}
+			/>
 		</div>
 	);
 }

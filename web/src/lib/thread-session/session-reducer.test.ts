@@ -149,6 +149,7 @@ describe("failed-run helpers", () => {
 describe("chatHeaderFromThread", () => {
 	it("carries trigger details only for trigger threads", () => {
 		expect(chatHeaderFromThread(thread({ triggerId: "tr1" }))).toMatchObject({
+			agentId: "a1",
 			agentName: "Helper",
 			modelId: "gpt",
 			triggerId: null,

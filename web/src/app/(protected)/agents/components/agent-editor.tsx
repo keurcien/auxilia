@@ -117,6 +117,10 @@ export default function AgentEditor({
 	};
 
 	const isDirty = !readOnly && isFormDirty(form, initialForm);
+	// Read by callbacks that fire after an await (the subagent gate waits for
+	// the agents store), so they see the draft as it is then, not at click.
+	const isDirtyRef = useRef(isDirty);
+	isDirtyRef.current = isDirty;
 	const canSave = Boolean(form.name.trim() && form.instructions.trim());
 
 	const tabs: { key: EditorTab; label: string }[] = [
@@ -527,6 +531,9 @@ export default function AgentEditor({
 							onChange={(subagentIds) => {
 								setField("subagentIds", subagentIds);
 							}}
+							confirmLeave={() =>
+								!isDirtyRef.current || confirm("Discard unsaved changes?")
+							}
 						/>
 					)}
 				</div>
