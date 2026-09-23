@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.2](https://github.com/keurcien/auxilia/compare/web-v0.10.1...web-v0.10.2) (2026-09-23)
+
+
+### Features
+
+* **web:** link subagent rows and chat header to the agent editor ([#360](https://github.com/keurcien/auxilia/issues/360)) ([7b5555e](https://github.com/keurcien/auxilia/commit/7b5555e4c2c6e84a41a593a1b4d4f53f381d951a))
+
 ## [0.10.1](https://github.com/keurcien/auxilia/compare/web-v0.10.0...web-v0.10.1) (2026-09-22)
 
 
