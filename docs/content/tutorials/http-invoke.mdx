@@ -144,7 +144,8 @@ Create a new thread whenever you want a fresh start — each thread has its own 
 | Status | Body | Meaning |
 | --- | --- | --- |
 | `401` | `{"error": "oauth_required", "auth_url": "…"}` | An OAuth MCP server bound to the agent isn't connected for the token's user. Open `auth_url` in a browser once (signed in as that user), then retry. |
-| `404` | — | The thread doesn't exist or isn't yours. |
+| `403` | `{"detail": "Not authorized to access this thread"}` | The thread belongs to another user — a token acts as the user who created it. |
+| `404` | — | The thread doesn't exist. |
 | `409` | `{"error": "model_unavailable", …}` | The thread's model is disabled or its provider key is missing. |
 | `409` | `{"error": "sandbox_unavailable", …}` | The agent's sandbox can't be reached — see [Sandbox](/deploy/sandbox). |
 | `500` | `{"detail": "Run did not complete (…)"}` | The run ended without a success: interrupted (approval needed), cancelled, timed out, or failed. |

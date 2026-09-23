@@ -47,7 +47,7 @@ A trigger run honours the agent's [tool settings](/agents/tools) like any other 
 ## Schedule semantics
 
 - The schedule is materialised into a single **next run** time; when that time passes, a scanner running on every backend instance claims the trigger, advances it to the following occurrence, and enqueues the run
-- **Missed occurrences are skipped, not replayed**: if the backend was down at 8am, the trigger fires at the next scheduled time, once
+- **A missed occurrence fires once, late — never twice**: if the backend was down at 8am, the scanner picks the overdue trigger up on its first tick after recovery and runs it then, and the schedule advances to the next occurrence. Nothing is backfilled: three missed days give one run, not three. Editing the schedule or pausing and resuming recomputes the next run from now, skipping past occurrences
 - **Run now** fires the trigger immediately without touching the schedule
 - If the trigger's **model** has been disabled by an admin, the firing is skipped and the schedule keeps advancing; it resumes on its own when the model is enabled again
 - If the trigger's **agent** is archived or deleted, the trigger is paused

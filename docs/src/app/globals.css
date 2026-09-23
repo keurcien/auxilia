@@ -1142,6 +1142,10 @@ article:has(.pm-article-header) :is(pre, table) {
 article:has(.pm-article-header) img {
   border-radius: 10px;
 }
+/* Same specificity + later: the cover keeps its own radius. */
+article:has(.pm-article-header) .pm-article-cover img {
+  border-radius: 12px;
+}
 
 /* Nextra's h2 styling adds a rule and top margin; a card title wants neither. */
 .pm-cs-card-title,

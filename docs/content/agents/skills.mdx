@@ -91,7 +91,7 @@ A supervisor and its [subagents](/agents/subagents) share **one skill set** at r
 
 ## How skills reach the model
 
-At the start of each run, **auxilia** freezes the graph's enabled skills on the thread (a resume never swaps skills under a pending tool call) and lists them in the system prompt: name, description, the path of each `SKILL.md` and its files, all under `/tmp/auxilia-skills/<skill-name>/`. There is no special skill tool — the model reads a skill with `read_file` when the request matches its description, then follows it.
+At the start of each run — a new message or the resume of a paused approval alike — **auxilia** re-reads the graph's enabled skills from the library and lists them in the system prompt (nothing is copied onto the thread, so a skill saved while an approval sits pending resumes against the new content): name, description, the path of each `SKILL.md` and its files, all under `/tmp/auxilia-skills/<skill-name>/`. There is no special skill tool — the model reads a skill with `read_file` when the request matches its description, then follows it.
 
 - **Agent with a sandbox** — the skill files are uploaded to the sandbox at those same paths (once per content digest), so the agent can run `scripts/` directly. Edits the model makes to a skill inside the sandbox never change the saved skill.
 - **Agent without a sandbox** — the model gets `ls` and `read_file` over an in-memory, read-only view of the skill files: a way to read its skills, not a filesystem. It cannot run scripts itself; if it has a subagent with code execution, it delegates the run and passes the script's absolute path, which exists in the subagent's sandbox.

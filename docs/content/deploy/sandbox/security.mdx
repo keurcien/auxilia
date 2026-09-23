@@ -21,7 +21,7 @@ The **auxilia** backend never executes commands itself — it always delegates t
 
 ## Credentials
 
-The API key or gateway secret you enter for a sandbox is **encrypted at rest** (AES-GCM, like MCP API keys) and never returned by the API — only a last-characters hint for admins. Put the OpenSandbox controller on a private network (VPC, internal DNS) and only let the **auxilia** backend reach it. **Use server proxy** routes file reads and writes through the controller rather than direct container ports, which is simpler in firewalled environments.
+The API key or gateway secret you enter for a sandbox is **encrypted at rest** (Fernet — AES-128-CBC with an HMAC-SHA256 tag, keyed from `SALT`, like MCP API keys and OAuth client secrets) and never returned by the API — only a last-characters hint for admins. Put the OpenSandbox controller on a private network (VPC, internal DNS) and only let the **auxilia** backend reach it. **Use server proxy** routes file reads and writes through the controller rather than direct container ports, which is simpler in firewalled environments.
 
 ## Volume mounts (OpenSandbox only)
 

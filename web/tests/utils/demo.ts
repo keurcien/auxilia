@@ -590,24 +590,37 @@ export async function humanType(page: Page, selector: string, text: string): Pro
  * the submit arrow when it ends — a whole-turn signal, unlike the "Worked"
  * label, which appears as soon as the FIRST tool batch completes and misses
  * a second round of tool calls (read a skill → search the docs → answer).
- * The square also blinks off for an instant between a tool result and the
- * next model call, so "gone" only counts once it has stayed gone for a
- * moment. A failed run shows a Retry button instead; that ends the wait too.
+ *
+ * The square also blinks off between a tool result and the model's next
+ * call, and that gap can be long (cold model, slow tool), so "over" is only
+ * declared once three things have held for ~3 s straight: no stop square,
+ * no "Working" step label in the transcript, and the transcript text has
+ * stopped growing. A failed run shows a Retry button instead; that ends the
+ * wait too.
  */
 export async function waitForTurn(page: Page, timeoutMs = 240_000): Promise<void> {
 	const stopButton = page.locator('form button[type="button"]:has(svg rect)');
 	const retry = page.getByRole("button", { name: "Retry" });
+	const working = page.getByText("Working", { exact: true });
+	const transcriptLength = () =>
+		page.evaluate(() => document.querySelector("main")?.innerText.length ?? 0);
 	// The run is accepted within seconds; a turn that never starts streaming
 	// (e.g. refused by a pre-flight gate) surfaces as a Retry or times out.
 	await stopButton.or(retry).first().waitFor({ state: "visible", timeout: 60_000 });
 	const deadline = Date.now() + timeoutMs;
 	let quiet = 0;
+	let lastLength = -1;
 	while (Date.now() < deadline) {
 		if (await retry.isVisible().catch(() => false)) return;
-		if (await stopButton.isVisible().catch(() => false)) {
+		const streaming = await stopButton.isVisible().catch(() => false);
+		const stepActive = await working.first().isVisible().catch(() => false);
+		const length = await transcriptLength().catch(() => -1);
+		const grew = length !== lastLength;
+		lastLength = length;
+		if (streaming || stepActive || grew) {
 			quiet = 0;
-		} else if (++quiet >= 8) {
-			return; // hidden for ~2s straight — the turn is over
+		} else if (++quiet >= 12) {
+			return; // nothing moved for ~3s — the turn is over
 		}
 		await page.waitForTimeout(250);
 	}

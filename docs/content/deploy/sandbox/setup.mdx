@@ -69,7 +69,7 @@ In **Settings → Sandboxes**, click **Add sandbox** and pick **Daytona**:
 | **API key** | Required. Stored encrypted |
 | **Region** | Daytona target, default `us` |
 | **Snapshot** | Optional snapshot name to create sandboxes from |
-| **Auto-stop (min)** | Idle minutes before Daytona stops the sandbox. Default `15` — a stopped sandbox is started again on the thread's next run, files intact |
+| **Auto-stop (min)** | Idle minutes before Daytona stops the sandbox. Default `15`, but **auxilia** asks for at least `30` when it creates a sandbox, so lower values are raised to 30. A stopped sandbox is started again on the thread's next run, files intact |
 | **Default packages** / **Timeout (seconds)** | As for OpenSandbox |
 
 ## Bind it to an agent

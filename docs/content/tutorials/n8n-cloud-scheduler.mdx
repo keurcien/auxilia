@@ -90,10 +90,10 @@ set -euo pipefail
 HOST=https://your-auxilia-host/api/backend
 AUTH="Authorization: Bearer $AUXILIA_PAT"
 
-THREAD_ID=$(curl -sS -X POST "$HOST/threads/" -H "$AUTH" -H "Content-Type: application/json" \
+THREAD_ID=$(curl -sS --fail -X POST "$HOST/threads/" -H "$AUTH" -H "Content-Type: application/json" \
   -d '{"agent_id": "your-crm-agent-id", "model_id": "claude-haiku-4-5"}' | jq -r .id)
 
-curl -sS -X POST "$HOST/threads/$THREAD_ID/runs/invoke" -H "$AUTH" -H "Content-Type: application/json" \
+curl -sS --fail -X POST "$HOST/threads/$THREAD_ID/runs/invoke" -H "$AUTH" -H "Content-Type: application/json" \
   -d '{"input": {"messages": [{"type": "human", "content": "Summarize yesterday'\''s deal activity from HubSpot — new deals, stage changes, closed-won. Post the summary to #sales-stand-up with a one-line highlight at the top."}]}}' \
   | jq -r .content
 ```

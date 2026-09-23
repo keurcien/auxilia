@@ -6,11 +6,12 @@ import { docShot } from "../utils/docshot";
  * Captures screenshots for the Nextra docs (docs/public/screenshots/).
  *
  * Prerequisites: a running backend and a production frontend
- * (npm run demo:web → :3100) seeded with `npm run demo:seed`. Several shots
- * feature what the demo walkthrough leaves behind (the Research Assistant
- * with its skill and its "Needs approval" tool, the docs-brief skill, the
- * Daily model digest trigger) — record the demo first for the richest set;
- * each of those falls back to seeded data when the walkthrough hasn't run.
+ * (npm run demo:web → :3100) seeded with `npm run demo:seed`, AND a recorded
+ * walkthrough (`npm run demo:video`): several shots feature what it leaves
+ * behind — the Research Assistant with its skill and its "Needs approval"
+ * tool, the docs-brief skill, the Daily model digest trigger. The agent
+ * shots fall back to a seeded agent; the skill, trigger and approval-card
+ * shots cannot, and fail fast with a message saying so.
  *
  * Run: npm run docs:screenshots
  * Embed in MDX from the CDN the PNGs are uploaded to:
@@ -25,20 +26,52 @@ interface Row {
 /**
  * A named resource, or the first one of its kind. A missing kind FAILS the
  * run (not a skip) — a green suite must mean every PNG the docs embed was
- * actually written.
+ * actually written. `createdBy` names the command that produces the kind:
+ * agents come from the seed, skills and triggers only from the walkthrough.
  */
-async function firstNamed(path: string, preferred: string, kind: string): Promise<Row> {
+async function firstNamed(
+	path: string,
+	preferred: string,
+	kind: string,
+	createdBy = "npm run demo:seed",
+): Promise<Row> {
 	const rows = (await api<Row[]>("GET", path)) ?? [];
 	const row = rows.find((r) => r.name === preferred) ?? rows[0];
-	if (!row) throw new Error(`no ${kind} found — run \`npm run demo:seed\` first`);
+	if (!row) throw new Error(`no ${kind} found — run \`${createdBy}\` first`);
 	return row;
 }
 
 const seededAgent = () => firstNamed("/agents/", "Docs Researcher", "agent");
 /** The walkthrough's agent: a skill enabled and one tool on "Needs approval". */
 const walkthroughAgent = () => firstNamed("/agents/", WALKTHROUGH.agentName, "agent");
-const walkthroughSkill = () => firstNamed("/skills/", WALKTHROUGH.skillName, "skill");
-const walkthroughTrigger = () => firstNamed("/triggers/", WALKTHROUGH.triggerName, "trigger");
+const walkthroughSkill = () =>
+	firstNamed("/skills/", WALKTHROUGH.skillName, "skill", "npm run demo:video");
+const walkthroughTrigger = () =>
+	firstNamed("/triggers/", WALKTHROUGH.triggerName, "trigger", "npm run demo:video");
+
+interface AgentDetail {
+	mcp_servers: { tools: Record<string, string> | null }[];
+}
+
+/**
+ * The approval-card shot needs a tool that pauses. Only the walkthrough sets
+ * one ("Needs approval" on the Research Assistant); a seeded agent never
+ * pauses and the shot would wait its whole budget for a card that never
+ * comes. Check the tool map first and fail with the real cause.
+ */
+async function agentWithApprovalTool(): Promise<Row> {
+	const agent = await walkthroughAgent();
+	const detail = await api<AgentDetail>("GET", `/agents/${agent.id}`);
+	const gated = detail?.mcp_servers.some((binding) =>
+		Object.values(binding.tools ?? {}).includes("needs_approval"),
+	);
+	if (!gated) {
+		throw new Error(
+			`agent "${agent.name}" has no tool on "Needs approval" — record the walkthrough (npm run demo:video) first`,
+		);
+	}
+	return agent;
+}
 
 async function openEditor(page: Page, agentId: string): Promise<void> {
 	await page.goto(`/agents/${agentId}`);
@@ -165,7 +198,7 @@ test.describe("docs screenshots", () => {
 			test.setTimeout(480_000);
 			// The walkthrough leaves one of the Research Assistant's tools on
 			// "Needs approval" — the run pauses on the approval card.
-			const agent = await walkthroughAgent();
+			const agent = await agentWithApprovalTool();
 			await page.goto(`/agents/${agent.id}/chat`);
 			await sendMessage(page, "What are Cloudflare Workers? Search the docs before answering.");
 			await expect(page.getByRole("button", { name: "Approve" }).first()).toBeVisible({

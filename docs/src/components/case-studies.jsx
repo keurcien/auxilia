@@ -13,6 +13,9 @@ const formatDate = (value) =>
 				month: "short",
 				day: "numeric",
 				year: "numeric",
+				// Date-only frontmatter parses as UTC midnight; format it in UTC
+				// too, or a server west of UTC shows the day before.
+				timeZone: "UTC",
 			})
 		: null;
 

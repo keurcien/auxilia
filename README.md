@@ -121,7 +121,8 @@ Full docs at **[auxilia-docs.vercel.app](https://auxilia-docs.vercel.app/)**:
 - [Sandbox](https://auxilia-docs.vercel.app/agents/sandbox) — code execution for an agent
 - [Deployment](https://auxilia-docs.vercel.app/deploy) — environment, Google Cloud Run, sandboxes
 - [Integrations](https://auxilia-docs.vercel.app/deploy/slack) — Slack, [Langfuse](https://auxilia-docs.vercel.app/deploy/langfuse)
-- [Tutorials](https://auxilia-docs.vercel.app/tutorials) — HTTP, Slack, Google Sheets from a sandbox, slide decks from a GitHub skill
+- [Tutorials](https://auxilia-docs.vercel.app/tutorials) — HTTP, Slack, n8n & schedulers, embedding
+- [Case Studies](https://auxilia-docs.vercel.app/case-studies) — Google Sheets from a sandbox, slide decks from a GitHub skill
 
 ## 🗺 Roadmap
 

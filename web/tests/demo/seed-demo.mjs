@@ -307,15 +307,18 @@ async function wipeWorkspace() {
 
 /** The official catalog as the backend serves it — the source of one-click installs. */
 async function loadCatalog() {
-	const entries = await api("GET", "/mcp-servers/official", undefined, { optional: true });
-	const byName = new Map((entries ?? []).map((e) => [e.name, e]));
-	const catalog = [];
-	for (const name of CATALOG_SERVERS) {
-		const entry = byName.get(name);
-		if (entry) catalog.push(entry);
-		else console.warn(`  ⚠ "${name}" is not in the official catalog — skipped`);
+	// Not optional: the agents below bind these servers, and an agent seeded
+	// without its servers has no tools — the on-camera chats would refuse to
+	// start. Better to stop here with the real cause.
+	const entries = await api("GET", "/mcp-servers/official");
+	const byName = new Map(entries.map((e) => [e.name, e]));
+	const missing = CATALOG_SERVERS.filter((name) => !byName.has(name));
+	if (missing.length > 0) {
+		throw new Error(
+			`catalog entries not found: ${missing.join(", ")} — the official catalog changed; update CATALOG_SERVERS`,
+		);
 	}
-	return catalog;
+	return CATALOG_SERVERS.map((name) => byName.get(name));
 }
 
 async function seedMcpServers(catalog) {
@@ -349,9 +352,13 @@ async function seedAgents(servers, sandbox) {
 			console.warn(`  ⚠ skipping agent "${spec.name}" — no sandbox configured in this workspace`);
 			continue;
 		}
-		const bound = (spec.serverNames ?? [])
-			.map((name) => servers[name])
-			.filter(Boolean);
+		const bound = (spec.serverNames ?? []).map((name) => {
+			const server = servers[name];
+			if (!server) {
+				throw new Error(`agent "${spec.name}" binds "${name}", which was not seeded`);
+			}
+			return server;
+		});
 		const agent = await api(
 			"POST",
 			"/agents/",
