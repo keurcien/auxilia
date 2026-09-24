@@ -22,6 +22,9 @@ async function proxyRequest(
 		headers,
 		body: request.body,
 		redirect: "manual",
+		// Without this, a closed tab leaves the upstream SSE stream open until
+		// Cloud Run's request timeout, pinning a backend concurrency slot.
+		signal: request.signal,
 		// @ts-expect-error - duplex is required for streaming bodies
 		duplex: "half",
 	});
