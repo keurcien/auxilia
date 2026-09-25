@@ -108,15 +108,9 @@ def mock_repo():
     # Sandbox binding.
     repo.list_sandbox_bindings = AsyncMock(return_value=[])
     repo.set_sandbox = AsyncMock()
+    repo.list_for_sandbox = AsyncMock(return_value=[])
+    repo.delete_all_sandbox_bindings_for_sandbox = AsyncMock()
     return repo
-
-
-@pytest.fixture
-def mock_thread_service():
-    svc = MagicMock()
-    svc.delete_rows_for_agent = AsyncMock(return_value=["t1", "t2"])
-    svc.purge_checkpoints = AsyncMock()
-    return svc
 
 
 @pytest.fixture
@@ -168,7 +162,6 @@ def mock_user_service():
 def service(
     mock_db,
     mock_repo,
-    mock_thread_service,
     mock_tag_service,
     mock_user_service,
     mock_agent_mcp_repo,
@@ -178,7 +171,6 @@ def service(
 ):
     svc = AgentService(mock_db)
     svc.repository = mock_repo
-    svc.thread_service = mock_thread_service
     svc.tag_service = mock_tag_service
     svc.user_service = mock_user_service
     svc.mcp_server_repository = mock_agent_mcp_repo
@@ -878,60 +870,23 @@ async def test_restore_agent_denied_for_editor(service, mock_repo):
 # ---------------------------------------------------------------------------
 
 
-async def test_delete_permanently_cascades_for_owner(
-    service,
-    mock_repo,
-    mock_thread_service,
-    mock_agent_mcp_repo,
+async def test_delete_permanently_cascades_the_agents_owned_rows(
+    service, mock_repo, mock_agent_mcp_repo
 ):
+    """Threads and checkpoints are deliberately not touched here: the route
+    deletes the threads first (their FK points at the agent) and purges
+    checkpoints only after its commit (P1-9, §5.5, #369). The gate is on the
+    route for the same reason — see `test_router`."""
     agent = make_agent(is_archived=True)
-    mock_repo.list_with_permissions.return_value = [(agent, None)]
 
-    thread_ids = await service.delete_permanently(agent.id, user_id=agent.owner_id)
+    await service.delete_permanently(agent.id)
 
     mock_repo.delete_all_subagent_links.assert_awaited_once_with(agent.id)
     mock_agent_mcp_repo.delete_all_for_agent.assert_awaited_once_with(agent.id)
-    mock_thread_service.delete_rows_for_agent.assert_awaited_once_with(agent.id)
     mock_repo.delete_all_permissions.assert_awaited_once_with(agent.id)
+    mock_repo.delete_all_teams.assert_awaited_once_with(agent.id)
     mock_repo.delete_by_id.assert_awaited_once_with(agent.id)
-    # The thread ids are handed back rather than acted on: purging checkpoints
-    # is an external, non-transactional side effect, so it belongs after the
-    # caller's commit, not inside this transaction (P1-9, §5.5).
-    assert thread_ids == ["t1", "t2"]
-    mock_thread_service.purge_checkpoints.assert_not_called()
-
-
-async def test_delete_permanently_deletes_threads_before_the_agent_row(
-    service, mock_repo, mock_thread_service
-):
-    """The agent row has FKs pointing at it from its threads, so the thread
-    delete has to land first."""
-    agent = make_agent(is_archived=True)
-    mock_repo.list_with_permissions.return_value = [(agent, None)]
-
-    manager = MagicMock()
-    manager.attach_mock(mock_thread_service.delete_rows_for_agent, "delete_threads")
-    manager.attach_mock(mock_repo.delete_by_id, "delete_agent")
-
-    await service.delete_permanently(agent.id, user_id=agent.owner_id)
-
-    ordered = [name for name, _, _ in manager.mock_calls]
-    assert ordered.index("delete_threads") < ordered.index("delete_agent")
-
-
-async def test_delete_permanently_denied_for_editor(
-    service, mock_repo, mock_agent_mcp_repo
-):
-    agent = make_agent(is_archived=True)
-    mock_repo.list_with_permissions.return_value = [
-        (agent, None, PermissionLevel.editor)
-    ]
-
-    with pytest.raises(PermissionDeniedError):
-        await service.delete_permanently(agent.id, user_id=uuid4())
-
-    mock_agent_mcp_repo.delete_all_for_agent.assert_not_called()
-    mock_repo.delete_by_id.assert_not_called()
+    mock_repo.get_access.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -1300,16 +1255,6 @@ async def test_set_teams_delegates(service, mock_repo):
     assert result == team_ids
 
 
-async def test_delete_permanently_cleans_team_links(service, mock_repo):
-    agent = make_agent(is_archived=True)
-    mock_repo.list_with_permissions.return_value = [(agent, None)]
-    mock_repo.delete_all_teams = AsyncMock()
-
-    await service.delete_permanently(agent.id, user_id=agent.owner_id)
-
-    mock_repo.delete_all_teams.assert_awaited_once_with(agent.id)
-
-
 # ---------------------------------------------------------------------------
 # Subagents — a binding of the aggregate (relocated from the former
 # SubagentService tests)
@@ -1470,3 +1415,32 @@ async def test_delete_subagent_404s_on_a_missing_link(service, mock_repo):
         await service.delete_subagent(uuid4(), uuid4())
 
     mock_repo.delete_subagent_link.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Sandbox-side views — what DELETE /sandboxes/{id} composes (#369)
+# ---------------------------------------------------------------------------
+
+
+async def test_list_for_sandbox_projects_the_delete_guard_shape(service, mock_repo):
+    sandbox_id = uuid4()
+    agent = make_agent(name="Python Developer", emoji="🐍", color="#00B894")
+    mock_repo.list_for_sandbox.return_value = [agent]
+
+    result = await service.list_for_sandbox(sandbox_id)
+
+    mock_repo.list_for_sandbox.assert_awaited_once_with(sandbox_id)
+    assert [(r.id, r.name, r.emoji, r.color) for r in result] == [
+        (agent.id, "Python Developer", "🐍", "#00B894")
+    ]
+    assert not hasattr(result[0], "instructions")
+
+
+async def test_detach_sandbox_drops_every_binding(service, mock_repo):
+    sandbox_id = uuid4()
+
+    await service.detach_sandbox(sandbox_id)
+
+    mock_repo.delete_all_sandbox_bindings_for_sandbox.assert_awaited_once_with(
+        sandbox_id
+    )

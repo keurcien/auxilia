@@ -4,6 +4,10 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.mcp_servers.service import (
+    AgentMCPServerService,
+    get_agent_mcp_server_service,
+)
 from app.auth.dependencies import get_current_user, require_admin
 from app.database import get_db
 from app.mcp.client.connectivity import is_authorized, probe_candidate, test_connection
@@ -107,13 +111,18 @@ async def get_oauth_secret_hint(
     return await service.get_oauth_secret_hint(server_id)
 
 
-@router.get("/{server_id}/agents", response_model=list[MCPServerAgentResponse])
+@router.get(
+    "/{server_id}/agents",
+    response_model=list[MCPServerAgentResponse],
+    # In this order: the admin gate first, so a non-admin cannot tell an
+    # existing server id from a missing one by 404 vs 403.
+    dependencies=[Depends(require_admin), Depends(get_mcp_server_dependency)],
+)
 async def list_mcp_server_agents(
     server_id: UUID,
-    _current_user: UserDB = Depends(require_admin),
-    service: MCPServerService = Depends(get_mcp_server_service),
+    bindings: AgentMCPServerService = Depends(get_agent_mcp_server_service),
 ) -> list[MCPServerAgentResponse]:
-    return await service.list_agents(server_id)
+    return await bindings.list_agents_for_server(server_id)
 
 
 @router.delete("/{server_id}", status_code=204)
@@ -122,8 +131,15 @@ async def delete_mcp_server(
     detach_agents: bool = False,
     _current_user: UserDB = Depends(require_admin),
     service: MCPServerService = Depends(get_mcp_server_service),
+    bindings: AgentMCPServerService = Depends(get_agent_mcp_server_service),
 ) -> None:
-    await service.delete(server_id, detach_agents=detach_agents)
+    """Composes the two modules in the right direction: bindings belong to
+    agents, so they are detached there; the server row is deleted here. Both
+    run in the one request transaction, so a refused delete (still bound,
+    no `detach_agents`) rolls the whole thing back."""
+    if detach_agents:
+        await bindings.detach_server(server_id)
+    await service.delete(server_id)
 
 
 @router.post("/{server_id}/reset", status_code=200)

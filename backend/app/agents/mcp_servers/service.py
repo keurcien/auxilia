@@ -16,6 +16,7 @@ from app.exceptions import NotFoundError
 from app.mcp.client.connectivity import connect_to_server, is_authorized
 from app.mcp.servers.models import MCPAuthType, MCPServerDB
 from app.mcp.servers.repository import MCPServerRepository
+from app.mcp.servers.schemas import MCPServerAgentResponse
 from app.service import BaseService
 
 
@@ -157,6 +158,30 @@ class AgentMCPServerService(BaseService[AgentMCPServerDB, AgentMCPServerReposito
             raise NotFoundError(self.not_found_message)
         await self._sync_tools(link, mcp_server, user_id)
         return link
+
+    # -- Server-side views ---------------------------------------------------
+    #
+    # A binding references a server, so the dependency runs agents → mcp and
+    # the MCP-server module never reaches back in here. Its router composes:
+    # `DELETE /mcp-servers/{id}` detaches through this service, then deletes
+    # through `MCPServerService` (#369).
+
+    async def list_agents_for_server(
+        self, server_id: UUID
+    ) -> list[MCPServerAgentResponse]:
+        """Agents currently bound to the server (delete-guard dialog)."""
+        agents = await self.repository.list_agents_for_server(server_id)
+        return [
+            MCPServerAgentResponse(
+                id=agent.id, name=agent.name, emoji=agent.emoji, color=agent.color
+            )
+            for agent in agents
+        ]
+
+    async def detach_server(self, server_id: UUID) -> None:
+        """Drop the server's binding from every agent — the dialog's explicit
+        confirm before the server itself is deleted."""
+        await self.repository.delete_all_for_server(server_id)
 
 
 def get_agent_mcp_server_service(

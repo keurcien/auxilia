@@ -70,3 +70,18 @@ async def test_purge_checkpoints_noop_when_empty():
         await svc.purge_checkpoints([])
 
     mock_cp.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# clear_sandbox — what DELETE /sandboxes/{id} composes before the row goes
+# ---------------------------------------------------------------------------
+
+
+async def test_clear_sandbox_delegates_to_the_repository():
+    svc, _ = _make_service()
+    svc.repository.clear_sandbox = AsyncMock()
+    sandbox_id = uuid4()
+
+    await svc.clear_sandbox(sandbox_id)
+
+    svc.repository.clear_sandbox.assert_awaited_once_with(sandbox_id)

@@ -508,48 +508,47 @@ async def test_list_official_flags_installed_entries(service, mock_repo, monkeyp
 
 
 @pytest.mark.asyncio
-async def test_delete_refused_while_agents_bound(service, mock_repo, monkeypatch):
-    from unittest.mock import AsyncMock, MagicMock
+async def test_delete_refused_while_agents_bound(service, mock_repo):
+    """The binding FK has no cascade: a bound server's delete fails at flush,
+    and that is the guard — surfaced as a clean 400, not a 500. Detaching is
+    the agents module's job, composed by the router (#369)."""
+    from sqlalchemy.exc import IntegrityError
 
-    from app.exceptions import DomainValidationError
-
-    mock_repo.get.return_value = make_mcp_server()
-    mock_repo.delete = AsyncMock()
-    bindings = MagicMock()
-    bindings.list_agents_for_server = AsyncMock(return_value=[MagicMock()])
-    bindings.delete_all_for_server = AsyncMock()
-    monkeypatch.setattr(
-        "app.agents.mcp_servers.repository.AgentMCPServerRepository",
-        lambda db: bindings,
+    server = make_mcp_server()
+    mock_repo.get.return_value = server
+    mock_repo.delete = AsyncMock(
+        side_effect=IntegrityError("DELETE", {}, Exception("fk_agent_mcp_servers"))
     )
 
     with pytest.raises(DomainValidationError, match="detach"):
-        await service.delete(uuid4())
+        await service.delete(server.id)
 
-    mock_repo.delete.assert_not_awaited()
+    # The guard *is* the failed delete: no pre-check runs before it.
+    mock_repo.delete.assert_awaited_once_with(server)
 
 
 @pytest.mark.asyncio
-async def test_delete_with_detach_agents_removes_bindings_first(
-    service, mock_repo, monkeypatch
-):
-    from unittest.mock import AsyncMock, MagicMock
-
-    mock_repo.get.return_value = make_mcp_server()
+async def test_delete_removes_the_row(service, mock_repo):
+    server = make_mcp_server()
+    mock_repo.get.return_value = server
     mock_repo.delete = AsyncMock()
-    bindings = MagicMock()
-    bindings.list_agents_for_server = AsyncMock(return_value=[MagicMock()])
-    bindings.delete_all_for_server = AsyncMock()
-    monkeypatch.setattr(
-        "app.agents.mcp_servers.repository.AgentMCPServerRepository",
-        lambda db: bindings,
-    )
 
-    server_id = uuid4()
-    await service.delete(server_id, detach_agents=True)
+    await service.delete(server.id)
 
-    bindings.delete_all_for_server.assert_awaited_once_with(server_id)
-    mock_repo.delete.assert_awaited_once()
+    mock_repo.delete.assert_awaited_once_with(server)
+
+
+@pytest.mark.asyncio
+async def test_delete_unknown_server_is_404(service, mock_repo):
+    from app.exceptions import NotFoundError
+
+    mock_repo.get.return_value = None
+    mock_repo.delete = AsyncMock()
+
+    with pytest.raises(NotFoundError):
+        await service.delete(uuid4())
+
+    mock_repo.delete.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------

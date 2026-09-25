@@ -172,6 +172,12 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
             for thread_id in thread_ids:
                 await checkpointer.adelete_thread(thread_id=thread_id)
 
+    async def clear_sandbox(self, sandbox_id: UUID) -> None:
+        """Forget the sandbox of every thread this sandbox row stamped — run
+        by the sandbox delete endpoint before the row goes (see the
+        repository method for why a stale id must not survive)."""
+        await self.repository.clear_sandbox(sandbox_id)
+
     async def get_or_create(
         self,
         ts: str,
