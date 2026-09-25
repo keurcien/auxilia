@@ -1,8 +1,11 @@
 """Execution pipeline — everything that turns a thread's turn into tokens.
 
-`app/agents` is the configuration domain (CRUD, bindings, permissions) and
-exports `RunSpec` as the one symbol this package reads from it. This package
-is the rest of the path from a user message to a finished run:
+`app/agents` is the configuration domain (CRUD, bindings, permissions).
+`RunSpec` (`app/agents/run_spec.py`) is the read model it hands this package;
+beyond that, this package reaches into it only for `AgentRepository` (to load
+the spec) and the `AgentMCPServerBase` model, and nothing under `app/agents`
+imports from here. This package is the rest of the path from a user message to
+a finished run:
 
 - `agent.py` / `harness.py` / `toolset.py` — resolve a `RunSpec`, open MCP
   sessions and the sandbox, assemble the LangGraph graph, run one turn.

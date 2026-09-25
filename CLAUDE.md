@@ -140,7 +140,7 @@ auxilia/
 │   │   │   ├── mcp_servers/           # AgentMCPServerService (agent↔MCP bindings, tool sync)
 │   │   │   ├── subagents/             # SubagentService (supervisor/subagent links)
 │   │   │   ├── sandboxes/             # AgentSandboxService (agent↔sandbox bindings)
-│   │   │   ├── run_spec.py            # RunSpec / AgentSpec — the ONLY symbol app/runtime reads from here
+│   │   │   ├── run_spec.py            # RunSpec / AgentSpec — the runtime-facing configuration contract (app/runtime also reaches AgentRepository to load it, and AgentMCPServerBase)
 │   │   │   ├── router.py              # /agents endpoints (unified)
 │   │   │   ├── dependencies.py        # require_agent_permission
 │   │   │   ├── models.py              # AgentDB, AgentMCPServerDB, permissions, subagent links
