@@ -10,7 +10,7 @@ running run per thread" is enforced by a partial unique index (see the
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import delete, exists, func, or_, update
+from sqlalchemy import and_, delete, exists, func, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 from sqlmodel import select
@@ -52,6 +52,29 @@ class RunRepository(BaseRepository[RunDB]):
         )
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
+
+    async def next_for_thread(
+        self, thread_id: str, after: RunDB | None = None
+    ) -> RunDB | None:
+        """The thread's newest run — or, with `after`, the oldest one past it.
+
+        Filtered and limited in SQL: a stream session polls this every second,
+        so it must not load the thread's whole run history. Runs are ordered
+        by `(created_at, id)` so two runs created in the same instant are
+        still both followed, in a stable order.
+        """
+        stmt = select(RunDB).where(RunDB.thread_id == thread_id)
+        if after is None:
+            stmt = stmt.order_by(RunDB.created_at.desc(), RunDB.id.desc())
+        else:
+            stmt = stmt.where(
+                or_(
+                    RunDB.created_at > after.created_at,
+                    and_(RunDB.created_at == after.created_at, RunDB.id > after.id),
+                )
+            ).order_by(RunDB.created_at, RunDB.id)
+        result = await self.db.execute(stmt.limit(1))
+        return result.scalar_one_or_none()
 
     async def lock_thread_runs(self, thread_id: str) -> None:
         """Serialize run creation for a thread within this transaction

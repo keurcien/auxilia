@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.4](https://github.com/keurcien/auxilia/compare/backend-v0.9.3...backend-v0.9.4) (2026-09-25)
+
+
+### Bug Fixes
+
+* **runs:** stop stream sessions from reloading the whole run history every second ([#366](https://github.com/keurcien/auxilia/issues/366)) ([3d66932](https://github.com/keurcien/auxilia/commit/3d66932eb599bf18e09d21c64abd379c3dd37e06))
+
 ## [0.9.3](https://github.com/keurcien/auxilia/compare/backend-v0.9.2...backend-v0.9.3) (2026-09-23)
 
 
