@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.9.5](https://github.com/keurcien/auxilia/compare/backend-v0.9.4...backend-v0.9.5) (2026-09-25)
+
+
+### Code Refactoring
+
+* **agents:** fold subagent and sandbox bindings into the agent aggregate ([#382](https://github.com/keurcien/auxilia/issues/382)) ([5068c88](https://github.com/keurcien/auxilia/commit/5068c883ada9dad4131cf3e12cda28254a0f0def))
+* **agents:** move the mcp/sandbox → agents reach-ins and the thread delete to the routers ([#383](https://github.com/keurcien/auxilia/issues/383)) ([f7902e4](https://github.com/keurcien/auxilia/commit/f7902e4c2ffc49a6292e8a47602c97bc0ad15618))
+* **runtime:** move execution code into app/runtime ([#380](https://github.com/keurcien/auxilia/issues/380)) ([859e80f](https://github.com/keurcien/auxilia/commit/859e80f792faacdd9da92739b8510f9c38f6684c))
+
 ## [0.9.4](https://github.com/keurcien/auxilia/compare/backend-v0.9.3...backend-v0.9.4) (2026-09-25)
 
 
