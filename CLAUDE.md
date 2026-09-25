@@ -23,7 +23,7 @@ External integrations:
 Every backend feature follows `router → service → repository → model`. Each layer has a single responsibility:
 
 - **Router** (`router.py`) — HTTP surface. Declares the FastAPI endpoints, binds auth dependencies, shapes the response. No DB access, no branching on domain rules.
-- **Service** (`service.py`) — business logic. Inherits `BaseService[ModelDB, Repository]` (`app/service.py`), owns the request-scoped `db`, raises domain exceptions, and delegates IO to its repository. Cross-module orchestration (e.g. `AgentService` using `SubagentService`) happens here.
+- **Service** (`service.py`) — business logic. Inherits `BaseService[ModelDB, Repository]` (`app/service.py`), owns the request-scoped `db`, raises domain exceptions, and delegates IO to its repository. Cross-module orchestration (e.g. `AgentService` using `AgentMCPServerService`) happens here.
 - **Repository** (`repository.py`) — SQL. Inherits `BaseRepository[ModelDB]` (`app/repository.py`), which provides `get / create / update / delete` for anything that subclasses `BaseDBModel`. Subclasses add one method per query shape (e.g. `get_by_email`, `list_with_permissions`). Never raises domain exceptions — returns `None` / `[]`.
 - **Model** (`models.py`) — SQLModel table definitions. Inherit `BaseDBModel` (UUID PK + `created_at` / `updated_at` timestamps). For join tables skip the UUID and use `(TimestampMixin, SQLModel, table=True)`.
 - **Schema** (`schemas.py`) — request/response DTOs.
@@ -328,7 +328,7 @@ See **Backend conventions** above for the full layered architecture, naming rule
 - **Async everywhere**: all database operations, HTTP calls, and MCP interactions use `async/await`
 - **Dependency injection**: use FastAPI `Depends()` for database sessions (`get_db`) and auth (`get_current_user` / `require_admin` / `require_editor`)
 - **Pure helpers stay out of services**: if a function doesn't need the DB, don't put it on the service. Connectivity probes live in `app/mcp/client/connectivity.py`, not on `MCPServerService`, so callers never have to pass `None` for an unused session.
-- **Cross-module service use**: a service can compose another service directly (e.g. `AgentService` constructs a `SubagentService` in its `__init__`). Avoid reaching into another module's repository from a router.
+- **Cross-module service use**: a service can compose another service directly (e.g. `AgentService` constructs an `AgentMCPServerService` in its `__init__`). Avoid reaching into another module's repository from a router.
 
 ### Frontend Patterns
 

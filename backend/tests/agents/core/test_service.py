@@ -1470,18 +1470,3 @@ async def test_delete_subagent_404s_on_a_missing_link(service, mock_repo):
         await service.delete_subagent(uuid4(), uuid4())
 
     mock_repo.delete_subagent_link.assert_not_called()
-
-
-async def test_list_subagents_projects_in_link_order(service, mock_repo):
-    supervisor_id = uuid4()
-    first, second = make_agent(name="First"), make_agent(name="Second")
-    mock_repo.list_subagent_links.return_value = [
-        make_link(supervisor_id, second.id),
-        make_link(supervisor_id, first.id),
-    ]
-    mock_repo.list_by_ids.return_value = [first, second]
-
-    result = await service.list_subagents(supervisor_id)
-
-    assert [r.name for r in result] == ["Second", "First"]
-    mock_repo.list_by_ids.assert_awaited_once_with([second.id, first.id])

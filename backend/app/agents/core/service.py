@@ -557,14 +557,6 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
             description=agent.description,
         )
 
-    async def list_subagents(self, agent_id: UUID) -> list[SubagentResponse]:
-        links = await self.repository.list_subagent_links(agent_id)
-        sub_ids = [link.subagent_id for link in links]
-        agents = {a.id: a for a in await self.repository.list_by_ids(sub_ids)}
-        return [
-            self._to_subagent_response(agents[sid]) for sid in sub_ids if sid in agents
-        ]
-
     async def _list_subagent_data(
         self, agent_ids: list[UUID]
     ) -> tuple[dict[UUID, list[SubagentResponse]], set[UUID]]:
