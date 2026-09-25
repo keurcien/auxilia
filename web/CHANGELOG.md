@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.10.3](https://github.com/keurcien/auxilia/compare/web-v0.10.2...web-v0.10.3) (2026-09-25)
+
+
+### Bug Fixes
+
+* **web:** don't throw when the client aborts before the backend answers ([#365](https://github.com/keurcien/auxilia/issues/365)) ([5506be4](https://github.com/keurcien/auxilia/commit/5506be474883fab14829f84b35a87a74897649ec))
+* **web:** forward client aborts through the backend proxy ([#363](https://github.com/keurcien/auxilia/issues/363)) ([9fa6642](https://github.com/keurcien/auxilia/commit/9fa664276ab8930e6ccb0f06d05938cd50f58433))
+
 ## [0.10.2](https://github.com/keurcien/auxilia/compare/web-v0.10.1...web-v0.10.2) (2026-09-23)
 
 
