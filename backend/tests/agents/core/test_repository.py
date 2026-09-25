@@ -10,7 +10,13 @@ from app.agents.models import (
     AgentUserPermissionDB,
     PermissionLevel,
 )
-from app.agents.schemas import AgentCreateDB, AgentPatch, AgentPermissionCreate
+from app.agents.schemas import (
+    AgentCreateDB,
+    AgentPatch,
+    AgentPermissionCreate,
+    AgentSandboxConfig,
+)
+from app.sandbox.models import SandboxDB, SandboxProviderType
 from app.users.models import WorkspaceRole
 
 
@@ -448,3 +454,163 @@ async def test_delete_all_permissions_clears_only_this_agent(agent_session):
     assert await _permissions(agent_session, theirs) == {
         other_user: PermissionLevel.member
     }
+
+
+# ---------------------------------------------------------------------------
+# Subagent links — the join table lives on the aggregate, like teams
+# ---------------------------------------------------------------------------
+
+
+async def _seed_agents(session, count) -> list[AgentDB]:
+    agents = [make_agent(name=f"Agent {i}") for i in range(count)]
+    session.add_all(agents)
+    await session.flush()
+    return agents
+
+
+async def test_subagent_links_round_trip(agent_session):
+    supervisor, first, second = await _seed_agents(agent_session, 3)
+    repo = AgentRepository(agent_session)
+
+    link = await repo.create_subagent_link(supervisor.id, first.id)
+    await repo.create_subagent_link(supervisor.id, second.id)
+
+    assert await repo.get_subagent_link(supervisor.id, first.id) == link
+    assert await repo.get_subagent_link(first.id, supervisor.id) is None
+    assert {
+        link.subagent_id for link in await repo.list_subagent_links(supervisor.id)
+    } == {
+        first.id,
+        second.id,
+    }
+    assert await repo.has_subagents(supervisor.id) is True
+    assert await repo.has_subagents(first.id) is False
+    assert await repo.is_subagent(first.id) is True
+    assert await repo.is_subagent(supervisor.id) is False
+
+
+async def test_list_subagent_links_for_agents_sees_both_sides(agent_session):
+    supervisor, sub, bystander = await _seed_agents(agent_session, 3)
+    repo = AgentRepository(agent_session)
+    await repo.create_subagent_link(supervisor.id, sub.id)
+
+    assert len(await repo.list_subagent_links_for_agents([supervisor.id])) == 1
+    assert len(await repo.list_subagent_links_for_agents([sub.id])) == 1
+    assert await repo.list_subagent_links_for_agents([bystander.id]) == []
+    assert await repo.list_subagent_links_for_agents([]) == []
+
+
+async def test_delete_subagent_link_removes_one_row(agent_session):
+    supervisor, first, second = await _seed_agents(agent_session, 3)
+    repo = AgentRepository(agent_session)
+    link = await repo.create_subagent_link(supervisor.id, first.id)
+    await repo.create_subagent_link(supervisor.id, second.id)
+
+    await repo.delete_subagent_link(link)
+
+    assert [
+        link.subagent_id for link in await repo.list_subagent_links(supervisor.id)
+    ] == [second.id]
+
+
+async def test_delete_all_subagent_links_clears_both_directions(agent_session):
+    """An agent being deleted stops supervising anyone and stops being anyone's
+    subagent — and links between other agents are untouched."""
+    a, b, c, d = await _seed_agents(agent_session, 4)
+    repo = AgentRepository(agent_session)
+    await repo.create_subagent_link(a.id, b.id)  # b is a's subagent
+    await repo.create_subagent_link(c.id, b.id)  # b is also c's subagent
+    await repo.create_subagent_link(a.id, d.id)  # unrelated to b
+
+    await repo.delete_all_subagent_links(b.id)
+
+    assert await repo.is_subagent(b.id) is False
+    assert [link.subagent_id for link in await repo.list_subagent_links(a.id)] == [d.id]
+    assert await repo.list_subagent_links(c.id) == []
+
+
+async def test_list_by_ids_short_circuits_on_an_empty_list(repo, mock_db):
+    assert await repo.list_by_ids([]) == []
+    mock_db.execute.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Sandbox binding — at most one per agent (uq_agent_sandbox)
+# ---------------------------------------------------------------------------
+
+
+async def _seed_sandboxes(session, count) -> list[SandboxDB]:
+    rows = [
+        SandboxDB(
+            name=f"Sandbox {i}",
+            provider=SandboxProviderType.opensandbox,
+            url=f"https://sandbox-{i}.example",
+        )
+        for i in range(count)
+    ]
+    session.add_all(rows)
+    await session.flush()
+    return rows
+
+
+async def test_set_sandbox_binds_rebinds_and_unbinds(agent_session):
+    (agent,) = await _seed_agents(agent_session, 1)
+    first, second = await _seed_sandboxes(agent_session, 2)
+    repo = AgentRepository(agent_session)
+
+    await repo.set_sandbox(agent.id, AgentSandboxConfig(sandbox_id=first.id))
+    binding = await repo.get_sandbox_binding(agent.id)
+    assert binding is not None and binding.sandbox_id == first.id
+    assert binding.tools is None
+
+    # Same sandbox, new per-tool map: the row is kept and only `tools` moves.
+    tools = {"execute": "needs_approval"}
+    await repo.set_sandbox(
+        agent.id, AgentSandboxConfig(sandbox_id=first.id, tools=tools)
+    )
+    rebound = await repo.get_sandbox_binding(agent.id)
+    assert rebound is not None and rebound.id == binding.id
+    assert rebound.tools == tools
+
+    # Another sandbox: replaced, never two rows for one agent.
+    await repo.set_sandbox(agent.id, AgentSandboxConfig(sandbox_id=second.id))
+    replaced = await repo.get_sandbox_binding(agent.id)
+    assert replaced is not None and replaced.sandbox_id == second.id
+    assert replaced.id != binding.id
+    assert [
+        (link.agent_id, sandbox.id)
+        for link, sandbox in await repo.list_sandbox_bindings([agent.id])
+    ] == [(agent.id, second.id)]
+
+    await repo.set_sandbox(agent.id, None)
+    assert await repo.get_sandbox_binding(agent.id) is None
+    assert await repo.list_sandbox_bindings([agent.id]) == []
+
+
+async def test_set_sandbox_to_none_on_an_unbound_agent_is_a_noop(
+    agent_session, statements
+):
+    (agent,) = await _seed_agents(agent_session, 1)
+    repo = AgentRepository(agent_session)
+    statements.reset()
+
+    await repo.set_sandbox(agent.id, None)
+
+    assert len(statements) == 1  # the lookup, and nothing written
+
+
+async def test_list_for_sandbox_and_detach(agent_session):
+    bound_a, bound_b, other = await _seed_agents(agent_session, 3)
+    sandbox, other_sandbox = await _seed_sandboxes(agent_session, 2)
+    repo = AgentRepository(agent_session)
+    await repo.set_sandbox(bound_b.id, AgentSandboxConfig(sandbox_id=sandbox.id))
+    await repo.set_sandbox(bound_a.id, AgentSandboxConfig(sandbox_id=sandbox.id))
+    await repo.set_sandbox(other.id, AgentSandboxConfig(sandbox_id=other_sandbox.id))
+
+    listed = await repo.list_for_sandbox(sandbox.id)
+    assert [a.name for a in listed] == sorted([bound_a.name, bound_b.name])
+
+    await repo.delete_all_sandbox_bindings_for_sandbox(sandbox.id)
+
+    assert await repo.list_for_sandbox(sandbox.id) == []
+    assert [a.id for a in await repo.list_for_sandbox(other_sandbox.id)] == [other.id]

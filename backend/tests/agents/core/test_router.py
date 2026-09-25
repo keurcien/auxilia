@@ -22,7 +22,7 @@ def _no_sandbox_or_skill_bindings():
     binds either."""
     with (
         patch(
-            "app.agents.core.service.AgentSandboxRepository.list_for_agents",
+            "app.agents.core.repository.AgentRepository.list_sandbox_bindings",
             new=AsyncMock(return_value=[]),
         ),
         patch(
@@ -212,7 +212,7 @@ def test_update_agent(client: TestClient, mock_db, current_user):
         owner_access(agent),  # require_permission: get_access
         make_result(scalar=agent),  # get_or_404: repository.get
         make_result(rows=[(agent, None)]),  # get_agent (return): list_with_permissions
-        make_result(scalars_list=[]),  # get_agent (return): list_all_subagent_data
+        make_result(scalars_list=[]),  # get_agent (return): subagent links
         make_result(scalars_list=[]),  # get_agent (return): owner list_by_ids
     ]
 
