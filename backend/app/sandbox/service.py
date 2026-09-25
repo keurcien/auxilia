@@ -10,7 +10,6 @@ from app.exceptions import DomainValidationError
 from app.sandbox.models import SandboxDB, SandboxProviderType
 from app.sandbox.repository import SandboxRepository
 from app.sandbox.schemas import (
-    SandboxAgentResponse,
     SandboxCreate,
     SandboxCreateDB,
     SandboxPatch,
@@ -95,48 +94,18 @@ class SandboxService(BaseService[SandboxDB, SandboxRepository]):
         await self.db.refresh(updated)
         return self.to_response(updated)
 
-    async def list_agents(self, sandbox_id: UUID) -> list[SandboxAgentResponse]:
-        """Agents currently bound to the sandbox (delete-guard dialog)."""
-        await self.get_or_404(sandbox_id)
-        # Function-level import: agents imports sandbox models, so resolving
-        # it lazily keeps the modules cycle-free (#369 moves this to the router).
-        from app.agents.core.repository import AgentRepository
-
-        agents = await AgentRepository(self.db).list_for_sandbox(sandbox_id)
-        return [
-            SandboxAgentResponse(
-                id=agent.id, name=agent.name, emoji=agent.emoji, color=agent.color
-            )
-            for agent in agents
-        ]
-
-    async def delete(self, sandbox_id: UUID, *, detach_agents: bool = False) -> None:
-        """Refused while agents are bound (consistent with MCP bindings)
-        unless `detach_agents` — the dialog's explicit confirm — removes the
-        bindings first. Threads are never bound to a sandbox, so detached
-        agents simply run without code execution afterwards."""
+    async def delete(self, sandbox_id: UUID) -> None:
+        """Delete the sandbox row. Refused while agents are bound: the binding
+        FK has no cascade (consistent with MCP bindings), so the flush fails
+        and surfaces as a clean 400. Detaching agents and forgetting the
+        thread stamps this sandbox issued are the agents' and threads' jobs —
+        the router composes them before this (#369). Threads are never bound
+        to a sandbox, so detached agents simply run without code execution
+        afterwards."""
         row = await self.get_or_404(sandbox_id)
-        from app.agents.core.repository import AgentRepository
-
-        agents_repository = AgentRepository(self.db)
-        if detach_agents:
-            await agents_repository.delete_all_sandbox_bindings_for_sandbox(sandbox_id)
-        elif agents := await agents_repository.list_for_sandbox(sandbox_id):
-            raise DomainValidationError(
-                f"Sandbox is used by {len(agents)} agent(s) — detach it first"
-            )
-        # The threads this sandbox issued ids to lose their stamp with it.
-        # `sandbox_source_id` is ON DELETE SET NULL, and a null source reads as
-        # "legacy, reconnect" — so without this the dead id would look reusable
-        # to whatever provider the agent is rebound to next.
-        from app.threads.repository import ThreadRepository
-
-        await ThreadRepository(self.db).clear_sandbox(sandbox_id)
         try:
             await self.repository.delete(row)
         except IntegrityError as exc:
-            # A binding created between the check and the delete hits the FK;
-            # surface the same clean 400 the guard gives.
             raise DomainValidationError(
                 "Sandbox is used by agents — detach it first"
             ) from exc

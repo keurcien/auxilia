@@ -58,10 +58,11 @@ There are three documented exceptions:
    `DELETE /threads/{id}` and `DELETE /agents/{id}/permanent` delete their rows,
    `await db.commit()`, and only then purge LangGraph checkpoints — those live on a
    separate auto-committed connection, so purging first and then failing to commit
-   would leave a row whose entire history is irrecoverably gone. The service does the
-   deletes and *returns the thread ids*; it never purges. Past the commit the purge is
-   logged rather than raised: the operation succeeded, and orphaned checkpoints are
-   invisible and reclaimable.
+   would leave a row whose entire history is irrecoverably gone. The router composes
+   the deletes — `ThreadService.delete_rows_for_agent` (which *returns the thread
+   ids*), then `AgentService.delete_permanently` — and only the router purges. Past
+   the commit the purge is logged rather than raised: the operation succeeded, and
+   orphaned checkpoints are invisible and reclaimable.
 
 ### Domain exceptions
 

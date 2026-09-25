@@ -2,7 +2,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends
 
+from app.agents.core.service import AgentService, get_agent_service
 from app.auth.dependencies import get_current_user, require_admin
+from app.sandbox.models import SandboxDB
 from app.sandbox.schemas import (
     SandboxAgentResponse,
     SandboxCreate,
@@ -11,10 +13,18 @@ from app.sandbox.schemas import (
     SandboxSecretHint,
 )
 from app.sandbox.service import SandboxService, get_sandbox_service
+from app.threads.service import ThreadService, get_thread_service
 from app.users.models import UserDB
 
 
 sandboxes_router = APIRouter(prefix="/sandboxes", tags=["sandboxes"])
+
+
+async def get_sandbox_dependency(
+    sandbox_id: UUID,
+    service: SandboxService = Depends(get_sandbox_service),
+) -> SandboxDB:
+    return await service.get_or_404(sandbox_id)
 
 
 @sandboxes_router.get("/", response_model=list[SandboxResponse])
@@ -43,13 +53,17 @@ async def get_sandbox(
     return await service.get_response(sandbox_id)
 
 
-@sandboxes_router.get("/{sandbox_id}/agents", response_model=list[SandboxAgentResponse])
+@sandboxes_router.get(
+    "/{sandbox_id}/agents",
+    response_model=list[SandboxAgentResponse],
+    dependencies=[Depends(get_sandbox_dependency)],  # 404 for unknown sandboxes
+)
 async def list_sandbox_agents(
     sandbox_id: UUID,
     _: UserDB = Depends(require_admin),
-    service: SandboxService = Depends(get_sandbox_service),
+    agents: AgentService = Depends(get_agent_service),
 ) -> list[SandboxAgentResponse]:
-    return await service.list_agents(sandbox_id)
+    return await agents.list_for_sandbox(sandbox_id)
 
 
 @sandboxes_router.get("/{sandbox_id}/secret-hint", response_model=SandboxSecretHint)
@@ -77,5 +91,18 @@ async def delete_sandbox(
     detach_agents: bool = False,
     _: UserDB = Depends(require_admin),
     service: SandboxService = Depends(get_sandbox_service),
+    agents: AgentService = Depends(get_agent_service),
+    threads: ThreadService = Depends(get_thread_service),
 ) -> None:
-    await service.delete(sandbox_id, detach_agents=detach_agents)
+    """Composes three modules in the direction they depend: bindings belong
+    to agents, the stamps to threads, the row to sandboxes. One request
+    transaction, so a refused delete (still bound, no `detach_agents`) rolls
+    the whole thing back."""
+    if detach_agents:
+        await agents.detach_sandbox(sandbox_id)
+    # The threads this sandbox issued ids to lose their stamp with it.
+    # `sandbox_source_id` is ON DELETE SET NULL, and a null source reads as
+    # "legacy, reconnect" — so without this the dead id would look reusable
+    # to whatever provider the agent is rebound to next.
+    await threads.clear_sandbox(sandbox_id)
+    await service.delete(sandbox_id)

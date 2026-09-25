@@ -781,3 +781,42 @@ def test_route_admits_the_level_it_asks_for(client, method, path, at_least):
             get_thread_service,
         ):
             app.dependency_overrides.pop(dependency, None)
+
+
+def test_delete_permanently_composes_threads_agent_commit_purge(
+    client: TestClient, mock_db, admin_user
+):
+    """The route is the composition root (#369): the gate runs first, then the
+    threads go (their FK points at the agent row), then the agent's own rows,
+    then the commit, and only then the checkpoint purge."""
+    from app.agents.core.service import AgentService
+    from app.threads.service import ThreadService
+
+    agent_id = uuid4()
+    agent_service = AsyncMock(spec=AgentService)
+    agent_service.require_permission = AsyncMock(return_value=EffectivePermission.admin)
+    thread_service = AsyncMock(spec=ThreadService)
+    thread_service.delete_rows_for_agent = AsyncMock(return_value=["t1"])
+    app.dependency_overrides[get_agent_service] = lambda: agent_service
+    app.dependency_overrides[get_thread_service] = lambda: thread_service
+
+    calls = MagicMock()
+    calls.attach_mock(agent_service.require_permission, "gate")
+    calls.attach_mock(thread_service.delete_rows_for_agent, "delete_threads")
+    calls.attach_mock(agent_service.delete_permanently, "delete_agent")
+    calls.attach_mock(mock_db.commit, "commit")
+    calls.attach_mock(thread_service.purge_checkpoints, "purge")
+    try:
+        response = client.delete(f"/agents/{agent_id}/permanent")
+    finally:
+        app.dependency_overrides.pop(get_agent_service, None)
+        app.dependency_overrides.pop(get_thread_service, None)
+
+    assert response.status_code == 204
+    ordered = [name for name, _, _ in calls.mock_calls]
+    assert ordered == ["gate", "delete_threads", "delete_agent", "commit", "purge"]
+    gate_kwargs = agent_service.require_permission.await_args.kwargs
+    assert gate_kwargs["at_least"] == EffectivePermission.admin
+    assert gate_kwargs["include_archived"] is True
+    agent_service.delete_permanently.assert_awaited_once_with(agent_id)
+    thread_service.purge_checkpoints.assert_awaited_once_with(["t1"])

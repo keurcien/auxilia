@@ -47,10 +47,10 @@ from app.mcp.client.connectivity import probe_authorization
 from app.mcp.servers.repository import MCPServerRepository
 from app.sandbox.provider import ensure_sandboxes_available
 from app.sandbox.repository import SandboxRepository
+from app.sandbox.schemas import SandboxAgentResponse
 from app.service import BaseService
 from app.skills.service import SkillService
 from app.tags.service import TagService
-from app.threads.service import ThreadService
 from app.users.models import WorkspaceRole
 from app.users.service import UserService
 
@@ -63,7 +63,6 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
 
     def __init__(self, db: AsyncSession):
         super().__init__(db, AgentRepository(db))
-        self.thread_service = ThreadService(db)
         self.tag_service = TagService(db)
         self.user_service = UserService(db)
         self.mcp_server_repository = AgentMCPServerRepository(db)
@@ -491,41 +490,24 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
             include_archived=True,
         )
 
-    async def delete_permanently(
-        self,
-        agent_id: UUID,
-        user_id: UUID | None = None,
-        user_role: WorkspaceRole | None = None,
-        user_team_id: UUID | None = None,
-    ) -> list[str]:
-        """Delete every DB row that references the agent, and return the ids of
-        the threads that went with it.
+    async def delete_permanently(self, agent_id: UUID) -> None:
+        """Delete the agent row and every agents-owned row that references it.
 
-        Checkpoint purging is deliberately **not** done here — it is an
-        external, non-transactional side effect, so it must run after the
-        caller has *committed* these deletes, not merely flushed them. Same
-        contract as `ThreadService.delete_rows_for_agent`, and the same reason
-        the thread endpoint commits before purging (P1-9): a purge that ran
-        first and a commit that then failed would leave an agent whose entire
-        history is irrecoverably gone.
+        Two things are deliberately *not* done here. The agent's threads point
+        at it by FK and must go first, but they belong to the threads module —
+        a thread's permission is its agent's, so the dependency runs
+        threads → agents and never back. And checkpoint purging is an external,
+        non-transactional side effect that must run only after the deletes are
+        *committed*, not merely flushed. `DELETE /agents/{id}/permanent`
+        composes all three in that order (threads, agent, commit, purge) and
+        declares the admin gate on the route, since the thread delete has to
+        run before this method could gate it (P1-9, #369).
         """
-        await self.require_permission(
-            agent_id,
-            at_least=EffectivePermission.admin,
-            action="permanently delete this agent",
-            user_id=user_id,
-            user_role=user_role,
-            user_team_id=user_team_id,
-            include_archived=True,
-        )
-        # Threads must go before the agent row, due to the FK.
-        thread_ids = await self.thread_service.delete_rows_for_agent(agent_id)
         await self.repository.delete_all_subagent_links(agent_id)
         await self.mcp_server_repository.delete_all_for_agent(agent_id)
         await self.repository.delete_all_permissions(agent_id)
         await self.repository.delete_all_teams(agent_id)
         await self.repository.delete_by_id(agent_id)
-        return thread_ids
 
     async def get_permissions(self, agent_id: UUID) -> list[AgentUserPermissionDB]:
         return await self.repository.get_permissions(agent_id)
@@ -656,6 +638,21 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
             await self.create_subagent(agent_id, subagent_id)
 
     # -- Sandbox binding -------------------------------------------------------
+
+    async def list_for_sandbox(self, sandbox_id: UUID) -> list[SandboxAgentResponse]:
+        """Agents currently bound to the sandbox (delete-guard dialog)."""
+        agents = await self.repository.list_for_sandbox(sandbox_id)
+        return [
+            SandboxAgentResponse(
+                id=agent.id, name=agent.name, emoji=agent.emoji, color=agent.color
+            )
+            for agent in agents
+        ]
+
+    async def detach_sandbox(self, sandbox_id: UUID) -> None:
+        """Unbind the sandbox from every agent — the dialog's explicit confirm
+        before the sandbox itself is deleted."""
+        await self.repository.delete_all_sandbox_bindings_for_sandbox(sandbox_id)
 
     async def set_sandboxes(
         self, agent_id: UUID, configs: list[AgentSandboxConfig]

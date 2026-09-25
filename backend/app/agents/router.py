@@ -145,20 +145,31 @@ async def restore_agent(
     )
 
 
-@router.delete("/{agent_id}/permanent", status_code=204)
+@router.delete(
+    "/{agent_id}/permanent",
+    status_code=204,
+    dependencies=[
+        Depends(
+            require_agent_permission(
+                EffectivePermission.admin,
+                action="permanently delete this agent",
+                include_archived=True,
+            )
+        )
+    ],
+)
 async def delete_agent_permanently(
     agent_id: UUID,
-    current_user: UserDB = Depends(get_current_user),
     service: AgentService = Depends(get_agent_service),
     thread_service: ThreadService = Depends(get_thread_service),
-    db: AsyncSession = Depends(get_db),  # dependency-cached: the service's session
+    db: AsyncSession = Depends(get_db),  # dependency-cached: the services' session
 ) -> None:
-    thread_ids = await service.delete_permanently(
-        agent_id,
-        user_id=current_user.id,
-        user_role=current_user.role,
-        user_team_id=current_user.team_id,
-    )
+    # The gate is on the route rather than in `delete_permanently` because the
+    # threads have to go first (their FK points at the agent row) and they are
+    # the thread module's to delete — so the check must precede a call the
+    # agent service never sees. Both services share the request session.
+    thread_ids = await thread_service.delete_rows_for_agent(agent_id)
+    await service.delete_permanently(agent_id)
     # Commit the DB deletes BEFORE purging checkpoints — the third transaction
     # regime, for the reason `purge_checkpoints` documents. Checkpoints live on
     # a separate auto-committed connection and cannot be rolled back, so purging

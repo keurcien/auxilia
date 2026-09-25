@@ -568,3 +568,39 @@ async def test_sync_tools_keeps_map_on_connect_failure(service):
         await service._sync_tools(link, server, "user-id")
 
     assert link.tools == original
+
+
+# ---------------------------------------------------------------------------
+# Server-side views — what DELETE /mcp-servers/{id} composes (#369)
+# ---------------------------------------------------------------------------
+
+
+async def test_list_agents_for_server_projects_the_delete_guard_shape(
+    service, mock_repo
+):
+    server_id = uuid4()
+    agent = SimpleNamespace(
+        id=uuid4(),
+        name="Docs Researcher",
+        emoji="📚",
+        color="#0984E3",
+        instructions="x",
+    )
+    mock_repo.list_agents_for_server = AsyncMock(return_value=[agent])
+
+    result = await service.list_agents_for_server(server_id)
+
+    mock_repo.list_agents_for_server.assert_awaited_once_with(server_id)
+    assert [(r.id, r.name, r.emoji, r.color) for r in result] == [
+        (agent.id, "Docs Researcher", "📚", "#0984E3")
+    ]
+    assert not hasattr(result[0], "instructions")
+
+
+async def test_detach_server_drops_every_binding(service, mock_repo):
+    server_id = uuid4()
+    mock_repo.delete_all_for_server = AsyncMock()
+
+    await service.detach_server(server_id)
+
+    mock_repo.delete_all_for_server.assert_awaited_once_with(server_id)
