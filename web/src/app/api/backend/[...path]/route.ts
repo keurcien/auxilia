@@ -17,17 +17,26 @@ async function proxyRequest(
 	const headers = new Headers(request.headers);
 	headers.delete("host");
 
-	const response = await fetch(url, {
-		method: request.method,
-		headers,
-		body: request.body,
-		redirect: "manual",
-		// Without this, a closed tab leaves the upstream SSE stream open until
-		// Cloud Run's request timeout, pinning a backend concurrency slot.
-		signal: request.signal,
-		// @ts-expect-error - duplex is required for streaming bodies
-		duplex: "half",
-	});
+	let response: Response;
+	try {
+		response = await fetch(url, {
+			method: request.method,
+			headers,
+			body: request.body,
+			redirect: "manual",
+			// Without this, a closed tab leaves the upstream SSE stream open until
+			// Cloud Run's request timeout, pinning a backend concurrency slot.
+			signal: request.signal,
+			// @ts-expect-error - duplex is required for streaming bodies
+			duplex: "half",
+		});
+	} catch (error) {
+		// The client left before the backend answered; nobody reads this.
+		if (error instanceof Error && error.name === "AbortError") {
+			return new Response(null, { status: 499 });
+		}
+		throw error;
+	}
 
 	// fetch already decoded any Content-Encoding on the backend response, so
 	// the encoding headers describe a body we no longer have — forwarding
