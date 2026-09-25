@@ -10,7 +10,9 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
+from sqlalchemy import event
 
+from app.agents.protocol.service import ProtocolService
 from app.agents.runs.models import RunDB
 from app.agents.runs.service import RunService
 from app.agents.runs.state import RunStatus
@@ -313,18 +315,25 @@ async def test_prune_terminal_keeps_recent_and_active(redis, run_db):
     assert (await service.get(recent.id)).status == RunStatus.success
 
 
-async def test_next_for_thread_follows_runs_in_order(redis, run_db):
-    """The stream session's poll: newest run first, then each newer run in
-    creation order, None once caught up — other threads never leak in."""
-    service = RunService(redis)
+async def test_stream_poll_follows_runs_with_one_limited_query(redis, run_db):
+    """The stream session's poll (`ProtocolService._next_run`): newest run
+    first, then each later run in `(created_at, id)` order — same-instant runs
+    included — then None, other threads never leaking in. Each poll must be a
+    single `LIMIT 1` query on `runs`, never the whole thread history."""
     now = datetime.now()
     first = await _add_run(
-        run_db, thread_id="tn", user_id=uuid4(), created_at=now - timedelta(minutes=2)
+        run_db,
+        thread_id="tn",
+        user_id=uuid4(),
+        created_at=now - timedelta(minutes=1),
     )
-    second = await _add_run(
-        run_db, thread_id="tn", user_id=uuid4(), created_at=now - timedelta(minutes=1)
+    # Same instant: the id breaks the tie.
+    tie_a = await _add_run(
+        run_db, id="a", thread_id="tn", user_id=uuid4(), created_at=now
     )
-    third = await _add_run(run_db, thread_id="tn", user_id=uuid4(), created_at=now)
+    tie_b = await _add_run(
+        run_db, id="b", thread_id="tn", user_id=uuid4(), created_at=now
+    )
     await _add_run(
         run_db,
         thread_id="tother",
@@ -332,8 +341,23 @@ async def test_next_for_thread_follows_runs_in_order(redis, run_db):
         created_at=now + timedelta(minutes=1),
     )
 
-    assert (await service.next_for_thread("tn")).id == third.id
-    assert (await service.next_for_thread("tn", first.created_at)).id == second.id
-    assert (await service.next_for_thread("tn", second.created_at)).id == third.id
-    assert await service.next_for_thread("tn", third.created_at) is None
-    assert await service.next_for_thread("tmissing") is None
+    queries: list[str] = []
+    engine = run_db.kw["bind"].sync_engine
+
+    def record(conn, cursor, statement, *args):
+        if "FROM runs" in statement:
+            queries.append(statement)
+
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        service = ProtocolService(redis)
+        assert (await service._next_run("tn", after=None)).id == tie_b.id
+        assert (await service._next_run("tn", after=first)).id == tie_a.id
+        assert (await service._next_run("tn", after=tie_a)).id == tie_b.id
+        assert await service._next_run("tn", after=tie_b) is None
+        assert await service._next_run("tmissing", after=None) is None
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+
+    assert len(queries) == 5
+    assert all("LIMIT" in q for q in queries)

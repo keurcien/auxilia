@@ -243,7 +243,7 @@ class RunService:
             return await RunRepository(db).list_for_thread(thread_id)
 
     async def next_for_thread(
-        self, thread_id: str, after: datetime | None = None
+        self, thread_id: str, after: RunDB | None = None
     ) -> RunDB | None:
         async with AsyncSessionLocal() as db:
             return await RunRepository(db).next_for_thread(thread_id, after)
