@@ -98,13 +98,11 @@ class SandboxService(BaseService[SandboxDB, SandboxRepository]):
     async def list_agents(self, sandbox_id: UUID) -> list[SandboxAgentResponse]:
         """Agents currently bound to the sandbox (delete-guard dialog)."""
         await self.get_or_404(sandbox_id)
-        # Function-level import: agents.sandboxes imports sandbox models, so
-        # resolving it lazily keeps the modules cycle-free.
-        from app.agents.sandboxes.repository import AgentSandboxRepository
+        # Function-level import: agents imports sandbox models, so resolving
+        # it lazily keeps the modules cycle-free (#369 moves this to the router).
+        from app.agents.core.repository import AgentRepository
 
-        agents = await AgentSandboxRepository(self.db).list_agents_for_sandbox(
-            sandbox_id
-        )
+        agents = await AgentRepository(self.db).list_for_sandbox(sandbox_id)
         return [
             SandboxAgentResponse(
                 id=agent.id, name=agent.name, emoji=agent.emoji, color=agent.color
@@ -118,12 +116,12 @@ class SandboxService(BaseService[SandboxDB, SandboxRepository]):
         bindings first. Threads are never bound to a sandbox, so detached
         agents simply run without code execution afterwards."""
         row = await self.get_or_404(sandbox_id)
-        from app.agents.sandboxes.repository import AgentSandboxRepository
+        from app.agents.core.repository import AgentRepository
 
-        bindings = AgentSandboxRepository(self.db)
+        agents_repository = AgentRepository(self.db)
         if detach_agents:
-            await bindings.delete_all_for_sandbox(sandbox_id)
-        elif agents := await bindings.list_agents_for_sandbox(sandbox_id):
+            await agents_repository.delete_all_sandbox_bindings_for_sandbox(sandbox_id)
+        elif agents := await agents_repository.list_for_sandbox(sandbox_id):
             raise DomainValidationError(
                 f"Sandbox is used by {len(agents)} agent(s) — detach it first"
             )

@@ -136,10 +136,8 @@ auxilia/
 ├── backend/                           # FastAPI Python application
 │   ├── app/
 │   │   ├── agents/                    # Agent configuration domain — router → service → repository → model
-│   │   │   ├── core/                  # AgentService + repository (CRUD, permissions, get_run_spec)
-│   │   │   ├── mcp_servers/           # AgentMCPServerService (agent↔MCP bindings, tool sync)
-│   │   │   ├── subagents/             # SubagentService (supervisor/subagent links)
-│   │   │   ├── sandboxes/             # AgentSandboxService (agent↔sandbox bindings)
+│   │   │   ├── core/                  # AgentService + repository (CRUD, permissions, teams, subagent links, sandbox binding, get_run_spec)
+│   │   │   ├── mcp_servers/           # AgentMCPServerService (agent↔MCP bindings, tool sync — the one binding with behaviour of its own)
 │   │   │   ├── run_spec.py            # RunSpec / AgentSpec — the runtime-facing configuration contract (app/runtime also reaches AgentRepository to load it, and AgentMCPServerBase)
 │   │   │   ├── router.py              # /agents endpoints (unified)
 │   │   │   ├── dependencies.py        # require_agent_permission

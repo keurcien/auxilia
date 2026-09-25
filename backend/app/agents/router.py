@@ -25,7 +25,6 @@ from app.agents.schemas import (
     AgentTeamsResponse,
     AgentTeamsSet,
 )
-from app.agents.subagents.service import SubagentService, get_subagent_service
 from app.auth.dependencies import (
     get_current_user,
     require_admin,
@@ -325,9 +324,9 @@ async def create_subagent(
     agent_id: UUID,
     subagent_id: UUID,
     _: UserDB = Depends(require_admin),
-    service: SubagentService = Depends(get_subagent_service),
+    service: AgentService = Depends(get_agent_service),
 ) -> AgentSubagentResponse:
-    return await service.create_or_update(agent_id, subagent_id)
+    return await service.create_subagent(agent_id, subagent_id)
 
 
 @router.delete("/{agent_id}/subagents/{subagent_id}", status_code=204)
@@ -335,9 +334,9 @@ async def delete_subagent(
     agent_id: UUID,
     subagent_id: UUID,
     _: UserDB = Depends(require_admin),
-    service: SubagentService = Depends(get_subagent_service),
+    service: AgentService = Depends(get_agent_service),
 ) -> None:
-    await service.delete(agent_id, subagent_id)
+    await service.delete_subagent(agent_id, subagent_id)
 
 
 @router.get(

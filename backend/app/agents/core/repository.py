@@ -1,4 +1,5 @@
 from collections import defaultdict
+from collections.abc import Iterable
 from typing import NamedTuple
 from uuid import UUID
 
@@ -10,15 +11,17 @@ from sqlmodel import SQLModel, select
 from app.agents.models import (
     AgentDB,
     AgentMCPServerDB,
+    AgentSandboxBase,
+    AgentSandboxDB,
     AgentSubagentDB,
     AgentTeamDB,
     AgentUserPermissionDB,
     PermissionLevel,
 )
 from app.agents.run_spec import AgentSpec, RunSpec, SandboxSpec
-from app.agents.sandboxes.repository import AgentSandboxRepository
-from app.agents.schemas import AgentPermissionCreate
+from app.agents.schemas import AgentPermissionCreate, AgentSandboxConfig
 from app.repository import BaseRepository
+from app.sandbox.models import SandboxDB
 from app.users.models import WorkspaceRole
 
 
@@ -246,8 +249,7 @@ class AgentRepository(BaseRepository[AgentDB]):
         # An agent binds at most one sandbox (uq_agent_sandbox), so last-wins is
         # the same as only-one; the dict just avoids asserting that here.
         sandbox_by_agent: dict[UUID, SandboxSpec] = {}
-        sandbox_repository = AgentSandboxRepository(self.db)
-        for link, sandbox in await sandbox_repository.list_for_agents(agent_ids):
+        for link, sandbox in await self.list_sandbox_bindings(agent_ids):
             sandbox_by_agent[link.agent_id] = SandboxSpec(row=sandbox, tools=link.tools)
 
         def to_spec(agent: AgentDB) -> AgentSpec:
@@ -264,6 +266,14 @@ class AgentRepository(BaseRepository[AgentDB]):
             agent=to_spec(parent),
             subagents=[to_spec(a) for a in subagent_rows],
         )
+
+    async def list_by_ids(self, ids: Iterable[UUID]) -> list[AgentDB]:
+        ids = list(ids)
+        if not ids:
+            return []
+        stmt = select(AgentDB).where(AgentDB.id.in_(ids))
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
 
     async def update_by_id(self, agent_id: UUID, data: SQLModel) -> None:
         """Apply a patch to one agent without loading its row first.
@@ -375,3 +385,157 @@ class AgentRepository(BaseRepository[AgentDB]):
         self.db.add_all(new_links)
         await self.db.flush()
         return [link.team_id for link in new_links]
+
+    # -- Subagent links ------------------------------------------------------
+    #
+    # A join table with no behaviour of its own (the validations live on the
+    # service), so it is a set of methods here next to permissions and teams
+    # rather than a repository of its own.
+
+    async def get_subagent_link(
+        self, supervisor_id: UUID, subagent_id: UUID
+    ) -> AgentSubagentDB | None:
+        stmt = select(AgentSubagentDB).where(
+            AgentSubagentDB.supervisor_id == supervisor_id,
+            AgentSubagentDB.subagent_id == subagent_id,
+        )
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def list_subagent_links(self, supervisor_id: UUID) -> list[AgentSubagentDB]:
+        stmt = select(AgentSubagentDB).where(
+            AgentSubagentDB.supervisor_id == supervisor_id
+        )
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def list_subagent_links_for_agents(
+        self, agent_ids: list[UUID]
+    ) -> list[AgentSubagentDB]:
+        """Every link that touches one of the agents, on either side — the
+        response hydration needs both the subagents an agent supervises and
+        whether it is itself somebody's subagent."""
+        if not agent_ids:
+            return []
+        stmt = select(AgentSubagentDB).where(
+            or_(
+                AgentSubagentDB.supervisor_id.in_(agent_ids),
+                AgentSubagentDB.subagent_id.in_(agent_ids),
+            )
+        )
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def has_subagents(self, agent_id: UUID) -> bool:
+        stmt = (
+            select(AgentSubagentDB.id)
+            .where(AgentSubagentDB.supervisor_id == agent_id)
+            .limit(1)
+        )
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none() is not None
+
+    async def is_subagent(self, agent_id: UUID) -> bool:
+        stmt = (
+            select(AgentSubagentDB.id)
+            .where(AgentSubagentDB.subagent_id == agent_id)
+            .limit(1)
+        )
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none() is not None
+
+    async def create_subagent_link(
+        self, supervisor_id: UUID, subagent_id: UUID
+    ) -> AgentSubagentDB:
+        link = AgentSubagentDB(supervisor_id=supervisor_id, subagent_id=subagent_id)
+        self.db.add(link)
+        await self.db.flush()
+        await self.db.refresh(link)
+        return link
+
+    async def delete_subagent_link(self, link: AgentSubagentDB) -> None:
+        await self.db.delete(link)
+        await self.db.flush()
+
+    async def delete_all_subagent_links(self, agent_id: UUID) -> None:
+        """Both directions at once: an agent being deleted stops supervising
+        anyone and stops being anyone's subagent."""
+        stmt = delete(AgentSubagentDB).where(
+            or_(
+                AgentSubagentDB.supervisor_id == agent_id,
+                AgentSubagentDB.subagent_id == agent_id,
+            )
+        )
+        await self.db.execute(stmt)
+
+    # -- Sandbox binding -----------------------------------------------------
+
+    async def get_sandbox_binding(self, agent_id: UUID) -> AgentSandboxDB | None:
+        stmt = select(AgentSandboxDB).where(AgentSandboxDB.agent_id == agent_id)
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def list_sandbox_bindings(
+        self, agent_ids: list[UUID]
+    ) -> list[tuple[AgentSandboxDB, SandboxDB]]:
+        """Bindings joined with their sandbox rows, for response hydration."""
+        if not agent_ids:
+            return []
+        stmt = (
+            select(AgentSandboxDB, SandboxDB)
+            .join(SandboxDB, SandboxDB.id == AgentSandboxDB.sandbox_id)
+            .where(AgentSandboxDB.agent_id.in_(agent_ids))
+        )
+        result = await self.db.execute(stmt)
+        return [(row[0], row[1]) for row in result.all()]
+
+    async def list_for_sandbox(self, sandbox_id: UUID) -> list[AgentDB]:
+        """Agents currently bound to the sandbox (for the delete-guard UI)."""
+        stmt = (
+            select(AgentDB)
+            .join(AgentSandboxDB, AgentSandboxDB.agent_id == AgentDB.id)
+            .where(AgentSandboxDB.sandbox_id == sandbox_id)
+            .order_by(AgentDB.name)
+        )
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def set_sandbox(
+        self, agent_id: UUID, wanted: AgentSandboxConfig | None
+    ) -> None:
+        """Replace the agent's sandbox binding (at most one, `uq_agent_sandbox`):
+        `None` unbinds. Same shape as `set_permissions`, minus the wholesale
+        delete-then-insert — a binding to the same sandbox keeps its row and
+        only takes the new per-tool map, so an unchanged save writes nothing.
+        """
+        existing = await self.get_sandbox_binding(agent_id)
+
+        if wanted is None:
+            if existing:
+                await self.db.delete(existing)
+                await self.db.flush()
+            return
+
+        if existing:
+            if existing.sandbox_id == wanted.sandbox_id:
+                if existing.tools != wanted.tools:
+                    existing.tools = wanted.tools
+                    self.db.add(existing)
+                    await self.db.flush()
+                return
+            # Replace, don't mutate: the unique constraint is on agent_id, so
+            # delete-then-create keeps the history unambiguous.
+            await self.db.delete(existing)
+            await self.db.flush()
+
+        link = AgentSandboxDB.model_validate(
+            AgentSandboxBase(
+                agent_id=agent_id, sandbox_id=wanted.sandbox_id, tools=wanted.tools
+            )
+        )
+        self.db.add(link)
+        await self.db.flush()
+
+    async def delete_all_sandbox_bindings_for_sandbox(self, sandbox_id: UUID) -> None:
+        stmt = delete(AgentSandboxDB).where(AgentSandboxDB.sandbox_id == sandbox_id)
+        await self.db.execute(stmt)
