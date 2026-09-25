@@ -145,9 +145,17 @@ def test_delete_returns_204(
     agent_service.detach_sandbox.assert_not_called()
 
 
-def test_list_sandbox_agents_requires_admin(client, sandbox_service, current_user):
+def test_list_sandbox_agents_requires_admin_before_looking_the_sandbox_up(
+    client, sandbox_service, current_user
+):
+    """A non-admin gets 403 whether or not the sandbox exists — the lookup
+    runs after the gate, so ids cannot be probed by 404 vs 403."""
+    sandbox_service.get_or_404.side_effect = NotFoundError("Sandbox not found")
+
     response = client.get(f"/sandboxes/{uuid4()}/agents")
+
     assert response.status_code == 403
+    sandbox_service.get_or_404.assert_not_called()
 
 
 def test_list_sandbox_agents(client, sandbox_service, agent_service, admin_user):
@@ -208,4 +216,5 @@ def test_delete_with_detach_agents_detaches_then_clears_then_deletes(
     assert response.status_code == 204
     assert [name for name, _, _ in calls.mock_calls] == ["detach", "clear", "delete"]
     agent_service.detach_sandbox.assert_awaited_once_with(sandbox_id)
+    thread_service.clear_sandbox.assert_awaited_once_with(sandbox_id)
     sandbox_service.delete.assert_awaited_once_with(sandbox_id)

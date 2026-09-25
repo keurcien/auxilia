@@ -31,11 +31,17 @@ def binding_service():
     app.dependency_overrides.pop(get_agent_mcp_server_service, None)
 
 
-def test_list_server_agents_requires_admin(
+def test_list_server_agents_requires_admin_before_looking_the_server_up(
     client, mcp_server_service, binding_service, current_user
 ):
+    """A non-admin gets 403 whether or not the server exists — the lookup
+    runs after the gate, so ids cannot be probed by 404 vs 403."""
+    mcp_server_service.get.side_effect = NotFoundError("MCP server not found")
+
     response = client.get(f"/mcp-servers/{uuid4()}/agents")
+
     assert response.status_code == 403
+    mcp_server_service.get.assert_not_called()
 
 
 def test_list_server_agents(client, mcp_server_service, binding_service, admin_user):

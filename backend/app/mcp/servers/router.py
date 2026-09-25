@@ -114,11 +114,12 @@ async def get_oauth_secret_hint(
 @router.get(
     "/{server_id}/agents",
     response_model=list[MCPServerAgentResponse],
-    dependencies=[Depends(get_mcp_server_dependency)],  # 404 for unknown servers
+    # In this order: the admin gate first, so a non-admin cannot tell an
+    # existing server id from a missing one by 404 vs 403.
+    dependencies=[Depends(require_admin), Depends(get_mcp_server_dependency)],
 )
 async def list_mcp_server_agents(
     server_id: UUID,
-    _current_user: UserDB = Depends(require_admin),
     bindings: AgentMCPServerService = Depends(get_agent_mcp_server_service),
 ) -> list[MCPServerAgentResponse]:
     return await bindings.list_agents_for_server(server_id)

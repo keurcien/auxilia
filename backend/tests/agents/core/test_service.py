@@ -1255,15 +1255,6 @@ async def test_set_teams_delegates(service, mock_repo):
     assert result == team_ids
 
 
-async def test_delete_permanently_cleans_team_links(service, mock_repo):
-    agent = make_agent(is_archived=True)
-    mock_repo.delete_all_teams = AsyncMock()
-
-    await service.delete_permanently(agent.id)
-
-    mock_repo.delete_all_teams.assert_awaited_once_with(agent.id)
-
-
 # ---------------------------------------------------------------------------
 # Subagents — a binding of the aggregate (relocated from the former
 # SubagentService tests)

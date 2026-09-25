@@ -56,11 +56,12 @@ async def get_sandbox(
 @sandboxes_router.get(
     "/{sandbox_id}/agents",
     response_model=list[SandboxAgentResponse],
-    dependencies=[Depends(get_sandbox_dependency)],  # 404 for unknown sandboxes
+    # In this order: the admin gate first, so a non-admin cannot tell an
+    # existing sandbox id from a missing one by 404 vs 403.
+    dependencies=[Depends(require_admin), Depends(get_sandbox_dependency)],
 )
 async def list_sandbox_agents(
     sandbox_id: UUID,
-    _: UserDB = Depends(require_admin),
     agents: AgentService = Depends(get_agent_service),
 ) -> list[SandboxAgentResponse]:
     return await agents.list_for_sandbox(sandbox_id)

@@ -523,6 +523,9 @@ async def test_delete_refused_while_agents_bound(service, mock_repo):
     with pytest.raises(DomainValidationError, match="detach"):
         await service.delete(server.id)
 
+    # The guard *is* the failed delete: no pre-check runs before it.
+    mock_repo.delete.assert_awaited_once_with(server)
+
 
 @pytest.mark.asyncio
 async def test_delete_removes_the_row(service, mock_repo):
