@@ -20,7 +20,7 @@ from app.skills.runtime import (
     upload_skills,
 )
 from app.skills.schemas import SkillFile
-from tests.agents.test_runtime_behaviour import build_agent, collect, system_text
+from tests.runtime.test_agent_behaviour import build_agent, collect, system_text
 from tests.sandbox.stub_sandbox import StubSandbox
 from tests.skills.conftest import (
     attach,
@@ -213,7 +213,7 @@ async def test_plain_agent_lists_and_reads_its_skills_from_memory(in_memory_runt
     """No sandbox: the prompt lists the skills, the agent gets exactly `ls`
     and `read_file` over the in-memory view, `read_file` returns the SKILL.md,
     and nothing about the files lands in the checkpoint."""
-    from app.agents.checkpoints import get_checkpoint_state
+    from app.runtime.checkpoints import get_checkpoint_state
 
     read_call = AIMessage(
         content="",
@@ -278,7 +278,7 @@ async def test_skill_index_is_rebuilt_every_run(in_memory_runtime):
 
 @pytest.mark.asyncio
 async def test_sandbox_agent_gets_skills_uploaded_and_listed(in_memory_runtime):
-    from tests.agents.test_runtime_behaviour import build_sandbox_agent
+    from tests.runtime.test_agent_behaviour import build_sandbox_agent
 
     agent, model, sandbox = build_sandbox_agent(script=["done"], skills=[REPORT])
 

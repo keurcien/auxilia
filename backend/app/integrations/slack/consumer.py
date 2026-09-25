@@ -2,7 +2,7 @@
 
 A Slack turn has no client connection to ride the event log, so the worker spawns
 a `SlackRunConsumer`: it subscribes to the run's event log (Agent Streaming
-Protocol events, see `app/agents/protocol/`), relays root text deltas and tool
+Protocol events, see `app/runtime/protocol/`), relays root text deltas and tool
 labels into a Slack streaming message (`chat.startStream`/`appendStream`/
 `stopStream` via `slack_sdk`'s `chat_stream`), and once the run is terminal
 posts either the tool-approval blocks (interrupted) or the "View in auxilia"
@@ -16,12 +16,6 @@ from typing import Any, Final, Literal, TypedDict, cast
 from redis.asyncio import Redis
 from slack_sdk.web.async_client import AsyncWebClient
 
-from app.agents.hitl import load_interrupt_scope, pending_approval_requests
-from app.agents.protocol.wire import decode_event
-from app.agents.runs.delivery import DeliveryConsumer
-from app.agents.runs.models import RunDB
-from app.agents.runs.service import RunService
-from app.agents.runs.state import MCP_REAUTH_ERROR, RunStatus, is_terminal
 from app.auth.settings import auth_settings
 from app.database import AsyncSessionLocal, get_checkpointer
 from app.integrations.slack.blocks import (
@@ -30,6 +24,12 @@ from app.integrations.slack.blocks import (
     format_tool_streamer_label,
 )
 from app.integrations.slack.settings import slack_settings
+from app.runtime.hitl import load_interrupt_scope, pending_approval_requests
+from app.runtime.protocol.wire import decode_event
+from app.runtime.runs.delivery import DeliveryConsumer
+from app.runtime.runs.models import RunDB
+from app.runtime.runs.service import RunService
+from app.runtime.runs.state import MCP_REAUTH_ERROR, RunStatus, is_terminal
 from app.threads.models import ThreadDB
 
 

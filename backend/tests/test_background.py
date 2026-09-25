@@ -265,7 +265,7 @@ def test_the_loop_intervals_that_sleep_directly_are_clamped():
     """`PeriodicLoop`'s floor does not reach the dispatcher's and the run
     heartbeat's loops — they sleep directly — so the settings clamp at source.
     Zero would otherwise burn a core for the life of the process."""
-    from app.agents.runs.settings import RunSettings
+    from app.runtime.runs.settings import RunSettings
 
     settings = RunSettings(
         heartbeat_interval_seconds=0,
@@ -289,7 +289,7 @@ def test_non_finite_intervals_are_rejected_not_clamped(bad):
     """`max(nan, x)` is `nan`, which then becomes a sleep timeout with undefined
     behaviour, and `inf` is a loop that never ticks again. Neither expresses an
     intent worth honouring the way 0 does, so this fails loudly at boot."""
-    from app.agents.runs.settings import RunSettings
+    from app.runtime.runs.settings import RunSettings
 
     with pytest.raises(ValidationError):
         RunSettings(claim_interval_seconds=bad, _env_file=None)

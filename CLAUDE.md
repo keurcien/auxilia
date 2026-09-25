@@ -49,7 +49,7 @@ There are three documented exceptions:
    worker, the reaper and the trigger scanner use `AsyncSessionLocal()` directly
    (see `get_or_create_thread`).
 2. **Request handlers that hand off to a long-lived operation commit early, on
-   purpose.** The run endpoints (`agents/runs/router.py`) and
+   purpose.** The run endpoints (`runtime/api/runs_router.py`) and
    `TriggerService.claim_and_enqueue` finish their DB work, `await db.commit()`,
    and only then start streaming or open their own sessions — holding a pooled
    connection for the length of an agent run risks pool starvation. Each such
@@ -135,17 +135,14 @@ async def create_user(
 auxilia/
 ├── backend/                           # FastAPI Python application
 │   ├── app/
-│   │   ├── agents/                    # Agent management & LangGraph runtime
-│   │   │   ├── core/                  # AgentService + repository (CRUD, permissions)
+│   │   ├── agents/                    # Agent configuration domain — router → service → repository → model
+│   │   │   ├── core/                  # AgentService + repository (CRUD, permissions, get_run_spec)
 │   │   │   ├── mcp_servers/           # AgentMCPServerService (agent↔MCP bindings, tool sync)
 │   │   │   ├── subagents/             # SubagentService (supervisor/subagent links)
-│   │   │   ├── runs/                  # Durable run runtime — Redis-backed runs, queue, worker, reaper (see runs/SPEC.md)
-│   │   │   ├── protocol/              # Agent Streaming Protocol — emit.py (worker-side v3 → wire events), wire.py (log codec + replay cursors), service.py/router.py (/threads/{id}/commands, /stream/events, /state, /history)
-│   │   │   ├── runtime.py             # Agent runtime — Agent.build / .stream (astream_events v3 → protocol events)
-│   │   │   ├── toolset.py             # Tool binding for the agent
-│   │   │   ├── hitl.py                # HITL state from the checkpoint — pending interrupt id/requests + resume canonicalization
-│   │   │   ├── tool_errors.py         # ToolException middleware
+│   │   │   ├── sandboxes/             # AgentSandboxService (agent↔sandbox bindings)
+│   │   │   ├── run_spec.py            # RunSpec / AgentSpec — the runtime-facing configuration contract (app/runtime also reaches AgentRepository to load it, and AgentMCPServerBase)
 │   │   │   ├── router.py              # /agents endpoints (unified)
+│   │   │   ├── dependencies.py        # require_agent_permission
 │   │   │   ├── models.py              # AgentDB, AgentMCPServerDB, permissions, subagent links
 │   │   │   └── schemas.py
 │   │   ├── auth/                      # JWT + OAuth authentication
@@ -165,6 +162,17 @@ auxilia/
 │   │   │   │                          # catalog.py — official servers from a CDN YAML (see app/utils/remote_catalog.py)
 │   │   │   └── router.py              # auxilia_mcp (MCPServer) endpoint — advertises no tools yet
 │   │   ├── model_providers/           # LLM provider configuration & catalog
+│   │   ├── runtime/                   # Execution pipeline — nothing under app/agents imports from here
+│   │   │   ├── agent.py               # Agent.build / .stream (astream_events v3 → protocol events), ResolvedAgent, build_runnable
+│   │   │   ├── harness.py             # deepagents-parity middleware bundle + system prompt
+│   │   │   ├── toolset.py             # Toolset.prepare / .open — MCP tool discovery + binding
+│   │   │   ├── hitl.py                # HITL state from the checkpoint — pending interrupt id/requests + resume canonicalization
+│   │   │   ├── checkpoints.py         # get_checkpoint_state — read-only checkpoint view
+│   │   │   ├── settings.py            # agent_settings (recursion limit, …)
+│   │   │   ├── middleware/            # Leaf middleware: current_date, tool_errors, structured_output (import only app.exceptions)
+│   │   │   ├── protocol/              # Agent Streaming Protocol codec — emit.py (worker-side v3 → wire events), wire.py (log codec + replay cursors), events, messages, filter. Leaf: imports nothing from runs/
+│   │   │   ├── runs/                  # Durable run lifecycle — Redis-backed runs, queue, worker, reaper (see runs/SPEC.md)
+│   │   │   └── api/                   # HTTP surface — runs_router.py (/threads/{id}/runs, /invoke), protocol_router.py + protocol_service.py (/threads/{id}/commands, /stream/events, /state, /history)
 │   │   ├── sandbox/                   # Sandboxed code execution — provider.py owns the lifecycle
 │   │   │                              # (open_sandbox at run start, SandboxGoneError → replace, availability probe)
 │   │   ├── skills/                    # Skill library + runtime (over `skillkit`, below)
@@ -175,7 +183,7 @@ auxilia/
 │   │   │                              # sync makes versions available, `POST /skills/{id}/adopt` applies one. Router prefix
 │   │   │                              # `/skills/sources` is registered before `/skills/{skill_id}`; clients use trailing slashes
 │   │   ├── threads/                   # Chat thread management
-│   │   │   └── router.py              # Thread CRUD + metadata read; the conversation itself is served by agents/protocol/ (/state, /history, /messages/{id}), runs by agents/runs/
+│   │   │   └── router.py              # Thread CRUD + metadata read; the conversation itself is served by runtime/api/ (/state, /history, /messages/{id}), runs by runtime/runs/
 │   │   ├── triggers/                  # Scheduled agent runs
 │   │   │   ├── scanner.py             # TriggerScanner — due-trigger loop (sibling of runs/reaper)
 │   │   │   ├── schedule.py            # Pure cron/timezone math (croniter): validation, next_run_at
@@ -261,7 +269,7 @@ make reset            # Stop and remove all volumes
 ```sh
 cd backend && uv run pytest                                    # Run all tests
 cd backend && uv run pytest tests/agents/                      # Run specific module
-cd backend && uv run pytest tests/agents/test_router.py -k "test_name"  # Run specific test
+cd backend && uv run pytest tests/agents/core/test_router.py -k "test_name"  # Run specific test
 ```
 
 ### Linting

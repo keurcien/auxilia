@@ -8,12 +8,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.agents.protocol.router import router as protocol_router
 from app.agents.router import router as agents_router
-from app.agents.runs.reaper import RunReaper
-from app.agents.runs.router import router as runs_router, user_runs_router
-from app.agents.runs.settings import run_settings
-from app.agents.runs.worker import RunDispatcher
 from app.auth.router import router as auth_router
 from app.auth.settings import auth_settings
 from app.auth.tokens.router import router as tokens_router
@@ -30,6 +25,11 @@ from app.mcp.router import auxilia_mcp
 from app.mcp.servers.router import router as mcp_servers_router
 from app.model_providers.router import router as model_providers_router
 from app.redis_client import close_redis, get_redis
+from app.runtime.api.protocol_router import router as protocol_router
+from app.runtime.api.runs_router import router as runs_router, user_runs_router
+from app.runtime.runs.reaper import RunReaper
+from app.runtime.runs.settings import run_settings
+from app.runtime.runs.worker import RunDispatcher
 from app.sandbox.router import sandboxes_router
 from app.skills.router import router as skills_router
 from app.skills.sources.router import router as skill_sources_router

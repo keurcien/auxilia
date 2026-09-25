@@ -1,12 +1,12 @@
 """`app/threads` owns thread rows, not the conversation.
 
-The conversation is encoded in exactly one place — `app/agents/protocol/messages.py`
+The conversation is encoded in exactly one place — `app/runtime/protocol/messages.py`
 (`serialize_message` / `serialize_message_preview`) — and served by
-`app/agents/protocol/`. Until #313 the threads module carried a second, unread
+`app/runtime/api/`. Until #313 the threads module carried a second, unread
 encoding (`threads/serialization.py` + the AI-SDK adapter); this test keeps it
 from growing back. It parses the sources rather than importing them so a
 transitive import elsewhere cannot mask a direct one here, and it resolves
-relative imports (`from ..agents.protocol import …`) to their absolute name.
+relative imports (`from ..runtime.protocol import …`) to their absolute name.
 """
 
 import ast
@@ -15,7 +15,7 @@ from pathlib import Path
 import app.threads
 
 
-FORBIDDEN_PREFIXES = ("app.agents.protocol", "app.agents.checkpoints")
+FORBIDDEN_PREFIXES = ("app.runtime.protocol", "app.runtime.checkpoints")
 
 
 def _resolve_relative(package: str, level: int, module: str | None) -> str:
@@ -41,13 +41,13 @@ def imports_of(source: str, package: str) -> set[str]:
 
 def test_relative_imports_resolve_to_absolute_names():
     src = (
-        "from ..agents.protocol.messages import serialize_message\n"
+        "from ..runtime.protocol.messages import serialize_message\n"
         "from . import models\n"
         "from .schemas import ThreadRead\n"
         "import app.pagination\n"
     )
     assert imports_of(src, "app.threads") == {
-        "app.agents.protocol.messages",
+        "app.runtime.protocol.messages",
         "app.threads",
         "app.threads.schemas",
         "app.pagination",
@@ -64,5 +64,5 @@ def test_threads_module_does_not_encode_the_conversation():
     }
     assert not offenders, (
         "app/threads must not read or encode the transcript; that lives in "
-        f"app/agents/protocol/. Offending imports: {sorted(offenders)}"
+        f"app/runtime/protocol/. Offending imports: {sorted(offenders)}"
     )

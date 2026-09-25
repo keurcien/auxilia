@@ -6,9 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.agents.models import AgentDB
-from app.agents.runs.state import RunStatus
 from app.pagination import PageParams
 from app.repository import BaseRepository
+from app.runtime.runs.state import RunStatus
 from app.threads.models import FIRST_PARTY_SOURCES, ThreadDB
 from app.users.models import UserDB
 

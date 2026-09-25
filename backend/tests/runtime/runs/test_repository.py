@@ -1,0 +1,363 @@
+"""RunService + RunRepository over a real (SQLite) database.
+
+Covers the Postgres-backed lifecycle: create/reject, the single-claim
+dispatch, guarded finalize + the `threads.last_run_status` stamp, the
+reaper worklists, and retention pruning. Locking semantics (`SKIP LOCKED`,
+the partial unique index) are Postgres-only and out of scope here.
+"""
+
+from datetime import UTC, datetime, timedelta
+from uuid import UUID, uuid4
+
+import pytest
+from sqlalchemy import event
+
+from app.exceptions import DomainValidationError, NotFoundError
+from app.runtime.api.protocol_service import ProtocolService
+from app.runtime.runs.models import RunDB
+from app.runtime.runs.service import RunService
+from app.runtime.runs.state import RunStatus
+from app.threads.models import ThreadDB
+
+
+pytestmark = pytest.mark.usefixtures("run_db")
+
+
+def _user() -> str:
+    return str(uuid4())
+
+
+async def _add_thread(run_db, thread_id: str) -> None:
+    async with run_db() as db:
+        db.add(ThreadDB(id=thread_id, user_id=uuid4(), agent_id=uuid4()))
+        await db.commit()
+
+
+async def _get_thread(run_db, thread_id: str) -> ThreadDB | None:
+    async with run_db() as db:
+        return await db.get(ThreadDB, thread_id)
+
+
+async def _add_run(run_db, **kwargs) -> RunDB:
+    """Insert a run row directly (bypasses create-time guards) for tests that
+    need explicit created_at/status."""
+    run = RunDB(**kwargs)
+    async with run_db() as db:
+        db.add(run)
+        await db.commit()
+    return run
+
+
+async def test_create_and_get_roundtrip(redis):
+    service = RunService(redis)
+    schema = {"type": "object"}
+    record = await service.create(
+        thread_id="t1",
+        user_id=_user(),
+        input={"messages": [{"type": "human", "content": "hi"}]},
+        trigger="regenerate-message",
+        output_schema=schema,
+    )
+    back = await service.get(record.id)
+    assert back.status == RunStatus.pending
+    assert back.input == record.input
+    assert back.trigger == "regenerate-message"
+    assert back.output_schema == schema
+    assert back.created_at is not None
+
+
+async def test_get_missing_run_raises(redis):
+    with pytest.raises(NotFoundError):
+        await RunService(redis).get("nope")
+
+
+async def test_create_rejects_when_thread_has_active_run(redis):
+    service = RunService(redis)
+    await service.create(thread_id="t2", user_id=_user(), input={})
+    with pytest.raises(DomainValidationError):
+        await service.create(thread_id="t2", user_id=_user(), input={})
+
+
+async def test_create_enqueue_allows_waiting_run(redis):
+    service = RunService(redis)
+    await service.create(thread_id="t3", user_id=_user(), input={})
+    queued = await service.create(
+        thread_id="t3", user_id=_user(), input={}, multitask_strategy="enqueue"
+    )
+    assert queued.status == RunStatus.pending
+
+
+async def test_claim_next_is_fifo_across_threads(redis, run_db):
+    service = RunService(redis)
+    now = datetime.now()
+    newer = await _add_run(run_db, thread_id="tb", user_id=uuid4(), created_at=now)
+    older = await _add_run(
+        run_db, thread_id="ta", user_id=uuid4(), created_at=now - timedelta(minutes=1)
+    )
+    first, second = await service.claim_next(), await service.claim_next()
+    assert (first.id, second.id) == (older.id, newer.id)
+    assert first.status == RunStatus.running
+    assert await service.claim_next() is None
+
+
+async def test_claim_next_skips_busy_thread_until_freed(redis, run_db):
+    """The enqueue strategy in one test: a queued run waits out its sibling."""
+    service = RunService(redis)
+    now = datetime.now()
+    first = await _add_run(run_db, thread_id="t4", user_id=uuid4(), created_at=now)
+    waiting = await _add_run(
+        run_db, thread_id="t4", user_id=uuid4(), created_at=now + timedelta(seconds=1)
+    )
+    claimed = await service.claim_next()
+    assert claimed.id == first.id
+    assert await service.claim_next() is None  # sibling is running — not claimable
+    await service.finalize(first.id, RunStatus.success)
+    assert (await service.claim_next()).id == waiting.id
+
+
+async def test_finalize_stamps_thread_and_is_idempotent(redis, run_db):
+    service = RunService(redis)
+    await _add_thread(run_db, "t5")
+    record = await service.create(thread_id="t5", user_id=_user(), input={})
+    await service.finalize(record.id, RunStatus.error, error="boom")
+
+    back = await service.get(record.id)
+    assert back.status == RunStatus.error
+    assert back.error == "boom"
+    assert (await _get_thread(run_db, "t5")).last_run_status == "error"
+
+    # Idempotent: a second finalize (reaper racing the worker) is a no-op.
+    await service.finalize(record.id, RunStatus.success)
+    assert (await service.get(record.id)).status == RunStatus.error
+    assert (await _get_thread(run_db, "t5")).last_run_status == "error"
+
+
+async def test_success_overwrites_previous_error_stamp(redis, run_db):
+    service = RunService(redis)
+    await _add_thread(run_db, "t6")
+    failed = await service.create(thread_id="t6", user_id=_user(), input={})
+    await service.finalize(failed.id, RunStatus.error, error="boom")
+    retry = await service.create(thread_id="t6", user_id=_user(), input={})
+    claimed = await service.claim_next()  # success is only legal from running
+    assert claimed.id == retry.id
+    await service.finalize(retry.id, RunStatus.success)
+    assert (await _get_thread(run_db, "t6")).last_run_status == RunStatus.success
+
+
+async def test_finalize_publishes_the_terminal_lifecycle(redis):
+    service = RunService(redis)
+    record = await service.create(thread_id="t7", user_id=_user(), input={})
+    await service.finalize(record.id, RunStatus.cancelled)
+    chunks = [c async for c in service.stream(record.id, "0")]
+    # A user Stop is not a failure: the protocol terminal is `completed`.
+    assert _terminal_of(chunks) == {"event": "completed"}
+
+
+def _terminal_of(chunks: list[str]) -> dict:
+    """The root lifecycle terminal data of a relayed log (its last entry)."""
+    from app.runtime.protocol.wire import decode_event
+
+    event = decode_event(chunks[-1])
+    assert event is not None and event["method"] == "lifecycle"
+    assert event["params"]["namespace"] == []
+    return event["params"]["data"]
+
+
+async def test_cancel_pending_finalizes_immediately(redis):
+    service = RunService(redis)
+    record = await service.create(thread_id="t8", user_id=_user(), input={})
+    out = await service.cancel(record.id)
+    assert out.status == RunStatus.cancelled
+    assert await service.get_active("t8") is None
+
+
+async def test_cancel_expected_guard_spares_claimed_run(redis):
+    """finalize(expected=pending) must not cancel a run a dispatcher claimed."""
+    service = RunService(redis)
+    record = await service.create(thread_id="t9", user_id=_user(), input={})
+    claimed = await service.claim_next()
+    assert claimed.id == record.id
+    updated = await service.finalize(
+        record.id, RunStatus.cancelled, expected=RunStatus.pending
+    )
+    assert updated.status == RunStatus.running  # guard held; still running
+
+
+async def test_finalize_refuses_illegal_source_status(redis):
+    """A pending (unclaimed) run can never be reported success/timeout/
+    interrupted — the SQL guard mirrors the transition table."""
+    service = RunService(redis)
+    record = await service.create(thread_id="t9b", user_id=_user(), input={})
+    for illegal in (RunStatus.success, RunStatus.timeout, RunStatus.interrupted):
+        updated = await service.finalize(record.id, illegal)
+        assert updated.status == RunStatus.pending
+    # ...but the legal pending transitions still apply.
+    updated = await service.finalize(record.id, RunStatus.error, error="zombie")
+    assert updated.status == RunStatus.error
+
+
+async def test_stream_missing_terminal_backstop(redis, run_db):
+    """A worker crash between the Postgres commit and publishing the terminal
+    entry must not hang subscribers: an idle read on a terminal run yields a
+    synthetic terminal carrying the record's error."""
+    service = RunService(redis)
+    record = await service.create(thread_id="t9c", user_id=_user(), input={})
+    claimed = await service.claim_next()
+    from app.runtime.runs.events import RunEventStream
+    from app.runtime.runs.repository import RunRepository
+
+    await RunEventStream(record.id, redis).publish('{"method": "values", "params": {}}')
+    # Simulate the crash: terminal in Postgres, no terminal entry in Redis.
+    async with run_db() as db:
+        await RunRepository(db).finalize_run(claimed.id, RunStatus.error, error="x")
+        await db.commit()
+    chunks = [c async for c in service.stream(record.id, "0", block_ms=50)]
+    assert any('"method": "values"' in c for c in chunks)
+    assert _terminal_of(chunks) == {"event": "failed", "error": "x"}
+
+
+async def test_stream_expired_events_yields_synthetic_terminal(redis):
+    """Reattaching to a terminal run after the event log TTL'd must terminate
+    immediately instead of blocking on an empty stream."""
+    service = RunService(redis)
+    record = await service.create(thread_id="t10", user_id=_user(), input={})
+    await service.finalize(record.id, RunStatus.cancelled)
+    await redis.flushall()  # simulate the Redis TTL wiping the ephemera
+    chunks = [c async for c in service.stream(record.id, "0")]
+    assert len(chunks) == 1
+    assert _terminal_of(chunks) == {"event": "completed"}
+
+
+async def test_list_active_for_user(redis):
+    service = RunService(redis)
+    user = _user()
+    mine = await service.create(thread_id="t11", user_id=user, input={})
+    await service.create(thread_id="t12", user_id=_user(), input={})
+    done = await service.create(thread_id="t13", user_id=user, input={})
+    await service.finalize(done.id, RunStatus.cancelled)
+    active = await service.list_active_for_user(user)
+    assert [r.id for r in active] == [mine.id]
+
+
+async def test_list_active_for_user_includes_recently_finished(redis, run_db):
+    """`recent_seconds` widens the poll to freshly-terminal runs (the sidebar
+    error badge / run history), without resurrecting old ones."""
+    service = RunService(redis)
+    user = _user()
+    active = await service.create(thread_id="t11b", user_id=user, input={})
+    failed = await service.create(thread_id="t11c", user_id=user, input={})
+    await service.finalize(failed.id, RunStatus.error, error="boom")
+    theirs = await service.create(thread_id="t11d", user_id=_user(), input={})
+    await service.finalize(theirs.id, RunStatus.error, error="boom")
+    stale = await _add_run(
+        run_db,
+        thread_id="t11e",
+        user_id=UUID(user),
+        status=RunStatus.success,
+        updated_at=datetime.now(UTC) - timedelta(hours=1),
+    )
+
+    runs = await service.list_active_for_user(user, recent_seconds=60)
+    assert {r.id for r in runs} == {active.id, failed.id}
+    assert stale.id not in {r.id for r in runs}
+    # Default stays active-only.
+    runs = await service.list_active_for_user(user)
+    assert [r.id for r in runs] == [active.id]
+
+
+async def test_stuck_pending_excludes_enqueue_waiters(redis, run_db):
+    service = RunService(redis)
+    old = datetime.now() - timedelta(hours=1)
+    zombie = await _add_run(run_db, thread_id="t14", user_id=uuid4(), created_at=old)
+    await _add_run(  # legitimate waiter: sibling is running
+        run_db, thread_id="t15", user_id=uuid4(), created_at=old
+    )
+    await _add_run(
+        run_db,
+        thread_id="t15",
+        user_id=uuid4(),
+        created_at=old,
+        status=RunStatus.running,
+    )
+    stuck = await service.list_stuck_pending(datetime.now() - timedelta(minutes=10))
+    assert [r.id for r in stuck] == [zombie.id]
+
+
+async def test_prune_terminal_keeps_recent_and_active(redis, run_db):
+    service = RunService(redis)
+    old = datetime.now() - timedelta(days=120)
+    pruned = await _add_run(
+        run_db,
+        thread_id="t16",
+        user_id=uuid4(),
+        created_at=old,
+        status=RunStatus.success,
+    )
+    old_but_running = await _add_run(
+        run_db,
+        thread_id="t17",
+        user_id=uuid4(),
+        created_at=old,
+        status=RunStatus.running,
+    )
+    recent = await _add_run(
+        run_db,
+        thread_id="t18",
+        user_id=uuid4(),
+        created_at=datetime.now(),
+        status=RunStatus.success,
+    )
+    count = await service.prune_terminal(datetime.now() - timedelta(days=90))
+    assert count == 1
+    with pytest.raises(NotFoundError):
+        await service.get(pruned.id)
+    assert (await service.get(old_but_running.id)).status == RunStatus.running
+    assert (await service.get(recent.id)).status == RunStatus.success
+
+
+async def test_stream_poll_follows_runs_with_one_limited_query(redis, run_db):
+    """The stream session's poll (`ProtocolService._next_run`): newest run
+    first, then each later run in `(created_at, id)` order — same-instant runs
+    included — then None, other threads never leaking in. Each poll must be a
+    single `LIMIT 1` query on `runs`, never the whole thread history."""
+    now = datetime.now()
+    first = await _add_run(
+        run_db,
+        thread_id="tn",
+        user_id=uuid4(),
+        created_at=now - timedelta(minutes=1),
+    )
+    # Same instant: the id breaks the tie.
+    tie_a = await _add_run(
+        run_db, id="a", thread_id="tn", user_id=uuid4(), created_at=now
+    )
+    tie_b = await _add_run(
+        run_db, id="b", thread_id="tn", user_id=uuid4(), created_at=now
+    )
+    await _add_run(
+        run_db,
+        thread_id="tother",
+        user_id=uuid4(),
+        created_at=now + timedelta(minutes=1),
+    )
+
+    queries: list[str] = []
+    engine = run_db.kw["bind"].sync_engine
+
+    def record(conn, cursor, statement, *args):
+        if "FROM runs" in statement:
+            queries.append(statement)
+
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        service = ProtocolService(redis)
+        assert (await service._next_run("tn", after=None)).id == tie_b.id
+        assert (await service._next_run("tn", after=first)).id == tie_a.id
+        assert (await service._next_run("tn", after=tie_a)).id == tie_b.id
+        assert await service._next_run("tn", after=tie_b) is None
+        assert await service._next_run("tmissing", after=None) is None
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+
+    assert len(queries) == 5
+    assert all("LIMIT" in q for q in queries)
