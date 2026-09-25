@@ -311,3 +311,29 @@ async def test_prune_terminal_keeps_recent_and_active(redis, run_db):
         await service.get(pruned.id)
     assert (await service.get(old_but_running.id)).status == RunStatus.running
     assert (await service.get(recent.id)).status == RunStatus.success
+
+
+async def test_next_for_thread_follows_runs_in_order(redis, run_db):
+    """The stream session's poll: newest run first, then each newer run in
+    creation order, None once caught up — other threads never leak in."""
+    service = RunService(redis)
+    now = datetime.now()
+    first = await _add_run(
+        run_db, thread_id="tn", user_id=uuid4(), created_at=now - timedelta(minutes=2)
+    )
+    second = await _add_run(
+        run_db, thread_id="tn", user_id=uuid4(), created_at=now - timedelta(minutes=1)
+    )
+    third = await _add_run(run_db, thread_id="tn", user_id=uuid4(), created_at=now)
+    await _add_run(
+        run_db,
+        thread_id="tother",
+        user_id=uuid4(),
+        created_at=now + timedelta(minutes=1),
+    )
+
+    assert (await service.next_for_thread("tn")).id == third.id
+    assert (await service.next_for_thread("tn", first.created_at)).id == second.id
+    assert (await service.next_for_thread("tn", second.created_at)).id == third.id
+    assert await service.next_for_thread("tn", third.created_at) is None
+    assert await service.next_for_thread("tmissing") is None

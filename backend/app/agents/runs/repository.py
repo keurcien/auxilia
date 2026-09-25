@@ -53,6 +53,20 @@ class RunRepository(BaseRepository[RunDB]):
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
+    async def next_for_thread(
+        self, thread_id: str, after: datetime | None = None
+    ) -> RunDB | None:
+        """The thread's newest run — or, with `after`, the oldest one created
+        after it. Filtered and limited in SQL: a stream session polls this
+        every second, so it must not load the thread's whole run history."""
+        stmt = select(RunDB).where(RunDB.thread_id == thread_id)
+        if after is None:
+            stmt = stmt.order_by(RunDB.created_at.desc())
+        else:
+            stmt = stmt.where(RunDB.created_at > after).order_by(RunDB.created_at)
+        result = await self.db.execute(stmt.limit(1))
+        return result.scalar_one_or_none()
+
     async def lock_thread_runs(self, thread_id: str) -> None:
         """Serialize run creation for a thread within this transaction
         (advisory xact lock, auto-released at commit/rollback) so two

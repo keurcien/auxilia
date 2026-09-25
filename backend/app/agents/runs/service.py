@@ -242,6 +242,12 @@ class RunService:
         async with AsyncSessionLocal() as db:
             return await RunRepository(db).list_for_thread(thread_id)
 
+    async def next_for_thread(
+        self, thread_id: str, after: datetime | None = None
+    ) -> RunDB | None:
+        async with AsyncSessionLocal() as db:
+            return await RunRepository(db).next_for_thread(thread_id, after)
+
     async def get_active(self, thread_id: str) -> RunDB | None:
         async with AsyncSessionLocal() as db:
             return await RunRepository(db).get_active_for_thread(thread_id)

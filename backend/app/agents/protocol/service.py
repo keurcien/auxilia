@@ -185,16 +185,11 @@ class ProtocolService:
     async def _next_run(self, thread_id: str, after: RunDB | None) -> RunDB | None:
         """The newest run of the thread — or, when we already served `after`,
         the oldest run created after it (so a session follows runs in order)."""
-        records = await self.runs.list_for_thread(thread_id)  # newest first
         if after is None:
-            return records[0] if records else None
-        cutoff = after.created_at
-        if cutoff is None:  # pre-flush record; only possible in tests
+            return await self.runs.next_for_thread(thread_id)
+        if after.created_at is None:  # pre-flush record; only possible in tests
             return None
-        newer = [
-            r for r in records if r.created_at is not None and r.created_at > cutoff
-        ]
-        return newer[-1] if newer else None
+        return await self.runs.next_for_thread(thread_id, after.created_at)
 
     async def _stream_run(
         self, run: RunDB, sink: StreamFilter, *, since: int | None
