@@ -1,7 +1,7 @@
 """Outbound MCP connections: the one place a FastMCP ``Client`` is built.
 
 Every path that talks to a remote MCP server — the agent runtime
-(``app/agents/toolset.py``), the handshake probes (``connectivity.py``) and the
+(``app/runtime/toolset.py``), the handshake probes (``connectivity.py``) and the
 MCP-app endpoints — gets its client from :func:`build_client`, so the three
 things auxilia needs on top of the framework defaults are decided once:
 

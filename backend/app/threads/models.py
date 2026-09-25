@@ -4,10 +4,11 @@ from uuid import UUID, uuid4
 from sqlalchemy import Enum as SAEnum
 from sqlmodel import Column, Field, SQLModel, String, Text
 
-# `state` is a leaf module (stdlib-only), so this cannot cycle even though
-# `app.agents.runs` imports thread models elsewhere.
-from app.agents.runs.state import RunStatus
 from app.models import TimestampMixin
+
+# `state` is a leaf module (stdlib-only), so this cannot cycle even though
+# `app.runtime.runs` imports thread models elsewhere.
+from app.runtime.runs.state import RunStatus
 
 
 class ThreadSource(str, Enum):

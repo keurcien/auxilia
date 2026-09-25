@@ -12,7 +12,7 @@ from app.skills.models import AgentSkillDB, SkillDB
 from app.skills.schemas import SkillFile
 from app.users.models import UserDB, WorkspaceRole
 from tests.agents.conftest import agent_engine, agent_session, statements  # noqa: F401
-from tests.agents.test_runtime_behaviour import in_memory_runtime  # noqa: F401
+from tests.runtime.test_agent_behaviour import in_memory_runtime  # noqa: F401
 
 
 def skill_markdown(name: str = "report", description: str = "Write a report") -> str:

@@ -1,7 +1,7 @@
 """Tests for the worker-side Slack delivery consumer.
 
 The consumer reads the run's event log — Agent Streaming Protocol events as
-the worker stores them (`app/agents/protocol/wire.py`) — so fixtures are
+the worker stores them (`app/runtime/protocol/wire.py`) — so fixtures are
 built with the real encoder and the terminal entry `finalize` appends.
 """
 
@@ -10,16 +10,16 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import app.integrations.slack.consumer as consumer_mod
-from app.agents.protocol import events as ev
-from app.agents.protocol.wire import encode_event, encode_terminal
-from app.agents.runs.models import RunDB
-from app.agents.runs.state import RunStatus
 from app.integrations.slack.consumer import (
     SlackProtocolAdapter,
     SlackRunConsumer,
     build_slack_delivery,
     build_slack_run_consumer,
 )
+from app.runtime.protocol import events as ev
+from app.runtime.protocol.wire import encode_event, encode_terminal
+from app.runtime.runs.models import RunDB
+from app.runtime.runs.state import RunStatus
 
 
 def _record(delivery=None) -> RunDB:
@@ -316,7 +316,7 @@ async def test_cancelled_runs_stay_silent(monkeypatch):
 async def test_consumer_posts_connect_prompt_on_reauth_gated_error(monkeypatch):
     """A run refused by the worker's OAuth pre-flight must surface the
     Connect button in the Slack thread, not the generic failure notice."""
-    from app.agents.runs.state import MCP_REAUTH_ERROR
+    from app.runtime.runs.state import MCP_REAUTH_ERROR
 
     monkeypatch.setattr(
         consumer_mod.RunService,

@@ -1,7 +1,7 @@
 """The Langfuse client and LangChain callback handler, built lazily.
 
 Lazily on purpose. These used to be module-level constants, evaluated at import
-time — and `runtime.py` imports this module, so *any* failure constructing the
+time — and `app/runtime/agent.py` imports this module, so *any* failure constructing the
 client (a malformed base URL, a Langfuse SDK that validates eagerly) took down
 every import of the agent runtime, at startup, for an optional integration
 (design review §5.10). Now a bad configuration can at worst break tracing.

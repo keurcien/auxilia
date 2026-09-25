@@ -186,8 +186,8 @@ Because agents have a persistent-store side and a runtime-execution side, two cl
 
 | Class                                        | What it holds                                                                                            | Methods                                                                    | Typical caller                                  |
 | -------------------------------------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------- |
-| `ResolvedAgent` (in `app/agents/runtime.py`) | `config: AgentResponse` + `toolset: Toolset`                                                             | `.resolve(...)` (classmethod factory), `.compile(model)`                   | Internal: subagent compilation, `Agent.build()` |
-| `Agent` (in `app/agents/runtime.py`)         | `thread`, `model`, `middleware`, `callbacks`, the resolved parent agent, `list[ResolvedAgent]` subagents | `.build(thread, db)` (classmethod factory), `.invoke(...)`, `.stream(...)` | Public: routers, integrations                   |
+| `ResolvedAgent` (in `app/runtime/agent.py`) | `config: AgentResponse` + `toolset: Toolset`                                                             | `.resolve(...)` (classmethod factory), `.compile(model)`                   | Internal: subagent compilation, `Agent.build()` |
+| `Agent` (in `app/runtime/agent.py`)         | `thread`, `model`, `middleware`, `callbacks`, the resolved parent agent, `list[ResolvedAgent]` subagents | `.build(thread, db)` (classmethod factory), `.invoke(...)`, `.stream(...)` | Public: routers, integrations                   |
 
 Public API reads:
 
@@ -326,7 +326,7 @@ Two acceptable styles, chosen by what's in the file:
 | Style                                               | When                                                         | Examples                                                                                                                                                            |
 | --------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Verb / abstract noun**                            | The file is a collection of pure helper functions on a topic | `serialization.py`, `encryption.py`, `connectivity.py`                                                                                                              |
-| **Concrete noun** (often a class name in lowercase) | The file is centered on one class                            | `toolset.py` (`Toolset`), `runtime.py` (`Agent`, `ResolvedAgent`), `factory.py` (`*Factory`), `repository.py`, `service.py`, `router.py`, `models.py`, `schemas.py` |
+| **Concrete noun** (often a class name in lowercase) | The file is centered on one class                            | `toolset.py` (`Toolset`), `agent.py` (`Agent`, `ResolvedAgent`), `factory.py` (`*Factory`), `repository.py`, `service.py`, `router.py`, `models.py`, `schemas.py` |
 
 Don't create `utils.py` catch-alls. If a helper has a topic, name the file after the topic.
 

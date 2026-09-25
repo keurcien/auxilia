@@ -3,7 +3,7 @@
 # Threads are created when the user picks an agent via the agent picker
 # (triggered by @auxilia mention). Subsequent messages in that thread are
 # routed to the configured agent by *enqueuing a durable run* — the web tier
-# never executes the agent itself (see `app/agents/runs/` and `consumer.py`).
+# never executes the agent itself (see `app/runtime/runs/` and `consumer.py`).
 
 import logging
 
@@ -11,12 +11,6 @@ from slack_sdk.web.async_client import AsyncWebClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.core.service import AgentService
-from app.agents.hitl import (
-    PendingInterrupt,
-    load_interrupt_scope,
-    pending_approval_requests,
-)
-from app.agents.runs.service import RunService
 from app.auth.settings import auth_settings
 from app.database import AsyncSessionLocal, get_checkpointer
 from app.exceptions import (
@@ -35,6 +29,12 @@ from app.integrations.slack.consumer import build_slack_delivery
 from app.integrations.slack.models import SlackEvent, SlackInteractionPayload
 from app.integrations.slack.settings import slack_settings
 from app.integrations.slack.utils import get_user_info, resolve_user
+from app.runtime.hitl import (
+    PendingInterrupt,
+    load_interrupt_scope,
+    pending_approval_requests,
+)
+from app.runtime.runs.service import RunService
 from app.threads.models import ThreadDB
 from app.users.repository import UserRepository
 

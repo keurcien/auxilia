@@ -76,7 +76,7 @@ def _configure(monkeypatch):
 
 
 def test_a_broken_langfuse_config_does_not_break_the_agent_runtime(monkeypatch):
-    """The regression: this was a module-level constant, and `runtime.py` imports
+    """The regression: this was a module-level constant, and `app/runtime/agent.py` imports
     it — so a bad base URL took down every import of the agent runtime at
     startup, for an optional integration."""
     _configure(monkeypatch)

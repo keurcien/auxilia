@@ -1,6 +1,6 @@
 """deepagents' ``SkillsMiddleware``, configured for this app.
 
-A leaf module (deepagents only) so ``app/agents/harness.py`` can import it
+A leaf module (deepagents only) so ``app/runtime/harness.py`` can import it
 without pulling in the skills service layer.
 """
 

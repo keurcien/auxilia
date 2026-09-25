@@ -3,7 +3,7 @@ from uuid import UUID
 
 from sqlmodel import SQLModel
 
-from app.agents.runs.state import RunStatus
+from app.runtime.runs.state import RunStatus
 from app.triggers.models import TriggerBase
 
 

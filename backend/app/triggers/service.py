@@ -9,10 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.core.service import AgentService
 from app.agents.models import AgentDB, EffectivePermission
-from app.agents.runs.service import RunService
 from app.database import get_db
 from app.exceptions import DomainValidationError, PermissionDeniedError
 from app.model_providers.service import ModelService
+from app.runtime.runs.service import RunService
 from app.service import BaseService
 from app.threads.models import ThreadSource
 from app.threads.schemas import ThreadCreate
