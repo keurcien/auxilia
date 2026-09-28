@@ -1,6 +1,6 @@
 [project]
 name = "backend"
-version = "0.9.4"
+version = "0.9.5"
 description = "auxilia backend — FastAPI service for hosting MCP-powered AI assistants"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
@@ -29,7 +29,7 @@ dependencies = [
     "mcp>=2.2.0,<3",
     "slack-sdk>=3.34.0",
     "aiohttp>=3.13.3",
-    "langfuse>=4.14.4",
+    "langfuse>=4.15.6",
     "h2>=4.3.0",
     "deepagents>=0.7.13",
     "opensandbox>=0.1.6",
