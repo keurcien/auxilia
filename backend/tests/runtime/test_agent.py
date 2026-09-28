@@ -44,7 +44,6 @@ def _build_agent(
         agent=resolved,
         model=model if model is not None else MagicMock(),
         middleware=middleware if middleware is not None else [],
-        callbacks=[],
         subagents=[],
         provider=provider,
         skills=skills,

@@ -20,9 +20,9 @@ LANGFUSE_BASE_URL=https://cloud.langfuse.com  # or your self-hosted URL
 LANGFUSE_TIMEOUT=15                           # request timeout in seconds
 ```
 
-On startup, the backend instantiates a shared `Langfuse` client and attaches a `CallbackHandler` to every LangGraph invocation. If any of the three credential/URL variables is missing, the integration is silently disabled. `LANGFUSE_TIMEOUT` is optional, defaults to 15 seconds, and must be a positive integer.
+On the first agent run, the backend lazily initializes a shared `Langfuse` client and attaches a `CallbackHandler` to LangGraph invocations. The adapter propagates the thread's session and user IDs throughout each run, including child model calls, so Langfuse can aggregate session costs. If any of the three credential/URL variables is missing, the integration is disabled without loading the Langfuse SDK. Initialization failures are logged and agent execution continues without tracing. `LANGFUSE_TIMEOUT` is optional, defaults to 15 seconds, and must be a positive integer.
 
-See `app/integrations/langfuse/callback.py` for the wiring.
+The runtime accepts the provider-neutral `RunTracing` interface in `app/integrations/tracing.py`: callbacks, a context manager created for each run, and a shutdown flush. The Langfuse implementation lives in `app/integrations/langfuse/`. Another provider can implement the same interface and be selected in `get_tracing()` without changing the agent runtime. With no provider selected, the runtime uses empty callbacks and a no-op context.
 
 ## Self-hosted Langfuse
 

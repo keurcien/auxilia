@@ -15,9 +15,9 @@ from app.auth.tokens.router import router as tokens_router
 from app.background import registry as background_loops
 from app.database import close_checkpointer_pool
 from app.exceptions import DomainError, root_cause, status_for
-from app.integrations.langfuse.callback import flush_langfuse
 from app.integrations.slack.consumer import build_slack_run_consumer
 from app.integrations.slack.router import router as slack_router
+from app.integrations.tracing import flush_tracing
 from app.invites.router import router as invites_router
 from app.logging_config import configure_logging
 from app.mcp.apps.router import router as mcp_apps_router
@@ -100,12 +100,12 @@ async def lifespan(app: FastAPI):
             for task in background:
                 task.cancel()
             await asyncio.gather(*background, return_exceptions=True)
-            # Ship buffered traces before the instance is frozen. Langfuse
-            # batches spans on a background timer, and on Cloud Run there is no
+            # Ship buffered traces before the instance is frozen. Providers
+            # batch spans on a background timer, and on Cloud Run there is no
             # timer left once the last request drains — without this, the tail
             # of every scale-to-zero cycle is lost. Runs in a thread: the SDK's
             # flush is blocking, and this is the event loop's last breath.
-            await asyncio.to_thread(flush_langfuse)
+            await asyncio.to_thread(flush_tracing)
             await close_checkpointer_pool()
             await close_redis()
 

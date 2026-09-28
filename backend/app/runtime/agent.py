@@ -22,7 +22,6 @@ from langchain_core.messages import (
     HumanMessage,
     convert_to_messages,
 )
-from langfuse import propagate_attributes
 from langgraph.errors import GraphRecursionError
 from langgraph.stream.transformers import UpdatesTransformer
 from langgraph.types import Command
@@ -32,7 +31,7 @@ from app.agents.core.repository import AgentRepository
 from app.agents.run_spec import AgentSpec
 from app.database import AsyncSessionLocal, get_checkpointer
 from app.exceptions import DomainValidationError, NotFoundError
-from app.integrations.langfuse.callback import get_langfuse_callback_handler
+from app.integrations.tracing import NoOpTracing, RunTracing, get_tracing
 from app.model_providers.catalog import ChatModelFactory
 from app.model_providers.service import ModelService
 from app.runtime.checkpoints import get_checkpoint_state
@@ -455,16 +454,16 @@ class Agent:
         agent: ResolvedAgent,
         model,
         middleware: list,
-        callbacks: list,
         subagents: list[ResolvedAgent],
         provider: str | None = None,
         skills: list[SkillBundle] = (),
+        tracing: RunTracing | None = None,
     ):
         self.thread = thread
         self.agent = agent
         self.model = model
         self.middleware = middleware
-        self.callbacks = callbacks
+        self.tracing = tracing if tracing is not None else NoOpTracing()
         self.subagents = subagents
         self.provider = provider
         # One skill set for the whole graph, frozen for this run.
@@ -478,7 +477,6 @@ class Agent:
             "user_id": self.thread.user_id,
             "thread_id": self.thread.id,
             "agent_id": self.thread.agent_id,
-            "langfuse_session_id": self.thread.id,
         }
 
     @property
@@ -486,7 +484,7 @@ class Agent:
         return {
             "configurable": {"thread_id": self.thread.id},
             "recursion_limit": agent_settings.recursion_limit,
-            "callbacks": self.callbacks,
+            "callbacks": self.tracing.callbacks,
             "metadata": self.metadata,
         }
 
@@ -541,15 +539,12 @@ class Agent:
         # of what the supervisor and its subagents have enabled.
         skills = await resolve_run_skills(db, spec.all_agent_ids)
 
-        handler = get_langfuse_callback_handler()
-        callbacks = [handler] if handler is not None else []
-
         return cls(
             thread=thread,
             agent=agent,
             model=model,
             middleware=middleware,
-            callbacks=callbacks,
+            tracing=get_tracing(),
             subagents=subagents,
             provider=resolved.provider,
             skills=skills,
@@ -675,7 +670,7 @@ class Agent:
         """
         async with AsyncExitStack() as stack, get_checkpointer() as checkpointer:
             stack.enter_context(
-                propagate_attributes(
+                self.tracing.run_context(
                     session_id=str(self.thread.id), user_id=str(self.thread.user_id)
                 )
             )
