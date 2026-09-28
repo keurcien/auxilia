@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.6](https://github.com/keurcien/auxilia/compare/backend-v0.9.5...backend-v0.9.6) (2026-09-28)
+
+
+### Bug Fixes
+
+* **tracing:** propagate session attributes through optional adapters ([#384](https://github.com/keurcien/auxilia/issues/384)) ([9cee060](https://github.com/keurcien/auxilia/commit/9cee060363b910a7be9a6ff5dce05539d56d67ec))
+
 ## [0.9.5](https://github.com/keurcien/auxilia/compare/backend-v0.9.4...backend-v0.9.5) (2026-09-28)
 
 
