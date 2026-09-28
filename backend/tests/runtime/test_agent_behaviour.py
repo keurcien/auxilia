@@ -17,6 +17,7 @@ import pytest
 from langchain_core.messages import AIMessage
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
+from opentelemetry import context as otel_context
 
 from app.agents.run_spec import AgentSpec
 from app.exceptions import DomainValidationError
@@ -174,6 +175,27 @@ async def test_stream_runs_the_graph_and_emits_the_model_answer(in_memory_runtim
     # The instructions reached the model as its system prompt.
     assert model.calls[0][0].type == "system"
     assert system_text(model).startswith("You are a test agent")
+
+
+@pytest.mark.asyncio
+async def test_session_attributes_reach_model_calls(in_memory_runtime):
+    agent, _ = build_agent(script=["done"])
+    observed = []
+    next_message = ScriptedChatModel._next
+
+    def record_context(model):
+        observed.append(
+            (
+                otel_context.get_value("langfuse.propagated.session_id"),
+                otel_context.get_value("langfuse.propagated.user_id"),
+            )
+        )
+        return next_message(model)
+
+    with patch.object(ScriptedChatModel, "_next", record_context):
+        await collect(agent)
+
+    assert observed == [("thread-1", "user-1")]
 
 
 @pytest.mark.asyncio

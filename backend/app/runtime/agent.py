@@ -22,6 +22,7 @@ from langchain_core.messages import (
     HumanMessage,
     convert_to_messages,
 )
+from langfuse import propagate_attributes
 from langgraph.errors import GraphRecursionError
 from langgraph.stream.transformers import UpdatesTransformer
 from langgraph.types import Command
@@ -673,6 +674,11 @@ class Agent:
         the live tools, and resolves the request input and run config in one place.
         """
         async with AsyncExitStack() as stack, get_checkpointer() as checkpointer:
+            stack.enter_context(
+                propagate_attributes(
+                    session_id=str(self.thread.id), user_id=str(self.thread.user_id)
+                )
+            )
             # Open every toolset (parent + subagents) concurrently.
             # return_exceptions=True so all enters finish before we
             # proceed or raise — a bare gather would orphan in-flight
