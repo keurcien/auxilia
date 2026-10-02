@@ -1,10 +1,14 @@
-name: Publish Docker image
+name: Publish container image
 
 on:
   workflow_call:
     inputs:
       component:
         description: "backend or web"
+        required: true
+        type: string
+      registry:
+        description: "dockerhub or ghcr"
         required: true
         type: string
       version:
@@ -18,13 +22,19 @@ on:
         required: true
         type: choice
         options: [backend, web]
+      registry:
+        description: "Container registry"
+        required: true
+        type: choice
+        options: [dockerhub, ghcr]
       version:
         description: "Version tag, e.g. 0.4.0"
         required: true
         type: string
 
-env:
-  IMAGE: keurcien/auxilia-${{ inputs.component }}
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   build:
@@ -38,29 +48,48 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Prepare platform slug
-        run: echo "PLATFORM_PAIR=${platform//\//-}" >> "$GITHUB_ENV"
+      - name: Prepare publishing target
+        run: |
+          case "$registry" in
+            dockerhub) image="keurcien/auxilia-${component}" ;;
+            ghcr) image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/auxilia-${component}" ;;
+            *) echo "Unsupported registry: $registry" >&2; exit 1 ;;
+          esac
+          echo "IMAGE=$image" >> "$GITHUB_ENV"
+          echo "PLATFORM_PAIR=${platform//\//-}" >> "$GITHUB_ENV"
         env:
+          component: ${{ inputs.component }}
           platform: ${{ matrix.platform }}
+          registry: ${{ inputs.registry }}
 
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
-      - uses: docker/login-action@v4
+      - name: Log in to Docker Hub
+        if: inputs.registry == 'dockerhub'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Log in to GitHub Container Registry
+        if: inputs.registry == 'ghcr'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build and push by digest
         id: build
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: ${{ inputs.component }}
           platforms: ${{ matrix.platform }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=${{ inputs.component }}-${{ env.PLATFORM_PAIR }}
-          cache-to: type=gha,mode=max,scope=${{ inputs.component }}-${{ env.PLATFORM_PAIR }}
+          cache-from: type=gha,scope=${{ inputs.registry }}-${{ inputs.component }}-${{ env.PLATFORM_PAIR }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.registry }}-${{ inputs.component }}-${{ env.PLATFORM_PAIR }}
 
       - name: Export digest
         run: |
@@ -68,9 +97,9 @@ jobs:
           digest="${{ steps.build.outputs.digest }}"
           touch "${{ runner.temp }}/digests/${digest#sha256:}"
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: digests-${{ inputs.component }}-${{ env.PLATFORM_PAIR }}
+          name: ${{ inputs.registry }}-digests-${{ inputs.component }}-${{ env.PLATFORM_PAIR }}
           path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
           retention-days: 1
@@ -79,18 +108,40 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     steps:
-      - uses: actions/download-artifact@v8
+      - name: Prepare publishing target
+        run: |
+          case "$registry" in
+            dockerhub) image="keurcien/auxilia-${component}" ;;
+            ghcr) image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/auxilia-${component}" ;;
+            *) echo "Unsupported registry: $registry" >&2; exit 1 ;;
+          esac
+          echo "IMAGE=$image" >> "$GITHUB_ENV"
+        env:
+          component: ${{ inputs.component }}
+          registry: ${{ inputs.registry }}
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: ${{ runner.temp }}/digests
-          pattern: digests-${{ inputs.component }}-*
+          pattern: ${{ inputs.registry }}-digests-${{ inputs.component }}-*
           merge-multiple: true
 
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
-      - uses: docker/login-action@v4
+      - name: Log in to Docker Hub
+        if: inputs.registry == 'dockerhub'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to GitHub Container Registry
+        if: inputs.registry == 'ghcr'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create and push manifest list
         working-directory: ${{ runner.temp }}/digests
@@ -106,13 +157,16 @@ jobs:
           IS_MAIN: ${{ github.ref == 'refs/heads/main' }}
         run: |
           tags=(-t "$IMAGE:$VERSION")
+          sources=()
+          for digest in *; do
+            sources+=("$IMAGE@sha256:$digest")
+          done
           # An `if`, not `[ … ] && …`: steps run under `bash -e`, where the
           # test returning 1 on a branch build would fail the step outright.
           if [ "$IS_MAIN" = "true" ]; then
             tags+=(-t "$IMAGE:latest")
           fi
-          docker buildx imagetools create "${tags[@]}" \
-            $(printf "$IMAGE@sha256:%s " *)
+          docker buildx imagetools create "${tags[@]}" "${sources[@]}"
 
       - name: Inspect
         env:
