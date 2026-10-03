@@ -208,6 +208,17 @@ servers:
       server lets an AI assistant search and retrieve meeting videos, transcripts,
       participants, comments, and usage insights from a Praiz workspace.
 
+  - name: Puppetflow
+    url: "https://mcp.puppetflow.com/mcp"
+    auth_type: oauth2
+    icon_url: "https://puppetflow.com/favicon/favicon-196x196.png"
+    supports_dcr: true
+    description: >-
+      Puppetflow is a browser automation platform for building code and visual
+      workflows. Its MCP server lets AI assistants search, author, publish, and
+      run flows, inspect runs and artifacts, and manage workspace automation
+      through each user's existing permissions.
+
   - name: Sentry
     url: "https://mcp.sentry.dev/mcp"
     auth_type: oauth2
