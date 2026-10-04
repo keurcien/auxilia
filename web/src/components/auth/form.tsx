@@ -1,4 +1,4 @@
-/** Form primitives matching the AuthShell design (mono uppercase labels, petrol focus ring). */
+/** Form primitives matching the AuthShell design (mono labels, petrol focus ring). */
 
 export function AuthErrorAlert({ error }: { error: string | null }) {
 	if (!error) return null;
@@ -23,7 +23,7 @@ export function AuthField({
 		<div>
 			<label
 				htmlFor={id}
-				className="mb-[7px] block font-mono text-[10.5px] font-semibold tracking-[0.09em] text-label"
+				className="mb-[7px] block text-[10.5px] font-semibold text-label"
 			>
 				{label}
 			</label>

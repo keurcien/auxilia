@@ -34,7 +34,8 @@ from app.exceptions import DomainValidationError, NotFoundError
 from app.integrations.tracing import NoOpTracing, RunTracing, get_tracing
 from app.model_providers.catalog import ChatModelFactory
 from app.model_providers.service import ModelService
-from app.runtime.checkpoints import get_checkpoint_state
+from app.observability.service import WorkspaceObservabilityService
+from app.runtime.checkpoints import checkpoint_thread_id, get_checkpoint_state
 from app.runtime.harness import (
     HARNESS_CONFIG,
     harness_middleware,
@@ -381,7 +382,12 @@ class ResolvedAgent:
         for the parent and every subagent together.
         """
         prepared = await Toolset.prepare(
-            spec.mcp_servers, db, user_id, apply_ui=is_parent, scope=scope
+            spec.mcp_servers,
+            db,
+            user_id,
+            spec.workspace_id,
+            apply_ui=is_parent,
+            scope=scope,
         )
         return cls(config=spec, prepared=prepared, sandbox=cls._resolve_sandbox(spec))
 
@@ -482,7 +488,11 @@ class Agent:
     @property
     def _stream_config(self) -> dict:
         return {
-            "configurable": {"thread_id": self.thread.id},
+            "configurable": {
+                "thread_id": checkpoint_thread_id(
+                    self.thread.workspace_id, self.thread.id
+                )
+            },
             "recursion_limit": agent_settings.recursion_limit,
             "callbacks": self.tracing.callbacks,
             "metadata": self.metadata,
@@ -500,13 +510,17 @@ class Agent:
         # One read for the whole graph. This used to be a full `AgentService.get`
         # per agent, run sequentially for subagents (§1.2): ~8 + 7N round-trips
         # before the first token.
-        spec = await AgentRepository(db).get_run_spec(thread.agent_id)
+        spec = await AgentRepository(db, thread.workspace_id).get_run_spec(
+            thread.agent_id
+        )
         if spec is None:
             raise NotFoundError("Agent not found")
 
         # Every MCP server the graph touches, in one query — the parent's and
         # each subagent's (design review §2.2 / P2-6).
-        scope = await MCPResolutionScope.build(spec.all_mcp_bindings, db, user_id)
+        scope = await MCPResolutionScope.build(
+            spec.all_mcp_bindings, db, user_id, thread.workspace_id
+        )
         agent = await ResolvedAgent.resolve(
             spec.agent, db, user_id, is_parent=True, scope=scope
         )
@@ -514,7 +528,7 @@ class Agent:
         # Backstop for the RunService.create gate: covers the race where the
         # model is disabled between enqueue and worker pickup, and any future
         # path that builds an agent without going through `create`.
-        resolved = await ModelService(db).ensure_available(
+        resolved = await ModelService(db, thread.workspace_id).ensure_available(
             thread.model_id, reasoning_effort=thread.reasoning_effort
         )
         model = ChatModelFactory().create(
@@ -537,14 +551,24 @@ class Agent:
 
         # One skill set per graph: every agent lists, reads and runs the union
         # of what the supervisor and its subagents have enabled.
-        skills = await resolve_run_skills(db, spec.all_agent_ids)
+        skills = await resolve_run_skills(db, spec.all_agent_ids, thread.workspace_id)
+        try:
+            observability = await WorkspaceObservabilityService(db).get_runtime_config(
+                thread.workspace_id
+            )
+        except Exception:  # noqa: BLE001 — optional tracing must never block a run
+            logger.warning(
+                "Could not load observability settings; continuing without tracing",
+                exc_info=True,
+            )
+            observability = None
 
         return cls(
             thread=thread,
             agent=agent,
             model=model,
             middleware=middleware,
-            tracing=get_tracing(),
+            tracing=get_tracing(observability),
             subagents=subagents,
             provider=resolved.provider,
             skills=skills,
@@ -646,7 +670,9 @@ class Agent:
                 if not has_input:
                     resolved_input = {"messages": [point.message]}
                 if point.checkpoint_id is None:
-                    await checkpointer.adelete_thread(self.thread.id)
+                    await checkpointer.adelete_thread(
+                        checkpoint_thread_id(self.thread.workspace_id, self.thread.id)
+                    )
                 else:
                     config["configurable"]["checkpoint_id"] = point.checkpoint_id
         return config, resolved_input
@@ -769,7 +795,7 @@ class Agent:
         even if the run then fails.
         """
         async with AsyncSessionLocal() as db:
-            await ThreadRepository(db).set_sandbox_id(
+            await ThreadRepository(db, self.thread.workspace_id).set_sandbox_id(
                 self.thread.id, sandbox_id, source_id
             )
             await db.commit()
@@ -887,7 +913,7 @@ def extract_invoke_result(
     }
 
 
-async def read_run_result(thread_id: str) -> dict:
+async def read_run_result(workspace_id: UUID, thread_id: str) -> dict:
     """Read a thread's final-turn result from its checkpoint (out-of-request).
 
     The durable runtime streams a run to its event log rather than returning a
@@ -895,7 +921,9 @@ async def read_run_result(thread_id: str) -> dict:
     the LangGraph checkpoint once the run is terminal.
     """
     async with get_checkpointer() as checkpointer:
-        state = await get_checkpoint_state(checkpointer, thread_id)
+        state = await get_checkpoint_state(
+            checkpointer, checkpoint_thread_id(workspace_id, thread_id)
+        )
     return extract_invoke_result(state.messages, state.structured_response)
 
 

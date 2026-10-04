@@ -3,11 +3,12 @@
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Agent, AgentPermission } from "@/types/agents";
-import { agentPastel, agentColorBackground } from "@/lib/colors";
+import { agentColorBackground } from "@/lib/colors";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import ArchivedAgentDialog from "@/app/(protected)/agents/components/archived-agent-dialog";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
-import Image from "next/image";
+import { AgentAvatar } from "@/components/ui/agent-avatar";
+import { mcpServerImageUrl } from "@/lib/api/resources/mcp-servers";
 
 interface AgentCardProps {
 	agent: Agent;
@@ -73,6 +74,7 @@ export default function AgentCard({
 				id: s.mcpServerId,
 				name: full?.name ?? s.mcpServerId,
 				iconUrl: full?.iconUrl,
+				imageRevision: full?.imageRevision,
 			};
 		});
 	}, [agent.mcpServers, mcpServers]);
@@ -93,8 +95,6 @@ export default function AgentCard({
 		router.push(`/agents/${agent.id}`);
 	};
 
-	const color = agent.color || "#9E9E9E";
-	const pastel = agentPastel(color);
 	const ownerName = agent.owner?.name || agent.owner?.email;
 
 	return (
@@ -105,12 +105,14 @@ export default function AgentCard({
 			>
 				{/* Head: tile · name/handle · role */}
 				<div className="mb-2.5 flex min-w-0 items-center gap-[11px]">
-					<span
-						style={{ background: pastel.pill }}
-						className="flex size-[38px] shrink-0 items-center justify-center rounded-[10px] text-[19px]"
-					>
-						{agent.emoji || "🤖"}
-					</span>
+					<AgentAvatar
+						agentId={agent.id}
+						name={agent.name}
+						imageRevision={agent.imageRevision}
+						color={agent.color}
+						emoji={agent.emoji}
+						size="sm"
+					/>
 					<div className="min-w-0 flex-1">
 						<div className="truncate font-[family-name:var(--font-jakarta-sans)] text-[14.5px] font-bold tracking-[-0.01em] text-[#1e2d28] dark:text-foreground">
 							{agent.name}
@@ -150,10 +152,12 @@ export default function AgentCard({
 									title={server.name}
 									className="-ml-1.5 flex size-5 items-center justify-center overflow-hidden rounded-full border border-[#e1ebe6] bg-surface first:ml-0 dark:border-white/10 dark:bg-white/5"
 								>
-									<Image
-										unoptimized
+									{/* eslint-disable-next-line @next/next/no-img-element */}
+									<img
 										src={
-											server.iconUrl ??
+											(server.imageRevision
+												? mcpServerImageUrl(server.id, server.imageRevision)
+												: server.iconUrl) ??
 											"https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/mcp.png"
 										}
 										alt={server.name}

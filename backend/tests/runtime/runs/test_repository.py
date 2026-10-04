@@ -21,6 +21,7 @@ from app.threads.models import ThreadDB
 
 
 pytestmark = pytest.mark.usefixtures("run_db")
+WORKSPACE_ID = UUID("00000000-0000-4000-8000-000000000001")
 
 
 def _user() -> str:
@@ -29,7 +30,14 @@ def _user() -> str:
 
 async def _add_thread(run_db, thread_id: str) -> None:
     async with run_db() as db:
-        db.add(ThreadDB(id=thread_id, user_id=uuid4(), agent_id=uuid4()))
+        db.add(
+            ThreadDB(
+                id=thread_id,
+                workspace_id=WORKSPACE_ID,
+                user_id=uuid4(),
+                agent_id=uuid4(),
+            )
+        )
         await db.commit()
 
 
@@ -41,6 +49,7 @@ async def _get_thread(run_db, thread_id: str) -> ThreadDB | None:
 async def _add_run(run_db, **kwargs) -> RunDB:
     """Insert a run row directly (bypasses create-time guards) for tests that
     need explicit created_at/status."""
+    kwargs.setdefault("workspace_id", WORKSPACE_ID)
     run = RunDB(**kwargs)
     async with run_db() as db:
         db.add(run)
@@ -78,8 +87,9 @@ async def test_create_rejects_when_thread_has_active_run(redis):
         await service.create(thread_id="t2", user_id=_user(), input={})
 
 
-async def test_create_enqueue_allows_waiting_run(redis):
+async def test_create_enqueue_allows_waiting_run(redis, run_db):
     service = RunService(redis)
+    await _add_thread(run_db, "t3")
     await service.create(thread_id="t3", user_id=_user(), input={})
     queued = await service.create(
         thread_id="t3", user_id=_user(), input={}, multitask_strategy="enqueue"
@@ -168,7 +178,7 @@ async def test_cancel_pending_finalizes_immediately(redis):
     record = await service.create(thread_id="t8", user_id=_user(), input={})
     out = await service.cancel(record.id)
     assert out.status == RunStatus.cancelled
-    assert await service.get_active("t8") is None
+    assert await service.get_active("t8", WORKSPACE_ID) is None
 
 
 async def test_cancel_expected_guard_spares_claimed_run(redis):
@@ -206,10 +216,14 @@ async def test_stream_missing_terminal_backstop(redis, run_db):
     from app.runtime.runs.events import RunEventStream
     from app.runtime.runs.repository import RunRepository
 
-    await RunEventStream(record.id, redis).publish('{"method": "values", "params": {}}')
+    await RunEventStream(record.id, redis, workspace_id=record.workspace_id).publish(
+        '{"method": "values", "params": {}}'
+    )
     # Simulate the crash: terminal in Postgres, no terminal entry in Redis.
     async with run_db() as db:
-        await RunRepository(db).finalize_run(claimed.id, RunStatus.error, error="x")
+        await RunRepository(db, WORKSPACE_ID).finalize_run(
+            claimed.id, RunStatus.error, error="x"
+        )
         await db.commit()
     chunks = [c async for c in service.stream(record.id, "0", block_ms=50)]
     assert any('"method": "values"' in c for c in chunks)
@@ -235,7 +249,7 @@ async def test_list_active_for_user(redis):
     await service.create(thread_id="t12", user_id=_user(), input={})
     done = await service.create(thread_id="t13", user_id=user, input={})
     await service.finalize(done.id, RunStatus.cancelled)
-    active = await service.list_active_for_user(user)
+    active = await service.list_active_for_user(user, WORKSPACE_ID)
     assert [r.id for r in active] == [mine.id]
 
 
@@ -257,11 +271,11 @@ async def test_list_active_for_user_includes_recently_finished(redis, run_db):
         updated_at=datetime.now(UTC) - timedelta(hours=1),
     )
 
-    runs = await service.list_active_for_user(user, recent_seconds=60)
+    runs = await service.list_active_for_user(user, WORKSPACE_ID, recent_seconds=60)
     assert {r.id for r in runs} == {active.id, failed.id}
     assert stale.id not in {r.id for r in runs}
     # Default stays active-only.
-    runs = await service.list_active_for_user(user)
+    runs = await service.list_active_for_user(user, WORKSPACE_ID)
     assert [r.id for r in runs] == [active.id]
 
 
@@ -351,11 +365,11 @@ async def test_stream_poll_follows_runs_with_one_limited_query(redis, run_db):
     event.listen(engine, "before_cursor_execute", record)
     try:
         service = ProtocolService(redis)
-        assert (await service._next_run("tn", after=None)).id == tie_b.id
-        assert (await service._next_run("tn", after=first)).id == tie_a.id
-        assert (await service._next_run("tn", after=tie_a)).id == tie_b.id
-        assert await service._next_run("tn", after=tie_b) is None
-        assert await service._next_run("tmissing", after=None) is None
+        assert (await service._next_run(WORKSPACE_ID, "tn", after=None)).id == tie_b.id
+        assert (await service._next_run(WORKSPACE_ID, "tn", after=first)).id == tie_a.id
+        assert (await service._next_run(WORKSPACE_ID, "tn", after=tie_a)).id == tie_b.id
+        assert await service._next_run(WORKSPACE_ID, "tn", after=tie_b) is None
+        assert await service._next_run(WORKSPACE_ID, "tmissing", after=None) is None
     finally:
         event.remove(engine, "before_cursor_execute", record)
 

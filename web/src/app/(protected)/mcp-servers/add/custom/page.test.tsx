@@ -62,6 +62,7 @@ describe("CustomMCPServerPage", () => {
 				url: "https://search.example.com/mcp",
 				authType: "api_key",
 				description: undefined,
+				group: null,
 				iconUrl: undefined,
 				apiKey: "secret-token",
 				oauthClientId: undefined,

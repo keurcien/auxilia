@@ -15,10 +15,15 @@ from app.runtime.runs import keys
 class RunLiveness:
     """The liveness key for a single run."""
 
-    def __init__(self, run_id: str, redis: Redis | None = None):
+    def __init__(
+        self,
+        run_id: str,
+        redis: Redis | None = None,
+        workspace_id: object | None = None,
+    ):
         self.run_id = run_id
         self.redis: Redis = redis or get_redis()
-        self._key = keys.run_alive_key(run_id)
+        self._key = keys.run_alive_key(run_id, workspace_id)
 
     async def stamp(self, *, ttl: int) -> None:
         """Refresh the heartbeat; the key expires `ttl` seconds after the last

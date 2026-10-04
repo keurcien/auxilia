@@ -142,6 +142,7 @@ export type ChatHeaderData = {
 	agentName: string | null;
 	agentEmoji: string | null;
 	agentColor: string | null;
+	agentImageRevision: string | null;
 	modelId: string | null;
 	triggerId: string | null;
 	triggerName: string | null;
@@ -155,6 +156,7 @@ export function chatHeaderFromThread(thread: Thread): ChatHeaderData {
 		agentName: thread.agentName ?? null,
 		agentEmoji: thread.agentEmoji ?? null,
 		agentColor: thread.agentColor ?? null,
+		agentImageRevision: thread.agentImageRevision ?? null,
 		modelId: thread.modelId ?? null,
 		triggerId: isTrigger ? (thread.triggerId ?? null) : null,
 		triggerName: isTrigger ? (thread.firstMessageContent ?? null) : null,

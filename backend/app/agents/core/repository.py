@@ -10,6 +10,7 @@ from sqlmodel import SQLModel, select
 
 from app.agents.models import (
     AgentDB,
+    AgentImageDB,
     AgentMCPServerDB,
     AgentSandboxBase,
     AgentSandboxDB,
@@ -34,12 +35,19 @@ class AgentAccess(NamedTuple):
 
 
 class AgentRepository(BaseRepository[AgentDB]):
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, workspace_id: UUID | None = None):
         super().__init__(AgentDB, db)
+        self.workspace_id = workspace_id
 
-    #: The columns the list projection renders (`AgentListResponse`), plus
-    #: `tag_id`, which the service resolves into a `TagInfo`. Everything else
-    #: — `instructions` above all, which runs to tens of KB per agent and is
+    async def get_scoped(self, agent_id: UUID) -> AgentDB | None:
+        stmt = select(AgentDB).where(AgentDB.id == agent_id)
+        if self.workspace_id is not None:
+            stmt = stmt.where(AgentDB.workspace_id == self.workspace_id)
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    #: The columns the list projection renders (`AgentListResponse`).
+    #: Everything else — `instructions` above all, which runs to tens of KB per agent and is
     #: repeated once per MCP binding by the join — stays in the database
     #: (design review §3.5).
     LIST_COLUMNS = (
@@ -48,9 +56,10 @@ class AgentRepository(BaseRepository[AgentDB]):
         AgentDB.owner_id,
         AgentDB.emoji,
         AgentDB.color,
+        AgentDB.image_revision,
         AgentDB.description,
+        AgentDB.group,
         AgentDB.is_archived,
-        AgentDB.tag_id,
         AgentDB.created_at,
         AgentDB.updated_at,
     )
@@ -110,6 +119,8 @@ class AgentRepository(BaseRepository[AgentDB]):
         stmt = select(*columns).outerjoin(
             AgentMCPServerDB, AgentDB.id == AgentMCPServerDB.agent_id
         )
+        if self.workspace_id is not None:
+            stmt = stmt.where(AgentDB.workspace_id == self.workspace_id)
         if slim:
             stmt = stmt.options(
                 load_only(*self.LIST_COLUMNS),
@@ -173,6 +184,8 @@ class AgentRepository(BaseRepository[AgentDB]):
                 & (AgentTeamDB.team_id == user_team_id),
             )
         stmt = stmt.where(AgentDB.id == agent_id)
+        if self.workspace_id is not None:
+            stmt = stmt.where(AgentDB.workspace_id == self.workspace_id)
         if not include_archived:
             stmt = stmt.where(AgentDB.is_archived == False)  # noqa: E712
 
@@ -223,6 +236,8 @@ class AgentRepository(BaseRepository[AgentDB]):
                 AgentSubagentDB.id.asc(),
             )
         )
+        if self.workspace_id is not None:
+            stmt = stmt.where(AgentDB.workspace_id == self.workspace_id)
         rows = (await self.db.execute(stmt)).all()
 
         parent: AgentDB | None = None
@@ -255,6 +270,7 @@ class AgentRepository(BaseRepository[AgentDB]):
         def to_spec(agent: AgentDB) -> AgentSpec:
             return AgentSpec(
                 id=agent.id,
+                workspace_id=agent.workspace_id,
                 name=agent.name,
                 instructions=agent.instructions,
                 description=agent.description,
@@ -272,6 +288,8 @@ class AgentRepository(BaseRepository[AgentDB]):
         if not ids:
             return []
         stmt = select(AgentDB).where(AgentDB.id.in_(ids))
+        if self.workspace_id is not None:
+            stmt = stmt.where(AgentDB.workspace_id == self.workspace_id)
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
@@ -294,6 +312,54 @@ class AgentRepository(BaseRepository[AgentDB]):
             return
         stmt = update(AgentDB).where(AgentDB.id == agent_id).values(**values)
         await self.db.execute(stmt)
+
+    async def get_image(self, agent_id: UUID) -> AgentImageDB | None:
+        stmt = select(AgentImageDB).where(AgentImageDB.agent_id == agent_id)
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def _lock_image_parent(self, agent_id: UUID) -> None:
+        stmt = select(AgentDB.id).where(AgentDB.id == agent_id).with_for_update()
+        await self.db.execute(stmt)
+
+    async def set_image(
+        self,
+        agent_id: UUID,
+        *,
+        data: bytes,
+        media_type: str,
+        sha256: str,
+        revision: UUID,
+    ) -> None:
+        await self._lock_image_parent(agent_id)
+        image = await self.get_image(agent_id)
+        if image is None:
+            image = AgentImageDB(
+                agent_id=agent_id,
+                data=data,
+                media_type=media_type,
+                sha256=sha256,
+            )
+        else:
+            image.data = data
+            image.media_type = media_type
+            image.sha256 = sha256
+        self.db.add(image)
+        stmt = (
+            update(AgentDB)
+            .where(AgentDB.id == agent_id)
+            .values(image_revision=revision)
+        )
+        await self.db.execute(stmt)
+        await self.db.flush()
+
+    async def delete_image(self, agent_id: UUID) -> None:
+        await self._lock_image_parent(agent_id)
+        stmt = delete(AgentImageDB).where(AgentImageDB.agent_id == agent_id)
+        await self.db.execute(stmt)
+        stmt = update(AgentDB).where(AgentDB.id == agent_id).values(image_revision=None)
+        await self.db.execute(stmt)
+        await self.db.flush()
 
     async def set_archived(self, agent_id: UUID, *, archived: bool) -> None:
         """Archive or restore, idempotently.

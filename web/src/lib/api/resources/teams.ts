@@ -5,8 +5,10 @@
 import { api } from "@/lib/api/client";
 import type { Team, TeamWrite } from "@/types/users";
 
-export async function listTeams(): Promise<Team[]> {
-	const response = await api.get<Team[]>("/teams/");
+export async function listTeams(workspaceId?: string): Promise<Team[]> {
+	const response = workspaceId
+		? await api.get<Team[]>("/teams/", { params: { workspaceId } })
+		: await api.get<Team[]>("/teams/");
 	return response.data;
 }
 

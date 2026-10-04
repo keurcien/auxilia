@@ -15,7 +15,10 @@ import type { Team as WorkspaceTeam, User as WorkspaceUser } from "@/types/users
 type PermissionLevel = agentsApi.GrantLevel;
 type PermissionRow = agentsApi.AgentPermissionRow;
 
-type User = Pick<WorkspaceUser, "id" | "name" | "email" | "pictureUrl">;
+type User = Pick<
+	WorkspaceUser,
+	"id" | "name" | "email" | "pictureUrl" | "imageRevision"
+>;
 type Team = Pick<WorkspaceTeam, "id" | "name" | "color">;
 
 interface AgentPermissionsPanelProps {
@@ -194,6 +197,8 @@ export default function AgentPermissionsPanel({
 										<UserAvatar
 											name={user.name}
 											pictureUrl={user.pictureUrl}
+											userId={user.id}
+											imageRevision={user.imageRevision}
 											className="size-7 shrink-0"
 											fallbackClassName="bg-primary text-[10px] text-primary-foreground dark:bg-primary"
 										/>
@@ -223,6 +228,8 @@ export default function AgentPermissionsPanel({
 								<UserAvatar
 									name={owner.name}
 									pictureUrl={owner.pictureUrl}
+									userId={owner.id}
+									imageRevision={owner.imageRevision}
 									className="size-7 shrink-0"
 									fallbackClassName="bg-primary text-[10px] text-primary-foreground dark:bg-primary"
 								/>
@@ -234,8 +241,8 @@ export default function AgentPermissionsPanel({
 										{owner.email}
 									</span>
 								</span>
-								<span className="rounded-[4px] bg-success-bg px-2 py-0.5 font-mono text-[9.5px] font-semibold tracking-[0.05em] text-success">
-									OWNER
+								<span className="rounded-[4px] bg-success-bg px-2 py-0.5 text-[9.5px] font-semibold text-success">
+									Owner
 								</span>
 							</div>
 						)}
@@ -248,6 +255,8 @@ export default function AgentPermissionsPanel({
 								<UserAvatar
 									name={user.name}
 									pictureUrl={user.pictureUrl}
+									userId={user.id}
+									imageRevision={user.imageRevision}
 									className="size-7 shrink-0"
 									fallbackClassName="bg-primary text-[10px] text-primary-foreground dark:bg-primary"
 								/>

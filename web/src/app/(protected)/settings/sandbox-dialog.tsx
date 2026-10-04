@@ -313,8 +313,8 @@ export default function SandboxDialog({
 	const secretPlaceholder = isEdit
 		? sandbox.hasSecret
 			? secretHint?.last4
-				? `••••••${secretHint.last4} — leave blank to keep`
-				: "Saved — leave blank to keep"
+				? `••••••${secretHint.last4}, leave blank to keep`
+				: "Saved, leave blank to keep"
 			: spec.secretRequired
 				? "Required"
 				: "Optional"

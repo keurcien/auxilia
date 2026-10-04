@@ -53,7 +53,7 @@ __all__ = [
 
 
 async def resolve_run_skills(
-    db: AsyncSession, agent_ids: Iterable[UUID]
+    db: AsyncSession, agent_ids: Iterable[UUID], workspace_id: UUID
 ) -> list[SkillBundle]:
     """The skills this run executes with — read from the library, every time.
 
@@ -79,7 +79,7 @@ async def resolve_run_skills(
     Access is not checked here because there is nothing to check: every
     workspace user may read and use every skill.
     """
-    rows = await SkillRepository(db).list_for_agents(agent_ids)
+    rows = await SkillRepository(db, workspace_id).list_for_agents(agent_ids)
     bundles = [row.to_bundle() for row in rows]
     ensure_unique_names(bundles)
     return bundles

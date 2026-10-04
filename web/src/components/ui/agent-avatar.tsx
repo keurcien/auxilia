@@ -1,15 +1,11 @@
+"use client";
+
+import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { agentColorBackground } from "@/lib/colors";
+import { avatarColorStyle } from "@/lib/colors";
+import { agentImageUrl } from "@/lib/api/resources/agents";
 
 type AvatarSize = "2xs" | "xs" | "sm" | "md" | "lg" | "xl";
-
-/**
- * Petrol Mono: emoji on a pastel background. Default is round (999px) —
- * the chat header and small subagent chips ("22px emoji circles on their
- * pastels", design 7a). Pass shape="tile" (radius ≈ size/4) for agent
- * identity tiles in lists and editors.
- */
-type AvatarShape = "tile" | "round";
 
 function getSizeClass(size: AvatarSize): string {
 	switch (size) {
@@ -22,51 +18,60 @@ function getSizeClass(size: AvatarSize): string {
 	}
 }
 
-function getTileRadiusClass(size: AvatarSize): string {
-	switch (size) {
-		case "2xs": return "rounded-[6px]";
-		case "xs": return "rounded-[7px]";
-		case "sm": return "rounded-lg";
-		case "md": return "rounded-[10px]";
-		case "lg": return "rounded-xl";
-		case "xl": return "rounded-[14px]";
-	}
-}
-
 interface AgentAvatarProps {
 	color?: string | null;
 	emoji?: string | null;
+	name?: string | null;
+	agentId?: string | null;
+	imageRevision?: string | null;
 	size?: AvatarSize;
-	shape?: AvatarShape;
 	className?: string;
 }
 
 export function AgentAvatar({
 	color,
 	emoji,
+	name,
+	agentId,
+	imageRevision,
 	size = "md",
-	shape = "round",
 	className,
 }: AgentAvatarProps) {
+	const imageUrl =
+		agentId && imageRevision ? agentImageUrl(agentId, imageRevision) : null;
+	const [failedUrl, setFailedUrl] = useState<string | null>(null);
+	const imageFailed = imageUrl !== null && failedUrl === imageUrl;
+	const showsImage = imageUrl !== null && !imageFailed;
+	const identityStyle = avatarColorStyle(color, name ?? agentId ?? "agent");
+	const initial = name?.trim().charAt(0).toUpperCase();
+
 	return (
 		<div
 			style={
-				color
-					? {
-							background: agentColorBackground(color),
-							border: `1.5px solid ${color}18`,
-						}
+				!showsImage
+					? identityStyle
 					: undefined
 			}
 			className={cn(
-				"flex items-center justify-center shrink-0",
-				shape === "round" ? "rounded-full" : getTileRadiusClass(size),
+				"flex shrink-0 items-center justify-center overflow-hidden rounded-full font-bold uppercase",
 				getSizeClass(size),
-				!color && "bg-hover dark:bg-white/10",
 				className,
 			)}
 		>
-			{emoji || "🤖"}
+			{showsImage ? (
+				// Browser-direct request keeps the session cookie; Next's optimizer does not.
+				// eslint-disable-next-line @next/next/no-img-element
+				<img
+					src={imageUrl}
+					alt=""
+					className="size-full rounded-full object-cover"
+					onError={() => {
+						setFailedUrl(imageUrl);
+					}}
+				/>
+			) : (
+				emoji || initial || "🤖"
+			)}
 		</div>
 	);
 }

@@ -10,9 +10,10 @@ from app.exceptions import (
     ModelUnavailableError,
     NotFoundError,
 )
-from app.model_providers.models import ModelDB
+from app.model_providers.models import ModelDB, ModelProviderCredentialDB
 from app.model_providers.service import ModelService
 from app.model_providers.whitelist import SupportedModel
+from tests.conftest import TEST_WORKSPACE_ID
 
 
 WHITELIST = [
@@ -35,9 +36,11 @@ KEYS = {"anthropic": "anthropic-test-key", "openai": "openai-test-key"}  # no go
 
 
 def _service(rows: list[ModelDB]) -> ModelService:
-    service = ModelService(AsyncMock())
+    service = ModelService(AsyncMock(), TEST_WORKSPACE_ID)
     service.repository = AsyncMock()
     service.repository.list_all.return_value = rows
+    service.credential_repository = AsyncMock()
+    service.credential_repository.list_api_keys.return_value = {}
     by_key = {(r.provider, r.model_id): r for r in rows}
 
     async def get_by(
@@ -57,6 +60,7 @@ def _row(
     provider: str, model_id: str, is_enabled: bool = True, is_default: bool = False
 ) -> ModelDB:
     return ModelDB(
+        workspace_id=TEST_WORKSPACE_ID,
         provider=provider,
         model_id=model_id,
         is_enabled=is_enabled,
@@ -190,13 +194,19 @@ async def test_set_enabled_creates_the_opt_in_row(tmp_path):
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'models.db'}")
 
     def _create(conn):
-        SQLModel.metadata.create_all(conn, tables=[ModelDB.__table__])
+        SQLModel.metadata.create_all(
+            conn,
+            tables=[
+                ModelDB.__table__,
+                ModelProviderCredentialDB.__table__,
+            ],
+        )
 
     async with engine.begin() as conn:
         await conn.run_sync(_create)
     factory = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
     async with factory() as db:
-        service = ModelService(db)
+        service = ModelService(db, TEST_WORKSPACE_ID)
 
         result = await service.set_enabled("openai", "gpt-4o-mini", True)
 
@@ -266,13 +276,19 @@ async def test_default_flag_lifecycle(tmp_path):
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'models.db'}")
 
     def _create(conn):
-        SQLModel.metadata.create_all(conn, tables=[ModelDB.__table__])
+        SQLModel.metadata.create_all(
+            conn,
+            tables=[
+                ModelDB.__table__,
+                ModelProviderCredentialDB.__table__,
+            ],
+        )
 
     async with engine.begin() as conn:
         await conn.run_sync(_create)
     factory = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
     async with factory() as db:
-        service = ModelService(db)
+        service = ModelService(db, TEST_WORKSPACE_ID)
         await service.set_enabled("anthropic", "claude-sonnet-5", True)
         await service.set_enabled("openai", "gpt-4o-mini", True)
 
@@ -310,6 +326,6 @@ async def test_list_manage_flags_orphan_rows_as_deprecated():
     # Whitelist models with a configured key are listed (enabled or not).
     assert by_id["claude-sonnet-5"].is_enabled is True
     assert by_id["gpt-4o-mini"].is_enabled is False
-    # No key → not offerable → not listed.
-    assert "gemini-3-pro-preview" not in by_id
+    # Unconfigured providers remain visible so admins can configure them.
+    assert by_id["gemini-3-pro-preview"].is_enabled is False
     assert by_id["deepseek-r2"].deprecated is True

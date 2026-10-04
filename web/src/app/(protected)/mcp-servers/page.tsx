@@ -6,10 +6,12 @@ import { Plus, RefreshCw } from "lucide-react";
 import MCPServerTable from "@/app/(protected)/mcp-servers/components/mcp-server-table";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import { HeaderButton } from "@/components/layout/subpage-header";
+import { ViewToggle } from "@/components/ui/view-toggle";
 import {
 	WorkspacePage,
 	WorkspaceTopBarButton,
 } from "@/components/layout/workspace-page";
+import { usePersistedViewMode } from "@/hooks/use-persisted-view-mode";
 import { useQueryParamState } from "@/hooks/use-query-param-state";
 import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 import { isApiError } from "@/lib/api/errors";
@@ -23,7 +25,7 @@ function syncSummary(result: MCPCatalogSyncResult): string {
 	]
 		.filter(Boolean)
 		.join(", ");
-	return `Catalog synced — ${changes || "no changes"} (${result.serverCount} servers).`;
+	return `Catalog synced, ${changes || "no changes"} (${result.serverCount} servers).`;
 }
 
 function apiErrorDetail(error: unknown): string | null {
@@ -41,6 +43,7 @@ export default function MCPServersPage() {
 		kind: "info" | "error";
 		text: string;
 	} | null>(null);
+	const [viewMode, setViewMode] = usePersistedViewMode("mcp-servers:view-mode");
 
 	// The catalog is CDN-hosted with a long cache TTL, so a newly published
 	// server only shows up once an admin pulls it in.
@@ -74,7 +77,7 @@ export default function MCPServersPage() {
 			slug="mcp-servers"
 			title="MCP servers"
 			intro="Remote Model Context Protocol endpoints wired into your workspace."
-			fillHeight
+			fillHeight={viewMode === "table"}
 			search={{
 				placeholder: "Search servers…",
 				value: search,
@@ -112,6 +115,7 @@ export default function MCPServersPage() {
 					</WorkspaceTopBarButton>
 				</>
 			}
+			headerRight={<ViewToggle value={viewMode} onChange={setViewMode} />}
 		>
 			<ForbiddenErrorDialog
 				open={errorDialogOpen}
@@ -131,6 +135,7 @@ export default function MCPServersPage() {
 				</p>
 			)}
 			<MCPServerTable
+				mode={viewMode}
 				search={search}
 				onClearSearch={() => {
 					setSearch("");

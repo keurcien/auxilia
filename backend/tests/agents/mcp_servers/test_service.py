@@ -15,6 +15,7 @@ from app.agents.schemas import (
 )
 from app.exceptions import NotFoundError
 from app.mcp.servers.models import MCPAuthType
+from tests.conftest import TEST_WORKSPACE_ID
 
 
 # ---------------------------------------------------------------------------
@@ -46,8 +47,12 @@ def mock_repo():
 
 @pytest.fixture
 def service(mock_db, mock_repo):
-    svc = AgentMCPServerService(mock_db)
+    svc = AgentMCPServerService(mock_db, TEST_WORKSPACE_ID)
     svc.repository = mock_repo
+    svc._agents = MagicMock()
+    svc._agents.get_scoped = AsyncMock(return_value=MagicMock())
+    svc._servers = MagicMock()
+    svc._servers.get_scoped = AsyncMock(return_value=make_mcp_server())
     return svc
 
 
@@ -75,20 +80,6 @@ def make_mcp_server(auth_type=MCPAuthType.none, **kwargs):
     server.url = kwargs.get("url", "https://mcp.example.com")
     server.auth_type = auth_type
     return server
-
-
-_UNSET = object()
-
-
-def make_mock_execute_result(*, rows=_UNSET, scalar=_UNSET, scalars_list=_UNSET):
-    result = MagicMock()
-    if rows is not _UNSET:
-        result.all.return_value = rows
-    if scalar is not _UNSET:
-        result.scalar_one_or_none.return_value = scalar
-    if scalars_list is not _UNSET:
-        result.scalars.return_value.all.return_value = scalars_list
-    return result
 
 
 # ---------------------------------------------------------------------------
@@ -187,7 +178,7 @@ async def test_delete_raises_404_when_not_found(service, mock_repo):
 
 
 async def test_create_or_update_raises_404_when_server_not_found(service, mock_db):
-    mock_db.execute.return_value = make_mock_execute_result(scalar=None)
+    service._servers.get_scoped.return_value = None
 
     with pytest.raises(NotFoundError) as exc_info:
         await service.create_or_update(
@@ -200,7 +191,7 @@ async def test_create_or_update_raises_404_when_server_not_found(service, mock_d
 async def test_create_or_update_updates_tools_on_existing(service, mock_db, mock_repo):
     server = make_mcp_server()
     link = make_link(tools=None)
-    mock_db.execute.return_value = make_mock_execute_result(scalar=server)
+    service._servers.get_scoped.return_value = server
     mock_repo.get.return_value = link
     new_tools = {"search": ToolStatus.always_allow}
 
@@ -220,7 +211,7 @@ async def test_create_or_update_returns_existing_unchanged_when_no_tools(
 ):
     server = make_mcp_server()
     link = make_link(tools={"existing": ToolStatus.always_allow})
-    mock_db.execute.return_value = make_mock_execute_result(scalar=server)
+    service._servers.get_scoped.return_value = server
     mock_repo.get.return_value = link
 
     result = await service.create_or_update(
@@ -240,7 +231,7 @@ async def test_create_or_update_creates_and_fetches_tools_for_no_auth(
 ):
     server = make_mcp_server(auth_type=MCPAuthType.none)
     link = make_link()
-    mock_db.execute.return_value = make_mock_execute_result(scalar=server)
+    service._servers.get_scoped.return_value = server
     mock_repo.get.return_value = None
     mock_repo.create.return_value = link
 
@@ -258,7 +249,7 @@ async def test_create_or_update_creates_and_fetches_tools_for_api_key(
 ):
     server = make_mcp_server(auth_type=MCPAuthType.api_key)
     link = make_link()
-    mock_db.execute.return_value = make_mock_execute_result(scalar=server)
+    service._servers.get_scoped.return_value = server
     mock_repo.get.return_value = None
     mock_repo.create.return_value = link
 
@@ -275,7 +266,7 @@ async def test_create_or_update_oauth_fetches_tools_when_connected(
 ):
     server = make_mcp_server(auth_type=MCPAuthType.oauth2)
     link = make_link()
-    mock_db.execute.return_value = make_mock_execute_result(scalar=server)
+    service._servers.get_scoped.return_value = server
     mock_repo.get.return_value = None
     mock_repo.create.return_value = link
 
@@ -298,7 +289,7 @@ async def test_create_or_update_oauth_skips_fetch_when_not_connected(
 ):
     server = make_mcp_server(auth_type=MCPAuthType.oauth2)
     link = make_link()
-    mock_db.execute.return_value = make_mock_execute_result(scalar=server)
+    service._servers.get_scoped.return_value = server
     mock_repo.get.return_value = None
     mock_repo.create.return_value = link
 
@@ -326,7 +317,7 @@ async def test_set_for_agent_creates_wanted_links(service, mock_db, mock_repo):
     server = make_mcp_server()
     tools = {"search": ToolStatus.needs_approval}
     mock_repo.list_for_agent.return_value = []
-    mock_db.execute.return_value = make_mock_execute_result(scalar=server)
+    service._servers.get_scoped.return_value = server
 
     await service.set_for_agent(
         agent_id, [AgentMCPServerConfig(mcp_server_id=server.id, tools=tools)]
@@ -369,7 +360,7 @@ async def test_set_for_agent_preserves_none_tools(service, mock_db, mock_repo):
     """tools=None (never synced) round-trips as None, not {}."""
     server = make_mcp_server()
     mock_repo.list_for_agent.return_value = []
-    mock_db.execute.return_value = make_mock_execute_result(scalar=server)
+    service._servers.get_scoped.return_value = server
 
     await service.set_for_agent(
         uuid4(), [AgentMCPServerConfig(mcp_server_id=server.id, tools=None)]
@@ -405,7 +396,7 @@ async def test_set_for_agent_empty_config_deletes_everything(service, mock_repo)
 
 async def test_set_for_agent_raises_404_for_unknown_server(service, mock_db, mock_repo):
     mock_repo.list_for_agent.return_value = []
-    mock_db.execute.return_value = make_mock_execute_result(scalar=None)
+    service._servers.get_scoped.return_value = None
 
     with pytest.raises(NotFoundError) as exc_info:
         await service.set_for_agent(
@@ -420,7 +411,7 @@ async def test_set_for_agent_never_discovers_tools(service, mock_db, mock_repo):
     """The save path performs zero network calls — no _sync_tools ever."""
     server = make_mcp_server(auth_type=MCPAuthType.none)
     mock_repo.list_for_agent.return_value = []
-    mock_db.execute.return_value = make_mock_execute_result(scalar=server)
+    service._servers.get_scoped.return_value = server
 
     with patch.object(service, "_sync_tools", new=AsyncMock()) as mock_fetch:
         await service.set_for_agent(
@@ -436,7 +427,7 @@ async def test_set_for_agent_never_discovers_tools(service, mock_db, mock_repo):
 
 
 async def test_sync_tools_raises_404_when_server_not_found(service, mock_db):
-    mock_db.execute.return_value = make_mock_execute_result(scalar=None)
+    service._servers.get_scoped.return_value = None
 
     with pytest.raises(NotFoundError) as exc_info:
         await service.sync_tools(uuid4(), uuid4(), "user-id")
@@ -446,7 +437,7 @@ async def test_sync_tools_raises_404_when_server_not_found(service, mock_db):
 
 async def test_sync_tools_raises_404_when_link_not_found(service, mock_db, mock_repo):
     server = make_mcp_server()
-    mock_db.execute.return_value = make_mock_execute_result(scalar=server)
+    service._servers.get_scoped.return_value = server
     mock_repo.get.return_value = None
 
     with pytest.raises(NotFoundError) as exc_info:
@@ -460,7 +451,7 @@ async def test_sync_tools_calls_fetch_and_save_and_returns_link(
 ):
     server = make_mcp_server()
     link = make_link()
-    mock_db.execute.return_value = make_mock_execute_result(scalar=server)
+    service._servers.get_scoped.return_value = server
     mock_repo.get.return_value = link
 
     with patch.object(service, "_sync_tools", new=AsyncMock()) as mock_fetch:
@@ -480,7 +471,7 @@ def make_connect_to_server(tool_names):
     tools = [SimpleNamespace(name=name) for name in tool_names]
 
     @asynccontextmanager
-    async def _connect(server, user_id, db):
+    async def _connect(server, user_id, workspace_id, db):
         yield SimpleNamespace(list_tools=AsyncMock(return_value=tools))
 
     return _connect
@@ -560,7 +551,7 @@ async def test_sync_tools_keeps_map_on_connect_failure(service):
     link = make_link(tools=dict(original))
 
     @asynccontextmanager
-    async def _broken(server, user_id, db):
+    async def _broken(server, user_id, workspace_id, db):
         raise RuntimeError("boom")
         yield  # pragma: no cover
 
@@ -584,6 +575,7 @@ async def test_list_agents_for_server_projects_the_delete_guard_shape(
         name="Docs Researcher",
         emoji="📚",
         color="#0984E3",
+        image_revision=None,
         instructions="x",
     )
     mock_repo.list_agents_for_server = AsyncMock(return_value=[agent])

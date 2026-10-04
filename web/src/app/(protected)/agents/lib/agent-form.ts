@@ -16,6 +16,7 @@ export interface AgentSandboxForm {
 export interface AgentFormState {
 	name: string;
 	description: string;
+	group: string;
 	instructions: string;
 	emoji: string;
 	color: string;
@@ -31,6 +32,7 @@ export function defaultAgentForm(): AgentFormState {
 	return {
 		name: "",
 		description: "",
+		group: "",
 		instructions: "",
 		emoji: "🤖",
 		color: randomAgentColor(),
@@ -45,6 +47,7 @@ export function fromAgent(agent: Agent): AgentFormState {
 	return {
 		name: agent.name || "",
 		description: agent.description || "",
+		group: agent.group || "",
 		instructions: agent.instructions || "",
 		emoji: agent.emoji || "🤖",
 		color: agent.color || AGENT_COLORS[0],
@@ -77,6 +80,12 @@ export function toPayload(form: AgentFormState) {
 		name: form.name.trim(),
 		instructions: form.instructions.trim(),
 		description: form.description.trim() || null,
+		group:
+			form.group
+				.split("/")
+				.map((part) => part.trim())
+				.filter(Boolean)
+				.join("/") || null,
 		emoji: form.emoji || null,
 		color: form.color || null,
 		mcpServers: [...form.mcpServers]

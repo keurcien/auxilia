@@ -24,7 +24,7 @@ export function SubpageHeader({
 }) {
 	return (
 		<header className="flex h-[52px] shrink-0 items-center gap-3 border-b border-border pl-14 pr-4 md:px-7">
-			<span className="min-w-0 truncate font-mono text-[11.5px] text-meta dark:text-panel-dim">
+			<span className="min-w-0 truncate text-[11.5px] text-meta dark:text-panel-dim">
 				{trail.map((segment, i) => {
 					const isLast = i === trail.length - 1;
 					return (
@@ -61,8 +61,8 @@ export function SubpageHeader({
 /** Amber UNSAVED chip for explicit-save editors (matches the agent editor). */
 export function UnsavedBadge() {
 	return (
-		<span className="rounded-[4px] bg-warning-bg px-2 py-0.5 font-mono text-[10px] font-semibold tracking-[0.05em] text-warning">
-			UNSAVED
+		<span className="rounded-[4px] bg-warning-bg px-2 py-0.5 text-[10px] font-semibold text-warning">
+			Unsaved
 		</span>
 	);
 }
@@ -94,8 +94,10 @@ export function HeaderButton({
 	return (
 		<button
 			type="button"
-			className={`flex cursor-pointer items-center gap-1.5 rounded-[7px] border border-input bg-card px-4 py-2 text-[13px] font-semibold transition-colors hover:border-border-hover disabled:cursor-not-allowed disabled:opacity-50 ${
-				accent ? "text-petrol" : "text-foreground"
+			className={`flex cursor-pointer items-center gap-1.5 rounded-[7px] border border-input bg-card px-4 py-2 text-[13px] font-semibold transition-colors hover:border-border-hover disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.03] dark:hover:border-white/20 ${
+				accent
+					? "text-petrol dark:text-panel-terminal"
+					: "text-foreground"
 			} ${className ?? ""}`}
 			{...props}
 		>

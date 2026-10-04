@@ -7,12 +7,14 @@ import pytest
 from app.sandbox.models import SandboxDB, SandboxProviderType
 from app.sandbox.schemas import SandboxPatch
 from app.sandbox.service import SandboxService
+from tests.conftest import TEST_WORKSPACE_ID
 
 
 def make_row(**overrides) -> SandboxDB:
     now = datetime.now(UTC)
     defaults = {
         "id": uuid4(),
+        "workspace_id": TEST_WORKSPACE_ID,
         "name": "Python VM",
         "description": None,
         "provider": SandboxProviderType.opensandbox,
@@ -35,9 +37,9 @@ def make_row(**overrides) -> SandboxDB:
 def service():
     db = AsyncMock()
     db.add = MagicMock()
-    svc = SandboxService(db)
+    svc = SandboxService(db, TEST_WORKSPACE_ID)
     svc.repository = MagicMock()
-    svc.repository.get = AsyncMock()
+    svc.repository.get_scoped = AsyncMock()
     svc.repository.update = AsyncMock()
     return svc
 
@@ -47,7 +49,7 @@ async def test_patch_config_overlays_stored_values(service):
     """A partial config patch must not reset omitted fields to defaults —
     the stored config (defaults materialized on write) is the base."""
     row = make_row()
-    service.repository.get.return_value = row
+    service.repository.get_scoped.return_value = row
     service.repository.update.return_value = row
 
     await service.update(row.id, SandboxPatch(config={"default_image": "python:3.13"}))
@@ -60,7 +62,7 @@ async def test_patch_config_overlays_stored_values(service):
 @pytest.mark.asyncio
 async def test_patch_without_config_keeps_stored_config(service):
     row = make_row()
-    service.repository.get.return_value = row
+    service.repository.get_scoped.return_value = row
     service.repository.update.return_value = row
 
     await service.update(row.id, SandboxPatch(name="Renamed"))

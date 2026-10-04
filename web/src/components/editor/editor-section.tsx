@@ -9,7 +9,7 @@ interface EditorSectionProps {
 }
 
 /**
- * Labeled block of an explicit-save editor: uppercase section label,
+ * Labeled block of an explicit-save editor:  section label,
  * optional right-aligned hint or actions, then the field content.
  */
 export function EditorSection({
@@ -21,13 +21,13 @@ export function EditorSection({
 }: EditorSectionProps) {
 	return (
 		<div className={cn("flex flex-col", className)}>
-			<div className="mb-2.5 flex min-h-[30px] items-center justify-between gap-2">
-				<label className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.09em] text-subtle dark:text-panel-dim">
+			<div className="mb-1.5 flex items-center justify-between gap-2">
+				<label className="text-[11px] font-semibold text-label dark:text-muted-foreground">
 					{label}
 				</label>
 				{actions ??
 					(hint && (
-						<span className="font-mono text-[11px] text-meta dark:text-panel-dim">
+						<span className="text-[11px] text-meta dark:text-panel-dim">
 							{hint}
 						</span>
 					))}

@@ -2,8 +2,8 @@ import { cookies } from "next/headers";
 
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/layout/app-sidebar";
-import { StoreInitializer } from "@/components/providers/store-initializer";
 import { PageShell } from "@/components/layout/page-shell";
+import { WorkspacesProvider } from "@/components/providers/workspaces-provider";
 
 export default async function ProtectedLayout({
 	children,
@@ -14,10 +14,11 @@ export default async function ProtectedLayout({
 	const defaultOpen = cookieStore.get("sidebar_state")?.value === "true";
 
 	return (
-		<SidebarProvider defaultOpen={defaultOpen} className="bg-surface">
-			<StoreInitializer />
-			<AppSidebar />
-			<PageShell>{children}</PageShell>
-		</SidebarProvider>
+		<WorkspacesProvider>
+			<SidebarProvider defaultOpen={defaultOpen} className="bg-surface">
+				<AppSidebar />
+				<PageShell>{children}</PageShell>
+			</SidebarProvider>
+		</WorkspacesProvider>
 	);
 }

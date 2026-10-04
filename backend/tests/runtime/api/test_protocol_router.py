@@ -4,7 +4,7 @@ hydrates); commands stay owner-only."""
 
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -16,13 +16,14 @@ from app.threads.models import ThreadDB
 
 
 _SNAPSHOT = {"values": {"messages": []}, "next": [], "tasks": []}
+WORKSPACE_ID = UUID("00000000-0000-4000-8000-000000000001")
 
 
 class _Protocol:
-    async def thread_state(self, thread_id):
+    async def thread_state(self, workspace_id, thread_id):
         return _SNAPSHOT
 
-    async def message(self, thread_id, message_id):
+    async def message(self, workspace_id, thread_id, message_id):
         return {"id": message_id, "type": "tool", "content": "whole"}
 
 
@@ -37,6 +38,7 @@ def _someone_elses_thread(mock_db) -> str:
     thread_id = str(uuid4())
     thread = ThreadDB(
         id=thread_id,
+        workspace_id=WORKSPACE_ID,
         user_id=uuid4(),
         agent_id=uuid4(),
         first_message_content="Someone else's thread",

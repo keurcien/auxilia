@@ -11,19 +11,19 @@
 
 ## Enable it
 
-Set the three required environment variables on the backend. You can also tune the optional request timeout:
+Open **Settings → Observability** as a workspace admin. Enter the Langfuse
+base URL, public key and secret key, choose the request timeout, then enable the
+integration. The keys are encrypted before they are stored in PostgreSQL.
 
-```env
-LANGFUSE_PUBLIC_KEY=pk-lf-...
-LANGFUSE_SECRET_KEY=sk-lf-...
-LANGFUSE_BASE_URL=https://cloud.langfuse.com  # or your self-hosted URL
-LANGFUSE_TIMEOUT=15                           # request timeout in seconds
-```
-
-On the first agent run, the backend lazily initializes a shared `Langfuse` client and attaches a `CallbackHandler` to LangGraph invocations. The adapter propagates the thread's session and user IDs throughout each run, including child model calls, so Langfuse can aggregate session costs. If any of the three credential/URL variables is missing, the integration is disabled without loading the Langfuse SDK. Initialization failures are logged and agent execution continues without tracing. `LANGFUSE_TIMEOUT` is optional, defaults to 15 seconds, and must be a positive integer.
+Each agent run resolves the current workspace configuration and attaches a
+`CallbackHandler` to LangGraph invocations. The adapter propagates the thread's
+session and user IDs throughout each run, including child model calls, so
+Langfuse can aggregate session costs. Configuration changes apply to new runs
+without restarting workers. Initialization failures are logged and agent
+execution continues without tracing.
 
 The runtime accepts the provider-neutral `RunTracing` interface in `app/integrations/tracing.py`: callbacks, a context manager created for each run, and a shutdown flush. The Langfuse implementation lives in `app/integrations/langfuse/`. Another provider can implement the same interface and be selected in `get_tracing()` without changing the agent runtime. With no provider selected, the runtime uses empty callbacks and a no-op context.
 
 ## Self-hosted Langfuse
 
-Langfuse is itself open source. You can run it alongside **auxilia** for full data ownership — follow the [Langfuse self-hosting guide](https://langfuse.com/self-hosting) and point `LANGFUSE_BASE_URL` at your instance.
+Langfuse is itself open source. You can run it alongside **auxilia** for full data ownership — follow the [Langfuse self-hosting guide](https://langfuse.com/self-hosting) and enter your instance URL under **Settings → Observability**.

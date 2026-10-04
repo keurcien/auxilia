@@ -7,8 +7,8 @@ import pytest
 
 from app.exceptions import DomainValidationError, PermissionDeniedError
 from app.skills.schemas import SkillSave, SkillSourceCreate, SkillSourceKind
-from app.skills.service import SkillService
-from app.skills.sources.service import SkillSourceService
+from app.skills.service import SkillService as _SkillService
+from app.skills.sources.service import SkillSourceService as _SkillSourceService
 from app.users.models import WorkspaceRole
 from skillkit import (
     ArchiveSource,
@@ -17,6 +17,7 @@ from skillkit import (
     RevisionNotFound,
     SourceUnavailable,
 )
+from tests.conftest import TEST_WORKSPACE_ID
 from tests.skillkit.conftest import skill_md, tar_bytes
 from tests.skills.conftest import attach, make_user, seed_agent, skill_markdown
 
@@ -24,6 +25,14 @@ from tests.skills.conftest import attach, make_user, seed_agent, skill_markdown
 pytestmark = pytest.mark.asyncio
 
 URL = "https://github.com/acme/skills"
+
+
+def SkillService(db):
+    return _SkillService(db, TEST_WORKSPACE_ID)
+
+
+def SkillSourceService(db):
+    return _SkillSourceService(db, TEST_WORKSPACE_ID)
 
 
 def tree_v1() -> dict[str, bytes]:
@@ -69,7 +78,7 @@ class StubHost:
 @pytest.fixture
 def host(monkeypatch):
     stub = StubHost(tree_v1())
-    monkeypatch.setattr(SkillSourceService, "_resolve", stub)
+    monkeypatch.setattr(_SkillSourceService, "_resolve", stub)
     return stub
 
 

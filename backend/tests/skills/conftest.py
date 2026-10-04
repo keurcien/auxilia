@@ -11,7 +11,9 @@ from app.skills.bundles import parse_skill
 from app.skills.models import AgentSkillDB, SkillDB
 from app.skills.schemas import SkillFile
 from app.users.models import UserDB, WorkspaceRole
+from app.workspaces.models import WorkspaceMembershipDB
 from tests.agents.conftest import agent_engine, agent_session, statements  # noqa: F401
+from tests.conftest import TEST_WORKSPACE_ID
 from tests.runtime.test_agent_behaviour import in_memory_runtime  # noqa: F401
 
 
@@ -20,13 +22,20 @@ def skill_markdown(name: str = "report", description: str = "Write a report") ->
 
 
 def make_user(role: WorkspaceRole = WorkspaceRole.member) -> UserDB:
-    return UserDB(
+    user = UserDB(
         id=uuid4(),
         name="Someone",
         email=f"{uuid4()}@test.com",
-        role=role,
         password_hash="x",
     )
+    user.set_workspace_membership(
+        WorkspaceMembershipDB(
+            workspace_id=TEST_WORKSPACE_ID,
+            user_id=user.id,
+            role=role,
+        )
+    )
+    return user
 
 
 async def seed_skill(
@@ -38,6 +47,7 @@ async def seed_skill(
 ) -> SkillDB:
     bundle = parse_skill(skill_markdown(name), files or [])
     row = SkillDB(
+        workspace_id=TEST_WORKSPACE_ID,
         owner_id=owner_id,
         name=bundle.name,
         description=bundle.description,
@@ -51,6 +61,7 @@ async def seed_skill(
 
 async def seed_agent(session, *, owner_id=None) -> AgentDB:
     agent = AgentDB(
+        workspace_id=TEST_WORKSPACE_ID,
         name="Agent",
         instructions="Be helpful",
         owner_id=owner_id or uuid4(),

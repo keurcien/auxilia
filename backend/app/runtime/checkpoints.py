@@ -82,6 +82,11 @@ class CheckpointState(NamedTuple):
 EMPTY_STATE = CheckpointState(saved=None, values={})
 
 
+def checkpoint_thread_id(workspace_id: object, thread_id: str) -> str:
+    """Internal LangGraph identity; public thread ids remain unchanged."""
+    return f"{workspace_id}:{thread_id}"
+
+
 async def get_checkpoint_state(
     checkpointer: BaseCheckpointSaver, thread_id: str, checkpoint_ns: str = ""
 ) -> CheckpointState:

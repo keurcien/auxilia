@@ -19,18 +19,23 @@ from fastapi import Request
 from fastapi.testclient import TestClient
 
 from app.integrations.slack import router as router_module
-from app.integrations.slack.utils import verify_slack_signature
+from app.integrations.slack.utils import VerifiedSlackRequest, verify_slack_signature
 from app.main import app
+from tests.conftest import TEST_WORKSPACE_ID
 
 
 @pytest.fixture
 def slack_client():
     """A client whose Slack signature check is bypassed."""
 
-    async def override(request: Request) -> bytes:
+    async def override(request: Request) -> VerifiedSlackRequest:
         # The real dependency verifies the HMAC and returns the raw body; here we
         # skip verification but must still hand the router the body it parses.
-        return await request.body()
+        return VerifiedSlackRequest(
+            body=await request.body(),
+            workspace_id=TEST_WORKSPACE_ID,
+            team_id="T1",
+        )
 
     app.dependency_overrides[verify_slack_signature] = override
     client = TestClient(app)

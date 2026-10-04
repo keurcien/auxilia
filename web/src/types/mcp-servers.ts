@@ -6,7 +6,9 @@ export interface MCPServer {
 	url: string;
 	authType: MCPAuthType;
 	iconUrl?: string;
+	imageRevision?: string | null;
 	description?: string;
+	group?: string | null;
 	createdAt: string;
 	updatedAt: string;
 	// Static OAuth client_id when configured (not a secret); absent for DCR.
@@ -19,6 +21,7 @@ export interface MCPServerCreate {
 	authType: MCPAuthType;
 	iconUrl?: string;
 	description?: string;
+	group?: string | null;
 	apiKey?: string;
 	// OAuth credentials for pre-registered OAuth clients
 	oauthClientId?: string;
@@ -32,6 +35,7 @@ export interface MCPServerUpdate {
 	// null clears the stored value; undefined leaves it untouched.
 	iconUrl?: string | null;
 	description?: string | null;
+	group?: string | null;
 	// Credentials — send only when changing them; blank keeps the stored value.
 	apiKey?: string;
 	oauthClientId?: string;
@@ -89,6 +93,7 @@ export interface MCPServerConnection {
 	name?: string | null;
 	email?: string | null;
 	pictureUrl?: string | null;
+	imageRevision?: string | null;
 	status: "active" | "expired";
 }
 

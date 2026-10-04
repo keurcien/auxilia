@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.exceptions import DomainValidationError
+from app.exceptions import DomainValidationError, NotFoundError
 from app.sandbox.models import SandboxDB, SandboxProviderType
 from app.sandbox.repository import SandboxRepository
 from app.sandbox.schemas import (
@@ -20,13 +20,21 @@ from app.sandbox.schemas import (
 )
 from app.service import BaseService
 from app.utils.encryption import decrypt_value, encrypt_value
+from app.workspaces.dependencies import get_active_workspace_id
 
 
 class SandboxService(BaseService[SandboxDB, SandboxRepository]):
     not_found_message = "Sandbox not found"
 
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, workspace_id: UUID):
         super().__init__(db, SandboxRepository(db))
+        self.workspace_id = workspace_id
+
+    async def get_scoped(self, sandbox_id: UUID) -> SandboxDB:
+        row = await self.repository.get_scoped(sandbox_id, self.workspace_id)
+        if row is None:
+            raise NotFoundError(self.not_found_message)
+        return row
 
     @staticmethod
     def _validate(
@@ -51,6 +59,7 @@ class SandboxService(BaseService[SandboxDB, SandboxRepository]):
         validated = self._validate(data.provider, data.url, data.secret, data.config)
         row = await self.repository.create(
             SandboxCreateDB(
+                workspace_id=self.workspace_id,
                 name=data.name,
                 description=data.description,
                 provider=data.provider,
@@ -62,13 +71,16 @@ class SandboxService(BaseService[SandboxDB, SandboxRepository]):
         return self.to_response(row)
 
     async def list_responses(self) -> list[SandboxResponse]:
-        return [self.to_response(row) for row in await self.repository.list()]
+        return [
+            self.to_response(row)
+            for row in await self.repository.list(self.workspace_id)
+        ]
 
     async def get_response(self, sandbox_id: UUID) -> SandboxResponse:
-        return self.to_response(await self.get_or_404(sandbox_id))
+        return self.to_response(await self.get_scoped(sandbox_id))
 
     async def update(self, sandbox_id: UUID, data: SandboxPatch) -> SandboxResponse:
-        row = await self.get_or_404(sandbox_id)
+        row = await self.get_scoped(sandbox_id)
 
         # Re-validate the merged result before mutating anything, so a patch
         # can never leave an invalid config behind. An omitted/empty secret
@@ -102,7 +114,7 @@ class SandboxService(BaseService[SandboxDB, SandboxRepository]):
         the router composes them before this (#369). Threads are never bound
         to a sandbox, so detached agents simply run without code execution
         afterwards."""
-        row = await self.get_or_404(sandbox_id)
+        row = await self.get_scoped(sandbox_id)
         try:
             await self.repository.delete(row)
         except IntegrityError as exc:
@@ -111,7 +123,7 @@ class SandboxService(BaseService[SandboxDB, SandboxRepository]):
             ) from exc
 
     async def get_secret_hint(self, sandbox_id: UUID) -> SandboxSecretHint:
-        row = await self.get_or_404(sandbox_id)
+        row = await self.get_scoped(sandbox_id)
         if not row.encrypted_secret:
             return SandboxSecretHint(is_set=False)
         secret = decrypt_value(row.encrypted_secret)
@@ -121,5 +133,8 @@ class SandboxService(BaseService[SandboxDB, SandboxRepository]):
         return SandboxSecretHint(is_set=True, last4=last4, length=len(secret))
 
 
-def get_sandbox_service(db: AsyncSession = Depends(get_db)) -> SandboxService:
-    return SandboxService(db)
+def get_sandbox_service(
+    db: AsyncSession = Depends(get_db),
+    workspace_id: UUID = Depends(get_active_workspace_id),
+) -> SandboxService:
+    return SandboxService(db, workspace_id)

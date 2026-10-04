@@ -11,6 +11,7 @@ export interface Thread {
 	agentName: string | null;
 	agentEmoji: string | null;
 	agentColor: string | null;
+	agentImageRevision?: string | null;
 	agentArchived: boolean;
 	source: ThreadSource;
 	triggerId?: string | null;

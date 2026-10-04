@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import Depends
 from sqlalchemy.exc import IntegrityError
@@ -23,7 +23,7 @@ from app.mcp.client.connectivity import (
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
 from app.mcp.client.storage import TokenStorageFactory
 from app.mcp.servers import catalog as mcp_catalog
-from app.mcp.servers.models import MCPAuthType, MCPServerDB
+from app.mcp.servers.models import MCPAuthType, MCPServerDB, MCPServerImageDB
 from app.mcp.servers.repository import MCPServerRepository
 from app.mcp.servers.schemas import (
     AuthorizationRequired,
@@ -40,6 +40,9 @@ from app.mcp.servers.schemas import (
 from app.service import BaseService
 from app.users.repository import UserRepository
 from app.utils.encryption import decrypt_value
+from app.utils.images import ProcessedImage
+from app.workspaces.dependencies import get_active_workspace_id
+from app.workspaces.repository import WorkspaceRepository
 
 
 logger = logging.getLogger(__name__)
@@ -48,8 +51,39 @@ logger = logging.getLogger(__name__)
 class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
     not_found_message = "MCP server not found"
 
-    def __init__(self, db: AsyncSession):
-        super().__init__(db, MCPServerRepository(db))
+    def __init__(self, db: AsyncSession, workspace_id: UUID | None = None):
+        super().__init__(db, MCPServerRepository(db, workspace_id))
+        self.workspace_id = workspace_id
+        self.workspaces = WorkspaceRepository(db)
+
+    async def get_scoped(self, server_id: UUID) -> MCPServerDB:
+        server = await self.repository.get_scoped(server_id)
+        if server is None:
+            raise NotFoundError(self.not_found_message)
+        return server
+
+    async def get_image(self, server_id: UUID) -> MCPServerImageDB:
+        await self.get_scoped(server_id)
+        image = await self.repository.get_image(server_id)
+        if image is None:
+            raise NotFoundError("MCP server image not found")
+        return image
+
+    async def set_image(self, server_id: UUID, image: ProcessedImage) -> UUID:
+        await self.get_scoped(server_id)
+        revision = uuid4()
+        await self.repository.set_image(
+            server_id,
+            data=image.data,
+            media_type=image.media_type,
+            sha256=image.sha256,
+            revision=revision,
+        )
+        return revision
+
+    async def delete_image(self, server_id: UUID) -> None:
+        await self.get_scoped(server_id)
+        await self.repository.delete_image(server_id)
 
     async def create(self, data: MCPServerCreate) -> MCPServerDB:
         if await self.repository.get_by_url(data.url):
@@ -80,7 +114,7 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         return db_server
 
     async def get(self, server_id: UUID) -> MCPServerDB:
-        return await self.get_or_404(server_id)
+        return await self.get_scoped(server_id)
 
     async def to_response(self, server: MCPServerDB) -> MCPServerResponse:
         """Project a server to its API response, enriching OAuth2 servers with
@@ -95,7 +129,7 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         """Return a non-reversible hint (last 4 chars + length) about the stored
         OAuth client secret. Requires decrypting the secret, so the endpoint that
         exposes this is admin-gated."""
-        await self.get_or_404(server_id)
+        await self.get_scoped(server_id)
         creds = await self.repository.get_oauth_credentials(server_id)
         if not creds:
             return OAuthSecretHint(is_set=False)
@@ -120,7 +154,7 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         ]
 
     async def update(self, server_id: UUID, data: MCPServerPatch) -> MCPServerDB:
-        server = await self.get_or_404(server_id)
+        server = await self.get_scoped(server_id)
         # Read before the patch is applied: both are needed to decide what
         # stored state the edit has invalidated (see `_purge_invalidated_state`).
         previous_auth_type = server.auth_type
@@ -194,7 +228,11 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
                 await self.repository.delete_credentials(server_id, api_key=False)
 
         try:
-            deleted = await TokenStorageFactory().clear_server_data(str(server_id))
+            if self.workspace_id is None:
+                raise RuntimeError("workspace_id is required")
+            deleted = await TokenStorageFactory().clear_server_data(
+                str(self.workspace_id), str(server_id)
+            )
         except Exception:  # noqa: BLE001 — a cache outage must not fail the edit
             logger.warning(
                 "Could not purge stored authorization state for MCP server %s after "
@@ -217,7 +255,7 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         Detaching first is the agents module's job — the router composes
         `AgentMCPServerService.detach_server` before this when the dialog's
         explicit confirm asks for it (#369)."""
-        server = await self.get_or_404(server_id)
+        server = await self.get_scoped(server_id)
         try:
             await self.repository.delete(server)
         except IntegrityError as exc:
@@ -244,8 +282,12 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
 
     async def reset(self, server_id: UUID) -> dict:
         await self.get(server_id)
+        if self.workspace_id is None:
+            raise RuntimeError("workspace_id is required")
         factory = TokenStorageFactory()
-        deleted = await factory.clear_server_data(str(server_id))
+        deleted = await factory.clear_server_data(
+            str(self.workspace_id), str(server_id)
+        )
         return {"deleted_keys": deleted}
 
     async def list_connections(
@@ -255,22 +297,33 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         token status: ``expired`` when the access token is past its expiry and
         no refresh token can renew it, ``active`` otherwise."""
         await self.get(server_id)
+        if self.workspace_id is None:
+            raise RuntimeError("workspace_id is required")
         factory = TokenStorageFactory()
 
         user_ids: list[UUID] = []
-        for raw_id in await factory.list_connected_user_ids(str(server_id)):
+        for raw_id in await factory.list_connected_user_ids(
+            str(self.workspace_id), str(server_id)
+        ):
             try:
                 user_ids.append(UUID(raw_id))
             except ValueError:
                 continue
 
+        if self.workspace_id is not None:
+            user_ids = [
+                user_id
+                for user_id in user_ids
+                if await self.workspaces.get_membership(self.workspace_id, user_id)
+                is not None
+            ]
         users = await UserRepository(self.db).list_by_ids(user_ids)
         users_by_id = {user.id: user for user in users}
 
         connections: list[MCPServerConnectionResponse] = []
         for user_id in user_ids:
             stored = await factory.get_storage(
-                str(user_id), str(server_id)
+                str(self.workspace_id), str(user_id), str(server_id)
             ).get_stored_token()
             if not stored:
                 continue
@@ -288,6 +341,7 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
                     name=user.name if user else None,
                     email=user.email if user else None,
                     picture_url=user.picture_url if user else None,
+                    image_revision=user.image_revision if user else None,
                     status="expired" if expired else "active",
                 )
             )
@@ -300,11 +354,20 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         info and OAuth metadata for the server. The user re-authenticates on
         their next use."""
         await self.get(server_id)
+        if self.workspace_id is None:
+            raise RuntimeError("workspace_id is required")
+        if (
+            self.workspace_id is not None
+            and await self.workspaces.get_membership(self.workspace_id, user_id) is None
+        ):
+            raise NotFoundError("User not found")
         factory = TokenStorageFactory()
-        deleted = await factory.clear_user_server_data(str(user_id), str(server_id))
+        deleted = await factory.clear_user_server_data(
+            str(self.workspace_id), str(user_id), str(server_id)
+        )
         return {"deleted_keys": deleted}
 
-    async def handle_oauth_callback(self, code: str, state: str) -> dict:
+    async def handle_oauth_callback(self, code: str, state: str, user_id: UUID) -> dict:
         storage_factory = TokenStorageFactory()
         result = await storage_factory.get_storage_from_state(state)
 
@@ -312,8 +375,14 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
             raise DomainValidationError("Invalid or expired OAuth state")
 
         storage, state_data = result
+        if (
+            self.workspace_id is None
+            or state_data.workspace_id != str(self.workspace_id)
+            or state_data.user_id != str(user_id)
+        ):
+            raise NotFoundError("MCP server not found")
 
-        mcp_server = await self.repository.get(state_data.mcp_server_id)
+        mcp_server = await self.repository.get_scoped(state_data.mcp_server_id)
         if not mcp_server:
             raise NotFoundError("MCP server not found")
 
@@ -340,15 +409,19 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         with an auth URL, whether or not connecting was its job (§2.4).
         """
         try:
+            if self.workspace_id is None:
+                raise RuntimeError("workspace_id is required")
             if server.auth_type == MCPAuthType.oauth2 and not await is_authorized(
-                server, user_id
+                server, user_id, self.workspace_id
             ):
                 # Not connected: discover OAuth metadata, which ends in
                 # OAuthAuthorizationRequired carrying the authorize URL. No
                 # business tool is called.
-                await initiate_oauth(server, user_id, self.db)
+                await initiate_oauth(server, user_id, self.workspace_id, self.db)
 
-            async with connect_to_server(server, user_id, self.db) as client:
+            async with connect_to_server(
+                server, user_id, self.workspace_id, self.db
+            ) as client:
                 tools = await client.list_tools()
                 return ToolsListed(
                     tools=[
@@ -363,5 +436,8 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
             return AuthorizationRequired(auth_url=exc.url)
 
 
-def get_mcp_server_service(db: AsyncSession = Depends(get_db)) -> MCPServerService:
-    return MCPServerService(db)
+def get_mcp_server_service(
+    db: AsyncSession = Depends(get_db),
+    workspace_id: UUID = Depends(get_active_workspace_id),
+) -> MCPServerService:
+    return MCPServerService(db, workspace_id)

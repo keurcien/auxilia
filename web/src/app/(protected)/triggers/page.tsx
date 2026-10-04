@@ -10,9 +10,13 @@ import {
 	WorkspaceTopBarButton,
 } from "@/components/layout/workspace-page";
 import { useTriggersStore } from "@/stores/triggers-store";
+import { useUserStore } from "@/stores/user-store";
 
 export default function TriggersPage() {
 	const router = useRouter();
+	const canCreate = useUserStore(
+		(state) => state.user !== null && state.user.role !== "member",
+	);
 	const triggers = useTriggersStore((state) => state.triggers);
 	const [view, setView] = useState<"active" | "paused">("active");
 
@@ -27,8 +31,8 @@ export default function TriggersPage() {
 		<WorkspacePage
 			slug="triggers"
 			title="Triggers"
-			intro="Your agents working in the background, on the schedule you choose."
-			actions={
+			intro="Run agents automatically on a schedule or from an external webhook."
+			actions={canCreate ? (
 				<WorkspaceTopBarButton
 					onClick={() => {
 						handleCreate();
@@ -37,7 +41,7 @@ export default function TriggersPage() {
 					<Plus className="size-3.5" />
 					New trigger
 				</WorkspaceTopBarButton>
-			}
+			) : undefined}
 			headerRight={
 				<UnderlineTabs
 					tabs={[
@@ -49,7 +53,7 @@ export default function TriggersPage() {
 				/>
 			}
 		>
-			<TriggerList view={view} onCreate={handleCreate} />
+			<TriggerList view={view} onCreate={handleCreate} canCreate={canCreate} />
 		</WorkspacePage>
 	);
 }

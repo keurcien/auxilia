@@ -13,19 +13,19 @@ const DEMO_TOOL_LINES = [
 		step: 2,
 		domain: "metabase.com",
 		label: "Run query",
-		meta: "· sales by brand",
+		meta: "sales by brand",
 	},
 	{
 		step: 3,
 		domain: "metabase.com",
 		label: "Run query",
-		meta: "· forecast vs actual",
+		meta: "forecast vs actual",
 	},
 	{
 		step: 4,
 		domain: "slack.com",
 		label: "Search messages",
-		meta: "· #sales-ops",
+		meta: "#sales-ops",
 	},
 ];
 
@@ -78,7 +78,7 @@ export function ProductShowcase() {
 					Which brands from the FW26 sale are underperforming?
 				</div>
 				<div
-					className={`flex items-center gap-2 py-1 font-mono text-[10.5px] text-panel-dim ${vis(1)}`}
+					className={`flex items-center gap-2 py-1 text-[10.5px] text-panel-dim ${vis(1)}`}
 				>
 					<span className="flex size-5 items-center justify-center rounded-[5px] bg-pastel-mint text-[11px]">
 						📊
@@ -88,7 +88,7 @@ export function ProductShowcase() {
 				{DEMO_TOOL_LINES.map((line) => (
 					<div
 						key={`${line.label}-${line.meta}`}
-						className={`flex items-center gap-2 py-1.5 font-mono text-[11.5px] text-panel-terminal ${vis(line.step)}`}
+						className={`flex items-center gap-2 py-1.5 text-[11.5px] text-panel-terminal ${vis(line.step)}`}
 					>
 						<Favicon domain={line.domain} />
 						{line.label}
@@ -100,24 +100,24 @@ export function ProductShowcase() {
 					className={`mt-2 text-[13.5px] leading-[1.6] text-panel-body ${vis(5)}`}
 				>
 					3 of 24 brands are more than 15% under forecast. Biggest gap:{" "}
-					<strong className="text-white">Maison Rive (−31%)</strong> — traffic
+					<strong className="text-white">Maison Rive (−31%)</strong>, traffic
 					is fine, conversion dropped after the price update.
 				</div>
 			</div>
 			<div
 				className={`flex flex-col gap-2 rounded-xl border border-panel-attention/35 bg-panel-card px-5 py-4 ${vis(6)}`}
 			>
-				<div className="flex items-center gap-2 font-mono text-[10.5px] font-semibold tracking-[0.07em] text-panel-attention">
+				<div className="flex items-center gap-2 text-[10.5px] font-semibold text-panel-attention">
 					⏸ HUMANS STAY IN CONTROL
 				</div>
 				<div className="text-[13px] leading-[1.6] text-panel-body">
-					Sensitive tools wait for approval — in chat or Slack — before
+					Sensitive tools wait for approval, in chat or Slack, before
 					anything runs.
 				</div>
 			</div>
-			<div className={`flex gap-5 font-mono text-[11.5px] text-panel-dim ${vis(7)}`}>
+			<div className={`flex gap-5 text-[11.5px] text-panel-dim ${vis(7)}`}>
 				<span>
-					<span className="text-panel-success">open source</span> ·
+					<span className="text-panel-success">open source</span>,
 					self-hosted
 				</span>
 				<span className="text-panel-success">any model</span>

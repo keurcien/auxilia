@@ -49,7 +49,9 @@ export function UnderlineTabs<K extends string>({
 							<span
 								className={cn(
 									"ml-1.5 font-mono text-[10.5px]",
-									active ? "text-petrol" : "text-meta dark:text-panel-dim",
+									active
+										? "text-petrol dark:text-panel-terminal"
+										: "text-meta dark:text-panel-dim",
 								)}
 							>
 								{tab.count}

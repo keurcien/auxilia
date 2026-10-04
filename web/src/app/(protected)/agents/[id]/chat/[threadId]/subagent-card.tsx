@@ -220,12 +220,12 @@ export const SubAgentCard = memo(function SubAgentCard({
       node={
         // Same 22px square as the other rail nodes. The pastel is translucent
         // (~8% alpha), so an opaque card layer sits under it to hide the rail.
-        <span className="relative z-[1] flex size-[22px] shrink-0 rounded-[6px] bg-card">
+        <span className="relative z-[1] flex size-[22px] shrink-0 rounded-full bg-card">
           <AgentAvatar
+            name={agent?.name}
             color={agent?.color}
             emoji={agent?.emoji}
             size="2xs"
-            shape="tile"
           />
         </span>
       }
@@ -249,7 +249,7 @@ export const SubAgentCard = memo(function SubAgentCard({
         ) : undefined
       }
     >
-      <ChainBand label="TASK" text={subagent.taskInput}>
+      <ChainBand label="Task" text={subagent.taskInput}>
         {todos.length > 0 && <TodoList todos={todos} className="mb-3" />}
         <SubAgentConversation
           messages={messages}
@@ -263,7 +263,7 @@ export const SubAgentCard = memo(function SubAgentCard({
           approvalsDisabled={modelUnavailable}
         />
         {isError && subagent.error != null && (
-          <StepSection label="ERROR" error className="mt-2">
+          <StepSection label="Error" error className="mt-2">
             <StepCode value={subagent.error} />
           </StepSection>
         )}
@@ -285,7 +285,7 @@ export const SubAgentProgress = memo(function SubAgentProgress({
   const completed = subagents.filter(isDone).length;
 
   return (
-    <div className="flex items-center gap-2 font-mono text-[10.5px] text-meta dark:text-panel-dim">
+    <div className="flex items-center gap-2 text-[10.5px] text-meta dark:text-panel-dim">
       <div className="h-1 flex-1 overflow-hidden rounded-full bg-hover dark:bg-white/10">
         <div
           className="h-full rounded-full bg-petrol transition-all duration-300"
@@ -293,7 +293,7 @@ export const SubAgentProgress = memo(function SubAgentProgress({
         />
       </div>
       <span>
-        {completed}/{total} complete
+        <span className="font-mono">{completed}/{total}</span> complete
       </span>
     </div>
   );

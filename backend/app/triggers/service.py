@@ -2,22 +2,27 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.core.service import AgentService
-from app.agents.models import AgentDB, EffectivePermission
+from app.agents.models import EffectivePermission
+from app.auth.settings import auth_settings
 from app.database import get_db
-from app.exceptions import DomainValidationError, PermissionDeniedError
+from app.exceptions import (
+    DomainValidationError,
+    NotFoundError,
+    PermissionDeniedError,
+)
 from app.model_providers.service import ModelService
 from app.runtime.runs.service import RunService
 from app.service import BaseService
 from app.threads.models import ThreadSource
 from app.threads.schemas import ThreadCreate
 from app.threads.service import ThreadService
-from app.triggers.models import TriggerDB
+from app.triggers.models import TriggerDB, TriggerType
 from app.triggers.repository import TriggerRepository
 from app.triggers.schedule import compute_next_run_at, ensure_valid_schedule
 from app.triggers.schemas import (
@@ -27,9 +32,12 @@ from app.triggers.schemas import (
     TriggerResponse,
     TriggerRunResponse,
     TriggerThreadResponse,
+    WebhookTriggerInvoke,
 )
 from app.triggers.settings import trigger_settings
 from app.users.models import UserDB, WorkspaceRole
+from app.workspaces.dependencies import get_active_workspace_id
+from app.workspaces.repository import WorkspaceRepository
 
 
 logger = logging.getLogger(__name__)
@@ -38,11 +46,11 @@ logger = logging.getLogger(__name__)
 class TriggerService(BaseService[TriggerDB, TriggerRepository]):
     not_found_message = "Trigger not found"
 
-    def __init__(self, db: AsyncSession):
-        super().__init__(db, TriggerRepository(db))
-        self.agent_service = AgentService(db)
-        self.thread_service = ThreadService(db)
-        self.model_service = ModelService(db)
+    def __init__(self, db: AsyncSession, workspace_id: UUID | None = None):
+        super().__init__(db, TriggerRepository(db, workspace_id))
+        self.workspace_id = workspace_id
+        self.agent_service = AgentService(db, workspace_id)
+        self.model_service = ModelService(db, workspace_id)
 
     # ------------------------------------------------------------------
     # Guards
@@ -53,11 +61,15 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         if trigger.owner_id != user.id and user.role != WorkspaceRole.admin:
             raise PermissionDeniedError("Not authorized to access this trigger")
 
-    async def _ensure_agent_usable(self, agent_id: UUID, owner: UserDB) -> None:
+    async def _ensure_agent_usable(
+        self, agent_id: UUID, owner: UserDB, workspace_id: UUID | None = None
+    ) -> None:
         """The trigger's agent must be one its *owner* is allowed to use —
         runs execute with the owner's identity and MCP credentials."""
         try:
-            await self.agent_service.require_permission(
+            await AgentService(
+                self.db, workspace_id or self.workspace_id
+            ).require_permission(
                 agent_id,
                 at_least=EffectivePermission.member,
                 action="use this agent",
@@ -76,6 +88,12 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         owner = await self.db.get(UserDB, trigger.owner_id)
         if owner is None:  # FK guarantees this in practice
             raise DomainValidationError("Trigger owner no longer exists")
+        membership = await WorkspaceRepository(self.db).get_membership(
+            trigger.workspace_id, owner.id
+        )
+        if membership is None:
+            raise DomainValidationError("Trigger owner no longer belongs to workspace")
+        owner.set_workspace_membership(membership)
         return owner
 
     # ------------------------------------------------------------------
@@ -97,6 +115,12 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
                 update={
                     "model_available": t.model_id in available,
                     "model_display_name": names.get(t.model_id),
+                    "webhook_url": (
+                        f"{auth_settings.FRONTEND_URL.rstrip('/')}"
+                        f"/api/backend/triggers/webhooks/{t.webhook_id}"
+                        if t.webhook_id is not None
+                        else None
+                    ),
                 },
             )
             for t in triggers
@@ -125,30 +149,45 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         trigger = await self.get_or_404(trigger_id)
         self._ensure_can_manage(trigger, user)
         since = datetime.now(UTC) - timedelta(days=30)
-        threads = await self.thread_service.list_for_trigger(trigger_id, since=since)
+        threads = await ThreadService(self.db, trigger.workspace_id).list_for_trigger(
+            trigger_id, since=since
+        )
         return [TriggerThreadResponse.model_validate(t) for t in threads]
 
     async def create(self, data: TriggerCreate, owner: UserDB) -> TriggerResponse:
-        ensure_valid_schedule(data.cron_expression, data.timezone)
+        if self.workspace_id is None:
+            raise RuntimeError("workspace_id is required to create a trigger")
+        if data.trigger_type == TriggerType.schedule:
+            if data.cron_expression is None or data.timezone is None:
+                raise DomainValidationError(
+                    "Scheduled triggers require a schedule and timezone"
+                )
+            ensure_valid_schedule(data.cron_expression, data.timezone)
         # Fail at save time, not first fire — 409 model_unavailable on the form.
         await self.model_service.ensure_available(data.model_id)
         await ModelService.validate_reasoning_effort(
             data.model_id, data.reasoning_effort
         )
-        await self._ensure_agent_usable(data.agent_id, owner)
+        await self._ensure_agent_usable(data.agent_id, owner, self.workspace_id)
         next_run_at = (
             compute_next_run_at(
                 data.cron_expression, data.timezone, after=datetime.now(UTC)
             )
-            if data.is_active
+            if data.trigger_type == TriggerType.schedule and data.is_active
             else None
         )
         trigger = await self.repository.create(
             TriggerCreateDB(
-                **data.model_dump(), owner_id=owner.id, next_run_at=next_run_at
+                **data.model_dump(),
+                workspace_id=self.workspace_id,
+                owner_id=owner.id,
+                webhook_id=(
+                    uuid4() if data.trigger_type == TriggerType.webhook else None
+                ),
+                next_run_at=next_run_at,
             )
         )
-        return TriggerResponse.model_validate(trigger)
+        return (await self._to_responses([trigger]))[0]
 
     async def update(
         self, trigger_id: UUID, data: TriggerPatch, user: UserDB
@@ -157,12 +196,21 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         self._ensure_can_manage(trigger, user)
 
         update_data = data.model_dump(exclude_unset=True)
+        if trigger.trigger_type == TriggerType.webhook and (
+            "cron_expression" in update_data or "timezone" in update_data
+        ):
+            raise DomainValidationError("Webhook triggers do not have a schedule")
+
         cron = update_data.get("cron_expression", trigger.cron_expression)
         timezone = update_data.get("timezone", trigger.timezone)
         schedule_changed = (
             cron != trigger.cron_expression or timezone != trigger.timezone
         )
-        if schedule_changed:
+        if schedule_changed and trigger.trigger_type == TriggerType.schedule:
+            if not cron or not timezone:
+                raise DomainValidationError(
+                    "Scheduled triggers require a schedule and timezone"
+                )
             ensure_valid_schedule(cron, timezone)
         if "model_id" in update_data:
             await self.model_service.ensure_available(update_data["model_id"])
@@ -188,7 +236,9 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
             owner = (
                 user if user.id == trigger.owner_id else await self._get_owner(trigger)
             )
-            await self._ensure_agent_usable(update_data["agent_id"], owner)
+            await self._ensure_agent_usable(
+                update_data["agent_id"], owner, trigger.workspace_id
+            )
 
         trigger = await self.repository.update(trigger, data)
 
@@ -200,9 +250,13 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         # Rematerialize the schedule: pausing clears next_run_at so the row
         # drops out of the due scan; (re)activating or editing the schedule
         # recomputes from now — missed occurrences are skipped, not replayed.
-        if not trigger.is_active:
+        if not trigger.is_active or trigger.trigger_type == TriggerType.webhook:
             next_run_at = None
         elif schedule_changed or trigger.next_run_at is None:
+            if cron is None or timezone is None:
+                raise DomainValidationError(
+                    "Scheduled triggers require a schedule and timezone"
+                )
             next_run_at = compute_next_run_at(cron, timezone, after=datetime.now(UTC))
         else:
             next_run_at = trigger.next_run_at
@@ -233,7 +287,9 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         """
         trigger = await self.get_or_404(trigger_id)
         self._ensure_can_manage(trigger, user)
-        agent = await self.db.get(AgentDB, trigger.agent_id)
+        agent = await AgentService(self.db, trigger.workspace_id).repository.get_scoped(
+            trigger.agent_id
+        )
         if agent is None or agent.is_archived:
             raise DomainValidationError("Trigger agent is archived or deleted")
         # Before creating the fire thread — RunService.create would reject the
@@ -246,7 +302,10 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         # doomed run. Scheduled firings get the same protection from the
         # worker's pre-flight (`_mcp_unauthorized`).
         if await RunService.required_oauth_url(
-            self.db, trigger.agent_id, str(trigger.owner_id)
+            self.db,
+            trigger.agent_id,
+            str(trigger.owner_id),
+            trigger.workspace_id,
         ):
             raise DomainValidationError(
                 "The trigger owner must reconnect this agent's MCP servers "
@@ -261,13 +320,71 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         )
         return TriggerRunResponse(thread_id=thread.id, run_id=record.id)
 
-    async def _create_fire_thread(self, trigger: TriggerDB):
+    async def invoke_webhook(
+        self, webhook_id: UUID, data: WebhookTriggerInvoke
+    ) -> TriggerRunResponse:
+        """Resolve webhook overrides and atomically create its thread and run."""
+        trigger = await self.repository.get_by_webhook_id(webhook_id)
+        if trigger is None or not trigger.is_active:
+            # Keep inactive and unknown webhook URLs indistinguishable to
+            # unauthenticated callers.
+            raise NotFoundError("Webhook not found")
+
+        owner = await self._get_owner(trigger)
+        agent_id = data.agent_id or trigger.agent_id
+        model_id = data.model_id or trigger.model_id
+        instructions = (
+            data.instructions if data.instructions is not None else trigger.instructions
+        )
+        if not instructions.strip():
+            raise DomainValidationError("Webhook instructions cannot be empty")
+
+        await self._ensure_agent_usable(agent_id, owner, trigger.workspace_id)
+        agent = await AgentService(self.db, trigger.workspace_id).repository.get_scoped(
+            agent_id
+        )
+        if agent is None or agent.is_archived:
+            raise DomainValidationError("Webhook agent is archived or deleted")
+        await ModelService(self.db, trigger.workspace_id).ensure_available(model_id)
+
+        reasoning_effort = (
+            trigger.reasoning_effort if model_id == trigger.model_id else None
+        )
+        thread = await self._create_fire_thread(
+            trigger,
+            agent_id=agent_id,
+            model_id=model_id,
+            reasoning_effort=reasoning_effort,
+        )
+        record = await RunService().create_in_session(
+            self.db,
+            thread_id=thread.id,
+            user_id=str(trigger.owner_id),
+            input={"messages": [{"type": "human", "content": instructions}]},
+        )
+        trigger.last_run_at = datetime.now(UTC)
+        self.db.add(trigger)
+        await self.db.flush()
+        return TriggerRunResponse(thread_id=thread.id, run_id=record.id)
+
+    async def _create_fire_thread(
+        self,
+        trigger: TriggerDB,
+        *,
+        agent_id: UUID | None = None,
+        model_id: str | None = None,
+        reasoning_effort: str | None = None,
+    ):
         """One fresh thread per firing, owned by the trigger owner."""
-        return await self.thread_service.create(
+        return await ThreadService(self.db, trigger.workspace_id).create(
             ThreadCreate(
-                agent_id=trigger.agent_id,
-                model_id=trigger.model_id,
-                reasoning_effort=trigger.reasoning_effort,
+                agent_id=agent_id or trigger.agent_id,
+                model_id=model_id or trigger.model_id,
+                reasoning_effort=(
+                    trigger.reasoning_effort
+                    if reasoning_effort is None and model_id is None
+                    else reasoning_effort
+                ),
                 first_message_content=trigger.name,
             ),
             user_id=trigger.owner_id,
@@ -304,7 +421,9 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         )
         launches: list[tuple[str, str, str]] = []  # (thread_id, owner_id, message)
         for trigger in claimed:
-            agent = await self.db.get(AgentDB, trigger.agent_id)
+            agent = await AgentService(
+                self.db, trigger.workspace_id
+            ).repository.get_scoped(trigger.agent_id)
             if agent is None or agent.is_archived:
                 logger.warning(
                     "Pausing trigger %s: agent %s is archived or gone",
@@ -316,6 +435,8 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
                 self.db.add(trigger)
                 continue
             try:
+                if not trigger.cron_expression or not trigger.timezone:
+                    raise ValueError("scheduled trigger is missing its schedule")
                 trigger.next_run_at = compute_next_run_at(
                     trigger.cron_expression, trigger.timezone, after=now
                 )
@@ -327,7 +448,9 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
                 trigger.next_run_at = None
                 self.db.add(trigger)
                 continue
-            if not await self.model_service.is_available(trigger.model_id):
+            if not await ModelService(self.db, trigger.workspace_id).is_available(
+                trigger.model_id
+            ):
                 # Skip the firing but keep the schedule advancing (mirrors the
                 # missed-run policy); the trigger recovers by itself when an
                 # admin re-enables the model. `last_run_at` tracks actual
@@ -361,5 +484,8 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         return run_ids
 
 
-def get_trigger_service(db: AsyncSession = Depends(get_db)) -> TriggerService:
-    return TriggerService(db)
+def get_trigger_service(
+    db: AsyncSession = Depends(get_db),
+    workspace_id: UUID = Depends(get_active_workspace_id),
+) -> TriggerService:
+    return TriggerService(db, workspace_id)

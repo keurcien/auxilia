@@ -1,4 +1,5 @@
 from enum import Enum
+from uuid import UUID
 
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Column, Enum as SAEnum, Field, SQLModel
@@ -21,6 +22,7 @@ class SandboxBase(SQLModel):
     the typed union in schemas.py before it touches the row.
     """
 
+    workspace_id: UUID = Field(foreign_key="workspaces.id", nullable=False, index=True)
     name: str = Field(max_length=255, nullable=False)
     description: str | None = Field(default=None, max_length=255)
     provider: SandboxProviderType = Field(

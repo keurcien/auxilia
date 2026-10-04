@@ -36,10 +36,15 @@ def terminal_entry(status: RunStatus, error: str | None = None) -> str:
 class RunEventStream:
     """The event log for a single run."""
 
-    def __init__(self, run_id: str, redis: Redis | None = None):
+    def __init__(
+        self,
+        run_id: str,
+        redis: Redis | None = None,
+        workspace_id: object | None = None,
+    ):
         self.run_id = run_id
         self.redis: Redis = redis or get_redis()
-        self._key = keys.run_events_key(run_id)
+        self._key = keys.run_events_key(run_id, workspace_id)
         self._ttl_stamped = False
 
     async def publish(self, sse: str) -> str:

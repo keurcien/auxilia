@@ -13,7 +13,7 @@ For servers that accept a static API key or token:
 1. Select **API Key** as the auth type
 2. Paste the key
 
-**auxilia** encrypts the key with **AES-GCM** before writing it to the database (the encryption key is derived from the `SALT` environment variable — see `app/mcp/servers/encryption.py`). On every request the key is sent as:
+**auxilia** encrypts the key before writing it to the database (the encryption key is derived from `BACKEND_ENCRYPTION_SALT`). On every request the key is sent as:
 
 ```
 Authorization: Bearer <your-api-key>

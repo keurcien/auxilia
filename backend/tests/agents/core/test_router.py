@@ -13,6 +13,7 @@ from app.exceptions import NotFoundError, PermissionDeniedError
 from app.main import app
 from app.threads.models import ThreadDB, ThreadSource
 from app.threads.service import get_thread_service
+from tests.conftest import TEST_WORKSPACE_ID
 
 
 @pytest.fixture(autouse=True)
@@ -206,8 +207,7 @@ def test_update_agent(client: TestClient, mock_db, current_user):
         updated_at=datetime.now(),
     )
 
-    # get_tags_by_ids short-circuits when no agent has a tag_id, so the
-    # untagged agents here consume no extra execute result.
+    # Group is scalar agent metadata, so it consumes no hydration query.
     mock_db.execute.side_effect = [
         owner_access(agent),  # require_permission: get_access
         make_result(scalar=agent),  # get_or_404: repository.get
@@ -495,6 +495,7 @@ def make_count_result(total: int) -> MagicMock:
 def _make_thread(*, agent_id, user_id, source=ThreadSource.web) -> ThreadDB:
     return ThreadDB(
         id=str(uuid4()),
+        workspace_id=TEST_WORKSPACE_ID,
         agent_id=agent_id,
         user_id=user_id,
         first_message_content="hi",
@@ -532,6 +533,7 @@ def test_list_agent_threads_as_owner(client: TestClient, mock_db, current_user):
                 (
                     thread,
                     "Owned Agent",
+                    None,
                     None,
                     None,
                     False,
@@ -597,6 +599,7 @@ def test_list_agent_threads_as_workspace_admin(client: TestClient, mock_db):
                 (
                     thread,
                     "Some agent",
+                    None,
                     None,
                     None,
                     False,

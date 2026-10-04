@@ -183,16 +183,30 @@ export default function AddMCPServerPage() {
 						Add an MCP server
 					</h1>
 					<p className="mt-2 max-w-[620px] text-[15px] leading-[1.6] text-body dark:text-panel-body text-pretty">
-						Pick a server from the official catalog — endpoint and auth come
-						pre-configured — or connect your own.
+						Pick a server from the official catalog, endpoint and auth come
+						pre-configured, or connect your own.
 					</p>
 
-					<SearchBar
-						placeholder="Search the catalog…"
-						value={searchQuery}
-						onChange={setSearchQuery}
-						className="mt-6 max-w-[420px]"
-					/>
+					<div className="mt-6 flex flex-col gap-3.5 md:flex-row md:items-start">
+						<SearchBar
+							placeholder="Search the catalog…"
+							value={searchQuery}
+							onChange={setSearchQuery}
+							className="w-full md:max-w-[420px] [&_input]:h-10"
+						/>
+						<Link
+							href="/mcp-servers/add/custom"
+							className="group flex h-10 w-full items-center gap-2.5 rounded-[7px] border border-dashed border-input px-2.5 transition-colors hover:border-petrol hover:bg-sidebar md:ml-auto md:max-w-[420px] dark:border-white/15 dark:hover:bg-white/5"
+						>
+							<span className="flex size-[26px] shrink-0 items-center justify-center rounded-[7px] bg-petrol-tint text-petrol">
+								<Plus className="size-[14px]" />
+							</span>
+							<span className="min-w-0 flex-1 truncate text-[13px] font-bold tracking-[-0.01em] text-foreground">
+								Add a custom server
+							</span>
+							<ChevronRight className="size-4 text-meta transition-colors group-hover:text-foreground" />
+						</Link>
+					</div>
 
 					{submitError && (
 						<div className="mt-4">
@@ -236,24 +250,6 @@ export default function AddMCPServerPage() {
 						</>
 					)}
 
-					<Link
-						href="/mcp-servers/add/custom"
-						className="group mt-[26px] flex items-center gap-3.5 rounded-[14px] border border-dashed border-input px-5 py-[18px] transition-colors hover:border-petrol hover:bg-sidebar dark:border-white/15 dark:hover:bg-white/5"
-					>
-						<span className="flex size-[38px] shrink-0 items-center justify-center rounded-[10px] bg-petrol-tint text-petrol">
-							<Plus className="size-[17px]" />
-						</span>
-						<span className="min-w-0 flex-1">
-							<span className="block text-[14.5px] font-bold tracking-[-0.01em] text-foreground">
-								Add a custom server
-							</span>
-							<span className="mt-0.5 block text-[12.5px] text-subtle dark:text-panel-body">
-								Connect any remote MCP endpoint — you configure the address and
-								authentication yourself.
-							</span>
-						</span>
-						<ChevronRight className="size-4 text-meta transition-colors group-hover:text-foreground" />
-					</Link>
 				</div>
 			</div>
 

@@ -8,6 +8,7 @@ export interface MCPServerCreateFormValues {
 	name: string;
 	url: string;
 	description: string;
+	group: string;
 	authType: MCPAuthType;
 	apiKey: string;
 	oauthClientId: string;
@@ -84,6 +85,7 @@ export function buildMCPServerCreatePayload(
 		url: form.url,
 		authType: form.authType,
 		description: form.description || undefined,
+		group: form.group || null,
 		iconUrl: form.iconUrl || undefined,
 		apiKey,
 		oauthClientId,

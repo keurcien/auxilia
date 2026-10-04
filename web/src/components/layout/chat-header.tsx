@@ -24,6 +24,7 @@ export function ChatHeader() {
 		agentName,
 		agentEmoji,
 		agentColor,
+		agentImageRevision,
 		triggerId,
 		triggerName,
 		triggerRunAt,
@@ -35,7 +36,7 @@ export function ChatHeader() {
 		return (
 			<div className="flex h-14 shrink-0 items-center justify-center gap-2 border-b border-border px-5 text-[14px]">
 				<div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-petrol-tint dark:bg-white/10">
-					<AlarmClock className="size-3.5 text-petrol" />
+					<AlarmClock className="size-3.5 text-petrol dark:text-panel-terminal" />
 				</div>
 				{triggerId ? (
 					<button
@@ -43,7 +44,7 @@ export function ChatHeader() {
 						onClick={() => {
 							router.push(`/triggers/${triggerId}`);
 						}}
-						className="cursor-pointer rounded-sm font-semibold text-foreground transition-colors hover:text-petrol focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-petrol/40"
+						className="cursor-pointer rounded-sm font-semibold text-foreground transition-colors hover:text-petrol focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-petrol/40 dark:hover:text-panel-terminal"
 					>
 						{triggerName}
 					</button>
@@ -69,14 +70,21 @@ export function ChatHeader() {
 
 	return (
 		<div className="flex h-14 shrink-0 items-center justify-center gap-2 border-b border-border px-5">
-			<AgentAvatar color={agentColor} emoji={agentEmoji} size="xs" />
+			<AgentAvatar
+				agentId={agentId}
+				name={agentName}
+				imageRevision={agentImageRevision}
+				color={agentColor}
+				emoji={agentEmoji}
+				size="xs"
+			/>
 			{agentId ? (
 				<button
 					type="button"
 					onClick={() => {
 						void openAgentEditor(agentId);
 					}}
-					className="cursor-pointer rounded-sm text-[14px] font-semibold tracking-[-0.01em] text-foreground transition-colors hover:text-petrol focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-petrol/40"
+					className="cursor-pointer rounded-sm text-[14px] font-semibold tracking-[-0.01em] text-foreground transition-colors hover:text-petrol focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-petrol/40 dark:hover:text-panel-terminal"
 				>
 					{agentName}
 				</button>

@@ -27,13 +27,13 @@ export function SkillRequirementChip({
 		<span
 			title={`This skill runs ${scriptCount} script${
 				scriptCount === 1 ? "" : "s"
-			} — its instructions apply on any agent, but the scripts only run on one with code execution.`}
+			}, its instructions apply on any agent, but the scripts only run on one with code execution.`}
 			className={cn(
-				"shrink-0 whitespace-nowrap rounded-[4px] bg-petrol-tint px-1.5 py-px font-mono text-[9px] font-semibold tracking-[0.05em] text-petrol dark:bg-white/10",
+				"shrink-0 whitespace-nowrap rounded-[4px] bg-petrol-tint px-1.5 py-px text-[9px] font-semibold text-petrol dark:bg-white/10",
 				className,
 			)}
 		>
-			CODE EXECUTION
+			Code execution
 		</span>
 	);
 }

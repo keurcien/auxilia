@@ -20,15 +20,26 @@ from app.runtime.protocol import events as ev
 from app.runtime.protocol.wire import encode_event, encode_terminal
 from app.runtime.runs.models import RunDB
 from app.runtime.runs.state import RunStatus
+from tests.conftest import TEST_WORKSPACE_ID
 
 
 def _record(delivery=None) -> RunDB:
-    return RunDB(id="r1", thread_id="t1", user_id=uuid4(), delivery=delivery)
+    return RunDB(
+        id="r1",
+        workspace_id=TEST_WORKSPACE_ID,
+        thread_id="t1",
+        user_id=uuid4(),
+        delivery=delivery,
+    )
 
 
 def _slack_delivery() -> dict:
     return build_slack_delivery(
-        channel_id="C1", thread_ts="t1", slack_user_id="U1", team_id="T1"
+        channel_id="C1",
+        thread_ts="t1",
+        slack_user_id="U1",
+        team_id="T1",
+        workspace_id=TEST_WORKSPACE_ID,
     )
 
 
@@ -92,10 +103,14 @@ def _patch_status(monkeypatch, status: RunStatus | None, error: str | None = Non
 
 
 def _patch_thread_lookup(monkeypatch):
+    thread = SimpleNamespace(id="t1", agent_id="agent-1")
+
     @asynccontextmanager
     async def _session():
         yield SimpleNamespace(
-            get=lambda model, pk: _async(SimpleNamespace(id="t1", agent_id="agent-1"))
+            execute=lambda stmt: _async(
+                SimpleNamespace(scalar_one_or_none=lambda: thread)
+            )
         )
 
     monkeypatch.setattr(consumer_mod, "AsyncSessionLocal", _session)

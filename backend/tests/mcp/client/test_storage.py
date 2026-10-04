@@ -6,6 +6,7 @@ from mcp.shared.auth import OAuthToken
 
 from app.mcp.client import storage as storage_module
 from app.mcp.client.storage import RedisTokenStorage, TokenStorageFactory
+from tests.conftest import TEST_WORKSPACE_ID
 
 
 class _FakeRedis:
@@ -30,7 +31,7 @@ class _FakeRedis:
 
 
 def _storage() -> RedisTokenStorage:
-    return RedisTokenStorage("u1", "s1", redis=_FakeRedis())
+    return RedisTokenStorage("u1", "s1", str(TEST_WORKSPACE_ID), redis=_FakeRedis())
 
 
 @pytest.mark.asyncio
@@ -93,21 +94,21 @@ def test_factory_borrows_the_app_wide_client_instead_of_opening_a_pool(monkeypat
     factory = TokenStorageFactory()
 
     assert factory.redis is shared
-    assert factory.get_storage("u1", "s1").redis is shared
+    assert factory.get_storage(str(TEST_WORKSPACE_ID), "u1", "s1").redis is shared
 
 
 @pytest.mark.asyncio
 async def test_list_connected_user_ids_matches_token_keys_only():
     factory = _factory()
     factory.redis.store = {
-        "mcp:u1:s1:tokens": "t",
-        "mcp:u1:s1:client_info": "c",
-        "mcp:u2:s1:tokens": "t",
-        "mcp:u3:s2:tokens": "t",  # other server
+        f"mcp:{TEST_WORKSPACE_ID}:u1:s1:tokens": "t",
+        f"mcp:{TEST_WORKSPACE_ID}:u1:s1:client_info": "c",
+        f"mcp:{TEST_WORKSPACE_ID}:u2:s1:tokens": "t",
+        f"mcp:{TEST_WORKSPACE_ID}:u3:s2:tokens": "t",  # other server
         "mcp:oauth_states:abc": "s",  # state key, not a connection
     }
 
-    user_ids = await factory.list_connected_user_ids("s1")
+    user_ids = await factory.list_connected_user_ids(str(TEST_WORKSPACE_ID), "s1")
 
     assert sorted(user_ids) == ["u1", "u2"]
 
@@ -116,16 +117,19 @@ async def test_list_connected_user_ids_matches_token_keys_only():
 async def test_clear_user_server_data_scopes_to_one_user():
     factory = _factory()
     factory.redis.store = {
-        "mcp:u1:s1:tokens": "t",
-        "mcp:u1:s1:client_info": "c",
-        "mcp:u2:s1:tokens": "t",
-        "mcp:u1:s2:tokens": "t",
+        f"mcp:{TEST_WORKSPACE_ID}:u1:s1:tokens": "t",
+        f"mcp:{TEST_WORKSPACE_ID}:u1:s1:client_info": "c",
+        f"mcp:{TEST_WORKSPACE_ID}:u2:s1:tokens": "t",
+        f"mcp:{TEST_WORKSPACE_ID}:u1:s2:tokens": "t",
     }
 
-    deleted = await factory.clear_user_server_data("u1", "s1")
+    deleted = await factory.clear_user_server_data(str(TEST_WORKSPACE_ID), "u1", "s1")
 
     assert deleted == 2
-    assert set(factory.redis.store) == {"mcp:u2:s1:tokens", "mcp:u1:s2:tokens"}
+    assert set(factory.redis.store) == {
+        f"mcp:{TEST_WORKSPACE_ID}:u2:s1:tokens",
+        f"mcp:{TEST_WORKSPACE_ID}:u1:s2:tokens",
+    }
 
 
 @pytest.mark.asyncio

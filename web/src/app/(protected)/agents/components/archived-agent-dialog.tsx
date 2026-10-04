@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { TriangleAlert } from "lucide-react";
+import { toast } from "sonner";
 import { Agent } from "@/types/agents";
 import { useAgentsStore } from "@/stores/agents-store";
 import AgentDialogShell from "@/app/(protected)/agents/components/agent-dialog-shell";
@@ -34,7 +35,7 @@ export default function ArchivedAgentDialog({
 			onClose();
 		} catch (error) {
 			console.error("Error restoring agent:", error);
-			alert("Failed to restore agent. Please try again.");
+			toast.error("Failed to restore agent. Please try again.");
 			setBusy(false);
 		}
 	};
@@ -47,7 +48,7 @@ export default function ArchivedAgentDialog({
 			onClose();
 		} catch (error) {
 			console.error("Error deleting agent:", error);
-			alert("Failed to delete agent. Please try again.");
+			toast.error("Failed to delete agent. Please try again.");
 			setBusy(false);
 		}
 	};

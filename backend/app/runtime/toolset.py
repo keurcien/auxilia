@@ -208,9 +208,10 @@ class MCPResolutionScope:
     parent's and subagents' sessions are opened concurrently.
     """
 
-    def __init__(self, db: AsyncSession, user_id: str):
-        self._repo = MCPServerRepository(db)
+    def __init__(self, db: AsyncSession, user_id: str, workspace_id: UUID):
+        self._repo = MCPServerRepository(db, workspace_id)
         self._user_id = user_id
+        self._workspace_id = workspace_id
         self._rows: dict[UUID, MCPServerDB] = {}
         self._credentials = CredentialCache()
 
@@ -220,9 +221,10 @@ class MCPResolutionScope:
         bindings: Sequence[AgentMCPServerBase],
         db: AsyncSession,
         user_id: str,
+        workspace_id: UUID,
     ) -> "MCPResolutionScope":
         """Preload every server the graph's `bindings` name, in one query."""
-        scope = cls(db, user_id)
+        scope = cls(db, user_id, workspace_id)
         await scope.load([b.mcp_server_id for b in bindings])
         return scope
 
@@ -241,7 +243,11 @@ class MCPResolutionScope:
     async def connection(self, server: MCPServerDB) -> ConnectionSpec:
         """This agent's connection spec for `server`, sharing the decrypted key."""
         return await resolve_connection(
-            server, self._user_id, self._repo, credentials=self._credentials
+            server,
+            self._user_id,
+            self._workspace_id,
+            self._repo,
+            credentials=self._credentials,
         )
 
 
@@ -265,6 +271,7 @@ class Toolset:
         agent_mcp_servers: Sequence[AgentMCPServerBase],
         db: AsyncSession,
         user_id: str,
+        workspace_id: UUID,
         *,
         apply_ui: bool,
         scope: MCPResolutionScope | None = None,
@@ -297,7 +304,7 @@ class Toolset:
         # 1. Load MCP server records from DB
         server_ids = [s.mcp_server_id for s in agent_mcp_servers]
         if scope is None:
-            scope = MCPResolutionScope(db, user_id)
+            scope = MCPResolutionScope(db, user_id, workspace_id)
             await scope.load(server_ids)
         mcp_servers = scope.servers(server_ids)
 

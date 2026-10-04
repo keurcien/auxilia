@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
 	Dialog,
 	DialogButton,
@@ -33,19 +33,12 @@ export default function NewTeamDialog({
 	onTeamUpdated,
 }: NewTeamDialogProps) {
 	const isEdit = !!team;
-	const [name, setName] = useState("");
-	const [color, setColor] = useState<string>(AGENT_COLORS[0]);
+	const [name, setName] = useState(team?.name ?? "");
+	const [color, setColor] = useState<string>(
+		team?.color ?? AGENT_COLORS[0],
+	);
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-
-	useEffect(() => {
-		if (open) {
-			setName(team?.name ?? "");
-			setColor(team?.color ?? AGENT_COLORS[0]);
-			setError(null);
-			setIsSubmitting(false);
-		}
-	}, [open, team]);
 
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
@@ -132,6 +125,25 @@ export default function NewTeamDialog({
 									}`}
 								/>
 							))}
+							<label
+								title="Custom color"
+								className={`relative size-7 cursor-pointer overflow-hidden rounded-full bg-[conic-gradient(#e84393,#e17055,#fdcb6e,#00b894,#0984e3,#6c5ce7,#e84393)] transition-transform hover:scale-110 ${
+									!AGENT_COLORS.includes(color)
+										? "ring-2 ring-petrol ring-offset-2 dark:ring-offset-card"
+										: ""
+								}`}
+							>
+								<span className="absolute inset-[5px] rounded-full border border-white/80 bg-card" />
+								<input
+									type="color"
+									value={color}
+									aria-label="Custom team color"
+									onChange={(event) => {
+										setColor(event.target.value.toUpperCase());
+									}}
+									className="absolute inset-0 size-full cursor-pointer opacity-0"
+								/>
+							</label>
 						</div>
 					</div>
 

@@ -2,10 +2,24 @@
 
 from types import SimpleNamespace
 
+import pytest
+
 import app.integrations.slack.handlers as handlers_mod
 from app.exceptions import DomainValidationError
 from app.integrations.slack.blocks import build_tool_approval_blocks
 from app.integrations.slack.handlers import _extract_decision
+from tests.conftest import TEST_WORKSPACE_ID
+
+
+@pytest.fixture(autouse=True)
+def slack_client(monkeypatch):
+    client = handlers_mod.AsyncWebClient(token="xoxb-test")
+
+    async def get_client(_workspace_id):
+        return client
+
+    monkeypatch.setattr(handlers_mod, "get_slack_client", get_client)
+    return client
 
 
 class _RecordingClient:
@@ -78,6 +92,7 @@ async def test_enqueue_builds_slack_delivery_and_passes_input(monkeypatch):
         channel_id="C1",
         slack_user_id="U1",
         team_id="T1",
+        workspace_id=TEST_WORKSPACE_ID,
         input={"messages": [{"type": "human", "content": "hi"}]},
     )
 
@@ -91,6 +106,7 @@ async def test_enqueue_builds_slack_delivery_and_passes_input(monkeypatch):
         "thread_ts": "t1",
         "slack_user_id": "U1",
         "team_id": "T1",
+        "workspace_id": str(TEST_WORKSPACE_ID),
     }
 
 
@@ -103,6 +119,7 @@ async def test_enqueue_passes_resume_command(monkeypatch):
         channel_id="C1",
         slack_user_id="U1",
         team_id=None,
+        workspace_id=TEST_WORKSPACE_ID,
         command={"resume": {"decisions": [{"type": "approve"}]}},
     )
 
@@ -122,9 +139,16 @@ async def test_is_agent_ready_delegates_to_describe_readiness(monkeypatch):
         seen.append((aid, user_id))
         return {"ready": False, "disconnected_servers": ["s"], "status": "disconnected"}
 
-    monkeypatch.setattr(handlers_mod.AgentService, "__init__", lambda self, db: None)
+    monkeypatch.setattr(
+        handlers_mod.AgentService,
+        "__init__",
+        lambda self, db, workspace_id: None,
+    )
     monkeypatch.setattr(handlers_mod.AgentService, "describe_readiness", _readiness)
-    assert await handlers_mod._is_agent_ready(str(agent_id), "u1", None) is False
+    assert (
+        await handlers_mod._is_agent_ready(str(agent_id), "u1", TEST_WORKSPACE_ID, None)
+        is False
+    )
     # str agent_id converted to UUID; probed for the given user.
     assert seen == [(agent_id, "u1")]
 
@@ -134,10 +158,17 @@ async def test_is_agent_ready_fails_open_on_infra_errors(monkeypatch):
         raise ConnectionError("redis down")
 
     monkeypatch.setattr(handlers_mod.AgentService, "describe_readiness", _boom)
-    monkeypatch.setattr(handlers_mod.AgentService, "__init__", lambda self, db: None)
+    monkeypatch.setattr(
+        handlers_mod.AgentService,
+        "__init__",
+        lambda self, db, workspace_id: None,
+    )
     from uuid import uuid4
 
-    assert await handlers_mod._is_agent_ready(str(uuid4()), "u1", None) is True
+    assert (
+        await handlers_mod._is_agent_ready(str(uuid4()), "u1", TEST_WORKSPACE_ID, None)
+        is True
+    )
 
 
 def _resume_fixture(monkeypatch, *, ready: bool):
@@ -150,13 +181,13 @@ def _resume_fixture(monkeypatch, *, ready: bool):
         async def __aexit__(self, *exc):
             return False
 
-        async def get(self, model, pk):
-            return thread
+        async def execute(self, stmt):
+            return SimpleNamespace(scalar_one_or_none=lambda: thread)
 
     prompts: list = []
     enqueued: list = []
 
-    async def _user(_):
+    async def _user(_slack_user_id, _workspace_id):
         return SimpleNamespace(id="u1")
 
     async def _ready(*_):
@@ -187,7 +218,12 @@ async def test_resume_agent_prompts_reconnect_when_mcp_unauthorized(monkeypatch)
     payload = SimpleNamespace(user=SimpleNamespace(id="U1"), team=None)
 
     await handlers_mod._resume_agent(
-        client, payload, "C1", "111.1", {"resume": {"decisions": [{"type": "approve"}]}}
+        client,
+        payload,
+        TEST_WORKSPACE_ID,
+        "C1",
+        "111.1",
+        {"resume": {"decisions": [{"type": "approve"}]}},
     )
 
     assert prompts == ["a1"]
@@ -204,7 +240,9 @@ async def test_resume_agent_enqueues_resume_when_ready(monkeypatch):
             "decisions": [{"tool_call_id": "call_1", "type": "approve"}],
         }
     }
-    await handlers_mod._resume_agent(client, payload, "C1", "111.1", command)
+    await handlers_mod._resume_agent(
+        client, payload, TEST_WORKSPACE_ID, "C1", "111.1", command
+    )
 
     assert prompts == []
     assert len(enqueued) == 1
@@ -223,6 +261,7 @@ async def test_enqueue_swallows_active_run_conflict(monkeypatch):
         channel_id="C1",
         slack_user_id="U1",
         team_id=None,
+        workspace_id=TEST_WORKSPACE_ID,
         input={"messages": []},
     )
 
@@ -401,7 +440,7 @@ async def test_legacy_click_on_identifiable_interrupt_points_to_the_web_ui(
     """A pre-block-id card against an interrupt the checkpoint identifies:
     unprovable — the card keeps its buttons and the user is sent to the web."""
 
-    async def _state(thread_id):
+    async def _state(workspace_id, thread_id):
         return (
             handlers_mod.PendingInterrupt(id=IID, value={}),
             [{"tool_call_id": "call_1", "tool_name": "t", "input": {}}],
@@ -430,7 +469,9 @@ async def test_legacy_click_on_identifiable_interrupt_points_to_the_web_ui(
     )
 
     legacy_blocks = build_tool_approval_blocks("call_1", {})  # no interrupt_id
-    await handlers_mod.handle_interaction(_interaction_payload(legacy_blocks))
+    await handlers_mod.handle_interaction(
+        _interaction_payload(legacy_blocks), TEST_WORKSPACE_ID
+    )
 
     assert resumed == []
     assert updates == []  # buttons stay — the card is never marked
@@ -501,7 +542,7 @@ async def test_stale_click_marks_the_card_and_never_resumes(monkeypatch):
     another batch) must not resume whatever the thread pends on now."""
     resumed: list = []
 
-    async def _no_state(thread_id):
+    async def _no_state(workspace_id, thread_id):
         return None  # nothing pending on the checkpoint
 
     async def _resume(*args, **kwargs):
@@ -517,7 +558,8 @@ async def test_stale_click_marks_the_card_and_never_resumes(monkeypatch):
     monkeypatch.setattr(handlers_mod, "_update_approval_message", _update)
 
     await handlers_mod.handle_interaction(
-        _interaction_payload(_card("call_1")["blocks"])
+        _interaction_payload(_card("call_1")["blocks"]),
+        TEST_WORKSPACE_ID,
     )
 
     assert updates == ["stale"]
@@ -528,7 +570,7 @@ async def test_click_on_an_older_batch_card_is_stale(monkeypatch):
     """A *different* interrupt pends: the old card is marked, the new batch
     is untouched."""
 
-    async def _state(thread_id):
+    async def _state(workspace_id, thread_id):
         return (
             handlers_mod.PendingInterrupt(id=OTHER_IID, value={}),
             [{"tool_call_id": "call_7", "tool_name": "t", "input": {}}],
@@ -549,7 +591,8 @@ async def test_click_on_an_older_batch_card_is_stale(monkeypatch):
     monkeypatch.setattr(handlers_mod, "_update_approval_message", _update)
 
     await handlers_mod.handle_interaction(
-        _interaction_payload(_card("call_1")["blocks"])
+        _interaction_payload(_card("call_1")["blocks"]),
+        TEST_WORKSPACE_ID,
     )
 
     assert updates == ["stale"]
@@ -578,6 +621,7 @@ async def test_resume_agent_reports_a_lost_race_as_already_handled(monkeypatch):
     await handlers_mod._resume_agent(
         client,
         payload,
+        TEST_WORKSPACE_ID,
         "C1",
         "111.1",
         {"resume": {"interrupt_id": IID, "decisions": []}},

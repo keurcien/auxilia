@@ -262,7 +262,7 @@ export function isHostNotice(message: BaseMessage): boolean {
 
 const HostNotice = ({ message }: { message: BaseMessage }) => (
   <div className="my-2 flex justify-center">
-    <p className="max-w-[80%] rounded-md border border-dashed border-border px-3 py-1.5 text-center font-mono text-[11.5px] leading-[1.5] text-muted-foreground">
+    <p className="max-w-[80%] rounded-md border border-dashed border-border px-3 py-1.5 text-center text-[11.5px] leading-[1.5] text-muted-foreground">
       {message.text.replace(/^\[Host notice\]\s*/, "")}
     </p>
   </div>

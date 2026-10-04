@@ -7,7 +7,7 @@
  */
 import { api } from "@/lib/api/client";
 import type { Paginated } from "@/types/api";
-import type { Run } from "@/types/runs";
+import type { QueuedPrompt, Run } from "@/types/runs";
 import type { AgentThread, Thread, ThreadCreate, ThreadRead } from "@/types/threads";
 
 export type PageParams = { limit: number; offset: number };
@@ -55,5 +55,69 @@ export async function deleteThread(threadId: string): Promise<void> {
 /** The thread's runs, operational state only (status, error, timestamps). */
 export async function listThreadRuns(threadId: string): Promise<Run[]> {
 	const response = await api.get<Run[]>(`/threads/${threadId}/runs`);
+	return response.data;
+}
+
+export async function listQueuedPrompts(
+	threadId: string,
+): Promise<QueuedPrompt[]> {
+	const response = await api.get<QueuedPrompt[]>(
+		`/threads/${threadId}/runs/queue`,
+	);
+	return response.data;
+}
+
+export async function enqueuePrompt(
+	threadId: string,
+	text: string,
+): Promise<QueuedPrompt> {
+	const response = await api.post<QueuedPrompt>(
+		`/threads/${threadId}/runs/queue`,
+		{ text },
+	);
+	return response.data;
+}
+
+export async function updateQueuedPrompt(
+	threadId: string,
+	runId: string,
+	text: string,
+): Promise<QueuedPrompt> {
+	const response = await api.patch<QueuedPrompt>(
+		`/threads/${threadId}/runs/queue/${runId}`,
+		{ text },
+	);
+	return response.data;
+}
+
+export async function beginQueuedPromptEdit(
+	threadId: string,
+	runId: string,
+): Promise<void> {
+	await api.post(`/threads/${threadId}/runs/queue/${runId}/edit`);
+}
+
+export async function endQueuedPromptEdit(
+	threadId: string,
+	runId: string,
+): Promise<void> {
+	await api.delete(`/threads/${threadId}/runs/queue/${runId}/edit`);
+}
+
+export async function removeQueuedPrompt(
+	threadId: string,
+	runId: string,
+): Promise<void> {
+	await api.delete(`/threads/${threadId}/runs/queue/${runId}`);
+}
+
+export async function reorderQueuedPrompts(
+	threadId: string,
+	orderedIds: string[],
+): Promise<QueuedPrompt[]> {
+	const response = await api.put<QueuedPrompt[]>(
+		`/threads/${threadId}/runs/queue/order`,
+		{ orderedIds },
+	);
 	return response.data;
 }

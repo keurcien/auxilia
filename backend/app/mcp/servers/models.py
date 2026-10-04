@@ -14,20 +14,43 @@ class MCPAuthType(str, enum.Enum):
 
 
 class MCPServerBase(SQLModel):
+    workspace_id: UUID = Field(foreign_key="workspaces.id", nullable=False, index=True)
     name: str = Field(nullable=False)
     url: str = Field(nullable=False)
     auth_type: MCPAuthType = Field(default=MCPAuthType.none)
     icon_url: str | None = Field(default=None)
     description: str | None = Field(default=None)
+    group: str | None = Field(default=None, max_length=255, nullable=True, index=True)
 
 
 class MCPServerDB(MCPServerBase, BaseDBModel, table=True):
     __tablename__ = "mcp_servers"
+    __table_args__ = (
+        sa.UniqueConstraint("workspace_id", "url", name="uq_mcp_server_workspace_url"),
+    )
 
-    url: str = Field(nullable=False, unique=True)
+    url: str = Field(nullable=False)
     auth_type: MCPAuthType = Field(
         default=MCPAuthType.none, sa_column=Column(Enum(MCPAuthType), nullable=False)
     )
+    image_revision: UUID | None = Field(default=None, nullable=True)
+
+
+class MCPServerImageDB(BaseDBModel, table=True):
+    __tablename__ = "mcp_server_images"
+    __table_args__ = (
+        sa.UniqueConstraint("mcp_server_id", name="uq_mcp_server_image_server_id"),
+    )
+
+    mcp_server_id: UUID = Field(
+        foreign_key="mcp_servers.id",
+        ondelete="CASCADE",
+        nullable=False,
+        index=True,
+    )
+    data: bytes = Field(sa_column=Column(sa.LargeBinary, nullable=False))
+    media_type: str = Field(max_length=50, nullable=False)
+    sha256: str = Field(max_length=64, nullable=False)
 
 
 class MCPServerAPIKeyDB(BaseDBModel, table=True):

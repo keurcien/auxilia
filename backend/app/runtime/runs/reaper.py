@@ -70,7 +70,11 @@ class RunReaper:
         # A partial `suspect_now` errs the safe way: fewer suspects, more sweeps.
         try:
             for record in await self.service.list_running():
-                if await RunLiveness(record.id, self.service.redis).is_alive():
+                if await RunLiveness(
+                    record.id,
+                    self.service.redis,
+                    workspace_id=record.workspace_id,
+                ).is_alive():
                     continue
                 if now - record.updated_at < grace:
                     continue

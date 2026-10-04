@@ -5,9 +5,10 @@ run's ephemeral coordination (event log, cancel signal, liveness) stays in
 Redis. See `SPEC.md`.
 """
 
+from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, Enum as SAEnum, Index, text
+from sqlalchemy import JSON, BigInteger, DateTime, Enum as SAEnum, Index, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Column, Field, SQLModel, String, Text
 
@@ -17,7 +18,13 @@ from app.runtime.runs.state import MultitaskStrategy, RunStatus
 
 # JSONB on Postgres; plain JSON elsewhere (the test suite runs on SQLite).
 def _json_column() -> Column:
-    return Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)
+    return Column(
+        JSON(none_as_null=True).with_variant(
+            JSONB(none_as_null=True),
+            "postgresql",
+        ),
+        nullable=True,
+    )
 
 
 class RunDB(TimestampMixin, SQLModel, table=True):
@@ -28,6 +35,14 @@ class RunDB(TimestampMixin, SQLModel, table=True):
     __table_args__ = (
         # Run history per thread, newest first.
         Index("ix_runs_thread_id_created_at", "thread_id", "created_at"),
+        Index("ix_runs_thread_id_started_at", "thread_id", "started_at"),
+        Index(
+            "ix_runs_pending_queue",
+            "thread_id",
+            "queue_position",
+            postgresql_where=text("status = 'pending' AND queue_position IS NOT NULL"),
+            sqlite_where=text("status = 'pending' AND queue_position IS NOT NULL"),
+        ),
         # The per-thread mutex: at most one running run per thread.
         Index(
             "uq_runs_one_running_per_thread",
@@ -35,6 +50,19 @@ class RunDB(TimestampMixin, SQLModel, table=True):
             unique=True,
             postgresql_where=text("status = 'running'"),
             sqlite_where=text("status = 'running'"),
+        ),
+        # Only one HITL resume may be waiting/running for a thread. This closes
+        # the race where two surfaces approve the same checkpoint together.
+        Index(
+            "uq_runs_one_active_command_per_thread",
+            "thread_id",
+            unique=True,
+            postgresql_where=text(
+                "status IN ('pending', 'running') AND command IS NOT NULL"
+            ),
+            sqlite_where=text(
+                "status IN ('pending', 'running') AND command IS NOT NULL"
+            ),
         ),
         # The hot set: dispatcher claim + active-runs poll + reaper worklist.
         Index(
@@ -53,6 +81,9 @@ class RunDB(TimestampMixin, SQLModel, table=True):
         default_factory=lambda: str(uuid4()),
         sa_column=Column(String, primary_key=True),
     )
+    workspace_id: UUID = Field(
+        foreign_key="workspaces.id", ondelete="CASCADE", nullable=False, index=True
+    )
     thread_id: str = Field(foreign_key="threads.id", ondelete="CASCADE", nullable=False)
     user_id: UUID = Field(foreign_key="users.id", ondelete="CASCADE", nullable=False)
     # Non-native enum: plain VARCHAR in the DB (no pg enum type to migrate),
@@ -67,6 +98,17 @@ class RunDB(TimestampMixin, SQLModel, table=True):
     )
     multitask_strategy: MultitaskStrategy = Field(
         default="reject", sa_column=Column(String, nullable=False)
+    )
+    # Only user prompts submitted through the durable web queue receive a
+    # position. Historical/trigger/Slack runs stay NULL.
+    queue_position: int | None = Field(
+        default=None, sa_column=Column(BigInteger, nullable=True)
+    )
+    # Immutable execution-order cursor. Creation order can be changed by queue
+    # reordering and HITL resumes, while started_at follows actual dispatch.
+    started_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
     )
 
     # Run parameters (mutually: input for a new turn, command for a HITL

@@ -13,7 +13,8 @@ from app.exceptions import (
 )
 from app.skills.models import SkillDB
 from app.skills.schemas import SkillFile, SkillSave
-from app.skills.service import SkillService
+from app.skills.service import SkillService as _SkillService
+from tests.conftest import TEST_WORKSPACE_ID
 from tests.skills.conftest import (
     attach,
     link_subagent,
@@ -25,6 +26,10 @@ from tests.skills.conftest import (
 
 
 pytestmark = pytest.mark.asyncio
+
+
+def SkillService(db):
+    return _SkillService(db, TEST_WORKSPACE_ID)
 
 
 async def test_create_derives_columns_from_the_document(agent_session, member):

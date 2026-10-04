@@ -5,11 +5,15 @@ import { useRouter } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import ResourceInUseDialog from "@/components/resource-in-use-dialog";
+import { useConfirmDialog } from "@/components/providers/dialog-provider";
 import { useDeleteMcpServer } from "@/hooks/use-delete-mcp-server";
 import { Alert } from "@/components/ui/alert";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
+import { GroupPicker } from "@/components/ui/group-picker";
+import { ImageUpload } from "@/components/ui/image-upload";
 import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { groupOptions } from "@/lib/groups";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { useUserStore } from "@/stores/user-store";
 import {
@@ -45,6 +49,7 @@ interface EditFormValues {
 	url: string;
 	iconUrl: string;
 	description: string;
+	group: string;
 	apiKey: string;
 	oauthClientId: string;
 	oauthClientSecret: string;
@@ -56,6 +61,7 @@ function formFromServer(server: MCPServer): EditFormValues {
 		url: server.url,
 		iconUrl: server.iconUrl ?? "",
 		description: server.description ?? "",
+		group: server.group ?? "",
 		apiKey: "",
 		// client_id is a public identifier — prefill it so it's editable; the
 		// secret is write-only and stays blank ("leave blank to keep").
@@ -98,9 +104,16 @@ export default function MCPServerDetail({
 	initialEdit,
 }: MCPServerDetailProps) {
 	const router = useRouter();
+	const confirmDialog = useConfirmDialog();
 	const user = useUserStore((state) => state.user);
 	const isAdmin = user?.role === "admin";
-	const { updateMcpServer, resetMcpServerConnections } = useMcpServersStore();
+	const {
+		mcpServers,
+		updateMcpServer,
+		applyMcpServer,
+		resetMcpServerConnections,
+	} =
+		useMcpServersStore();
 
 	const [server, setServer] = useState<MCPServer>(initialServer);
 	const [isEditing, setIsEditing] = useState(initialEdit);
@@ -116,6 +129,8 @@ export default function MCPServerDetail({
 	const [isResetting, setIsResetting] = useState(false);
 	const [forbiddenOpen, setForbiddenOpen] = useState(false);
 	const [showSecret, setShowSecret] = useState(false);
+	const [imageFile, setImageFile] = useState<File | null>(null);
+	const [removeImage, setRemoveImage] = useState(false);
 	// Whether the saved server already has a static client secret; the secret
 	// itself is never returned by the API.
 	const [hasStoredSecret, setHasStoredSecret] = useState(
@@ -168,6 +183,8 @@ export default function MCPServerDetail({
 		setFieldErrors({});
 		setSubmitError(null);
 		setShowSecret(false);
+		setImageFile(null);
+		setRemoveImage(false);
 		clientIdDirtyRef.current = false;
 		resetTest();
 		setMode(true);
@@ -176,6 +193,8 @@ export default function MCPServerDetail({
 	const cancelEdit = () => {
 		setFieldErrors({});
 		setSubmitError(null);
+		setImageFile(null);
+		setRemoveImage(false);
 		resetTest();
 		setMode(false);
 	};
@@ -244,6 +263,7 @@ export default function MCPServerDetail({
 				// Explicit null clears the stored value — undefined would be
 				// dropped from the PATCH and silently keep the old one.
 				description: form.description.trim() ? form.description : null,
+				group: form.group || null,
 				iconUrl: form.iconUrl.trim() ? form.iconUrl : null,
 				// Credentials are sent only when the field was filled in; a blank
 				// field keeps the stored secret untouched.
@@ -258,11 +278,25 @@ export default function MCPServerDetail({
 						? form.oauthClientSecret
 						: undefined,
 			};
-			const updated = await updateMcpServer(server.id, payload);
+			let updated = await updateMcpServer(server.id, payload);
 			setServer(updated);
+			if (imageFile) {
+				const revision = await mcpServersApi.uploadMcpServerImage(
+					server.id,
+					imageFile,
+				);
+				updated = { ...updated, imageRevision: revision };
+				applyMcpServer(updated);
+				setServer(updated);
+			} else if (removeImage && server.imageRevision) {
+				await mcpServersApi.deleteMcpServerImage(server.id);
+				updated = { ...updated, imageRevision: null };
+				applyMcpServer(updated);
+				setServer(updated);
+			}
 			if (server.authType === "oauth2" && form.oauthClientSecret) {
 				setHasStoredSecret(true);
-				setSecretHint(null); // stale — the stored secret just changed
+				setSecretHint(null); // stale, the stored secret just changed
 			}
 			setMode(false);
 		} catch (error: unknown) {
@@ -308,9 +342,13 @@ export default function MCPServerDetail({
 	// panel ("Reset all connections"). Returns true when the reset ran.
 	const handleReset = async (): Promise<boolean> => {
 		if (
-			!window.confirm(
-				"This will revoke all user connections to this MCP server. Users will need to re-authenticate. Continue?",
-			)
+			!(await confirmDialog({
+				title: "Reset all connections?",
+				description:
+					"Every user connection to this MCP server will be revoked. Users will need to authenticate again.",
+				confirmLabel: "Reset connections",
+				destructive: true,
+			}))
 		)
 			return false;
 		setSubmitError(null);
@@ -413,6 +451,8 @@ export default function MCPServerDetail({
 					<div className="flex items-center gap-4">
 						<ServerIconTile
 							iconUrl={editing ? form.iconUrl || null : server.iconUrl}
+							serverId={server.id}
+							imageRevision={server.imageRevision}
 							name={server.name}
 							size={52}
 						/>
@@ -444,8 +484,8 @@ export default function MCPServerDetail({
 					)}
 
 					<div className="mb-1.5 mt-[30px]">
-						<span className="font-mono text-[10.5px] font-semibold tracking-[0.09em] text-subtle dark:text-panel-dim">
-							CONFIGURATION
+						<span className="text-[10.5px] font-semibold text-subtle dark:text-panel-dim">
+							Configuration
 						</span>
 					</div>
 
@@ -459,22 +499,13 @@ export default function MCPServerDetail({
 									{server.url}
 								</span>
 							</ConfigRow>
-							<ConfigRow label="Icon URL">
-								{server.iconUrl ? (
-									<span className="break-all font-mono text-[12px] text-foreground">
-										{server.iconUrl}
-									</span>
-								) : (
-									<span className="text-[13.5px] text-meta dark:text-panel-dim">—</span>
-								)}
-							</ConfigRow>
 							<ConfigRow label="Description">
 								{server.description ? (
 									<span className="text-[13.5px] leading-[1.55] text-foreground">
 										{server.description}
 									</span>
 								) : (
-									<span className="text-[13.5px] text-meta dark:text-panel-dim">—</span>
+									<span className="text-[13.5px] text-meta dark:text-panel-dim">Not available</span>
 								)}
 							</ConfigRow>
 							<ConfigRow
@@ -488,7 +519,7 @@ export default function MCPServerDetail({
 							{server.authType === "api_key" && (
 								<ConfigRow label="API key" last>
 									<span className="inline-flex items-center gap-2.5">
-										<span className="font-mono text-[12px] tracking-[0.08em] text-subtle dark:text-panel-dim">
+										<span className="font-mono text-[12px] text-subtle dark:text-panel-dim">
 											••••••••
 										</span>
 										<span className="text-[12px] text-meta dark:text-panel-dim">
@@ -513,7 +544,7 @@ export default function MCPServerDetail({
 									<ConfigRow label="Client secret" last>
 										{secretMask ? (
 											<span className="inline-flex items-center gap-2.5">
-												<span className="font-mono text-[12px] tracking-[0.08em] text-subtle dark:text-panel-dim">
+												<span className="font-mono text-[12px] text-subtle dark:text-panel-dim">
 													{secretMask}
 												</span>
 												<span className="text-[12px] text-meta dark:text-panel-dim">
@@ -522,7 +553,7 @@ export default function MCPServerDetail({
 											</span>
 										) : (
 											<span className="text-[13.5px] text-meta dark:text-panel-dim">
-												Not set — using Dynamic Client Registration
+												Not set, using Dynamic Client Registration
 											</span>
 										)}
 									</ConfigRow>
@@ -569,20 +600,28 @@ export default function MCPServerDetail({
 									</span>
 								)}
 							</div>
-							<div className="flex flex-col gap-[7px]">
-								<label htmlFor="mcp-edit-icon" className={LABEL_CLASS}>
-									Icon URL
-								</label>
-								<input
-									id="mcp-edit-icon"
-									placeholder="https://…/icon.svg"
-									value={form.iconUrl}
-									onChange={(e) => {
-										handleFormChange("iconUrl", e.target.value);
-									}}
-									className={MONO_INPUT_CLASS}
-								/>
-							</div>
+							<ImageUpload
+								currentUrl={
+									server.imageRevision
+										? mcpServersApi.mcpServerImageUrl(
+												server.id,
+												server.imageRevision,
+											)
+										: null
+								}
+								file={imageFile}
+								removed={removeImage}
+								onFileChange={(file) => {
+									setImageFile(file);
+									if (file) setRemoveImage(false);
+								}}
+								onRemove={() => {
+									setImageFile(null);
+									setRemoveImage(Boolean(server.imageRevision));
+								}}
+								label="Uploaded logo"
+								className="rounded-[12px] border border-hairline bg-sidebar p-3 dark:border-white/5"
+							/>
 							<div className="flex flex-col gap-[7px]">
 								<label htmlFor="mcp-edit-description" className={LABEL_CLASS}>
 									Description
@@ -597,10 +636,17 @@ export default function MCPServerDetail({
 									className={`${INPUT_CLASS} resize-none leading-[1.55]`}
 								/>
 							</div>
+							<GroupPicker
+								value={form.group}
+								groups={groupOptions(mcpServers)}
+								onChange={(group) => {
+									handleFormChange("group", group);
+								}}
+							/>
 							<div className="flex flex-col gap-1">
 								<span className={LABEL_CLASS}>Authentication method</span>
 								<span className="text-[13.5px] text-subtle dark:text-panel-body">
-									{AUTH_TYPE_LABELS[server.authType]} — can&apos;t be changed
+									{AUTH_TYPE_LABELS[server.authType]}, can&apos;t be changed
 									after creation
 								</span>
 							</div>
@@ -705,7 +751,7 @@ export default function MCPServerDetail({
 									<button
 										type="button"
 										disabled={busy}
-										title="Revokes all user connections — users will need to re-authenticate."
+										title="Revokes all user connections, users will need to re-authenticate."
 										onClick={() => {
 											void handleReset();
 										}}

@@ -7,6 +7,7 @@ from sqlalchemy import (
     DateTime,
     Enum as SAEnum,
     Index,
+    LargeBinary,
     Text,
     UniqueConstraint,
     text,
@@ -42,6 +43,7 @@ class SkillSourceDB(BaseDBModel, table=True):
     __table_args__ = (
         Index(
             "uq_skill_sources_identity",
+            "workspace_id",
             "url",
             "ref",
             text("coalesce(subpath, '')"),
@@ -49,6 +51,7 @@ class SkillSourceDB(BaseDBModel, table=True):
         ),
     )
 
+    workspace_id: UUID = Field(foreign_key="workspaces.id", index=True)
     owner_id: UUID = Field(foreign_key="users.id", ondelete="CASCADE", index=True)
     name: str = Field(max_length=120)
     kind: SkillSourceKind = Field(
@@ -109,9 +112,18 @@ class SkillDB(BaseDBModel, table=True):
 
     __tablename__ = "skills"
 
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "name", name="uq_skills_workspace_name"),
+    )
+
+    workspace_id: UUID = Field(foreign_key="workspaces.id", index=True)
     owner_id: UUID = Field(foreign_key="users.id", ondelete="CASCADE", index=True)
-    name: str = Field(max_length=64, index=True, unique=True)
+    name: str = Field(max_length=64, index=True)
     description: str = Field(max_length=1024)
+    emoji: str | None = Field(default=None, max_length=10, nullable=True)
+    color: str | None = Field(default=None, max_length=7, nullable=True)
+    image_revision: UUID | None = Field(default=None, nullable=True)
+    group: str | None = Field(default=None, max_length=255, nullable=True, index=True)
     content: str = Field(sa_column=Column(Text, nullable=False))
     # JSONB on Postgres; plain JSON elsewhere (the test suite runs on SQLite).
     files: list = Field(
@@ -175,6 +187,21 @@ class SkillDB(BaseDBModel, table=True):
             content=self.content,
             files=[SkillFile.model_validate(file) for file in self.files],
         )
+
+
+class SkillImageDB(BaseDBModel, table=True):
+    __tablename__ = "skill_images"
+    __table_args__ = (UniqueConstraint("skill_id", name="uq_skill_image_skill_id"),)
+
+    skill_id: UUID = Field(
+        foreign_key="skills.id",
+        ondelete="CASCADE",
+        nullable=False,
+        index=True,
+    )
+    data: bytes = Field(sa_column=Column(LargeBinary, nullable=False))
+    media_type: str = Field(max_length=50, nullable=False)
+    sha256: str = Field(max_length=64, nullable=False)
 
 
 class AgentSkillDB(TimestampMixin, SQLModel, table=True):

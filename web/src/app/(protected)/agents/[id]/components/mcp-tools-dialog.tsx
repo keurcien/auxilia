@@ -151,7 +151,7 @@ export default function MCPToolsDialog({
 						<DialogTitle className="text-[18px]">
 							{server.name} MCP server
 						</DialogTitle>
-						<DialogDescription className="font-mono text-[12px]">
+						<DialogDescription className="text-[12px]">
 							{SUBTITLE}
 						</DialogDescription>
 					</div>
@@ -182,7 +182,7 @@ export default function MCPToolsDialog({
 									</span>
 									<span
 										className={cn(
-											"rounded-[4px] px-2 py-0.5 font-mono text-[9.5px] font-semibold tracking-[0.05em] uppercase",
+											"rounded-[4px] px-2 py-0.5 text-[9.5px] font-semibold",
 											status === "always_allow" &&
 												"bg-success-bg text-success",
 											status === "needs_approval" &&

@@ -1,6 +1,8 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Hanken_Grotesk, IBM_Plex_Mono, Space_Grotesk } from "next/font/google";
 import { ThemeProvider } from "next-themes";
+import { AppearanceInitializer } from "@/components/providers/appearance-initializer";
+import { DialogProvider } from "@/components/providers/dialog-provider";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
@@ -27,6 +29,36 @@ const ibmPlexMono = IBM_Plex_Mono({
 export const metadata: Metadata = {
 	title: "auxilia",
 	description: "Platform for building AI-powered assistants",
+	applicationName: "auxilia",
+	icons: {
+		icon: [
+			{ url: "/pwa-icon.svg", type: "image/svg+xml" },
+			{ url: "/pwa-icon-192.png", sizes: "192x192", type: "image/png" },
+		],
+		apple: [
+			{
+				url: "/apple-touch-icon.png",
+				sizes: "180x180",
+				type: "image/png",
+			},
+		],
+	},
+	appleWebApp: {
+		capable: true,
+		title: "auxilia",
+		statusBarStyle: "default",
+	},
+	formatDetection: {
+		telephone: false,
+	},
+};
+
+export const viewport: Viewport = {
+	colorScheme: "light dark",
+	themeColor: [
+		{ media: "(prefers-color-scheme: light)", color: "#16606e" },
+		{ media: "(prefers-color-scheme: dark)", color: "#0c1318" },
+	],
 };
 
 export default function RootLayout({
@@ -45,7 +77,8 @@ export default function RootLayout({
 					enableSystem
 					disableTransitionOnChange
 				>
-					{children}
+					<AppearanceInitializer />
+					<DialogProvider>{children}</DialogProvider>
 					<Toaster />
 				</ThemeProvider>
 			</body>

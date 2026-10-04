@@ -438,6 +438,7 @@ export type PromptInputProps = Omit<
 	multiple?: boolean;
 	// When true, blocks every attachment path (file dialog, drop, paste).
 	disableAttachments?: boolean;
+	attachmentsDisabledMessage?: string;
 	// When true, accepts drops anywhere on document. Default false (opt-in).
 	globalDrop?: boolean;
 	// Render a hidden input with given name and keep it in sync for native form posts. Default false.
@@ -460,6 +461,7 @@ export const PromptInput = ({
 	accept,
 	multiple,
 	disableAttachments,
+	attachmentsDisabledMessage = "This model does not support attachments",
 	globalDrop,
 	syncHiddenInput,
 	maxFiles,
@@ -857,7 +859,7 @@ export const PromptInput = ({
 						>
 							{disableAttachments && (
 								<span className="rounded-full border border-destructive/30 bg-card px-3 py-1.5 text-[13px] font-medium text-destructive shadow-sm">
-									This model does not support attachments
+									{attachmentsDisabledMessage}
 								</span>
 							)}
 						</div>
@@ -891,6 +893,7 @@ export type PromptInputTextareaProps = ComponentProps<
 
 export const PromptInputTextarea = ({
 	onChange,
+	onKeyDown,
 	className,
 	placeholder = "How can I help you?",
 	...props
@@ -901,6 +904,11 @@ export const PromptInputTextarea = ({
 	const [isComposing, setIsComposing] = useState(false);
 
 	const handleKeyDown: KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
+		// The caller's handler runs first and may claim the key.
+		onKeyDown?.(e);
+		if (e.defaultPrevented) {
+			return;
+		}
 		if (e.key === "Enter") {
 			if (isComposing || e.nativeEvent.isComposing) {
 				return;

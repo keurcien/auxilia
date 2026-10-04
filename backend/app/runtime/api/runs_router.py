@@ -6,6 +6,8 @@ Run CRUD, `/invoke` (create + block for the result), `/cancel`, and the
 relays their event log (`app/runtime/api/protocol_router.py`).
 """
 
+from uuid import UUID
+
 from fastapi import APIRouter, Body, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +15,7 @@ from app.auth.dependencies import get_current_user
 from app.database import get_db
 from app.exceptions import (
     DomainError,
+    DomainValidationError,
     NotFoundError,
     PermissionDeniedError,
     StructuredOutputError,
@@ -21,12 +24,21 @@ from app.mcp.client.responses import oauth_required_response
 from app.redis_client import get_redis
 from app.runtime.agent import read_run_result
 from app.runtime.middleware.structured_output import validate_structured_response
-from app.runtime.runs.schemas import RunCreate, RunResponse
+from app.runtime.runs.schemas import (
+    QueuedPromptCreate,
+    QueuedPromptOrder,
+    QueuedPromptPatch,
+    QueuedPromptResponse,
+    RunCreate,
+    RunResponse,
+    queued_prompt_input,
+)
 from app.runtime.runs.service import RunService
 from app.runtime.runs.state import RunStatus
 from app.threads.schemas import ThreadResponse
 from app.threads.service import ThreadService, get_thread_service
 from app.users.models import UserDB
+from app.workspaces.dependencies import get_active_workspace_id
 
 
 router = APIRouter(prefix="/threads/{thread_id}/runs", tags=["runs"])
@@ -81,10 +93,19 @@ def _ensure_run_on_thread(record, thread_id: str) -> None:
         raise NotFoundError("Run not found")
 
 
+def _queued_responses(records) -> list[QueuedPromptResponse]:
+    return [
+        response
+        for record in records
+        if (response := QueuedPromptResponse.from_record(record)) is not None
+    ]
+
+
 @user_runs_router.get("/active", response_model=list[RunResponse])
 async def list_active_runs(
     recent_seconds: int = Query(0, ge=0, le=3600),
     current_user: UserDB = Depends(get_current_user),
+    workspace_id: UUID = Depends(get_active_workspace_id),
     service: RunService = Depends(get_run_service),
     db: AsyncSession = Depends(get_db),
 ) -> list[RunResponse]:
@@ -95,7 +116,9 @@ async def list_active_runs(
     letting pollers observe error/success transitions between polls."""
     user_id = str(current_user.id)
     await db.commit()
-    records = await service.list_active_for_user(user_id, recent_seconds=recent_seconds)
+    records = await service.list_active_for_user(
+        user_id, workspace_id, recent_seconds=recent_seconds
+    )
     return [RunResponse.from_record(r) for r in records]
 
 
@@ -122,7 +145,7 @@ async def invoke_run(
     # run is created when authorization is missing and no connection is held
     # during network IO.
     if auth_url := await runs.required_oauth_url(
-        db, thread.agent_id, str(thread.user_id)
+        db, thread.agent_id, str(thread.user_id), thread.workspace_id
     ):
         # Explicit at the call site: this used to be an exception the
         # app-global handler turned into a response on *any* endpoint that
@@ -149,7 +172,7 @@ async def invoke_run(
         raise DomainError(
             record.error or f"Run did not complete ({record.status.value})"
         )
-    result = await read_run_result(thread_id)
+    result = await read_run_result(thread.workspace_id, thread_id)
     # Backstop for paths where the formatting turn never ran (e.g. recursion
     # fallback): the schema contract must hold on everything returned here.
     if output_schema is not None and (
@@ -176,7 +199,7 @@ async def create_run(
     # Pre-flight: refuse to launch if the agent or a subagent needs OAuth,
     # before the run is created.
     if auth_url := await runs.required_oauth_url(
-        db, thread.agent_id, str(thread.user_id)
+        db, thread.agent_id, str(thread.user_id), thread.workspace_id
     ):
         # Explicit at the call site: this used to be an exception the
         # app-global handler turned into a response on *any* endpoint that
@@ -201,30 +224,139 @@ async def create_run(
 @router.get("")
 async def list_runs(
     thread_id: str,
-    _: ThreadResponse = Depends(authorize_thread_for_run_service),
+    thread: ThreadResponse = Depends(authorize_thread_for_run_service),
     runs: RunService = Depends(get_run_service),
 ) -> list[RunResponse]:
-    return [RunResponse.from_record(r) for r in await runs.list_for_thread(thread_id)]
+    return [
+        RunResponse.from_record(r)
+        for r in await runs.list_for_thread(thread_id, thread.workspace_id)
+    ]
 
 
 @router.get("/active")
 async def get_active_run(
     thread_id: str,
-    _: ThreadResponse = Depends(authorize_thread_for_run_service),
+    thread: ThreadResponse = Depends(authorize_thread_for_run_service),
     runs: RunService = Depends(get_run_service),
 ) -> RunResponse | None:
-    record = await runs.get_active(thread_id)
+    record = await runs.get_active(thread_id, thread.workspace_id)
     return RunResponse.from_record(record) if record else None
+
+
+@router.get("/queue")
+async def list_prompt_queue(
+    thread_id: str,
+    thread: ThreadResponse = Depends(authorize_thread_for_run_service),
+    runs: RunService = Depends(get_run_service),
+) -> list[QueuedPromptResponse]:
+    return _queued_responses(
+        await runs.list_queued_prompts(thread_id, thread.workspace_id)
+    )
+
+
+@router.post("/queue", status_code=201)
+async def enqueue_prompt(
+    thread_id: str,
+    body: QueuedPromptCreate,
+    thread: ThreadResponse = Depends(authorize_thread),
+    runs: RunService = Depends(get_run_service),
+    db: AsyncSession = Depends(get_db),
+) -> QueuedPromptResponse:
+    text = body.text.strip()
+    if not text:
+        raise DomainValidationError("A queued prompt cannot be empty.")
+    if auth_url := await runs.required_oauth_url(
+        db, thread.agent_id, str(thread.user_id), thread.workspace_id
+    ):
+        return oauth_required_response(auth_url)
+    await db.commit()
+    record = await runs.create(
+        thread_id=thread_id,
+        user_id=str(thread.user_id),
+        input=queued_prompt_input(text),
+        multitask_strategy="enqueue",
+    )
+    response = QueuedPromptResponse.from_record(record)
+    if response is None:  # construction above guarantees this shape
+        raise DomainError("Could not project queued prompt")
+    return response
+
+
+@router.patch("/queue/{run_id}")
+async def update_prompt_queue_item(
+    thread_id: str,
+    run_id: str,
+    body: QueuedPromptPatch,
+    thread: ThreadResponse = Depends(authorize_thread_for_run_service),
+    runs: RunService = Depends(get_run_service),
+) -> QueuedPromptResponse:
+    text = body.text.strip()
+    if not text:
+        raise DomainValidationError("A queued prompt cannot be empty.")
+    record = await runs.get(run_id, thread.workspace_id)
+    _ensure_run_on_thread(record, thread_id)
+    updated = await runs.update_queued_prompt(
+        run_id, queued_prompt_input(text), thread.workspace_id
+    )
+    response = QueuedPromptResponse.from_record(updated)
+    if response is None:
+        raise DomainError("Could not project queued prompt")
+    return response
+
+
+@router.post("/queue/{run_id}/edit", status_code=204)
+async def begin_prompt_queue_edit(
+    thread_id: str,
+    run_id: str,
+    thread: ThreadResponse = Depends(authorize_thread_for_run_service),
+    runs: RunService = Depends(get_run_service),
+) -> None:
+    await runs.begin_queue_edit(thread_id, run_id, thread.workspace_id)
+
+
+@router.delete("/queue/{run_id}/edit", status_code=204)
+async def end_prompt_queue_edit(
+    thread_id: str,
+    run_id: str,
+    thread: ThreadResponse = Depends(authorize_thread_for_run_service),
+    runs: RunService = Depends(get_run_service),
+) -> None:
+    await runs.end_queue_edit(thread_id, run_id, thread.workspace_id)
+
+
+@router.put("/queue/order")
+async def reorder_prompt_queue(
+    thread_id: str,
+    body: QueuedPromptOrder,
+    thread: ThreadResponse = Depends(authorize_thread_for_run_service),
+    runs: RunService = Depends(get_run_service),
+) -> list[QueuedPromptResponse]:
+    records = await runs.reorder_queued_prompts(
+        thread_id, body.ordered_ids, thread.workspace_id
+    )
+    return _queued_responses(records)
+
+
+@router.delete("/queue/{run_id}", status_code=204)
+async def remove_prompt_queue_item(
+    thread_id: str,
+    run_id: str,
+    thread: ThreadResponse = Depends(authorize_thread_for_run_service),
+    runs: RunService = Depends(get_run_service),
+) -> None:
+    record = await runs.get(run_id, thread.workspace_id)
+    _ensure_run_on_thread(record, thread_id)
+    await runs.remove_queued_prompt(run_id)
 
 
 @router.get("/{run_id}")
 async def read_run(
     thread_id: str,
     run_id: str,
-    _: ThreadResponse = Depends(authorize_thread_for_run_service),
+    thread: ThreadResponse = Depends(authorize_thread_for_run_service),
     runs: RunService = Depends(get_run_service),
 ) -> RunResponse:
-    record = await runs.get(run_id)
+    record = await runs.get(run_id, thread.workspace_id)
     _ensure_run_on_thread(record, thread_id)
     return RunResponse.from_record(record)
 
@@ -233,9 +365,9 @@ async def read_run(
 async def cancel_run(
     thread_id: str,
     run_id: str,
-    _: ThreadResponse = Depends(authorize_thread_for_run_service),
+    thread: ThreadResponse = Depends(authorize_thread_for_run_service),
     runs: RunService = Depends(get_run_service),
 ) -> RunResponse:
-    record = await runs.get(run_id)
+    record = await runs.get(run_id, thread.workspace_id)
     _ensure_run_on_thread(record, thread_id)
     return RunResponse.from_record(await runs.cancel(run_id))

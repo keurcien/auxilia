@@ -1,7 +1,8 @@
+from datetime import datetime
 from enum import Enum
 from uuid import UUID, uuid4
 
-from sqlalchemy import Enum as SAEnum
+from sqlalchemy import BigInteger, Boolean, DateTime, Enum as SAEnum
 from sqlmodel import Column, Field, SQLModel, String, Text
 
 from app.models import TimestampMixin
@@ -29,6 +30,7 @@ FIRST_PARTY_SOURCES: tuple[ThreadSource, ...] = (
 
 
 class ThreadBase(SQLModel):
+    workspace_id: UUID = Field(foreign_key="workspaces.id", nullable=False, index=True)
     user_id: UUID = Field(foreign_key="users.id", nullable=False)
     agent_id: UUID = Field(foreign_key="agents.id", nullable=False)
     model_id: str | None = Field(default=None, nullable=True)
@@ -86,4 +88,27 @@ class ThreadDB(ThreadBase, TimestampMixin, table=True):
             SAEnum(RunStatus, native_enum=False, create_constraint=False),
             nullable=True,
         ),
+    )
+    # Monotonic allocator for durable prompt ordering. Positions belong to
+    # pending RunDB rows; keeping the counter on the thread makes allocation
+    # atomic without scanning the queue.
+    prompt_queue_counter: int = Field(
+        default=0,
+        sa_column=Column(BigInteger, nullable=False, server_default="0"),
+    )
+    # An interrupted run has released the per-thread running mutex, but normal
+    # prompts must remain parked until an input.respond run resumes it.
+    awaiting_input: bool = Field(
+        default=False,
+        sa_column=Column(Boolean, nullable=False, server_default="false"),
+    )
+    # A short renewable lease pauses ordinary prompt dispatch while the user
+    # edits one queued item. Expiry prevents an abandoned browser tab from
+    # blocking the conversation indefinitely.
+    queue_edit_run_id: str | None = Field(
+        default=None, sa_column=Column(String, nullable=True)
+    )
+    queue_edit_expires_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
     )

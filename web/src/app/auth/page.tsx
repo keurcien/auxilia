@@ -40,20 +40,19 @@ function AuthPageContent() {
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const [isLoading, setIsLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	const [error, setError] = useState<string | null>(() =>
+		searchParams.get("error") === "no_invite"
+			? "No invite found for your Google account. Please ask your workspace admin for an invite."
+			: null,
+	);
 	const [providers, setProviders] = useState<AuthProviders | null>(null);
 
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
-
-	useEffect(() => {
-		const errorParam = searchParams.get("error");
-		if (errorParam === "no_invite") {
-			setError(
-				"No invite found for your Google account. Please ask your workspace admin for an invite.",
-			);
-		}
-	}, [searchParams]);
+	const [twoFactorRequired, setTwoFactorRequired] = useState(
+		() => searchParams.get("two_factor") === "required",
+	);
+	const [twoFactorCode, setTwoFactorCode] = useState("");
 
 	useEffect(() => {
 		const fetchProviders = async () => {
@@ -76,10 +75,29 @@ function AuthPageContent() {
 		setIsLoading(true);
 
 		try {
-			await authApi.signIn(email, password);
+			const result = await authApi.signIn(email, password);
+			if (result.twoFactorRequired) {
+				setTwoFactorRequired(true);
+				return;
+			}
 			router.push("/agents");
 		} catch (err: unknown) {
 			setError(getApiErrorMessage(err, "An error occurred"));
+		} finally {
+			setIsLoading(false);
+		}
+	};
+
+	const handleTwoFactorSubmit = async (e: React.FormEvent) => {
+		e.preventDefault();
+		if (!twoFactorRequired) return;
+		setError(null);
+		setIsLoading(true);
+		try {
+			await authApi.verifyTwoFactorSignIn(twoFactorCode);
+			router.push("/agents");
+		} catch (err: unknown) {
+			setError(getApiErrorMessage(err, "Invalid authentication code"));
 		} finally {
 			setIsLoading(false);
 		}
@@ -95,9 +113,16 @@ function AuthPageContent() {
 
 	return (
 		<AuthShell
-			eyebrow="// WELCOME BACK"
-			title="Sign in to your workspace"
-			description="Your agents kept working while you were away."
+			title={
+				twoFactorRequired
+					? "Verify your identity"
+					: "Sign in to your workspace"
+			}
+			description={
+				twoFactorRequired
+					? "Enter a code from your authenticator app or use a backup code."
+					: "Your agents kept working while you were away."
+			}
 			footer={
 				<>
 					No account?{" "}
@@ -109,7 +134,41 @@ function AuthPageContent() {
 		>
 			<AuthErrorAlert error={error} />
 
-			{providers?.password && (
+			{twoFactorRequired ? (
+				<form
+					className="flex flex-col gap-4"
+					onSubmit={(event) => {
+						void handleTwoFactorSubmit(event);
+					}}
+				>
+					<AuthField
+						id="two-factor-code"
+						label="Authentication or backup code"
+						type="text"
+						placeholder="000000"
+						value={twoFactorCode}
+						onChange={(event) => {
+							setTwoFactorCode(event.target.value);
+						}}
+						required
+					/>
+					<AuthSubmitButton disabled={isLoading}>
+						{isLoading ? "Verifying…" : "Verify →"}
+					</AuthSubmitButton>
+					<button
+						type="button"
+						onClick={() => {
+							setTwoFactorRequired(false);
+							setTwoFactorCode("");
+							setError(null);
+							router.replace("/auth");
+						}}
+						className="cursor-pointer text-[12.5px] font-semibold text-meta hover:text-foreground"
+					>
+						Back to sign in
+					</button>
+				</form>
+			) : providers?.password && (
 				<form
 					className="flex flex-col gap-4"
 					onSubmit={(e) => {
@@ -118,7 +177,7 @@ function AuthPageContent() {
 				>
 					<AuthField
 						id="email"
-						label="EMAIL"
+						label="Email"
 						type="email"
 						placeholder="you@example.com"
 						value={email}
@@ -130,7 +189,7 @@ function AuthPageContent() {
 
 					<AuthField
 						id="password"
-						label="PASSWORD"
+						label="Password"
 						type="password"
 						placeholder="••••••••••••"
 						value={password}
@@ -146,15 +205,15 @@ function AuthPageContent() {
 				</form>
 			)}
 
-			{providers?.password && providers.google && (
+			{!twoFactorRequired && providers?.password && providers.google && (
 				<div className="my-1 flex items-center gap-3">
 					<span className="h-px flex-1 bg-rail" />
-					<span className="font-mono text-[10.5px] text-meta">OR</span>
+					<span className="text-[10.5px] text-meta">or</span>
 					<span className="h-px flex-1 bg-rail" />
 				</div>
 			)}
 
-			{providers?.google && (
+			{!twoFactorRequired && providers?.google && (
 				<button
 					type="button"
 					onClick={signInWithGoogle}

@@ -11,6 +11,7 @@ const payload: agentsApi.AgentWrite = {
 	name: "Helper",
 	instructions: "Be helpful",
 	description: null,
+	group: null,
 	emoji: null,
 	color: null,
 	mcpServers: [],
@@ -54,9 +55,9 @@ describe("agents resource", () => {
 		expect(api.put).toHaveBeenCalledWith("/agents/a1/config", payload);
 	});
 
-	it("patches the tag, archives, restores and hard-deletes", async () => {
-		await agentsApi.patchAgent("a1", { tagId: "t1" });
-		expect(api.patch).toHaveBeenCalledWith("/agents/a1", { tagId: "t1" });
+	it("patches the group, archives, restores and hard-deletes", async () => {
+		await agentsApi.patchAgent("a1", { group: "Ops/Support" });
+		expect(api.patch).toHaveBeenCalledWith("/agents/a1", { group: "Ops/Support" });
 		await agentsApi.archiveAgent("a1");
 		expect(api.delete).toHaveBeenCalledWith("/agents/a1");
 		await agentsApi.restoreAgent("a1");
@@ -86,15 +87,4 @@ describe("agents resource", () => {
 		expect(api.put).toHaveBeenCalledWith("/agents/a1/teams", { teamIds: ["t1", "t2"] });
 	});
 
-	it("manages the tag vocabulary", async () => {
-		vi.mocked(api.get).mockResolvedValue({ data: [{ id: "t1", name: "Ops" }] });
-		expect(await agentsApi.listTags()).toEqual([{ id: "t1", name: "Ops" }]);
-		expect(api.get).toHaveBeenCalledWith("/tags/");
-		await agentsApi.createTag("Ops");
-		expect(api.post).toHaveBeenCalledWith("/tags/", { name: "Ops" });
-		await agentsApi.renameTag("t1", "Operations");
-		expect(api.patch).toHaveBeenCalledWith("/tags/t1", { name: "Operations" });
-		await agentsApi.deleteTag("t1");
-		expect(api.delete).toHaveBeenCalledWith("/tags/t1");
-	});
 });

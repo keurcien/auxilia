@@ -42,7 +42,7 @@ export default function SkillFilesPanel({ files, skill }: SkillFilesPanelProps) 
 			<div className="flex min-h-0 flex-1 flex-col">
 				<Heading count={0} skill={skill} />
 				<div className="rounded-[10px] border border-dashed border-input px-4 py-8 text-center text-[13px] text-meta dark:text-panel-dim">
-					No supporting files — this skill runs on any agent.
+					No supporting files, this skill runs on any agent.
 				</div>
 			</div>
 		);
@@ -79,8 +79,8 @@ export default function SkillFilesPanel({ files, skill }: SkillFilesPanelProps) 
 								{current.path}
 							</span>
 							{isScriptPath(current.path) && (
-								<span className="shrink-0 rounded-[4px] bg-petrol-tint px-1.5 py-px font-mono text-[9px] font-semibold tracking-[0.05em] text-petrol dark:bg-white/10">
-									SCRIPT
+								<span className="shrink-0 rounded-[4px] bg-petrol-tint px-1.5 py-px text-[9px] font-semibold text-petrol dark:bg-white/10">
+									Script
 								</span>
 							)}
 							<span className="shrink-0 font-mono text-[10.5px] text-meta dark:text-panel-dim">
@@ -89,7 +89,7 @@ export default function SkillFilesPanel({ files, skill }: SkillFilesPanelProps) 
 						</div>
 						{current.encoding === "base64" ? (
 							<div className="flex flex-1 items-center justify-center bg-panel p-8 text-center text-[13px] text-panel-dim">
-								Binary file — {formatBytes(skillFileSize(current))}.
+								Binary file, {formatBytes(skillFileSize(current))}.
 							</div>
 						) : (
 							// The dark panel the login showcase and the landing terminal
@@ -115,16 +115,20 @@ function Heading({ count, skill }: { count: number; skill?: Skill }) {
 	return (
 		<div className="mb-3 flex min-h-[24px] shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
 			<span className="flex items-center gap-2">
-				<span className="font-mono text-[10.5px] font-semibold tracking-[0.09em] text-label dark:text-muted-foreground">
-					FILES <span className="tracking-normal text-meta dark:text-panel-dim">{count}</span>
+				<span className="text-[10.5px] font-semibold text-label dark:text-muted-foreground">
+					FILES <span className="font-mono tracking-normal text-meta dark:text-panel-dim">{count}</span>
 				</span>
 			</span>
 			{skill && isSourced(skill) && (
-				<span className="truncate font-mono text-[10.5px] text-meta dark:text-panel-dim">
-					<Link href="/skills?view=sources" className="font-semibold text-petrol hover:underline">
+				<span className="truncate text-[10.5px] text-meta dark:text-panel-dim">
+					<Link href="/skills?view=sources" className="font-semibold text-petrol hover:underline dark:text-panel-terminal">
 						{skill.sourceName ?? (isDetached(skill) ? "disconnected" : "repository")}
 					</Link>
-					{skill.sourceRevision ? ` · ${shortRevision(skill.sourceRevision)}` : ""}
+					{skill.sourceRevision ? (
+						<span className="font-mono">{`, ${shortRevision(skill.sourceRevision)}`}</span>
+					) : (
+						""
+					)}
 				</span>
 			)}
 		</div>

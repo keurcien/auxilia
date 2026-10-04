@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import * as modelsApi from "@/lib/api/resources/models";
 import { Model } from "@/types/models";
+import { getWorkspaceGeneration, isCurrentWorkspaceGeneration } from "@/lib/workspace-generation";
 
 interface ModelsState {
 	models: Model[];
@@ -21,9 +22,12 @@ export const useModelsStore = create<ModelsState>((set, get) => ({
 	// Force refetch — used after admins change the enabled set so every open
 	// model selector reflects it without a page reload.
 	refreshModels: async () => {
+		const generation = getWorkspaceGeneration();
 		try {
 			const models = await modelsApi.listModels();
-			set({ models, isInitialized: true });
+			if (isCurrentWorkspaceGeneration(generation)) {
+				set({ models, isInitialized: true });
+			}
 		} catch (error) {
 			console.error("Error fetching models:", error);
 			// Not initialized on failure — the next fetchModels() retries

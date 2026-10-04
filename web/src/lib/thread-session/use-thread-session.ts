@@ -98,7 +98,7 @@ export type ThreadSession = {
 		recordDecision: (toolCallId: string, decision: HitlDecision) => void;
 	};
 	actions: {
-		send: (message: PromptInputMessage) => void;
+		send: (message: PromptInputMessage) => Promise<void>;
 		regenerate: () => void;
 		stop: () => void;
 		respond: (response: HitlResponse, interruptId: string | null) => void;
@@ -176,7 +176,9 @@ export function useThreadSession({
 	// …but `hydrationPromise` is replaced by the SDK on every (re)hydrate, so
 	// waiting on it must read the latest rendered stream, not the handle.
 	const latestStream = useRef(stream);
-	latestStream.current = stream;
+	useEffect(() => {
+		latestStream.current = stream;
+	}, [stream]);
 
 	// --- interrupts: hold identity while the set is unchanged ----------------
 	const [held, setHeld] = useState(EMPTY_HELD);
@@ -209,11 +211,11 @@ export function useThreadSession({
 	}, []);
 
 	const send = useCallback(
-		(message: PromptInputMessage) => {
+		async (message: PromptInputMessage) => {
 			const content = promptMessageToContent(message);
 			if (content == null) return;
 			userActed();
-			void selectorStream.submit({ messages: [{ type: "human", content }] });
+			await selectorStream.submit({ messages: [{ type: "human", content }] });
 		},
 		[selectorStream, userActed],
 	);
@@ -309,7 +311,7 @@ export function useThreadSession({
 						// nobody is watching.
 						if (cancelled) return;
 						claimed = null;
-						send(pending);
+						void send(pending);
 					},
 					{ capMs: pendingMessageCapMs },
 				);

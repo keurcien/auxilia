@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { KeyRound, Unplug } from "lucide-react";
 import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { useConfirmDialog } from "@/components/providers/dialog-provider";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { MCPAuthType, MCPServerConnection } from "@/types/mcp-servers";
 
@@ -14,9 +15,9 @@ function StatusBadge({ status }: { status: MCPServerConnection["status"] }) {
 			title={
 				active
 					? undefined
-					: "Token expired — runs using this connection will fail until the user re-authenticates."
+					: "Token expired, runs using this connection will fail until the user re-authenticates."
 			}
-			className={`inline-flex shrink-0 items-center gap-1.5 rounded-[4px] px-2 py-[3px] font-mono text-[9.5px] font-semibold tracking-[0.05em] ${
+			className={`inline-flex shrink-0 items-center gap-1.5 rounded-[4px] px-2 py-[3px] text-[9.5px] font-semibold ${
 				active
 					? "bg-success-bg text-success dark:bg-emerald-950 dark:text-emerald-300"
 					: "bg-warning-bg text-warning dark:bg-amber-950 dark:text-amber-300"
@@ -25,7 +26,7 @@ function StatusBadge({ status }: { status: MCPServerConnection["status"] }) {
 			<span
 				className={`size-[5px] rounded-full ${active ? "bg-success" : "bg-warning"}`}
 			/>
-			{active ? "ACTIVE" : "EXPIRED"}
+			{active ? "Active" : "Expired"}
 		</span>
 	);
 }
@@ -44,8 +45,8 @@ function CredentialNote({ authType }: { authType: Exclude<MCPAuthType, "oauth2">
 				</div>
 				<div className="mt-1 text-[12.5px] leading-[1.55] text-subtle dark:text-panel-body">
 					{isApiKey
-						? "Everyone uses the single API key configured on this server — there are no per-user connections to manage."
-						: "This server requires no credentials — there are no per-user connections to manage."}
+						? "Everyone uses the single API key configured on this server, there are no per-user connections to manage."
+						: "This server requires no credentials, there are no per-user connections to manage."}
 				</div>
 			</div>
 		</div>
@@ -71,6 +72,7 @@ export function ConnectedUsersPanel({
 	isAdmin,
 	onResetAll,
 }: ConnectedUsersPanelProps) {
+	const confirmDialog = useConfirmDialog();
 	const [connections, setConnections] = useState<MCPServerConnection[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
@@ -114,9 +116,13 @@ export function ConnectedUsersPanel({
 	const handleRevoke = async (connection: MCPServerConnection) => {
 		const who = connection.name || connection.email || "this user";
 		if (
-			!window.confirm(
-				`Revoke ${who}'s connection? They will need to re-authenticate to use this server again.`,
-			)
+			!(await confirmDialog({
+				title: `Revoke ${who}’s connection?`,
+				description:
+					"They will need to authenticate again before they can use this MCP server.",
+				confirmLabel: "Revoke connection",
+				destructive: true,
+			}))
 		)
 			return;
 		setRevokingId(connection.userId);
@@ -136,17 +142,23 @@ export function ConnectedUsersPanel({
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
 			<div className="mb-3 flex flex-none items-baseline gap-2.5">
-				<span className="font-mono text-[10.5px] font-semibold tracking-[0.09em] text-subtle dark:text-panel-dim">
-					CONNECTED USERS
+				<span className="text-[10.5px] font-semibold text-subtle dark:text-panel-dim">
+					Connected users
 				</span>
-				<span className="font-mono text-[10.5px] text-meta dark:text-panel-dim">
-					{isLoading ? "…" : error && connections.length === 0 ? "—" : connections.length}
+				<span className="text-[10.5px] text-meta dark:text-panel-dim">
+					{isLoading ? (
+						"…"
+					) : error && connections.length === 0 ? (
+						"Not available"
+					) : (
+						<span className="font-mono">{connections.length}</span>
+					)}
 				</span>
 				<span className="flex-1" />
 				{connections.length > 0 && (
 					<button
 						type="button"
-						title="Revokes all user connections — users will need to re-authenticate."
+						title="Revokes all user connections, users will need to re-authenticate."
 						onClick={() => {
 							void handleResetAll();
 						}}
@@ -179,7 +191,7 @@ export function ConnectedUsersPanel({
 								setIsLoading(true);
 								void fetchConnections();
 							}}
-							className="cursor-pointer text-[13px] font-semibold text-petrol hover:underline"
+							className="cursor-pointer text-[13px] font-semibold text-petrol hover:underline dark:text-panel-terminal"
 						>
 							Retry loading connections
 						</button>
@@ -197,6 +209,8 @@ export function ConnectedUsersPanel({
 							<UserAvatar
 								name={connection.name}
 								pictureUrl={connection.pictureUrl}
+								userId={connection.userId}
+								imageRevision={connection.imageRevision}
 								className="shrink-0"
 							/>
 							<span className="min-w-0 flex-1">

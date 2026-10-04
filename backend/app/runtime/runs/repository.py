@@ -7,10 +7,10 @@ running run per thread" is enforced by a partial unique index (see the
 `None` / `[]`.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import and_, delete, exists, func, or_, update
+from sqlalchemy import and_, case, delete, exists, func, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 from sqlmodel import select
@@ -22,14 +22,21 @@ from app.runtime.runs.state import (
     RunStatus,
     legal_source_statuses,
 )
+from app.threads.models import ThreadDB
 
 
 ACTIVE_STATUSES: tuple[RunStatus, ...] = (RunStatus.pending, RunStatus.running)
 
 
 class RunRepository(BaseRepository[RunDB]):
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, workspace_id: UUID | None = None):
         super().__init__(RunDB, db)
+        self.workspace_id = workspace_id
+
+    def _scope(self, stmt):
+        if self.workspace_id is not None:
+            stmt = stmt.where(RunDB.workspace_id == self.workspace_id)
+        return stmt
 
     async def create(self, run: RunDB) -> RunDB:
         """Persist a new run row (server-side timestamps populated on refresh)."""
@@ -39,7 +46,7 @@ class RunRepository(BaseRepository[RunDB]):
         return run
 
     async def get(self, run_id: str) -> RunDB | None:
-        stmt = select(RunDB).where(RunDB.id == run_id)
+        stmt = self._scope(select(RunDB).where(RunDB.id == run_id))
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -50,8 +57,79 @@ class RunRepository(BaseRepository[RunDB]):
             .where(RunDB.thread_id == thread_id)
             .order_by(RunDB.created_at.desc())
         )
+        stmt = self._scope(stmt)
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
+
+    async def list_queued_prompts(
+        self, thread_id: str, *, for_update: bool = False
+    ) -> list[RunDB]:
+        stmt = (
+            select(RunDB)
+            .where(
+                RunDB.thread_id == thread_id,
+                RunDB.status == RunStatus.pending,
+                RunDB.queue_position.is_not(None),
+                RunDB.input.is_not(None),
+            )
+            .order_by(RunDB.queue_position, RunDB.id)
+        )
+        stmt = self._scope(stmt)
+        if for_update:
+            stmt = stmt.with_for_update()
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def allocate_queue_position(self, thread_id: str) -> int | None:
+        stmt = (
+            update(ThreadDB)
+            .where(ThreadDB.id == thread_id)
+            .values(prompt_queue_counter=ThreadDB.prompt_queue_counter + 1)
+            .returning(ThreadDB.prompt_queue_counter)
+        )
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def next_queue_position(self, thread_id: str) -> int:
+        """Fallback for legacy/orphan fixtures without a ThreadDB row."""
+        stmt = select(func.coalesce(func.max(RunDB.queue_position), 0) + 1).where(
+            RunDB.thread_id == thread_id
+        )
+        result = await self.db.execute(stmt)
+        return result.scalar_one()
+
+    async def update_queued_prompt(self, run_id: str, run_input: dict) -> RunDB | None:
+        stmt = (
+            update(RunDB)
+            .where(
+                RunDB.id == run_id,
+                RunDB.status == RunStatus.pending,
+                RunDB.queue_position.is_not(None),
+                RunDB.input.is_not(None),
+            )
+            .values(input=run_input)
+            .returning(RunDB.id)
+        )
+        stmt = self._scope(stmt)
+        result = await self.db.execute(stmt)
+        updated_id = result.scalar_one_or_none()
+        return await self.get(updated_id) if updated_id is not None else None
+
+    async def set_queue_positions(
+        self, records: list[RunDB], ordered_ids: list[str]
+    ) -> None:
+        positions = sorted(
+            record.queue_position
+            for record in records
+            if record.queue_position is not None
+        )
+        for run_id, position in zip(ordered_ids, positions, strict=True):
+            stmt = (
+                update(RunDB)
+                .where(RunDB.id == run_id, RunDB.status == RunStatus.pending)
+                .values(queue_position=position)
+            )
+            await self.db.execute(stmt)
 
     async def next_for_thread(
         self, thread_id: str, after: RunDB | None = None
@@ -63,16 +141,57 @@ class RunRepository(BaseRepository[RunDB]):
         by `(created_at, id)` so two runs created in the same instant are
         still both followed, in a stable order.
         """
-        stmt = select(RunDB).where(RunDB.thread_id == thread_id)
+        # Enqueued pending rows are queue metadata, not streamable runs.
+        # Legacy/reject pending rows remain visible for the original run API.
+        stmt = select(RunDB).where(
+            RunDB.thread_id == thread_id,
+            or_(
+                RunDB.status != RunStatus.pending,
+                RunDB.multitask_strategy != "enqueue",
+            ),
+        )
         if after is None:
-            stmt = stmt.order_by(RunDB.created_at.desc(), RunDB.id.desc())
+            # Attach to work already in progress. With no running work,
+            # preserve the historical "newest terminal" behavior.
+            active_rank = case(
+                (RunDB.status == RunStatus.running, 0),
+                else_=1,
+            )
+            stmt = stmt.order_by(
+                active_rank,
+                RunDB.created_at.desc(),
+                RunDB.id.desc(),
+            )
         else:
-            stmt = stmt.where(
-                or_(
-                    RunDB.created_at > after.created_at,
-                    and_(RunDB.created_at == after.created_at, RunDB.id > after.id),
-                )
-            ).order_by(RunDB.created_at, RunDB.id)
+            execution_ordered = (
+                after.multitask_strategy == "enqueue"
+                or after.queue_position is not None
+                or after.command is not None
+            )
+            if execution_ordered:
+                if after.started_at is None:
+                    return None
+                stmt = stmt.where(
+                    RunDB.started_at.is_not(None),
+                    or_(
+                        RunDB.started_at > after.started_at,
+                        and_(
+                            RunDB.started_at == after.started_at,
+                            RunDB.id > after.id,
+                        ),
+                    ),
+                ).order_by(RunDB.started_at, RunDB.id)
+            else:
+                stmt = stmt.where(
+                    or_(
+                        RunDB.created_at > after.created_at,
+                        and_(
+                            RunDB.created_at == after.created_at,
+                            RunDB.id > after.id,
+                        ),
+                    )
+                ).order_by(RunDB.created_at, RunDB.id)
+        stmt = self._scope(stmt)
         result = await self.db.execute(stmt.limit(1))
         return result.scalar_one_or_none()
 
@@ -95,6 +214,21 @@ class RunRepository(BaseRepository[RunDB]):
             .order_by(RunDB.status != RunStatus.running, RunDB.created_at.desc())
             .limit(1)
         )
+        stmt = self._scope(stmt)
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_active_command_for_thread(self, thread_id: str) -> RunDB | None:
+        stmt = (
+            select(RunDB)
+            .where(
+                RunDB.thread_id == thread_id,
+                RunDB.status.in_(ACTIVE_STATUSES),
+                RunDB.command.is_not(None),
+            )
+            .limit(1)
+        )
+        stmt = self._scope(stmt)
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -116,6 +250,7 @@ class RunRepository(BaseRepository[RunDB]):
             .where(RunDB.user_id == user_id, activity)
             .order_by(RunDB.updated_at)
         )
+        stmt = self._scope(stmt)
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
@@ -134,8 +269,10 @@ class RunRepository(BaseRepository[RunDB]):
         that index — callers treat `IntegrityError` as "nothing to claim".
         """
         running = aliased(RunDB)
+        older = aliased(RunDB)
         claimable = (
             select(RunDB.id)
+            .outerjoin(ThreadDB, ThreadDB.id == RunDB.thread_id)
             .where(
                 RunDB.status == RunStatus.pending,
                 ~exists(
@@ -144,15 +281,53 @@ class RunRepository(BaseRepository[RunDB]):
                         running.status == RunStatus.running,
                     )
                 ),
+                or_(
+                    and_(
+                        RunDB.command.is_not(None),
+                        or_(
+                            ThreadDB.id.is_(None),
+                            ThreadDB.awaiting_input.is_(True),
+                        ),
+                    ),
+                    and_(
+                        RunDB.command.is_(None),
+                        func.coalesce(ThreadDB.awaiting_input, False).is_(False),
+                        or_(
+                            ThreadDB.id.is_(None),
+                            ThreadDB.queue_edit_expires_at.is_(None),
+                            ThreadDB.queue_edit_expires_at <= func.now(),
+                        ),
+                    ),
+                ),
+                # Never skip a locked/reordered older prompt from this thread.
+                or_(
+                    RunDB.queue_position.is_(None),
+                    ~exists(
+                        select(older.id).where(
+                            older.thread_id == RunDB.thread_id,
+                            older.status == RunStatus.pending,
+                            older.input.is_not(None),
+                            older.queue_position.is_not(None),
+                            older.queue_position < RunDB.queue_position,
+                        )
+                    ),
+                ),
             )
-            .order_by(RunDB.created_at)
+            .order_by(
+                RunDB.created_at,
+                RunDB.id,
+            )
             .limit(1)
-            .with_for_update(skip_locked=True)
+            .with_for_update(skip_locked=True, of=RunDB)
         )
         stmt = (
             update(RunDB)
             .where(RunDB.id.in_(claimable))
-            .values(status=RunStatus.running)
+            .values(
+                status=RunStatus.running,
+                started_at=datetime.now(UTC),
+                updated_at=func.now(),
+            )
             .returning(RunDB.id)
         )
         result = await self.db.execute(stmt)
@@ -185,7 +360,7 @@ class RunRepository(BaseRepository[RunDB]):
         stmt = (
             update(RunDB)
             .where(RunDB.id == run_id, RunDB.status.in_(sources))
-            .values(status=status, error=error)
+            .values(status=status, error=error, updated_at=func.now())
             .returning(RunDB.thread_id)
         )
         result = await self.db.execute(stmt)
@@ -204,15 +379,23 @@ class RunRepository(BaseRepository[RunDB]):
         however old — only never-dispatched zombies qualify.
         """
         running = aliased(RunDB)
-        stmt = select(RunDB).where(
-            RunDB.status == RunStatus.pending,
-            RunDB.created_at < older_than,
-            ~exists(
-                select(running.id).where(
-                    running.thread_id == RunDB.thread_id,
-                    running.status == RunStatus.running,
-                )
-            ),
+        stmt = (
+            select(RunDB)
+            .outerjoin(ThreadDB, ThreadDB.id == RunDB.thread_id)
+            .where(
+                RunDB.status == RunStatus.pending,
+                RunDB.created_at < older_than,
+                ~exists(
+                    select(running.id).where(
+                        running.thread_id == RunDB.thread_id,
+                        running.status == RunStatus.running,
+                    )
+                ),
+                or_(
+                    RunDB.queue_position.is_(None),
+                    func.coalesce(ThreadDB.awaiting_input, False).is_(False),
+                ),
+            )
         )
         result = await self.db.execute(stmt)
         return list(result.scalars().all())

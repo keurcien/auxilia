@@ -185,22 +185,22 @@ describe("ordinal", () => {
 describe("describeSchedule", () => {
 	it("summarizes schedules for display", () => {
 		expect(describeSchedule({ kind: "daily", time: "08:00" })).toBe(
-			"Every day · 8:00",
+			"Every day, 8:00",
 		);
 		expect(describeSchedule({ kind: "weekdays", time: "09:00" })).toBe(
-			"Weekdays · 9:00",
+			"Weekdays, 9:00",
 		);
 		expect(describeSchedule({ kind: "weekly", day: 1, time: "07:30" })).toBe(
-			"Every Monday · 7:30",
+			"Every Monday, 7:30",
 		);
 		expect(describeSchedule({ kind: "biweekly", day: 5, time: "09:30" })).toBe(
-			"Every two weeks on Friday · 9:30",
+			"Every two weeks on Friday, 9:30",
 		);
 		expect(describeSchedule({ kind: "monthly", day: 1, time: "09:00" })).toBe(
-			"Monthly on the 1st · 9:00",
+			"Monthly on the 1st, 9:00",
 		);
 		expect(describeSchedule({ kind: "monthly", day: 22, time: "09:00" })).toBe(
-			"Monthly on the 22nd · 9:00",
+			"Monthly on the 22nd, 9:00",
 		);
 		expect(
 			describeSchedule({
@@ -210,7 +210,7 @@ describe("describeSchedule", () => {
 				days: [5, 1],
 				time: "17:00",
 			}),
-		).toBe("Every two weeks on Mon, Fri · 17:00");
+		).toBe("Every two weeks on Mon, Fri, 17:00");
 		expect(
 			describeSchedule({ kind: "raw", cronExpression: "*/15 * * * *" }),
 		).toBe("*/15 * * * *");

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { FileText, Plus, X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import {
 	Dialog,
 	DialogContent,
@@ -11,6 +11,7 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { SearchBar } from "@/components/ui/search-bar";
+import { SkillAvatar } from "@/components/ui/skill-avatar";
 import { SkillRequirementChip } from "@/app/(protected)/skills/components/skill-requirement-chip";
 import { useSkillsStore } from "@/stores/skills-store";
 import type { AgentSkill } from "@/types/skills";
@@ -60,6 +61,9 @@ export default function AgentSkillList({
 			id,
 			name: "unknown skill",
 			description: "",
+			emoji: null,
+			color: null,
+			imageRevision: null,
 			scriptCount: 0,
 		};
 	const enabled = skillIds.map(resolve);
@@ -81,8 +85,8 @@ export default function AgentSkillList({
 	return (
 		<div className="mt-8 flex min-h-0 flex-col">
 			<div className="mb-3 flex min-h-[24px] shrink-0 items-center justify-between">
-				<span className="font-mono text-[10.5px] font-semibold tracking-[0.09em] text-label dark:text-muted-foreground">
-					SKILLS{" "}
+				<span className="text-[10.5px] font-semibold text-label dark:text-muted-foreground">
+					Skills{" "}
 					<span className="tracking-normal text-meta dark:text-panel-dim">
 						{enabled.length}
 					</span>
@@ -90,7 +94,7 @@ export default function AgentSkillList({
 				{!readOnly && (
 					<button
 						type="button"
-						className="flex cursor-pointer items-center gap-1 text-[12.5px] font-semibold text-petrol transition-opacity hover:opacity-80"
+						className="flex cursor-pointer items-center gap-1 text-[12.5px] font-semibold text-petrol transition-opacity hover:opacity-80 dark:text-panel-terminal"
 						onClick={() => {
 							setDialogOpen(true);
 						}}
@@ -111,14 +115,19 @@ export default function AgentSkillList({
 								className="rounded-[10px] border border-border bg-card px-4 py-3"
 							>
 								<div className="flex items-center gap-3">
-									<span className="flex size-[26px] shrink-0 items-center justify-center rounded-[6px] border border-input bg-petrol-tint text-petrol dark:border-white/10 dark:bg-white/10">
-										<FileText className="size-3.5" />
-									</span>
+									<SkillAvatar
+										skillId={skill.id}
+										name={skill.name}
+										emoji={skill.emoji}
+										color={skill.color}
+										imageRevision={skill.imageRevision}
+										size="xs"
+									/>
 									<div className="min-w-0 flex-1">
 										<div className="flex min-w-0 items-center gap-2">
 											<Link
 												href={`/skills/${skill.id}`}
-												className="truncate font-mono text-[12.5px] font-semibold text-petrol hover:underline"
+												className="truncate text-[12.5px] font-semibold text-petrol hover:underline dark:text-panel-terminal"
 											>
 												{skill.name}
 											</Link>
@@ -147,15 +156,15 @@ export default function AgentSkillList({
 								</div>
 								{scriptsInactive &&
 									(readOnly ? (
-										<p className="mt-2 pl-[38px] font-mono text-[11px] leading-[1.5] text-meta dark:text-panel-dim">
-											scripts inactive — this agent doesn&apos;t run code. Instructions
+										<p className="mt-2 pl-[38px] text-[11px] leading-[1.5] text-meta dark:text-panel-dim">
+											scripts inactive, this agent doesn&apos;t run code. Instructions
 											still apply.
 										</p>
 									) : (
 										<div className="mt-2.5 ml-[38px] flex items-center gap-2.5 rounded-[7px] border border-[#F0DCC2] bg-[#FDF9F0] px-3 py-2 dark:border-[#7A5C1E]/40 dark:bg-[#7A5C1E]/10">
 											<span className="min-w-0 flex-1 text-[11.5px] leading-[1.45] text-[#7A5C1E] dark:text-[#E8C27A]">
 												Attached, but its {skill.scriptCount} script
-												{skill.scriptCount === 1 ? "" : "s"} won&apos;t run here — this
+												{skill.scriptCount === 1 ? "" : "s"} won&apos;t run here, this
 												agent doesn&apos;t run code. Instructions still apply.
 											</span>
 											{onEnableCodeExecution && (
@@ -204,7 +213,7 @@ export default function AgentSkillList({
 										>
 											<div className="min-w-0 flex-1">
 												<div className="flex min-w-0 items-center gap-2">
-													<p className="truncate font-mono text-[13px] font-semibold text-ink dark:text-panel-button">
+													<p className="truncate text-[13px] font-semibold text-ink dark:text-panel-button">
 														{candidate.name}
 													</p>
 													<SkillRequirementChip scriptCount={candidate.scriptCount} />
@@ -213,8 +222,8 @@ export default function AgentSkillList({
 													{candidate.description}
 												</p>
 												{candidate.scriptCount > 0 && !runsCode && (
-													<p className="mt-0.5 font-mono text-[10.5px] text-[#B07A2A]">
-														scripts won&apos;t run here — this agent doesn&apos;t run
+													<p className="mt-0.5 text-[10.5px] text-[#B07A2A]">
+														scripts won&apos;t run here, this agent doesn&apos;t run
 														code
 													</p>
 												)}
@@ -238,7 +247,7 @@ export default function AgentSkillList({
 									{skills.length === 0 ? (
 										<>
 											No skills in the workspace yet.{" "}
-											<Link href="/skills/new" className="text-petrol underline">
+											<Link href="/skills/new" className="text-petrol underline dark:text-panel-terminal">
 												Write one
 											</Link>
 											.

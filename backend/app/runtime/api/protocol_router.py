@@ -63,21 +63,26 @@ async def post_command(
     # expire, and the run endpoints re-check on both paths.
     if command.method in ("run.start", "input.respond") and (
         auth_url := await runs.required_oauth_url(
-            db, thread.agent_id, str(thread.user_id)
+            db,
+            thread.agent_id,
+            str(thread.user_id),
+            thread.workspace_id,
         )
     ):
         return oauth_required_response(auth_url)
     # Auth queries are done — release the pooled connection before RunService
     # opens its own sessions (holding both risks pool starvation).
     await db.commit()
-    return await service.dispatch(thread_id, str(thread.user_id), command)
+    return await service.dispatch(
+        thread.workspace_id, thread_id, str(thread.user_id), command
+    )
 
 
 @router.post("/stream/events")
 async def stream_events(
     thread_id: str,
     body: EventStreamBody,
-    _: ThreadDB = Depends(authorize_thread_read),
+    thread: ThreadDB = Depends(authorize_thread_read),
     service: ProtocolService = Depends(get_protocol_service),
     db: AsyncSession = Depends(get_db),  # dependency-cached: same session auth used
 ):
@@ -85,7 +90,7 @@ async def stream_events(
     # Release the pooled connection before the response streams indefinitely.
     await db.commit()
     return StreamingResponse(
-        service.stream_events(thread_id, body),
+        service.stream_events(thread.workspace_id, thread_id, body),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )
@@ -95,7 +100,7 @@ async def stream_events(
 async def get_history(
     thread_id: str,
     body: HistoryBody,
-    _: ThreadDB = Depends(authorize_thread_read),
+    thread: ThreadDB = Depends(authorize_thread_read),
     service: ProtocolService = Depends(get_protocol_service),
 ) -> list[dict]:
     """Checkpoint history (LangGraph `client.threads.getHistory` shape).
@@ -104,29 +109,31 @@ async def get_history(
     `tools:<tool_call_id>` returns that subagent's latest checkpoint, which
     is how the client hydrates an idle thread's subagent cards (see
     `ProtocolService.thread_history`). Served raw, like `/state`."""
-    return await service.thread_history(thread_id, body.checkpoint_ns)
+    return await service.thread_history(
+        thread.workspace_id, thread_id, body.checkpoint_ns
+    )
 
 
 @router.get("/state")
 async def get_state(
     thread_id: str,
-    _: ThreadDB = Depends(authorize_thread_read),
+    thread: ThreadDB = Depends(authorize_thread_read),
     service: ProtocolService = Depends(get_protocol_service),
 ) -> dict:
     """LangGraph-shaped state snapshot (`values` / `next` / `tasks`) for
     client hydration. Served raw (never camelized) — the protocol client
     fetches it outside the axios interceptor."""
-    return await service.thread_state(thread_id)
+    return await service.thread_state(thread.workspace_id, thread_id)
 
 
 @router.get("/messages/{message_id}")
 async def get_message(
     thread_id: str,
     message_id: str,
-    _: ThreadDB = Depends(authorize_thread_read),
+    thread: ThreadDB = Depends(authorize_thread_read),
     service: ProtocolService = Depends(get_protocol_service),
 ) -> dict:
     """One message, whole. `/state` and `/history` ship tool results cut at
     `TOOL_PREVIEW_CHARS`; the client fetches the rest from here on demand.
     Served raw, like `/state`."""
-    return await service.message(thread_id, message_id)
+    return await service.message(thread.workspace_id, thread_id, message_id)

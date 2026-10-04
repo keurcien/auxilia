@@ -1,57 +1,21 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import AgentList from "@/app/(protected)/agents/components/agent-list";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import { UnderlineTabs } from "@/components/ui/underline-tabs";
-import { ViewToggle, type ViewMode } from "@/components/ui/view-toggle";
+import { ViewToggle } from "@/components/ui/view-toggle";
 import {
 	WorkspacePage,
 	WorkspaceTopBarButton,
 } from "@/components/layout/workspace-page";
 import { useUserStore } from "@/stores/user-store";
+import { usePersistedViewMode } from "@/hooks/use-persisted-view-mode";
 import { useQueryParamState } from "@/hooks/use-query-param-state";
 
 const VIEW_MODE_STORAGE_KEY = "agents:view-mode";
-
-// Persisted table/cards preference (table by default), exposed through
-// useSyncExternalStore so the server render and hydration stay consistent
-// without effect-driven state.
-const viewModeListeners = new Set<() => void>();
-
-function subscribeViewMode(listener: () => void) {
-	viewModeListeners.add(listener);
-	return () => {
-		viewModeListeners.delete(listener);
-	};
-}
-
-// In-session fallback when localStorage is unavailable (private mode).
-let sessionViewMode: ViewMode = "table";
-
-function readViewMode(): ViewMode {
-	try {
-		const stored = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
-		if (stored === "cards" || stored === "table") return stored;
-	} catch {
-		// Fall through to the in-session value.
-	}
-	return sessionViewMode;
-}
-
-function writeViewMode(mode: ViewMode) {
-	sessionViewMode = mode;
-	try {
-		localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode);
-	} catch {
-		// Persistence failed — the in-session fallback still applies.
-	}
-	viewModeListeners.forEach((listener) => {
-		listener();
-	});
-}
 
 export default function AgentsPage() {
 	const router = useRouter();
@@ -61,11 +25,7 @@ export default function AgentsPage() {
 	const [viewParam, setView] = useQueryParamState("view", "available");
 	const view: "available" | "all" | "archived" =
 		viewParam === "all" || viewParam === "archived" ? viewParam : "available";
-	const viewMode = useSyncExternalStore(
-		subscribeViewMode,
-		readViewMode,
-		() => "table" as ViewMode,
-	);
+	const [viewMode, setViewMode] = usePersistedViewMode(VIEW_MODE_STORAGE_KEY);
 
 	const handleCreateAgent = () => {
 		if (!user) return;
@@ -111,7 +71,7 @@ export default function AgentsPage() {
 						value={view}
 						onChange={setView}
 					/>
-					<ViewToggle value={viewMode} onChange={writeViewMode} />
+					<ViewToggle value={viewMode} onChange={setViewMode} />
 				</div>
 			}
 		>

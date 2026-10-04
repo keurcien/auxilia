@@ -1,29 +1,24 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Archive, ArrowRight, Plus, Search, Users, Zap } from "lucide-react";
+import {
+	Archive,
+	ChevronRight,
+	Folder,
+	Plus,
+	Search,
+	Users,
+	Zap,
+} from "lucide-react";
 import { Agent } from "@/types/agents";
 import AgentCard from "@/app/(protected)/agents/components/agent-card";
 import AgentTable from "@/app/(protected)/agents/components/agent-table";
+import { buildGroupTree, type GroupNode } from "@/lib/groups";
 import type { ViewMode } from "@/components/ui/view-toggle";
 import * as agentsApi from "@/lib/api/resources/agents";
 import { useAgentsStore } from "@/stores/agents-store";
 
 type View = "available" | "all" | "archived";
-
-// Agents with no tag are collected under this trailing pseudo-group.
-const NO_TAG_ID = "__none__";
-
-// How many cards a section shows before "See all" reveals the rest. The 8th
-// grid cell holds an inline "See all" tile, so a collapsed section fills two
-// clean rows on the 4-column grid.
-const SECTION_CAP = 7;
-
-interface AgentGroup {
-	id: string;
-	label: string;
-	items: Agent[];
-}
 
 function EmptyState({
 	icon,
@@ -66,28 +61,49 @@ function EmptyState({
 	);
 }
 
-function AgentSection({
-	label,
+function AgentCardGrid({
 	agents,
+	archived,
+	onRemoved,
+}: {
+	agents: Agent[];
+	archived?: boolean;
+	onRemoved?: (agentId: string) => void;
+}) {
+	return (
+		<div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+			{agents.map((agent, index) => (
+				<div
+					key={agent.id}
+					className="h-full animate-in fade-in slide-in-from-bottom-3 duration-400"
+					style={{
+						animationDelay: `${index * 40}ms`,
+						animationFillMode: "both",
+					}}
+				>
+					<AgentCard agent={agent} archived={archived} onRemoved={onRemoved} />
+				</div>
+			))}
+		</div>
+	);
+}
+
+function AgentSection({
+	node,
 	archived,
 	onRemoved,
 	storageKey,
 }: {
-	label: string;
-	agents: Agent[];
+	node: GroupNode<Agent>;
 	archived?: boolean;
 	onRemoved?: (agentId: string) => void;
 	storageKey: string;
 }) {
-	// Sections only mount client-side, after AgentList's fetch resolves (it
-	// renders null while loading), so reading localStorage in the initializer is
-	// safe — there's no server render to mismatch against.
 	const [expanded, setExpanded] = useState(() => {
 		try {
-			return localStorage.getItem(storageKey) === "1";
+			return localStorage.getItem(storageKey) !== "0";
 		} catch {
-			// localStorage unavailable (e.g. private mode) — default to collapsed.
-			return false;
+			return true;
 		}
 	});
 
@@ -97,68 +113,66 @@ function AgentSection({
 			try {
 				localStorage.setItem(storageKey, next ? "1" : "0");
 			} catch {
-				// Ignore persistence failures; the toggle still works in-session.
+				// The in-session state still works when persistence is unavailable.
 			}
 			return next;
 		});
 	};
 
-	const hasMore = agents.length > SECTION_CAP;
-	const shown = expanded ? agents : agents.slice(0, SECTION_CAP);
-
 	return (
-		<section className="mb-10 last:mb-0 animate-in fade-in duration-300">
-			<div className="flex items-center gap-3 mb-5">
-				<h2 className="font-[family-name:var(--font-jakarta-sans)] text-[15px] font-bold tracking-[-0.01em] text-[#1E2D28] dark:text-foreground whitespace-nowrap">
-					{label}
+		<section className="animate-in fade-in duration-300">
+			<button
+				type="button"
+				aria-expanded={expanded}
+				onClick={toggle}
+				style={{ paddingLeft: `${node.depth * 18}px` }}
+				className="group mb-3 flex w-full cursor-pointer items-center gap-2 py-1 text-left"
+			>
+				<ChevronRight
+					className={`size-3.5 shrink-0 text-meta transition-transform ${
+						expanded ? "rotate-90" : ""
+					}`}
+				/>
+				<Folder className="size-4 shrink-0 text-meta" />
+				<h2 className="whitespace-nowrap text-[13.5px] font-bold tracking-[-0.01em] text-foreground">
+					{node.name}
 				</h2>
-				<span className="font-[family-name:var(--font-dm-sans)] text-[13px] font-medium text-[#B8C8C0] dark:text-muted-foreground">
-					{agents.length}
-				</span>
-				<div className="flex-1 h-px bg-[#E8EFE9] dark:bg-white/10" />
-				{hasMore && expanded && (
-					<button
-						onClick={toggle}
-						className="flex items-center gap-1 font-[family-name:var(--font-dm-sans)] text-[13px] font-medium text-[#8FA89E] dark:text-muted-foreground whitespace-nowrap cursor-pointer transition-colors hover:text-[#1E2D28] dark:hover:text-foreground"
-					>
-						Show less
-						<ArrowRight className="size-3.5 -rotate-90" />
-					</button>
-				)}
-			</div>
+				<span className="font-mono text-[11px] text-meta">{node.count}</span>
+				<div className="h-px flex-1 bg-[#E8EFE9] dark:bg-white/10" />
+			</button>
 
-			<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-				{shown.map((agent, i) => (
-					<div
-						key={agent.id}
-						className="h-full animate-in fade-in slide-in-from-bottom-3 duration-400"
-						style={{ animationDelay: `${i * 40}ms`, animationFillMode: "both" }}
-					>
-						<AgentCard agent={agent} archived={archived} onRemoved={onRemoved} />
-					</div>
-				))}
-				{hasMore && !expanded && (
-					<button
-						onClick={toggle}
-						className="group flex h-full min-h-[120px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-[#cfe0d8] dark:border-white/15 bg-transparent text-[#8FA89E] dark:text-muted-foreground transition-colors duration-[130ms] ease-out cursor-pointer hover:border-[#4CA882] hover:text-[#1E2D28] dark:hover:border-[#4CA882] dark:hover:text-foreground"
-					>
-						<span className="flex items-center gap-1 font-[family-name:var(--font-jakarta-sans)] text-[14px] font-bold tracking-[-0.01em]">
-							See all
-							<ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
-						</span>
-						<span className="font-[family-name:var(--font-dm-sans)] text-[12.5px] font-medium">
-							+{agents.length - SECTION_CAP} more
-						</span>
-					</button>
-				)}
-			</div>
+			{expanded && (
+				<div className="mb-6">
+					{node.items.length > 0 && (
+						<div
+							className="mb-4"
+							style={{ paddingLeft: `${(node.depth + 1) * 18}px` }}
+						>
+							<AgentCardGrid
+								agents={node.items}
+								archived={archived}
+								onRemoved={onRemoved}
+							/>
+						</div>
+					)}
+					{node.children.map((child) => (
+						<AgentSection
+							key={child.path}
+							node={child}
+							archived={archived}
+							onRemoved={onRemoved}
+							storageKey={`${storageKey}:${child.path}`}
+						/>
+					))}
+				</div>
+			)}
 		</section>
 	);
 }
 
 interface AgentListProps {
 	view: View;
-	/** Table (design 7a) or the tag-grouped card grid. */
+	/** Table or the group-tree card grid. */
 	mode: ViewMode;
 	search: string;
 	onClearSearch?: () => void;
@@ -218,7 +232,12 @@ export default function AgentList({
 	const matches = useMemo(() => {
 		if (!search) return agents;
 		const query = search.toLowerCase();
-		return agents.filter((agent) => agent.name.toLowerCase().includes(query));
+		return agents.filter(
+			(agent) =>
+				agent.name.toLowerCase().includes(query) ||
+				(agent.description ?? "").toLowerCase().includes(query) ||
+				(agent.group ?? "").toLowerCase().includes(query),
+		);
 	}, [agents, search]);
 
 	// "Available to you" narrows to agents the user can actually use; "All" and
@@ -231,41 +250,7 @@ export default function AgentList({
 		[matches, view],
 	);
 
-	// Group by tag (each agent has at most one, so every agent appears exactly
-	// once). Untagged agents fall into the trailing "Others" group. Tags are
-	// sorted alphabetically to match the backend ordering.
-	const groups = useMemo<AgentGroup[]>(() => {
-		const byTag = new Map<string, AgentGroup>();
-		const untagged: Agent[] = [];
-		for (const agent of visible) {
-			const tag = agent.tag;
-			if (!tag) {
-				untagged.push(agent);
-				continue;
-			}
-			const existing = byTag.get(tag.id);
-			if (existing) {
-				existing.items.push(agent);
-			} else {
-				byTag.set(tag.id, {
-					id: tag.id,
-					label: tag.name,
-					items: [agent],
-				});
-			}
-		}
-		const ordered = [...byTag.values()].sort((a, b) =>
-			a.label.localeCompare(b.label),
-		);
-		if (untagged.length > 0) {
-			ordered.push({
-				id: NO_TAG_ID,
-				label: "Others",
-				items: untagged,
-			});
-		}
-		return ordered;
-	}, [visible]);
+	const groupTree = useMemo(() => buildGroupTree(visible), [visible]);
 
 	if (isLoading) return null;
 
@@ -326,7 +311,7 @@ export default function AgentList({
 			<EmptyState
 				icon={<Users className="size-[22px] text-[#4CA882]" />}
 				title="Nothing shared with you yet"
-				subtitle="Ask a workspace admin or an agent's owner to give you access — or switch to All to browse everything in your workspace."
+				subtitle="Ask a workspace admin or an agent's owner to give you access, or switch to All to browse everything in your workspace."
 			/>
 		);
 	}
@@ -347,19 +332,37 @@ export default function AgentList({
 
 	return (
 		<div className="w-full animate-in fade-in duration-300">
-			{groups.map((group) => (
+			{groupTree.groups.map((group) => (
 				<AgentSection
-					// Key by view too: the expanded state is read from localStorage in
-					// a useState initializer, so the section must remount when the
-					// view (and thus its storage key) changes.
-					key={`${view}:${group.id}`}
-					label={group.label}
-					agents={group.items}
+					key={`${view}:${group.path}`}
+					node={group}
 					archived={archived}
 					onRemoved={handleRemoved}
-					storageKey={`agents:section:${view}:${group.id}:expanded`}
+					storageKey={`agents:group:${view}:${group.path}:expanded`}
 				/>
 			))}
+			{groupTree.ungrouped.length > 0 &&
+				(groupTree.groups.length > 0 ? (
+					<AgentSection
+						node={{
+							name: "Others",
+							path: "__ungrouped__",
+							depth: 0,
+							items: groupTree.ungrouped,
+							children: [],
+							count: groupTree.ungrouped.length,
+						}}
+						archived={archived}
+						onRemoved={handleRemoved}
+						storageKey={`agents:group:${view}:__ungrouped__:expanded`}
+					/>
+				) : (
+					<AgentCardGrid
+						agents={groupTree.ungrouped}
+						archived={archived}
+						onRemoved={handleRemoved}
+					/>
+				))}
 		</div>
 	);
 }

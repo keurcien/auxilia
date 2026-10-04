@@ -1,5 +1,5 @@
 /**
- * Agent resource — `/agents` and the `/tags` vocabulary agents are grouped by.
+ * Agent resource — workspace agents and their complete editable config.
  *
  * Plain functions over the axios client: routes, params and response types
  * live here and nowhere else. No React, no stores, no toasts; failures reject
@@ -7,7 +7,7 @@
  */
 import { api } from "@/lib/api/client";
 import type { Paginated } from "@/types/api";
-import type { Agent, AgentPermission, AgentTag } from "@/types/agents";
+import type { Agent, AgentPermission } from "@/types/agents";
 
 /** `POST /agents` and `PUT /agents/{id}/config` share this body (see
  * `agent-form.ts::toPayload`). */
@@ -15,6 +15,7 @@ export interface AgentWrite {
 	name: string;
 	instructions: string;
 	description: string | null;
+	group: string | null;
 	emoji: string | null;
 	color: string | null;
 	mcpServers: { mcpServerId: string; tools: Record<string, string> | null }[];
@@ -24,7 +25,7 @@ export interface AgentWrite {
 
 /** Fields `PATCH /agents/{id}` accepts outside the config draft. */
 export interface AgentPatch {
-	tagId?: string | null;
+	group?: string | null;
 }
 
 export type AgentReadyStatus =
@@ -85,6 +86,24 @@ export async function saveAgentConfig(agentId: string, payload: AgentWrite): Pro
 	return response.data;
 }
 
+export function agentImageUrl(agentId: string, revision: string): string {
+	return `/api/backend/agents/${agentId}/image?v=${encodeURIComponent(revision)}`;
+}
+
+export async function uploadAgentImage(agentId: string, file: File): Promise<string> {
+	const form = new FormData();
+	form.append("file", file);
+	const response = await api.put<{ imageRevision: string }>(
+		`/agents/${agentId}/image`,
+		form,
+	);
+	return response.data.imageRevision;
+}
+
+export async function deleteAgentImage(agentId: string): Promise<void> {
+	await api.delete(`/agents/${agentId}/image`);
+}
+
 export async function patchAgent(agentId: string, patch: AgentPatch): Promise<Agent> {
 	const response = await api.patch<Agent>(`/agents/${agentId}`, patch);
 	return response.data;
@@ -130,28 +149,6 @@ export async function listAgentTeamIds(agentId: string): Promise<string[]> {
 /** Whole-set replace of the teams whose members get `member` access. */
 export async function setAgentTeamIds(agentId: string, teamIds: string[]): Promise<void> {
 	await api.put(`/agents/${agentId}/teams`, { teamIds });
-}
-
-// --- tags ------------------------------------------------------------------
-
-export async function listTags(): Promise<AgentTag[]> {
-	const response = await api.get<AgentTag[]>("/tags/");
-	return response.data;
-}
-
-export async function createTag(name: string): Promise<AgentTag> {
-	const response = await api.post<AgentTag>("/tags/", { name });
-	return response.data;
-}
-
-export async function renameTag(tagId: string, name: string): Promise<AgentTag> {
-	const response = await api.patch<AgentTag>(`/tags/${tagId}`, { name });
-	return response.data;
-}
-
-/** Agents carrying the tag become untagged. */
-export async function deleteTag(tagId: string): Promise<void> {
-	await api.delete(`/tags/${tagId}`);
 }
 
 // Re-exported so callers that only need the page shape import one module.

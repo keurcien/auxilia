@@ -3,6 +3,7 @@
 import { PageContainer } from "@/components/layout/page-container";
 import { SearchBar } from "@/components/ui/search-bar";
 import { cn } from "@/lib/utils";
+import { useWorkspacesStore } from "@/stores/workspaces-store";
 
 interface WorkspaceSearch {
 	placeholder: string;
@@ -41,12 +42,15 @@ export function WorkspacePage({
 	fillHeight = false,
 	children,
 }: WorkspacePageProps) {
+	const workspaceName = useWorkspacesStore((state) =>
+		state.workspaces.find((workspace) => workspace.id === state.activeWorkspaceId)?.name,
+	);
 	return (
 		<div className="flex h-svh min-w-0 flex-1 flex-col bg-background">
 			{/* pl-14 below md leaves room for the floating sidebar trigger */}
 			<header className="flex h-[52px] shrink-0 items-center gap-3 border-b border-border pl-14 pr-4 md:px-8">
-				<span className="font-mono text-[11.5px] text-meta dark:text-panel-dim">
-					workspace <span className="text-ghost dark:text-panel-dim">/</span>{" "}
+				<span className="text-[11.5px] text-meta dark:text-panel-dim">
+					{workspaceName ?? "workspace"} <span className="text-ghost dark:text-panel-dim">/</span>{" "}
 					<span className="font-medium text-foreground">{slug}</span>
 				</span>
 				<div className="ml-auto flex items-center gap-3">
@@ -56,6 +60,7 @@ export function WorkspacePage({
 							value={search.value}
 							onChange={search.onChange}
 							hint="⌘K"
+							focusOnModK
 							className="hidden w-80 sm:block"
 						/>
 					)}

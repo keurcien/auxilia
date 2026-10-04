@@ -168,6 +168,6 @@ describe("AddAgentToolDialog", () => {
 		);
 
 		await screen.findByRole("button", { name: "Add Internal Search" });
-		expect(screen.queryByText("SANDBOXES")).not.toBeInTheDocument();
+		expect(screen.queryByText("Sandboxes")).not.toBeInTheDocument();
 	});
 });

@@ -15,6 +15,7 @@ from app.invites.schemas import InviteResponse
 from app.service import BaseService
 from app.teams.repository import TeamRepository
 from app.users.models import UserDB
+from app.workspaces.repository import WorkspaceRepository
 
 
 class InviteService(BaseService[InviteDB, InviteRepository]):
@@ -34,6 +35,7 @@ class InviteService(BaseService[InviteDB, InviteRepository]):
     ) -> InviteResponse:
         return InviteResponse(
             id=invite.id,
+            workspace_id=invite.workspace_id,
             email=invite.email,
             role=invite.role,
             status=invite.status.value,
@@ -58,16 +60,23 @@ class InviteService(BaseService[InviteDB, InviteRepository]):
         email: str,
         role: str,
         invited_by: UUID,
+        workspace_id: UUID,
         team_id: UUID | None = None,
     ) -> InviteDB:
         """Create a new invite, revoking any existing pending invite for the same email."""
         result = await self.db.execute(select(UserDB).where(UserDB.email == email))
-        if result.scalar_one_or_none():
-            raise AlreadyExistsError("Email already registered")
-        if team_id is not None and not await TeamRepository(self.db).get(team_id):
+        existing_user = result.scalar_one_or_none()
+        if existing_user and await WorkspaceRepository(self.db).get_membership(
+            workspace_id, existing_user.id
+        ):
+            raise AlreadyExistsError("User is already a workspace member")
+        if team_id is not None and not await TeamRepository(self.db).get_in_workspace(
+            team_id, workspace_id
+        ):
             raise NotFoundError("Team not found")
-        await self.repository.revoke_pending_by_email(email)
+        await self.repository.revoke_pending_by_email(workspace_id, email)
         data = InviteCreateDB(
+            workspace_id=workspace_id,
             email=email,
             role=role,
             token=secrets.token_urlsafe(32),
@@ -81,12 +90,16 @@ class InviteService(BaseService[InviteDB, InviteRepository]):
         invite = await self.repository.get_by_token(token)
         return invite if self._is_usable(invite) else None
 
-    async def get_pending_by_email(self, email: str) -> InviteDB | None:
-        invite = await self.repository.get_pending_by_email(email)
+    async def get_pending_by_email(
+        self, email: str, workspace_id: UUID | None = None
+    ) -> InviteDB | None:
+        invite = await self.repository.get_pending_by_email(email, workspace_id)
         return invite if self._is_usable(invite) else None
 
-    async def list_pending_with_inviters(self) -> list[tuple[InviteDB, str | None]]:
-        invites = await self.repository.list_pending()
+    async def list_pending_with_inviters(
+        self, workspace_id: UUID
+    ) -> list[tuple[InviteDB, str | None]]:
+        invites = await self.repository.list_pending(workspace_id)
         inviter_ids = list({inv.invited_by for inv in invites})
         if not inviter_ids:
             return [(inv, None) for inv in invites]
@@ -96,9 +109,9 @@ class InviteService(BaseService[InviteDB, InviteRepository]):
         inviters = {user.id: user.name for user in users_result.scalars().all()}
         return [(inv, inviters.get(inv.invited_by)) for inv in invites]
 
-    async def revoke(self, invite_id: UUID) -> InviteDB | None:
+    async def revoke(self, invite_id: UUID, workspace_id: UUID) -> InviteDB | None:
         invite = await self.repository.get(invite_id)
-        if invite is None:
+        if invite is None or invite.workspace_id != workspace_id:
             return None
         return await self.repository.set_status(invite, InviteStatus.revoked)
 

@@ -38,6 +38,7 @@ class ThreadResponse(ThreadBase):
     agent_name: str | None = None
     agent_emoji: str | None = None
     agent_color: str | None = None
+    agent_image_revision: UUID | None = None
     agent_archived: bool = False
     # Whether the thread's pinned model can run right now (whitelist ∧
     # provider key ∧ admin-enabled). Server-computed on the single-thread GET

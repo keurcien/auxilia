@@ -63,7 +63,7 @@ export default function CreateTokenDialog({
 				<DialogHeader>
 					<DialogTitle>Generate a token</DialogTitle>
 					<DialogDescription>
-						The token acts as you. You&apos;ll see it once — store it in the
+						The token acts as you. You&apos;ll see it once, store it in the
 						service that needs it.
 					</DialogDescription>
 				</DialogHeader>

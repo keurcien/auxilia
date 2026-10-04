@@ -1,6 +1,6 @@
 # Slack Integration — Setup
 
-This page covers the one-time **workspace setup** — creating the Slack app, wiring the event URLs, and setting the environment variables. For the day-to-day end-user flow (mentioning the bot, replying in threads, approving tool calls), see the tutorial: **[Trigger agents from Slack](/tutorials/slack)**.
+This page covers the one-time **workspace setup** — creating the Slack app and wiring it through Settings. For the day-to-day end-user flow (mentioning the bot, replying in threads, approving tool calls), see the tutorial: **[Trigger agents from Slack](/tutorials/slack)**.
 
 ## How a Slack user is matched to an **auxilia** user
 
@@ -10,14 +10,10 @@ Slack users therefore need an **auxilia** account with the **same email address*
 
 ## Configure the integration
 
-Set these environment variables on the backend:
-
-```env
-SLACK_SIGNING_SECRET=...
-SLACK_BOT_TOKEN=xoxb-...
-```
-
-If either value is missing, the Slack endpoints still mount but will reject all incoming requests.
+Open **Settings → Notifications** as a workspace admin. Enter the Bot User
+OAuth Token and Signing Secret, then enable Slack. Both secrets are encrypted
+before they are stored. The page also shows the exact Events and Interactions
+request URLs for your deployment.
 
 ## Create the Slack app
 
@@ -30,16 +26,13 @@ If either value is missing, the Slack endpoints still mount but will reject all 
    - `chat:write`
    - `users:read`
    - `users:read.email`
-4. Install the app to your workspace and copy the **Bot User OAuth Token** (`xoxb-...`) into `SLACK_BOT_TOKEN`
-5. Copy the **Signing Secret** from **Basic Information** into `SLACK_SIGNING_SECRET`
+4. Install the app to your workspace and copy the **Bot User OAuth Token** (`xoxb-...`) into **Settings → Notifications**
+5. Copy the **Signing Secret** from **Basic Information** into the same form
 
 ## Event subscriptions
 
-Under **Event Subscriptions**, point Slack at:
-
-```
-<BACKEND_URL>/integrations/slack/events
-```
+Under **Event Subscriptions**, use the Events request URL shown under
+**Settings → Notifications**.
 
 Subscribe to bot events:
 
@@ -47,11 +40,8 @@ Subscribe to bot events:
 - `assistant_thread_started`
 - `message.channels`, `message.groups`, `message.im`, `message.mpim`
 
-Under **Interactivity & Shortcuts**, enable interactivity and set the **Request URL** to:
-
-```
-<BACKEND_URL>/integrations/slack/interactions
-```
+Under **Interactivity & Shortcuts**, enable interactivity and use the
+Interactions request URL shown under **Settings → Notifications**.
 
 This is where **Approve / Reject** button clicks are delivered.
 

@@ -1,4 +1,5 @@
 import { Search } from "lucide-react";
+import { useEffect, useRef } from "react";
 
 interface SearchBarProps {
 	placeholder?: string;
@@ -6,6 +7,7 @@ interface SearchBarProps {
 	onChange: (value: string) => void;
 	className?: string;
 	hint?: string;
+	focusOnModK?: boolean;
 }
 
 export function SearchBar({
@@ -14,11 +16,35 @@ export function SearchBar({
 	onChange,
 	className = "",
 	hint,
+	focusOnModK = false,
 }: SearchBarProps) {
+	const inputRef = useRef<HTMLInputElement>(null);
+
+	useEffect(() => {
+		if (!focusOnModK) return;
+
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (
+				(event.metaKey || event.ctrlKey) &&
+				event.key.toLowerCase() === "k"
+			) {
+				event.preventDefault();
+				inputRef.current?.focus();
+				inputRef.current?.select();
+			}
+		};
+
+		window.addEventListener("keydown", handleKeyDown);
+		return () => {
+			window.removeEventListener("keydown", handleKeyDown);
+		};
+	}, [focusOnModK]);
+
 	return (
 		<div className={`relative ${className}`}>
 			<Search className="absolute left-3 top-1/2 size-[15px] -translate-y-1/2 text-meta dark:text-panel-dim" />
 			<input
+				ref={inputRef}
 				type="text"
 				placeholder={placeholder}
 				value={value}
@@ -28,7 +54,7 @@ export function SearchBar({
 				className={`w-full rounded-[7px] border border-border bg-sidebar py-2 pl-9 ${hint ? "pr-12" : "pr-3"} text-[13px] font-medium text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-meta dark:placeholder:text-panel-dim focus:border-petrol focus:shadow-[0_0_0_3px_rgba(22,96,110,0.10)]`}
 			/>
 			{hint && (
-				<kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded-[4px] border border-rail bg-background px-[5px] py-px font-mono text-[10px] text-meta dark:text-panel-dim">
+				<kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded-[4px] border border-rail bg-background px-[5px] py-px font-mono text-[10px] text-meta dark:border-white/15 dark:bg-white/5 dark:text-panel-body">
 					{hint}
 				</kbd>
 			)}

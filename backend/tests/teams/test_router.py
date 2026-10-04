@@ -2,9 +2,23 @@ from datetime import datetime
 from unittest.mock import MagicMock
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.teams.models import TeamDB
+from app.teams.repository import TeamRepository
+from tests.conftest import TEST_WORKSPACE_ID
+
+
+@pytest.fixture(autouse=True)
+def mock_team_create(monkeypatch):
+    async def create(_self, team):
+        team.id = uuid4()
+        team.created_at = datetime.now()
+        team.updated_at = datetime.now()
+        return team
+
+    monkeypatch.setattr(TeamRepository, "create", create)
 
 
 def test_create_team_as_admin(client: TestClient, mock_db, admin_user):
@@ -12,13 +26,6 @@ def test_create_team_as_admin(client: TestClient, mock_db, admin_user):
     name_lookup = MagicMock()
     name_lookup.scalar_one_or_none.return_value = None  # name available
     mock_db.execute.return_value = name_lookup
-
-    async def mock_refresh(obj):
-        obj.id = uuid4()
-        obj.created_at = datetime.now()
-        obj.updated_at = datetime.now()
-
-    mock_db.refresh = mock_refresh
 
     response = client.post("/teams/", json={"name": "Marketing", "color": "#6C5CE7"})
 
@@ -30,13 +37,18 @@ def test_create_team_as_admin(client: TestClient, mock_db, admin_user):
 
 
 def test_create_team_rejects_invalid_color(client: TestClient, mock_db, admin_user):
-    response = client.post("/teams/", json={"name": "X", "color": "#123456"})
+    name_lookup = MagicMock()
+    name_lookup.scalar_one_or_none.return_value = None
+    mock_db.execute.return_value = name_lookup
+
+    response = client.post("/teams/", json={"name": "X", "color": "#12345G"})
     assert response.status_code == 422
 
 
 def test_create_team_duplicate_name(client: TestClient, mock_db, admin_user):
     existing = TeamDB(
         id=uuid4(),
+        workspace_id=TEST_WORKSPACE_ID,
         name="Marketing",
         color=None,
         created_at=datetime.now(),
@@ -61,6 +73,7 @@ def test_create_team_requires_admin(client: TestClient, mock_db):
 def test_list_teams(client: TestClient, mock_db, current_user):
     team1 = TeamDB(
         id=uuid4(),
+        workspace_id=TEST_WORKSPACE_ID,
         name="Alpha",
         color="#6C5CE7",
         created_at=datetime.now(),
@@ -68,6 +81,7 @@ def test_list_teams(client: TestClient, mock_db, current_user):
     )
     team2 = TeamDB(
         id=uuid4(),
+        workspace_id=TEST_WORKSPACE_ID,
         name="Beta",
         color=None,
         created_at=datetime.now(),
@@ -89,6 +103,7 @@ def test_list_teams(client: TestClient, mock_db, current_user):
 def test_delete_team_as_admin(client: TestClient, mock_db, admin_user):
     team = TeamDB(
         id=uuid4(),
+        workspace_id=TEST_WORKSPACE_ID,
         name="Gone",
         color=None,
         created_at=datetime.now(),

@@ -24,6 +24,7 @@ from tests.runtime.fake_checkpoints import checkpoint_state
 
 
 INTERRUPT_ID = "ab" * 16
+WORKSPACE_ID = UUID("00000000-0000-4000-8000-000000000001")
 
 
 def _paused_checkpoint():
@@ -72,6 +73,7 @@ async def _seed_thread(run_db, thread_id="t1"):
         db.add(
             ThreadDB(
                 id=thread_id,
+                workspace_id=WORKSPACE_ID,
                 agent_id=UUID(int=1),
                 user_id=UUID(int=2),
             )

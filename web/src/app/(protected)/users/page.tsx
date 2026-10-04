@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import {
 	X,
 	Plus,
@@ -13,6 +13,7 @@ import {
 	Trash2,
 } from "lucide-react";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
+import { useConfirmDialog } from "@/components/providers/dialog-provider";
 import InviteDialog from "./invite-dialog";
 import NewTeamDialog, { type Team } from "./new-team-dialog";
 import {
@@ -22,10 +23,12 @@ import {
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
+import { Switch } from "@/components/ui/switch";
 import * as invitesApi from "@/lib/api/resources/invites";
 import * as teamsApi from "@/lib/api/resources/teams";
 import * as usersApi from "@/lib/api/resources/users";
 import { useUserStore } from "@/stores/user-store";
+import { useWorkspacesStore } from "@/stores/workspaces-store";
 import { useQueryParamState } from "@/hooks/use-query-param-state";
 import type { Invite, RoleCounts, User, WorkspaceRole } from "@/types/users";
 
@@ -75,7 +78,11 @@ function getInviterShortName(name: string | null): string {
 }
 
 export default function UsersPage() {
+	const confirmDialog = useConfirmDialog();
 	const currentUser = useUserStore((state) => state.user);
+	const activeWorkspaceId = useWorkspacesStore((state) => state.activeWorkspaceId);
+	const isAdmin = currentUser?.role === "admin";
+	const fetchUsersTicket = useRef(0);
 	const [users, setUsers] = useState<User[]>([]);
 	const [total, setTotal] = useState(0);
 	const [offset, setOffset] = useState(0);
@@ -112,6 +119,7 @@ export default function UsersPage() {
 	}, [search]);
 
 	const fetchUsers = useCallback(async () => {
+		const ticket = ++fetchUsersTicket.current;
 		setIsLoading(true);
 		try {
 			const page = await usersApi.listUsers({
@@ -120,12 +128,14 @@ export default function UsersPage() {
 				...(roleFilter !== "all" && { role: roleFilter }),
 				...(debouncedSearch && { search: debouncedSearch }),
 			});
+			if (ticket !== fetchUsersTicket.current) return;
 			setUsers(page.items);
 			setTotal(page.total);
 		} catch (error) {
+			if (ticket !== fetchUsersTicket.current) return;
 			console.error("Error fetching users:", error);
 		} finally {
-			setIsLoading(false);
+			if (ticket === fetchUsersTicket.current) setIsLoading(false);
 		}
 	}, [offset, roleFilter, debouncedSearch]);
 
@@ -173,6 +183,7 @@ export default function UsersPage() {
 	};
 
 	const handleCopyInviteLink = async (invite: Invite) => {
+		if (!invite.inviteUrl) return;
 		await navigator.clipboard.writeText(invite.inviteUrl);
 		setCopiedInviteId(invite.id);
 		setTimeout(() => { setCopiedInviteId(null); }, 2000);
@@ -217,6 +228,20 @@ export default function UsersPage() {
 			} else {
 				console.error("Error updating role:", error);
 			}
+		}
+	};
+
+	const handleWorkspaceCreationChange = async (userId: string, allowed: boolean) => {
+		try {
+			const updated = await usersApi.setCanCreateWorkspace(userId, allowed);
+			setUsers((previous) =>
+				previous.map((user) => (user.id === userId ? updated : user)),
+			);
+			if (userId === currentUser?.id) {
+				useUserStore.getState().setUser({ ...currentUser, canCreateWorkspace: allowed });
+			}
+		} catch {
+			setErrorDialogOpen(true);
 		}
 	};
 
@@ -280,13 +305,15 @@ export default function UsersPage() {
 
 	const handleDeleteTeam = async (team: Team) => {
 		const memberCount = team.memberCount;
-		const confirmed = window.confirm(
-			`Delete "${team.name}"?${
+		const confirmed = await confirmDialog({
+			title: `Delete “${team.name}”?`,
+			description:
 				memberCount > 0
-					? ` ${memberCount} member${memberCount === 1 ? "" : "s"} will be unassigned`
-					: ""
-			} and its agent links will be removed.`,
-		);
+					? `${memberCount} member${memberCount === 1 ? "" : "s"} will be unassigned and the team’s agent links will be removed.`
+					: "The team’s agent links will be removed. This action cannot be undone.",
+			confirmLabel: "Delete team",
+			destructive: true,
+		});
 		if (!confirmed) return;
 
 		try {
@@ -310,9 +337,13 @@ export default function UsersPage() {
 	};
 
 	const handleRemoveUser = async (userId: string, userName: string | null) => {
-		const confirmed = window.confirm(
-			`Are you sure you want to remove ${userName || "this user"} from the workspace?`,
-		);
+		const confirmed = await confirmDialog({
+			title: `Remove ${userName || "this user"}?`,
+			description:
+				"They will lose access to this workspace and its shared resources.",
+			confirmLabel: "Remove user",
+			destructive: true,
+		});
 		if (!confirmed) return;
 
 		try {
@@ -346,6 +377,8 @@ export default function UsersPage() {
 						<UserAvatar
 							name={user.name}
 							pictureUrl={user.pictureUrl}
+							userId={user.id}
+							imageRevision={user.imageRevision}
 							className="shrink-0"
 						/>
 						<div className="min-w-0">
@@ -354,8 +387,8 @@ export default function UsersPage() {
 									{user.name || "Unnamed"}
 								</span>
 								{isCurrentUser && (
-									<span className="shrink-0 rounded-[4px] bg-petrol-tint px-1.5 py-0.5 font-mono text-[9px] font-bold tracking-[0.06em] text-petrol">
-										YOU
+									<span className="shrink-0 rounded-[4px] bg-petrol-tint px-1.5 py-0.5 text-[9px] font-bold text-petrol dark:bg-white/10 dark:text-panel-terminal">
+										You
 									</span>
 								)}
 							</div>
@@ -386,7 +419,7 @@ export default function UsersPage() {
 			mobileWidth: "auto",
 			cell: (user) => {
 				const isCurrentUser = user.id === currentUser?.id;
-				return isCurrentUser ? (
+				return isCurrentUser || !isAdmin ? (
 					<span className="inline-flex items-center gap-[7px] px-2.5 py-[5px] text-[12.5px] font-medium text-subtle dark:text-muted-foreground">
 						<span
 							className="size-1.5 rounded-full"
@@ -416,12 +449,46 @@ export default function UsersPage() {
 			},
 		},
 		{
+			key: "can-create-workspace",
+			header: "Create workspaces",
+			width: "150px",
+			mobileWidth: "auto",
+			cell: (user) => (
+				<div className="flex items-center gap-2">
+					<Switch
+						checked={user.isInstanceOwner || user.canCreateWorkspace}
+						disabled={
+							user.isInstanceOwner || currentUser?.role !== "admin"
+						}
+						onCheckedChange={(checked) => {
+							void handleWorkspaceCreationChange(user.id, checked);
+						}}
+						aria-label={`Allow ${user.name ?? user.email ?? "user"} to create workspaces`}
+					/>
+					<span className="text-[11px] text-meta">
+						{user.isInstanceOwner
+							? "Owner"
+							: user.canCreateWorkspace
+								? "Allowed"
+								: "No"}
+					</span>
+				</div>
+			),
+		},
+		{
 			key: "team",
 			header: "Team",
 			width: "160px",
 			hideBelowMd: true,
 			cell: (user) => {
 				const team = user.teamId ? teamsById.get(user.teamId) : undefined;
+				if (!isAdmin) {
+					return (
+						<span className="text-[12.5px] font-medium text-subtle dark:text-muted-foreground">
+							{team?.name ?? "No team"}
+						</span>
+					);
+				}
 				return (
 					<DropdownMenu
 						align="start"
@@ -486,7 +553,7 @@ export default function UsersPage() {
 				const isCurrentUser = user.id === currentUser?.id;
 				return (
 					<div className="flex justify-center">
-						{!isCurrentUser && (
+						{isAdmin && !isCurrentUser && (
 							<button
 								aria-label={`Remove ${user.name || user.email || "user"}`}
 								className="flex size-7 cursor-pointer items-center justify-center rounded-[7px] text-ghost opacity-100 transition-all hover:bg-[#FBEFED] hover:text-[#B04A3A] md:opacity-0 md:group-hover:opacity-100 dark:hover:bg-rose-950"
@@ -511,7 +578,7 @@ export default function UsersPage() {
 				value: search,
 				onChange: setSearch,
 			}}
-			actions={
+			actions={isAdmin ? (
 				<WorkspaceTopBarButton
 					onClick={() => {
 						setInviteDialogOpen(true);
@@ -520,7 +587,7 @@ export default function UsersPage() {
 					<Plus className="size-3.5" />
 					Invite user
 				</WorkspaceTopBarButton>
-			}
+			) : undefined}
 		>
 			<ForbiddenErrorDialog
 				open={errorDialogOpen}
@@ -528,25 +595,32 @@ export default function UsersPage() {
 				title="Insufficient privileges"
 				message="You are not allowed to perform this action."
 			/>
-			<InviteDialog
-				open={inviteDialogOpen}
-				onOpenChange={setInviteDialogOpen}
-				teams={teams}
-				onInviteCreated={(invite) => { setInvites((prev) => [...prev, invite]); }}
-			/>
-			<NewTeamDialog
-				open={newTeamDialogOpen}
-				onOpenChange={(open) => {
-					setNewTeamDialogOpen(open);
-					if (!open) {
-						setPendingTeamUserId(null);
-						setEditingTeam(null);
-					}
-				}}
-				team={editingTeam}
-				onTeamCreated={handleTeamCreated}
-				onTeamUpdated={handleTeamUpdated}
-			/>
+			{isAdmin && (
+				<InviteDialog
+					open={inviteDialogOpen}
+					onOpenChange={setInviteDialogOpen}
+					onInviteCreated={(invite) => {
+						if (invite.workspaceId === activeWorkspaceId) {
+							setInvites((prev) => [...prev, invite]);
+						}
+					}}
+				/>
+			)}
+			{isAdmin && newTeamDialogOpen && (
+				<NewTeamDialog
+					open
+					onOpenChange={(open) => {
+						setNewTeamDialogOpen(open);
+						if (!open) {
+							setPendingTeamUserId(null);
+							setEditingTeam(null);
+						}
+					}}
+					team={editingTeam}
+					onTeamCreated={handleTeamCreated}
+					onTeamUpdated={handleTeamUpdated}
+				/>
+			)}
 			{/* Role filter chips (design 13c: pills above the table) */}
 			<div className="flex flex-wrap items-center gap-2 pb-[18px] pt-1.5">
 				{ROLE_FILTERS.map((filter) => {
@@ -562,7 +636,7 @@ export default function UsersPage() {
 							}}
 							className={
 								active
-									? "inline-flex cursor-pointer items-center gap-[7px] rounded-full bg-petrol-tint px-[13px] py-1.5 text-[12.5px] font-semibold text-petrol"
+									? "inline-flex cursor-pointer items-center gap-[7px] rounded-full bg-petrol-tint px-[13px] py-1.5 text-[12.5px] font-semibold text-petrol dark:bg-white/10 dark:text-panel-terminal"
 									: "inline-flex cursor-pointer items-center gap-[7px] rounded-full border border-border px-[13px] py-1.5 text-[12.5px] font-medium text-subtle transition-colors hover:bg-sidebar dark:border-white/10 dark:text-panel-body dark:hover:bg-white/5"
 							}
 						>
@@ -608,13 +682,15 @@ export default function UsersPage() {
 					{teams.length}
 				</span>
 				<span className="h-px flex-1 self-center bg-border dark:bg-white/10" />
-				<button
-					onClick={openCreateTeam}
-					className="inline-flex cursor-pointer items-center gap-1.5 rounded-[7px] border border-border px-3 py-1.5 text-[12px] font-semibold text-subtle transition-colors hover:bg-sidebar dark:border-white/10 dark:text-muted-foreground dark:hover:bg-white/5"
-				>
-					<Plus className="size-3.5" />
-					New team
-				</button>
+				{isAdmin && (
+					<button
+						onClick={openCreateTeam}
+						className="inline-flex cursor-pointer items-center gap-1.5 rounded-[7px] border border-border px-3 py-1.5 text-[12px] font-semibold text-subtle transition-colors hover:bg-sidebar dark:border-white/10 dark:text-muted-foreground dark:hover:bg-white/5"
+					>
+						<Plus className="size-3.5" />
+						New team
+					</button>
+				)}
 			</div>
 
 			{teams.length === 0 ? (
@@ -635,31 +711,34 @@ export default function UsersPage() {
 							<span className="flex-1 truncate text-[13.5px] font-semibold text-foreground">
 								{team.name}
 							</span>
-							<span className="shrink-0 font-mono text-[10.5px] text-meta dark:text-panel-dim">
-								{team.memberCount} member{team.memberCount === 1 ? "" : "s"}
+							<span className="shrink-0 text-[10.5px] text-meta dark:text-panel-dim">
+								<span className="font-mono">{team.memberCount}</span> member
+								{team.memberCount === 1 ? "" : "s"}
 							</span>
-							<DropdownMenu
-								trigger={
-									<button className="flex size-7 cursor-pointer items-center justify-center rounded-[7px] text-meta transition-all hover:bg-hover md:opacity-0 md:group-hover:opacity-100 dark:hover:bg-white/10">
-										<MoreVertical className="size-[18px]" />
-									</button>
-								}
-								items={[
-									{
-										label: "Rename",
-										icon: <Pencil />,
-										onClick: () => { openEditTeam(team); },
-									},
-									{
-										label: "Delete",
-										icon: <Trash2 />,
-										destructive: true,
-										onClick: () => {
-											void handleDeleteTeam(team);
+							{isAdmin && (
+								<DropdownMenu
+									trigger={
+										<button className="flex size-7 cursor-pointer items-center justify-center rounded-[7px] text-meta transition-all hover:bg-hover md:opacity-0 md:group-hover:opacity-100 dark:hover:bg-white/10">
+											<MoreVertical className="size-[18px]" />
+										</button>
+									}
+									items={[
+										{
+											label: "Rename",
+											icon: <Pencil />,
+											onClick: () => { openEditTeam(team); },
 										},
-									},
-								]}
-							/>
+										{
+											label: "Delete",
+											icon: <Trash2 />,
+											destructive: true,
+											onClick: () => {
+												void handleDeleteTeam(team);
+											},
+										},
+									]}
+								/>
+							)}
 						</div>
 					))}
 				</div>
@@ -694,7 +773,7 @@ export default function UsersPage() {
 											{invite.email}
 										</div>
 										<div className="mt-0.5 truncate text-[11.5px] text-meta dark:text-panel-dim">
-											Invited {timeAgo(invite.createdAt)} · by{" "}
+											Invited {timeAgo(invite.createdAt)}, by{" "}
 											{getInviterShortName(invite.invitedByName)}
 										</div>
 									</div>
@@ -711,23 +790,27 @@ export default function UsersPage() {
 
 								{/* Actions */}
 								<div className="flex items-center gap-1.5">
-									<button
-										className="flex cursor-pointer items-center gap-1.5 rounded-[7px] border border-border px-3 py-1.5 text-[12px] font-medium text-subtle transition-colors hover:bg-sidebar dark:border-white/10 dark:text-muted-foreground dark:hover:bg-white/5"
-										onClick={() => { void handleCopyInviteLink(invite); }}
-									>
-										{copiedInviteId === invite.id ? (
-											<Check className="size-3.5" />
-										) : (
-											<Copy className="size-3.5" />
-										)}
-										{copiedInviteId === invite.id ? "Copied!" : "Copy link"}
-									</button>
-									<button
-										className="cursor-pointer rounded-[7px] border border-border px-3 py-1.5 text-[12px] font-medium text-[#B04A3A] transition-colors hover:bg-[#FBEFED] dark:border-white/10 dark:hover:bg-rose-950"
-										onClick={() => { void handleDeleteInvite(invite.id); }}
-									>
-										Revoke
-									</button>
+									{invite.inviteUrl && (
+										<button
+											className="flex cursor-pointer items-center gap-1.5 rounded-[7px] border border-border px-3 py-1.5 text-[12px] font-medium text-subtle transition-colors hover:bg-sidebar dark:border-white/10 dark:text-muted-foreground dark:hover:bg-white/5"
+											onClick={() => { void handleCopyInviteLink(invite); }}
+										>
+											{copiedInviteId === invite.id ? (
+												<Check className="size-3.5" />
+											) : (
+												<Copy className="size-3.5" />
+											)}
+											{copiedInviteId === invite.id ? "Copied!" : "Copy link"}
+										</button>
+									)}
+									{isAdmin && (
+										<button
+											className="cursor-pointer rounded-[7px] border border-border px-3 py-1.5 text-[12px] font-medium text-[#B04A3A] transition-colors hover:bg-[#FBEFED] dark:border-white/10 dark:hover:bg-rose-950"
+											onClick={() => { void handleDeleteInvite(invite.id); }}
+										>
+											Revoke
+										</button>
+									)}
 								</div>
 							</div>
 						))}

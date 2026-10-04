@@ -1,18 +1,31 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlmodel import SQLModel
+from pydantic import ConfigDict, model_validator
+from sqlmodel import Field, SQLModel
 
 from app.runtime.runs.state import RunStatus
-from app.triggers.models import TriggerBase
+from app.triggers.models import TriggerBase, TriggerType
 
 
 class TriggerCreate(TriggerBase):
-    pass
+    trigger_type: TriggerType = TriggerType.schedule
+
+    @model_validator(mode="after")
+    def validate_type_fields(self) -> "TriggerCreate":
+        if self.trigger_type == TriggerType.schedule:
+            if not self.cron_expression or not self.timezone:
+                raise ValueError("Scheduled triggers require a schedule and timezone")
+        elif self.cron_expression is not None or self.timezone is not None:
+            raise ValueError("Webhook triggers cannot define a schedule or timezone")
+        return self
 
 
 class TriggerCreateDB(TriggerBase):
+    workspace_id: UUID
     owner_id: UUID
+    trigger_type: TriggerType
+    webhook_id: UUID | None = None
     next_run_at: datetime | None = None
 
 
@@ -29,14 +42,17 @@ class TriggerPatch(SQLModel):
 
 class TriggerResponse(SQLModel):
     id: UUID
+    workspace_id: UUID
     name: str
     instructions: str
     owner_id: UUID
     agent_id: UUID
     model_id: str
     reasoning_effort: str | None = None
-    cron_expression: str
-    timezone: str
+    trigger_type: TriggerType
+    cron_expression: str | None = None
+    timezone: str | None = None
+    webhook_url: str | None = None
     is_active: bool
     next_run_at: datetime | None = None
     last_run_at: datetime | None = None
@@ -62,6 +78,16 @@ class TriggerRunResponse(SQLModel):
 
     thread_id: str
     run_id: str
+
+
+class WebhookTriggerInvoke(SQLModel):
+    """Per-call overrides accepted by a webhook trigger."""
+
+    model_config = ConfigDict(extra="forbid")  # type: ignore[assignment]
+
+    agent_id: UUID | None = None
+    model_id: str | None = Field(default=None, max_length=255)
+    instructions: str | None = None
 
 
 class TriggerThreadResponse(SQLModel):

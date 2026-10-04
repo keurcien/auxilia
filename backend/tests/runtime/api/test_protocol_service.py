@@ -7,6 +7,7 @@ the stored-event codec.
 """
 
 import json
+from uuid import UUID
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -28,6 +29,9 @@ from app.runtime.protocol.wire import (
 from tests.runtime.fake_checkpoints import checkpoint_state
 
 
+WORKSPACE_ID = UUID("00000000-0000-4000-8000-000000000001")
+
+
 class _NoRedis:
     """`ProtocolService(redis=…)` never touches Redis for pure dispatches."""
 
@@ -38,7 +42,10 @@ def _service() -> ProtocolService:
 
 async def test_unknown_method_is_a_protocol_error_envelope():
     response = await _service().dispatch(
-        "t1", "u1", ProtocolCommand(id=7, method="run.selfdestruct", params={})
+        WORKSPACE_ID,
+        "t1",
+        "u1",
+        ProtocolCommand(id=7, method="run.selfdestruct", params={}),
     )
     assert response == {
         "type": "error",
@@ -50,7 +57,10 @@ async def test_unknown_method_is_a_protocol_error_envelope():
 
 async def test_known_but_unsupported_method_is_not_supported():
     response = await _service().dispatch(
-        "t1", "u1", ProtocolCommand(id=3, method="state.fork", params={})
+        WORKSPACE_ID,
+        "t1",
+        "u1",
+        ProtocolCommand(id=3, method="state.fork", params={}),
     )
     assert response["type"] == "error"
     assert response["error"] == "not_supported"
@@ -62,6 +72,7 @@ async def test_input_respond_requires_a_response_or_interrupt_id():
     resume path for pre-interrupt-id checkpoints)."""
     with pytest.raises(DomainValidationError):
         await _service().dispatch(
+            WORKSPACE_ID,
             "t1",
             "u1",
             ProtocolCommand(id=1, method="input.respond", params={}),
@@ -72,6 +83,7 @@ async def test_run_start_rejects_non_object_config():
     for bad in ("gpt-4o", 0, False, ""):
         with pytest.raises(DomainValidationError):
             await _service().dispatch(
+                WORKSPACE_ID,
                 "t1",
                 "u1",
                 ProtocolCommand(
@@ -83,6 +95,7 @@ async def test_run_start_rejects_non_object_config():
 async def test_input_respond_batch_form_requires_exactly_one_entry():
     with pytest.raises(DomainValidationError):
         await _service().dispatch(
+            WORKSPACE_ID,
             "t1",
             "u1",
             ProtocolCommand(
@@ -248,8 +261,8 @@ async def test_history_without_a_tools_namespace_is_empty(monkeypatch):
         "app.runtime.api.protocol_service.get_checkpointer",
         _checkpointer_cm(_Checkpointer([], {})),
     )
-    assert await _service().thread_history("t1", None) == []
-    assert await _service().thread_history("t1", "research:abc") == []
+    assert await _service().thread_history(WORKSPACE_ID, "t1", None) == []
+    assert await _service().thread_history(WORKSPACE_ID, "t1", "research:abc") == []
 
 
 @pytest.mark.asyncio
@@ -268,7 +281,7 @@ async def test_history_resolves_a_task_call_to_its_subgraph_checkpoint(monkeypat
         _checkpointer_cm(checkpointer),
     )
 
-    page = await _service().thread_history("t1", "tools:call_1")
+    page = await _service().thread_history(WORKSPACE_ID, "t1", "tools:call_1")
 
     assert len(page) == 1
     state = page[0]
@@ -287,7 +300,7 @@ async def test_history_for_an_unknown_task_call_is_empty(monkeypatch):
         "app.runtime.api.protocol_service.get_checkpointer",
         _checkpointer_cm(checkpointer),
     )
-    assert await _service().thread_history("t1", "tools:call_9") == []
+    assert await _service().thread_history(WORKSPACE_ID, "t1", "tools:call_9") == []
 
 
 @pytest.mark.asyncio
@@ -318,8 +331,8 @@ async def test_history_maps_duplicate_descriptions_by_task_id(monkeypatch):
     )
 
     svc = _service()
-    one = await svc.thread_history("t1", "tools:call_1")
-    two = await svc.thread_history("t1", "tools:call_2")
+    one = await svc.thread_history(WORKSPACE_ID, "t1", "tools:call_1")
+    two = await svc.thread_history(WORKSPACE_ID, "t1", "tools:call_2")
 
     assert one[0]["values"]["messages"][-1]["content"] == "first result"
     assert two[0]["values"]["messages"][-1]["content"] == "second result"
@@ -396,12 +409,12 @@ async def test_thread_state_interrupt_carries_the_paused_agents_namespace(
     monkeypatch.setattr(service_mod, "get_checkpointer", _checkpointer)
     service = _service()
 
-    async def _no_active(_thread_id):
+    async def _no_active(_thread_id, _workspace_id):
         return None
 
     monkeypatch.setattr(service.runs, "get_active", _no_active)
 
-    state = await service.thread_state("t1")
+    state = await service.thread_state(WORKSPACE_ID, "t1")
     assert state["next"] == ["agent"]
     [task] = state["tasks"]
     assert task["interrupts"] == [
@@ -459,7 +472,7 @@ async def test_message_is_read_from_the_writes_without_the_state(monkeypatch):
 
     monkeypatch.setattr(service_mod, "get_checkpointer", _never)
 
-    d = await _service().message("t1", "t2")
+    d = await _service().message(WORKSPACE_ID, "t1", "t2")
 
     assert d["id"] == "t2" and d["content"] == "x" * 50_000
     assert len(consumed) == 2, "scanning stops at the first matching write"
@@ -470,7 +483,7 @@ async def test_message_inside_an_overwrite_write_is_found(monkeypatch):
     repo, _ = _writes_repo([Overwrite([HumanMessage(content="hi", id="h1")])])
     monkeypatch.setattr(service_mod, "CheckpointWriteRepository", repo)
     monkeypatch.setattr(service_mod, "AsyncSessionLocal", lambda: _Session())
-    assert (await _service().message("t1", "h1"))["content"] == "hi"
+    assert (await _service().message(WORKSPACE_ID, "t1", "h1"))["content"] == "hi"
 
 
 @pytest.mark.asyncio
@@ -485,6 +498,6 @@ async def test_message_falls_back_to_the_state_when_the_writes_are_gone(monkeypa
         "app.runtime.api.protocol_service.get_checkpointer",
         _checkpointer_cm(checkpointer),
     )
-    assert (await _service().message("t1", "t9"))["content"] == "old"
+    assert (await _service().message(WORKSPACE_ID, "t1", "t9"))["content"] == "old"
     with pytest.raises(NotFoundError):
-        await _service().message("t1", "nope")
+        await _service().message(WORKSPACE_ID, "t1", "nope")

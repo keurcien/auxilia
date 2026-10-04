@@ -53,8 +53,8 @@ export default function InviteAcceptPage({
 		setIsLoading(true);
 
 		try {
-			await authApi.acceptInvite({ token, password, name });
-			router.push("/agents");
+			const result = await authApi.acceptInvite({ token, password, name });
+			router.push(result.twoFactorRequired ? "/auth?two_factor=required" : "/agents");
 		} catch (err: unknown) {
 			setError(getApiErrorMessage(err, "An error occurred"));
 		} finally {
@@ -112,7 +112,9 @@ export default function InviteAcceptPage({
 					<span className="text-2xl">Join auxilia</span>
 				</CardTitle>
 				<p className="text-sm text-muted-foreground mt-2">
-					You&apos;ve been invited as <span className="font-medium text-foreground">{inviteInfo?.role}</span>
+					You&apos;ve been invited to{" "}
+					<span className="font-medium text-foreground">{inviteInfo?.workspaceName}</span>
+					{" "}as <span className="font-medium text-foreground">{inviteInfo?.role}</span>
 				</p>
 			</CardHeader>
 
@@ -185,7 +187,7 @@ export default function InviteAcceptPage({
 									<div className="absolute inset-0 flex items-center">
 										<span className="w-full border-t" />
 									</div>
-									<div className="relative flex justify-center text-xs uppercase">
+									<div className="relative flex justify-center text-xs ">
 										<span className="bg-card px-2 text-muted-foreground">
 											Or continue with
 										</span>

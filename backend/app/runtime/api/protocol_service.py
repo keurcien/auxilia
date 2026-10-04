@@ -33,7 +33,7 @@ from app.exceptions import DomainValidationError, NotFoundError
 from app.redis_client import get_redis
 from app.runtime.api.protocol_repository import CheckpointWriteRepository
 from app.runtime.api.protocol_schemas import EventStreamBody, ProtocolCommand
-from app.runtime.checkpoints import get_checkpoint_state
+from app.runtime.checkpoints import checkpoint_thread_id, get_checkpoint_state
 from app.runtime.hitl import InterruptScope, load_interrupt_scopes
 from app.runtime.protocol.events import terminal_lifecycle
 from app.runtime.protocol.filter import StreamFilter
@@ -60,7 +60,7 @@ class ProtocolService:
     # --- commands -------------------------------------------------------------
 
     async def dispatch(
-        self, thread_id: str, user_id: str, command: ProtocolCommand
+        self, workspace_id, thread_id: str, user_id: str, command: ProtocolCommand
     ) -> dict:
         """Execute one protocol command; returns the response envelope.
 
@@ -72,9 +72,13 @@ class ProtocolService:
         """
         if command.method == "run.start":
             run = await self._run_start(thread_id, user_id, command.params)
+            if run.workspace_id != workspace_id:
+                raise NotFoundError("Run not found")
             return _success(command.id, {"run_id": run.id})
         if command.method == "input.respond":
-            await self._input_respond(thread_id, user_id, command.params)
+            run = await self._input_respond(thread_id, user_id, command.params)
+            if run.workspace_id != workspace_id:
+                raise NotFoundError("Run not found")
             return _success(command.id, {})
         known_unsupported = {
             "input.inject",
@@ -115,6 +119,8 @@ class ProtocolService:
             input=params.get("input"),
             trigger=trigger,
             config_overrides=config_overrides,
+            multitask_strategy="enqueue",
+            text_only_when_queued=True,
         )
 
     async def _input_respond(self, thread_id: str, user_id: str, params: dict) -> RunDB:
@@ -160,34 +166,41 @@ class ProtocolService:
             # targets the single pending interrupt.
             resume = response
         return await self.runs.create(
-            thread_id=thread_id, user_id=user_id, command={"resume": resume}
+            thread_id=thread_id,
+            user_id=user_id,
+            command={"resume": resume},
+            multitask_strategy="enqueue",
         )
 
     # --- event stream -----------------------------------------------------------
 
     async def stream_events(
-        self, thread_id: str, body: EventStreamBody
+        self, workspace_id, thread_id: str, body: EventStreamBody
     ) -> AsyncGenerator[str, None]:
         """One protocol SSE session: replay the newest run, then follow newer
         runs as they appear, until the client disconnects."""
         sink = StreamFilter.from_request(body.channels, body.namespaces, body.depth)
         current: RunDB | None = None
         while True:
-            run = await self._next_run(thread_id, after=current)
+            run = await self._next_run(workspace_id, thread_id, after=current)
             if run is None:
                 yield _KEEP_ALIVE
                 await asyncio.sleep(_IDLE_POLL_SECONDS)
                 continue
             current = run
+            if run.workspace_id != workspace_id:
+                raise NotFoundError("Run not found")
             async for sse in self._stream_run(run, sink, since=body.since):
                 yield sse
 
-    async def _next_run(self, thread_id: str, after: RunDB | None) -> RunDB | None:
+    async def _next_run(
+        self, workspace_id, thread_id: str, after: RunDB | None
+    ) -> RunDB | None:
         """The newest run of the thread — or, when we already served `after`,
         the oldest run created after it (so a session follows runs in order)."""
         if after is not None and after.created_at is None:
             return None  # pre-flush record; only possible in tests
-        return await self.runs.next_for_thread(thread_id, after)
+        return await self.runs.next_for_thread(thread_id, workspace_id, after)
 
     async def _stream_run(
         self, run: RunDB, sink: StreamFilter, *, since: int | None
@@ -200,7 +213,7 @@ class ProtocolService:
         codec doesn't own (a legacy-format log from a run in flight during
         the deploy) are skipped — the `_END` marker still terminates them.
         """
-        events = RunEventStream(run.id, self.redis)
+        events = RunEventStream(run.id, self.redis, workspace_id=run.workspace_id)
 
         def relay(
             event: dict, entry_id: str, *, bypass_since: bool = False
@@ -225,7 +238,7 @@ class ProtocolService:
             )
 
         if not await events.exists():
-            record = await self.runs.get(run.id)
+            record = await self.runs.get(run.id, run.workspace_id)
             if is_terminal(record.status):
                 # The log expired — synthesize the terminal lifecycle from the
                 # durable record, which outlives the log.
@@ -237,7 +250,7 @@ class ProtocolService:
         while True:
             batch = await events.read_batch_with_ids(cursor, block_ms=_BLOCK_MS)
             if batch is None:
-                record = await self.runs.get(run.id)
+                record = await self.runs.get(run.id, run.workspace_id)
                 if is_terminal(record.status):
                     # Worker died between the DB commit and the terminal entry.
                     if (sse := synthetic_terminal(record)) is not None:
@@ -257,8 +270,10 @@ class ProtocolService:
 
     # --- thread state -------------------------------------------------------------
 
-    async def thread_state(self, thread_id: str) -> dict:
+    async def thread_state(self, workspace_id, thread_id: str) -> dict:
         """LangGraph-shaped state snapshot for client hydration."""
+        public_thread_id = thread_id
+        thread_id = checkpoint_thread_id(workspace_id, thread_id)
         scopes: list[InterruptScope] = []
         async with get_checkpointer() as checkpointer:
             state = await get_checkpoint_state(checkpointer, thread_id)
@@ -274,7 +289,7 @@ class ProtocolService:
                     checkpointer, thread_id, root=state
                 )
 
-        active = await self.runs.get_active(thread_id)
+        active = await self.runs.get_active(public_thread_id, workspace_id)
         # `next` non-empty ⇔ a run is executing or a resume is awaited — the
         # client's activity gate opens its live pumps only then.
         next_nodes = ["agent"] if active is not None or scopes else []
@@ -296,7 +311,9 @@ class ProtocolService:
         ]
         return {"values": values, "next": next_nodes, "tasks": tasks}
 
-    async def thread_history(self, thread_id: str, checkpoint_ns: str | None) -> list:
+    async def thread_history(
+        self, workspace_id, thread_id: str, checkpoint_ns: str | None
+    ) -> list:
         """LangGraph-shaped history page (`client.threads.getHistory`).
 
         The client reads history for two things. Root pages (no namespace)
@@ -310,6 +327,7 @@ class ProtocolService:
         """
         if checkpoint_ns is None or not checkpoint_ns.startswith(_TOOLS_NS_PREFIX):
             return []
+        thread_id = checkpoint_thread_id(workspace_id, thread_id)
         tool_call_id = checkpoint_ns[len(_TOOLS_NS_PREFIX) :]
         async with get_checkpointer() as checkpointer:
             messages = await _subagent_messages(checkpointer, thread_id, tool_call_id)
@@ -331,7 +349,7 @@ class ProtocolService:
 
     # --- single message ---------------------------------------------------------
 
-    async def message(self, thread_id: str, message_id: str) -> dict:
+    async def message(self, workspace_id, thread_id: str, message_id: str) -> dict:
         """One message of the thread, whole — the other half of the bounded
         snapshot (`serialize_message_preview`).
 
@@ -347,6 +365,7 @@ class ProtocolService:
         namespace's state to find one message would cost what the writes scan
         exists to avoid, and the writes outlive the log in practice.
         """
+        thread_id = checkpoint_thread_id(workspace_id, thread_id)
         async with AsyncSessionLocal() as db:
             writes = CheckpointWriteRepository(db).iter_message_writes(thread_id)
             async for type_tag, blob in writes:

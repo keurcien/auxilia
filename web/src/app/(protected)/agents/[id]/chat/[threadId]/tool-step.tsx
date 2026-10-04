@@ -108,21 +108,21 @@ export const ToolStep = memo(function ToolStep({
       {hasDetails && (
         <>
           {tc.args !== undefined && (
-            <StepSection label="PARAMETERS">
+            <StepSection label="Parameters">
               <StepCode value={tc.args} />
             </StepSection>
           )}
           {state === "rejected" ? (
-            <StepSection label="DENIED">
-              <StepCode value="Denied by the user — the tool was not executed." />
+            <StepSection label="Denied">
+              <StepCode value="Denied by the user, the tool was not executed." />
             </StepSection>
           ) : state === "error" ? (
-            <StepSection label="ERROR" error>
+            <StepSection label="Error" error>
               <StepCode value={tc.error} />
             </StepSection>
           ) : (
             tc.output !== undefined && (
-              <StepSection label="RESULT">
+              <StepSection label="Result">
                 <ToolResult key={tc.resultMessageId ?? tc.id} tc={tc} />
               </StepSection>
             )
@@ -228,7 +228,7 @@ const ToolResult = ({ tc }: { tc: ToolCallView }) => {
                     setLoadError(null);
                     setAttempt((n) => n + 1);
                   }}
-                  className="cursor-pointer font-semibold text-petrol underline-offset-2 hover:underline"
+                  className="cursor-pointer font-semibold text-petrol underline-offset-2 hover:underline dark:text-panel-terminal"
                 >
                   Retry
                 </button>

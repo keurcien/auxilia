@@ -304,12 +304,12 @@ export default function AgentMCPServer({
 				</span>
 				{!isCheckingConnection &&
 					(isConnected ? (
-						<span className="rounded-[4px] bg-success-bg px-2 py-0.5 font-mono text-[9.5px] font-semibold tracking-[0.05em] text-success">
-							CONNECTED
+						<span className="rounded-[4px] bg-success-bg px-2 py-0.5 text-[9.5px] font-semibold text-success">
+							Connected
 						</span>
 					) : (
-						<span className="rounded-[4px] bg-[#FBEFED] px-2 py-0.5 font-mono text-[9.5px] font-semibold tracking-[0.05em] text-[#B04A3A]">
-							NOT CONNECTED
+						<span className="rounded-[4px] bg-[#FBEFED] px-2 py-0.5 text-[9.5px] font-semibold text-[#B04A3A]">
+							Not connected
 						</span>
 					))}
 				<button
@@ -377,7 +377,7 @@ export default function AgentMCPServer({
 						>
 							{hasTools && (
 								<button
-									className="cursor-pointer rounded-[7px] px-3 py-1.5 text-[12.5px] font-semibold text-petrol transition-opacity hover:opacity-80"
+									className="cursor-pointer rounded-[7px] px-3 py-1.5 text-[12.5px] font-semibold text-petrol transition-opacity hover:opacity-80 dark:text-panel-terminal"
 									onClick={() => {
 										setDetailsOpen(true);
 									}}

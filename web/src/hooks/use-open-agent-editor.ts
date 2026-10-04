@@ -12,7 +12,7 @@ export const AGENT_EDITOR_FORBIDDEN_MESSAGE =
 interface OpenAgentEditorOptions {
 	/** Runs once access is confirmed, right before navigating; return false to
 	 * stay on the page (the editor uses it to guard an unsaved draft). */
-	beforeNavigate?: () => boolean;
+	beforeNavigate?: () => boolean | Promise<boolean>;
 }
 
 /**
@@ -47,7 +47,7 @@ export function useOpenAgentEditor() {
 				setForbiddenOpen(true);
 				return;
 			}
-			if (beforeNavigate && !beforeNavigate()) return;
+			if (beforeNavigate && !(await beforeNavigate())) return;
 			router.push(`/agents/${agentId}`);
 		},
 		[fetchAgents, router],

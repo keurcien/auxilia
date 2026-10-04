@@ -10,6 +10,7 @@ import {
 	SkillSummary,
 } from "@/types/skills";
 import * as skillsApi from "@/lib/api/resources/skills";
+import { getWorkspaceGeneration, isCurrentWorkspaceGeneration } from "@/lib/workspace-generation";
 
 interface SkillsState {
 	skills: SkillSummary[];
@@ -18,6 +19,7 @@ interface SkillsState {
 	getSkill: (id: string) => Promise<Skill>;
 	createSkill: (payload: SkillSave) => Promise<Skill>;
 	updateSkill: (id: string, payload: SkillSave) => Promise<Skill>;
+	setSkillImageRevision: (id: string, revision: string | null) => void;
 	deleteSkill: (id: string) => Promise<void>;
 	/** Sourced skills: what the newest synced version changes, and adopting it. */
 	getSkillDiff: (id: string) => Promise<SkillDiff>;
@@ -59,10 +61,11 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
 			return;
 		}
 		const ticket = ++skillsLoad;
+		const generation = getWorkspaceGeneration();
 		try {
 			const skills = await skillsApi.listSkills();
+			if (!isCurrentWorkspaceGeneration(generation)) return;
 			if (ticket === skillsLoad) set({ skills, isInitialized: true });
-			else set({ isInitialized: true });
 		} catch (error) {
 			// Deliberately *not* marking it initialized: a failed load that
 			// claimed to be done left the nav count at 0 and made every later
@@ -88,6 +91,13 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
 		}));
 		return updated;
 	},
+	setSkillImageRevision: (id, revision) => {
+		set((state) => ({
+			skills: state.skills.map((skill) =>
+				skill.id === id ? { ...skill, imageRevision: revision } : skill,
+			),
+		}));
+	},
 	deleteSkill: async (id) => {
 		await skillsApi.deleteSkill(id);
 		set((state) => ({
@@ -111,10 +121,11 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
 			return;
 		}
 		const ticket = ++sourcesLoad;
+		const generation = getWorkspaceGeneration();
 		try {
 			const sources = await skillsApi.listSkillSources();
+			if (!isCurrentWorkspaceGeneration(generation)) return;
 			if (ticket === sourcesLoad) set({ sources, sourcesInitialized: true });
-			else set({ sourcesInitialized: true });
 		} catch (error) {
 			// Deliberately *not* marking it initialized: a failed load that
 			// claimed to be done left the nav count at 0 and made every later

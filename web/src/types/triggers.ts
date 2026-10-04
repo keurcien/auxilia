@@ -1,16 +1,17 @@
 import { RunTerminalStatus } from "@/types/runs";
 
-export interface Trigger {
+export type TriggerType = "schedule" | "webhook";
+
+interface TriggerBase {
 	id: string;
 	name: string;
 	instructions: string;
 	ownerId: string;
 	agentId: string;
 	modelId: string;
-	cronExpression: string;
-	timezone: string;
+	reasoningEffort: string | null;
+	triggerType: TriggerType;
 	isActive: boolean;
-	nextRunAt: string | null;
 	lastRunAt: string | null;
 	createdAt: string;
 	updatedAt: string;
@@ -22,15 +23,43 @@ export interface Trigger {
 	modelDisplayName: string | null;
 }
 
-export interface TriggerCreate {
+export interface ScheduleTrigger extends TriggerBase {
+	triggerType: "schedule";
+	cronExpression: string;
+	timezone: string;
+	webhookUrl: null;
+	nextRunAt: string | null;
+}
+
+export interface WebhookTrigger extends TriggerBase {
+	triggerType: "webhook";
+	cronExpression: null;
+	timezone: null;
+	webhookUrl: string;
+	nextRunAt: null;
+}
+
+export type Trigger = ScheduleTrigger | WebhookTrigger;
+
+interface TriggerCreateBase {
 	name: string;
 	instructions: string;
 	agentId: string;
 	modelId: string;
-	cronExpression: string;
-	timezone: string;
 	isActive?: boolean;
 }
+
+export interface ScheduleTriggerCreate extends TriggerCreateBase {
+	triggerType?: "schedule";
+	cronExpression: string;
+	timezone: string;
+}
+
+export interface WebhookTriggerCreate extends TriggerCreateBase {
+	triggerType: "webhook";
+}
+
+export type TriggerCreate = ScheduleTriggerCreate | WebhookTriggerCreate;
 
 export interface TriggerUpdate {
 	name?: string;

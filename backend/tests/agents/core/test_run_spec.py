@@ -17,6 +17,7 @@ from app.agents.models import (
     ToolStatus,
 )
 from app.sandbox.models import SandboxDB, SandboxProviderType
+from tests.conftest import TEST_WORKSPACE_ID
 
 
 async def _add_agent(session, name: str, **kwargs) -> AgentDB:
@@ -24,6 +25,7 @@ async def _add_agent(session, name: str, **kwargs) -> AgentDB:
         name=name,
         instructions=f"instructions for {name}",
         owner_id=uuid4(),
+        workspace_id=TEST_WORKSPACE_ID,
         **kwargs,
     )
     session.add(agent)
@@ -49,6 +51,7 @@ async def _bind_sandbox(
     session, agent_id: UUID, tools: dict[str, ToolStatus] | None = None
 ) -> SandboxDB:
     sandbox = SandboxDB(
+        workspace_id=TEST_WORKSPACE_ID,
         name="box",
         provider=SandboxProviderType.opensandbox,
         url="https://sandbox.example.com",
@@ -61,16 +64,22 @@ async def _bind_sandbox(
 
 
 async def test_returns_none_for_an_unknown_agent(agent_session):
-    assert await AgentRepository(agent_session).get_run_spec(uuid4()) is None
+    assert (
+        await AgentRepository(agent_session, TEST_WORKSPACE_ID).get_run_spec(uuid4())
+        is None
+    )
 
 
 async def test_carries_the_agent_fields_the_runtime_actually_uses(agent_session):
     agent = await _add_agent(agent_session, "Parent", description="a parent")
 
-    spec = await AgentRepository(agent_session).get_run_spec(agent.id)
+    spec = await AgentRepository(agent_session, TEST_WORKSPACE_ID).get_run_spec(
+        agent.id
+    )
 
     assert spec is not None
     assert spec.agent.id == agent.id
+    assert spec.agent.workspace_id == TEST_WORKSPACE_ID
     assert spec.agent.name == "Parent"
     assert spec.agent.instructions == "instructions for Parent"
     assert spec.agent.description == "a parent"
@@ -87,7 +96,9 @@ async def test_includes_direct_subagents_but_not_their_subagents(agent_session):
     await _bind_subagent(agent_session, parent.id, child.id)
     await _bind_subagent(agent_session, child.id, grandchild.id)
 
-    spec = await AgentRepository(agent_session).get_run_spec(parent.id)
+    spec = await AgentRepository(agent_session, TEST_WORKSPACE_ID).get_run_spec(
+        parent.id
+    )
 
     assert spec is not None
     assert [s.id for s in spec.subagents] == [child.id]
@@ -103,7 +114,7 @@ async def test_subagent_order_is_stable_across_reads(agent_session):
         child = await _add_agent(agent_session, name)
         await _bind_subagent(agent_session, parent.id, child.id)
 
-    repository = AgentRepository(agent_session)
+    repository = AgentRepository(agent_session, TEST_WORKSPACE_ID)
     first_read = await repository.get_run_spec(parent.id)
     second_read = await repository.get_run_spec(parent.id)
 
@@ -121,7 +132,9 @@ async def test_an_archived_agent_still_resolves(agent_session):
     child = await _add_agent(agent_session, "Child", is_archived=True)
     await _bind_subagent(agent_session, parent.id, child.id)
 
-    spec = await AgentRepository(agent_session).get_run_spec(parent.id)
+    spec = await AgentRepository(agent_session, TEST_WORKSPACE_ID).get_run_spec(
+        parent.id
+    )
 
     assert spec is not None
     assert [s.id for s in spec.subagents] == [child.id]
@@ -136,7 +149,9 @@ async def test_bindings_land_on_the_agent_that_owns_them(agent_session):
     )
     child_binding = await _bind_server(agent_session, child.id, None)
 
-    spec = await AgentRepository(agent_session).get_run_spec(parent.id)
+    spec = await AgentRepository(agent_session, TEST_WORKSPACE_ID).get_run_spec(
+        parent.id
+    )
 
     assert spec is not None
     assert [b.id for b in spec.agent.mcp_servers] == [parent_binding.id]
@@ -166,7 +181,9 @@ async def test_all_mcp_bindings_spans_parent_and_subagents_without_deduping(
     )
     await agent_session.flush()
 
-    spec = await AgentRepository(agent_session).get_run_spec(parent.id)
+    spec = await AgentRepository(agent_session, TEST_WORKSPACE_ID).get_run_spec(
+        parent.id
+    )
 
     assert spec is not None
     bindings = spec.all_mcp_bindings
@@ -183,7 +200,9 @@ async def test_carries_the_sandbox_row_so_the_runtime_need_not_refetch_it(
         agent_session, agent.id, {"execute": ToolStatus.always_allow}
     )
 
-    spec = await AgentRepository(agent_session).get_run_spec(agent.id)
+    spec = await AgentRepository(agent_session, TEST_WORKSPACE_ID).get_run_spec(
+        agent.id
+    )
 
     assert spec is not None
     assert spec.agent.sandbox is not None
@@ -208,7 +227,9 @@ async def test_cost_is_flat_in_the_number_of_subagents(
         await _bind_server(agent_session, child.id)
     statements.reset()
 
-    spec = await AgentRepository(agent_session).get_run_spec(parent.id)
+    spec = await AgentRepository(agent_session, TEST_WORKSPACE_ID).get_run_spec(
+        parent.id
+    )
 
     assert spec is not None
     assert len(spec.subagents) == subagent_count

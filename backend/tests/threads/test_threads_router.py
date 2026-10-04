@@ -5,7 +5,12 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from app.threads.models import ThreadDB, ThreadSource
+from app.threads.models import ThreadDB as _ThreadDB, ThreadSource
+from tests.conftest import TEST_WORKSPACE_ID
+
+
+def ThreadDB(**kwargs) -> _ThreadDB:
+    return _ThreadDB(workspace_id=TEST_WORKSPACE_ID, **kwargs)
 
 
 @pytest.fixture(autouse=True)
@@ -36,6 +41,9 @@ def test_create_thread(client: TestClient, mock_db, current_user):
         obj.updated_at = datetime.now()
 
     mock_db.refresh = mock_refresh
+    agent_result = MagicMock()
+    agent_result.scalar_one_or_none.return_value = MagicMock()
+    mock_db.execute.return_value = agent_result
 
     response = client.post("/threads/", json=thread_data)
 
@@ -69,6 +77,9 @@ def test_create_thread_without_first_message(client: TestClient, mock_db, curren
         obj.updated_at = datetime.now()
 
     mock_db.refresh = mock_refresh
+    agent_result = MagicMock()
+    agent_result.scalar_one_or_none.return_value = MagicMock()
+    mock_db.execute.return_value = agent_result
 
     response = client.post("/threads/", json=thread_data)
 
@@ -104,8 +115,8 @@ def test_get_threads(client: TestClient, mock_db, current_user):
     count_result.scalar_one.return_value = 2
     rows_result = MagicMock()
     rows_result.all.return_value = [
-        (thread2, "Test Agent", "🤖", None, False),
-        (thread1, "Test Agent", "🤖", None, False),
+        (thread2, "Test Agent", "🤖", None, None, False),
+        (thread1, "Test Agent", "🤖", None, None, False),
     ]
     mock_db.execute.side_effect = [count_result, rows_result]
 
@@ -156,7 +167,14 @@ def test_get_thread(client: TestClient, mock_db, current_user):
 
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = thread
-    mock_result.one_or_none.return_value = (thread, "Test Agent", "🤖", None, False)
+    mock_result.one_or_none.return_value = (
+        thread,
+        "Test Agent",
+        "🤖",
+        None,
+        None,
+        False,
+    )
     mock_db.execute.return_value = mock_result
 
     response = client.get(f"/threads/{thread_id}")
@@ -224,7 +242,14 @@ def test_update_thread(client: TestClient, mock_db, current_user):
 
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = thread
-    mock_result.one_or_none.return_value = (thread, "Test Agent", "🤖", None, False)
+    mock_result.one_or_none.return_value = (
+        thread,
+        "Test Agent",
+        "🤖",
+        None,
+        None,
+        False,
+    )
     mock_db.execute.return_value = mock_result
 
     async def mock_refresh(obj):
@@ -256,7 +281,14 @@ def test_update_thread_ignores_model_id(client: TestClient, mock_db, current_use
 
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = thread
-    mock_result.one_or_none.return_value = (thread, "Test Agent", "🤖", None, False)
+    mock_result.one_or_none.return_value = (
+        thread,
+        "Test Agent",
+        "🤖",
+        None,
+        None,
+        False,
+    )
     mock_db.execute.return_value = mock_result
 
     async def mock_refresh(obj):
@@ -344,7 +376,9 @@ def test_delete_thread(mock_checkpointer, client: TestClient, mock_db, current_u
     # Assert the checkpointer was actually the mock. Without this the patch
     # target can drift (it did: the call moved from the router into the service)
     # and the test silently opens a real Postgres pool instead of failing.
-    mock_saver_instance.adelete_thread.assert_awaited_once_with(thread_id=thread_id)
+    mock_saver_instance.adelete_thread.assert_awaited_once_with(
+        thread_id=f"{TEST_WORKSPACE_ID}:{thread_id}"
+    )
 
 
 @pytest.mark.usefixtures("current_user")
@@ -375,7 +409,7 @@ def test_delete_thread_not_found(mock_checkpointer, client: TestClient, mock_db)
 # ---------------------------------------------------------------------------
 
 
-def _thread_owned_by(user_id) -> ThreadDB:
+def _thread_owned_by(user_id) -> _ThreadDB:
     return ThreadDB(
         id=str(uuid4()),
         user_id=user_id,

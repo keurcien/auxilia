@@ -6,6 +6,7 @@ from uuid import UUID
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.core.repository import AgentRepository
 from app.database import get_checkpointer, get_db
 from app.exceptions import NotFoundError
 from app.model_providers.service import ModelService
@@ -19,6 +20,7 @@ from app.threads.schemas import (
     ThreadPatch,
     ThreadResponse,
 )
+from app.workspaces.dependencies import get_active_workspace_id
 
 
 def _thread_with_agent(
@@ -26,6 +28,7 @@ def _thread_with_agent(
     agent_name: str | None,
     agent_emoji: str | None,
     agent_color: str | None,
+    agent_image_revision: UUID | None,
     agent_archived: bool,
 ) -> ThreadResponse:
     return ThreadResponse.model_validate(
@@ -34,6 +37,7 @@ def _thread_with_agent(
             "agent_name": agent_name,
             "agent_emoji": agent_emoji,
             "agent_color": agent_color,
+            "agent_image_revision": agent_image_revision,
             "agent_archived": agent_archived,
         },
     )
@@ -44,6 +48,7 @@ def _agent_thread(
     agent_name: str | None,
     agent_emoji: str | None,
     agent_color: str | None,
+    agent_image_revision: UUID | None,
     agent_archived: bool,
     user_email: str | None,
     user_name: str | None,
@@ -54,6 +59,7 @@ def _agent_thread(
             "agent_name": agent_name,
             "agent_emoji": agent_emoji,
             "agent_color": agent_color,
+            "agent_image_revision": agent_image_revision,
             "agent_archived": agent_archived,
             "user_email": user_email,
             "user_name": user_name,
@@ -64,8 +70,9 @@ def _agent_thread(
 class ThreadService(BaseService[ThreadDB, ThreadRepository]):
     not_found_message = "Thread not found"
 
-    def __init__(self, db: AsyncSession):
-        super().__init__(db, ThreadRepository(db))
+    def __init__(self, db: AsyncSession, workspace_id: UUID):
+        super().__init__(db, ThreadRepository(db, workspace_id))
+        self.workspace_id = workspace_id
 
     async def get(self, thread_id: str) -> ThreadDB:
         return await self.get_or_404(thread_id)
@@ -75,9 +82,9 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
         if not row:
             raise NotFoundError(self.not_found_message)
         response = _thread_with_agent(*row)
-        response.model_available = await ModelService(self.db).is_available(
-            response.model_id
-        )
+        response.model_available = await ModelService(
+            self.db, self.workspace_id
+        ).is_available(response.model_id)
         return response
 
     async def list(self, user_id: UUID, page: PageParams) -> Page[ThreadResponse]:
@@ -102,6 +109,11 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
         source: ThreadSource,
         trigger_id: UUID | None = None,
     ) -> ThreadResponse:
+        if (
+            await AgentRepository(self.db, self.workspace_id).get_scoped(data.agent_id)
+            is None
+        ):
+            raise NotFoundError("Agent not found")
         # Strict at selection time (unlike model availability, which is only
         # flagged): an undeclared effort level is a client bug, and letting it
         # persist would silently degrade to the model default on every run.
@@ -117,6 +129,7 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
         # can't attach arbitrary threads to a trigger — only the scanner sets it.
         thread = ThreadDB(
             **data.model_dump(exclude_none=True),
+            workspace_id=self.workspace_id,
             user_id=user_id,
             source=source,
             trigger_id=trigger_id,
@@ -130,9 +143,9 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
         return ThreadResponse.model_validate(
             thread,
             update={
-                "model_available": await ModelService(self.db).is_available(
-                    thread.model_id
-                )
+                "model_available": await ModelService(
+                    self.db, self.workspace_id
+                ).is_available(thread.model_id)
             },
         )
 
@@ -145,6 +158,9 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
         thread = await self.get_or_404(thread_id)
         await self.db.delete(thread)
         return thread
+
+    async def list_ids(self) -> list[str]:
+        return await self.repository.list_ids()
 
     async def delete_rows_for_agent(self, agent_id: UUID) -> list[str]:
         """Bulk-delete an agent's thread rows (one statement) and return their
@@ -170,7 +186,9 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
             return
         async with get_checkpointer() as checkpointer:
             for thread_id in thread_ids:
-                await checkpointer.adelete_thread(thread_id=thread_id)
+                await checkpointer.adelete_thread(
+                    thread_id=f"{self.workspace_id}:{thread_id}"
+                )
 
     async def clear_sandbox(self, sandbox_id: UUID) -> None:
         """Forget the sandbox of every thread this sandbox row stamped — run
@@ -189,14 +207,24 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
 
         Caller (Slack handler) owns the session lifecycle and the final commit.
         """
-        thread = await self.db.get(ThreadDB, ts)
+        thread = await self.repository.get(ts)
         if thread is None:
+            if (
+                await AgentRepository(self.db, self.workspace_id).get_scoped(
+                    UUID(agent_id)
+                )
+                is None
+            ):
+                raise NotFoundError("Agent not found")
             # Slack has no model picker — new threads start on the workspace
             # default (admin-flagged model, else the first available one).
             thread = ThreadDB(
                 id=ts,
+                workspace_id=self.workspace_id,
                 agent_id=agent_id,
-                model_id=await ModelService(self.db).get_default_model_id(),
+                model_id=await ModelService(
+                    self.db, self.workspace_id
+                ).get_default_model_id(),
                 first_message_content=question,
                 user_id=user_id,
                 source=ThreadSource.slack,
@@ -207,5 +235,8 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
         return thread
 
 
-def get_thread_service(db: AsyncSession = Depends(get_db)) -> ThreadService:
-    return ThreadService(db)
+def get_thread_service(
+    db: AsyncSession = Depends(get_db),
+    workspace_id: UUID = Depends(get_active_workspace_id),
+) -> ThreadService:
+    return ThreadService(db, workspace_id)

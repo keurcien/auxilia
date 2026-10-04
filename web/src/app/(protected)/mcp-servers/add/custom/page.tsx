@@ -7,10 +7,13 @@ import { Eye, EyeOff, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import { Alert } from "@/components/ui/alert";
+import { GroupPicker } from "@/components/ui/group-picker";
+import { ImageUpload } from "@/components/ui/image-upload";
 import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { MCPAuthType, OfficialMCPServer } from "@/types/mcp-servers";
+import { groupOptions } from "@/lib/groups";
 import { ConnectionTestBanner } from "../../components/connection-test-banner";
 import {
 	HeaderButton,
@@ -30,6 +33,7 @@ const emptyForm: MCPServerCreateFormValues = {
 	name: "",
 	url: "",
 	description: "",
+	group: "",
 	authType: "none",
 	apiKey: "",
 	oauthClientId: "",
@@ -130,6 +134,8 @@ export default function CustomMCPServerPage() {
 	// The catalog has no ids — the `official` param carries the entry's url.
 	const officialUrl = searchParams.get("official");
 	const createMcpServer = useMcpServersStore((state) => state.createMcpServer);
+	const applyMcpServer = useMcpServersStore((state) => state.applyMcpServer);
+	const mcpServers = useMcpServersStore((state) => state.mcpServers);
 
 	const [form, setForm] = useState<MCPServerCreateFormValues>(emptyForm);
 	const [errors, setErrors] = useState<MCPServerCreateFormErrors>({});
@@ -139,6 +145,7 @@ export default function CustomMCPServerPage() {
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [showSecret, setShowSecret] = useState(false);
 	const [forbiddenOpen, setForbiddenOpen] = useState(false);
+	const [imageFile, setImageFile] = useState<File | null>(null);
 
 	const { status: testStatus, message: testMessage, reset: resetTest, runCandidateTest } =
 		useConnectionTest();
@@ -160,6 +167,7 @@ export default function CustomMCPServerPage() {
 					name: official.name,
 					url: official.url,
 					description: official.description ?? "",
+					group: "",
 					authType: official.authType,
 					apiKey: "",
 					oauthClientId: "",
@@ -201,7 +209,20 @@ export default function CustomMCPServerPage() {
 		setSubmitError(null);
 		setIsSubmitting(true);
 		try {
-			await createMcpServer(buildMCPServerCreatePayload(form));
+			const created = await createMcpServer(buildMCPServerCreatePayload(form));
+			if (imageFile) {
+				try {
+					const revision = await mcpServersApi.uploadMcpServerImage(
+						created.id,
+						imageFile,
+					);
+					applyMcpServer({ ...created, imageRevision: revision });
+				} catch {
+					toast.warning(
+						`${form.name.trim()} was created, but its image could not be uploaded.`,
+					);
+				}
+			}
 			toast.success(`${form.name.trim()} added to the workspace`);
 			router.push("/mcp-servers");
 		} catch (error: unknown) {
@@ -261,7 +282,7 @@ export default function CustomMCPServerPage() {
 				<div className="mx-auto max-w-[640px]">
 					<Link
 						href="/mcp-servers/add"
-						className="text-[13px] font-semibold text-petrol hover:underline"
+						className="text-[13px] font-semibold text-petrol hover:underline dark:text-panel-terminal"
 					>
 						‹ Catalog
 					</Link>
@@ -274,7 +295,7 @@ export default function CustomMCPServerPage() {
 						{isNonDcrOAuth && form.authType === "oauth2"
 							? "This server requires OAuth credentials from the provider's developer console."
 							: selectedOfficial?.authType === "api_key" &&
-								  form.authType === "api_key"
+								 form.authType === "api_key"
 								? "This server requires an API key shared by the whole workspace."
 								: "Connect any remote server that speaks the Model Context Protocol over HTTP."}
 					</p>
@@ -303,50 +324,43 @@ export default function CustomMCPServerPage() {
 								</span>
 							) : (
 								<span className="text-[12px] text-meta dark:text-panel-dim">
-									Streamable HTTP endpoint — the only transport auxilia supports.
+									Streamable HTTP endpoint, the only transport auxilia supports.
 								</span>
 							)}
 						</div>
 
-						{/* Name + Icon URL */}
-						<div className="flex flex-col gap-[18px] sm:flex-row sm:gap-3.5">
-							<div className="flex flex-1 flex-col gap-[7px]">
-								<label htmlFor="mcp-name" className={LABEL_CLASS}>
-									Name <span className="text-destructive">*</span>
-								</label>
-								<input
-									id="mcp-name"
-									placeholder="e.g. Internal warehouse"
-									value={form.name}
-									onChange={(e) => {
-										handleFormChange("name", e.target.value);
-									}}
-									aria-required="true"
-									aria-invalid={!!errors.name}
-									aria-describedby={errors.name ? "mcp-name-error" : undefined}
-									className={INPUT_CLASS}
-								/>
-								{errors.name && (
-									<span id="mcp-name-error" className={ERROR_CLASS}>
-										{errors.name}
-									</span>
-								)}
-							</div>
-							<div className="flex flex-1 flex-col gap-[7px]">
-								<label htmlFor="mcp-icon-url" className={LABEL_CLASS}>
-									Icon URL{OPTIONAL_HINT}
-								</label>
-								<input
-									id="mcp-icon-url"
-									placeholder="https://…/icon.svg"
-									value={form.iconUrl}
-									onChange={(e) => {
-										handleFormChange("iconUrl", e.target.value);
-									}}
-									className={MONO_INPUT_CLASS}
-								/>
-							</div>
+						<div className="flex flex-col gap-[7px]">
+							<label htmlFor="mcp-name" className={LABEL_CLASS}>
+								Name <span className="text-destructive">*</span>
+							</label>
+							<input
+								id="mcp-name"
+								placeholder="e.g. Internal warehouse"
+								value={form.name}
+								onChange={(e) => {
+									handleFormChange("name", e.target.value);
+								}}
+								aria-required="true"
+								aria-invalid={!!errors.name}
+								aria-describedby={errors.name ? "mcp-name-error" : undefined}
+								className={INPUT_CLASS}
+							/>
+							{errors.name && (
+								<span id="mcp-name-error" className={ERROR_CLASS}>
+									{errors.name}
+								</span>
+							)}
 						</div>
+
+						<ImageUpload
+							file={imageFile}
+							onFileChange={setImageFile}
+							onRemove={() => {
+								setImageFile(null);
+							}}
+							label="Uploaded logo"
+							className="rounded-[12px] border border-hairline bg-sidebar p-3 dark:border-white/5"
+						/>
 
 						{/* Description */}
 						<div className="flex flex-col gap-[7px]">
@@ -356,7 +370,7 @@ export default function CustomMCPServerPage() {
 							<textarea
 								id="mcp-description"
 								rows={3}
-								placeholder="What agents can do with this server — shown in the servers list and the agent editor."
+								placeholder="What agents can do with this server, shown in the servers list and the agent editor."
 								value={form.description}
 								onChange={(e) => {
 									handleFormChange("description", e.target.value);
@@ -364,6 +378,14 @@ export default function CustomMCPServerPage() {
 								className={`${INPUT_CLASS} resize-none leading-[1.55]`}
 							/>
 						</div>
+
+						<GroupPicker
+							value={form.group}
+							groups={groupOptions(mcpServers)}
+							onChange={(group) => {
+								handleFormChange("group", group);
+							}}
+						/>
 
 						{/* Authentication method */}
 						<div className="flex flex-col gap-2.5">
@@ -381,7 +403,7 @@ export default function CustomMCPServerPage() {
 							<div className="flex flex-col gap-[18px] rounded-xl border border-border bg-sidebar p-[18px] dark:bg-white/5">
 								<div className="text-[12.5px] leading-[1.55] text-subtle dark:text-panel-body">
 									The key is encrypted at rest and shared by everyone in the
-									workspace — it is never shown again after saving.
+									workspace, it is never shown again after saving.
 								</div>
 								<div className="flex flex-col gap-[7px]">
 									<label htmlFor="mcp-api-key" className={LABEL_CLASS}>
@@ -420,7 +442,7 @@ export default function CustomMCPServerPage() {
 									) : (
 										<>
 											Provide a Client ID and secret from the provider&apos;s
-											developer console — or leave both blank to use{" "}
+											developer console, or leave both blank to use{" "}
 											<strong className="text-body dark:text-panel-body">
 												Dynamic Client Registration
 											</strong>{" "}
@@ -462,7 +484,7 @@ export default function CustomMCPServerPage() {
 										) : (
 											<span className="font-normal text-meta dark:text-panel-dim">
 												{" "}
-												optional · write-only
+												optional, write-only
 											</span>
 										)}
 									</label>

@@ -1,7 +1,8 @@
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, Header, UploadFile
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.core.service import AgentService, get_agent_service
@@ -35,6 +36,7 @@ from app.pagination import Page, PageParams
 from app.threads.schemas import AgentThreadResponse
 from app.threads.service import ThreadService, get_thread_service
 from app.users.models import UserDB
+from app.utils.images import image_response, process_uploaded_image
 
 
 logger = logging.getLogger(__name__)
@@ -87,6 +89,52 @@ async def get_agent(
         user_role=current_user.role,
         user_team_id=current_user.team_id,
     )
+
+
+_require_image_editor = require_agent_permission(
+    EffectivePermission.editor, action="edit this agent's image"
+)
+
+
+@router.get("/{agent_id}/image", response_class=Response)
+async def get_agent_image(
+    agent_id: UUID,
+    if_none_match: str | None = Header(default=None),
+    _current_user: UserDB = Depends(get_current_user),
+    service: AgentService = Depends(get_agent_service),
+) -> Response:
+    image = await service.get_image(agent_id)
+    return image_response(
+        data=image.data,
+        media_type=image.media_type,
+        digest=image.sha256,
+        if_none_match=if_none_match,
+    )
+
+
+@router.put(
+    "/{agent_id}/image",
+    dependencies=[Depends(_require_image_editor)],
+)
+async def set_agent_image(
+    agent_id: UUID,
+    file: UploadFile = File(...),
+    service: AgentService = Depends(get_agent_service),
+) -> dict[str, UUID]:
+    image = await process_uploaded_image(file)
+    return {"image_revision": await service.set_image(agent_id, image)}
+
+
+@router.delete(
+    "/{agent_id}/image",
+    status_code=204,
+    dependencies=[Depends(_require_image_editor)],
+)
+async def delete_agent_image(
+    agent_id: UUID,
+    service: AgentService = Depends(get_agent_service),
+) -> None:
+    await service.delete_image(agent_id)
 
 
 @router.patch("/{agent_id}", response_model=AgentResponse)

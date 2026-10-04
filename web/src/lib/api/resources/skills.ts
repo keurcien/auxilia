@@ -53,6 +53,24 @@ export async function deleteSkill(skillId: string): Promise<void> {
 	await api.delete(`/skills/${skillId}`);
 }
 
+export function skillImageUrl(skillId: string, revision: string): string {
+	return `/api/backend/skills/${skillId}/image?v=${encodeURIComponent(revision)}`;
+}
+
+export async function uploadSkillImage(skillId: string, file: File): Promise<string> {
+	const form = new FormData();
+	form.append("file", file);
+	const response = await api.put<{ imageRevision: string }>(
+		`/skills/${skillId}/image`,
+		form,
+	);
+	return response.data.imageRevision;
+}
+
+export async function deleteSkillImage(skillId: string): Promise<void> {
+	await api.delete(`/skills/${skillId}/image`);
+}
+
 /** What adopting the newest synced version of a sourced skill would change. */
 export async function getSkillDiff(skillId: string): Promise<SkillDiff> {
 	const response = await api.get<SkillDiff>(`/skills/${skillId}/diff`);

@@ -81,7 +81,7 @@ export function useConnectionTest() {
 			const count = data.toolCount ?? 0;
 			setStatus("success");
 			setMessage(
-				`Connection successful — ${count} tool${count === 1 ? "" : "s"} available.`,
+				`Connection successful. ${count} tool${count === 1 ? "" : "s"} available.`,
 			);
 		} else {
 			setStatus("error");

@@ -32,23 +32,23 @@ const STATUS_COPY = new Map<
 	{ label: string; className: string; note?: string }
 >(Object.entries({
 	new: {
-		label: "NEW",
+		label: "New",
 		className: "bg-success-bg text-success dark:bg-emerald-950 dark:text-emerald-300",
 		note: "added to the library",
 	},
 	updated: {
-		label: "UPDATED",
+		label: "Updated",
 		className: "bg-warning-bg text-warning",
 		note: "new version available to adopt",
 	},
-	unchanged: { label: "UNCHANGED", className: "bg-neutral-bg text-subtle dark:bg-white/10 dark:text-panel-body" },
+	unchanged: { label: "Unchanged", className: "bg-neutral-bg text-subtle dark:bg-white/10 dark:text-panel-body" },
 	gone: {
-		label: "GONE",
+		label: "Gone",
 		className: "bg-[#FBEFED] text-[#B04A3A] dark:bg-[#B04A3A]/15",
 		note: "keeps working, pinned",
 	},
 	skipped: {
-		label: "SKIPPED",
+		label: "Skipped",
 		className: "bg-neutral-bg text-subtle dark:bg-white/10 dark:text-panel-body",
 		// Overridden by the entry's own issue, which is the actual reason —
 		// an invalid SKILL.md and a name already taken in the library are not
@@ -108,7 +108,7 @@ function SyncPlanSummary({ plan }: { plan: SkillSyncPlan }) {
 								key={`${entry.status}-${entry.name}-${entry.path}`}
 								className="flex items-center gap-2 border-b border-hairline px-3 py-1.5 last:border-b-0 dark:border-white/5"
 							>
-								<span className="min-w-0 shrink-0 max-w-[40%] truncate font-mono text-[12px] font-semibold text-petrol">
+								<span className="min-w-0 shrink-0 max-w-[40%] truncate text-[12px] font-semibold text-petrol">
 									{entry.name}
 								</span>
 								<span
@@ -131,7 +131,7 @@ function SyncPlanSummary({ plan }: { plan: SkillSyncPlan }) {
 								</span>
 								<span
 									className={cn(
-										"shrink-0 rounded-[4px] px-1.5 py-px font-mono text-[9px] font-semibold tracking-[0.05em]",
+										"shrink-0 rounded-[4px] px-1.5 py-px text-[9px] font-semibold ",
 										copy.className,
 									)}
 								>
@@ -180,10 +180,10 @@ function LastSyncOutcome({ report }: { report: SkillSourceReportEntry[] }) {
 	const summary = [
 		...parts.map((p) => `${p.n} ${STATUS_COPY.get(p.status)?.label.toLowerCase()}`),
 		...(warnings > 0 ? [`${warnings} warned`] : []),
-	].join(" · ");
+	].join(", ");
 	return (
 		<span
-			className={cn("truncate font-mono text-[10px]", tone)}
+			className={cn("truncate text-[10px]", tone)}
 			// The path, not just the name: two skills in one repository can
 			// share a name (that is the `W003` skip), and the name alone cannot
 			// say which folder to go and fix.
@@ -196,7 +196,13 @@ function LastSyncOutcome({ report }: { report: SkillSourceReportEntry[] }) {
 				)
 				.join("\n")}
 		>
-			{summary}
+			{summary.split(/(\d+)/).map((part, index) =>
+				/^\d+$/.test(part) ? (
+					<span key={index} className="font-mono">{part}</span>
+				) : (
+					part
+				),
+			)}
 		</span>
 	);
 }
@@ -250,7 +256,7 @@ function SyncButton({ source, onError }: { source: SkillSource; onError: (m: str
 				disabled={busy}
 				title="Read the repository again and see what would change"
 				onClick={open}
-				className="flex cursor-pointer items-center gap-1.5 rounded-[7px] border border-border px-[11px] py-[5px] text-[12px] font-semibold text-petrol transition-colors hover:bg-sidebar disabled:cursor-default dark:hover:bg-white/5"
+				className="flex cursor-pointer items-center gap-1.5 rounded-[7px] border border-border px-[11px] py-[5px] text-[12px] font-semibold text-petrol transition-colors hover:bg-sidebar disabled:cursor-default dark:border-white/10 dark:text-panel-terminal dark:hover:bg-white/5"
 			>
 				<RefreshCw className={busy ? "size-3 animate-spin" : "size-3"} />
 				{busy ? "Reading…" : "Sync"}
@@ -280,7 +286,7 @@ export default function SkillSourceTable({ sources, isLoading, canManage, onErro
 						<div className="truncate text-[13.5px] font-semibold text-foreground">{source.name}</div>
 						<div className="mt-px truncate font-mono text-[11px] text-subtle dark:text-muted-foreground">
 							{source.url.replace(/^https:\/\//, "")}
-							{source.subpath ? ` · ${source.subpath}/` : ""}
+							{source.subpath ? `, ${source.subpath}/` : ""}
 						</div>
 					</div>
 				</div>
@@ -327,8 +333,12 @@ export default function SkillSourceTable({ sources, isLoading, canManage, onErro
 			width: "110px",
 			hideBelowMd: true,
 			cell: (source) => (
-				<span className="font-mono text-[11px] text-meta dark:text-panel-dim">
-					{source.lastSyncedAt ? relativeTime(source.lastSyncedAt) : "—"}
+				<span className="text-[11px] text-meta dark:text-panel-dim">
+					{source.lastSyncedAt ? (
+						<span className="font-mono">{relativeTime(source.lastSyncedAt)}</span>
+					) : (
+						"Not available"
+					)}
 				</span>
 			),
 		},
@@ -373,9 +383,9 @@ export default function SkillSourceTable({ sources, isLoading, canManage, onErro
 				title="Disconnect this repository?"
 				description={
 					<>
-						<span className="font-mono text-[12.5px] font-semibold text-petrol">{toDisconnect?.name}</span> stops
+						<span className="text-[12.5px] font-semibold text-petrol">{toDisconnect?.name}</span> stops
 						syncing. Its {toDisconnect?.skillCount ?? 0} skill{toDisconnect?.skillCount === 1 ? "" : "s"} stay in the
-						library — files and scripts included, still running, frozen at the commit they are pinned to. Their
+						library, files and scripts included, still running, frozen at the commit they are pinned to. Their
 						content is edited nowhere until you connect <span className="font-semibold">this same URL</span> again,
 						which re-pins the very same skills, keeping the agents that use them. Their names stay taken meanwhile,
 						so another repository cannot quietly take one over.

@@ -18,11 +18,13 @@ from app.mcp.client import connectivity
 from app.mcp.client.connection import ConnectionSpec
 from app.mcp.client.connectivity import CredentialCache, resolve_connection
 from app.mcp.servers.models import MCPAuthType, MCPServerDB
+from tests.conftest import TEST_WORKSPACE_ID
 
 
 def _server(auth_type, **kwargs) -> MCPServerDB:
     return MCPServerDB(
         id=kwargs.pop("id", uuid4()),
+        workspace_id=kwargs.pop("workspace_id", TEST_WORKSPACE_ID),
         name=kwargs.pop("name", "Example"),
         url=kwargs.pop("url", "https://mcp.example.com"),
         auth_type=auth_type,
@@ -39,14 +41,17 @@ def _repository(*, api_key=None, oauth=None) -> MagicMock:
 
 async def test_no_auth_sends_nothing():
     server = _server(MCPAuthType.none)
-    spec = await resolve_connection(server, "u1", _repository())
+    spec = await resolve_connection(server, "u1", TEST_WORKSPACE_ID, _repository())
 
     assert spec == ConnectionSpec(url=server.url)
 
 
 async def test_api_key_becomes_a_bearer_header():
     spec = await resolve_connection(
-        _server(MCPAuthType.api_key), "u1", _repository(api_key="secret")
+        _server(MCPAuthType.api_key),
+        "u1",
+        TEST_WORKSPACE_ID,
+        _repository(api_key="secret"),
     )
 
     assert spec.headers == {"Authorization": "Bearer secret"}
@@ -58,7 +63,10 @@ async def test_a_missing_api_key_is_an_error_not_a_bearer_none():
     with an opaque 401."""
     with pytest.raises(DomainValidationError, match="no API key stored"):
         await resolve_connection(
-            _server(MCPAuthType.api_key, name="Stripe"), "u1", _repository()
+            _server(MCPAuthType.api_key, name="Stripe"),
+            "u1",
+            TEST_WORKSPACE_ID,
+            _repository(),
         )
 
 
@@ -67,7 +75,7 @@ async def test_an_unknown_auth_type_raises_instead_of_connecting_open():
     object.__setattr__(server, "auth_type", "totally-new-scheme")
 
     with pytest.raises(DomainValidationError, match="Unsupported MCP auth type"):
-        await resolve_connection(server, "u1", _repository())
+        await resolve_connection(server, "u1", TEST_WORKSPACE_ID, _repository())
 
 
 async def test_oauth_builds_a_provider_from_decrypted_static_credentials():
@@ -84,7 +92,9 @@ async def test_oauth_builds_a_provider_from_decrypted_static_credentials():
             return_value=provider,
         ) as build,
     ):
-        spec = await resolve_connection(server, "u1", _repository(oauth=row))
+        spec = await resolve_connection(
+            server, "u1", TEST_WORKSPACE_ID, _repository(oauth=row)
+        )
 
     assert spec.auth is provider
     assert spec.headers is None
@@ -118,8 +128,20 @@ async def test_the_memo_resolves_each_credential_once_per_run_graph():
         ) as build,
     ):
         for _ in range(3):
-            await resolve_connection(key_server, "u1", repository, credentials=memo)
-            await resolve_connection(oauth_server, "u1", repository, credentials=memo)
+            await resolve_connection(
+                key_server,
+                "u1",
+                TEST_WORKSPACE_ID,
+                repository,
+                credentials=memo,
+            )
+            await resolve_connection(
+                oauth_server,
+                "u1",
+                TEST_WORKSPACE_ID,
+                repository,
+                credentials=memo,
+            )
 
     repository.get_api_key.assert_awaited_once()
     repository.get_oauth_credentials.assert_awaited_once()
@@ -134,7 +156,7 @@ async def test_without_a_memo_every_call_reads():
     repository = _repository(api_key="secret")
 
     for _ in range(2):
-        await resolve_connection(server, "u1", repository)
+        await resolve_connection(server, "u1", TEST_WORKSPACE_ID, repository)
 
     assert repository.get_api_key.await_count == 2
 
@@ -155,8 +177,20 @@ async def test_oauth_providers_are_never_shared_between_calls():
             ),
         ),
     ):
-        first = await resolve_connection(server, "u1", repository, credentials=memo)
-        second = await resolve_connection(server, "u1", repository, credentials=memo)
+        first = await resolve_connection(
+            server,
+            "u1",
+            TEST_WORKSPACE_ID,
+            repository,
+            credentials=memo,
+        )
+        second = await resolve_connection(
+            server,
+            "u1",
+            TEST_WORKSPACE_ID,
+            repository,
+            credentials=memo,
+        )
 
     assert first.auth is not second.auth
 
@@ -188,7 +222,9 @@ async def test_connect_to_server_hands_the_resolved_spec_to_the_client():
         ),
     ):
         server = _server(MCPAuthType.api_key)
-        async with connectivity.connect_to_server(server, "u1", MagicMock()) as result:
+        async with connectivity.connect_to_server(
+            server, "u1", TEST_WORKSPACE_ID, MagicMock()
+        ) as result:
             assert result == "client"
 
     assert opened["spec"] is resolved
@@ -204,7 +240,10 @@ async def test_connect_to_server_opens_nothing_when_the_credential_is_missing():
         pytest.raises(DomainValidationError),
     ):
         async with connectivity.connect_to_server(
-            _server(MCPAuthType.api_key), "u1", MagicMock()
+            _server(MCPAuthType.api_key),
+            "u1",
+            TEST_WORKSPACE_ID,
+            MagicMock(),
         ):
             pass
 

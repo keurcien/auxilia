@@ -10,8 +10,10 @@ link (success). This is the Slack half of the durable runtime — the web tier
 only enqueues the run (see `router.py`).
 """
 
+import asyncio
 import logging
 from typing import Any, Final, Literal, TypedDict, cast
+from uuid import UUID
 
 from redis.asyncio import Redis
 from slack_sdk.web.async_client import AsyncWebClient
@@ -23,14 +25,15 @@ from app.integrations.slack.blocks import (
     build_tool_approval_blocks,
     format_tool_streamer_label,
 )
-from app.integrations.slack.settings import slack_settings
+from app.integrations.slack.utils import get_slack_client
+from app.runtime.checkpoints import checkpoint_thread_id
 from app.runtime.hitl import load_interrupt_scope, pending_approval_requests
 from app.runtime.protocol.wire import decode_event
 from app.runtime.runs.delivery import DeliveryConsumer
 from app.runtime.runs.models import RunDB
 from app.runtime.runs.service import RunService
 from app.runtime.runs.state import MCP_REAUTH_ERROR, RunStatus, is_terminal
-from app.threads.models import ThreadDB
+from app.threads.repository import ThreadRepository
 
 
 logger = logging.getLogger(__name__)
@@ -53,6 +56,7 @@ class SlackDelivery(TypedDict):
     thread_ts: str
     slack_user_id: str
     team_id: str | None
+    workspace_id: str
 
 
 def build_slack_run_consumer(record: RunDB) -> "SlackRunConsumer | None":
@@ -60,11 +64,19 @@ def build_slack_run_consumer(record: RunDB) -> "SlackRunConsumer | None":
     delivery = record.delivery
     if not delivery or delivery.get("channel") != SLACK_CHANNEL:
         return None
+    if delivery.get("workspace_id") != str(record.workspace_id):
+        logger.error("Slack delivery workspace mismatch for run %s", record.id)
+        return None
     return SlackRunConsumer(record)
 
 
 def build_slack_delivery(
-    *, channel_id: str, thread_ts: str, slack_user_id: str, team_id: str | None
+    *,
+    channel_id: str,
+    thread_ts: str,
+    slack_user_id: str,
+    team_id: str | None,
+    workspace_id: UUID,
 ) -> SlackDelivery:
     """The delivery descriptor stored on a Slack-bound run."""
     return {
@@ -73,6 +85,7 @@ def build_slack_delivery(
         "thread_ts": thread_ts,
         "slack_user_id": slack_user_id,
         "team_id": team_id,
+        "workspace_id": str(workspace_id),
     }
 
 
@@ -141,15 +154,49 @@ class SlackProtocolAdapter:
 class SlackRunConsumer(DeliveryConsumer):
     """Relays one run's event log to its Slack thread."""
 
-    def __init__(self, record: RunDB, redis: Redis | None = None):
+    def __init__(
+        self,
+        record: RunDB,
+        redis: Redis | None = None,
+        client: AsyncWebClient | None = None,
+    ):
         self.record = record
         # The factory only builds this consumer for a record whose delivery
         # carries channel == "slack", so the JSONB dict is a SlackDelivery.
         self.delivery = cast(SlackDelivery, record.delivery or {})
         self.redis = redis
-        self.client = AsyncWebClient(token=slack_settings.slack_bot_token)
+        self.client = client
+
+    @property
+    def slack_client(self) -> AsyncWebClient:
+        if self.client is None:
+            raise RuntimeError("Slack client has not been initialized")
+        return self.client
+
+    async def _resolve_client(self) -> AsyncWebClient | None:
+        if self.client is not None:
+            return self.client
+        for attempt in range(3):
+            try:
+                return await get_slack_client(UUID(self.delivery["workspace_id"]))
+            except Exception:
+                if attempt == 2:
+                    logger.exception(
+                        "Slack client lookup failed for run %s", self.record.id
+                    )
+                    return None
+                await asyncio.sleep(0.25 * (2**attempt))
+        return None
 
     async def run(self) -> None:
+        client = await self._resolve_client()
+        if client is None:
+            logger.warning(
+                "Slack delivery skipped for run %s: Slack is not configured",
+                self.record.id,
+            )
+            return
+        self.client = client
         channel_id = self.delivery["channel_id"]
         thread_ts = self.delivery["thread_ts"]
         logger.info(
@@ -197,7 +244,7 @@ class SlackRunConsumer(DeliveryConsumer):
         streaming message — a mid-stream error must not leave an in-progress
         Slack message open. Returns once the log's terminal entry is read.
         """
-        streamer = await self.client.chat_stream(
+        streamer = await self.slack_client.chat_stream(
             channel=channel_id,
             thread_ts=thread_ts,
             recipient_team_id=self.delivery.get("team_id"),
@@ -246,11 +293,13 @@ class SlackRunConsumer(DeliveryConsumer):
             if record.error != MCP_REAUTH_ERROR:
                 return False
             async with AsyncSessionLocal() as db:
-                thread = await db.get(ThreadDB, self.record.thread_id)
+                thread = await ThreadRepository(db, self.record.workspace_id).get(
+                    self.record.thread_id
+                )
             if thread is None:
                 return False
             connect_url = f"{auth_settings.FRONTEND_URL}/agents/{thread.agent_id}/chat"
-            await self.client.chat_postMessage(
+            await self.slack_client.chat_postMessage(
                 channel=channel_id,
                 thread_ts=thread_ts,
                 blocks=build_connect_prompt_blocks(connect_url),
@@ -266,7 +315,7 @@ class SlackRunConsumer(DeliveryConsumer):
 
     async def _post_failure_notice(self, channel_id: str, thread_ts: str) -> None:
         """Tell the user the turn failed, so the thread is never left blank."""
-        await self.client.chat_postMessage(
+        await self.slack_client.chat_postMessage(
             channel=channel_id,
             thread_ts=thread_ts,
             text=(
@@ -278,7 +327,10 @@ class SlackRunConsumer(DeliveryConsumer):
     async def _post_approvals(self, channel_id: str, thread_ts: str) -> None:
         """Post a Block Kit approve/reject message per pending tool call."""
         async with get_checkpointer() as checkpointer:
-            scope = await load_interrupt_scope(checkpointer, self.record.thread_id)
+            scope = await load_interrupt_scope(
+                checkpointer,
+                checkpoint_thread_id(self.record.workspace_id, self.record.thread_id),
+            )
         if scope is None:
             return
         # A subagent's gated calls live in its own checkpoint; the card says
@@ -296,7 +348,7 @@ class SlackRunConsumer(DeliveryConsumer):
             text = f"Approve {request['tool_name']}?"
             if subagent:
                 text = f"Approve {request['tool_name']} for {subagent}?"
-            await self.client.chat_postMessage(
+            await self.slack_client.chat_postMessage(
                 channel=channel_id,
                 thread_ts=thread_ts,
                 blocks=blocks,
@@ -306,11 +358,13 @@ class SlackRunConsumer(DeliveryConsumer):
     async def _post_auxilia_link(self, channel_id: str, thread_ts: str) -> None:
         """Post a divider + 'View in auxilia' link once the turn finishes cleanly."""
         async with AsyncSessionLocal() as db:
-            thread = await db.get(ThreadDB, self.record.thread_id)
+            thread = await ThreadRepository(db, self.record.workspace_id).get(
+                self.record.thread_id
+            )
         if thread is None:
             return
         url = f"{auth_settings.FRONTEND_URL}/agents/{thread.agent_id}/chat/{thread.id}"
-        await self.client.chat_postMessage(
+        await self.slack_client.chat_postMessage(
             channel=channel_id,
             thread_ts=thread_ts,
             blocks=[

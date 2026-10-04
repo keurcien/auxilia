@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.core.repository import AgentRepository
 from app.agents.mcp_servers.repository import AgentMCPServerRepository
 from app.agents.models import AgentMCPServerBase, AgentMCPServerDB
 from app.agents.schemas import (
@@ -18,6 +19,7 @@ from app.mcp.servers.models import MCPAuthType, MCPServerDB
 from app.mcp.servers.repository import MCPServerRepository
 from app.mcp.servers.schemas import MCPServerAgentResponse
 from app.service import BaseService
+from app.workspaces.dependencies import get_active_workspace_id
 
 
 logger = logging.getLogger(__name__)
@@ -26,12 +28,18 @@ logger = logging.getLogger(__name__)
 class AgentMCPServerService(BaseService[AgentMCPServerDB, AgentMCPServerRepository]):
     not_found_message = "Agent MCP server not found"
 
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, workspace_id: UUID | None = None):
         super().__init__(db, AgentMCPServerRepository(db))
-        self._servers = MCPServerRepository(db)
+        self.workspace_id = workspace_id
+        self._servers = MCPServerRepository(db, workspace_id)
+        self._agents = AgentRepository(db, workspace_id)
+
+    async def _ensure_agent(self, agent_id: UUID) -> None:
+        if await self._agents.get_scoped(agent_id) is None:
+            raise NotFoundError("Agent not found")
 
     async def _ensure_server(self, server_id: UUID) -> MCPServerDB:
-        server = await self._servers.get(server_id)
+        server = await self._servers.get_scoped(server_id)
         if not server:
             raise NotFoundError("MCP server not found")
         return server
@@ -43,7 +51,9 @@ class AgentMCPServerService(BaseService[AgentMCPServerDB, AgentMCPServerReposito
         user_id: str,
     ) -> None:
         try:
-            async with connect_to_server(mcp_server, user_id, self.db) as client:
+            async with connect_to_server(
+                mcp_server, user_id, self.workspace_id, self.db
+            ) as client:
                 fetched_names = [tool.name for tool in await client.list_tools()]
             # The fetch can take seconds, so a concurrent save may have
             # rewritten the map meanwhile. Reload the row under a lock and
@@ -69,6 +79,7 @@ class AgentMCPServerService(BaseService[AgentMCPServerDB, AgentMCPServerReposito
         data: AgentMCPServerCreate,
         user_id: str,
     ) -> AgentMCPServerDB:
+        await self._ensure_agent(agent_id)
         mcp_server = await self._ensure_server(server_id)
 
         existing = await self.repository.get(agent_id, server_id)
@@ -93,7 +104,9 @@ class AgentMCPServerService(BaseService[AgentMCPServerDB, AgentMCPServerReposito
             MCPAuthType.api_key,
         ) or (
             mcp_server.auth_type == MCPAuthType.oauth2
-            and await is_authorized(mcp_server, user_id, refresh=False)
+            and await is_authorized(
+                mcp_server, user_id, self.workspace_id, refresh=False
+            )
         )
         if should_fetch:
             await self._sync_tools(db_link, mcp_server, user_id)
@@ -103,6 +116,8 @@ class AgentMCPServerService(BaseService[AgentMCPServerDB, AgentMCPServerReposito
     async def update(
         self, agent_id: UUID, server_id: UUID, data: AgentMCPServerPatch
     ) -> AgentMCPServerDB:
+        await self._ensure_agent(agent_id)
+        await self._ensure_server(server_id)
         link = await self.repository.get(agent_id, server_id)
         if not link:
             raise NotFoundError(self.not_found_message)
@@ -119,18 +134,19 @@ class AgentMCPServerService(BaseService[AgentMCPServerDB, AgentMCPServerReposito
         """Whole-set replace of an agent's MCP bindings: upsert the wanted
         links and delete the rest. `tools` is written exactly as provided —
         the caller owns the complete map, so no discovery and no merge."""
+        await self._ensure_agent(agent_id)
         existing = await self.repository.list_for_agent(agent_id)
         by_server = {link.mcp_server_id: link for link in existing}
         wanted = {config.mcp_server_id for config in configs}
 
         for config in configs:
+            await self._ensure_server(config.mcp_server_id)
             link = by_server.get(config.mcp_server_id)
             if link:
                 if link.tools != config.tools:
                     link.tools = config.tools
                     self.db.add(link)
             else:
-                await self._ensure_server(config.mcp_server_id)
                 await self.repository.create(
                     AgentMCPServerBase(
                         agent_id=agent_id,
@@ -144,6 +160,8 @@ class AgentMCPServerService(BaseService[AgentMCPServerDB, AgentMCPServerReposito
         await self.db.flush()
 
     async def delete(self, agent_id: UUID, server_id: UUID) -> None:
+        await self._ensure_agent(agent_id)
+        await self._ensure_server(server_id)
         link = await self.repository.get(agent_id, server_id)
         if not link:
             raise NotFoundError(self.not_found_message)
@@ -152,6 +170,7 @@ class AgentMCPServerService(BaseService[AgentMCPServerDB, AgentMCPServerReposito
     async def sync_tools(
         self, agent_id: UUID, server_id: UUID, user_id: str
     ) -> AgentMCPServerDB:
+        await self._ensure_agent(agent_id)
         mcp_server = await self._ensure_server(server_id)
         link = await self.repository.get(agent_id, server_id)
         if not link:
@@ -170,10 +189,15 @@ class AgentMCPServerService(BaseService[AgentMCPServerDB, AgentMCPServerReposito
         self, server_id: UUID
     ) -> list[MCPServerAgentResponse]:
         """Agents currently bound to the server (delete-guard dialog)."""
+        await self._ensure_server(server_id)
         agents = await self.repository.list_agents_for_server(server_id)
         return [
             MCPServerAgentResponse(
-                id=agent.id, name=agent.name, emoji=agent.emoji, color=agent.color
+                id=agent.id,
+                name=agent.name,
+                emoji=agent.emoji,
+                color=agent.color,
+                image_revision=agent.image_revision,
             )
             for agent in agents
         ]
@@ -181,10 +205,12 @@ class AgentMCPServerService(BaseService[AgentMCPServerDB, AgentMCPServerReposito
     async def detach_server(self, server_id: UUID) -> None:
         """Drop the server's binding from every agent — the dialog's explicit
         confirm before the server itself is deleted."""
+        await self._ensure_server(server_id)
         await self.repository.delete_all_for_server(server_id)
 
 
 def get_agent_mcp_server_service(
     db: AsyncSession = Depends(get_db),
+    workspace_id: UUID = Depends(get_active_workspace_id),
 ) -> AgentMCPServerService:
-    return AgentMCPServerService(db)
+    return AgentMCPServerService(db, workspace_id)

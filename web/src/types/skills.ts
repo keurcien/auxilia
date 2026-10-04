@@ -24,6 +24,10 @@ export interface SkillSummary {
 	ownerId: string;
 	name: string;
 	description: string;
+	group?: string | null;
+	emoji: string | null;
+	color: string | null;
+	imageRevision: string | null;
 	revision: number;
 	fileCount: number;
 	scriptCount: number;
@@ -249,6 +253,9 @@ export const repoLabel = (url: string | null | undefined): string => {
 export interface SkillSave {
 	content: string;
 	files: SkillFile[];
+	group?: string | null;
+	emoji?: string | null;
+	color?: string | null;
 	/** The revision the editor loaded; required on update, refused when stale. */
 	revision?: number;
 }
@@ -258,6 +265,9 @@ export interface AgentSkill {
 	id: string;
 	name: string;
 	description: string;
+	emoji: string | null;
+	color: string | null;
+	imageRevision: string | null;
 	scriptCount: number;
 }
 

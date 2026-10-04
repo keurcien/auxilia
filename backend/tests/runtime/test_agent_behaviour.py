@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
+from uuid import UUID
 
 import pytest
 from langchain_core.messages import AIMessage
@@ -23,10 +24,13 @@ from app.agents.run_spec import AgentSpec
 from app.exceptions import DomainValidationError
 from app.integrations.tracing import NoOpTracing
 from app.runtime.agent import RECURSION_LIMIT_MESSAGE, Agent, ResolvedAgent
-from app.runtime.checkpoints import get_checkpoint_state
+from app.runtime.checkpoints import checkpoint_thread_id, get_checkpoint_state
 from app.runtime.toolset import PreparedToolset, Toolset
 from tests.runtime.scripted_model import ScriptedChatModel
 from tests.sandbox.stub_sandbox import StubSandbox
+
+
+WORKSPACE_ID = UUID("00000000-0000-4000-8000-000000000001")
 
 
 @tool
@@ -65,6 +69,7 @@ def _prepared(tools: list) -> PreparedToolset:
 def _spec(instructions: str = "You are a test agent") -> AgentSpec:
     spec = MagicMock(spec=AgentSpec)
     spec.instructions = instructions
+    spec.workspace_id = WORKSPACE_ID
     spec.name = "Tester"
     spec.description = "a test agent"
     spec.sandbox = None
@@ -74,6 +79,7 @@ def _spec(instructions: str = "You are a test agent") -> AgentSpec:
 def _thread(thread_id: str = "thread-1") -> MagicMock:
     thread = MagicMock()
     thread.id = thread_id
+    thread.workspace_id = WORKSPACE_ID
     thread.user_id = "user-1"
     thread.agent_id = "agent-1"
     thread.created_at = datetime(2026, 1, 1, tzinfo=UTC)
@@ -158,7 +164,9 @@ def system_text(model: ScriptedChatModel, call: int = 0) -> str:
 async def final_messages(saver: InMemorySaver, thread_id: str = "thread-1") -> list:
     """The thread's messages as the graph sees them — through the state
     reader, since a `DeltaChannel` checkpoint does not carry them raw."""
-    return (await get_checkpoint_state(saver, thread_id)).messages
+    return (
+        await get_checkpoint_state(saver, checkpoint_thread_id(WORKSPACE_ID, thread_id))
+    ).messages
 
 
 @pytest.mark.asyncio
@@ -300,7 +308,9 @@ async def test_hitl_interrupts_before_an_approval_gated_tool_runs(in_memory_runt
 
     # One model call only — the graph stopped at the approval gate.
     assert len(model.calls) == 1
-    state = in_memory_runtime.get_tuple({"configurable": {"thread_id": "thread-1"}})
+    state = in_memory_runtime.get_tuple(
+        {"configurable": {"thread_id": checkpoint_thread_id(WORKSPACE_ID, "thread-1")}}
+    )
     assert state is not None
     assert not [m for m in await final_messages(in_memory_runtime) if m.type == "tool"]
 
@@ -336,7 +346,9 @@ async def test_stale_structured_response_is_cleared_before_a_new_run(in_memory_r
         "required": ["answer"],
     }
     agent, _ = build_agent(script=["ignored"])
-    config = {"configurable": {"thread_id": "thread-1"}}
+    config = {
+        "configurable": {"thread_id": checkpoint_thread_id(WORKSPACE_ID, "thread-1")}
+    }
 
     # Seed a previous turn's structured response.
     with patch("app.runtime.agent.get_checkpointer"):
@@ -464,7 +476,9 @@ async def test_replaced_sandbox_tells_the_model_once(in_memory_runtime):
     await collect(agent, "hello")
 
     assert agent.remembered == ["sbx-live"]
-    state = await get_checkpoint_state(in_memory_runtime, "thread-sandbox")
+    state = await get_checkpoint_state(
+        in_memory_runtime, checkpoint_thread_id(WORKSPACE_ID, "thread-sandbox")
+    )
     [notice, question, _answer] = state.messages
     assert notice.name == "host"
     assert notice.additional_kwargs["host_notice"] == "sandbox_replaced"

@@ -7,13 +7,16 @@ servers, whose Postgres-only tables the SQLite `run_db` fixture doesn't create.
 from contextlib import ExitStack
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
 from app.mcp.servers.models import MCPAuthType
 from app.runtime.runs.service import RunService
+
+
+WORKSPACE_ID = UUID("00000000-0000-4000-8000-000000000001")
 
 
 def _binding(server_id):
@@ -32,7 +35,7 @@ async def _run_gate(*, auth_type, probe_result, initiate=None):
     agent_service = MagicMock(
         collect_run_bindings=AsyncMock(return_value=[_binding(server.id)])
     )
-    probe = AsyncMock(return_value=probe_result)
+    probe = AsyncMock(return_value={server.id: probe_result})
     initiate_oauth = initiate or AsyncMock()
     db = AsyncMock()
     db.execute.return_value = MagicMock(
@@ -44,13 +47,13 @@ async def _run_gate(*, auth_type, probe_result, initiate=None):
             patch("app.agents.core.service.AgentService", return_value=agent_service)
         )
         stack.enter_context(
-            patch("app.mcp.client.connectivity.is_authorized", new=probe)
+            patch("app.mcp.client.connectivity.probe_authorization", new=probe)
         )
         stack.enter_context(
             patch("app.mcp.client.connectivity.initiate_oauth", new=initiate_oauth)
         )
         auth_url = await RunService(redis=MagicMock()).required_oauth_url(
-            db, uuid4(), "user-1"
+            db, uuid4(), "user-1", WORKSPACE_ID
         )
     return SimpleNamespace(
         server=server,
@@ -74,14 +77,14 @@ async def test_gate_returns_the_auth_url_when_oauth_server_unauthorized():
     # against the wrong identity.
     initiate.assert_awaited_once()
     server = initiate.await_args.args[0]
-    assert initiate.await_args.args[:2] == (server, "user-1")
+    assert initiate.await_args.args[:3] == (server, "user-1", WORKSPACE_ID)
     assert server.auth_type == MCPAuthType.oauth2
 
 
 async def test_gate_passes_when_authorized():
     gate = await _run_gate(auth_type=MCPAuthType.oauth2, probe_result=True)
     assert gate.auth_url is None
-    gate.probe.assert_awaited_once_with(gate.server, "user-1")
+    gate.probe.assert_awaited_once_with([gate.server], "user-1", WORKSPACE_ID)
     gate.initiate.assert_not_awaited()
     # The gate releases the request connection before its network IO.
     gate.db.commit.assert_awaited_once()
@@ -91,7 +94,7 @@ async def test_gate_ignores_non_oauth_servers():
     # api_key/none are always authorized — never probed, never gated.
     gate = await _run_gate(auth_type=MCPAuthType.api_key, probe_result=False)
     assert gate.auth_url is None
-    gate.probe.assert_not_awaited()
+    gate.probe.assert_awaited_once_with([], "user-1", WORKSPACE_ID)
     gate.initiate.assert_not_awaited()
 
 
@@ -103,4 +106,4 @@ async def test_gate_fails_open_on_oauth_infra_errors():
         auth_type=MCPAuthType.oauth2, probe_result=False, initiate=initiate
     )
     assert gate.auth_url is None
-    gate.initiate.assert_awaited_once_with(gate.server, "user-1", gate.db)
+    gate.initiate.assert_awaited_once_with(gate.server, "user-1", WORKSPACE_ID, gate.db)

@@ -6,6 +6,7 @@ interface ChatHeaderState {
   agentName: string | null;
   agentEmoji: string | null;
   agentColor: string | null;
+  agentImageRevision: string | null;
   modelId: string | null;
   /** Set for trigger-fired threads: the trigger's id, name and firing time. */
   triggerId: string | null;
@@ -16,6 +17,7 @@ interface ChatHeaderState {
     agentName: string | null;
     agentEmoji: string | null;
     agentColor?: string | null;
+    agentImageRevision?: string | null;
     modelId: string | null;
     triggerId?: string | null;
     triggerName?: string | null;
@@ -29,6 +31,7 @@ export const useChatHeaderStore = create<ChatHeaderState>((set) => ({
   agentName: null,
   agentEmoji: null,
   agentColor: null,
+  agentImageRevision: null,
   modelId: null,
   triggerId: null,
   triggerName: null,
@@ -37,6 +40,7 @@ export const useChatHeaderStore = create<ChatHeaderState>((set) => ({
     set({
       agentId: null,
       agentColor: null,
+      agentImageRevision: null,
       triggerId: null,
       triggerName: null,
       triggerRunAt: null,
@@ -49,6 +53,7 @@ export const useChatHeaderStore = create<ChatHeaderState>((set) => ({
       agentName: null,
       agentEmoji: null,
       agentColor: null,
+      agentImageRevision: null,
       modelId: null,
       triggerId: null,
       triggerName: null,

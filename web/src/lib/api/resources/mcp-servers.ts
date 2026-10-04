@@ -49,6 +49,27 @@ export async function updateMcpServer(
 	return response.data;
 }
 
+export function mcpServerImageUrl(serverId: string, revision: string): string {
+	return `/api/backend/mcp-servers/${serverId}/image?v=${encodeURIComponent(revision)}`;
+}
+
+export async function uploadMcpServerImage(
+	serverId: string,
+	file: File,
+): Promise<string> {
+	const form = new FormData();
+	form.append("file", file);
+	const response = await api.put<{ imageRevision: string }>(
+		`/mcp-servers/${serverId}/image`,
+		form,
+	);
+	return response.data.imageRevision;
+}
+
+export async function deleteMcpServerImage(serverId: string): Promise<void> {
+	await api.delete(`/mcp-servers/${serverId}/image`);
+}
+
 /** Delete a server. Refused while agents still bind it unless `detachAgents`. */
 export async function deleteMcpServer(
 	serverId: string,

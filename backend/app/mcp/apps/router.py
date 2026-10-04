@@ -37,13 +37,17 @@ async def read_mcp_app_resource(
     current_user: UserDB = Depends(get_current_user),
     service: MCPServerService = Depends(get_mcp_server_service),
 ):
-    mcp_server = await service.get_or_404(server_id)
+    mcp_server = await service.get(server_id)
     # terminate_on_close=False: the resource HTML embeds a sessionToken bound to
     # this MCP session; DELETEing the session would kill the token before the
     # browser uses it. Let the server expire it by TTL instead.
     try:
         async with connect_to_server(
-            mcp_server, str(current_user.id), db, terminate_on_close=False
+            mcp_server,
+            str(current_user.id),
+            mcp_server.workspace_id,
+            db,
+            terminate_on_close=False,
         ) as client:
             return await client.read_resource_mcp(body.uri)
     except OAuthAuthorizationRequired as exc:
@@ -62,12 +66,16 @@ async def call_mcp_app_tool(
     current_user: UserDB = Depends(get_current_user),
     service: MCPServerService = Depends(get_mcp_server_service),
 ):
-    mcp_server = await service.get_or_404(server_id)
+    mcp_server = await service.get(server_id)
     # terminate_on_close=False: keep the session alive for the App's follow-up
     # data requests; it expires by the server's TTL.
     try:
         async with connect_to_server(
-            mcp_server, str(current_user.id), db, terminate_on_close=False
+            mcp_server,
+            str(current_user.id),
+            mcp_server.workspace_id,
+            db,
+            terminate_on_close=False,
         ) as client:
             return await client.call_tool_mcp(body.tool_name, body.arguments or {})
     except OAuthAuthorizationRequired as exc:

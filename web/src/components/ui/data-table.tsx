@@ -1,8 +1,9 @@
 "use client";
 
-import type { CSSProperties, ReactNode } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Folder } from "lucide-react";
+import type { GroupNode } from "@/lib/groups";
 
 export interface DataTableColumn<T> {
 	key: string;
@@ -43,6 +44,12 @@ interface DataTableProps<T> {
 		key: (row: T) => string;
 		header: (key: string) => ReactNode;
 	};
+	/** Slash-delimited resource groups rendered as nested, collapsible rows. */
+	groupTree?: {
+		groups: GroupNode<T>[];
+		ungrouped: T[];
+		storageKey: string;
+	};
 	/** Cap the rows container at the available height and scroll it
 	 * internally. Needs a bounded-height flex ancestry (e.g. WorkspacePage
 	 * with `fillHeight`); the container still hugs its content when short. */
@@ -52,11 +59,79 @@ interface DataTableProps<T> {
 }
 
 const HEADER_LABEL_CLASS =
-	"font-mono text-[10px] font-semibold uppercase tracking-[0.09em] text-meta dark:text-panel-dim";
+	"text-[10px] font-semibold text-meta dark:text-panel-dim";
 const ROW_CLASS =
 	"group border-b border-hairline py-[11px] transition-colors duration-[110ms] last:border-b-0 hover:bg-sidebar dark:border-white/5 dark:hover:bg-white/5";
 const PAGER_BUTTON_CLASS =
 	"flex size-7 items-center justify-center rounded-[7px] border border-border font-mono text-[11.5px] font-medium text-subtle cursor-pointer transition-colors hover:bg-sidebar disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent dark:border-white/10 dark:text-muted-foreground dark:hover:bg-white/5";
+
+function DataTableTreeGroup<T>({
+	node,
+	renderRow,
+	storageKey,
+}: {
+	node: GroupNode<T>;
+	renderRow: (row: T, depth?: number) => ReactNode;
+	storageKey: string;
+}) {
+	const [expanded, setExpanded] = useState(() => {
+		try {
+			return localStorage.getItem(storageKey) !== "0";
+		} catch {
+			return true;
+		}
+	});
+
+	const toggle = () => {
+		setExpanded((current) => {
+			const next = !current;
+			try {
+				localStorage.setItem(storageKey, next ? "1" : "0");
+			} catch {
+				// The in-session state still works when persistence is unavailable.
+			}
+			return next;
+		});
+	};
+
+	return (
+		<>
+			<button
+				type="button"
+				aria-expanded={expanded}
+				onClick={toggle}
+				className="flex w-full cursor-pointer items-center gap-2 border-b border-hairline bg-sidebar px-[18px] py-[9px] text-left transition-colors hover:bg-hover dark:border-white/5 dark:bg-white/[0.03] dark:hover:bg-white/[0.06]"
+				style={{ paddingLeft: `${18 + node.depth * 20}px` }}
+			>
+				<ChevronRight
+					className={`size-3.5 shrink-0 text-meta transition-transform ${
+						expanded ? "rotate-90" : ""
+					}`}
+				/>
+				<Folder className="size-3.5 shrink-0 text-meta" />
+				<span className="text-[11px] font-semibold text-subtle dark:text-panel-dim">
+					{node.name}
+				</span>
+				<span className="font-mono text-[10.5px] text-meta dark:text-panel-dim">
+					{node.count}
+				</span>
+			</button>
+			{expanded && (
+				<>
+					{node.items.map((row) => renderRow(row, node.depth + 1))}
+					{node.children.map((child) => (
+						<DataTableTreeGroup
+							key={child.path}
+							node={child}
+							renderRow={renderRow}
+							storageKey={`${storageKey}:${child.path}`}
+						/>
+					))}
+				</>
+			)}
+		</>
+	);
+}
 
 function cellClass(column: Pick<DataTableColumn<never>, "hideBelowMd" | "align">): string {
 	return [
@@ -104,8 +179,9 @@ function PaginationFooter({
 
 	return (
 		<div className="flex items-center justify-between px-1 py-3.5">
-			<span className="font-mono text-[11px] text-meta dark:text-panel-dim">
-				{start}–{end} of {total}
+			<span className="text-[11px] text-meta dark:text-panel-dim">
+				<span className="font-mono">{start}–{end}</span> of{" "}
+				<span className="font-mono">{total}</span>
 				{itemLabel ? ` ${itemLabel}` : ""}
 			</span>
 			{pageCount > 1 && (
@@ -192,6 +268,7 @@ export function DataTable<T>({
 	getRowHref,
 	onRowClick,
 	groupBy,
+	groupTree,
 	scrollBody = false,
 	pagination,
 	className = "",
@@ -206,12 +283,56 @@ export function DataTable<T>({
 	const gridClass =
 		"grid items-center gap-4 px-[18px] [grid-template-columns:var(--dt-cols)] md:[grid-template-columns:var(--dt-cols-md)]";
 
-	const renderCells = (row: T) =>
-		columns.map((column) => (
-			<div key={column.key} className={cellClass(column)}>
+	const renderCells = (row: T, depth = 0) =>
+		columns.map((column, index) => (
+			<div
+				key={column.key}
+				className={cellClass(column)}
+				style={index === 0 ? { paddingLeft: `${depth * 20}px` } : undefined}
+			>
 				{column.cell(row)}
 			</div>
 		));
+	const renderRow = (row: T, depth = 0): ReactNode => {
+		if (getRowHref) {
+			return (
+				<Link
+					key={rowKey(row)}
+					href={getRowHref(row)}
+					className={`${gridClass} ${ROW_CLASS}`}
+				>
+					{renderCells(row, depth)}
+				</Link>
+			);
+		}
+		if (onRowClick) {
+			return (
+				<div
+					key={rowKey(row)}
+					role="button"
+					tabIndex={0}
+					onClick={() => {
+						onRowClick(row);
+					}}
+					onKeyDown={(event) => {
+						if (event.target !== event.currentTarget) return;
+						if (event.key === "Enter" || event.key === " ") {
+							event.preventDefault();
+							onRowClick(row);
+						}
+					}}
+					className={`${gridClass} ${ROW_CLASS} cursor-pointer`}
+				>
+					{renderCells(row, depth)}
+				</div>
+			);
+		}
+		return (
+			<div key={rowKey(row)} className={`${gridClass} ${ROW_CLASS}`}>
+				{renderCells(row, depth)}
+			</div>
+		);
+	};
 
 	const showSkeleton = isLoading && rows.length === 0;
 	// Changes whenever another page (or filter result) lands, restarting the
@@ -261,7 +382,32 @@ export function DataTable<T>({
 								: "opacity-100 delay-0"
 						}`}
 					>
-						{rows.flatMap((row, index) => {
+						{groupTree ? (
+							<>
+								{groupTree.groups.map((group) => (
+									<DataTableTreeGroup
+										key={group.path}
+										node={group}
+										renderRow={renderRow}
+										storageKey={`${groupTree.storageKey}:${group.path}`}
+									/>
+								))}
+								{groupTree.ungrouped.length > 0 && (
+									<DataTableTreeGroup
+										node={{
+											name: "Others",
+											path: "__ungrouped__",
+											depth: 0,
+											items: groupTree.ungrouped,
+											children: [],
+											count: groupTree.ungrouped.length,
+										}}
+										renderRow={renderRow}
+										storageKey={`${groupTree.storageKey}:__ungrouped__`}
+									/>
+								)}
+							</>
+						) : rows.flatMap((row, index) => {
 							const elements: ReactNode[] = [];
 							if (groupBy) {
 								const groupKey = groupBy.key(row);
@@ -277,50 +423,7 @@ export function DataTable<T>({
 									);
 								}
 							}
-							if (getRowHref) {
-								elements.push(
-									<Link
-										key={rowKey(row)}
-										href={getRowHref(row)}
-										className={`${gridClass} ${ROW_CLASS}`}
-									>
-										{renderCells(row)}
-									</Link>,
-								);
-							} else if (onRowClick) {
-								elements.push(
-									// Button semantics so keyboard users can activate the
-									// row like the Link path.
-									<div
-										key={rowKey(row)}
-										role="button"
-										tabIndex={0}
-										onClick={() => {
-											onRowClick(row);
-										}}
-										onKeyDown={(event) => {
-											// Only when the row itself is focused — Enter/Space on a
-											// nested action button must activate that button, not
-											// navigate (the keyboard twin of the actions cell's
-											// stopPropagation on clicks).
-											if (event.target !== event.currentTarget) return;
-											if (event.key === "Enter" || event.key === " ") {
-												event.preventDefault();
-												onRowClick(row);
-											}
-										}}
-										className={`${gridClass} ${ROW_CLASS} cursor-pointer`}
-									>
-										{renderCells(row)}
-									</div>,
-								);
-							} else {
-								elements.push(
-									<div key={rowKey(row)} className={`${gridClass} ${ROW_CLASS}`}>
-										{renderCells(row)}
-									</div>,
-								);
-							}
+							elements.push(renderRow(row));
 							return elements;
 						})}
 					</div>

@@ -1,10 +1,15 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { GitCompareArrows, Pencil, PencilLine, Trash2, Unplug } from "lucide-react";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
+import { GroupedCardTree } from "@/components/ui/grouped-card-tree";
+import { SkillAvatar } from "@/components/ui/skill-avatar";
+import type { ViewMode } from "@/components/ui/view-toggle";
+import { buildGroupTree } from "@/lib/groups";
 import type { BoundAgent } from "@/types/agents";
 import { isDetached, isSourced, repoLabel, shortRevision, type SkillSummary } from "@/types/skills";
 import { relativeTime } from "../lib/relative-time";
@@ -12,6 +17,7 @@ import { SkillRequirementChip } from "./skill-requirement-chip";
 import { SourceHostTile } from "./source-host-tile";
 
 interface SkillTableProps {
+	mode: ViewMode;
 	skills: SkillSummary[];
 	isLoading: boolean;
 	search: string;
@@ -32,7 +38,7 @@ interface SkillTableProps {
  */
 function UsedByAvatars({ agents }: { agents: BoundAgent[] }) {
 	if (agents.length === 0) {
-		return <span className="font-mono text-[11px] text-ghost dark:text-panel-dim">—</span>;
+		return <span className="text-[11px] text-ghost dark:text-panel-dim">None</span>;
 	}
 	const shown = agents.slice(0, 4);
 	const rest = agents.length - shown.length;
@@ -43,7 +49,14 @@ function UsedByAvatars({ agents }: { agents: BoundAgent[] }) {
 					key={agent.id}
 					className="-ml-1.5 rounded-[5px] ring-2 ring-card first:ml-0 dark:ring-[#12191C]"
 				>
-					<AgentAvatar color={agent.color} emoji={agent.emoji} size="xs" shape="tile" />
+					<AgentAvatar
+						agentId={agent.id}
+						name={agent.name}
+						imageRevision={agent.imageRevision}
+						color={agent.color}
+						emoji={agent.emoji}
+						size="xs"
+					/>
 				</span>
 			))}
 			{rest > 0 && (
@@ -66,9 +79,9 @@ function UsedByAvatars({ agents }: { agents: BoundAgent[] }) {
 function SourceCell({ skill }: { skill: SkillSummary }) {
 	if (!isSourced(skill)) {
 		return (
-			<span className="flex min-w-0 items-center gap-1.5" title="Written in auxilia — edit it here">
+			<span className="flex min-w-0 items-center gap-1.5" title="Written in auxilia, edit it here">
 				<PencilLine className="size-3.5 shrink-0 text-meta dark:text-panel-dim" />
-				<span className="truncate font-mono text-[11px] text-meta dark:text-panel-dim">in-app</span>
+				<span className="truncate text-[11px] text-meta dark:text-panel-dim">in-app</span>
 			</span>
 		);
 	}
@@ -82,18 +95,22 @@ function SourceCell({ skill }: { skill: SkillSummary }) {
 			<span
 				className="flex min-w-0 items-center gap-1.5"
 				title={`From ${skill.sourceUrl ?? "a repository"}, which is no longer connected${
-					skill.sourcePath ? ` · ${skill.sourcePath}` : ""
+					skill.sourcePath ? `, ${skill.sourcePath}` : ""
 				}${
 					skill.sourceRevision ? ` at ${shortRevision(skill.sourceRevision)}` : ""
-				} — connect it again to change this skill`}
+				}, connect it again to change this skill`}
 			>
 				<Unplug className="size-3.5 shrink-0 text-meta dark:text-panel-dim" />
 				<span className="min-w-0">
-					<span className="block truncate font-mono text-[11px] text-meta dark:text-panel-dim">
+					<span className="block truncate text-[11px] text-meta dark:text-panel-dim">
 						{repo || "disconnected"}
 					</span>
-					<span className="block truncate font-mono text-[10px] text-meta dark:text-panel-dim">
-						{repo ? "disconnected" : shortRevision(skill.sourceRevision)}
+					<span className="block truncate text-[10px] text-meta dark:text-panel-dim">
+						{repo ? (
+							"disconnected"
+						) : (
+							<span className="font-mono">{shortRevision(skill.sourceRevision)}</span>
+						)}
 					</span>
 				</span>
 			</span>
@@ -103,12 +120,12 @@ function SourceCell({ skill }: { skill: SkillSummary }) {
 		<span
 			className="flex min-w-0 items-center gap-2"
 			title={`Synced from ${skill.sourceName ?? "a repository"}${
-				skill.sourcePath ? ` · ${skill.sourcePath}` : ""
-			}${skill.sourceRevision ? ` at ${shortRevision(skill.sourceRevision)}` : ""} — edited there, not here`}
+				skill.sourcePath ? `, ${skill.sourcePath}` : ""
+			}${skill.sourceRevision ? ` at ${shortRevision(skill.sourceRevision)}` : ""}, edited there, not here`}
 		>
 			<SourceHostTile kind={skill.sourceKind ?? "github"} size={20} />
 			<span className="min-w-0">
-				<span className="block truncate font-mono text-[11px] text-foreground">
+				<span className="block truncate text-[11px] text-foreground">
 					{skill.sourceName ?? "repository"}
 				</span>
 				{skill.sourceRevision && (
@@ -122,6 +139,7 @@ function SourceCell({ skill }: { skill: SkillSummary }) {
 }
 
 export default function SkillTable({
+	mode,
 	skills,
 	isLoading,
 	search,
@@ -129,6 +147,7 @@ export default function SkillTable({
 	onDelete,
 }: SkillTableProps) {
 	const router = useRouter();
+	const groupTree = buildGroupTree(skills);
 
 	const columns: DataTableColumn<SkillSummary>[] = [
 		{
@@ -136,27 +155,37 @@ export default function SkillTable({
 			header: "Skill",
 			width: "minmax(0, 1.5fr)",
 			cell: (skill) => (
-				<div className="min-w-0">
-					<div className="flex min-w-0 items-center gap-2">
-						<span className="truncate font-mono text-[12.5px] font-semibold text-petrol">
-							{skill.name}
-						</span>
-						{skill.updateAvailable && (
-							<span className="shrink-0 rounded-[4px] bg-warning-bg px-1.5 py-px font-mono text-[9px] font-semibold tracking-[0.05em] text-warning">
-								UPDATE
+				<div className="flex min-w-0 items-center gap-2.5">
+					<SkillAvatar
+						skillId={skill.id}
+						name={skill.name}
+						emoji={skill.emoji}
+						color={skill.color}
+						imageRevision={skill.imageRevision}
+						size="xs"
+					/>
+					<div className="min-w-0">
+						<div className="flex min-w-0 items-center gap-2">
+							<span className="truncate text-[12.5px] font-semibold text-petrol dark:text-panel-terminal">
+								{skill.name}
 							</span>
-						)}
-						{skill.missingUpstream && (
-							<span
-								title="The last sync no longer found this skill in its repository. It keeps working as pinned."
-								className="shrink-0 rounded-[4px] bg-neutral-bg px-1.5 py-px font-mono text-[9px] font-semibold tracking-[0.05em] text-subtle dark:bg-white/10"
-							>
-								GONE UPSTREAM
-							</span>
-						)}
-					</div>
-					<div className="mt-px truncate text-[12px] text-subtle dark:text-muted-foreground">
-						{skill.description}
+							{skill.updateAvailable && (
+								<span className="shrink-0 rounded-[4px] bg-warning-bg px-1.5 py-px text-[9px] font-semibold text-warning">
+									Update
+								</span>
+							)}
+							{skill.missingUpstream && (
+								<span
+									title="The last sync no longer found this skill in its repository. It keeps working as pinned."
+									className="shrink-0 rounded-[4px] bg-neutral-bg px-1.5 py-px text-[9px] font-semibold text-subtle dark:bg-white/10"
+								>
+									Gone upstream
+								</span>
+							)}
+						</div>
+						<div className="mt-px truncate text-[12px] text-subtle dark:text-muted-foreground">
+							{skill.description}
+						</div>
 					</div>
 				</div>
 			),
@@ -183,10 +212,10 @@ export default function SkillTable({
 					<SkillRequirementChip scriptCount={skill.scriptCount} />
 				) : (
 					<span
-						title="Instructions only — this skill runs on any agent."
-						className="font-mono text-[11px] text-ghost dark:text-panel-dim"
+						title="Instructions only, this skill runs on any agent."
+						className="text-[11px] text-ghost dark:text-panel-dim"
 					>
-						—
+						None
 					</span>
 				),
 		},
@@ -223,10 +252,14 @@ export default function SkillTable({
 					<DropdownMenu
 						items={[
 							{
-								label: skill.canEdit ? "Edit" : "Open",
+								label: skill.canEdit || skill.canManage ? "Edit" : "Open",
 								icon: <Pencil />,
 								onClick: () => {
-									router.push(`/skills/${skill.id}${skill.canEdit ? "?edit=1" : ""}`);
+									router.push(
+										`/skills/${skill.id}${
+											skill.canEdit || skill.canManage ? "?edit=1" : ""
+										}`,
+									);
 								},
 							},
 							...(skill.updateAvailable
@@ -260,6 +293,146 @@ export default function SkillTable({
 		},
 	];
 
+	if (mode === "cards") {
+		if (isLoading) return null;
+		if (skills.length === 0) {
+			return (
+				<div className="flex min-h-48 items-center justify-center rounded-[10px] border border-dashed border-border px-6 text-center text-[13px] text-subtle">
+					{search ? (
+						<span>
+							No skill matches “{search}”.{" "}
+							<button
+								type="button"
+								onClick={onClearSearch}
+								className="cursor-pointer font-semibold text-petrol hover:underline dark:text-panel-terminal"
+							>
+								Clear search
+							</button>
+						</span>
+					) : (
+						"No skills yet."
+					)}
+				</div>
+			);
+		}
+
+		return (
+			<GroupedCardTree
+				tree={groupTree}
+				storageKey="skills:card-group"
+				renderItem={(skill, index) => (
+					<article
+						key={skill.id}
+						className="group relative flex min-h-[200px] animate-in flex-col rounded-xl border border-[#e1ebe6] bg-white p-4 fade-in slide-in-from-bottom-3 transition-[border-color,box-shadow] duration-400 ease-out hover:border-[#cfe0d8] hover:shadow-[0_3px_10px_rgba(30,45,40,0.06)] dark:border-white/10 dark:bg-card dark:hover:border-white/20"
+						style={{
+							animationDelay: `${index * 40}ms`,
+							animationFillMode: "both",
+						}}
+					>
+						<Link
+							href={`/skills/${skill.id}`}
+							className="absolute inset-0 rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
+						>
+							<span className="sr-only">Open {skill.name}</span>
+						</Link>
+						<div className="pointer-events-none flex min-w-0 items-start justify-between gap-2">
+							<div className="flex min-w-0 items-start gap-2.5">
+								<SkillAvatar
+									skillId={skill.id}
+									name={skill.name}
+									emoji={skill.emoji}
+									color={skill.color}
+									imageRevision={skill.imageRevision}
+									size="sm"
+								/>
+								<div className="min-w-0">
+									<h2 className="truncate font-mono text-[13.5px] font-semibold text-petrol dark:text-panel-terminal">
+										{skill.name}
+									</h2>
+									<div className="mt-2">
+										<SourceCell skill={skill} />
+									</div>
+								</div>
+							</div>
+							<div className="flex shrink-0 flex-wrap justify-end gap-1">
+								{skill.updateAvailable && (
+									<span className="rounded-[4px] bg-warning-bg px-1.5 py-px text-[9px] font-semibold text-warning">
+										Update
+									</span>
+								)}
+								{skill.missingUpstream && (
+									<span className="rounded-[4px] bg-neutral-bg px-1.5 py-px text-[9px] font-semibold text-subtle dark:bg-white/10">
+										Gone upstream
+									</span>
+								)}
+							</div>
+						</div>
+						<p className="pointer-events-none mt-3 line-clamp-3 min-h-[57px] flex-1 text-[12.5px] leading-[1.5] text-subtle dark:text-muted-foreground">
+							{skill.description}
+						</p>
+						<div className="pointer-events-none mt-3 flex items-center justify-between border-t border-[#edf2ef] pt-3 dark:border-white/5">
+							<div>
+								{skill.scriptCount > 0 ? (
+									<SkillRequirementChip scriptCount={skill.scriptCount} />
+								) : (
+									<span className="text-[11px] text-ghost dark:text-panel-dim">
+										Instructions only
+									</span>
+								)}
+							</div>
+							<UsedByAvatars agents={skill.agents} />
+						</div>
+						<div className="relative z-10 mt-3 flex items-center justify-between">
+							<span className="pointer-events-none font-mono text-[10.5px] text-meta dark:text-panel-dim">
+								Updated {relativeTime(skill.updatedAt)}
+							</span>
+							<DropdownMenu
+								items={[
+									{
+										label:
+											skill.canEdit || skill.canManage ? "Edit" : "Open",
+										icon: <Pencil />,
+										onClick: () => {
+											router.push(
+												`/skills/${skill.id}${
+													skill.canEdit || skill.canManage ? "?edit=1" : ""
+												}`,
+											);
+										},
+									},
+									...(skill.updateAvailable
+										? [
+												{
+													label: "Review update",
+													icon: <GitCompareArrows />,
+													onClick: () => {
+														router.push(`/skills/${skill.id}?review=1`);
+													},
+												},
+											]
+										: []),
+									...(skill.canManage
+										? [
+												{ separator: true as const },
+												{
+													label: "Delete skill",
+													icon: <Trash2 />,
+													destructive: true,
+													onClick: () => {
+														onDelete(skill);
+													},
+												},
+											]
+										: []),
+								]}
+							/>
+						</div>
+					</article>
+				)}
+			/>
+		);
+	}
+
 	return (
 		<DataTable
 			columns={columns}
@@ -267,6 +440,10 @@ export default function SkillTable({
 			rowKey={(skill) => skill.id}
 			isLoading={isLoading}
 			scrollBody
+			groupTree={{
+				...groupTree,
+				storageKey: "skills:table-group",
+			}}
 			onRowClick={(skill) => {
 				router.push(`/skills/${skill.id}`);
 			}}
@@ -277,7 +454,7 @@ export default function SkillTable({
 						<button
 							type="button"
 							onClick={onClearSearch}
-							className="cursor-pointer font-semibold text-petrol hover:underline"
+							className="cursor-pointer font-semibold text-petrol hover:underline dark:text-panel-terminal"
 						>
 							Clear search
 						</button>

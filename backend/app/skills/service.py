@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import Depends
 from sqlalchemy.exc import IntegrityError
@@ -18,7 +18,7 @@ from app.exceptions import (
 )
 from app.service import BaseService
 from app.skills.bundles import parse_skill
-from app.skills.models import SkillDB, SkillVersionDB
+from app.skills.models import SkillDB, SkillImageDB, SkillVersionDB
 from app.skills.repository import SkillRepository
 from app.skills.schemas import (
     AgentSkillResponse,
@@ -35,6 +35,8 @@ from app.skills.schemas import (
     count_scripts,
 )
 from app.users.models import UserDB, WorkspaceRole
+from app.utils.images import ProcessedImage
+from app.workspaces.dependencies import get_active_workspace_id
 from skillkit import Bundle, bundle_digest, diff_bundles
 
 
@@ -49,8 +51,9 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
 
     not_found_message = "Skill not found"
 
-    def __init__(self, db: AsyncSession):
-        super().__init__(db, SkillRepository(db))
+    def __init__(self, db: AsyncSession, workspace_id: UUID | None = None):
+        super().__init__(db, SkillRepository(db, workspace_id))
+        self.workspace_id = workspace_id
 
     # -- the library ---------------------------------------------------------
 
@@ -78,15 +81,27 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
         ]
 
     async def get(self, skill_id: UUID, user: UserDB) -> SkillResponse:
-        return await self._response(await self.get_or_404(skill_id), user)
+        row = await self.repository.get_scoped(skill_id)
+        if row is None:
+            raise NotFoundError(self.not_found_message)
+        return await self._response(row, user)
 
     async def create(self, data: SkillSave, user: UserDB) -> SkillResponse:
         _reject_files(data)
         bundle = parse_skill(data.content, data.files)
         await self._name_is_free(bundle.name)
         try:
+            if self.workspace_id is None:
+                raise RuntimeError("workspace_id is required to create a skill")
             row = await self.repository.create(
-                SkillCreateDB(owner_id=user.id, **_columns(bundle))
+                SkillCreateDB(
+                    workspace_id=self.workspace_id,
+                    owner_id=user.id,
+                    group=data.group,
+                    emoji=data.emoji,
+                    color=data.color,
+                    **_columns(bundle),
+                )
             )
         except IntegrityError as exc:
             raise _name_taken(bundle.name) from exc
@@ -95,15 +110,25 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
     async def update(
         self, skill_id: UUID, data: SkillSave, user: UserDB
     ) -> SkillResponse:
-        _reject_files(data)
         bundle = parse_skill(data.content, data.files)
         row = await self._editable(skill_id, user)
-        if _is_sourced(row.source_revision):
-            raise DomainValidationError(_repository_owns(row))
         if data.revision != row.revision:
             raise StaleRevisionError(
                 "This skill changed since you opened it. Reload it before saving."
             )
+        if _is_sourced(row.source_revision):
+            current = row.to_bundle()
+            if bundle.content != current.content or bundle.files != current.files:
+                raise DomainValidationError(_repository_owns(row))
+            row.sqlmodel_update(
+                {
+                    "group": data.group,
+                    "emoji": data.emoji,
+                    "color": data.color,
+                }
+            )
+            return await self._response(await self._flush(row), user)
+        _reject_files(data)
         if bundle.name != row.name:
             await self._name_is_free(bundle.name)
             if await self.repository.is_attached(row.id):
@@ -113,8 +138,43 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
                 raise DomainValidationError(
                     "Disable this skill on every agent before renaming it"
                 )
-        row.sqlmodel_update({**_columns(bundle), "revision": row.revision + 1})
+        row.sqlmodel_update(
+            {
+                **_columns(bundle),
+                "group": data.group,
+                "emoji": data.emoji,
+                "color": data.color,
+                "revision": row.revision + 1,
+            }
+        )
         return await self._response(await self._flush(row), user)
+
+    async def get_image(self, skill_id: UUID, _user: UserDB) -> SkillImageDB:
+        row = await self.repository.get_scoped(skill_id)
+        if row is None:
+            raise NotFoundError(self.not_found_message)
+        image = await self.repository.get_image(skill_id)
+        if image is None:
+            raise NotFoundError("Skill image not found")
+        return image
+
+    async def set_image(
+        self, skill_id: UUID, user: UserDB, image: ProcessedImage
+    ) -> UUID:
+        await self._editable(skill_id, user)
+        revision = uuid4()
+        await self.repository.set_image(
+            skill_id,
+            data=image.data,
+            media_type=image.media_type,
+            sha256=image.sha256,
+            revision=revision,
+        )
+        return revision
+
+    async def delete_image(self, skill_id: UUID, user: UserDB) -> None:
+        await self._editable(skill_id, user)
+        await self.repository.delete_image(skill_id)
 
     async def delete(self, skill_id: UUID, user: UserDB) -> None:
         # Deleting is not editing: a sourced skill, detached or not, is
@@ -133,7 +193,9 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
     async def diff(self, skill_id: UUID, _user: UserDB) -> SkillDiffResponse:
         """What adopting the newest synced version would change (skillkit's
         semantic diff). `unchanged` when nothing newer is stored."""
-        row = await self.get_or_404(skill_id)
+        row = await self.repository.get_scoped(skill_id)
+        if row is None:
+            raise NotFoundError(self.not_found_message)
         current = Bundle(row.to_bundle().file_bytes())
         version = await self.repository.latest_version(row.id)
         if version is None or version.digest == (row.digest or current.digest):
@@ -254,6 +316,10 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
             owner_id=row.owner_id,
             name=bundle.name,
             description=bundle.description,
+            group=row.group,
+            emoji=row.emoji,
+            color=row.color,
+            image_revision=row.image_revision,
             revision=row.revision,
             file_count=len(bundle.files),
             script_count=count_scripts(bundle.files),
@@ -375,5 +441,8 @@ def _version_bundle(version: SkillVersionDB) -> SkillBundle:
     )
 
 
-def get_skill_service(db: AsyncSession = Depends(get_db)) -> SkillService:
-    return SkillService(db)
+def get_skill_service(
+    db: AsyncSession = Depends(get_db),
+    workspace_id: UUID = Depends(get_active_workspace_id),
+) -> SkillService:
+    return SkillService(db, workspace_id)

@@ -14,11 +14,13 @@ import {
 	WEEKDAY_CHIP_ORDER,
 } from "@/lib/triggers/schedule";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
+import TimezonePicker from "@/app/(protected)/triggers/components/timezone-picker";
 
 interface ScheduleBuilderProps {
 	value: Schedule;
 	onChange: (schedule: Schedule) => void;
 	timezone: string;
+	onTimezoneChange: (timezone: string) => void;
 	/** Render the rows without the card chrome (for embedding in a card). */
 	bare?: boolean;
 }
@@ -124,6 +126,7 @@ export default function ScheduleBuilder({
 	value,
 	onChange,
 	timezone,
+	onTimezoneChange,
 	bare,
 }: ScheduleBuilderProps) {
 	const time = value.kind === "raw" ? null : value.time;
@@ -343,12 +346,19 @@ export default function ScheduleBuilder({
 				</div>
 			)}
 
+			<div className="flex flex-col gap-2.5">
+				<span className="text-[12.5px] font-semibold text-subtle dark:text-muted-foreground">
+					Timezone
+				</span>
+				<TimezonePicker value={timezone} onChange={onTimezoneChange} />
+			</div>
+
 			{/* Summary line — only when the schedule needs spelling out */}
 			{value.kind === "custom" && (
 				<div className="flex items-center gap-2.5 rounded-lg bg-hover dark:bg-white/5 px-3.5 py-3">
 					<Repeat className="size-[15px] shrink-0 text-petrol dark:text-panel-terminal" />
-					<span className="font-mono text-[12px] text-body dark:text-white/70">
-						{describeSchedule(value)} · {timezone}
+					<span className="text-[12px] text-body dark:text-white/70">
+						{describeSchedule(value)}, <span className="font-mono">{timezone}</span>
 					</span>
 				</div>
 			)}

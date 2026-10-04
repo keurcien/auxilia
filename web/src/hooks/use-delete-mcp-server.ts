@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useConfirmDialog } from "@/components/providers/dialog-provider";
 import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import type { BoundAgent } from "@/types/agents";
@@ -26,6 +27,7 @@ export function useDeleteMcpServer({
 	onForbidden?: () => void;
 }) {
 	const deleteMcpServer = useMcpServersStore((state) => state.deleteMcpServer);
+	const confirmDialog = useConfirmDialog();
 	const [guard, setGuard] = useState<DeleteGuard | null>(null);
 
 	const requestDelete = async (server: MCPServer): Promise<void> => {
@@ -35,7 +37,16 @@ export function useDeleteMcpServer({
 				setGuard({ server, agents });
 				return;
 			}
-			if (!window.confirm(`Delete "${server.name}"?`)) return;
+			if (
+				!(await confirmDialog({
+					title: `Delete “${server.name}”?`,
+					description:
+						"This MCP server will be removed from the workspace permanently.",
+					confirmLabel: "Delete server",
+					destructive: true,
+				}))
+			)
+				return;
 			await deleteMcpServer(server.id);
 			onDeleted?.(server);
 		} catch (error: unknown) {

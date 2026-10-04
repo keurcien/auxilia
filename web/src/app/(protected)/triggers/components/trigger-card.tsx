@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import {
 	Clock,
 	MoreVertical,
@@ -9,6 +10,7 @@ import {
 	Play,
 	Trash2,
 	TriangleAlert,
+	Webhook,
 } from "lucide-react";
 import { Trigger } from "@/types/triggers";
 import { describeSchedule, parseCronExpression } from "@/lib/triggers/schedule";
@@ -32,12 +34,17 @@ export default function TriggerCard({ trigger, onDelete }: TriggerCardProps) {
 		state.agents.find((a) => a.id === trigger.agentId),
 	);
 
-	const frequency = describeSchedule(parseCronExpression(trigger.cronExpression));
+	const frequency =
+		trigger.triggerType === "schedule"
+			? describeSchedule(parseCronExpression(trigger.cronExpression))
+			: "Webhook";
 
 	const handleRunNow = () => {
 		runTrigger(trigger).catch((error: unknown) => {
 			console.error("Error running trigger:", error);
-			alert(getApiErrorMessage(error, "Failed to run the trigger. Please try again."));
+			toast.error(
+				getApiErrorMessage(error, "Failed to run the trigger. Please try again."),
+			);
 		});
 	};
 
@@ -45,7 +52,7 @@ export default function TriggerCard({ trigger, onDelete }: TriggerCardProps) {
 		updateTrigger(trigger.id, { isActive: !trigger.isActive }).catch(
 			(error: unknown) => {
 				console.error("Error updating trigger:", error);
-				alert("Failed to update trigger. Please try again.");
+				toast.error("Failed to update trigger. Please try again.");
 			},
 		);
 	};
@@ -123,6 +130,9 @@ export default function TriggerCard({ trigger, onDelete }: TriggerCardProps) {
 			<div className="flex flex-wrap gap-2 border-t border-[#F0F3F1] dark:border-white/5 pt-3.5">
 				<div className="flex h-[30px] items-center gap-1.75 rounded-full border border-[#ECF1EE] dark:border-white/10 bg-[#F4F7F5] dark:bg-white/5 pl-1.5 pr-3">
 					<AgentAvatar
+						agentId={agent?.id}
+						name={agent?.name}
+						imageRevision={agent?.imageRevision}
 						color={agent?.color}
 						emoji={agent?.emoji}
 						size="xs"
@@ -133,7 +143,11 @@ export default function TriggerCard({ trigger, onDelete }: TriggerCardProps) {
 					</span>
 				</div>
 				<div className="flex h-[30px] items-center gap-1.5 rounded-full border border-[#ECF1EE] dark:border-white/10 bg-[#F4F7F5] dark:bg-white/5 px-3">
-					<Clock className="size-[13px] shrink-0 text-[#7C8C84] dark:text-muted-foreground" />
+					{trigger.triggerType === "schedule" ? (
+						<Clock className="size-[13px] shrink-0 text-[#7C8C84] dark:text-muted-foreground" />
+					) : (
+						<Webhook className="size-[13px] shrink-0 text-[#7C8C84] dark:text-muted-foreground" />
+					)}
 					<span className="font-[family-name:var(--font-dm-sans)] text-[12.5px] font-medium text-[#4A5B53] dark:text-white/80">
 						{frequency}
 					</span>
@@ -141,7 +155,7 @@ export default function TriggerCard({ trigger, onDelete }: TriggerCardProps) {
 				{!trigger.modelAvailable && (
 					<div
 						className="flex h-[30px] items-center gap-1.5 rounded-full border border-[#F0E4D3] dark:border-amber-400/20 bg-[#FDF6EC] dark:bg-amber-950/30 px-3"
-						title={`The model used by this trigger (${trigger.modelDisplayName ?? trigger.modelId}) is no longer available — scheduled runs are being skipped.`}
+						title={`The model used by this trigger (${trigger.modelDisplayName ?? trigger.modelId}) is no longer available, so it cannot run.`}
 					>
 						<TriangleAlert className="size-[13px] shrink-0 text-[#B4643C] dark:text-amber-400" />
 						<span className="font-[family-name:var(--font-dm-sans)] text-[12.5px] font-medium text-[#B4643C] dark:text-amber-400">

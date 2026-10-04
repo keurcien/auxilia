@@ -11,6 +11,7 @@ export async function proxy(request: NextRequest) {
 	const { pathname } = request.nextUrl;
 	const accessToken = request.cookies.get("access_token")?.value;
 	const isPublicPath = PUBLIC_PATHS.some((path) => pathname.startsWith(path));
+	const isInvitePath = pathname.startsWith("/invite");
 
 	// Router prefetches (Next 16 issues two per visible <Link>: a route-tree
 	// request and a segment request) would each pay a blocking backend
@@ -29,22 +30,36 @@ export async function proxy(request: NextRequest) {
 
 	if (accessToken) {
 		try {
+			const cookieHeader = request.headers.get("cookie");
 			const verifyRes = await fetch(`${BACKEND_URL}/auth/me`, {
-				headers: { Cookie: `access_token=${accessToken}` },
+				headers: cookieHeader ? { Cookie: cookieHeader } : undefined,
 			});
 
 			if (verifyRes.ok) {
-				if (isPublicPath) {
+				// A signed-in user may still need to accept an invitation to
+				// another workspace. Auth/setup pages are no longer useful once
+				// authenticated, but invite pages must remain reachable.
+				if (isPublicPath && !isInvitePath) {
 					return NextResponse.redirect(new URL("/agents", request.url));
 				}
 				return NextResponse.next();
 			}
+			if (verifyRes.status !== 401) {
+				console.error(
+					`Session validation failed with status ${verifyRes.status}`,
+				);
+				return NextResponse.next();
+			}
 		} catch (err) {
 			console.error("Backend unreachable or validation failed", err);
+			return NextResponse.next();
 		}
 
-		const response = NextResponse.redirect(new URL("/auth", request.url));
+		const response = isInvitePath
+			? NextResponse.next()
+			: NextResponse.redirect(new URL("/auth", request.url));
 		response.cookies.delete("access_token");
+		response.cookies.delete("active_workspace_id");
 		return response;
 	}
 

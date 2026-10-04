@@ -44,7 +44,7 @@ export default function SetupPage() {
 
 		try {
 			await authApi.completeSetup({ email, password, name });
-			router.push("/agents");
+			router.push("/onboarding/models");
 		} catch (err: unknown) {
 			setError(getApiErrorMessage(err, "An error occurred"));
 		} finally {
@@ -58,7 +58,6 @@ export default function SetupPage() {
 
 	return (
 		<AuthShell
-			eyebrow="// FIRST RUN"
 			title="Set up your workspace"
 			description="Create the admin account for this workspace to get started."
 			footer={
@@ -79,7 +78,7 @@ export default function SetupPage() {
 			>
 				<AuthField
 					id="name"
-					label="NAME"
+					label="Name"
 					type="text"
 					placeholder="John Doe"
 					value={name}
@@ -90,7 +89,7 @@ export default function SetupPage() {
 
 				<AuthField
 					id="email"
-					label="EMAIL"
+					label="Email"
 					type="email"
 					placeholder="you@example.com"
 					value={email}
@@ -102,7 +101,7 @@ export default function SetupPage() {
 
 				<AuthField
 					id="password"
-					label="PASSWORD"
+					label="Password"
 					type="password"
 					placeholder="••••••••••••"
 					value={password}

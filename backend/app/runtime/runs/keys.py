@@ -6,20 +6,28 @@ module touches is built here so the layout is auditable from a single file.
 """
 
 
-def run_events_key(run_id: str) -> str:
+def _run_prefix(run_id: str, workspace_id: object | None = None) -> str:
+    return (
+        f"workspace:{workspace_id}:run:{run_id}"
+        if workspace_id is not None
+        else f"run:{run_id}"
+    )
+
+
+def run_events_key(run_id: str, workspace_id: object | None = None) -> str:
     """Stream of protocol events for this run (the reattachable event log)."""
-    return f"run:{run_id}:events"
+    return f"{_run_prefix(run_id, workspace_id)}:events"
 
 
-def run_control_key(run_id: str) -> str:
+def run_control_key(run_id: str, workspace_id: object | None = None) -> str:
     """List used as the cancel channel for this run (LPOP target)."""
-    return f"run:{run_id}:control"
+    return f"{_run_prefix(run_id, workspace_id)}:control"
 
 
-def run_alive_key(run_id: str) -> str:
+def run_alive_key(run_id: str, workspace_id: object | None = None) -> str:
     """Self-expiring worker heartbeat; a missing key on a `running` run means
     its worker died (the reaper's signal)."""
-    return f"run:{run_id}:alive"
+    return f"{_run_prefix(run_id, workspace_id)}:alive"
 
 
 def dispatchers_alive_key() -> str:

@@ -8,6 +8,7 @@ from opentelemetry import context as otel_context
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
+from app.integrations.langfuse.callback import LangfuseLease
 from app.integrations.langfuse.tracing import LangfuseTracing
 from tests.runtime.test_agent_behaviour import (
     build_agent,
@@ -30,7 +31,7 @@ def exported_tracing():
         tracer_provider=TracerProvider(),
         span_exporter=exporter,
     )
-    adapter = LangfuseTracing(CallbackHandler(public_key=key))
+    adapter = LangfuseTracing(LangfuseLease(key, CallbackHandler(public_key=key)))
     try:
         yield adapter, client, exporter
     finally:

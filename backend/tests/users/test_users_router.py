@@ -6,6 +6,21 @@ from fastapi.testclient import TestClient
 
 from app.teams.models import TeamDB
 from app.users.models import UserDB, WorkspaceRole
+from app.workspaces.models import WorkspaceMembershipDB
+from tests.conftest import TEST_WORKSPACE_ID
+
+
+def membership(
+    user: UserDB,
+    role: WorkspaceRole = WorkspaceRole.member,
+    team_id=None,
+) -> WorkspaceMembershipDB:
+    return WorkspaceMembershipDB(
+        workspace_id=TEST_WORKSPACE_ID,
+        user_id=user.id,
+        role=role,
+        team_id=team_id,
+    )
 
 
 def test_create_user(client: TestClient, mock_db, admin_user):
@@ -86,7 +101,10 @@ def test_get_users(client: TestClient, mock_db, current_user):
     count_result = MagicMock()
     count_result.scalar_one.return_value = 2
     rows_result = MagicMock()
-    rows_result.scalars.return_value.all.return_value = [user1, user2]
+    rows_result.all.return_value = [
+        (user1, membership(user1)),
+        (user2, membership(user2, WorkspaceRole.admin)),
+    ]
     mock_db.execute.side_effect = [count_result, rows_result]
 
     response = client.get("/users/")
@@ -103,7 +121,7 @@ def test_get_users_echoes_page_params(client: TestClient, mock_db, current_user)
     count_result = MagicMock()
     count_result.scalar_one.return_value = 7
     rows_result = MagicMock()
-    rows_result.scalars.return_value.all.return_value = []
+    rows_result.all.return_value = []
     mock_db.execute.side_effect = [count_result, rows_result]
 
     response = client.get("/users/", params={"limit": 5, "offset": 5, "search": "ali"})
@@ -139,6 +157,7 @@ def test_get_user(client: TestClient, mock_db, current_user):
 
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = user
+    mock_result.one_or_none.return_value = (user, membership(user))
     mock_db.execute.return_value = mock_result
 
     response = client.get(f"/users/{user_id}")
@@ -154,6 +173,7 @@ def test_get_user_not_found(client: TestClient, mock_db, current_user):
 
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = None
+    mock_result.one_or_none.return_value = None
     mock_db.execute.return_value = mock_result
 
     response = client.get(f"/users/{fake_id}")
@@ -174,6 +194,7 @@ def test_get_user_by_email(client: TestClient, mock_db, current_user):
 
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = user
+    mock_result.one_or_none.return_value = (user, membership(user))
     mock_db.execute.return_value = mock_result
 
     response = client.get(f"/users/email/{user.email}")
@@ -208,6 +229,7 @@ def test_update_user(client: TestClient, mock_db, admin_user):
 
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = user
+    mock_result.one_or_none.return_value = (user, membership(user))
     mock_db.execute.return_value = mock_result
 
     update_data = {
@@ -235,6 +257,7 @@ def test_update_user_role(client: TestClient, mock_db, admin_user):
 
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = user
+    mock_result.one_or_none.return_value = (user, membership(user))
     mock_db.execute.return_value = mock_result
 
     response = client.patch(f"/users/{user_id}/role", json={"role": "admin"})
@@ -250,6 +273,7 @@ def test_update_user_role_not_found(client: TestClient, mock_db, admin_user):
 
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = None
+    mock_result.one_or_none.return_value = None
     mock_db.execute.return_value = mock_result
 
     response = client.patch(f"/users/{fake_id}/role", json={"role": "admin"})
@@ -281,6 +305,7 @@ def test_update_user_duplicate_email(client: TestClient, mock_db, admin_user):
     # First call returns the user to update, second call returns existing user with target email
     mock_result1 = MagicMock()
     mock_result1.scalar_one_or_none.return_value = user
+    mock_result1.one_or_none.return_value = (user, membership(user))
     mock_result2 = MagicMock()
     mock_result2.scalar_one_or_none.return_value = existing_user
     mock_db.execute.side_effect = [mock_result1, mock_result2]
@@ -297,6 +322,7 @@ def test_update_user_not_found(client: TestClient, mock_db, admin_user):
 
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = None
+    mock_result.one_or_none.return_value = None
     mock_db.execute.return_value = mock_result
 
     update_data = {"name": "Updated Name"}
@@ -319,6 +345,7 @@ def test_delete_user(client: TestClient, mock_db, admin_user):
 
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = user
+    mock_result.one_or_none.return_value = (user, membership(user))
     mock_db.execute.return_value = mock_result
 
     response = client.delete(f"/users/{user_id}")
@@ -332,6 +359,7 @@ def test_delete_user_not_found(client: TestClient, mock_db, admin_user):
 
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = None
+    mock_result.one_or_none.return_value = None
     mock_db.execute.return_value = mock_result
 
     response = client.delete(f"/users/{fake_id}")
@@ -361,6 +389,7 @@ def test_update_user_team(client: TestClient, mock_db, admin_user):
 
     user_result = MagicMock()
     user_result.scalar_one_or_none.return_value = user
+    user_result.one_or_none.return_value = (user, membership(user))
     team_result = MagicMock()
     team_result.scalar_one_or_none.return_value = team
     mock_db.execute.side_effect = [user_result, team_result]
@@ -385,6 +414,10 @@ def test_update_user_team_unassign(client: TestClient, mock_db, admin_user):
     )
     user_result = MagicMock()
     user_result.scalar_one_or_none.return_value = user
+    user_result.one_or_none.return_value = (
+        user,
+        membership(user, team_id=user.team_id),
+    )
     mock_db.execute.return_value = user_result
 
     response = client.patch(f"/users/{user_id}/team", json={"team_id": None})
@@ -406,6 +439,7 @@ def test_update_user_team_team_not_found(client: TestClient, mock_db, admin_user
     )
     user_result = MagicMock()
     user_result.scalar_one_or_none.return_value = user
+    user_result.one_or_none.return_value = (user, membership(user))
     team_result = MagicMock()
     team_result.scalar_one_or_none.return_value = None
     mock_db.execute.side_effect = [user_result, team_result]

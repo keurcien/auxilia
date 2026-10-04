@@ -1,9 +1,9 @@
 """Fernet encryption for sensitive stored values (MCP API keys, OAuth client
 secrets, sandbox credentials).
 
-The key is derived from the deployment-wide SALT. The salt setting predates
-this module and still lives with the MCP server settings; it is the same
-secret for every encrypted value in the database.
+The key is derived from the deployment-wide BACKEND_ENCRYPTION_SALT. The
+setting lives with the MCP server settings and is shared by every encrypted
+value in the database.
 """
 
 import base64
@@ -17,7 +17,7 @@ from app.mcp.servers.settings import mcp_server_settings
 def get_encryption_key() -> bytes:
     """Derive a valid Fernet key from the configured salt.
 
-    Reads SALT first; falls back to the deprecated MCP_API_KEY_ENCRYPTION_SALT.
+    Reads BACKEND_ENCRYPTION_SALT, with the deprecated MCP key as fallback.
     Hashes the salt with SHA-256 to produce 32 bytes, then base64url-encodes
     it into a valid Fernet key.
     """

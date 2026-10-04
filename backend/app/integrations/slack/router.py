@@ -16,7 +16,7 @@ from app.integrations.slack.handlers import (
     handle_message,
 )
 from app.integrations.slack.models import SlackEventPayload, SlackInteractionPayload
-from app.integrations.slack.utils import verify_slack_signature
+from app.integrations.slack.utils import VerifiedSlackRequest, verify_slack_signature
 from app.redis_client import get_redis
 
 
@@ -63,8 +63,10 @@ async def _claim_delivery(key: str) -> bool:
 
 
 @router.post("/events")
-async def slack_events(body: bytes = Depends(verify_slack_signature)):
-    payload = SlackEventPayload.model_validate(json.loads(body))
+async def slack_events(
+    verified: VerifiedSlackRequest = Depends(verify_slack_signature),
+):
+    payload = SlackEventPayload.model_validate(json.loads(verified.body))
 
     if payload.type == "url_verification":
         return JSONResponse(content={"challenge": payload.challenge})
@@ -78,7 +80,7 @@ async def slack_events(body: bytes = Depends(verify_slack_signature)):
         return JSONResponse(content={"ok": True})
 
     if event.type == "assistant_thread_started":
-        _spawn(handle_assistant_thread_started(event))
+        _spawn(handle_assistant_thread_started(event, verified.workspace_id))
 
     elif event.type == "message" and event.user:
         if event.bot_id or event.subtype == "bot_message":
@@ -89,15 +91,23 @@ async def slack_events(body: bytes = Depends(verify_slack_signature)):
         ):
             return JSONResponse(content={"ok": True})
 
-        _spawn(handle_message(event, team_id=payload.team_id))
+        _spawn(
+            handle_message(
+                event,
+                workspace_id=verified.workspace_id,
+                team_id=payload.team_id,
+            )
+        )
 
     return JSONResponse(content={"ok": True})
 
 
 @router.post("/interactions")
-async def slack_interactions(body: bytes = Depends(verify_slack_signature)):
+async def slack_interactions(
+    verified: VerifiedSlackRequest = Depends(verify_slack_signature),
+):
     """Handle Slack interactive component callbacks (buttons, shortcuts, etc.)."""
-    form_data = parse_qs(body.decode())
+    form_data = parse_qs(verified.body.decode())
 
     raw_payload = form_data.get("payload", [None])[0]
     if not raw_payload:
@@ -108,8 +118,8 @@ async def slack_interactions(body: bytes = Depends(verify_slack_signature)):
     if payload.type == "block_actions":
         action = payload.actions[0] if payload.actions else None
         if action and action.action_id == "select_agent":
-            _spawn(handle_agent_selection(payload))
+            _spawn(handle_agent_selection(payload, verified.workspace_id))
         elif action and action.action_id in ("tool_approve", "tool_reject"):
-            _spawn(handle_interaction(payload))
+            _spawn(handle_interaction(payload, verified.workspace_id))
 
     return JSONResponse(content={"ok": True})

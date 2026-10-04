@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import ConfirmDialog from "@/components/ui/confirm-dialog";
 import { UnderlineTabs } from "@/components/ui/underline-tabs";
+import { ViewToggle } from "@/components/ui/view-toggle";
 import { WorkspacePage, WorkspaceTopBarButton } from "@/components/layout/workspace-page";
+import { usePersistedViewMode } from "@/hooks/use-persisted-view-mode";
 import { useQueryParamState } from "@/hooks/use-query-param-state";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useSkillsStore } from "@/stores/skills-store";
@@ -34,6 +36,7 @@ export default function SkillsPage() {
 	const [search, setSearch] = useQueryParamState("q");
 	const [viewParam, setViewParam] = useQueryParamState("view", "library");
 	const view: View = viewParam === "sources" ? "sources" : "library";
+	const [viewMode, setViewMode] = usePersistedViewMode("skills:view-mode");
 	const [error, setError] = useState<string | null>(null);
 
 	useEffect(() => {
@@ -50,7 +53,9 @@ export default function SkillsPage() {
 		if (!term) return skills;
 		return skills.filter(
 			(skill) =>
-				skill.name.includes(term) || skill.description.toLowerCase().includes(term),
+				skill.name.includes(term) ||
+				skill.description.toLowerCase().includes(term) ||
+				(skill.group ?? "").toLowerCase().includes(term),
 		);
 	}, [skills, search]);
 
@@ -76,24 +81,29 @@ export default function SkillsPage() {
 					? "Repositories the workspace syncs skills from. Sync makes new versions available; each skill is adopted on its own, against a diff."
 					: "Procedures any agent in the workspace can be given: a SKILL.md that says when to use it and what to do. Skills with scripts and references come from a connected repository."
 			}
-			fillHeight
+			fillHeight={view === "sources" || viewMode === "table"}
 			search={
 				view === "library"
 					? { placeholder: "Search skills…", value: search, onChange: setSearch }
 					: undefined
 			}
 			headerRight={
-				<UnderlineTabs<View>
-					tabs={[
-						{ key: "library", label: "Library", count: isInitialized ? skills.length : undefined },
-						{ key: "sources", label: "Sources", count: sourcesInitialized ? sources.length : undefined },
-					]}
-					value={view}
-					onChange={(key) => {
-						setViewParam(key);
-					}}
-					className="border-b border-border"
-				/>
+				<div className="flex items-center gap-3">
+					<UnderlineTabs<View>
+						tabs={[
+							{ key: "library", label: "Library", count: isInitialized ? skills.length : undefined },
+							{ key: "sources", label: "Sources", count: sourcesInitialized ? sources.length : undefined },
+						]}
+						value={view}
+						onChange={(key) => {
+							setViewParam(key);
+						}}
+						className="border-b border-border"
+					/>
+					{view === "library" && (
+						<ViewToggle value={viewMode} onChange={setViewMode} />
+					)}
+				</div>
 			}
 			actions={
 				view === "sources" ? (
@@ -143,8 +153,8 @@ export default function SkillsPage() {
 			{view === "sources" ? (
 				sourcesInitialized && sources.length === 0 ? (
 					<div className="rounded-[12px] border border-dashed border-input p-6 dark:border-white/10">
-						<p className="font-mono text-[10.5px] font-semibold tracking-[0.09em] text-label dark:text-muted-foreground">
-							NO REPOSITORY CONNECTED
+						<p className="text-[10.5px] font-semibold text-label dark:text-muted-foreground">
+							No repository connected
 						</p>
 						<p className="mt-2 max-w-[560px] text-[13.5px] leading-[1.55] text-body dark:text-panel-body">
 							Keep the company&apos;s skills in one git repository, public or private, reviewed and versioned there. Connect it and every
@@ -176,11 +186,11 @@ export default function SkillsPage() {
 				)
 			) : isEmpty ? (
 				<div className="rounded-[12px] border border-dashed border-input p-6 dark:border-white/10">
-					<p className="font-mono text-[10.5px] font-semibold tracking-[0.09em] text-label dark:text-muted-foreground">
-						YOUR LIBRARY IS EMPTY
+					<p className="text-[10.5px] font-semibold text-label dark:text-muted-foreground">
+						Your library is empty
 					</p>
 					<p className="mt-2 max-w-[560px] text-[13.5px] leading-[1.55] text-body dark:text-panel-body">
-						A skill is a SKILL.md — its name, when to use it, the steps — that any
+						A skill is a SKILL.md, its name, when to use it, the steps, that any
 						agent in the workspace can be given. Write one here, or connect a
 						repository to bring in skills with scripts and references, reviewed and
 						versioned there; those need an agent that runs code.
@@ -218,12 +228,13 @@ export default function SkillsPage() {
 			) : (
 				<>
 					{updates > 0 && (
-						<p className="mb-3 shrink-0 font-mono text-[11px] text-warning">
+						<p className="mb-3 shrink-0 text-[11px] text-warning">
 							{updates} skill{updates === 1 ? " has" : "s have"} a newer version in{" "}
-							{updates === 1 ? "its" : "their"} repository — open {updates === 1 ? "it" : "them"} to review and adopt.
+							{updates === 1 ? "its" : "their"} repository, open {updates === 1 ? "it" : "them"} to review and adopt.
 						</p>
 					)}
 				<SkillTable
+					mode={viewMode}
 					skills={visible}
 					isLoading={!isInitialized}
 					search={search}

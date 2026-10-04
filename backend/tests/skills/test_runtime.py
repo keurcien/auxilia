@@ -20,6 +20,7 @@ from app.skills.runtime import (
     upload_skills,
 )
 from app.skills.schemas import SkillFile
+from tests.conftest import TEST_WORKSPACE_ID
 from tests.runtime.test_agent_behaviour import build_agent, collect, system_text
 from tests.sandbox.stub_sandbox import StubSandbox
 from tests.skills.conftest import (
@@ -170,7 +171,9 @@ async def test_resolve_returns_the_graph_union_once_per_skill(agent_session):
         (await seed_skill(agent_session, owner_id=uuid4(), name="sub-only")).id,
     )
 
-    bundles = await resolve_run_skills(agent_session, [supervisor.id, subagent.id])
+    bundles = await resolve_run_skills(
+        agent_session, [supervisor.id, subagent.id], TEST_WORKSPACE_ID
+    )
 
     assert [b.name for b in bundles] == ["shared", "sub-only"]
 
@@ -181,13 +184,14 @@ async def test_every_run_reads_the_library_including_a_resume(agent_session):
     resume resolves exactly as a first run does, and a skill enabled or
     disabled meanwhile takes effect."""
     agent = await seed_agent(agent_session)
-    assert await resolve_run_skills(agent_session, [agent.id]) == []
+    assert await resolve_run_skills(agent_session, [agent.id], TEST_WORKSPACE_ID) == []
 
     skill = await seed_skill(agent_session, owner_id=uuid4(), name="triage")
     await attach(agent_session, agent.id, skill.id)
-    assert [b.name for b in await resolve_run_skills(agent_session, [agent.id])] == [
-        "triage"
-    ]
+    assert [
+        b.name
+        for b in await resolve_run_skills(agent_session, [agent.id], TEST_WORKSPACE_ID)
+    ] == ["triage"]
 
 
 def test_a_run_fails_rather_than_silently_drop_a_colliding_skill():

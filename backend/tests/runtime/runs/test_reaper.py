@@ -16,7 +16,7 @@ reason `test_repository.py` uses naive datetimes), and `updated_at` carries an
 
 import asyncio
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -28,6 +28,7 @@ from app.runtime.runs.state import RunStatus
 
 
 pytestmark = pytest.mark.usefixtures("run_db")
+WORKSPACE_ID = UUID("00000000-0000-4000-8000-000000000001")
 
 
 def _db_now() -> datetime:
@@ -96,9 +97,11 @@ async def test_a_run_that_comes_back_to_life_resets_the_suspicion(redis):
     reaper = RunReaper(redis)
 
     await reaper._reap_dead_running(_after_heartbeat_grace())  # first sighting
-    await RunLiveness(run_id, redis).stamp(ttl=60)  # worker heartbeats again
+    await RunLiveness(run_id, redis, workspace_id=WORKSPACE_ID).stamp(
+        ttl=60
+    )  # worker heartbeats again
     await reaper._reap_dead_running(_after_heartbeat_grace())  # alive — cleared
-    await RunLiveness(run_id, redis).clear()
+    await RunLiveness(run_id, redis, workspace_id=WORKSPACE_ID).clear()
     await reaper._reap_dead_running(_after_heartbeat_grace())  # a *first* sighting
 
     assert (await service.get(run_id)).status == RunStatus.running
@@ -107,7 +110,7 @@ async def test_a_run_that_comes_back_to_life_resets_the_suspicion(redis):
 async def test_a_live_run_is_never_reaped(redis):
     service = RunService(redis)
     run_id = await _claimed(service, "t-live")
-    await RunLiveness(run_id, redis).stamp(ttl=60)
+    await RunLiveness(run_id, redis, workspace_id=WORKSPACE_ID).stamp(ttl=60)
     reaper = RunReaper(redis)
 
     await reaper._reap_dead_running(_after_heartbeat_grace())

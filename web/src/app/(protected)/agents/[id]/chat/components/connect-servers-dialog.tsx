@@ -178,8 +178,8 @@ export function ConnectServersDialog({
 								{isConnected ? (
 									<CheckCircle2Icon className="size-5 text-success" />
 								) : isCurrent ? (
-									<span className="font-mono text-[10.5px] font-semibold tracking-[0.05em] text-petrol dark:text-panel-terminal">
-										CURRENT
+									<span className="text-[10.5px] font-semibold text-petrol dark:text-panel-terminal">
+										Current
 									</span>
 								) : null}
 							</div>

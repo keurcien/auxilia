@@ -1,19 +1,26 @@
 "use client";
 
-import { cloneElement, useEffect, useMemo, useState } from "react";
+import { cloneElement, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import EmojiPicker, { type EmojiClickData, Theme } from "emoji-picker-react";
+import { useTheme } from "next-themes";
+import { toast } from "sonner";
 import {
 	CircleAlert,
-	FileText,
 	GitCompareArrows,
+	Pencil,
 	TerminalSquare,
 	Trash2,
 	TriangleAlert,
 	Unplug,
 } from "lucide-react";
 import { MessageResponse } from "@/components/ai-elements/message";
+import { useConfirmDialog } from "@/components/providers/dialog-provider";
 import ConfirmDialog from "@/components/ui/confirm-dialog";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
+import { GroupPicker } from "@/components/ui/group-picker";
+import { ImageFilePreview, ImageUpload } from "@/components/ui/image-upload";
+import { SkillAvatar } from "@/components/ui/skill-avatar";
 import {
 	HeaderButton,
 	HeaderPrimaryButton,
@@ -22,6 +29,9 @@ import {
 	UnsavedBadge,
 } from "@/components/layout/subpage-header";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import * as skillsApi from "@/lib/api/resources/skills";
+import { AGENT_COLORS } from "@/lib/colors";
+import { groupOptions } from "@/lib/groups";
 import { SkillDeleteDescription } from "./skill-delete-description";
 import { cn } from "@/lib/utils";
 import { useSkillsStore } from "@/stores/skills-store";
@@ -131,6 +141,9 @@ interface SkillEditorProps {
 interface Draft {
 	content: string;
 	files: SkillFile[];
+	group: string;
+	emoji: string | null;
+	color: string | null;
 }
 
 /**
@@ -153,8 +166,14 @@ export default function SkillEditor({
 	onDeleted,
 	reviewOnOpen = false,
 }: SkillEditorProps) {
+	const confirmDialog = useConfirmDialog();
+	const { resolvedTheme } = useTheme();
 	const createSkill = useSkillsStore((state) => state.createSkill);
 	const updateSkill = useSkillsStore((state) => state.updateSkill);
+	const setSkillImageRevision = useSkillsStore(
+		(state) => state.setSkillImageRevision,
+	);
+	const librarySkills = useSkillsStore((state) => state.skills);
 	const [reviewOpen, setReviewOpen] = useState(reviewOnOpen && Boolean(skill?.updateAvailable));
 	// The repository's, whether or not it is still connected: the files and
 	// scripts are in the row either way, so they are shown either way.
@@ -164,11 +183,31 @@ export default function SkillEditor({
 	const initial = useMemo<Draft>(
 		() =>
 			skill
-				? { content: skill.content, files: skill.files }
-				: { content: NEW_SKILL, files: [] },
+				? {
+						content: skill.content,
+						files: skill.files,
+						group: skill.group ?? "",
+						emoji: skill.emoji,
+						color: skill.color,
+					}
+				: {
+						content: NEW_SKILL,
+						files: [],
+						group: "",
+						emoji: null,
+						color: AGENT_COLORS[0],
+					},
 		[skill],
 	);
 	const [draft, setDraft] = useState<Draft>(initial);
+	const [showIdentityPicker, setShowIdentityPicker] = useState(false);
+	const [imageFile, setImageFile] = useState<File | null>(null);
+	const [removeImage, setRemoveImage] = useState(false);
+	const identityPickerRef = useRef<HTMLDivElement>(null);
+	const currentImageUrl =
+		skill?.id && skill.imageRevision
+			? skillsApi.skillImageUrl(skill.id, skill.imageRevision)
+			: null;
 	const fields = useMemo(() => splitSkillMarkdown(draft.content), [draft.content]);
 	// The form edits only a flat frontmatter; reading needs just the body.
 	const body = useMemo(() => fields?.body ?? skillBody(draft.content), [fields, draft.content]);
@@ -179,7 +218,11 @@ export default function SkillEditor({
 	const [isSaving, setIsSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
-	const isDirty = !readOnly && JSON.stringify(draft) !== JSON.stringify(initial);
+	const isDirty =
+		!readOnly &&
+		(JSON.stringify(draft) !== JSON.stringify(initial) ||
+			imageFile !== null ||
+			removeImage);
 	const name = fields?.name ?? skill?.name ?? "";
 	const description = fields?.description ?? skill?.description ?? "";
 	const agents = skill?.agents ?? [];
@@ -204,6 +247,19 @@ export default function SkillEditor({
 		!bodyError;
 
 	useEffect(() => {
+		if (!showIdentityPicker) return;
+		const close = (event: MouseEvent) => {
+			if (!identityPickerRef.current?.contains(event.target as Node)) {
+				setShowIdentityPicker(false);
+			}
+		};
+		document.addEventListener("mousedown", close);
+		return () => {
+			document.removeEventListener("mousedown", close);
+		};
+	}, [showIdentityPicker]);
+
+	useEffect(() => {
 		if (!isDirty) return;
 		const warn = (event: BeforeUnloadEvent) => {
 			event.preventDefault();
@@ -214,14 +270,40 @@ export default function SkillEditor({
 		};
 	}, [isDirty]);
 
+	const selectEmoji = (data: EmojiClickData) => {
+		setDraft((current) => ({ ...current, emoji: data.emoji }));
+		setShowIdentityPicker(false);
+	};
+
 	const handleSave = async () => {
 		if (!canSave) return;
 		setIsSaving(true);
 		setError(null);
 		try {
-			const saved = skill
+			let imageUploadFailed = false;
+			let saved = skill
 				? await updateSkill(skill.id, { ...draft, revision: skill.revision })
 				: await createSkill(draft);
+			if (imageFile) {
+				try {
+					const revision = await skillsApi.uploadSkillImage(
+						saved.id,
+						imageFile,
+					);
+					saved = { ...saved, imageRevision: revision };
+					setSkillImageRevision(saved.id, revision);
+				} catch (imageError) {
+					if (skill) throw imageError;
+					imageUploadFailed = true;
+				}
+			} else if (removeImage && saved.imageRevision) {
+				await skillsApi.deleteSkillImage(saved.id);
+				saved = { ...saved, imageRevision: null };
+				setSkillImageRevision(saved.id, null);
+			}
+			if (imageUploadFailed) {
+				toast.warning("Skill created, but its image could not be uploaded.");
+			}
 			onSaved(saved);
 		} catch (err) {
 			setError(getApiErrorMessage(err, "Failed to save the skill."));
@@ -230,8 +312,17 @@ export default function SkillEditor({
 		}
 	};
 
-	const handleCancel = () => {
-		if (isDirty && !confirm("Discard unsaved changes?")) return;
+	const handleCancel = async () => {
+		if (
+			isDirty &&
+			!(await confirmDialog({
+				title: "Discard unsaved changes?",
+				description: "Your skill edits will be lost and cannot be recovered.",
+				confirmLabel: "Discard changes",
+				destructive: true,
+			}))
+		)
+			return;
 		onCancel();
 	};
 
@@ -247,7 +338,7 @@ export default function SkillEditor({
 	const fieldInputClass =
 		"w-full rounded-lg border border-input bg-card px-3 py-[7px] outline-none transition-[border-color,box-shadow] placeholder:text-meta dark:placeholder:text-panel-dim focus:border-petrol focus:shadow-[0_0_0_3px_rgba(22,96,110,0.10)] disabled:cursor-default";
 	const editorClass =
-		"min-h-[300px] w-full flex-1 resize-none rounded-lg border border-input bg-sidebar p-4 font-mono text-[12.5px] leading-[1.7] text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-meta dark:placeholder:text-panel-dim focus:border-petrol focus:shadow-[0_0_0_3px_rgba(22,96,110,0.10)] [scrollbar-width:thin]";
+		"min-h-[300px] w-full flex-1 resize-none rounded-lg border border-input bg-sidebar p-4 text-[12.5px] leading-[1.7] text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-meta dark:placeholder:text-panel-dim focus:border-petrol focus:shadow-[0_0_0_3px_rgba(22,96,110,0.10)] [scrollbar-width:thin]";
 
 	return (
 		<div className="flex h-svh min-w-0 flex-1 flex-col bg-background animate-in fade-in duration-300">
@@ -268,7 +359,7 @@ export default function SkillEditor({
 						Review update
 					</HeaderPrimaryButton>
 				)}
-				{readOnly && onEdit && !sourced && (
+				{readOnly && onEdit && (
 					<HeaderPrimaryButton onClick={onEdit}>Edit</HeaderPrimaryButton>
 				)}
 				{readOnly && skill && sourced && (
@@ -276,17 +367,22 @@ export default function SkillEditor({
 						title={
 							detached
 								? `From a repository that is no longer connected${
-										skill.sourcePath ? ` · ${skill.sourcePath}` : ""
-									} — connect it again to change this skill`
+										skill.sourcePath ? `, ${skill.sourcePath}` : ""
+									}, connect it again to change this skill`
 								: `Synced from ${skill.sourceName ?? "a repository"}${
-										skill.sourcePath ? ` · ${skill.sourcePath}` : ""
-									} — edited in the repository, not here`
+										skill.sourcePath ? `, ${skill.sourcePath}` : ""
+									}, edited in the repository, not here`
 						}
 					/>
 				)}
 				{!readOnly && (
 					<>
-						<HeaderButton disabled={isSaving} onClick={handleCancel}>
+						<HeaderButton
+							disabled={isSaving}
+							onClick={() => {
+								void handleCancel();
+							}}
+						>
 							{skill ? "Discard" : "Cancel"}
 						</HeaderButton>
 						<HeaderPrimaryButton
@@ -371,18 +467,134 @@ export default function SkillEditor({
 				{/* Left: definition */}
 				<div className="flex min-w-0 flex-col overflow-y-auto border-b border-border bg-background p-7 md:flex-[1.05] md:border-b-0 md:border-r [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 					<div className="flex min-w-0 items-start gap-4">
-						<span className="flex size-12 shrink-0 items-center justify-center rounded-xl border border-input bg-petrol-tint text-petrol dark:border-white/10 dark:bg-white/10">
-							<FileText className="size-[22px]" />
-						</span>
-						{readOnly || locked ? (
+						<div
+							ref={identityPickerRef}
+							className={cn(
+								"relative shrink-0",
+								!(readOnly || sourced || locked) && "mt-[22px]",
+							)}
+						>
+							<button
+								type="button"
+								disabled={readOnly || locked}
+								aria-label={
+									readOnly || locked
+										? undefined
+										: "Change skill identity"
+								}
+								onClick={() => {
+									setShowIdentityPicker((current) => !current);
+								}}
+								className="relative flex size-12 cursor-pointer items-center justify-center rounded-xl transition-opacity hover:opacity-90 disabled:cursor-default disabled:hover:opacity-100"
+							>
+								{imageFile ? (
+									<ImageFilePreview
+										file={imageFile}
+										className="rounded-xl"
+									/>
+								) : (
+									<SkillAvatar
+										skillId={skill?.id}
+										name={name}
+										emoji={draft.emoji}
+										color={draft.color}
+										imageRevision={
+											removeImage ? null : skill?.imageRevision
+										}
+										size="md"
+										className="pointer-events-none size-full"
+									/>
+								)}
+								{!(readOnly || locked) && (
+									<span className="absolute -bottom-[5px] -right-[5px] flex size-[18px] items-center justify-center rounded-full border border-input bg-card shadow-raised">
+										<Pencil className="size-[9px] text-subtle dark:text-panel-body" />
+									</span>
+								)}
+							</button>
+							{showIdentityPicker && (
+								<div className="absolute left-0 top-full z-50 mt-2">
+									<div className="rounded-t-lg border border-b-0 border-border bg-card p-3">
+										<ImageUpload
+											currentUrl={currentImageUrl}
+											file={imageFile}
+											removed={removeImage}
+											onFileChange={(file) => {
+												setImageFile(file);
+												if (file) setRemoveImage(false);
+											}}
+											onRemove={() => {
+												setImageFile(null);
+												setRemoveImage(Boolean(skill?.imageRevision));
+											}}
+											label="Skill image"
+										/>
+									</div>
+									<EmojiPicker
+										onEmojiClick={selectEmoji}
+										theme={
+											resolvedTheme === "dark"
+												? Theme.DARK
+												: Theme.LIGHT
+										}
+										skinTonesDisabled
+										previewConfig={{ showPreview: false }}
+									/>
+									<div className="flex items-center justify-center gap-2 rounded-b-lg border-t border-border bg-card px-3 py-2">
+										{AGENT_COLORS.map((candidate) => (
+											<button
+												key={candidate}
+												type="button"
+												aria-label={`Use color ${candidate}`}
+												style={{ backgroundColor: candidate }}
+												onClick={() => {
+													setDraft((current) => ({
+														...current,
+														color: candidate,
+													}));
+												}}
+												className={cn(
+													"size-7 cursor-pointer rounded-full transition-transform hover:scale-110",
+													draft.color === candidate &&
+														"ring-2 ring-meta ring-offset-2 ring-offset-card",
+												)}
+											/>
+										))}
+										<label
+											title="Custom color"
+											className={cn(
+												"relative size-7 cursor-pointer overflow-hidden rounded-full bg-[conic-gradient(#e84393,#e17055,#fdcb6e,#00b894,#0984e3,#6c5ce7,#e84393)] transition-transform hover:scale-110",
+												draft.color !== null &&
+													!AGENT_COLORS.includes(draft.color) &&
+													"ring-2 ring-meta ring-offset-2 ring-offset-card",
+											)}
+										>
+											<span className="absolute inset-[5px] rounded-full border border-white/80 bg-card" />
+											<input
+												type="color"
+												value={draft.color ?? AGENT_COLORS[0]}
+												aria-label="Custom skill color"
+												onChange={(event) => {
+													setDraft((current) => ({
+														...current,
+														color: event.target.value.toUpperCase(),
+													}));
+												}}
+												className="absolute inset-0 size-full cursor-pointer opacity-0"
+											/>
+										</label>
+									</div>
+								</div>
+							)}
+						</div>
+						{readOnly || sourced || locked ? (
 							<div className="min-w-0 flex-1">
 								<div className="flex min-w-0 flex-wrap items-center gap-2">
-									<h1 className="min-w-0 truncate py-[2px] font-mono text-[19px] font-semibold tracking-[-0.01em] text-petrol">
+									<h1 className="min-w-0 truncate py-[2px] text-[19px] font-semibold tracking-[-0.01em] text-petrol">
 										{name || "untitled"}
 									</h1>
 									{skill?.updateAvailable && (
-										<span className="shrink-0 rounded-[4px] bg-warning-bg px-1.5 py-px font-mono text-[9px] font-semibold tracking-[0.05em] text-warning">
-											UPDATE
+										<span className="shrink-0 rounded-[4px] bg-warning-bg px-1.5 py-px text-[9px] font-semibold text-warning">
+											Update
 										</span>
 									)}
 								</div>
@@ -397,36 +609,49 @@ export default function SkillEditor({
 								)}
 							</div>
 						) : (
-							<div className="flex min-w-0 flex-1 flex-col gap-1.5">
-								<input
-									type="text"
-									maxLength={64}
-									value={fields.name}
-									spellCheck={false}
-									onChange={(e) => {
-										setFields({ name: e.target.value.trim().toLowerCase() });
-									}}
-									placeholder="skill-name"
-									className={cn(
-										fieldInputClass,
-										"font-mono text-[15px] font-semibold tracking-[-0.01em] text-petrol",
-										nameError && fields.name && "border-destructive",
-									)}
-								/>
-								<input
-									type="text"
-									maxLength={1024}
-									value={fields.description}
-									onChange={(e) => {
-										setFields({ description: e.target.value });
-									}}
-									placeholder="What the skill does and when to use it — this is how agents decide to pick it"
-									className={cn(fieldInputClass, "text-[13px] font-medium text-body dark:text-panel-body")}
-								/>
+							<div className="flex min-w-0 flex-1 flex-col gap-4">
+								<label>
+									<span className="mb-1.5 block text-[11px] font-semibold text-label dark:text-muted-foreground">
+										Name
+									</span>
+									<input
+										type="text"
+										maxLength={64}
+										value={fields.name}
+										spellCheck={false}
+										onChange={(e) => {
+											setFields({ name: e.target.value.trim().toLowerCase() });
+										}}
+										placeholder="skill-name"
+										className={cn(
+											fieldInputClass,
+											"text-[15px] font-semibold tracking-[-0.01em] text-petrol dark:text-panel-terminal",
+											nameError && fields.name && "border-destructive",
+										)}
+									/>
+								</label>
+								<label>
+									<span className="mb-1.5 block text-[11px] font-semibold text-label dark:text-muted-foreground">
+										Description
+									</span>
+									<textarea
+										maxLength={1024}
+										value={fields.description}
+										onChange={(e) => {
+											setFields({ description: e.target.value });
+										}}
+										placeholder="What the skill does and when to use it, this is how agents decide to pick it"
+										rows={3}
+										className={cn(
+											fieldInputClass,
+											"resize-y py-2.5 text-[13px] font-medium leading-5 text-body dark:text-panel-body",
+										)}
+									/>
+								</label>
 								{/* Rule violations only — an empty required field is what the
 								    disabled Create button says, not a red line on a blank form. */}
 								{(nameError && fields.name) || (descriptionError && fields.description) ? (
-									<p className="text-[11.5px] text-destructive">
+									<p className="-mt-2 text-[11.5px] text-destructive">
 										{(fields.name && nameError) || descriptionError}
 									</p>
 								) : null}
@@ -434,6 +659,17 @@ export default function SkillEditor({
 						)}
 					</div>
 
+					{!readOnly && (
+						<div className="mt-4">
+							<GroupPicker
+								value={draft.group}
+								groups={groupOptions(librarySkills)}
+								onChange={(group) => {
+									setDraft((current) => ({ ...current, group }));
+								}}
+							/>
+						</div>
+					)}
 
 					{error && (
 						<EditorNotice tone="alert" icon={<CircleAlert />}>
@@ -445,12 +681,17 @@ export default function SkillEditor({
 						<EditorNotice icon={<Unplug />}>
 							{/* The URL, not the word "repository": reconnecting is matched on
 							    it, so the one action this suggests needs it spelled out. */}
-							<Link href="/skills?view=sources" className="font-semibold text-petrol hover:underline">
+							<Link href="/skills?view=sources" className="font-semibold text-petrol hover:underline dark:text-panel-terminal">
 								{repoLabel(skill.sourceUrl) || "Its repository"}
 							</Link>{" "}
 							is no longer connected. The skill keeps running, pinned to{" "}
-							<span className="font-mono text-[11.5px]">{shortRevision(skill.sourceRevision)}</span> — connect{" "}
-							<span className="font-mono text-[11.5px]">{skill.sourceUrl ?? "the repository"}</span> again to
+							<span className="font-mono text-[11.5px]">{shortRevision(skill.sourceRevision)}</span>, connect{" "}
+							{skill.sourceUrl ? (
+								<span className="font-mono text-[11.5px]">{skill.sourceUrl}</span>
+							) : (
+								"the repository"
+							)}{" "}
+							again to
 							change it, and this skill is re-pinned rather than imported a second time. Deleting it from the
 							library still works.
 						</EditorNotice>
@@ -462,7 +703,7 @@ export default function SkillEditor({
 							<Link href="/skills?view=sources" className="font-semibold underline">
 								{skill.sourceName ?? "its repository"}
 							</Link>{" "}
-							as of the last sync — it keeps working, pinned to{" "}
+							as of the last sync, it keeps working, pinned to{" "}
 							<span className="font-mono text-[11.5px]">{shortRevision(skill.sourceRevision)}</span>.
 						</EditorNotice>
 					)}
@@ -470,24 +711,24 @@ export default function SkillEditor({
 					{scriptCount > 0 && (
 						<EditorNotice icon={<TerminalSquare />}>
 							This skill requires an agent with code execution. Its {scriptCount}{" "}
-							script{scriptCount === 1 ? "" : "s"} only run there — the instructions
+							script{scriptCount === 1 ? "" : "s"} only run there, the instructions
 							apply on any agent.
 						</EditorNotice>
 					)}
 
 					<div className="mt-6 flex min-h-[24px] shrink-0 items-center justify-between border-b border-border pb-2">
-						<span className="font-mono text-[10.5px] font-semibold tracking-[0.09em] text-label dark:text-muted-foreground">
-							INSTRUCTIONS
+						<span className="text-[10.5px] font-semibold text-label dark:text-muted-foreground">
+							Instructions
 						</span>
 						{!readOnly && !locked && (
-							<span className="font-mono text-[10.5px] text-meta dark:text-panel-dim">
-								markdown · name, description and this text make the SKILL.md
+							<span className="text-[10.5px] text-meta dark:text-panel-dim">
+								markdown, name, description and this text make the SKILL.md
 							</span>
 						)}
 					</div>
 
 					<div className="flex min-h-0 flex-1 flex-col pt-4">
-						{readOnly || locked ? (
+						{readOnly || sourced || locked ? (
 							<div className="min-h-[200px] w-full flex-1 overflow-y-auto rounded-lg border border-border bg-sidebar p-4 [scrollbar-width:thin]">
 								<MessageResponse className="text-[13px] leading-[1.65] text-foreground">
 									{body?.trim() || "*No instructions*"}
@@ -512,10 +753,10 @@ export default function SkillEditor({
 						<SkillFilesPanel files={draft.files} skill={skill} />
 					) : (
 						<div className="rounded-[10px] border border-dashed border-input px-4 py-8 text-center text-[13px] text-meta dark:text-panel-dim">
-							A skill written here is one SKILL.md — it runs on any agent.
+							A skill written here is one SKILL.md, it runs on any agent.
 							<span className="mt-1 block text-[12px]">
 								Scripts and reference files come from a{" "}
-								<Link href="/skills?view=sources" className="font-semibold text-petrol hover:underline">
+								<Link href="/skills?view=sources" className="font-semibold text-petrol hover:underline dark:text-panel-terminal">
 									connected repository
 								</Link>
 								, where they are reviewed and versioned.

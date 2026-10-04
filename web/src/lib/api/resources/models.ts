@@ -7,7 +7,12 @@
  * with `ApiError`. Cache updates belong to the store that calls these.
  */
 import { api } from "@/lib/api/client";
-import type { ManagedModel, Model, WhitelistSyncResult } from "@/types/models";
+import type {
+	ManagedModel,
+	Model,
+	ModelProviderConfig,
+	WhitelistSyncResult,
+} from "@/types/models";
 
 /** Models enabled for the workspace — what pickers offer. */
 export async function listModels(): Promise<Model[]> {
@@ -19,6 +24,36 @@ export async function listModels(): Promise<Model[]> {
 export async function listManagedModels(): Promise<ManagedModel[]> {
 	const response = await api.get<ManagedModel[]>(
 		"/model-providers/models/manage",
+	);
+	return response.data;
+}
+
+/** Every supported provider and its write-only credential status. */
+export async function listProviderConfigs(): Promise<ModelProviderConfig[]> {
+	const response = await api.get<ModelProviderConfig[]>(
+		"/model-providers/manage",
+	);
+	return response.data;
+}
+
+/** Store or replace one provider key. The plaintext value is never returned. */
+export async function setProviderApiKey(
+	provider: string,
+	apiKey: string,
+): Promise<ModelProviderConfig> {
+	const response = await api.put<ModelProviderConfig>(
+		`/model-providers/manage/${encodeURIComponent(provider)}/api-key`,
+		{ apiKey },
+	);
+	return response.data;
+}
+
+/** Remove the DB key. A deployment-level fallback may remain active. */
+export async function deleteProviderApiKey(
+	provider: string,
+): Promise<ModelProviderConfig> {
+	const response = await api.delete<ModelProviderConfig>(
+		`/model-providers/manage/${encodeURIComponent(provider)}/api-key`,
 	);
 	return response.data;
 }

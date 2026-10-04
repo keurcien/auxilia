@@ -42,7 +42,7 @@ export default function SkillInUseDialog({
 					<DialogTitle>Skill in use</DialogTitle>
 					<DialogDescription>
 						Can&apos;t delete{" "}
-						<span className="font-mono text-[12.5px] font-semibold text-petrol">
+						<span className="text-[12.5px] font-semibold text-petrol">
 							{skillName}
 						</span>{" "}
 						— it&apos;s enabled on {count === 1 ? "this agent" : `these ${count} agents`}.
@@ -57,8 +57,15 @@ export default function SkillInUseDialog({
 							href={`/agents/${agent.id}`}
 							className="flex items-center gap-2.5 border-b border-hairline px-3.5 py-2.5 transition-colors last:border-b-0 hover:bg-sidebar dark:border-white/5 dark:hover:bg-white/5"
 						>
-							<AgentAvatar color={agent.color} emoji={agent.emoji} size="xs" shape="tile" />
-							<span className="min-w-0 flex-1 truncate font-mono text-[12.5px] font-semibold text-petrol">
+							<AgentAvatar
+								agentId={agent.id}
+								name={agent.name}
+								imageRevision={agent.imageRevision}
+								color={agent.color}
+								emoji={agent.emoji}
+								size="xs"
+							/>
+							<span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-petrol">
 								{agent.name}
 							</span>
 							<ChevronRight className="size-3.5 shrink-0 text-faint dark:text-panel-dim" />

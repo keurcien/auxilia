@@ -12,6 +12,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi import Depends, FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
 from app.auth.dependencies import (
@@ -26,21 +27,31 @@ from app.auth.settings import auth_settings
 from app.auth.tokens.service import TOKEN_PREFIX
 from app.auth.utils import create_access_token
 from app.database import get_db
+from app.exceptions import DomainError, status_for
 from app.users.models import UserDB, WorkspaceRole
+from app.workspaces.models import WorkspaceMembershipDB
+from tests.conftest import TEST_WORKSPACE_ID
 
 
 def make_user(role: WorkspaceRole = WorkspaceRole.member, **kwargs) -> UserDB:
-    return UserDB(
+    user = UserDB(
         id=kwargs.pop("id", uuid4()),
         email=kwargs.pop("email", "a@b.io"),
         name=kwargs.pop("name", "Ada"),
-        role=role,
         **kwargs,
     )
+    user.set_workspace_membership(
+        WorkspaceMembershipDB(
+            workspace_id=TEST_WORKSPACE_ID,
+            user_id=user.id,
+            role=role,
+        )
+    )
+    return user
 
 
 @pytest.fixture
-def auth_app():
+def auth_app(monkeypatch):
     """A tiny app exposing one endpoint per gate, with a stub DB session.
 
     `db.users` is the set of users the fake DB will resolve by id; `db.pats` maps
@@ -48,6 +59,10 @@ def auth_app():
     """
     app = FastAPI()
     state = SimpleNamespace(users={}, pats={})
+
+    @app.exception_handler(DomainError)
+    async def domain_error_handler(_request, exc):
+        return JSONResponse(status_code=status_for(exc), content=exc.body())
 
     @app.get("/required")
     async def required(user: UserDB = Depends(get_current_user)):
@@ -78,6 +93,20 @@ def auth_app():
         db.execute = execute
         yield db
 
+    async def get_membership(_self, workspace_id, user_id):
+        user = state.users.get(user_id)
+        if user is None or workspace_id != TEST_WORKSPACE_ID:
+            return None
+        return WorkspaceMembershipDB(
+            workspace_id=workspace_id,
+            user_id=user_id,
+            role=user.role,
+        )
+
+    monkeypatch.setattr(
+        "app.auth.dependencies.WorkspaceRepository.get_membership",
+        get_membership,
+    )
     app.dependency_overrides[get_db] = fake_db
     with TestClient(app) as client:
         yield client, state
@@ -282,7 +311,12 @@ def test_pat_bearer_token_resolves_its_user(auth_app, monkeypatch):
     )
 
     response = get(
-        client, "/required", headers={"Authorization": f"Bearer {plaintext}"}
+        client,
+        "/required",
+        headers={
+            "Authorization": f"Bearer {plaintext}",
+            "X-Workspace-ID": str(TEST_WORKSPACE_ID),
+        },
     )
 
     assert response.status_code == 200

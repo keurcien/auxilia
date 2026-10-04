@@ -21,6 +21,7 @@ class StoredToken(BaseModel):
 class OAuthStateData(BaseModel):
     """Data stored against an OAuth state parameter."""
 
+    workspace_id: str
     user_id: str
     mcp_server_id: str
     verifier: str
@@ -33,17 +34,19 @@ class RedisTokenStorage(TokenStorage):
         self,
         user_id: str,
         mcp_server_id: str,
+        workspace_id: str,
         *,
         redis: Redis,
         prefix: str = "mcp",
     ):
         self.user_id = str(user_id)
         self.mcp_server_id = str(mcp_server_id)
+        self.workspace_id = str(workspace_id)
         self.redis = redis
         self._prefix = prefix
 
     def _base(self) -> str:
-        return f"{self._prefix}:{self.user_id}:{self.mcp_server_id}"
+        return f"{self._prefix}:{self.workspace_id}:{self.user_id}:{self.mcp_server_id}"
 
     def _tokens_key(self) -> str:
         return f"{self._base()}:tokens"
@@ -144,6 +147,7 @@ class RedisTokenStorage(TokenStorage):
     async def set_verifier(self, state: str, verifier: str) -> None:
         """Store OAuth state data including user_id, mcp_server_id, and verifier."""
         state_data = OAuthStateData(
+            workspace_id=self.workspace_id,
             user_id=self.user_id,
             mcp_server_id=self.mcp_server_id,
             verifier=verifier,
@@ -184,8 +188,10 @@ class TokenStorageFactory:
     def __init__(self, redis: Redis | None = None):
         self.redis = redis if redis is not None else get_redis()
 
-    def get_storage(self, user_id: str, mcp_server_id: str) -> RedisTokenStorage:
-        return RedisTokenStorage(user_id, mcp_server_id, redis=self.redis)
+    def get_storage(
+        self, workspace_id: str, user_id: str, mcp_server_id: str
+    ) -> RedisTokenStorage:
+        return RedisTokenStorage(user_id, mcp_server_id, workspace_id, redis=self.redis)
 
     async def get_state_data(self, state: str) -> OAuthStateData | None:
         """Retrieve OAuth state data by state parameter."""
@@ -207,10 +213,12 @@ class TokenStorageFactory:
         if not state_data:
             return None
 
-        storage = self.get_storage(state_data.user_id, state_data.mcp_server_id)
+        storage = self.get_storage(
+            state_data.workspace_id, state_data.user_id, state_data.mcp_server_id
+        )
         return storage, state_data
 
-    async def clear_server_data(self, mcp_server_id: str) -> int:
+    async def clear_server_data(self, workspace_id: str, mcp_server_id: str) -> int:
         """Delete all Redis keys for a given MCP server (all users).
 
         Scans for keys matching mcp:*:{mcp_server_id}:* and deletes them.
@@ -218,14 +226,25 @@ class TokenStorageFactory:
         Returns:
             Number of keys deleted.
         """
-        pattern = f"mcp:*:{mcp_server_id}:*"
+        pattern = f"mcp:{workspace_id}:*:{mcp_server_id}:*"
         deleted = 0
         async for key in self.redis.scan_iter(match=pattern):
             await self.redis.delete(key)
             deleted += 1
         return deleted
 
-    async def clear_user_server_data(self, user_id: str, mcp_server_id: str) -> int:
+    async def clear_workspace_data(self, workspace_id: str) -> int:
+        """Delete every stored MCP authorization key for a workspace."""
+        pattern = f"mcp:{workspace_id}:*"
+        deleted = 0
+        async for key in self.redis.scan_iter(match=pattern):
+            await self.redis.delete(key)
+            deleted += 1
+        return deleted
+
+    async def clear_user_server_data(
+        self, workspace_id: str, user_id: str, mcp_server_id: str
+    ) -> int:
         """Delete all Redis keys for one user's connection to an MCP server.
 
         Scans for keys matching mcp:{user_id}:{mcp_server_id}:* and deletes
@@ -234,22 +253,24 @@ class TokenStorageFactory:
         Returns:
             Number of keys deleted.
         """
-        pattern = f"mcp:{user_id}:{mcp_server_id}:*"
+        pattern = f"mcp:{workspace_id}:{user_id}:{mcp_server_id}:*"
         deleted = 0
         async for key in self.redis.scan_iter(match=pattern):
             await self.redis.delete(key)
             deleted += 1
         return deleted
 
-    async def list_connected_user_ids(self, mcp_server_id: str) -> list[str]:
+    async def list_connected_user_ids(
+        self, workspace_id: str, mcp_server_id: str
+    ) -> list[str]:
         """User ids holding stored tokens for an MCP server.
 
         Token keys have the shape mcp:{user_id}:{mcp_server_id}:tokens.
         """
-        pattern = f"mcp:*:{mcp_server_id}:tokens"
+        pattern = f"mcp:{workspace_id}:*:{mcp_server_id}:tokens"
         user_ids: list[str] = []
         async for key in self.redis.scan_iter(match=pattern):
             parts = key.split(":")
-            if len(parts) == 4:
-                user_ids.append(parts[1])
+            if len(parts) == 5:
+                user_ids.append(parts[2])
         return user_ids

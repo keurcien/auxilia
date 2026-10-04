@@ -1,6 +1,7 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, Header, UploadFile
+from fastapi.responses import Response
 
 from app.auth.dependencies import get_current_user, require_editor
 from app.skills.schemas import (
@@ -11,6 +12,7 @@ from app.skills.schemas import (
 )
 from app.skills.service import SkillService, get_skill_service
 from app.users.models import UserDB
+from app.utils.images import image_response, process_uploaded_image
 
 
 router = APIRouter(prefix="/skills", tags=["skills"])
@@ -43,6 +45,42 @@ async def get_skill(
     service: SkillService = Depends(get_skill_service),
 ):
     return await service.get(skill_id, user)
+
+
+@router.get("/{skill_id}/image", response_class=Response)
+async def get_skill_image(
+    skill_id: UUID,
+    if_none_match: str | None = Header(default=None),
+    user: UserDB = Depends(get_current_user),
+    service: SkillService = Depends(get_skill_service),
+) -> Response:
+    image = await service.get_image(skill_id, user)
+    return image_response(
+        data=image.data,
+        media_type=image.media_type,
+        digest=image.sha256,
+        if_none_match=if_none_match,
+    )
+
+
+@router.put("/{skill_id}/image")
+async def set_skill_image(
+    skill_id: UUID,
+    file: UploadFile = File(...),
+    user: UserDB = Depends(get_current_user),
+    service: SkillService = Depends(get_skill_service),
+) -> dict[str, UUID]:
+    image = await process_uploaded_image(file)
+    return {"image_revision": await service.set_image(skill_id, user, image)}
+
+
+@router.delete("/{skill_id}/image", status_code=204)
+async def delete_skill_image(
+    skill_id: UUID,
+    user: UserDB = Depends(get_current_user),
+    service: SkillService = Depends(get_skill_service),
+) -> None:
+    await service.delete_image(skill_id, user)
 
 
 @router.put("/{skill_id}", response_model=SkillResponse)

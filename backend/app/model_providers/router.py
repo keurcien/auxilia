@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends
 
 from app.auth.dependencies import require_admin
-from app.model_providers.catalog import provider_api_keys
 from app.model_providers.models import ModelProviderType
 from app.model_providers.schemas import (
     ManagedModelResponse,
     ModelDefaultUpdate,
     ModelEnabledUpdate,
+    ModelProviderAPIKeyUpdate,
+    ModelProviderConfigResponse,
     ModelProviderResponse,
     ModelResponse,
     WhitelistSyncResponse,
@@ -19,12 +20,48 @@ router = APIRouter(prefix="/model-providers", tags=["model-providers"])
 
 
 @router.get("/", response_model=list[ModelProviderResponse])
-async def get_model_providers() -> list[ModelProviderResponse]:
+async def get_model_providers(
+    service: ModelService = Depends(get_model_service),
+) -> list[ModelProviderResponse]:
     """List all model providers with a configured API key."""
     return [
-        ModelProviderResponse(name=ModelProviderType(name))
-        for name in provider_api_keys()
+        ModelProviderResponse(name=config.name)
+        for config in await service.list_provider_configs()
+        if config.is_configured
     ]
+
+
+@router.get("/manage", response_model=list[ModelProviderConfigResponse])
+async def list_model_provider_configs(
+    _: UserDB = Depends(require_admin),
+    service: ModelService = Depends(get_model_service),
+) -> list[ModelProviderConfigResponse]:
+    return await service.list_provider_configs()
+
+
+@router.put(
+    "/manage/{provider}/api-key",
+    response_model=ModelProviderConfigResponse,
+)
+async def set_model_provider_api_key(
+    provider: str,
+    update: ModelProviderAPIKeyUpdate,
+    _: UserDB = Depends(require_admin),
+    service: ModelService = Depends(get_model_service),
+) -> ModelProviderConfigResponse:
+    return await service.set_provider_api_key(provider, update.api_key)
+
+
+@router.delete(
+    "/manage/{provider}/api-key",
+    response_model=ModelProviderConfigResponse,
+)
+async def delete_model_provider_api_key(
+    provider: str,
+    _: UserDB = Depends(require_admin),
+    service: ModelService = Depends(get_model_service),
+) -> ModelProviderConfigResponse:
+    return await service.delete_provider_api_key(provider)
 
 
 @router.get("/models", response_model=list[ModelResponse])

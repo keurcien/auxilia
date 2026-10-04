@@ -7,6 +7,7 @@ interface UserStore {
 	isLoading: boolean;
 	isInitialized: boolean;
 	fetchUser: () => Promise<void>;
+	setUser: (user: CurrentUser) => void;
 	logout: () => Promise<void>;
 	clearUser: () => void;
 }
@@ -28,6 +29,10 @@ export const useUserStore = create<UserStore>((set, get) => ({
 		} finally {
 			set({ isLoading: false });
 		}
+	},
+
+	setUser: (user) => {
+		set({ user, isInitialized: true });
 	},
 
 	logout: async () => {

@@ -301,30 +301,30 @@ export function ordinal(n: number): string {
 	}
 }
 
-/** Human summary, e.g. "Every day · 9:00" or "Every two weeks on Monday · 9:30". */
+/** Human summary, e.g. "Every day, 9:00" or "Every two weeks on Monday, 9:30". */
 export function describeSchedule(schedule: Schedule): string {
 	switch (schedule.kind) {
 		case "daily":
-			return `Every day · ${formatTime(schedule.time)}`;
+			return `Every day, ${formatTime(schedule.time)}`;
 		case "weekdays":
-			return `Weekdays · ${formatTime(schedule.time)}`;
+			return `Weekdays, ${formatTime(schedule.time)}`;
 		case "weekly":
-			return `Every ${WEEKDAY_NAMES[schedule.day]} · ${formatTime(schedule.time)}`;
+			return `Every ${WEEKDAY_NAMES[schedule.day]}, ${formatTime(schedule.time)}`;
 		case "biweekly":
-			return `Every two weeks on ${WEEKDAY_NAMES[schedule.day]} · ${formatTime(schedule.time)}`;
+			return `Every two weeks on ${WEEKDAY_NAMES[schedule.day]}, ${formatTime(schedule.time)}`;
 		case "monthly":
-			return `Monthly on the ${ordinal(schedule.day)} · ${formatTime(schedule.time)}`;
+			return `Monthly on the ${ordinal(schedule.day)}, ${formatTime(schedule.time)}`;
 		case "custom": {
 			const time = formatTime(schedule.time);
 			if (schedule.unit === "day") {
 				return schedule.interval === 1
-					? `Every day · ${time}`
-					: `Every ${schedule.interval} days · ${time}`;
+					? `Every day, ${time}`
+					: `Every ${schedule.interval} days, ${time}`;
 			}
 			const days = shortDayList(schedule.days);
 			return schedule.interval === 2
-				? `Every two weeks on ${days} · ${time}`
-				: `Every week on ${days} · ${time}`;
+				? `Every two weeks on ${days}, ${time}`
+				: `Every week on ${days}, ${time}`;
 		}
 		case "raw":
 			return schedule.cronExpression;
@@ -333,7 +333,7 @@ export function describeSchedule(schedule: Schedule): string {
 
 /**
  * Formats a run timestamp in the trigger's timezone, e.g.
- * "Today · 09:00", "Tomorrow · 09:00" or "Monday 14 July · 09:00".
+ * "Today, 09:00", "Tomorrow, 09:00" or "Monday 14 July, 09:00".
  */
 export function formatRunAt(iso: string, timezone: string): string {
 	const date = new Date(iso);
@@ -364,5 +364,5 @@ export function formatRunAt(iso: string, timezone: string): string {
 			month: "long",
 		}).format(date);
 	}
-	return `${dayLabel} · ${time}`;
+	return `${dayLabel}, ${time}`;
 }

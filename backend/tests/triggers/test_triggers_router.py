@@ -6,11 +6,13 @@ from fastapi.testclient import TestClient
 
 from app.threads.models import ThreadDB, ThreadSource
 from app.triggers.models import TriggerDB
+from tests.conftest import TEST_WORKSPACE_ID
 
 
 def _trigger(owner_id) -> TriggerDB:
     return TriggerDB(
         id=uuid4(),
+        workspace_id=TEST_WORKSPACE_ID,
         name="Daily digest",
         instructions="Summarize yesterday's activity",
         agent_id=uuid4(),
@@ -27,6 +29,7 @@ def _trigger(owner_id) -> TriggerDB:
 def _fire_thread(trigger: TriggerDB) -> ThreadDB:
     return ThreadDB(
         id=str(uuid4()),
+        workspace_id=TEST_WORKSPACE_ID,
         user_id=trigger.owner_id,
         agent_id=trigger.agent_id,
         first_message_content=trigger.name,

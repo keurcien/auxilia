@@ -53,7 +53,7 @@ export default function AgentSandbox({
 				<span className="truncate text-[13.5px] font-semibold text-foreground">
 					{sandbox.name}
 				</span>
-				<span className="shrink-0 rounded-[4px] bg-hover px-2 py-0.5 font-mono text-[9.5px] font-semibold tracking-[0.06em] text-subtle uppercase dark:bg-white/10 dark:text-panel-dim">
+				<span className="shrink-0 rounded-[4px] bg-hover px-2 py-0.5 text-[9.5px] font-semibold text-subtle dark:bg-white/10 dark:text-panel-dim">
 					{SANDBOX_PROVIDER_LABELS[sandbox.provider]}
 				</span>
 				<button

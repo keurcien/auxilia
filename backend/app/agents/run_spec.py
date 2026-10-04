@@ -38,6 +38,7 @@ class AgentSpec:
     `Agent.build` treats them identically apart from `apply_ui`."""
 
     id: UUID
+    workspace_id: UUID
     name: str
     instructions: str
     description: str | None

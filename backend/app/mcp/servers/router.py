@@ -1,7 +1,7 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, File, Header, Query, UploadFile
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.mcp_servers.service import (
@@ -29,6 +29,7 @@ from app.mcp.servers.schemas import (
 )
 from app.mcp.servers.service import MCPServerService, get_mcp_server_service
 from app.users.models import UserDB
+from app.utils.images import image_response, process_uploaded_image
 
 
 router = APIRouter(prefix="/mcp-servers", tags=["mcp-servers"])
@@ -86,6 +87,42 @@ async def get_mcp_server(
 ) -> MCPServerResponse:
     server = await service.get(server_id)
     return await service.to_response(server)
+
+
+@router.get("/{server_id}/image", response_class=Response)
+async def get_mcp_server_image(
+    server_id: UUID,
+    if_none_match: str | None = Header(default=None),
+    _current_user: UserDB = Depends(get_current_user),
+    service: MCPServerService = Depends(get_mcp_server_service),
+) -> Response:
+    image = await service.get_image(server_id)
+    return image_response(
+        data=image.data,
+        media_type=image.media_type,
+        digest=image.sha256,
+        if_none_match=if_none_match,
+    )
+
+
+@router.put("/{server_id}/image")
+async def set_mcp_server_image(
+    server_id: UUID,
+    file: UploadFile = File(...),
+    _current_user: UserDB = Depends(require_admin),
+    service: MCPServerService = Depends(get_mcp_server_service),
+) -> dict[str, UUID]:
+    image = await process_uploaded_image(file)
+    return {"image_revision": await service.set_image(server_id, image)}
+
+
+@router.delete("/{server_id}/image", status_code=204)
+async def delete_mcp_server_image(
+    server_id: UUID,
+    _current_user: UserDB = Depends(require_admin),
+    service: MCPServerService = Depends(get_mcp_server_service),
+) -> None:
+    await service.delete_image(server_id)
 
 
 @router.patch("/{server_id}", response_model=MCPServerResponse)
@@ -186,9 +223,10 @@ async def revoke_mcp_server_connection(
 async def oauth_callback(
     code: str = Query(..., description="Authorization code from OAuth provider"),
     state: str = Query(..., description="State parameter from OAuth provider"),
+    current_user: UserDB = Depends(get_current_user),
     service: MCPServerService = Depends(get_mcp_server_service),
 ):
-    result = await service.handle_oauth_callback(code, state)
+    result = await service.handle_oauth_callback(code, state, current_user.id)
     return JSONResponse(status_code=200, content=result)
 
 
@@ -196,7 +234,7 @@ async def oauth_callback(
 async def list_tools(
     mcp_server: MCPServerDB = Depends(get_mcp_server_dependency),
     current_user: UserDB = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    service: MCPServerService = Depends(get_mcp_server_service),
 ) -> ToolsListed | AuthorizationRequired:
     """List available tools from an MCP server.
 
@@ -212,7 +250,7 @@ async def list_tools(
     server that holds the standalone GET stream can still wedge this call for
     ~15s. See `mcp-streamable-http-deadlock.md`.
     """
-    return await MCPServerService(db).list_tools(mcp_server, str(current_user.id))
+    return await service.list_tools(mcp_server, str(current_user.id))
 
 
 @router.get("/{server_id}/is-connected")
@@ -230,7 +268,12 @@ async def is_connected(
     credential check, not a handshake — use ``/test-connection`` to probe the
     server itself.
     """
-    connected = await is_authorized(mcp_server, str(current_user.id), refresh=refresh)
+    connected = await is_authorized(
+        mcp_server,
+        str(current_user.id),
+        mcp_server.workspace_id,
+        refresh=refresh,
+    )
     return {"connected": connected}
 
 
@@ -260,4 +303,6 @@ async def test_saved_connection(
     Returns discovered tools on success; an unauthorized OAuth server is
     reported as ``oauth_required`` with the ``auth_url`` to open, not a 401.
     """
-    return await test_connection(mcp_server, str(current_user.id), db)
+    return await test_connection(
+        mcp_server, str(current_user.id), mcp_server.workspace_id, db
+    )

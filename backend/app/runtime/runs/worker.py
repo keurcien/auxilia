@@ -19,6 +19,7 @@ from app.database import AsyncSessionLocal, get_checkpointer
 from app.exceptions import root_cause
 from app.mcp.client.exceptions import as_oauth_required
 from app.runtime.agent import Agent
+from app.runtime.checkpoints import checkpoint_thread_id
 from app.runtime.hitl import pending_interrupt
 from app.runtime.protocol.wire import encode_event
 from app.runtime.runs.control import RunControl
@@ -53,7 +54,12 @@ async def _mcp_unauthorized(db, thread: ThreadDB, user_id: str) -> bool:
     of "unauthorized": probes all OAuth servers regardless of tools state,
     fails open on infra errors, and commits to release the connection before
     its network IO."""
-    return await RunService.required_oauth_url(db, thread.agent_id, user_id) is not None
+    return (
+        await RunService.required_oauth_url(
+            db, thread.agent_id, user_id, thread.workspace_id
+        )
+        is not None
+    )
 
 
 class RunWorker:
@@ -66,16 +72,16 @@ class RunWorker:
 
     async def run(self, record: RunDB) -> None:
         """Execute a run the dispatcher just claimed (already `running`)."""
-        events = RunEventStream(record.id, self.redis)
-        liveness = RunLiveness(record.id, self.redis)
+        events = RunEventStream(record.id, self.redis, workspace_id=record.workspace_id)
+        liveness = RunLiveness(record.id, self.redis, workspace_id=record.workspace_id)
         # Stamp before anything else: the reaper treats a running run with no
         # liveness key (past the grace window) as a dead worker.
         await liveness.stamp(ttl=run_settings.heartbeat_timeout_seconds)
         heartbeat = asyncio.create_task(self._heartbeat(liveness, events))
         cancel_watch = asyncio.create_task(
-            RunControl(record.id, self.redis).wait_for_cancel(
-                poll_seconds=run_settings.cancel_poll_seconds
-            )
+            RunControl(
+                record.id, self.redis, workspace_id=record.workspace_id
+            ).wait_for_cancel(poll_seconds=run_settings.cancel_poll_seconds)
         )
         # A push consumer (e.g. Slack) relays the event log concurrently; it reads
         # from id 0, so there's no race with the events we publish below, and it
@@ -169,7 +175,7 @@ class RunWorker:
             # log's TTL, so this is what a reload/reattach shows.
             cause = root_cause(exc)
             return RunStatus.error, str(cause) or type(cause).__name__
-        if await self._is_interrupted(record.thread_id):
+        if await self._is_interrupted(record.workspace_id, record.thread_id):
             return RunStatus.interrupted, None
         return RunStatus.success, None
 
@@ -180,6 +186,8 @@ class RunWorker:
             thread = await db.get(ThreadDB, record.thread_id)
             if thread is None:
                 raise RuntimeError(f"Thread {record.thread_id} not found")
+            if thread.workspace_id != record.workspace_id:
+                raise RuntimeError("Run and thread belong to different workspaces")
             if await _mcp_unauthorized(db, thread, str(record.user_id)):
                 raise RuntimeError(MCP_REAUTH_ERROR)
             agent = await Agent.build(thread=thread, db=db)
@@ -224,10 +232,14 @@ class RunWorker:
                     exc_info=True,
                 )
 
-    async def _is_interrupted(self, thread_id: str) -> bool:
+    async def _is_interrupted(self, workspace_id, thread_id: str) -> bool:
         async with get_checkpointer() as checkpointer:
             checkpoint = await checkpointer.aget_tuple(
-                config={"configurable": {"thread_id": thread_id}}
+                config={
+                    "configurable": {
+                        "thread_id": checkpoint_thread_id(workspace_id, thread_id)
+                    }
+                }
             )
         return checkpoint is not None and pending_interrupt(checkpoint) is not None
 

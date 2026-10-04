@@ -57,11 +57,17 @@ PostgreSQL and Redis are started and wired up by Docker Compose; every other set
 | Variable(s)                                                                    | When you need it                                                                                                                                          |
 | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_API_KEY` / `DEEPSEEK_API_KEY` / `OPENROUTER_API_KEY` / `XIAOMI_API_KEY` / `METAAI_API_KEY` | **At least one.** Each key unlocks that provider's models in the model picker.                                                                            |
-| `SALT`, `JWT_SECRET_KEY`, `COOKIE_SECURE`                                      | **Before production.** Encryption salt for stored MCP API keys, session signing secret, and `COOKIE_SECURE=true` behind HTTPS. Dev defaults work locally. |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`                                    | Optional — Google OAuth sign-in (SSO).                                                                                                                    |
-| `SLACK_SIGNING_SECRET` / `SLACK_BOT_TOKEN`                                     | Optional — chat with agents from Slack.                                                                                                                   |
-| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY`                                  | Optional — tracing + cost attribution per agent and user.                                                                                                 |
+| `BACKEND_ENCRYPTION_SALT`, `BACKEND_JWT_SECRET_KEY`, `BACKEND_COOKIE_SECURE`   | **Before production.** Encryption secret for stored credentials, session signing secret, and secure cookies behind HTTPS. Dev defaults work locally. |
 | `RUN_*`                                                                        | Tuning for the background run worker (concurrency, timeouts). Defaults are fine.                                                                          |
+
+Google OAuth, Slack and Langfuse are configured by workspace admins from
+**Settings → Authentication**, **Notifications**, and **Observability**. Their
+credentials are encrypted in PostgreSQL.
+
+> Upgrading an existing deployment? Rename `SALT` or
+> `MCP_API_KEY_ENCRYPTION_SALT` to `BACKEND_ENCRYPTION_SALT` without changing
+> its value. Rotating it without re-encrypting stored secrets makes existing
+> credentials and TOTP secrets unreadable.
 
 Developing? `make dev` runs PostgreSQL, Redis, the FastAPI backend (migrations applied) and the Next.js frontend in parallel, all with hot reload. Full walkthrough in the [Get Started guide](https://auxilia-docs.vercel.app/get-started).
 

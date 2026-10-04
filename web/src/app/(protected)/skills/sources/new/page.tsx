@@ -106,7 +106,7 @@ function HostCards({ value, onChange, detected }: { value: SkillSourceKind; onCh
 							</span>
 							<span className="text-[13px] font-semibold text-foreground">{option.label}</span>
 							{detected === option.value && (
-								<span className="ml-auto font-mono text-[9.5px] text-meta dark:text-panel-dim">detected</span>
+								<span className="ml-auto text-[9.5px] text-meta dark:text-panel-dim">detected</span>
 							)}
 						</span>
 						<span className={`text-[11.5px] leading-[1.45] ${selected ? "text-body dark:text-panel-body" : "text-subtle dark:text-muted-foreground"}`}>
@@ -160,14 +160,14 @@ function PreviewPanel({ preview }: { preview: SkillSourcePreview }) {
 					category folder one level deeper, or a <span className="font-mono text-[11.5px]">SKILL.md</span> at
 					the root
 					{preview.skills.length > 0
-						? " — every SKILL.md it did find has an error below."
+						? ", every SKILL.md it did find has an error below."
 						: ". Connecting is still fine if you are about to push one."}
 				</p>
 			)}
 			{preview.skills.map((skill) => (
 				<div key={skill.path} className="border-b border-hairline px-4 py-2.5 last:border-b-0 dark:border-white/5">
 					<div className="flex min-w-0 items-center gap-2">
-						<span className={`truncate font-mono text-[12.5px] font-semibold ${skill.ok ? "text-petrol" : "text-meta line-through"}`}>{skill.name}</span>
+						<span className={`truncate text-[12.5px] font-semibold ${skill.ok ? "text-petrol" : "text-meta line-through"}`}>{skill.name}</span>
 						<SkillRequirementChip scriptCount={skill.scriptCount} />
 						<span className="ml-auto truncate font-mono text-[10.5px] text-meta dark:text-panel-dim">{skill.path}</span>
 					</div>
@@ -175,8 +175,8 @@ function PreviewPanel({ preview }: { preview: SkillSourcePreview }) {
 					{skill.issues.length > 0 && (
 						<ul className="mt-1.5 flex flex-col gap-0.5">
 							{skill.issues.map((issue, i) => (
-								<li key={i} className={`font-mono text-[10.5px] ${issue.severity === "error" ? "text-[#B04A3A]" : "text-warning"}`}>
-									{issue.code} {issue.message}
+								<li key={i} className={`text-[10.5px] ${issue.severity === "error" ? "text-[#B04A3A]" : "text-warning"}`}>
+									<span className="font-mono">{issue.code}</span> {issue.message}
 									{issue.suggestion ? ` → ${issue.suggestion}` : ""}
 								</li>
 							))}
@@ -185,8 +185,8 @@ function PreviewPanel({ preview }: { preview: SkillSourcePreview }) {
 				</div>
 			))}
 			{preview.issues.map((issue, i) => (
-				<div key={`s-${i}`} className="border-t border-hairline px-4 py-2 font-mono text-[10.5px] text-warning dark:border-white/5">
-					{issue.code} {issue.message}
+				<div key={`s-${i}`} className="border-t border-hairline px-4 py-2 text-[10.5px] text-warning dark:border-white/5">
+					<span className="font-mono">{issue.code}</span> {issue.message}
 				</div>
 			))}
 		</div>
@@ -206,7 +206,7 @@ function ImportSummary({ preview }: { preview: SkillSourcePreview }) {
 	return (
 		<span className="block">
 			<span className="block">
-				From <span className="font-mono text-[12.5px] font-semibold text-petrol">{preview.name}</span> at{" "}
+				From <span className="text-[12.5px] font-semibold text-petrol">{preview.name}</span> at{" "}
 				<span className="font-mono text-[12.5px]">{shortRevision(preview.revision)}</span>. Every skill is
 				pinned to this commit; a later change is adopted one by one.
 			</span>
@@ -217,7 +217,7 @@ function ImportSummary({ preview }: { preview: SkillSourcePreview }) {
 							key={skill.path}
 							className="flex items-center gap-2 border-b border-hairline px-3 py-1.5 last:border-b-0 dark:border-white/5"
 						>
-							<span className="min-w-0 flex-1 truncate font-mono text-[12px] font-semibold text-petrol">
+							<span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-petrol">
 								{skill.name}
 							</span>
 							<SkillRequirementChip scriptCount={skill.scriptCount} />
@@ -227,7 +227,7 @@ function ImportSummary({ preview }: { preview: SkillSourcePreview }) {
 			)}
 			{skipped.length > 0 && (
 				<span className="mt-2.5 block text-[12.5px] text-warning">
-					{skipped.length} skill{skipped.length === 1 ? "" : "s"} will be skipped — {skipped
+					{skipped.length} skill{skipped.length === 1 ? "" : "s"} will be skipped, {skipped
 						.map((s) => s.name)
 						.join(", ")}
 					. Fix {skipped.length === 1 ? "it" : "them"} in the repository and sync again.
@@ -235,7 +235,7 @@ function ImportSummary({ preview }: { preview: SkillSourcePreview }) {
 			)}
 			{ready.length === 0 && (
 				<span className="mt-2.5 block text-[12.5px] text-warning">
-					Nothing to import yet. Connecting now is fine — sync once you have pushed a skill.
+					Nothing to import yet. Connecting now is fine, sync once you have pushed a skill.
 				</span>
 			)}
 		</span>
@@ -280,7 +280,7 @@ export default function NewSkillSourcePage() {
 	// been typed: an empty required field is what the disabled button says.
 	const urlError =
 		url.trim().length > 0 && !urlValid
-			? "Paste the repository's full web address, starting with https:// — for example https://github.com/acme/skills"
+			? "Paste the repository's full web address, starting with https://, for example https://github.com/acme/skills"
 			: null;
 	const payload = (): SkillSourceCreate => ({
 		url: url.trim(),
@@ -398,7 +398,7 @@ export default function NewSkillSourcePage() {
 
 			<div className="flex-1 overflow-y-auto px-4 py-8 sm:px-6 lg:px-8 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 				<div className="mx-auto max-w-[640px]">
-					<Link href="/skills?view=sources" className="font-mono text-[11.5px] text-meta transition-colors hover:text-foreground dark:text-panel-dim">
+					<Link href="/skills?view=sources" className="text-[11.5px] text-meta transition-colors hover:text-foreground dark:text-panel-dim">
 						‹ Sources
 					</Link>
 					<div className="mt-4 flex items-start gap-4">
@@ -406,7 +406,7 @@ export default function NewSkillSourcePage() {
 						<div className="min-w-0">
 							<h1 className="font-display text-[26px] font-bold tracking-[-0.035em] text-foreground">Connect a repository</h1>
 							<p className="mt-1.5 text-[14px] leading-[1.55] text-body dark:text-panel-body">
-								Every skill in the repository — a folder with a <span className="font-mono text-[12.5px]">SKILL.md</span> — becomes
+								Every skill in the repository, a folder with a <span className="font-mono text-[12.5px]">SKILL.md</span>, becomes
 								available in the library, pinned to its content. A change upstream is adopted per skill, against a diff; nothing
 								here is edited from the app.
 							</p>
@@ -443,12 +443,12 @@ export default function NewSkillSourcePage() {
 								Which API this server speaks
 								{unsupported && (
 									<span className="ml-2 font-normal text-destructive">
-										{unsupported} is not supported — auxilia reads GitHub and GitLab only
+										{unsupported} is not supported, auxilia reads GitHub and GitLab only
 									</span>
 								)}
 								{!unsupported && hostUnconfirmed && urlValid && (
 									<span className="ml-2 font-normal text-destructive">
-										say which — this domain is neither github.com nor gitlab.com
+										say which, this domain is neither github.com nor gitlab.com
 									</span>
 								)}
 							</span>
