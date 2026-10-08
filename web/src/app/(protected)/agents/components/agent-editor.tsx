@@ -18,7 +18,6 @@ import { getApiErrorMessage } from "@/lib/api/errors";
 import { useAgentsStore } from "@/stores/agents-store";
 import { useThreadsStore } from "@/stores/threads-store";
 import { useSkillsStore } from "@/stores/skills-store";
-import { useUserStore } from "@/stores/user-store";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { UnderlineTabs } from "@/components/ui/underline-tabs";
 import { cn } from "@/lib/utils";
@@ -62,8 +61,6 @@ export default function AgentEditor({
 	const refreshAgent = useAgentsStore((state) => state.refreshAgent);
 	const archiveAgent = useAgentsStore((state) => state.archiveAgent);
 	const markAgentArchived = useThreadsStore((state) => state.markAgentArchived);
-	const user = useUserStore((state) => state.user);
-	const isAdmin = user?.role === "admin";
 	const librarySkills = useSkillsStore((state) => state.skills);
 
 	const canManageAgent =
@@ -521,21 +518,19 @@ export default function AgentEditor({
 							setAddToolOpen(true);
 						}}
 					/>
-					{isAdmin && (
-						<AgentSubagentList
-							readOnly={readOnly}
-							agentId={agent?.id ?? ""}
-							isSubagent={agent?.isSubagent ?? false}
-							subagentIds={form.subagentIds}
-							fallbackSubagents={agent?.subagents ?? []}
-							onChange={(subagentIds) => {
-								setField("subagentIds", subagentIds);
-							}}
-							confirmLeave={() =>
-								!isDirtyRef.current || confirm("Discard unsaved changes?")
-							}
-						/>
-					)}
+					<AgentSubagentList
+						readOnly={readOnly}
+						agentId={agent?.id ?? ""}
+						isSubagent={agent?.isSubagent ?? false}
+						subagentIds={form.subagentIds}
+						fallbackSubagents={agent?.subagents ?? []}
+						onChange={(subagentIds) => {
+							setField("subagentIds", subagentIds);
+						}}
+						confirmLeave={() =>
+							!isDirtyRef.current || confirm("Discard unsaved changes?")
+						}
+					/>
 				</div>
 			</div>
 		</div>

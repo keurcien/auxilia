@@ -310,7 +310,7 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         )
         await self.mcp_server_service.set_for_agent(agent.id, config.mcp_servers)
         await self.set_sandboxes(agent.id, config.sandboxes)
-        await self.set_subagents(agent.id, config.subagent_ids, user_role=user_role)
+        await self.set_subagents(agent.id, config.subagent_ids)
         await self.skill_service.set_for_agent(agent.id, config.skill_ids)
         return await self.get(
             agent.id, user_id=owner_id, user_role=user_role, user_team_id=user_team_id
@@ -440,7 +440,7 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         )
         await self.mcp_server_service.set_for_agent(agent_id, config.mcp_servers)
         await self.set_sandboxes(agent_id, config.sandboxes)
-        await self.set_subagents(agent_id, config.subagent_ids, user_role=user_role)
+        await self.set_subagents(agent_id, config.subagent_ids)
         await self.skill_service.set_for_agent(agent_id, config.skill_ids)
         return await self.get(
             agent_id, user_id=user_id, user_role=user_role, user_team_id=user_team_id
@@ -609,17 +609,12 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
             raise NotFoundError("Subagent not found")
         await self.repository.delete_subagent_link(link)
 
-    async def set_subagents(
-        self,
-        agent_id: UUID,
-        subagent_ids: list[UUID],
-        *,
-        user_role: WorkspaceRole | None,
-    ) -> None:
+    async def set_subagents(self, agent_id: UUID, subagent_ids: list[UUID]) -> None:
         """Whole-set replace of an agent's subagents, routed through
         `create_subagent` so the self-link / archived / cycle validations
-        keep firing. Admin-gated only when the set actually changes — an
-        editor saving an agent whose subagents they didn't touch passes."""
+        keep firing. No gate of its own: the config save that calls it has
+        already required `editor` on the agent, the same level that edits
+        MCP bindings and skills."""
         current = {
             link.subagent_id
             for link in await self.repository.list_subagent_links(agent_id)
@@ -627,8 +622,6 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         wanted = set(subagent_ids)
         if current == wanted:
             return
-        if user_role != WorkspaceRole.admin:
-            raise PermissionDeniedError("Only admins can modify subagents")
         # Removals first, so every validation an addition runs sees the graph
         # this save asks for and not a transient union of the two. One
         # transaction, so a failed addition rolls the removals back with it.
