@@ -1,7 +1,9 @@
 """Thread-level read authorization, shared by the thread and protocol routers.
 
-Two audiences can open a thread: its owner, and an admin of its agent
-(workspace admin, or agent owner/admin), who gets a read-only view. The thread
+Two audiences can open a thread: its owner, and an admin of its agent (agent
+owner or agent-level admin grant), who gets a read-only view. The workspace
+admin role alone does not grant it: conversations stay private to the agent's
+own admins. The thread
 router resolved that for `GET /threads/{id}`; the protocol endpoints the chat
 page hydrates from (`/state`, `/history`, `/messages/{id}`, `/stream/events`)
 must accept the same audience, or an admin sees the header and an empty
@@ -28,7 +30,8 @@ async def resolve_viewer_role(
     """Return the viewer's role on this thread, or raise 403.
 
     - Owner of the thread → ``None`` (full access).
-    - Workspace admin or per-agent owner/admin → ``"admin"`` (read-only).
+    - Agent owner or agent-level admin → ``"admin"`` (read-only). A workspace
+      admin with no such grant on the agent is denied like anyone else.
     - Anyone else → ``PermissionDeniedError``.
     """
     if thread.user_id == current_user.id:
@@ -39,6 +42,7 @@ async def resolve_viewer_role(
         action="view this thread",
         user_id=current_user.id,
         user_role=current_user.role,
+        workspace_admin_bypass=False,
     )
     return "admin"
 
@@ -49,8 +53,8 @@ async def authorize_thread_read(
     service: ThreadService = Depends(get_thread_service),
     agent_service: AgentService = Depends(get_agent_service),
 ) -> ThreadDB:
-    """Load the thread for a read: its owner, or an admin of its agent
-    (404 if missing, 403 otherwise)."""
+    """Load the thread for a read: its owner, or an agent-level admin of its
+    agent (404 if missing, 403 otherwise)."""
     thread = await service.get(thread_id)
     await resolve_viewer_role(thread, current_user, agent_service)
     return thread

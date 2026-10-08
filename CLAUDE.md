@@ -366,7 +366,9 @@ It feeds two callers. Reads (`list` / `get`) stamp it onto `AgentResponse.curren
 
 Never hand-type a tuple of level strings. Routes whose handler does not otherwise call `AgentService` declare the gate instead: `dependencies=[Depends(require_agent_permission(EffectivePermission.editor, action="…"))]` (`app/agents/dependencies.py`). Both paths end in `require_permission`.
 
-Current gates: edit / config save / MCP bindings / sync-tools / team bindings → `editor`; delete, restore, permanent delete, permission grants, cross-user thread lists → `admin` (owner covers it); `is-ready` → `member`.
+Current gates: edit / config save / MCP bindings / sync-tools / team bindings → `editor`; delete, restore, permanent delete, permission grants → `admin` (owner covers it); `is-ready` → `member`.
+
+**Threads are the exception to the workspace-admin shortcut.** Reading another user's thread (`resolve_viewer_role`, the protocol reads, `GET /agents/{id}/threads`) gates on `admin` with `workspace_admin_bypass=False`: only the agent's owner or an agent-level `admin` grant qualifies, a workspace admin with no such grant is denied. `AgentResponse.can_view_threads` exposes the same resolution to the client.
 
 The service does **not** filter unauthorized agents out of `list`. Callers (e.g. Slack handlers) must filter on `current_user_permission is not None` when enforcing access.
 
