@@ -374,7 +374,9 @@ async def is_ready(
     dependencies=[
         Depends(
             require_agent_permission(
-                EffectivePermission.admin, action="view this agent's threads"
+                EffectivePermission.admin,
+                action="view this agent's threads",
+                workspace_admin_bypass=False,
             )
         )
     ],
@@ -384,6 +386,7 @@ async def list_agent_threads(
     page: PageParams = Depends(),
     thread_service: ThreadService = Depends(get_thread_service),
 ) -> Page[AgentThreadResponse]:
-    """List an agent's threads across users, newest first. Restricted to agent
-    owners and admins (workspace or agent-level)."""
+    """List an agent's threads across users, newest first. Restricted to the
+    agent's owner and admins — the workspace admin role alone does not grant
+    it."""
     return await thread_service.list_for_agent(agent_id, page)

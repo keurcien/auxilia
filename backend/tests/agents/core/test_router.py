@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.agents.core.service import get_agent_service
 from app.agents.mcp_servers.service import get_agent_mcp_server_service
-from app.agents.models import AgentDB, EffectivePermission
+from app.agents.models import AgentDB, EffectivePermission, PermissionLevel
 from app.exceptions import NotFoundError, PermissionDeniedError
 from app.main import app
 from app.threads.models import ThreadDB, ThreadSource
@@ -575,22 +575,23 @@ def test_list_agent_threads_forbidden_for_member(
 
 
 @pytest.mark.usefixtures("admin_user")
-def test_list_agent_threads_as_workspace_admin(client: TestClient, mock_db):
-    """Workspace admins see threads on any agent."""
+def test_list_agent_threads_forbidden_for_workspace_admin(client: TestClient, mock_db):
+    """The workspace admin role alone does not open an agent's threads."""
+    agent_id = uuid4()
+    mock_db.execute.return_value = make_result(access=(uuid4(), None))
+
+    response = client.get(f"/agents/{agent_id}/threads")
+    assert response.status_code == 403
+
+
+def test_list_agent_threads_as_agent_admin(client: TestClient, mock_db, admin_user):
+    """An agent-level admin grant opens them, workspace admin or not."""
     agent_id = uuid4()
     other_owner = uuid4()
-    agent = AgentDB(
-        id=agent_id,
-        name="Some agent",
-        instructions="...",
-        owner_id=other_owner,
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
-    )
     thread = _make_thread(agent_id=agent_id, user_id=other_owner)
 
     mock_db.execute.side_effect = [
-        owner_access(agent),  # the route's gate: get_access (admin role wins)
+        make_result(access=(other_owner, PermissionLevel.admin)),  # the gate
         make_count_result(1),  # list_for_agent: paginate count
         make_result(
             rows=[

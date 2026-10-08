@@ -290,14 +290,18 @@ export default function AgentEditor({
 					{agent && canManageAgent && (
 						<DropdownMenu
 							items={[
-								{
-									label: "View thread history",
-									icon: <History />,
-									onClick: () => {
-										router.push(`/agents/${agent.id}/threads`);
-									},
-								},
-								{ separator: true as const },
+								...(agent.canViewThreads
+									? [
+											{
+												label: "View thread history",
+												icon: <History />,
+												onClick: () => {
+													router.push(`/agents/${agent.id}/threads`);
+												},
+											},
+											{ separator: true as const },
+										]
+									: []),
 								{
 									label: "Archive agent",
 									icon: <ArchiveIcon />,
