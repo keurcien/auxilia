@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.4](https://github.com/keurcien/auxilia/compare/web-v0.10.3...web-v0.10.4) (2026-10-09)
+
+
+### Features
+
+* **agents:** let agent editors manage subagents ([#392](https://github.com/keurcien/auxilia/issues/392)) ([0cd8f03](https://github.com/keurcien/auxilia/commit/0cd8f036864febcbf20543d5570a77b8e65edf64))
+
 ## [0.10.3](https://github.com/keurcien/auxilia/compare/web-v0.10.2...web-v0.10.3) (2026-09-25)
 
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.7](https://github.com/keurcien/auxilia/compare/backend-v0.9.6...backend-v0.9.7) (2026-10-09)
+
+
+### Features
+
+* **agents:** let agent editors manage subagents ([#392](https://github.com/keurcien/auxilia/issues/392)) ([0cd8f03](https://github.com/keurcien/auxilia/commit/0cd8f036864febcbf20543d5570a77b8e65edf64))
+* **mcp:** add Puppetflow to server catalog ([#389](https://github.com/keurcien/auxilia/issues/389)) ([104eb86](https://github.com/keurcien/auxilia/commit/104eb86c768da9d1419779bc0ef58e4718e409b1))
+
 ## [0.9.6](https://github.com/keurcien/auxilia/compare/backend-v0.9.5...backend-v0.9.6) (2026-09-28)
 
 
