@@ -123,6 +123,13 @@ def test_anthropic_factory_effort_selects_adaptive_thinking():
         "anthropic", "claude-opus-4-8", "unit-test-key", reasoning_effort="max"
     )
     assert model.reasoning_effort == "max"
+    # Claude 5.5 rejects the legacy budget format outright, so it must reach
+    # the adaptive path even when no effort is resolved (e.g. an admin cleared
+    # the whitelist default, or a direct factory call).
+    for model_id in ("claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5"):
+        model = factory.create("anthropic", model_id, "unit-test-key")
+        assert model.thinking == {"type": "adaptive", "display": "summarized"}
+        assert model.reasoning_effort == "medium"
     # Legacy model, no choice → the historical budget format, untouched.
     model = factory.create("anthropic", "claude-sonnet-4-6", "unit-test-key")
     assert model.thinking == {"type": "enabled", "budget_tokens": 1024}

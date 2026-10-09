@@ -44,6 +44,35 @@ models:
     chef_slug: openai
     multimodal: true
     supports_structured_output: true
+  # GPT-5 line kept on purpose (checked 2026-10-09 against OpenAI's
+  # deprecations page): only the dated snapshots (gpt-5-2025-08-07 etc.)
+  # retire on 2026-12-11; these floating aliases stay live. Threads and
+  # triggers are pinned to these ids, and removing an entry strands them
+  # (409 on every send, triggers skip silently). Revisit after that date.
+  - provider: openai
+    model_id: gpt-5
+    display_name: GPT-5
+    chef: OpenAI
+    chef_slug: openai
+    multimodal: true
+    supports_structured_output: true
+    reasoning_effort_levels: [none, low, medium, high, xhigh]
+  - provider: openai
+    model_id: gpt-5-mini
+    display_name: GPT-5 mini
+    chef: OpenAI
+    chef_slug: openai
+    multimodal: true
+    supports_structured_output: true
+    reasoning_effort_levels: [none, low, medium, high, xhigh]
+  - provider: openai
+    model_id: gpt-5-nano
+    display_name: GPT-5 nano
+    chef: OpenAI
+    chef_slug: openai
+    multimodal: true
+    supports_structured_output: true
+    reasoning_effort_levels: [none, low, medium, high, xhigh]
   - provider: openai
     model_id: gpt-5.1
     display_name: GPT-5.1
@@ -143,8 +172,10 @@ models:
     multimodal: true
     supports_structured_output: true
   # Claude 5.5 models (added 2026-10-09) reject the legacy budget_tokens
-  # format, so each declares a default: it keeps every call on the adaptive
-  # path. API default effort is high (Sonnet 5.5) / medium (Haiku 5.5).
+  # format, so they are listed in ADAPTIVE_THINKING_MODELS (catalog.py) —
+  # that, not the default below, is what keeps them on the adaptive path.
+  # medium matches the other Claudes we serve; Anthropic's own API default
+  # is high (Sonnet 5.5) / medium (Haiku 5.5).
   - provider: anthropic
     model_id: claude-haiku-5-5
     display_name: Claude Haiku 5.5
@@ -227,12 +258,20 @@ models:
     reasoning_effort_default: medium
 
   # --- DeepSeek (native endpoint: json_object only, no schema guarantee) ---
+  # Flash default is `none` (thinking off) since 2026-10-09 — the CDN copy
+  # already serves it that way; explicit thread/trigger choices are untouched.
+  #
+  # deepseek-v4-flash and deepseek-v4-flash-vision-exp are RETIRED names
+  # (api-docs.deepseek.com, checked 2026-10-09): DeepSeek still accepts them
+  # but serves both from DeepSeek-V4.1-Flash at the Flash price. Kept so
+  # threads/triggers pinned to them keep running; the flags below describe
+  # the model that actually answers, i.e. the same as `deepseek-flash`.
   - provider: deepseek
     model_id: deepseek-v4-flash
     display_name: DeepSeek V4 Flash
     chef: DeepSeek
     chef_slug: deepseek
-    multimodal: false
+    multimodal: true
     supports_structured_output: false
     reasoning_effort_levels: [none, low, high, max]
     reasoning_effort_default: none
@@ -245,9 +284,11 @@ models:
     supports_structured_output: false
     reasoning_effort_levels: [none, low, high, max]
     reasoning_effort_default: none
+  # `deepseek-flash` is DeepSeek's floating alias for the current Flash
+  # (V4.1 as of 2026-10-09).
   - provider: deepseek
     model_id: deepseek-flash
-    display_name: DeepSeek-V4.1-Flash
+    display_name: DeepSeek V4.1 Flash
     chef: DeepSeek
     chef_slug: deepseek
     multimodal: true

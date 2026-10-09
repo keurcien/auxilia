@@ -1,5 +1,6 @@
 import pytest
 
+from app.model_providers.catalog import ADAPTIVE_THINKING_MODELS
 from app.model_providers.whitelist import (
     SupportedModel,
     bundled_whitelist,
@@ -117,3 +118,21 @@ def test_bundled_snapshot_is_valid():
     # The bundled snapshot must contain the models seeded by the migration.
     ids = {m.model_id for m in models}
     assert {"gpt-4o-mini", "claude-sonnet-5", "z-ai/glm-5.2"} <= ids
+
+
+def test_bundled_claude_5x_models_are_adaptive():
+    # Claude 5.x 400s on the legacy `budget_tokens` thinking format. The
+    # factory only picks the adaptive format for ids in ADAPTIVE_THINKING_MODELS
+    # (or when an effort is resolved) — and `reasoning_effort_default` is a
+    # policy knob an admin may clear on the CDN copy, so the whitelist must not
+    # be the only thing keeping a 5.x model off the legacy path.
+    claude_5x = {
+        m.model_id
+        for m in bundled_whitelist()
+        if m.provider == "anthropic"
+        and m.model_id.startswith(
+            ("claude-haiku-5", "claude-sonnet-5", "claude-opus-5")
+        )
+    }
+    assert claude_5x, "expected at least one Claude 5.x entry in the bundled whitelist"
+    assert claude_5x <= ADAPTIVE_THINKING_MODELS
