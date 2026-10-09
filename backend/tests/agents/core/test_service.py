@@ -58,10 +58,11 @@ def mock_repo():
         agent once and both paths agree.
 
         The kwargs are honoured, not ignored: the real query only joins the
-        team table when the caller forwards `user_team_id`, and hides an
-        archived agent unless asked for it. A mock that granted team access (or
-        resolved an archived agent) regardless would hide a service that forgot
-        to forward either one.
+        team table when the caller forwards `user_team_id`, and matches the
+        link on that exact team; it hides an archived agent unless asked for
+        it. A mock that granted team access (or resolved an archived agent)
+        regardless would hide a service that forgot to forward either one, or
+        one that let a member of some other team through.
         """
         for row in repo.list_with_permissions.return_value:
             agent = row[0]
@@ -69,11 +70,11 @@ def mock_repo():
                 continue
             if agent.is_archived and not include_archived:
                 return None
-            team_linked = len(row) > 3 and row[3] is not None
+            linked_team_id = row[3] if len(row) > 3 else None
             return AgentAccess(
                 owner_id=agent.owner_id,
                 granted=row[2] if len(row) > 2 else None,
-                team_member=bool(user_team_id) and team_linked,
+                team_member=user_team_id is not None and linked_team_id == user_team_id,
             )
         return None
 
@@ -1398,6 +1399,8 @@ async def test_create_subagent_requires_member_on_the_subagent(service, mock_rep
 
 
 async def test_create_subagent_grants_team_members(service, mock_repo):
+    """Team-derived `member` on the subagent is enough — and only for the
+    team the subagent is actually bound to."""
     supervisor, sub = make_agent(), make_agent(name="Sub")
     mock_repo.get.side_effect = lambda agent_id: {
         supervisor.id: supervisor,
@@ -1405,6 +1408,16 @@ async def test_create_subagent_grants_team_members(service, mock_repo):
     }.get(agent_id)
     team_id = uuid4()
     mock_repo.list_with_permissions.return_value = [(sub, None, None, team_id)]
+
+    with pytest.raises(PermissionDeniedError):
+        await service.create_subagent(
+            supervisor.id,
+            sub.id,
+            user_id=uuid4(),
+            user_role=WorkspaceRole.editor,
+            user_team_id=uuid4(),
+        )
+    mock_repo.create_subagent_link.assert_not_called()
 
     await service.create_subagent(
         supervisor.id,
