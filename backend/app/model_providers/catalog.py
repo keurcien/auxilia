@@ -42,9 +42,20 @@ def _google_adc() -> tuple[google.auth.credentials.Credentials, str | None] | No
 # Opus 4.7+ dropped manual extended thinking and return a 400 for the legacy
 # `{"type": "enabled", "budget_tokens": ...}` format. Everything else uses
 # the legacy `enabled` format. (Opus 5 thinks by default even without the
-# opt-in, but it rejects the legacy format too, so it belongs here.)
+# opt-in, but it rejects the legacy format too, so it belongs here.) Every
+# Claude 5.x id must be listed — the whitelist's `reasoning_effort_default`
+# is a UI policy knob that an admin may clear, not a wire-format guarantee
+# (tests/model_providers/test_whitelist.py enforces this).
 ADAPTIVE_THINKING_MODELS: frozenset[str] = frozenset(
-    {"claude-opus-4-6", "claude-opus-4-8", "claude-sonnet-5", "claude-opus-5"}
+    {
+        "claude-opus-4-6",
+        "claude-opus-4-8",
+        "claude-sonnet-5",
+        "claude-opus-5",
+        "claude-haiku-5-5",
+        "claude-sonnet-5-5",
+        "claude-opus-5-5",
+    }
 )
 
 
