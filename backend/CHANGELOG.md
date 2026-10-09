@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.8](https://github.com/keurcien/auxilia/compare/backend-v0.9.7...backend-v0.9.8) (2026-10-09)
+
+
+### Bug Fixes
+
+* **models:** Update list ([#395](https://github.com/keurcien/auxilia/issues/395)) ([37a7a15](https://github.com/keurcien/auxilia/commit/37a7a15b7ddb25b8a1691f9401ab61ba3cccc395))
+
 ## [0.9.7](https://github.com/keurcien/auxilia/compare/backend-v0.9.6...backend-v0.9.7) (2026-10-09)
 
 
