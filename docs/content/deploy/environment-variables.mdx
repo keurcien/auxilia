@@ -8,15 +8,16 @@ A full example lives in [`.env.example`](https://github.com/keurcien/auxilia/blo
 
 These must be set for **auxilia** to start. Missing any of them will fail backend boot.
 
-| Variable                    | Notes                                                                 |
-| --------------------------- | --------------------------------------------------------------------- |
-| `DATABASE_URL`              | `postgresql+psycopg://user:pass@host:5432/dbname` connection string   |
-| `REDIS_HOST` / `REDIS_PORT` | Reachable from the backend (OAuth tokens are cached here)             |
-| `JWT_SECRET_KEY`            | 32+ random characters — used to sign session cookies                  |
-| `SALT`                      | Salt for AES-GCM encryption of stored MCP API keys                    |
-| `FRONTEND_URL`              | Public URL of the web app (used as OAuth redirect base)               |
-| `BACKEND_URL`               | Internal URL the Next.js proxy uses to reach the backend (web only)   |
-| One LLM key                 | See [LLM providers](#llm-providers) — at least one is required        |
+| Variable                                           | Notes                                                                 |
+| -------------------------------------------------- | --------------------------------------------------------------------- |
+| `DB_HOST` / `DB_PORT`                              | PostgreSQL host and port reachable from the backend                   |
+| `DB_USER` / `DB_PASSWORD` / `DB_NAME`              | PostgreSQL credentials and database name                              |
+| `REDIS_HOST` / `REDIS_PORT`                        | Reachable from the backend (OAuth tokens are cached here)             |
+| `JWT_SECRET_KEY`                                   | 32+ random characters — used to sign session cookies                  |
+| `SALT`                                             | Salt for AES-GCM encryption of stored MCP API keys                    |
+| `FRONTEND_URL`                                     | Public URL of the web app (used as OAuth redirect base)               |
+| `BACKEND_URL`                                      | Internal URL the Next.js proxy uses to reach the backend (web only)   |
+| One LLM key                                        | See [LLM providers](#llm-providers) — at least one is required        |
 
 In production, also set:
 
