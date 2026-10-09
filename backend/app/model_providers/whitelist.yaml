@@ -45,30 +45,6 @@ models:
     multimodal: true
     supports_structured_output: true
   - provider: openai
-    model_id: gpt-5
-    display_name: GPT-5
-    chef: OpenAI
-    chef_slug: openai
-    multimodal: true
-    supports_structured_output: true
-    reasoning_effort_levels: [none, low, medium, high, xhigh]
-  - provider: openai
-    model_id: gpt-5-mini
-    display_name: GPT-5 mini
-    chef: OpenAI
-    chef_slug: openai
-    multimodal: true
-    supports_structured_output: true
-    reasoning_effort_levels: [none, low, medium, high, xhigh]
-  - provider: openai
-    model_id: gpt-5-nano
-    display_name: GPT-5 nano
-    chef: OpenAI
-    chef_slug: openai
-    multimodal: true
-    supports_structured_output: true
-    reasoning_effort_levels: [none, low, medium, high, xhigh]
-  - provider: openai
     model_id: gpt-5.1
     display_name: GPT-5.1
     chef: OpenAI
@@ -128,6 +104,35 @@ models:
     supports_structured_output: true
     reasoning_effort_levels: [none, low, medium, high, xhigh, max]
     reasoning_effort_default: medium
+  - provider: openai
+    model_id: gpt-6-luna
+    display_name: GPT-6 Luna
+    chef: OpenAI
+    chef_slug: openai
+    multimodal: true
+    supports_structured_output: true
+    reasoning_effort_levels: [none, low, medium, high, xhigh, max]
+    reasoning_effort_default: medium
+  - provider: openai
+    model_id: gpt-6-sol
+    display_name: GPT-6 Sol
+    chef: OpenAI
+    chef_slug: openai
+    multimodal: true
+    supports_structured_output: true
+    reasoning_effort_levels: [none, low, medium, high, xhigh, max]
+    reasoning_effort_default: medium
+  # GPT-6.1 Sol (added 2026-10-09, docs-verified) 400s on effort `none`, so
+  # it isn't offered.
+  - provider: openai
+    model_id: gpt-6.1-sol
+    display_name: GPT-6.1 Sol
+    chef: OpenAI
+    chef_slug: openai
+    multimodal: true
+    supports_structured_output: true
+    reasoning_effort_levels: [low, medium, high, xhigh, max]
+    reasoning_effort_default: medium
 
   # --- Anthropic (native endpoint) ---
   - provider: anthropic
@@ -137,6 +142,18 @@ models:
     chef_slug: anthropic
     multimodal: true
     supports_structured_output: true
+  # Claude 5.5 models (added 2026-10-09) reject the legacy budget_tokens
+  # format, so each declares a default: it keeps every call on the adaptive
+  # path. API default effort is high (Sonnet 5.5) / medium (Haiku 5.5).
+  - provider: anthropic
+    model_id: claude-haiku-5-5
+    display_name: Claude Haiku 5.5
+    chef: Anthropic
+    chef_slug: anthropic
+    multimodal: true
+    supports_structured_output: true
+    reasoning_effort_levels: [low, medium, high, xhigh, max]
+    reasoning_effort_default: medium
   - provider: anthropic
     model_id: claude-sonnet-4-6
     display_name: Claude Sonnet 4.6
@@ -156,6 +173,15 @@ models:
     # Adaptive-thinking models (ADAPTIVE_THINKING_MODELS in catalog.py) have
     # always been served at effort medium — the applied default preserves
     # that. Anthropic's own API default is high.
+    reasoning_effort_default: medium
+  - provider: anthropic
+    model_id: claude-sonnet-5-5
+    display_name: Claude Sonnet 5.5
+    chef: Anthropic
+    chef_slug: anthropic
+    multimodal: true
+    supports_structured_output: true
+    reasoning_effort_levels: [low, medium, high, xhigh, max]
     reasoning_effort_default: medium
   - provider: anthropic
     model_id: claude-opus-4-6
@@ -190,6 +216,15 @@ models:
     supports_structured_output: true
     reasoning_effort_levels: [low, medium, high, xhigh, max]
     reasoning_effort_default: medium
+  - provider: anthropic
+    model_id: claude-opus-5-5
+    display_name: Claude Opus 5.5
+    chef: Anthropic
+    chef_slug: anthropic
+    multimodal: true
+    supports_structured_output: true
+    reasoning_effort_levels: [low, medium, high, xhigh, max]
+    reasoning_effort_default: medium
 
   # --- DeepSeek (native endpoint: json_object only, no schema guarantee) ---
   - provider: deepseek
@@ -200,7 +235,7 @@ models:
     multimodal: false
     supports_structured_output: false
     reasoning_effort_levels: [none, low, high, max]
-    reasoning_effort_default: low
+    reasoning_effort_default: none
   - provider: deepseek
     model_id: deepseek-v4-flash-vision-exp
     display_name: DeepSeek V4 Flash Vision Exp
@@ -209,7 +244,16 @@ models:
     multimodal: true
     supports_structured_output: false
     reasoning_effort_levels: [none, low, high, max]
-    reasoning_effort_default: low
+    reasoning_effort_default: none
+  - provider: deepseek
+    model_id: deepseek-flash
+    display_name: DeepSeek-V4.1-Flash
+    chef: DeepSeek
+    chef_slug: deepseek
+    multimodal: true
+    supports_structured_output: false
+    reasoning_effort_levels: [none, low, high, max]
+    reasoning_effort_default: none
   - provider: deepseek
     model_id: deepseek-v4-pro
     display_name: DeepSeek V4 Pro
@@ -229,20 +273,33 @@ models:
     multimodal: true
     supports_structured_output: true
     reasoning_effort_levels: [minimal, low, medium, high]
+  # 3.1 Pro (added 2026-10-09, docs-verified) replaces gemini-3-pro-preview,
+  # shut down 2026-03-09; it is still the only public Pro.
   - provider: google
-    model_id: gemini-3-pro-preview
-    display_name: Gemini 3 Pro (preview)
+    model_id: gemini-3.1-pro-preview
+    display_name: Gemini 3.1 Pro (preview)
     chef: Google
     chef_slug: google
     multimodal: true
     supports_structured_output: true
-    reasoning_effort_levels: [low, high]
+    reasoning_effort_levels: [low, medium, high]
   # Verified 2026-07-20 against the Generative Language models API: 3.5 Flash
   # is the only 3.5 chat model (no 3.5 Pro; live-translate is Live-API-only,
   # no generateContent → can't back an agent). Function calling tested live.
   - provider: google
     model_id: gemini-3.5-flash
     display_name: Gemini 3.5 Flash
+    chef: Google
+    chef_slug: google
+    multimodal: true
+    supports_structured_output: true
+    reasoning_effort_levels: [minimal, low, medium, high]
+  # 3.5 Flash-Lite shipped 2026-07-21, the day after the check above (added
+  # 2026-10-09, docs-verified). No default on purpose: Google's default
+  # `minimal` can end multi-step tool use early; unset keeps dynamic thinking.
+  - provider: google
+    model_id: gemini-3.5-flash-lite
+    display_name: Gemini 3.5 Flash-Lite
     chef: Google
     chef_slug: google
     multimodal: true
@@ -312,6 +369,14 @@ models:
     chef_slug: meta
     multimodal: false
     supports_structured_output: false
+  # 1.3 (added 2026-10-09): function calling tested live; flags as above.
+  - provider: meta
+    model_id: muse-spark-1.3
+    display_name: Muse Spark 1.3
+    chef: Meta
+    chef_slug: meta
+    multimodal: false
+    supports_structured_output: false
 
   # --- OpenRouter (gateway; model_id is the OpenRouter slug, sent verbatim) ---
   # GLM SO flag: Z.ai's FIRST-PARTY API only offers json_object (no schema —
@@ -353,6 +418,28 @@ models:
   - provider: openrouter
     model_id: z-ai/glm-5.3-flash
     display_name: GLM 5.3 Flash
+    chef: Z.ai
+    chef_slug: z-ai
+    multimodal: true
+    supports_structured_output: false
+    reasoning_effort_levels: [low, high, max]
+    reasoning_effort_default: max
+  # GLM 5.3 Prime / FlashX (added 2026-10-09): faster variants of 5.3 / 5.3
+  # Flash, one OpenRouter host each (Alibaba / Z.AI), neither listing
+  # structured_outputs. Effort ladder mirrors the parents (OpenRouter: "inherits
+  # full capabilities"), not probed.
+  - provider: openrouter
+    model_id: z-ai/glm-5.3-prime
+    display_name: GLM 5.3 Prime
+    chef: Z.ai
+    chef_slug: z-ai
+    multimodal: false
+    supports_structured_output: false
+    reasoning_effort_levels: [low, high, max]
+    reasoning_effort_default: max
+  - provider: openrouter
+    model_id: z-ai/glm-5.3-flashx
+    display_name: GLM 5.3 FlashX
     chef: Z.ai
     chef_slug: z-ai
     multimodal: true
