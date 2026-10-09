@@ -1,0 +1,34 @@
+backend/app/model_providers/whitelist.yaml
+  s_7f220f3b4b7cd1::t_8e4527b7483cd6 146,148-156
+  s_7f220f3b4b7cd1::t_8d0c415418bc3e 125-126
+  s_7f220f3b4b7cd1::t_2f8f8520885147 178-185
+  s_7f220f3b4b7cd1::t_ca099872d7ffda 127-135
+  s_7f220f3b4b7cd1::t_598040adf6f09b 107-124,177,219-227,238,247-256
+  s_7f220f3b4b7cd1::t_8ae50c1ad3ec4e 276-277
+  s_7f220f3b4b7cd1::t_12d67d0cadecec 145,147
+  s_7f220f3b4b7cd1::t_a8212390e10288 372-379
+  s_7f220f3b4b7cd1::t_d3f602c02b207f 279-280,285
+  s_7f220f3b4b7cd1::t_ab39f6b38bdc12 427-448
+  s_7f220f3b4b7cd1::t_1ff9b4bec719b6 297-307
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "26aafa0e7b004350ef30ffe9fefd5eb9dbfce572",
+  "prompts": {},
+  "humans": {
+    "h_df81e42269d667": {
+      "author": "tgensol <thibaut@appchoose.io>"
+    }
+  },
+  "sessions": {
+    "s_7f220f3b4b7cd1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "37f87459-f169-48d6-9670-c854b6d75b92",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}
