@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import Image from "next/image";
 import {
 	MCPServer,
 	MCPServerTool,
@@ -12,6 +11,7 @@ import AgentMCPTool from "./agent-mcp-tool";
 import MCPToolsDialog from "./mcp-tools-dialog";
 import { AgentMCPServerForm } from "../../lib/agent-form";
 import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
+import { ServerIconTile } from "@/app/(protected)/mcp-servers/components/server-icon-tile";
 
 interface AgentMCPServerProps {
 	/** Saved agent id — undefined in create mode. */
@@ -280,36 +280,35 @@ export default function AgentMCPServer({
 		}
 	}, [toolsFetched, isConnected, fetchTools]);
 
+	const disabledTools = new Set(server.disabledTools ?? []);
+	const configurableTools = tools.filter((tool) => !disabledTools.has(tool.name));
 	const hasTools =
-		isConnected && !isLoading && !isCheckingConnection && tools.length > 0;
+		isConnected &&
+		!isLoading &&
+		!isCheckingConnection &&
+		configurableTools.length > 0;
 
 	return (
 		<div className="overflow-hidden rounded-[10px] border border-border bg-card">
 			<div className="flex items-center gap-2.5 bg-card px-4 py-3">
-				<span className="flex size-[26px] shrink-0 items-center justify-center rounded-[6px] border border-border bg-card">
-					<Image
-						unoptimized
-						width={14}
-						height={14}
-						src={
-							server.iconUrl ??
-							"https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/mcp.png"
-						}
-						alt={server.name}
-						className="rounded-[2px] object-contain"
-					/>
-				</span>
+				<ServerIconTile
+					iconUrl={server.iconUrl}
+					serverId={server.id}
+					imageRevision={server.imageRevision}
+					name={server.name}
+					size={26}
+				/>
 				<span className="truncate text-[13.5px] font-semibold text-foreground">
 					{server.name}
 				</span>
 				{!isCheckingConnection &&
 					(isConnected ? (
-						<span className="rounded-[4px] bg-success-bg px-2 py-0.5 font-mono text-[9.5px] font-semibold tracking-[0.05em] text-success">
-							CONNECTED
+						<span className="rounded-[4px] bg-success-bg px-2 py-0.5 text-[9.5px] font-semibold text-success">
+							Connected
 						</span>
 					) : (
-						<span className="rounded-[4px] bg-[#FBEFED] px-2 py-0.5 font-mono text-[9.5px] font-semibold tracking-[0.05em] text-[#B04A3A]">
-							NOT CONNECTED
+						<span className="rounded-[4px] bg-[#FBEFED] px-2 py-0.5 text-[9.5px] font-semibold text-[#B04A3A]">
+							Not connected
 						</span>
 					))}
 				<button
@@ -348,10 +347,10 @@ export default function AgentMCPServer({
 						<div className="px-4 py-3 text-[13px] text-muted-foreground">
 							Loading tools…
 						</div>
-					) : tools && tools.length > 0 ? (
+					) : configurableTools.length > 0 ? (
 						// Show ~5-6 tool rows; longer lists scroll within the card.
 						<div className="max-h-80 overflow-y-auto [scrollbar-width:thin]">
-							{tools.map((tool) => (
+							{configurableTools.map((tool) => (
 								<AgentMCPTool
 									key={tool.name}
 									toolName={tool.name}
@@ -366,7 +365,7 @@ export default function AgentMCPServer({
 						</div>
 					) : (
 						<div className="px-4 py-3 text-[13px] text-muted-foreground">
-							No tools available
+							No enabled tools available
 						</div>
 					)}
 					{(hasTools || !readOnly) && (
@@ -377,7 +376,7 @@ export default function AgentMCPServer({
 						>
 							{hasTools && (
 								<button
-									className="cursor-pointer rounded-[7px] px-3 py-1.5 text-[12.5px] font-semibold text-petrol transition-opacity hover:opacity-80"
+									className="cursor-pointer rounded-[7px] px-3 py-1.5 text-[12.5px] font-semibold text-petrol transition-opacity hover:opacity-80 dark:text-panel-terminal"
 									onClick={() => {
 										setDetailsOpen(true);
 									}}
@@ -405,7 +404,7 @@ export default function AgentMCPServer({
 					open={detailsOpen}
 					onOpenChange={setDetailsOpen}
 					server={server}
-					tools={tools}
+					tools={configurableTools}
 					statusFor={statusFor}
 				/>
 			)}

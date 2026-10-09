@@ -38,6 +38,7 @@ class SlackEvent(BaseModel):
     bot_id: str | None = None
     subtype: str | None = None
     thread_ts: str | None = None
+    channel_type: str | None = None
     assistant_thread: SlackAssistantThread | None = None
 
 
@@ -48,6 +49,8 @@ class SlackEventPayload(BaseModel):
     token: str | None = None
     challenge: str | None = None
     team_id: str | None = None
+    api_app_id: str | None = None
+    event_id: str | None = None
     event: SlackEvent | None = None
 
 
@@ -98,6 +101,7 @@ class SlackInteractionPayload(BaseModel):
     message: SlackInteractionMessage | None = None
     message_ts: str | None = None
     callback_id: str | None = None
+    api_app_id: str | None = None
     team: dict | None = None
 
 

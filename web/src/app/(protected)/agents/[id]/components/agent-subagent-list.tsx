@@ -23,7 +23,7 @@ interface AgentSubagentListProps {
 	onChange?: (subagentIds: string[]) => void;
 	/** Asked before a row navigates away to the subagent's page; return false
 	 * to stay (the editor uses it to guard an unsaved draft). */
-	confirmLeave?: () => boolean;
+	confirmLeave?: () => boolean | Promise<boolean>;
 }
 
 export default function AgentSubagentList({
@@ -79,8 +79,8 @@ export default function AgentSubagentList({
 	if (isSubagent) {
 		return (
 			<div className="mt-7 flex flex-col">
-				<span className="mb-3 font-mono text-[10.5px] font-semibold tracking-[0.09em] text-label dark:text-muted-foreground">
-					SUBAGENTS
+				<span className="mb-3 text-[10.5px] font-semibold text-label dark:text-muted-foreground">
+					Subagents
 				</span>
 				<div className="flex items-start gap-2.5 rounded-[10px] border border-border bg-card px-4 py-3.5">
 					<Info className="mt-0.5 size-4 shrink-0 text-meta dark:text-panel-dim" />
@@ -95,15 +95,15 @@ export default function AgentSubagentList({
 	return (
 		<div className="mt-7 flex flex-col">
 			<div className="mb-3 flex min-h-[24px] shrink-0 items-center justify-between">
-				<span className="font-mono text-[10.5px] font-semibold tracking-[0.09em] text-label dark:text-muted-foreground">
-					SUBAGENTS{" "}
+				<span className="text-[10.5px] font-semibold text-label dark:text-muted-foreground">
+					Subagents{" "}
 					<span className="tracking-normal text-meta dark:text-panel-dim">
 						{subagents.length}
 					</span>
 				</span>
 				{!readOnly && (
 					<button
-						className="flex cursor-pointer items-center gap-1 text-[12.5px] font-semibold text-petrol transition-opacity hover:opacity-80"
+						className="flex cursor-pointer items-center gap-1 text-[12.5px] font-semibold text-petrol transition-opacity hover:opacity-80 dark:text-panel-terminal"
 						onClick={() => { setDialogOpen(true); }}
 					>
 						<Plus className="size-3" />
@@ -130,13 +130,16 @@ export default function AgentSubagentList({
 								}}
 							>
 								<AgentAvatar
+									agentId={sub.id}
+									name={sub.name}
+									imageRevision={sub.imageRevision}
 									color={sub.color}
 									emoji={sub.emoji}
 									size="sm"
 									className="text-base"
 								/>
 								<span className="min-w-0 flex-1">
-									<span className="block truncate font-mono text-[12.5px] font-semibold text-petrol">
+									<span className="block truncate text-[12.5px] font-semibold text-petrol">
 										{sub.name}
 									</span>
 									<span className="mt-0.5 block truncate text-xs text-muted-foreground">

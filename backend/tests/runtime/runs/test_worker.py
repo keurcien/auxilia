@@ -1,10 +1,13 @@
 import asyncio
 from contextlib import suppress
-from uuid import uuid4
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+from uuid import UUID, uuid4
 
 import pytest
 
 import app.runtime.runs.worker as worker_mod
+from app.agents.core.service import AgentService
 from app.runtime.runs import keys
 from app.runtime.runs.events import RunEventStream
 from app.runtime.runs.liveness import DispatcherLiveness, RunLiveness
@@ -13,9 +16,14 @@ from app.runtime.runs.service import RunService
 from app.runtime.runs.settings import run_settings
 from app.runtime.runs.state import RunStatus
 from app.runtime.runs.worker import RunDispatcher, RunWorker
+from app.threads.models import ThreadDB
+from app.users.models import UserDB, WorkspaceRole
+from app.workspaces.repository import WorkspaceRepository
 
 
 pytestmark = pytest.mark.usefixtures("run_db")
+WORKSPACE_ID = UUID("00000000-0000-4000-8000-000000000001")
+USER_ID = UUID("00000000-0000-4000-8000-000000000002")
 
 
 def _event(n: int) -> dict:
@@ -43,7 +51,19 @@ class _FakeSession:
         return False
 
     async def get(self, model, pk):
-        return object()  # a non-None ThreadDB stand-in
+        if model is UserDB:
+            return SimpleNamespace(
+                id=pk,
+                role=WorkspaceRole.member,
+                team_id=None,
+                set_workspace_membership=lambda membership: None,
+            )
+        assert model is ThreadDB
+        return SimpleNamespace(
+            workspace_id=WORKSPACE_ID,
+            agent_id=uuid4(),
+            user_id=USER_ID,
+        )
 
     async def commit(self):
         pass
@@ -57,16 +77,19 @@ def patch_agent(monkeypatch):
     async def _no_interrupt(*_):
         return False
 
-    async def _authorized(*_):
-        return False
-
     monkeypatch.setattr(RunWorker, "_is_interrupted", _no_interrupt)
-    monkeypatch.setattr(worker_mod, "_mcp_unauthorized", _authorized)
+    monkeypatch.setattr(
+        WorkspaceRepository,
+        "get_membership",
+        AsyncMock(return_value=SimpleNamespace()),
+    )
+    monkeypatch.setattr(AgentService, "require_permission", AsyncMock())
+    monkeypatch.setattr(AgentService, "ensure_subagent_scopes", AsyncMock())
 
 
 async def _create_and_claim(service: RunService, **kwargs) -> RunDB:
     """Create a run and claim it, as the dispatcher would before `worker.run`."""
-    kwargs.setdefault("user_id", str(uuid4()))
+    kwargs.setdefault("user_id", str(USER_ID))
     record = await service.create(**kwargs)
     claimed = await service.claim_next()
     assert claimed is not None and claimed.id == record.id
@@ -87,7 +110,7 @@ async def test_worker_runs_to_success_and_frees_thread(redis):
     chunks = [c async for c in service.stream(record.id, "0")]
     assert any('"t":1' in c for c in chunks)
     assert '"event":"completed"' in chunks[-1]
-    assert await service.get_active("t1") is None
+    assert await service.get_active("t1", WORKSPACE_ID) is None
 
 
 @pytest.mark.usefixtures("patch_agent")
@@ -108,58 +131,6 @@ async def test_worker_marks_error_when_agent_raises(redis, monkeypatch):
     assert "model exploded" in back.error
     chunks = [c async for c in service.stream(record.id, "0")]
     assert '"event":"failed"' in chunks[-1] and "model exploded" in chunks[-1]
-
-
-@pytest.mark.usefixtures("patch_agent")
-async def test_worker_gates_unauthorized_mcp_before_building_agent(redis, monkeypatch):
-    """Background-launched runs (trigger scanner, Slack) have no HTTP caller to
-    receive a 401 — the worker must fail them fast with an actionable error
-    instead of building the agent and dying inside the MCP session."""
-
-    class _NeverBuiltAgent(_FakeAgent):
-        @classmethod
-        async def build(cls, *, thread, db, resume=False):
-            raise AssertionError("Agent.build must not run when MCP is unauthorized")
-
-    gate_args: list = []
-
-    async def _unauthorized(db, thread, user_id):
-        gate_args.append(user_id)
-        return True
-
-    monkeypatch.setattr(worker_mod, "Agent", _NeverBuiltAgent)
-    monkeypatch.setattr(worker_mod, "_mcp_unauthorized", _unauthorized)
-    service = RunService(redis)
-    record = await _create_and_claim(service, thread_id="t2c", input={"messages": []})
-    await RunWorker(redis).run(record)
-    back = await service.get(record.id)
-    assert back.status == RunStatus.error
-    assert "MCP authorization required" in back.error
-    # Probing the wrong identity would authorize against the wrong user.
-    assert gate_args == [str(record.user_id)]
-
-
-async def test_mcp_unauthorized_delegates_to_the_http_preflight(monkeypatch):
-    """One definition of "unauthorized" for every launch path: the helper is
-    True exactly when the HTTP gate would 401."""
-    from types import SimpleNamespace
-
-    thread = SimpleNamespace(agent_id="a1")
-    calls: list = []
-
-    async def _blocked(db, agent_id, user_id):
-        calls.append((agent_id, user_id))
-        return "https://auth.example"
-
-    async def _passes(db, agent_id, user_id):
-        return None
-
-    monkeypatch.setattr(RunService, "required_oauth_url", _blocked)
-    assert await worker_mod._mcp_unauthorized(None, thread, "u1") is True
-    assert calls == [("a1", "u1")]
-
-    monkeypatch.setattr(RunService, "required_oauth_url", _passes)
-    assert await worker_mod._mcp_unauthorized(None, thread, "u1") is False
 
 
 @pytest.mark.usefixtures("patch_agent")
@@ -218,7 +189,7 @@ async def test_cancel_mid_run_stops_and_frees_thread(redis, monkeypatch):
     await asyncio.wait_for(run_task, timeout=5)
 
     assert (await service.get(record.id)).status == RunStatus.cancelled
-    assert await service.get_active("t5") is None
+    assert await service.get_active("t5", WORKSPACE_ID) is None
 
 
 @pytest.mark.usefixtures("patch_agent")
@@ -308,7 +279,7 @@ async def test_worker_succeeds_when_delivery_factory_raises(redis):
 
     # A factory crash must not abort the run before finalize/cleanup.
     assert (await service.get(record.id)).status == RunStatus.success
-    assert await service.get_active("td4") is None
+    assert await service.get_active("td4", WORKSPACE_ID) is None
 
 
 @pytest.mark.usefixtures("patch_agent")
@@ -340,7 +311,9 @@ async def test_worker_clears_liveness_key_on_finish(redis):
     service = RunService(redis)
     record = await _create_and_claim(service, thread_id="t8", input={"messages": []})
     await RunWorker(redis).run(record)
-    assert not await RunLiveness(record.id, redis).is_alive()
+    assert not await RunLiveness(
+        record.id, redis, workspace_id=record.workspace_id
+    ).is_alive()
 
 
 # ---------------------------------------------------------------------------
@@ -352,8 +325,8 @@ async def test_heartbeat_survives_a_failing_stamp(redis, monkeypatch, until):
     """One transient error used to kill this loop silently. Liveness then
     expired and the reaper finalized a healthy streaming run as `error`."""
     monkeypatch.setattr(run_settings, "heartbeat_interval_seconds", 0)
-    liveness = RunLiveness("r-hb", redis)
-    events = RunEventStream("r-hb", redis)
+    liveness = RunLiveness("r-hb", redis, workspace_id=WORKSPACE_ID)
+    events = RunEventStream("r-hb", redis, workspace_id=WORKSPACE_ID)
     calls = 0
 
     async def _flaky(**_):
@@ -379,12 +352,14 @@ async def test_heartbeat_survives_a_failing_stamp(redis, monkeypatch, until):
 async def test_heartbeat_refreshes_the_event_log_ttl(redis, monkeypatch, until):
     """A run longer than the safety TTL must not expire its own live stream."""
     monkeypatch.setattr(run_settings, "heartbeat_interval_seconds", 0)
-    events = RunEventStream("r-hb2", redis)
+    events = RunEventStream("r-hb2", redis, workspace_id=WORKSPACE_ID)
     await events.publish("a")
     await redis.expire(events._key, 5)
 
     task = asyncio.create_task(
-        RunWorker(redis)._heartbeat(RunLiveness("r-hb2", redis), events)
+        RunWorker(redis)._heartbeat(
+            RunLiveness("r-hb2", redis, workspace_id=WORKSPACE_ID), events
+        )
     )
 
     async def _ttl_pushed_out() -> bool:
@@ -532,7 +507,7 @@ async def test_a_losing_finalize_does_not_disturb_a_live_run(redis):
     )
     claimed = await service.claim_next()
     assert claimed is not None
-    liveness = RunLiveness(record.id, redis)
+    liveness = RunLiveness(record.id, redis, workspace_id=record.workspace_id)
     await liveness.stamp(ttl=60)
 
     # The reaper reaps a *pending* zombie; the dispatcher already claimed it.
@@ -556,11 +531,11 @@ async def test_an_already_terminal_finalize_still_expires_ephemera(redis):
     )
     await service.claim_next()
     await service.finalize(record.id, RunStatus.success)
-    await redis.persist(keys.run_events_key(record.id))
+    await redis.persist(keys.run_events_key(record.id, record.workspace_id))
 
     await service.finalize(record.id, RunStatus.success)
 
-    assert await redis.ttl(keys.run_events_key(record.id)) > 0
+    assert await redis.ttl(keys.run_events_key(record.id, record.workspace_id)) > 0
 
 
 async def test_a_saturated_dispatcher_stays_healthy(

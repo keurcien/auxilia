@@ -1,8 +1,9 @@
 "use client";
 
-import type { CSSProperties, ReactNode } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Folder } from "lucide-react";
+import type { GroupNode } from "@/lib/groups";
 
 export interface DataTableColumn<T> {
 	key: string;
@@ -37,26 +38,110 @@ interface DataTableProps<T> {
 	/** Click handler alternative to `getRowHref` for rows that need logic
 	 * before navigating (permission checks, dialogs…). */
 	onRowClick?: (row: T) => void;
+	/** While selection mode is active, row clicks toggle selection instead of
+	 * navigating or running the normal row action. */
+	selectionMode?: boolean;
+	onRowSelectionClick?: (row: T, shiftKey: boolean) => void;
+	isRowSelectable?: (row: T) => boolean;
 	/** Optional row grouping: consecutive rows sharing a key get a subheader
 	 * row above the first one. Rows must arrive pre-sorted by group. */
 	groupBy?: {
 		key: (row: T) => string;
 		header: (key: string) => ReactNode;
 	};
+	/** Slash-delimited resource groups rendered as nested, collapsible rows. */
+	groupTree?: {
+		groups: GroupNode<T>[];
+		ungrouped: T[];
+		storageKey: string;
+	};
 	/** Cap the rows container at the available height and scroll it
 	 * internally. Needs a bounded-height flex ancestry (e.g. WorkspacePage
 	 * with `fillHeight`); the container still hugs its content when short. */
 	scrollBody?: boolean;
+	/** Preserve the table's columns below this width and scroll horizontally. */
+	minTableWidth?: string;
+	/** Extend through WorkspacePage's mobile/tablet side padding. */
+	bleedOnNarrow?: boolean;
 	pagination?: DataTablePagination;
+	isRowSelected?: (row: T) => boolean;
 	className?: string;
 }
 
 const HEADER_LABEL_CLASS =
-	"font-mono text-[10px] font-semibold uppercase tracking-[0.09em] text-meta dark:text-panel-dim";
+	"text-[10px] font-semibold text-meta dark:text-panel-dim";
 const ROW_CLASS =
 	"group border-b border-hairline py-[11px] transition-colors duration-[110ms] last:border-b-0 hover:bg-sidebar dark:border-white/5 dark:hover:bg-white/5";
 const PAGER_BUTTON_CLASS =
 	"flex size-7 items-center justify-center rounded-[7px] border border-border font-mono text-[11.5px] font-medium text-subtle cursor-pointer transition-colors hover:bg-sidebar disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent dark:border-white/10 dark:text-muted-foreground dark:hover:bg-white/5";
+
+function DataTableTreeGroup<T>({
+	node,
+	renderRow,
+	storageKey,
+}: {
+	node: GroupNode<T>;
+	renderRow: (row: T, depth?: number) => ReactNode;
+	storageKey: string;
+}) {
+	const [expanded, setExpanded] = useState(() => {
+		try {
+			return localStorage.getItem(storageKey) !== "0";
+		} catch {
+			return true;
+		}
+	});
+
+	const toggle = () => {
+		setExpanded((current) => {
+			const next = !current;
+			try {
+				localStorage.setItem(storageKey, next ? "1" : "0");
+			} catch {
+				// The in-session state still works when persistence is unavailable.
+			}
+			return next;
+		});
+	};
+
+	return (
+		<>
+			<button
+				type="button"
+				aria-expanded={expanded}
+				onClick={toggle}
+				className="flex w-full cursor-pointer items-center gap-2 border-b border-hairline bg-sidebar px-[18px] py-[9px] text-left transition-colors hover:bg-hover dark:border-white/5 dark:bg-white/[0.03] dark:hover:bg-white/[0.06]"
+				style={{ paddingLeft: `${18 + node.depth * 20}px` }}
+			>
+				<ChevronRight
+					className={`size-3.5 shrink-0 text-meta transition-transform ${
+						expanded ? "rotate-90" : ""
+					}`}
+				/>
+				<Folder className="size-3.5 shrink-0 text-meta" />
+				<span className="text-[11px] font-semibold text-subtle dark:text-panel-dim">
+					{node.name}
+				</span>
+				<span className="font-mono text-[10.5px] text-meta dark:text-panel-dim">
+					{node.count}
+				</span>
+			</button>
+			{expanded && (
+				<>
+					{node.items.map((row) => renderRow(row, node.depth + 1))}
+					{node.children.map((child) => (
+						<DataTableTreeGroup
+							key={child.path}
+							node={child}
+							renderRow={renderRow}
+							storageKey={`${storageKey}:${child.path}`}
+						/>
+					))}
+				</>
+			)}
+		</>
+	);
+}
 
 function cellClass(column: Pick<DataTableColumn<never>, "hideBelowMd" | "align">): string {
 	return [
@@ -104,8 +189,9 @@ function PaginationFooter({
 
 	return (
 		<div className="flex items-center justify-between px-1 py-3.5">
-			<span className="font-mono text-[11px] text-meta dark:text-panel-dim">
-				{start}–{end} of {total}
+			<span className="text-[11px] text-meta dark:text-panel-dim">
+				<span className="font-mono">{start}–{end}</span> of{" "}
+				<span className="font-mono">{total}</span>
 				{itemLabel ? ` ${itemLabel}` : ""}
 			</span>
 			{pageCount > 1 && (
@@ -191,9 +277,16 @@ export function DataTable<T>({
 	emptyMessage = "No results.",
 	getRowHref,
 	onRowClick,
+	selectionMode = false,
+	onRowSelectionClick,
+	isRowSelectable,
 	groupBy,
+	groupTree,
 	scrollBody = false,
+	minTableWidth,
+	bleedOnNarrow = false,
 	pagination,
+	isRowSelected,
 	className = "",
 }: DataTableProps<T>) {
 	const gridTemplates = {
@@ -205,13 +298,105 @@ export function DataTable<T>({
 	} as CSSProperties;
 	const gridClass =
 		"grid items-center gap-4 px-[18px] [grid-template-columns:var(--dt-cols)] md:[grid-template-columns:var(--dt-cols-md)]";
+	const tableWidthStyle = minTableWidth
+		? ({ minWidth: minTableWidth } satisfies CSSProperties)
+		: undefined;
+	const tableGutterClass = bleedOnNarrow
+		? "mx-4 sm:mx-6 lg:mx-8 xl:mx-0"
+		: "";
 
-	const renderCells = (row: T) =>
-		columns.map((column) => (
-			<div key={column.key} className={cellClass(column)}>
+	const renderCells = (row: T, depth = 0) =>
+		columns.map((column, index) => (
+			<div
+				key={column.key}
+				className={cellClass(column)}
+				style={index === 0 ? { paddingLeft: `${depth * 20}px` } : undefined}
+			>
 				{column.cell(row)}
 			</div>
 		));
+	const renderRow = (row: T, depth = 0): ReactNode => {
+		const selected = isRowSelected?.(row) ?? false;
+		const selectRow =
+			selectionMode && (isRowSelectable?.(row) ?? true)
+				? onRowSelectionClick
+				: undefined;
+		const selectedClass = selected
+			? "bg-petrol/[0.055] shadow-[inset_3px_0_0_0_var(--color-petrol)] dark:bg-petrol/10"
+			: "";
+		if (getRowHref) {
+			if (selectRow) {
+				return (
+					<div
+						key={rowKey(row)}
+						data-selected={selected || undefined}
+						onClick={(event) => {
+							selectRow(row, event.shiftKey);
+						}}
+						className={`${gridClass} ${ROW_CLASS} ${selectedClass} cursor-pointer`}
+					>
+						{renderCells(row, depth)}
+					</div>
+				);
+			}
+			return (
+				<Link
+					key={rowKey(row)}
+					href={getRowHref(row)}
+					data-selected={selected || undefined}
+					className={`${gridClass} ${ROW_CLASS} ${selectedClass}`}
+				>
+					{renderCells(row, depth)}
+				</Link>
+			);
+		}
+		if (selectRow) {
+			return (
+				<div
+					key={rowKey(row)}
+					data-selected={selected || undefined}
+					onClick={(event) => {
+						selectRow(row, event.shiftKey);
+					}}
+					className={`${gridClass} ${ROW_CLASS} ${selectedClass} cursor-pointer`}
+				>
+					{renderCells(row, depth)}
+				</div>
+			);
+		}
+		if (onRowClick) {
+			return (
+				<div
+					key={rowKey(row)}
+					role="button"
+					tabIndex={0}
+					data-selected={selected || undefined}
+					onClick={() => {
+						onRowClick(row);
+					}}
+					onKeyDown={(event) => {
+						if (event.target !== event.currentTarget) return;
+						if (event.key === "Enter" || event.key === " ") {
+							event.preventDefault();
+							onRowClick(row);
+						}
+					}}
+					className={`${gridClass} ${ROW_CLASS} ${selectedClass} cursor-pointer`}
+				>
+					{renderCells(row, depth)}
+				</div>
+			);
+		}
+		return (
+			<div
+				key={rowKey(row)}
+				data-selected={selected || undefined}
+				className={`${gridClass} ${ROW_CLASS} ${selectedClass}`}
+			>
+				{renderCells(row, depth)}
+			</div>
+		);
+	};
 
 	const showSkeleton = isLoading && rows.length === 0;
 	// Changes whenever another page (or filter result) lands, restarting the
@@ -221,9 +406,18 @@ export function DataTable<T>({
 	return (
 		<div
 			style={gridTemplates}
-			className={`${scrollBody ? "flex min-h-0 flex-col " : ""}${className}`}
+			className={`${scrollBody ? "flex min-h-0 flex-col " : ""}${
+				minTableWidth ? "overflow-x-auto overflow-y-hidden " : ""
+			}${
+				bleedOnNarrow
+					? "-mx-4 w-[calc(100%+2rem)] sm:-mx-6 sm:w-[calc(100%+3rem)] lg:-mx-8 lg:w-[calc(100%+4rem)] xl:mx-0 xl:w-full "
+					: ""
+			}${className}`}
 		>
-			<div className={`${gridClass} shrink-0 pb-2 pt-1`}>
+			<div
+				className={`${gridClass} ${tableGutterClass} shrink-0 pb-2 pt-1`}
+				style={tableWidthStyle}
+			>
 				{columns.map((column) => (
 					<span key={column.key} className={`${HEADER_LABEL_CLASS} ${cellClass(column)}`}>
 						{column.header}
@@ -232,7 +426,8 @@ export function DataTable<T>({
 			</div>
 
 			<div
-				className={`rounded-[10px] border border-border bg-card dark:border-white/10 ${
+				style={tableWidthStyle}
+				className={`${tableGutterClass} rounded-[10px] border border-border bg-card dark:border-white/10 ${
 					scrollBody
 						? "min-h-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
 						: "overflow-hidden"
@@ -261,7 +456,32 @@ export function DataTable<T>({
 								: "opacity-100 delay-0"
 						}`}
 					>
-						{rows.flatMap((row, index) => {
+						{groupTree ? (
+							<>
+								{groupTree.groups.map((group) => (
+									<DataTableTreeGroup
+										key={group.path}
+										node={group}
+										renderRow={renderRow}
+										storageKey={`${groupTree.storageKey}:${group.path}`}
+									/>
+								))}
+								{groupTree.ungrouped.length > 0 && (
+									<DataTableTreeGroup
+										node={{
+											name: "Default",
+											path: "__ungrouped__",
+											depth: 0,
+											items: groupTree.ungrouped,
+											children: [],
+											count: groupTree.ungrouped.length,
+										}}
+										renderRow={renderRow}
+										storageKey={`${groupTree.storageKey}:__ungrouped__`}
+									/>
+								)}
+							</>
+						) : rows.flatMap((row, index) => {
 							const elements: ReactNode[] = [];
 							if (groupBy) {
 								const groupKey = groupBy.key(row);
@@ -277,50 +497,7 @@ export function DataTable<T>({
 									);
 								}
 							}
-							if (getRowHref) {
-								elements.push(
-									<Link
-										key={rowKey(row)}
-										href={getRowHref(row)}
-										className={`${gridClass} ${ROW_CLASS}`}
-									>
-										{renderCells(row)}
-									</Link>,
-								);
-							} else if (onRowClick) {
-								elements.push(
-									// Button semantics so keyboard users can activate the
-									// row like the Link path.
-									<div
-										key={rowKey(row)}
-										role="button"
-										tabIndex={0}
-										onClick={() => {
-											onRowClick(row);
-										}}
-										onKeyDown={(event) => {
-											// Only when the row itself is focused — Enter/Space on a
-											// nested action button must activate that button, not
-											// navigate (the keyboard twin of the actions cell's
-											// stopPropagation on clicks).
-											if (event.target !== event.currentTarget) return;
-											if (event.key === "Enter" || event.key === " ") {
-												event.preventDefault();
-												onRowClick(row);
-											}
-										}}
-										className={`${gridClass} ${ROW_CLASS} cursor-pointer`}
-									>
-										{renderCells(row)}
-									</div>,
-								);
-							} else {
-								elements.push(
-									<div key={rowKey(row)} className={`${gridClass} ${ROW_CLASS}`}>
-										{renderCells(row)}
-									</div>,
-								);
-							}
+							elements.push(renderRow(row));
 							return elements;
 						})}
 					</div>

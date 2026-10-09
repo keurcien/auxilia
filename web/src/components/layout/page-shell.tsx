@@ -33,7 +33,9 @@ export function PageShell({ children }: { children: React.ReactNode }) {
 			    sidebar is an off-canvas sheet that needs an out-of-sheet control to
 			    reopen it. This floating chip is hidden on desktop, so the desktop
 			    layout is unchanged. */}
-			<SidebarTrigger className="md:hidden fixed left-3 top-3 z-50 size-9 rounded-lg border border-sidebar-border bg-sidebar shadow-raised cursor-pointer" />
+			{!isChat && (
+				<SidebarTrigger className="fixed left-3 top-[7px] z-50 size-9 cursor-pointer rounded-lg border border-sidebar-border bg-sidebar shadow-raised md:hidden" />
+			)}
 
 			{isChat ? (
 				<main className="flex-1 min-w-0 flex h-svh flex-col bg-background overflow-hidden">

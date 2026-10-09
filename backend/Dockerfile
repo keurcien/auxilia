@@ -57,6 +57,7 @@ COPY --from=builder --chown=appuser:appgroup /app/skillkit /app/skillkit
 COPY --from=builder --chown=appuser:appgroup /app/alembic /app/alembic
 COPY --from=builder --chown=appuser:appgroup /app/alembic.ini /app/alembic.ini
 COPY --from=builder --chown=appuser:appgroup /app/entrypoint.sh /app/entrypoint.sh
+COPY --from=builder --chown=appuser:appgroup /app/pyproject.toml /app/pyproject.toml
 
 # Set environment variables
 ENV PATH="/app/.venv/bin:$PATH"

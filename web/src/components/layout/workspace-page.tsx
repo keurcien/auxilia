@@ -3,6 +3,7 @@
 import { PageContainer } from "@/components/layout/page-container";
 import { SearchBar } from "@/components/ui/search-bar";
 import { cn } from "@/lib/utils";
+import { useWorkspacesStore } from "@/stores/workspaces-store";
 
 interface WorkspaceSearch {
 	placeholder: string;
@@ -23,6 +24,9 @@ interface WorkspacePageProps {
 	/** Pin the page (no page scroll) and give children the remaining height —
 	 * for content that scrolls internally (e.g. a capped table body). */
 	fillHeight?: boolean;
+	/** Let dense list pages use the full workspace width instead of the
+	 * standard reading-width cap. */
+	fullWidth?: boolean;
 	children: React.ReactNode;
 }
 
@@ -39,26 +43,28 @@ export function WorkspacePage({
 	actions,
 	headerRight,
 	fillHeight = false,
+	fullWidth = false,
 	children,
 }: WorkspacePageProps) {
+	const workspaceName = useWorkspacesStore((state) =>
+		state.workspaces.find((workspace) => workspace.id === state.activeWorkspaceId)?.name,
+	);
 	return (
 		<div className="flex h-svh min-w-0 flex-1 flex-col bg-background">
 			{/* pl-14 below md leaves room for the floating sidebar trigger */}
 			<header className="flex h-[52px] shrink-0 items-center gap-3 border-b border-border pl-14 pr-4 md:px-8">
-				<span className="font-mono text-[11.5px] text-meta dark:text-panel-dim">
-					workspace <span className="text-ghost dark:text-panel-dim">/</span>{" "}
-					<span className="font-medium text-foreground">{slug}</span>
-				</span>
-				<div className="ml-auto flex items-center gap-3">
-					{search && (
-						<SearchBar
-							placeholder={search.placeholder}
-							value={search.value}
-							onChange={search.onChange}
-							hint="⌘K"
-							className="hidden w-80 sm:block"
-						/>
-					)}
+				<nav className="flex min-w-0 items-center whitespace-nowrap text-[11.5px] text-meta dark:text-panel-dim">
+					<span className="min-w-0 truncate">
+						{workspaceName ?? "workspace"}
+					</span>
+					<span className="mx-1.5 shrink-0 text-ghost dark:text-panel-dim">
+						/
+					</span>
+					<span className="max-w-[50%] shrink-0 truncate font-medium text-foreground">
+						{slug}
+					</span>
+				</nav>
+				<div className="ml-auto flex shrink-0 items-center gap-2 lg:gap-3">
 					{actions}
 				</div>
 			</header>
@@ -73,18 +79,33 @@ export function WorkspacePage({
 					className={cn(
 						"px-4 pt-8 pb-10 sm:px-6 lg:px-8",
 						fillHeight && "flex min-h-0 flex-1 flex-col",
+						fullWidth && "@min-screen-xl/layout:max-w-none",
 					)}
 				>
-					<div className="flex shrink-0 flex-wrap items-end justify-between gap-x-6 gap-y-4">
-						<div className="min-w-0">
+					<div className="grid shrink-0 grid-cols-1 gap-y-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end lg:gap-x-6">
+						<div className="min-w-0 lg:col-start-1">
 							<h1 className="font-display text-[30px] font-bold tracking-[-0.035em] text-foreground">
 								{title}
 							</h1>
 							<p className="mt-2 max-w-[560px] text-[15px] leading-[1.6] text-body dark:text-panel-body text-pretty">
 								{intro}
 							</p>
+							{search && (
+								<SearchBar
+									placeholder={search.placeholder}
+									value={search.value}
+									onChange={search.onChange}
+									hint="⌘K"
+									focusOnModK
+									className="mt-5 w-full lg:max-w-[560px]"
+								/>
+							)}
 						</div>
-						{headerRight}
+						{headerRight && (
+							<div className="flex w-full min-w-0 items-center lg:col-start-2 lg:row-span-1 lg:row-start-1 lg:w-auto lg:self-end">
+								{headerRight}
+							</div>
+						)}
 					</div>
 					<div
 						className={

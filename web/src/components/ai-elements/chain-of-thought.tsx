@@ -117,14 +117,7 @@ export const ChainOfThought = ({
 	// the user's call (except an undecided approval, which forces open).
 	const isOpen = lockOpen ? true : (userOpenPreference ?? true);
 
-	const counts = [
-		toolCount > 0 &&
-			`${toolCount} tool call${toolCount === 1 ? "" : "s"}`,
-		subagentCount > 0 &&
-			`${subagentCount} subagent${subagentCount === 1 ? "" : "s"}`,
-	]
-		.filter(Boolean)
-		.join(" · ");
+	const hasCounts = toolCount > 0 || subagentCount > 0;
 
 	return (
 		<Collapsible
@@ -142,9 +135,21 @@ export const ChainOfThought = ({
 						Worked
 					</span>
 				)}
-				{counts && (
-					<span className="font-mono text-[10.5px] text-meta dark:text-panel-dim">
-						{counts}
+				{hasCounts && (
+					<span className="text-[10.5px] text-meta dark:text-panel-dim">
+						{toolCount > 0 && (
+							<>
+								<span className="font-mono">{toolCount}</span> tool call
+								{toolCount === 1 ? "" : "s"}
+							</>
+						)}
+						{toolCount > 0 && subagentCount > 0 && ", "}
+						{subagentCount > 0 && (
+							<>
+								<span className="font-mono">{subagentCount}</span> subagent
+								{subagentCount === 1 ? "" : "s"}
+							</>
+						)}
 					</span>
 				)}
 				<ChevronDownIcon className="size-3 shrink-0 text-meta transition-transform duration-200 -rotate-90 group-data-[state=open]/cot:rotate-0" />
@@ -362,7 +367,7 @@ export const StepSection = ({
 	<div className={cn("flex min-w-0 flex-col gap-1.5", className)}>
 		<div
 			className={cn(
-				"font-mono text-[9.5px] font-semibold tracking-[0.09em]",
+				"text-[9.5px] font-semibold ",
 				error ? "text-destructive" : "text-meta dark:text-panel-dim",
 			)}
 		>
@@ -419,12 +424,12 @@ export const ChainBand = ({
 			className,
 		)}
 	>
-		<div className="font-mono text-[10px] font-semibold tracking-[0.09em] text-meta dark:text-panel-dim">
+		<div className="text-[10px] font-semibold text-meta dark:text-panel-dim">
 			{"// "}
 			{label}
 		</div>
 		{text && (
-			<div className="mt-2 whitespace-pre-wrap font-mono text-[11px] leading-[1.55] text-label dark:text-panel-dim">
+			<div className="mt-2 whitespace-pre-wrap text-[11px] leading-[1.55] text-label dark:text-panel-dim">
 				{text}
 			</div>
 		)}
@@ -504,8 +509,8 @@ export const ChainReasoningLine = ({
 
 /** Amber approval badge for steps waiting on a human. */
 export const NeedsApprovalBadge = () => (
-	<span className="rounded-[4px] bg-warning-bg px-2 py-0.5 font-mono text-[9.5px] font-semibold tracking-[0.05em] text-warning">
-		NEEDS APPROVAL
+	<span className="rounded-[4px] bg-warning-bg px-2 py-0.5 text-[9.5px] font-semibold text-warning">
+		Needs approval
 	</span>
 );
 

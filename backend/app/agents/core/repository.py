@@ -10,6 +10,7 @@ from sqlmodel import SQLModel, select
 
 from app.agents.models import (
     AgentDB,
+    AgentImageDB,
     AgentMCPServerDB,
     AgentSandboxBase,
     AgentSandboxDB,
@@ -23,6 +24,7 @@ from app.agents.schemas import AgentPermissionCreate, AgentSandboxConfig
 from app.repository import BaseRepository
 from app.sandbox.models import SandboxDB
 from app.users.models import WorkspaceRole
+from app.visibility import ResourceVisibility
 
 
 class AgentAccess(NamedTuple):
@@ -31,15 +33,29 @@ class AgentAccess(NamedTuple):
     owner_id: UUID
     granted: PermissionLevel | None
     team_member: bool
+    visibility: ResourceVisibility = ResourceVisibility.personal
 
 
 class AgentRepository(BaseRepository[AgentDB]):
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, workspace_id: UUID | None = None):
         super().__init__(AgentDB, db)
+        self.workspace_id = workspace_id
 
-    #: The columns the list projection renders (`AgentListResponse`), plus
-    #: `tag_id`, which the service resolves into a `TagInfo`. Everything else
-    #: — `instructions` above all, which runs to tens of KB per agent and is
+    async def get_scoped(self, agent_id: UUID) -> AgentDB | None:
+        stmt = select(AgentDB).where(AgentDB.id == agent_id)
+        if self.workspace_id is not None:
+            stmt = stmt.where(AgentDB.workspace_id == self.workspace_id)
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_scoped_for_update(self, agent_id: UUID) -> AgentDB | None:
+        stmt = select(AgentDB).where(AgentDB.id == agent_id).with_for_update()
+        if self.workspace_id is not None:
+            stmt = stmt.where(AgentDB.workspace_id == self.workspace_id)
+        return (await self.db.execute(stmt)).scalar_one_or_none()
+
+    #: The columns the list projection renders (`AgentListResponse`).
+    #: Everything else — `instructions` above all, which runs to tens of KB per agent and is
     #: repeated once per MCP binding by the join — stays in the database
     #: (design review §3.5).
     LIST_COLUMNS = (
@@ -48,9 +64,11 @@ class AgentRepository(BaseRepository[AgentDB]):
         AgentDB.owner_id,
         AgentDB.emoji,
         AgentDB.color,
+        AgentDB.image_revision,
         AgentDB.description,
+        AgentDB.group,
+        AgentDB.visibility,
         AgentDB.is_archived,
-        AgentDB.tag_id,
         AgentDB.created_at,
         AgentDB.updated_at,
     )
@@ -110,6 +128,8 @@ class AgentRepository(BaseRepository[AgentDB]):
         stmt = select(*columns).outerjoin(
             AgentMCPServerDB, AgentDB.id == AgentMCPServerDB.agent_id
         )
+        if self.workspace_id is not None:
+            stmt = stmt.where(AgentDB.workspace_id == self.workspace_id)
         if slim:
             stmt = stmt.options(
                 load_only(*self.LIST_COLUMNS),
@@ -157,7 +177,11 @@ class AgentRepository(BaseRepository[AgentDB]):
         """
         include_team = user_id is not None and user_team_id is not None
 
-        columns = [AgentDB.owner_id, AgentUserPermissionDB.permission]
+        columns = [
+            AgentDB.owner_id,
+            AgentDB.visibility,
+            AgentUserPermissionDB.permission,
+        ]
         if include_team:
             columns.append(AgentTeamDB.team_id)
 
@@ -173,6 +197,8 @@ class AgentRepository(BaseRepository[AgentDB]):
                 & (AgentTeamDB.team_id == user_team_id),
             )
         stmt = stmt.where(AgentDB.id == agent_id)
+        if self.workspace_id is not None:
+            stmt = stmt.where(AgentDB.workspace_id == self.workspace_id)
         if not include_archived:
             stmt = stmt.where(AgentDB.is_archived == False)  # noqa: E712
 
@@ -182,10 +208,29 @@ class AgentRepository(BaseRepository[AgentDB]):
         row = (await self.db.execute(stmt)).first()
         if row is None:
             return None
+        if len(row) == 2:
+            return AgentAccess(
+                owner_id=row[0],
+                visibility=ResourceVisibility.personal,
+                granted=row[1],
+                team_member=False,
+            )
+        if not isinstance(row[1], ResourceVisibility):
+            return AgentAccess(
+                owner_id=row[0],
+                visibility=(
+                    ResourceVisibility.teams
+                    if include_team and row[2] is not None
+                    else ResourceVisibility.personal
+                ),
+                granted=row[1],
+                team_member=include_team and row[2] is not None,
+            )
         return AgentAccess(
             owner_id=row[0],
-            granted=row[1],
-            team_member=include_team and row[2] is not None,
+            visibility=row[1],
+            granted=row[2],
+            team_member=include_team and row[3] is not None,
         )
 
     async def get_run_spec(self, agent_id: UUID) -> RunSpec | None:
@@ -223,6 +268,8 @@ class AgentRepository(BaseRepository[AgentDB]):
                 AgentSubagentDB.id.asc(),
             )
         )
+        if self.workspace_id is not None:
+            stmt = stmt.where(AgentDB.workspace_id == self.workspace_id)
         rows = (await self.db.execute(stmt)).all()
 
         parent: AgentDB | None = None
@@ -255,6 +302,7 @@ class AgentRepository(BaseRepository[AgentDB]):
         def to_spec(agent: AgentDB) -> AgentSpec:
             return AgentSpec(
                 id=agent.id,
+                workspace_id=agent.workspace_id,
                 name=agent.name,
                 instructions=agent.instructions,
                 description=agent.description,
@@ -272,6 +320,8 @@ class AgentRepository(BaseRepository[AgentDB]):
         if not ids:
             return []
         stmt = select(AgentDB).where(AgentDB.id.in_(ids))
+        if self.workspace_id is not None:
+            stmt = stmt.where(AgentDB.workspace_id == self.workspace_id)
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
@@ -294,6 +344,54 @@ class AgentRepository(BaseRepository[AgentDB]):
             return
         stmt = update(AgentDB).where(AgentDB.id == agent_id).values(**values)
         await self.db.execute(stmt)
+
+    async def get_image(self, agent_id: UUID) -> AgentImageDB | None:
+        stmt = select(AgentImageDB).where(AgentImageDB.agent_id == agent_id)
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def _lock_image_parent(self, agent_id: UUID) -> None:
+        stmt = select(AgentDB.id).where(AgentDB.id == agent_id).with_for_update()
+        await self.db.execute(stmt)
+
+    async def set_image(
+        self,
+        agent_id: UUID,
+        *,
+        data: bytes,
+        media_type: str,
+        sha256: str,
+        revision: UUID,
+    ) -> None:
+        await self._lock_image_parent(agent_id)
+        image = await self.get_image(agent_id)
+        if image is None:
+            image = AgentImageDB(
+                agent_id=agent_id,
+                data=data,
+                media_type=media_type,
+                sha256=sha256,
+            )
+        else:
+            image.data = data
+            image.media_type = media_type
+            image.sha256 = sha256
+        self.db.add(image)
+        stmt = (
+            update(AgentDB)
+            .where(AgentDB.id == agent_id)
+            .values(image_revision=revision)
+        )
+        await self.db.execute(stmt)
+        await self.db.flush()
+
+    async def delete_image(self, agent_id: UUID) -> None:
+        await self._lock_image_parent(agent_id)
+        stmt = delete(AgentImageDB).where(AgentImageDB.agent_id == agent_id)
+        await self.db.execute(stmt)
+        stmt = update(AgentDB).where(AgentDB.id == agent_id).values(image_revision=None)
+        await self.db.execute(stmt)
+        await self.db.flush()
 
     async def set_archived(self, agent_id: UUID, *, archived: bool) -> None:
         """Archive or restore, idempotently.
@@ -339,6 +437,26 @@ class AgentRepository(BaseRepository[AgentDB]):
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
+    async def list_granted_agent_ids(self, user_id: UUID) -> list[UUID]:
+        stmt = (
+            select(AgentUserPermissionDB.agent_id)
+            .join(AgentDB, AgentDB.id == AgentUserPermissionDB.agent_id)
+            .where(AgentUserPermissionDB.user_id == user_id)
+        )
+        if self.workspace_id is not None:
+            stmt = stmt.where(AgentDB.workspace_id == self.workspace_id)
+        return list((await self.db.execute(stmt)).scalars().all())
+
+    async def delete_permissions_for_user(self, user_id: UUID) -> None:
+        agent_ids = select(AgentDB.id)
+        if self.workspace_id is not None:
+            agent_ids = agent_ids.where(AgentDB.workspace_id == self.workspace_id)
+        stmt = delete(AgentUserPermissionDB).where(
+            AgentUserPermissionDB.user_id == user_id,
+            AgentUserPermissionDB.agent_id.in_(agent_ids),
+        )
+        await self.db.execute(stmt)
+
     async def set_permissions(
         self, agent_id: UUID, permissions: list[AgentPermissionCreate]
     ) -> list[AgentUserPermissionDB]:
@@ -369,6 +487,18 @@ class AgentRepository(BaseRepository[AgentDB]):
         stmt = select(AgentTeamDB.team_id).where(AgentTeamDB.agent_id == agent_id)
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
+
+    async def list_team_ids(self, agent_ids: list[UUID]) -> dict[UUID, list[UUID]]:
+        if not agent_ids:
+            return {}
+        stmt = select(AgentTeamDB.agent_id, AgentTeamDB.team_id).where(
+            AgentTeamDB.agent_id.in_(agent_ids)
+        )
+        result = await self.db.execute(stmt)
+        grouped: dict[UUID, list[UUID]] = {}
+        for agent_id, team_id in result.all():
+            grouped.setdefault(agent_id, []).append(team_id)
+        return grouped
 
     async def delete_all_teams(self, agent_id: UUID) -> None:
         stmt = delete(AgentTeamDB).where(AgentTeamDB.agent_id == agent_id)

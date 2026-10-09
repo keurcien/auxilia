@@ -36,12 +36,12 @@ def test_list_server_agents_requires_admin_before_looking_the_server_up(
 ):
     """A non-admin gets 403 whether or not the server exists — the lookup
     runs after the gate, so ids cannot be probed by 404 vs 403."""
-    mcp_server_service.get.side_effect = NotFoundError("MCP server not found")
+    mcp_server_service.get_visible.side_effect = NotFoundError("MCP server not found")
 
     response = client.get(f"/mcp-servers/{uuid4()}/agents")
 
     assert response.status_code == 403
-    mcp_server_service.get.assert_not_called()
+    mcp_server_service.get_visible.assert_not_called()
 
 
 def test_list_server_agents(client, mcp_server_service, binding_service, admin_user):
@@ -57,14 +57,14 @@ def test_list_server_agents(client, mcp_server_service, binding_service, admin_u
     [agent] = response.json()
     assert agent["id"] == str(agent_id)
     assert agent["name"] == "Docs Researcher"
-    mcp_server_service.get.assert_awaited_once_with(server_id)
+    mcp_server_service.get_visible.assert_awaited_once_with(server_id, admin_user)
     binding_service.list_agents_for_server.assert_awaited_once_with(server_id)
 
 
 def test_list_server_agents_unknown_server_is_404(
     client, mcp_server_service, binding_service, admin_user
 ):
-    mcp_server_service.get.side_effect = NotFoundError("MCP server not found")
+    mcp_server_service.get_visible.side_effect = NotFoundError("MCP server not found")
 
     response = client.get(f"/mcp-servers/{uuid4()}/agents")
 

@@ -2,8 +2,8 @@
 
 Reference data only: an entry is a template, and installing one copies its
 fields into a fresh ``mcp_servers`` row. Nothing links back to the catalog, so
-``url`` is the identity key — it is what decides whether a server already
-appears as installed.
+``url`` is used only to count how many instances were created from the same
+endpoint. A catalog template may be installed more than once.
 
 The canonical file is external (a hand-editable YAML behind a CDN,
 ``MCP_CATALOG_URL``) so adding a server needs neither a migration nor a
@@ -82,8 +82,8 @@ class CatalogDocument(BaseModel):
     def servers_non_empty_and_unique(self) -> "CatalogDocument":
         if not self.servers:
             raise ValueError("catalog has no servers")
-        # url is the identity key (is_installed matches on it); name is the
-        # frontend's list key. Both must be unique.
+        # URL and name are list keys for catalog templates. Configured workspace
+        # instances have their own UUIDs and may reuse a template URL.
         seen_urls: set[str] = set()
         seen_names: set[str] = set()
         for server in self.servers:

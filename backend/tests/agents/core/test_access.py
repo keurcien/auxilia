@@ -22,6 +22,7 @@ from app.agents.models import (
 )
 from app.exceptions import NotFoundError, PermissionDeniedError
 from app.users.models import WorkspaceRole
+from tests.conftest import TEST_WORKSPACE_ID
 
 
 async def _add_agent(session, **kwargs) -> AgentDB:
@@ -29,6 +30,7 @@ async def _add_agent(session, **kwargs) -> AgentDB:
         name="Agent",
         instructions="do things",
         owner_id=kwargs.pop("owner_id", uuid4()),
+        workspace_id=TEST_WORKSPACE_ID,
         **kwargs,
     )
     session.add(agent)
@@ -56,7 +58,9 @@ async def _bind_team(session, agent_id, team_id) -> None:
 async def test_returns_the_owner_and_no_grant(agent_session):
     agent = await _add_agent(agent_session)
 
-    access = await AgentRepository(agent_session).get_access(agent.id, user_id=uuid4())
+    access = await AgentRepository(agent_session, TEST_WORKSPACE_ID).get_access(
+        agent.id, user_id=uuid4()
+    )
 
     assert access is not None
     assert access.owner_id == agent.owner_id
@@ -70,7 +74,9 @@ async def test_returns_this_users_grant_only(agent_session):
     await _grant(agent_session, agent.id, user_id, PermissionLevel.editor)
     await _grant(agent_session, agent.id, uuid4(), PermissionLevel.admin)
 
-    access = await AgentRepository(agent_session).get_access(agent.id, user_id=user_id)
+    access = await AgentRepository(agent_session, TEST_WORKSPACE_ID).get_access(
+        agent.id, user_id=user_id
+    )
 
     assert access is not None
     assert access.granted is PermissionLevel.editor
@@ -80,7 +86,7 @@ async def test_team_membership_needs_the_users_team(agent_session):
     agent = await _add_agent(agent_session)
     team_id = uuid4()
     await _bind_team(agent_session, agent.id, team_id)
-    repository = AgentRepository(agent_session)
+    repository = AgentRepository(agent_session, TEST_WORKSPACE_ID)
 
     matched = await repository.get_access(
         agent.id, user_id=uuid4(), user_team_id=team_id
@@ -97,7 +103,9 @@ async def test_team_membership_needs_the_users_team(agent_session):
 
 async def test_unknown_agent_has_no_access_row(agent_session):
     assert (
-        await AgentRepository(agent_session).get_access(uuid4(), user_id=uuid4())
+        await AgentRepository(agent_session, TEST_WORKSPACE_ID).get_access(
+            uuid4(), user_id=uuid4()
+        )
         is None
     )
 
@@ -106,7 +114,7 @@ async def test_archived_agents_are_hidden_unless_asked_for(agent_session):
     """`restore` and the permanent delete are the only callers that pass
     `include_archived`; every other gate must treat an archived agent as gone."""
     agent = await _add_agent(agent_session, is_archived=True)
-    repository = AgentRepository(agent_session)
+    repository = AgentRepository(agent_session, TEST_WORKSPACE_ID)
 
     assert await repository.get_access(agent.id, user_id=uuid4()) is None
     assert (
@@ -123,7 +131,7 @@ async def test_costs_one_query(agent_session, statements):
     await _bind_team(agent_session, agent.id, team_id)
     statements.reset()
 
-    await AgentRepository(agent_session).get_access(
+    await AgentRepository(agent_session, TEST_WORKSPACE_ID).get_access(
         agent.id, user_id=uuid4(), user_team_id=team_id
     )
 
@@ -139,7 +147,9 @@ async def test_owner_holds_every_level(agent_session):
     owner_id = uuid4()
     agent = await _add_agent(agent_session, owner_id=owner_id)
 
-    permission = await AgentService(agent_session).require_permission(
+    permission = await AgentService(
+        agent_session, TEST_WORKSPACE_ID
+    ).require_permission(
         agent.id,
         at_least=EffectivePermission.admin,
         action="delete this agent",
@@ -152,7 +162,9 @@ async def test_owner_holds_every_level(agent_session):
 async def test_workspace_admin_holds_admin_on_someone_elses_agent(agent_session):
     agent = await _add_agent(agent_session)
 
-    permission = await AgentService(agent_session).require_permission(
+    permission = await AgentService(
+        agent_session, TEST_WORKSPACE_ID
+    ).require_permission(
         agent.id,
         at_least=EffectivePermission.admin,
         action="delete this agent",
@@ -167,7 +179,7 @@ async def test_a_grant_is_checked_against_the_level_asked_for(agent_session):
     agent = await _add_agent(agent_session)
     user_id = uuid4()
     await _grant(agent_session, agent.id, user_id, PermissionLevel.editor)
-    service = AgentService(agent_session)
+    service = AgentService(agent_session, TEST_WORKSPACE_ID)
 
     assert (
         await service.require_permission(
@@ -191,7 +203,7 @@ async def test_a_team_grant_stops_at_member(agent_session):
     agent = await _add_agent(agent_session)
     team_id = uuid4()
     await _bind_team(agent_session, agent.id, team_id)
-    service = AgentService(agent_session)
+    service = AgentService(agent_session, TEST_WORKSPACE_ID)
     caller = {"user_id": uuid4(), "user_team_id": team_id}
 
     assert (
@@ -216,7 +228,7 @@ async def test_no_relation_at_all_is_denied(agent_session):
     agent = await _add_agent(agent_session)
 
     with pytest.raises(PermissionDeniedError) as exc_info:
-        await AgentService(agent_session).require_permission(
+        await AgentService(agent_session, TEST_WORKSPACE_ID).require_permission(
             agent.id,
             at_least=EffectivePermission.member,
             action="use this agent",
@@ -230,7 +242,7 @@ async def test_an_unknown_agent_is_a_404_not_a_403(agent_session):
     """Order matters: a 403 on an id that does not exist would tell a caller
     that it does."""
     with pytest.raises(NotFoundError):
-        await AgentService(agent_session).require_permission(
+        await AgentService(agent_session, TEST_WORKSPACE_ID).require_permission(
             uuid4(),
             at_least=EffectivePermission.member,
             action="use this agent",

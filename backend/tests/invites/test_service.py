@@ -48,7 +48,7 @@ def make_invite(**kwargs):
     return InviteDB(**{**defaults, **kwargs})
 
 
-async def test_create_persists_team_id(service, mock_db, mock_repo):
+async def test_create_persists_team_id(service, mock_db, mock_repo, workspace_id):
     team_id = uuid4()
     no_user = MagicMock()
     no_user.scalar_one_or_none.return_value = None
@@ -59,7 +59,11 @@ async def test_create_persists_team_id(service, mock_db, mock_repo):
     mock_repo.create.return_value = make_invite(team_id=team_id)
 
     await service.create(
-        email="new@test.com", role="member", invited_by=uuid4(), team_id=team_id
+        email="new@test.com",
+        role="member",
+        invited_by=uuid4(),
+        workspace_id=workspace_id,
+        team_id=team_id,
     )
 
     data = mock_repo.create.call_args[0][0]
@@ -67,19 +71,26 @@ async def test_create_persists_team_id(service, mock_db, mock_repo):
     assert data.team_id == team_id
 
 
-async def test_create_defaults_team_id_to_none(service, mock_db, mock_repo):
+async def test_create_defaults_team_id_to_none(
+    service, mock_db, mock_repo, workspace_id
+):
     no_user = MagicMock()
     no_user.scalar_one_or_none.return_value = None
     mock_db.execute.return_value = no_user
     mock_repo.create.return_value = make_invite()
 
-    await service.create(email="new@test.com", role="member", invited_by=uuid4())
+    await service.create(
+        email="new@test.com",
+        role="member",
+        invited_by=uuid4(),
+        workspace_id=workspace_id,
+    )
 
     data = mock_repo.create.call_args[0][0]
     assert data.team_id is None
 
 
-async def test_create_rejects_unknown_team(service, mock_db, mock_repo):
+async def test_create_rejects_unknown_team(service, mock_db, mock_repo, workspace_id):
     from app.exceptions import NotFoundError
 
     no_user = MagicMock()
@@ -94,15 +105,16 @@ async def test_create_rejects_unknown_team(service, mock_db, mock_repo):
             email="new@test.com",
             role="member",
             invited_by=uuid4(),
+            workspace_id=workspace_id,
             team_id=uuid4(),
         )
 
     mock_repo.create.assert_not_called()
 
 
-def test_to_response_includes_team_id(service):
+def test_to_response_includes_team_id(service, workspace_id):
     team_id = uuid4()
-    invite = make_invite(team_id=team_id)
+    invite = make_invite(workspace_id=workspace_id, team_id=team_id)
 
     response = service._to_response(invite)
 

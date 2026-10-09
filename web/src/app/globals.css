@@ -236,6 +236,11 @@
 /* Petrol Mono is light-first; this dark theme is a provisional mapping
  * derived from the design's dark panel until a full dark spec exists. */
 .dark {
+	/* Raw border utilities must follow the dark surface palette too. */
+	--pm-hairline: var(--pm-panel-border);
+	--pm-border-input: var(--pm-panel-border-strong);
+	--pm-rail: rgba(255, 255, 255, 0.08);
+	--pm-border-hover: rgba(255, 255, 255, 0.2);
 	--background: var(--pm-panel);
 	--foreground: var(--pm-panel-button);
 	--surface: #0c1318;
@@ -273,6 +278,13 @@
 	--sidebar-hover: #141e26;
 	--sidebar-active-icon: var(--pm-panel-terminal);
 	--sidebar-section-label: var(--pm-panel-dim);
+}
+
+/* Keep accent text and link-like hover states readable on dark surfaces.
+ * Explicit dark text utilities remain authoritative for intentional exceptions. */
+.dark .text-petrol:not([class*="dark:text-"]),
+.dark [class~="hover:text-petrol"]:hover:not([class*="dark:hover:text-"]) {
+	color: var(--pm-panel-terminal);
 }
 
 @keyframes collapsible-down {

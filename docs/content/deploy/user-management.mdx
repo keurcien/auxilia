@@ -10,7 +10,7 @@ To create the first admin:
 
 1. Deploy the stack
 2. Open the public URL (`FRONTEND_URL`)
-3. Sign up with email + password, or sign in with Google (if OAuth is configured)
+3. Sign up with email and password
 4. You're the admin
 
 ![Sign-in page](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/auth.png)
@@ -55,24 +55,29 @@ From the same page, admins can:
 
 ## Google OAuth
 
-To let users sign in with their Google accounts, configure:
+To let users sign in with their Google accounts, open **Settings →
+Authentication** as a workspace admin. Enter the OAuth client ID and secret,
+then enable Google. The credentials are encrypted before they are stored.
 
-```env
-GOOGLE_CLIENT_ID=...
-GOOGLE_CLIENT_SECRET=...
-GOOGLE_REDIRECT_URI=https://your-host/auth/google/callback
-```
-
-Optionally set `AUTH_GOOGLE_EXCLUSIVE=true` to **disable email/password signup entirely** — useful when you want Google as the single identity provider for the workspace.
+You can also enable **Google-only authentication** to disable password sign-in
+and password-based invite acceptance.
 
 Create the OAuth client in the Google Cloud Console:
 
 1. **APIs & Services** → **Credentials** → **Create Credentials** → **OAuth client ID**
 2. Application type: **Web application**
-3. Authorized redirect URI: the value of `GOOGLE_REDIRECT_URI`
-4. Copy the Client ID and Secret into the env vars above
+3. Authorized redirect URI: copy the exact value shown in **Settings → Authentication**
+4. Copy the Client ID and Secret into the same Settings form
 
 Users still need an invite (unless they're the first account). Google OAuth only changes *how* they authenticate, not *whether* they're allowed in.
+
+## Profile and two-factor authentication
+
+Every user can open **Settings → Profile** to update their first name, last name, password, and profile photo. Uploaded photos are cropped to a 512×512 WebP image and stored in PostgreSQL.
+
+The same page lets users enable TOTP two-factor authentication with any compatible authenticator app. Setup displays a QR code and a manual secret, then requires a valid six-digit code before 2FA is enabled. Ten single-use backup codes are shown once; users can regenerate them or disable 2FA after confirming their password and a TOTP or backup code.
+
+Once enabled, 2FA is required after both password and Google OAuth sign-in.
 
 ## Personal access tokens (PATs)
 

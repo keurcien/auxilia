@@ -6,11 +6,13 @@ from fastapi.testclient import TestClient
 
 from app.threads.models import ThreadDB, ThreadSource
 from app.triggers.models import TriggerDB
+from tests.conftest import TEST_WORKSPACE_ID
 
 
 def _trigger(owner_id) -> TriggerDB:
     return TriggerDB(
         id=uuid4(),
+        workspace_id=TEST_WORKSPACE_ID,
         name="Daily digest",
         instructions="Summarize yesterday's activity",
         agent_id=uuid4(),
@@ -27,6 +29,7 @@ def _trigger(owner_id) -> TriggerDB:
 def _fire_thread(trigger: TriggerDB) -> ThreadDB:
     return ThreadDB(
         id=str(uuid4()),
+        workspace_id=TEST_WORKSPACE_ID,
         user_id=trigger.owner_id,
         agent_id=trigger.agent_id,
         first_message_content=trigger.name,
@@ -61,7 +64,7 @@ def test_list_trigger_threads_as_owner(client: TestClient, mock_db, current_user
     assert data[0]["first_message_content"] == trigger.name
 
 
-def test_list_trigger_threads_forbidden_for_non_owner(
+def test_list_trigger_threads_hidden_from_non_owner(
     client: TestClient, mock_db, current_user
 ):
     trigger = _trigger(owner_id=uuid4())
@@ -69,7 +72,7 @@ def test_list_trigger_threads_forbidden_for_non_owner(
 
     response = client.get(f"/triggers/{trigger.id}/threads")
 
-    assert response.status_code == 403
+    assert response.status_code == 404
 
 
 def test_list_trigger_threads_as_admin(client: TestClient, mock_db, admin_user):

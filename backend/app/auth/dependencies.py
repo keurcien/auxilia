@@ -11,8 +11,13 @@ from app.auth.tokens.repository import PersonalAccessTokenRepository
 from app.auth.tokens.service import TOKEN_PREFIX
 from app.auth.utils import decode_access_token
 from app.database import get_db
+from app.exceptions import DomainValidationError, PermissionDeniedError
 from app.users.models import UserDB, WorkspaceRole
+from app.workspaces.constants import ACTIVE_WORKSPACE_COOKIE
+from app.workspaces.repository import WorkspaceRepository
 
+
+WORKSPACE_HEADER = "X-Workspace-ID"
 
 ROLE_HIERARCHY: dict[WorkspaceRole, int] = {
     WorkspaceRole.member: 0,
@@ -49,6 +54,50 @@ async def _resolve_from_bearer(token: str, db: AsyncSession) -> UserDB | None:
     return await _resolve_user_by_id(db, user_id)
 
 
+async def _hydrate_workspace_context(
+    request: Request,
+    db: AsyncSession,
+    user: UserDB,
+    *,
+    auth_method: Literal["cookie", "pat", "jwt_bearer"],
+) -> UserDB:
+    # Browser cookie auth uses the HttpOnly active-workspace cookie. PATs are
+    # non-browser credentials and must state their workspace explicitly. JWT
+    # bearer remains supported: it accepts the explicit header when present,
+    # then falls back to the active-workspace cookie for existing API clients.
+    header_workspace = request.headers.get(WORKSPACE_HEADER)
+    has_explicit_workspace = auth_method == "pat" or (
+        auth_method == "jwt_bearer" and header_workspace is not None
+    )
+    workspace_value = (
+        header_workspace
+        if auth_method == "pat"
+        else header_workspace
+        if auth_method == "jwt_bearer" and header_workspace is not None
+        else request.cookies.get(ACTIVE_WORKSPACE_COOKIE)
+    )
+    if auth_method == "pat" and workspace_value is None:
+        raise DomainValidationError(f"{WORKSPACE_HEADER} is required for PAT auth")
+    if workspace_value is None:
+        return user
+    try:
+        workspace_id = UUID(workspace_value)
+    except ValueError as exc:
+        if has_explicit_workspace:
+            raise DomainValidationError("Invalid active workspace") from exc
+        return user
+    membership = await WorkspaceRepository(db).get_membership(workspace_id, user.id)
+    if membership is None:
+        if has_explicit_workspace:
+            raise PermissionDeniedError("Workspace access denied")
+        # A browser cookie can outlive a deleted workspace or revoked
+        # membership. Keep the user authenticated without workspace context so
+        # they can select or create another workspace.
+        return user
+    user.set_workspace_membership(membership)
+    return user
+
+
 async def _resolve_request_user(request: Request, db: AsyncSession) -> UserDB | None:
     """Resolve the request's user: JWT cookie first, then a Bearer token (PAT or JWT).
 
@@ -65,11 +114,20 @@ async def _resolve_request_user(request: Request, db: AsyncSession) -> UserDB | 
         if user_id is not None:
             user = await _resolve_user_by_id(db, user_id)
             if user is not None:
-                return user
+                return await _hydrate_workspace_context(
+                    request, db, user, auth_method="cookie"
+                )
 
     bearer_token = _extract_bearer_token(request)
     if bearer_token:
-        return await _resolve_from_bearer(bearer_token, db)
+        user = await _resolve_from_bearer(bearer_token, db)
+        if user is not None:
+            method: Literal["pat", "jwt_bearer"] = (
+                "pat" if bearer_token.startswith(TOKEN_PREFIX) else "jwt_bearer"
+            )
+            return await _hydrate_workspace_context(
+                request, db, user, auth_method=method
+            )
 
     return None
 
@@ -106,11 +164,10 @@ def require_role(minimum_role: WorkspaceRole) -> Callable:
     async def dependency(
         current_user: UserDB = Depends(get_current_user),
     ) -> UserDB:
+        if current_user.active_workspace_id is None:
+            raise DomainValidationError("No active workspace selected")
         if ROLE_HIERARCHY[current_user.role] < ROLE_HIERARCHY[minimum_role]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"{minimum_role.value} access required",
-            )
+            raise PermissionDeniedError(f"{minimum_role.value} access required")
         return current_user
 
     return dependency

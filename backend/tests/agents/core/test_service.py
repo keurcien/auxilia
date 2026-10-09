@@ -24,8 +24,9 @@ from app.agents.schemas import (
     AgentSandboxConfig,
 )
 from app.exceptions import DomainValidationError, NotFoundError, PermissionDeniedError
-from app.tags.models import TagDB
 from app.users.models import WorkspaceRole
+from app.visibility import ResourceVisibility
+from tests.conftest import TEST_WORKSPACE_ID
 
 
 # ---------------------------------------------------------------------------
@@ -79,6 +80,17 @@ def mock_repo():
 
     repo.get_access = AsyncMock(side_effect=_access_from_rows)
     repo.get = AsyncMock()
+    repo.get_scoped = AsyncMock(return_value=None)
+
+    async def _get_scoped_for_update(agent_id):
+        if (agent := await repo.get_scoped(agent_id)) is not None:
+            return agent
+        for row in repo.list_with_permissions.return_value:
+            if row[0].id == agent_id:
+                return row[0]
+        return None
+
+    repo.get_scoped_for_update = AsyncMock(side_effect=_get_scoped_for_update)
     repo.create = AsyncMock()
     repo.update = AsyncMock()
     # The mutation paths take the id, not a loaded row: `require_permission`
@@ -131,7 +143,7 @@ def mock_mcp_server_service():
 def mock_sandboxes():
     """The sandbox registry the binding is validated against."""
     repo = MagicMock()
-    repo.get = AsyncMock(return_value=MagicMock())
+    repo.get_scoped = AsyncMock(return_value=MagicMock())
     return repo
 
 
@@ -140,14 +152,6 @@ def mock_skill_service():
     svc = MagicMock()
     svc.set_for_agent = AsyncMock()
     svc.list_for_agent = AsyncMock(return_value=[])
-    return svc
-
-
-@pytest.fixture
-def mock_tag_service():
-    svc = MagicMock()
-    svc.get = AsyncMock()
-    svc.list_by_ids = AsyncMock(return_value=[])
     return svc
 
 
@@ -162,21 +166,22 @@ def mock_user_service():
 def service(
     mock_db,
     mock_repo,
-    mock_tag_service,
     mock_user_service,
     mock_agent_mcp_repo,
     mock_mcp_server_service,
     mock_sandboxes,
     mock_skill_service,
 ):
-    svc = AgentService(mock_db)
+    svc = AgentService(mock_db, TEST_WORKSPACE_ID)
     svc.repository = mock_repo
-    svc.tag_service = mock_tag_service
     svc.user_service = mock_user_service
     svc.mcp_server_repository = mock_agent_mcp_repo
     svc.mcp_server_service = mock_mcp_server_service
     svc.sandboxes = mock_sandboxes
     svc.skill_service = mock_skill_service
+    svc.teams = MagicMock()
+    svc.teams.get_in_workspace = AsyncMock(return_value=MagicMock())
+    svc.teams.get_in_workspace_for_key_share = svc.teams.get_in_workspace
     return svc
 
 
@@ -191,6 +196,7 @@ def make_agent(**kwargs):
         "name": "Test Agent",
         "instructions": "Be helpful",
         "owner_id": uuid4(),
+        "workspace_id": TEST_WORKSPACE_ID,
         "emoji": None,
         "description": None,
         "created_at": datetime.now(),
@@ -226,7 +232,7 @@ async def test_create_from_config_orchestrates(
     mock_repo.create.return_value = agent
     mock_repo.list_with_permissions.return_value = [(agent, None)]
     # The subagent validations load both ends of the link.
-    mock_repo.get.return_value = make_agent()
+    mock_repo.get_scoped.return_value = make_agent()
     server_id = uuid4()
     sub_id = uuid4()
     config = AgentConfig(
@@ -454,37 +460,6 @@ async def test_list_agents_no_user_returns_agents_with_no_permission(
     assert result[0].current_user_permission is None
 
 
-async def test_list_attaches_tag(service, mock_repo, mock_tag_service):
-    tag_id = uuid4()
-    agent = make_agent(tag_id=tag_id)
-    mock_repo.list_with_permissions.return_value = [(agent, None)]
-    mock_tag_service.list_by_ids.return_value = [
-        TagDB(
-            id=tag_id,
-            name="Data",
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
-        )
-    ]
-
-    result = await service.list()
-
-    mock_tag_service.list_by_ids.assert_awaited_once_with([tag_id])
-    assert result[0].tag is not None
-    assert result[0].tag.id == tag_id
-    assert result[0].tag.name == "Data"
-
-
-async def test_list_untagged_agents_attach_no_tag(service, mock_repo, mock_tag_service):
-    agent = make_agent()
-    mock_repo.list_with_permissions.return_value = [(agent, None)]
-
-    result = await service.list()
-
-    mock_tag_service.list_by_ids.assert_awaited_once_with([])
-    assert result[0].tag is None
-
-
 # ---------------------------------------------------------------------------
 # update_agent
 # ---------------------------------------------------------------------------
@@ -554,46 +529,6 @@ async def test_update_agent_allows_workspace_admin(service, mock_repo):
     mock_repo.update_by_id.assert_awaited_once()
 
 
-async def test_update_agent_validates_tag_exists(service, mock_repo, mock_tag_service):
-    agent = make_agent()
-    mock_repo.list_with_permissions.return_value = [(agent, None)]
-    tag_id = uuid4()
-
-    await service.update(agent.id, AgentPatch(tag_id=tag_id), user_id=agent.owner_id)
-
-    mock_tag_service.get.assert_awaited_once_with(tag_id)
-    mock_repo.update_by_id.assert_awaited_once()
-
-
-async def test_update_agent_raises_404_for_unknown_tag(
-    service, mock_repo, mock_tag_service
-):
-    agent = make_agent()
-    mock_repo.list_with_permissions.return_value = [(agent, None)]
-    mock_tag_service.get.side_effect = NotFoundError("Tag not found")
-
-    with pytest.raises(NotFoundError) as exc_info:
-        await service.update(
-            agent.id, AgentPatch(tag_id=uuid4()), user_id=agent.owner_id
-        )
-
-    assert exc_info.value.detail == "Tag not found"
-    mock_repo.update_by_id.assert_not_called()
-
-
-async def test_update_agent_untag_skips_tag_lookup(
-    service, mock_repo, mock_tag_service
-):
-    agent = make_agent()
-    mock_repo.list_with_permissions.return_value = [(agent, None)]
-
-    await service.update(agent.id, AgentPatch(tag_id=None), user_id=agent.owner_id)
-
-    mock_tag_service.get.assert_not_called()
-    update_schema = mock_repo.update_by_id.call_args[0][1]
-    assert update_schema.model_dump(exclude_unset=True) == {"tag_id": None}
-
-
 # ---------------------------------------------------------------------------
 # set_config
 # ---------------------------------------------------------------------------
@@ -609,7 +544,7 @@ async def test_set_config_orchestrates_scalars_bindings_subagents(
 ):
     agent = make_agent()
     mock_repo.list_with_permissions.return_value = [(agent, None)]
-    mock_repo.get.return_value = make_agent()
+    mock_repo.get_scoped.return_value = make_agent()
     server_id = uuid4()
     sub_id = uuid4()
     config = make_config(
@@ -652,7 +587,7 @@ async def test_set_config_clears_unset_scalars(service, mock_repo):
     assert dumped["description"] is None
     assert dumped["emoji"] is None
     assert dumped["color"] is None
-    assert "tag_id" not in dumped  # tags are outside the config document
+    assert dumped["group"] is None
 
 
 async def test_set_config_denies_member(service, mock_repo):
@@ -747,14 +682,14 @@ async def test_set_config_passes_sandboxes_to_the_binding(
         agent.id, make_config(sandboxes=[wanted]), user_id=agent.owner_id
     )
 
-    mock_sandboxes.get.assert_awaited_once_with(sandbox_id)
+    mock_sandboxes.get_scoped.assert_awaited_once_with(sandbox_id, TEST_WORKSPACE_ID)
     mock_repo.set_sandbox.assert_awaited_once_with(agent.id, wanted)
 
 
 async def test_set_config_unknown_sandbox_is_404(service, mock_repo, mock_sandboxes):
     agent = make_agent()
     mock_repo.list_with_permissions.return_value = [(agent, None)]
-    mock_sandboxes.get.return_value = None
+    mock_sandboxes.get_scoped.return_value = None
 
     with pytest.raises(NotFoundError, match="Sandbox not found"):
         await service.set_config(
@@ -781,7 +716,7 @@ def test_agent_config_rejects_duplicate_servers():
 
 def test_agent_config_rejects_invalid_color():
     with pytest.raises(ValueError, match="color"):
-        AgentConfig(name="X", instructions="Y", color="#123456")
+        AgentConfig(name="X", instructions="Y", color="#12345")
 
 
 # ---------------------------------------------------------------------------
@@ -908,6 +843,7 @@ def _binding(agent_id, server_id, *, tools_ok=True) -> AgentMCPServerDB:
 def _spec(agent_id, server_ids, *, tools_ok=True) -> AgentSpec:
     return AgentSpec(
         id=agent_id,
+        workspace_id=TEST_WORKSPACE_ID,
         name="Agent",
         instructions="do things",
         description=None,
@@ -971,7 +907,7 @@ async def test_check_ready_returns_ready_when_all_servers_connected(
     assert result["status"] == "ready"
 
 
-async def test_check_ready_returns_not_ready_when_server_disconnected(
+async def test_check_ready_reports_optional_disconnected_server(
     service, mock_db, mock_repo
 ):
     agent_id, server_id = uuid4(), uuid4()
@@ -986,7 +922,7 @@ async def test_check_ready_returns_not_ready_when_server_disconnected(
     ):
         result = await service.describe_readiness(agent_id, "user-id")
 
-    assert result["ready"] is False
+    assert result["ready"] is True
     assert str(server_id) in result["disconnected_servers"]
 
 
@@ -1021,8 +957,8 @@ async def test_check_ready_on_a_missing_agent_reports_ready_with_no_servers(
 async def test_describe_readiness_includes_subagent_servers(
     service, mock_db, mock_repo
 ):
-    # The bug: a subagent's unauthorized OAuth server must keep the agent "not
-    # ready" — otherwise the run launches and fails mid-flight.
+    # A subagent's unauthorized OAuth server is still reported so the UI can
+    # offer to connect it, but it remains optional for the run.
     parent_id, sub_id = uuid4(), uuid4()
     parent_server, sub_server = uuid4(), uuid4()
     mock_repo.get_run_spec.return_value = _run_spec(
@@ -1039,7 +975,7 @@ async def test_describe_readiness_includes_subagent_servers(
     ):
         result = await service.describe_readiness(parent_id, "user-id")
 
-    assert result["ready"] is False
+    assert result["ready"] is True
     assert str(sub_server) in result["disconnected_servers"]
     assert str(parent_server) not in result["disconnected_servers"]
 
@@ -1247,9 +1183,29 @@ async def test_get_team_ids_delegates(service, mock_repo):
 async def test_set_teams_delegates(service, mock_repo):
     agent_id = uuid4()
     team_ids = [uuid4()]
+    mock_repo.get_scoped.return_value = make_agent(
+        id=agent_id, visibility=ResourceVisibility.teams
+    )
     mock_repo.set_teams = AsyncMock(return_value=team_ids)
 
-    result = await service.set_teams(agent_id, team_ids)
+    with (
+        patch.object(
+            service,
+            "_validate_trigger_dependencies_for_scope",
+            new=AsyncMock(),
+        ),
+        patch.object(
+            service,
+            "_validate_subagent_dependencies_for_scope",
+            new=AsyncMock(),
+        ),
+        patch.object(
+            service,
+            "_validate_bound_dependencies_for_scope",
+            new=AsyncMock(),
+        ),
+    ):
+        result = await service.set_teams(agent_id, team_ids)
 
     mock_repo.set_teams.assert_awaited_once_with(agent_id, team_ids)
     assert result == team_ids
@@ -1348,8 +1304,10 @@ async def test_set_subagents_deduplicates_input(service, mock_repo):
 
 
 async def test_create_subagent_links_two_live_agents(service, mock_repo):
-    supervisor, sub = make_agent(), make_agent(name="Sub")
-    mock_repo.get.side_effect = lambda agent_id: {
+    owner_id = uuid4()
+    supervisor = make_agent(owner_id=owner_id)
+    sub = make_agent(name="Sub", owner_id=owner_id)
+    mock_repo.get_scoped.side_effect = lambda agent_id: {
         supervisor.id: supervisor,
         sub.id: sub,
     }.get(agent_id)
@@ -1363,8 +1321,10 @@ async def test_create_subagent_links_two_live_agents(service, mock_repo):
 
 
 async def test_create_subagent_is_idempotent(service, mock_repo):
-    supervisor, sub = make_agent(), make_agent(name="Sub")
-    mock_repo.get.side_effect = lambda agent_id: {
+    owner_id = uuid4()
+    supervisor = make_agent(owner_id=owner_id)
+    sub = make_agent(name="Sub", owner_id=owner_id)
+    mock_repo.get_scoped.side_effect = lambda agent_id: {
         supervisor.id: supervisor,
         sub.id: sub,
     }.get(agent_id)
@@ -1380,7 +1340,7 @@ async def test_create_subagent_is_idempotent(service, mock_repo):
 async def test_create_subagent_rejects_archived_and_missing_agents(service, mock_repo):
     supervisor = make_agent()
     archived = make_agent(is_archived=True)
-    mock_repo.get.side_effect = lambda agent_id: {
+    mock_repo.get_scoped.side_effect = lambda agent_id: {
         supervisor.id: supervisor,
         archived.id: archived,
     }.get(agent_id)
@@ -1392,8 +1352,10 @@ async def test_create_subagent_rejects_archived_and_missing_agents(service, mock
 
 
 async def test_create_subagent_keeps_the_graph_one_level_deep(service, mock_repo):
-    supervisor, sub = make_agent(), make_agent(name="Sub")
-    mock_repo.get.side_effect = lambda agent_id: {
+    owner_id = uuid4()
+    supervisor = make_agent(owner_id=owner_id)
+    sub = make_agent(name="Sub", owner_id=owner_id)
+    mock_repo.get_scoped.side_effect = lambda agent_id: {
         supervisor.id: supervisor,
         sub.id: sub,
     }.get(agent_id)

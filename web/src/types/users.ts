@@ -4,10 +4,15 @@ export type WorkspaceRole = "member" | "editor" | "admin";
 export interface User {
 	id: string;
 	name: string | null;
+	firstName: string | null;
+	lastName: string | null;
 	email: string | null;
 	role: WorkspaceRole;
+	canCreateWorkspace: boolean;
+	isInstanceOwner: boolean;
 	teamId: string | null;
 	pictureUrl: string | null;
+	imageRevision: string | null;
 	createdAt: string;
 	updatedAt: string;
 }
@@ -35,10 +40,15 @@ export interface TeamWrite {
 
 export interface Invite {
 	id: string;
+	workspaceId: string;
 	email: string;
 	role: string;
-	inviteUrl: string;
+	status: string;
+	inviteUrl: string | null;
+	invitedBy: string;
 	invitedByName: string | null;
+	teamId: string | null;
+	expiresAt: string;
 	createdAt: string;
 }
 
@@ -46,4 +56,5 @@ export interface InviteCreate {
 	email: string;
 	role: WorkspaceRole;
 	teamId: string | null;
+	workspaceId?: string;
 }

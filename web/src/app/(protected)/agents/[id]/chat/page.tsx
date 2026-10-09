@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
 	type PromptInputMessage,
@@ -27,6 +27,7 @@ const StarterChatPage = () => {
 	const agentId = params.id as string;
 	const [isCreating, setIsCreating] = useState(false);
 	const { modelSelection, starterAgent } = usePromptInputController();
+	const setStarterAgent = starterAgent.set;
 	const selectedModel = modelSelection.value;
 	const setSelectedModel = modelSelection.setModel;
 	// Reasoning-effort choice for the selected model; null = the model's
@@ -39,7 +40,10 @@ const StarterChatPage = () => {
 	const models = useModelsStore((state) => state.models);
 	const fetchModels = useModelsStore((state) => state.fetchModels);
 	const [agent, setAgent] = useState<Agent | null>(null);
+	const [loadedAgentId, setLoadedAgentId] = useState<string | null>(null);
 	const [isAgentDialogOpen, setIsAgentDialogOpen] = useState(false);
+	const agentRequestIdRef = useRef(0);
+	const currentAgent = loadedAgentId === agentId ? agent : null;
 	const {
 		ready: agentReady,
 		status,
@@ -66,6 +70,9 @@ const StarterChatPage = () => {
 		}
 
 		setIsCreating(true);
+		const submittedAgentId = agentId;
+		const submittedAgent = currentAgent;
+		const submittedAgentRequestId = agentRequestIdRef.current;
 
 		try {
 			// Generate thread ID on frontend
@@ -79,22 +86,27 @@ const StarterChatPage = () => {
 
 			const created = await threadsApi.createThread({
 				id: threadId,
-				agentId,
+				agentId: submittedAgentId,
 				modelId,
 				reasoningEffort,
 				firstMessageContent: textContent,
 			});
+			if (agentRequestIdRef.current !== submittedAgentRequestId) {
+				usePendingMessageStore.getState().consumePendingMessage(threadId);
+				setIsCreating(false);
+				return;
+			}
 
 			const thread = {
 				...created,
-				agentName: agent?.name ?? null,
-				agentEmoji: agent?.emoji ?? null,
-				agentColor: agent?.color ?? null,
+				agentName: submittedAgent?.name ?? null,
+				agentEmoji: submittedAgent?.emoji ?? null,
+				agentColor: submittedAgent?.color ?? null,
 			};
 
 			addThread(thread);
 
-			router.push(`/agents/${agentId}/chat/${threadId}`);
+			router.push(`/agents/${submittedAgentId}/chat/${threadId}`);
 		} catch (error) {
 			console.error("Error creating thread:", error);
 			setIsCreating(false);
@@ -121,13 +133,28 @@ const StarterChatPage = () => {
 	}, [models, selectedModel, setSelectedModel]);
 
 	useEffect(() => {
+		const requestId = ++agentRequestIdRef.current;
 		const fetchAgent = async () => {
-			const agent = await agentsApi.getAgent(agentId);
-			setAgent(agent);
-			starterAgent.set({ name: agent.name, emoji: agent.emoji ?? null });
+			try {
+				const fetchedAgent = await agentsApi.getAgent(agentId);
+				if (requestId !== agentRequestIdRef.current) return;
+				setAgent(fetchedAgent);
+				setLoadedAgentId(agentId);
+				setStarterAgent({
+					name: fetchedAgent.name,
+					emoji: fetchedAgent.emoji ?? null,
+				});
+			} catch (error) {
+				if (requestId === agentRequestIdRef.current) {
+					console.error("Error fetching agent:", error);
+				}
+			}
 		};
-		fetchAgent();
-	}, [agentId]);
+		void fetchAgent();
+		return () => {
+			agentRequestIdRef.current += 1;
+		};
+	}, [agentId, setStarterAgent]);
 
 	return (
 		<div className="container mx-auto h-full flex flex-col items-center justify-center max-w-4xl px-6">
@@ -140,12 +167,15 @@ const StarterChatPage = () => {
 						className="flex items-center justify-center gap-2 mx-auto hover:opacity-80 transition-opacity cursor-pointer"
 					>
 						<AgentAvatar
-							color={agent?.color}
-							emoji={agent?.emoji || starterAgent.value?.emoji}
+							agentId={currentAgent?.id}
+							name={currentAgent?.name}
+							imageRevision={currentAgent?.imageRevision}
+							color={currentAgent?.color}
+							emoji={currentAgent?.emoji}
 							size="lg"
 						/>
 						<h1 className="text-4xl font-bold">
-							{agent?.name || starterAgent.value?.name}
+							{currentAgent?.name}
 						</h1>
 						<ChevronDown className="size-5 text-muted-foreground ml-8 mt-1" />
 					</button>
@@ -177,7 +207,7 @@ const StarterChatPage = () => {
 						<Alert
 							variant="error"
 							message={
-								canConfigureAgent(agent?.currentUserPermission)
+								canConfigureAgent(currentAgent?.currentUserPermission)
 									? "This agent's MCP tools aren't configured yet. Configure them in the agent's settings."
 									: "Agent is not configured yet. Contact agent owner to configure it first."
 							}
@@ -212,7 +242,7 @@ const StarterChatPage = () => {
 					open={isAgentDialogOpen}
 					onOpenChange={setIsAgentDialogOpen}
 					onAgentSelect={(a) => {
-						starterAgent.set({ name: a.name, emoji: a.emoji ?? null });
+						setStarterAgent({ name: a.name, emoji: a.emoji ?? null });
 					}}
 				/>
 			</div>

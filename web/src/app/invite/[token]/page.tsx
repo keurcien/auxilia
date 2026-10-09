@@ -14,7 +14,9 @@ import {
 	CardTitle,
 } from "@/components/ui/card";
 import * as authApi from "@/lib/api/resources/auth";
+import { appearanceLogoUrl } from "@/lib/api/resources/appearance";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { useAppearanceStore } from "@/stores/appearance-store";
 import type { InviteInfo } from "@/types/auth";
 
 
@@ -25,13 +27,15 @@ export default function InviteAcceptPage({
 }) {
 	const { token } = use(params);
 	const router = useRouter();
+	const appearance = useAppearanceStore((state) => state.appearance);
 	const [inviteInfo, setInviteInfo] = useState<InviteInfo | null>(null);
 	const [isLoading, setIsLoading] = useState(false);
 	const [isChecking, setIsChecking] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const [invalidInvite, setInvalidInvite] = useState(false);
 
-	const [name, setName] = useState("");
+	const [firstName, setFirstName] = useState("");
+	const [lastName, setLastName] = useState("");
 	const [password, setPassword] = useState("");
 
 	useEffect(() => {
@@ -53,8 +57,13 @@ export default function InviteAcceptPage({
 		setIsLoading(true);
 
 		try {
-			await authApi.acceptInvite({ token, password, name });
-			router.push("/agents");
+			const result = await authApi.acceptInvite({
+				token,
+				password,
+				firstName,
+				lastName,
+			});
+			router.push(result.twoFactorRequired ? "/auth?two_factor=required" : "/agents");
 		} catch (err: unknown) {
 			setError(getApiErrorMessage(err, "An error occurred"));
 		} finally {
@@ -72,8 +81,12 @@ export default function InviteAcceptPage({
 				<CardHeader className="text-center flex flex-col items-center">
 					<CardTitle className="text-2xl flex flex-col items-center justify-center">
 						<Image
-							src="https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/logo.png"
-							alt="auxilia"
+							src={
+								appearance.logoRevision
+									? appearanceLogoUrl(appearance.logoRevision)
+									: "/pwa-icon.svg"
+							}
+							alt={appearance.appName}
 							width={48}
 							height={48}
 							className="mb-2"
@@ -103,16 +116,22 @@ export default function InviteAcceptPage({
 			<CardHeader className="text-center flex flex-col items-center">
 				<CardTitle className="text-2xl flex flex-col items-center justify-center">
 					<Image
-						src="https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/logo.png"
-						alt="auxilia"
+						src={
+							appearance.logoRevision
+								? appearanceLogoUrl(appearance.logoRevision)
+								: "/pwa-icon.svg"
+						}
+						alt={appearance.appName}
 						width={48}
 						height={48}
 						className="mb-2"
 					/>
-					<span className="text-2xl">Join auxilia</span>
+					<span className="text-2xl">Join {appearance.appName}</span>
 				</CardTitle>
 				<p className="text-sm text-muted-foreground mt-2">
-					You&apos;ve been invited as <span className="font-medium text-foreground">{inviteInfo?.role}</span>
+					You&apos;ve been invited to{" "}
+					<span className="font-medium text-foreground">{inviteInfo?.workspaceName}</span>
+					{" "}as <span className="font-medium text-foreground">{inviteInfo?.role}</span>
 				</p>
 			</CardHeader>
 
@@ -136,15 +155,31 @@ export default function InviteAcceptPage({
 							/>
 						</div>
 
-						<div className="space-y-2">
-							<Label htmlFor="name">Name</Label>
-							<Input
-								id="name"
-								type="text"
-								placeholder="John Doe"
-								value={name}
-								onChange={(e) => { setName(e.target.value); }}
-							/>
+						<div className="grid gap-4 sm:grid-cols-2">
+							<div className="space-y-2">
+								<Label htmlFor="first-name">First name</Label>
+								<Input
+									id="first-name"
+									type="text"
+									autoComplete="given-name"
+									placeholder="John"
+									value={firstName}
+									onChange={(e) => { setFirstName(e.target.value); }}
+									required
+								/>
+							</div>
+							<div className="space-y-2">
+								<Label htmlFor="last-name">Last name</Label>
+								<Input
+									id="last-name"
+									type="text"
+									autoComplete="family-name"
+									placeholder="Doe"
+									value={lastName}
+									onChange={(e) => { setLastName(e.target.value); }}
+									required
+								/>
+							</div>
 						</div>
 
 						<div className="space-y-2">
@@ -185,7 +220,7 @@ export default function InviteAcceptPage({
 									<div className="absolute inset-0 flex items-center">
 										<span className="w-full border-t" />
 									</div>
-									<div className="relative flex justify-center text-xs uppercase">
+									<div className="relative flex justify-center text-xs ">
 										<span className="bg-card px-2 text-muted-foreground">
 											Or continue with
 										</span>

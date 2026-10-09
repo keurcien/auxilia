@@ -12,6 +12,8 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlmodel import SQLModel
 
+from app.visibility import ResourceVisibility
+
 
 MAX_BUNDLE_BYTES = 10 * 1024 * 1024
 MAX_FILES = 100
@@ -29,6 +31,24 @@ SCRIPTS_DIR = "scripts"
 # The Agent Skills name rule: lowercase alphanumerics, single hyphens between.
 NAME_PATTERN = r"^[a-z0-9]+(?:-[a-z0-9]+)*$"
 _PATH_CHARS = re.compile(r"[A-Za-z0-9_.\-/]+")
+
+
+def _normalize_group(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = "/".join(part.strip() for part in value.split("/") if part.strip())
+    if len(normalized) > 255:
+        raise ValueError("group must be at most 255 characters")
+    return normalized or None
+
+
+def _normalize_color(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.upper()
+    if re.fullmatch(r"#[0-9A-F]{6}", normalized) is None:
+        raise ValueError("color must be a six-digit hex value")
+    return normalized
 
 
 class SkillFile(BaseModel):
@@ -107,16 +127,36 @@ class SkillSave(BaseModel):
 
     content: str = Field(min_length=1, max_length=110_000)
     files: list[SkillFile] = Field(default_factory=list, max_length=MAX_FILES)
+    group: str | None = None
+    emoji: str | None = Field(default=None, max_length=10)
+    color: str | None = Field(default=None, max_length=7)
     revision: int | None = None
+    visibility: ResourceVisibility | None = None
+    team_ids: list[UUID] | None = None
+
+    @field_validator("group")
+    @classmethod
+    def normalize_group(cls, value: str | None) -> str | None:
+        return _normalize_group(value)
+
+    @field_validator("color")
+    @classmethod
+    def normalize_color(cls, value: str | None) -> str | None:
+        return _normalize_color(value)
 
 
 class SkillCreateDB(SQLModel):
     """Server-side create payload: a validated bundle's columns plus the owner,
     and — for a sourced skill — where it came from."""
 
+    workspace_id: UUID
     owner_id: UUID
+    visibility: ResourceVisibility = ResourceVisibility.workspace
     name: str
     description: str
+    group: str | None = None
+    emoji: str | None = None
+    color: str | None = None
     content: str
     files: list[dict]
     digest: str | None = None
@@ -138,6 +178,7 @@ class SkillAgentRef(BaseModel):
     name: str
     emoji: str | None = None
     color: str | None = None
+    image_revision: UUID | None = None
 
 
 class SkillSummary(BaseModel):
@@ -157,8 +198,14 @@ class SkillSummary(BaseModel):
 
     id: UUID
     owner_id: UUID
+    visibility: ResourceVisibility = ResourceVisibility.workspace
+    team_ids: list[UUID] = []
     name: str
     description: str
+    group: str | None = None
+    emoji: str | None = None
+    color: str | None = None
+    image_revision: UUID | None = None
     revision: int
     file_count: int
     script_count: int
@@ -376,6 +423,9 @@ class AgentSkillResponse(BaseModel):
     id: UUID
     name: str
     description: str
+    emoji: str | None = None
+    color: str | None = None
+    image_revision: UUID | None = None
     script_count: int = 0
 
 

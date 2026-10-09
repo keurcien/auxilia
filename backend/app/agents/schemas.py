@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from uuid import UUID
 
@@ -5,7 +6,6 @@ from pydantic import field_validator
 from sqlmodel import SQLModel
 
 from app.agents.models import (
-    ALLOWED_COLORS,
     AgentMCPServerBase,
     EffectivePermission,
     PermissionLevel,
@@ -13,22 +13,44 @@ from app.agents.models import (
 )
 from app.sandbox.models import SandboxProviderType
 from app.skills.schemas import AgentSkillResponse
+from app.visibility import ResourceVisibility
+
+
+def _normalize_group(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = "/".join(part.strip() for part in value.split("/") if part.strip())
+    if not normalized:
+        return None
+    if len(normalized) > 255:
+        raise ValueError("group must be at most 255 characters")
+    return normalized
+
+
+def _normalize_color(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.upper()
+    if re.fullmatch(r"#[0-9A-F]{6}", normalized) is None:
+        raise ValueError("color must be a six-digit hex value")
+    return normalized
 
 
 class AgentCreateDB(SQLModel):
+    workspace_id: UUID
     name: str
     instructions: str
     owner_id: UUID
     emoji: str | None = None
     color: str | None = None
     description: str | None = None
+    group: str | None = None
+    visibility: ResourceVisibility = ResourceVisibility.personal
 
     @field_validator("color")
     @classmethod
     def validate_color(cls, v: str | None) -> str | None:
-        if v is not None and v not in ALLOWED_COLORS:
-            raise ValueError(f"color must be one of {sorted(ALLOWED_COLORS)}")
-        return v
+        return _normalize_color(v)
 
 
 class AgentPatch(SQLModel):
@@ -37,14 +59,18 @@ class AgentPatch(SQLModel):
     emoji: str | None = None
     color: str | None = None
     description: str | None = None
-    tag_id: UUID | None = None
+    group: str | None = None
+    visibility: ResourceVisibility | None = None
 
     @field_validator("color")
     @classmethod
     def validate_color(cls, v: str | None) -> str | None:
-        if v is not None and v not in ALLOWED_COLORS:
-            raise ValueError(f"color must be one of {sorted(ALLOWED_COLORS)}")
-        return v
+        return _normalize_color(v)
+
+    @field_validator("group")
+    @classmethod
+    def normalize_group(cls, value: str | None) -> str | None:
+        return _normalize_group(value)
 
 
 class AgentMCPServerConfig(SQLModel):
@@ -67,11 +93,19 @@ class AgentConfig(SQLModel):
     description: str | None = None
     emoji: str | None = None
     color: str | None = None
+    group: str | None = None
+    visibility: ResourceVisibility = ResourceVisibility.personal
+    team_ids: list[UUID] = []
     mcp_servers: list[AgentMCPServerConfig] = []
     sandboxes: list[AgentSandboxConfig] = []
     subagent_ids: list[UUID] = []
     # Skills enabled on the agent — whole-set, like the other bindings.
     skill_ids: list[UUID] = []
+
+    @field_validator("group")
+    @classmethod
+    def normalize_group(cls, value: str | None) -> str | None:
+        return _normalize_group(value)
 
     @field_validator("sandboxes")
     @classmethod
@@ -87,9 +121,7 @@ class AgentConfig(SQLModel):
     @field_validator("color")
     @classmethod
     def validate_color(cls, v: str | None) -> str | None:
-        if v is not None and v not in ALLOWED_COLORS:
-            raise ValueError(f"color must be one of {sorted(ALLOWED_COLORS)}")
-        return v
+        return _normalize_color(v)
 
     @field_validator("mcp_servers")
     @classmethod
@@ -169,12 +201,8 @@ class SubagentResponse(SQLModel):
     name: str
     emoji: str | None = None
     color: str | None = None
+    image_revision: UUID | None = None
     description: str | None = None
-
-
-class TagInfo(SQLModel):
-    id: UUID
-    name: str
 
 
 class AgentOwnerInfo(SQLModel):
@@ -182,6 +210,7 @@ class AgentOwnerInfo(SQLModel):
     name: str | None = None
     email: str | None = None
     picture_url: str | None = None
+    image_revision: UUID | None = None
 
 
 class AgentListResponse(SQLModel):
@@ -198,13 +227,16 @@ class AgentListResponse(SQLModel):
     owner_id: UUID
     emoji: str | None
     color: str | None
+    image_revision: UUID | None = None
     description: str | None
     is_archived: bool = False
     created_at: datetime
     updated_at: datetime
     mcp_servers: list[AgentMCPServerListResponse] | None = None
     subagents: list[SubagentResponse] | None = None
-    tag: TagInfo | None = None
+    group: str | None = None
+    visibility: ResourceVisibility = ResourceVisibility.personal
+    team_ids: list[UUID] = []
     owner: AgentOwnerInfo | None = None
     is_subagent: bool = False
     current_user_permission: EffectivePermission | None = None

@@ -59,14 +59,14 @@ export default function SkillPage() {
 	if (!skill) {
 		return <div className="h-svh flex-1 bg-background" />;
 	}
-	const canEdit = skill.canEdit && editing;
+	const canEdit = (skill.canEdit || skill.canManage) && editing;
 	return (
 		<SkillEditor
 			key={`${skill.id}:${skill.revision}:${canEdit ? "edit" : "read"}`}
 			skill={skill}
 			readOnly={!canEdit}
 			onEdit={
-				skill.canEdit
+				skill.canEdit || skill.canManage
 					? () => {
 							setEditing(true);
 						}

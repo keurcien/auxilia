@@ -1,4 +1,6 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { userImageUrl } from "@/lib/api/resources/users";
+import { avatarColorStyle } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 
 function getInitials(name: string | null | undefined): string {
@@ -13,6 +15,8 @@ function getInitials(name: string | null | undefined): string {
 interface UserAvatarProps {
 	name: string | null | undefined;
 	pictureUrl: string | null | undefined;
+	userId?: string;
+	imageRevision?: string | null;
 	/** Sizing/shape for the avatar root (e.g. `size-7`). */
 	className?: string;
 	/** Overrides the initials chip styling (colors, font size). */
@@ -33,17 +37,29 @@ interface UserAvatarProps {
 export function UserAvatar({
 	name,
 	pictureUrl,
+	userId,
+	imageRevision,
 	className,
 	fallbackClassName,
 }: UserAvatarProps) {
+	const uploadedImageUrl =
+		userId && imageRevision ? userImageUrl(userId, imageRevision) : null;
+	const source = uploadedImageUrl ?? pictureUrl;
+	const fallbackStyle = avatarColorStyle(null, name ?? userId ?? "user");
 	return (
 		<Avatar className={cn("size-8", className)}>
-			{pictureUrl && (
-				<AvatarImage src={pictureUrl} alt="" referrerPolicy="no-referrer" />
+			{source && (
+				<AvatarImage
+					src={source}
+					alt=""
+					referrerPolicy="no-referrer"
+					className="rounded-full"
+				/>
 			)}
 			<AvatarFallback
+				style={fallbackStyle}
 				className={cn(
-					"bg-ink text-[10.5px] font-bold text-white dark:bg-white/15",
+					"text-[10.5px] font-bold",
 					fallbackClassName,
 				)}
 			>

@@ -3,6 +3,7 @@ import { Thread } from "@/types/threads";
 import { RunTerminalStatus } from "@/types/runs";
 import * as threadsApi from "@/lib/api/resources/threads";
 import { useTriggerRunsStore } from "@/stores/trigger-runs-store";
+import { getWorkspaceGeneration, isCurrentWorkspaceGeneration } from "@/lib/workspace-generation";
 
 const PAGE_SIZE = 30;
 
@@ -13,6 +14,8 @@ interface ThreadsState {
 	isLoadingMore: boolean;
 	/** Fetch the first page, replacing the current list. */
 	fetchThreads: () => Promise<void>;
+	/** Merge newly-created first-page threads into the current sidebar list. */
+	pollRecentThreads: () => Promise<void>;
 	/** Append the next page (deduped by id — new threads shift offsets). */
 	loadMoreThreads: () => Promise<void>;
 	addThread: (thread: Thread) => void;
@@ -28,14 +31,38 @@ export const useThreadsStore = create<ThreadsState>((set, get) => ({
 	total: 0,
 	isLoadingMore: false,
 	fetchThreads: async () => {
+		const generation = getWorkspaceGeneration();
 		try {
 			const page = await threadsApi.listThreads({ limit: PAGE_SIZE, offset: 0 });
-			set({ threads: page.items, total: page.total });
+			if (isCurrentWorkspaceGeneration(generation)) {
+				set({ threads: page.items, total: page.total });
+			}
 		} catch (error) {
 			console.error("Error fetching threads:", error);
 		}
 	},
+	pollRecentThreads: async () => {
+		const generation = getWorkspaceGeneration();
+		try {
+			const page = await threadsApi.listThreads({ limit: PAGE_SIZE, offset: 0 });
+			if (!isCurrentWorkspaceGeneration(generation)) return;
+			set((state) => {
+				const knownIds = new Set(state.threads.map((thread) => thread.id));
+				const newThreads = page.items.filter(
+					(thread) => !knownIds.has(thread.id),
+				);
+				if (newThreads.length === 0 && state.total === page.total) return state;
+				return {
+					threads: [...newThreads, ...state.threads],
+					total: page.total,
+				};
+			});
+		} catch (error) {
+			console.error("Error polling recent threads:", error);
+		}
+	},
 	loadMoreThreads: async () => {
+		const generation = getWorkspaceGeneration();
 		const { threads, total, isLoadingMore } = get();
 		if (isLoadingMore || threads.length >= total) return;
 		set({ isLoadingMore: true });
@@ -44,6 +71,7 @@ export const useThreadsStore = create<ThreadsState>((set, get) => ({
 				limit: PAGE_SIZE,
 				offset: threads.length,
 			});
+			if (!isCurrentWorkspaceGeneration(generation)) return;
 			set((state) => {
 				const seen = new Set(state.threads.map((t) => t.id));
 				const fresh = page.items.filter((t) => !seen.has(t.id));
@@ -55,7 +83,9 @@ export const useThreadsStore = create<ThreadsState>((set, get) => ({
 		} catch (error) {
 			console.error("Error loading more threads:", error);
 		} finally {
-			set({ isLoadingMore: false });
+			if (isCurrentWorkspaceGeneration(generation)) {
+				set({ isLoadingMore: false });
+			}
 		}
 	},
 	addThread: (thread) => {

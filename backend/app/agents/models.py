@@ -1,22 +1,12 @@
 from enum import Enum
 from uuid import UUID
 
-from sqlalchemy import UniqueConstraint
+from sqlalchemy import Enum as SAEnum, LargeBinary, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Boolean, Column, Field, SQLModel, String, Text
 
 from app.models import BaseDBModel
-
-
-ALLOWED_COLORS = {
-    "#6C5CE7",
-    "#00B894",
-    "#E17055",
-    "#0984E3",
-    "#FDCB6E",
-    "#E84393",
-    "#9E9E9E",
-}
+from app.visibility import ResourceVisibility
 
 
 class PermissionLevel(str, Enum):
@@ -64,7 +54,9 @@ class ToolStatus(str, Enum):
 
 
 class AgentMCPServerBase(SQLModel):
-    agent_id: UUID = Field(foreign_key="agents.id", nullable=False)
+    agent_id: UUID = Field(foreign_key="agents.id", ondelete="CASCADE", nullable=False)
+    # No cascade on the server side: deleting a bound MCP server is refused
+    # until the admin detaches it from its agents.
     mcp_server_id: UUID = Field(foreign_key="mcp_servers.id", nullable=False)
     tools: dict[str, ToolStatus] | None = Field(
         default=None, sa_column=Column(JSONB, nullable=True)
@@ -96,6 +88,7 @@ class AgentSandboxDB(AgentSandboxBase, BaseDBModel, table=True):
 
 
 class AgentBase(SQLModel):
+    workspace_id: UUID = Field(foreign_key="workspaces.id", nullable=False, index=True)
     name: str = Field(max_length=255, nullable=False)
     instructions: str = Field(sa_column=Column(Text, nullable=False))
     owner_id: UUID = Field(foreign_key="users.id", nullable=False)
@@ -104,6 +97,7 @@ class AgentBase(SQLModel):
     description: str | None = Field(
         default=None, max_length=255, sa_column=Column(String(255), nullable=True)
     )
+    group: str | None = Field(default=None, max_length=255, nullable=True, index=True)
 
 
 class AgentDB(AgentBase, BaseDBModel, table=True):
@@ -113,13 +107,27 @@ class AgentDB(AgentBase, BaseDBModel, table=True):
         default=False,
         sa_column=Column(Boolean, nullable=False, server_default="false"),
     )
-    tag_id: UUID | None = Field(
-        default=None,
-        foreign_key="tags.id",
-        ondelete="SET NULL",
-        index=True,
-        nullable=True,
+    image_revision: UUID | None = Field(default=None, nullable=True)
+    visibility: ResourceVisibility = Field(
+        default=ResourceVisibility.personal,
+        sa_column=Column(
+            SAEnum(ResourceVisibility, native_enum=False, create_constraint=False),
+            nullable=False,
+            server_default=ResourceVisibility.personal.value,
+        ),
     )
+
+
+class AgentImageDB(BaseDBModel, table=True):
+    __tablename__ = "agent_images"
+    __table_args__ = (UniqueConstraint("agent_id", name="uq_agent_image_agent_id"),)
+
+    agent_id: UUID = Field(
+        foreign_key="agents.id", ondelete="CASCADE", nullable=False, index=True
+    )
+    data: bytes = Field(sa_column=Column(LargeBinary, nullable=False))
+    media_type: str = Field(max_length=50, nullable=False)
+    sha256: str = Field(max_length=64, nullable=False)
 
 
 class AgentUserPermissionDB(BaseDBModel, table=True):
@@ -128,7 +136,7 @@ class AgentUserPermissionDB(BaseDBModel, table=True):
         UniqueConstraint("agent_id", "user_id", name="uq_agent_user_permission"),
     )
 
-    agent_id: UUID = Field(foreign_key="agents.id", nullable=False)
+    agent_id: UUID = Field(foreign_key="agents.id", ondelete="CASCADE", nullable=False)
     user_id: UUID = Field(foreign_key="users.id", nullable=False)
     permission: PermissionLevel = Field(nullable=False)
 
@@ -153,5 +161,9 @@ class AgentSubagentDB(BaseDBModel, table=True):
         ),
     )
 
-    supervisor_id: UUID = Field(foreign_key="agents.id", nullable=False)
-    subagent_id: UUID = Field(foreign_key="agents.id", nullable=False)
+    supervisor_id: UUID = Field(
+        foreign_key="agents.id", ondelete="CASCADE", nullable=False
+    )
+    subagent_id: UUID = Field(
+        foreign_key="agents.id", ondelete="CASCADE", nullable=False
+    )

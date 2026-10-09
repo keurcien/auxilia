@@ -14,11 +14,14 @@ from contextlib import suppress
 
 from sqlalchemy.exc import IntegrityError
 
+from app.agents.core.service import AgentService
+from app.agents.models import EffectivePermission
 from app.background import LoopHealth, register_loop
 from app.database import AsyncSessionLocal, get_checkpointer
 from app.exceptions import root_cause
 from app.mcp.client.exceptions import as_oauth_required
 from app.runtime.agent import Agent
+from app.runtime.checkpoints import checkpoint_thread_id
 from app.runtime.hitl import pending_interrupt
 from app.runtime.protocol.wire import encode_event
 from app.runtime.runs.control import RunControl
@@ -30,6 +33,8 @@ from app.runtime.runs.service import RunService
 from app.runtime.runs.settings import run_settings
 from app.runtime.runs.state import MCP_REAUTH_ERROR, RunStatus
 from app.threads.models import ThreadDB
+from app.users.models import UserDB
+from app.workspaces.repository import WorkspaceRepository
 
 
 logger = logging.getLogger(__name__)
@@ -42,20 +47,6 @@ async def _cancel(task: asyncio.Task) -> None:
         await task
 
 
-async def _mcp_unauthorized(db, thread: ThreadDB, user_id: str) -> bool:
-    """Pre-flight for background-launched runs (trigger scanner, Slack, HITL
-    resume): True when a bound OAuth server is confirmed unauthorized for this
-    user. HTTP run creation already 401s before the run exists; this is the
-    net under every path that can't receive a 401 — the run fails fast with an
-    actionable error instead of burning an MCP session build.
-
-    Delegates to the HTTP preflight so every launch path shares one definition
-    of "unauthorized": probes all OAuth servers regardless of tools state,
-    fails open on infra errors, and commits to release the connection before
-    its network IO."""
-    return await RunService.required_oauth_url(db, thread.agent_id, user_id) is not None
-
-
 class RunWorker:
     """Executes a single claimed run end to end."""
 
@@ -66,16 +57,16 @@ class RunWorker:
 
     async def run(self, record: RunDB) -> None:
         """Execute a run the dispatcher just claimed (already `running`)."""
-        events = RunEventStream(record.id, self.redis)
-        liveness = RunLiveness(record.id, self.redis)
+        events = RunEventStream(record.id, self.redis, workspace_id=record.workspace_id)
+        liveness = RunLiveness(record.id, self.redis, workspace_id=record.workspace_id)
         # Stamp before anything else: the reaper treats a running run with no
         # liveness key (past the grace window) as a dead worker.
         await liveness.stamp(ttl=run_settings.heartbeat_timeout_seconds)
         heartbeat = asyncio.create_task(self._heartbeat(liveness, events))
         cancel_watch = asyncio.create_task(
-            RunControl(record.id, self.redis).wait_for_cancel(
-                poll_seconds=run_settings.cancel_poll_seconds
-            )
+            RunControl(
+                record.id, self.redis, workspace_id=record.workspace_id
+            ).wait_for_cancel(poll_seconds=run_settings.cancel_poll_seconds)
         )
         # A push consumer (e.g. Slack) relays the event log concurrently; it reads
         # from id 0, so there's no race with the events we publish below, and it
@@ -169,7 +160,7 @@ class RunWorker:
             # log's TTL, so this is what a reload/reattach shows.
             cause = root_cause(exc)
             return RunStatus.error, str(cause) or type(cause).__name__
-        if await self._is_interrupted(record.thread_id):
+        if await self._is_interrupted(record.workspace_id, record.thread_id):
             return RunStatus.interrupted, None
         return RunStatus.success, None
 
@@ -180,8 +171,28 @@ class RunWorker:
             thread = await db.get(ThreadDB, record.thread_id)
             if thread is None:
                 raise RuntimeError(f"Thread {record.thread_id} not found")
-            if await _mcp_unauthorized(db, thread, str(record.user_id)):
-                raise RuntimeError(MCP_REAUTH_ERROR)
+            if thread.workspace_id != record.workspace_id:
+                raise RuntimeError("Run and thread belong to different workspaces")
+            if thread.user_id != record.user_id:
+                raise RuntimeError("Run and thread belong to different users")
+            user = await db.get(UserDB, record.user_id)
+            membership = await WorkspaceRepository(db).get_membership(
+                thread.workspace_id, record.user_id
+            )
+            if user is None or membership is None:
+                raise RuntimeError("Run user no longer belongs to the workspace")
+            user.set_workspace_membership(membership)
+            agents = AgentService(db, thread.workspace_id)
+            await agents.require_permission(
+                thread.agent_id,
+                at_least=EffectivePermission.member,
+                action="use this agent",
+                user_id=user.id,
+                user_role=user.role,
+                user_team_id=user.team_id,
+                include_archived=True,
+            )
+            await agents.ensure_subagent_scopes(thread.agent_id)
             agent = await Agent.build(thread=thread, db=db)
             # Commit here, on purpose (CLAUDE.md, transactions, exception 2):
             # holding this pooled connection open for the length of an agent
@@ -224,10 +235,14 @@ class RunWorker:
                     exc_info=True,
                 )
 
-    async def _is_interrupted(self, thread_id: str) -> bool:
+    async def _is_interrupted(self, workspace_id, thread_id: str) -> bool:
         async with get_checkpointer() as checkpointer:
             checkpoint = await checkpointer.aget_tuple(
-                config={"configurable": {"thread_id": thread_id}}
+                config={
+                    "configurable": {
+                        "thread_id": checkpoint_thread_id(workspace_id, thread_id)
+                    }
+                }
             )
         return checkpoint is not None and pending_interrupt(checkpoint) is not None
 

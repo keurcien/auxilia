@@ -6,40 +6,103 @@
 # never executes the agent itself (see `app/runtime/runs/` and `consumer.py`).
 
 import logging
+import re
+from uuid import UUID, uuid4
 
 from slack_sdk.web.async_client import AsyncWebClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.core.service import AgentService
+from app.agents.models import EffectivePermission
+from app.appearance.service import InstanceAppearanceService
 from app.auth.settings import auth_settings
 from app.database import AsyncSessionLocal, get_checkpointer
 from app.exceptions import (
     DomainValidationError,
     ModelUnavailableError,
+    NotFoundError,
+    PermissionDeniedError,
     SandboxUnavailableError,
     StaleApprovalError,
 )
-from app.integrations.slack.blocks import build_connect_prompt_blocks
+from app.integrations.slack.blocks import build_connect_prompt_blocks, escape_mrkdwn
 from app.integrations.slack.commands.chat import (
     build_agent_picker_blocks,
     list_pickable_agents,
     post_agent_picker,
 )
 from app.integrations.slack.consumer import build_slack_delivery
+from app.integrations.slack.db_models import SlackThreadBindingDB
 from app.integrations.slack.models import SlackEvent, SlackInteractionPayload
-from app.integrations.slack.settings import slack_settings
-from app.integrations.slack.utils import get_user_info, resolve_user
+from app.integrations.slack.repository import SlackThreadBindingRepository
+from app.integrations.slack.utils import get_slack_client, get_user_info, resolve_user
+from app.runtime.checkpoints import checkpoint_thread_id
 from app.runtime.hitl import (
     PendingInterrupt,
     load_interrupt_scope,
     pending_approval_requests,
 )
 from app.runtime.runs.service import RunService
-from app.threads.models import ThreadDB
-from app.users.repository import UserRepository
+from app.threads.repository import ThreadRepository
+from app.threads.service import ThreadService
+from app.users.models import UserDB
 
 
 logger = logging.getLogger(__name__)
+
+
+async def _instance_app_name() -> str:
+    try:
+        async with AsyncSessionLocal() as db:
+            return (await InstanceAppearanceService(db).get_settings()).app_name
+    except Exception:  # noqa: BLE001 — branding lookup must not break Slack delivery
+        logger.warning("Could not load the configured application name", exc_info=True)
+        return "auxilia"
+
+
+async def _resolve_slack_user(
+    slack_user_id: str, workspace_id: UUID, slack_bot_id: UUID | None
+) -> UserDB | None:
+    # Keep the legacy two-argument seam intact for the shared workspace bot.
+    if slack_bot_id is None:
+        return await resolve_user(slack_user_id, workspace_id)
+    return await resolve_user(slack_user_id, workspace_id, slack_bot_id)
+
+
+async def _client_for_bot(
+    workspace_id: UUID,
+    slack_bot_id: UUID | None,
+    *,
+    require_active: bool = True,
+) -> AsyncWebClient | None:
+    if slack_bot_id is None:
+        return await get_slack_client(workspace_id)
+    if not require_active:
+        from app.integrations.slack.service import AgentSlackBotService
+
+        async with AsyncSessionLocal() as db:
+            config = await AgentSlackBotService(db).get_runtime(
+                slack_bot_id, require_active=False
+            )
+        return AsyncWebClient(token=config.bot_token) if config else None
+    return await get_slack_client(workspace_id, slack_bot_id)
+
+
+async def _can_use_agent(
+    db: AsyncSession, workspace_id: UUID, agent_id: UUID, user: UserDB
+) -> bool:
+    try:
+        await AgentService(db, workspace_id).require_permission(
+            agent_id,
+            at_least=EffectivePermission.member,
+            action="use this agent",
+            user_id=user.id,
+            user_role=user.role,
+            user_team_id=user.team_id,
+        )
+    except (NotFoundError, PermissionDeniedError):
+        return False
+    return True
 
 
 async def _enqueue_slack_run(
@@ -49,9 +112,12 @@ async def _enqueue_slack_run(
     channel_id: str,
     slack_user_id: str,
     team_id: str | None,
+    workspace_id: UUID,
+    slack_bot_id: UUID | None = None,
+    thread_ts: str | None = None,
     input: dict | None = None,
     command: dict | None = None,
-) -> None:
+) -> bool:
     """Create a durable run for a Slack turn; the worker executes + delivers it.
 
     A duplicate that slips the webhook dedup races the per-thread mutex and is
@@ -59,9 +125,11 @@ async def _enqueue_slack_run(
     """
     delivery = build_slack_delivery(
         channel_id=channel_id,
-        thread_ts=thread_id,
         slack_user_id=slack_user_id,
         team_id=team_id,
+        workspace_id=workspace_id,
+        slack_bot_id=slack_bot_id,
+        thread_ts=thread_ts or thread_id,
     )
     try:
         await RunService().create(
@@ -70,9 +138,12 @@ async def _enqueue_slack_run(
             input=input,
             command=command,
             delivery=delivery,
+            multitask_strategy="enqueue" if command is not None else "reject",
         )
+        return True
     except DomainValidationError:
         logger.info("Slack run for thread %s skipped: active run exists", thread_id)
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -133,9 +204,9 @@ def _addressed_cards(
     """(decided ``{tool_call_id: decision}``, any_pending) among the cards tagged
     with this interrupt id.
 
-    Identity, not adjacency: an interleaved notice (a failure message, the
-    "View in auxilia" link) can't truncate the batch, and cards left over from
-    an older interrupt are ignored rather than miscounted.
+    Identity, not adjacency: an interleaved notice can't truncate the batch,
+    and cards left over from an older interrupt are ignored rather than
+    miscounted.
     """
     decided: dict[str, str] = {}
     any_pending = False
@@ -230,6 +301,7 @@ def _collect_batch_decisions(thread_messages: list[dict]) -> list[str] | None:
 
 
 async def _pending_hitl_state(
+    workspace_id: UUID,
     thread_id: str,
 ) -> tuple[PendingInterrupt, list[dict]] | None:
     """The pending interrupt and its approval requests, from the checkpoint.
@@ -239,7 +311,9 @@ async def _pending_hitl_state(
     and what exposes a card whose interrupt was already resolved elsewhere.
     """
     async with get_checkpointer() as checkpointer:
-        scope = await load_interrupt_scope(checkpointer, thread_id)
+        scope = await load_interrupt_scope(
+            checkpointer, checkpoint_thread_id(workspace_id, thread_id)
+        )
     if scope is None:
         return None
     # A subagent's approvals are matched in its own checkpoint (`scope`).
@@ -340,7 +414,9 @@ async def _update_approval_message(
 # ---------------------------------------------------------------------------
 
 
-async def handle_assistant_thread_started(event: SlackEvent) -> None:
+async def handle_assistant_thread_started(
+    event: SlackEvent, workspace_id: UUID
+) -> None:
     """Welcome a user when they open a new AI-assistant thread.
 
     Sets a typing status, resolves the Slack identity to an internal account,
@@ -354,32 +430,39 @@ async def handle_assistant_thread_started(event: SlackEvent) -> None:
     thread_ts = at.thread_ts
     slack_user_id = at.user_id
 
-    client = AsyncWebClient(token=slack_settings.slack_bot_token)
+    client = await get_slack_client(workspace_id)
+    if client is None:
+        return
     await client.assistant_threads_setStatus(
         channel_id=channel_id,
         thread_ts=thread_ts,
         status="is typing...",
     )
 
-    user_info = await get_user_info(slack_user_id)
+    user_info = await get_user_info(slack_user_id, workspace_id)
     display_name = (user_info.real_name or user_info.name) if user_info else "there"
 
     # Resolve Slack identity → internal user
     user = None
     if user_info and user_info.profile.email:
-        async with AsyncSessionLocal() as db:
-            user = await UserRepository(db).get_by_email(user_info.profile.email)
+        user = await resolve_user(slack_user_id, workspace_id)
 
     if not user:
+        app_name = escape_mrkdwn(await _instance_app_name())
         await client.chat_postMessage(
             channel=channel_id,
             thread_ts=thread_ts,
-            text=f"Hi {display_name}! It seems like you haven't registered on auxilia yet.",
+            text=(
+                f"Hi {display_name}! It seems like you haven't registered on "
+                f"{app_name} yet."
+            ),
         )
         return
 
     async with AsyncSessionLocal() as db:
-        agents = await list_pickable_agents(db, user.id, user.role, user.team_id)
+        agents = await list_pickable_agents(
+            db, workspace_id, user.id, user.role, user.team_id
+        )
 
     if not agents:
         await client.chat_postMessage(
@@ -401,9 +484,15 @@ async def handle_assistant_thread_started(event: SlackEvent) -> None:
     )
 
 
-async def _is_agent_ready(agent_id: str, user_id: str, db: AsyncSession) -> bool:
-    """Mirror the /is-ready endpoint (including subagents' servers): True only
-    when every bound MCP server is configured and connected for this user.
+async def _is_agent_ready(
+    agent_id: str, user_id: str, workspace_id: UUID, db: AsyncSession
+) -> bool:
+    """Whether a Slack run can start.
+
+    A disconnected per-user OAuth server does not make readiness false: the
+    runtime omits it from that run's toolset. Invalid tool configuration and
+    sandbox outages still block because neither can be repaired by degrading
+    tools.
 
     Fail-open: these handlers run as fire-and-forget tasks (Slack is already
     acked), so an infra error here (Redis blip, DB hiccup) must not kill the
@@ -411,7 +500,9 @@ async def _is_agent_ready(agent_id: str, user_id: str, db: AsyncSession) -> bool
     from uuid import UUID
 
     try:
-        readiness = await AgentService(db).describe_readiness(UUID(agent_id), user_id)
+        readiness = await AgentService(db, workspace_id).describe_readiness(
+            UUID(agent_id), user_id
+        )
     except Exception:  # noqa: BLE001 — fail-open, per the docstring above
         logger.warning(
             "Slack readiness check for agent %s failed; letting the run proceed",
@@ -425,16 +516,19 @@ async def _is_agent_ready(agent_id: str, user_id: str, db: AsyncSession) -> bool
 async def _post_connect_prompt(
     client: AsyncWebClient, channel: str, thread_ts: str, agent_id
 ) -> None:
-    """Tell the Slack user to (re)connect the agent's MCP servers on auxilia."""
+    """Tell the Slack user to reconnect the agent's MCP servers."""
     connect_url = f"{auth_settings.FRONTEND_URL}/agents/{agent_id}/chat"
+    app_name = await _instance_app_name()
     await client.chat_postMessage(
         channel=channel,
         thread_ts=thread_ts,
-        blocks=build_connect_prompt_blocks(connect_url),
+        blocks=build_connect_prompt_blocks(connect_url, app_name),
     )
 
 
-async def handle_message(event: SlackEvent, *, team_id: str | None = None) -> None:
+async def handle_message(
+    event: SlackEvent, *, workspace_id: UUID, team_id: str | None = None
+) -> None:
     """Route a Slack message to the configured agent by enqueuing a durable run."""
     thread_ts = event.thread_ts or event.ts
 
@@ -442,16 +536,18 @@ async def handle_message(event: SlackEvent, *, team_id: str | None = None) -> No
     if not question:
         return
 
-    user = await resolve_user(event.user)
+    user = await resolve_user(event.user, workspace_id)
 
     if not user:
         return
 
-    client = AsyncWebClient(token=slack_settings.slack_bot_token)
+    client = await get_slack_client(workspace_id)
+    if client is None:
+        return
 
     # Look up the existing thread (created when the user picked an agent)
     async with AsyncSessionLocal() as db:
-        thread = await db.get(ThreadDB, thread_ts)
+        thread = await ThreadRepository(db, workspace_id).get(thread_ts)
 
         if not thread:
             await post_agent_picker(
@@ -460,12 +556,21 @@ async def handle_message(event: SlackEvent, *, team_id: str | None = None) -> No
                 thread_ts,
                 db,
                 user.id,
+                workspace_id=workspace_id,
                 user_role=user.role,
                 user_team_id=user.team_id,
             )
             return
 
-        if not await _is_agent_ready(str(thread.agent_id), str(user.id), db):
+        if thread.user_id != user.id:
+            return
+
+        if not await _can_use_agent(db, workspace_id, thread.agent_id, user):
+            return
+
+        if not await _is_agent_ready(
+            str(thread.agent_id), str(user.id), workspace_id, db
+        ):
             await _post_connect_prompt(
                 client, event.channel, thread_ts, thread.agent_id
             )
@@ -494,6 +599,7 @@ async def handle_message(event: SlackEvent, *, team_id: str | None = None) -> No
             channel_id=event.channel,
             slack_user_id=event.user,
             team_id=team_id,
+            workspace_id=workspace_id,
             input={"messages": [{"type": "human", "content": question}]},
         )
     except ModelUnavailableError as exc:
@@ -517,7 +623,210 @@ async def handle_message(event: SlackEvent, *, team_id: str | None = None) -> No
         )
 
 
-async def handle_interaction(payload: SlackInteractionPayload) -> None:
+def _agent_question(text: str) -> str:
+    """Remove a leading Slack bot mention from a public-channel prompt."""
+    return re.sub(r"^\s*<@[A-Z0-9]+>\s*", "", text).strip()
+
+
+async def _post_agent_denial(
+    client: AsyncWebClient,
+    event: SlackEvent,
+    text: str,
+) -> None:
+    if not event.channel or not event.user:
+        return
+    thread_ts = event.thread_ts or event.ts
+    if event.channel_type == "im":
+        await client.chat_postMessage(
+            channel=event.channel,
+            thread_ts=thread_ts,
+            text=text,
+        )
+        return
+    await client.chat_postEphemeral(
+        channel=event.channel,
+        user=event.user,
+        thread_ts=thread_ts,
+        text=text,
+    )
+
+
+async def handle_agent_message(
+    event: SlackEvent,
+    *,
+    workspace_id: UUID,
+    agent_id: UUID,
+    slack_bot_id: UUID,
+    team_id: str | None = None,
+    integration_enabled: bool = True,
+    require_mention_in_threads: bool = True,
+) -> None:
+    """Route an allowed channel mention or DM to one agent-specific Slack bot."""
+    if not event.channel or not event.user or not event.ts:
+        return
+    if (
+        require_mention_in_threads
+        and event.channel_type != "im"
+        and event.type != "app_mention"
+    ):
+        return
+    external_thread_ts = event.thread_ts or event.ts
+    client = await _client_for_bot(
+        workspace_id,
+        slack_bot_id,
+        require_active=integration_enabled,
+    )
+    if client is None:
+        return
+    if not integration_enabled:
+        app_name = escape_mrkdwn(await _instance_app_name())
+        await _post_agent_denial(
+            client,
+            event,
+            f"This Slack bot is disabled in {app_name}. "
+            "Ask an agent administrator to enable it.",
+        )
+        return
+
+    user = await _resolve_slack_user(event.user, workspace_id, slack_bot_id)
+    if user is None:
+        app_name = escape_mrkdwn(await _instance_app_name())
+        await _post_agent_denial(
+            client,
+            event,
+            f"You need a {app_name} account in this workspace to use this agent.",
+        )
+        return
+
+    question = _agent_question(event.text or "")
+    async with AsyncSessionLocal() as db:
+        bindings = SlackThreadBindingRepository(db)
+        binding = await bindings.get_external(
+            slack_bot_id, event.channel, external_thread_ts
+        )
+
+        # A channel message starts a conversation only when it directly
+        # mentions this bot. Ordinary channel traffic is ignored.
+        is_new_root = event.type == "app_mention" or (
+            event.channel_type == "im" and event.thread_ts is None
+        )
+        if binding is None and not is_new_root:
+            return
+
+        if not await _can_use_agent(db, workspace_id, agent_id, user):
+            await _post_agent_denial(
+                client,
+                event,
+                "You don't have permission to use this agent.",
+            )
+            return
+
+        if binding is None:
+            if not question:
+                await client.chat_postMessage(
+                    channel=event.channel,
+                    thread_ts=external_thread_ts,
+                    text="Mention me with a request to start a conversation.",
+                )
+                return
+            created = await ThreadService(db, workspace_id).get_or_create(
+                ts=str(uuid4()),
+                agent_id=str(agent_id),
+                question=question,
+                user_id=str(user.id),
+            )
+            binding = SlackThreadBindingDB(
+                slack_bot_id=slack_bot_id,
+                thread_id=created.id,
+                channel_id=event.channel,
+                slack_thread_ts=external_thread_ts,
+                slack_user_id=event.user,
+            )
+            db.add(binding)
+            await db.flush()
+            thread_id = created.id
+        else:
+            if binding.slack_user_id != event.user:
+                await _post_agent_denial(
+                    client,
+                    event,
+                    "Only the person who started this thread can ask the agent to act.",
+                )
+                return
+            thread = await ThreadRepository(db, workspace_id).get(binding.thread_id)
+            if (
+                thread is None
+                or thread.user_id != user.id
+                or thread.agent_id != agent_id
+            ):
+                app_name = escape_mrkdwn(await _instance_app_name())
+                await _post_agent_denial(
+                    client,
+                    event,
+                    "I can't continue this conversation because its "
+                    f"{app_name} thread is no longer available. Mention me in "
+                    "a new message to start again.",
+                )
+                return
+            if not question:
+                await _post_agent_denial(
+                    client,
+                    event,
+                    "Add a request to your message so I know what you want me to do.",
+                )
+                return
+            thread_id = thread.id
+
+        if not await _is_agent_ready(str(agent_id), str(user.id), workspace_id, db):
+            await _post_connect_prompt(
+                client, event.channel, external_thread_ts, agent_id
+            )
+            await db.commit()
+            return
+        await db.commit()
+
+    try:
+        enqueued = await _enqueue_slack_run(
+            thread_id=thread_id,
+            thread_ts=external_thread_ts,
+            user_id=str(user.id),
+            channel_id=event.channel,
+            slack_user_id=event.user,
+            team_id=team_id,
+            workspace_id=workspace_id,
+            slack_bot_id=slack_bot_id,
+            input={"messages": [{"type": "human", "content": question}]},
+        )
+        if not enqueued:
+            await client.chat_postMessage(
+                channel=event.channel,
+                thread_ts=external_thread_ts,
+                text=(
+                    "I'm still working on the previous request in this thread. "
+                    "Please wait for it to finish, then try again."
+                ),
+            )
+    except ModelUnavailableError as exc:
+        await client.chat_postMessage(
+            channel=event.channel,
+            thread_ts=external_thread_ts,
+            text=f"{exc.detail} Ask a workspace admin about it.",
+        )
+    except SandboxUnavailableError as exc:
+        await client.chat_postMessage(
+            channel=event.channel,
+            thread_ts=external_thread_ts,
+            text=f"{exc.detail} Try again in a moment.",
+        )
+
+
+async def handle_interaction(
+    payload: SlackInteractionPayload,
+    workspace_id: UUID,
+    *,
+    slack_bot_id: UUID | None = None,
+    agent_id: UUID | None = None,
+) -> None:
     """Handle a Slack block_actions interaction (Approve/Reject buttons).
 
     Approval state is derived from the thread itself (``conversations.replies``)
@@ -539,13 +848,36 @@ async def handle_interaction(payload: SlackInteractionPayload) -> None:
     if not channel_id or not thread_ts:
         return
 
-    client = AsyncWebClient(token=slack_settings.slack_bot_token)
+    actor = await _resolve_slack_user(payload.user.id, workspace_id, slack_bot_id)
+    if actor is None:
+        return
+    async with AsyncSessionLocal() as db:
+        internal_thread_id = thread_ts
+        if slack_bot_id is not None:
+            binding = await SlackThreadBindingRepository(db).get_external(
+                slack_bot_id, channel_id, thread_ts
+            )
+            if binding is None or binding.slack_user_id != payload.user.id:
+                return
+            internal_thread_id = binding.thread_id
+        thread = await ThreadRepository(db, workspace_id).get(internal_thread_id)
+        if (
+            thread is None
+            or thread.user_id != actor.id
+            or (agent_id is not None and thread.agent_id != agent_id)
+            or not await _can_use_agent(db, workspace_id, thread.agent_id, actor)
+        ):
+            return
+
+    client = await _client_for_bot(workspace_id, slack_bot_id)
+    if client is None:
+        return
     original_blocks = payload.message.blocks if payload.message else []
 
     # The checkpoint arbitrates: which interrupt is pending, and is the
     # clicked card part of it? A card for a resolved interrupt (approved from
     # the web, an older batch) is marked, not counted.
-    state = await _pending_hitl_state(thread_ts)
+    state = await _pending_hitl_state(workspace_id, internal_thread_id)
     card_interrupt_id = _card_interrupt_id(original_blocks)
     stale = state is None or (
         card_interrupt_id is not None
@@ -565,13 +897,14 @@ async def handle_interaction(payload: SlackInteractionPayload) -> None:
         # identify: nothing proves this card answers it, so never mark it or
         # resume from it — the buttons stay, and the web UI (which verifies
         # every resume against the checkpoint) takes over.
+        app_name = escape_mrkdwn(await _instance_app_name())
         await client.chat_postMessage(
             channel=channel_id,
             thread_ts=thread_ts,
             text=(
                 "This approval card predates an update and can't be matched "
                 "to the pending request — please approve or reject it from "
-                "auxilia."
+                f"{app_name}."
             ),
         )
         return
@@ -599,7 +932,16 @@ async def handle_interaction(payload: SlackInteractionPayload) -> None:
         return
 
     # All decided — resume the agent via a new run
-    await _resume_agent(client, payload, channel_id, thread_ts, command)
+    await _resume_agent(
+        client,
+        payload,
+        workspace_id,
+        channel_id,
+        thread_ts,
+        command,
+        internal_thread_id=internal_thread_id,
+        slack_bot_id=slack_bot_id,
+    )
 
 
 def _extract_interaction_context(
@@ -641,38 +983,52 @@ async def _fetch_and_resolve_command(
 async def _resume_agent(
     client: AsyncWebClient,
     payload: SlackInteractionPayload,
+    workspace_id: UUID,
     channel_id: str,
     thread_ts: str,
     command: dict,
+    *,
+    internal_thread_id: str | None = None,
+    slack_bot_id: UUID | None = None,
 ) -> None:
     """Look up the thread and enqueue a HITL-resume run with *command*."""
-    user = await resolve_user(payload.user.id)
+    user = await _resolve_slack_user(payload.user.id, workspace_id, slack_bot_id)
     if not user:
         return
 
     async with AsyncSessionLocal() as db:
-        thread = await db.get(ThreadDB, thread_ts)
+        thread = await ThreadRepository(db, workspace_id).get(
+            internal_thread_id or thread_ts
+        )
         if not thread:
+            return
+        if not await _can_use_agent(db, workspace_id, thread.agent_id, user):
             return
         # Same gate as handle_message: an approval clicked after the user's
         # OAuth expired must prompt a reconnect, not enqueue a doomed run.
-        if not await _is_agent_ready(str(thread.agent_id), str(user.id), db):
+        if not await _is_agent_ready(
+            str(thread.agent_id), str(user.id), workspace_id, db
+        ):
             await _post_connect_prompt(client, channel_id, thread_ts, thread.agent_id)
             return
 
-    await client.assistant_threads_setStatus(
-        channel_id=channel_id,
-        thread_ts=thread_ts,
-        status="is typing...",
-    )
+    if slack_bot_id is None:
+        await client.assistant_threads_setStatus(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            status="is typing...",
+        )
 
     try:
         await _enqueue_slack_run(
-            thread_id=thread_ts,
+            thread_id=internal_thread_id or thread_ts,
+            thread_ts=thread_ts,
             user_id=str(user.id),
             channel_id=channel_id,
             slack_user_id=payload.user.id,
             team_id=(payload.team or {}).get("id"),
+            workspace_id=workspace_id,
+            slack_bot_id=slack_bot_id,
             command=command,
         )
     except StaleApprovalError:

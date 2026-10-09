@@ -3,15 +3,33 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Eye, EyeOff, ShieldCheck } from "lucide-react";
+import {
+	Eye,
+	EyeOff,
+	FileKey2,
+	Plus,
+	ShieldCheck,
+	Trash2,
+	Upload,
+} from "lucide-react";
 import { toast } from "sonner";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import { Alert } from "@/components/ui/alert";
+import { GroupPicker } from "@/components/ui/group-picker";
+import { VisibilityPicker } from "@/components/ui/visibility-picker";
+import { ImageUpload } from "@/components/ui/image-upload";
 import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { useAppearanceStore } from "@/stores/appearance-store";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
-import { MCPAuthType, OfficialMCPServer } from "@/types/mcp-servers";
+import {
+	MCPAuthType,
+	OfficialMCPServer,
+	ServiceCredentialProvider,
+} from "@/types/mcp-servers";
+import { groupOptions } from "@/lib/groups";
 import { ConnectionTestBanner } from "../../components/connection-test-banner";
+import { OAuthCallbackUrl } from "../../components/oauth-callback-url";
 import {
 	HeaderButton,
 	HeaderPrimaryButton,
@@ -19,8 +37,10 @@ import {
 } from "@/components/layout/subpage-header";
 import {
 	buildMCPServerCreatePayload,
+	buildServiceCredentialsPayload,
 	MCPServerCreateFormErrors,
 	MCPServerCreateFormValues,
+	parseServiceCredentialScopes,
 	requiresStaticOAuthCredentials,
 	validateMCPServerCreateForm,
 } from "../../lib/mcp-server-create-form";
@@ -30,10 +50,17 @@ const emptyForm: MCPServerCreateFormValues = {
 	name: "",
 	url: "",
 	description: "",
+	group: "",
+	visibility: "workspace",
+	teamIds: [],
 	authType: "none",
 	apiKey: "",
 	oauthClientId: "",
 	oauthClientSecret: "",
+	serviceCredentialProvider: "google_service_account",
+	serviceCredentialsJson: "",
+	serviceCredentialScopes: "https://www.googleapis.com/auth/cloud-platform",
+	serviceHeaders: [{ name: "", value: "" }],
 	iconUrl: "",
 };
 
@@ -54,13 +81,18 @@ const AUTH_OPTIONS: {
 	{ value: "none", label: "None", description: "Open endpoint, no credentials." },
 	{
 		value: "api_key",
-		label: "API key",
-		description: "One shared key for the whole workspace.",
+		label: "API key Bearer",
+		description: "One shared key sent as an Authorization Bearer token.",
 	},
 	{
 		value: "oauth2",
 		label: "OAuth 2.0",
 		description: "Each user connects their own account.",
+	},
+	{
+		value: "service_identity",
+		label: "Service identity",
+		description: "One managed machine identity for the workspace.",
 	},
 ];
 
@@ -75,7 +107,7 @@ function AuthMethodCards({
 		<div
 			role="radiogroup"
 			aria-label="Authentication method"
-			className="grid grid-cols-1 gap-2.5 sm:grid-cols-3"
+			className="grid grid-cols-1 gap-2.5 sm:grid-cols-2"
 		>
 			{AUTH_OPTIONS.map((option) => {
 				const selected = option.value === value;
@@ -127,9 +159,12 @@ function AuthMethodCards({
 export default function CustomMCPServerPage() {
 	const router = useRouter();
 	const searchParams = useSearchParams();
+	const appName = useAppearanceStore((state) => state.appearance.appName);
 	// The catalog has no ids — the `official` param carries the entry's url.
 	const officialUrl = searchParams.get("official");
 	const createMcpServer = useMcpServersStore((state) => state.createMcpServer);
+	const applyMcpServer = useMcpServersStore((state) => state.applyMcpServer);
+	const mcpServers = useMcpServersStore((state) => state.mcpServers);
 
 	const [form, setForm] = useState<MCPServerCreateFormValues>(emptyForm);
 	const [errors, setErrors] = useState<MCPServerCreateFormErrors>({});
@@ -138,7 +173,11 @@ export default function CustomMCPServerPage() {
 	const [submitError, setSubmitError] = useState<string | null>(null);
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [showSecret, setShowSecret] = useState(false);
+	const [credentialFileName, setCredentialFileName] = useState<string | null>(
+		null,
+	);
 	const [forbiddenOpen, setForbiddenOpen] = useState(false);
+	const [imageFile, setImageFile] = useState<File | null>(null);
 
 	const { status: testStatus, message: testMessage, reset: resetTest, runCandidateTest } =
 		useConnectionTest();
@@ -160,10 +199,20 @@ export default function CustomMCPServerPage() {
 					name: official.name,
 					url: official.url,
 					description: official.description ?? "",
+					group: "",
+					visibility: "workspace",
+					teamIds: [],
 					authType: official.authType,
 					apiKey: "",
 					oauthClientId: "",
 					oauthClientSecret: "",
+					serviceCredentialProvider: "google_service_account",
+					serviceCredentialsJson: "",
+					serviceCredentialScopes:
+						official.url === "https://bigquery.googleapis.com/mcp"
+							? "https://www.googleapis.com/auth/bigquery"
+							: "https://www.googleapis.com/auth/cloud-platform",
+					serviceHeaders: [{ name: "", value: "" }],
 					iconUrl: official.iconUrl ?? "",
 				});
 			} catch {
@@ -201,7 +250,20 @@ export default function CustomMCPServerPage() {
 		setSubmitError(null);
 		setIsSubmitting(true);
 		try {
-			await createMcpServer(buildMCPServerCreatePayload(form));
+			const created = await createMcpServer(buildMCPServerCreatePayload(form));
+			if (imageFile) {
+				try {
+					const revision = await mcpServersApi.uploadMcpServerImage(
+						created.id,
+						imageFile,
+					);
+					applyMcpServer({ ...created, imageRevision: revision });
+				} catch {
+					toast.warning(
+						`${form.name.trim()} was created, but its image could not be uploaded.`,
+					);
+				}
+			}
 			toast.success(`${form.name.trim()} added to the workspace`);
 			router.push("/mcp-servers");
 		} catch (error: unknown) {
@@ -215,6 +277,28 @@ export default function CustomMCPServerPage() {
 		}
 	};
 
+	const updateServiceHeader = (
+		index: number,
+		field: "name" | "value",
+		value: string,
+	) => {
+		setForm((current) => ({
+			...current,
+			serviceHeaders: (current.serviceHeaders ?? []).map((header, position) =>
+				position === index ? { ...header, [field]: value } : header,
+			),
+		}));
+		setErrors(
+			(current) =>
+				Object.fromEntries(
+					Object.entries(current).filter(
+						([key]) => key !== "serviceHeaders",
+					),
+				) as MCPServerCreateFormErrors,
+		);
+		if (testStatus !== "idle") resetTest();
+	};
+
 	const handleTest = () => {
 		if (!form.url.trim()) {
 			setErrors((prev) => ({ ...prev, url: "Server address is required." }));
@@ -224,13 +308,18 @@ export default function CustomMCPServerPage() {
 			url: form.url,
 			authType: form.authType,
 			apiKey: form.apiKey,
+			serviceCredentialProvider: form.serviceCredentialProvider,
+			serviceCredentialsJson: buildServiceCredentialsPayload(form),
+			serviceCredentialScopes: parseServiceCredentialScopes(
+				form.serviceCredentialScopes ?? "",
+			),
 		});
 	};
 
 	const canSubmit = Boolean(form.url.trim() && form.name.trim());
 
 	return (
-		<div className="flex h-svh min-w-0 flex-1 flex-col bg-background animate-in fade-in duration-300">
+		<div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background animate-in fade-in duration-300">
 			<SubpageHeader
 				trail={[
 					{ label: "workspace" },
@@ -261,7 +350,7 @@ export default function CustomMCPServerPage() {
 				<div className="mx-auto max-w-[640px]">
 					<Link
 						href="/mcp-servers/add"
-						className="text-[13px] font-semibold text-petrol hover:underline"
+						className="text-[13px] font-semibold text-petrol hover:underline dark:text-panel-terminal"
 					>
 						‹ Catalog
 					</Link>
@@ -274,7 +363,7 @@ export default function CustomMCPServerPage() {
 						{isNonDcrOAuth && form.authType === "oauth2"
 							? "This server requires OAuth credentials from the provider's developer console."
 							: selectedOfficial?.authType === "api_key" &&
-								  form.authType === "api_key"
+								 form.authType === "api_key"
 								? "This server requires an API key shared by the whole workspace."
 								: "Connect any remote server that speaks the Model Context Protocol over HTTP."}
 					</p>
@@ -303,50 +392,43 @@ export default function CustomMCPServerPage() {
 								</span>
 							) : (
 								<span className="text-[12px] text-meta dark:text-panel-dim">
-									Streamable HTTP endpoint — the only transport auxilia supports.
+									Streamable HTTP endpoint, the only transport {appName} supports.
 								</span>
 							)}
 						</div>
 
-						{/* Name + Icon URL */}
-						<div className="flex flex-col gap-[18px] sm:flex-row sm:gap-3.5">
-							<div className="flex flex-1 flex-col gap-[7px]">
-								<label htmlFor="mcp-name" className={LABEL_CLASS}>
-									Name <span className="text-destructive">*</span>
-								</label>
-								<input
-									id="mcp-name"
-									placeholder="e.g. Internal warehouse"
-									value={form.name}
-									onChange={(e) => {
-										handleFormChange("name", e.target.value);
-									}}
-									aria-required="true"
-									aria-invalid={!!errors.name}
-									aria-describedby={errors.name ? "mcp-name-error" : undefined}
-									className={INPUT_CLASS}
-								/>
-								{errors.name && (
-									<span id="mcp-name-error" className={ERROR_CLASS}>
-										{errors.name}
-									</span>
-								)}
-							</div>
-							<div className="flex flex-1 flex-col gap-[7px]">
-								<label htmlFor="mcp-icon-url" className={LABEL_CLASS}>
-									Icon URL{OPTIONAL_HINT}
-								</label>
-								<input
-									id="mcp-icon-url"
-									placeholder="https://…/icon.svg"
-									value={form.iconUrl}
-									onChange={(e) => {
-										handleFormChange("iconUrl", e.target.value);
-									}}
-									className={MONO_INPUT_CLASS}
-								/>
-							</div>
+						<div className="flex flex-col gap-[7px]">
+							<label htmlFor="mcp-name" className={LABEL_CLASS}>
+								Name <span className="text-destructive">*</span>
+							</label>
+							<input
+								id="mcp-name"
+								placeholder="e.g. Internal warehouse"
+								value={form.name}
+								onChange={(e) => {
+									handleFormChange("name", e.target.value);
+								}}
+								aria-required="true"
+								aria-invalid={!!errors.name}
+								aria-describedby={errors.name ? "mcp-name-error" : undefined}
+								className={INPUT_CLASS}
+							/>
+							{errors.name && (
+								<span id="mcp-name-error" className={ERROR_CLASS}>
+									{errors.name}
+								</span>
+							)}
 						</div>
+
+						<ImageUpload
+							file={imageFile}
+							onFileChange={setImageFile}
+							onRemove={() => {
+								setImageFile(null);
+							}}
+							label="Uploaded logo"
+							className="rounded-[12px] border border-hairline bg-sidebar p-3 dark:border-white/5"
+						/>
 
 						{/* Description */}
 						<div className="flex flex-col gap-[7px]">
@@ -356,7 +438,7 @@ export default function CustomMCPServerPage() {
 							<textarea
 								id="mcp-description"
 								rows={3}
-								placeholder="What agents can do with this server — shown in the servers list and the agent editor."
+								placeholder="What agents can do with this server, shown in the servers list and the agent editor."
 								value={form.description}
 								onChange={(e) => {
 									handleFormChange("description", e.target.value);
@@ -364,6 +446,25 @@ export default function CustomMCPServerPage() {
 								className={`${INPUT_CLASS} resize-none leading-[1.55]`}
 							/>
 						</div>
+
+						<GroupPicker
+							value={form.group}
+							groups={groupOptions(mcpServers)}
+							onChange={(group) => {
+								handleFormChange("group", group);
+							}}
+						/>
+						<VisibilityPicker
+							visibility={form.visibility ?? "workspace"}
+							teamIds={form.teamIds ?? []}
+							onChange={(visibility, teamIds) => {
+								setForm((current) => ({
+									...current,
+									visibility,
+									teamIds,
+								}));
+							}}
+						/>
 
 						{/* Authentication method */}
 						<div className="flex flex-col gap-2.5">
@@ -381,16 +482,17 @@ export default function CustomMCPServerPage() {
 							<div className="flex flex-col gap-[18px] rounded-xl border border-border bg-sidebar p-[18px] dark:bg-white/5">
 								<div className="text-[12.5px] leading-[1.55] text-subtle dark:text-panel-body">
 									The key is encrypted at rest and shared by everyone in the
-									workspace — it is never shown again after saving.
+									workspace, it is never shown again after saving.
 								</div>
 								<div className="flex flex-col gap-[7px]">
 									<label htmlFor="mcp-api-key" className={LABEL_CLASS}>
-										API key <span className="text-destructive">*</span>
+										API key Bearer{" "}
+										<span className="text-destructive">*</span>
 									</label>
 									<input
 										id="mcp-api-key"
 										type="password"
-										placeholder="Enter your API key"
+										placeholder="Enter your Bearer API key"
 										value={form.apiKey}
 										onChange={(e) => {
 											handleFormChange("apiKey", e.target.value);
@@ -420,7 +522,7 @@ export default function CustomMCPServerPage() {
 									) : (
 										<>
 											Provide a Client ID and secret from the provider&apos;s
-											developer console — or leave both blank to use{" "}
+											developer console, or leave both blank to use{" "}
 											<strong className="text-body dark:text-panel-body">
 												Dynamic Client Registration
 											</strong>{" "}
@@ -428,6 +530,7 @@ export default function CustomMCPServerPage() {
 										</>
 									)}
 								</div>
+								<OAuthCallbackUrl />
 								<div className="flex flex-col gap-[7px]">
 									<label htmlFor="mcp-oauth-client-id" className={LABEL_CLASS}>
 										Client ID{isNonDcrOAuth ? "" : OPTIONAL_HINT}
@@ -462,7 +565,7 @@ export default function CustomMCPServerPage() {
 										) : (
 											<span className="font-normal text-meta dark:text-panel-dim">
 												{" "}
-												optional · write-only
+												optional, write-only
 											</span>
 										)}
 									</label>
@@ -508,6 +611,228 @@ export default function CustomMCPServerPage() {
 										</span>
 									)}
 								</div>
+							</div>
+						)}
+
+						{/* Service identity panel */}
+						{form.authType === "service_identity" && (
+							<div className="flex flex-col gap-[18px] rounded-xl border border-border bg-sidebar p-[18px] dark:bg-white/5">
+								<div className="flex items-start gap-3">
+									<span className="flex size-9 shrink-0 items-center justify-center rounded-[9px] bg-petrol-tint text-petrol">
+										<FileKey2 className="size-[17px]" />
+									</span>
+									<div className="text-[12.5px] leading-[1.55] text-subtle dark:text-panel-body">
+										This identity is shared by authorized users and agents. The
+										credential is encrypted at rest and its secret values are
+										never returned by the API.
+									</div>
+								</div>
+
+								<div className="flex flex-col gap-[7px]">
+									<label
+										htmlFor="mcp-service-provider"
+										className={LABEL_CLASS}
+									>
+										Credential provider
+									</label>
+									<select
+										id="mcp-service-provider"
+										value={
+											form.serviceCredentialProvider ??
+											"google_service_account"
+										}
+										onChange={(e) => {
+											const provider = e.target
+												.value as ServiceCredentialProvider;
+											handleFormChange(
+												"serviceCredentialProvider",
+												provider,
+											);
+										}}
+										className={INPUT_CLASS}
+									>
+										<option value="google_service_account">
+											Google Service Account
+										</option>
+										<option value="custom_http_headers">
+											Custom HTTP
+										</option>
+									</select>
+								</div>
+
+								{form.serviceCredentialProvider ===
+								"custom_http_headers" ? (
+									<div className="flex flex-col gap-3">
+										<div className="flex items-center justify-between gap-3">
+											<span className={LABEL_CLASS}>HTTP headers</span>
+											<button
+												type="button"
+												onClick={() => {
+													setForm((current) => ({
+														...current,
+														serviceHeaders: [
+															...(current.serviceHeaders ?? []),
+															{ name: "", value: "" },
+														],
+													}));
+												}}
+												className="inline-flex cursor-pointer items-center gap-1.5 text-[12px] font-semibold text-petrol hover:underline dark:text-panel-terminal"
+											>
+												<Plus className="size-3.5" />
+												Add header
+											</button>
+										</div>
+										{(form.serviceHeaders ?? []).map((header, index) => (
+											<div
+												key={index}
+												className="grid grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)_32px] gap-2"
+											>
+												<input
+													aria-label={`Header ${index + 1} name`}
+													placeholder="Authorization"
+													value={header.name}
+													onChange={(e) => {
+														updateServiceHeader(
+															index,
+															"name",
+															e.target.value,
+														);
+													}}
+													className={MONO_INPUT_CLASS}
+												/>
+												<input
+													aria-label={`Header ${index + 1} value`}
+													type="password"
+													placeholder="Bearer ••••••••"
+													value={header.value}
+													onChange={(e) => {
+														updateServiceHeader(
+															index,
+															"value",
+															e.target.value,
+														);
+													}}
+													className={MONO_INPUT_CLASS}
+												/>
+												<button
+													type="button"
+													aria-label={`Remove header ${index + 1}`}
+													onClick={() => {
+														setForm((current) => ({
+															...current,
+															serviceHeaders: (
+																current.serviceHeaders ?? []
+															).filter((_, position) => position !== index),
+														}));
+													}}
+													className="flex cursor-pointer items-center justify-center rounded-lg text-meta transition-colors hover:bg-destructive/10 hover:text-destructive"
+												>
+													<Trash2 className="size-4" />
+												</button>
+											</div>
+										))}
+										{errors.serviceHeaders && (
+											<span className={ERROR_CLASS}>
+												{errors.serviceHeaders}
+											</span>
+										)}
+										<span className="text-[12px] text-meta dark:text-panel-dim">
+											Headers are encrypted and sent with every request.
+											Transport-managed headers such as Host and Content-Length
+											are not allowed.
+										</span>
+									</div>
+								) : (
+									<>
+										<div className="flex flex-col gap-[7px]">
+											<span className={LABEL_CLASS}>
+												Credential file{" "}
+												<span className="text-destructive">*</span>
+											</span>
+											<label
+												htmlFor="mcp-service-credentials"
+												className={`flex cursor-pointer items-center gap-3 rounded-[10px] border border-dashed px-4 py-3 transition-colors hover:border-petrol hover:bg-card ${
+													errors.serviceCredentialsJson
+														? "border-destructive"
+														: "border-input"
+												}`}
+											>
+												<span className="flex size-8 shrink-0 items-center justify-center rounded-[8px] bg-card text-petrol">
+													<Upload className="size-4" />
+												</span>
+												<span className="min-w-0 flex-1">
+													<span className="block truncate text-[13px] font-semibold text-foreground">
+														{credentialFileName ??
+															"Choose a JSON credential file"}
+													</span>
+													<span className="mt-0.5 block text-[11.5px] text-meta dark:text-panel-dim">
+														{credentialFileName
+															? "Ready to encrypt and save"
+															: "The file stays write-only after upload"}
+													</span>
+												</span>
+											</label>
+											<input
+												id="mcp-service-credentials"
+												type="file"
+												accept=".json,application/json"
+												className="sr-only"
+												onChange={(e) => {
+													const file = e.target.files?.[0];
+													e.target.value = "";
+													if (!file) return;
+													void file
+														.text()
+														.then((contents) => {
+															handleFormChange(
+																"serviceCredentialsJson",
+																contents,
+															);
+															setCredentialFileName(file.name);
+														})
+														.catch(() => {
+															setErrors((current) => ({
+																...current,
+																serviceCredentialsJson:
+																	"Could not read this credential file.",
+															}));
+														});
+												}}
+											/>
+											{errors.serviceCredentialsJson && (
+												<span className={ERROR_CLASS}>
+													{errors.serviceCredentialsJson}
+												</span>
+											)}
+										</div>
+
+										<div className="flex flex-col gap-[7px]">
+											<label
+												htmlFor="mcp-service-scopes"
+												className={LABEL_CLASS}
+											>
+												OAuth scopes
+											</label>
+											<input
+												id="mcp-service-scopes"
+												value={form.serviceCredentialScopes ?? ""}
+												onChange={(e) => {
+													handleFormChange(
+														"serviceCredentialScopes",
+														e.target.value,
+													);
+												}}
+												placeholder="https://www.googleapis.com/auth/cloud-platform"
+												className={MONO_INPUT_CLASS}
+											/>
+											<span className="text-[12px] text-meta dark:text-panel-dim">
+												Separate multiple scopes with spaces or commas.
+												Resource permissions remain controlled by the
+												provider&apos;s IAM.
+											</span>
+										</div>
+									</>
+								)}
 							</div>
 						)}
 

@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 from app.threads.service import ThreadService
+from tests.conftest import TEST_WORKSPACE_ID
 
 
 def _make_service():
@@ -9,7 +10,7 @@ def _make_service():
     db.add = MagicMock()
     db.delete = AsyncMock()
     db.flush = AsyncMock()
-    svc = ThreadService(db)
+    svc = ThreadService(db, TEST_WORKSPACE_ID)
     svc.repository = MagicMock()
     return svc, db
 
@@ -60,8 +61,8 @@ async def test_purge_checkpoints_deletes_each_thread():
         await svc.purge_checkpoints(["t1", "t2"])
 
     assert checkpointer.adelete_thread.await_count == 2
-    checkpointer.adelete_thread.assert_any_await(thread_id="t1")
-    checkpointer.adelete_thread.assert_any_await(thread_id="t2")
+    checkpointer.adelete_thread.assert_any_await(thread_id=f"{TEST_WORKSPACE_ID}:t1")
+    checkpointer.adelete_thread.assert_any_await(thread_id=f"{TEST_WORKSPACE_ID}:t2")
 
 
 async def test_purge_checkpoints_noop_when_empty():

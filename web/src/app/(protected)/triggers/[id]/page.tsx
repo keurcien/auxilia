@@ -15,5 +15,5 @@ export default async function TriggerPage({ params }: TriggerPageProps) {
 		cookie: cookieStore.toString(),
 	});
 
-	return <TriggerDetail trigger={trigger} />;
+	return <TriggerDetail key={trigger.id} trigger={trigger} />;
 }

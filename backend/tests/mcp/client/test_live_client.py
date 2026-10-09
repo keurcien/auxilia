@@ -289,15 +289,17 @@ async def test_toolset_open_binds_namespaced_tools_from_every_server(live_server
         }
 
 
-async def test_toolset_open_unwraps_a_servers_authorization_requirement(live_server):
+async def test_toolset_open_omits_a_server_that_requires_authorization(live_server):
     prepared = _prepared(
         live_server.url,
         alpha=ConnectionSpec(url=live_server.url),
         beta=ConnectionSpec(url=live_server.url, auth=_NeedsAuthorization()),
     )
 
-    with pytest.raises(OAuthAuthorizationRequired) as exc_info:
-        async with Toolset.open(prepared):
-            pass  # pragma: no cover
-
-    assert exc_info.value.url == AUTH_URL
+    async with Toolset.open(prepared) as toolset:
+        assert sorted(tool.name for tool in toolset.all) == [
+            "alpha_echo",
+            "alpha_fail",
+            "alpha_widget",
+        ]
+        assert toolset.interrupt_on == {"alpha_fail": True}

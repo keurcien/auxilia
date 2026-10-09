@@ -54,8 +54,8 @@ from mcp.shared.auth import (
 )
 from pydantic import AnyHttpUrl, AnyUrl
 
+from app.auth.settings import auth_settings
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
-from app.settings import app_settings
 
 
 logger = logging.getLogger(__name__)
@@ -251,6 +251,12 @@ def strip_client_id_for_basic_auth(request: httpx2.Request) -> httpx2.Request:
     return httpx2.Request(request.method, request.url, data=data, headers=headers)
 
 
+def oauth_callback_url() -> str:
+    """Public redirect URI administrators must register with OAuth providers."""
+    frontend_url = auth_settings.FRONTEND_URL.rstrip("/")
+    return f"{frontend_url}/api/backend/mcp-servers/oauth/callback"
+
+
 def build_oauth_client_metadata() -> OAuthClientMetadata:
     """Static OAuth client-registration metadata for auxilia.
 
@@ -269,9 +275,7 @@ def build_oauth_client_metadata() -> OAuthClientMetadata:
     """
     return OAuthClientMetadata(
         client_name="auxilia",
-        redirect_uris=[
-            AnyUrl(f"{app_settings.backend_url}/mcp-servers/oauth/callback")
-        ],
+        redirect_uris=[AnyUrl(oauth_callback_url())],
         grant_types=["authorization_code", "refresh_token"],
         response_types=["code"],
         token_endpoint_auth_method=AUTH_METHOD_POST,
@@ -317,11 +321,12 @@ class WebOAuthClientProvider(OAuthClientProvider):
 
         On top of the SDK's own ``_initialize`` (tokens + client info): restore
         the persisted AS metadata (the SDK never stores it, but the stateless
-        callback/refresh requests need the token endpoint), apply the
-        per-provider quirks, inject static client credentials when the server
-        was configured with them, and set the token expiry from the stored
-        token (the SDK skips this on load, so a restarted process would treat
-        any stored token as valid forever — python-sdk#1784).
+        callback/refresh requests need the token endpoint), restore Protected
+        Resource Metadata (the SDK uses it to include RFC 8707 ``resource`` in
+        token requests), apply the per-provider quirks, inject static client
+        credentials when the server was configured with them, and set the token
+        expiry from the stored token (the SDK skips this on load, so a restarted
+        process would treat any stored token as valid forever — python-sdk#1784).
         """
         await super()._initialize()
 
@@ -329,6 +334,14 @@ class WebOAuthClientProvider(OAuthClientProvider):
             self.context.oauth_metadata = (
                 await self.context.storage.get_oauth_metadata()
             )
+        if not self.context.protected_resource_metadata:
+            load_resource_metadata = getattr(
+                self.context.storage, "get_protected_resource_metadata", None
+            )
+            if load_resource_metadata is not None:
+                self.context.protected_resource_metadata = (
+                    await load_resource_metadata()
+                )
 
         # Apply the quirk to the metadata *and* to any stored client_info: the
         # client_info built below inherits it from the metadata, while one that
@@ -351,7 +364,11 @@ class WebOAuthClientProvider(OAuthClientProvider):
             if self.context.client_info:
                 self.context.client_info.token_endpoint_auth_method = auth_method
 
-        if not self.context.client_info and self._client_id:
+        # Static credentials are authoritative. A server can be switched from
+        # DCR to a pre-registered client while Redis still contains the dynamic
+        # registration; reusing that stale client_id makes the provider compare
+        # our current redirect URI against the wrong OAuth application.
+        if self._client_id:
             self.context.client_info = OAuthClientInformationFull(
                 client_id=self._client_id,
                 client_secret=self._client_secret,
@@ -609,8 +626,8 @@ class WebOAuthClientProvider(OAuthClientProvider):
 
         Instead of opening a browser (``redirect_handler``) and blocking on a
         local callback (``callback_handler``), persist what the ``/callback``
-        request will need — the AS metadata, the client registration and the
-        PKCE verifier keyed by ``state`` — and raise
+        request will need — the AS and protected-resource metadata, the client
+        registration and the PKCE verifier keyed by ``state`` — and raise
         :class:`OAuthAuthorizationRequired` carrying the authorize URL.
 
         Mirrors the SDK's URL construction because the verifier is local to
@@ -619,6 +636,12 @@ class WebOAuthClientProvider(OAuthClientProvider):
         """
         if self.context.oauth_metadata:
             await self.context.storage.set_oauth_metadata(self.context.oauth_metadata)
+        if self.context.protected_resource_metadata:
+            store_resource_metadata = getattr(
+                self.context.storage, "set_protected_resource_metadata", None
+            )
+            if store_resource_metadata is not None:
+                await store_resource_metadata(self.context.protected_resource_metadata)
 
         if self.context.client_metadata.redirect_uris is None:
             raise OAuthFlowError("No redirect URIs provided")

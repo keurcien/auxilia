@@ -1,4 +1,5 @@
 from unittest.mock import AsyncMock
+from uuid import UUID
 
 import pytest
 from fakeredis import FakeServer, aioredis
@@ -9,6 +10,14 @@ from sqlmodel import SQLModel
 import app.runtime.runs.service as service_mod
 from app.runtime.runs.models import RunDB
 from app.threads.models import ThreadDB
+
+
+WORKSPACE_ID = UUID("00000000-0000-4000-8000-000000000001")
+
+
+class _AnyUserId:
+    def __eq__(self, other):
+        return isinstance(other, UUID)
 
 
 @pytest.fixture
@@ -46,7 +55,12 @@ async def run_db(tmp_path, monkeypatch):
     # These tests exercise the run lifecycle, not the model-availability gate
     # (covered in tests/model_providers/); most fixtures reference threads
     # that don't exist, so stub the gate out.
-    monkeypatch.setattr(service_mod.RunService, "_ensure_runnable_thread", AsyncMock())
+    runnable_thread = AsyncMock()
+    runnable_thread.return_value.workspace_id = WORKSPACE_ID
+    runnable_thread.return_value.user_id = _AnyUserId()
+    monkeypatch.setattr(
+        service_mod.RunService, "_ensure_runnable_thread", runnable_thread
+    )
     yield factory
     await engine.dispose()
 

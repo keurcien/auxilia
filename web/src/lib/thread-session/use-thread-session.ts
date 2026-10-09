@@ -6,6 +6,7 @@ import type { BaseMessage } from "@langchain/core/messages";
 import { useStream } from "@langchain/react";
 import type { AnyStream, SubagentDiscoverySnapshot } from "@langchain/react";
 import type { Interrupt } from "@langchain/langgraph-sdk";
+import type { RunCompletedInfo } from "@langchain/langgraph-sdk/stream";
 
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import type { Todo } from "@/components/ai-elements/todo-list";
@@ -62,8 +63,8 @@ export type ThreadSessionOptions = {
 	/** The approval the user addressed was already handled elsewhere. The
 	 * page decides what to do (today: reload the page). */
 	onStaleInterrupt?: () => void;
-	/** A run finished (any outcome). */
-	onCompleted?: () => void;
+	/** A run's active streaming phase ended. */
+	onCompleted?: (info: RunCompletedInfo) => void;
 	/** Cap on waiting for hydration before a parked first message is sent. */
 	pendingMessageCapMs?: number;
 };
@@ -98,7 +99,7 @@ export type ThreadSession = {
 		recordDecision: (toolCallId: string, decision: HitlDecision) => void;
 	};
 	actions: {
-		send: (message: PromptInputMessage) => void;
+		send: (message: PromptInputMessage) => Promise<void>;
 		regenerate: () => void;
 		stop: () => void;
 		respond: (response: HitlResponse, interruptId: string | null) => void;
@@ -164,9 +165,9 @@ export function useThreadSession({
 		messagesKey: "messages",
 		fetch: protocolFetch,
 		callerOptions,
-		onCompleted: () => {
+		onCompleted: (info) => {
 			useActiveRunsStore.getState().requestPoll();
-			callbacks.current.onCompleted?.();
+			callbacks.current.onCompleted?.(info);
 		},
 	});
 
@@ -176,7 +177,9 @@ export function useThreadSession({
 	// …but `hydrationPromise` is replaced by the SDK on every (re)hydrate, so
 	// waiting on it must read the latest rendered stream, not the handle.
 	const latestStream = useRef(stream);
-	latestStream.current = stream;
+	useEffect(() => {
+		latestStream.current = stream;
+	}, [stream]);
 
 	// --- interrupts: hold identity while the set is unchanged ----------------
 	const [held, setHeld] = useState(EMPTY_HELD);
@@ -209,11 +212,11 @@ export function useThreadSession({
 	}, []);
 
 	const send = useCallback(
-		(message: PromptInputMessage) => {
+		async (message: PromptInputMessage) => {
 			const content = promptMessageToContent(message);
 			if (content == null) return;
 			userActed();
-			void selectorStream.submit({ messages: [{ type: "human", content }] });
+			await selectorStream.submit({ messages: [{ type: "human", content }] });
 		},
 		[selectorStream, userActed],
 	);
@@ -309,7 +312,7 @@ export function useThreadSession({
 						// nobody is watching.
 						if (cancelled) return;
 						claimed = null;
-						send(pending);
+						void send(pending);
 					},
 					{ capMs: pendingMessageCapMs },
 				);

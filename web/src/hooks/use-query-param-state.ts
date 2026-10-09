@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 
 /**
@@ -8,22 +8,19 @@ import { useSearchParams } from "next/navigation";
  * back/forward navigation, refreshes, and can be deep-linked.
  *
  * Updates go through history.replaceState — a shallow URL rewrite with no
- * server round-trip and no history entry per keystroke. The param is read
- * once on mount (back navigation remounts the page, restoring the value);
- * when the value equals `defaultValue` the param is dropped from the URL.
+ * server round-trip and no history entry per keystroke. The value is derived
+ * from `useSearchParams`, so same-route links and browser navigation stay in
+ * sync. When the value equals `defaultValue` the param is dropped from the URL.
  */
 export function useQueryParamState(
 	key: string,
 	defaultValue = "",
 ): [string, (value: string) => void] {
 	const searchParams = useSearchParams();
-	const [value, setValue] = useState(
-		() => searchParams.get(key) ?? defaultValue,
-	);
+	const value = searchParams.get(key) ?? defaultValue;
 
 	const update = useCallback(
 		(next: string) => {
-			setValue(next);
 			const url = new URL(window.location.href);
 			if (next && next !== defaultValue) {
 				url.searchParams.set(key, next);

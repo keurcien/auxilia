@@ -22,6 +22,7 @@ from app.mcp.client.exceptions import OAuthAuthorizationRequired, as_oauth_requi
 from app.mcp.servers.models import MCPAuthType, MCPServerDB
 from app.mcp.servers.schemas import AuthorizationRequired, ToolsListed
 from app.mcp.servers.service import MCPServerService
+from tests.conftest import TEST_WORKSPACE_ID
 
 
 AUTH_URL = "https://auth.example/authorize?client_id=abc"
@@ -29,7 +30,11 @@ AUTH_URL = "https://auth.example/authorize?client_id=abc"
 
 def _server(auth_type=MCPAuthType.oauth2) -> MCPServerDB:
     return MCPServerDB(
-        id=uuid4(), name="Example", url="https://mcp.example.com", auth_type=auth_type
+        id=uuid4(),
+        workspace_id=TEST_WORKSPACE_ID,
+        name="Example",
+        url="https://mcp.example.com",
+        auth_type=auth_type,
     )
 
 
@@ -168,7 +173,7 @@ def _async_cm(value):
 
 
 async def _list_tools(*, authorized: bool, connect=None, initiate=None):
-    service = MCPServerService(AsyncMock())
+    service = MCPServerService(AsyncMock(), TEST_WORKSPACE_ID)
     with (
         patch(
             "app.mcp.servers.service.is_authorized",
@@ -208,7 +213,7 @@ async def test_list_tools_returns_the_auth_url_when_the_handshake_401s(monkeypat
     monkeypatch.setattr(
         connection, "build_client", lambda *a, **k: _FailingClient(needed)
     )
-    service = MCPServerService(AsyncMock())
+    service = MCPServerService(AsyncMock(), TEST_WORKSPACE_ID)
 
     result = await service.list_tools(_server(MCPAuthType.none), "user-1")
 

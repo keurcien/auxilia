@@ -18,6 +18,7 @@ from app.agents.schemas import (
 )
 from app.sandbox.models import SandboxDB, SandboxProviderType
 from app.users.models import WorkspaceRole
+from tests.conftest import TEST_WORKSPACE_ID
 
 
 @pytest.fixture
@@ -34,7 +35,7 @@ def mock_db():
 
 @pytest.fixture
 def repo(mock_db):
-    return AgentRepository(mock_db)
+    return AgentRepository(mock_db, TEST_WORKSPACE_ID)
 
 
 def make_agent(**kwargs):
@@ -43,6 +44,7 @@ def make_agent(**kwargs):
         "name": "Test Agent",
         "instructions": "Do stuff",
         "owner_id": uuid4(),
+        "workspace_id": TEST_WORKSPACE_ID,
         "created_at": datetime.now(),
         "updated_at": datetime.now(),
     }
@@ -159,7 +161,12 @@ async def test_list_with_permissions_returns_empty_list(repo, mock_db):
 
 async def test_create_adds_commits_and_refreshes(repo, mock_db):
     owner_id = uuid4()
-    data = AgentCreateDB(name="Agent X", instructions="Be helpful", owner_id=owner_id)
+    data = AgentCreateDB(
+        workspace_id=TEST_WORKSPACE_ID,
+        name="Agent X",
+        instructions="Be helpful",
+        owner_id=owner_id,
+    )
 
     result = await repo.create(data)
 
@@ -177,7 +184,13 @@ async def test_create_adds_commits_and_refreshes(repo, mock_db):
 
 async def test_create_returns_validated_agent_db(repo, mock_db):
     owner_id = uuid4()
-    data = AgentCreateDB(name="X", instructions="Y", owner_id=owner_id, emoji="🤖")
+    data = AgentCreateDB(
+        workspace_id=TEST_WORKSPACE_ID,
+        name="X",
+        instructions="Y",
+        owner_id=owner_id,
+        emoji="🤖",
+    )
 
     result = await repo.create(data)
 
@@ -226,7 +239,12 @@ async def test_update_with_empty_schema_leaves_agent_unchanged(repo, mock_db):
 
 async def test_set_archived_flips_the_flag_in_place(agent_session):
     repo = AgentRepository(agent_session)
-    agent = AgentDB(name="A", instructions="x", owner_id=uuid4())
+    agent = AgentDB(
+        workspace_id=TEST_WORKSPACE_ID,
+        name="A",
+        instructions="x",
+        owner_id=uuid4(),
+    )
     agent_session.add(agent)
     await agent_session.flush()
 
@@ -242,7 +260,11 @@ async def test_update_by_id_writes_only_the_set_fields_and_bumps_updated_at(
 ):
     repo = AgentRepository(agent_session)
     agent = AgentDB(
-        name="A", instructions="keep me", owner_id=uuid4(), description="keep me too"
+        workspace_id=TEST_WORKSPACE_ID,
+        name="A",
+        instructions="keep me",
+        owner_id=uuid4(),
+        description="keep me too",
     )
     agent_session.add(agent)
     await agent_session.flush()
@@ -263,7 +285,12 @@ async def test_update_by_id_with_an_empty_patch_touches_nothing(
     """Matches what the ORM path did: `sqlmodel_update({})` leaves the instance
     clean, so a PATCH naming no fields must not bump `updated_at` either."""
     repo = AgentRepository(agent_session)
-    agent = AgentDB(name="A", instructions="x", owner_id=uuid4())
+    agent = AgentDB(
+        workspace_id=TEST_WORKSPACE_ID,
+        name="A",
+        instructions="x",
+        owner_id=uuid4(),
+    )
     agent_session.add(agent)
     await agent_session.flush()
     statements.reset()
@@ -275,7 +302,12 @@ async def test_update_by_id_with_an_empty_patch_touches_nothing(
 
 async def test_delete_by_id_removes_the_row(agent_session):
     repo = AgentRepository(agent_session)
-    agent = AgentDB(name="A", instructions="x", owner_id=uuid4())
+    agent = AgentDB(
+        workspace_id=TEST_WORKSPACE_ID,
+        name="A",
+        instructions="x",
+        owner_id=uuid4(),
+    )
     agent_session.add(agent)
     await agent_session.flush()
 
@@ -542,6 +574,7 @@ async def test_list_by_ids_short_circuits_on_an_empty_list(repo, mock_db):
 async def _seed_sandboxes(session, count) -> list[SandboxDB]:
     rows = [
         SandboxDB(
+            workspace_id=TEST_WORKSPACE_ID,
             name=f"Sandbox {i}",
             provider=SandboxProviderType.opensandbox,
             url=f"https://sandbox-{i}.example",

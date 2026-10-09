@@ -2,9 +2,20 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
+from pydantic import field_validator
 from sqlmodel import Field, SQLModel
 
-from app.mcp.servers.models import MCPAuthType
+from app.mcp.servers.models import MCPAuthType, ServiceCredentialProvider
+from app.visibility import ResourceVisibility
+
+
+def _normalize_group(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = "/".join(part.strip() for part in value.split("/") if part.strip())
+    if len(normalized) > 255:
+        raise ValueError("group must be at most 255 characters")
+    return normalized or None
 
 
 class MCPServerCreate(SQLModel):
@@ -13,10 +24,23 @@ class MCPServerCreate(SQLModel):
     auth_type: MCPAuthType = MCPAuthType.none
     icon_url: str | None = None
     description: str | None = None
+    group: str | None = None
+    visibility: ResourceVisibility = ResourceVisibility.workspace
+    team_ids: list[UUID] = Field(default_factory=list, exclude=True)
     api_key: str | None = Field(default=None, exclude=True)
     oauth_client_id: str | None = Field(default=None, exclude=True)
     oauth_client_secret: str | None = Field(default=None, exclude=True)
     oauth_token_endpoint_auth_method: str | None = Field(default=None, exclude=True)
+    service_credential_provider: ServiceCredentialProvider | None = Field(
+        default=None, exclude=True
+    )
+    service_credentials_json: str | None = Field(default=None, exclude=True)
+    service_credential_scopes: list[str] = Field(default_factory=list, exclude=True)
+
+    @field_validator("group")
+    @classmethod
+    def normalize_group(cls, value: str | None) -> str | None:
+        return _normalize_group(value)
 
 
 class MCPServerPatch(SQLModel):
@@ -25,6 +49,9 @@ class MCPServerPatch(SQLModel):
     auth_type: MCPAuthType | None = None
     icon_url: str | None = None
     description: str | None = None
+    group: str | None = None
+    visibility: ResourceVisibility | None = None
+    team_ids: list[UUID] | None = Field(default=None, exclude=True)
     # Credentials are excluded from serialization so they never touch the
     # mcp_servers row (they live in separate tables); the service persists them
     # via the repository's create_or_update_* methods.
@@ -32,6 +59,17 @@ class MCPServerPatch(SQLModel):
     oauth_client_id: str | None = Field(default=None, exclude=True)
     oauth_client_secret: str | None = Field(default=None, exclude=True)
     oauth_token_endpoint_auth_method: str | None = Field(default=None, exclude=True)
+    service_credential_provider: ServiceCredentialProvider | None = Field(
+        default=None, exclude=True
+    )
+    service_credentials_json: str | None = Field(default=None, exclude=True)
+    service_credential_scopes: list[str] | None = Field(default=None, exclude=True)
+    disabled_tools: list[str] = Field(default_factory=list)
+
+    @field_validator("group")
+    @classmethod
+    def normalize_group(cls, value: str | None) -> str | None:
+        return _normalize_group(value)
 
 
 class MCPServerResponse(SQLModel):
@@ -40,26 +78,36 @@ class MCPServerResponse(SQLModel):
     url: str
     auth_type: MCPAuthType
     icon_url: str | None = None
+    image_revision: UUID | None = None
     description: str | None = None
+    group: str | None = None
+    owner_id: UUID | None = None
+    visibility: ResourceVisibility = ResourceVisibility.workspace
+    team_ids: list[UUID] = Field(default_factory=list)
+    disabled_tools: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
     # Static OAuth client_id when configured (public identifier, not a secret);
     # None for DCR servers. The client secret is never returned.
     oauth_client_id: str | None = None
+    service_credential_provider: ServiceCredentialProvider | None = None
+    service_credential_principal: str | None = None
+    service_credential_scopes: list[str] = Field(default_factory=list)
 
 
 class OfficialMCPServerResponse(SQLModel):
     """One catalog entry (see mcp/servers/catalog.py). Deliberately NOT an
     MCPServerResponse: catalog entries come from a file, so they have no id and
-    no timestamps — ``url`` is their identity."""
+    no timestamps. Entries are reusable templates, not singleton servers."""
 
     name: str
     url: str
     auth_type: MCPAuthType
     icon_url: str | None = None
     description: str | None = None
-    # Whether a workspace server already exists for this url.
+    # Kept for API compatibility; multiple configured instances are allowed.
     is_installed: bool = Field(default=False)
+    installed_count: int = Field(default=0, ge=0)
     supports_dcr: bool | None = Field(default=None)
 
 
@@ -79,6 +127,7 @@ class MCPServerAgentResponse(SQLModel):
     name: str
     emoji: str | None = None
     color: str | None = None
+    image_revision: UUID | None = None
 
 
 class OAuthSecretHint(SQLModel):
@@ -88,6 +137,12 @@ class OAuthSecretHint(SQLModel):
     is_set: bool = False
     last4: str | None = None
     length: int | None = None
+
+
+class OAuthCallbackInfo(SQLModel):
+    """Public redirect URI to register in a provider's OAuth application."""
+
+    callback_url: str
 
 
 class MCPServerConnectionResponse(SQLModel):
@@ -102,6 +157,7 @@ class MCPServerConnectionResponse(SQLModel):
     name: str | None = None
     email: str | None = None
     picture_url: str | None = None
+    image_revision: UUID | None = None
     status: Literal["active", "expired"] = "active"
 
 
@@ -111,6 +167,11 @@ class ConnectionProbeRequest(SQLModel):
     url: str
     auth_type: MCPAuthType = MCPAuthType.none
     api_key: str | None = Field(default=None, exclude=True)
+    service_credential_provider: ServiceCredentialProvider | None = Field(
+        default=None, exclude=True
+    )
+    service_credentials_json: str | None = Field(default=None, exclude=True)
+    service_credential_scopes: list[str] = Field(default_factory=list, exclude=True)
 
 
 class MCPToolInfo(SQLModel):

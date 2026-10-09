@@ -2,9 +2,17 @@
 
 import { useState } from "react";
 import { RefreshCw, Unplug } from "lucide-react";
+import {
+	BulkConfirmDialog,
+	type BulkFailure,
+} from "@/components/ui/bulk-confirm-dialog";
+import { BulkActionBar } from "@/components/ui/bulk-action-bar";
+import { Checkbox } from "@/components/ui/checkbox";
 import ConfirmDialog from "@/components/ui/confirm-dialog";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
+import { SelectableLeading } from "@/components/ui/selectable-leading";
+import { useRowSelection } from "@/hooks/use-row-selection";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
 import { useSkillsStore } from "@/stores/skills-store";
@@ -32,23 +40,23 @@ const STATUS_COPY = new Map<
 	{ label: string; className: string; note?: string }
 >(Object.entries({
 	new: {
-		label: "NEW",
+		label: "New",
 		className: "bg-success-bg text-success dark:bg-emerald-950 dark:text-emerald-300",
 		note: "added to the library",
 	},
 	updated: {
-		label: "UPDATED",
+		label: "Updated",
 		className: "bg-warning-bg text-warning",
 		note: "new version available to adopt",
 	},
-	unchanged: { label: "UNCHANGED", className: "bg-neutral-bg text-subtle dark:bg-white/10 dark:text-panel-body" },
+	unchanged: { label: "Unchanged", className: "bg-neutral-bg text-subtle dark:bg-white/10 dark:text-panel-body" },
 	gone: {
-		label: "GONE",
+		label: "Gone",
 		className: "bg-[#FBEFED] text-[#B04A3A] dark:bg-[#B04A3A]/15",
 		note: "keeps working, pinned",
 	},
 	skipped: {
-		label: "SKIPPED",
+		label: "Skipped",
 		className: "bg-neutral-bg text-subtle dark:bg-white/10 dark:text-panel-body",
 		// Overridden by the entry's own issue, which is the actual reason —
 		// an invalid SKILL.md and a name already taken in the library are not
@@ -108,7 +116,7 @@ function SyncPlanSummary({ plan }: { plan: SkillSyncPlan }) {
 								key={`${entry.status}-${entry.name}-${entry.path}`}
 								className="flex items-center gap-2 border-b border-hairline px-3 py-1.5 last:border-b-0 dark:border-white/5"
 							>
-								<span className="min-w-0 shrink-0 max-w-[40%] truncate font-mono text-[12px] font-semibold text-petrol">
+								<span className="min-w-0 shrink-0 max-w-[40%] truncate text-[12px] font-semibold text-petrol">
 									{entry.name}
 								</span>
 								<span
@@ -131,7 +139,7 @@ function SyncPlanSummary({ plan }: { plan: SkillSyncPlan }) {
 								</span>
 								<span
 									className={cn(
-										"shrink-0 rounded-[4px] px-1.5 py-px font-mono text-[9px] font-semibold tracking-[0.05em]",
+										"shrink-0 rounded-[4px] px-1.5 py-px text-[9px] font-semibold ",
 										copy.className,
 									)}
 								>
@@ -180,10 +188,10 @@ function LastSyncOutcome({ report }: { report: SkillSourceReportEntry[] }) {
 	const summary = [
 		...parts.map((p) => `${p.n} ${STATUS_COPY.get(p.status)?.label.toLowerCase()}`),
 		...(warnings > 0 ? [`${warnings} warned`] : []),
-	].join(" · ");
+	].join(", ");
 	return (
 		<span
-			className={cn("truncate font-mono text-[10px]", tone)}
+			className={cn("truncate text-[10px]", tone)}
 			// The path, not just the name: two skills in one repository can
 			// share a name (that is the `W003` skip), and the name alone cannot
 			// say which folder to go and fix.
@@ -196,7 +204,13 @@ function LastSyncOutcome({ report }: { report: SkillSourceReportEntry[] }) {
 				)
 				.join("\n")}
 		>
-			{summary}
+			{summary.split(/(\d+)/).map((part, index) =>
+				/^\d+$/.test(part) ? (
+					<span key={index} className="font-mono">{part}</span>
+				) : (
+					part
+				),
+			)}
 		</span>
 	);
 }
@@ -250,7 +264,7 @@ function SyncButton({ source, onError }: { source: SkillSource; onError: (m: str
 				disabled={busy}
 				title="Read the repository again and see what would change"
 				onClick={open}
-				className="flex cursor-pointer items-center gap-1.5 rounded-[7px] border border-border px-[11px] py-[5px] text-[12px] font-semibold text-petrol transition-colors hover:bg-sidebar disabled:cursor-default dark:hover:bg-white/5"
+				className="flex cursor-pointer items-center gap-1.5 rounded-[7px] border border-border px-[11px] py-[5px] text-[12px] font-semibold text-petrol transition-colors hover:bg-sidebar disabled:cursor-default dark:border-white/10 dark:text-panel-terminal dark:hover:bg-white/5"
 			>
 				<RefreshCw className={busy ? "size-3 animate-spin" : "size-3"} />
 				{busy ? "Reading…" : "Sync"}
@@ -266,21 +280,60 @@ function SyncButton({ source, onError }: { source: SkillSource; onError: (m: str
  */
 export default function SkillSourceTable({ sources, isLoading, canManage, onError }: SkillSourceTableProps) {
 	const deleteSource = useSkillsStore((state) => state.deleteSource);
+	const deleteSources = useSkillsStore((state) => state.deleteSources);
 	const [toDisconnect, setToDisconnect] = useState<SkillSource | null>(null);
+	const [bulkOpen, setBulkOpen] = useState(false);
+	const selection = useRowSelection({
+		orderedIds: sources.map((source) => source.id),
+		eligibleIds: canManage ? sources.map((source) => source.id) : [],
+	});
+	const selectedSources = sources.filter((source) =>
+		selection.selectedIds.has(source.id),
+	);
 
 	const columns: DataTableColumn<SkillSource>[] = [
 		{
 			key: "source",
-			header: "Repository",
-			width: "minmax(0, 1.5fr)",
+			header: selection.selectionMode ? (
+				""
+			) : (
+				<span className="flex items-center gap-3">
+					<Checkbox
+						checked={false}
+						aria-label="Select all repositories"
+						disabled={!canManage}
+						onCheckedChange={selection.toggleAll}
+					/>
+					<button
+						type="button"
+						disabled={!canManage}
+						onClick={selection.toggleAll}
+						className="cursor-pointer text-[12px]! font-semibold text-foreground hover:text-petrol disabled:cursor-not-allowed disabled:opacity-50"
+					>
+						Select all
+					</button>
+				</span>
+			),
+			width: "minmax(240px, 1.5fr)",
 			cell: (source) => (
 				<div className="flex min-w-0 items-center gap-3">
-					<SourceHostTile url={source.url} kind={source.kind} />
+					<SelectableLeading
+						selected={selection.isSelected(source.id)}
+						selectionMode={selection.selectionMode}
+						disabled={!canManage}
+						label={`Select ${source.name}`}
+						onToggle={(shiftKey) => {
+							selection.toggle(source.id, shiftKey);
+						}}
+						className="size-8"
+					>
+						<SourceHostTile url={source.url} kind={source.kind} />
+					</SelectableLeading>
 					<div className="min-w-0">
 						<div className="truncate text-[13.5px] font-semibold text-foreground">{source.name}</div>
 						<div className="mt-px truncate font-mono text-[11px] text-subtle dark:text-muted-foreground">
 							{source.url.replace(/^https:\/\//, "")}
-							{source.subpath ? ` · ${source.subpath}/` : ""}
+							{source.subpath ? `, ${source.subpath}/` : ""}
 						</div>
 					</div>
 				</div>
@@ -290,7 +343,6 @@ export default function SkillSourceTable({ sources, isLoading, canManage, onErro
 			key: "ref",
 			header: "Ref",
 			width: "150px",
-			hideBelowMd: true,
 			cell: (source) => (
 				<span className="block truncate font-mono text-[11px] text-subtle dark:text-muted-foreground">
 					{source.ref}
@@ -316,7 +368,6 @@ export default function SkillSourceTable({ sources, isLoading, canManage, onErro
 			key: "skills",
 			header: "Skills",
 			width: "80px",
-			hideBelowMd: true,
 			cell: (source) => (
 				<span className="font-mono text-[11px] text-subtle dark:text-muted-foreground">{source.skillCount}</span>
 			),
@@ -325,10 +376,13 @@ export default function SkillSourceTable({ sources, isLoading, canManage, onErro
 			key: "synced",
 			header: "Last sync",
 			width: "110px",
-			hideBelowMd: true,
 			cell: (source) => (
-				<span className="font-mono text-[11px] text-meta dark:text-panel-dim">
-					{source.lastSyncedAt ? relativeTime(source.lastSyncedAt) : "—"}
+				<span className="text-[11px] text-meta dark:text-panel-dim">
+					{source.lastSyncedAt ? (
+						<span className="font-mono">{relativeTime(source.lastSyncedAt)}</span>
+					) : (
+						"Not available"
+					)}
 				</span>
 			),
 		},
@@ -373,9 +427,9 @@ export default function SkillSourceTable({ sources, isLoading, canManage, onErro
 				title="Disconnect this repository?"
 				description={
 					<>
-						<span className="font-mono text-[12.5px] font-semibold text-petrol">{toDisconnect?.name}</span> stops
+						<span className="text-[12.5px] font-semibold text-petrol">{toDisconnect?.name}</span> stops
 						syncing. Its {toDisconnect?.skillCount ?? 0} skill{toDisconnect?.skillCount === 1 ? "" : "s"} stay in the
-						library — files and scripts included, still running, frozen at the commit they are pinned to. Their
+						library, files and scripts included, still running, frozen at the commit they are pinned to. Their
 						content is edited nowhere until you connect <span className="font-semibold">this same URL</span> again,
 						which re-pins the very same skills, keeping the agents that use them. Their names stay taken meanwhile,
 						so another repository cannot quietly take one over.
@@ -388,12 +442,76 @@ export default function SkillSourceTable({ sources, isLoading, canManage, onErro
 				}}
 				errorMessage="Could not disconnect the repository. Please try again."
 			/>
+			<BulkConfirmDialog
+				open={bulkOpen}
+				onOpenChange={setBulkOpen}
+				title="Disconnect selected repositories?"
+				description="Their skills stay in the library, frozen at their current revisions, but will no longer sync."
+				items={selectedSources.map((source) => ({
+					id: source.id,
+					name: source.name,
+					note: `${source.skillCount} skill${source.skillCount === 1 ? "" : "s"} will stay available.`,
+				}))}
+				confirmLabel="Disconnect"
+				busyLabel="Disconnecting…"
+				onConfirm={async (items) => {
+					const { results, refreshError } = await deleteSources(
+						items.map((item) => item.id),
+					);
+					if (refreshError) {
+						onError(
+							getApiErrorMessage(
+								refreshError,
+								"Repositories were disconnected, but the skill library could not be refreshed.",
+							),
+						);
+					}
+					const succeeded: string[] = [];
+					const failures: BulkFailure[] = [];
+					results.forEach((result, index) => {
+						const item = items.at(index);
+						if (!item) return;
+						if (result.status === "fulfilled") succeeded.push(item.id);
+						else
+							failures.push({
+								id: item.id,
+								name: item.name,
+								message: getApiErrorMessage(
+									result.reason,
+									"Disconnect failed.",
+								),
+							});
+					});
+					selection.remove(succeeded);
+					return failures;
+				}}
+			/>
+			<BulkActionBar
+				selectedCount={selection.selectedCount}
+				totalCount={canManage ? sources.length : 0}
+				allSelected={selection.allSelected}
+				someSelected={selection.someSelected}
+				onToggleAll={selection.toggleAll}
+				onClear={selection.clear}
+				actionLabel="Disconnect"
+				actionIcon={<Unplug className="size-3.5" />}
+				onAction={() => {
+					setBulkOpen(true);
+				}}
+			/>
 			<DataTable
 				columns={columns}
 				rows={sources}
 				rowKey={(source) => source.id}
+				isRowSelected={(source) => selection.isSelected(source.id)}
+				selectionMode={selection.selectionMode}
+				onRowSelectionClick={(source, shiftKey) => {
+					selection.toggle(source.id, shiftKey);
+				}}
 				isLoading={isLoading}
 				scrollBody
+				minTableWidth="1000px"
+				bleedOnNarrow
 				emptyMessage="No repository connected yet."
 			/>
 		</>

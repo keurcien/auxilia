@@ -53,7 +53,7 @@ jobs:
             git push
           fi
 
-  publish-backend:
+  publish-backend-github:
     needs: release-please
     if: needs.release-please.outputs.backend_released == 'true'
     permissions:
@@ -63,9 +63,10 @@ jobs:
     secrets: inherit
     with:
       component: backend
+      registry: ghcr
       version: ${{ needs.release-please.outputs.backend_version }}
 
-  publish-web:
+  publish-web-github:
     needs: release-please
     if: needs.release-please.outputs.web_released == 'true'
     permissions:
@@ -75,4 +76,5 @@ jobs:
     secrets: inherit
     with:
       component: web
+      registry: ghcr
       version: ${{ needs.release-please.outputs.web_version }}

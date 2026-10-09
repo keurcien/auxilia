@@ -10,10 +10,12 @@ class InviteCreate(BaseModel):
     email: EmailStr
     role: WorkspaceRole = WorkspaceRole.member
     team_id: UUID | None = None
+    workspace_id: UUID | None = None
 
 
 class InviteResponse(BaseModel):
     id: UUID
+    workspace_id: UUID
     email: str
     role: str
     status: str

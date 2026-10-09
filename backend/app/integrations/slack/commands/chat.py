@@ -6,12 +6,12 @@ from slack_sdk.web.async_client import AsyncWebClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.core.service import AgentService
-from app.agents.models import AgentDB
+from app.agents.models import AgentDB, EffectivePermission
 from app.agents.schemas import AgentListResponse
 from app.database import AsyncSessionLocal
+from app.exceptions import NotFoundError
 from app.integrations.slack.models import SlackInteractionPayload
-from app.integrations.slack.settings import slack_settings
-from app.integrations.slack.utils import get_user_info
+from app.integrations.slack.utils import get_slack_client, get_user_info
 from app.threads.service import ThreadService
 from app.users.models import WorkspaceRole
 from app.users.repository import UserRepository
@@ -32,12 +32,13 @@ SELECT_AGENT_ACTION_ID = "select_agent"
 
 async def list_pickable_agents(
     db: AsyncSession,
+    workspace_id: UUID,
     user_id: UUID,
     user_role: WorkspaceRole | None = None,
     user_team_id: UUID | None = None,
 ) -> list[AgentListResponse]:
     """Return the agents this user may pick, sorted by name."""
-    all_agents = await AgentService(db).list(
+    all_agents = await AgentService(db, workspace_id).list(
         user_id=user_id, user_role=user_role, user_team_id=user_team_id
     )
     agents = [a for a in all_agents if a.current_user_permission is not None]
@@ -127,11 +128,14 @@ async def post_agent_picker(
     thread_ts: str,
     db: AsyncSession,
     user_id: UUID,
+    workspace_id: UUID,
     user_role: WorkspaceRole | None = None,
     user_team_id: UUID | None = None,
 ) -> None:
     """Post an agent picker in the thread."""
-    agents = await list_pickable_agents(db, user_id, user_role, user_team_id)
+    agents = await list_pickable_agents(
+        db, workspace_id, user_id, user_role, user_team_id
+    )
     if not agents:
         return
 
@@ -149,7 +153,9 @@ async def post_agent_picker(
 # ---------------------------------------------------------------------------
 
 
-async def handle_agent_selection(payload: SlackInteractionPayload) -> None:
+async def handle_agent_selection(
+    payload: SlackInteractionPayload, workspace_id: UUID
+) -> None:
     """Process an agent-selection dropdown choice.
 
     Creates (or retrieves) the thread and replaces the picker message
@@ -177,17 +183,40 @@ async def handle_agent_selection(payload: SlackInteractionPayload) -> None:
         return
 
     # Resolve Slack user → internal user
-    user_info = await get_user_info(payload.user.id)
+    user_info = await get_user_info(payload.user.id, workspace_id)
     if not user_info or not user_info.profile.email:
         return
     async with AsyncSessionLocal() as db:
         user = await UserRepository(db).get_by_email(user_info.profile.email)
+        if user is not None:
+            from app.workspaces.repository import WorkspaceRepository
+
+            membership = await WorkspaceRepository(db).get_membership(
+                workspace_id, user.id
+            )
+            if membership is None:
+                user = None
+            else:
+                user.set_workspace_membership(membership)
     if not user:
         return
 
     # Fetch the agent
     async with AsyncSessionLocal() as db:
-        agent = await db.get(AgentDB, agent_id)
+        service = AgentService(db, workspace_id)
+        parsed_agent_id = UUID(agent_id)
+        try:
+            await service.require_permission(
+                parsed_agent_id,
+                at_least=EffectivePermission.member,
+                action="use this agent",
+                user_id=user.id,
+                user_role=user.role,
+                user_team_id=user.team_id,
+            )
+        except NotFoundError:
+            return
+        agent = await service.repository.get_scoped(parsed_agent_id)
     if not agent:
         return
 
@@ -195,7 +224,7 @@ async def handle_agent_selection(payload: SlackInteractionPayload) -> None:
     # first_message_content is left None here; it will be set (and the Slack
     # thread title updated) when the user sends their first real message.
     async with AsyncSessionLocal() as db:
-        await ThreadService(db).get_or_create(
+        await ThreadService(db, workspace_id).get_or_create(
             ts=thread_ts,
             agent_id=str(agent.id),
             question=None,
@@ -204,7 +233,9 @@ async def handle_agent_selection(payload: SlackInteractionPayload) -> None:
         await db.commit()
 
     # Replace the picker message with a confirmation
-    client = AsyncWebClient(token=slack_settings.slack_bot_token)
+    client = await get_slack_client(workspace_id)
+    if client is None:
+        return
     blocks = _build_agent_selected_blocks(agent)
     if message_ts:
         await client.chat_update(

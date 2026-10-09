@@ -16,6 +16,9 @@ from app.runtime.toolset import (
 from app.utils.encryption import encrypt_value
 
 
+WORKSPACE_ID = uuid4()
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -303,14 +306,18 @@ class TestBoundArtifacts:
 class TestToolsetPrepareEmpty:
     @pytest.mark.asyncio
     async def test_empty_bindings_prepare(self):
-        prepared = await Toolset.prepare([], db=None, user_id="u1", apply_ui=True)
+        prepared = await Toolset.prepare(
+            [], db=None, user_id="u1", workspace_id=WORKSPACE_ID, apply_ui=True
+        )
         assert prepared.server_names == []
         assert prepared.interrupt_on == {}
         assert prepared.connections == {}
 
     @pytest.mark.asyncio
     async def test_empty_bindings_open_yields_empty_toolset(self):
-        prepared = await Toolset.prepare([], db=None, user_id="u1", apply_ui=True)
+        prepared = await Toolset.prepare(
+            [], db=None, user_id="u1", workspace_id=WORKSPACE_ID, apply_ui=True
+        )
         async with Toolset.open(prepared) as ts:
             assert ts.tools == []
             assert ts.all == []
@@ -363,7 +370,11 @@ class TestPrepareDerivesInterruptOn:
             },
         )
         prepared = await Toolset.prepare(
-            [binding], db=_FakeDB([server]), user_id="u1", apply_ui=True
+            [binding],
+            db=_FakeDB([server]),
+            user_id="u1",
+            workspace_id=WORKSPACE_ID,
+            apply_ui=True,
         )
         # Prefixed name sanitized the same way live tool names are at open time.
         assert prepared.interrupt_on == {"sheets_read_range": True}
@@ -384,7 +395,11 @@ class TestPrepareDerivesInterruptOn:
         )
         binding = SimpleNamespace(mcp_server_id=server_id, tools=None)
         prepared = await Toolset.prepare(
-            [binding], db=_FakeDB([server]), user_id="u1", apply_ui=True
+            [binding],
+            db=_FakeDB([server]),
+            user_id="u1",
+            workspace_id=WORKSPACE_ID,
+            apply_ui=True,
         )
         assert prepared.interrupt_on == {}
 
@@ -444,10 +459,17 @@ class TestMCPResolutionScope:
         server, binding, key_row = self._fixture()
         db = _CountingDB([server], [key_row])
 
-        scope = await MCPResolutionScope.build([binding, binding], db, "u1")
+        scope = await MCPResolutionScope.build(
+            [binding, binding], db, "u1", WORKSPACE_ID
+        )
         for _ in range(3):  # a parent and two subagents on the same server
             prepared = await Toolset.prepare(
-                [binding], db=db, user_id="u1", apply_ui=False, scope=scope
+                [binding],
+                db=db,
+                user_id="u1",
+                workspace_id=WORKSPACE_ID,
+                apply_ui=False,
+                scope=scope,
             )
             assert prepared.server_names == ["sheets"]
 
@@ -464,7 +486,13 @@ class TestMCPResolutionScope:
         db = _CountingDB([server], [key_row])
 
         for _ in range(3):
-            await Toolset.prepare([binding], db=db, user_id="u1", apply_ui=False)
+            await Toolset.prepare(
+                [binding],
+                db=db,
+                user_id="u1",
+                workspace_id=WORKSPACE_ID,
+                apply_ui=False,
+            )
 
         assert db.server_queries == 3
         assert db.api_key_queries == 3
@@ -477,7 +505,7 @@ class TestMCPResolutionScope:
         server, binding, key_row = self._fixture()
         db = _CountingDB([server], [key_row])
 
-        scope = await MCPResolutionScope.build([binding], db, "u1")
+        scope = await MCPResolutionScope.build([binding], db, "u1", WORKSPACE_ID)
         spec = await scope.connection(server)
 
         assert spec.headers == {"Authorization": "Bearer s3cret"}

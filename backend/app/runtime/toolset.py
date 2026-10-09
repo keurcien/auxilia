@@ -2,19 +2,21 @@ import logging
 import re
 import warnings
 from collections.abc import Collection, Sequence
-from contextlib import asynccontextmanager
-from dataclasses import dataclass
-from typing import cast
+from contextlib import AsyncExitStack, asynccontextmanager
+from dataclasses import dataclass, field
 from uuid import UUID
 
-from fastmcp.client.group import ClientGroup
 from langchain_core._api import LangChainBetaWarning
 from langchain_core.tools import BaseTool
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.models import AgentMCPServerBase
 from app.mcp.client.connection import ConnectionSpec, build_client
-from app.mcp.client.connectivity import CredentialCache, resolve_connection
+from app.mcp.client.connectivity import (
+    CredentialCache,
+    probe_authorization,
+    resolve_connection,
+)
 from app.mcp.client.exceptions import as_oauth_required
 from app.mcp.client.tools import bound_tool_artifact
 from app.mcp.servers.models import MCPServerDB
@@ -140,6 +142,7 @@ class PreparedToolset:
     server_id_by_name: dict[str, str]
     interrupt_on: dict[str, bool]  # sanitized tool name -> True
     apply_ui: bool
+    disabled_tools: dict[str, set[str]] = field(default_factory=dict)
 
     @property
     def server_names(self) -> list[str]:
@@ -149,6 +152,7 @@ class PreparedToolset:
 def _assemble_agent_tools(
     tools_by_server: list[tuple[str, list[BaseTool]]],
     tool_settings: dict[str, dict],
+    disabled_tools: dict[str, set[str]],
     server_id_by_name: dict[str, str],
 ) -> list[AgentTool]:
     """Filter -> build UI metadata -> sanitize.
@@ -174,8 +178,13 @@ def _assemble_agent_tools(
             for t, status in settings.items()
             if status == "needs_approval"
         }
+        globally_disabled_names = {
+            f"{server_name}_{name}" for name in disabled_tools.get(server_name, set())
+        }
         server_id = server_id_by_name[server_name]
         for tool in lc_tools:
+            if tool.name in globally_disabled_names:
+                continue
             if tool.name in allowed_names:
                 requires_approval = False
             elif tool.name in approval_names:
@@ -208,9 +217,10 @@ class MCPResolutionScope:
     parent's and subagents' sessions are opened concurrently.
     """
 
-    def __init__(self, db: AsyncSession, user_id: str):
-        self._repo = MCPServerRepository(db)
+    def __init__(self, db: AsyncSession, user_id: str, workspace_id: UUID):
+        self._repo = MCPServerRepository(db, workspace_id)
         self._user_id = user_id
+        self._workspace_id = workspace_id
         self._rows: dict[UUID, MCPServerDB] = {}
         self._credentials = CredentialCache()
 
@@ -220,10 +230,27 @@ class MCPResolutionScope:
         bindings: Sequence[AgentMCPServerBase],
         db: AsyncSession,
         user_id: str,
+        workspace_id: UUID,
+        *,
+        authorized_only: bool = False,
     ) -> "MCPResolutionScope":
-        """Preload every server the graph's `bindings` name, in one query."""
-        scope = cls(db, user_id)
+        """Preload the graph's servers, optionally omitting unauthorized OAuth.
+
+        Runs use ``authorized_only`` so an optional personal OAuth binding
+        cannot prevent the agent from answering with its other tools. The
+        authorization probe is user-scoped; no credential is shared.
+        """
+        scope = cls(db, user_id, workspace_id)
         await scope.load([b.mcp_server_id for b in bindings])
+        if authorized_only:
+            authorization = await probe_authorization(
+                scope._rows.values(), user_id, workspace_id
+            )
+            scope._rows = {
+                server_id: server
+                for server_id, server in scope._rows.items()
+                if authorization.get(server_id, True)
+            }
         return scope
 
     async def load(self, server_ids: Collection[UUID]) -> None:
@@ -241,7 +268,11 @@ class MCPResolutionScope:
     async def connection(self, server: MCPServerDB) -> ConnectionSpec:
         """This agent's connection spec for `server`, sharing the decrypted key."""
         return await resolve_connection(
-            server, self._user_id, self._repo, credentials=self._credentials
+            server,
+            self._user_id,
+            self._workspace_id,
+            self._repo,
+            credentials=self._credentials,
         )
 
 
@@ -265,6 +296,7 @@ class Toolset:
         agent_mcp_servers: Sequence[AgentMCPServerBase],
         db: AsyncSession,
         user_id: str,
+        workspace_id: UUID,
         *,
         apply_ui: bool,
         scope: MCPResolutionScope | None = None,
@@ -287,6 +319,7 @@ class Toolset:
         empty = PreparedToolset(
             connections={},
             tool_settings={},
+            disabled_tools={},
             server_id_by_name={},
             interrupt_on={},
             apply_ui=apply_ui,
@@ -297,7 +330,7 @@ class Toolset:
         # 1. Load MCP server records from DB
         server_ids = [s.mcp_server_id for s in agent_mcp_servers]
         if scope is None:
-            scope = MCPResolutionScope(db, user_id)
+            scope = MCPResolutionScope(db, user_id, workspace_id)
             await scope.load(server_ids)
         mcp_servers = scope.servers(server_ids)
 
@@ -309,9 +342,14 @@ class Toolset:
         }
 
         # 3. Build tool settings map
+        server_name_by_id = {server.id: server.name for server in mcp_servers}
         tool_settings = {
-            next(s.name for s in mcp_servers if s.id == b.mcp_server_id): b.tools
+            server_name_by_id[b.mcp_server_id]: b.tools
             for b in agent_mcp_servers
+            if b.mcp_server_id in server_name_by_id
+        }
+        disabled_tools = {
+            server.name: set(server.disabled_tools) for server in mcp_servers
         }
 
         server_id_by_name = {server.name: str(server.id) for server in mcp_servers}
@@ -327,12 +365,15 @@ class Toolset:
         for name in connections:
             settings = tool_settings.get(name) or {}
             for tool_name, status in settings.items():
-                if status == "needs_approval":
+                if status == "needs_approval" and tool_name not in disabled_tools.get(
+                    name, set()
+                ):
                     interrupt_on[sanitize_tool_name(f"{name}_{tool_name}")] = True
 
         return PreparedToolset(
             connections=connections,
             tool_settings=tool_settings,
+            disabled_tools=disabled_tools,
             server_id_by_name=server_id_by_name,
             interrupt_on=interrupt_on,
             apply_ui=apply_ui,
@@ -341,15 +382,18 @@ class Toolset:
     @classmethod
     @asynccontextmanager
     async def open(cls, prepared: PreparedToolset):
-        """Stream-time phase: hold ONE live connection per server and bind tools to it.
+        """Open each available server and bind only its usable tools.
 
-        One FastMCP ``Client`` per server, grouped in a ``ClientGroup`` (which
-        namespaces tools ``{server}_{tool}``) and adapted by ``langchain.mcp``.
-        The adapter's context is held for the whole ``async with`` block, so a
+        OAuth is optional at execution time. The authorization probe used while
+        preparing the graph cheaply removes servers with no stored credential;
+        this live handshake is the authoritative backstop for revoked or expired
+        credentials. A server that challenges here is omitted without affecting
+        the other servers, so its tools are never shown to the model.
+
+        Each adapter's context is held for the whole ``async with`` block, so a
         handle minted by one tool call (e.g. Metabase ``construct_query``'s
-        ``query_handle``) survives to the next call (``visualize_query``); each
-        tool re-enters the same client per call, which is a reference-counted
-        no-op while the context is held.
+        ``query_handle``) survives to the next call. Tools are namespaced here
+        as ``{server}_{tool}``, matching the previous ``ClientGroup`` contract.
 
         MCP tool execution errors (``isError=True``) reach the model as
         ``ToolMessage(status="error")`` natively; transport/protocol failures
@@ -363,43 +407,40 @@ class Toolset:
             yield toolset
             return
 
-        clients = {
-            name: build_client(spec) for name, spec in prepared.connections.items()
-        }
-        adapter = MCPAdapter(ClientGroup(clients))
-        # The adapter clones a group into a group (it arms each member for
-        # elicitation), so `adapter.client` is the `ClientGroup` we route on.
-        group = cast(ClientGroup, adapter.client)
-        try:
-            async with adapter:
-                lc_tools = await adapter.list_tools()
-                # Tools come back namespaced and flat; regroup them per server
-                # (in the prepared order) for the settings filter.
-                by_server: dict[str, list[BaseTool]] = {
-                    name: [] for name in prepared.server_names
-                }
-                for tool in lc_tools:
-                    route = await group.resolve_tool(tool.name)
-                    by_server[route.server_name].append(tool)
+        async with AsyncExitStack() as stack:
+            tools_by_server: list[tuple[str, list[BaseTool]]] = []
+            for server_name, spec in prepared.connections.items():
+                adapter = MCPAdapter(build_client(spec))
+                entered = False
+                try:
+                    await adapter.__aenter__()
+                    entered = True
+                    lc_tools = await adapter.list_tools()
+                except BaseException as exc:
+                    if entered:
+                        await adapter.__aexit__(type(exc), exc, exc.__traceback__)
+                    if as_oauth_required(exc) is not None:
+                        logger.info(
+                            "Omitting unauthorized OAuth MCP server %s from run",
+                            server_name,
+                        )
+                        continue
+                    raise
 
-                agent_tools = _assemble_agent_tools(
-                    list(by_server.items()),
-                    prepared.tool_settings,
-                    prepared.server_id_by_name,
-                )
-                toolset = cls(tools=agent_tools)
-                toolset.bound_artifacts(ui=prepared.apply_ui)
-                yield toolset
-        except BaseException as exc:
-            # The MCP seam for the run path (the other is
-            # `connection.open_client`): a server that needs authorization
-            # fails its connect inside the group, and FastMCP reports that as
-            # the cause of its own "failed to connect" error. Unwrap it so the
-            # run worker can recognise it — nothing else is altered.
-            oauth = as_oauth_required(exc)
-            if oauth is not None and oauth is not exc:
-                raise oauth from exc
-            raise
+                stack.push_async_exit(adapter)
+                for tool in lc_tools:
+                    tool.name = f"{server_name}_{tool.name}"
+                tools_by_server.append((server_name, lc_tools))
+
+            agent_tools = _assemble_agent_tools(
+                tools_by_server,
+                prepared.tool_settings,
+                prepared.disabled_tools,
+                prepared.server_id_by_name,
+            )
+            toolset = cls(tools=agent_tools)
+            toolset.bound_artifacts(ui=prepared.apply_ui)
+            yield toolset
 
     def bound_artifacts(self, *, ui: bool) -> None:
         """Apply the per-tool artifact policy (`app/mcp/client/tools.py`) to

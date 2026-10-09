@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { useMcpHostContext } from "@/hooks/use-mcp-host-context";
 import type { McpAppToolInfo } from "@/lib/transcript";
+import { useAppearanceStore } from "@/stores/appearance-store";
 
 export type { McpAppToolInfo };
 
@@ -91,7 +92,6 @@ const toCallToolResult = (
 // Stable (module-level) references so AppRenderer doesn't re-sync the iframe on
 // every render. Advertise the capabilities the host actually proxies: tool calls
 // (onCallTool), resource reads (onReadResource) and link opening (onOpenLink).
-const HOST_INFO = { name: "auxilia", version: "1.0.0" };
 const HOST_CAPABILITIES = {
 	serverTools: {},
 	serverResources: {},
@@ -108,6 +108,11 @@ export const McpAppWidget = ({
 	className,
 }: McpAppWidgetProps) => {
 	const hostContext = useMcpHostContext();
+	const appName = useAppearanceStore((state) => state.appearance.appName);
+	const hostInfo = useMemo(
+		() => ({ name: appName, version: "1.0.0" }),
+		[appName],
+	);
 	const sandboxConfig = useMemo(
 		() => ({ url: new URL("/sandbox.html", window.location.origin) }),
 		[],
@@ -224,7 +229,7 @@ export const McpAppWidget = ({
 				toolResourceUri={appToolInfo.resourceUri}
 				sandbox={sandboxConfig}
 				hostContext={hostContext}
-				hostInfo={HOST_INFO}
+				hostInfo={hostInfo}
 				hostCapabilities={HOST_CAPABILITIES}
 				toolInput={effectiveToolInput}
 				toolResult={toolResult}

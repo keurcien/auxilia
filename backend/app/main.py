@@ -9,6 +9,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.agents.router import router as agents_router
+from app.appearance.router import router as appearance_router
 from app.auth.router import router as auth_router
 from app.auth.settings import auth_settings
 from app.auth.tokens.router import router as tokens_router
@@ -17,6 +18,7 @@ from app.database import close_checkpointer_pool
 from app.exceptions import DomainError, root_cause, status_for
 from app.integrations.slack.consumer import build_slack_run_consumer
 from app.integrations.slack.router import router as slack_router
+from app.integrations.slack.settings_router import router as agent_slack_router
 from app.integrations.tracing import flush_tracing
 from app.invites.router import router as invites_router
 from app.logging_config import configure_logging
@@ -24,6 +26,8 @@ from app.mcp.apps.router import router as mcp_apps_router
 from app.mcp.router import auxilia_mcp
 from app.mcp.servers.router import router as mcp_servers_router
 from app.model_providers.router import router as model_providers_router
+from app.notifications.router import router as notifications_router
+from app.observability.router import router as observability_router
 from app.redis_client import close_redis, get_redis
 from app.runtime.api.protocol_router import router as protocol_router
 from app.runtime.api.runs_router import router as runs_router, user_runs_router
@@ -33,13 +37,14 @@ from app.runtime.runs.worker import RunDispatcher
 from app.sandbox.router import sandboxes_router
 from app.skills.router import router as skills_router
 from app.skills.sources.router import router as skill_sources_router
-from app.tags.router import router as tags_router
 from app.teams.router import router as teams_router
 from app.threads.router import router as threads_router
 from app.triggers.router import router as triggers_router
 from app.triggers.scanner import TriggerScanner
 from app.triggers.settings import trigger_settings
 from app.users.router import router as users_router
+from app.version import BACKEND_VERSION
+from app.workspaces.router import router as workspaces_router
 
 
 configure_logging()
@@ -110,7 +115,7 @@ async def lifespan(app: FastAPI):
             await close_redis()
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(lifespan=lifespan, version=BACKEND_VERSION)
 
 
 # There is deliberately no `OAuthAuthorizationRequired` handler. "This MCP
@@ -118,9 +123,9 @@ app = FastAPI(lifespan=lifespan)
 # connect (`connection.open_client`, `Toolset.open`) and turned into a
 # response only by the endpoints whose job is connecting — `GET
 # /mcp-servers/{id}/list-tools` returns it as an `auth_required` variant, the
-# run endpoints and the MCP-app endpoints answer 401 explicitly. A global one
-# meant any endpoint touching MCP could answer 401 with an auth URL (design
-# review §2.4).
+# MCP-app endpoints answer 401 explicitly, and the run toolset omits that
+# server. A global handler meant any endpoint touching MCP could answer 401
+# with an auth URL (design review §2.4).
 
 
 @app.exception_handler(DomainError)
@@ -225,7 +230,14 @@ async def health() -> JSONResponse:
     )
 
 
+@app.get("/version/", tags=["health"])
+async def version() -> dict[str, str]:
+    return {"version": BACKEND_VERSION}
+
+
 app.include_router(agents_router)
+app.include_router(agent_slack_router)
+app.include_router(appearance_router)
 app.include_router(protocol_router)
 app.include_router(runs_router)
 app.include_router(user_runs_router)
@@ -238,10 +250,12 @@ app.include_router(triggers_router)
 app.include_router(skill_sources_router)  # before /skills/{skill_id}
 app.include_router(skills_router)
 app.include_router(users_router)
+app.include_router(workspaces_router)
 app.include_router(invites_router)
 app.include_router(teams_router)
-app.include_router(tags_router)
 app.include_router(model_providers_router)
+app.include_router(notifications_router)
+app.include_router(observability_router)
 app.include_router(sandboxes_router)
 app.include_router(slack_router)
 

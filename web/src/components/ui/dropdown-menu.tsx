@@ -14,7 +14,8 @@ type DropdownItem =
 			onClick?: () => void;
 			active?: boolean;
 	  }
-	| { separator: true };
+	| { separator: true }
+	| { sectionLabel: string };
 
 interface DropdownMenuProps {
 	items: DropdownItem[];
@@ -59,6 +60,16 @@ export function DropdownMenu({
 					)}
 				>
 					{items.map((item, i) => {
+						if ("sectionLabel" in item) {
+							return (
+								<DropdownMenuPrimitive.Label
+									key={i}
+									className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-meta dark:text-panel-dim"
+								>
+									{item.sectionLabel}
+								</DropdownMenuPrimitive.Label>
+							);
+						}
 						if (item.separator) {
 							return (
 								<DropdownMenuPrimitive.Separator

@@ -19,5 +19,11 @@ export default async function MCPServerPage({
 		cookie: cookieStore.toString(),
 	});
 
-	return <MCPServerDetail server={server} initialEdit={edit === "1"} />;
+	return (
+		<MCPServerDetail
+			key={server.id}
+			server={server}
+			initialEdit={edit === "1"}
+		/>
+	);
 }

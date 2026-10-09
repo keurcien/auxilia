@@ -1,10 +1,10 @@
 "use client";
 
 import { useRef, useState } from "react";
-import Image from "next/image";
 import { Check, Copy } from "lucide-react";
 import { MCPServer, MCPServerTool } from "@/types/mcp-servers";
 import { ToolStatus } from "@/types/agents";
+import { ServerIconTile } from "@/app/(protected)/mcp-servers/components/server-icon-tile";
 import {
 	Dialog,
 	DialogButton,
@@ -134,24 +134,18 @@ export default function MCPToolsDialog({
 		<Dialog open={open} onOpenChange={handleOpenChange}>
 			<DialogContent className="flex max-h-[85vh] flex-col gap-0 p-0 sm:max-w-[760px]">
 				<DialogHeader className="flex-row items-center gap-3 border-b border-hover px-6 py-5 dark:border-white/5">
-					<span className="flex size-10 shrink-0 items-center justify-center rounded-[8px] border border-border bg-card">
-						<Image
-							unoptimized
-							width={18}
-							height={18}
-							src={
-								server.iconUrl ??
-								"https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/mcp.png"
-							}
-							alt={server.name}
-							className="rounded-[2px] object-contain"
-						/>
-					</span>
+					<ServerIconTile
+						iconUrl={server.iconUrl}
+						serverId={server.id}
+						imageRevision={server.imageRevision}
+						name={server.name}
+						size={38}
+					/>
 					<div className="flex min-w-0 flex-col gap-0.5">
 						<DialogTitle className="text-[18px]">
 							{server.name} MCP server
 						</DialogTitle>
-						<DialogDescription className="font-mono text-[12px]">
+						<DialogDescription className="text-[12px]">
 							{SUBTITLE}
 						</DialogDescription>
 					</div>
@@ -182,7 +176,7 @@ export default function MCPToolsDialog({
 									</span>
 									<span
 										className={cn(
-											"rounded-[4px] px-2 py-0.5 font-mono text-[9.5px] font-semibold tracking-[0.05em] uppercase",
+											"rounded-[4px] px-2 py-0.5 text-[9.5px] font-semibold",
 											status === "always_allow" &&
 												"bg-success-bg text-success",
 											status === "needs_approval" &&

@@ -63,6 +63,7 @@ import {
   SubAgentProgress,
   SynthesisIndicator,
 } from "./subagent-card";
+import { threadMapAnchor } from "./thread-map";
 import { type DescribeTool, ToolStep, useDescribeTool } from "./tool-step";
 
 export type ConversationBodyProps = {
@@ -167,7 +168,11 @@ export const ConversationBody = memo(function ConversationBody({
           return isHostNotice(message) ? (
             <HostNotice key={key} message={message} />
           ) : (
-            <UserTurn key={key} message={message} />
+            <UserTurn
+              key={key}
+              message={message}
+              anchorId={threadMapAnchor(index)}
+            />
           );
         }
         if (!isAIMessage(message)) return null;
@@ -262,17 +267,23 @@ export function isHostNotice(message: BaseMessage): boolean {
 
 const HostNotice = ({ message }: { message: BaseMessage }) => (
   <div className="my-2 flex justify-center">
-    <p className="max-w-[80%] rounded-md border border-dashed border-border px-3 py-1.5 text-center font-mono text-[11.5px] leading-[1.5] text-muted-foreground">
+    <p className="max-w-[80%] rounded-md border border-dashed border-border px-3 py-1.5 text-center text-[11.5px] leading-[1.5] text-muted-foreground">
       {message.text.replace(/^\[Host notice\]\s*/, "")}
     </p>
   </div>
 );
 
-const UserTurn = ({ message }: { message: BaseMessage }) => {
+const UserTurn = ({
+  message,
+  anchorId,
+}: {
+  message: BaseMessage;
+  anchorId: string;
+}) => {
   const text = message.text;
   const attachments = getFileAttachments(message);
   return (
-    <>
+    <div id={anchorId} className="flex flex-col gap-4">
       {attachments.length > 0 && (
         <div className="flex justify-end">
           <Attachments variant="inline">
@@ -325,7 +336,7 @@ const UserTurn = ({ message }: { message: BaseMessage }) => {
           </MessageContent>
         </Message>
       )}
-    </>
+    </div>
   );
 };
 

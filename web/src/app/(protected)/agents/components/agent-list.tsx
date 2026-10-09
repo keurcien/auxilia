@@ -1,29 +1,33 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Archive, ArrowRight, Plus, Search, Users, Zap } from "lucide-react";
+import {
+	Archive,
+	ChevronRight,
+	Folder,
+	Plus,
+	Search,
+	Zap,
+} from "lucide-react";
+import {
+	BulkConfirmDialog,
+	type BulkFailure,
+} from "@/components/ui/bulk-confirm-dialog";
+import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { Agent } from "@/types/agents";
 import AgentCard from "@/app/(protected)/agents/components/agent-card";
 import AgentTable from "@/app/(protected)/agents/components/agent-table";
+import { buildGroupTree, flattenGroupTree, type GroupNode } from "@/lib/groups";
+import { useRowSelection } from "@/hooks/use-row-selection";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import type { ViewMode } from "@/components/ui/view-toggle";
-import * as agentsApi from "@/lib/api/resources/agents";
 import { useAgentsStore } from "@/stores/agents-store";
+import {
+	matchesResourceScope,
+	type ResourceScopeFilter,
+} from "@/lib/resource-scope-filter";
 
-type View = "available" | "all" | "archived";
-
-// Agents with no tag are collected under this trailing pseudo-group.
-const NO_TAG_ID = "__none__";
-
-// How many cards a section shows before "See all" reveals the rest. The 8th
-// grid cell holds an inline "See all" tile, so a collapsed section fills two
-// clean rows on the 4-column grid.
-const SECTION_CAP = 7;
-
-interface AgentGroup {
-	id: string;
-	label: string;
-	items: Agent[];
-}
+type View = ResourceScopeFilter | "archived";
 
 function EmptyState({
 	icon,
@@ -66,28 +70,76 @@ function EmptyState({
 	);
 }
 
-function AgentSection({
-	label,
+function AgentCardGrid({
 	agents,
 	archived,
 	onRemoved,
-	storageKey,
+	selectedIds,
+	selectionMode,
+	onToggleSelection,
 }: {
-	label: string;
 	agents: Agent[];
 	archived?: boolean;
 	onRemoved?: (agentId: string) => void;
-	storageKey: string;
+	selectedIds: Set<string>;
+	selectionMode: boolean;
+	onToggleSelection: (agentId: string, shiftKey: boolean) => void;
 }) {
-	// Sections only mount client-side, after AgentList's fetch resolves (it
-	// renders null while loading), so reading localStorage in the initializer is
-	// safe — there's no server render to mismatch against.
+	return (
+		<div
+			className="grid gap-4"
+			style={{
+				gridTemplateColumns:
+					"repeat(auto-fill, minmax(min(100%, max(260px, calc((100% - 2rem) / 3))), 1fr))",
+			}}
+		>
+			{agents.map((agent, index) => (
+				<div
+					key={agent.id}
+					className="h-full animate-in fade-in slide-in-from-bottom-3 duration-400"
+					style={{
+						animationDelay: `${index * 40}ms`,
+						animationFillMode: "both",
+					}}
+				>
+					<AgentCard
+						agent={agent}
+						archived={archived}
+						onRemoved={onRemoved}
+						selected={selectedIds.has(agent.id)}
+						selectionMode={selectionMode}
+						onToggleSelection={(shiftKey) => {
+							onToggleSelection(agent.id, shiftKey);
+						}}
+					/>
+				</div>
+			))}
+		</div>
+	);
+}
+
+function AgentSection({
+	node,
+	archived,
+	onRemoved,
+	storageKey,
+	selectedIds,
+	selectionMode,
+	onToggleSelection,
+}: {
+	node: GroupNode<Agent>;
+	archived?: boolean;
+	onRemoved?: (agentId: string) => void;
+	storageKey: string;
+	selectedIds: Set<string>;
+	selectionMode: boolean;
+	onToggleSelection: (agentId: string, shiftKey: boolean) => void;
+}) {
 	const [expanded, setExpanded] = useState(() => {
 		try {
-			return localStorage.getItem(storageKey) === "1";
+			return localStorage.getItem(storageKey) !== "0";
 		} catch {
-			// localStorage unavailable (e.g. private mode) — default to collapsed.
-			return false;
+			return true;
 		}
 	});
 
@@ -97,70 +149,78 @@ function AgentSection({
 			try {
 				localStorage.setItem(storageKey, next ? "1" : "0");
 			} catch {
-				// Ignore persistence failures; the toggle still works in-session.
+				// The in-session state still works when persistence is unavailable.
 			}
 			return next;
 		});
 	};
 
-	const hasMore = agents.length > SECTION_CAP;
-	const shown = expanded ? agents : agents.slice(0, SECTION_CAP);
-
 	return (
-		<section className="mb-10 last:mb-0 animate-in fade-in duration-300">
-			<div className="flex items-center gap-3 mb-5">
-				<h2 className="font-[family-name:var(--font-jakarta-sans)] text-[15px] font-bold tracking-[-0.01em] text-[#1E2D28] dark:text-foreground whitespace-nowrap">
-					{label}
+		<section className="animate-in fade-in duration-300">
+			<button
+				type="button"
+				aria-expanded={expanded}
+				onClick={toggle}
+				style={{ paddingLeft: `${node.depth * 18}px` }}
+				className="group mb-3 flex w-full cursor-pointer items-center gap-2 py-1 text-left"
+			>
+				<ChevronRight
+					className={`size-3.5 shrink-0 text-meta transition-transform ${
+						expanded ? "rotate-90" : ""
+					}`}
+				/>
+				<Folder className="size-4 shrink-0 text-meta" />
+				<h2 className="whitespace-nowrap text-[13.5px] font-bold tracking-[-0.01em] text-foreground">
+					{node.name}
 				</h2>
-				<span className="font-[family-name:var(--font-dm-sans)] text-[13px] font-medium text-[#B8C8C0] dark:text-muted-foreground">
-					{agents.length}
-				</span>
-				<div className="flex-1 h-px bg-[#E8EFE9] dark:bg-white/10" />
-				{hasMore && expanded && (
-					<button
-						onClick={toggle}
-						className="flex items-center gap-1 font-[family-name:var(--font-dm-sans)] text-[13px] font-medium text-[#8FA89E] dark:text-muted-foreground whitespace-nowrap cursor-pointer transition-colors hover:text-[#1E2D28] dark:hover:text-foreground"
-					>
-						Show less
-						<ArrowRight className="size-3.5 -rotate-90" />
-					</button>
-				)}
-			</div>
+				<span className="font-mono text-[11px] text-meta">{node.count}</span>
+				<div className="h-px flex-1 bg-[#E8EFE9] dark:bg-white/10" />
+			</button>
 
-			<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-				{shown.map((agent, i) => (
-					<div
-						key={agent.id}
-						className="h-full animate-in fade-in slide-in-from-bottom-3 duration-400"
-						style={{ animationDelay: `${i * 40}ms`, animationFillMode: "both" }}
-					>
-						<AgentCard agent={agent} archived={archived} onRemoved={onRemoved} />
-					</div>
-				))}
-				{hasMore && !expanded && (
-					<button
-						onClick={toggle}
-						className="group flex h-full min-h-[120px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-[#cfe0d8] dark:border-white/15 bg-transparent text-[#8FA89E] dark:text-muted-foreground transition-colors duration-[130ms] ease-out cursor-pointer hover:border-[#4CA882] hover:text-[#1E2D28] dark:hover:border-[#4CA882] dark:hover:text-foreground"
-					>
-						<span className="flex items-center gap-1 font-[family-name:var(--font-jakarta-sans)] text-[14px] font-bold tracking-[-0.01em]">
-							See all
-							<ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
-						</span>
-						<span className="font-[family-name:var(--font-dm-sans)] text-[12.5px] font-medium">
-							+{agents.length - SECTION_CAP} more
-						</span>
-					</button>
-				)}
-			</div>
+			{expanded && (
+				<div className="mb-6">
+					{node.items.length > 0 && (
+						<div
+							className="mb-4"
+							style={{ paddingLeft: `${(node.depth + 1) * 18}px` }}
+						>
+							<AgentCardGrid
+								agents={node.items}
+								archived={archived}
+								onRemoved={onRemoved}
+								selectedIds={selectedIds}
+								selectionMode={selectionMode}
+								onToggleSelection={onToggleSelection}
+							/>
+						</div>
+					)}
+					{node.children.map((child) => (
+						<AgentSection
+							key={child.path}
+							node={child}
+							archived={archived}
+							onRemoved={onRemoved}
+							storageKey={`${storageKey}:${child.path}`}
+							selectedIds={selectedIds}
+							selectionMode={selectionMode}
+							onToggleSelection={onToggleSelection}
+						/>
+					))}
+				</div>
+			)}
 		</section>
 	);
 }
 
 interface AgentListProps {
 	view: View;
-	/** Table (design 7a) or the tag-grouped card grid. */
+	/** Table or the group-tree card grid. */
 	mode: ViewMode;
 	search: string;
+	filterTeamIds: string[];
+	archivedAgents: Agent[];
+	archivedLoading: boolean;
+	onArchivedAgentsChange: (agents: Agent[]) => void;
 	onClearSearch?: () => void;
 	onCreateAgent?: () => void;
 }
@@ -169,6 +229,10 @@ export default function AgentList({
 	view,
 	mode,
 	search,
+	filterTeamIds,
+	archivedAgents,
+	archivedLoading,
+	onArchivedAgentsChange,
 	onClearSearch,
 	onCreateAgent,
 }: AgentListProps) {
@@ -180,26 +244,14 @@ export default function AgentList({
 	const storeReady = useAgentsStore((state) => state.isInitialized);
 	const fetchAgents = useAgentsStore((state) => state.fetchAgents);
 	const removeAgent = useAgentsStore((state) => state.removeAgent);
-	const [archivedAgents, setArchivedAgents] = useState<Agent[]>([]);
-	// The parent keys AgentList by active/archived, so entering the Archived
-	// view mounts a fresh instance: this starts true and flips false once the
-	// fetch resolves (the pre-store behavior, unchanged).
-	const [archivedLoading, setArchivedLoading] = useState(true);
+	const archiveAgent = useAgentsStore((state) => state.archiveAgent);
+	const permanentlyDeleteAgent = useAgentsStore(
+		(state) => state.permanentlyDeleteAgent,
+	);
+	const [bulkOpen, setBulkOpen] = useState(false);
 
 	useEffect(() => {
-		if (!archived) {
-			fetchAgents().catch(console.error);
-			return;
-		}
-		agentsApi
-			.listArchivedAgents()
-			.then((agents) => {
-				setArchivedAgents(agents);
-			})
-			.catch(console.error)
-			.finally(() => {
-				setArchivedLoading(false);
-			});
+		if (!archived) fetchAgents().catch(console.error);
 	}, [archived, fetchAgents]);
 
 	const agents = archived ? archivedAgents : storeAgents;
@@ -207,9 +259,9 @@ export default function AgentList({
 
 	const handleRemoved = (agentId: string) => {
 		if (archived) {
-			// The store action (restore / permanent delete) already reconciled the
-			// live list; only this page-local archived list needs the row gone.
-			setArchivedAgents((prev) => prev.filter((a) => a.id !== agentId));
+			onArchivedAgentsChange(
+				archivedAgents.filter((agent) => agent.id !== agentId),
+			);
 			return;
 		}
 		removeAgent(agentId);
@@ -218,54 +270,123 @@ export default function AgentList({
 	const matches = useMemo(() => {
 		if (!search) return agents;
 		const query = search.toLowerCase();
-		return agents.filter((agent) => agent.name.toLowerCase().includes(query));
+		return agents.filter(
+			(agent) =>
+				agent.name.toLowerCase().includes(query) ||
+				(agent.description ?? "").toLowerCase().includes(query) ||
+				(agent.group ?? "").toLowerCase().includes(query),
+		);
 	}, [agents, search]);
 
-	// "Available to you" narrows to agents the user can actually use; "All" and
-	// "Archived" show everything the fetch returned.
 	const visible = useMemo(
 		() =>
-			view === "available"
-				? matches.filter((a) => a.currentUserPermission)
-				: matches,
-		[matches, view],
+			view === "archived" || view === "all"
+				? matches
+				: matches.filter((agent) =>
+						matchesResourceScope(agent, view, filterTeamIds),
+					),
+		[filterTeamIds, matches, view],
 	);
 
-	// Group by tag (each agent has at most one, so every agent appears exactly
-	// once). Untagged agents fall into the trailing "Others" group. Tags are
-	// sorted alphabetically to match the backend ordering.
-	const groups = useMemo<AgentGroup[]>(() => {
-		const byTag = new Map<string, AgentGroup>();
-		const untagged: Agent[] = [];
-		for (const agent of visible) {
-			const tag = agent.tag;
-			if (!tag) {
-				untagged.push(agent);
-				continue;
-			}
-			const existing = byTag.get(tag.id);
-			if (existing) {
-				existing.items.push(agent);
-			} else {
-				byTag.set(tag.id, {
-					id: tag.id,
-					label: tag.name,
-					items: [agent],
-				});
-			}
-		}
-		const ordered = [...byTag.values()].sort((a, b) =>
-			a.label.localeCompare(b.label),
-		);
-		if (untagged.length > 0) {
-			ordered.push({
-				id: NO_TAG_ID,
-				label: "Others",
-				items: untagged,
-			});
-		}
-		return ordered;
-	}, [visible]);
+	const groupTree = useMemo(() => buildGroupTree(visible), [visible]);
+	const orderedAgents = useMemo(() => flattenGroupTree(groupTree), [groupTree]);
+	const manageableAgentIds = useMemo(
+		() =>
+			orderedAgents
+				.filter(
+					(agent) =>
+						agent.currentUserPermission === "owner" ||
+						agent.currentUserPermission === "admin",
+				)
+				.map((agent) => agent.id),
+		[orderedAgents],
+	);
+	const selection = useRowSelection({
+		orderedIds: orderedAgents.map((agent) => agent.id),
+		eligibleIds: manageableAgentIds,
+	});
+	const selectedAgents = orderedAgents.filter((agent) =>
+		selection.selectedIds.has(agent.id),
+	);
+
+	const bulkControls = (
+		<>
+			<BulkActionBar
+				selectedCount={selection.selectedCount}
+				totalCount={manageableAgentIds.length}
+				allSelected={selection.allSelected}
+				someSelected={selection.someSelected}
+				onToggleAll={selection.toggleAll}
+				onClear={selection.clear}
+				actionLabel={archived ? "Delete permanently" : "Archive"}
+				actionIcon={
+					archived ? undefined : <Archive className="size-3.5" />
+				}
+				onAction={() => {
+					setBulkOpen(true);
+				}}
+				showWhenEmpty={mode === "cards"}
+			/>
+			<BulkConfirmDialog
+				open={bulkOpen}
+				onOpenChange={setBulkOpen}
+				title={
+					archived
+						? "Permanently delete selected agents?"
+						: "Archive selected agents?"
+				}
+				description={
+					archived
+						? "This permanently removes the agents, their tool connections, and every chat thread that used them."
+						: "Archived agents stop being available for chat and automations, but can be restored later."
+				}
+				items={selectedAgents.map((agent) => ({
+					id: agent.id,
+					name: agent.name,
+				}))}
+				confirmLabel={archived ? "Delete" : "Archive"}
+				busyLabel={archived ? "Deleting…" : "Archiving…"}
+				onConfirm={async (items) => {
+					const action = archived ? permanentlyDeleteAgent : archiveAgent;
+					const results = await Promise.allSettled(
+						items.map((item) => action(item.id)),
+					);
+					const succeeded: string[] = [];
+					const failures: BulkFailure[] = [];
+					results.forEach((result, index) => {
+						const item = items.at(index);
+						if (!item) return;
+						if (result.status === "fulfilled") succeeded.push(item.id);
+						else
+							failures.push({
+								id: item.id,
+								name: item.name,
+								message: getApiErrorMessage(result.reason, "Action failed."),
+							});
+					});
+					if (archived && succeeded.length > 0) {
+						const removed = new Set(succeeded);
+						onArchivedAgentsChange(
+							archivedAgents.filter((agent) => !removed.has(agent.id)),
+						);
+					} else if (succeeded.length > 0) {
+						const archivedIds = new Set(succeeded);
+						const newlyArchived = selectedAgents
+							.filter((agent) => archivedIds.has(agent.id))
+							.map((agent) => ({ ...agent, isArchived: true }));
+						onArchivedAgentsChange([
+							...newlyArchived,
+							...archivedAgents.filter(
+								(agent) => !archivedIds.has(agent.id),
+							),
+						]);
+					}
+					selection.remove(succeeded);
+					return failures;
+				}}
+			/>
+		</>
+	);
 
 	if (isLoading) return null;
 
@@ -320,13 +441,12 @@ export default function AgentList({
 		);
 	}
 
-	// "Available to you" is empty even though the workspace has agents.
-	if (view === "available" && visible.length === 0) {
+	if (visible.length === 0) {
 		return (
 			<EmptyState
-				icon={<Users className="size-[22px] text-[#4CA882]" />}
-				title="Nothing shared with you yet"
-				subtitle="Ask a workspace admin or an agent's owner to give you access — or switch to All to browse everything in your workspace."
+				icon={<Search className="size-[22px] text-[#4CA882]" />}
+				title="No agents match this filter"
+				subtitle="Choose another visibility filter."
 			/>
 		);
 	}
@@ -336,10 +456,15 @@ export default function AgentList({
 		// height (WorkspacePage fillHeight) and scroll internally.
 		return (
 			<div className="flex min-h-0 w-full flex-1 flex-col animate-in fade-in duration-300">
+				{bulkControls}
 				<AgentTable
 					agents={visible}
 					archived={archived}
 					onRemoved={handleRemoved}
+					selectedIds={selection.selectedIds}
+					selectionMode={selection.selectionMode}
+					onToggleAll={selection.toggleAll}
+					onToggleSelection={selection.toggle}
 				/>
 			</div>
 		);
@@ -347,19 +472,47 @@ export default function AgentList({
 
 	return (
 		<div className="w-full animate-in fade-in duration-300">
-			{groups.map((group) => (
+			{bulkControls}
+			{groupTree.groups.map((group) => (
 				<AgentSection
-					// Key by view too: the expanded state is read from localStorage in
-					// a useState initializer, so the section must remount when the
-					// view (and thus its storage key) changes.
-					key={`${view}:${group.id}`}
-					label={group.label}
-					agents={group.items}
+					key={`${view}:${group.path}`}
+					node={group}
 					archived={archived}
 					onRemoved={handleRemoved}
-					storageKey={`agents:section:${view}:${group.id}:expanded`}
+					storageKey={`agents:group:${view}:${group.path}:expanded`}
+					selectedIds={selection.selectedIds}
+					selectionMode={selection.selectionMode}
+					onToggleSelection={selection.toggle}
 				/>
 			))}
+			{groupTree.ungrouped.length > 0 &&
+				(groupTree.groups.length > 0 ? (
+					<AgentSection
+						node={{
+							name: "Default",
+							path: "__ungrouped__",
+							depth: 0,
+							items: groupTree.ungrouped,
+							children: [],
+							count: groupTree.ungrouped.length,
+						}}
+						archived={archived}
+						onRemoved={handleRemoved}
+						storageKey={`agents:group:${view}:__ungrouped__:expanded`}
+						selectedIds={selection.selectedIds}
+						selectionMode={selection.selectionMode}
+						onToggleSelection={selection.toggle}
+					/>
+				) : (
+					<AgentCardGrid
+						agents={groupTree.ungrouped}
+						archived={archived}
+						onRemoved={handleRemoved}
+						selectedIds={selection.selectedIds}
+						selectionMode={selection.selectionMode}
+						onToggleSelection={selection.toggle}
+					/>
+				))}
 		</div>
 	);
 }

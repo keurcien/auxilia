@@ -19,10 +19,16 @@ from app.agents.core.repository import AgentRepository
 from app.agents.core.service import AgentService
 from app.agents.models import AgentDB, AgentMCPServerDB, ToolStatus
 from app.agents.schemas import AgentListResponse, AgentPatch, AgentResponse
+from tests.conftest import TEST_WORKSPACE_ID
 
 
 async def _seed(session, *, owner_id, bindings: int = 0, instructions="x" * 4000):
-    agent = AgentDB(name="Agent", instructions=instructions, owner_id=owner_id)
+    agent = AgentDB(
+        workspace_id=TEST_WORKSPACE_ID,
+        name="Agent",
+        instructions=instructions,
+        owner_id=owner_id,
+    )
     session.add(agent)
     await session.flush()
     for _ in range(bindings):
@@ -53,7 +59,7 @@ async def test_the_list_never_reads_instructions_or_tool_maps(
     agent_session.expunge_all()
     statements.reset()
 
-    await AgentService(agent_session).list(user_id=owner)
+    await AgentService(agent_session, TEST_WORKSPACE_ID).list(user_id=owner)
 
     selects = " ".join(statements.statements)
     assert "agents.instructions" not in selects
@@ -64,7 +70,7 @@ async def test_the_list_returns_the_slim_schema(agent_session):
     owner = uuid4()
     await _seed(agent_session, owner_id=owner, bindings=1)
 
-    rows = await AgentService(agent_session).list(user_id=owner)
+    rows = await AgentService(agent_session, TEST_WORKSPACE_ID).list(user_id=owner)
 
     assert len(rows) == 1
     assert type(rows[0]) is AgentListResponse
@@ -78,7 +84,7 @@ async def test_the_list_does_not_query_sandbox_bindings(agent_session, statement
     await _seed(agent_session, owner_id=owner)
     statements.reset()
 
-    await AgentService(agent_session).list(user_id=owner)
+    await AgentService(agent_session, TEST_WORKSPACE_ID).list(user_id=owner)
 
     assert not any("agent_sandboxes" in s for s in statements.statements)
 
@@ -92,7 +98,7 @@ async def test_the_list_cost_does_not_grow_with_the_number_of_agents(
     agent_session.expunge_all()
     statements.reset()
 
-    rows = await AgentService(agent_session).list(user_id=owner)
+    rows = await AgentService(agent_session, TEST_WORKSPACE_ID).list(user_id=owner)
 
     assert len(rows) == 5
     assert len(statements) <= 4
@@ -103,7 +109,9 @@ async def test_the_detail_read_still_carries_everything(agent_session):
     owner = uuid4()
     agent = await _seed(agent_session, owner_id=owner, bindings=1)
 
-    response = await AgentService(agent_session).get(agent.id, user_id=owner)
+    response = await AgentService(agent_session, TEST_WORKSPACE_ID).get(
+        agent.id, user_id=owner
+    )
 
     assert isinstance(response, AgentResponse)
     assert response.instructions == "x" * 4000
@@ -124,7 +132,7 @@ async def test_a_one_column_patch_reads_the_agent_row_once(agent_session, statem
     agent_session.expunge_all()
     statements.reset()
 
-    response = await AgentService(agent_session).update(
+    response = await AgentService(agent_session, TEST_WORKSPACE_ID).update(
         agent.id, AgentPatch(name="Renamed"), user_id=owner
     )
 
@@ -144,10 +152,12 @@ async def test_archiving_issues_one_update_and_no_select_of_its_own(
     agent_session.expunge_all()
     statements.reset()
 
-    await AgentService(agent_session).delete(agent.id, user_id=owner)
+    await AgentService(agent_session, TEST_WORKSPACE_ID).delete(agent.id, user_id=owner)
 
     assert len(statements) == 3  # gate, subagent-link delete, the UPDATE
-    assert (await AgentRepository(agent_session).get(agent.id)).is_archived is True
+    assert (
+        await AgentRepository(agent_session, TEST_WORKSPACE_ID).get(agent.id)
+    ).is_archived is True
 
 
 async def test_archiving_an_already_archived_agent_touches_nothing(agent_session):
@@ -164,8 +174,8 @@ async def test_archiving_an_already_archived_agent_touches_nothing(agent_session
     """
     owner = uuid4()
     agent = await _seed(agent_session, owner_id=owner)
-    service = AgentService(agent_session)
-    repository = AgentRepository(agent_session)
+    service = AgentService(agent_session, TEST_WORKSPACE_ID)
+    repository = AgentRepository(agent_session, TEST_WORKSPACE_ID)
     await service.delete(agent.id, user_id=owner)
     backdated = datetime(2020, 1, 1, tzinfo=UTC)
     await agent_session.execute(
@@ -185,7 +195,7 @@ async def test_archiving_an_already_archived_agent_touches_nothing(agent_session
 async def test_restore_returns_the_unarchived_agent(agent_session):
     owner = uuid4()
     agent = await _seed(agent_session, owner_id=owner)
-    service = AgentService(agent_session)
+    service = AgentService(agent_session, TEST_WORKSPACE_ID)
     await service.delete(agent.id, user_id=owner)
 
     response = await service.restore(agent.id, user_id=owner)

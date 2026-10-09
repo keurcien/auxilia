@@ -26,9 +26,9 @@ interface SkillDiffDialogProps {
 // A Map: `category` arrives from the API, so a bracket lookup on a plain
 // object would be an inherited-property sink.
 const CATEGORY_COPY = new Map<string, { label: string; note: string; tone: "warn" | "trust" | "plain" }>(Object.entries({
-	description: { label: "Trigger", note: "the description changed — the skill may now fire on different requests", tone: "warn" },
+	description: { label: "Trigger", note: "the description changed, the skill may now fire on different requests", tone: "warn" },
 	instructions: { label: "Instructions", note: "the SKILL.md body changed", tone: "plain" },
-	scripts: { label: "Scripts", note: "executable content changed — review before adopting", tone: "trust" },
+	scripts: { label: "Scripts", note: "executable content changed, review before adopting", tone: "trust" },
 	requirements: { label: "Requirements", note: "what the scripts need from the environment changed", tone: "warn" },
 	references: { label: "References", note: "reference files changed", tone: "plain" },
 	assets: { label: "Assets", note: "asset files changed", tone: "plain" },
@@ -122,7 +122,7 @@ export default function SkillDiffDialog({ open, onOpenChange, skill, canAdopt, o
 				<DialogHeader>
 					<DialogTitle>Review changes</DialogTitle>
 					<DialogDescription>
-						<span className="font-mono text-[12.5px] font-semibold text-petrol">{skill.name}</span> from{" "}
+						<span className="text-[12.5px] font-semibold text-petrol">{skill.name}</span> from{" "}
 						<span className="font-mono text-[12px]">{shortRevision(diff?.oldRevision ?? skill.sourceRevision)}</span> to{" "}
 						<span className="font-mono text-[12px]">{shortRevision(diff?.newRevision ?? skill.available?.revision)}</span>
 						{skill.sourceName ? ` in ${skill.sourceName}` : ""}. Agents keep running the current version until you adopt.
@@ -138,7 +138,7 @@ export default function SkillDiffDialog({ open, onOpenChange, skill, canAdopt, o
 					</div>
 				)}
 				{diff && diff.status === "unchanged" && (
-					<p className="py-4 text-[13px] text-subtle dark:text-panel-body">Nothing to adopt — the library already holds the newest version.</p>
+					<p className="py-4 text-[13px] text-subtle dark:text-panel-body">Nothing to adopt, the library already holds the newest version.</p>
 				)}
 				{diff && diff.status === "changed" && (
 					<div className="flex min-w-0 flex-col gap-4">
@@ -147,7 +147,7 @@ export default function SkillDiffDialog({ open, onOpenChange, skill, canAdopt, o
 								const copy = CATEGORY_COPY.get(category) ?? { label: category, note: "", tone: "plain" as const };
 								return (
 									<div key={category} className="flex items-center gap-2.5">
-										<span className={`inline-flex shrink-0 items-center rounded-[4px] px-2 py-[3px] font-mono text-[9.5px] font-semibold uppercase tracking-[0.05em] ${toneClass(copy.tone)}`}>
+										<span className={`inline-flex shrink-0 items-center rounded-[4px] px-2 py-[3px] text-[9.5px] font-semibold ${toneClass(copy.tone)}`}>
 											{copy.label}
 										</span>
 										<span className="text-[12.5px] text-subtle dark:text-muted-foreground">{copy.note}</span>
@@ -159,12 +159,12 @@ export default function SkillDiffDialog({ open, onOpenChange, skill, canAdopt, o
 							{diff.files.map((file) => (
 								<div key={file.path} className="min-w-0 overflow-hidden rounded-[10px] border border-border">
 									<div className="flex items-center gap-2.5 bg-sidebar px-3 py-2 dark:bg-white/[0.02]">
-										<span className={`font-mono text-[9.5px] font-semibold uppercase ${file.status === "added" ? "text-success" : file.status === "removed" ? "text-[#B04A3A]" : "text-warning"}`}>
+										<span className={`text-[9.5px] font-semibold ${file.status === "added" ? "text-success" : file.status === "removed" ? "text-[#B04A3A]" : "text-warning"}`}>
 											{file.status}
 										</span>
 										<span className="truncate font-mono text-[12px] text-foreground">{file.path}</span>
 										<span className="ml-auto font-mono text-[10.5px] text-meta dark:text-panel-dim">
-											{file.binary ? `binary · ${file.oldSize ?? 0} → ${file.newSize ?? 0} B` : `${file.oldSize ?? 0} → ${file.newSize ?? 0} B`}
+											{file.binary ? `binary, ${file.oldSize ?? 0} → ${file.newSize ?? 0} B` : `${file.oldSize ?? 0} → ${file.newSize ?? 0} B`}
 										</span>
 									</div>
 									{file.unified ? <div className="p-2"><Unified text={file.unified} /></div> : null}

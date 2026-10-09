@@ -1,6 +1,7 @@
 import asyncio
 import json
 from unittest.mock import AsyncMock
+from uuid import UUID
 
 import pytest
 
@@ -9,8 +10,11 @@ from app.runtime.runs.settings import run_settings
 from app.runtime.runs.state import RunStatus
 
 
+WORKSPACE_ID = UUID("00000000-0000-4000-8000-000000000001")
+
+
 async def test_publish_and_full_replay(redis):
-    events = RunEventStream("r1", redis)
+    events = RunEventStream("r1", redis, workspace_id=WORKSPACE_ID)
     await events.publish('{"method": "values", "params": {"n": 1}}')
     await events.publish('{"method": "values", "params": {"n": 2}}')
     await events.publish_end(RunStatus.success)
@@ -25,7 +29,7 @@ async def test_publish_and_full_replay(redis):
 
 
 async def test_terminal_entry_carries_the_error(redis):
-    events = RunEventStream("r1", redis)
+    events = RunEventStream("r1", redis, workspace_id=WORKSPACE_ID)
     await events.publish_end(RunStatus.error, "boom")
     [chunk] = [c async for c in events.subscribe("0", block_ms=200)]
     assert json.loads(chunk)["params"]["data"] == {"event": "failed", "error": "boom"}
@@ -39,7 +43,7 @@ async def test_stream_is_capped_at_max_events(redis, monkeypatch):
     whole nodes, not single entries — and not only on fakeredis's exact trim.
     """
     monkeypatch.setattr(run_settings, "max_events", 100)
-    events = RunEventStream("r1", redis)
+    events = RunEventStream("r1", redis, workspace_id=WORKSPACE_ID)
     for i in range(500):
         await events.publish(f"data: {i}\n\n")
 
@@ -50,7 +54,7 @@ async def test_stream_is_capped_at_max_events(redis, monkeypatch):
 
 
 async def test_subscribe_resumes_after_cursor(redis):
-    events = RunEventStream("r1", redis)
+    events = RunEventStream("r1", redis, workspace_id=WORKSPACE_ID)
     first_id = await events.publish("a")
     await events.publish("b")
     await events.publish_end(RunStatus.success)
@@ -68,7 +72,7 @@ async def test_first_publish_stamps_a_safety_ttl(redis):
     row has vanished — a thread deleted mid-run CASCADEs the run away — and the
     log would then sit in Redis for ever with no expiry at all.
     """
-    events = RunEventStream("r-ttl", redis)
+    events = RunEventStream("r-ttl", redis, workspace_id=WORKSPACE_ID)
 
     await events.publish("event: messages\ndata: 1\n\n")
 
@@ -78,7 +82,7 @@ async def test_first_publish_stamps_a_safety_ttl(redis):
 async def test_touch_ttl_keeps_a_long_run_from_expiring_its_own_stream(redis):
     """The worker's heartbeat calls this. Without it, a run longer than the
     safety TTL (or an uncapped one) would lose its live stream mid-flight."""
-    events = RunEventStream("r-touch", redis)
+    events = RunEventStream("r-touch", redis, workspace_id=WORKSPACE_ID)
     await events.publish("a")
     await redis.expire(events._key, 5)
 
@@ -89,7 +93,9 @@ async def test_touch_ttl_keeps_a_long_run_from_expiring_its_own_stream(redis):
 
 async def test_touch_ttl_on_an_empty_log_is_a_noop(redis):
     """The heartbeat starts before the first chunk is published."""
-    await RunEventStream("r-empty", redis).touch_ttl()  # must not raise
+    await RunEventStream(
+        "r-empty", redis, workspace_id=WORKSPACE_ID
+    ).touch_ttl()  # must not raise
 
 
 # ---------------------------------------------------------------------------
@@ -101,7 +107,7 @@ async def test_a_full_buffer_costs_no_per_chunk_round_trip(redis, count_appends)
     """32 chunks used to be 32 awaited XADDs, each one a Redis RTT the next
     token waited on. They now ride in a single pipeline."""
     appends = count_appends(redis)
-    events = RunEventStream("r-buf", redis)
+    events = RunEventStream("r-buf", redis, workspace_id=WORKSPACE_ID)
 
     async with BufferedEventPublisher(
         events, max_chunks=32, max_delay_seconds=3600
@@ -117,7 +123,7 @@ async def test_the_delay_bound_ships_a_partial_buffer(redis, until):
     """The bound that matters for behaviour: these chunks are the tokens a user
     is watching appear, so a run that goes quiet mid-stream (a long tool call)
     must not sit on them until the buffer happens to fill."""
-    events = RunEventStream("r-delay", redis)
+    events = RunEventStream("r-delay", redis, workspace_id=WORKSPACE_ID)
 
     async with BufferedEventPublisher(
         events, max_chunks=1000, max_delay_seconds=0.001
@@ -134,7 +140,7 @@ async def test_the_delay_bound_ships_a_partial_buffer(redis, until):
 
 async def test_closing_drains_the_buffer(redis):
     """What orders the last chunks ahead of finalize's end sentinel."""
-    events = RunEventStream("r-drain", redis)
+    events = RunEventStream("r-drain", redis, workspace_id=WORKSPACE_ID)
 
     async with BufferedEventPublisher(
         events, max_chunks=1000, max_delay_seconds=3600
@@ -147,7 +153,7 @@ async def test_closing_drains_the_buffer(redis):
 
 
 async def test_chunk_order_is_preserved(redis):
-    events = RunEventStream("r-order", redis)
+    events = RunEventStream("r-order", redis, workspace_id=WORKSPACE_ID)
 
     async with BufferedEventPublisher(
         events, max_chunks=4, max_delay_seconds=3600
@@ -164,7 +170,7 @@ async def test_chunk_order_is_preserved(redis):
 async def test_a_flush_failure_surfaces_rather_than_dropping_output(redis):
     """A Redis that has gone away must still fail the run. Buffering moves the
     write off the publish call, so the error has to be carried back."""
-    events = RunEventStream("r-fail", redis)
+    events = RunEventStream("r-fail", redis, workspace_id=WORKSPACE_ID)
     events.publish_many = AsyncMock(side_effect=ConnectionError("redis down"))
 
     with pytest.raises(ConnectionError, match="redis down"):
@@ -175,7 +181,7 @@ async def test_a_flush_failure_surfaces_rather_than_dropping_output(redis):
 
 
 async def test_a_background_flush_failure_surfaces_on_close(redis, until):
-    events = RunEventStream("r-fail2", redis)
+    events = RunEventStream("r-fail2", redis, workspace_id=WORKSPACE_ID)
     events.publish_many = AsyncMock(side_effect=ConnectionError("redis down"))
 
     publisher = BufferedEventPublisher(events, max_chunks=1000, max_delay_seconds=0.001)
@@ -195,7 +201,7 @@ async def test_closing_never_drops_a_write_that_is_already_in_flight(redis, unti
     """`_flush_locked` takes the buffer *before* awaiting the write, so a close
     that cancels the flusher mid-write destroys chunks the drain can no longer
     see — the tail of a run, silently lost or landing after the end sentinel."""
-    events = RunEventStream("r-race", redis)
+    events = RunEventStream("r-race", redis, workspace_id=WORKSPACE_ID)
     real_publish_many = events.publish_many
     in_flight = asyncio.Event()
     release = asyncio.Event()
@@ -230,7 +236,7 @@ async def test_closing_never_drops_a_write_that_is_already_in_flight(redis, unti
 async def test_a_zero_delay_does_not_spin_the_flusher(redis):
     """A configured 0 means "ship immediately", not "burn a core for the length
     of the run" — the flusher's wait would return instantly forever."""
-    events = RunEventStream("r-zero", redis)
+    events = RunEventStream("r-zero", redis, workspace_id=WORKSPACE_ID)
 
     publisher = BufferedEventPublisher(events, max_chunks=1000, max_delay_seconds=0)
 

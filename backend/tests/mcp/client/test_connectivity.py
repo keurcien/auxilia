@@ -15,11 +15,15 @@ from fakeredis import FakeServer, aioredis
 
 from app.mcp.client import connectivity
 from app.mcp.servers.models import MCPAuthType
+from tests.conftest import TEST_WORKSPACE_ID
 
 
 def _server(auth_type, server_id="s1"):
     return SimpleNamespace(
-        id=server_id, url="https://mcp.example.com/mcp", auth_type=auth_type
+        id=server_id,
+        workspace_id=TEST_WORKSPACE_ID,
+        url="https://mcp.example.com/mcp",
+        auth_type=auth_type,
     )
 
 
@@ -27,9 +31,17 @@ async def test_is_authorized_true_for_non_oauth_without_touching_network():
     # none/api_key hold no per-user credential, so authorization is a no-op:
     # no provider is built and no token lookup happens.
     with patch.object(connectivity, "build_oauth_provider") as build:
-        assert await connectivity.is_authorized(_server(MCPAuthType.none), "u1") is True
         assert (
-            await connectivity.is_authorized(_server(MCPAuthType.api_key), "u1") is True
+            await connectivity.is_authorized(
+                _server(MCPAuthType.none), "u1", TEST_WORKSPACE_ID
+            )
+            is True
+        )
+        assert (
+            await connectivity.is_authorized(
+                _server(MCPAuthType.api_key), "u1", TEST_WORKSPACE_ID
+            )
+            is True
         )
     build.assert_not_called()
 
@@ -40,7 +52,10 @@ async def test_is_authorized_oauth_refresh_uses_ensure_valid_token():
         connectivity, "build_oauth_provider", AsyncMock(return_value=provider)
     ):
         assert (
-            await connectivity.is_authorized(_server(MCPAuthType.oauth2), "u1") is True
+            await connectivity.is_authorized(
+                _server(MCPAuthType.oauth2), "u1", TEST_WORKSPACE_ID
+            )
+            is True
         )
     provider.ensure_valid_token.assert_awaited_once()
 
@@ -54,7 +69,10 @@ async def test_is_authorized_oauth_no_refresh_checks_stored_token_only():
         patch.object(connectivity, "build_oauth_provider", AsyncMock()) as build,
     ):
         result = await connectivity.is_authorized(
-            _server(MCPAuthType.oauth2), "u1", refresh=False
+            _server(MCPAuthType.oauth2),
+            "u1",
+            TEST_WORKSPACE_ID,
+            refresh=False,
         )
     assert result is False
     storage.get_tokens.assert_awaited_once()
@@ -85,7 +103,7 @@ async def probe_redis(monkeypatch):
 
 async def test_probe_returns_empty_without_touching_redis():
     with patch.object(connectivity, "get_redis") as get_redis:
-        assert await connectivity.probe_authorization([], "u1") == {}
+        assert await connectivity.probe_authorization([], "u1", TEST_WORKSPACE_ID) == {}
     get_redis.assert_not_called()
 
 
@@ -98,7 +116,7 @@ async def test_probe_runs_concurrently(probe_redis):
     in_flight = 0
     peak = 0
 
-    async def _slow(server, user_id, **_):
+    async def _slow(server, user_id, workspace_id, **_):
         nonlocal in_flight, peak
         in_flight += 1
         peak = max(peak, in_flight)
@@ -107,7 +125,9 @@ async def test_probe_runs_concurrently(probe_redis):
         return True
 
     with patch.object(connectivity, "is_authorized", _slow):
-        result = await connectivity.probe_authorization(servers, "u1")
+        result = await connectivity.probe_authorization(
+            servers, "u1", TEST_WORKSPACE_ID
+        )
 
     assert peak == 3
     assert result == {s.id: True for s in servers}
@@ -121,13 +141,15 @@ async def test_probe_fails_open_when_one_probe_raises(probe_redis):
         _server(MCPAuthType.oauth2, uuid4()),
     )
 
-    async def _flaky(server, user_id, **_):
+    async def _flaky(server, user_id, workspace_id, **_):
         if server.id == bad.id:
             raise RuntimeError("IdP is down")
         return False
 
     with patch.object(connectivity, "is_authorized", _flaky):
-        result = await connectivity.probe_authorization([good, bad], "u1")
+        result = await connectivity.probe_authorization(
+            [good, bad], "u1", TEST_WORKSPACE_ID
+        )
 
     assert result == {good.id: False, bad.id: True}
 
@@ -139,12 +161,18 @@ async def test_probe_memoizes_a_positive_so_the_polling_loop_stops_refreshing(
     probe = AsyncMock(return_value=True)
 
     with patch.object(connectivity, "is_authorized", probe):
-        first = await connectivity.probe_authorization([server], "u1")
-        second = await connectivity.probe_authorization([server], "u1")
+        first = await connectivity.probe_authorization(
+            [server], "u1", TEST_WORKSPACE_ID
+        )
+        second = await connectivity.probe_authorization(
+            [server], "u1", TEST_WORKSPACE_ID
+        )
 
     assert first == second == {server.id: True}
     probe.assert_awaited_once()
-    assert await probe_redis.ttl(f"mcp:u1:{server.id}:authprobe") > 0
+    assert (
+        await probe_redis.ttl(f"mcp:{TEST_WORKSPACE_ID}:u1:{server.id}:authprobe") > 0
+    )
 
 
 async def test_probe_does_not_memoize_a_negative(probe_redis):
@@ -154,8 +182,8 @@ async def test_probe_does_not_memoize_a_negative(probe_redis):
     probe = AsyncMock(return_value=False)
 
     with patch.object(connectivity, "is_authorized", probe):
-        await connectivity.probe_authorization([server], "u1")
-        await connectivity.probe_authorization([server], "u1")
+        await connectivity.probe_authorization([server], "u1", TEST_WORKSPACE_ID)
+        await connectivity.probe_authorization([server], "u1", TEST_WORKSPACE_ID)
 
     assert probe.await_count == 2
 
@@ -165,8 +193,8 @@ async def test_probe_cache_is_scoped_per_user(probe_redis):
     probe = AsyncMock(return_value=True)
 
     with patch.object(connectivity, "is_authorized", probe):
-        await connectivity.probe_authorization([server], "alice")
-        await connectivity.probe_authorization([server], "bob")
+        await connectivity.probe_authorization([server], "alice", TEST_WORKSPACE_ID)
+        await connectivity.probe_authorization([server], "bob", TEST_WORKSPACE_ID)
 
     assert probe.await_count == 2
 
@@ -182,7 +210,9 @@ async def test_probe_survives_a_redis_outage(monkeypatch):
     server = _server(MCPAuthType.oauth2, uuid4())
 
     with patch.object(connectivity, "is_authorized", AsyncMock(return_value=True)):
-        result = await connectivity.probe_authorization([server], "u1")
+        result = await connectivity.probe_authorization(
+            [server], "u1", TEST_WORKSPACE_ID
+        )
 
     assert result == {server.id: True}
 
@@ -192,7 +222,9 @@ async def test_probe_dedupes_a_server_bound_by_both_parent_and_subagent(probe_re
     probe = AsyncMock(return_value=True)
 
     with patch.object(connectivity, "is_authorized", probe):
-        result = await connectivity.probe_authorization([server, server], "u1")
+        result = await connectivity.probe_authorization(
+            [server, server], "u1", TEST_WORKSPACE_ID
+        )
 
     assert result == {server.id: True}
     probe.assert_awaited_once()
@@ -208,15 +240,17 @@ async def test_the_probe_cache_lives_where_the_purges_can_reach_it(probe_redis):
 
     server = _server(MCPAuthType.oauth2, uuid4())
     with patch.object(connectivity, "is_authorized", AsyncMock(return_value=True)):
-        await connectivity.probe_authorization([server], "u1")
-    assert await probe_redis.exists(f"mcp:u1:{server.id}:authprobe")
+        await connectivity.probe_authorization([server], "u1", TEST_WORKSPACE_ID)
+    assert await probe_redis.exists(f"mcp:{TEST_WORKSPACE_ID}:u1:{server.id}:authprobe")
 
     deleted = await TokenStorageFactory(redis=probe_redis).clear_server_data(
-        str(server.id)
+        str(TEST_WORKSPACE_ID), str(server.id)
     )
 
     assert deleted >= 1
-    assert not await probe_redis.exists(f"mcp:u1:{server.id}:authprobe")
+    assert not await probe_redis.exists(
+        f"mcp:{TEST_WORKSPACE_ID}:u1:{server.id}:authprobe"
+    )
 
 
 async def test_a_stalled_redis_does_not_hang_the_polled_endpoint(monkeypatch):
@@ -249,6 +283,8 @@ async def test_a_stalled_redis_does_not_hang_the_polled_endpoint(monkeypatch):
 
     with patch.object(connectivity, "is_authorized", AsyncMock(return_value=True)):
         async with _asyncio.timeout(2):
-            result = await connectivity.probe_authorization([server], "u1")
+            result = await connectivity.probe_authorization(
+                [server], "u1", TEST_WORKSPACE_ID
+            )
 
     assert result == {server.id: True}

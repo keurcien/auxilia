@@ -19,7 +19,7 @@ export function SkillDeleteDescription({ skill }: { skill: SkillSummary | null }
 	const repo = skill.sourceName || repoLabel(skill.sourceUrl) || "its repository";
 	return (
 		<>
-			<span className="font-mono text-[12.5px] font-semibold text-petrol">{skill.name}</span>{" "}
+			<span className="text-[12.5px] font-semibold text-petrol">{skill.name}</span>{" "}
 			isn&apos;t enabled on any agent. Deleting it removes the SKILL.md and its files for
 			everyone; threads that already used it are unaffected.
 			{isSourced(skill) &&

@@ -138,7 +138,11 @@ def _encrypt(value: str) -> str:
     """`app.utils.encryption.encrypt_value`, frozen: Fernet under a key derived
     from the deployment-wide salt. Reproduced rather than imported so this
     migration cannot break when that module moves."""
-    salt = _env("SALT") or _env("MCP_API_KEY_ENCRYPTION_SALT")
+    salt = (
+        _env("BACKEND_ENCRYPTION_SALT")
+        or _env("SALT")
+        or _env("MCP_API_KEY_ENCRYPTION_SALT")
+    )
     if not salt:
         raise RuntimeError(
             "A sandbox secret has to be encrypted to convert the environment "

@@ -10,11 +10,12 @@ import pytest
 
 import app.triggers.service as triggers_mod
 from app.triggers.service import TriggerService
+from tests.conftest import TEST_WORKSPACE_ID
 
 
 @pytest.fixture
 def service(monkeypatch) -> TriggerService:
-    svc = TriggerService(AsyncMock())
+    svc = TriggerService(AsyncMock(), TEST_WORKSPACE_ID)
     svc.repository = MagicMock(claim_due=AsyncMock(return_value=[]))
     svc.model_service = AsyncMock()
     monkeypatch.setattr(triggers_mod, "RunService", MagicMock())

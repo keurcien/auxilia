@@ -4,6 +4,8 @@ export default function AuthLayout({
 	children: React.ReactNode;
 }) {
 	return (
-		<div className="fixed inset-0 overflow-auto bg-marketing">{children}</div>
+		<div className="fixed inset-0 overflow-auto bg-marketing dark:bg-background">
+			{children}
+		</div>
 	);
 }

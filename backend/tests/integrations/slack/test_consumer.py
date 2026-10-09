@@ -20,15 +20,26 @@ from app.runtime.protocol import events as ev
 from app.runtime.protocol.wire import encode_event, encode_terminal
 from app.runtime.runs.models import RunDB
 from app.runtime.runs.state import RunStatus
+from tests.conftest import TEST_WORKSPACE_ID
 
 
 def _record(delivery=None) -> RunDB:
-    return RunDB(id="r1", thread_id="t1", user_id=uuid4(), delivery=delivery)
+    return RunDB(
+        id="r1",
+        workspace_id=TEST_WORKSPACE_ID,
+        thread_id="t1",
+        user_id=uuid4(),
+        delivery=delivery,
+    )
 
 
 def _slack_delivery() -> dict:
     return build_slack_delivery(
-        channel_id="C1", thread_ts="t1", slack_user_id="U1", team_id="T1"
+        channel_id="C1",
+        thread_ts="t1",
+        slack_user_id="U1",
+        team_id="T1",
+        workspace_id=TEST_WORKSPACE_ID,
     )
 
 
@@ -37,11 +48,13 @@ class _FakeStreamer:
         self.appended: list[str] = []
         self.stopped = False
         self.kwargs: dict = {}
+        self.final_kwargs: dict = {}
 
     async def append(self, markdown_text: str):
         self.appended.append(markdown_text)
 
-    async def stop(self):
+    async def stop(self, **kwargs):
+        self.final_kwargs = kwargs
         self.stopped = True
 
 
@@ -92,10 +105,14 @@ def _patch_status(monkeypatch, status: RunStatus | None, error: str | None = Non
 
 
 def _patch_thread_lookup(monkeypatch):
+    thread = SimpleNamespace(id="t1", agent_id="agent-1")
+
     @asynccontextmanager
     async def _session():
         yield SimpleNamespace(
-            get=lambda model, pk: _async(SimpleNamespace(id="t1", agent_id="agent-1"))
+            execute=lambda stmt: _async(
+                SimpleNamespace(scalar_one_or_none=lambda: thread)
+            )
         )
 
     monkeypatch.setattr(consumer_mod, "AsyncSessionLocal", _session)
@@ -159,7 +176,7 @@ def test_adapter_emits_each_tool_label_once():
 # ── Delivery behavior ──────────────────────────────────────────────────
 
 
-async def test_consumer_streams_text_and_posts_link_on_success(monkeypatch):
+async def test_consumer_streams_text_and_embeds_link_on_success(monkeypatch):
     monkeypatch.setattr(
         consumer_mod.RunService, "stream", _log(*_text_message([], "model", "Hi"))
     )
@@ -173,7 +190,8 @@ async def test_consumer_streams_text_and_posts_link_on_success(monkeypatch):
 
     assert "Hi" in "".join(fake.streamer.appended)
     assert fake.streamer.stopped
-    assert any("View in auxilia" in str(p["blocks"]) for p in fake.posts)
+    assert "View in auxilia" in str(fake.streamer.final_kwargs["blocks"])
+    assert fake.posts == []
     # Streaming targets the right Slack thread/recipient.
     assert fake.streamer.kwargs["channel"] == "C1"
     assert fake.streamer.kwargs["recipient_user_id"] == "U1"
@@ -388,7 +406,8 @@ async def test_legacy_log_entries_are_ignored(monkeypatch):
     await consumer.run()
 
     assert fake.streamer.appended == []
-    assert any("View in auxilia" in str(p["blocks"]) for p in fake.posts)
+    assert "View in auxilia" in str(fake.streamer.final_kwargs["blocks"])
+    assert fake.posts == []
 
 
 async def _async(value):

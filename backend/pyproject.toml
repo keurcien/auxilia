@@ -1,6 +1,6 @@
 [project]
 name = "backend"
-version = "0.9.6"
+version = "0.10.19"
 description = "auxilia backend — FastAPI service for hosting MCP-powered AI assistants"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
@@ -41,6 +41,9 @@ dependencies = [
     "daytona>=0.205.1",
     "fastmcp>=4.0.1,<5",
     "httpx2>=2.12.0",
+    "pillow>=12.3.0",
+    "python-multipart>=0.0.32",
+    "qrcode>=8.2",
 ]
 
 [dependency-groups]
@@ -57,6 +60,7 @@ dev = [
     "aiosqlite>=0.22.1",
     "pytest-cov>=6.0.0",
     "mypy>=1.14.0",
+    "types-qrcode>=8.2",
 ]
 
 [tool.ruff]

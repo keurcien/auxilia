@@ -67,7 +67,7 @@ export default function ResourceInUseDialog({
 				<DialogHeader>
 					<DialogTitle>{resourceLabel} in use</DialogTitle>
 					<DialogDescription>
-						&ldquo;{resourceName}&rdquo; can&apos;t be removed — it&apos;s
+						&ldquo;{resourceName}&rdquo; can&apos;t be removed, it&apos;s
 						still enabled on {agents.length === 1 ? "this agent" : "these agents"}:
 					</DialogDescription>
 				</DialogHeader>
@@ -100,7 +100,7 @@ export default function ResourceInUseDialog({
 				<p className="text-[13px] leading-[1.55] text-subtle dark:text-panel-body">
 					Removing it will detach the {resourceLabel.toLowerCase()} from{" "}
 					{agents.length === 1 ? "this agent" : `these ${agents.length} agents`}{" "}
-					— {consequence}. Threads are unaffected.
+					{consequence}. Threads are unaffected.
 				</p>
 
 				<DialogFooter>

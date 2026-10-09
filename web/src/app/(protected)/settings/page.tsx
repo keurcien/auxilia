@@ -1,11 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Copy, Check, KeyRound, Plus, Trash2 } from "lucide-react";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
+import { useConfirmDialog } from "@/components/providers/dialog-provider";
 import CreateTokenDialog, { type PersonalAccessToken } from "./create-token-dialog";
 import WorkspaceModels from "./workspace-models";
 import WorkspaceSandboxes from "./workspace-sandboxes";
+import InstanceAppearanceSettings from "./workspace-appearance";
+import WorkspaceAuthentication from "./workspace-authentication";
+import WorkspaceMessaging from "./workspace-notifications";
+import WorkspaceObservability from "./workspace-observability";
+import ProfileSettings, { type ProfileSection } from "./profile-settings";
+import ProfileThreads from "./profile-threads";
 import { SubpageHeader } from "@/components/layout/subpage-header";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import * as authApi from "@/lib/api/resources/auth";
@@ -61,14 +68,14 @@ function TokenRevealBanner({ plaintext }: { plaintext: string }) {
 			</span>
 			<span className="min-w-0 flex-1">
 				<span className="block text-[13px] font-semibold text-foreground">
-					Copy your new token now — you won&apos;t be able to see it again.
+					Copy your new token now, you won&apos;t be able to see it again.
 				</span>
 				<span className="mt-[3px] block truncate font-mono text-[12px] text-petrol dark:text-panel-terminal">
 					{plaintext}
 				</span>
 				{copyState === "failed" && (
 					<span className="mt-1 block text-[11.5px] font-medium text-destructive">
-						Copying failed — select the token above and copy it manually.
+						Copying failed, select the token above and copy it manually.
 					</span>
 				)}
 			</span>
@@ -84,9 +91,42 @@ function TokenRevealBanner({ plaintext }: { plaintext: string }) {
 	);
 }
 
-type SettingsTab = "tokens" | "models" | "sandboxes";
+type SettingsTab =
+	| "profile"
+	| "appearance"
+	| "authentication"
+	| "messaging"
+	| "observability"
+	| "models"
+	| "sandboxes";
+
+function isAdminSettingsTab(
+	tab: string,
+): tab is Exclude<SettingsTab, "profile"> {
+	return (
+		tab === "appearance" ||
+		tab === "authentication" ||
+		tab === "messaging" ||
+		tab === "observability" ||
+		tab === "models" ||
+		tab === "sandboxes"
+	);
+}
+
+type ProfilePageSection = ProfileSection | "threads" | "tokens";
+
+function isProfileSection(value: string): value is ProfilePageSection {
+	return (
+		value === "information" ||
+		value === "security" ||
+		value === "preferences" ||
+		value === "threads" ||
+		value === "tokens"
+	);
+}
 
 export default function SettingsPage() {
+	const confirmDialog = useConfirmDialog();
 	const [tokens, setTokens] = useState<PersonalAccessToken[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [revealedToken, setRevealedToken] = useState<string | null>(null);
@@ -97,12 +137,29 @@ export default function SettingsPage() {
 	const user = useUserStore((state) => state.user);
 	const fetchUser = useUserStore((state) => state.fetchUser);
 	const isAdmin = user?.role === "admin";
+	const handleForbidden = useCallback(() => {
+		setErrorDialogOpen(true);
+	}, []);
 
-	const [tabParam, setTab] = useQueryParamState("tab", "tokens");
+	const [tabParam, setTab] = useQueryParamState("tab", "appearance");
+	const [profileSectionParam, setProfileSection] = useQueryParamState(
+		"section",
+		"information",
+	);
+	const profileSection: ProfilePageSection =
+		tabParam === "tokens"
+			? "tokens"
+			: isProfileSection(profileSectionParam)
+				? profileSectionParam
+				: "information";
 	const tab: SettingsTab =
-		(tabParam === "models" || tabParam === "sandboxes") && isAdmin
-			? tabParam
-			: "tokens";
+		tabParam === "profile" || tabParam === "tokens"
+			? "profile"
+			: isAdmin && isAdminSettingsTab(tabParam)
+				? tabParam
+				: isAdmin
+					? "appearance"
+					: "profile";
 
 	useEffect(() => {
 		void fetchUser();
@@ -132,9 +189,13 @@ export default function SettingsPage() {
 	}, [isAdmin]);
 
 	const handleDelete = async (token: PersonalAccessToken) => {
-		const confirmed = window.confirm(
-			"Are you sure you want to revoke this token? Any services using it will lose access.",
-		);
+		const confirmed = await confirmDialog({
+			title: `Revoke “${token.name}”?`,
+			description:
+				"Any services using this token will immediately lose access.",
+			confirmLabel: "Revoke token",
+			destructive: true,
+		});
 		if (!confirmed) return;
 
 		try {
@@ -201,15 +262,25 @@ export default function SettingsPage() {
 	];
 
 	const railTabClass = (active: boolean) =>
-		`flex cursor-pointer items-center gap-2 border-l-2 px-3 py-[7px] text-left text-[13px] transition-colors ${
+		`flex cursor-pointer items-center gap-2 px-3 py-[7px] text-left text-[13px] transition-colors ${
 			active
-				? "border-petrol font-semibold text-foreground"
-				: "border-transparent font-medium text-subtle hover:text-foreground dark:text-panel-body"
+				? "font-semibold text-foreground underline decoration-2 decoration-petrol underline-offset-4"
+				: "font-medium text-subtle hover:text-foreground dark:text-panel-body"
 		}`;
 
 	return (
 		<div className="flex h-svh min-w-0 flex-1 flex-col bg-background animate-in fade-in duration-300">
-			<SubpageHeader trail={[{ label: "workspace" }, { label: "settings" }]} />
+			<SubpageHeader
+				trail={
+					tab === "profile"
+						? [
+								{ label: "workspace" },
+								{ label: "profile" },
+								{ label: profileSection },
+							]
+						: [{ label: "workspace" }, { label: "settings" }]
+				}
+			/>
 
 			<ForbiddenErrorDialog
 				open={errorDialogOpen}
@@ -226,70 +297,244 @@ export default function SettingsPage() {
 				}}
 			/>
 
-			<div className="flex min-h-0 flex-1">
+			<div className="flex min-h-0 flex-1 flex-col lg:flex-row">
 				{/* Left rail: title + vertical section tabs */}
-				<div className="w-[200px] flex-none pl-7 pt-8">
-					<h1 className="mb-[18px] pl-3.5 font-display text-[22px] font-bold tracking-[-0.03em] text-foreground">
-						Settings
+				<div className="w-full flex-none border-b border-border px-4 pt-5 lg:w-[200px] lg:border-b-0 lg:pl-7 lg:pr-0 lg:pt-8">
+					<h1 className="mb-3 pl-3.5 font-display text-[22px] font-bold tracking-[-0.03em] text-foreground lg:mb-[18px]">
+						{tab === "profile" ? "Profile" : "Settings"}
 					</h1>
-					<div className="flex flex-col gap-0.5">
-						<button
-							type="button"
-							className={railTabClass(tab === "tokens")}
-							onClick={() => {
-								setTab("tokens");
-							}}
-						>
-							Access tokens
-							{isAdmin && (
-								<span className="font-mono text-[10.5px] font-normal text-meta dark:text-panel-dim">
-									{tokens.length}
-								</span>
-							)}
-						</button>
+					{tab === "profile" ? (
+						<div className="flex gap-4 overflow-x-auto pb-3 lg:flex-col lg:gap-0 lg:overflow-visible lg:pb-0">
+							<div className="shrink-0 lg:mb-5">
+								<p className="mb-1.5 px-3.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-meta dark:text-panel-dim">
+									Account
+								</p>
+								<button
+									type="button"
+									className={railTabClass(profileSection === "information")}
+									onClick={() => {
+										setProfileSection("information");
+									}}
+								>
+									Information
+								</button>
+								<button
+									type="button"
+									className={railTabClass(profileSection === "security")}
+									onClick={() => {
+										setProfileSection("security");
+									}}
+								>
+									Security
+								</button>
+								<button
+									type="button"
+									className={railTabClass(profileSection === "preferences")}
+									onClick={() => {
+										setProfileSection("preferences");
+									}}
+								>
+									Preferences
+								</button>
+								<button
+									type="button"
+									className={railTabClass(profileSection === "threads")}
+									onClick={() => {
+										setProfileSection("threads");
+									}}
+								>
+									Threads
+								</button>
+							</div>
+							<div className="shrink-0">
+								<p className="mb-1.5 px-3.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-meta dark:text-panel-dim">
+									Developer
+								</p>
+								<button
+									type="button"
+									className={railTabClass(profileSection === "tokens")}
+									onClick={() => {
+										setProfileSection("tokens");
+									}}
+								>
+									Access tokens
+									{isAdmin && (
+										<span className="font-mono text-[10.5px] font-normal text-meta dark:text-panel-dim">
+											{tokens.length}
+										</span>
+									)}
+								</button>
+							</div>
+						</div>
+					) : (
+						<div className="flex gap-4 overflow-x-auto pb-3 lg:flex-col lg:gap-0 lg:overflow-visible lg:pb-0">
 						{isAdmin && (
-							<button
-								type="button"
-								className={railTabClass(tab === "models")}
-								onClick={() => {
-									setTab("models");
-								}}
-							>
-								Models
-								{modelCount !== null && (
-									<span className="font-mono text-[10.5px] font-normal text-meta dark:text-panel-dim">
-										{modelCount}
-									</span>
-								)}
-							</button>
+							<div className="shrink-0 lg:mb-5">
+								<p className="mb-1.5 px-3.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-meta dark:text-panel-dim">
+									General
+								</p>
+								<button
+									type="button"
+									className={railTabClass(tab === "models")}
+									onClick={() => {
+										setTab("models");
+									}}
+								>
+									Models
+									{modelCount !== null && (
+										<span className="font-mono text-[10.5px] font-normal text-meta dark:text-panel-dim">
+											{modelCount}
+										</span>
+									)}
+								</button>
+							</div>
 						)}
 						{isAdmin && (
-							<button
-								type="button"
-								className={railTabClass(tab === "sandboxes")}
-								onClick={() => {
-									setTab("sandboxes");
-								}}
-							>
-								Sandboxes
-								{sandboxCount !== null && (
-									<span className="font-mono text-[10.5px] font-normal text-meta dark:text-panel-dim">
-										{sandboxCount}
-									</span>
-								)}
-							</button>
+							<div className="shrink-0 lg:mb-5">
+								<p className="mb-1.5 px-3.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-meta dark:text-panel-dim">
+									Integrations
+								</p>
+								<button
+									type="button"
+									className={railTabClass(tab === "authentication")}
+									onClick={() => {
+										setTab("authentication");
+									}}
+								>
+									Authentication
+								</button>
+								<button
+									type="button"
+									className={railTabClass(tab === "messaging")}
+									onClick={() => {
+										setTab("messaging");
+									}}
+								>
+									Messaging
+								</button>
+								<button
+									type="button"
+									className={railTabClass(tab === "observability")}
+									onClick={() => {
+										setTab("observability");
+									}}
+								>
+									Observability
+								</button>
+								<button
+									type="button"
+									className={railTabClass(tab === "sandboxes")}
+									onClick={() => {
+										setTab("sandboxes");
+									}}
+								>
+									Sandboxes
+									{sandboxCount !== null && (
+										<span className="font-mono text-[10.5px] font-normal text-meta dark:text-panel-dim">
+											{sandboxCount}
+										</span>
+									)}
+								</button>
+							</div>
 						)}
-					</div>
+						{isAdmin && (
+							<div className="shrink-0 lg:mb-5">
+								<p className="mb-1.5 px-3.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-meta dark:text-panel-dim">
+									Server
+								</p>
+								<button
+									type="button"
+									className={railTabClass(tab === "appearance")}
+									onClick={() => {
+										setTab("appearance");
+									}}
+								>
+									Appearance
+								</button>
+							</div>
+						)}
+						</div>
+					)}
 				</div>
 
 				{/* Content */}
-				<div className="min-w-0 flex-1 overflow-y-auto px-9 py-8 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+				<div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-6 [scrollbar-width:none] sm:px-6 lg:px-9 lg:py-8 [&::-webkit-scrollbar]:hidden">
 					<div className="mx-auto max-w-[800px]">
-						{/* Access tokens — kept mounted so the rail count stays live */}
-						<section className={tab === "tokens" ? "" : "hidden"}>
+						<section
+							className={
+								tab === "profile" &&
+								profileSection !== "tokens" &&
+								profileSection !== "threads"
+									? ""
+									: "hidden"
+							}
+						>
+							{profileSection !== "tokens" &&
+								profileSection !== "threads" &&
+								(user ? (
+									<ProfileSettings user={user} section={profileSection} />
+								) : (
+									<div className="h-40 animate-pulse rounded-[12px] border border-border bg-card" />
+								))}
+						</section>
+
+						<section
+							className={
+								tab === "profile" && profileSection === "threads"
+									? ""
+									: "hidden"
+							}
+						>
+							{tab === "profile" && profileSection === "threads" && (
+								<ProfileThreads />
+							)}
+						</section>
+
+						{isAdmin && (
+							<section className={tab === "appearance" ? "" : "hidden"}>
+								<InstanceAppearanceSettings
+									onForbidden={() => {
+										setErrorDialogOpen(true);
+									}}
+								/>
+							</section>
+						)}
+
+						{isAdmin && (
+							<section className={tab === "authentication" ? "" : "hidden"}>
+								<WorkspaceAuthentication
+									onForbidden={handleForbidden}
+								/>
+							</section>
+						)}
+
+						{isAdmin && (
+							<section className={tab === "messaging" ? "" : "hidden"}>
+								<WorkspaceMessaging
+									onForbidden={handleForbidden}
+								/>
+							</section>
+						)}
+
+						{isAdmin && (
+							<section className={tab === "observability" ? "" : "hidden"}>
+								<WorkspaceObservability
+									onForbidden={handleForbidden}
+								/>
+							</section>
+						)}
+
+						{/* Access tokens — kept mounted so the profile count stays live */}
+						<section
+							className={
+								tab === "profile" && profileSection === "tokens"
+									? ""
+									: "hidden"
+							}
+						>
 							<div className="mb-1.5 flex items-baseline gap-2.5">
-								<span className="font-mono text-[10.5px] font-semibold tracking-[0.09em] text-subtle dark:text-panel-dim">
-									PERSONAL ACCESS TOKENS
+								<span className="text-[10.5px] font-semibold text-subtle dark:text-panel-dim">
+									Personal access tokens
 								</span>
 								<span className="flex-1" />
 								{isAdmin && (
@@ -306,7 +551,7 @@ export default function SettingsPage() {
 								)}
 							</div>
 							<p className="mb-3.5 max-w-[620px] text-[13px] leading-[1.55] text-subtle dark:text-panel-body">
-								Authenticate external services against the API — n8n, the
+								Authenticate external services against the API, n8n, the
 								invoke endpoint, scripts. Tokens act as you.
 							</p>
 

@@ -47,6 +47,7 @@ from app.skills.schemas import (
 from app.skills.sources.repository import SkillSourceRepository
 from app.users.models import UserDB, WorkspaceRole
 from app.utils.encryption import decrypt_value, encrypt_value
+from app.workspaces.dependencies import get_active_workspace_id
 from skillkit import (
     AuthenticationError,
     EmptyRepository,
@@ -67,9 +68,10 @@ from skillkit.model import SKILL_MD
 class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
     not_found_message = "Skill source not found"
 
-    def __init__(self, db: AsyncSession):
-        super().__init__(db, SkillSourceRepository(db))
-        self._skills = SkillRepository(db)
+    def __init__(self, db: AsyncSession, workspace_id: UUID):
+        super().__init__(db, SkillSourceRepository(db, workspace_id))
+        self.workspace_id = workspace_id
+        self._skills = SkillRepository(db, workspace_id)
 
     # -- read ---------------------------------------------------------------------
 
@@ -77,7 +79,10 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
         return [_response(row, user) for row in await self.repository.list_all()]
 
     async def get(self, source_id: UUID, user: UserDB) -> SkillSourceResponse:
-        return _response(await self.get_or_404(source_id), user)
+        row = await self.repository.get_scoped(source_id)
+        if row is None:
+            raise NotFoundError(self.not_found_message)
+        return _response(row, user)
 
     # -- write --------------------------------------------------------------------
 
@@ -132,6 +137,7 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
                 "This repository, ref and path are already a source"
             )
         row = SkillSourceDB(
+            workspace_id=self.workspace_id,
             owner_id=user.id,
             name=_name_for(data.url),
             kind=kind,
@@ -310,6 +316,7 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
                     async with self.db.begin_nested():
                         created = await self._skills.create(
                             SkillCreateDB(
+                                workspace_id=self.workspace_id,
                                 owner_id=row.owner_id,
                                 name=bundle.name,
                                 description=bundle.description,
@@ -481,7 +488,7 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
         row = (
             await self.repository.get_for_update(source_id)
             if lock
-            else await self.repository.get(source_id)
+            else await self.repository.get_scoped(source_id)
         )
         if row is None:
             raise NotFoundError(self.not_found_message)
@@ -493,7 +500,7 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
 
 
 _EMPTY_HINT = (
-    "Push a skill to it first — auxilia reads "
+    "Push a skill to it first — supported layouts are "
     "skills/<name>/SKILL.md, a category folder one level deeper, or a "
     "SKILL.md at the root."
 )
@@ -764,5 +771,8 @@ def _response(row: SkillSourceDB, user: UserDB) -> SkillSourceResponse:
     )
 
 
-def get_skill_source_service(db: AsyncSession = Depends(get_db)) -> SkillSourceService:
-    return SkillSourceService(db)
+def get_skill_source_service(
+    db: AsyncSession = Depends(get_db),
+    workspace_id: UUID = Depends(get_active_workspace_id),
+) -> SkillSourceService:
+    return SkillSourceService(db, workspace_id)

@@ -27,7 +27,12 @@ export function UnderlineTabs<K extends string>({
 	className,
 }: UnderlineTabsProps<K>) {
 	return (
-		<div className={cn("flex gap-0.5", className)}>
+		<div
+			className={cn(
+				"flex min-w-0 gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+				className,
+			)}
+		>
 			{tabs.map((tab) => {
 				const active = tab.key === value;
 				return (
@@ -38,7 +43,7 @@ export function UnderlineTabs<K extends string>({
 							onChange(tab.key);
 						}}
 						className={cn(
-							"cursor-pointer border-b-2 px-3 py-2 text-[13px] transition-colors",
+							"shrink-0 cursor-pointer whitespace-nowrap border-b-2 px-3 py-2 text-[13px] transition-colors",
 							active
 								? "border-petrol font-semibold text-foreground"
 								: "border-transparent font-medium text-muted-foreground hover:text-foreground",
@@ -49,7 +54,9 @@ export function UnderlineTabs<K extends string>({
 							<span
 								className={cn(
 									"ml-1.5 font-mono text-[10.5px]",
-									active ? "text-petrol" : "text-meta dark:text-panel-dim",
+									active
+										? "text-petrol dark:text-panel-terminal"
+										: "text-meta dark:text-panel-dim",
 								)}
 							>
 								{tab.count}

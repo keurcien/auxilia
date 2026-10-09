@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy import URL
 from typing_extensions import Unpack
 
 
@@ -29,7 +30,11 @@ def settings_config(**overrides: Unpack[SettingsConfigDict]) -> SettingsConfigDi
 
 
 class AppSettings(BaseSettings):
-    database_url: str = "postgresql+psycopg://auxilia:auxilia@localhost:5432/auxilia"
+    db_host: str = "localhost"
+    db_port: int = 5432
+    db_user: str = "auxilia"
+    db_password: str = "auxilia"
+    db_name: str = "auxilia"
     redis_host: str = "localhost"
     redis_port: int = 6379
     redis_db: int = 0
@@ -40,6 +45,27 @@ class AppSettings(BaseSettings):
     # Cloud Logging's structured format (severity/sourceLocation/httpRequest
     # as their own fields) — set this on Cloud Run, leave it alone elsewhere.
     log_format: Literal["console", "gcp"] = "console"
+
+    @property
+    def database_url(self) -> URL:
+        """Build the SQLAlchemy URL without hand-encoding credentials."""
+        if self.db_host.startswith("/"):
+            return URL.create(
+                "postgresql+psycopg",
+                username=self.db_user,
+                password=self.db_password,
+                port=self.db_port,
+                database=self.db_name,
+                query={"host": self.db_host},
+            )
+        return URL.create(
+            "postgresql+psycopg",
+            username=self.db_user,
+            password=self.db_password,
+            host=self.db_host,
+            port=self.db_port,
+            database=self.db_name,
+        )
 
     model_config = settings_config()
 

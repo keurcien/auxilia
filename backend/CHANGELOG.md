@@ -1,5 +1,311 @@
 # Changelog
 
+## [0.10.19](https://github.com/jr-k/auxilia/compare/backend-v0.10.18...backend-v0.10.19) (2026-10-08)
+
+
+### Bug Fixes
+
+* improve settings navigation and invite profiles ([#39](https://github.com/jr-k/auxilia/issues/39)) ([bcf00ef](https://github.com/jr-k/auxilia/commit/bcf00ef03d8930c266a4a83e2aba7b6605f83150))
+
+## [0.10.18](https://github.com/jr-k/auxilia/compare/backend-v0.10.17...backend-v0.10.18) (2026-10-08)
+
+
+### Features
+
+* **slack:** make tool callouts configurable ([bfd7d53](https://github.com/jr-k/auxilia/commit/bfd7d530eb70040ac0cc1fe9d134a1bca20bc35f))
+
+## [0.10.17](https://github.com/jr-k/auxilia/compare/backend-v0.10.16...backend-v0.10.17) (2026-10-08)
+
+
+### Features
+
+* **slack:** refine agent bot conversations ([b99c890](https://github.com/jr-k/auxilia/commit/b99c8908849bb5e61699c7f41227f9ff057bebb5))
+
+## [0.10.16](https://github.com/jr-k/auxilia/compare/backend-v0.10.15...backend-v0.10.16) (2026-10-08)
+
+
+### Features
+
+* **slack:** give agents dedicated Slack bots ([fc79214](https://github.com/jr-k/auxilia/commit/fc79214641aa1534db61a6337e6c37f991c2a147))
+
+
+### Bug Fixes
+
+* address bulk selection review findings ([f69b59b](https://github.com/jr-k/auxilia/commit/f69b59baaf4d3a6a08b08f9f57213f122c6d478b))
+* **ui:** honor instance branding across messages ([e6e4d28](https://github.com/jr-k/auxilia/commit/e6e4d28e2c8b343bed2b9ac81bae80a20def76b8))
+
+## [0.10.15](https://github.com/jr-k/auxilia/compare/backend-v0.10.14...backend-v0.10.15) (2026-10-08)
+
+
+### Features
+
+* **threads:** add profile thread management ([a3ff986](https://github.com/jr-k/auxilia/commit/a3ff9866e184760992f47e0c46f2b806f5dcab2d))
+
+## [0.10.14](https://github.com/jr-k/auxilia/compare/backend-v0.10.13...backend-v0.10.14) (2026-10-07)
+
+
+### Bug Fixes
+
+* restore Gmail integration and refine prompt map ([#31](https://github.com/jr-k/auxilia/issues/31)) ([a640738](https://github.com/jr-k/auxilia/commit/a6407386fa165e7c9aa56f2b77fa4efb39b15c60))
+
+## [0.10.13](https://github.com/jr-k/auxilia/compare/backend-v0.10.12...backend-v0.10.13) (2026-10-07)
+
+
+### Features
+
+* add Gmail tools and navigation controls ([#29](https://github.com/jr-k/auxilia/issues/29)) ([8dcc47b](https://github.com/jr-k/auxilia/commit/8dcc47b300dd5f9d09e149eb95bd4b9c78ad4d1d))
+
+## [0.10.12](https://github.com/jr-k/auxilia/compare/backend-v0.10.11...backend-v0.10.12) (2026-10-06)
+
+
+### Bug Fixes
+
+* **mcp:** refresh server catalog metadata ([#23](https://github.com/jr-k/auxilia/issues/23)) ([4e44213](https://github.com/jr-k/auxilia/commit/4e44213e89850ff3c1840ab6cf15542b1c7177bb))
+
+## [0.10.11](https://github.com/jr-k/auxilia/compare/backend-v0.10.10...backend-v0.10.11) (2026-10-05)
+
+
+### Bug Fixes
+
+* **mcp:** accept Google Workspace success responses ([#19](https://github.com/jr-k/auxilia/issues/19)) ([1531a0e](https://github.com/jr-k/auxilia/commit/1531a0ed29eaab1fa84a5a686ef6cef5d1443f89))
+
+## [0.10.10](https://github.com/jr-k/auxilia/compare/backend-v0.10.9...backend-v0.10.10) (2026-10-05)
+
+
+### Features
+
+* polish interface branding and OAuth configuration ([#15](https://github.com/jr-k/auxilia/issues/15)) ([0a72edd](https://github.com/jr-k/auxilia/commit/0a72edd04b52aa9b0e20d185ff103cb906cdb9ab))
+
+## [0.10.9](https://github.com/jr-k/auxilia/compare/backend-v0.10.8...backend-v0.10.9) (2026-10-05)
+
+
+### Features
+
+* **mcp:** expose OAuth callback URL ([efc1034](https://github.com/jr-k/auxilia/commit/efc1034d5313c306727e05f7c3daff62d0a27e10))
+* **users:** filter workspace members by team ([24e834c](https://github.com/jr-k/auxilia/commit/24e834cfc09adb4141956683a9a743c2cbb599a8))
+
+## [0.10.8](https://github.com/jr-k/auxilia/compare/backend-v0.10.7...backend-v0.10.8) (2026-10-04)
+
+
+### Features
+
+* add resource visibility scopes ([4946e44](https://github.com/jr-k/auxilia/commit/4946e446386a43c7d18bd262a958ca94d6077941))
+* add resource visibility scopes ([ac2b468](https://github.com/jr-k/auxilia/commit/ac2b4683744aa9e1766a1a5f1c6c2bf2632de8b8))
+
+## [0.10.7](https://github.com/jr-k/auxilia/compare/backend-v0.10.6...backend-v0.10.7) (2026-10-04)
+
+
+### Features
+
+* **mcp:** add server-level tool controls ([#10](https://github.com/jr-k/auxilia/issues/10)) ([883498b](https://github.com/jr-k/auxilia/commit/883498b9f738e0d49f1a2d6f9a6f3b2f3031f935))
+
+
+### Bug Fixes
+
+* **mcp:** use portable disabled tools default ([#12](https://github.com/jr-k/auxilia/issues/12)) ([0387435](https://github.com/jr-k/auxilia/commit/038743589ebb2251d3cfb692933508c671461f9f))
+
+## [0.10.6](https://github.com/jr-k/auxilia/compare/backend-v0.10.5...backend-v0.10.6) (2026-10-04)
+
+
+### Reverts
+
+* **integrations:** remove Telegram and Discord channels ([7db7a70](https://github.com/jr-k/auxilia/commit/7db7a70513bc13563b7a09ecd7bbbb96a8674c79))
+
+## [0.10.5](https://github.com/jr-k/auxilia/compare/backend-v0.10.4...backend-v0.10.5) (2026-10-04)
+
+
+### Features
+
+* **integrations:** add Telegram and Discord channels ([6d33fee](https://github.com/jr-k/auxilia/commit/6d33feec6ca68484039b04860441a84cc93437be))
+
+## [0.10.4](https://github.com/jr-k/auxilia/compare/backend-v0.10.3...backend-v0.10.4) (2026-10-04)
+
+
+### Bug Fixes
+
+* **workspaces:** survive deleting the last workspace ([58aa9b6](https://github.com/jr-k/auxilia/commit/58aa9b62665152a4d3de8d1b7137308a0bc3fd1a))
+
+## [0.10.3](https://github.com/jr-k/auxilia/compare/backend-v0.10.2...backend-v0.10.3) (2026-10-04)
+
+
+### Bug Fixes
+
+* **workspaces:** preserve owner creation access ([288f5cc](https://github.com/jr-k/auxilia/commit/288f5cc11b965e3f8d7cb3dc9eb977618e8c98c6))
+
+## [0.10.2](https://github.com/jr-k/auxilia/compare/backend-v0.10.1...backend-v0.10.2) (2026-10-04)
+
+
+### Bug Fixes
+
+* **workspaces:** allow recovery after deleting all workspaces ([9ba2949](https://github.com/jr-k/auxilia/commit/9ba2949cce2409241cd76a4dc8bd40014cfbf209))
+
+## [0.10.1](https://github.com/jr-k/auxilia/compare/backend-v0.10.0...backend-v0.10.1) (2026-10-04)
+
+
+### Bug Fixes
+
+* **workspaces:** recover after deleting active workspace ([6f7641e](https://github.com/jr-k/auxilia/commit/6f7641e5bb5913ba68a1356541e3beef1e6ac18a))
+
+## [0.10.0](https://github.com/jr-k/auxilia/compare/backend-v0.9.6...backend-v0.10.0) (2026-10-04)
+
+
+### ⚠ BREAKING CHANGES
+
+* **skills:** the `create_sandbox` / `connect_sandbox` tools are gone; sandboxes are opened by the runtime, never by the model.
+* **threads:** `GET /threads/{id}` no longer returns `values`, `interrupted`, `interrupt_value` or `interrupt_id`; hydrate from `GET /threads/{id}/state`. Non-app MCP tools no longer carry `structured_content` in their ToolMessage artifact.
+* **agents:** sandbox agents lose ~4KB of deepagents prompt fragments and the long `task` description, `write_file` now overwrites existing files, and a recursive sandbox-scoped `delete` tool is exposed. Existing threads see a one-time system prompt change.
+* **agents:** POST /threads/{id}/runs/stream and GET /threads/{id}/runs/{run_id}/stream are removed (use the protocol endpoints /threads/{id}/commands + /threads/{id}/stream/events); the `messages` field of GET /threads/{id} (AI SDK UIMessage shape) is removed.
+* **sandbox:** agents.has_code_interpreter and the SANDBOX_* / OPEN_SANDBOX_* / CLOUD_RUN_SANDBOX_* env vars are removed. The migration converts an env-configured deployment into a registry row and rebinds flagged agents automatically when the env vars are still present at upgrade time.
+
+### Features
+
+* add color field to agents with pastel palette ([6b977ee](https://github.com/jr-k/auxilia/commit/6b977ee03410419c5853af8786dbcefdfcf1c31c))
+* add hierarchical resource groups and model onboarding ([73c6141](https://github.com/jr-k/auxilia/commit/73c6141fcaba39e9362cf8692c4e5875166c341a))
+* add subagent bindings with Deep Agents integration ([#63](https://github.com/jr-k/auxilia/issues/63)) ([c01eeea](https://github.com/jr-k/auxilia/commit/c01eeeac5bab6d59ec43d4ac26a14a59a8ad693c))
+* add workspace administration and customization ([dffbfea](https://github.com/jr-k/auxilia/commit/dffbfeaabca0b2cef662254f1be5a7afdcd0922b))
+* agent thread history page + thread source ([#94](https://github.com/jr-k/auxilia/issues/94)) ([e9faa17](https://github.com/jr-k/auxilia/commit/e9faa17ab8da4104b661bf976e7b97144bdfbb82))
+* **agents:** add Archived tab with restore and permanent delete ([#130](https://github.com/jr-k/auxilia/issues/130)) ([f6bed78](https://github.com/jr-k/auxilia/commit/f6bed781c46120fa90cdabff86a51c485598aecf))
+* **agents:** checkpoint-keyed HITL approvals via interrupt ids ([#307](https://github.com/jr-k/auxilia/issues/307)) ([4982321](https://github.com/jr-k/auxilia/commit/4982321c242e15af9030a6f7db0613a57d9e64f1))
+* **agents:** display agent owner on card and dialog ([#181](https://github.com/jr-k/auxilia/issues/181)) ([b2222cd](https://github.com/jr-k/auxilia/commit/b2222cdc075ec2c2f3ee6de7455c76ac04c4370f))
+* **agents:** durable Redis-backed agent runtime ([#153](https://github.com/jr-k/auxilia/issues/153)) ([72e6686](https://github.com/jr-k/auxilia/commit/72e668685d02c9746bc67fa60d4697f8289b4c91))
+* **agents:** explicit save with read/edit agent page ([#215](https://github.com/jr-k/auxilia/issues/215)) ([375e259](https://github.com/jr-k/auxilia/commit/375e25939668661aea8e3f69e11bafc050d68444))
+* **agents:** inject the thread date into the system prompt ([#233](https://github.com/jr-k/auxilia/issues/233)) ([0f93d47](https://github.com/jr-k/auxilia/commit/0f93d473207963e6ac8cfce5a93a5b28acea5e95))
+* **agents:** persistent run errors, recovery middleware, and langchain 1.3 ([#292](https://github.com/jr-k/auxilia/issues/292)) ([2e8766e](https://github.com/jr-k/auxilia/commit/2e8766e66d1ba2c0672a915518d69dd9282e1c12))
+* **agents:** subagent tool approvals (HITL) surface and resume like the parent's ([#317](https://github.com/jr-k/auxilia/issues/317)) ([ddc00fc](https://github.com/jr-k/auxilia/commit/ddc00fccce6ede374f8dbb26209795b6370444d8))
+* **agents:** upgrade to deepagents 0.7 with lean harness prompts ([#319](https://github.com/jr-k/auxilia/issues/319)) ([4522df3](https://github.com/jr-k/auxilia/commit/4522df37fd489bf5b7f1e6170fe305f369bae1fb))
+* **agents:** worker-native Agent Streaming Protocol, legacy SSE removed ([#313](https://github.com/jr-k/auxilia/issues/313)) ([a05cf12](https://github.com/jr-k/auxilia/commit/a05cf127b9a1ee45efbf4d47d9d15d17bf648c54))
+* allow archive agents ([#61](https://github.com/jr-k/auxilia/issues/61)) ([d6a04dc](https://github.com/jr-k/auxilia/commit/d6a04dc8dd8a4bd39ea988426d8bc8161423e8c7))
+* **auth:** add support for Google Application Default Credentials (ADC) fallback in model provider catalog ([#240](https://github.com/jr-k/auxilia/issues/240)) ([5fbdec6](https://github.com/jr-k/auxilia/commit/5fbdec689d8e5580ec72feac539529fe96ad053b))
+* **backend:** Agent Streaming Protocol endpoints — delta-based streaming facade ([#311](https://github.com/jr-k/auxilia/issues/311)) ([8193b9a](https://github.com/jr-k/auxilia/commit/8193b9a5eb411786b13d01a2704d5a373ae864f6))
+* **catalog:** add Cloud Logging, Team Tailor and TikTok MCP servers ([#275](https://github.com/jr-k/auxilia/issues/275)) ([0471dc7](https://github.com/jr-k/auxilia/commit/0471dc732109caa65976442e1579b268cf4e7d49))
+* **chat:** render the conversation from @langchain/react views, reasoning on the chain rail ([#315](https://github.com/jr-k/auxilia/issues/315)) ([766d123](https://github.com/jr-k/auxilia/commit/766d123f4f6da73efd06dac5241feeaa8f009389))
+* **config:** compose database URL from discrete settings ([ec53d63](https://github.com/jr-k/auxilia/commit/ec53d63912f8850806f2c81c6df926a4525314a0))
+* dynamic default model selection  ([#1](https://github.com/jr-k/auxilia/issues/1)) ([75941a8](https://github.com/jr-k/auxilia/commit/75941a8c9e072c617ba12bd1442206f786e5ac60))
+* enforce auth on agent routes and update related tests ([#92](https://github.com/jr-k/auxilia/issues/92)) ([65f3658](https://github.com/jr-k/auxilia/commit/65f3658fc70856247fb6adfc387ca30cb1c9886c))
+* **logging:** add optional GCP structured log format ([#341](https://github.com/jr-k/auxilia/issues/341)) ([eccb568](https://github.com/jr-k/auxilia/commit/eccb56835e17ff27fe140829f32ab8f250c59df7))
+* **mcp:** add Puppetflow to server catalog ([dd65c9e](https://github.com/jr-k/auxilia/commit/dd65c9ef0a0849e53ca72304fedf5c1000f31d09))
+* **mcp:** connection testing, credential management, R2 icon CDN, and new official servers ([#224](https://github.com/jr-k/auxilia/issues/224)) ([c7e48e8](https://github.com/jr-k/auxilia/commit/c7e48e8254263858b3a9654c17b61f5e9b2ebb2f))
+* **mcp:** discover OAuth scopes via PRM, drop tool-call 401 probe ([#135](https://github.com/jr-k/auxilia/issues/135)) ([a986e5f](https://github.com/jr-k/auxilia/commit/a986e5fbf3599b3008b4863d3e44ea5d9e8c13ff))
+* **mcp:** hardcode Gmail OAuth scopes instead of PRM discovery ([#160](https://github.com/jr-k/auxilia/issues/160)) ([a4c719b](https://github.com/jr-k/auxilia/commit/a4c719b460dca8881fd1ef453b74384894707844))
+* **mcp:** merge Puppetflow catalog entry ([abb90bd](https://github.com/jr-k/auxilia/commit/abb90bddbbe38169954ec8f5fb787e6816841de2))
+* **mcp:** migrate to MCP SDK v2, FastMCP client and langchain.mcp ([#328](https://github.com/jr-k/auxilia/issues/328)) ([4bbe6b3](https://github.com/jr-k/auxilia/commit/4bbe6b38054e6b7d5299447e2c6321ad9349bda1))
+* merge workspace administration ([882335c](https://github.com/jr-k/auxilia/commit/882335cc9e8077ad59aea8841cd08e097c200f90))
+* **model-providers:** add GLM 5.2 via OpenRouter with selectable rea… ([#197](https://github.com/jr-k/auxilia/issues/197)) ([6ec9138](https://github.com/jr-k/auxilia/commit/6ec9138598f00eb9ccb3cbf589f5f5382ae670f9))
+* **model-providers:** disable Claude Opus models ([#174](https://github.com/jr-k/auxilia/issues/174)) ([f2afc5b](https://github.com/jr-k/auxilia/commit/f2afc5bdadbe9196e2f86765a22685741beefde1))
+* **model:** add muse from meta ([#211](https://github.com/jr-k/auxilia/issues/211)) ([0771ba6](https://github.com/jr-k/auxilia/commit/0771ba6edc055420ef45e29f4e47fdb13d5a50bc))
+* **models:** user-configurable reasoning effort per model ([#294](https://github.com/jr-k/auxilia/issues/294)) ([66d21ad](https://github.com/jr-k/auxilia/commit/66d21ada355c5dbe414205b29d2f88d59cf6dc13))
+* **models:** workspace default model ([#238](https://github.com/jr-k/auxilia/issues/238)) ([c15ad05](https://github.com/jr-k/auxilia/commit/c15ad05e361f2165c458956d050f1c5e54f25626))
+* **models:** workspace model management with external whitelist ([#231](https://github.com/jr-k/auxilia/issues/231)) ([83be434](https://github.com/jr-k/auxilia/commit/83be434069d43438e1e5a5c0db22021567fd9d48))
+* organize agents list with tags ([#176](https://github.com/jr-k/auxilia/issues/176)) ([648e6ea](https://github.com/jr-k/auxilia/commit/648e6ea4fb4ee19fd4ac89db3df71bfcfa7a77c6))
+* per-agent sandbox with code execution UI ([#68](https://github.com/jr-k/auxilia/issues/68)) ([ed007a5](https://github.com/jr-k/auxilia/commit/ed007a56e0281184330265875413ae74c9267ac9))
+* Petrol Mono redesign — app pages, docs, and MCP connection management ([#246](https://github.com/jr-k/auxilia/issues/246)) ([1014a4b](https://github.com/jr-k/auxilia/commit/1014a4b0ef978be517165c511b8e481e35d8b992))
+* **runs:** move run records to Postgres + thread last-run status ([#194](https://github.com/jr-k/auxilia/issues/194)) ([fae7fd0](https://github.com/jr-k/auxilia/commit/fae7fd0696be338b4a83a41f3004360dcc7da56f))
+* **runs:** react to run status changes in sidebar and run history ([#196](https://github.com/jr-k/auxilia/issues/196)) ([023a2e9](https://github.com/jr-k/auxilia/commit/023a2e92f77cae6bc0a13ddc843ffca94fe2d09f))
+* **sandbox:** cloud run sandbox provider via dedicated gateway service ([#237](https://github.com/jr-k/auxilia/issues/237)) ([6b6ee9c](https://github.com/jr-k/auxilia/commit/6b6ee9cf36913bf060a413d5d86dace50191be49))
+* **sandbox:** workspace sandbox registry with per-agent bindings ([#284](https://github.com/jr-k/auxilia/issues/284)) ([61fb930](https://github.com/jr-k/auxilia/commit/61fb930791b00c92f227735bf79230ad436fb678))
+* **skills:** skill library sourced from git repositories, one skill set per agent graph ([#321](https://github.com/jr-k/auxilia/issues/321)) ([7a76e69](https://github.com/jr-k/auxilia/commit/7a76e692c4a258afdd3aa17a4be297274a32fc1e))
+* **slack:** run Slack agent turns through the durable runtime ([#161](https://github.com/jr-k/auxilia/issues/161)) ([de4e017](https://github.com/jr-k/auxilia/commit/de4e01745ad538e826c39a95a1516804ed9f9167))
+* teams for agent access ([#173](https://github.com/jr-k/auxilia/issues/173)) ([30552b7](https://github.com/jr-k/auxilia/commit/30552b79e49e170c88d2418bc9a1b77fe2b75b17))
+* **threads:** bound tool results in snapshots, cap MCP artifacts, load outputs on demand ([#322](https://github.com/jr-k/auxilia/issues/322)) ([206c243](https://github.com/jr-k/auxilia/commit/206c243c3281ccc5fe8dce089d78cb53a22a5871))
+* **threads:** rename threads from the sidebar ([#156](https://github.com/jr-k/auxilia/issues/156)) ([9f60eef](https://github.com/jr-k/auxilia/commit/9f60eef660d6faf67ce98d734d01b6171e50f5ea))
+* **triggers:** scheduled agent runs ([#182](https://github.com/jr-k/auxilia/issues/182)) ([d987da9](https://github.com/jr-k/auxilia/commit/d987da917f48fa9c8f63809de5903f261d3eca12))
+* **users:** store SSO profile pictures and show avatars in users table ([#278](https://github.com/jr-k/auxilia/issues/278)) ([8a8cfdd](https://github.com/jr-k/auxilia/commit/8a8cfdd32c7be119f694b13e1c0bf71feed91c4a))
+* **web:** migrate chat streaming to @langchain/react + Agent Streaming Protocol ([#312](https://github.com/jr-k/auxilia/issues/312)) ([590eeb8](https://github.com/jr-k/auxilia/commit/590eeb8a6677295d54ad0e1b562939f0ddd06d83))
+* **workspaces:** add multi-tenant isolation and administration ([3b9a629](https://github.com/jr-k/auxilia/commit/3b9a6299bc2687be2de97b7758d69d4bbdbd4184))
+
+
+### Bug Fixes
+
+* address Cubic review comments from [#176](https://github.com/jr-k/auxilia/issues/176) ([#178](https://github.com/jr-k/auxilia/issues/178)) ([efc35d6](https://github.com/jr-k/auxilia/commit/efc35d69eea28ac3a1f8dca0650010b6bcd06500))
+* address PR review findings ([f8cc1e8](https://github.com/jr-k/auxilia/commit/f8cc1e85014f07b2894077b03c7d2386ab1126ae))
+* **agents:** bound Redis run memory and retry structured-output forma… ([#193](https://github.com/jr-k/auxilia/issues/193)) ([35e00d0](https://github.com/jr-k/auxilia/commit/35e00d0ff58818abc4a07f7c505f1c489fa8db64))
+* **agents:** contain tool errors and reconnect dead MCP sessions ([#235](https://github.com/jr-k/auxilia/issues/235)) ([9743cb1](https://github.com/jr-k/auxilia/commit/9743cb1906e053dad68ed4800e6e46580d7e6799))
+* **agents:** cut agent time-to-first-token ~9x ([#230](https://github.com/jr-k/auxilia/issues/230)) ([60a0970](https://github.com/jr-k/auxilia/commit/60a0970de753366b3e671d885bffc6d944305a44))
+* **agents:** drop tools on Meta formatting turn to prevent non-ASCII mojibake ([#219](https://github.com/jr-k/auxilia/issues/219)) ([be2a1ab](https://github.com/jr-k/auxilia/commit/be2a1ab2e0565fdb3697ae1346709d413af0602f))
+* **agents:** fail background runs fast on unauthorized MCP OAuth ([#208](https://github.com/jr-k/auxilia/issues/208)) ([e2e8a6a](https://github.com/jr-k/auxilia/commit/e2e8a6a223f31f3dd5d8b01d3536b5b2287b11d5))
+* **agents:** gate runs on unauthorized subagent MCP OAuth before launch ([#203](https://github.com/jr-k/auxilia/issues/203)) ([d82cb75](https://github.com/jr-k/auxilia/commit/d82cb7571877ae5898a54f533f8f64e4425e1fb1))
+* **agents:** persist MCP tool maps the editor UI already shows ([#262](https://github.com/jr-k/auxilia/issues/262)) ([6b75edd](https://github.com/jr-k/auxilia/commit/6b75edddf164bda210066a08ed5f8c0e8578c22d))
+* **agents:** seed MCP tool map on connect so explicit save persists all servers ([#222](https://github.com/jr-k/auxilia/issues/222)) ([aeaf515](https://github.com/jr-k/auxilia/commit/aeaf51544f36159b10a68e7bc842d2299b6f2d5e))
+* **agents:** use provider-native json_schema for structured output on… ([#217](https://github.com/jr-k/auxilia/issues/217)) ([9bc0c5e](https://github.com/jr-k/auxilia/commit/9bc0c5e918ff418c1d7ee4533f41d5ef22d05da7))
+* **agents:** validate structured output instead of returning empty results ([#179](https://github.com/jr-k/auxilia/issues/179)) ([ea59e38](https://github.com/jr-k/auxilia/commit/ea59e386b20ac9bc9cf27b8894584ebd56a2a21a))
+* **auth:** centralize JWT token kinds ([95558e0](https://github.com/jr-k/auxilia/commit/95558e07f183859d250428908b782b371c26a385))
+* **backend:** CI, type checking, and Phase 0 cleanup ([#297](https://github.com/jr-k/auxilia/issues/297)) ([50018b1](https://github.com/jr-k/auxilia/commit/50018b1e5998f80740b5e43142f4effb90f126d0))
+* **backend:** linearize sandbox migrations onto the picture_url head ([#285](https://github.com/jr-k/auxilia/issues/285)) ([98694b7](https://github.com/jr-k/auxilia/commit/98694b766fef61997170d3df245aafedd53ba449))
+* **backend:** Phase 1 hot path & stability ([#299](https://github.com/jr-k/auxilia/issues/299)) ([2679c41](https://github.com/jr-k/auxilia/commit/2679c4164b8e91bda2863a43625e4cbf3df6d34d))
+* **backend:** Phase 3 — permission gate, MCP auth dispatch, explicit OAuth ([#304](https://github.com/jr-k/auxilia/issues/304)) ([d246094](https://github.com/jr-k/auxilia/commit/d2460947d4d94bd9e80ee3c5ff3c4d7139e03e5a))
+* **backend:** Phase 3 part 2 — exception mapping, query slimming, purge ordering ([#305](https://github.com/jr-k/auxilia/issues/305)) ([53a320e](https://github.com/jr-k/auxilia/commit/53a320e6d7318544a8938051c3bba823ca6d97f8))
+* **db:** Better handling connection ([#198](https://github.com/jr-k/auxilia/issues/198)) ([eeb08e1](https://github.com/jr-k/auxilia/commit/eeb08e18d6ca8c7fbbf759d7e9acd1ac09484ebb))
+* defer sandbox imports to avoid crash when opensandbox is not installed ([ef986b4](https://github.com/jr-k/auxilia/commit/ef986b4d24b46b95c290389126bc5275b31700ac))
+* **docker:** avoid duplicating the venv layer via chown -R ([#354](https://github.com/jr-k/auxilia/issues/354)) ([cde58c8](https://github.com/jr-k/auxilia/commit/cde58c864b0f03d58737d92e7f139df7e9f33f5f))
+* lint ([bbd9ab3](https://github.com/jr-k/auxilia/commit/bbd9ab3f69199c336e29ce0997ac5a385c8e8188))
+* lint ([#132](https://github.com/jr-k/auxilia/issues/132)) ([9b5d502](https://github.com/jr-k/auxilia/commit/9b5d5026224659d2a4707659235286428f7daa72))
+* **mcp:** add a stdout log handler so DEBUG transport logs surface ([#332](https://github.com/jr-k/auxilia/issues/332)) ([8d0dce4](https://github.com/jr-k/auxilia/commit/8d0dce4c975ae94ae2f24bc747bef095bd30a761))
+* **mcp:** add scoped BigQuery request diagnostic ([905a910](https://github.com/jr-k/auxilia/commit/905a910e0b44c37d24ac9a2ab188e2fda44e4ed3))
+* **mcp:** allow optional BigQuery destination IP pinning ([#338](https://github.com/jr-k/auxilia/issues/338)) ([8b0d067](https://github.com/jr-k/auxilia/commit/8b0d067a7ed6565d7f85b9e97c7ffea4f081716e))
+* **mcp:** confirm transport debug logging is active at startup ([#330](https://github.com/jr-k/auxilia/issues/330)) ([292c4a5](https://github.com/jr-k/auxilia/commit/292c4a5849334aa209f53a355be6e01a2d930760))
+* **mcp:** discover AS metadata via path-aware OIDC for servers without PRM ([#228](https://github.com/jr-k/auxilia/issues/228)) ([9afbb72](https://github.com/jr-k/auxilia/commit/9afbb72494ddf72aaeea372a4b5840f41fe447db))
+* **mcp:** drop stored OAuth tokens when the AS rejects a refresh ([#327](https://github.com/jr-k/auxilia/issues/327)) ([c503717](https://github.com/jr-k/auxilia/commit/c5037172ebaa409cbb439c41c29e2fad79497e70))
+* **mcp:** log the server's own error body on a non-2xx MCP response ([#334](https://github.com/jr-k/auxilia/issues/334)) ([e7950bd](https://github.com/jr-k/auxilia/commit/e7950bdf24807f03822e51677a163fd196c04845))
+* **mcp:** pass MCP server id as str to OAuth token storage ([#201](https://github.com/jr-k/auxilia/issues/201)) ([376260e](https://github.com/jr-k/auxilia/commit/376260e415651d098d0930e38c2144d5db2f8687))
+* **mcp:** persist OAuth tokens after authorization-code grant ([#141](https://github.com/jr-k/auxilia/issues/141)) ([65c8029](https://github.com/jr-k/auxilia/commit/65c8029b1d640b4ac6e38eb0603f77bd2c468e9e))
+* **mcp:** render Metabase interactive visualize_query MCP App ([#128](https://github.com/jr-k/auxilia/issues/128)) ([2bbc28c](https://github.com/jr-k/auxilia/commit/2bbc28c8ac9febaf291f7d35e52227df49347ed2))
+* **mcp:** request client_secret_post at dynamic client registration ([#206](https://github.com/jr-k/auxilia/issues/206)) ([a7e2248](https://github.com/jr-k/auxilia/commit/a7e224811de30f79510cb35ce45d05bc590ac095))
+* **meta:** 1.2 ([#245](https://github.com/jr-k/auxilia/issues/245)) ([785475b](https://github.com/jr-k/auxilia/commit/785475bea43ca43496658adb398a997291d566da))
+* **migrations:** avoid dynamic workspace backfills ([8e591c3](https://github.com/jr-k/auxilia/commit/8e591c37487b66a35a5baf6296c5e70caabcce02))
+* **models:** use Responses for all native OpenAI models ([#356](https://github.com/jr-k/auxilia/issues/356)) ([40dfece](https://github.com/jr-k/auxilia/commit/40dfececb951ce9972d29f046062e2c3150519f1))
+* **observability:** make Langfuse timeout configurable ([#214](https://github.com/jr-k/auxilia/issues/214)) ([bf7e077](https://github.com/jr-k/auxilia/commit/bf7e077fc7b4dfc9530a58f68badb23907f077d4))
+* **oom:** Only load when needed ([#243](https://github.com/jr-k/auxilia/issues/243)) ([867b2a3](https://github.com/jr-k/auxilia/commit/867b2a35e7f7e979b161036ec5646c8f5a84de9b))
+* preserve subagents when parent agent has code execution ([#95](https://github.com/jr-k/auxilia/issues/95)) ([ed9ef3b](https://github.com/jr-k/auxilia/commit/ed9ef3b07b18c4747f8b3d49bede0e747c130f1d))
+* préserver les arguments MCP optionnels avec Responses ([#347](https://github.com/jr-k/auxilia/issues/347)) ([f875371](https://github.com/jr-k/auxilia/commit/f87537121511ff3ecb7a98a227df85f0537e3e09))
+* remove client setup for DCR official MCP servers ([92aa1d2](https://github.com/jr-k/auxilia/commit/92aa1d28e494e199ff9435e8e33b4576add9ba36))
+* render user profile pictures everywhere a person is shown ([#295](https://github.com/jr-k/auxilia/issues/295)) ([7bc3b72](https://github.com/jr-k/auxilia/commit/7bc3b72fa6864868eca5df544882ac73725750ea))
+* resolve static analysis findings ([38023e4](https://github.com/jr-k/auxilia/commit/38023e44c3107a1ceacf325bf6a88e905a01269a))
+* **runs:** lower Redis run retention default from 24h to 1h ([#177](https://github.com/jr-k/auxilia/issues/177)) ([0171b50](https://github.com/jr-k/auxilia/commit/0171b50f0a931e61e41cbd884a2eed2d5f935e6e))
+* **runs:** release auth connection before run lookups ([#352](https://github.com/jr-k/auxilia/issues/352)) ([b8d0faf](https://github.com/jr-k/auxilia/commit/b8d0faf1da2e3f221b05f2d5ded07c433b1f2dc6))
+* **runs:** stop stream sessions from reloading the whole run history every second ([#366](https://github.com/jr-k/auxilia/issues/366)) ([3d66932](https://github.com/jr-k/auxilia/commit/3d66932eb599bf18e09d21c64abd379c3dd37e06))
+* scope HITL decisions to hanging tool calls only ([#93](https://github.com/jr-k/auxilia/issues/93)) ([5675fec](https://github.com/jr-k/auxilia/commit/5675fececc2b3fd8f0aece8b591b5f9a365d9fae))
+* **slack:** de-duplicate HITL tool header; keep quote bar on multi-line args ([#165](https://github.com/jr-k/auxilia/issues/165)) ([b1500bf](https://github.com/jr-k/auxilia/commit/b1500bf870842ca8ef31c3b271cf94605a235d50))
+* **slack:** durable-delivery follow-ups (tool output, errors, HITL header) ([#163](https://github.com/jr-k/auxilia/issues/163)) ([4e8b6fd](https://github.com/jr-k/auxilia/commit/4e8b6fdc004537e71adbc5680db1af33fe516728))
+* surface GraphRecursionError as a resumable AI message ([#97](https://github.com/jr-k/auxilia/issues/97)) ([00fcbe9](https://github.com/jr-k/auxilia/commit/00fcbe96a7ab0b1455f0a7e98ffd5eb5fa5d5299))
+* **threads:** restrict rename endpoint to title only ([#158](https://github.com/jr-k/auxilia/issues/158)) ([9183619](https://github.com/jr-k/auxilia/commit/9183619167f371962997f04b349cdd8f8ed03a8f))
+* **tracing:** propagate session attributes through optional adapters ([#384](https://github.com/jr-k/auxilia/issues/384)) ([9cee060](https://github.com/jr-k/auxilia/commit/9cee060363b910a7be9a6ff5dce05539d56d67ec))
+* **web:** surface real tool error text; refactor(agents): collapse agent construction ([#144](https://github.com/jr-k/auxilia/issues/144)) ([e7fdc8e](https://github.com/jr-k/auxilia/commit/e7fdc8e0b82fcb0d52cf8b3c62bd02b4c5e0084e))
+* **workspaces:** restore CI after tenant isolation ([04bd9e3](https://github.com/jr-k/auxilia/commit/04bd9e3570b4f54b07c1f52fdbcc8ca8455ac161))
+
+
+### Performance Improvements
+
+* **agents:** drop instructions and tool maps from the list response ([#267](https://github.com/jr-k/auxilia/issues/267)) ([69be828](https://github.com/jr-k/auxilia/commit/69be828b5a0e8c2e9ff5aec69744eb9403cb0102))
+* **api:** gzip JSON responses ([#268](https://github.com/jr-k/auxilia/issues/268)) ([9b7dd3d](https://github.com/jr-k/auxilia/commit/9b7dd3daffd237e72f3b34192f217b73dced7970))
+* **web:** cut streaming memory churn — memoized conversation body, SDK throttle, values trim ([#310](https://github.com/jr-k/auxilia/issues/310)) ([720e1ac](https://github.com/jr-k/auxilia/commit/720e1ac70ac94f01d26a9f6b4fa90e2915e08e4b))
+
+
+### Dependencies
+
+* **backend:** upgrade langfuse SDK to v4 ([#272](https://github.com/jr-k/auxilia/issues/272)) ([0460a0b](https://github.com/jr-k/auxilia/commit/0460a0b4d81b99d2e1872f1cf01002bfa2c76a2b))
+* **backend:** upgrade Langfuse to 4.15.6 ([#385](https://github.com/jr-k/auxilia/issues/385)) ([b6c57f7](https://github.com/jr-k/auxilia/commit/b6c57f77b2e6cd715db44d7735bd745e7bc6f80c))
+
+
+### Reverts
+
+* **mcp:** drop BigQuery debugging, logging and IP pinning ([#342](https://github.com/jr-k/auxilia/issues/342)) ([2f2d432](https://github.com/jr-k/auxilia/commit/2f2d43235eae4b0241cea45c9776dbfec9ea9dd2))
+
+
+### Code Refactoring
+
+* **agents:** drop custom MCP tool-error wrapping for native handling ([#122](https://github.com/jr-k/auxilia/issues/122)) ([fc52af4](https://github.com/jr-k/auxilia/commit/fc52af4feca37f8ad8fd50d5d5c74b4a60bb3cc9))
+* **agents:** fold subagent and sandbox bindings into the agent aggregate ([#382](https://github.com/jr-k/auxilia/issues/382)) ([5068c88](https://github.com/jr-k/auxilia/commit/5068c883ada9dad4131cf3e12cda28254a0f0def))
+* **agents:** move the mcp/sandbox → agents reach-ins and the thread delete to the routers ([#383](https://github.com/jr-k/auxilia/issues/383)) ([f7902e4](https://github.com/jr-k/auxilia/commit/f7902e4c2ffc49a6292e8a47602c97bc0ad15618))
+* **agents:** typed event envelopes for run delivery ([#308](https://github.com/jr-k/auxilia/issues/308)) ([1a07ad6](https://github.com/jr-k/auxilia/commit/1a07ad694318aba219918a9f6a9b824bda1ac848))
+* **agents:** unify the runtime on create_agent with an explicit middleware stack ([#303](https://github.com/jr-k/auxilia/issues/303)) ([0bab267](https://github.com/jr-k/auxilia/commit/0bab2674701d44617359ad0bc071b1c482003911))
+* enforce CONVENTIONS.md naming across backend + frontend ([#100](https://github.com/jr-k/auxilia/issues/100)) ([f3af7c2](https://github.com/jr-k/auxilia/commit/f3af7c2159aa8fc83e47bc34e41f1a3367c9f00f))
+* extract shared helpers in runtime, stream, and Slack paths ([#98](https://github.com/jr-k/auxilia/issues/98)) ([7ea023c](https://github.com/jr-k/auxilia/commit/7ea023c42f98297ae693149f93bbc03fd60f7a3d))
+* **mcp:** serve the official server catalog from the CDN ([#258](https://github.com/jr-k/auxilia/issues/258)) ([61a4b5c](https://github.com/jr-k/auxilia/commit/61a4b5cb7387a759d0521f142d355a05155a5ae6))
+* **mcp:** tighten WebOAuthClientProvider toward the SDK ([#139](https://github.com/jr-k/auxilia/issues/139)) ([0d8a037](https://github.com/jr-k/auxilia/commit/0d8a037b69b86dc1f9b34b1584949e3787a6d6ce))
+* rename binding association tables and simplify naming ([#67](https://github.com/jr-k/auxilia/issues/67)) ([dfab494](https://github.com/jr-k/auxilia/commit/dfab49435fd9fb8490263762224ba9b3875d2bac))
+* **runtime:** move execution code into app/runtime ([#380](https://github.com/jr-k/auxilia/issues/380)) ([859e80f](https://github.com/jr-k/auxilia/commit/859e80f792faacdd9da92739b8510f9c38f6684c))
+* **web:** resource modules, API import boundary and useThreadSession ([#325](https://github.com/jr-k/auxilia/issues/325)) ([62f6f1c](https://github.com/jr-k/auxilia/commit/62f6f1c45c49361af4cb53d5f779d3442cd7f5fa))
+
 ## [0.9.6](https://github.com/keurcien/auxilia/compare/backend-v0.9.5...backend-v0.9.6) (2026-09-28)
 
 

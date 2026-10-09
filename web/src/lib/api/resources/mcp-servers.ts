@@ -16,8 +16,10 @@ import type {
 	MCPServerConnection,
 	MCPServerCreate,
 	MCPServerUpdate,
+	OAuthCallbackInfo,
 	OAuthSecretHint,
 	OfficialMCPServer,
+	ServiceCredentialProvider,
 } from "@/types/mcp-servers";
 
 export async function listMcpServers(): Promise<MCPServer[]> {
@@ -47,6 +49,27 @@ export async function updateMcpServer(
 ): Promise<MCPServer> {
 	const response = await api.patch<MCPServer>(`/mcp-servers/${serverId}`, payload);
 	return response.data;
+}
+
+export function mcpServerImageUrl(serverId: string, revision: string): string {
+	return `/api/backend/mcp-servers/${serverId}/image?v=${encodeURIComponent(revision)}`;
+}
+
+export async function uploadMcpServerImage(
+	serverId: string,
+	file: File,
+): Promise<string> {
+	const form = new FormData();
+	form.append("file", file);
+	const response = await api.put<{ imageRevision: string }>(
+		`/mcp-servers/${serverId}/image`,
+		form,
+	);
+	return response.data.imageRevision;
+}
+
+export async function deleteMcpServerImage(serverId: string): Promise<void> {
+	await api.delete(`/mcp-servers/${serverId}/image`);
 }
 
 /** Delete a server. Refused while agents still bind it unless `detachAgents`. */
@@ -82,6 +105,17 @@ export async function isMcpServerConnected(serverId: string): Promise<boolean> {
 		`/mcp-servers/${serverId}/is-connected`,
 	);
 	return Boolean(response.data.connected);
+}
+
+/** Public redirect URI to register in an OAuth provider application. */
+export async function getOAuthCallbackInfo(
+	options: { signal?: AbortSignal } = {},
+): Promise<OAuthCallbackInfo> {
+	const response = await api.get<OAuthCallbackInfo>(
+		"/mcp-servers/oauth/callback-info",
+		{ signal: options.signal },
+	);
+	return response.data;
 }
 
 /** The stored OAuth client secret, masked (admin only). */
@@ -127,6 +161,9 @@ export interface ConnectionTestInput {
 	url: string;
 	authType: MCPAuthType;
 	apiKey?: string;
+	serviceCredentialProvider?: ServiceCredentialProvider;
+	serviceCredentialsJson?: string;
+	serviceCredentialScopes?: string[];
 }
 
 /** Probe a server that is not saved yet (the add form). */

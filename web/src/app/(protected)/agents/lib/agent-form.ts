@@ -1,5 +1,6 @@
 import { Agent, ToolStatus } from "@/types/agents";
 import { AGENT_COLORS, randomAgentColor } from "@/lib/colors";
+import type { ResourceVisibility } from "@/types/visibility";
 
 export interface AgentMCPServerForm {
 	mcpServerId: string;
@@ -16,6 +17,9 @@ export interface AgentSandboxForm {
 export interface AgentFormState {
 	name: string;
 	description: string;
+	group: string;
+	visibility: ResourceVisibility;
+	teamIds: string[];
 	instructions: string;
 	emoji: string;
 	color: string;
@@ -31,6 +35,9 @@ export function defaultAgentForm(): AgentFormState {
 	return {
 		name: "",
 		description: "",
+		group: "",
+		visibility: "personal",
+		teamIds: [],
 		instructions: "",
 		emoji: "🤖",
 		color: randomAgentColor(),
@@ -45,6 +52,9 @@ export function fromAgent(agent: Agent): AgentFormState {
 	return {
 		name: agent.name || "",
 		description: agent.description || "",
+		group: agent.group || "",
+		visibility: agent.visibility,
+		teamIds: agent.teamIds,
 		instructions: agent.instructions || "",
 		emoji: agent.emoji || "🤖",
 		color: agent.color || AGENT_COLORS[0],
@@ -77,6 +87,14 @@ export function toPayload(form: AgentFormState) {
 		name: form.name.trim(),
 		instructions: form.instructions.trim(),
 		description: form.description.trim() || null,
+		group:
+			form.group
+				.split("/")
+				.map((part) => part.trim())
+				.filter(Boolean)
+				.join("/") || null,
+		visibility: form.visibility,
+		teamIds: [...form.teamIds].sort(),
 		emoji: form.emoji || null,
 		color: form.color || null,
 		mcpServers: [...form.mcpServers]

@@ -25,12 +25,12 @@ export const api = axios.create({
 // Fields that should not have their nested keys transformed to snake_case
 /**
  * Keys whose *values* are passed through untouched in both directions: they
- * hold user-authored or tool-authored JSON (the agent `tools` map, MCP tool
- * `arguments`) whose key spelling is part of the data, not our API contract.
+ * hold protocol-shaped JSON (the agent `tools` map, MCP tool `arguments`,
+ * Slack app `manifest`) whose key spelling is part of the data, not our API contract.
  * Bodies that are protocol-shaped end to end do not use this client at all —
  * see `lib/api/protocol.ts`.
  */
-const PRESERVE_KEYS_FIELDS = ["tools", "arguments"];
+const PRESERVE_KEYS_FIELDS = ["tools", "arguments", "manifest"];
 
 // Recursively transform keys to snake_case while preserving specified fields
 function snakecaseKeysWithExclusions(

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { HeaderButton } from "@/components/layout/subpage-header";
+import { useConfirmDialog } from "@/components/providers/dialog-provider";
 import ResourceInUseDialog from "@/components/resource-in-use-dialog";
 import {
 	SANDBOX_PROVIDER_ICONS,
@@ -27,6 +28,7 @@ export default function WorkspaceSandboxes({
 	onForbidden,
 	onCountChange,
 }: WorkspaceSandboxesProps) {
+	const confirmDialog = useConfirmDialog();
 	const [sandboxes, setSandboxes] = useState<Sandbox[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [loadFailed, setLoadFailed] = useState(false);
@@ -97,7 +99,16 @@ export default function WorkspaceSandboxes({
 				setDeleteTarget({ sandbox, agents });
 				return;
 			}
-			if (!window.confirm(`Delete "${sandbox.name}"?`)) return;
+			if (
+				!(await confirmDialog({
+					title: `Delete “${sandbox.name}”?`,
+					description:
+						"This sandbox configuration will be removed from the workspace permanently.",
+					confirmLabel: "Delete sandbox",
+					destructive: true,
+				}))
+			)
+				return;
 			await sandboxesApi.deleteSandbox(sandbox.id);
 			setSandboxes((prev) => prev.filter((s) => s.id !== sandbox.id));
 		} catch (error: unknown) {
@@ -155,11 +166,11 @@ export default function WorkspaceSandboxes({
 				onConfirm={handleDetachAndDelete}
 			/>
 
-			<div className="mb-1.5 flex items-baseline gap-2.5">
-				<span className="font-mono text-[10.5px] font-semibold tracking-[0.09em] text-subtle dark:text-panel-dim">
-					SANDBOXES
+			<div className="mb-1.5 flex flex-wrap items-center gap-2.5">
+				<span className="text-[10.5px] font-semibold text-subtle dark:text-panel-dim">
+					Sandboxes
 				</span>
-				<span className="font-mono text-[10.5px] text-meta dark:text-panel-dim">
+				<span className="text-[10.5px] text-meta dark:text-panel-dim">
 					admin
 				</span>
 				<span className="flex-1" />
@@ -169,7 +180,7 @@ export default function WorkspaceSandboxes({
 						setEditing(null);
 						setDialogOpen(true);
 					}}
-					className="flex cursor-pointer items-center gap-1.5 rounded-[7px] bg-primary px-4 py-2 text-[12.5px] font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+					className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-[7px] bg-primary px-4 py-2 text-[12.5px] font-semibold text-primary-foreground transition-opacity hover:opacity-90"
 				>
 					<Plus className="size-3.5" />
 					Add sandbox
@@ -232,11 +243,11 @@ export default function WorkspaceSandboxes({
 								/>
 							</span>
 							<div className="min-w-0 flex-1">
-								<div className="flex flex-wrap items-center gap-2">
-									<span className="text-[13.5px] font-semibold text-foreground">
+								<div className="flex min-w-0 flex-wrap items-center gap-2">
+									<span className="max-w-full truncate text-[13.5px] font-semibold text-foreground">
 										{sandbox.name}
 									</span>
-									<span className="rounded-[4px] bg-hover px-2 py-0.5 font-mono text-[9.5px] font-semibold tracking-[0.06em] text-subtle uppercase dark:bg-white/10 dark:text-panel-dim">
+									<span className="rounded-[4px] bg-hover px-2 py-0.5 text-[9.5px] font-semibold text-subtle dark:bg-white/10 dark:text-panel-dim">
 										{SANDBOX_PROVIDER_LABELS[sandbox.provider]}
 									</span>
 								</div>

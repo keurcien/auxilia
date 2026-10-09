@@ -1,6 +1,10 @@
 # Environment Variables
 
-Every **auxilia** deployment is configured through environment variables. This page is the complete reference — start here to understand what to set, then follow the [Cloud Run](/deploy/cloud-run) or [VM / Docker host](/deploy/vm-docker) guide for the deployment-specific wiring.
+Core infrastructure for an **auxilia** deployment is configured through
+environment variables. Workspace integrations and their encrypted credentials
+are managed from Settings. This page lists the deployment-level variables;
+follow the [Cloud Run](/deploy/cloud-run) or [VM / Docker host](/deploy/vm-docker)
+guide for deployment-specific wiring.
 
 A full example lives in [`.env.example`](https://github.com/keurcien/auxilia/blob/main/.env.example) at the repo root.
 
@@ -8,21 +12,22 @@ A full example lives in [`.env.example`](https://github.com/keurcien/auxilia/blo
 
 These must be set for **auxilia** to start. Missing any of them will fail backend boot.
 
-| Variable                    | Notes                                                                 |
-| --------------------------- | --------------------------------------------------------------------- |
-| `DATABASE_URL`              | `postgresql+psycopg://user:pass@host:5432/dbname` connection string   |
-| `REDIS_HOST` / `REDIS_PORT` | Reachable from the backend (OAuth tokens are cached here)             |
-| `JWT_SECRET_KEY`            | 32+ random characters — used to sign session cookies                  |
-| `SALT`                      | Salt for AES-GCM encryption of stored MCP API keys                    |
-| `FRONTEND_URL`              | Public URL of the web app (used as OAuth redirect base)               |
-| `BACKEND_URL`               | Internal URL the Next.js proxy uses to reach the backend (web only)   |
-| One LLM key                 | See [LLM providers](#llm-providers) — at least one is required        |
+| Variable                                           | Notes                                                                 |
+| -------------------------------------------------- | --------------------------------------------------------------------- |
+| `DB_HOST` / `DB_PORT`                              | PostgreSQL host and port reachable from the backend                   |
+| `DB_USER` / `DB_PASSWORD` / `DB_NAME`              | PostgreSQL credentials and database name                              |
+| `REDIS_HOST` / `REDIS_PORT`                        | Reachable from the backend (OAuth tokens are cached here)             |
+| `BACKEND_JWT_SECRET_KEY`                           | 32+ random characters — used to sign session cookies                  |
+| `BACKEND_ENCRYPTION_SALT`                          | Secret used to encrypt credentials stored through Settings            |
+| `FRONTEND_URL`                                     | Public URL of the web app (used as OAuth redirect base)               |
+| `BACKEND_URL`                                      | Internal URL the Next.js proxy uses to reach the backend (web only)   |
+| One LLM key                                        | See [LLM providers](#llm-providers) — at least one is required        |
 
 In production, also set:
 
 | Variable        | Value  | Why                                                    |
 | --------------- | ------ | ------------------------------------------------------ |
-| `COOKIE_SECURE` | `true` | Forces session cookies to be HTTPS-only (recommended)  |
+| `BACKEND_COOKIE_SECURE` | `true` | Forces session cookies to be HTTPS-only (recommended)  |
 
 ## LLM providers
 
@@ -46,14 +51,9 @@ Anthropic models run with thinking enabled by default; Google models run with `i
 
 ## Authentication
 
-| Variable                 | Notes                                                                 |
-| ------------------------ | --------------------------------------------------------------------- |
-| `GOOGLE_CLIENT_ID`       | OAuth client ID for Google sign-in                                    |
-| `GOOGLE_CLIENT_SECRET`   | OAuth client secret                                                   |
-| `GOOGLE_REDIRECT_URI`    | e.g. `https://your-host/auth/google/callback`                         |
-| `AUTH_GOOGLE_EXCLUSIVE`  | `true` disables email/password signup — Google OAuth only             |
-
-Leaving these unset keeps email/password signup as the only path. See [User Management](/deploy/user-management) for the full flow.
+Google OAuth is configured by an admin under **Settings → Authentication**.
+The page provides the exact redirect URI to register in Google Cloud and stores
+the client credentials encrypted in PostgreSQL. See [User Management](/deploy/user-management).
 
 ## Sandbox
 
@@ -63,28 +63,18 @@ The one indirect requirement: a Cloud Run sandbox with a GCS snapshot bucket nee
 
 ## Observability (optional)
 
-| Variable                | Notes                                                      |
-| ----------------------- | ---------------------------------------------------------- |
-| `LANGFUSE_PUBLIC_KEY`   | Langfuse project public key                                |
-| `LANGFUSE_SECRET_KEY`   | Langfuse project secret key                                |
-| `LANGFUSE_BASE_URL`     | `https://cloud.langfuse.com` or your self-hosted URL       |
-| `LANGFUSE_TIMEOUT`      | API request timeout in seconds (positive integer; default `15`) |
-
-The public key, secret key, and base URL are required to enable Langfuse; missing any of them disables the integration silently. The timeout is optional. Details: [Observability (Langfuse)](/deploy/langfuse).
+Langfuse is configured under **Settings → Observability**. Its keys are stored
+encrypted in PostgreSQL. Details: [Observability (Langfuse)](/deploy/langfuse).
 
 ## Slack (optional)
 
-| Variable                | Notes                                                      |
-| ----------------------- | ---------------------------------------------------------- |
-| `SLACK_SIGNING_SECRET`  | From **Basic Information** in your Slack app config        |
-| `SLACK_BOT_TOKEN`       | `xoxb-…` Bot User OAuth Token                              |
-
-Missing values make the Slack endpoints reject all incoming requests. Details: [Slack Integration](/deploy/slack).
+Slack is configured under **Settings → Notifications**. The bot token and
+signing secret are stored encrypted in PostgreSQL. Details: [Slack Integration](/deploy/slack).
 
 ## Tuning & debugging
 
 | Variable           | Default  | Notes                                                 |
 | ------------------ | -------- | ----------------------------------------------------- |
 | `LOG_LEVEL`        | `INFO`   | Set to `DEBUG` for verbose logs (MCP traces, etc.)    |
-| `RECURSION_LIMIT`  | `100`    | Max LangGraph steps per agent invocation              |
+| `AGENT_RECURSION_LIMIT` | `100` | Max LangGraph steps per agent invocation             |
 | `INVOKE_PROFILING` | `false`  | Emit per-step timing on each agent invocation         |

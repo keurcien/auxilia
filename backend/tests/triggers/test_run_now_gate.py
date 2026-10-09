@@ -1,20 +1,19 @@
-"""TriggerService.run_now — the owner-credential OAuth gate."""
+"""TriggerService.run_now — immediate run creation."""
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
-import pytest
-
 import app.triggers.service as triggers_mod
-from app.exceptions import DomainValidationError
 from app.triggers.service import TriggerService
 from app.users.models import WorkspaceRole
+from tests.conftest import TEST_WORKSPACE_ID
 
 
 def _service():
     trigger = SimpleNamespace(
         id=uuid4(),
+        workspace_id=TEST_WORKSPACE_ID,
         owner_id=uuid4(),
         agent_id=uuid4(),
         instructions="do it",
@@ -22,7 +21,7 @@ def _service():
         model_id="m",
         reasoning_effort=None,
     )
-    svc = TriggerService(AsyncMock())
+    svc = TriggerService(AsyncMock(), TEST_WORKSPACE_ID)
     svc.get_or_404 = AsyncMock(return_value=trigger)
     svc.db.get = AsyncMock(return_value=MagicMock(is_archived=False))  # the agent
     svc.model_service = AsyncMock()  # model availability is not under test here
@@ -35,37 +34,34 @@ def _service():
     return svc, trigger, user
 
 
-def _fake_run_service_cls(gate: AsyncMock) -> MagicMock:
-    """A stand-in for the RunService class: `required_oauth_url` is the gate,
-    instantiating it yields a service whose create() returns run1."""
-    return MagicMock(
-        required_oauth_url=gate,
-        return_value=MagicMock(
-            create=AsyncMock(return_value=SimpleNamespace(id="run1"))
+async def test_run_now_launches_without_an_oauth_gate(monkeypatch):
+    svc, trigger, user = _service()
+    monkeypatch.setattr(
+        triggers_mod,
+        "AgentService",
+        MagicMock(
+            return_value=MagicMock(
+                require_permission=AsyncMock(),
+                repository=MagicMock(
+                    get_scoped=AsyncMock(return_value=MagicMock(is_archived=False))
+                ),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        triggers_mod, "ThreadService", MagicMock(return_value=svc.thread_service)
+    )
+    monkeypatch.setattr(
+        triggers_mod,
+        "RunService",
+        MagicMock(
+            return_value=MagicMock(
+                create=AsyncMock(return_value=SimpleNamespace(id="run1"))
+            )
         ),
     )
 
-
-async def test_run_now_rejects_when_owner_mcp_unauthorized(monkeypatch):
-    svc, trigger, user = _service()
-    gate = AsyncMock(return_value="https://auth.example")
-    monkeypatch.setattr(triggers_mod, "RunService", _fake_run_service_cls(gate))
-
-    with pytest.raises(DomainValidationError, match="reconnect"):
-        await svc.run_now(trigger.id, user)
-
-    gate.assert_awaited_once_with(svc.db, trigger.agent_id, str(trigger.owner_id))
-    # Rejected before any side effect: no fire thread, no run.
-    svc.thread_service.create.assert_not_awaited()
-
-
-async def test_run_now_launches_when_owner_authorized(monkeypatch):
-    svc, trigger, user = _service()
-    gate = AsyncMock(return_value=None)
-    monkeypatch.setattr(triggers_mod, "RunService", _fake_run_service_cls(gate))
-
     result = await svc.run_now(trigger.id, user)
 
-    gate.assert_awaited_once()
     assert result.thread_id == "th1"
     assert result.run_id == "run1"

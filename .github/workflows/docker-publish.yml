@@ -1,10 +1,14 @@
-name: Publish container images
+name: Publish container image
 
 on:
   workflow_call:
     inputs:
       component:
         description: "backend or web"
+        required: true
+        type: string
+      registry:
+        description: "dockerhub or ghcr"
         required: true
         type: string
       version:
@@ -18,20 +22,15 @@ on:
         required: true
         type: choice
         options: [backend, web]
+      registry:
+        description: "Container registry"
+        required: true
+        type: choice
+        options: [dockerhub, ghcr]
       version:
         description: "Version tag, e.g. 0.4.0"
         required: true
         type: string
-
-# Each platform is built once and pushed by digest to every registry at the
-# same time, then one manifest list is created per registry, so both carry the
-# identical image. GHCR always receives it: the repository's own token is
-# enough, which is what lets a fork publish under its owner's namespace with
-# no setup. Docker Hub receives it only when DOCKERHUB_USERNAME /
-# DOCKERHUB_TOKEN are configured, under that account's namespace.
-permissions:
-  contents: read
-  packages: write
 
 jobs:
   build:
@@ -47,33 +46,31 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Resolve image names
+      - name: Prepare publishing target
+        run: |
+          case "$registry" in
+            dockerhub) image="keurcien/auxilia-${component}" ;;
+            ghcr) image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/auxilia-${component}" ;;
+            *) echo "Unsupported registry: $registry" >&2; exit 1 ;;
+          esac
+          echo "IMAGE=$image" >> "$GITHUB_ENV"
+          echo "PLATFORM_PAIR=${platform//\//-}" >> "$GITHUB_ENV"
         env:
           component: ${{ inputs.component }}
           platform: ${{ matrix.platform }}
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          # Both secrets or neither: a username alone would run the Docker Hub
-          # login with an empty token and fail the job before the GHCR push.
-          DOCKERHUB_CONFIGURED: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
-        run: |
-          images="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/auxilia-${component}"
-          if [ "$DOCKERHUB_CONFIGURED" = "true" ]; then
-            images="${DOCKERHUB_USERNAME}/auxilia-${component},${images}"
-            echo "DOCKERHUB_ENABLED=true" >> "$GITHUB_ENV"
-          fi
-          echo "IMAGES=$images" >> "$GITHUB_ENV"
-          echo "PLATFORM_PAIR=${platform//\//-}" >> "$GITHUB_ENV"
+          registry: ${{ inputs.registry }}
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
       - name: Log in to Docker Hub
-        if: env.DOCKERHUB_ENABLED == 'true'
+        if: inputs.registry == 'dockerhub'
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Log in to GitHub Container Registry
+        if: inputs.registry == 'ghcr'
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           registry: ghcr.io
@@ -86,10 +83,9 @@ jobs:
         with:
           context: ${{ inputs.component }}
           platforms: ${{ matrix.platform }}
-          # `name` is a comma-separated list, so one build lands in every registry.
-          outputs: type=image,"name=${{ env.IMAGES }}",push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=${{ inputs.component }}-${{ env.PLATFORM_PAIR }}
-          cache-to: type=gha,mode=max,scope=${{ inputs.component }}-${{ env.PLATFORM_PAIR }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ inputs.registry }}-${{ inputs.component }}-${{ env.PLATFORM_PAIR }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.registry }}-${{ inputs.component }}-${{ env.PLATFORM_PAIR }}
 
       - name: Export digest
         run: |
@@ -99,7 +95,7 @@ jobs:
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: digests-${{ inputs.component }}-${{ env.PLATFORM_PAIR }}
+          name: ${{ inputs.registry }}-digests-${{ inputs.component }}-${{ env.PLATFORM_PAIR }}
           path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
           retention-days: 1
@@ -108,44 +104,42 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     steps:
-      - name: Resolve image names
+      - name: Prepare publishing target
+        run: |
+          case "$registry" in
+            dockerhub) image="keurcien/auxilia-${component}" ;;
+            ghcr) image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/auxilia-${component}" ;;
+            *) echo "Unsupported registry: $registry" >&2; exit 1 ;;
+          esac
+          echo "IMAGE=$image" >> "$GITHUB_ENV"
         env:
           component: ${{ inputs.component }}
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          # Both secrets or neither: a username alone would run the Docker Hub
-          # login with an empty token and fail the job before the GHCR push.
-          DOCKERHUB_CONFIGURED: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
-        run: |
-          images="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/auxilia-${component}"
-          if [ "$DOCKERHUB_CONFIGURED" = "true" ]; then
-            images="${DOCKERHUB_USERNAME}/auxilia-${component},${images}"
-            echo "DOCKERHUB_ENABLED=true" >> "$GITHUB_ENV"
-          fi
-          echo "IMAGES=$images" >> "$GITHUB_ENV"
+          registry: ${{ inputs.registry }}
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: ${{ runner.temp }}/digests
-          pattern: digests-${{ inputs.component }}-*
+          pattern: ${{ inputs.registry }}-digests-${{ inputs.component }}-*
           merge-multiple: true
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
       - name: Log in to Docker Hub
-        if: env.DOCKERHUB_ENABLED == 'true'
+        if: inputs.registry == 'dockerhub'
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Log in to GitHub Container Registry
+        if: inputs.registry == 'ghcr'
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create and push manifest lists
+      - name: Create and push manifest list
         working-directory: ${{ runner.temp }}/digests
         # `latest` follows `main`, never a branch. Release-please calls this
         # workflow from `main`, so a release still moves it; a manual dispatch
@@ -158,18 +152,19 @@ jobs:
           VERSION: ${{ inputs.version }}
           IS_MAIN: ${{ github.ref == 'refs/heads/main' }}
         run: |
-          IFS=',' read -r -a images <<< "$IMAGES"
-          for image in "${images[@]}"; do
-            tags=(-t "$image:$VERSION")
-            # An `if`, not `[ … ] && …`: steps run under `bash -e`, where the
-            # test returning 1 on a branch build would fail the step outright.
-            if [ "$IS_MAIN" = "true" ]; then
-              tags+=(-t "$image:latest")
-            fi
-            sources=()
-            for digest in *; do
-              sources+=("$image@sha256:$digest")
-            done
-            docker buildx imagetools create "${tags[@]}" "${sources[@]}"
-            docker buildx imagetools inspect "$image:$VERSION"
+          tags=(-t "$IMAGE:$VERSION")
+          sources=()
+          for digest in *; do
+            sources+=("$IMAGE@sha256:$digest")
           done
+          # An `if`, not `[ … ] && …`: steps run under `bash -e`, where the
+          # test returning 1 on a branch build would fail the step outright.
+          if [ "$IS_MAIN" = "true" ]; then
+            tags+=(-t "$IMAGE:latest")
+          fi
+          docker buildx imagetools create "${tags[@]}" "${sources[@]}"
+
+      - name: Inspect
+        env:
+          VERSION: ${{ inputs.version }}
+        run: docker buildx imagetools inspect "$IMAGE:$VERSION"

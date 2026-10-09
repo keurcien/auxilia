@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
+from app.agents.core.service import get_agent_service
 from app.main import app
 from app.runtime.api.runs_router import get_run_service
 from app.runtime.runs.models import RunDB
@@ -12,9 +13,18 @@ from app.runtime.runs.state import RunStatus
 from app.threads.models import ThreadDB
 
 
+@pytest.fixture(autouse=True)
+def allow_agent_access():
+    agents = MagicMock(require_permission=AsyncMock())
+    app.dependency_overrides[get_agent_service] = lambda: agents
+    yield
+    app.dependency_overrides.pop(get_agent_service, None)
+
+
 def _owned_thread(current_user) -> ThreadDB:
     return ThreadDB(
         id=str(uuid4()),
+        workspace_id=current_user.active_workspace_id,
         user_id=current_user.id,
         agent_id=uuid4(),
         first_message_content="run",
@@ -31,25 +41,17 @@ class _FakeRunService:
     ):
         self.create_kwargs: dict | None = None
         self.calls: list[str] = []
-        self.gate_args: tuple | None = None
-        # Set by a test to make the gate report an unauthorized MCP server.
-        self.blocking_auth_url: str | None = None
+        self.workspace_id = None
         self._terminal = terminal
         self._error = error
-
-    async def required_oauth_url(self, db, agent_id, user_id) -> str | None:
-        """Records the call: the gate itself is unit-tested in test_gate.py,
-        but the router must invoke it (with the thread's identity) BEFORE
-        creating the run — that wiring is the point of the gate."""
-        self.calls.append("gate")
-        self.gate_args = (agent_id, user_id)
-        return self.blocking_auth_url
 
     async def create(self, **kwargs) -> RunDB:
         self.calls.append("create")
         self.create_kwargs = kwargs
+        self.workspace_id = self.workspace_id or uuid4()
         return RunDB(
             id="run1",
+            workspace_id=self.workspace_id,
             thread_id=kwargs["thread_id"],
             user_id=uuid4(),
             created_at=datetime.now(),
@@ -62,6 +64,7 @@ class _FakeRunService:
     async def wait_for_terminal(self, run_id: str) -> RunDB:
         return RunDB(
             id=run_id,
+            workspace_id=self.workspace_id,
             thread_id="t1",
             user_id=uuid4(),
             status=self._terminal,
@@ -84,8 +87,9 @@ def test_run_poll_releases_auth_connection_before_run_lookup(
     mock_db.commit.side_effect = lambda: events.append("release")
 
     class FakeRunService:
-        async def list_for_thread(self, thread_id):
+        async def list_for_thread(self, thread_id, workspace_id):
             assert thread_id == thread.id
+            assert workspace_id == thread.workspace_id
             events.append("lookup")
             return []
 
@@ -107,8 +111,9 @@ def test_active_runs_poll_releases_auth_connection_before_run_lookup(
     mock_db.commit.side_effect = lambda: events.append("release")
 
     class FakeRunService:
-        async def list_active_for_user(self, user_id, *, recent_seconds):
+        async def list_active_for_user(self, user_id, workspace_id, *, recent_seconds):
             assert user_id == str(current_user.id)
+            assert workspace_id == current_user.active_workspace_id
             assert recent_seconds == 0
             events.append("lookup")
             return []
@@ -153,8 +158,7 @@ def test_invoke_creates_run_and_returns_result(
     assert response.status_code == 200
     assert response.json()["structured_response"] == {"answer": 42}
     assert fake.create_kwargs["output_schema"] == schema
-    assert fake.calls == ["gate", "create"]
-    assert fake.gate_args == (thread.agent_id, str(thread.user_id))
+    assert fake.calls == ["create"]
 
 
 @patch("app.runtime.api.runs_router.read_run_result", new_callable=AsyncMock)
@@ -212,7 +216,9 @@ def test_invoke_schema_violating_result_is_500(
     assert "valid structured response" in response.json()["detail"]
 
 
-def test_create_run_gates_before_creating(client: TestClient, mock_db, current_user):
+def test_create_run_creates_without_an_oauth_gate(
+    client: TestClient, mock_db, current_user
+):
     thread = _owned_thread(current_user)
     _mock_thread_lookup(mock_db, thread)
     fake = _FakeRunService()
@@ -227,8 +233,7 @@ def test_create_run_gates_before_creating(client: TestClient, mock_db, current_u
         app.dependency_overrides.pop(get_run_service, None)
 
     assert response.status_code == 201
-    assert fake.calls == ["gate", "create"]
-    assert fake.gate_args == (thread.agent_id, str(thread.user_id))
+    assert fake.calls == ["create"]
 
 
 def test_legacy_stream_endpoints_are_gone(client: TestClient, mock_db, current_user):
@@ -249,16 +254,15 @@ def test_legacy_stream_endpoints_are_gone(client: TestClient, mock_db, current_u
 
 
 @pytest.mark.parametrize("path", ["invoke", ""])
-def test_an_unauthorized_mcp_server_401s_and_creates_no_run(
-    client: TestClient, mock_db, current_user, path
+@patch("app.runtime.api.runs_router.read_run_result", new_callable=AsyncMock)
+def test_optional_oauth_servers_do_not_block_run_creation(
+    mock_read, client: TestClient, mock_db, current_user, path
 ):
-    """The gate's answer becomes the response at the call site now — there is
-    no app-global handler turning an exception into this 401 any more, and it
-    must land on every launch endpoint (design review §2.4)."""
+    """Disconnected optional OAuth servers are omitted by the runtime."""
     thread = _owned_thread(current_user)
     _mock_thread_lookup(mock_db, thread)
+    mock_read.return_value = {"content": "ok", "structured_response": None}
     fake = _FakeRunService()
-    fake.blocking_auth_url = "https://auth.example/authorize"
     app.dependency_overrides[get_run_service] = lambda: fake
 
     url = f"/threads/{thread.id}/runs/{path}".rstrip("/")
@@ -269,12 +273,8 @@ def test_an_unauthorized_mcp_server_401s_and_creates_no_run(
     finally:
         app.dependency_overrides.pop(get_run_service, None)
 
-    assert response.status_code == 401
-    assert response.json() == {
-        "error": "oauth_required",
-        "auth_url": "https://auth.example/authorize",
-    }
-    assert fake.calls == ["gate"]  # nothing was created
+    assert response.status_code == (200 if path == "invoke" else 201)
+    assert fake.calls == ["create"]
 
 
 def test_invoke_failed_run_is_500(client: TestClient, mock_db, current_user):

@@ -34,6 +34,20 @@ export interface ManagedModel {
 	deprecated: boolean;
 }
 
+export type ModelProviderCredentialSource =
+	| "database"
+	| "environment"
+	| "adc"
+	| "none";
+
+export interface ModelProviderConfig {
+	name: string;
+	isConfigured: boolean;
+	source: ModelProviderCredentialSource;
+	last4: string | null;
+	keyLength: number | null;
+}
+
 export interface WhitelistSyncResult {
 	added: string[];
 	removed: string[];

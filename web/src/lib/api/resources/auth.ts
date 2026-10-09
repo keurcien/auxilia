@@ -10,6 +10,9 @@ import type {
 	InviteInfo,
 	PersonalAccessToken,
 	PersonalAccessTokenCreated,
+	SignInResult,
+	WorkspaceAuthenticationSettings,
+	WorkspaceAuthenticationUpdate,
 } from "@/types/auth";
 
 export async function getAuthProviders(): Promise<AuthProviders> {
@@ -17,9 +20,40 @@ export async function getAuthProviders(): Promise<AuthProviders> {
 	return response.data;
 }
 
+export async function getWorkspaceAuthentication(): Promise<WorkspaceAuthenticationSettings> {
+	const response =
+		await api.get<WorkspaceAuthenticationSettings>("/auth/manage");
+	return response.data;
+}
+
+export async function updateWorkspaceAuthentication(
+	update: WorkspaceAuthenticationUpdate,
+): Promise<WorkspaceAuthenticationSettings> {
+	const response = await api.put<WorkspaceAuthenticationSettings>(
+		"/auth/manage",
+		update,
+	);
+	return response.data;
+}
+
+export async function deleteWorkspaceAuthentication(): Promise<WorkspaceAuthenticationSettings> {
+	const response =
+		await api.delete<WorkspaceAuthenticationSettings>("/auth/manage");
+	return response.data;
+}
+
 /** Sets the session cookie on success. */
-export async function signIn(email: string, password: string): Promise<void> {
-	await api.post("/auth/signin", { email, password });
+export async function signIn(email: string, password: string): Promise<SignInResult> {
+	const response = await api.post<{
+		twoFactorRequired?: boolean;
+	}>("/auth/signin", { email, password });
+	return {
+		twoFactorRequired: response.data.twoFactorRequired === true,
+	};
+}
+
+export async function verifyTwoFactorSignIn(code: string): Promise<void> {
+	await api.post("/auth/signin/two-factor", { code });
 }
 
 export async function signOut(): Promise<void> {
@@ -55,9 +89,15 @@ export async function getInviteInfo(token: string): Promise<InviteInfo> {
 export async function acceptInvite(payload: {
 	token: string;
 	password: string;
-	name: string;
-}): Promise<void> {
-	await api.post("/auth/invite/accept", payload);
+	firstName: string;
+	lastName: string;
+}): Promise<SignInResult> {
+	const response = await api.post<{
+		twoFactorRequired?: boolean;
+	}>("/auth/invite/accept", payload);
+	return {
+		twoFactorRequired: response.data.twoFactorRequired === true,
+	};
 }
 
 export async function listTokens(): Promise<PersonalAccessToken[]> {

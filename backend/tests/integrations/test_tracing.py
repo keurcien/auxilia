@@ -1,25 +1,26 @@
 import builtins
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
 
 from app.integrations import tracing
-from app.integrations.langfuse.settings import langfuse_settings
+from app.observability.service import ObservabilityRuntimeConfig
 
 
-@pytest.fixture(autouse=True)
-def reset_tracing(monkeypatch):
-    monkeypatch.setattr(tracing, "_tracing", None)
+def _config() -> ObservabilityRuntimeConfig:
+    return ObservabilityRuntimeConfig(
+        base_url="https://langfuse.test",
+        public_key="pk-test",
+        secret_key="sk-test",
+        timeout_seconds=15,
+        revision=datetime(2026, 1, 1, tzinfo=UTC),
+    )
 
 
 @pytest.mark.parametrize("configured", [False, True])
 def test_missing_sdk_does_not_prevent_runs(monkeypatch, configured):
     """No provider imports when disabled; missing installed SDK fails open."""
-    monkeypatch.setattr(langfuse_settings, "langfuse_base_url", "https://langfuse.test")
-    monkeypatch.setattr(
-        langfuse_settings, "langfuse_public_key", "pk-test" if configured else None
-    )
-    monkeypatch.setattr(langfuse_settings, "langfuse_secret_key", "sk-test")
     original_import = builtins.__import__
     provider_imports = []
 
@@ -30,41 +31,42 @@ def test_missing_sdk_does_not_prevent_runs(monkeypatch, configured):
         return original_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", without_provider)
-    integration = tracing.get_tracing()
+    config = _config() if configured else None
+    integration = tracing.get_tracing(config)
     assert isinstance(integration, tracing.NoOpTracing)
     assert integration.callbacks == []
     with integration.run_context(session_id="thread", user_id="user"):
         pass
     assert bool(provider_imports) == configured
-    assert tracing.get_tracing() is integration
 
 
-def test_configured_adapter_is_reused_and_flushed(monkeypatch):
+def test_configured_adapter_receives_runtime_config(monkeypatch):
     from app.integrations.langfuse import tracing as langfuse_tracing
 
-    monkeypatch.setattr(langfuse_settings, "langfuse_base_url", "https://langfuse.test")
-    monkeypatch.setattr(langfuse_settings, "langfuse_public_key", "pk-test")
-    monkeypatch.setattr(langfuse_settings, "langfuse_secret_key", "sk-test")
     adapter = MagicMock()
     factory = MagicMock(return_value=adapter)
     monkeypatch.setattr(langfuse_tracing, "create_tracing", factory)
+    config = _config()
 
-    assert tracing.get_tracing() is adapter
-    assert tracing.get_tracing() is adapter
-    factory.assert_called_once_with()
-    tracing.flush_tracing()
-    adapter.flush.assert_called_once_with()
+    assert tracing.get_tracing(config) is adapter
+    factory.assert_called_once_with(config)
 
 
 def test_shutdown_does_not_initialize_tracing(monkeypatch):
+    from app.integrations.langfuse import callback
+
     factory = MagicMock()
-    monkeypatch.setattr(tracing, "get_tracing", factory)
+    monkeypatch.setattr(callback, "flush_langfuse", factory)
     tracing.flush_tracing()
-    factory.assert_not_called()
+    factory.assert_called_once_with()
 
 
 def test_tracing_failure_does_not_break_shutdown(monkeypatch):
-    adapter = MagicMock()
-    adapter.flush.side_effect = RuntimeError("export unavailable")
-    monkeypatch.setattr(tracing, "_tracing", adapter)
+    from app.integrations.langfuse import callback
+
+    monkeypatch.setattr(
+        callback,
+        "flush_langfuse",
+        MagicMock(side_effect=RuntimeError("export unavailable")),
+    )
     tracing.flush_tracing()

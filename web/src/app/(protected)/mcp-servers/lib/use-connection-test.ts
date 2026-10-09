@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 import { getApiErrorMessage } from "@/lib/api/errors";
-import { ConnectionTestResult, MCPAuthType } from "@/types/mcp-servers";
+import {
+	ConnectionTestResult,
+	MCPAuthType,
+	ServiceCredentialProvider,
+} from "@/types/mcp-servers";
 
 export type ConnectionTestStatus = "idle" | "testing" | "success" | "error";
 
@@ -24,6 +28,9 @@ export interface CandidateTestInput {
 	url: string;
 	authType: MCPAuthType;
 	apiKey?: string;
+	serviceCredentialProvider?: ServiceCredentialProvider;
+	serviceCredentialsJson?: string;
+	serviceCredentialScopes?: string[];
 }
 
 /**
@@ -81,7 +88,7 @@ export function useConnectionTest() {
 			const count = data.toolCount ?? 0;
 			setStatus("success");
 			setMessage(
-				`Connection successful — ${count} tool${count === 1 ? "" : "s"} available.`,
+				`Connection successful. ${count} tool${count === 1 ? "" : "s"} available.`,
 			);
 		} else {
 			setStatus("error");
@@ -209,6 +216,18 @@ export function useConnectionTest() {
 					apiKey:
 						input.authType === "api_key"
 							? input.apiKey || undefined
+							: undefined,
+					serviceCredentialProvider:
+						input.authType === "service_identity"
+							? input.serviceCredentialProvider
+							: undefined,
+					serviceCredentialsJson:
+						input.authType === "service_identity"
+							? input.serviceCredentialsJson
+							: undefined,
+					serviceCredentialScopes:
+						input.authType === "service_identity"
+							? input.serviceCredentialScopes
 							: undefined,
 				});
 				if (isStale()) return;

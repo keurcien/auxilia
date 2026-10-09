@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import Depends
 from sqlalchemy.exc import IntegrityError
@@ -18,7 +18,7 @@ from app.exceptions import (
 )
 from app.service import BaseService
 from app.skills.bundles import parse_skill
-from app.skills.models import SkillDB, SkillVersionDB
+from app.skills.models import SkillDB, SkillImageDB, SkillVersionDB
 from app.skills.repository import SkillRepository
 from app.skills.schemas import (
     AgentSkillResponse,
@@ -34,7 +34,18 @@ from app.skills.schemas import (
     SkillVersionInfo,
     count_scripts,
 )
+from app.teams.repository import TeamRepository
 from app.users.models import UserDB, WorkspaceRole
+from app.utils.images import ProcessedImage
+from app.visibility import (
+    ResourceVisibility,
+    audience_contains,
+    is_resource_visible,
+    is_resource_visible_to_identity,
+    validate_visibility,
+)
+from app.workspaces.dependencies import get_active_workspace_id
+from app.workspaces.repository import WorkspaceRepository
 from skillkit import Bundle, bundle_digest, diff_bundles
 
 
@@ -49,17 +60,26 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
 
     not_found_message = "Skill not found"
 
-    def __init__(self, db: AsyncSession):
-        super().__init__(db, SkillRepository(db))
+    def __init__(self, db: AsyncSession, workspace_id: UUID | None = None):
+        super().__init__(db, SkillRepository(db, workspace_id))
+        self.workspace_id = workspace_id
+        self.teams = TeamRepository(db)
 
     # -- the library ---------------------------------------------------------
 
     async def list_summaries(self, user: UserDB) -> list[SkillSummary]:
-        # Two queries for the whole library, never one per row: the rows, and
-        # every skill→agent binding grouped by skill for the avatar stacks.
+        # Batch the library, team links, and agent bindings; the visibility
+        # projection is also loaded once, never once per skill.
         rows = await self.repository.list_summaries()
+        team_ids = await self.repository.list_team_ids_for_skills(
+            [row.id for row in rows if row.visibility == ResourceVisibility.teams]
+        )
         by_skill: dict[UUID, list[SkillAgentRef]] = defaultdict(list)
-        for binding in await self.repository.list_agents_by_skill():
+        for binding in await self.repository.list_agents_by_skill(
+            user_id=user.id,
+            is_admin=user.role == WorkspaceRole.admin,
+            team_id=user.team_id,
+        ):
             by_skill[binding.skill_id].append(
                 SkillAgentRef(
                     **{k: v for k, v in binding._mapping.items() if k != "skill_id"}
@@ -67,27 +87,59 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
             )
         return [
             SkillSummary(
-                **{k: v for k, v in row._mapping.items() if k != "latest_digest"},
+                **{
+                    k: v
+                    for k, v in row._mapping.items()
+                    if k not in {"latest_digest", "agent_count"}
+                },
+                team_ids=team_ids.get(row.id, []),
                 agents=by_skill.get(row.id, []),
+                agent_count=len(by_skill.get(row.id, [])),
                 can_edit=_can_edit(row.owner_id, user)
                 and not _is_sourced(row.source_revision),
                 can_manage=_can_edit(row.owner_id, user),
                 update_available=_update_available(row.digest, row.latest_digest),
             )
             for row in rows
+            if is_resource_visible(
+                visibility=row.visibility,
+                owner_id=row.owner_id,
+                team_ids=set(team_ids.get(row.id, [])),
+                user=user,
+            )
         ]
 
     async def get(self, skill_id: UUID, user: UserDB) -> SkillResponse:
-        return await self._response(await self.get_or_404(skill_id), user)
+        row = await self.repository.get_scoped(skill_id)
+        if row is None:
+            raise NotFoundError(self.not_found_message)
+        await self._ensure_visible(row, user)
+        return await self._response(row, user)
 
     async def create(self, data: SkillSave, user: UserDB) -> SkillResponse:
         _reject_files(data)
         bundle = parse_skill(data.content, data.files)
+        visibility = data.visibility or ResourceVisibility.workspace
+        team_ids = data.team_ids or []
+        await self._validate_teams(team_ids)
+        validate_visibility(visibility, team_ids)
         await self._name_is_free(bundle.name)
         try:
+            if self.workspace_id is None:
+                raise RuntimeError("workspace_id is required to create a skill")
             row = await self.repository.create(
-                SkillCreateDB(owner_id=user.id, **_columns(bundle))
+                SkillCreateDB(
+                    workspace_id=self.workspace_id,
+                    owner_id=user.id,
+                    visibility=visibility,
+                    group=data.group,
+                    emoji=data.emoji,
+                    color=data.color,
+                    **_columns(bundle),
+                )
             )
+            if team_ids:
+                await self.repository.set_team_ids(row.id, team_ids)
         except IntegrityError as exc:
             raise _name_taken(bundle.name) from exc
         return await self._response(row, user)
@@ -95,15 +147,41 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
     async def update(
         self, skill_id: UUID, data: SkillSave, user: UserDB
     ) -> SkillResponse:
-        _reject_files(data)
         bundle = parse_skill(data.content, data.files)
         row = await self._editable(skill_id, user)
-        if _is_sourced(row.source_revision):
-            raise DomainValidationError(_repository_owns(row))
+        was_team_scoped = row.visibility == ResourceVisibility.teams
+        visibility = data.visibility or row.visibility
+        team_ids = (
+            data.team_ids
+            if data.team_ids is not None
+            else (
+                await self.repository.list_team_ids(row.id) if was_team_scoped else []
+            )
+        )
+        await self._validate_teams(team_ids)
+        validate_visibility(visibility, team_ids)
+        if data.visibility is not None or data.team_ids is not None:
+            await self._ensure_bound_agent_scopes(row, visibility, team_ids)
         if data.revision != row.revision:
             raise StaleRevisionError(
                 "This skill changed since you opened it. Reload it before saving."
             )
+        if _is_sourced(row.source_revision):
+            current = row.to_bundle()
+            if bundle.content != current.content or bundle.files != current.files:
+                raise DomainValidationError(_repository_owns(row))
+            row.sqlmodel_update(
+                {
+                    "group": data.group,
+                    "emoji": data.emoji,
+                    "color": data.color,
+                    "visibility": visibility,
+                }
+            )
+            if data.team_ids is not None:
+                await self.repository.set_team_ids(row.id, team_ids)
+            return await self._response(await self._flush(row), user)
+        _reject_files(data)
         if bundle.name != row.name:
             await self._name_is_free(bundle.name)
             if await self.repository.is_attached(row.id):
@@ -113,8 +191,47 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
                 raise DomainValidationError(
                     "Disable this skill on every agent before renaming it"
                 )
-        row.sqlmodel_update({**_columns(bundle), "revision": row.revision + 1})
+        row.sqlmodel_update(
+            {
+                **_columns(bundle),
+                "group": data.group,
+                "emoji": data.emoji,
+                "color": data.color,
+                "visibility": visibility,
+                "revision": row.revision + 1,
+            }
+        )
+        if data.team_ids is not None:
+            await self.repository.set_team_ids(row.id, team_ids)
         return await self._response(await self._flush(row), user)
+
+    async def get_image(self, skill_id: UUID, user: UserDB) -> SkillImageDB:
+        row = await self.repository.get_scoped(skill_id)
+        if row is None:
+            raise NotFoundError(self.not_found_message)
+        await self._ensure_visible(row, user)
+        image = await self.repository.get_image(skill_id)
+        if image is None:
+            raise NotFoundError("Skill image not found")
+        return image
+
+    async def set_image(
+        self, skill_id: UUID, user: UserDB, image: ProcessedImage
+    ) -> UUID:
+        await self._editable(skill_id, user)
+        revision = uuid4()
+        await self.repository.set_image(
+            skill_id,
+            data=image.data,
+            media_type=image.media_type,
+            sha256=image.sha256,
+            revision=revision,
+        )
+        return revision
+
+    async def delete_image(self, skill_id: UUID, user: UserDB) -> None:
+        await self._editable(skill_id, user)
+        await self.repository.delete_image(skill_id)
 
     async def delete(self, skill_id: UUID, user: UserDB) -> None:
         # Deleting is not editing: a sourced skill, detached or not, is
@@ -130,10 +247,13 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
 
     # -- sourced skills: the version waiting upstream -------------------------
 
-    async def diff(self, skill_id: UUID, _user: UserDB) -> SkillDiffResponse:
+    async def diff(self, skill_id: UUID, user: UserDB) -> SkillDiffResponse:
         """What adopting the newest synced version would change (skillkit's
         semantic diff). `unchanged` when nothing newer is stored."""
-        row = await self.get_or_404(skill_id)
+        row = await self.repository.get_scoped(skill_id)
+        if row is None:
+            raise NotFoundError(self.not_found_message)
+        await self._ensure_visible(row, user)
         current = Bundle(row.to_bundle().file_bytes())
         version = await self.repository.latest_version(row.id)
         if version is None or version.digest == (row.digest or current.digest):
@@ -230,11 +350,96 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
             )
         return row
 
+    async def _ensure_visible(self, row: SkillDB, user: UserDB) -> None:
+        team_ids = (
+            set(await self.repository.list_team_ids(row.id))
+            if row.visibility == ResourceVisibility.teams
+            else set()
+        )
+        if not is_resource_visible(
+            visibility=row.visibility,
+            owner_id=row.owner_id,
+            team_ids=team_ids,
+            user=user,
+        ):
+            raise NotFoundError(self.not_found_message)
+
+    async def _validate_teams(self, team_ids: list[UUID]) -> None:
+        if self.workspace_id is None:
+            raise RuntimeError("workspace_id is required")
+        for team_id in set(team_ids):
+            if (
+                await self.teams.get_in_workspace_for_key_share(
+                    team_id, self.workspace_id
+                )
+                is None
+            ):
+                raise NotFoundError("Team not found")
+
+    async def _ensure_bound_agent_scopes(
+        self, skill: SkillDB, visibility, team_ids: list[UUID]
+    ) -> None:
+        from app.agents.core.repository import AgentRepository
+
+        agents = AgentRepository(self.db, self.workspace_id)
+        for agent in await self.repository.list_bound_agents(skill.id):
+            parent_team_ids = (
+                set(await agents.get_team_ids(agent.id))
+                if agent.visibility == ResourceVisibility.teams
+                else set()
+            )
+            if not audience_contains(
+                parent_visibility=agent.visibility,
+                parent_owner_id=agent.owner_id,
+                parent_team_ids=parent_team_ids,
+                child_visibility=visibility,
+                child_owner_id=skill.owner_id,
+                child_team_ids=set(team_ids),
+            ):
+                raise DomainValidationError(
+                    f"Skill scope is incompatible with agent '{agent.name}'"
+                )
+            await self._ensure_skill_visible_to_grantees(
+                agents, agent.id, skill.owner_id, visibility, set(team_ids)
+            )
+
+    async def _ensure_skill_visible_to_grantees(
+        self,
+        agents,
+        agent_id: UUID,
+        skill_owner_id: UUID,
+        visibility,
+        team_ids: set[UUID],
+    ) -> None:
+        if self.workspace_id is None:
+            return
+        workspaces = WorkspaceRepository(self.db)
+        for grant in await agents.get_permissions(agent_id):
+            membership = await workspaces.get_membership(
+                self.workspace_id, grant.user_id
+            )
+            if membership is not None and not is_resource_visible_to_identity(
+                visibility=visibility,
+                owner_id=skill_owner_id,
+                team_ids=team_ids,
+                user_id=grant.user_id,
+                is_admin=membership.role == WorkspaceRole.admin,
+                team_id=membership.team_id,
+            ):
+                raise DomainValidationError(
+                    "Skill is not visible to every explicitly granted agent user"
+                )
+
     async def _response(self, row: SkillDB, user: UserDB) -> SkillResponse:
         bundle = row.to_bundle()
         agents = [
             SkillAgentRef(**agent._mapping)
-            for agent in await self.repository.list_agents_using(row.id)
+            for agent in await self.repository.list_agents_using(
+                row.id,
+                user_id=user.id,
+                is_admin=user.role == WorkspaceRole.admin,
+                team_id=user.team_id,
+            )
         ]
         latest = await self.repository.latest_version(row.id) if row.source_id else None
         available = (
@@ -252,8 +457,18 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
         return SkillResponse(
             id=row.id,
             owner_id=row.owner_id,
+            visibility=row.visibility,
+            team_ids=(
+                await self.repository.list_team_ids(row.id)
+                if row.visibility == ResourceVisibility.teams
+                else []
+            ),
             name=bundle.name,
             description=bundle.description,
+            group=row.group,
+            emoji=row.emoji,
+            color=row.color,
+            image_revision=row.image_revision,
             revision=row.revision,
             file_count=len(bundle.files),
             script_count=count_scripts(bundle.files),
@@ -297,6 +512,48 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
         wanted = set(skill_ids)
         if wanted - await self.repository.list_existing_ids(wanted):
             raise NotFoundError(self.not_found_message)
+        if wanted:
+            from app.agents.core.repository import AgentRepository
+
+            agents = AgentRepository(self.db, self.workspace_id)
+            agent = await agents.get_scoped(agent_id)
+            if agent is None:
+                raise NotFoundError("Agent not found")
+            agent_team_ids = (
+                set(await agents.get_team_ids(agent_id))
+                if agent.visibility == ResourceVisibility.teams
+                else set()
+            )
+            for skill_id in sorted(wanted, key=str):
+                skill = await self.repository.get_for_update(skill_id)
+                if skill is None:
+                    raise NotFoundError(self.not_found_message)
+                if not audience_contains(
+                    parent_visibility=agent.visibility,
+                    parent_owner_id=agent.owner_id,
+                    parent_team_ids=agent_team_ids,
+                    child_visibility=skill.visibility,
+                    child_owner_id=skill.owner_id,
+                    child_team_ids=(
+                        set(await self.repository.list_team_ids(skill_id))
+                        if skill.visibility == ResourceVisibility.teams
+                        else set()
+                    ),
+                ):
+                    raise DomainValidationError(
+                        f"Skill '{skill.name}' is more private than this agent"
+                    )
+                await self._ensure_skill_visible_to_grantees(
+                    agents,
+                    agent.id,
+                    skill.owner_id,
+                    skill.visibility,
+                    (
+                        set(await self.repository.list_team_ids(skill_id))
+                        if skill.visibility == ResourceVisibility.teams
+                        else set()
+                    ),
+                )
         current = await self.repository.list_attached_ids(agent_id)
         if wanted == current:
             return
@@ -375,5 +632,8 @@ def _version_bundle(version: SkillVersionDB) -> SkillBundle:
     )
 
 
-def get_skill_service(db: AsyncSession = Depends(get_db)) -> SkillService:
-    return SkillService(db)
+def get_skill_service(
+    db: AsyncSession = Depends(get_db),
+    workspace_id: UUID = Depends(get_active_workspace_id),
+) -> SkillService:
+    return SkillService(db, workspace_id)

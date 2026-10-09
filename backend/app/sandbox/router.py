@@ -24,7 +24,7 @@ async def get_sandbox_dependency(
     sandbox_id: UUID,
     service: SandboxService = Depends(get_sandbox_service),
 ) -> SandboxDB:
-    return await service.get_or_404(sandbox_id)
+    return await service.get_scoped(sandbox_id)
 
 
 @sandboxes_router.get("/", response_model=list[SandboxResponse])

@@ -6,6 +6,7 @@ from jose import JWTError, jwt
 from pwdlib import PasswordHash
 
 from app.auth.settings import auth_settings
+from app.auth.token_types import TokenKind
 
 
 password_hash = PasswordHash.recommended()
@@ -46,6 +47,7 @@ def create_access_token(user_id: UUID, expires_delta: timedelta | None = None) -
 
     to_encode = {
         "sub": str(user_id),
+        "token_type": TokenKind.session,
         "exp": expire,
         "iat": datetime.now(UTC),
     }
@@ -66,6 +68,13 @@ def decode_access_token(token: str) -> UUID | None:
             auth_settings.JWT_SECRET_KEY,
             algorithms=[auth_settings.JWT_ALGORITHM],
         )
+        token_type = payload.get("token_type")
+        # Keep pre-token-type access tokens valid during upgrades, but never
+        # accept a scoped challenge as an authenticated session.
+        if token_type != TokenKind.session and (
+            token_type is not None or payload.get("scope") is not None
+        ):
+            return None
         user_id_str: str | None = payload.get("sub")
         if user_id_str is None:
             return None

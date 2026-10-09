@@ -12,6 +12,7 @@ import {
 	SANDBOX_PROVIDER_ICONS,
 	SANDBOX_PROVIDER_LABELS,
 } from "@/lib/sandbox-providers";
+import { ServerIconTile } from "@/app/(protected)/mcp-servers/components/server-icon-tile";
 import {
 	Dialog,
 	DialogButton,
@@ -44,16 +45,12 @@ interface AvailableMCPServerCardProps {
 function AvailableMCPServerCard({ server, onAdd }: AvailableMCPServerCardProps) {
 	return (
 		<div className="flex items-center gap-3 rounded-[10px] border border-hairline bg-canvas px-4 py-3 transition-colors hover:bg-sidebar dark:bg-white/5 dark:hover:bg-white/10">
-			<Image
-				unoptimized
-				src={
-					server.iconUrl ??
-					"https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/mcp.png"
-				}
-				alt={server.name}
-				width={24}
-				height={24}
-				className="shrink-0 rounded-md"
+			<ServerIconTile
+				iconUrl={server.iconUrl}
+				serverId={server.id}
+				imageRevision={server.imageRevision}
+				name={server.name}
+				size={32}
 			/>
 			<div className="min-w-0 flex-1">
 				<h3 className="truncate text-[13.5px] font-semibold text-ink dark:text-panel-button">
@@ -94,7 +91,7 @@ function AvailableSandboxCard({
 				<h3 className="truncate text-[13.5px] font-semibold text-ink dark:text-panel-button">
 					{sandbox.name}
 				</h3>
-				<span className="font-mono text-[9.5px] font-semibold tracking-[0.06em] text-meta uppercase dark:text-panel-dim">
+				<span className="text-[9.5px] font-semibold text-meta dark:text-panel-dim">
 					{SANDBOX_PROVIDER_LABELS[sandbox.provider]}
 				</span>
 			</div>
@@ -127,8 +124,8 @@ function SandboxSection({
 
 	return (
 		<div>
-			<h3 className="mb-3 font-mono text-[10.5px] font-semibold tracking-[0.09em] text-label dark:text-panel-dim">
-				SANDBOXES
+			<h3 className="mb-3 text-[10.5px] font-semibold text-label dark:text-panel-dim">
+				Sandboxes
 			</h3>
 			<div className="content-start grid md:grid-cols-2 grid-cols-1 gap-x-2.5 gap-y-2">
 				{sandboxes.map((sandbox) => (
@@ -197,8 +194,8 @@ function MCPServerSection({
 	if (isLoading) {
 		return (
 			<div>
-				<h3 className="mb-3 font-mono text-[10.5px] font-semibold tracking-[0.09em] text-label dark:text-panel-dim">
-					MCP SERVERS
+				<h3 className="mb-3 text-[10.5px] font-semibold text-label dark:text-panel-dim">
+					MCP servers
 				</h3>
 				<div className="content-start grid md:grid-cols-2 grid-cols-1 gap-x-2.5 gap-y-2">
 					{[0, 1].map((i) => (
@@ -211,8 +208,8 @@ function MCPServerSection({
 
 	return (
 		<div>
-			<h3 className="mb-3 font-mono text-[10.5px] font-semibold tracking-[0.09em] text-label dark:text-panel-dim animate-in fade-in duration-300">
-				MCP SERVERS
+			<h3 className="mb-3 text-[10.5px] font-semibold text-label dark:text-panel-dim animate-in fade-in duration-300">
+				MCP servers
 			</h3>
 			{loadError ? (
 				<p className="text-sm text-destructive" role="alert">

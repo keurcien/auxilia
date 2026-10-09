@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { TriggerThread } from "@/types/triggers";
 import { RunTerminalStatus } from "@/types/runs";
 import * as triggersApi from "@/lib/api/resources/triggers";
+import { getWorkspaceGeneration, isCurrentWorkspaceGeneration } from "@/lib/workspace-generation";
 
 interface TriggerRunsState {
 	/** Past firings (threads) per trigger id; undefined = not fetched yet. */
@@ -16,8 +17,10 @@ interface TriggerRunsState {
 export const useTriggerRunsStore = create<TriggerRunsState>((set) => ({
 	runsByTrigger: {},
 	fetchRuns: async (triggerId) => {
+		const generation = getWorkspaceGeneration();
 		try {
 			const runs = await triggersApi.listTriggerThreads(triggerId);
+			if (!isCurrentWorkspaceGeneration(generation)) return;
 			set((state) => ({
 				runsByTrigger: { ...state.runsByTrigger, [triggerId]: runs },
 			}));

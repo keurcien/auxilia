@@ -35,6 +35,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx2
 from fastmcp.client import Client
@@ -64,6 +65,52 @@ _fastmcp_logger.propagate = True
 # https://github.com/modelcontextprotocol/ext-apps (spec 2026-01-26).
 UI_EXTENSION = "io.modelcontextprotocol/ui"
 UI_CAPABILITY = {"mimeTypes": ["text/html;profile=mcp-app"]}
+GOOGLE_WORKSPACE_MCP_HOST_SUFFIX = "mcp.googleapis.com"
+
+
+def _uses_google_workspace_status_quirk(url: str) -> bool:
+    hostname = urlsplit(url).hostname
+    return bool(hostname and hostname.endswith(GOOGLE_WORKSPACE_MCP_HOST_SUFFIX))
+
+
+async def _accept_google_workspace_jsonrpc_success(
+    response: httpx2.Response,
+) -> None:
+    """Correct Google Workspace MCP successes incorrectly sent as HTTP 403."""
+    if response.status_code != 403:
+        return
+    if not _uses_google_workspace_status_quirk(str(response.request.url)):
+        return
+
+    await response.aread()
+    try:
+        payload = response.json()
+    except ValueError:
+        return
+    if (
+        isinstance(payload, dict)
+        and payload.get("jsonrpc") == "2.0"
+        and "result" in payload
+        and "error" not in payload
+    ):
+        logger.warning(
+            "Treating Google Workspace MCP HTTP 403 as success because it "
+            "contains a successful JSON-RPC result"
+        )
+        response.status_code = 200
+
+
+def _google_workspace_httpx_client_factory(
+    headers: dict[str, str] | None = None,
+    timeout: httpx2.Timeout | None = None,
+    auth: httpx2.Auth | None = None,
+    **_kwargs: Any,
+) -> httpx2.AsyncClient:
+    client = create_mcp_http_client(headers=headers, timeout=timeout, auth=auth)
+    client.event_hooks.setdefault("response", []).append(
+        _accept_google_workspace_jsonrpc_success
+    )
+    return client
 
 
 @dataclass(frozen=True)
@@ -120,9 +167,17 @@ class SessionKeepingTransport(StreamableHttpTransport):
         read_timeout_seconds = session_kwargs.get("read_timeout_seconds")
         if read_timeout_seconds is not None:
             timeout = httpx2.Timeout(30.0, read=read_timeout_seconds)
-        http_client = create_mcp_http_client(
-            headers=dict(self.headers), timeout=timeout, auth=self.auth
-        )
+        if self.httpx_client_factory is not None:
+            http_client = self.httpx_client_factory(
+                headers=dict(self.headers),
+                timeout=timeout,
+                auth=self.auth,
+                follow_redirects=True,
+            )  # type: ignore[call-arg]
+        else:
+            http_client = create_mcp_http_client(
+                headers=dict(self.headers), timeout=timeout, auth=self.auth
+            )
         self._session_id = None
         http_client.event_hooks.setdefault("response", []).append(
             self._capture_session_id
@@ -152,7 +207,17 @@ def build_client(spec: ConnectionSpec, *, terminate_on_close: bool = True) -> Cl
     transport_cls: type[StreamableHttpTransport] = (
         StreamableHttpTransport if terminate_on_close else SessionKeepingTransport
     )
-    transport = transport_cls(spec.url, headers=spec.headers, auth=spec.auth)
+    httpx_client_factory = (
+        _google_workspace_httpx_client_factory
+        if _uses_google_workspace_status_quirk(spec.url)
+        else None
+    )
+    transport = transport_cls(
+        spec.url,
+        headers=spec.headers,
+        auth=spec.auth,
+        httpx_client_factory=httpx_client_factory,
+    )
     client: Client[Any] = Client(
         transport, extensions=[advertise(UI_EXTENSION, UI_CAPABILITY)]
     )

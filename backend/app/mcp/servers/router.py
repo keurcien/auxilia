@@ -1,7 +1,7 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, File, Header, Query, UploadFile
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.mcp_servers.service import (
@@ -10,6 +10,7 @@ from app.agents.mcp_servers.service import (
 )
 from app.auth.dependencies import get_current_user, require_admin
 from app.database import get_db
+from app.mcp.client.auth import oauth_callback_url
 from app.mcp.client.connectivity import is_authorized, probe_candidate, test_connection
 from app.mcp.servers.models import MCPServerDB
 from app.mcp.servers.schemas import (
@@ -23,12 +24,14 @@ from app.mcp.servers.schemas import (
     MCPServerCreate,
     MCPServerPatch,
     MCPServerResponse,
+    OAuthCallbackInfo,
     OAuthSecretHint,
     OfficialMCPServerResponse,
     ToolsListed,
 )
 from app.mcp.servers.service import MCPServerService, get_mcp_server_service
 from app.users.models import UserDB
+from app.utils.images import image_response, process_uploaded_image
 
 
 router = APIRouter(prefix="/mcp-servers", tags=["mcp-servers"])
@@ -36,27 +39,28 @@ router = APIRouter(prefix="/mcp-servers", tags=["mcp-servers"])
 
 async def get_mcp_server_dependency(
     server_id: UUID,
+    current_user: UserDB = Depends(get_current_user),
     service: MCPServerService = Depends(get_mcp_server_service),
 ) -> MCPServerDB:
-    return await service.get(server_id)
+    return await service.get_visible(server_id, current_user)
 
 
 @router.post("/", response_model=MCPServerResponse, status_code=201)
 async def create_mcp_server(
     server: MCPServerCreate,
-    _current_user: UserDB = Depends(require_admin),
+    current_user: UserDB = Depends(require_admin),
     service: MCPServerService = Depends(get_mcp_server_service),
 ) -> MCPServerResponse:
-    created = await service.create(server)
+    created = await service.create(server, current_user.id)
     return await service.to_response(created)
 
 
 @router.get("/", response_model=list[MCPServerResponse])
 async def get_mcp_servers(
-    _current_user: UserDB = Depends(get_current_user),
+    current_user: UserDB = Depends(get_current_user),
     service: MCPServerService = Depends(get_mcp_server_service),
 ) -> list[MCPServerResponse]:
-    return await service.list_responses()
+    return await service.list_responses(current_user)
 
 
 @router.get("/official", response_model=list[OfficialMCPServerResponse])
@@ -78,14 +82,58 @@ async def sync_official_catalog(
     return await service.sync_catalog()
 
 
+@router.get("/oauth/callback-info", response_model=OAuthCallbackInfo)
+async def get_oauth_callback_info(
+    _current_user: UserDB = Depends(get_current_user),
+) -> OAuthCallbackInfo:
+    return OAuthCallbackInfo(callback_url=oauth_callback_url())
+
+
 @router.get("/{server_id}", response_model=MCPServerResponse)
 async def get_mcp_server(
     server_id: UUID,
-    _current_user: UserDB = Depends(get_current_user),
+    current_user: UserDB = Depends(get_current_user),
     service: MCPServerService = Depends(get_mcp_server_service),
 ) -> MCPServerResponse:
-    server = await service.get(server_id)
+    server = await service.get_visible(server_id, current_user)
     return await service.to_response(server)
+
+
+@router.get("/{server_id}/image", response_class=Response)
+async def get_mcp_server_image(
+    server_id: UUID,
+    if_none_match: str | None = Header(default=None),
+    current_user: UserDB = Depends(get_current_user),
+    service: MCPServerService = Depends(get_mcp_server_service),
+) -> Response:
+    await service.get_visible(server_id, current_user)
+    image = await service.get_image(server_id)
+    return image_response(
+        data=image.data,
+        media_type=image.media_type,
+        digest=image.sha256,
+        if_none_match=if_none_match,
+    )
+
+
+@router.put("/{server_id}/image")
+async def set_mcp_server_image(
+    server_id: UUID,
+    file: UploadFile = File(...),
+    _current_user: UserDB = Depends(require_admin),
+    service: MCPServerService = Depends(get_mcp_server_service),
+) -> dict[str, UUID]:
+    image = await process_uploaded_image(file)
+    return {"image_revision": await service.set_image(server_id, image)}
+
+
+@router.delete("/{server_id}/image", status_code=204)
+async def delete_mcp_server_image(
+    server_id: UUID,
+    _current_user: UserDB = Depends(require_admin),
+    service: MCPServerService = Depends(get_mcp_server_service),
+) -> None:
+    await service.delete_image(server_id)
 
 
 @router.patch("/{server_id}", response_model=MCPServerResponse)
@@ -94,8 +142,26 @@ async def update_mcp_server(
     server_update: MCPServerPatch,
     _current_user: UserDB = Depends(require_admin),
     service: MCPServerService = Depends(get_mcp_server_service),
+    db: AsyncSession = Depends(get_db),
 ) -> MCPServerResponse:
+    before = await service.get_scoped_for_update(server_id)
+    previous_auth_type = before.auth_type
+    previous_url = before.url
+    oauth_credentials_changed = bool(
+        server_update.oauth_client_id
+        or server_update.oauth_client_secret
+        or server_update.oauth_token_endpoint_auth_method
+    )
     updated = await service.update(server_id, server_update)
+    # Commit before purging Redis: that side effect cannot be rolled back.
+    await db.commit()
+    await service.purge_invalidated_state(
+        server_id,
+        updated,
+        previous_auth_type,
+        previous_url,
+        oauth_credentials_changed=oauth_credentials_changed,
+    )
     return await service.to_response(updated)
 
 
@@ -132,6 +198,7 @@ async def delete_mcp_server(
     _current_user: UserDB = Depends(require_admin),
     service: MCPServerService = Depends(get_mcp_server_service),
     bindings: AgentMCPServerService = Depends(get_agent_mcp_server_service),
+    db: AsyncSession = Depends(get_db),
 ) -> None:
     """Composes the two modules in the right direction: bindings belong to
     agents, so they are detached there; the server row is deleted here. Both
@@ -140,6 +207,9 @@ async def delete_mcp_server(
     if detach_agents:
         await bindings.detach_server(server_id)
     await service.delete(server_id)
+    # Commit before purging Redis: the server deletion is the source of truth.
+    await db.commit()
+    await service.purge_server_data(server_id)
 
 
 @router.post("/{server_id}/reset", status_code=200)
@@ -186,9 +256,10 @@ async def revoke_mcp_server_connection(
 async def oauth_callback(
     code: str = Query(..., description="Authorization code from OAuth provider"),
     state: str = Query(..., description="State parameter from OAuth provider"),
+    current_user: UserDB = Depends(get_current_user),
     service: MCPServerService = Depends(get_mcp_server_service),
 ):
-    result = await service.handle_oauth_callback(code, state)
+    result = await service.handle_oauth_callback(code, state, current_user.id)
     return JSONResponse(status_code=200, content=result)
 
 
@@ -196,7 +267,7 @@ async def oauth_callback(
 async def list_tools(
     mcp_server: MCPServerDB = Depends(get_mcp_server_dependency),
     current_user: UserDB = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    service: MCPServerService = Depends(get_mcp_server_service),
 ) -> ToolsListed | AuthorizationRequired:
     """List available tools from an MCP server.
 
@@ -212,7 +283,7 @@ async def list_tools(
     server that holds the standalone GET stream can still wedge this call for
     ~15s. See `mcp-streamable-http-deadlock.md`.
     """
-    return await MCPServerService(db).list_tools(mcp_server, str(current_user.id))
+    return await service.list_tools(mcp_server, str(current_user.id))
 
 
 @router.get("/{server_id}/is-connected")
@@ -230,7 +301,12 @@ async def is_connected(
     credential check, not a handshake — use ``/test-connection`` to probe the
     server itself.
     """
-    connected = await is_authorized(mcp_server, str(current_user.id), refresh=refresh)
+    connected = await is_authorized(
+        mcp_server,
+        str(current_user.id),
+        mcp_server.workspace_id,
+        refresh=refresh,
+    )
     return {"connected": connected}
 
 
@@ -245,7 +321,12 @@ async def test_connection_candidate(
     be validated before saving (it is per-user and interactive).
     """
     return await probe_candidate(
-        payload.url, payload.auth_type, api_key=payload.api_key
+        payload.url,
+        payload.auth_type,
+        api_key=payload.api_key,
+        service_credential_provider=payload.service_credential_provider,
+        service_credentials_json=payload.service_credentials_json,
+        service_credential_scopes=payload.service_credential_scopes,
     )
 
 
@@ -260,4 +341,6 @@ async def test_saved_connection(
     Returns discovered tools on success; an unauthorized OAuth server is
     reported as ``oauth_required`` with the ``auth_url`` to open, not a 401.
     """
-    return await test_connection(mcp_server, str(current_user.id), db)
+    return await test_connection(
+        mcp_server, str(current_user.id), mcp_server.workspace_id, db
+    )

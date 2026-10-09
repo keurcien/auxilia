@@ -4,14 +4,18 @@ import { useState, useMemo, useRef, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
-import { ArchiveIcon, History, Pencil, Play } from "lucide-react";
-import { AGENT_COLORS, agentPastel } from "@/lib/colors";
+import { ArchiveIcon, Copy, History, Pencil, Play } from "lucide-react";
+import { toast } from "sonner";
+import { AGENT_COLORS } from "@/lib/colors";
 import { useTheme } from "next-themes";
 import { Agent } from "@/types/agents";
 import AgentToolList from "../[id]/components/agent-tool-list";
 import AgentSubagentList from "../[id]/components/agent-subagent-list";
 import AgentSkillList from "../[id]/components/agent-skill-list";
-import AgentTagsPanel from "./agent-tags-panel";
+import AgentSlackBotCard from "../[id]/components/agent-slack-bot-card";
+import { GroupPicker } from "@/components/ui/group-picker";
+import { VisibilityPicker } from "@/components/ui/visibility-picker";
+import { VisibilityBadge } from "@/components/ui/visibility-badge";
 import AgentPermissionsPanel from "./agent-permissions-panel";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { getApiErrorMessage } from "@/lib/api/errors";
@@ -19,9 +23,18 @@ import { useAgentsStore } from "@/stores/agents-store";
 import { useThreadsStore } from "@/stores/threads-store";
 import { useSkillsStore } from "@/stores/skills-store";
 import { useUserStore } from "@/stores/user-store";
+import { useConfirmDialog } from "@/components/providers/dialog-provider";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { UnderlineTabs } from "@/components/ui/underline-tabs";
 import { cn } from "@/lib/utils";
+import { groupOptions } from "@/lib/groups";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
+import * as agentsApi from "@/lib/api/resources/agents";
+import { AgentAvatar } from "@/components/ui/agent-avatar";
+import {
+	ImageFilePreview,
+	ImageUpload,
+} from "@/components/ui/image-upload";
 import {
 	AgentFormState,
 	defaultAgentForm,
@@ -30,7 +43,7 @@ import {
 	toPayload,
 } from "../lib/agent-form";
 
-type EditorTab = "instructions" | "tags" | "permissions";
+type EditorTab = "instructions" | "permissions";
 
 const slugify = (name: string) =>
 	name.trim().toLowerCase().replace(/\s+/g, "-") || "…";
@@ -55,12 +68,14 @@ export default function AgentEditor({
 	onCancel,
 }: AgentEditorProps) {
 	const router = useRouter();
+	const confirmDialog = useConfirmDialog();
 	const { resolvedTheme } = useTheme();
 	const updateAgent = useAgentsStore((state) => state.updateAgent);
 	const createAgent = useAgentsStore((state) => state.createAgent);
 	const saveAgentConfig = useAgentsStore((state) => state.saveAgentConfig);
 	const refreshAgent = useAgentsStore((state) => state.refreshAgent);
 	const archiveAgent = useAgentsStore((state) => state.archiveAgent);
+	const workspaceAgents = useAgentsStore((state) => state.agents);
 	const markAgentArchived = useThreadsStore((state) => state.markAgentArchived);
 	const user = useUserStore((state) => state.user);
 	const isAdmin = user?.role === "admin";
@@ -70,8 +85,6 @@ export default function AgentEditor({
 		agent?.currentUserPermission === "owner" ||
 		agent?.currentUserPermission === "admin";
 
-	// Tag assignment is an instant action (own PATCH, not part of the config
-	// draft), so it stays available to editors even in read mode.
 	const canEditAgent =
 		!agent ||
 		canManageAgent ||
@@ -84,6 +97,10 @@ export default function AgentEditor({
 		[agent],
 	);
 	const [form, setForm] = useState<AgentFormState>(initialForm);
+	const availableGroups = useMemo(
+		() => groupOptions(workspaceAgents),
+		[workspaceAgents],
+	);
 	// Enabled skills whose scripts need the sandbox — the tool list warns
 	// before the sandbox is removed while any exist.
 	const scriptSkillNames = useMemo(
@@ -104,6 +121,12 @@ export default function AgentEditor({
 	const [isSaving, setIsSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+	const [imageFile, setImageFile] = useState<File | null>(null);
+	const [removeImage, setRemoveImage] = useState(false);
+	const currentImageUrl =
+		agent?.id && agent.imageRevision
+			? agentsApi.agentImageUrl(agent.id, agent.imageRevision)
+			: null;
 	// The "Add tool" dialog is controlled here so the Skills section can
 	// open it ("Turn on code execution") on a skill whose scripts need one.
 	const [addToolOpen, setAddToolOpen] = useState(false);
@@ -116,17 +139,24 @@ export default function AgentEditor({
 		setForm((prev) => ({ ...prev, [key]: value }));
 	};
 
-	const isDirty = !readOnly && isFormDirty(form, initialForm);
+	const isDirty =
+		!readOnly &&
+		(isFormDirty(form, initialForm) || imageFile !== null || removeImage);
+	useUnsavedChangesWarning(isDirty);
 	// Read by callbacks that fire after an await (the subagent gate waits for
 	// the agents store), so they see the draft as it is then, not at click.
 	const isDirtyRef = useRef(isDirty);
-	isDirtyRef.current = isDirty;
-	const canSave = Boolean(form.name.trim() && form.instructions.trim());
+	useEffect(() => {
+		isDirtyRef.current = isDirty;
+	}, [isDirty]);
+	const canSave = Boolean(
+		form.name.trim() &&
+			form.instructions.trim() &&
+			(form.visibility !== "teams" || form.teamIds.length > 0),
+	);
 
 	const tabs: { key: EditorTab; label: string }[] = [
 		{ key: "instructions", label: "Instructions" },
-		// Tags/permissions act on the saved agent — they appear once it exists.
-		...(agent ? [{ key: "tags" as const, label: "Tags" }] : []),
 		...(agent && canManageAgent
 			? [{ key: "permissions" as const, label: "Permissions" }]
 			: []),
@@ -151,18 +181,6 @@ export default function AgentEditor({
 		};
 	}, [showEmojiPicker]);
 
-	// Warn before leaving the page with unsaved changes.
-	useEffect(() => {
-		if (!isDirty) return;
-		const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-			event.preventDefault();
-		};
-		window.addEventListener("beforeunload", handleBeforeUnload);
-		return () => {
-			window.removeEventListener("beforeunload", handleBeforeUnload);
-		};
-	}, [isDirty]);
-
 	const handleEmojiClick = (emojiData: EmojiClickData) => {
 		setField("emoji", emojiData.emoji);
 		setShowEmojiPicker(false);
@@ -173,9 +191,24 @@ export default function AgentEditor({
 		setIsSaving(true);
 		setError(null);
 		try {
-			const saved: Agent = agent
+			let imageUploadFailed = false;
+			let saved: Agent = agent
 				? await saveAgentConfig(agent.id, toPayload(form))
 				: await createAgent(toPayload(form));
+			if (imageFile) {
+				try {
+					const revision = await agentsApi.uploadAgentImage(saved.id, imageFile);
+					saved = { ...saved, imageRevision: revision };
+					updateAgent(saved.id, saved);
+				} catch (imageError) {
+					if (agent) throw imageError;
+					imageUploadFailed = true;
+				}
+			} else if (removeImage && saved.imageRevision) {
+				await agentsApi.deleteAgentImage(saved.id);
+				saved = { ...saved, imageRevision: null };
+				updateAgent(saved.id, saved);
+			}
 
 			// Refresh agents whose isSubagent flag changed with this save.
 			const before = new Set(initialForm.subagentIds);
@@ -187,6 +220,9 @@ export default function AgentEditor({
 			// Supervisor links changed: the linked agents' `isSubagent` flag did too.
 			await Promise.all(affected.map((id) => refreshAgent(id).catch(() => {})));
 
+			if (imageUploadFailed) {
+				toast.warning("Agent created, but its image could not be uploaded.");
+			}
 			onSaved(saved);
 		} catch (err) {
 			setError(getApiErrorMessage(err, "Failed to save the agent."));
@@ -195,8 +231,16 @@ export default function AgentEditor({
 		}
 	};
 
-	const handleDiscard = () => {
-		if (isDirty && !confirm("Discard unsaved changes?")) {
+	const handleDiscard = async () => {
+		if (
+			isDirty &&
+			!(await confirmDialog({
+				title: "Discard unsaved changes?",
+				description: "Your edits will be lost and cannot be recovered.",
+				confirmLabel: "Discard changes",
+				destructive: true,
+			}))
+		) {
 			return;
 		}
 		onCancel();
@@ -204,7 +248,15 @@ export default function AgentEditor({
 
 	const handleArchive = async () => {
 		if (!agent) return;
-		if (!confirm("Are you sure you want to archive this agent?")) {
+		if (
+			!(await confirmDialog({
+				title: "Archive this agent?",
+				description:
+					"The agent will no longer be available for new chats. You can restore it later from the archived agents view.",
+				confirmLabel: "Archive agent",
+				destructive: true,
+			}))
+		) {
 			return;
 		}
 		try {
@@ -217,6 +269,74 @@ export default function AgentEditor({
 		}
 	};
 
+	const handleDuplicate = async () => {
+		if (!agent) return;
+		if (
+			isDirty &&
+			!(await confirmDialog({
+				title: "Duplicate the saved agent?",
+				description:
+					"Your unsaved edits are not part of the saved configuration. Duplicating will leave this draft and copy the last saved version.",
+				confirmLabel: "Duplicate saved version",
+			}))
+		) {
+			return;
+		}
+		try {
+			const source = await agentsApi.getAgent(agent.id);
+			let created = await createAgent({
+				name: `${source.name} copy`,
+				instructions: source.instructions ?? "",
+				description: source.description ?? null,
+				group: source.group ?? null,
+				emoji: source.emoji ?? null,
+				color: source.color ?? null,
+				visibility: source.visibility,
+				teamIds: source.teamIds,
+				mcpServers: source.mcpServers.map((server) => ({
+					mcpServerId: server.mcpServerId,
+					tools: server.tools ?? null,
+				})),
+				sandboxes: (source.sandboxes ?? []).map((sandbox) => ({
+					sandboxId: sandbox.sandboxId,
+					tools: sandbox.tools,
+				})),
+				subagentIds: source.subagents.map((subagent) => subagent.id),
+				skillIds: (source.skills ?? []).map((skill) => skill.id),
+			});
+			let imageCopyFailed = false;
+			if (source.imageRevision) {
+				try {
+					const response = await fetch(
+						agentsApi.agentImageUrl(source.id, source.imageRevision),
+					);
+					if (!response.ok) throw new Error("Could not read the agent image.");
+					const blob = await response.blob();
+					const image = new File([blob], "agent-image", {
+						type: blob.type || "image/png",
+					});
+					const revision = await agentsApi.uploadAgentImage(created.id, image);
+					created = { ...created, imageRevision: revision };
+					updateAgent(created.id, created);
+				} catch {
+					imageCopyFailed = true;
+				}
+			}
+			if (imageCopyFailed) {
+				toast.warning(
+					`Duplicated as “${created.name}”, but its image could not be copied.`,
+				);
+			} else {
+				toast.success(`Duplicated as “${created.name}”.`);
+			}
+			router.push(`/agents/${created.id}`);
+		} catch (error: unknown) {
+			toast.error(
+				getApiErrorMessage(error, "Could not duplicate the agent."),
+			);
+		}
+	};
+
 	const fieldInputClass =
 		"w-full rounded-lg border border-input bg-card px-3 py-[7px] outline-none transition-[border-color,box-shadow] placeholder:text-meta dark:placeholder:text-panel-dim focus:border-petrol focus:shadow-[0_0_0_3px_rgba(22,96,110,0.10)] disabled:cursor-default";
 
@@ -224,7 +344,7 @@ export default function AgentEditor({
 		<div className="flex h-svh min-w-0 flex-1 flex-col bg-background animate-in fade-in duration-300">
 			{/* Header bar */}
 			<header className="flex h-[52px] shrink-0 items-center gap-3 border-b border-border pl-14 pr-4 md:px-7">
-				<span className="min-w-0 truncate font-mono text-[11.5px] text-meta dark:text-panel-dim">
+				<span className="min-w-0 truncate text-[11.5px] text-meta dark:text-panel-dim">
 					<Link href="/agents" className="transition-colors hover:text-foreground">
 						agents
 					</Link>{" "}
@@ -234,8 +354,8 @@ export default function AgentEditor({
 					</span>
 				</span>
 				{isDirty && (
-					<span className="rounded-[4px] bg-warning-bg px-2 py-0.5 font-mono text-[10px] font-semibold tracking-[0.05em] text-warning">
-						UNSAVED
+					<span className="rounded-[4px] bg-warning-bg px-2 py-0.5 text-[10px] font-semibold text-warning">
+						Unsaved
 					</span>
 				)}
 				<div className="ml-auto flex shrink-0 items-center gap-2">
@@ -246,7 +366,7 @@ export default function AgentEditor({
 							onClick={() => {
 								router.push(`/agents/${agent.id}/chat`);
 							}}
-							className="flex cursor-pointer items-center gap-1.5 rounded-[7px] border border-input bg-card px-4 py-2 text-[13px] font-semibold text-petrol transition-colors hover:border-border-hover"
+							className="flex cursor-pointer items-center gap-1.5 rounded-[7px] border border-input bg-card px-4 py-2 text-[13px] font-semibold text-petrol transition-colors hover:border-border-hover dark:border-white/10 dark:bg-white/[0.03] dark:text-panel-terminal dark:hover:border-white/20"
 						>
 							<Play className="size-3" fill="currentColor" />
 							Test in chat
@@ -266,7 +386,9 @@ export default function AgentEditor({
 							<button
 								type="button"
 								disabled={isSaving}
-								onClick={handleDiscard}
+							onClick={() => {
+								void handleDiscard();
+							}}
 								className="cursor-pointer rounded-[7px] border border-input bg-card px-4 py-2 text-[13px] font-semibold text-foreground transition-colors hover:border-border-hover disabled:cursor-not-allowed disabled:opacity-50"
 							>
 								{agent ? "Discard" : "Cancel"}
@@ -295,6 +417,13 @@ export default function AgentEditor({
 									icon: <History />,
 									onClick: () => {
 										router.push(`/agents/${agent.id}/threads`);
+									},
+								},
+								{
+									label: "Duplicate",
+									icon: <Copy />,
+									onClick: () => {
+										void handleDuplicate();
 									},
 								},
 								{ separator: true as const },
@@ -328,29 +457,65 @@ export default function AgentEditor({
 							readOnly ? "items-center" : "items-start",
 						)}
 					>
-						<div className="relative shrink-0">
+						<div
+							className={cn(
+								"relative shrink-0",
+								!readOnly && "mt-[22px]",
+							)}
+						>
 							<button
 								type="button"
 								disabled={readOnly}
-								title={readOnly ? undefined : "Change emoji"}
+								aria-label={readOnly ? undefined : "Change agent identity"}
+								title={readOnly ? undefined : "Change identity"}
 								onClick={() => {
 									setShowEmojiPicker(!showEmojiPicker);
 								}}
-								style={{ background: agentPastel(form.color).pill }}
-								className="flex size-12 cursor-pointer items-center justify-center rounded-[10px] text-2xl shadow-[inset_0_0_0_1px_rgba(16,24,32,0.06)] transition-opacity hover:opacity-90 disabled:cursor-default disabled:hover:opacity-100"
+								className="relative flex size-12 cursor-pointer items-center justify-center rounded-full text-2xl transition-opacity hover:opacity-90 disabled:cursor-default disabled:hover:opacity-100"
 							>
-								{form.emoji}
+								{imageFile ? (
+									<ImageFilePreview file={imageFile} className="rounded-full" />
+								) : (
+									<AgentAvatar
+										agentId={agent?.id}
+										name={form.name}
+										imageRevision={
+											removeImage ? null : agent?.imageRevision
+										}
+										color={form.color}
+										emoji={form.emoji}
+										size="md"
+										className="pointer-events-none size-full"
+									/>
+								)}
+								{!readOnly && (
+									<span className="absolute -bottom-[5px] -right-[5px] flex size-[18px] items-center justify-center rounded-full border border-input bg-card shadow-raised">
+										<Pencil className="size-[9px] text-subtle dark:text-panel-body" />
+									</span>
+								)}
 							</button>
-							{!readOnly && (
-								<span className="pointer-events-none absolute -bottom-[5px] -right-[5px] flex size-[18px] items-center justify-center rounded-full border border-input bg-card shadow-raised">
-									<Pencil className="size-[9px] text-subtle dark:text-panel-body" />
-								</span>
-							)}
 							{showEmojiPicker && (
 								<div
 									ref={emojiPickerRef}
 									className="absolute left-0 top-full z-50 mt-2"
 								>
+									<div className="rounded-t-lg border border-b-0 border-border bg-card p-3">
+										<ImageUpload
+											currentUrl={currentImageUrl}
+											file={imageFile}
+											removed={removeImage}
+											onFileChange={(file) => {
+												setImageFile(file);
+												if (file) setRemoveImage(false);
+											}}
+											onRemove={() => {
+												setImageFile(null);
+												setRemoveImage(Boolean(agent?.imageRevision));
+											}}
+											label="Agent image"
+											previewShape="circle"
+										/>
+									</div>
 									<EmojiPicker
 										onEmojiClick={handleEmojiClick}
 										theme={resolvedTheme === "dark" ? Theme.DARK : Theme.LIGHT}
@@ -373,6 +538,25 @@ export default function AgentEditor({
 												}`}
 											/>
 										))}
+										<label
+											title="Custom color"
+											className={cn(
+												"relative size-7 cursor-pointer overflow-hidden rounded-full bg-[conic-gradient(#e84393,#e17055,#fdcb6e,#00b894,#0984e3,#6c5ce7,#e84393)] transition-transform hover:scale-110",
+												!AGENT_COLORS.includes(form.color) &&
+													"ring-2 ring-meta ring-offset-2",
+											)}
+										>
+											<span className="absolute inset-[5px] rounded-full border border-white/80 bg-card" />
+											<input
+												type="color"
+												value={form.color}
+												aria-label="Custom agent color"
+												onChange={(event) => {
+													setField("color", event.target.value.toUpperCase());
+												}}
+												className="absolute inset-0 size-full cursor-pointer opacity-0"
+											/>
+										</label>
 									</div>
 								</div>
 							)}
@@ -381,7 +565,7 @@ export default function AgentEditor({
 							// Most viewers never edit — the identity reads as plain text,
 							// no input chrome.
 							<div className="min-w-0 flex-1">
-								<h1 className="w-full truncate py-[2px] font-mono text-[19px] font-semibold tracking-[-0.01em] text-petrol">
+								<h1 className="w-full truncate py-[2px] text-[19px] font-semibold tracking-[-0.01em] text-petrol">
 									{form.name}
 								</h1>
 								{/* Always rendered so the name keeps the same vertical
@@ -389,34 +573,68 @@ export default function AgentEditor({
 								<p className="w-full truncate py-[2px] text-[13.5px] font-medium text-label dark:text-muted-foreground">
 									{form.description || "\u00A0"}
 								</p>
+								<VisibilityBadge
+									visibility={form.visibility}
+									teamIds={form.teamIds}
+									showTeams
+								/>
 							</div>
 						) : (
-							<div className="flex min-w-0 flex-1 flex-col gap-1.5">
-								<input
-									type="text"
-									maxLength={255}
-									value={form.name}
-									onChange={(e) => {
-										setField("name", e.target.value);
+							<div className="flex min-w-0 flex-1 flex-col gap-4">
+								<label>
+									<span className="mb-1.5 block text-[11px] font-semibold text-label dark:text-muted-foreground">
+										Name
+									</span>
+									<input
+										type="text"
+										maxLength={255}
+										value={form.name}
+										onChange={(e) => {
+											setField("name", e.target.value);
+										}}
+										placeholder="Agent name"
+										className={cn(
+											fieldInputClass,
+											"text-[15px] font-semibold tracking-[-0.01em] text-petrol dark:text-panel-terminal",
+										)}
+									/>
+								</label>
+								<label>
+									<span className="mb-1.5 block text-[11px] font-semibold text-label dark:text-muted-foreground">
+										Description{" "}
+										<span className="font-normal text-meta">(Optional)</span>
+									</span>
+									<textarea
+										maxLength={255}
+										value={form.description}
+										onChange={(e) => {
+											setField("description", e.target.value);
+										}}
+										placeholder="Describe what this agent does"
+										rows={3}
+										className={cn(
+											fieldInputClass,
+											"resize-y py-2.5 text-[13px] font-medium leading-5 text-body dark:text-panel-body",
+										)}
+									/>
+								</label>
+								<GroupPicker
+									value={form.group}
+									groups={availableGroups}
+									onChange={(group) => {
+										setField("group", group);
 									}}
-									placeholder="Agent name"
-									className={cn(
-										fieldInputClass,
-										"font-mono text-[15px] font-semibold tracking-[-0.01em] text-petrol",
-									)}
 								/>
-								<input
-									type="text"
-									maxLength={255}
-									value={form.description}
-									onChange={(e) => {
-										setField("description", e.target.value);
+								<VisibilityPicker
+									visibility={form.visibility}
+									teamIds={form.teamIds}
+									onChange={(visibility, teamIds) => {
+										setForm((current) => ({
+											...current,
+											visibility,
+											teamIds,
+										}));
 									}}
-									placeholder="Describe what this agent does"
-									className={cn(
-										fieldInputClass,
-										"text-[13px] font-medium text-body dark:text-panel-body",
-									)}
 								/>
 							</div>
 						)}
@@ -452,12 +670,9 @@ export default function AgentEditor({
 										setField("instructions", e.target.value);
 									}}
 									placeholder="Enter instructions for your agent…"
-									className="min-h-[300px] w-full flex-1 resize-none rounded-lg border border-input bg-sidebar p-4 font-mono text-[12.5px] leading-[1.7] text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-meta dark:placeholder:text-panel-dim focus:border-petrol focus:shadow-[0_0_0_3px_rgba(22,96,110,0.10)] [scrollbar-width:thin]"
+									className="min-h-[300px] w-full flex-1 resize-none rounded-lg border border-input bg-sidebar p-4 text-[12.5px] leading-[1.7] text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-meta dark:placeholder:text-panel-dim focus:border-petrol focus:shadow-[0_0_0_3px_rgba(22,96,110,0.10)] [scrollbar-width:thin]"
 								/>
 							))}
-						{tab === "tags" && agent && (
-							<AgentTagsPanel agent={agent} canAssign={canEditAgent} />
-						)}
 						{tab === "permissions" && agent && canManageAgent && (
 							<AgentPermissionsPanel
 								agentId={agent.id}
@@ -521,6 +736,12 @@ export default function AgentEditor({
 							setAddToolOpen(true);
 						}}
 					/>
+					{agent && (
+						<AgentSlackBotCard
+							agentId={agent.id}
+							canManage={canManageAgent}
+						/>
+					)}
 					{isAdmin && (
 						<AgentSubagentList
 							readOnly={readOnly}
@@ -532,7 +753,15 @@ export default function AgentEditor({
 								setField("subagentIds", subagentIds);
 							}}
 							confirmLeave={() =>
-								!isDirtyRef.current || confirm("Discard unsaved changes?")
+								!isDirtyRef.current
+									? Promise.resolve(true)
+									: confirmDialog({
+											title: "Discard unsaved changes?",
+											description:
+												"Opening the subagent will leave this page and discard your edits.",
+											confirmLabel: "Discard and leave",
+											destructive: true,
+										})
 							}
 						/>
 					)}

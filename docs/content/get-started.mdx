@@ -22,11 +22,15 @@ Copy the example environment file:
 cp .env.example .env
 ```
 
-The minimum configuration you need is a database URL, a JWT secret, an MCP encryption salt, and at least one LLM API key:
+The minimum configuration you need is a database connection, a JWT secret, an MCP encryption salt, and at least one LLM API key:
 
 ```env
 # Database
-DATABASE_URL=postgresql+psycopg://auxilia:auxilia@localhost:5432/auxilia
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=auxilia
+DB_PASSWORD=auxilia
+DB_NAME=auxilia
 
 # Redis
 REDIS_HOST=localhost
@@ -41,13 +45,11 @@ OPENROUTER_API_KEY=...
 XIAOMI_API_KEY=...
 METAAI_API_KEY=...
 
-# Auth
-JWT_SECRET_KEY=change-me-in-production
-COOKIE_SECURE=false
 FRONTEND_URL=http://localhost:3000
 
-# MCP API-key encryption
-SALT=changeme
+BACKEND_JWT_SECRET_KEY=change-me-in-production
+BACKEND_COOKIE_SECURE=false
+BACKEND_ENCRYPTION_SALT=changeme
 
 # Backend URL — used by the Next.js proxy (server-side only)
 BACKEND_URL=http://localhost:8000
@@ -56,28 +58,13 @@ BACKEND_URL=http://localhost:8000
 Optional:
 
 ```env
-# Google OAuth sign-in
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
-GOOGLE_REDIRECT_URI=http://localhost:8000/auth/google/callback
-AUTH_GOOGLE_EXCLUSIVE=false    # set to true to disable password signup
-
-# Langfuse observability (see /deploy/langfuse)
-LANGFUSE_PUBLIC_KEY=pk-...
-LANGFUSE_SECRET_KEY=sk-...
-LANGFUSE_BASE_URL=https://cloud.langfuse.com
-LANGFUSE_TIMEOUT=15
-
-# Slack integration (see /deploy/slack)
-SLACK_SIGNING_SECRET=
-SLACK_BOT_TOKEN=xoxb-...
-
 # Tuning & debugging
 LOG_LEVEL=INFO                 # set to DEBUG for verbose logs (MCP traces, etc.)
-RECURSION_LIMIT=100            # max LangGraph steps per agent invocation
+AGENT_RECURSION_LIMIT=100      # max LangGraph steps per agent invocation
 ```
 
-Code-execution sandboxes are not environment variables — they are added later in the UI (step 7).
+Google OAuth, Slack, Langfuse and code-execution sandboxes are configured later
+in the Settings UI rather than through environment variables.
 
 ## 3. Start the stack
 
@@ -108,6 +95,9 @@ make up              # docker compose up -d
 
 Open [http://localhost:3000](http://localhost:3000). The first account you create becomes the workspace **admin**. After that, new accounts require an invite from an admin.
 
+Optional workspace integrations are now available under **Settings →
+Authentication**, **Notifications**, and **Observability**.
+
 ## 5. Enable a model
 
 Go to **Settings → Models** and enable at least one model of the provider you configured. Starring one makes it the workspace default, preselected in every chat.
@@ -130,7 +120,7 @@ If you want agents to run code, go to **Settings → Sandboxes**, click **Add sa
 ## 8. Create an agent
 
 1. Go to **Agents** → **New agent**
-2. Set a name, emoji, and color
+2. Set a name and avatar (uploaded image, or an emoji and color)
 3. Write the instructions (system prompt)
 4. Click **Add tool** to bind one or more MCP servers — and a sandbox, if you added one
 5. Click **Create agent**, then **Test in chat** and send a message

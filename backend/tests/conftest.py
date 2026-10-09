@@ -22,7 +22,7 @@ except ValidationError:
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fakeredis import FakeServer, aioredis
@@ -36,6 +36,26 @@ from app.auth.dependencies import (
 from app.database import get_db
 from app.main import app
 from app.users.models import UserDB, WorkspaceRole
+from app.workspaces.models import WorkspaceMembershipDB
+
+
+TEST_WORKSPACE_ID = UUID("00000000-0000-4000-8000-000000000001")
+
+
+@pytest.fixture
+def workspace_id() -> UUID:
+    return TEST_WORKSPACE_ID
+
+
+def _set_workspace(user: UserDB, role: WorkspaceRole) -> UserDB:
+    user.set_workspace_membership(
+        WorkspaceMembershipDB(
+            workspace_id=TEST_WORKSPACE_ID,
+            user_id=user.id,
+            role=role,
+        )
+    )
+    return user
 
 
 @pytest.fixture(autouse=True)
@@ -87,9 +107,9 @@ def current_user():
         id=uuid4(),
         name="Test User",
         email="test@test.com",
-        role=WorkspaceRole.member,
         password_hash="hashed_password",
     )
+    _set_workspace(user, WorkspaceRole.member)
     app.dependency_overrides[get_current_user] = lambda: user
     yield user
     app.dependency_overrides.clear()
@@ -102,9 +122,9 @@ def editor_user():
         id=uuid4(),
         name="Editor User",
         email="editor@test.com",
-        role=WorkspaceRole.editor,
         password_hash="hashed_password",
     )
+    _set_workspace(user, WorkspaceRole.editor)
     app.dependency_overrides[get_current_user] = lambda: user
     app.dependency_overrides[require_editor] = lambda: user
     yield user
@@ -118,9 +138,9 @@ def admin_user():
         id=uuid4(),
         name="Admin User",
         email="admin@test.com",
-        role=WorkspaceRole.admin,
         password_hash="hashed_password",
     )
+    _set_workspace(user, WorkspaceRole.admin)
     app.dependency_overrides[get_current_user] = lambda: user
     app.dependency_overrides[require_editor] = lambda: user
     app.dependency_overrides[require_admin] = lambda: user

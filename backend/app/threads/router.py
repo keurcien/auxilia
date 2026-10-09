@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.core.service import AgentService, get_agent_service
+from app.agents.models import EffectivePermission
 from app.auth.dependencies import detect_auth_method, get_current_user
 from app.database import get_db
 from app.exceptions import PermissionDeniedError
@@ -44,10 +45,11 @@ async def read_thread(
 @router.get("/")
 async def get_threads(
     page: PageParams = Depends(),
+    q: str | None = None,
     current_user: UserDB = Depends(get_current_user),
     service: ThreadService = Depends(get_thread_service),
 ) -> Page[ThreadResponse]:
-    return await service.list(current_user.id, page)
+    return await service.list(current_user.id, page, query=q)
 
 
 @router.post("/")
@@ -56,11 +58,20 @@ async def create_thread(
     request: Request,
     current_user: UserDB = Depends(get_current_user),
     service: ThreadService = Depends(get_thread_service),
+    agent_service: AgentService = Depends(get_agent_service),
 ) -> ThreadResponse:
     source = (
         ThreadSource.web
         if detect_auth_method(request, current_user) == "cookie"
         else ThreadSource.api
+    )
+    await agent_service.require_permission(
+        thread_data.agent_id,
+        at_least=EffectivePermission.member,
+        action="use this agent",
+        user_id=current_user.id,
+        user_role=current_user.role,
+        user_team_id=current_user.team_id,
     )
     return await service.create(thread_data, current_user.id, source)
 

@@ -108,8 +108,8 @@ export default function RunHistoryCard({
 								aria-hidden="true"
 								className="size-[13px] shrink-0 animate-spin text-success"
 							/>
-							<span className="font-mono text-[10.5px] font-semibold tracking-[0.05em] text-success">
-								RUNNING
+							<span className="text-[10.5px] font-semibold text-success">
+								Running
 							</span>
 						</span>
 					) : (
@@ -133,8 +133,8 @@ export default function RunHistoryCard({
 										strokeLinejoin="round"
 									/>
 								</svg>
-								<span className="font-mono text-[10.5px] font-semibold tracking-[0.05em] text-[#B04A3A]">
-									FAILED
+								<span className="text-[10.5px] font-semibold text-[#B04A3A]">
+									Failed
 								</span>
 							</span>
 						)

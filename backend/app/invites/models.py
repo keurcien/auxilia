@@ -14,6 +14,7 @@ class InviteStatus(str, Enum):
 
 
 class InviteCreateDB(SQLModel):
+    workspace_id: UUID
     email: str
     role: str
     token: str
@@ -25,6 +26,12 @@ class InviteCreateDB(SQLModel):
 class InviteDB(BaseDBModel, table=True):
     __tablename__ = "invites"
 
+    workspace_id: UUID = Field(
+        foreign_key="workspaces.id",
+        ondelete="CASCADE",
+        nullable=False,
+        index=True,
+    )
     email: str = Field(max_length=255, index=True)
     role: str = Field(default="member", nullable=False)
     token: str = Field(unique=True, index=True)

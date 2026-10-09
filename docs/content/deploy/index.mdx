@@ -12,7 +12,7 @@ If you only need a quick local run to try the product, head to **[Get Started](/
 | ------------ | -------------------------- | --------------------------------------------- |
 | **Backend**  | FastAPI + LangGraph        | Agent runtime, MCP client, auth, API          |
 | **Web**      | Next.js 16 + React 19      | User interface and backend proxy              |
-| **Database** | PostgreSQL 17 + Redis 7    | Persistence, checkpoints, OAuth token storage |
+| **Database** | PostgreSQL 17 + Redis 7    | Persistence, uploaded images, checkpoints, OAuth token storage |
 | **Sandbox**  | OpenSandbox, Daytona or Cloud Run (optional) | Isolated code execution for agents |
 
 The repository ships with everything you need to build and run these:
@@ -44,4 +44,4 @@ Alembic migrations run automatically at backend startup (`alembic upgrade head` 
 
 ## Reverse proxy / HTTPS
 
-The web container listens on port 3000 and proxies `/api/backend/*` to the backend on port 8000. Put a TLS-terminating reverse proxy in front (Cloud Run, Nginx, Caddy, Cloudflare, …) and set `COOKIE_SECURE=true`, `FRONTEND_URL=https://your-domain`.
+The web container listens on port 3000 and proxies `/api/backend/*` to the backend on port 8000. Put a TLS-terminating reverse proxy in front (Cloud Run, Nginx, Caddy, Cloudflare, …) and set `BACKEND_COOKIE_SECURE=true`, `FRONTEND_URL=https://your-domain`.

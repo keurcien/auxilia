@@ -1,6 +1,7 @@
 import { MCPServer } from "./mcp-servers";
 import { SandboxProviderType } from "./sandboxes";
 import { AgentSkill } from "./skills";
+import type { ResourceVisibility } from "./visibility";
 
 export type ToolStatus = "always_allow" | "needs_approval" | "disabled";
 
@@ -27,6 +28,7 @@ export interface BoundAgent {
 	name: string;
 	emoji: string | null;
 	color: string | null;
+	imageRevision?: string | null;
 }
 
 export type AgentPermission = "owner" | "admin" | "editor" | "member";
@@ -35,17 +37,39 @@ export type AgentPermission = "owner" | "admin" | "editor" | "member";
 export const canConfigureAgent = (permission?: AgentPermission | null): boolean =>
 	permission === "owner" || permission === "admin" || permission === "editor";
 
+/** Bot credentials remain server-side; this is the safe agent settings projection. */
+export interface AgentSlackBotSettings {
+	workspaceEnabled: boolean;
+	enabled: boolean;
+	requireMentionInThreads: boolean;
+	showToolCallouts: boolean;
+	isConfigured: boolean;
+	botTokenLast4: string | null;
+	hasSigningSecret: boolean;
+	slackTeamId: string | null;
+	slackTeamName: string | null;
+	botUserId: string | null;
+	botName: string | null;
+	eventsUrl: string;
+	interactionsUrl: string;
+	manifest: Record<string, unknown>;
+}
+
+export interface AgentSlackBotSettingsUpdate {
+	enabled: boolean;
+	requireMentionInThreads: boolean;
+	showToolCallouts: boolean;
+	botToken?: string;
+	signingSecret?: string;
+}
+
 export interface SubagentInfo {
 	id: string;
 	name: string;
 	emoji?: string | null;
 	color?: string | null;
+	imageRevision?: string | null;
 	description?: string | null;
-}
-
-export interface AgentTag {
-	id: string;
-	name: string;
 }
 
 export interface AgentOwner {
@@ -53,6 +77,7 @@ export interface AgentOwner {
 	name?: string | null;
 	email?: string | null;
 	pictureUrl?: string | null;
+	imageRevision?: string | null;
 }
 
 export interface Agent {
@@ -64,6 +89,7 @@ export interface Agent {
 	ownerId: string;
 	emoji?: string | null;
 	color?: string | null;
+	imageRevision?: string | null;
 	description?: string | null;
 	isArchived: boolean;
 	mcpServers: AgentMCPServer[];
@@ -72,7 +98,9 @@ export interface Agent {
 	/** Skills enabled on the agent. Detail responses only, like sandboxes. */
 	skills?: AgentSkill[];
 	subagents: SubagentInfo[];
-	tag?: AgentTag | null;
+	group?: string | null;
+	visibility: ResourceVisibility;
+	teamIds: string[];
 	owner?: AgentOwner | null;
 	isSubagent: boolean;
 	currentUserPermission?: AgentPermission | null;

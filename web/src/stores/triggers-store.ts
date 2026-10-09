@@ -7,6 +7,7 @@ import {
 } from "@/types/triggers";
 import { createOnce } from "@/lib/api/once";
 import * as triggersApi from "@/lib/api/resources/triggers";
+import { getWorkspaceGeneration, isCurrentWorkspaceGeneration } from "@/lib/workspace-generation";
 
 interface TriggersState {
 	triggers: Trigger[];
@@ -23,10 +24,14 @@ export const useTriggersStore = create<TriggersState>((set, get) => {
 	// One request even when several components mount before the first load
 	// resolves (sidebar count + triggers page).
 	const load = createOnce(async () => {
+		const generation = getWorkspaceGeneration();
 		try {
 			const triggers = await triggersApi.listTriggers();
-			set({ triggers, isInitialized: true });
+			if (isCurrentWorkspaceGeneration(generation)) {
+				set({ triggers, isInitialized: true });
+			}
 		} catch (error) {
+			if (!isCurrentWorkspaceGeneration(generation)) return;
 			console.error("Error fetching triggers:", error);
 			set({ isInitialized: true });
 			throw error;

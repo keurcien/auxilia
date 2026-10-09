@@ -150,12 +150,12 @@ def test_list_sandbox_agents_requires_admin_before_looking_the_sandbox_up(
 ):
     """A non-admin gets 403 whether or not the sandbox exists — the lookup
     runs after the gate, so ids cannot be probed by 404 vs 403."""
-    sandbox_service.get_or_404.side_effect = NotFoundError("Sandbox not found")
+    sandbox_service.get_scoped.side_effect = NotFoundError("Sandbox not found")
 
     response = client.get(f"/sandboxes/{uuid4()}/agents")
 
     assert response.status_code == 403
-    sandbox_service.get_or_404.assert_not_called()
+    sandbox_service.get_scoped.assert_not_called()
 
 
 def test_list_sandbox_agents(client, sandbox_service, agent_service, admin_user):
@@ -173,14 +173,14 @@ def test_list_sandbox_agents(client, sandbox_service, agent_service, admin_user)
     [agent] = response.json()
     assert agent["id"] == str(agent_id)
     assert agent["name"] == "Python developer"
-    sandbox_service.get_or_404.assert_awaited_once_with(sandbox_id)
+    sandbox_service.get_scoped.assert_awaited_once_with(sandbox_id)
     agent_service.list_for_sandbox.assert_awaited_once_with(sandbox_id)
 
 
 def test_list_sandbox_agents_unknown_sandbox_is_404(
     client, sandbox_service, agent_service, admin_user
 ):
-    sandbox_service.get_or_404.side_effect = NotFoundError("Sandbox not found")
+    sandbox_service.get_scoped.side_effect = NotFoundError("Sandbox not found")
 
     response = client.get(f"/sandboxes/{uuid4()}/agents")
 

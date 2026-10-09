@@ -20,13 +20,13 @@ import { requiresStaticOAuthCredentials } from "../lib/mcp-server-create-form";
 
 function CatalogCard({
 	server,
-	isAdded,
+	configuredCount,
 	isPending,
 	disabled,
 	onAdd,
 }: {
 	server: OfficialMCPServer;
-	isAdded: boolean;
+	configuredCount: number;
 	isPending: boolean;
 	/** Any add in flight locks every card — prevents duplicate submissions. */
 	disabled: boolean;
@@ -56,22 +56,25 @@ function CatalogCard({
 			<p className="m-0 min-h-[7.5em] flex-1 text-[12.5px] leading-[1.5] text-subtle line-clamp-5 dark:text-panel-body">
 				{server.description || "No description provided."}
 			</p>
-			<div className="flex items-center justify-end">
-				{isAdded ? (
+			<div className="flex items-center gap-3">
+				{configuredCount > 0 && (
 					<span className="inline-flex items-center gap-1.5 rounded-[7px] bg-hover px-[13px] py-1.5 text-[12.5px] font-semibold text-meta dark:bg-white/10 dark:text-panel-dim">
-						✓ Added
+						{configuredCount} configured
 					</span>
-				) : (
-					<button
-						type="button"
-						disabled={disabled}
-						onClick={onAdd}
-						className="inline-flex cursor-pointer items-center gap-1.5 rounded-[7px] bg-petrol px-[15px] py-1.5 text-[12.5px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-default disabled:opacity-60"
-					>
-						{isPending && <Loader2 className="size-3 animate-spin" />}
-						{isPending ? "Adding…" : "Add"}
-					</button>
 				)}
+				<button
+					type="button"
+					disabled={disabled}
+					onClick={onAdd}
+					className="ml-auto inline-flex cursor-pointer items-center gap-1.5 rounded-[7px] bg-petrol px-[15px] py-1.5 text-[12.5px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-default disabled:opacity-60"
+				>
+					{isPending && <Loader2 className="size-3 animate-spin" />}
+					{isPending
+						? "Adding…"
+						: configuredCount > 0
+							? "Add another"
+							: "Add"}
+				</button>
 			</div>
 		</div>
 	);
@@ -87,8 +90,7 @@ export default function AddMCPServerPage() {
 	);
 	const [isLoading, setIsLoading] = useState(true);
 	const [searchQuery, setSearchQuery] = useState("");
-	// Catalog entries are file rows with no id — `url` is their identity.
-	const [addedUrls, setAddedUrls] = useState<Set<string>>(new Set());
+	const [addedCounts, setAddedCounts] = useState<Map<string, number>>(new Map());
 	const [pendingUrl, setPendingUrl] = useState<string | null>(null);
 	const [submitError, setSubmitError] = useState<string | null>(null);
 	const [forbiddenOpen, setForbiddenOpen] = useState(false);
@@ -146,7 +148,11 @@ export default function AddMCPServerPage() {
 				description: server.description || undefined,
 				iconUrl: server.iconUrl || undefined,
 			});
-			setAddedUrls((prev) => new Set(prev).add(server.url));
+			setAddedCounts((previous) => {
+				const next = new Map(previous);
+				next.set(server.url, (next.get(server.url) ?? 0) + 1);
+				return next;
+			});
 			toast.success(`${server.name} added to the workspace`);
 		} catch (error: unknown) {
 			if (error instanceof Object && "status" in error && error.status === 403) {
@@ -183,16 +189,30 @@ export default function AddMCPServerPage() {
 						Add an MCP server
 					</h1>
 					<p className="mt-2 max-w-[620px] text-[15px] leading-[1.6] text-body dark:text-panel-body text-pretty">
-						Pick a server from the official catalog — endpoint and auth come
-						pre-configured — or connect your own.
+						Pick a server from the official catalog, endpoint and auth come
+						pre-configured, or connect your own.
 					</p>
 
-					<SearchBar
-						placeholder="Search the catalog…"
-						value={searchQuery}
-						onChange={setSearchQuery}
-						className="mt-6 max-w-[420px]"
-					/>
+					<div className="mt-6 flex flex-col gap-3.5 md:flex-row md:items-start">
+						<SearchBar
+							placeholder="Search the catalog…"
+							value={searchQuery}
+							onChange={setSearchQuery}
+							className="w-full md:max-w-[420px] [&_input]:h-10"
+						/>
+						<Link
+							href="/mcp-servers/add/custom"
+							className="group flex h-10 w-full items-center gap-2.5 rounded-[7px] border border-dashed border-input px-2.5 transition-colors hover:border-petrol hover:bg-sidebar md:ml-auto md:max-w-[420px] dark:border-white/15 dark:hover:bg-white/5"
+						>
+							<span className="flex size-[26px] shrink-0 items-center justify-center rounded-[7px] bg-petrol-tint text-petrol">
+								<Plus className="size-[14px]" />
+							</span>
+							<span className="min-w-0 flex-1 truncate text-[13px] font-bold tracking-[-0.01em] text-foreground">
+								Add a custom server
+							</span>
+							<ChevronRight className="size-4 text-meta transition-colors group-hover:text-foreground" />
+						</Link>
+					</div>
 
 					{submitError && (
 						<div className="mt-4">
@@ -217,7 +237,10 @@ export default function AddMCPServerPage() {
 										<CatalogCard
 											key={server.url}
 											server={server}
-											isAdded={server.isInstalled || addedUrls.has(server.url)}
+											configuredCount={
+												(server.installedCount ?? 0) +
+												(addedCounts.get(server.url) ?? 0)
+											}
 											isPending={pendingUrl === server.url}
 											disabled={pendingUrl !== null}
 											onAdd={() => {
@@ -236,24 +259,6 @@ export default function AddMCPServerPage() {
 						</>
 					)}
 
-					<Link
-						href="/mcp-servers/add/custom"
-						className="group mt-[26px] flex items-center gap-3.5 rounded-[14px] border border-dashed border-input px-5 py-[18px] transition-colors hover:border-petrol hover:bg-sidebar dark:border-white/15 dark:hover:bg-white/5"
-					>
-						<span className="flex size-[38px] shrink-0 items-center justify-center rounded-[10px] bg-petrol-tint text-petrol">
-							<Plus className="size-[17px]" />
-						</span>
-						<span className="min-w-0 flex-1">
-							<span className="block text-[14.5px] font-bold tracking-[-0.01em] text-foreground">
-								Add a custom server
-							</span>
-							<span className="mt-0.5 block text-[12.5px] text-subtle dark:text-panel-body">
-								Connect any remote MCP endpoint — you configure the address and
-								authentication yourself.
-							</span>
-						</span>
-						<ChevronRight className="size-4 text-meta transition-colors group-hover:text-foreground" />
-					</Link>
 				</div>
 			</div>
 

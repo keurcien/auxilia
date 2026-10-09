@@ -41,7 +41,7 @@ servers:
       Cloud site and compatible external tools. Once configured, it enables those
       tools to interact with Jira, Compass, and Confluence data in real-time. This
       functionality is powered by secure OAuth 2.1 authorization, which ensures
-      all actions respect the user’s existing access controls.
+      all actions respect the user's existing access controls.
 
   - name: BigQuery
     url: "https://bigquery.googleapis.com/mcp"
@@ -72,7 +72,7 @@ servers:
     description: >-
       Once set up, your AI can create new empty designs, autofill templates with
       your content, find your existing designs, and export them as PDFs or images.
-      It's an easy way to speed up creative tasks—no coding required.
+      It's an easy way to speed up creative tasks, no coding required.
 
   - name: Cloud Logging
     url: "https://logging.googleapis.com/mcp"
@@ -80,7 +80,9 @@ servers:
     icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/cloud-logging.png"
     supports_dcr: false
     description: >-
-      The Cloud Logging remote MCP server lets agents and API applications interact with your log entries. The Cloud Logging remote MCP server is enabled when you enable the Cloud Logging API.
+      The Cloud Logging remote MCP server lets agents and API applications
+      interact with your log entries. The Cloud Logging remote MCP server is
+      enabled when you enable the Cloud Logging API.
 
   - name: DeepWiki
     url: "https://mcp.deepwiki.com/mcp"
@@ -187,7 +189,7 @@ servers:
       natural-language instructions.
 
   - name: Pennylane
-    url: "https://app.pennylane.com/mcp/messages"
+    url: "https://app.pennylane.com/mcp"
     auth_type: oauth2
     icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/pennylane.png"
     supports_dcr: true
@@ -207,6 +209,17 @@ servers:
       turning conversations into structured, CRM-ready data. Its read-only MCP
       server lets an AI assistant search and retrieve meeting videos, transcripts,
       participants, comments, and usage insights from a Praiz workspace.
+
+  - name: Puppetflow
+    url: "https://mcp.puppetflow.com/mcp"
+    auth_type: oauth2
+    icon_url: "https://puppetflow.com/favicon/favicon-196x196.png"
+    supports_dcr: true
+    description: >-
+      Puppetflow is a browser automation platform for building code and visual
+      workflows. Its MCP server lets AI assistants search, author, publish, and
+      run flows, inspect runs and artifacts, and manage workspace automation
+      through each user's existing permissions.
 
   - name: Sentry
     url: "https://mcp.sentry.dev/mcp"
@@ -229,6 +242,15 @@ servers:
       and sending messages, managing canvases, and managing users. Each of these
       tools provides useful functionality for interacting with Slack; combine them
       for comprehensive integrations that grasp your team's context and history.
+
+  - name: Slides
+    url: "https://slidesmcp.googleapis.com/mcp/v1"
+    auth_type: oauth2
+    icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/slides.png"
+    supports_dcr: false
+    description: >-
+      Google Slides offers a remote Model Context Protocol (MCP) server that
+      allows AI agents to securely interact with Google Slides data.
 
   - name: Stripe
     url: "https://mcp.stripe.com"
@@ -260,13 +282,17 @@ servers:
       structured content from URLs, and map or crawl websites, returning clean,
       LLM-ready results.
 
-  - name: Team Tailor
+  - name: Teamtailor
     url: "https://mcp.teamtailor.com/mcp"
     auth_type: oauth2
     icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/teamtailor.png"
     supports_dcr: true
     description: >-
-      Connect AI assistants like ChatGPT and Claude to your Teamtailor account using the Model Context Protocol (MCP). Once connected, you can use your AI assistant to interact with Teamtailor using natural language. Ask questions, complete recruitment tasks, and streamline everyday workflows based on your existing Teamtailor permissions.
+      Connect AI assistants like ChatGPT and Claude to your Teamtailor account
+      using the Model Context Protocol (MCP). Once connected, you can use your AI
+      assistant to interact with Teamtailor using natural language. Ask questions,
+      complete recruitment tasks, and streamline everyday workflows based on your
+      existing Teamtailor permissions.
 
   - name: TikTok
     url: "https://business-api.tiktok.com/open_mcp/tt-ads-mcp-layer"
@@ -274,12 +300,10 @@ servers:
     icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/tiktok.png"
     supports_dcr: true
     description: >-
-      TikTok for Business MCP Server is a standardized bridge built on the Model Context Protocol (MCP) that enables developers and advertisers to connect AI agents directly to the TikTok Ads platform. By exposing core advertising functions — campaign management, performance reporting, audience configuration, and creative operations — as a set of reliable, production-ready tools, the MCP Server allows AI agents to manage, optimize, and report on TikTok advertising through simple, structured instructions.
-
-  - name: Slides
-    url: "https://slidesmcp.googleapis.com/mcp/v1"
-    auth_type: oauth2
-    icon_url: "https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/slides.png"
-    supports_dcr: false
-    description: >-
-      Google Slides offers a remote Model Context Protocol (MCP) server that allows AI agents to securely interact with Google Slides data.
+      TikTok for Business MCP Server is a standardized bridge built on the Model
+      Context Protocol (MCP) that enables developers and advertisers to connect
+      AI agents directly to the TikTok Ads platform. By exposing core advertising
+      functions (campaign management, performance reporting, audience
+      configuration, and creative operations) as a set of reliable,
+      production-ready tools, the MCP Server allows AI agents to manage, optimize,
+      and report on TikTok advertising through simple, structured instructions.

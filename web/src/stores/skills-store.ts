@@ -10,6 +10,7 @@ import {
 	SkillSummary,
 } from "@/types/skills";
 import * as skillsApi from "@/lib/api/resources/skills";
+import { getWorkspaceGeneration, isCurrentWorkspaceGeneration } from "@/lib/workspace-generation";
 
 interface SkillsState {
 	skills: SkillSummary[];
@@ -18,6 +19,7 @@ interface SkillsState {
 	getSkill: (id: string) => Promise<Skill>;
 	createSkill: (payload: SkillSave) => Promise<Skill>;
 	updateSkill: (id: string, payload: SkillSave) => Promise<Skill>;
+	setSkillImageRevision: (id: string, revision: string | null) => void;
 	deleteSkill: (id: string) => Promise<void>;
 	/** Sourced skills: what the newest synced version changes, and adopting it. */
 	getSkillDiff: (id: string) => Promise<SkillDiff>;
@@ -32,6 +34,10 @@ interface SkillsState {
 	planSync: (id: string) => Promise<SkillSyncPlan>;
 	syncSource: (id: string) => Promise<SkillSource>;
 	deleteSource: (id: string) => Promise<void>;
+	deleteSources: (ids: string[]) => Promise<{
+		results: PromiseSettledResult<void>[];
+		refreshError: unknown;
+	}>;
 }
 
 const summaryOf = (skill: Skill): SkillSummary => {
@@ -59,10 +65,11 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
 			return;
 		}
 		const ticket = ++skillsLoad;
+		const generation = getWorkspaceGeneration();
 		try {
 			const skills = await skillsApi.listSkills();
+			if (!isCurrentWorkspaceGeneration(generation)) return;
 			if (ticket === skillsLoad) set({ skills, isInitialized: true });
-			else set({ isInitialized: true });
 		} catch (error) {
 			// Deliberately *not* marking it initialized: a failed load that
 			// claimed to be done left the nav count at 0 and made every later
@@ -88,6 +95,13 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
 		}));
 		return updated;
 	},
+	setSkillImageRevision: (id, revision) => {
+		set((state) => ({
+			skills: state.skills.map((skill) =>
+				skill.id === id ? { ...skill, imageRevision: revision } : skill,
+			),
+		}));
+	},
 	deleteSkill: async (id) => {
 		await skillsApi.deleteSkill(id);
 		set((state) => ({
@@ -111,10 +125,11 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
 			return;
 		}
 		const ticket = ++sourcesLoad;
+		const generation = getWorkspaceGeneration();
 		try {
 			const sources = await skillsApi.listSkillSources();
+			if (!isCurrentWorkspaceGeneration(generation)) return;
 			if (ticket === sourcesLoad) set({ sources, sourcesInitialized: true });
-			else set({ sourcesInitialized: true });
 		} catch (error) {
 			// Deliberately *not* marking it initialized: a failed load that
 			// claimed to be done left the nav count at 0 and made every later
@@ -149,5 +164,25 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
 			sources: state.sources.filter((source) => source.id !== id),
 		}));
 		await get().fetchSkills(true);
+	},
+	deleteSources: async (ids) => {
+		const results = await Promise.allSettled(
+			ids.map((id) => skillsApi.deleteSkillSource(id)),
+		);
+		const removed = new Set(
+			ids.filter((_, index) => results.at(index)?.status === "fulfilled"),
+		);
+		let refreshError: unknown = null;
+		if (removed.size > 0) {
+			set((state) => ({
+				sources: state.sources.filter((source) => !removed.has(source.id)),
+			}));
+			try {
+				await get().fetchSkills(true);
+			} catch (error) {
+				refreshError = error;
+			}
+		}
+		return { results, refreshError };
 	},
 }));

@@ -90,7 +90,12 @@ describe("auth resource", () => {
 		expect(api.post).toHaveBeenCalledWith("/auth/setup", setup);
 		await authApi.getInviteInfo("tok");
 		expect(api.get).toHaveBeenCalledWith("/auth/invite/tok");
-		const accept = { token: "tok", password: "pw", name: "A" };
+		const accept = {
+			token: "tok",
+			password: "pw",
+			firstName: "Ada",
+			lastName: "Lovelace",
+		};
 		await authApi.acceptInvite(accept);
 		expect(api.post).toHaveBeenCalledWith("/auth/invite/accept", accept);
 	});

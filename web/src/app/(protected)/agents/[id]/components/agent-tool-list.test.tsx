@@ -365,7 +365,7 @@ describe("agent tool map persistence", () => {
 			/>,
 		);
 		// The single rendered card holds the pill — no scoping needed.
-		expect(await screen.findByText("CONNECTED")).toBeInTheDocument();
+		expect(await screen.findByText("Connected")).toBeInTheDocument();
 		unmount();
 
 		mockApi({ connected: false, tools: [] });
@@ -375,6 +375,6 @@ describe("agent tool map persistence", () => {
 				initialServers={[{ mcpServerId: SERVER.id, tools: null }]}
 			/>,
 		);
-		expect(await screen.findByText("NOT CONNECTED")).toBeInTheDocument();
+		expect(await screen.findByText("Not connected")).toBeInTheDocument();
 	});
 });

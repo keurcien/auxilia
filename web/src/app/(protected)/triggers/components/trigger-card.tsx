@@ -1,14 +1,17 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import {
 	Clock,
+	Copy,
 	MoreVertical,
 	Pause,
 	Pencil,
 	Play,
 	Trash2,
 	TriangleAlert,
+	Webhook,
 } from "lucide-react";
 import { Trigger } from "@/types/triggers";
 import { describeSchedule, parseCronExpression } from "@/lib/triggers/schedule";
@@ -17,14 +20,29 @@ import { useAgentsStore } from "@/stores/agents-store";
 import { useTriggersStore } from "@/stores/triggers-store";
 import { useRunTrigger } from "@/hooks/use-run-trigger";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
+import { VisibilityBadge } from "@/components/ui/visibility-badge";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
+import { SelectableLeading } from "@/components/ui/selectable-leading";
 
 interface TriggerCardProps {
 	trigger: Trigger;
 	onDelete: (id: string) => void;
+	onDuplicate: (trigger: Trigger) => void;
+	canCreate: boolean;
+	selected: boolean;
+	selectionMode: boolean;
+	onToggleSelection: (shiftKey: boolean) => void;
 }
 
-export default function TriggerCard({ trigger, onDelete }: TriggerCardProps) {
+export default function TriggerCard({
+	trigger,
+	onDelete,
+	onDuplicate,
+	canCreate,
+	selected,
+	selectionMode,
+	onToggleSelection,
+}: TriggerCardProps) {
 	const router = useRouter();
 	const updateTrigger = useTriggersStore((state) => state.updateTrigger);
 	const runTrigger = useRunTrigger();
@@ -32,12 +50,17 @@ export default function TriggerCard({ trigger, onDelete }: TriggerCardProps) {
 		state.agents.find((a) => a.id === trigger.agentId),
 	);
 
-	const frequency = describeSchedule(parseCronExpression(trigger.cronExpression));
+	const frequency =
+		trigger.triggerType === "schedule"
+			? describeSchedule(parseCronExpression(trigger.cronExpression))
+			: "Webhook";
 
 	const handleRunNow = () => {
 		runTrigger(trigger).catch((error: unknown) => {
 			console.error("Error running trigger:", error);
-			alert(getApiErrorMessage(error, "Failed to run the trigger. Please try again."));
+			toast.error(
+				getApiErrorMessage(error, "Failed to run the trigger. Please try again."),
+			);
 		});
 	};
 
@@ -45,44 +68,64 @@ export default function TriggerCard({ trigger, onDelete }: TriggerCardProps) {
 		updateTrigger(trigger.id, { isActive: !trigger.isActive }).catch(
 			(error: unknown) => {
 				console.error("Error updating trigger:", error);
-				alert("Failed to update trigger. Please try again.");
+				toast.error("Failed to update trigger. Please try again.");
 			},
 		);
 	};
 
 	return (
 		<div
-			className="group flex h-full flex-col gap-3 rounded-2xl border border-[#E9EEEB] dark:border-white/10 bg-white dark:bg-card p-5 cursor-pointer transition-[border-color,box-shadow] duration-[130ms] ease-out hover:border-[#D7E0DB] dark:hover:border-white/20 hover:shadow-[0_6px_18px_-4px_rgba(33,36,31,0.08)]"
-			onClick={() => {
+			className={`group flex h-full cursor-pointer flex-col gap-3 rounded-2xl border bg-white p-5 transition-[border-color,box-shadow] duration-[130ms] ease-out hover:shadow-[0_6px_18px_-4px_rgba(33,36,31,0.08)] dark:bg-card ${
+				selected
+					? "border-petrol/45 shadow-[inset_0_0_0_1px_rgba(38,103,81,0.12)] dark:border-petrol/60"
+					: "border-[#E9EEEB] hover:border-[#D7E0DB] dark:border-white/10 dark:hover:border-white/20"
+			}`}
+			onClick={(event) => {
+				if (selectionMode && trigger.canManage) {
+					onToggleSelection(event.shiftKey);
+					return;
+				}
 				router.push(`/triggers/${trigger.id}`);
 			}}
 		>
-			{/* Head: status dot · name · menu (on hover) */}
-			<div className="flex min-h-[30px] min-w-0 items-center gap-2.5">
-				<span
-					className={`size-2 shrink-0 rounded-full ${
-						trigger.isActive ? "bg-[#3D8B63]" : "bg-[#C2CFC8]"
-					}`}
-				/>
-				<div className="min-w-0 flex-1 truncate font-[family-name:var(--font-jakarta-sans)] text-[17px] font-bold tracking-[-0.012em] text-[#1A2620] dark:text-foreground">
+			{/* Head: metadata wraps beneath the identity on narrow cards. */}
+			<div className="flex min-h-[30px] min-w-0 flex-wrap items-center gap-2.5">
+				<SelectableLeading
+					selected={selected}
+					selectionMode={selectionMode}
+					disabled={!trigger.canManage}
+					label={`Select ${trigger.name}`}
+					onToggle={onToggleSelection}
+					className="size-[18px]"
+				>
+					<span
+						className={`block size-2 rounded-full ${
+							trigger.isActive ? "bg-[#3D8B63]" : "bg-[#C2CFC8]"
+						}`}
+					/>
+				</SelectableLeading>
+				<div className="min-w-[90px] flex-1 truncate font-[family-name:var(--font-jakarta-sans)] text-[17px] font-bold tracking-[-0.012em] text-[#1A2620] dark:text-foreground">
 					{trigger.name}
 				</div>
-				<div
-					onClick={(e) => {
-						e.stopPropagation();
-					}}
-				>
-					<DropdownMenu
-						trigger={
-							<button
-								type="button"
-								className="flex size-7 cursor-pointer items-center justify-center rounded-[7px] text-meta opacity-0 transition-all hover:bg-hover hover:text-ink group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:bg-hover data-[state=open]:opacity-100 dark:hover:bg-white/10 dark:hover:text-panel-button"
-							>
-								<MoreVertical className="size-[15px]" />
-								<span className="sr-only">Trigger options</span>
-							</button>
-						}
-						items={[
+				<div className="ml-auto flex max-w-full shrink-0 items-center gap-1.5">
+					<VisibilityBadge visibility={trigger.visibility} />
+					{trigger.canManage && (
+						<div
+							onClick={(e) => {
+								e.stopPropagation();
+							}}
+						>
+							<DropdownMenu
+								trigger={
+									<button
+										type="button"
+										className="flex size-7 cursor-pointer items-center justify-center rounded-[7px] text-meta opacity-100 transition-all hover:bg-hover hover:text-ink md:opacity-0 md:group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:bg-hover data-[state=open]:opacity-100 dark:hover:bg-white/10 dark:hover:text-panel-button"
+									>
+										<MoreVertical className="size-[15px]" />
+										<span className="sr-only">Trigger options</span>
+									</button>
+								}
+								items={[
 							{
 								label: "Run now",
 								icon: <Play />,
@@ -100,6 +143,17 @@ export default function TriggerCard({ trigger, onDelete }: TriggerCardProps) {
 									router.push(`/triggers/${trigger.id}`);
 								},
 							},
+							...(canCreate
+								? [
+										{
+											label: "Duplicate",
+											icon: <Copy />,
+											onClick: () => {
+												onDuplicate(trigger);
+											},
+										},
+									]
+								: []),
 							{ separator: true as const },
 							{
 								label: "Delete",
@@ -109,8 +163,10 @@ export default function TriggerCard({ trigger, onDelete }: TriggerCardProps) {
 									onDelete(trigger.id);
 								},
 							},
-						]}
-					/>
+								]}
+							/>
+						</div>
+					)}
 				</div>
 			</div>
 
@@ -121,30 +177,37 @@ export default function TriggerCard({ trigger, onDelete }: TriggerCardProps) {
 
 			{/* Chips: agent · frequency */}
 			<div className="flex flex-wrap gap-2 border-t border-[#F0F3F1] dark:border-white/5 pt-3.5">
-				<div className="flex h-[30px] items-center gap-1.75 rounded-full border border-[#ECF1EE] dark:border-white/10 bg-[#F4F7F5] dark:bg-white/5 pl-1.5 pr-3">
+				<div className="flex h-[30px] max-w-full min-w-0 items-center gap-1.75 rounded-[4px] border border-[#ECF1EE] bg-[#F4F7F5] pl-1.5 pr-3 dark:border-white/10 dark:bg-white/5">
 					<AgentAvatar
+						agentId={agent?.id}
+						name={agent?.name}
+						imageRevision={agent?.imageRevision}
 						color={agent?.color}
 						emoji={agent?.emoji}
 						size="xs"
 						className="size-5! text-[11px]!"
 					/>
-					<span className="font-[family-name:var(--font-dm-sans)] text-[12.5px] font-semibold text-[#4A5B53] dark:text-white/80">
+					<span className="truncate font-[family-name:var(--font-dm-sans)] text-[12.5px] font-semibold text-[#4A5B53] dark:text-white/80">
 						{agent?.name ?? "Unknown agent"}
 					</span>
 				</div>
-				<div className="flex h-[30px] items-center gap-1.5 rounded-full border border-[#ECF1EE] dark:border-white/10 bg-[#F4F7F5] dark:bg-white/5 px-3">
-					<Clock className="size-[13px] shrink-0 text-[#7C8C84] dark:text-muted-foreground" />
-					<span className="font-[family-name:var(--font-dm-sans)] text-[12.5px] font-medium text-[#4A5B53] dark:text-white/80">
+				<div className="flex h-[30px] max-w-full min-w-0 items-center gap-1.5 rounded-[4px] border border-[#ECF1EE] bg-[#F4F7F5] px-3 dark:border-white/10 dark:bg-white/5">
+					{trigger.triggerType === "schedule" ? (
+						<Clock className="size-[13px] shrink-0 text-[#7C8C84] dark:text-muted-foreground" />
+					) : (
+						<Webhook className="size-[13px] shrink-0 text-[#7C8C84] dark:text-muted-foreground" />
+					)}
+					<span className="truncate font-[family-name:var(--font-dm-sans)] text-[12.5px] font-medium text-[#4A5B53] dark:text-white/80">
 						{frequency}
 					</span>
 				</div>
 				{!trigger.modelAvailable && (
 					<div
-						className="flex h-[30px] items-center gap-1.5 rounded-full border border-[#F0E4D3] dark:border-amber-400/20 bg-[#FDF6EC] dark:bg-amber-950/30 px-3"
-						title={`The model used by this trigger (${trigger.modelDisplayName ?? trigger.modelId}) is no longer available — scheduled runs are being skipped.`}
+						className="flex h-[30px] max-w-full min-w-0 items-center gap-1.5 rounded-[4px] border border-[#F0E4D3] bg-[#FDF6EC] px-3 dark:border-amber-400/20 dark:bg-amber-950/30"
+						title={`The model used by this trigger (${trigger.modelDisplayName ?? trigger.modelId}) is no longer available, so it cannot run.`}
 					>
 						<TriangleAlert className="size-[13px] shrink-0 text-[#B4643C] dark:text-amber-400" />
-						<span className="font-[family-name:var(--font-dm-sans)] text-[12.5px] font-medium text-[#B4643C] dark:text-amber-400">
+						<span className="truncate font-[family-name:var(--font-dm-sans)] text-[12.5px] font-medium text-[#B4643C] dark:text-amber-400">
 							Model unavailable
 						</span>
 					</div>

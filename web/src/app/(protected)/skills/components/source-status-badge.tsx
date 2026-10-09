@@ -11,19 +11,19 @@ import type { SkillSourceStatus } from "@/types/skills";
 function badgeFor(status: SkillSourceStatus | null): { label: string; className: string } {
 	switch (status) {
 		case "ok":
-			return { label: "SYNCED", className: "bg-success-bg text-success dark:bg-emerald-950 dark:text-emerald-300" };
+			return { label: "Synced", className: "bg-success-bg text-success dark:bg-emerald-950 dark:text-emerald-300" };
 		case "auth":
-			return { label: "NEEDS A TOKEN", className: "bg-warning-bg text-warning" };
+			return { label: "Needs a token", className: "bg-warning-bg text-warning" };
 		case "empty":
-			return { label: "EMPTY", className: "bg-neutral-bg text-subtle dark:bg-white/10 dark:text-panel-body" };
+			return { label: "Empty", className: "bg-neutral-bg text-subtle dark:bg-white/10 dark:text-panel-body" };
 		case "unavailable":
-			return { label: "UNREACHABLE", className: "bg-warning-bg text-warning" };
+			return { label: "Unreachable", className: "bg-warning-bg text-warning" };
 		case "not_found":
-			return { label: "NOT FOUND", className: "bg-[#FBEFED] text-[#B04A3A] dark:bg-[#B04A3A]/15" };
+			return { label: "Not found", className: "bg-[#FBEFED] text-[#B04A3A] dark:bg-[#B04A3A]/15" };
 		case "invalid":
-			return { label: "INVALID", className: "bg-[#FBEFED] text-[#B04A3A] dark:bg-[#B04A3A]/15" };
+			return { label: "Invalid", className: "bg-[#FBEFED] text-[#B04A3A] dark:bg-[#B04A3A]/15" };
 		case null:
-			return { label: "NEVER SYNCED", className: "bg-neutral-bg text-subtle dark:bg-white/10 dark:text-panel-body" };
+			return { label: "Never synced", className: "bg-neutral-bg text-subtle dark:bg-white/10 dark:text-panel-body" };
 	}
 }
 
@@ -41,7 +41,7 @@ export function SourceStatusBadge({
 		<span
 			title={title ?? undefined}
 			className={cn(
-				"inline-flex shrink-0 items-center whitespace-nowrap rounded-[4px] px-2 py-[3px] font-mono text-[9.5px] font-semibold tracking-[0.05em]",
+				"inline-flex shrink-0 items-center whitespace-nowrap rounded-[4px] px-2 py-[3px] text-[9.5px] font-semibold ",
 				badge.className,
 				className,
 			)}

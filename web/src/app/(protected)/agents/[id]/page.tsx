@@ -15,5 +15,5 @@ export default async function AgentPage({ params }: AgentPageProps) {
 		cookie: cookieStore.toString(),
 	});
 
-	return <AgentDetail agent={agent} />;
+	return <AgentDetail key={agent.id} agent={agent} />;
 }

@@ -35,11 +35,17 @@ from app.mcp.client.auth import (
 )
 from app.mcp.client.connection import ConnectionSpec, open_client
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
+from app.mcp.client.service_credentials import (
+    ServiceCredentialConfig,
+    build_service_auth,
+    service_credential_config,
+)
 from app.mcp.client.storage import RedisTokenStorage, TokenStorageFactory
 from app.mcp.servers.models import (
     MCPAuthType,
     MCPServerDB,
     MCPServerOAuthCredentialsDB,
+    ServiceCredentialProvider,
 )
 from app.mcp.servers.repository import MCPServerRepository
 from app.mcp.servers.schemas import ConnectionTestResult
@@ -151,12 +157,14 @@ class CredentialCache:
 
     api_keys: dict[UUID, str | None] = field(default_factory=dict)
     oauth: dict[UUID, StaticClientCredentials | None] = field(default_factory=dict)
+    service: dict[UUID, ServiceCredentialConfig | None] = field(default_factory=dict)
     persisted: set[UUID] = field(default_factory=set)
 
 
 async def resolve_connection(
     server: MCPServerDB,
     user_id: str,
+    workspace_id: UUID,
     repository: MCPServerRepository,
     *,
     credentials: CredentialCache | None = None,
@@ -194,7 +202,9 @@ async def resolve_connection(
             )
 
         case MCPAuthType.oauth2:
-            storage = TokenStorageFactory().get_storage(user_id, str(server.id))
+            storage = TokenStorageFactory().get_storage(
+                str(workspace_id), user_id, str(server.id)
+            )
             memo = credentials.oauth if credentials is not None else None
             if memo is not None and server.id in memo:
                 static = memo[server.id]
@@ -217,6 +227,30 @@ async def resolve_connection(
                     credentials.persisted.add(server.id)
             return ConnectionSpec(url=server.url, auth=provider)
 
+        case MCPAuthType.service_identity:
+            memo = credentials.service if credentials is not None else None
+            if memo is not None and server.id in memo:
+                config = memo[server.id]
+            else:
+                row = await repository.get_service_credential(server.id)
+                config = (
+                    service_credential_config(
+                        provider=row.provider,
+                        credentials_json=decrypt_value(row.credentials_encrypted),
+                        scopes=row.scopes,
+                    )
+                    if row is not None
+                    else None
+                )
+                if memo is not None:
+                    memo[server.id] = config
+            if config is None:
+                raise DomainValidationError(
+                    f"MCP server '{server.name}' is configured for service-identity "
+                    "auth but has no credentials stored"
+                )
+            return ConnectionSpec(url=server.url, auth=build_service_auth(config))
+
         case _:
             # Unreachable while the arms above cover `MCPAuthType`. Kept as a
             # raise rather than an assertion because the value comes from a DB
@@ -234,6 +268,7 @@ async def resolve_connection(
 async def connect_to_server(
     mcp_server: MCPServerDB,
     user_id: str,
+    workspace_id: UUID,
     db: AsyncSession,
     *,
     terminate_on_close: bool = True,
@@ -262,7 +297,12 @@ async def connect_to_server(
     Raises:
         OAuthAuthorizationRequired: If OAuth authorization is needed.
     """
-    spec = await resolve_connection(mcp_server, user_id, MCPServerRepository(db))
+    spec = await resolve_connection(
+        mcp_server,
+        user_id,
+        workspace_id,
+        MCPServerRepository(db, workspace_id),
+    )
     async with open_client(spec, terminate_on_close=terminate_on_close) as client:
         yield client
 
@@ -271,7 +311,7 @@ async def connect_to_server(
 
 
 async def is_authorized(
-    server: MCPServerDB, user_id: str, *, refresh: bool = True
+    server: MCPServerDB, user_id: str, workspace_id: UUID, *, refresh: bool = True
 ) -> bool:
     """Return whether the user holds a usable credential for the server.
 
@@ -280,10 +320,16 @@ async def is_authorized(
     (the default) an expired-but-refreshable token is refreshed and still counts.
     No handshake is performed — use :func:`test_connection` for a real probe.
     """
-    if server.auth_type in (MCPAuthType.none, MCPAuthType.api_key):
+    if server.auth_type in (
+        MCPAuthType.none,
+        MCPAuthType.api_key,
+        MCPAuthType.service_identity,
+    ):
         return True
 
-    storage = TokenStorageFactory().get_storage(user_id, str(server.id))
+    storage = TokenStorageFactory().get_storage(
+        str(workspace_id), user_id, str(server.id)
+    )
     if not refresh:
         return await storage.get_tokens() is not None
 
@@ -310,7 +356,7 @@ _PROBE_CACHE_TTL_SECONDS = 30
 _CACHE_TIMEOUT_SECONDS = 2.0
 
 
-def _probe_cache_key(user_id: str, server_id: UUID) -> str:
+def _probe_cache_key(workspace_id: UUID, user_id: str, server_id: UUID) -> str:
     """Deliberately shaped `mcp:{user}:{server}:...`, matching `RedisTokenStorage`.
 
     That layout is what `TokenStorageFactory.clear_server_data` /
@@ -319,11 +365,11 @@ def _probe_cache_key(user_id: str, server_id: UUID) -> str:
     whose URL or auth type just changed — would keep reading as authorized until
     this TTL lapsed, from a cache nothing knows how to invalidate.
     """
-    return f"mcp:{user_id}:{server_id}:authprobe"
+    return f"mcp:{workspace_id}:{user_id}:{server_id}:authprobe"
 
 
 async def probe_authorization(
-    servers: Collection[MCPServerDB], user_id: str
+    servers: Collection[MCPServerDB], user_id: str, workspace_id: UUID
 ) -> dict[UUID, bool]:
     """Whether the user is authorized for each server — concurrent, fail-open,
     and memoized per (user, server).
@@ -349,7 +395,7 @@ async def probe_authorization(
     try:
         async with asyncio.timeout(_CACHE_TIMEOUT_SECONDS):
             cached = await redis.mget(
-                [_probe_cache_key(user_id, sid) for sid in unique]
+                [_probe_cache_key(workspace_id, user_id, sid) for sid in unique]
             )
     except Exception:  # noqa: BLE001 — a cache outage degrades to probing, never to failing
         logger.warning("Authorization probe cache read failed", exc_info=True)
@@ -365,7 +411,7 @@ async def probe_authorization(
 
     async def _probe(server: MCPServerDB) -> bool:
         try:
-            return await is_authorized(server, user_id)
+            return await is_authorized(server, user_id, workspace_id)
         except Exception:  # noqa: BLE001 — fail-open, see the docstring
             logger.warning(
                 "Authorization probe for MCP server %s failed; treating as authorized",
@@ -387,7 +433,7 @@ async def probe_authorization(
                 async with redis.pipeline(transaction=False) as pipe:
                     for server_id in authorized_ids:
                         pipe.set(
-                            _probe_cache_key(user_id, server_id),
+                            _probe_cache_key(workspace_id, user_id, server_id),
                             "1",
                             ex=_PROBE_CACHE_TTL_SECONDS,
                         )
@@ -398,15 +444,21 @@ async def probe_authorization(
     return results
 
 
-async def initiate_oauth(server: MCPServerDB, user_id: str, db: AsyncSession) -> None:
+async def initiate_oauth(
+    server: MCPServerDB, user_id: str, workspace_id: UUID, db: AsyncSession
+) -> None:
     """Build the OAuth provider and start authorization via metadata discovery.
 
     Raises ``OAuthAuthorizationRequired`` with the authorize URL. The run-start
     gate (``RunService``) and :func:`test_connection` / ``list_tools`` call this
     to surface an unauthorized server as a 401 before doing any work.
     """
-    storage = TokenStorageFactory().get_storage(user_id, str(server.id))
-    provider = await build_oauth_provider(server, storage, MCPServerRepository(db))
+    storage = TokenStorageFactory().get_storage(
+        str(workspace_id), user_id, str(server.id)
+    )
+    provider = await build_oauth_provider(
+        server, storage, MCPServerRepository(db, workspace_id)
+    )
     await provider.initiate_authorization()
 
 
@@ -414,7 +466,7 @@ async def initiate_oauth(server: MCPServerDB, user_id: str, db: AsyncSession) ->
 
 
 async def test_connection(
-    server: MCPServerDB, user_id: str, db: AsyncSession
+    server: MCPServerDB, user_id: str, workspace_id: UUID, db: AsyncSession
 ) -> ConnectionTestResult:
     """End-to-end connectivity test for a *saved* server.
 
@@ -423,10 +475,10 @@ async def test_connection(
     the popup flow, rather than a 401. Any other failure is captured in ``error``.
     """
     if server.auth_type == MCPAuthType.oauth2 and not await is_authorized(
-        server, user_id
+        server, user_id, workspace_id
     ):
         try:
-            await initiate_oauth(server, user_id, db)
+            await initiate_oauth(server, user_id, workspace_id, db)
         except OAuthAuthorizationRequired as e:
             return ConnectionTestResult(
                 reachable=False, oauth_required=True, auth_url=e.url
@@ -435,7 +487,7 @@ async def test_connection(
             return ConnectionTestResult(reachable=False, error=str(e))
 
     try:
-        async with connect_to_server(server, user_id, db) as client:
+        async with connect_to_server(server, user_id, workspace_id, db) as client:
             tools = await client.list_tools()
             return ConnectionTestResult(
                 reachable=True,
@@ -453,7 +505,13 @@ async def test_connection(
 
 
 async def probe_candidate(
-    url: str, auth_type: MCPAuthType, *, api_key: str | None = None
+    url: str,
+    auth_type: MCPAuthType,
+    *,
+    api_key: str | None = None,
+    service_credential_provider: ServiceCredentialProvider | None = None,
+    service_credentials_json: str | None = None,
+    service_credential_scopes: Collection[str] = (),
 ) -> ConnectionTestResult:
     """Stateless reachability probe for candidate credentials (the create/edit
     form's "Test connection"), persisting nothing.
@@ -477,13 +535,30 @@ async def probe_candidate(
             error="An API key is required to test this server.",
         )
 
-    headers = (
-        {"Authorization": f"Bearer {api_key}"}
-        if auth_type == MCPAuthType.api_key and api_key
-        else None
-    )
+    headers = None
+    auth = None
+    if auth_type == MCPAuthType.api_key and api_key:
+        headers = {"Authorization": f"Bearer {api_key}"}
+    elif auth_type == MCPAuthType.service_identity:
+        if service_credential_provider is None or not service_credentials_json:
+            return ConnectionTestResult(
+                reachable=False,
+                error="Service credentials are required to test this server.",
+            )
+        try:
+            auth = build_service_auth(
+                service_credential_config(
+                    provider=service_credential_provider,
+                    credentials_json=service_credentials_json,
+                    scopes=service_credential_scopes,
+                )
+            )
+        except DomainValidationError as exc:
+            return ConnectionTestResult(reachable=False, error=str(exc))
     try:
-        async with open_client(ConnectionSpec(url=url, headers=headers)) as client:
+        async with open_client(
+            ConnectionSpec(url=url, headers=headers, auth=auth)
+        ) as client:
             tools = await client.list_tools()
             return ConnectionTestResult(
                 reachable=True,

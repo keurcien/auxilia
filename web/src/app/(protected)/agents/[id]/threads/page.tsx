@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import * as agentsApi from "@/lib/api/resources/agents";
@@ -51,19 +51,25 @@ export default function AgentThreadsPage() {
 	const [isLoading, setIsLoading] = useState(true);
 	const [forbiddenOpen, setForbiddenOpen] = useState(false);
 	const [hasError, setHasError] = useState(false);
+	const requestIdRef = useRef(0);
 
 	useEffect(() => {
+		const requestId = ++requestIdRef.current;
 		const fetch = async () => {
 			setIsLoading(true);
+			setHasError(false);
+			setForbiddenOpen(false);
 			try {
 				const [agentRes, threadsRes] = await Promise.all([
 					agentsApi.getAgent(agentId),
 					threadsApi.listAgentThreads(agentId, { limit: PAGE_SIZE, offset }),
 				]);
+				if (requestId !== requestIdRef.current) return;
 				setAgent(agentRes);
 				setThreads(threadsRes.items);
 				setTotal(threadsRes.total);
 			} catch (error: unknown) {
+				if (requestId !== requestIdRef.current) return;
 				if (
 					error instanceof Object &&
 					"status" in error &&
@@ -75,17 +81,20 @@ export default function AgentThreadsPage() {
 					setHasError(true);
 				}
 			} finally {
-				setIsLoading(false);
+				if (requestId === requestIdRef.current) setIsLoading(false);
 			}
 		};
 		void fetch();
+		return () => {
+			requestIdRef.current += 1;
+		};
 	}, [agentId, offset]);
 
 	const columns: DataTableColumn<AgentThread>[] = [
 		{
 			key: "firstMessage",
 			header: "First message",
-			width: "1fr",
+			width: "minmax(240px, 1fr)",
 			cell: (thread) => (
 				<span className="block truncate font-[family-name:var(--font-dm-sans)] text-[13.5px] font-medium text-[#3F524B] dark:text-foreground/80">
 					{thread.firstMessageContent || (
@@ -98,7 +107,6 @@ export default function AgentThreadsPage() {
 			key: "user",
 			header: "User",
 			width: "220px",
-			hideBelowMd: true,
 			cell: (thread) => (
 				<div className="flex min-w-0 items-center gap-2.5">
 					<span className="flex size-[26px] shrink-0 items-center justify-center rounded-full bg-[#e7f0eb] font-[family-name:var(--font-jakarta-sans)] text-[10px] font-bold text-[#3d8b63] dark:bg-emerald-950 dark:text-emerald-300">
@@ -163,6 +171,9 @@ export default function AgentThreadsPage() {
 						{agent && (
 							<div className="flex items-center gap-2 shrink-0 min-w-0">
 								<AgentAvatar
+									agentId={agent.id}
+									name={agent.name}
+									imageRevision={agent.imageRevision}
 									color={agent.color}
 									emoji={agent.emoji}
 									size="sm"
@@ -182,6 +193,7 @@ export default function AgentThreadsPage() {
 							rows={threads}
 							rowKey={(thread) => thread.id}
 							isLoading={isLoading}
+							minTableWidth="770px"
 							emptyMessage="No threads yet for this agent."
 							getRowHref={(thread) => `/agents/${agentId}/chat/${thread.id}`}
 							pagination={{
