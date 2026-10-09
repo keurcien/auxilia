@@ -224,11 +224,13 @@ async def test_create_from_config_orchestrates(
     owner_id = uuid4()
     agent = make_agent(owner_id=owner_id)
     mock_repo.create.return_value = agent
-    mock_repo.list_with_permissions.return_value = [(agent, None)]
-    # The subagent validations load both ends of the link.
-    mock_repo.get.return_value = make_agent()
+    sub = make_agent(name="Sub")
+    # The subagent validations load both ends of the link, and the access
+    # gate on the subagent reads its row.
+    mock_repo.list_with_permissions.return_value = [(agent, None), (sub, None)]
+    mock_repo.get.return_value = sub
     server_id = uuid4()
-    sub_id = uuid4()
+    sub_id = sub.id
     config = AgentConfig(
         name="Drafted",
         instructions="Do things",
@@ -608,10 +610,11 @@ async def test_set_config_orchestrates_scalars_bindings_subagents(
     service, mock_repo, mock_mcp_server_service
 ):
     agent = make_agent()
-    mock_repo.list_with_permissions.return_value = [(agent, None)]
-    mock_repo.get.return_value = make_agent()
+    sub = make_agent(name="Sub")
+    mock_repo.list_with_permissions.return_value = [(agent, None), (sub, None)]
+    mock_repo.get.return_value = sub
     server_id = uuid4()
-    sub_id = uuid4()
+    sub_id = sub.id
     config = make_config(
         description="A description",
         mcp_servers=[
@@ -702,19 +705,29 @@ async def test_set_config_allows_workspace_admin(service, mock_repo):
 
 
 async def test_set_config_passes_subagents_to_the_binding(service, mock_repo):
+    """The caller's identity travels with the set: `create_subagent` gates
+    each added subagent on it."""
     agent = make_agent()
     mock_repo.list_with_permissions.return_value = [(agent, None)]
     sub_id = uuid4()
+    user_id, team_id = uuid4(), uuid4()
 
     with patch.object(service, "set_subagents", new=AsyncMock()) as mock_set:
         await service.set_config(
             agent.id,
             make_config(subagent_ids=[sub_id]),
-            user_id=uuid4(),
+            user_id=user_id,
             user_role=WorkspaceRole.admin,
+            user_team_id=team_id,
         )
 
-    mock_set.assert_awaited_once_with(agent.id, [sub_id])
+    mock_set.assert_awaited_once_with(
+        agent.id,
+        [sub_id],
+        user_id=user_id,
+        user_role=WorkspaceRole.admin,
+        user_team_id=team_id,
+    )
 
 
 async def test_set_config_agent_editor_can_change_subagents(service, mock_repo):
@@ -725,16 +738,23 @@ async def test_set_config_agent_editor_can_change_subagents(service, mock_repo):
         (agent, None, PermissionLevel.editor)
     ]
     sub_id = uuid4()
+    user_id = uuid4()
 
     with patch.object(service, "set_subagents", new=AsyncMock()) as mock_set:
         await service.set_config(
             agent.id,
             make_config(subagent_ids=[sub_id]),
-            user_id=uuid4(),
+            user_id=user_id,
             user_role=WorkspaceRole.member,
         )
 
-    mock_set.assert_awaited_once_with(agent.id, [sub_id])
+    mock_set.assert_awaited_once_with(
+        agent.id,
+        [sub_id],
+        user_id=user_id,
+        user_role=WorkspaceRole.member,
+        user_team_id=None,
+    )
 
 
 async def test_set_config_passes_sandboxes_to_the_binding(
@@ -1292,10 +1312,22 @@ async def test_set_subagents_adds_and_removes(service, mock_repo):
     ]
     mock_repo.get_subagent_link.return_value = dropped_link
 
+    user_id = uuid4()
     with patch.object(service, "create_subagent", new=AsyncMock()) as mock_create:
-        await service.set_subagents(supervisor_id, [kept_id, added_id])
+        await service.set_subagents(
+            supervisor_id,
+            [kept_id, added_id],
+            user_id=user_id,
+            user_role=WorkspaceRole.editor,
+        )
 
-    mock_create.assert_awaited_once_with(supervisor_id, added_id)
+    mock_create.assert_awaited_once_with(
+        supervisor_id,
+        added_id,
+        user_id=user_id,
+        user_role=WorkspaceRole.editor,
+        user_team_id=None,
+    )
     mock_repo.get_subagent_link.assert_awaited_once_with(supervisor_id, dropped_id)
     mock_repo.delete_subagent_link.assert_awaited_once_with(dropped_link)
 
@@ -1317,7 +1349,9 @@ async def test_set_subagents_deduplicates_input(service, mock_repo):
     with patch.object(service, "create_subagent", new=AsyncMock()) as mock_create:
         await service.set_subagents(supervisor_id, [sub_id, sub_id])
 
-    mock_create.assert_awaited_once_with(supervisor_id, sub_id)
+    mock_create.assert_awaited_once_with(
+        supervisor_id, sub_id, user_id=None, user_role=None, user_team_id=None
+    )
 
 
 async def test_create_subagent_links_two_live_agents(service, mock_repo):
@@ -1326,12 +1360,60 @@ async def test_create_subagent_links_two_live_agents(service, mock_repo):
         supervisor.id: supervisor,
         sub.id: sub,
     }.get(agent_id)
+    mock_repo.list_with_permissions.return_value = [(sub, None)]
     link = make_link(supervisor.id, sub.id)
     mock_repo.create_subagent_link.return_value = link
 
-    result = await service.create_subagent(supervisor.id, sub.id)
+    result = await service.create_subagent(
+        supervisor.id, sub.id, user_id=uuid4(), user_role=WorkspaceRole.admin
+    )
 
     assert result is link
+    mock_repo.create_subagent_link.assert_awaited_once_with(supervisor.id, sub.id)
+
+
+async def test_create_subagent_requires_member_on_the_subagent(service, mock_repo):
+    """An editor of the supervisor may only delegate to an agent they can
+    use themselves: a granted `member` passes, no grant at all is denied —
+    and nothing is linked on denial."""
+    supervisor, sub = make_agent(), make_agent(name="Sub")
+    mock_repo.get.side_effect = lambda agent_id: {
+        supervisor.id: supervisor,
+        sub.id: sub,
+    }.get(agent_id)
+    user_id = uuid4()
+
+    mock_repo.list_with_permissions.return_value = [(sub, None)]
+    with pytest.raises(PermissionDeniedError, match="use this agent as a subagent"):
+        await service.create_subagent(
+            supervisor.id, sub.id, user_id=user_id, user_role=WorkspaceRole.editor
+        )
+    mock_repo.create_subagent_link.assert_not_called()
+
+    mock_repo.list_with_permissions.return_value = [(sub, None, PermissionLevel.member)]
+    await service.create_subagent(
+        supervisor.id, sub.id, user_id=user_id, user_role=WorkspaceRole.editor
+    )
+    mock_repo.create_subagent_link.assert_awaited_once_with(supervisor.id, sub.id)
+
+
+async def test_create_subagent_grants_team_members(service, mock_repo):
+    supervisor, sub = make_agent(), make_agent(name="Sub")
+    mock_repo.get.side_effect = lambda agent_id: {
+        supervisor.id: supervisor,
+        sub.id: sub,
+    }.get(agent_id)
+    team_id = uuid4()
+    mock_repo.list_with_permissions.return_value = [(sub, None, None, team_id)]
+
+    await service.create_subagent(
+        supervisor.id,
+        sub.id,
+        user_id=uuid4(),
+        user_role=WorkspaceRole.editor,
+        user_team_id=team_id,
+    )
+
     mock_repo.create_subagent_link.assert_awaited_once_with(supervisor.id, sub.id)
 
 
@@ -1341,10 +1423,13 @@ async def test_create_subagent_is_idempotent(service, mock_repo):
         supervisor.id: supervisor,
         sub.id: sub,
     }.get(agent_id)
+    mock_repo.list_with_permissions.return_value = [(sub, None)]
     existing = make_link(supervisor.id, sub.id)
     mock_repo.get_subagent_link.return_value = existing
 
-    result = await service.create_subagent(supervisor.id, sub.id)
+    result = await service.create_subagent(
+        supervisor.id, sub.id, user_id=uuid4(), user_role=WorkspaceRole.admin
+    )
 
     assert result is existing
     mock_repo.create_subagent_link.assert_not_called()
@@ -1359,9 +1444,13 @@ async def test_create_subagent_rejects_archived_and_missing_agents(service, mock
     }.get(agent_id)
 
     with pytest.raises(NotFoundError, match="Subagent not found"):
-        await service.create_subagent(supervisor.id, archived.id)
+        await service.create_subagent(
+            supervisor.id, archived.id, user_role=WorkspaceRole.admin
+        )
     with pytest.raises(NotFoundError, match="Supervisor agent not found"):
-        await service.create_subagent(uuid4(), supervisor.id)
+        await service.create_subagent(
+            uuid4(), supervisor.id, user_role=WorkspaceRole.admin
+        )
 
 
 async def test_create_subagent_keeps_the_graph_one_level_deep(service, mock_repo):
@@ -1371,14 +1460,20 @@ async def test_create_subagent_keeps_the_graph_one_level_deep(service, mock_repo
         sub.id: sub,
     }.get(agent_id)
 
+    mock_repo.list_with_permissions.return_value = [(sub, None)]
+
     mock_repo.has_subagents.return_value = True
     with pytest.raises(DomainValidationError, match="already has subagents"):
-        await service.create_subagent(supervisor.id, sub.id)
+        await service.create_subagent(
+            supervisor.id, sub.id, user_role=WorkspaceRole.admin
+        )
 
     mock_repo.has_subagents.return_value = False
     mock_repo.is_subagent.return_value = True
     with pytest.raises(DomainValidationError, match="already used as a subagent"):
-        await service.create_subagent(supervisor.id, sub.id)
+        await service.create_subagent(
+            supervisor.id, sub.id, user_role=WorkspaceRole.admin
+        )
 
     mock_repo.create_subagent_link.assert_not_called()
 

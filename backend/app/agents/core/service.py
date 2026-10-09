@@ -310,7 +310,13 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         )
         await self.mcp_server_service.set_for_agent(agent.id, config.mcp_servers)
         await self.set_sandboxes(agent.id, config.sandboxes)
-        await self.set_subagents(agent.id, config.subagent_ids)
+        await self.set_subagents(
+            agent.id,
+            config.subagent_ids,
+            user_id=owner_id,
+            user_role=user_role,
+            user_team_id=user_team_id,
+        )
         await self.skill_service.set_for_agent(agent.id, config.skill_ids)
         return await self.get(
             agent.id, user_id=owner_id, user_role=user_role, user_team_id=user_team_id
@@ -440,7 +446,13 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         )
         await self.mcp_server_service.set_for_agent(agent_id, config.mcp_servers)
         await self.set_sandboxes(agent_id, config.sandboxes)
-        await self.set_subagents(agent_id, config.subagent_ids)
+        await self.set_subagents(
+            agent_id,
+            config.subagent_ids,
+            user_id=user_id,
+            user_role=user_role,
+            user_team_id=user_team_id,
+        )
         await self.skill_service.set_for_agent(agent_id, config.skill_ids)
         return await self.get(
             agent_id, user_id=user_id, user_role=user_role, user_team_id=user_team_id
@@ -569,11 +581,22 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         return subagents_map, is_subagent_ids
 
     async def create_subagent(
-        self, supervisor_id: UUID, subagent_id: UUID
+        self,
+        supervisor_id: UUID,
+        subagent_id: UUID,
+        *,
+        user_id: UUID | None = None,
+        user_role: WorkspaceRole | None = None,
+        user_team_id: UUID | None = None,
     ) -> AgentSubagentDB:
         """Link one subagent under a supervisor; idempotent for an existing
         link. Graphs are one level deep: a supervisor cannot itself be a
-        subagent, and a subagent cannot have subagents of its own."""
+        subagent, and a subagent cannot have subagents of its own.
+
+        The caller must hold at least `member` on the subagent. Linking it
+        lets everyone who runs the supervisor drive it, so a caller may only
+        delegate to an agent they could use themselves — an agent the
+        workspace hid from them stays hidden through a supervisor too."""
         if supervisor_id == subagent_id:
             raise DomainValidationError("Cannot add an agent as its own subagent")
 
@@ -584,6 +607,15 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         subagent = await self.repository.get(subagent_id)
         if not subagent or subagent.is_archived:
             raise NotFoundError("Subagent not found")
+
+        await self.require_permission(
+            subagent_id,
+            at_least=EffectivePermission.member,
+            action="use this agent as a subagent",
+            user_id=user_id,
+            user_role=user_role,
+            user_team_id=user_team_id,
+        )
 
         if await self.repository.has_subagents(subagent_id):
             raise DomainValidationError(
@@ -609,10 +641,19 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
             raise NotFoundError("Subagent not found")
         await self.repository.delete_subagent_link(link)
 
-    async def set_subagents(self, agent_id: UUID, subagent_ids: list[UUID]) -> None:
+    async def set_subagents(
+        self,
+        agent_id: UUID,
+        subagent_ids: list[UUID],
+        *,
+        user_id: UUID | None = None,
+        user_role: WorkspaceRole | None = None,
+        user_team_id: UUID | None = None,
+    ) -> None:
         """Whole-set replace of an agent's subagents, routed through
         `create_subagent` so the self-link / archived / cycle validations
-        keep firing. No gate of its own: the config save that calls it has
+        and the caller's access to each added subagent keep firing. No gate
+        on the supervisor of its own: the config save that calls it has
         already required `editor` on the agent, the same level that edits
         MCP bindings and skills."""
         current = {
@@ -628,7 +669,13 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         for subagent_id in current - wanted:
             await self.delete_subagent(agent_id, subagent_id)
         for subagent_id in wanted - current:
-            await self.create_subagent(agent_id, subagent_id)
+            await self.create_subagent(
+                agent_id,
+                subagent_id,
+                user_id=user_id,
+                user_role=user_role,
+                user_team_id=user_team_id,
+            )
 
     # -- Sandbox binding -------------------------------------------------------
 

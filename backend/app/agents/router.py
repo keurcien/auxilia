@@ -27,7 +27,6 @@ from app.agents.schemas import (
 )
 from app.auth.dependencies import (
     get_current_user,
-    require_admin,
     require_editor,
 )
 from app.database import get_db
@@ -330,21 +329,45 @@ async def sync_tools(
     "/{agent_id}/subagents/{subagent_id}",
     response_model=AgentSubagentResponse,
     status_code=201,
+    dependencies=[
+        Depends(
+            require_agent_permission(
+                EffectivePermission.editor, action="edit this agent's subagents"
+            )
+        )
+    ],
 )
 async def create_subagent(
     agent_id: UUID,
     subagent_id: UUID,
-    _: UserDB = Depends(require_admin),
+    current_user: UserDB = Depends(get_current_user),
     service: AgentService = Depends(get_agent_service),
 ) -> AgentSubagentResponse:
-    return await service.create_subagent(agent_id, subagent_id)
+    """Same gate as the config save: `editor` on the supervisor, and the
+    service checks the caller can use the subagent they are attaching."""
+    return await service.create_subagent(
+        agent_id,
+        subagent_id,
+        user_id=current_user.id,
+        user_role=current_user.role,
+        user_team_id=current_user.team_id,
+    )
 
 
-@router.delete("/{agent_id}/subagents/{subagent_id}", status_code=204)
+@router.delete(
+    "/{agent_id}/subagents/{subagent_id}",
+    status_code=204,
+    dependencies=[
+        Depends(
+            require_agent_permission(
+                EffectivePermission.editor, action="edit this agent's subagents"
+            )
+        )
+    ],
+)
 async def delete_subagent(
     agent_id: UUID,
     subagent_id: UUID,
-    _: UserDB = Depends(require_admin),
     service: AgentService = Depends(get_agent_service),
 ) -> None:
     await service.delete_subagent(agent_id, subagent_id)
