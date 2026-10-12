@@ -43,11 +43,14 @@ def present_files_tool(backend: BaseSandbox, thread_id: str, sandbox_source_id: 
                     ).model_dump(mode="json")
                     for file in files
                 ]
-                await db.commit()
             except BaseException:
                 # The rows roll back with the session; drop their S3 bytes too.
                 await service.discard_uploads()
                 raise
+            # Outside the cleanup: a commit error can follow a successful commit
+            # (lost connection), and deleting then would orphan committed rows.
+            # The worst case here is an unreferenced object, never a lost file.
+            await db.commit()
         summary = [
             {"id": x["id"], "title": x["title"], "temporary": x["temporary"]}
             for x in items
