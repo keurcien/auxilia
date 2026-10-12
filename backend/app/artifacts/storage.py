@@ -12,6 +12,7 @@ from botocore.config import Config
 from botocore.exceptions import ClientError
 from google.api_core.exceptions import NotFound, RequestRangeNotSatisfiable
 from google.cloud import storage
+from google.cloud.storage.retry import DEFAULT_RETRY
 
 from app.artifacts.settings import ArtifactSettings
 
@@ -83,6 +84,11 @@ class S3ObjectStore:
             body.close()
 
 
+# Parity with S3ObjectStore: 10s connect / 30s read, retries capped well below the 120s default.
+GCS_TIMEOUT = (10, 30)
+GCS_RETRY = DEFAULT_RETRY.with_timeout(60)
+
+
 @lru_cache(maxsize=1)
 def _gcs_client() -> storage.Client:
     # ADC: the Cloud Run/GKE service account, or `gcloud auth application-default login`.
@@ -94,15 +100,19 @@ class GCSObjectStore:
         self.bucket = _gcs_client().bucket(settings.bucket_name)
 
     def put(self, key: str, data: bytes, mime_type: str) -> None:
-        self.bucket.blob(key).upload_from_string(data, content_type=mime_type)
+        self.bucket.blob(key).upload_from_string(
+            data, content_type=mime_type, timeout=GCS_TIMEOUT
+        )
 
     def delete(self, key: str) -> None:
-        self.bucket.blob(key).delete()
+        self.bucket.blob(key).delete(timeout=GCS_TIMEOUT, retry=GCS_RETRY)
 
     def get(self, key: str, limit: int) -> bytes:
         try:
             # `end` is inclusive: one extra byte tells an oversize object apart.
-            data = self.bucket.blob(key).download_as_bytes(start=0, end=limit)
+            data = self.bucket.blob(key).download_as_bytes(
+                start=0, end=limit, timeout=GCS_TIMEOUT, retry=GCS_RETRY
+            )
         except NotFound as exc:
             raise ObjectMissingError from exc
         except RequestRangeNotSatisfiable:

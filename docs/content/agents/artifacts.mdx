@@ -59,9 +59,22 @@ endpoint. Auxilia authenticates with Application Default Credentials — the
 service account attached to Cloud Run or GKE, or
 `gcloud auth application-default login` on a laptop. Grant that identity
 `roles/storage.objectUser` on the bucket. Any `ARTIFACT_S3_*` endpoint or key set
-alongside a `gs://` bucket is a startup error. Outside Google Cloud without
-workload identity federation, use GCS's S3-compatible XML API instead: a bare
-bucket name, endpoint `https://storage.googleapis.com`, region `auto`,
+alongside a `gs://` bucket is a startup error.
+
+When the backend runs in Docker on a laptop, the container cannot see the host's
+gcloud login. Mount the ADC file read-only in a Compose override:
+
+```yaml
+services:
+  backend:
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: /gcloud/application_default_credentials.json
+    volumes:
+      - ~/.config/gcloud/application_default_credentials.json:/gcloud/application_default_credentials.json:ro
+```
+
+For deployments outside Google Cloud without workload identity federation, use
+GCS's S3-compatible XML API instead: a bare bucket name, endpoint `https://storage.googleapis.com`, region `auto`,
 addressing style `path`, and a Cloud Storage HMAC access ID and secret.
 
 After enabling storage, new publications are durable independently of their
