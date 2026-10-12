@@ -5,16 +5,19 @@ import shlex
 from pathlib import PurePosixPath
 from uuid import NAMESPACE_URL, UUID, uuid5
 
+import httpx
 from deepagents.backends.sandbox import BaseSandbox
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.artifacts.files import (
+    PPTX_MIME,
     SandboxFileMissingError,
     SandboxReadError,
     detect_mime,
     read_bytes,
 )
+from app.artifacts.google_slides import find_export, slides_url, upload_as_slides
 from app.artifacts.models import ArtifactDB
 from app.artifacts.repository import ArtifactRepository
 from app.artifacts.schemas import ArtifactResponse, PresentFile
@@ -25,7 +28,7 @@ from app.artifacts.storage import (
     build_store,
 )
 from app.database import get_db
-from app.exceptions import DomainValidationError, NotFoundError
+from app.exceptions import DomainError, DomainValidationError, NotFoundError
 from app.sandbox.provider import SandboxGoneError, build_provider
 from app.sandbox.repository import SandboxRepository
 from app.service import BaseService
@@ -227,6 +230,35 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
                 "This artifact's original bytes are no longer available."
             )
         return row, data
+
+    async def export_to_slides(
+        self, thread_id: str, artifact_id: UUID, access_token: str
+    ) -> str:
+        """Open this artifact's Google Slides copy in the user's Drive, creating
+        it on first export. Returns the Slides URL."""
+        row, data = await self.content(thread_id, artifact_id)
+        if row.mime_type != PPTX_MIME:
+            raise DomainValidationError(
+                "Only PowerPoint files can be exported to Google Slides"
+            )
+        async with httpx.AsyncClient(
+            headers={"Authorization": f"Bearer {access_token}"}, timeout=60
+        ) as client:
+            try:
+                file_id = await find_export(client, row.id) or await upload_as_slides(
+                    client,
+                    row.id,
+                    row.title.removesuffix(".pptx"),
+                    data,
+                    row.mime_type,
+                )
+            except httpx.HTTPStatusError as exc:
+                # e.g. the Drive API is not enabled on the OAuth client's project.
+                logger.warning("Google Drive export failed: %s", exc.response.text)
+                raise DomainError(
+                    f"Google Drive refused the export ({exc.response.status_code})"
+                ) from exc
+        return slides_url(file_id)
 
 
 def get_artifact_service(db: AsyncSession = Depends(get_db)) -> ArtifactService:

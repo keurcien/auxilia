@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import type { CSSProperties, ReactNode, RefObject } from "react";
+import Image from "next/image";
 import { ChevronLeft, Download, FileText, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -20,7 +21,9 @@ import {
   contentUrl,
   listArtifacts,
   readArtifact,
+  slidesExportUrl,
 } from "@/lib/api/resources/artifacts";
+import { getAuthProviders } from "@/lib/api/resources/auth";
 import type { Artifact } from "@/lib/api/resources/artifacts";
 
 const ArtifactContext = createContext<{
@@ -121,6 +124,49 @@ function DownloadLink({ item, icon }: { item: Artifact; icon?: boolean }) {
     >
       <Download className="size-3.5" />
       Download
+    </a>
+  );
+}
+
+const PPTX_MIME =
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+
+// Export to Slides rides on the Google sign-in client, so it only exists when
+// the workspace has Google OAuth configured.
+function useGoogleEnabled(): boolean {
+  const [enabled, setEnabled] = useState(false);
+  useEffect(() => {
+    getAuthProviders()
+      .then((providers) => {
+        setEnabled(providers.google);
+      })
+      .catch(() => {
+        setEnabled(false);
+      });
+  }, []);
+  return enabled;
+}
+
+function SlidesExportLink({ item }: { item: Artifact }) {
+  const googleEnabled = useGoogleEnabled();
+  if (!googleEnabled || item.mime_type !== PPTX_MIME) return null;
+  return (
+    <a
+      href={slidesExportUrl(item)}
+      target="_blank"
+      rel="noopener noreferrer"
+      title="Open a copy in Google Slides"
+      className="inline-flex flex-none items-center gap-1.5 rounded-lg border border-hairline px-3.5 py-2 text-[13px] font-semibold text-ink hover:bg-hairline"
+    >
+      <Image
+        unoptimized
+        src="https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/slides.png"
+        alt=""
+        width={14}
+        height={14}
+        className="size-3.5 object-contain"
+      />
+      Google Slides
     </a>
   );
 }
@@ -410,6 +456,7 @@ export function ArtifactWorkspace({
                 <Button
                   variant="outline"
                   size="sm"
+                  className="h-[30px] rounded-full"
                   onClick={() => {
                     setAttempt((x) => x + 1);
                   }}
@@ -425,7 +472,7 @@ export function ArtifactWorkspace({
                     setSelected(undefined);
                     setListOpen(!showing);
                   }}
-                  className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-petrol-chip px-2.5 py-1.5 text-[12.5px] font-semibold text-petrol hover:bg-petrol-tint aria-pressed:ring-1 aria-pressed:ring-petrol/40"
+                  className="flex h-[30px] cursor-pointer items-center gap-1.5 rounded-full bg-petrol-chip px-3 text-[12.5px] font-semibold text-petrol hover:bg-petrol-tint aria-pressed:ring-1 aria-pressed:ring-petrol/40"
                 >
                   <FileText className="size-3.5" />
                   Files
@@ -485,6 +532,7 @@ export function ArtifactWorkspace({
                       )}
                     </p>
                   </div>
+                  <SlidesExportLink item={selected} />
                   <DownloadLink item={selected} />
                   <CloseButton onClose={close} />
                 </header>

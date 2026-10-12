@@ -17,6 +17,12 @@ export function contentUrl(artifact: Artifact): string {
   return `${API_BASE_URL}/threads/${encodeURIComponent(artifact.thread_id)}/artifacts/${encodeURIComponent(artifact.id)}/content`;
 }
 
+/** Browser navigation (new tab): the backend runs the Google consent, then
+ *  redirects to the Slides copy of this PPTX. */
+export function slidesExportUrl(artifact: Artifact): string {
+  return `${contentUrl(artifact).slice(0, -"/content".length)}/export/slides`;
+}
+
 export async function listArtifacts(
   threadId: string,
   signal: AbortSignal,
