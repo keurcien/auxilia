@@ -16,7 +16,7 @@ async def test_find_export_matches_the_artifact_property():
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         assert await find_export(client, artifact_id) == "slides-1"
-    assert f"value='{artifact_id}'" in seen[0]
+    assert f"key='auxilia_artifact' and value='{artifact_id}'" in seen[0]
     assert "trashed = false" in seen[0]
 
 

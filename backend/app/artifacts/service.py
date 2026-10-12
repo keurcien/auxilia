@@ -236,7 +236,9 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
     ) -> str:
         """Open this artifact's Google Slides copy in the user's Drive, creating
         it on first export. Returns the Slides URL."""
-        row, data = await self.content(thread_id, artifact_id)
+        row = await self.repository.in_thread(thread_id, artifact_id)
+        if row is None:
+            raise NotFoundError(self.not_found_message)
         if row.mime_type != PPTX_MIME:
             raise DomainValidationError(
                 "Only PowerPoint files can be exported to Google Slides"
@@ -245,13 +247,17 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
             headers={"Authorization": f"Bearer {access_token}"}, timeout=60
         ) as client:
             try:
-                file_id = await find_export(client, row.id) or await upload_as_slides(
-                    client,
-                    row.id,
-                    row.title.removesuffix(".pptx"),
-                    data,
-                    row.mime_type,
-                )
+                file_id = await find_export(client, row.id)
+                if file_id is None:
+                    # Read the bytes only when there is no copy to reopen.
+                    _, data = await self.content(thread_id, artifact_id)
+                    file_id = await upload_as_slides(
+                        client,
+                        row.id,
+                        row.title.removesuffix(".pptx"),
+                        data,
+                        row.mime_type,
+                    )
             except httpx.HTTPStatusError as exc:
                 # e.g. the Drive API is not enabled on the OAuth client's project.
                 logger.warning("Google Drive export failed: %s", exc.response.text)

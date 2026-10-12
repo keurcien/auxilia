@@ -156,7 +156,8 @@ function SlidesExportLink({ item }: { item: Artifact }) {
       target="_blank"
       rel="noopener noreferrer"
       title="Open a copy in Google Slides"
-      className="inline-flex flex-none items-center gap-1.5 rounded-lg border border-hairline px-3.5 py-2 text-[13px] font-semibold text-ink hover:bg-hairline"
+      aria-label={`Open ${item.title} in Google Slides`}
+      className="inline-flex flex-none items-center gap-1.5 rounded-lg border border-hairline px-3.5 py-2 text-[13px] font-semibold text-ink hover:bg-hairline @max-[440px]/panel:px-2.5"
     >
       <Image
         unoptimized
@@ -166,7 +167,8 @@ function SlidesExportLink({ item }: { item: Artifact }) {
         height={14}
         className="size-3.5 object-contain"
       />
-      Google Slides
+      {/* Logo only on a narrow panel, so the header keeps its close button. */}
+      <span className="@max-[440px]/panel:hidden">Google Slides</span>
     </a>
   );
 }
@@ -489,7 +491,7 @@ export function ArtifactWorkspace({
             style={
               { "--panel-w": width ? `${width}px` : "50%" } as CSSProperties
             }
-            className="absolute inset-0 z-30 flex min-w-0 flex-col border-l border-hairline bg-background @min-[680px]/ws:relative @min-[680px]/ws:inset-auto @min-[680px]/ws:w-[var(--panel-w)] @min-[680px]/ws:min-w-80 @min-[680px]/ws:max-w-[calc(100%-22.5rem)] @min-[680px]/ws:flex-none"
+            className="@container/panel absolute inset-0 z-30 flex min-w-0 flex-col border-l border-hairline bg-background @min-[680px]/ws:relative @min-[680px]/ws:inset-auto @min-[680px]/ws:w-[var(--panel-w)] @min-[680px]/ws:min-w-80 @min-[680px]/ws:max-w-[calc(100%-22.5rem)] @min-[680px]/ws:flex-none"
           >
             <ResizeHandle
               container={container}

@@ -87,13 +87,18 @@ async def export_to_slides(
     user: UserDB = Depends(get_current_user),
 ):
     """Browser navigation: asks Google for `drive.file`, then lands on the callback."""
-    request.session["slides_export"] = [thread_id, str(artifact_id)]
-    return await oauth.google_drive.authorize_redirect(
-        request,
-        f"{auth_settings.FRONTEND_URL}/api/backend{SLIDES_CALLBACK}",
-        login_hint=user.email,
-        include_granted_scopes="true",
+    # authorize_redirect, unrolled to key the pending export by OAuth state, so
+    # two exports started side by side each land on their own artifact.
+    client = oauth.google_drive
+    redirect_uri = f"{auth_settings.FRONTEND_URL}/api/backend{SLIDES_CALLBACK}"
+    rv = await client.create_authorization_url(
+        redirect_uri, login_hint=user.email, include_granted_scopes="true"
     )
+    await client.save_authorize_data(request, redirect_uri=redirect_uri, **rv)
+    # shortcut: an abandoned consent leaves this small entry in the session cookie;
+    # prune old slides_export_* keys if that cookie ever nears its 4 KB limit.
+    request.session[f"slides_export_{rv['state']}"] = [thread_id, str(artifact_id)]
+    return RedirectResponse(rv["url"], status_code=302)
 
 
 def drive_access_needed() -> HTMLResponse:
@@ -112,7 +117,8 @@ async def export_to_slides_callback(
     agent_service: AgentService = Depends(get_agent_service),
     service: ArtifactService = Depends(get_artifact_service),
 ):
-    pending = request.session.pop("slides_export", None)
+    state = request.query_params.get("state")
+    pending = request.session.pop(f"slides_export_{state}", None)
     if pending is None:
         raise DomainValidationError(
             "No export in progress. Start it again from the file."
