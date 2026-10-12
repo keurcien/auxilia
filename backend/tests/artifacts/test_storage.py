@@ -8,7 +8,11 @@ from botocore.response import StreamingBody
 from botocore.stub import Stubber
 
 from app.artifacts.settings import ArtifactSettings
-from app.artifacts.storage import ObjectMissingError, S3ObjectStore
+from app.artifacts.storage import (
+    ObjectMissingError,
+    ObjectTooLargeError,
+    S3ObjectStore,
+)
 
 
 @pytest.mark.parametrize(
@@ -61,6 +65,42 @@ def test_portable_s3_operations(endpoint, region, style):
             store.get("file", 4)
 
 
+def stub_store():
+    return S3ObjectStore(
+        ArtifactSettings(
+            _env_file=None,
+            s3_bucket="private",
+            s3_access_key_id="test",
+            s3_secret_access_key="test",
+        )
+    )
+
+
+def test_oversize_object_is_typed_and_missing_length_is_bounded():
+    store = stub_store()
+    with Stubber(store.client) as stub:
+        stub.add_response(
+            "get_object",
+            {"ContentLength": 10, "Body": StreamingBody(io.BytesIO(b"0123456789"), 10)},
+            {"Bucket": "private", "Key": "big"},
+        )
+        with pytest.raises(ObjectTooLargeError):
+            store.get("big", 4)
+        # No Content-Length header: the bounded read still enforces the limit.
+        stub.add_response(
+            "get_object",
+            {"Body": StreamingBody(io.BytesIO(b"0123456789"), 10)},
+            {"Bucket": "private", "Key": "big"},
+        )
+        with pytest.raises(ObjectTooLargeError):
+            store.get("big", 4)
+
+
+def test_session_token_requires_static_credentials():
+    with pytest.raises(ValueError, match="session token"):
+        ArtifactSettings(_env_file=None, s3_session_token="token")
+
+
 @pytest.mark.skipif(
     not os.environ.get("ARTIFACT_TEST_S3_ENDPOINT"),
     reason="Opt-in MinIO integration test",
@@ -81,7 +121,7 @@ def test_minio_roundtrip():
     try:
         store.put(key, data, "application/octet-stream")
         assert store.get(key, len(data)) == data
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectTooLargeError):
             store.get(key, len(data) - 1)
     finally:
         store.client.delete_object(Bucket=store.bucket, Key=key)

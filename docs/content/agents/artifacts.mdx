@@ -130,9 +130,11 @@ invalid PPTX containers, and excessively expanded PPTX archives. Limit: ten file
 per call. The extraction helper requires Python 3 in the sandbox, as do the
 existing filesystem tools.
 
-HTML runs in an opaque-origin iframe with scripts allowed. Its CSP blocks network
-subresources, forms and nested frames; no host API bridge is exposed. This is not
-an offline execution guarantee: browser iframe navigation can still reach an
-external site. Inline scripts/styles and embedded data assets work. Multi-file websites and live backend applications are not supported
+HTML runs in an opaque-origin iframe with **scripts off by default**. Its CSP
+blocks network subresources, forms and nested frames; no host API bridge is
+exposed. A script could still navigate its own frame to an outside URL carrying
+the page's contents, so scripts run only after the viewer clicks **Run scripts**
+for that file (they reset when the file is reopened). Inline styles and embedded
+data assets always work; inline scripts work once enabled. Multi-file websites and live backend applications are not supported
 by this file viewer. Markdown images are omitted; CSV previews are limited to
 500 rows and 50 columns. The full original is available through Download.

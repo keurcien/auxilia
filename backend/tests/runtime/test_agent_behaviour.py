@@ -451,6 +451,24 @@ async def test_sandbox_is_created_once_and_reconnected_after(in_memory_runtime):
 
 
 @pytest.mark.asyncio
+async def test_legacy_thread_is_stamped_with_its_source_on_reconnect(
+    in_memory_runtime,
+):
+    """A thread stamped before `sandbox_source_id` existed reconnects to its
+    sandbox and gets the source recorded, so artifact publication works."""
+    from uuid import uuid4
+
+    agent, _, _ = build_sandbox_agent(script=["done"], sandbox_id="sbx-live")
+    agent.agent.sandbox.row_id = uuid4()
+
+    await collect(agent, "hello")
+
+    agent.agent.sandbox.provider.connect.assert_called_once_with("sbx-live")
+    assert agent.remembered == ["sbx-live"]
+    assert agent.thread.sandbox_source_id == agent.agent.sandbox.row_id
+
+
+@pytest.mark.asyncio
 async def test_replaced_sandbox_tells_the_model_once(in_memory_runtime):
     """A gone sandbox is replaced, the thread re-stamped, and one host notice
     lands in the checkpoint ahead of the user's message — so the model knows

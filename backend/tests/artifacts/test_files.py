@@ -73,3 +73,14 @@ def test_pptx_zip_bomb_is_rejected():
         archive.writestr("ppt/presentation.xml", b"0" * (101 * 1024 * 1024))
     with pytest.raises(DomainValidationError, match="expands"):
         detect_mime("report.pptx", buffer.getvalue())
+
+
+def test_transport_failure_is_typed():
+    from app.artifacts.files import SandboxReadError
+
+    def unreachable(*_args, **_kwargs):
+        raise RuntimeError("gateway unreachable")
+
+    backend = SimpleNamespace(execute=unreachable)
+    with pytest.raises(SandboxReadError):
+        read_bytes(backend, "/tmp/report.csv", ["/tmp"], 100)

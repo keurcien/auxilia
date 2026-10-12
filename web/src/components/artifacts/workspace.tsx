@@ -404,7 +404,9 @@ export function ArtifactWorkspace({
         <div className="relative flex min-w-0 flex-1 flex-col">
           {(items.length > 0 || error) && (
             <ChatHeaderActions>
-              {error ? (
+              {/* A failed poll keeps already-loaded files reachable; the next
+                  successful poll clears the error. */}
+              {error && items.length === 0 ? (
                 <Button
                   variant="outline"
                   size="sm"

@@ -23,6 +23,10 @@ class SandboxFileMissingError(Exception):
     pass
 
 
+class SandboxReadError(Exception):
+    """The sandbox could not be reached or failed to run the read."""
+
+
 READ_SCRIPT = r"""
 import os, stat, sys, base64, json
 path, roots, limit = json.loads(sys.argv[1])
@@ -57,7 +61,11 @@ finally:
 def read_bytes(backend: BaseSandbox, path: str, roots: list[str], limit: int) -> bytes:
     args = json.dumps([path, roots, limit])
     command = f"python3 -c {shlex.quote(READ_SCRIPT)} {shlex.quote(args)}"
-    result = backend.execute(command, timeout=60)
+    try:
+        # Runs inside the sandbox shell, not SQL; args are shlex-quoted JSON.
+        result = backend.execute(command, timeout=60)  # nosemgrep
+    except Exception as exc:  # provider SDKs raise their own transport errors
+        raise SandboxReadError(path) from exc
     if result.exit_code == 44:
         raise SandboxFileMissingError(path)
     if result.exit_code != 0 or result.truncated:

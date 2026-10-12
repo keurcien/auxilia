@@ -1,3 +1,4 @@
+import re
 from urllib.parse import quote
 from uuid import UUID
 
@@ -18,13 +19,26 @@ router = APIRouter(
 @router.get("")
 async def list_artifacts(
     thread_id: str,
-    offset: int = Query(default=0, ge=0),
+    after: UUID | None = Query(default=None, description="Last artifact id seen"),
     service: ArtifactService = Depends(get_artifact_service),
 ) -> list[ArtifactResponse]:
-    return await service.list(thread_id, offset)
+    return await service.list(thread_id, after)
 
 
-@router.get("/{artifact_id}/content")
+def content_disposition(filename: str) -> str:
+    """RFC 6266: an ASCII `filename` fallback plus the UTF-8 `filename*` form."""
+    fallback = re.sub(r"[^A-Za-z0-9._ -]", "_", filename).strip() or "download"
+    return (
+        f'attachment; filename="{fallback}"; '
+        f"filename*=UTF-8''{quote(filename, safe='')}"
+    )
+
+
+@router.get(
+    "/{artifact_id}/content",
+    response_class=Response,
+    responses={200: {"content": {"application/octet-stream": {}}}},
+)
 async def artifact_content(
     thread_id: str,
     artifact_id: UUID,
@@ -36,7 +50,7 @@ async def artifact_content(
         data,
         media_type="application/octet-stream",
         headers={
-            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(row.filename, safe='')}",
+            "Content-Disposition": content_disposition(row.filename),
             "Cache-Control": "private, no-store",
             "X-Content-Type-Options": "nosniff",
             "Content-Security-Policy": "default-src 'none'; sandbox",

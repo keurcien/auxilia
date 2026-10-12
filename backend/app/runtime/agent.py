@@ -766,7 +766,11 @@ class Agent:
             else None
         )
         session = await asyncio.to_thread(open_sandbox, source.provider, previous)
-        if session.sandbox_id != self.thread.sandbox_id:
+        # Also stamp legacy threads (null source) on reconnect: artifact
+        # publication needs the source id, else present_files is dropped.
+        if session.sandbox_id != self.thread.sandbox_id or (
+            self.thread.sandbox_source_id is None and source.row_id is not None
+        ):
             await self._remember_sandbox(session.sandbox_id, source.row_id)
         await asyncio.to_thread(
             upload_skills, session.backend, skill_files(self.skills)

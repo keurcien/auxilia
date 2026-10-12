@@ -1,5 +1,6 @@
 from uuid import UUID
 
+from sqlalchemy import tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
@@ -12,15 +13,25 @@ class ArtifactRepository(BaseRepository[ArtifactDB]):
         super().__init__(ArtifactDB, db)
 
     async def list_for_thread(
-        self, thread_id: str, offset: int = 0
+        self, thread_id: str, after: UUID | None = None
     ) -> list[ArtifactDB]:
-        stmt = (
-            select(ArtifactDB)
-            .where(ArtifactDB.thread_id == thread_id)
-            .order_by(col(ArtifactDB.created_at), col(ArtifactDB.id))
-            .offset(offset)
-            .limit(100)
-        )
+        """A page of the thread's artifacts in (created_at, id) order.
+
+        Keyset on the last row seen, so rows published between page fetches
+        never shift a page boundary the way OFFSET would.
+        """
+        stmt = select(ArtifactDB).where(ArtifactDB.thread_id == thread_id)
+        if after is not None:
+            cursor = (
+                select(ArtifactDB.created_at, ArtifactDB.id)
+                .where(ArtifactDB.thread_id == thread_id, ArtifactDB.id == after)
+                .subquery()
+            )
+            stmt = stmt.where(
+                tuple_(col(ArtifactDB.created_at), col(ArtifactDB.id))
+                > tuple_(cursor.c.created_at, cursor.c.id)
+            )
+        stmt = stmt.order_by(col(ArtifactDB.created_at), col(ArtifactDB.id)).limit(100)
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 

@@ -38,6 +38,7 @@ import {
   pairToolCalls,
 } from "@/lib/transcript";
 import { type DescribeTool, ToolStep } from "./tool-step";
+import { ArtifactCards } from "@/components/artifacts/workspace";
 
 const formatElapsed = (ms: number) => {
   if (ms < 1000) return `${Math.round(ms)}ms`;
@@ -94,24 +95,27 @@ const SubAgentConversation = memo(function SubAgentConversation({
             {calls.map((tc) => {
               const state = getToolStepState(tc, isInterrupted, hitlToolNames);
               return (
-                <ToolStep
-                  key={tc.id}
-                  tc={tc}
-                  state={state}
-                  describe={describe}
-                  nested
-                  approval={
-                    state === "awaiting-approval"
-                      ? {
-                          decided: decisions[tc.id],
-                          disabled: approvalsDisabled,
-                          onDecide: (decision) => {
-                            recordDecision(tc.id, decision);
-                          },
-                        }
-                      : undefined
-                  }
-                />
+                <Fragment key={tc.id}>
+                  <ToolStep
+                    tc={tc}
+                    state={state}
+                    describe={describe}
+                    nested
+                    approval={
+                      state === "awaiting-approval"
+                        ? {
+                            decided: decisions[tc.id],
+                            disabled: approvalsDisabled,
+                            onDecide: (decision) => {
+                              recordDecision(tc.id, decision);
+                            },
+                          }
+                        : undefined
+                    }
+                  />
+                  {/* Files a sandboxed subagent presented, under the call that made them. */}
+                  <ArtifactCards toolCallId={tc.callId ?? tc.id} />
+                </Fragment>
               );
             })}
           </Fragment>
@@ -306,7 +310,11 @@ export const SynthesisIndicator = memo(function SynthesisIndicator({
   subagents: SubagentDiscoverySnapshot[];
   isCoordinatorStreaming: boolean;
 }) {
-  if (!isCoordinatorStreaming || subagents.length === 0 || !subagents.every(isDone)) {
+  if (
+    !isCoordinatorStreaming ||
+    subagents.length === 0 ||
+    !subagents.every(isDone)
+  ) {
     return null;
   }
   return (

@@ -22,6 +22,10 @@ class ObjectMissingError(Exception):
     pass
 
 
+class ObjectTooLargeError(Exception):
+    pass
+
+
 class S3ObjectStore:
     def __init__(self, settings: ArtifactSettings):
         self.bucket = settings.s3_bucket
@@ -61,11 +65,12 @@ class S3ObjectStore:
             raise
         body = response["Body"]
         try:
-            if response["ContentLength"] > limit:
-                raise ValueError("Artifact exceeds download limit")
+            # Some providers omit Content-Length; the bounded read still caps it.
+            if response.get("ContentLength", 0) > limit:
+                raise ObjectTooLargeError(key)
             data = body.read(limit + 1)
             if len(data) > limit:
-                raise ValueError("Artifact exceeds download limit")
+                raise ObjectTooLargeError(key)
             return data
         finally:
             body.close()

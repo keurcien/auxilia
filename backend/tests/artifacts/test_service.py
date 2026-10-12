@@ -141,3 +141,36 @@ async def test_modified_temporary_snapshot_is_not_returned(db, sandbox, monkeypa
     monkeypatch.setattr("app.artifacts.service.read_bytes", lambda *args: b"changed")
     with pytest.raises(ArtifactGoneError, match="original bytes"):
         await service.content("thread", item.id)
+
+
+async def test_listing_pages_by_keyset_after_the_last_seen_row(
+    db, sandbox, monkeypatch
+):
+    monkeypatch.setattr(
+        "app.artifacts.service.artifact_settings", ArtifactSettings(_env_file=None)
+    )
+    monkeypatch.setattr(
+        "app.artifacts.service.read_bytes", MagicMock(return_value=b"a,b\n1,2")
+    )
+    service = ArtifactService(db)
+    for call in ["call-1", "call-2", "call-3"]:
+        await publish(service, sandbox, call)
+    everything = await service.list("thread")
+    rest = await service.list("thread", after=everything[0].id)
+    assert [x.id for x in rest] == [x.id for x in everything[1:]]
+    assert await service.list("thread", after=everything[-1].id) == []
+
+
+async def test_unreachable_sandbox_read_is_a_domain_error(db, sandbox, monkeypatch):
+    from app.artifacts.files import SandboxReadError
+    from app.exceptions import DomainValidationError
+
+    monkeypatch.setattr(
+        "app.artifacts.service.artifact_settings", ArtifactSettings(_env_file=None)
+    )
+    monkeypatch.setattr(
+        "app.artifacts.service.read_bytes",
+        MagicMock(side_effect=SandboxReadError("/tmp/report.csv")),
+    )
+    with pytest.raises(DomainValidationError):
+        await publish(ArtifactService(db), sandbox)

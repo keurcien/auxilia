@@ -33,3 +33,11 @@ def test_html_download_never_executes_on_app_origin(client):
     assert response.headers["content-disposition"].startswith("attachment;")
     assert response.headers["x-content-type-options"] == "nosniff"
     assert "sandbox" in response.headers["content-security-policy"]
+
+
+def test_download_name_has_ascii_fallback_and_utf8_form():
+    from app.artifacts.router import content_disposition
+
+    header = content_disposition('Résumé "final".pptx')
+    assert header.startswith('attachment; filename="R_sum_ _final_.pptx"; ')
+    assert "filename*=UTF-8''R%C3%A9sum%C3%A9%20%22final%22.pptx" in header

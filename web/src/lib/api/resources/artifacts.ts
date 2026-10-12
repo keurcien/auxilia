@@ -23,8 +23,11 @@ export async function listArtifacts(
 ): Promise<Artifact[]> {
   const items: Artifact[] = [];
   for (;;) {
+    // Keyset paging: files published mid-listing never shift a page boundary.
+    const last = items.at(-1);
+    const query = last ? `?after=${encodeURIComponent(last.id)}` : "";
     const response = await protocolFetch(
-      `${API_BASE_URL}/threads/${encodeURIComponent(threadId)}/artifacts?offset=${items.length}`,
+      `${API_BASE_URL}/threads/${encodeURIComponent(threadId)}/artifacts${query}`,
       { signal },
     );
     if (!response.ok) throw new Error("Could not load conversation files.");

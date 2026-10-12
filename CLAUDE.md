@@ -390,7 +390,7 @@ The service does **not** filter unauthorized agents out of `list`. Callers (e.g.
 ## Environment Setup
 
 - **Python**: 3.11+ (via uv)
-- **Node.js**: 20+ (see Dockerfile)
+- **Node.js**: 22.18+ (see Dockerfile; `@office-kit/pptx` requires it)
 - **Infrastructure**: Docker for PostgreSQL and Redis (`docker-compose.dev.yml`)
 - **Environment**: Copy `.env.example` to `.env`
 

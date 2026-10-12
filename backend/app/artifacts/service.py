@@ -8,12 +8,21 @@ from deepagents.backends.sandbox import BaseSandbox
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.artifacts.files import SandboxFileMissingError, detect_mime, read_bytes
+from app.artifacts.files import (
+    SandboxFileMissingError,
+    SandboxReadError,
+    detect_mime,
+    read_bytes,
+)
 from app.artifacts.models import ArtifactDB
 from app.artifacts.repository import ArtifactRepository
 from app.artifacts.schemas import ArtifactResponse, PresentFile
 from app.artifacts.settings import artifact_settings
-from app.artifacts.storage import ObjectMissingError, S3ObjectStore
+from app.artifacts.storage import (
+    ObjectMissingError,
+    ObjectTooLargeError,
+    S3ObjectStore,
+)
 from app.database import get_db
 from app.exceptions import DomainValidationError, NotFoundError
 from app.sandbox.provider import SandboxGoneError, build_provider
@@ -40,16 +49,22 @@ class ArtifactGoneError(NotFoundError):
         return {"error": "artifact_gone", "detail": str(self)}
 
 
+# Inside the execution sandbox (not the Auxilia host).
+SNAPSHOT_ROOT = "/tmp/.auxilia-artifacts"  # nosec B108
+
+
 class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
     not_found_message = "Artifact not found"
 
     def __init__(self, db: AsyncSession):
         super().__init__(db, ArtifactRepository(db))
 
-    async def list(self, thread_id: str, offset: int = 0) -> list[ArtifactResponse]:
+    async def list(
+        self, thread_id: str, after: UUID | None = None
+    ) -> list[ArtifactResponse]:
         return [
             describe(row)
-            for row in await self.repository.list_for_thread(thread_id, offset)
+            for row in await self.repository.list_for_thread(thread_id, after)
         ]
 
     async def publish(
@@ -73,8 +88,13 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
             raise DomainValidationError(
                 "The file does not exist in the sandbox"
             ) from exc
+        except SandboxReadError as exc:
+            raise DomainValidationError(
+                "The sandbox could not be reached to read the file"
+            ) from exc
         filename = PurePosixPath(file.path).name
-        mime_type = detect_mime(filename, data)
+        # Zip parsing / UTF-8 decoding of up to max_bytes: keep it off the loop.
+        mime_type = await asyncio.to_thread(detect_mime, filename, data)
         # Stable across tool replay. New tool calls publish new immutable versions.
         artifact_id = uuid5(
             NAMESPACE_URL, f"auxilia:{thread_id}:{tool_call_id}:{file.path}"
@@ -86,7 +106,7 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
             store = await asyncio.to_thread(S3ObjectStore, cfg)
             await asyncio.to_thread(store.put, key, data, mime_type)
         else:
-            key = f"/tmp/.auxilia-artifacts/{artifact_id}/{digest}"
+            key = f"{SNAPSHOT_ROOT}/{artifact_id}/{digest}"
             directory = str(PurePosixPath(key).parent)
             mkdir = await asyncio.to_thread(
                 backend.execute, f"mkdir -p -- {shlex.quote(directory)}", timeout=10
@@ -142,6 +162,10 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
                 raise ArtifactGoneError(
                     "This saved file has been removed from storage."
                 ) from exc
+            except ObjectTooLargeError as exc:
+                raise ArtifactGoneError(
+                    "This saved file exceeds the current download size limit."
+                ) from exc
         else:
             source = (
                 await SandboxRepository(self.db).get(row.sandbox_source_id)
@@ -165,12 +189,16 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
                     read_bytes,
                     backend,
                     row.storage_key,
-                    ["/tmp/.auxilia-artifacts"],
+                    [SNAPSHOT_ROOT],
                     cfg.max_bytes,
                 )
             except SandboxFileMissingError as exc:
                 raise ArtifactGoneError(
                     "This temporary artifact has been removed from its execution environment."
+                ) from exc
+            except SandboxReadError as exc:
+                raise ArtifactGoneError(
+                    "This temporary file's execution environment is not reachable."
                 ) from exc
         if hashlib.sha256(data).hexdigest() != row.sha256:
             raise ArtifactGoneError(

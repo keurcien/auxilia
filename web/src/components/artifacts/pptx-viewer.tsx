@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { getSlides, loadPresentation } from "@office-kit/pptx";
 import { renderSlideToSvg } from "@office-kit/pptx-preview";
 import DOMPurify from "dompurify";
-import { ChevronLeft, ChevronRight, Maximize } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, Maximize } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Loading } from "./viewers";
 import type { ViewerProps } from "./viewers";
@@ -14,62 +14,79 @@ export default function PptxViewer({ bytes }: ViewerProps) {
   const [slides, setSlides] = useState<string[]>([]);
   const [selected, setSelected] = useState(0);
   const [error, setError] = useState<string>();
-  const [progress, setProgress] = useState<[number, number]>();
+  // Slides render one by one and show as they land; `total` is the deck size.
+  const [total, setTotal] = useState(0);
   useEffect(() => {
     let active = true;
     const urls: string[] = [];
-    async function load() {
-      try {
-        const presentation = await loadPresentation(new Uint8Array(bytes));
+    const revokeAll = () => {
+      urls.forEach((url) => {
+        URL.revokeObjectURL(url);
+      });
+      urls.length = 0;
+    };
+    type Presentation = Awaited<ReturnType<typeof loadPresentation>>;
+    type Slide = ReturnType<typeof getSlides>[number];
+    // One slide per task, so the panel stays responsive and each slide shows
+    // as soon as it is ready.
+    const renderNext = (
+      presentation: Presentation,
+      deck: readonly Slide[],
+      index: number,
+    ): Promise<void> => {
+      const slide = deck.at(index);
+      if (!active || !slide) return Promise.resolve();
+      // SVG is untrusted document content. Sanitize, then use image context
+      // (never insert the renderer's SVG directly into the host DOM).
+      const svg = DOMPurify.sanitize(
+        renderSlideToSvg(presentation, slide, { textLayout: "svg" }),
+        {
+          USE_PROFILES: { svg: true, svgFilters: true },
+          FORBID_TAGS: ["foreignObject", "a"],
+        },
+      );
+      urls.push(
+        URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" })),
+      );
+      setSlides([...urls]);
+      return new Promise((resolve) => setTimeout(resolve, 0)).then(() =>
+        renderNext(presentation, deck, index + 1),
+      );
+    };
+    loadPresentation(new Uint8Array(bytes))
+      .then((presentation) => {
         const deck = getSlides(presentation);
         if (!deck.length) throw new Error("This presentation has no slides.");
         if (deck.length > 200)
           throw new Error(
             "This deck exceeds the 200-slide preview limit. Download it to view all slides.",
           );
-        for (const slide of deck) {
-          if (!active) return;
-          // SVG is untrusted document content. Sanitize, then use image context
-          // (never insert the renderer's SVG directly into the host DOM).
-          const svg = DOMPurify.sanitize(
-            renderSlideToSvg(presentation, slide, { textLayout: "svg" }),
-            {
-              USE_PROFILES: { svg: true, svgFilters: true },
-              FORBID_TAGS: ["foreignObject", "a"],
-            },
-          );
-          urls.push(
-            URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" })),
-          );
-          setProgress([urls.length, deck.length]);
-          await new Promise((resolve) => setTimeout(resolve, 0));
-        }
-        if (active) setSlides([...urls]);
-      } catch (cause) {
+        setTotal(deck.length);
+        return renderNext(presentation, deck, 0);
+      })
+      .catch((cause: unknown) => {
+        // The error view replaces the slides: free what was rendered so far.
+        revokeAll();
         if (active)
           setError(
             cause instanceof Error
               ? cause.message
               : "Could not preview this presentation.",
           );
-      }
-    }
-    void load();
+      });
     return () => {
       active = false;
-      urls.forEach((url) => {
-        URL.revokeObjectURL(url);
-      });
+      revokeAll();
     };
   }, [bytes]);
   const count = slides.length;
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (!count) return;
-      const target = event.target as HTMLElement | null;
       // Leave arrow keys to text fields and to the panel's resize handle.
       if (
-        target?.closest(
+        event.target instanceof Element &&
+        event.target.closest(
           'input, textarea, select, [contenteditable], [role="separator"]',
         )
       )
@@ -86,7 +103,7 @@ export default function PptxViewer({ bytes }: ViewerProps) {
   const stage = useRef<HTMLDivElement>(null);
   const strip = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    strip.current?.children[selected]?.scrollIntoView({
+    strip.current?.children.item(selected)?.scrollIntoView({
       block: "nearest",
       inline: "nearest",
     });
@@ -105,9 +122,7 @@ export default function PptxViewer({ bytes }: ViewerProps) {
       <Loading
         className="bg-neutral-bg"
         label={
-          progress
-            ? `Rendering slide ${Math.min(progress[0] + 1, progress[1])} of ${progress[1]}…`
-            : "Opening presentation…"
+          total ? `Rendering slide 1 of ${total}…` : "Opening presentation…"
         }
       />
     );
@@ -122,7 +137,7 @@ export default function PptxViewer({ bytes }: ViewerProps) {
         <div className="flex min-h-0 w-full flex-1 items-center justify-center">
           <img
             alt={`Slide ${selected + 1}`}
-            src={slides[selected]}
+            src={slides.at(selected)}
             className="max-h-full max-w-full rounded bg-white object-contain shadow-[0_1px_2px_rgba(10,25,30,0.08),0_10px_30px_rgba(10,25,30,0.12)]"
           />
         </div>
@@ -139,7 +154,7 @@ export default function PptxViewer({ bytes }: ViewerProps) {
             <ChevronLeft className="size-3.5" />
           </button>
           <span className="min-w-10 px-1.5 text-center font-mono text-[11.5px] text-ink">
-            {selected + 1} / {count}
+            {selected + 1} / {total || count}
           </span>
           <button
             type="button"
@@ -167,7 +182,7 @@ export default function PptxViewer({ bytes }: ViewerProps) {
           </button>
         </div>
       </div>
-      {count > 1 && (
+      {total > 1 && (
         <div
           ref={strip}
           className="flex flex-none gap-2.5 overflow-x-auto border-t border-hairline px-5 py-3"
@@ -205,6 +220,15 @@ export default function PptxViewer({ bytes }: ViewerProps) {
               </span>
             </button>
           ))}
+          {count < total && (
+            <div
+              role="status"
+              aria-label={`Rendering slide ${count + 1} of ${total}`}
+              className="flex h-[58px] w-[104px] flex-none items-center justify-center rounded border border-dashed border-border text-meta"
+            >
+              <Loader2 className="size-4 animate-spin text-petrol" />
+            </div>
+          )}
         </div>
       )}
     </div>
