@@ -143,7 +143,7 @@ def test_gcs_store(monkeypatch):
     )
     blob.download_as_bytes.return_value = b"data"
     assert store.get("file", 4) == b"data"
-    blob.download_as_bytes.assert_called_with(
+    blob.download_as_bytes.assert_called_once_with(
         start=0, end=4, timeout=GCS_TIMEOUT, retry=GCS_RETRY
     )
     blob.download_as_bytes.return_value = b"01234"
