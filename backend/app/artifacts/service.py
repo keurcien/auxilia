@@ -264,6 +264,9 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
                 raise DomainError(
                     f"Google Drive refused the export ({exc.response.status_code})"
                 ) from exc
+            except httpx.RequestError as exc:  # timeout, DNS, connection reset
+                logger.warning("Google Drive export failed: %r", exc)
+                raise DomainError("Google Drive could not be reached") from exc
         return slides_url(file_id)
 
 

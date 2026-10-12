@@ -132,24 +132,23 @@ const PPTX_MIME =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
 // Export to Slides rides on the Google sign-in client, so it only exists when
-// the workspace has Google OAuth configured.
+// the workspace has Google OAuth configured. Asked once per page load.
+let googleEnabled: Promise<boolean> | undefined;
+
 function useGoogleEnabled(): boolean {
   const [enabled, setEnabled] = useState(false);
   useEffect(() => {
-    getAuthProviders()
-      .then((providers) => {
-        setEnabled(providers.google);
-      })
-      .catch(() => {
-        setEnabled(false);
-      });
+    googleEnabled ??= getAuthProviders()
+      .then((providers) => providers.google)
+      .catch(() => false);
+    void googleEnabled.then(setEnabled);
   }, []);
   return enabled;
 }
 
 function SlidesExportLink({ item }: { item: Artifact }) {
-  const googleEnabled = useGoogleEnabled();
-  if (!googleEnabled || item.mime_type !== PPTX_MIME) return null;
+  const enabled = useGoogleEnabled();
+  if (!enabled) return null;
   return (
     <a
       href={slidesExportUrl(item)}
@@ -534,7 +533,9 @@ export function ArtifactWorkspace({
                       )}
                     </p>
                   </div>
-                  <SlidesExportLink item={selected} />
+                  {selected.mime_type === PPTX_MIME && (
+                    <SlidesExportLink item={selected} />
+                  )}
                   <DownloadLink item={selected} />
                   <CloseButton onClose={close} />
                 </header>
