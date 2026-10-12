@@ -3,6 +3,7 @@ export default {
   configuration: 'Configuration',
   tools: 'Tools & Permissions',
   sandbox: 'Using the Sandbox',
+  artifacts: 'Files & Previews',
   skills: 'Skills',
   subagents: 'Subagents',
   triggers: 'Triggers',

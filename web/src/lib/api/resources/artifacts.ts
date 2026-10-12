@@ -1,0 +1,52 @@
+import { API_BASE_URL } from "@/lib/api/client";
+import { protocolFetch } from "@/lib/api/protocol";
+
+export interface Artifact {
+  id: string;
+  thread_id: string;
+  tool_call_id: string;
+  title: string;
+  filename: string;
+  mime_type: string;
+  size: number;
+  temporary: boolean;
+  created_at: string | null;
+}
+
+export function contentUrl(artifact: Artifact): string {
+  return `${API_BASE_URL}/threads/${encodeURIComponent(artifact.thread_id)}/artifacts/${encodeURIComponent(artifact.id)}/content`;
+}
+
+export async function listArtifacts(
+  threadId: string,
+  signal: AbortSignal,
+): Promise<Artifact[]> {
+  const items: Artifact[] = [];
+  for (;;) {
+    const response = await protocolFetch(
+      `${API_BASE_URL}/threads/${encodeURIComponent(threadId)}/artifacts?offset=${items.length}`,
+      { signal },
+    );
+    if (!response.ok) throw new Error("Could not load conversation files.");
+    const page = (await response.json()) as Artifact[];
+    items.push(...page);
+    if (page.length < 100) return items;
+  }
+}
+
+export async function readArtifact(
+  artifact: Artifact,
+  signal: AbortSignal,
+): Promise<ArrayBuffer> {
+  const response = await protocolFetch(contentUrl(artifact), { signal });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as {
+      error?: string;
+      detail?: string;
+    } | null;
+    if (body?.error === "artifact_gone")
+      throw new Error(body.detail ?? "This file is no longer available.");
+    throw new Error("This file is unavailable right now. Retry in a moment.");
+  }
+  return response.arrayBuffer();
+}

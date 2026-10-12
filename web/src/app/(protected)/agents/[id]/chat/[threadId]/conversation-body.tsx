@@ -44,6 +44,7 @@ import type { Todo } from "@/components/ai-elements/todo-list";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { useAgentsStore } from "@/stores/agents-store";
 import type { HitlDecision, HitlResponse } from "@/hooks/use-hitl-approvals";
+import { ArtifactCards } from "@/components/artifacts/workspace";
 import { McpAppWidget } from "../components/mcp-app-widget";
 import {
   type ChainStepData,
@@ -479,6 +480,7 @@ const Chain = ({
           />
         </>
       )}
+      {tools.map(({ tc }) => <ArtifactCards key={`files-${tc.id}`} toolCallId={tc.callId ?? tc.id} />)}
       {tools.map(({ tc, sub }) => {
         const app = sub ? null : getMcpAppInfo(tc);
         if (!app) return null;

@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.core.repository import AgentRepository
 from app.agents.run_spec import AgentSpec
+from app.artifacts.tool import present_files_tool
 from app.database import AsyncSessionLocal, get_checkpointer
 from app.exceptions import DomainValidationError, NotFoundError
 from app.integrations.tracing import NoOpTracing, RunTracing, get_tracing
@@ -161,6 +162,7 @@ def build_runnable(
     checkpointer=None,
     output_schema: dict | None = None,
     format_mode: str = FORMAT_TOOL,
+    artifact_context: tuple[str, UUID] | None = None,
 ):
     """Build a LangGraph runnable. One construction path, one middleware list.
 
@@ -211,6 +213,8 @@ def build_runnable(
     harness: list = []
 
     if sandbox_backend is not None:
+        if artifact_context is not None:
+            tools.append(present_files_tool(sandbox_backend, *artifact_context))
         harness += harness_middleware(
             model=model,
             tools=tools,
@@ -407,6 +411,7 @@ class ResolvedAgent:
         *,
         sandbox_backend=None,
         skills: SkillsBackend | None = None,
+        artifact_context: tuple[str, UUID] | None = None,
     ) -> CompiledSubAgent:
         """Compile into a CompiledSubAgent runnable (for subagent use).
 
@@ -431,6 +436,7 @@ class ResolvedAgent:
         runnable = build_runnable(
             model=model,
             tools=self.live.all,
+            artifact_context=artifact_context,
             system_prompt=self.config.instructions or "",
             sandbox_backend=sandbox_backend if self.sandbox else None,
             skills=skills,
@@ -561,12 +567,17 @@ class Agent:
         # Read-only and shared by every agent of the graph; None means no
         # skills middleware and no prompt fragment at all.
         skills = SkillsBackend(self.skills) if self.skills else None
+        source_id = self.thread.sandbox_source_id
+        artifact_context = (
+            (self.thread.id, source_id) if self._sandbox and source_id else None
+        )
         compiled = (
             [
                 s.compile(
                     self.model,
                     self.thread.created_at,
                     sandbox_backend=self._sandbox_for(s),
+                    artifact_context=artifact_context,
                     skills=skills,
                 )
                 for s in self.subagents
@@ -577,6 +588,7 @@ class Agent:
         return build_runnable(
             model=self.model,
             tools=self.agent.live.all,
+            artifact_context=artifact_context,
             system_prompt=self.agent.config.instructions or "",
             sandbox_backend=self._sandbox_for(self.agent),
             skills=skills,

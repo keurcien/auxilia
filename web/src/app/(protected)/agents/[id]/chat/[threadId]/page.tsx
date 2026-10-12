@@ -1,5 +1,6 @@
 "use client";
 
+import { ArtifactWorkspace } from "@/components/artifacts/workspace";
 import { useEffect } from "react";
 import {
   Conversation,
@@ -69,6 +70,7 @@ const ChatPage = () => {
   useEffect(() => clearCurrentChat, [clearCurrentChat]);
 
   return (
+    <ArtifactWorkspace key={threadId} threadId={threadId} running={run.isLoading} refreshKey={JSON.stringify(transcript.toolCalls.map(tc => [tc.id, tc.status]))}>
     <div className="h-full flex flex-col w-full overflow-hidden">
       <div className="h-full relative flex flex-1 flex-col min-h-0 w-full">
         <Conversation>
@@ -207,6 +209,7 @@ const ChatPage = () => {
         )}
       </div>
     </div>
+    </ArtifactWorkspace>
   );
 };
 

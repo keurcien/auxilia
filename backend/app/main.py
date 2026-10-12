@@ -9,6 +9,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.agents.router import router as agents_router
+from app.artifacts.router import router as artifacts_router
 from app.auth.router import router as auth_router
 from app.auth.settings import auth_settings
 from app.auth.tokens.router import router as tokens_router
@@ -234,6 +235,7 @@ app.include_router(tokens_router)
 app.include_router(mcp_apps_router)
 app.include_router(mcp_servers_router)
 app.include_router(threads_router)
+app.include_router(artifacts_router)
 app.include_router(triggers_router)
 app.include_router(skill_sources_router)  # before /skills/{skill_id}
 app.include_router(skills_router)

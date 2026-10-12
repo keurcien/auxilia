@@ -63,9 +63,9 @@ def serialize_message(msg: Any) -> dict[str, Any]:
 # a thread's snapshot costs O(messages), not O(bytes the tools ever returned).
 TOOL_PREVIEW_CHARS = 16_000
 
-# The one artifact the client reads whole: an MCP-app tool's, whose
-# `structuredContent` feeds the app iframe. Every other artifact is a copy of
-# `content` (`structured_content`), i.e. dead weight on the wire.
+# Keep MCP app data and published-file descriptors, which the client reads.
+# Other artifacts duplicate `content` (`structured_content`). File bytes are
+# served separately and never belong in the transcript.
 _APP_ARTIFACT_KEY = "mcp_app_resource_uri"
 
 
@@ -77,14 +77,15 @@ def serialize_message_preview(
     Tool messages only: `content` longer than `limit` characters is replaced
     by its first `limit` characters (as text), with the full length recorded in
     `additional_kwargs["truncated"]["chars"]` so the client can offer the rest;
-    a non-app `artifact` is dropped. Every other message is serialized whole.
+    unrelated `artifact` payloads are dropped. Every other message is serialized whole.
     """
     d = serialize_message(msg)
     if d.get("type") != "tool":
         return d
     artifact = d.get("artifact")
     if artifact is not None and (
-        not isinstance(artifact, dict) or not artifact.get(_APP_ARTIFACT_KEY)
+        not isinstance(artifact, dict)
+        or not (artifact.get(_APP_ARTIFACT_KEY) or artifact.get("auxilia_artifacts"))
     ):
         del d["artifact"]
     text = text_of(d.get("content"))

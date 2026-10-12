@@ -41,6 +41,7 @@ dependencies = [
     "daytona>=0.205.1",
     "fastmcp>=4.0.1,<5",
     "httpx2>=2.12.0",
+    "boto3>=1.43.111",
 ]
 
 [dependency-groups]
@@ -151,6 +152,8 @@ warn_return_any = false
 # Third-party packages without (or with incomplete) type information.
 module = [
     "authlib.*",
+    "boto3.*",
+    "botocore.*",
     "croniter.*",
     "daytona.*",
     "deepagents.*",

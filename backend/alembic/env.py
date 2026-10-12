@@ -26,6 +26,7 @@ if database_url:
 # for 'autogenerate' support
 # Import all models here for Alembic to detect them
 from app.mcp.servers.models import MCPServerDB  # noqa: F401
+from app.artifacts.models import ArtifactDB  # noqa: F401
 from app.users.models import UserDB  # noqa: F401
 from app.agents.models import AgentDB, AgentMCPServerDB, AgentSubagentDB, AgentTeamDB, AgentUserPermissionDB  # noqa: F401
 from app.teams.models import TeamDB  # noqa: F401

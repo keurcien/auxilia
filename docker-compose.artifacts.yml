@@ -1,0 +1,36 @@
+# Optional local artifact storage. Never required by the default stack.
+# docker compose -f docker-compose.dev.yml -f docker-compose.artifacts.yml --profile artifacts up -d minio minio-init
+services:
+  minio:
+    build:
+      context: ./deploy/minio
+      target: server
+    profiles: [artifacts]
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: auxilia-local
+      MINIO_ROOT_PASSWORD: auxilia-local-development-only
+    ports:
+      - "127.0.0.1:${ARTIFACT_MINIO_PORT:-9000}:9000"
+      - "127.0.0.1:${ARTIFACT_MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - artifact-minio-data:/data
+    networks: [auxilia-network]
+  minio-init:
+    build:
+      context: ./deploy/minio
+      target: client
+    profiles: [artifacts]
+    depends_on: [minio]
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        for i in $$(seq 1 30); do
+          mc alias set local http://minio:9000 auxilia-local auxilia-local-development-only && break
+          sleep 1
+        done
+        mc mb --ignore-existing local/auxilia-artifacts
+    networks: [auxilia-network]
+volumes:
+  artifact-minio-data:

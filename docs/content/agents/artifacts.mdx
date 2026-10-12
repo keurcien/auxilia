@@ -1,0 +1,138 @@
+# Files and artifact previews
+
+Sandbox-enabled agents receive `present_files` automatically. After writing a
+finished file, the agent calls it with absolute sandbox paths:
+
+```json
+{"files": [{"path": "/tmp/report.pptx", "title": "Quarterly review"}]}
+```
+
+The conversation shows a file card and a side panel. Supported previews are PPTX,
+PDF, UTF-8 CSV, Markdown, plain text, and self-contained HTML. Other files can be
+downloaded. PPTX uses a browser renderer and may differ from PowerPoint (fonts,
+SmartArt and advanced effects); the download is always the original file. There
+is no editing in this version. MCP App persistence is not part of this feature.
+
+## Temporary files
+
+No additional infrastructure is required. By default, publication creates a
+snapshot under `/tmp/.auxilia-artifacts` in the current sandbox. The card warns
+that it is temporary. Changing the working file does not change the published
+snapshot. New calls to `present_files` create new publications.
+
+If the original sandbox or snapshot is gone, the card remains and explains that
+the file is unavailable. Reading a file never creates a replacement sandbox.
+Provider outages are reported as retryable failures, not expiration. Sandbox
+providers may restore their existing snapshots when reconnecting.
+
+## Optional S3-compatible persistence
+
+Configure these on the **backend**, once per installation. The same adapter uses
+S3 Signature V4 and basic PUT/GET operations with AWS S3, MinIO, and GCS's XML API.
+The bucket must already exist and remain private. No browser CORS rules or public
+bucket endpoint are required: Auxilia proxies the bytes after authorization.
+
+| Variable | Meaning |
+| --- | --- |
+| `ARTIFACT_S3_BUCKET` | Enables persistence when nonempty |
+| `ARTIFACT_S3_ENDPOINT_URL` | Custom endpoint; omit for AWS |
+| `ARTIFACT_S3_REGION` | Signing region; default `us-east-1` |
+| `ARTIFACT_S3_ACCESS_KEY_ID` | Optional explicit access key |
+| `ARTIFACT_S3_SECRET_ACCESS_KEY` | Matching secret |
+| `ARTIFACT_S3_SESSION_TOKEN` | Optional temporary-credential token |
+| `ARTIFACT_S3_ADDRESSING_STYLE` | `auto`, `path`, or `virtual` |
+| `ARTIFACT_S3_PREFIX` | Object prefix; default `auxilia/artifacts` |
+| `ARTIFACT_MAX_BYTES` | Per-file limit; default 20 MiB |
+| `ARTIFACT_ALLOWED_ROOTS` | JSON array; default `["/workspace","/mnt/data","/tmp"]` |
+
+**AWS:** set bucket and region. Omit explicit credentials to use the SDK's normal
+credential chain (including an instance/task role). Allow `s3:PutObject` and
+`s3:GetObject` only on the chosen prefix. Bucket creation/listing is not needed.
+
+**MinIO:** set endpoint, bucket, access key and secret; use addressing style
+`path` for local deployments.
+
+**GCS:** set endpoint `https://storage.googleapis.com`, bucket, signing region
+`auto`, addressing style `path`, and a Cloud Storage **HMAC access ID and secret**.
+A service-account JSON key is not an S3 HMAC secret. This adapter deliberately
+avoids AWS-specific ACLs and optional checksum headers. Native Google ADC is not
+used by this adapter. Grant the HMAC identity object read/create permissions.
+
+After enabling storage, new publications are durable independently of their
+sandbox. Existing temporary files are not automatically migrated; re-present
+files while their sandbox is still available. An upload failure is a tool error,
+never silently reported as a saved artifact.
+
+Keys have the following shape (the thread segment is a deterministic UUID derived
+from the thread ID, including for non-UUID API/Slack thread IDs):
+
+```text
+{prefix}/threads/{thread-key}/{publication-id}/{sha256}/{filename}
+```
+
+Postgres holds descriptors and sandbox/object locators; checkpoints hold small
+references only. There is no workspace ID. Changing the configured bucket or
+endpoint does not redirect old files to a new location: they become unavailable
+until the original storage configuration is restored.
+
+### Local test storage
+
+The optional profile builds pinned upstream MinIO and `mc` source because the
+community images are no longer reliably available. The first build needs network
+access and can take several minutes. These development credentials must not be
+used in production. Only loopback ports are published.
+
+```bash
+docker compose -f docker-compose.dev.yml -f docker-compose.artifacts.yml --profile artifacts up --build -d minio minio-init
+```
+
+For a host-running backend, put this in `.env`:
+
+```dotenv
+ARTIFACT_S3_BUCKET=auxilia-artifacts
+ARTIFACT_S3_ENDPOINT_URL=http://localhost:9000
+ARTIFACT_S3_ACCESS_KEY_ID=auxilia-local
+ARTIFACT_S3_SECRET_ACCESS_KEY=auxilia-local-development-only
+ARTIFACT_S3_ADDRESSING_STYLE=path
+```
+
+For the full Docker stack, combine `docker-compose.yml` with the same override
+and use `http://minio:9000`. The initializer creates a private bucket. Override
+`ARTIFACT_MINIO_PORT` / `ARTIFACT_MINIO_CONSOLE_PORT` to avoid local conflicts.
+
+An opt-in adapter test writes, reads and removes a unique test object:
+
+```bash
+cd backend
+ARTIFACT_TEST_S3_ENDPOINT=http://localhost:9000 uv run pytest tests/artifacts/test_storage.py -q
+```
+
+## Access and retention
+
+Artifacts inherit current conversation read access: the thread owner and the
+agent's authorized administrators. Being able to use the same agent does not
+allow a user to access another user's files. Every list/download request checks
+that gate; an artifact from a different thread is rejected. There are no public
+sharing links and no separate artifact ACLs.
+
+Deleting a thread cascades its artifact metadata and removes access through
+Auxilia. Object bytes are retained according to the operator's bucket retention
+policy; this initial release does not delete bucket objects on thread deletion.
+Configure an appropriate lifecycle rule for the artifact prefix. Back up metadata
+alongside the bucket if files must be recoverable. Temporary bytes expire with
+the sandbox.
+
+## Preview boundaries
+
+Only explicitly presented files are listed. Publication rejects symlinks,
+non-regular files, traversal, files outside configured roots, oversized files,
+invalid PPTX containers, and excessively expanded PPTX archives. Limit: ten files
+per call. The extraction helper requires Python 3 in the sandbox, as do the
+existing filesystem tools.
+
+HTML runs in an opaque-origin iframe with scripts allowed. Its CSP blocks network
+subresources, forms and nested frames; no host API bridge is exposed. This is not
+an offline execution guarantee: browser iframe navigation can still reach an
+external site. Inline scripts/styles and embedded data assets work. Multi-file websites and live backend applications are not supported
+by this file viewer. Markdown images are omitted; CSV previews are limited to
+500 rows and 50 columns. The full original is available through Download.
