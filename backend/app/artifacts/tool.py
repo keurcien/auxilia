@@ -30,19 +30,24 @@ def present_files_tool(backend: BaseSandbox, thread_id: str, sandbox_source_id: 
         # commits before the tool result is emitted, so cards resolve on arrival.
         async with AsyncSessionLocal() as db:
             service = ArtifactService(db)
-            items = [
-                (
-                    await service.publish(
-                        thread_id=thread_id,
-                        tool_call_id=tool_call_id,
-                        file=file,
-                        backend=backend,
-                        sandbox_source_id=sandbox_source_id,
-                    )
-                ).model_dump(mode="json")
-                for file in files
-            ]
-            await db.commit()
+            try:
+                items = [
+                    (
+                        await service.publish(
+                            thread_id=thread_id,
+                            tool_call_id=tool_call_id,
+                            file=file,
+                            backend=backend,
+                            sandbox_source_id=sandbox_source_id,
+                        )
+                    ).model_dump(mode="json")
+                    for file in files
+                ]
+                await db.commit()
+            except BaseException:
+                # The rows roll back with the session; drop their S3 bytes too.
+                await service.discard_uploads()
+                raise
         summary = [
             {"id": x["id"], "title": x["title"], "temporary": x["temporary"]}
             for x in items

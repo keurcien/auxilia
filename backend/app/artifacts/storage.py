@@ -16,6 +16,7 @@ from app.artifacts.settings import ArtifactSettings
 class ObjectStore(Protocol):
     def put(self, key: str, data: bytes, mime_type: str) -> None: ...
     def get(self, key: str, limit: int) -> bytes: ...
+    def delete(self, key: str) -> None: ...
 
 
 class ObjectMissingError(Exception):
@@ -55,6 +56,9 @@ class S3ObjectStore:
         self.client.put_object(
             Bucket=self.bucket, Key=key, Body=data, ContentType=mime_type
         )
+
+    def delete(self, key: str) -> None:
+        self.client.delete_object(Bucket=self.bucket, Key=key)
 
     def get(self, key: str, limit: int) -> bytes:
         try:

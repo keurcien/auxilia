@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import logging
 import shlex
 from pathlib import PurePosixPath
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -30,6 +31,9 @@ from app.sandbox.repository import SandboxRepository
 from app.service import BaseService
 
 
+logger = logging.getLogger(__name__)
+
+
 def describe(row: ArtifactDB) -> ArtifactResponse:
     return ArtifactResponse(
         id=row.id,
@@ -58,6 +62,8 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
 
     def __init__(self, db: AsyncSession):
         super().__init__(db, ArtifactRepository(db))
+        # Objects this service put in S3, so an aborted batch can remove them.
+        self.uploaded: list[str] = []
 
     async def list(
         self, thread_id: str, after: UUID | None = None
@@ -105,6 +111,7 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
         if kind == "s3":
             store = await asyncio.to_thread(S3ObjectStore, cfg)
             await asyncio.to_thread(store.put, key, data, mime_type)
+            self.uploaded.append(key)
         else:
             key = f"{SNAPSHOT_ROOT}/{artifact_id}/{digest}"
             directory = str(PurePosixPath(key).parent)
@@ -137,6 +144,20 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
         )
         row = await self.repository.insert(row)
         return describe(row)
+
+    async def discard_uploads(self) -> None:
+        """Best-effort delete of this batch's S3 objects after a rollback."""
+        if not self.uploaded:
+            return
+        store = await asyncio.to_thread(S3ObjectStore, artifact_settings)
+        for key in self.uploaded:
+            try:
+                await asyncio.to_thread(store.delete, key)
+            except Exception:  # noqa: BLE001 — cleanup must not mask the publish failure
+                logger.warning(
+                    "Could not delete orphaned artifact object %s", key, exc_info=True
+                )
+        self.uploaded.clear()
 
     async def content(
         self, thread_id: str, artifact_id: UUID

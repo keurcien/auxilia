@@ -174,3 +174,19 @@ async def test_unreachable_sandbox_read_is_a_domain_error(db, sandbox, monkeypat
     )
     with pytest.raises(DomainValidationError):
         await publish(ArtifactService(db), sandbox)
+
+
+async def test_discarded_batch_deletes_its_uploaded_objects(db, sandbox, monkeypatch):
+    cfg = ArtifactSettings(_env_file=None, s3_bucket="private")
+    monkeypatch.setattr("app.artifacts.service.artifact_settings", cfg)
+    monkeypatch.setattr("app.artifacts.service.read_bytes", lambda *args: b"a,b")
+    store = MagicMock()
+    monkeypatch.setattr("app.artifacts.service.S3ObjectStore", lambda cfg: store)
+    service = ArtifactService(db)
+    await publish(service, sandbox, "call-1")
+    await publish(service, sandbox, "call-2")
+    uploaded = [put.args[0] for put in store.put.call_args_list]
+    store.delete.side_effect = [ConnectionError, None]  # one failure is tolerated
+    await service.discard_uploads()
+    assert [d.args[0] for d in store.delete.call_args_list] == uploaded
+    assert service.uploaded == []
