@@ -60,7 +60,6 @@ To let users sign in with their Google accounts, configure:
 ```env
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
-GOOGLE_REDIRECT_URI=https://your-host/auth/google/callback
 ```
 
 Optionally set `AUTH_GOOGLE_EXCLUSIVE=true` to **disable email/password signup entirely** — useful when you want Google as the single identity provider for the workspace.
@@ -69,7 +68,7 @@ Create the OAuth client in the Google Cloud Console:
 
 1. **APIs & Services** → **Credentials** → **Create Credentials** → **OAuth client ID**
 2. Application type: **Web application**
-3. Authorized redirect URIs:
+3. Authorized redirect URIs (derived from `FRONTEND_URL`):
    - `<FRONTEND_URL>/api/backend/auth/google/callback` (sign-in)
    - `<FRONTEND_URL>/api/backend/artifacts/google-slides/callback` ([export to Google Slides](#export-to-google-slides))
 4. Copy the Client ID and Secret into the env vars above

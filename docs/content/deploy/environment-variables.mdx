@@ -50,10 +50,9 @@ Anthropic models run with thinking enabled by default; Google models run with `i
 | ------------------------ | --------------------------------------------------------------------- |
 | `GOOGLE_CLIENT_ID`       | OAuth client ID for Google sign-in                                    |
 | `GOOGLE_CLIENT_SECRET`   | OAuth client secret                                                   |
-| `GOOGLE_REDIRECT_URI`    | e.g. `https://your-host/auth/google/callback`                         |
 | `AUTH_GOOGLE_EXCLUSIVE`  | `true` disables email/password signup — Google OAuth only             |
 
-Leaving these unset keeps email/password signup as the only path. See [User Management](/deploy/user-management) for the full flow.
+Google redirects back to `<FRONTEND_URL>/api/backend/auth/google/callback`; there is no separate redirect variable. Leaving these unset keeps email/password signup as the only path. See [User Management](/deploy/user-management) for the full flow.
 
 ## Sandbox
 
