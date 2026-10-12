@@ -87,17 +87,20 @@ async def export_to_slides(
     user: UserDB = Depends(get_current_user),
 ):
     """Browser navigation: asks Google for `drive.file`, then lands on the callback."""
-    # authorize_redirect, unrolled to key the pending export by OAuth state, so
-    # two exports started side by side each land on their own artifact.
+    # authorize_redirect, unrolled to store the export target in Authlib's own
+    # state record: tied to this OAuth state, expiring with it, and replaced by
+    # the next export (a superseded consent fails cleanly, never swaps files).
     client = oauth.google_drive
     redirect_uri = f"{auth_settings.FRONTEND_URL}/api/backend{SLIDES_CALLBACK}"
     rv = await client.create_authorization_url(
         redirect_uri, login_hint=user.email, include_granted_scopes="true"
     )
-    await client.save_authorize_data(request, redirect_uri=redirect_uri, **rv)
-    # shortcut: an abandoned consent leaves this small entry in the session cookie;
-    # prune old slides_export_* keys if that cookie ever nears its 4 KB limit.
-    request.session[f"slides_export_{rv['state']}"] = [thread_id, str(artifact_id)]
+    await client.save_authorize_data(
+        request,
+        redirect_uri=redirect_uri,
+        slides_export=[thread_id, str(artifact_id)],
+        **rv,
+    )
     return RedirectResponse(rv["url"], status_code=302)
 
 
@@ -117,16 +120,19 @@ async def export_to_slides_callback(
     agent_service: AgentService = Depends(get_agent_service),
     service: ArtifactService = Depends(get_artifact_service),
 ):
+    client = oauth.google_drive
     state = request.query_params.get("state")
-    pending = request.session.pop(f"slides_export_{state}", None)
+    data = await client.framework.get_state_data(request.session, state)
+    pending = data.get("slides_export") if data else None
     if pending is None:
         raise DomainValidationError(
             "No export in progress. Start it again from the file."
         )
     if request.query_params.get("error"):  # the user cancelled the consent
+        await client.framework.clear_state_data(request.session, state)
         return drive_access_needed()
     try:
-        token = await oauth.google_drive.authorize_access_token(request)
+        token = await client.authorize_access_token(request)
     except OAuthError as exc:
         raise DomainValidationError(f"Google sign-in failed: {exc.error}") from exc
     # Google lets the user untick a scope on the consent screen.
