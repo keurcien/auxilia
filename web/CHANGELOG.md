@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.5](https://github.com/keurcien/auxilia/compare/web-v0.10.4...web-v0.10.5) (2026-10-12)
+
+
+### Features
+
+* **artifacts:** chat artifact previews with optional S3 persistence ([#398](https://github.com/keurcien/auxilia/issues/398)) ([94979e1](https://github.com/keurcien/auxilia/commit/94979e1e0d5de53362688593a023d0a6a5564aa6))
+
 ## [0.10.4](https://github.com/keurcien/auxilia/compare/web-v0.10.3...web-v0.10.4) (2026-10-09)
 
 

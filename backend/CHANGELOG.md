@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.8](https://github.com/keurcien/auxilia/compare/backend-v0.9.7...backend-v0.9.8) (2026-10-12)
+
+
+### Features
+
+* **artifacts:** chat artifact previews with optional S3 persistence ([#398](https://github.com/keurcien/auxilia/issues/398)) ([94979e1](https://github.com/keurcien/auxilia/commit/94979e1e0d5de53362688593a023d0a6a5564aa6))
+
+
+### Bug Fixes
+
+* **models:** Update list ([#395](https://github.com/keurcien/auxilia/issues/395)) ([37a7a15](https://github.com/keurcien/auxilia/commit/37a7a15b7ddb25b8a1691f9401ab61ba3cccc395))
+
 ## [0.9.7](https://github.com/keurcien/auxilia/compare/backend-v0.9.6...backend-v0.9.7) (2026-10-09)
 
 
