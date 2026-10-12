@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.6](https://github.com/keurcien/auxilia/compare/web-v0.10.5...web-v0.10.6) (2026-10-12)
+
+
+### Features
+
+* **artifacts:** export PPTX artifacts to Google Slides ([#401](https://github.com/keurcien/auxilia/issues/401)) ([816d0db](https://github.com/keurcien/auxilia/commit/816d0db7d3114d7d323793371b5028e93ad483a3))
+
 ## [0.10.5](https://github.com/keurcien/auxilia/compare/web-v0.10.4...web-v0.10.5) (2026-10-12)
 
 

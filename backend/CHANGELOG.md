@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.10](https://github.com/keurcien/auxilia/compare/backend-v0.9.9...backend-v0.9.10) (2026-10-12)
+
+
+### Features
+
+* **artifacts:** export PPTX artifacts to Google Slides ([#401](https://github.com/keurcien/auxilia/issues/401)) ([816d0db](https://github.com/keurcien/auxilia/commit/816d0db7d3114d7d323793371b5028e93ad483a3))
+
 ## [0.9.9](https://github.com/keurcien/auxilia/compare/backend-v0.9.8...backend-v0.9.9) (2026-10-12)
 
 
