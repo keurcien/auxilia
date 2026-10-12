@@ -22,7 +22,7 @@ from app.artifacts.settings import artifact_settings
 from app.artifacts.storage import (
     ObjectMissingError,
     ObjectTooLargeError,
-    S3ObjectStore,
+    build_store,
 )
 from app.database import get_db
 from app.exceptions import DomainValidationError, NotFoundError
@@ -62,7 +62,7 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
 
     def __init__(self, db: AsyncSession):
         super().__init__(db, ArtifactRepository(db))
-        # Objects this service put in S3, so an aborted batch can remove them.
+        # Objects this service put in the bucket, so an aborted batch can remove them.
         self.uploaded: list[str] = []
 
     async def list(
@@ -106,10 +106,10 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
             NAMESPACE_URL, f"auxilia:{thread_id}:{tool_call_id}:{file.path}"
         )
         digest = hashlib.sha256(data).hexdigest()
-        key = f"{cfg.s3_prefix.strip('/')}/threads/{uuid5(NAMESPACE_URL, thread_id)}/{artifact_id}/{digest}/{filename}"
-        kind = "s3" if cfg.s3_bucket else "sandbox"
-        if kind == "s3":
-            store = await asyncio.to_thread(S3ObjectStore, cfg)
+        key = f"{cfg.prefix.strip('/')}/threads/{uuid5(NAMESPACE_URL, thread_id)}/{artifact_id}/{digest}/{filename}"
+        kind = cfg.provider or "sandbox"
+        if kind != "sandbox":
+            store = await asyncio.to_thread(build_store, cfg)
             await asyncio.to_thread(store.put, key, data, mime_type)
             self.uploaded.append(key)
         else:
@@ -137,8 +137,8 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
             sha256=digest,
             storage_kind=kind,
             storage_key=key,
-            storage_bucket=cfg.s3_bucket or None,
-            storage_endpoint=cfg.s3_endpoint_url or None,
+            storage_bucket=cfg.bucket_name or None,
+            storage_endpoint=cfg.endpoint,
             sandbox_source_id=sandbox_source_id,
             sandbox_id=backend.id,
         )
@@ -146,10 +146,10 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
         return describe(row)
 
     async def discard_uploads(self) -> None:
-        """Best-effort delete of this batch's S3 objects after a rollback."""
+        """Best-effort delete of this batch's bucket objects after a rollback."""
         if not self.uploaded:
             return
-        store = await asyncio.to_thread(S3ObjectStore, artifact_settings)
+        store = await asyncio.to_thread(build_store, artifact_settings)
         for key in self.uploaded:
             try:
                 await asyncio.to_thread(store.delete, key)
@@ -166,15 +166,16 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
         if row is None:
             raise NotFoundError(self.not_found_message)
         cfg = artifact_settings
-        if row.storage_kind == "s3":
-            if (row.storage_bucket, row.storage_endpoint) != (
-                cfg.s3_bucket,
-                cfg.s3_endpoint_url or None,
+        if row.storage_kind != "sandbox":
+            if (row.storage_kind, row.storage_bucket, row.storage_endpoint) != (
+                cfg.provider,
+                cfg.bucket_name,
+                cfg.endpoint,
             ):
                 raise DomainValidationError(
                     "This artifact's storage configuration is no longer available"
                 )
-            store = await asyncio.to_thread(S3ObjectStore, cfg)
+            store = await asyncio.to_thread(build_store, cfg)
             try:
                 data = await asyncio.to_thread(
                     store.get, row.storage_key, cfg.max_bytes

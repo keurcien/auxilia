@@ -1,14 +1,17 @@
-"""Private object storage; deliberately use only S3's common PUT/GET surface.
+"""Private object storage: native GCS (keyless, ADC) or S3's common PUT/GET surface.
 
-GCS XML/HMAC, MinIO and AWS all support this subset. Bytes are proxied through
+The S3 subset works with AWS, MinIO and GCS XML/HMAC. Bytes are proxied through
 Auxilia so the bucket need not be browser-accessible or configured for CORS.
 """
 
+from functools import lru_cache
 from typing import Protocol
 
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
+from google.api_core.exceptions import NotFound, RequestRangeNotSatisfiable
+from google.cloud import storage
 
 from app.artifacts.settings import ArtifactSettings
 
@@ -29,7 +32,7 @@ class ObjectTooLargeError(Exception):
 
 class S3ObjectStore:
     def __init__(self, settings: ArtifactSettings):
-        self.bucket = settings.s3_bucket
+        self.bucket = settings.bucket_name
         self.client = boto3.client(
             "s3",
             endpoint_url=settings.s3_endpoint_url or None,
@@ -78,3 +81,38 @@ class S3ObjectStore:
             return data
         finally:
             body.close()
+
+
+@lru_cache(maxsize=1)
+def _gcs_client() -> storage.Client:
+    # ADC: the Cloud Run/GKE service account, or `gcloud auth application-default login`.
+    return storage.Client()
+
+
+class GCSObjectStore:
+    def __init__(self, settings: ArtifactSettings):
+        self.bucket = _gcs_client().bucket(settings.bucket_name)
+
+    def put(self, key: str, data: bytes, mime_type: str) -> None:
+        self.bucket.blob(key).upload_from_string(data, content_type=mime_type)
+
+    def delete(self, key: str) -> None:
+        self.bucket.blob(key).delete()
+
+    def get(self, key: str, limit: int) -> bytes:
+        try:
+            # `end` is inclusive: one extra byte tells an oversize object apart.
+            data = self.bucket.blob(key).download_as_bytes(start=0, end=limit)
+        except NotFound as exc:
+            raise ObjectMissingError from exc
+        except RequestRangeNotSatisfiable:
+            return b""  # a byte range over a zero-byte object
+        if len(data) > limit:
+            raise ObjectTooLargeError(key)
+        return data
+
+
+def build_store(settings: ArtifactSettings) -> ObjectStore:
+    if settings.provider == "gcs":
+        return GCSObjectStore(settings)
+    return S3ObjectStore(settings)

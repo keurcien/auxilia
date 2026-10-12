@@ -159,6 +159,7 @@ module = [
     "daytona.*",
     "deepagents.*",
     "fastmcp.*",
+    "google.cloud.*",
     "jose.*",
     "jsonschema.*",
     "langfuse.*",

@@ -11,7 +11,7 @@ from app.artifacts.schemas import PresentFile
 from app.artifacts.service import ArtifactGoneError, ArtifactService
 from app.artifacts.settings import ArtifactSettings
 from app.artifacts.storage import ObjectMissingError
-from app.exceptions import NotFoundError
+from app.exceptions import DomainValidationError, NotFoundError
 from app.sandbox.provider import SandboxGoneError
 
 
@@ -71,12 +71,12 @@ async def test_temporary_publication_is_replay_safe_and_snapshots(
 
 
 async def test_persisted_content_does_not_reconnect_sandbox(db, sandbox, monkeypatch):
-    cfg = ArtifactSettings(_env_file=None, s3_bucket="private")
+    cfg = ArtifactSettings(_env_file=None, bucket="private")
     monkeypatch.setattr("app.artifacts.service.artifact_settings", cfg)
     monkeypatch.setattr("app.artifacts.service.read_bytes", lambda *args: b"a,b")
     store = MagicMock()
     store.get.return_value = b"a,b"
-    monkeypatch.setattr("app.artifacts.service.S3ObjectStore", lambda cfg: store)
+    monkeypatch.setattr("app.artifacts.service.build_store", lambda cfg: store)
     service = ArtifactService(db)
     item = await publish(service, sandbox)
     assert not item.temporary
@@ -90,15 +90,38 @@ async def test_persisted_content_does_not_reconnect_sandbox(db, sandbox, monkeyp
         await service.content("thread", item.id)
 
 
+async def test_gcs_row_is_not_read_through_s3(db, sandbox, monkeypatch):
+    monkeypatch.setattr(
+        "app.artifacts.service.artifact_settings",
+        ArtifactSettings(_env_file=None, bucket="gs://private"),
+    )
+    monkeypatch.setattr("app.artifacts.service.read_bytes", lambda *args: b"a,b")
+    store = MagicMock()
+    store.get.return_value = b"a,b"
+    monkeypatch.setattr("app.artifacts.service.build_store", lambda cfg: store)
+    service = ArtifactService(db)
+    item = await publish(service, sandbox)
+    row = await service.repository.get(item.id)
+    assert (row.storage_kind, row.storage_bucket) == ("gcs", "private")
+    assert (await service.content("thread", item.id))[1] == b"a,b"
+    # Same bucket name, other provider: the object is not where the row says.
+    monkeypatch.setattr(
+        "app.artifacts.service.artifact_settings",
+        ArtifactSettings(_env_file=None, bucket="private"),
+    )
+    with pytest.raises(DomainValidationError):
+        await service.content("thread", item.id)
+
+
 async def test_upload_failure_does_not_publish_success(db, sandbox, monkeypatch):
     monkeypatch.setattr(
         "app.artifacts.service.artifact_settings",
-        ArtifactSettings(_env_file=None, s3_bucket="private"),
+        ArtifactSettings(_env_file=None, bucket="private"),
     )
     monkeypatch.setattr("app.artifacts.service.read_bytes", lambda *args: b"a,b")
     store = MagicMock()
     store.put.side_effect = ConnectionError("storage offline")
-    monkeypatch.setattr("app.artifacts.service.S3ObjectStore", lambda cfg: store)
+    monkeypatch.setattr("app.artifacts.service.build_store", lambda cfg: store)
     service = ArtifactService(db)
     with pytest.raises(ConnectionError):
         await publish(service, sandbox)
@@ -163,7 +186,6 @@ async def test_listing_pages_by_keyset_after_the_last_seen_row(
 
 async def test_unreachable_sandbox_read_is_a_domain_error(db, sandbox, monkeypatch):
     from app.artifacts.files import SandboxReadError
-    from app.exceptions import DomainValidationError
 
     monkeypatch.setattr(
         "app.artifacts.service.artifact_settings", ArtifactSettings(_env_file=None)
@@ -177,11 +199,11 @@ async def test_unreachable_sandbox_read_is_a_domain_error(db, sandbox, monkeypat
 
 
 async def test_discarded_batch_deletes_its_uploaded_objects(db, sandbox, monkeypatch):
-    cfg = ArtifactSettings(_env_file=None, s3_bucket="private")
+    cfg = ArtifactSettings(_env_file=None, bucket="private")
     monkeypatch.setattr("app.artifacts.service.artifact_settings", cfg)
     monkeypatch.setattr("app.artifacts.service.read_bytes", lambda *args: b"a,b")
     store = MagicMock()
-    monkeypatch.setattr("app.artifacts.service.S3ObjectStore", lambda cfg: store)
+    monkeypatch.setattr("app.artifacts.service.build_store", lambda cfg: store)
     service = ArtifactService(db)
     await publish(service, sandbox, "call-1")
     await publish(service, sandbox, "call-2")
