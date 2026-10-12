@@ -43,7 +43,7 @@ bucket endpoint are required: Auxilia proxies the bytes after authorization.
 | `ARTIFACT_S3_ADDRESSING_STYLE` | `auto`, `path`, or `virtual` |
 | `ARTIFACT_S3_PREFIX` | Object prefix; default `auxilia/artifacts` |
 | `ARTIFACT_MAX_BYTES` | Per-file limit; default 20 MiB |
-| `ARTIFACT_ALLOWED_ROOTS` | JSON array; default `["/workspace","/mnt/data","/tmp"]` |
+| `ARTIFACT_ALLOWED_ROOTS` | JSON array; default `["/tmp"]` |
 
 **AWS:** set bucket and region. Omit explicit credentials to use the SDK's normal
 credential chain (including an instance/task role). Allow `s3:PutObject` and

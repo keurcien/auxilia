@@ -1,16 +1,20 @@
 /* eslint-disable @next/next/no-img-element -- Generated blob images do not use Next image optimization. */
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getSlides, loadPresentation } from "@office-kit/pptx";
 import { renderSlideToSvg } from "@office-kit/pptx-preview";
 import DOMPurify from "dompurify";
+import { ChevronLeft, ChevronRight, Maximize } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Loading } from "./viewers";
 import type { ViewerProps } from "./viewers";
 
 export default function PptxViewer({ bytes }: ViewerProps) {
   const [slides, setSlides] = useState<string[]>([]);
   const [selected, setSelected] = useState(0);
   const [error, setError] = useState<string>();
+  const [progress, setProgress] = useState<[number, number]>();
   useEffect(() => {
     let active = true;
     const urls: string[] = [];
@@ -37,6 +41,7 @@ export default function PptxViewer({ bytes }: ViewerProps) {
           urls.push(
             URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" })),
           );
+          setProgress([urls.length, deck.length]);
           await new Promise((resolve) => setTimeout(resolve, 0));
         }
         if (active) setSlides([...urls]);
@@ -57,45 +62,142 @@ export default function PptxViewer({ bytes }: ViewerProps) {
       });
     };
   }, [bytes]);
+  const count = slides.length;
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      // Leave arrow keys to the chat composer and any other text field.
+      if (target?.closest("input, textarea, select, [contenteditable]")) return;
+      if (event.key === "ArrowLeft") setSelected((x) => Math.max(0, x - 1));
+      if (event.key === "ArrowRight")
+        setSelected((x) => Math.min(count - 1, x + 1));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [count]);
+  const stage = useRef<HTMLDivElement>(null);
+  const strip = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    strip.current?.children[selected]?.scrollIntoView({
+      block: "nearest",
+      inline: "nearest",
+    });
+  }, [selected]);
   if (error)
     return (
-      <p role="alert" className="p-4 text-sm">
+      <p
+        role="alert"
+        className="flex h-full items-center justify-center bg-neutral-bg p-6 text-center text-sm text-subtle"
+      >
         {error}
       </p>
     );
-  if (!slides.length) return <p className="p-4">Rendering slides…</p>;
-  return (
-    <div className="flex h-full flex-col gap-3 p-3">
-      <p className="text-xs text-muted-foreground">
-        Preview may differ from PowerPoint. Download the original for full
-        fidelity.
-      </p>
-      <div className="flex items-center justify-between">
-        <button
-          disabled={selected === 0}
-          onClick={() => {
-            setSelected((x) => x - 1);
-          }}
-        >
-          Previous
-        </button>
-        <span>
-          Slide {selected + 1} of {slides.length}
-        </span>
-        <button
-          disabled={selected === slides.length - 1}
-          onClick={() => {
-            setSelected((x) => x + 1);
-          }}
-        >
-          Next
-        </button>
-      </div>
-      <img
-        alt={`Slide ${selected + 1}`}
-        src={slides[selected]}
-        className="min-h-0 w-full flex-1 object-contain"
+  if (!count)
+    return (
+      <Loading
+        className="bg-neutral-bg"
+        label={
+          progress
+            ? `Rendering slide ${Math.min(progress[0] + 1, progress[1])} of ${progress[1]}…`
+            : "Opening presentation…"
+        }
       />
+    );
+  const navButton =
+    "flex size-7 items-center justify-center rounded-full text-ink hover:bg-hover disabled:text-ghost disabled:hover:bg-transparent";
+  return (
+    <div className="flex h-full flex-col">
+      <div
+        ref={stage}
+        className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3.5 bg-neutral-bg p-6"
+      >
+        <div className="flex min-h-0 w-full flex-1 items-center justify-center">
+          <img
+            alt={`Slide ${selected + 1}`}
+            src={slides[selected]}
+            className="max-h-full max-w-full rounded bg-white object-contain shadow-[0_1px_2px_rgba(10,25,30,0.08),0_10px_30px_rgba(10,25,30,0.12)]"
+          />
+        </div>
+        <div className="flex flex-none items-center gap-1 rounded-full border border-border bg-white p-[3px] shadow-[0_2px_8px_rgba(10,25,30,0.06)]">
+          <button
+            type="button"
+            aria-label="Previous slide"
+            disabled={selected === 0}
+            className={navButton}
+            onClick={() => {
+              setSelected((x) => x - 1);
+            }}
+          >
+            <ChevronLeft className="size-3.5" />
+          </button>
+          <span className="min-w-10 px-1.5 text-center font-mono text-[11.5px] text-ink">
+            {selected + 1} / {count}
+          </span>
+          <button
+            type="button"
+            aria-label="Next slide"
+            disabled={selected === count - 1}
+            className={navButton}
+            onClick={() => {
+              setSelected((x) => x + 1);
+            }}
+          >
+            <ChevronRight className="size-3.5" />
+          </button>
+          <span className="mx-0.5 h-4 w-px bg-hairline" />
+          <button
+            type="button"
+            aria-label="Full screen"
+            title="Full screen"
+            className={cn(navButton, "text-subtle")}
+            onClick={() => {
+              void stage.current?.requestFullscreen();
+            }}
+          >
+            <Maximize className="size-3" />
+          </button>
+        </div>
+      </div>
+      {count > 1 && (
+        <div
+          ref={strip}
+          className="flex flex-none gap-2.5 overflow-x-auto border-t border-hairline px-5 py-3"
+        >
+          {slides.map((url, index) => (
+            <button
+              key={url}
+              type="button"
+              aria-label={`Go to slide ${index + 1}`}
+              aria-current={index === selected}
+              onClick={() => {
+                setSelected(index);
+              }}
+              className="flex flex-none flex-col items-center gap-1"
+            >
+              <img
+                alt=""
+                src={url}
+                className={cn(
+                  "h-[58px] w-[104px] rounded bg-white object-contain",
+                  index === selected
+                    ? "outline-2 outline-offset-2 outline-petrol"
+                    : "border border-border",
+                )}
+              />
+              <span
+                className={cn(
+                  "font-mono text-[10px]",
+                  index === selected ? "font-semibold text-petrol" : "text-meta",
+                )}
+              >
+                {index + 1}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,9 +1,11 @@
 "use client";
 
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentType } from "react";
 import Papa from "papaparse";
 import { Streamdown } from "streamdown";
+import { Loader2, Maximize } from "lucide-react";
+import { cn } from "@/lib/utils";
 import type { Artifact } from "@/lib/api/resources/artifacts";
 
 export interface ViewerProps {
@@ -15,6 +17,20 @@ export interface ViewerAdapter {
   supports: (mime: string) => boolean;
   component: ComponentType<ViewerProps>;
 }
+export function Loading({ label, className }: { label: string; className?: string }) {
+  return (
+    <div
+      role="status"
+      className={cn(
+        "flex h-full min-h-40 flex-col items-center justify-center gap-2.5 text-sm text-meta",
+        className,
+      )}
+    >
+      <Loader2 className="size-5 animate-spin text-petrol" />
+      <span>{label}</span>
+    </div>
+  );
+}
 const PptxViewer = lazy(() => import("./pptx-viewer"));
 const decode = (bytes: ArrayBuffer) => new TextDecoder().decode(bytes);
 
@@ -24,14 +40,32 @@ export function isolatedHtml(html: string): string {
   return `<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">${html}`;
 }
 function HtmlViewer({ bytes }: ViewerProps) {
+  const frame = useRef<HTMLIFrameElement>(null);
   return (
-    <iframe
-      title="HTML artifact"
-      className="h-full min-h-96 w-full border-0 bg-white"
-      sandbox="allow-scripts"
-      referrerPolicy="no-referrer"
-      srcDoc={isolatedHtml(decode(bytes))}
-    />
+    // The button hides in full screen; Esc exits.
+    <div className="relative h-full min-h-96 bg-white [&:fullscreen>button]:hidden">
+      <iframe
+        ref={frame}
+        title="HTML artifact"
+        className="h-full w-full border-0 bg-white"
+        sandbox="allow-scripts"
+        referrerPolicy="no-referrer"
+        srcDoc={isolatedHtml(decode(bytes))}
+      />
+      <button
+        type="button"
+        aria-label="Full screen"
+        title="Full screen"
+        onClick={(event) => {
+          const target = event.currentTarget.parentElement;
+          // Focus the page so its own keys (e.g. arrows in a deck) work.
+          void target?.requestFullscreen().then(() => frame.current?.focus());
+        }}
+        className="absolute right-3 top-3 flex size-8 cursor-pointer items-center justify-center rounded-full border border-border bg-white/90 text-subtle shadow-[0_2px_8px_rgba(10,25,30,0.08)] backdrop-blur hover:bg-hover hover:text-ink"
+      >
+        <Maximize className="size-3.5" />
+      </button>
+    </div>
   );
 }
 function PdfViewer({ bytes }: ViewerProps) {
@@ -141,7 +175,7 @@ export function ArtifactViewer(props: ViewerProps) {
     viewer.supports(props.artifact.mime_type),
   )?.component;
   return Viewer ? (
-    <Suspense fallback={<p className="p-4">Loading viewer…</p>}>
+    <Suspense fallback={<Loading label="Loading viewer…" />}>
       <Viewer {...props} />
     </Suspense>
   ) : (

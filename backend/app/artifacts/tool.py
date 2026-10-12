@@ -16,9 +16,8 @@ def present_files_tool(backend: BaseSandbox, thread_id: str, sandbox_source_id: 
     async def present_files(
         files: list[PresentFile], tool_call_id: Annotated[str, InjectedToolCallId]
     ):
-        """Show finished files in the chat artifact panel. Save deliverables under
-        /workspace, /mnt/data or /tmp, then pass their absolute paths and optional
-        titles. Supports PPTX, PDF, UTF-8 CSV/Markdown and self-contained HTML.
+        """Show finished files in the chat artifact panel. Save deliverables under /tmp
+        (e.g. /tmp/report.pptx), then pass their absolute paths and optional titles. Supports PPTX, PDF, UTF-8 CSV/Markdown and self-contained HTML.
         Publishes immutable snapshots; call again to present a revision. Without
         configured object storage, files expire with the execution sandbox.
         """

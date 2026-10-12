@@ -16,7 +16,7 @@ class ArtifactSettings(BaseSettings):
     s3_addressing_style: Literal["auto", "path", "virtual"] = "auto"
     s3_prefix: str = "auxilia/artifacts"
     max_bytes: int = Field(default=20 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024)
-    allowed_roots: list[str] = ["/workspace", "/mnt/data", "/tmp"]
+    allowed_roots: list[str] = ["/tmp"]
 
     model_config = settings_config(env_prefix="ARTIFACT_", env_ignore_empty=True)
 

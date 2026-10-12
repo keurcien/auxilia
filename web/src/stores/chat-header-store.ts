@@ -22,6 +22,9 @@ interface ChatHeaderState {
     triggerRunAt?: string | null;
   }) => void;
   clearCurrentChat: () => void;
+  /** Right-hand slot in the header; pages portal into it via ChatHeaderActions. */
+  actionsEl: HTMLElement | null;
+  setActionsEl: (el: HTMLElement | null) => void;
 }
 
 export const useChatHeaderStore = create<ChatHeaderState>((set) => ({
@@ -33,6 +36,10 @@ export const useChatHeaderStore = create<ChatHeaderState>((set) => ({
   triggerId: null,
   triggerName: null,
   triggerRunAt: null,
+  actionsEl: null,
+  setActionsEl: (actionsEl) => {
+    set({ actionsEl });
+  },
   setCurrentChat: (data) => {
     set({
       agentId: null,
