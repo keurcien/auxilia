@@ -11,6 +11,8 @@ from google.api_core.exceptions import NotFound, RequestRangeNotSatisfiable
 
 from app.artifacts.settings import ArtifactSettings
 from app.artifacts.storage import (
+    GCS_RETRY,
+    GCS_TIMEOUT,
     GCSObjectStore,
     ObjectMissingError,
     ObjectTooLargeError,
@@ -136,10 +138,14 @@ def test_gcs_store(monkeypatch):
     client.bucket.assert_called_once_with("private")
     blob = bucket.blob.return_value
     store.put("file", b"data", "text/plain")
-    blob.upload_from_string.assert_called_once()
+    blob.upload_from_string.assert_called_once_with(
+        b"data", content_type="text/plain", timeout=GCS_TIMEOUT
+    )
     blob.download_as_bytes.return_value = b"data"
     assert store.get("file", 4) == b"data"
-    assert blob.download_as_bytes.call_args.kwargs["end"] == 4
+    blob.download_as_bytes.assert_called_with(
+        start=0, end=4, timeout=GCS_TIMEOUT, retry=GCS_RETRY
+    )
     blob.download_as_bytes.return_value = b"01234"
     with pytest.raises(ObjectTooLargeError):
         store.get("file", 4)
