@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.9](https://github.com/keurcien/auxilia/compare/backend-v0.9.8...backend-v0.9.9) (2026-10-12)
+
+
+### Features
+
+* **artifacts:** keyless GCS storage via ADC ([#399](https://github.com/keurcien/auxilia/issues/399)) ([4743446](https://github.com/keurcien/auxilia/commit/47434462ce61d00643e2b4c69c882b23fea3ae27))
+
 ## [0.9.8](https://github.com/keurcien/auxilia/compare/backend-v0.9.7...backend-v0.9.8) (2026-10-12)
 
 
