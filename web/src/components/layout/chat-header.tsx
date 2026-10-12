@@ -32,8 +32,8 @@ function ActionsSlot() {
 		state.models.find((m) => m.id === modelId),
 	);
 	return (
-		// Narrow header: follows the (left-aligned) name. Wide: pinned right, name centered.
-		<div className="ml-auto flex flex-none items-center gap-2 pl-2 @4xl:absolute @4xl:right-4 @4xl:top-1/2 @4xl:-translate-y-1/2 @4xl:pl-0">
+		// nowrap: the right gutter reserves the actions' full width, not their longest word.
+		<div className="flex flex-none items-center gap-2 whitespace-nowrap pl-2">
 			{modelId && (
 				// Mirrors the composer's model pill (prompt-input composerPillClass).
 				<span
@@ -57,15 +57,15 @@ function HeaderBar({
 	children: ReactNode;
 }) {
 	return (
-		// Container query on the header's own width: the side panel narrows it too.
-		<div className="@container h-14 shrink-0 border-b border-border">
-			<div
-				className={cn(
-					"relative flex h-full items-center gap-2 px-5 @4xl:justify-center",
-					className,
-				)}
-			>
+		// Equal flex-1 gutters centre the title; the right one never shrinks below
+		// the actions, so a long title slides left, then truncates — no overlap.
+		// @container: the model pill hides when the header itself is narrow.
+		<div className="@container flex h-14 shrink-0 items-center border-b border-border px-5">
+			<div className="flex-1 basis-0" />
+			<div className={cn("flex min-w-0 items-center gap-2", className)}>
 				{children}
+			</div>
+			<div className="flex flex-1 basis-0 justify-end">
 				<ActionsSlot />
 			</div>
 		</div>

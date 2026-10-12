@@ -240,6 +240,8 @@ function FileList({
                 onOpen(item);
               }}
               onKeyDown={(event) => {
+                // Keys on the nested download link belong to the link.
+                if (event.target !== event.currentTarget) return;
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
                   onOpen(item);
@@ -316,7 +318,7 @@ function ResizeHandle({
         if (event.key === "ArrowLeft") resize(current() + 32);
         if (event.key === "ArrowRight") resize(current() - 32);
       }}
-      className="group absolute inset-y-0 -left-1.5 z-10 hidden w-3 cursor-col-resize touch-none md:block"
+      className="group absolute inset-y-0 -left-1.5 z-10 hidden w-3 cursor-col-resize touch-none @min-[680px]/ws:block"
     >
       <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors group-hover:w-0.5 group-hover:bg-petrol group-focus-visible:w-0.5 group-focus-visible:bg-petrol group-active:w-0.5 group-active:bg-petrol" />
     </div>
@@ -394,7 +396,11 @@ export function ArtifactWorkspace({
     : -1;
   return (
     <ArtifactContext.Provider value={{ items, selectedId: selected?.id, open }}>
-      <div ref={container} className="relative flex h-full min-w-0">
+      {/* Side by side only once both minimums fit (MIN_PANEL + MIN_CHAT); overlay below. */}
+      <div
+        ref={container}
+        className="@container/ws relative flex h-full min-w-0"
+      >
         <div className="relative flex min-w-0 flex-1 flex-col">
           {(items.length > 0 || error) && (
             <ChatHeaderActions>
@@ -434,7 +440,7 @@ export function ArtifactWorkspace({
             style={
               { "--panel-w": width ? `${width}px` : "50%" } as CSSProperties
             }
-            className="absolute inset-0 z-30 flex min-w-0 flex-col border-l border-hairline bg-background md:relative md:inset-auto md:w-[var(--panel-w)] md:min-w-80 md:max-w-[calc(100%-22.5rem)] md:flex-none"
+            className="absolute inset-0 z-30 flex min-w-0 flex-col border-l border-hairline bg-background @min-[680px]/ws:relative @min-[680px]/ws:inset-auto @min-[680px]/ws:w-[var(--panel-w)] @min-[680px]/ws:min-w-80 @min-[680px]/ws:max-w-[calc(100%-22.5rem)] @min-[680px]/ws:flex-none"
           >
             <ResizeHandle
               container={container}

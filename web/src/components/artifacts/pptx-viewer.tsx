@@ -65,9 +65,15 @@ export default function PptxViewer({ bytes }: ViewerProps) {
   const count = slides.length;
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (!count) return;
       const target = event.target as HTMLElement | null;
-      // Leave arrow keys to the chat composer and any other text field.
-      if (target?.closest("input, textarea, select, [contenteditable]")) return;
+      // Leave arrow keys to text fields and to the panel's resize handle.
+      if (
+        target?.closest(
+          'input, textarea, select, [contenteditable], [role="separator"]',
+        )
+      )
+        return;
       if (event.key === "ArrowLeft") setSelected((x) => Math.max(0, x - 1));
       if (event.key === "ArrowRight")
         setSelected((x) => Math.min(count - 1, x + 1));
@@ -153,7 +159,8 @@ export default function PptxViewer({ bytes }: ViewerProps) {
             title="Full screen"
             className={cn(navButton, "text-subtle")}
             onClick={() => {
-              void stage.current?.requestFullscreen();
+              // Denied by the browser or an embedding policy: stay inline.
+              stage.current?.requestFullscreen().catch(() => undefined);
             }}
           >
             <Maximize className="size-3" />
@@ -189,7 +196,9 @@ export default function PptxViewer({ bytes }: ViewerProps) {
               <span
                 className={cn(
                   "font-mono text-[10px]",
-                  index === selected ? "font-semibold text-petrol" : "text-meta",
+                  index === selected
+                    ? "font-semibold text-petrol"
+                    : "text-meta",
                 )}
               >
                 {index + 1}

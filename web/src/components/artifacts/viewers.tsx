@@ -17,7 +17,13 @@ export interface ViewerAdapter {
   supports: (mime: string) => boolean;
   component: ComponentType<ViewerProps>;
 }
-export function Loading({ label, className }: { label: string; className?: string }) {
+export function Loading({
+  label,
+  className,
+}: {
+  label: string;
+  className?: string;
+}) {
   return (
     <div
       role="status"
@@ -59,7 +65,11 @@ function HtmlViewer({ bytes }: ViewerProps) {
         onClick={(event) => {
           const target = event.currentTarget.parentElement;
           // Focus the page so its own keys (e.g. arrows in a deck) work.
-          void target?.requestFullscreen().then(() => frame.current?.focus());
+          // Rejected when the browser or an embedding policy denies it: stay inline.
+          target
+            ?.requestFullscreen()
+            .then(() => frame.current?.focus())
+            .catch(() => undefined);
         }}
         className="absolute right-3 top-3 flex size-8 cursor-pointer items-center justify-center rounded-full border border-border bg-white/90 text-subtle shadow-[0_2px_8px_rgba(10,25,30,0.08)] backdrop-blur hover:bg-hover hover:text-ink"
       >
