@@ -10,7 +10,7 @@ from app.settings import settings_config
 # A CSP host-source: `https:` (any host) or one https origin, optionally a path.
 # Anything else (quotes, `;`, spaces) could rewrite the viewer's whole policy.
 CSP_SOURCE = re.compile(
-    r"https:(//(\*\.)?[a-z0-9-]+(\.[a-z0-9-]+)*(:\d{1,5})?(/[a-z0-9._~%/-]*)?)?",
+    r"https:(//(\*\.)?[a-z0-9-]+(\.[a-z0-9-]+)*(:(?P<port>\d{1,5}))?(/[a-z0-9._~%/-]*)?)?",
     re.IGNORECASE,
 )
 
@@ -53,7 +53,9 @@ class ArtifactSettings(BaseSettings):
     @classmethod
     def csp_sources(cls, sources: list[str]) -> list[str]:
         for source in sources:
-            if not CSP_SOURCE.fullmatch(source):
+            match = CSP_SOURCE.fullmatch(source)
+            port = match and match["port"]
+            if not match or (port and not 0 < int(port) < 65536):
                 raise ValueError(
                     f"{source!r} is not an https source like https://cdn.jsdelivr.net"
                 )

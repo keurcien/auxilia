@@ -26,6 +26,8 @@ def test_html_sources_accept_https_csp_sources(sources):
         "'unsafe-eval'",
         "https://cdn.example.com; connect-src *",
         "https://cdn.example.com https://other.example.com",
+        "https://cdn.example.com:65536",
+        "https://cdn.example.com:0",
     ],
 )
 def test_html_sources_reject_anything_that_could_widen_the_policy(source):

@@ -43,7 +43,10 @@ def test_download_name_has_ascii_fallback_and_utf8_form():
     assert "filename*=UTF-8''R%C3%A9sum%C3%A9%20%22final%22.pptx" in header
 
 
-def test_viewer_settings_expose_html_sources(client, current_user):
+def test_viewer_settings_expose_html_sources(client, current_user, monkeypatch):
+    monkeypatch.setattr(
+        "app.artifacts.router.artifact_settings.html_sources", ["https:"]
+    )
     response = client.get("/artifacts/viewer")
     assert response.status_code == 200
     assert response.json() == {"html_sources": ["https:"]}
