@@ -14,6 +14,8 @@ vi.mock("./viewers", () => ({
   ArtifactViewer: () => <div>File preview</div>,
   Loading: ({ label }: { label: string }) => <div role="status">{label}</div>,
 }));
+// What the workspace answered to each `ui/request-display-mode`.
+const replies = vi.hoisted((): string[] => []);
 vi.mock("@/app/(protected)/agents/[id]/chat/components/mcp-app-widget", () => ({
   McpAppWidget: ({
     displayMode = "inline",
@@ -27,9 +29,10 @@ vi.mock("@/app/(protected)/agents/[id]/chat/components/mcp-app-widget", () => ({
       <button
         type="button"
         onClick={() => {
-          onRequestDisplayMode?.(
+          const reply = onRequestDisplayMode?.(
             displayMode === "inline" ? "fullscreen" : "inline",
           );
+          if (reply) replies.push(reply);
         }}
       >
         Request mode
@@ -127,11 +130,32 @@ describe("artifact workspace", () => {
         <AppSlot toolCallId="app-call" app={app} />
       </ArtifactWorkspace>,
     );
+    replies.length = 0;
     fireEvent.click(screen.getByText("Request mode"));
     expect(screen.getByText("App fullscreen")).toBeInTheDocument();
     fireEvent.click(screen.getByText("Request mode"));
     expect(screen.queryByLabelText("Artifact viewer")).toBeNull();
     expect(screen.getByText("App inline")).toBeInTheDocument();
+    // The reply is the mode now in effect, as the MCP Apps spec requires.
+    expect(replies).toEqual(["fullscreen", "inline"]);
+  });
+  it("never replaces an artifacts list the user opened", async () => {
+    const next: Artifact = { ...item, id: "next", title: "Next" };
+    const { rerender } = render(
+      <ArtifactWorkspace threadId="thread" running={false} refreshKey="1">
+        Chat
+      </ArtifactWorkspace>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /Artifacts/ }));
+    vi.mocked(listArtifacts).mockResolvedValue([item, next]);
+    rerender(
+      <ArtifactWorkspace threadId="thread" running={false} refreshKey="2">
+        Chat
+      </ArtifactWorkspace>,
+    );
+    expect(await screen.findByText("Next")).toBeInTheDocument();
+    expect(screen.getByText("Artifacts in this thread")).toBeInTheDocument();
+    expect(screen.queryByText("File preview")).toBeNull();
   });
   it("lists apps with files in transcript order", async () => {
     render(

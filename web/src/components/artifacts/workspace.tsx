@@ -729,6 +729,8 @@ export function ArtifactWorkspace({
                   aria-pressed={listOpen && !currentKey}
                   onClick={() => {
                     const showing = listOpen && !currentKey;
+                    // An open list is the user's pick too: no auto-open over it.
+                    userPicked.current = !showing;
                     setSelected(undefined);
                     setOpenAppId(undefined);
                     setListOpen(!showing);
