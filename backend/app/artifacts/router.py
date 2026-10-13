@@ -8,8 +8,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.agents.core.service import AgentService, get_agent_service
 from app.artifacts.google_slides import DRIVE_FILE_SCOPE, oauth
-from app.artifacts.schemas import ArtifactResponse
+from app.artifacts.schemas import ArtifactResponse, ArtifactViewerResponse
 from app.artifacts.service import ArtifactService, get_artifact_service
+from app.artifacts.settings import artifact_settings
 from app.auth.dependencies import get_current_user
 from app.auth.settings import auth_settings
 from app.exceptions import DomainValidationError, NotFoundError
@@ -69,7 +70,16 @@ async def artifact_content(
 
 # Fixed path: Google only redirects to URIs registered on the OAuth client.
 SLIDES_CALLBACK = "/artifacts/google-slides/callback"
+# Artifact routes outside a thread.
 slides_router = APIRouter(tags=["artifacts"])
+
+
+@slides_router.get("/artifacts/viewer")
+async def get_viewer_settings(
+    _: UserDB = Depends(get_current_user),
+) -> ArtifactViewerResponse:
+    """Workspace policy for the artifact viewer (the HTML preview's sources)."""
+    return ArtifactViewerResponse(html_sources=artifact_settings.html_sources)
 
 
 def require_google_oauth() -> None:

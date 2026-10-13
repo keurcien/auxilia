@@ -49,6 +49,7 @@ bucket endpoint are required: Auxilia proxies the bytes after authorization.
 | `ARTIFACT_PREFIX` | Object prefix; default `auxilia/artifacts` |
 | `ARTIFACT_MAX_BYTES` | Per-file limit; default 20 MiB |
 | `ARTIFACT_ALLOWED_ROOTS` | JSON array; default `["/tmp"]` |
+| `ARTIFACT_HTML_SOURCES` | JSON array of https sources HTML artifacts may load scripts, styles, fonts and images from, e.g. `["https://cdn.jsdelivr.net"]`; default `["https:"]` (any https host), `[]` for inline only |
 
 **AWS:** set bucket and region. Omit explicit credentials to use the SDK's normal
 credential chain (including an instance/task role). Allow `s3:PutObject` and
@@ -152,11 +153,12 @@ invalid PPTX containers, and excessively expanded PPTX archives. Limit: ten file
 per call. The extraction helper requires Python 3 in the sandbox, as do the
 existing filesystem tools.
 
-HTML runs in an opaque-origin iframe with **scripts off by default**. Its CSP
-blocks network subresources, forms and nested frames; no host API bridge is
-exposed. A script could still navigate its own frame to an outside URL carrying
-the page's contents, so scripts run only after the viewer clicks **Run scripts**
-for that file (they reset when the file is reopened). Inline styles and embedded
-data assets always work; inline scripts work once enabled. Multi-file websites and live backend applications are not supported
+HTML runs in an opaque-origin iframe: it can't read auxilia's cookies, call its
+API or reach the conversation around it. Scripts run, and the page may load
+libraries, stylesheets, fonts and images from `ARTIFACT_HTML_SOURCES` (any
+`https:` host by default, e.g. Chart.js from a CDN). `fetch`/XHR, forms and nested frames are blocked, and no host API bridge
+is exposed. A script can still navigate its own frame to an outside URL carrying
+the page's contents, so a page built from untrusted content (a prompt injection
+in an email or web page the agent read) could leak what it displays. Multi-file websites and live backend applications are not supported
 by this file viewer. Markdown images are omitted; CSV previews are limited to
 500 rows and 50 columns. The full original is available through Download.
