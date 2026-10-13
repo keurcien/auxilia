@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.10.7](https://github.com/keurcien/auxilia/compare/web-v0.10.6...web-v0.10.7) (2026-10-13)
+
+
+### Features
+
+* **artifacts:** run HTML artifact scripts, with configurable CDN sources ([#403](https://github.com/keurcien/auxilia/issues/403)) ([c153e8e](https://github.com/keurcien/auxilia/commit/c153e8ea6ea33570ceba61fe897c50c2992bdada))
+* **mcp:** open MCP apps in the artifact side panel ([#407](https://github.com/keurcien/auxilia/issues/407)) ([77674f7](https://github.com/keurcien/auxilia/commit/77674f71e66da2045785a6db7e96555205f7682d))
+
 ## [0.10.6](https://github.com/keurcien/auxilia/compare/web-v0.10.5...web-v0.10.6) (2026-10-12)
 
 
