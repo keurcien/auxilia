@@ -1,0 +1,34 @@
+backend/app/model_providers/catalog.py
+  s_7f220f3b4b7cd1::t_403a901da37eb8 184,186-187,190
+docs/content/index.mdx
+  s_7f220f3b4b7cd1::t_bc5872c855df24 110
+backend/app/model_providers/whitelist.yaml
+  s_7f220f3b4b7cd1::t_b9d0707deb5e0e 382-393
+docs/content/deploy/environment-variables.mdx
+  s_7f220f3b4b7cd1::t_bc5872c855df24 35
+docs/content/agents/index.mdx
+  s_7f220f3b4b7cd1::t_bc5872c855df24 56
+backend/tests/model_providers/test_catalog.py
+  s_7f220f3b4b7cd1::t_caeac3cebbc532 156-159
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "60bca50e2dc6b10d51eab45c81227fa1745389eb",
+  "prompts": {},
+  "humans": {
+    "h_df81e42269d667": {
+      "author": "tgensol <thibaut@appchoose.io>"
+    }
+  },
+  "sessions": {
+    "s_7f220f3b4b7cd1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "37f87459-f169-48d6-9670-c854b6d75b92",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}
