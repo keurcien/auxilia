@@ -181,11 +181,13 @@ class ChatModelFactory:
                 else:
                     auth_kwargs["api_key"] = api_key
                 # thinking_level (aka reasoning_effort) and thinking_budget are
-                # mutually exclusive on Gemini 3+ — send exactly one: the
+                # mutually exclusive on Gemini 3+ — send at most one: the
                 # user's level, else the dynamic budget (historical default).
+                # Gemini 4 400s on any budget ("Thinking budget is not
+                # supported for this model"): no level → Google's default.
                 if reasoning_effort:
                     auth_kwargs["reasoning_effort"] = reasoning_effort
-                else:
+                elif not model_id.startswith("gemini-4"):
                     auth_kwargs["thinking_budget"] = -1
                 return ChatGoogleGenerativeAI(
                     model=model_id,

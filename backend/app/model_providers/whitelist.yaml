@@ -379,6 +379,18 @@ models:
     supports_structured_output: true
     reasoning_effort_levels: [low, medium, high]
     reasoning_effort_default: medium
+  # Verified live 2026-10-13 through the factory (Vertex, global): levels as
+  # probed (`minimal` 400s), image input, forced tool choice + tool round
+  # trip. It 400s on thinking_budget, so unset sends no thinking param and
+  # Google's default (medium) applies — no default needed here.
+  - provider: google
+    model_id: gemini-4-argon
+    display_name: Gemini 4 Argon
+    chef: Google
+    chef_slug: google
+    multimodal: true
+    supports_structured_output: true
+    reasoning_effort_levels: [low, medium, high]
 
   # --- Xiaomi (native endpoint) ---
   # SO flags conservative: OpenRouter's listing says the models support

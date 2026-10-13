@@ -153,6 +153,10 @@ def test_google_factory_sends_level_xor_dynamic_budget():
     )
     assert model.reasoning_effort == "low"
     assert model.thinking_budget is None
+    # Gemini 4 rejects any thinking_budget: unset must send neither.
+    model = factory.create("google", "gemini-4-argon", "unit-test-key")
+    assert model.thinking_budget is None
+    assert model.reasoning_effort is None
 
 
 def test_openrouter_factory_sends_the_slug_verbatim():
