@@ -44,8 +44,7 @@ import type { Todo } from "@/components/ai-elements/todo-list";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { useAgentsStore } from "@/stores/agents-store";
 import type { HitlDecision, HitlResponse } from "@/hooks/use-hitl-approvals";
-import { ArtifactCards } from "@/components/artifacts/workspace";
-import { McpAppWidget } from "../components/mcp-app-widget";
+import { AppSlot, ArtifactCards } from "@/components/artifacts/workspace";
 import {
   type ChainStepData,
   type ToolCallView,
@@ -484,15 +483,21 @@ const Chain = ({
       {tools.map(({ tc, sub }) => {
         const app = sub ? null : getMcpAppInfo(tc);
         if (!app) return null;
+        const { serverName, toolName, icon } = describe(tc.name);
         return (
-          <McpAppWidget
+          <AppSlot
             key={`app-${tc.id}`}
-            input={tc.args}
-            output={tc.output}
-            structuredContent={getStructuredContent(tc)}
-            errorText={tc.error}
-            toolName={describe(tc.name).toolName}
-            appToolInfo={app}
+            toolCallId={tc.callId ?? tc.id}
+            app={{
+              input: tc.args,
+              output: tc.output,
+              structuredContent: getStructuredContent(tc),
+              errorText: tc.error,
+              toolName,
+              appToolInfo: app,
+              serverName,
+              serverIcon: icon,
+            }}
           />
         );
       })}

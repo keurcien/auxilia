@@ -4,11 +4,27 @@ import { useCallback, useMemo } from "react";
 import { AppRenderer } from "@mcp-ui/client";
 import * as mcpAppsApi from "@/lib/api/resources/mcp-apps";
 import { cn } from "@/lib/utils";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import {
+	ErrorCode,
+	McpError,
+	type CallToolResult,
+	type JSONRPCRequest,
+} from "@modelcontextprotocol/sdk/types.js";
+import type { McpUiDisplayMode } from "@modelcontextprotocol/ext-apps";
 import { useMcpHostContext } from "@/hooks/use-mcp-host-context";
 import type { McpAppToolInfo } from "@/lib/transcript";
 
 export type { McpAppToolInfo };
+
+/** MCP Apps display modes auxilia presents: `fullscreen` is the side panel. */
+export type AppDisplayMode = Extract<McpUiDisplayMode, "inline" | "fullscreen">;
+const AVAILABLE_DISPLAY_MODES: McpUiDisplayMode[] = ["inline", "fullscreen"];
+
+/** One MCP app tool call, enough to render it anywhere (inline or the panel). */
+export type DisplayedApp = Pick<
+	McpAppWidgetProps,
+	"input" | "output" | "structuredContent" | "errorText" | "toolName" | "appToolInfo"
+>;
 
 type McpAppWidgetProps = {
 	input?: Record<string, unknown>;
@@ -18,6 +34,10 @@ type McpAppWidgetProps = {
 	toolName: string;
 	appToolInfo: McpAppToolInfo;
 	className?: string;
+	/** Told to the app through `hostContext.displayMode`; `fullscreen` fills its container. */
+	displayMode?: AppDisplayMode;
+	/** Answers the app's `ui/request-display-mode`, returning the mode now in effect. */
+	onRequestDisplayMode?: (mode: McpUiDisplayMode) => McpUiDisplayMode;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -106,8 +126,18 @@ export const McpAppWidget = ({
 	toolName,
 	appToolInfo,
 	className,
+	displayMode = "inline",
+	onRequestDisplayMode,
 }: McpAppWidgetProps) => {
-	const hostContext = useMcpHostContext();
+	const baseHostContext = useMcpHostContext();
+	const hostContext = useMemo(
+		() => ({
+			...baseHostContext,
+			displayMode,
+			availableDisplayModes: AVAILABLE_DISPLAY_MODES,
+		}),
+		[baseHostContext, displayMode],
+	);
 	const sandboxConfig = useMemo(
 		() => ({ url: new URL("/sandbox.html", window.location.origin) }),
 		[],
@@ -196,6 +226,21 @@ export const McpAppWidget = ({
 		return {};
 	}, []);
 
+	// AppRenderer registers no `ui/request-display-mode` handler, so it lands here.
+	const onFallbackRequest = useCallback(
+		async (request: JSONRPCRequest) => {
+			const mode = (request.params as { mode?: McpUiDisplayMode } | undefined)?.mode;
+			if (request.method === "ui/request-display-mode" && mode) {
+				return { mode: onRequestDisplayMode?.(mode) ?? displayMode };
+			}
+			throw new McpError(
+				ErrorCode.MethodNotFound,
+				`No handler for method: ${request.method}`,
+			);
+		},
+		[onRequestDisplayMode, displayMode],
+	);
+
 	if (typeof window === "undefined") {
 		return null;
 	}
@@ -203,14 +248,17 @@ export const McpAppWidget = ({
 	return (
 		<div
 			className={cn(
-				"mt-2 w-full min-w-0 overflow-hidden",
-				// AppRenderer has no autoResize option and writes iframe.style.height
-				// directly in response to `onsizechange`. When the app's body uses
-				// `height: 100%`, that resize reflows content, which re-measures and
-				// posts again — an unbounded growth loop. Cap the iframe height with
-				// !important so the library's inline style can't actually grow the
-				// element; the handshake settles after one frame.
-				"[&_iframe]:w-full! [&_iframe]:max-w-full! [&_iframe]:max-h-[70vh]!",
+				"w-full min-w-0 overflow-hidden",
+				displayMode === "fullscreen"
+					? // The panel owns the height: the app fills it, whatever size it asks for.
+						"flex min-h-0 flex-1 flex-col [&_iframe]:w-full! [&_iframe]:max-w-full! [&_iframe]:h-full! [&_iframe]:flex-1"
+					: // AppRenderer has no autoResize option and writes iframe.style.height
+						// directly in response to `onsizechange`. When the app's body uses
+						// `height: 100%`, that resize reflows content, which re-measures and
+						// posts again — an unbounded growth loop. Cap the iframe height with
+						// !important so the library's inline style can't actually grow the
+						// element; the handshake settles after one frame.
+						"mt-2 [&_iframe]:w-full! [&_iframe]:max-w-full! [&_iframe]:max-h-[70vh]!",
 				className,
 			)}
 		>
@@ -231,6 +279,7 @@ export const McpAppWidget = ({
 				onReadResource={onReadResource}
 				onCallTool={onCallTool}
 				onOpenLink={onOpenLink}
+				onFallbackRequest={onFallbackRequest}
 			/>
 		</div>
 	);
