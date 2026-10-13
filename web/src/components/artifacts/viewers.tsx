@@ -4,8 +4,9 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentType } from "react";
 import Papa from "papaparse";
 import { Streamdown } from "streamdown";
-import { Loader2, Maximize, Pause, Play } from "lucide-react";
+import { Loader2, Maximize } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getHtmlSources } from "@/lib/api/resources/artifacts";
 import type { Artifact } from "@/lib/api/resources/artifacts";
 
 export interface ViewerProps {
@@ -40,22 +41,25 @@ export function Loading({
 const PptxViewer = lazy(() => import("./pptx-viewer"));
 const decode = (bytes: ArrayBuffer) => new TextDecoder().decode(bytes);
 
-export function isolatedHtml(html: string): string {
-  // Placed before all authored content. The frame has an opaque origin; no
-  // network subresources, forms, nested frames or host API bridge are exposed.
-  return `<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">${html}`;
+export function isolatedHtml(html: string, sources: string[]): string {
+  // Placed before all authored content. The frame has an opaque origin: no
+  // cookies, auxilia API, forms, nested frames, fetch or host bridge. Scripts
+  // run, and may load libraries, styles, fonts and images from the workspace's
+  // allowed sources (ARTIFACT_HTML_SOURCES, validated by the backend).
+  const remote = sources.map((source) => ` ${source}`).join("");
+  return `<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'${remote}; style-src 'unsafe-inline'${remote}; img-src data: blob:${remote}; font-src data:${remote}; media-src data: blob:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">${html}`;
 }
-// Even with connect-src 'none', a script can navigate its own frame to an
-// outside URL carrying the page's text. Scripts are therefore opt-in per file.
-const SCRIPTS_WARNING =
-  "Scripts are off. Running them lets this page contact outside sites, including sending its own contents.";
 const pill =
   "flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-full border border-border bg-white/90 text-[12px] font-semibold text-subtle shadow-[0_2px_8px_rgba(10,25,30,0.08)] backdrop-blur hover:bg-hover hover:text-ink";
 
 function WebPageViewer({ bytes }: ViewerProps) {
   const box = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
-  const [scripts, setScripts] = useState(false);
+  const [sources, setSources] = useState<string[]>();
+  useEffect(() => {
+    void getHtmlSources().then(setSources);
+  }, []);
+  if (!sources) return <Loading label="Loading page…" />;
   return (
     // The toolbar hides in full screen; Esc exits.
     <div
@@ -63,28 +67,14 @@ function WebPageViewer({ bytes }: ViewerProps) {
       className="relative h-full min-h-96 bg-white [&:fullscreen>div]:hidden"
     >
       <iframe
-        // Remount on toggle: sandbox flags only apply to a fresh document.
-        key={scripts ? "scripts" : "static"}
         ref={frame}
         title="HTML artifact"
         className="h-full w-full border-0 bg-white"
-        sandbox={scripts ? "allow-scripts" : ""}
+        sandbox="allow-scripts"
         referrerPolicy="no-referrer"
-        srcDoc={isolatedHtml(decode(bytes))}
+        srcDoc={isolatedHtml(decode(bytes), sources)}
       />
       <div className="absolute right-3 top-3 flex gap-2">
-        <button
-          type="button"
-          aria-pressed={scripts}
-          title={scripts ? "Turn this page's scripts off" : SCRIPTS_WARNING}
-          onClick={() => {
-            setScripts((on) => !on);
-          }}
-          className={cn(pill, "px-3", scripts && "text-petrol")}
-        >
-          {scripts ? <Pause className="size-3" /> : <Play className="size-3" />}
-          {scripts ? "Stop scripts" : "Run scripts"}
-        </button>
         <button
           type="button"
           aria-label="Full screen"

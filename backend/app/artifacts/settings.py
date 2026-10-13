@@ -1,9 +1,18 @@
+import re
 from typing import Literal
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 from app.settings import settings_config
+
+
+# A CSP host-source: `https:` (any host) or one https origin, optionally a path.
+# Anything else (quotes, `;`, spaces) could rewrite the viewer's whole policy.
+CSP_SOURCE = re.compile(
+    r"https:(//(\*\.)?[a-z0-9-]+(\.[a-z0-9-]+)*(:(?P<port>\d{1,5}))?(/[a-z0-9._~%/-]*)?)?",
+    re.IGNORECASE,
+)
 
 
 class ArtifactSettings(BaseSettings):
@@ -19,6 +28,10 @@ class ArtifactSettings(BaseSettings):
     max_bytes: int = Field(default=20 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024)
     # Paths inside the execution sandbox, never the Auxilia host.
     allowed_roots: list[str] = ["/tmp"]  # nosec B108
+    # Where an HTML artifact's scripts, styles, fonts and images may load from,
+    # e.g. ["https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com"].
+    # ["https:"] allows any https host; [] allows inline content only.
+    html_sources: list[str] = ["https:"]
 
     model_config = settings_config(env_prefix="ARTIFACT_", env_ignore_empty=True)
 
@@ -35,6 +48,18 @@ class ArtifactSettings(BaseSettings):
     @property
     def endpoint(self) -> str | None:
         return (self.s3_endpoint_url or None) if self.provider == "s3" else None
+
+    @field_validator("html_sources")
+    @classmethod
+    def csp_sources(cls, sources: list[str]) -> list[str]:
+        for source in sources:
+            match = CSP_SOURCE.fullmatch(source)
+            port = match and match["port"]
+            if not match or (port and not 0 < int(port) < 65536):
+                raise ValueError(
+                    f"{source!r} is not an https source like https://cdn.jsdelivr.net"
+                )
+        return sources
 
     @model_validator(mode="after")
     def credentials(self):

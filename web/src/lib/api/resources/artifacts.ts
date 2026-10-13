@@ -43,6 +43,25 @@ export async function listArtifacts(
   }
 }
 
+let htmlSources: Promise<string[]> | undefined;
+
+/** Where HTML artifacts may load scripts, styles, fonts and images from
+ *  (`ARTIFACT_HTML_SOURCES`). Asked once per page load; a failure means inline
+ *  content only, and is retried on the next preview. */
+export function getHtmlSources(): Promise<string[]> {
+  htmlSources ??= protocolFetch(`${API_BASE_URL}/artifacts/viewer`)
+    .then(async (response) => {
+      if (!response.ok) throw new Error("viewer settings unavailable");
+      return ((await response.json()) as { html_sources: string[] })
+        .html_sources;
+    })
+    .catch(() => {
+      htmlSources = undefined;
+      return [];
+    });
+  return htmlSources;
+}
+
 export async function readArtifact(
   artifact: Artifact,
   signal: AbortSignal,

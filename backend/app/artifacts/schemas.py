@@ -19,3 +19,7 @@ class ArtifactResponse(BaseModel):
     size: int
     temporary: bool
     created_at: datetime | None
+
+
+class ArtifactViewerResponse(BaseModel):
+    html_sources: list[str]

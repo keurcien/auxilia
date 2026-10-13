@@ -1,7 +1,11 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { ArtifactViewer, isolatedHtml, viewers } from "./viewers";
 import type { Artifact } from "@/lib/api/resources/artifacts";
+
+vi.mock("@/lib/api/resources/artifacts", () => ({
+  getHtmlSources: () => Promise.resolve(["https://cdn.jsdelivr.net"]),
+}));
 
 const artifact: Artifact = {
   id: "file",
@@ -28,24 +32,24 @@ describe("artifact viewer adapters", () => {
     expect(screen.getByText("<script>alert(1)</script>")).toBeInTheDocument();
     expect(document.querySelector("script")).toBeNull();
   });
-  it("uses an opaque HTML iframe with CSP ahead of authored content", () => {
+  it("uses an opaque HTML iframe with CSP ahead of authored content", async () => {
     render(
       <ArtifactViewer
         artifact={{ ...artifact, mime_type: "text/html" }}
         bytes={bytes('<script>fetch("https://example.com")</script>')}
       />,
     );
-    // Scripts are off until the viewer opts in for this file.
-    expect(screen.getByTitle("HTML artifact")).toHaveAttribute("sandbox", "");
-    fireEvent.click(screen.getByRole("button", { name: /Run scripts/ }));
-    const frame = screen.getByTitle("HTML artifact");
+    const frame = await screen.findByTitle("HTML artifact");
     expect(frame).toHaveAttribute("sandbox", "allow-scripts");
-    expect(frame.getAttribute("srcdoc")).toContain("connect-src 'none'");
-    expect(
-      isolatedHtml("<script>evil()</script>").indexOf(
-        "Content-Security-Policy",
-      ),
-    ).toBeLessThan(isolatedHtml("<script>evil()</script>").indexOf("<script>"));
+    const policy = frame.getAttribute("srcdoc");
+    expect(policy).toContain("connect-src 'none'");
+    // Scripts may load from the workspace's allowed sources, never fetch.
+    expect(policy).toContain("script-src 'unsafe-inline' https://cdn.jsdelivr.net;");
+    expect(isolatedHtml("", [])).toContain("script-src 'unsafe-inline';");
+    const page = isolatedHtml("<script>evil()</script>", []);
+    expect(page.indexOf("Content-Security-Policy")).toBeLessThan(
+      page.indexOf("<script>"),
+    );
   });
   it("falls back to download for unknown content", () => {
     render(
