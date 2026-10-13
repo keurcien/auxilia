@@ -25,7 +25,9 @@ def model(**kwargs):
         provider="openai",
         model_id="test-model",
         display_name="Test",
-        pricing=ModelPricing(input_cost="2", cached_input_cost="0.5", output_cost="8"),
+        pricing=ModelPricing(
+            prices={"input": "2e-6", "input_cache_read": "0.5e-6", "output": "8e-6"}
+        ),
         **kwargs,
     )
 
@@ -46,10 +48,17 @@ def call(id="call-1", **kwargs):
 
 def test_cached_input_is_not_double_charged():
     result = message_cost(call(), "test-model", {"test-model": model()})
-    assert result.input_cost == Decimal("0.0012")
-    assert result.cached_input_cost == Decimal("0.0002")
-    assert result.output_cost == Decimal("0.0008")
-    assert result.total_cost == Decimal("0.0022")
+    assert result.currency == "EUR"
+    assert result.usage_details.model_dump() == {
+        "input": 600,
+        "input_cache_read": 400,
+        "output": 100,
+        "total": 1100,
+    }
+    assert result.cost_details.input == Decimal("0.0012")
+    assert result.cost_details.input_cache_read == Decimal("0.0002")
+    assert result.cost_details.output == Decimal("0.0008")
+    assert result.cost_details.total == Decimal("0.0022")
 
 
 def test_no_cache_and_reported_model():
@@ -57,7 +66,7 @@ def test_no_cache_and_reported_model():
     message.usage_metadata["input_token_details"] = {}
     result = message_cost(message, "another-model", {"test-model": model()})
     assert result.model_id == "test-model"
-    assert result.total_cost == Decimal("0.0028")
+    assert result.cost_details.total == Decimal("0.0028")
 
 
 def test_missing_usage_and_pricing_are_unknown():
@@ -66,21 +75,26 @@ def test_missing_usage_and_pricing_are_unknown():
         == "missing_usage"
     )
     result = message_cost(call(), "removed-model", {})
-    assert result.reason == "missing_pricing" and result.total_cost is None
-    assert result.cached_input_tokens == 400
+    assert result.reason == "missing_pricing" and result.cost_details is None
+    assert result.usage_details.input_cache_read == 400
 
 
 def test_invalid_usage_is_not_a_negative_charge():
     message = call()
     message.usage_metadata["input_token_details"]["cache_read"] = 1001
     result = message_cost(message, "test-model", {"test-model": model()})
-    assert result.reason == "invalid_usage" and result.total_cost is None
+    assert result.reason == "invalid_usage" and result.cost_details is None
 
 
 @pytest.mark.parametrize("rate", ["-1", "NaN", "Infinity"])
 def test_invalid_rates_rejected(rate):
     with pytest.raises(ValidationError):
-        ModelPricing(input_cost=rate, cached_input_cost="0", output_cost="1")
+        ModelPricing(prices={"input": rate, "input_cache_read": "0", "output": "1e-6"})
+
+
+def test_usd_rates_cannot_be_silently_relabelled_as_euros():
+    with pytest.raises(ValidationError):
+        ModelPricing(currency="USD", prices=model().pricing.prices)
 
 
 def test_whitelist_pricing_is_optional_but_complete_when_present():
@@ -93,11 +107,11 @@ models:
     assert parse_whitelist(document)[0].pricing is None
     priced = (
         document
-        + "    pricing: {input_cost: 2, cached_input_cost: 0.5, output_cost: 8}\n"
+        + "    pricing: {prices: {input: 2e-6, input_cache_read: 0.5e-6, output: 8e-6}}\n"
     )
     assert parse_whitelist(priced)[0].pricing == model().pricing
     with pytest.raises(ValidationError):
-        parse_whitelist(document + "    pricing: {input_cost: 2}\n")
+        parse_whitelist(document + "    pricing: {prices: {input: 2e-6}}\n")
 
 
 @pytest.fixture
@@ -160,7 +174,7 @@ async def test_history_survives_compaction_and_deduplicates(cost_history):
     assert (await graph.aget_state(config)).values["messages"] == latest
     assert (
         await CostService().message("thread", "test-model", "call-1")
-    ).total_cost == Decimal("0.0022")
+    ).cost_details.total == Decimal("0.0022")
     with pytest.raises(NotFoundError):
         await CostService().message("thread", "test-model", "missing")
 
@@ -209,7 +223,34 @@ def test_routes_compute_without_database_writes(
     response = client.get("/threads/thread/cost")
     assert response.status_code == 200
     assert response.json()["total_cost"] == "0"
+    assert response.json()["currency"] == "EUR"
     assert client.get("/threads/thread/messages/missing/cost").status_code == 404
     mock_db.add.assert_not_called()
     mock_db.flush.assert_not_awaited()
     mock_db.commit.assert_not_awaited()
+
+
+async def test_message_route_returns_langfuse_details_in_euros(
+    client, current_user, cost_history
+):
+    await save_history(cost_history)
+    thread = ThreadDB(
+        id="thread", model_id="test-model", user_id=current_user.id, agent_id=uuid4()
+    )
+    app.dependency_overrides[authorize_thread_read] = lambda: thread
+    response = client.get("/threads/thread/messages/call-1/cost")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["currency"] == "EUR"
+    assert body["cost_details"] == {
+        "input": "0.001200",
+        "input_cache_read": "0.0002000",
+        "output": "0.000800",
+        "total": "0.0022000",
+    }
+    assert body["usage_details"] == {
+        "input": 600,
+        "input_cache_read": 400,
+        "output": 100,
+        "total": 1100,
+    }

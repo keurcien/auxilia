@@ -62,24 +62,33 @@ no cost rows, checkpoint updates, or database migrations are involved.
 
 Add optional `pricing` to model entries in the model whitelist (the CDN document
 when configured, or `app/model_providers/whitelist.yaml` for the bundled
-fallback). Rates are **USD per million tokens**; all three are required,
+fallback). Rates are **EUR per token**, following Langfuse’s `prices` usage-type
+keys; all three are required,
 nonnegative finite decimal values. Model picker and management responses expose
-this metadata. Example rates below are illustrative, not provider prices:
+this metadata. See [Langfuse’s usage-key conventions](https://github.com/langfuse/langfuse/blob/main/.agents/skills/add-model-price/references/provider-usage-key-matrix.md).
+Example rates below are illustrative, not provider prices:
 
 ```yaml
 pricing:
-  input_cost: "2.00"
-  cached_input_cost: "0.50"
-  output_cost: "8.00"
+  currency: EUR
+  prices:
+    input: "2e-6"
+    input_cache_read: "0.5e-6"
+    output: "8e-6"
 ```
 
 The formula for each assistant call is:
 
 ```text
-((input_tokens - cache_read) * input_cost
- + cache_read * cached_input_cost
- + output_tokens * output_cost) / 1_000_000
+(input_tokens - cache_read) * prices.input
+ + cache_read * prices.input_cache_read
+ + output_tokens * prices.output
 ```
+
+Prices must already be denominated in euros; the backend does not convert USD
+rates or infer an exchange rate. For example, `"2e-6"` means €2 per million
+tokens. Langfuse itself records USD costs; this API follows its naming and
+per-token units while explicitly returning `currency: "EUR"`.
 
 Usage comes from LangChain's `usage_metadata`; an absent cache-read detail means
 zero cache hits. Cache creation is charged at the ordinary input rate under
@@ -95,9 +104,13 @@ provider returns a versioned name for an alias). Historical estimates use
 estimate for existing threads. No historical price snapshots are stored.
 
 The conversation response includes `currency`, `complete`, `total_cost`,
-`known_cost`, and `messages`. Decimal amounts serialize as JSON strings.
+`known_cost`, and `messages`. Each message includes `currency: "EUR"`,
+`usage_details`, and `cost_details`.
+Both detail objects use `input`, `input_cache_read`, `output`, and `total`.
+`usage_details.input` excludes cache reads, so its three buckets sum to `total`.
+Decimal amounts serialize as JSON strings.
 Missing pricing, missing usage, or invalid token counts produce a per-message
-`reason` and null costs; the conversation then has `complete: false` and
+`reason` and `cost_details: null`; the conversation then has `complete: false` and
 `total_cost: null`. `known_cost` is the subtotal for calls that can be priced.
 An empty conversation costs zero. Pricing is deliberately unset in the bundled
 catalog until an administrator supplies rates.

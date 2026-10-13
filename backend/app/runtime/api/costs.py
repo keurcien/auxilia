@@ -12,22 +12,32 @@ from app.model_providers.whitelist import SupportedModel, get_whitelist
 from app.runtime.checkpoints import iter_checkpoint_messages
 
 
+class UsageDetails(BaseModel):
+    input: int
+    input_cache_read: int
+    output: int
+    total: int
+
+
+class CostDetails(BaseModel):
+    input: Decimal
+    input_cache_read: Decimal
+    output: Decimal
+    total: Decimal
+
+
 class MessageCost(BaseModel):
     message_id: str | None
     model_id: str | None
-    input_tokens: int | None = None
-    cached_input_tokens: int | None = None
-    output_tokens: int | None = None
-    input_cost: Decimal | None = None
-    cached_input_cost: Decimal | None = None
-    output_cost: Decimal | None = None
-    total_cost: Decimal | None = None
+    currency: Literal["EUR"] = "EUR"
+    usage_details: UsageDetails | None = None
+    cost_details: CostDetails | None = None
     reason: Literal["missing_usage", "missing_pricing", "invalid_usage"] | None = None
 
 
 class ConversationCost(BaseModel):
     thread_id: str
-    currency: Literal["USD"] = "USD"
+    currency: Literal["EUR"] = "EUR"
     complete: bool
     # Null if any call cannot be priced. known_cost is explicitly a subtotal.
     total_cost: Decimal | None
@@ -60,20 +70,25 @@ def message_cost(
     ):
         result.reason = "invalid_usage"
         return result
-    result.input_tokens = input_tokens
-    result.cached_input_tokens = cached
-    result.output_tokens = output_tokens
+    result.usage_details = UsageDetails(
+        input=input_tokens - cached,
+        input_cache_read=cached,
+        output=output_tokens,
+        total=input_tokens + output_tokens,
+    )
     model = catalog.get(model_id) if model_id else None
     if model is None or model.pricing is None:
         result.reason = "missing_pricing"
         return result
-    pricing = model.pricing
-    million = Decimal(1_000_000)
-    result.input_cost = Decimal(input_tokens - cached) * pricing.input_cost / million
-    result.cached_input_cost = Decimal(cached) * pricing.cached_input_cost / million
-    result.output_cost = Decimal(output_tokens) * pricing.output_cost / million
-    result.total_cost = (
-        result.input_cost + result.cached_input_cost + result.output_cost
+    prices = model.pricing.prices
+    input_cost = Decimal(input_tokens - cached) * prices.input
+    cached_input_cost = Decimal(cached) * prices.input_cache_read
+    output_cost = Decimal(output_tokens) * prices.output
+    result.cost_details = CostDetails(
+        input=input_cost,
+        input_cache_read=cached_input_cost,
+        output=output_cost,
+        total=input_cost + cached_input_cost + output_cost,
     )
     return result
 
@@ -101,8 +116,15 @@ class CostService:
         costs = [
             message_cost(message, model_id, catalog) for message in messages.values()
         ]
-        complete = all(cost.total_cost is not None for cost in costs)
-        known = sum((cost.total_cost or Decimal(0) for cost in costs), Decimal(0))
+        complete = all(cost.cost_details is not None for cost in costs)
+        known = sum(
+            (
+                cost.cost_details.total
+                for cost in costs
+                if cost.cost_details is not None
+            ),
+            Decimal(0),
+        )
         return ConversationCost(
             thread_id=thread_id,
             complete=complete,
