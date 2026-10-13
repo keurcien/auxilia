@@ -224,14 +224,19 @@ class ChatModelFactory:
                     ),
                 )
             case "meta":
-                # Meta Model API — OpenAI-compatible Chat Completions.
-                # ponytail: minimal config; add reasoning_effort / max_tokens
-                # only if Muse Spark reasoning output needs tuning.
+                # Meta Model API — OpenAI-compatible Chat Completions. The
+                # effort level rides as Meta's top-level `reasoning_effort`;
+                # None leaves Meta's model-determined level.
                 return ChatOpenAI(
                     base_url="https://api.meta.ai/v1",
                     model=model_id,
                     api_key=api_key,
                     max_retries=0,
+                    extra_body=(
+                        {"reasoning_effort": reasoning_effort}
+                        if reasoning_effort
+                        else None
+                    ),
                 )
             case _:
                 raise ValueError(f"Provider {provider} not supported")

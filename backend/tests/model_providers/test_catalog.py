@@ -167,6 +167,15 @@ def test_openrouter_factory_sends_the_slug_verbatim():
     assert model.extra_body == {"reasoning_effort": "high"}
 
 
+def test_meta_factory_sends_reasoning_effort_top_level():
+    factory = ChatModelFactory()
+    assert factory.create("meta", "muse-spark-1.3", "unit-test-key").extra_body is None
+    model = factory.create(
+        "meta", "muse-spark-1.3", "unit-test-key", reasoning_effort="max"
+    )
+    assert model.extra_body == {"reasoning_effort": "max"}
+
+
 def test_provider_api_keys_serves_google_via_adc_when_no_api_key():
     with (
         patch("app.model_providers.catalog.model_provider_settings") as mock_settings,
