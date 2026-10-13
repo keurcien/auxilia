@@ -15,6 +15,7 @@ import yaml
 from pydantic import BaseModel, field_validator, model_validator
 
 from app.exceptions import DomainValidationError
+from app.model_providers.pricing import ModelPricing
 from app.model_providers.settings import model_provider_settings
 from app.utils.remote_catalog import RemoteCatalog
 
@@ -38,6 +39,9 @@ _BUNDLED_PATH = Path(__file__).parent / "whitelist.yaml"
 
 
 class SupportedModel(BaseModel):
+    # Optional so existing CDN documents remain valid. Missing is unknown,
+    # never free; all three rates are required when pricing is supplied.
+    pricing: ModelPricing | None = None
     provider: str
     model_id: str
     display_name: str

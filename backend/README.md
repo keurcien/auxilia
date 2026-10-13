@@ -51,6 +51,63 @@ The API will be available at `http://localhost:8000`
 
 API documentation: `http://localhost:8000/docs`
 
+## Conversation cost estimates
+
+`GET /threads/{thread_id}/cost` returns a conversation estimate, including
+subagents and per-message breakdowns. `GET
+/threads/{thread_id}/messages/{message_id}/cost` returns one assistant call
+(404 if that assistant message is absent). Both use the same owner/admin read
+permissions as the conversation state endpoint. Costs are computed on demand;
+no cost rows, checkpoint updates, or database migrations are involved.
+
+Add optional `pricing` to model entries in the model whitelist (the CDN document
+when configured, or `app/model_providers/whitelist.yaml` for the bundled
+fallback). Rates are **USD per million tokens**; all three are required,
+nonnegative finite decimal values. Model picker and management responses expose
+this metadata. Example rates below are illustrative, not provider prices:
+
+```yaml
+pricing:
+  input_cost: "2.00"
+  cached_input_cost: "0.50"
+  output_cost: "8.00"
+```
+
+The formula for each assistant call is:
+
+```text
+((input_tokens - cache_read) * input_cost
+ + cache_read * cached_input_cost
+ + output_tokens * output_cost) / 1_000_000
+```
+
+Usage comes from LangChain's `usage_metadata`; an absent cache-read detail means
+zero cache hits. Cache creation is charged at the ordinary input rate under
+this three-rate scheme. Provider-specific cache-write premiums, tools, storage,
+and other non-token fees are outside this estimate.
+
+The reader reconstructs retained checkpoint history, including messages removed
+by context compaction, and counts each assistant message ID once across all
+snapshots/namespaces. A recognized response model overrides the thread's pinned
+model; otherwise the pinned definition supplies the rate (including when a
+provider returns a versioned name for an alias). Historical estimates use
+**current** catalog prices, even for disabled models; editing rates changes the
+estimate for existing threads. No historical price snapshots are stored.
+
+The conversation response includes `currency`, `complete`, `total_cost`,
+`known_cost`, and `messages`. Decimal amounts serialize as JSON strings.
+Missing pricing, missing usage, or invalid token counts produce a per-message
+`reason` and null costs; the conversation then has `complete: false` and
+`total_cost: null`. `known_cost` is the subtotal for calls that can be priced.
+An empty conversation costs zero. Pricing is deliberately unset in the bundled
+catalog until an administrator supplies rates.
+
+This is an estimate of **retained checkpoint usage**, not a billing ledger:
+failed/uncheckpointed calls and pruned checkpoints cannot be reconstructed.
+Legacy messages without IDs are deduplicated by serialized content, which may
+merge identical calls. Reading a long history costs more than reading `/state`;
+avoid polling this endpoint at streaming frequency.
+
 ## Project Structure
 
 ```
