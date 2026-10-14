@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 from deepagents.backends import StateBackend
 from deepagents.graph import DeepAgentState
+from deepagents.middleware._prompt_caching import append_prompt_caching_middleware
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.subagents import CompiledSubAgent, SubAgentMiddleware
 from langchain.agents import create_agent
@@ -167,9 +168,9 @@ def build_runnable(
     """Build a LangGraph runnable. One construction path, one middleware list.
 
     Every agent — parent or subagent, sandboxed or not — is a ``create_agent``
-    with an explicit middleware stack. A sandbox adds deepagents' harness
-    (todos, skills, filesystem, the ``task`` tool, summarization, the tool-call
-    patcher and prompt caching) and appends the harness prompt to the agent's
+    with an explicit middleware stack, ending in prompt caching (a no-op off
+    Anthropic). A sandbox adds deepagents' harness (todos, skills, filesystem,
+    the ``task`` tool, summarization and the tool-call patcher) and appends the harness prompt to the agent's
     instructions; ``app/runtime/harness.py`` assembles that bundle and
     ``tests/runtime/test_harness_parity.py`` pins it to what ``create_deep_agent``
     builds. Nothing else forks on the sandbox.
@@ -247,6 +248,10 @@ def build_runnable(
     middleware.append(ToolErrorMiddleware())
     if sandbox_backend is not None:
         middleware += harness_trailing_middleware(model)
+    else:
+        # Same trailing caching as the harness, minus its profile guard
+        # (which only concerns the sandbox stack).
+        append_prompt_caching_middleware(middleware)
 
     agent = create_agent(
         model=model,

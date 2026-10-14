@@ -35,9 +35,10 @@ visible at the call site:
   (and the harness profile does not disable it), so `SubAgentMiddleware` is
   always present on this path — with its own filesystem / summarization stack
   and a copy of the parent's tools.
-- **Summarization and Anthropic prompt caching are on**, for sandbox agents
-  only. Plain agents get neither. That fork is inherited, not chosen; making
-  it explicit here is the point.
+- **Summarization is on**, for sandbox agents only; plain agents do not
+  summarize. That fork is inherited, not chosen; making it explicit here is
+  the point. (Anthropic prompt caching used to be sandbox-only too; plain
+  agents now get it from ``build_runnable`` directly.)
 """
 
 from typing import Any

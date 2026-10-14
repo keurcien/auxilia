@@ -431,7 +431,8 @@ def test_graph_config_matches_deepagents():
 
 def test_no_sandbox_means_no_harness():
     """The plain path is untouched by all of this: no todos, no filesystem, no
-    prompt caching, and the agent's instructions are the whole prompt."""
+    summarization, and the agent's instructions are the whole prompt. Prompt
+    caching is the exception — every agent ends with it."""
     seen, patcher = _capture("app.runtime.agent.create_agent")
     with patcher:
         build_runnable(
@@ -444,7 +445,10 @@ def test_no_sandbox_means_no_harness():
     described = describe(seen)
     assert described["system_prompt"] == "You are a test agent"
     assert described["tools"] == ["add"]
-    assert [m["class"] for m in described["middleware"]] == ["ToolErrorMiddleware"]
+    assert [m["class"] for m in described["middleware"]] == [
+        "ToolErrorMiddleware",
+        "AnthropicPromptCachingMiddleware",
+    ]
     assert seen["config"] is None
     # The one thing the plain path shares with the harness: the state schema.
     assert described["state_schema"] is DeepAgentState
@@ -515,4 +519,5 @@ def test_plain_path_wires_subagents_after_the_caller_stack():
         "CurrentDateMiddleware",
         "SubAgentMiddleware",
         "ToolErrorMiddleware",
+        "AnthropicPromptCachingMiddleware",
     ]

@@ -142,7 +142,20 @@ def test_build_agent_appends_tool_error_middleware(mock_create_agent):
     agent._build_agent(checkpointer=None)
 
     middleware = mock_create_agent.call_args.kwargs["middleware"]
-    assert isinstance(middleware[-1], ToolErrorMiddleware)
+    assert any(isinstance(m, ToolErrorMiddleware) for m in middleware)
+
+
+@patch("app.runtime.agent.create_agent")
+def test_build_agent_caches_prompts_without_a_sandbox(mock_create_agent):
+    """Anthropic prompt caching must not depend on the sandbox: a plain agent's
+    requests went out with no cache_control at all, so every turn paid full
+    input price (cache_creation and cache_read both 0)."""
+    agent = _build_agent()
+
+    agent._build_agent(checkpointer=None)
+
+    names = [type(m).__name__ for m in mock_create_agent.call_args.kwargs["middleware"]]
+    assert names[-2:] == ["ToolErrorMiddleware", "AnthropicPromptCachingMiddleware"]
 
 
 @patch("app.runtime.agent.create_agent")
@@ -195,7 +208,8 @@ def test_compile_subagent_middleware_stack(mock_create_agent):
     assert any(isinstance(m, ModelRetryMiddleware) for m in middleware)
     assert any(isinstance(m, RepairInvalidToolCallsMiddleware) for m in middleware)
     assert any(isinstance(m, CurrentDateMiddleware) for m in middleware)
-    assert isinstance(middleware[-1], ToolErrorMiddleware)
+    assert any(isinstance(m, ToolErrorMiddleware) for m in middleware)
+    assert type(middleware[-1]).__name__ == "AnthropicPromptCachingMiddleware"
     # A subagent inherits the parent's recursion_limit through the task tool's
     # ambient config, so its tool budget is sized like the parent's.
     limiter = next(m for m in middleware if isinstance(m, ToolCallLimitMiddleware))
