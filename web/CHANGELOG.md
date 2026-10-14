@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.9](https://github.com/keurcien/auxilia/compare/web-v0.10.8...web-v0.10.9) (2026-10-14)
+
+
+### Features
+
+* **agents:** hint when instructions diverge from Langfuse production ([#412](https://github.com/keurcien/auxilia/issues/412)) ([b8f4fb0](https://github.com/keurcien/auxilia/commit/b8f4fb017893659ddb46f857059e9249ee264aab))
+
 ## [0.10.8](https://github.com/keurcien/auxilia/compare/web-v0.10.7...web-v0.10.8) (2026-10-14)
 
 
