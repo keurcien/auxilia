@@ -78,12 +78,15 @@ def message_cost(
     message: AIMessage, model_id: str | None, catalog: dict[str, SupportedModel]
 ) -> MessageCost:
     # A known response model takes precedence (e.g. a differently configured
-    # subagent). Provider-versioned names for a pinned alias fall back to the
-    # pinned definition; arbitrary unknown names cannot supply a price.
+    # subagent). A versioned name of the pinned model (claude-haiku-4-5 →
+    # claude-haiku-4-5-20251001) keeps the pinned rate; any other unknown name
+    # is a model we have no price for, never the parent's.
     reported = message.response_metadata.get(
         "model_name"
     ) or message.response_metadata.get("model")
-    if isinstance(reported, str) and reported in catalog:
+    if isinstance(reported, str) and (
+        reported in catalog or not (model_id and reported.startswith(model_id))
+    ):
         model_id = reported
     result = MessageCost(message_id=message.id, model_id=model_id)
     usage = message.usage_metadata

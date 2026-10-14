@@ -22,8 +22,9 @@ class CheckpointWriteRepository:
         self, thread_id: str, *, newest_first: bool = True
     ) -> AsyncGenerator[tuple[str, bytes], None]:
         """`(type, blob)` of every `messages`-channel write of the thread, in
-        every namespace, newest checkpoint first — streamed, so a caller that
-        stops early never holds more than one write."""
+        every namespace — streamed, so a caller that stops early never holds
+        more than one write. Newest checkpoint first when `newest_first`;
+        otherwise unordered, which skips the sort for full scans."""
         query = (
             "SELECT type, blob FROM checkpoint_writes "
             "WHERE thread_id = :thread_id AND channel = 'messages' "

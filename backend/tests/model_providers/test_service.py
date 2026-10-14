@@ -11,6 +11,7 @@ from app.exceptions import (
     NotFoundError,
 )
 from app.model_providers.models import ModelDB
+from app.model_providers.pricing import TokenPrices
 from app.model_providers.service import ModelService
 from app.model_providers.whitelist import SupportedModel
 
@@ -22,6 +23,7 @@ WHITELIST = [
         display_name="Claude Sonnet 5",
         reasoning_effort_levels=["low", "medium", "high", "xhigh", "max"],
         reasoning_effort_default="medium",
+        prices=TokenPrices(input="2e-6", input_cache_read="2e-7", output="1e-5"),
     ),
     SupportedModel(
         provider="openai", model_id="gpt-4o-mini", display_name="GPT-4o mini"
@@ -310,6 +312,9 @@ async def test_list_manage_flags_orphan_rows_as_deprecated():
     # Whitelist models with a configured key are listed (enabled or not).
     assert by_id["claude-sonnet-5"].is_enabled is True
     assert by_id["gpt-4o-mini"].is_enabled is False
+    # Catalog prices reach the admin view; unpriced models stay null.
+    assert by_id["claude-sonnet-5"].prices == WHITELIST[0].prices
+    assert by_id["gpt-4o-mini"].prices is None
     # No key → not offerable → not listed.
     assert "gemini-3-pro-preview" not in by_id
     assert by_id["deepseek-r2"].deprecated is True

@@ -69,6 +69,11 @@ const ChatPage = () => {
     if (thread) setCurrentChat(chatHeaderFromThread(thread));
   }, [thread, setCurrentChat]);
   useEffect(() => clearCurrentChat, [clearCurrentChat]);
+  // The header is global: drop the previous thread's cost right away, even
+  // when this thread's run is still going and the fetch below waits for it.
+  useEffect(() => {
+    setCost(null);
+  }, [threadId, setCost]);
   // Re-read the checkpoint cost on open and each time a run settles.
   useEffect(() => {
     if (run.isLoading) return;

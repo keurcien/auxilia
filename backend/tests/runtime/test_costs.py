@@ -106,6 +106,23 @@ def test_no_cache_and_reported_model():
     assert result.cost_details.total == Decimal("0.0028")
 
 
+def test_versioned_names_keep_the_pinned_rate_but_unknown_models_are_unpriced():
+    catalog = {"test-model": model()}
+    dated = message_cost(
+        call(response_metadata={"model_name": "test-model-20251001"}),
+        "test-model",
+        catalog,
+    )
+    assert dated.model_id == "test-model" and dated.cost_details is not None
+    # A subagent on an unlisted model must not inherit the parent's price.
+    other = message_cost(
+        call(response_metadata={"model_name": "other-model"}), "test-model", catalog
+    )
+    assert other.model_id == "other-model" and other.reason == "missing_pricing"
+    # No reported name at all: the pinned model prices it.
+    assert message_cost(call(), "test-model", catalog).cost_details is not None
+
+
 def test_missing_usage_and_pricing_are_unknown():
     assert (
         message_cost(AIMessage(content="hi"), "test-model", {}).reason

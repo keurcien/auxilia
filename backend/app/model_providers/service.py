@@ -214,6 +214,7 @@ class ModelService(BaseService[ModelDB, ModelRepository]):
                 chef_slug=m.chef_slug,
                 multimodal=m.multimodal,
                 supports_structured_output=m.supports_structured_output,
+                prices=m.prices,
                 is_enabled=(row := rows.get((m.provider, m.model_id))) is not None
                 and row.is_enabled,
                 is_default=row is not None and row.is_default,

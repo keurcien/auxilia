@@ -100,7 +100,9 @@ function ActionsSlot() {
 		// Mirrors the composer's model pill (prompt-input composerPillClass).
 		<span
 			title={showCost ? undefined : `Model: ${modelId}`}
-			className="hidden h-[30px] max-w-72 items-center gap-2 rounded-full border border-border bg-white px-3 text-[13px] font-medium text-foreground @lg:flex dark:bg-white/5"
+			// Focusable when it opens the breakdown: the hover card also opens on focus.
+			tabIndex={showCost ? 0 : undefined}
+			className="hidden h-[30px] max-w-72 items-center gap-2 rounded-full border border-border bg-white px-3 text-[13px] font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-petrol/40 @lg:flex dark:bg-white/5"
 		>
 			{model?.chefSlug && <ModelSelectorLogo provider={model.chefSlug} />}
 			<span className="truncate">{model?.name ?? modelId}</span>

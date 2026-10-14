@@ -58,7 +58,7 @@ subagents and per-message breakdowns. `GET
 /threads/{thread_id}/messages/{message_id}/cost` returns one assistant call
 (404 if that assistant message is absent). Both use the same owner/admin read
 permissions as the conversation state endpoint. Costs are computed on demand;
-These GET routes do not store message costs or change checkpoints.
+these GET routes do not store message costs or change checkpoints.
 
 Add optional `prices` to model entries in the model whitelist (the CDN document
 when configured, or `app/model_providers/whitelist.yaml` for the bundled
@@ -89,7 +89,7 @@ The formula for each assistant call is:
 ```
 
 Prices are provider list prices in US dollars, divided by one million. For
-example, `"2e-6"` means $2 per million tokens. Like Langfuse, this API records
+example, `"2e-6"` means $2 per million tokens. Like Langfuse, this API reports
 costs in USD per token; every amount it returns is in USD.
 
 Usage comes from LangChain's `usage_metadata`; an absent cache detail means
