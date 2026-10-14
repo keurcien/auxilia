@@ -1,5 +1,6 @@
 "use client";
 
+import ThreadCostBackfill from "./thread-cost-backfill";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw, Star } from "lucide-react";
 import { ModelSelectorLogo } from "@/components/ai-elements/model-selector";
@@ -458,6 +459,7 @@ export default function WorkspaceModels({
 					))
 				)}
 			</div>
+			<ThreadCostBackfill />
 		</div>
 	);
 }

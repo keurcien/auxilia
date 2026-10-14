@@ -1,15 +1,24 @@
 """Read-only cost estimates from retained usage and the current catalog."""
 
+import asyncio
+import hashlib
+from collections.abc import AsyncGenerator
+from contextlib import aclosing
 from decimal import Decimal
 from typing import Literal
 
-from langchain_core.messages import AIMessage
+from fastapi import Depends
+from langchain_core.messages import AIMessage, BaseMessage
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+from langgraph.types import Overwrite
 from pydantic import BaseModel, Field
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_checkpointer
-from app.exceptions import NotFoundError
+from app.database import get_db
+from app.exceptions import DomainValidationError, NotFoundError
 from app.model_providers.whitelist import SupportedModel, get_whitelist
-from app.runtime.checkpoints import iter_checkpoint_messages
+from app.runtime.api.protocol_repository import CheckpointWriteRepository
 
 
 class UsageDetails(BaseModel):
@@ -42,6 +51,13 @@ class ConversationCost(BaseModel):
     # Null if any call cannot be priced. known_cost is explicitly a subtotal.
     total_cost: Decimal | None
     known_cost: Decimal
+    call_count: int = 0
+    unpriced_call_count: int = 0
+    usage_details: UsageDetails = Field(
+        default_factory=lambda: UsageDetails(
+            input=0, input_cache_read=0, output=0, total=0
+        )
+    )
     messages: list[MessageCost] = Field(default_factory=list)
 
 
@@ -93,29 +109,80 @@ def message_cost(
     return result
 
 
+_SERDE = JsonPlusSerializer()
+
+
+def _decode_write(type_tag: str, blob: bytes) -> list[AIMessage]:
+    value = _SERDE.loads_typed((type_tag, blob))
+    if isinstance(value, Overwrite):
+        value = value.value
+    if isinstance(value, BaseMessage):
+        value = [value]
+    return (
+        [message for message in value if isinstance(message, AIMessage)]
+        if isinstance(value, list)
+        else []
+    )
+
+
+async def iter_cost_messages(
+    db: AsyncSession, thread_id: str, pause_seconds: float = 0
+) -> AsyncGenerator[AIMessage, None]:
+    """Stream task writes once, on the caller's connection; no checkpoint pool.
+
+    Decode off the event loop and optionally pause between small chunks. This
+    reads retained writes across root/subagents, including compacted messages.
+    """
+    count = 0
+    async with aclosing(
+        CheckpointWriteRepository(db).iter_message_writes(
+            thread_id, newest_first=not bool(pause_seconds)
+        )
+    ) as writes:
+        async for type_tag, blob in writes:
+            for message in await asyncio.to_thread(_decode_write, type_tag, blob):
+                yield message
+            count += 1
+            if pause_seconds and count % 16 == 0:
+                await asyncio.sleep(pause_seconds)
+    if count == 0 and await db.scalar(
+        text("SELECT 1 FROM checkpoints WHERE thread_id = :thread_id LIMIT 1"),
+        {"thread_id": thread_id},
+    ):
+        raise DomainValidationError(
+            "Retained checkpoints exist but message writes are unavailable; cost cannot be reconstructed safely"
+        )
+
+
 class CostService:
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
     async def conversation(
-        self, thread_id: str, model_id: str | None
+        self,
+        thread_id: str,
+        model_id: str | None,
+        *,
+        catalog: dict[str, SupportedModel] | None = None,
+        pause_seconds: float = 0,
     ) -> ConversationCost:
-        catalog = {model.model_id: model for model in await get_whitelist()}
-        messages: dict[str, AIMessage] = {}
-        async with get_checkpointer() as checkpointer:
-            async for snapshot in iter_checkpoint_messages(checkpointer, thread_id):
-                for message in snapshot:
-                    if not isinstance(message, AIMessage):
-                        continue
-                    # IDs are globally assigned by LangGraph; inherited messages
-                    # in child namespaces are the same call, not another charge.
-                    # Legacy anonymous messages cannot be identified reliably;
-                    # deduplicate their serialized form, and document this limit.
-                    key = message.id or message.model_dump_json()
-                    if key not in messages or (
-                        messages[key].usage_metadata is None and message.usage_metadata
-                    ):
-                        messages[key] = message
-        costs = [
-            message_cost(message, model_id, catalog) for message in messages.values()
-        ]
+        if catalog is None:
+            catalog = {model.model_id: model for model in await get_whitelist()}
+        costs_by_id: dict[str, MessageCost] = {}
+        async with aclosing(
+            iter_cost_messages(self.db, thread_id, pause_seconds)
+        ) as messages:
+            async for message in messages:
+                key = (
+                    message.id
+                    or hashlib.sha256(message.model_dump_json().encode()).hexdigest()
+                )
+                if key not in costs_by_id or (
+                    costs_by_id[key].reason == "missing_usage"
+                    and message.usage_metadata
+                ):
+                    costs_by_id[key] = message_cost(message, model_id, catalog)
+        costs = list(costs_by_id.values())
         complete = all(cost.cost_details is not None for cost in costs)
         known = sum(
             (
@@ -130,6 +197,18 @@ class CostService:
             complete=complete,
             total_cost=known if complete else None,
             known_cost=known,
+            call_count=len(costs),
+            unpriced_call_count=sum(cost.cost_details is None for cost in costs),
+            usage_details=UsageDetails(
+                **{
+                    name: sum(
+                        getattr(cost.usage_details, name)
+                        for cost in costs
+                        if cost.usage_details is not None
+                    )
+                    for name in ("input", "input_cache_read", "output", "total")
+                }
+            ),
             messages=costs,
         )
 
@@ -143,5 +222,5 @@ class CostService:
         raise NotFoundError("Assistant message not found")
 
 
-def get_cost_service() -> CostService:
-    return CostService()
+def get_cost_service(db: AsyncSession = Depends(get_db)) -> CostService:
+    return CostService(db)

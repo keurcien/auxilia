@@ -58,7 +58,7 @@ subagents and per-message breakdowns. `GET
 /threads/{thread_id}/messages/{message_id}/cost` returns one assistant call
 (404 if that assistant message is absent). Both use the same owner/admin read
 permissions as the conversation state endpoint. Costs are computed on demand;
-no cost rows, checkpoint updates, or database migrations are involved.
+These GET routes do not store message costs or change checkpoints.
 
 Add optional `pricing` to model entries in the model whitelist (the CDN document
 when configured, or `app/model_providers/whitelist.yaml` for the bundled
@@ -95,16 +95,16 @@ zero cache hits. Cache creation is charged at the ordinary input rate under
 this three-rate scheme. Provider-specific cache-write premiums, tools, storage,
 and other non-token fees are outside this estimate.
 
-The reader reconstructs retained checkpoint history, including messages removed
-by context compaction, and counts each assistant message ID once across all
-snapshots/namespaces. A recognized response model overrides the thread's pinned
+The reader streams retained `messages` task writes once, including messages
+removed by context compaction, and counts each assistant message ID once across
+root/subagent namespaces. It avoids reconstructing every checkpoint. A recognized response model overrides the thread's pinned
 model; otherwise the pinned definition supplies the rate (including when a
-provider returns a versioned name for an alias). Historical estimates use
-**current** catalog prices, even for disabled models; editing rates changes the
-estimate for existing threads. No historical price snapshots are stored.
+provider returns a versioned name for an alias). On-demand estimates use **current** catalog prices, even for disabled models;
+editing rates changes the estimate for existing threads.
 
 The conversation response includes `currency`, `complete`, `total_cost`,
-`known_cost`, and `messages`. Each message includes `currency: "EUR"`,
+`known_cost`, `call_count`, `unpriced_call_count`, aggregate `usage_details`,
+and `messages`. Each message includes `currency: "EUR"`,
 `usage_details`, and `cost_details`.
 Both detail objects use `input`, `input_cache_read`, `output`, and `total`.
 `usage_details.input` excludes cache reads, so its three buckets sum to `total`.
@@ -116,10 +116,77 @@ An empty conversation costs zero. Pricing is deliberately unset in the bundled
 catalog until an administrator supplies rates.
 
 This is an estimate of **retained checkpoint usage**, not a billing ledger:
-failed/uncheckpointed calls and pruned checkpoints cannot be reconstructed.
+failed/unrecorded calls and pruned message writes cannot be reconstructed.
+If checkpoints exist but all task writes are unavailable, calculation fails
+instead of recording a false zero.
 Legacy messages without IDs are deduplicated by serialized content, which may
-merge identical calls. Reading a long history costs more than reading `/state`;
-avoid polling this endpoint at streaming frequency.
+merge identical calls. Reading a long history still takes work; avoid polling the live endpoint at
+streaming frequency. The stored summary endpoints below provide cheap reads.
+
+### Compact storage and backfill
+
+Run `alembic upgrade head` before deployment. `thread_costs` stores **at most one
+replaceable summary per thread**, cascaded on thread deletion. It includes EUR
+costs, aggregate token counts, completeness, calculation time, the source
+thread's update timestamp, and a hash of the model prices. It never stores a
+message ID, per-message row, or growing history of cost recalculations.
+
+- `GET /threads/{id}/cost/summary`: read the saved summary; 404 before calculation.
+- `POST /threads/{id}/cost/refresh`: calculate with current prices and replace
+  that thread's summary. Both endpoints reuse thread owner/admin authorization.
+- `GET /thread-costs/analytics?start_at=...&end_at=...`: aggregate saved summaries
+  for the current user's threads **created** within the range. Uncomputed,
+  incomplete, or stale summaries make `total_cost` null; `known_cost` remains an
+  explicitly dated subtotal. This is lifetime cost for a creation-date cohort,
+  **not spending that occurred during that week** for threads spanning weeks.
+
+The admin Settings → Models panel contains **Recalculate thread costs**, with
+optional inclusive “Created on or after” and exclusive “Created before” dates
+in the browser's local timezone, progress, and cancellation. Sync the model
+catalog first if updated prices have been published to the CDN.
+
+Admin API:
+
+```http
+POST /thread-costs/backfill
+Content-Type: application/json
+
+{"start_at":"2026-10-05T00:00:00+02:00","end_at":"2026-10-12T00:00:00+02:00"}
+```
+
+Both bounds are optional; `{}` selects all existing threads. Bounds must be
+explicitly timezone-aware; the interval is `[start_at, end_at)`. They select
+threads by `created_at`; each selected thread's **whole retained conversation**
+is priced. `GET /thread-costs/backfill` reports the latest job and
+`DELETE /thread-costs/backfill` cancels it. All three are workspace-admin-only.
+A second active job is rejected with 409. The job table is a single reusable
+slot, rather than one growing row per job.
+
+The backfill runs on always-on instances with `RUN_DISPATCHER_ENABLED=true`,
+alongside the existing run worker. It checks out **one SQLAlchemy connection**
+for the entire job and binds every task-write read, summary update, and progress
+update to that connection. It never opens a LangGraph checkpointer connection.
+A PostgreSQL session advisory lock prevents multiple instances from processing
+jobs concurrently. HTTP enqueue/progress requests use their ordinary request
+connections; they are separate from the job's one-connection budget.
+
+Threads are visited with an indexed `(created_at, id)` cursor, one at a time.
+Task writes are streamed one row at a time and decoded off the event loop.
+Default pauses are 50 ms per 16 writes and 250 ms between threads. Tune
+`COST_BACKFILL_CHUNK_PAUSE_SECONDS`, `COST_BACKFILL_THREAD_PAUSE_SECONDS`, and
+`COST_BACKFILL_POLL_SECONDS` (default 5 s); pauses must be finite and have a
+10 ms floor. These reduce duty cycle, rather than promising a fixed CPU quota.
+No LLM calls or tokenization are performed.
+
+Each thread's result and cursor commit together; a restarted worker resumes
+from the last committed thread. The job freezes catalog prices when requested
+and keeps that snapshot for restart consistency. A new job picks up newer
+prices and replaces existing rows. Missing prices/usage produce an incomplete
+summary; per-thread failures are reported and do not stop the remaining scan.
+Busy or changing threads are skipped; rerun once they finish. Saved summaries
+are marked stale when their source thread or catalog prices change, or while
+the thread has an active run. Cancellation is checked between threads, so a
+long current thread may take time to finish before cancellation takes effect.
 
 ## Project Structure
 

@@ -1,4 +1,3 @@
-from contextlib import asynccontextmanager
 from decimal import Decimal
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -15,6 +14,7 @@ from app.main import app
 from app.model_providers.pricing import ModelPricing
 from app.model_providers.whitelist import SupportedModel, parse_whitelist
 from app.runtime.api.costs import CostService, get_cost_service, message_cost
+from app.runtime.checkpoints import iter_checkpoint_messages
 from app.threads.dependencies import authorize_thread_read
 from app.threads.models import ThreadDB
 from app.threads.service import get_thread_service
@@ -135,11 +135,13 @@ def cost_history(monkeypatch):
 
     saver = CursorSaver()
 
-    @asynccontextmanager
-    async def checkpointer():
-        yield saver
+    async def history_messages(db, thread_id, pause_seconds=0):
+        async for snapshot in iter_checkpoint_messages(saver, thread_id):
+            for message in snapshot:
+                if isinstance(message, AIMessage):
+                    yield message
 
-    monkeypatch.setattr("app.runtime.api.costs.get_checkpointer", checkpointer)
+    monkeypatch.setattr("app.runtime.api.costs.iter_cost_messages", history_messages)
     monkeypatch.setattr(
         "app.runtime.api.costs.get_whitelist", AsyncMock(return_value=[model()])
     )
@@ -168,25 +170,25 @@ async def test_history_survives_compaction_and_deduplicates(cost_history):
     graph, config = await save_history(cost_history)
     latest = (await graph.aget_state(config)).values["messages"]
     assert "call-1" not in {message.id for message in latest}
-    result = await CostService().conversation("thread", "test-model")
+    result = await CostService(AsyncMock()).conversation("thread", "test-model")
     assert {message.message_id for message in result.messages} == {"call-1", "call-2"}
     assert result.complete and result.total_cost == Decimal("0.0044")
     assert (await graph.aget_state(config)).values["messages"] == latest
     assert (
-        await CostService().message("thread", "test-model", "call-1")
+        await CostService(AsyncMock()).message("thread", "test-model", "call-1")
     ).cost_details.total == Decimal("0.0022")
     with pytest.raises(NotFoundError):
-        await CostService().message("thread", "test-model", "missing")
+        await CostService(AsyncMock()).message("thread", "test-model", "missing")
 
 
 async def test_empty_and_partial_conversations(cost_history):
-    empty = await CostService().conversation("empty", "test-model")
+    empty = await CostService(AsyncMock()).conversation("empty", "test-model")
     assert empty.complete and empty.total_cost == 0 and empty.messages == []
     graph, config = await save_history(cost_history)
     await graph.aupdate_state(
         config, {"messages": [AIMessage(id="unknown", content="hi")]}
     )
-    partial = await CostService().conversation("thread", "test-model")
+    partial = await CostService(AsyncMock()).conversation("thread", "test-model")
     assert not partial.complete and partial.total_cost is None
     assert partial.known_cost == Decimal("0.0044")
 
