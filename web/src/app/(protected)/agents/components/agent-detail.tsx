@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Agent } from "@/types/agents";
-import AgentEditor from "./agent-editor";
+import AgentEditor, { type EditorTab } from "./agent-editor";
 import { useAgentsStore } from "@/stores/agents-store";
 
 interface AgentDetailProps {
@@ -34,6 +34,8 @@ export default function AgentDetail({ agent }: AgentDetailProps) {
 	}, [storeAgent, agent]);
 
 	const [mode, setMode] = useState<"read" | "edit">("read");
+	// The editor remounts on every mode switch; keep the open tab out here.
+	const [tab, setTab] = useState<EditorTab>("instructions");
 
 	// The server-rendered copy is fresher than whatever the store loaded on
 	// layout mount — sync it in so read mode and the edit snapshot match it.
@@ -53,6 +55,8 @@ export default function AgentDetail({ agent }: AgentDetailProps) {
 			key={`${agent.id}:${mode}`}
 			agent={liveAgent}
 			readOnly={mode === "read"}
+			initialTab={tab}
+			onTabChange={setTab}
 			onEdit={
 				canEditAgent
 					? () => {

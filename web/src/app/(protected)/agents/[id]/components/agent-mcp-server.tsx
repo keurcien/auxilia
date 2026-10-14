@@ -76,7 +76,8 @@ export default function AgentMCPServer({
 		if (binding.tools && Object.hasOwn(binding.tools, toolName)) {
 			return binding.tools[toolName];
 		}
-		return "always_allow";
+		// Matches the runtime: a tool missing from the map never runs.
+		return "disabled";
 	};
 
 	// The complete-map rule: the draft's tools map stays null until the user
@@ -85,7 +86,7 @@ export default function AgentMCPServer({
 	const materializeTools = useCallback(
 		(fetchedTools: MCPServerTool[]): Record<string, ToolStatus> => {
 			const full: Record<string, ToolStatus> = Object.fromEntries(
-				fetchedTools.map((tool) => [tool.name, "always_allow" as ToolStatus]),
+				fetchedTools.map((tool) => [tool.name, "disabled" as ToolStatus]),
 			);
 			return { ...full, ...(binding.tools ?? {}) };
 		},
@@ -115,7 +116,7 @@ export default function AgentMCPServer({
 	// Read mode has no draft, so a saved map that disagrees with the server's
 	// live tool list (never synced after an OAuth connect, or a keyless server
 	// that gained/lost tools) must be healed server-side: sync-tools merges —
-	// curated statuses survive, new tools default to enabled, vanished tools
+	// curated statuses survive, new tools default to disabled, vanished tools
 	// drop. No-op when the map is already current, so merely viewing an
 	// up-to-date agent never writes.
 	const persistIfStale = useCallback(

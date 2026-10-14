@@ -13,11 +13,15 @@ import AgentSubagentList from "../[id]/components/agent-subagent-list";
 import AgentSkillList from "../[id]/components/agent-skill-list";
 import AgentTagsPanel from "./agent-tags-panel";
 import AgentPermissionsPanel from "./agent-permissions-panel";
+import AgentLangfusePanel from "./agent-langfuse-panel";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import * as langfuseApi from "@/lib/api/resources/langfuse";
+import { toast } from "sonner";
 import { useAgentsStore } from "@/stores/agents-store";
 import { useThreadsStore } from "@/stores/threads-store";
 import { useSkillsStore } from "@/stores/skills-store";
+import { useUserStore } from "@/stores/user-store";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { UnderlineTabs } from "@/components/ui/underline-tabs";
 import { cn } from "@/lib/utils";
@@ -29,7 +33,7 @@ import {
 	toPayload,
 } from "../lib/agent-form";
 
-type EditorTab = "instructions" | "tags" | "permissions";
+export type EditorTab = "instructions" | "tags" | "permissions" | "langfuse";
 
 const slugify = (name: string) =>
 	name.trim().toLowerCase().replace(/\s+/g, "-") || "…";
@@ -44,6 +48,9 @@ interface AgentEditorProps {
 	onSaved: (agent: Agent) => void;
 	/** Discard/Cancel: back to read mode (detail) or leave the page (create). */
 	onCancel: () => void;
+	/** Tab to open on — lets the page keep it across read/edit remounts. */
+	initialTab?: EditorTab;
+	onTabChange?: (tab: EditorTab) => void;
 }
 
 export default function AgentEditor({
@@ -52,6 +59,8 @@ export default function AgentEditor({
 	onEdit,
 	onSaved,
 	onCancel,
+	initialTab = "instructions",
+	onTabChange,
 }: AgentEditorProps) {
 	const router = useRouter();
 	const { resolvedTheme } = useTheme();
@@ -62,6 +71,7 @@ export default function AgentEditor({
 	const archiveAgent = useAgentsStore((state) => state.archiveAgent);
 	const markAgentArchived = useThreadsStore((state) => state.markAgentArchived);
 	const librarySkills = useSkillsStore((state) => state.skills);
+	const isWorkspaceAdmin = useUserStore((state) => state.user?.role === "admin");
 
 	const canManageAgent =
 		agent?.currentUserPermission === "owner" ||
@@ -97,7 +107,7 @@ export default function AgentEditor({
 				.map((s) => s.name),
 		[form.skillIds, librarySkills, agent?.skills],
 	);
-	const [tab, setTab] = useState<EditorTab>("instructions");
+	const [tab, setTab] = useState<EditorTab>(initialTab);
 	const [isSaving, setIsSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -105,6 +115,35 @@ export default function AgentEditor({
 	// open it ("Turn on code execution") on a skill whose scripts need one.
 	const [addToolOpen, setAddToolOpen] = useState(false);
 	const emojiPickerRef = useRef<HTMLDivElement>(null);
+	const [langfuseEnabled, setLangfuseEnabled] = useState(false);
+	// The Langfuse version picked into the draft instructions — labelled
+	// production on save. Discard remounts the editor, which drops it.
+	const [langfuseVersion, setLangfuseVersion] =
+		useState<langfuseApi.LangfusePromptVersion | null>(null);
+
+	useEffect(() => {
+		if (!agent) return;
+		void langfuseApi.isLangfuseEnabled().then(setLangfuseEnabled);
+	}, [agent]);
+	// The production prompt's text, when the agent is managed by Langfuse —
+	// drives the "diverged" hint under the instructions.
+	const [langfuseProduction, setLangfuseProduction] = useState<string | null>(null);
+	const agentId = agent?.id;
+	useEffect(() => {
+		if (readOnly || !agentId || !canEditAgent || !langfuseEnabled) return;
+		langfuseApi
+			.getLangfusePrompt(agentId)
+			.then((prompt) => {
+				setLangfuseProduction(prompt.production?.text ?? null);
+			})
+			.catch(() => {
+				// No hint when Langfuse is unreachable; the Versions tab shows the error.
+			});
+	}, [readOnly, agentId, canEditAgent, langfuseEnabled]);
+	const showLangfuseHint =
+		!readOnly &&
+		langfuseProduction !== null &&
+		form.instructions.trim() !== langfuseProduction.trim();
 
 	const setField = <K extends keyof AgentFormState>(
 		key: K,
@@ -113,21 +152,38 @@ export default function AgentEditor({
 		setForm((prev) => ({ ...prev, [key]: value }));
 	};
 
-	const isDirty = !readOnly && isFormDirty(form, initialForm);
+	// A picked Langfuse version counts as a change even when its text equals
+	// the saved instructions: saving it is what labels it production.
+	const isDirty =
+		!readOnly && (isFormDirty(form, initialForm) || langfuseVersion !== null);
 	// Read by callbacks that fire after an await (the subagent gate waits for
 	// the agents store), so they see the draft as it is then, not at click.
 	const isDirtyRef = useRef(isDirty);
 	isDirtyRef.current = isDirty;
 	const canSave = Boolean(form.name.trim() && form.instructions.trim());
 
-	const tabs: { key: EditorTab; label: string }[] = [
+	const tabs: { key: EditorTab; label: string; alert?: string }[] = [
 		{ key: "instructions", label: "Instructions" },
 		// Tags/permissions act on the saved agent — they appear once it exists.
 		...(agent ? [{ key: "tags" as const, label: "Tags" }] : []),
 		...(agent && canManageAgent
 			? [{ key: "permissions" as const, label: "Permissions" }]
 			: []),
+		...(agent && canEditAgent && langfuseEnabled
+			? [
+					{
+						key: "langfuse" as const,
+						label: "Versions",
+						alert: showLangfuseHint
+							? "Instructions differ from the Langfuse production version"
+							: undefined,
+					},
+				]
+			: []),
 	];
+	// The kept tab may not exist here (another agent, other permissions, or
+	// Versions before the Langfuse probe answers): show Instructions instead.
+	const activeTab = tabs.some((t) => t.key === tab) ? tab : "instructions";
 
 	useEffect(() => {
 		const handleClickOutside = (event: MouseEvent) => {
@@ -183,6 +239,24 @@ export default function AgentEditor({
 			];
 			// Supervisor links changed: the linked agents' `isSubagent` flag did too.
 			await Promise.all(affected.map((id) => refreshAgent(id).catch(() => {})));
+
+			// Only a version saved as picked is released; a hand edit after the
+			// pick stays local until someone publishes it.
+			if (
+				agent &&
+				isWorkspaceAdmin &&
+				langfuseVersion &&
+				// The saved payload is trimmed; the backend compares stripped text.
+				form.instructions.trim() === langfuseVersion.text.trim()
+			) {
+				await langfuseApi
+					.promoteLangfuseVersion(agent.id, langfuseVersion.version)
+					.catch((err: unknown) => {
+						toast.error(
+							getApiErrorMessage(err, "Saved, but labelling the Langfuse version production failed."),
+						);
+					});
+			}
 
 			onSaved(saved);
 		} catch (err) {
@@ -421,15 +495,18 @@ export default function AgentEditor({
 
 					<UnderlineTabs
 						tabs={tabs}
-						value={tab}
-						onChange={setTab}
+						value={activeTab}
+						onChange={(key) => {
+							setTab(key);
+							onTabChange?.(key);
+						}}
 						className="mt-6 border-b border-border"
 					/>
 
 					{/* Instructions fill the remaining panel height and scroll
 					    internally when the text exceeds it. */}
 					<div className="flex min-h-0 flex-1 flex-col pt-5">
-						{tab === "instructions" &&
+						{activeTab === "instructions" &&
 							(readOnly ? (
 								<div className="min-h-[200px] w-full flex-1 overflow-y-auto rounded-lg border border-border bg-sidebar p-4 [scrollbar-width:thin]">
 									{form.instructions ? (
@@ -452,13 +529,47 @@ export default function AgentEditor({
 									className="min-h-[300px] w-full flex-1 resize-none rounded-lg border border-input bg-sidebar p-4 font-mono text-[12.5px] leading-[1.7] text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-meta dark:placeholder:text-panel-dim focus:border-petrol focus:shadow-[0_0_0_3px_rgba(22,96,110,0.10)] [scrollbar-width:thin]"
 								/>
 							))}
-						{tab === "tags" && agent && (
+						{activeTab === "instructions" && showLangfuseHint && (
+							<p className="mt-2 text-[12px] text-meta dark:text-panel-dim">
+								These instructions have diverged from the Langfuse production
+								version. See the{" "}
+								<button
+									type="button"
+									onClick={() => {
+										setTab("langfuse");
+										onTabChange?.("langfuse");
+									}}
+									className="cursor-pointer font-semibold text-petrol hover:underline"
+								>
+									Versions
+								</button>{" "}
+								tab.
+							</p>
+						)}
+						{activeTab === "tags" && agent && (
 							<AgentTagsPanel agent={agent} canAssign={canEditAgent} />
 						)}
-						{tab === "permissions" && agent && canManageAgent && (
+						{activeTab === "permissions" && agent && canManageAgent && (
 							<AgentPermissionsPanel
 								agentId={agent.id}
 								ownerId={agent.ownerId}
+							/>
+						)}
+						{activeTab === "langfuse" && agent && (
+							<AgentLangfusePanel
+								agentId={agent.id}
+								agentName={agent.name}
+								readOnly={readOnly}
+								isWorkspaceAdmin={isWorkspaceAdmin}
+								pickedVersion={langfuseVersion?.version ?? null}
+								hasUnsavedEdits={
+									form.instructions !==
+									(langfuseVersion?.text ?? initialForm.instructions)
+								}
+								onPick={(version) => {
+									setLangfuseVersion(version);
+									setField("instructions", version.text);
+								}}
 							/>
 						)}
 					</div>

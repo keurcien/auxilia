@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.9.14](https://github.com/keurcien/auxilia/compare/backend-v0.9.13...backend-v0.9.14) (2026-10-14)
+
+
+### Bug Fixes
+
+* **langfuse:** list enabled tools in the published MCP config ([#415](https://github.com/keurcien/auxilia/issues/415)) ([0c207ee](https://github.com/keurcien/auxilia/commit/0c207ee84beaacfee7f38dd307f400bfdad51445))
+
+## [0.9.13](https://github.com/keurcien/auxilia/compare/backend-v0.9.12...backend-v0.9.13) (2026-10-14)
+
+
+### Features
+
+* **langfuse:** publish the agent's MCP servers in the prompt config ([#410](https://github.com/keurcien/auxilia/issues/410)) ([28b1d33](https://github.com/keurcien/auxilia/commit/28b1d331ca4c88615d8156aa000078fa4a2703ec))
+
+## [0.9.12](https://github.com/keurcien/auxilia/compare/backend-v0.9.11...backend-v0.9.12) (2026-10-14)
+
+
+### Features
+
+* **agents:** version agent instructions in Langfuse ([#408](https://github.com/keurcien/auxilia/issues/408)) ([b9687a9](https://github.com/keurcien/auxilia/commit/b9687a93a2eba0e9b74001be4aeea877ebaaf654))
+
+## [0.9.11](https://github.com/keurcien/auxilia/compare/backend-v0.9.10...backend-v0.9.11) (2026-10-13)
+
+
+### Features
+
+* **artifacts:** run HTML artifact scripts, with configurable CDN sources ([#403](https://github.com/keurcien/auxilia/issues/403)) ([c153e8e](https://github.com/keurcien/auxilia/commit/c153e8ea6ea33570ceba61fe897c50c2992bdada))
+* **models:** add Muse Wonder and Gemini 4 Argon, enable Meta vision, structured output and effort ([#404](https://github.com/keurcien/auxilia/issues/404)) ([e8db65a](https://github.com/keurcien/auxilia/commit/e8db65a1f433077b410a1e8fd31705b61a095686))
+
 ## [0.9.10](https://github.com/keurcien/auxilia/compare/backend-v0.9.9...backend-v0.9.10) (2026-10-12)
 
 

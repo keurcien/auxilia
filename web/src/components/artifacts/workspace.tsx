@@ -10,12 +10,15 @@ import {
 } from "react";
 import type { CSSProperties, ReactNode, RefObject } from "react";
 import Image from "next/image";
-import { ChevronLeft, Download, FileText, X } from "lucide-react";
+import { ChevronLeft, Download, FileText, PanelRightOpen, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { formatBytes } from "@/app/(protected)/skills/lib/skill-form";
 import { relativeTime } from "@/app/(protected)/skills/lib/relative-time";
 import { ChatHeaderActions } from "@/components/layout/chat-header";
+import { humanizeToolName } from "@/components/ai-elements/chain-of-thought";
+import { McpAppWidget } from "@/app/(protected)/agents/[id]/chat/components/mcp-app-widget";
+import type { DisplayedApp } from "@/app/(protected)/agents/[id]/chat/components/mcp-app-widget";
 import { ArtifactViewer, Loading } from "./viewers";
 import {
   contentUrl,
@@ -26,11 +29,54 @@ import {
 import { getAuthProviders } from "@/lib/api/resources/auth";
 import type { Artifact } from "@/lib/api/resources/artifacts";
 
+// MCP apps are thread outputs too: inline by default, and while one is open in
+// the panel (the MCP Apps `fullscreen` display mode) its inline spot is a card.
 const ArtifactContext = createContext<{
   items: Artifact[];
   selectedId?: string;
   open: (item: Artifact) => void;
-}>({ items: [], open: () => {} });
+  openAppId?: string;
+  openApp: (toolCallId: string) => void;
+  registerApp: (toolCallId: string, app: SlotApp) => void;
+  unregisterApp: (toolCallId: string) => void;
+}>({
+  items: [],
+  open: () => {},
+  openApp: () => {},
+  registerApp: () => {},
+  unregisterApp: () => {},
+});
+
+type Entry =
+  | { kind: "file"; key: string; toolCallId: string; item: Artifact }
+  | { kind: "app"; key: string; toolCallId: string; app: SlotApp };
+
+/** An app plus the MCP server it comes from, which identifies it in the UI. */
+type SlotApp = DisplayedApp & { serverName: string; serverIcon?: string };
+
+function widgetProps(app: SlotApp): DisplayedApp {
+  const { input, output, structuredContent, errorText, toolName, appToolInfo } =
+    app;
+  return { input, output, structuredContent, errorText, toolName, appToolInfo };
+}
+
+function appTitle(app: DisplayedApp): string {
+  return humanizeToolName(app.toolName);
+}
+
+function sameApp(a: SlotApp, b: SlotApp): boolean {
+  return (
+    a.serverName === b.serverName &&
+    a.serverIcon === b.serverIcon &&
+    a.input === b.input &&
+    a.output === b.output &&
+    a.structuredContent === b.structuredContent &&
+    a.errorText === b.errorText &&
+    a.toolName === b.toolName &&
+    a.appToolInfo.resourceUri === b.appToolInfo.resourceUri &&
+    a.appToolInfo.serverId === b.appToolInfo.serverId
+  );
+}
 
 // Label colour per file kind, on a document glyph with the extension on it.
 function tone(mime: string): string {
@@ -54,9 +100,16 @@ function meta(item: Artifact, withTime = false): string {
   return parts.join(" · ");
 }
 
-function FileTypeIcon({ item, large }: { item: Artifact; large?: boolean }) {
-  const color = tone(item.mime_type);
-  const label = extension(item).slice(0, 4);
+function FileTypeIcon({
+  label: text,
+  color,
+  large,
+}: {
+  label: string;
+  color: string;
+  large?: boolean;
+}) {
+  const label = text.slice(0, 4);
   return (
     <svg
       aria-hidden
@@ -96,6 +149,51 @@ function FileTypeIcon({ item, large }: { item: Artifact; large?: boolean }) {
       </text>
     </svg>
   );
+}
+
+function ArtifactIcon({ entry, large }: { entry: Entry; large?: boolean }) {
+  if (entry.kind === "file")
+    return (
+      <FileTypeIcon
+        label={extension(entry.item)}
+        color={tone(entry.item.mime_type)}
+        large={large}
+      />
+    );
+  // The server's logo, as on the tool steps: an app reads as "from Metabase".
+  const { serverName, serverIcon } = entry.app;
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "flex flex-none items-center justify-center rounded-lg border border-border bg-card",
+        large ? "size-11" : "size-9",
+      )}
+    >
+      {serverIcon ? (
+        <Image
+          unoptimized
+          src={serverIcon}
+          alt=""
+          width={large ? 22 : 18}
+          height={large ? 22 : 18}
+          className="rounded-[3px] object-contain"
+        />
+      ) : (
+        <span className="text-[13px] font-bold text-label">
+          {serverName.charAt(0).toUpperCase()}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function entryTitle(entry: Entry): string {
+  return entry.kind === "file" ? entry.item.title : appTitle(entry.app);
+}
+
+function entryMeta(entry: Entry, withTime = false): string {
+  return entry.kind === "file" ? meta(entry.item, withTime) : entry.app.serverName;
 }
 
 const FIDELITY =
@@ -172,34 +270,116 @@ function SlidesExportLink({ item }: { item: Artifact }) {
   );
 }
 
+function Card({
+  entry,
+  selected,
+  onOpen,
+}: {
+  entry: Entry;
+  selected: boolean;
+  onOpen: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className={cn(
+        "my-2 flex w-full max-w-md items-center gap-3 rounded-xl border p-2.5 text-left transition-colors",
+        selected ? "border-petrol bg-petrol-tint" : "border-border hover:bg-hover",
+      )}
+    >
+      <ArtifactIcon entry={entry} />
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="truncate text-[13.5px] font-bold">
+          {entryTitle(entry)}
+        </span>
+        <span className="font-mono text-[11px] text-label">
+          {entryMeta(entry)}
+        </span>
+      </span>
+      <span className="flex-none rounded-full bg-petrol-chip px-2 py-1 text-[11px] font-semibold text-petrol">
+        Open
+      </span>
+    </button>
+  );
+}
+
 export function ArtifactCards({ toolCallId }: { toolCallId: string }) {
   const { items, selectedId, open } = useContext(ArtifactContext);
   return items
     .filter((item) => item.tool_call_id === toolCallId)
     .map((item) => (
-      <button
+      <Card
         key={item.id}
-        type="button"
-        onClick={() => {
+        entry={{ kind: "file", key: item.id, toolCallId, item }}
+        selected={selectedId === item.id}
+        onOpen={() => {
           open(item);
         }}
-        className={cn(
-          "my-2 flex w-full max-w-md items-center gap-3 rounded-xl border p-2.5 text-left transition-colors",
-          selectedId === item.id
-            ? "border-petrol bg-petrol-tint"
-            : "border-border hover:bg-hover",
-        )}
-      >
-        <FileTypeIcon item={item} />
-        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="truncate text-[13.5px] font-bold">{item.title}</span>
-          <span className="font-mono text-[11px] text-label">{meta(item)}</span>
-        </span>
-        <span className="flex-none rounded-full bg-petrol-chip px-2 py-1 text-[11px] font-semibold text-petrol">
-          Open
-        </span>
-      </button>
+      />
     ));
+}
+
+/** An MCP app in the transcript: live inline, or a card while it is open in
+ *  the panel, so exactly one copy of the app runs at a time. */
+export function AppSlot({
+  toolCallId,
+  app,
+}: {
+  toolCallId: string;
+  app: SlotApp;
+}) {
+  const { openAppId, openApp, registerApp, unregisterApp } =
+    useContext(ArtifactContext);
+  useEffect(() => {
+    registerApp(toolCallId, app);
+  }, [registerApp, toolCallId, app]);
+  useEffect(
+    () => () => {
+      unregisterApp(toolCallId);
+    },
+    [unregisterApp, toolCallId],
+  );
+  const title = appTitle(app);
+  if (openAppId === toolCallId)
+    return (
+      <Card
+        entry={{ kind: "app", key: toolCallId, toolCallId, app }}
+        selected
+        onOpen={() => {
+          openApp(toolCallId);
+        }}
+      />
+    );
+  return (
+    <div className="mt-2 w-full min-w-0 overflow-hidden rounded-xl border border-border">
+      <div className="flex items-center gap-2 border-b border-hairline py-1 pl-3 pr-1">
+        <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-label">
+          {title}
+        </span>
+        <button
+          type="button"
+          title="Open in panel"
+          aria-label={`Open ${title} in panel`}
+          onClick={() => {
+            openApp(toolCallId);
+          }}
+          className="flex size-7 flex-none items-center justify-center rounded-lg text-subtle hover:bg-hover"
+        >
+          <PanelRightOpen className="size-3.5" />
+        </button>
+      </div>
+      <McpAppWidget
+        {...widgetProps(app)}
+        className="mt-0"
+        onRequestDisplayMode={(mode) => {
+          if (mode !== "fullscreen") return "inline";
+          openApp(toolCallId);
+          return "fullscreen";
+        }}
+      />
+    </div>
+  );
 }
 
 function Preview({ artifact }: { artifact: Artifact }) {
@@ -260,57 +440,57 @@ function CloseButton({ onClose }: { onClose: () => void }) {
 }
 
 function FileList({
-  items,
+  entries,
   onOpen,
   onClose,
 }: {
-  items: Artifact[];
-  onOpen: (item: Artifact) => void;
+  entries: Entry[];
+  onOpen: (entry: Entry) => void;
   onClose: () => void;
 }) {
   return (
     <>
       <header className="flex items-center gap-2.5 border-b border-hairline py-3 pl-5 pr-3">
-        <h2 className="text-[14.5px] font-bold">Files in this thread</h2>
+        <h2 className="text-[14.5px] font-bold">Artifacts in this thread</h2>
         <span className="flex-1 font-mono text-[11px] text-label">
-          {items.length}
+          {entries.length}
         </span>
         <CloseButton onClose={onClose} />
       </header>
       <ul className="min-h-0 flex-1 overflow-auto p-2.5">
-        {items.map((item) => (
-          <li key={item.id}>
+        {entries.map((entry) => (
+          <li key={entry.key}>
             <div
               role="button"
               tabIndex={0}
               onClick={() => {
-                onOpen(item);
+                onOpen(entry);
               }}
               onKeyDown={(event) => {
                 // Keys on the nested download link belong to the link.
                 if (event.target !== event.currentTarget) return;
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
-                  onOpen(item);
+                  onOpen(entry);
                 }
               }}
               className="flex cursor-pointer items-center gap-3.5 rounded-[10px] px-3 py-2.5 hover:bg-hover"
             >
-              <FileTypeIcon item={item} large />
+              <ArtifactIcon entry={entry} large />
               <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span className="truncate text-[13.5px] font-bold">
-                  {item.title}
+                  {entryTitle(entry)}
                 </span>
                 <span className="truncate font-mono text-[11px] text-label">
-                  {meta(item, true)}
+                  {entryMeta(entry, true)}
                 </span>
               </span>
-              <DownloadLink item={item} icon />
+              {entry.kind === "file" && <DownloadLink item={entry.item} icon />}
             </div>
           </li>
         ))}
       </ul>
-      {items.some((item) => item.temporary) && (
+      {entries.some((entry) => entry.kind === "file" && entry.item.temporary) && (
         <p className="flex items-center gap-1.5 border-t border-hairline px-5 py-2.5 text-[11.5px] text-label">
           <span className="size-1.5 rounded-full bg-warning" />
           Files are temporary — download the ones you want to keep.
@@ -376,15 +556,25 @@ export function ArtifactWorkspace({
   threadId,
   running,
   refreshKey,
+  order = [],
   children,
 }: {
   threadId: string;
   running: boolean;
   refreshKey: string;
+  /** Tool-call ids in transcript order: files and apps are listed by it. */
+  order?: string[];
   children: ReactNode;
 }) {
   const [items, setItems] = useState<Artifact[]>([]);
   const [selected, setSelected] = useState<Artifact>();
+  // Mutually exclusive with `selected`: the panel shows a file or an app.
+  const [openAppId, setOpenAppId] = useState<string>();
+  const [apps, setApps] = useState<ReadonlyMap<string, SlotApp>>(
+    () => new Map(),
+  );
+  // Set when the user chose what the panel shows: auto-open never replaces it.
+  const userPicked = useRef(false);
   const [listOpen, setListOpen] = useState(false);
   const [error, setError] = useState<string>();
   const [attempt, setAttempt] = useState(0);
@@ -393,12 +583,44 @@ export function ArtifactWorkspace({
   // One width for list and previewer, so switching views never jumps.
   const [width, setWidth] = useState<number>();
   const open = useCallback((item: Artifact) => {
+    userPicked.current = true;
     setListOpen(false);
+    setOpenAppId(undefined);
     setSelected(item);
   }, []);
-  const close = () => {
+  const openApp = useCallback((toolCallId: string) => {
+    userPicked.current = true;
     setListOpen(false);
     setSelected(undefined);
+    setOpenAppId(toolCallId);
+  }, []);
+  const registerApp = useCallback((toolCallId: string, app: SlotApp) => {
+    setApps((prev) => {
+      const known = prev.get(toolCallId);
+      return known && sameApp(known, app)
+        ? prev
+        : new Map(prev).set(toolCallId, app);
+    });
+  }, []);
+  const unregisterApp = useCallback((toolCallId: string) => {
+    setApps((prev) => {
+      if (!prev.has(toolCallId)) return prev;
+      const next = new Map(prev);
+      next.delete(toolCallId);
+      return next;
+    });
+  }, []);
+  const close = () => {
+    userPicked.current = false;
+    setListOpen(false);
+    setSelected(undefined);
+    setOpenAppId(undefined);
+  };
+  // From the list: keeps `listOpen`, so the header offers a way back.
+  const pick = (entry: Entry) => {
+    userPicked.current = true;
+    setSelected(entry.kind === "file" ? entry.item : undefined);
+    setOpenAppId(entry.kind === "app" ? entry.key : undefined);
   };
   useEffect(() => {
     const controller = new AbortController();
@@ -416,7 +638,10 @@ export function ArtifactWorkspace({
         known.current = new Set(next.map((item) => item.id));
         setItems(next);
         setError(undefined);
-        if (fresh.length) setSelected(fresh[fresh.length - 1]);
+        if (fresh.length && !userPicked.current) {
+          setOpenAppId(undefined);
+          setSelected(fresh[fresh.length - 1]);
+        }
       } catch (cause) {
         if (!controller.signal.aborted)
           setError(
@@ -437,23 +662,57 @@ export function ArtifactWorkspace({
       clearInterval(timer);
     };
   }, [threadId, running, refreshKey, attempt]);
-  const newestFirst = [...items].reverse();
-  const position = selected
-    ? newestFirst.findIndex((item) => item.id === selected.id)
+  const app = openAppId ? apps.get(openAppId) : undefined;
+  const entries: Entry[] = [
+    ...items.map((item): Entry => ({
+      kind: "file",
+      key: item.id,
+      toolCallId: item.tool_call_id,
+      item,
+    })),
+    ...Array.from(apps, ([toolCallId, app]): Entry => ({
+      kind: "app",
+      key: toolCallId,
+      toolCallId,
+      app,
+    })),
+  ];
+  // Newest first by transcript position; a call missing from the root
+  // transcript (a subagent's file) counts as newest.
+  const rank = (entry: Entry) => {
+    const index = order.indexOf(entry.toolCallId);
+    return index < 0 ? Infinity : index;
+  };
+  const newestFirst = entries
+    .reverse()
+    .sort((a, b) => (rank(a) === rank(b) ? 0 : rank(b) - rank(a)));
+  const currentKey = selected?.id ?? (app ? openAppId : undefined);
+  const position = currentKey
+    ? newestFirst.findIndex((entry) => entry.key === currentKey)
     : -1;
   return (
-    <ArtifactContext.Provider value={{ items, selectedId: selected?.id, open }}>
+    <ArtifactContext.Provider
+      value={{
+        items,
+        selectedId: selected?.id,
+        open,
+        openAppId,
+        openApp,
+        registerApp,
+        unregisterApp,
+      }}
+    >
       {/* Side by side only once both minimums fit (MIN_PANEL + MIN_CHAT); overlay below. */}
       <div
         ref={container}
         className="@container/ws relative flex h-full min-w-0"
       >
         <div className="relative flex min-w-0 flex-1 flex-col">
-          {(items.length > 0 || error) && (
+          {(entries.length > 0 || error) && (
             <ChatHeaderActions>
               {/* A failed poll keeps already-loaded files reachable; the next
                   successful poll clears the error. */}
-              {error && items.length === 0 ? (
+              {error && entries.length === 0 ? (
                 <Button
                   variant="outline"
                   size="sm"
@@ -462,29 +721,32 @@ export function ArtifactWorkspace({
                     setAttempt((x) => x + 1);
                   }}
                 >
-                  Retry loading files
+                  Retry loading artifacts
                 </Button>
               ) : (
                 <button
                   type="button"
-                  aria-pressed={listOpen && !selected}
+                  aria-pressed={listOpen && !currentKey}
                   onClick={() => {
-                    const showing = listOpen && !selected;
+                    const showing = listOpen && !currentKey;
+                    // An open list is the user's pick too: no auto-open over it.
+                    userPicked.current = !showing;
                     setSelected(undefined);
+                    setOpenAppId(undefined);
                     setListOpen(!showing);
                   }}
                   className="flex h-[30px] cursor-pointer items-center gap-1.5 rounded-full bg-petrol-chip px-3 text-[12.5px] font-semibold text-petrol hover:bg-petrol-tint aria-pressed:ring-1 aria-pressed:ring-petrol/40"
                 >
                   <FileText className="size-3.5" />
-                  Files
-                  <span className="font-mono text-[11px]">{items.length}</span>
+                  Artifacts
+                  <span className="font-mono text-[11px]">{entries.length}</span>
                 </button>
               )}
             </ChatHeaderActions>
           )}
           <div className="min-h-0 flex-1">{children}</div>
         </div>
-        {(selected ?? listOpen) && (
+        {(selected || app || listOpen) && (
           <aside
             aria-label="Artifact viewer"
             style={
@@ -497,15 +759,16 @@ export function ArtifactWorkspace({
               width={width}
               onResize={setWidth}
             />
-            {selected ? (
+            {selected || app ? (
               <>
                 <header className="flex items-center gap-2.5 border-b border-hairline py-3 pl-3 pr-3">
                   {listOpen ? (
                     <button
                       type="button"
-                      aria-label="Back to files"
+                      aria-label="Back to artifacts"
                       onClick={() => {
                         setSelected(undefined);
+                        setOpenAppId(undefined);
                       }}
                       className="flex size-[30px] flex-none items-center justify-center rounded-lg bg-hover text-ink"
                     >
@@ -516,14 +779,14 @@ export function ArtifactWorkspace({
                   )}
                   <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <h2 className="truncate text-[14.5px] font-bold">
-                      {selected.title}
+                      {selected ? selected.title : app && appTitle(app)}
                     </h2>
                     <p className="truncate font-mono text-[11px] text-label">
-                      {meta(selected)}
+                      {selected ? meta(selected) : app?.serverName}
                       {listOpen &&
                         position >= 0 &&
-                        ` · ${position + 1} of ${items.length} files`}
-                      {selected.temporary && (
+                        ` · ${position + 1} of ${newestFirst.length} artifacts`}
+                      {selected?.temporary && (
                         <>
                           {" · "}
                           <span className="text-warning">
@@ -533,20 +796,37 @@ export function ArtifactWorkspace({
                       )}
                     </p>
                   </div>
-                  {selected.mime_type === PPTX_MIME && (
+                  {selected?.mime_type === PPTX_MIME && (
                     <SlidesExportLink item={selected} />
                   )}
-                  <DownloadLink item={selected} />
+                  {selected && <DownloadLink item={selected} />}
                   <CloseButton onClose={close} />
                 </header>
-                <div className="min-h-0 flex-1 overflow-auto">
-                  <Preview key={selected.id} artifact={selected} />
-                </div>
+                {selected ? (
+                  <div className="min-h-0 flex-1 overflow-auto">
+                    <Preview key={selected.id} artifact={selected} />
+                  </div>
+                ) : (
+                  app && (
+                    <div className="flex min-h-0 flex-1 flex-col">
+                      <McpAppWidget
+                        key={openAppId}
+                        {...widgetProps(app)}
+                        displayMode="fullscreen"
+                        onRequestDisplayMode={(mode) => {
+                          if (mode !== "inline") return "fullscreen";
+                          close();
+                          return "inline";
+                        }}
+                      />
+                    </div>
+                  )
+                )}
               </>
             ) : (
               <FileList
-                items={newestFirst}
-                onOpen={setSelected}
+                entries={newestFirst}
+                onOpen={pick}
                 onClose={close}
               />
             )}

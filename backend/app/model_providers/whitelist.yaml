@@ -379,6 +379,18 @@ models:
     supports_structured_output: true
     reasoning_effort_levels: [low, medium, high]
     reasoning_effort_default: medium
+  # Verified live 2026-10-13 through the factory (Vertex, global): levels as
+  # probed (`minimal` 400s), image input, forced tool choice + tool round
+  # trip. It 400s on thinking_budget, so unset sends no thinking param and
+  # Google's default (medium) applies — no default needed here.
+  - provider: google
+    model_id: gemini-4-argon
+    display_name: Gemini 4 Argon
+    chef: Google
+    chef_slug: google
+    multimodal: true
+    supports_structured_output: true
+    reasoning_effort_levels: [low, medium, high]
 
   # --- Xiaomi (native endpoint) ---
   # SO flags conservative: OpenRouter's listing says the models support
@@ -400,24 +412,35 @@ models:
     supports_structured_output: false
 
   # --- Meta (native endpoint) ---
-  # Both flags conservative: Llama-4-family capabilities are assumed but the
-  # Meta Model API endpoint is unverified for image input and json_schema —
-  # flip after testing, don't publish unearned badges.
+  # Verified live 2026-10-13 on our path (Chat Completions): base64 image_url
+  # input, json_schema structured output (constrained decoding per Meta's
+  # docs) and function calling. Effort levels = the "Supported values" the
+  # API's 400 lists per model; `none` 400s on all three. No default: omitted
+  # = a model-determined level.
   - provider: meta
     model_id: muse-spark-1.2
     display_name: Muse Spark 1.2
     chef: Meta
     chef_slug: meta
-    multimodal: false
-    supports_structured_output: false
-  # 1.3 (added 2026-10-09): function calling tested live; flags as above.
+    multimodal: true
+    supports_structured_output: true
+    reasoning_effort_levels: [minimal, low, medium, high, xhigh]
   - provider: meta
     model_id: muse-spark-1.3
     display_name: Muse Spark 1.3
     chef: Meta
     chef_slug: meta
-    multimodal: false
-    supports_structured_output: false
+    multimodal: true
+    supports_structured_output: true
+    reasoning_effort_levels: [minimal, low, medium, high, xhigh, max]
+  - provider: meta
+    model_id: muse-wonder-1.0
+    display_name: Muse Wonder 1.0 (preview)
+    chef: Meta
+    chef_slug: meta
+    multimodal: true
+    supports_structured_output: true
+    reasoning_effort_levels: [minimal, low, medium, high, xhigh, max]
 
   # --- OpenRouter (gateway; model_id is the OpenRouter slug, sent verbatim) ---
   # GLM SO flag: Z.ai's FIRST-PARTY API only offers json_object (no schema —

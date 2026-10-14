@@ -108,9 +108,9 @@ export default function AgentToolList({
 	// Merge freshly fetched tool names into a binding's map, evaluated against
 	// the latest state so concurrent seeds and in-progress user edits are never
 	// clobbered. The fetched list is the key universe (stale keys drop out);
-	// existing statuses win, unknown tools default to enabled. This is what
-	// keeps the draft honest when a server has gained tools since the last
-	// save — the runtime excludes any tool missing from the saved map.
+	// existing statuses win, unknown tools default to disabled (tools are
+	// opt-in). This keeps the draft honest when a server has gained tools
+	// since the last save — the runtime excludes any tool missing from the map.
 	const handleSeedTools = (serverId: string, fetchedNames: string[]) => {
 		onMcpServersChange?.((prev) =>
 			prev.map((s) => {
@@ -129,7 +129,7 @@ export default function AgentToolList({
 				const merged: Record<string, ToolStatus> = Object.fromEntries(
 					fetchedNames.map((name) => [
 						name,
-						existing.get(name) ?? ("always_allow" as ToolStatus),
+						existing.get(name) ?? ("disabled" as ToolStatus),
 					]),
 				);
 				return { ...s, tools: merged };

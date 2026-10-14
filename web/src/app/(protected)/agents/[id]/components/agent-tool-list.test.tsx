@@ -3,7 +3,7 @@
  * map (backend toolset.py), so the editor must keep the map complete:
  *
  *  - edit mode: fetched tools are MERGE-seeded into the draft (new tools
- *    added as always_allow, curated statuses preserved, stale keys dropped),
+ *    added as disabled, curated statuses preserved, stale keys dropped),
  *    making the form dirty so Save persists them;
  *  - read mode: a successful OAuth connect persists server-side via
  *    POST sync-tools (there is no draft to save after the editor flips back
@@ -149,7 +149,7 @@ describe("agent tool map persistence", () => {
 		);
 
 		await waitFor(() => {
-			expect(payload()).toContain('"search":"always_allow"');
+			expect(payload()).toContain('"search":"disabled"');
 		});
 		expect(screen.getByTestId("dirty").textContent).toBe("true");
 	});
@@ -175,7 +175,7 @@ describe("agent tool map persistence", () => {
 		);
 
 		await waitFor(() => {
-			expect(payload()).toContain('"create_page":"always_allow"');
+			expect(payload()).toContain('"create_page":"disabled"');
 		});
 		// Curated status preserved, vanished tool dropped.
 		expect(payload()).toContain('"search":"needs_approval"');

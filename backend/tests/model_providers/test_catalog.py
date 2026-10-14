@@ -153,6 +153,10 @@ def test_google_factory_sends_level_xor_dynamic_budget():
     )
     assert model.reasoning_effort == "low"
     assert model.thinking_budget is None
+    # Gemini 4 rejects any thinking_budget: unset must send neither.
+    model = factory.create("google", "gemini-4-argon", "unit-test-key")
+    assert model.thinking_budget is None
+    assert model.reasoning_effort is None
 
 
 def test_openrouter_factory_sends_the_slug_verbatim():
@@ -165,6 +169,15 @@ def test_openrouter_factory_sends_the_slug_verbatim():
         "openrouter", "z-ai/glm-5.2", "unit-test-key", reasoning_effort="high"
     )
     assert model.extra_body == {"reasoning_effort": "high"}
+
+
+def test_meta_factory_sends_reasoning_effort_top_level():
+    factory = ChatModelFactory()
+    assert factory.create("meta", "muse-spark-1.3", "unit-test-key").extra_body is None
+    model = factory.create(
+        "meta", "muse-spark-1.3", "unit-test-key", reasoning_effort="max"
+    )
+    assert model.extra_body == {"reasoning_effort": "max"}
 
 
 def test_provider_api_keys_serves_google_via_adc_when_no_api_key():

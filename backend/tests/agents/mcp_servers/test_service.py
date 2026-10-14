@@ -496,9 +496,10 @@ async def test_sync_tools_seeds_never_synced_map(service, mock_db):
     ):
         await service._sync_tools(link, server, "user-id")
 
+    # Freshly attached: nothing runs until someone enables it.
     assert link.tools == {
-        "search": ToolStatus.always_allow,
-        "write": ToolStatus.always_allow,
+        "search": ToolStatus.disabled,
+        "write": ToolStatus.disabled,
     }
     # The map isn't just mutated in memory — it is staged and flushed.
     mock_db.add.assert_called_once_with(link)
@@ -514,7 +515,7 @@ async def test_sync_tools_merges_against_row_reloaded_under_lock(service, mock_d
     async def refresh(instance, attribute_names=None, with_for_update=None):
         if with_for_update:
             # A concurrent save committed while tools were being fetched.
-            instance.tools = {"search": ToolStatus.disabled}
+            instance.tools = {"search": ToolStatus.needs_approval}
 
     mock_db.refresh = AsyncMock(side_effect=refresh)
 
@@ -525,13 +526,13 @@ async def test_sync_tools_merges_against_row_reloaded_under_lock(service, mock_d
         await service._sync_tools(link, server, "user-id")
 
     assert link.tools == {
-        "search": ToolStatus.disabled,
-        "create_page": ToolStatus.always_allow,
+        "search": ToolStatus.needs_approval,
+        "create_page": ToolStatus.disabled,
     }
 
 
 async def test_sync_tools_merges_preserving_curated_statuses(service):
-    """Re-sync keeps curated statuses, adds new tools as always_allow, and
+    """Re-sync keeps curated statuses, adds new tools as disabled, and
     drops tools the server no longer exposes."""
     server = make_mcp_server()
     link = make_link(
@@ -549,7 +550,7 @@ async def test_sync_tools_merges_preserving_curated_statuses(service):
 
     assert link.tools == {
         "search": ToolStatus.needs_approval,
-        "create_page": ToolStatus.always_allow,
+        "create_page": ToolStatus.disabled,
     }
 
 

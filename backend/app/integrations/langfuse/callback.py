@@ -61,6 +61,12 @@ def _ensure_built() -> None:
         _client, _handler = None, None
 
 
+def get_langfuse_client() -> Langfuse | None:
+    """The shared client, or None when Langfuse is unconfigured."""
+    _ensure_built()
+    return _client
+
+
 def get_langfuse_callback_handler() -> CallbackHandler | None:
     """The handler to attach to a run's callbacks, or None when unconfigured."""
     _ensure_built()

@@ -5,7 +5,7 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.mcp_servers.repository import AgentMCPServerRepository
-from app.agents.models import AgentMCPServerBase, AgentMCPServerDB
+from app.agents.models import AgentMCPServerBase, AgentMCPServerDB, ToolStatus
 from app.agents.schemas import (
     AgentMCPServerConfig,
     AgentMCPServerCreate,
@@ -51,10 +51,11 @@ class AgentMCPServerService(BaseService[AgentMCPServerDB, AgentMCPServerReposito
             # would silently revert that save (lost update).
             await self.db.refresh(db_link, with_for_update=True)
             # Merge, don't clobber: the server's tool list is the key
-            # universe, but a curated status survives a re-sync.
+            # universe, but a curated status survives a re-sync. Tools new to
+            # the agent start disabled — nothing runs until someone enables it.
             existing = db_link.tools or {}
             db_link.tools = {
-                name: existing.get(name, "always_allow") for name in fetched_names
+                name: existing.get(name, ToolStatus.disabled) for name in fetched_names
             }
             self.db.add(db_link)
             await self.db.flush()

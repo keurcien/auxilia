@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.10.10](https://github.com/keurcien/auxilia/compare/web-v0.10.9...web-v0.10.10) (2026-10-14)
+
+
+### Features
+
+* **agents:** flag the Versions tab when instructions diverge from Langfuse ([#414](https://github.com/keurcien/auxilia/issues/414)) ([9262cc2](https://github.com/keurcien/auxilia/commit/9262cc231e5c56c5fff3b4cd2b406038c23ab282))
+
+## [0.10.9](https://github.com/keurcien/auxilia/compare/web-v0.10.8...web-v0.10.9) (2026-10-14)
+
+
+### Features
+
+* **agents:** hint when instructions diverge from Langfuse production ([#412](https://github.com/keurcien/auxilia/issues/412)) ([b8f4fb0](https://github.com/keurcien/auxilia/commit/b8f4fb017893659ddb46f857059e9249ee264aab))
+
+## [0.10.8](https://github.com/keurcien/auxilia/compare/web-v0.10.7...web-v0.10.8) (2026-10-14)
+
+
+### Features
+
+* **agents:** version agent instructions in Langfuse ([#408](https://github.com/keurcien/auxilia/issues/408)) ([b9687a9](https://github.com/keurcien/auxilia/commit/b9687a93a2eba0e9b74001be4aeea877ebaaf654))
+
+## [0.10.7](https://github.com/keurcien/auxilia/compare/web-v0.10.6...web-v0.10.7) (2026-10-13)
+
+
+### Features
+
+* **artifacts:** run HTML artifact scripts, with configurable CDN sources ([#403](https://github.com/keurcien/auxilia/issues/403)) ([c153e8e](https://github.com/keurcien/auxilia/commit/c153e8ea6ea33570ceba61fe897c50c2992bdada))
+* **mcp:** open MCP apps in the artifact side panel ([#407](https://github.com/keurcien/auxilia/issues/407)) ([77674f7](https://github.com/keurcien/auxilia/commit/77674f71e66da2045785a6db7e96555205f7682d))
+
 ## [0.10.6](https://github.com/keurcien/auxilia/compare/web-v0.10.5...web-v0.10.6) (2026-10-12)
 
 

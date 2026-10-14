@@ -181,11 +181,13 @@ class ChatModelFactory:
                 else:
                     auth_kwargs["api_key"] = api_key
                 # thinking_level (aka reasoning_effort) and thinking_budget are
-                # mutually exclusive on Gemini 3+ — send exactly one: the
+                # mutually exclusive on Gemini 3+ — send at most one: the
                 # user's level, else the dynamic budget (historical default).
+                # Gemini 4 400s on any budget ("Thinking budget is not
+                # supported for this model"): no level → Google's default.
                 if reasoning_effort:
                     auth_kwargs["reasoning_effort"] = reasoning_effort
-                else:
+                elif not model_id.startswith("gemini-4"):
                     auth_kwargs["thinking_budget"] = -1
                 return ChatGoogleGenerativeAI(
                     model=model_id,
@@ -224,14 +226,19 @@ class ChatModelFactory:
                     ),
                 )
             case "meta":
-                # Meta Model API — OpenAI-compatible Chat Completions.
-                # ponytail: minimal config; add reasoning_effort / max_tokens
-                # only if Muse Spark reasoning output needs tuning.
+                # Meta Model API — OpenAI-compatible Chat Completions. The
+                # effort level rides as Meta's top-level `reasoning_effort`;
+                # None leaves Meta's model-determined level.
                 return ChatOpenAI(
                     base_url="https://api.meta.ai/v1",
                     model=model_id,
                     api_key=api_key,
                     max_retries=0,
+                    extra_body=(
+                        {"reasoning_effort": reasoning_effort}
+                        if reasoning_effort
+                        else None
+                    ),
                 )
             case _:
                 raise ValueError(f"Provider {provider} not supported")
