@@ -28,12 +28,15 @@ def _same(a: str, b: str) -> bool:
 def _tool_transforms(tools: dict[str, ToolStatus] | None) -> dict[str, dict]:
     """auxilia tool statuses as FastMCP tool transforms (`MCPConfig` `tools`).
 
-    `disabled` hides the tool; `needs_approval` is carried in the tool's `_meta`
-    for the consumer's HITL — FastMCP has no approval concept of its own.
+    Every tool is listed — auxilia runs an allowlist, so the consumer needs the
+    enabled ones too. `disabled` hides the tool; `needs_approval` is carried in
+    the tool's `_meta` for the consumer's HITL — FastMCP has no approval concept.
     """
     transforms: dict[str, dict] = {}
     for tool, status in (tools or {}).items():
-        if status == ToolStatus.disabled:
+        if status == ToolStatus.always_allow:
+            transforms[tool] = {"enabled": True}
+        elif status == ToolStatus.disabled:
             transforms[tool] = {"enabled": False}
         elif status == ToolStatus.needs_approval:
             transforms[tool] = {

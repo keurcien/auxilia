@@ -68,7 +68,7 @@ async def test_publish_defaults_message_and_skips_identical(service, monkeypatch
             "Metabase": {
                 "url": "https://mb.test/mcp",
                 "transport": "http",
-                "tools": {},
+                "tools": {"query": {"enabled": True}},
             }
         }
     }
@@ -120,6 +120,7 @@ def test_mcp_servers_are_fastmcp_config_without_credentials():
         "url": "https://sheets.test/mcp",
         "transport": "http",
         "tools": {
+            "read": {"enabled": True},
             "write": {"meta": {"io.auxilia/tool_status": "needs_approval"}},
             "drop": {"enabled": False},
         },
