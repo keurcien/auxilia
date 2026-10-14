@@ -170,10 +170,10 @@ def build_runnable(
     Every agent — parent or subagent, sandboxed or not — is a ``create_agent``
     with an explicit middleware stack, ending in prompt caching (a no-op off
     Anthropic). A sandbox adds deepagents' harness (todos, skills, filesystem,
-    the ``task`` tool, summarization and the tool-call patcher) and appends the harness prompt to the agent's
-    instructions; ``app/runtime/harness.py`` assembles that bundle and
-    ``tests/runtime/test_harness_parity.py`` pins it to what ``create_deep_agent``
-    builds. Nothing else forks on the sandbox.
+    the ``task`` tool, summarization and the tool-call patcher) and appends the
+    harness prompt to the agent's instructions; ``app/runtime/harness.py``
+    assembles that bundle and ``tests/runtime/test_harness_parity.py`` pins it
+    to what ``create_deep_agent`` builds. Nothing else forks on the sandbox.
 
     ``sandbox_backend`` is a *live* sandbox — the runtime connects it before
     the graph is built (``Agent._setup``); the model never creates or

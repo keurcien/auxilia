@@ -208,8 +208,8 @@ def test_compile_subagent_middleware_stack(mock_create_agent):
     assert any(isinstance(m, ModelRetryMiddleware) for m in middleware)
     assert any(isinstance(m, RepairInvalidToolCallsMiddleware) for m in middleware)
     assert any(isinstance(m, CurrentDateMiddleware) for m in middleware)
-    assert any(isinstance(m, ToolErrorMiddleware) for m in middleware)
-    assert type(middleware[-1]).__name__ == "AnthropicPromptCachingMiddleware"
+    names = [type(m).__name__ for m in middleware]
+    assert names[-2:] == ["ToolErrorMiddleware", "AnthropicPromptCachingMiddleware"]
     # A subagent inherits the parent's recursion_limit through the task tool's
     # ambient config, so its tool budget is sized like the parent's.
     limiter = next(m for m in middleware if isinstance(m, ToolCallLimitMiddleware))
