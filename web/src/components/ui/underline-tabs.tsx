@@ -50,6 +50,7 @@ export function UnderlineTabs<K extends string>({
 						{tab.alert && (
 							<span
 								title={tab.alert}
+								role="img"
 								aria-label={tab.alert}
 								className="ml-1.5 inline-block size-1.5 rounded-full bg-warning align-middle"
 							/>
