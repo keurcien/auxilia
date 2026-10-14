@@ -19,6 +19,7 @@ from app.auth.tokens.router import router as tokens_router
 from app.background import registry as background_loops
 from app.database import close_checkpointer_pool
 from app.exceptions import DomainError, root_cause, status_for
+from app.integrations.langfuse.router import router as langfuse_router
 from app.integrations.slack.consumer import build_slack_run_consumer
 from app.integrations.slack.router import router as slack_router
 from app.integrations.tracing import flush_tracing
@@ -250,5 +251,6 @@ app.include_router(tags_router)
 app.include_router(model_providers_router)
 app.include_router(sandboxes_router)
 app.include_router(slack_router)
+app.include_router(langfuse_router)
 
 app.mount("/", auxilia_mcp.streamable_http_app(stateless_http=True, json_response=True))

@@ -129,7 +129,7 @@ export default function AgentToolList({
 				const merged: Record<string, ToolStatus> = Object.fromEntries(
 					fetchedNames.map((name) => [
 						name,
-						existing.get(name) ?? ("always_allow" as ToolStatus),
+						existing.get(name) ?? ("disabled" as ToolStatus),
 					]),
 				);
 				return { ...s, tools: merged };
