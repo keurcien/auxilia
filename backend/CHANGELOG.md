@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.13](https://github.com/keurcien/auxilia/compare/backend-v0.9.12...backend-v0.9.13) (2026-10-14)
+
+
+### Features
+
+* **langfuse:** publish the agent's MCP servers in the prompt config ([#410](https://github.com/keurcien/auxilia/issues/410)) ([28b1d33](https://github.com/keurcien/auxilia/commit/28b1d331ca4c88615d8156aa000078fa4a2703ec))
+
 ## [0.9.12](https://github.com/keurcien/auxilia/compare/backend-v0.9.11...backend-v0.9.12) (2026-10-14)
 
 
