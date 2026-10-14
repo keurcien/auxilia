@@ -6,6 +6,8 @@ export interface UnderlineTab<K extends string> {
 	key: K;
 	label: string;
 	count?: number;
+	/** Shows a warning dot after the label, with this text as its tooltip. */
+	alert?: string;
 }
 
 interface UnderlineTabsProps<K extends string> {
@@ -45,6 +47,14 @@ export function UnderlineTabs<K extends string>({
 						)}
 					>
 						{tab.label}
+						{tab.alert && (
+							<span
+								title={tab.alert}
+								role="img"
+								aria-label={tab.alert}
+								className="ml-1.5 inline-block size-1.5 rounded-full bg-warning align-middle"
+							/>
+						)}
 						{tab.count !== undefined && (
 							<span
 								className={cn(

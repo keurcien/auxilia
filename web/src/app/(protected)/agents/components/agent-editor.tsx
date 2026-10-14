@@ -162,7 +162,7 @@ export default function AgentEditor({
 	isDirtyRef.current = isDirty;
 	const canSave = Boolean(form.name.trim() && form.instructions.trim());
 
-	const tabs: { key: EditorTab; label: string }[] = [
+	const tabs: { key: EditorTab; label: string; alert?: string }[] = [
 		{ key: "instructions", label: "Instructions" },
 		// Tags/permissions act on the saved agent — they appear once it exists.
 		...(agent ? [{ key: "tags" as const, label: "Tags" }] : []),
@@ -170,7 +170,15 @@ export default function AgentEditor({
 			? [{ key: "permissions" as const, label: "Permissions" }]
 			: []),
 		...(agent && canEditAgent && langfuseEnabled
-			? [{ key: "langfuse" as const, label: "Versions" }]
+			? [
+					{
+						key: "langfuse" as const,
+						label: "Versions",
+						alert: showLangfuseHint
+							? "Instructions differ from the Langfuse production version"
+							: undefined,
+					},
+				]
 			: []),
 	];
 	// The kept tab may not exist here (another agent, other permissions, or
