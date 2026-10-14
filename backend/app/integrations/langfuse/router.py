@@ -64,10 +64,10 @@ async def list_versions(
 async def publish(
     agent_id: UUID,
     data: LangfusePublishRequest,
-    user: UserDB = Depends(require_admin),
+    _: UserDB = Depends(require_admin),
     service: LangfusePromptService = Depends(get_langfuse_prompt_service),
 ) -> LangfusePromptVersion:
-    return await service.publish(agent_id, data.commit_message, user)
+    return await service.publish(agent_id, data.commit_message)
 
 
 @router.post(

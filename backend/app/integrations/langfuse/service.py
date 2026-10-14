@@ -12,7 +12,6 @@ from app.integrations.langfuse.schemas import (
     LangfusePromptResponse,
     LangfusePromptVersion,
 )
-from app.users.models import UserDB
 
 
 def _same(a: str, b: str) -> bool:
@@ -47,7 +46,7 @@ class LangfusePromptService:
         return await prompts.list_versions(str(agent_id))
 
     async def publish(
-        self, agent_id: UUID, commit_message: str | None, user: UserDB
+        self, agent_id: UUID, commit_message: str | None
     ) -> LangfusePromptVersion:
         """Release the saved instructions as a new production version."""
         agent = await self._agent(agent_id)
@@ -60,14 +59,23 @@ class LangfusePromptService:
             if production is None
             else f"Publish {agent.name}"
         )
-        # The Langfuse key is deployment-wide, so Langfuse alone can't say who.
+        bindings = await self.agents.mcp_server_repository.list_for_agent(agent_id)
+        servers = await self.agents.mcp_servers.list_by_ids(
+            [b.mcp_server_id for b in bindings]
+        )
+        tools = {b.mcp_server_id: b.tools for b in bindings}
         return await prompts.create_production(
             name,
             text=agent.instructions,
             tags=[agent.name],
             # Marks auxilia releases in Langfuse's own history view.
             commit_message=f"{message} - Synced from auxilia",
-            author=user.email,
+            config={
+                "mcpServers": {
+                    s.name: {"url": s.url, "transport": "http", "tools": tools[s.id]}
+                    for s in servers
+                }
+            },
         )
 
     async def promote(self, agent_id: UUID, version: int) -> LangfusePromptVersion:
