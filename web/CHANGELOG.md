@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.10](https://github.com/keurcien/auxilia/compare/web-v0.10.9...web-v0.10.10) (2026-10-14)
+
+
+### Features
+
+* **agents:** flag the Versions tab when instructions diverge from Langfuse ([#414](https://github.com/keurcien/auxilia/issues/414)) ([9262cc2](https://github.com/keurcien/auxilia/commit/9262cc231e5c56c5fff3b4cd2b406038c23ab282))
+
 ## [0.10.9](https://github.com/keurcien/auxilia/compare/web-v0.10.8...web-v0.10.9) (2026-10-14)
 
 

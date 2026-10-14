@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.14](https://github.com/keurcien/auxilia/compare/backend-v0.9.13...backend-v0.9.14) (2026-10-14)
+
+
+### Bug Fixes
+
+* **langfuse:** list enabled tools in the published MCP config ([#415](https://github.com/keurcien/auxilia/issues/415)) ([0c207ee](https://github.com/keurcien/auxilia/commit/0c207ee84beaacfee7f38dd307f400bfdad51445))
+
 ## [0.9.13](https://github.com/keurcien/auxilia/compare/backend-v0.9.12...backend-v0.9.13) (2026-10-14)
 
 
