@@ -1,6 +1,5 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal
 from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, model_validator
@@ -28,18 +27,27 @@ class BackfillResponse(BaseModel):
     failed: int
     incomplete: int
     last_error: str | None
+    total: int
+    previous_cost: Decimal
+    new_cost: Decimal
+    unpriced_models: list[str]
+    finished_at: datetime | None
+
+
+class ThreadCount(BaseModel):
+    threads: int
+    # Earliest creation date in the range; lets the UI's "All time" show real dates.
+    first_created_at: datetime | None = None
 
 
 class StoredThreadCost(BaseModel):
     thread_id: str
-    currency: Literal["EUR"] = "EUR"
     summary: dict
     calculated_at: datetime
     stale: bool
 
 
 class CostAnalytics(BaseModel):
-    currency: Literal["EUR"] = "EUR"
     # These are lifetime estimates for a creation-date cohort, not weekly spend.
     threads: int
     calculated_threads: int

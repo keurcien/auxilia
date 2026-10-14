@@ -8,6 +8,8 @@ use the same SQLAlchemy session bound to the one checked-out connection.
 import asyncio
 import logging
 import math
+from datetime import UTC, datetime
+from decimal import Decimal
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
@@ -18,7 +20,7 @@ from sqlmodel import col
 from app.database import engine
 from app.model_providers.whitelist import SupportedModel
 from app.runtime.api.costs import CostService
-from app.runtime.costs.models import CostBackfillDB
+from app.runtime.costs.models import CostBackfillDB, ThreadCostDB
 from app.runtime.costs.service import has_active_run, pricing_hash, save_summary
 from app.settings import settings_config
 from app.threads.models import ThreadDB
@@ -122,6 +124,7 @@ class CostBackfillWorker:
                 await db.refresh(job, with_for_update=True)
                 if job.job_id == job_id and job.status == "running":
                     job.status = "complete"
+                    job.finished_at = datetime.now(UTC)
                 await db.commit()
                 return
             thread_id = thread.id
@@ -129,6 +132,8 @@ class CostBackfillWorker:
             created_at = thread.created_at
             failed = skipped = incomplete = False
             error = None
+            previous_cost = new_cost = Decimal(0)
+            unpriced: set[str] = set()
             try:
                 if await has_active_run(db, thread_id):
                     skipped = True
@@ -151,8 +156,19 @@ class CostBackfillWorker:
                         if job.job_id != job_id or job.status != "running":
                             await db.rollback()
                             return
+                        previous_cost = await db.scalar(
+                            select(col(ThreadCostDB.known_cost)).where(
+                                col(ThreadCostDB.thread_id) == thread_id
+                            )
+                        ) or Decimal(0)
                         await save_summary(db, thread, cost, fingerprint)
                         incomplete = not cost.complete
+                        new_cost = cost.known_cost
+                        unpriced = {
+                            message.model_id or "unknown"
+                            for message in cost.messages
+                            if message.reason == "missing_pricing"
+                        }
             except Exception as exc:
                 await db.rollback()
                 failed = True
@@ -168,6 +184,11 @@ class CostBackfillWorker:
             job.skipped += int(skipped)
             job.failed += int(failed)
             job.incomplete += int(incomplete)
+            job.previous_cost += previous_cost
+            job.new_cost += new_cost
+            if unpriced - set(job.unpriced_models):
+                # Reassign: a JSON column does not track in-place mutation.
+                job.unpriced_models = sorted({*job.unpriced_models, *unpriced})
             if error:
                 job.last_error = error
             # Summary and cursor commit together: restart cannot skip a result.

@@ -14,7 +14,7 @@ from app.main import app
 from app.runtime.api.costs import _SERDE, CostService
 from app.runtime.costs.models import CostBackfillDB, ThreadCostDB
 from app.runtime.costs.schemas import BackfillRequest
-from app.runtime.costs.service import analytics, enqueue, read_summary
+from app.runtime.costs.service import analytics, count_threads, enqueue, read_summary
 from app.runtime.costs.worker import CostBackfillWorker, CostSettings
 from app.runtime.runs.models import RunDB
 from app.threads.dependencies import authorize_thread_read
@@ -123,6 +123,9 @@ async def test_backfill_uses_one_connection_and_one_summary_per_thread(cost_db):
         assert "message_id" not in str(rows[0].summary)
         job = await db.get(CostBackfillDB, 1)
         assert job.status == "complete" and job.processed == 1
+        # The denominator is fixed at queue time, with the same range rules.
+        assert job.total == 1 and job.finished_at is not None
+        assert job.new_cost == Decimal("0.0044") and job.previous_cost == 0
 
 
 async def test_missing_prices_can_be_backfilled_without_growing_tables(
@@ -131,15 +134,17 @@ async def test_missing_prices_can_be_backfilled_without_growing_tables(
     await add_thread(cost_db, "thread")
     monkeypatch.setattr(
         "app.runtime.costs.service.get_whitelist",
-        AsyncMock(return_value=[model().model_copy(update={"pricing": None})]),
+        AsyncMock(return_value=[model().model_copy(update={"prices": None})]),
     )
     await queue(cost_db)
     await CostBackfillWorker().tick()
     async with AsyncSession(cost_db) as db:
         row = await db.get(ThreadCostDB, "thread")
         assert row.total_cost is None and row.known_cost == 0 and not row.complete
+        job = await db.get(CostBackfillDB, 1)
+        assert job.unpriced_models == ["test-model"] and job.incomplete == 1
     priced = model()
-    priced.pricing.prices.output *= 2
+    priced.prices.output *= 2
     monkeypatch.setattr(
         "app.runtime.costs.service.get_whitelist", AsyncMock(return_value=[priced])
     )
@@ -148,6 +153,8 @@ async def test_missing_prices_can_be_backfilled_without_growing_tables(
     async with AsyncSession(cost_db) as db:
         row = await db.get(ThreadCostDB, "thread")
         assert row.complete and row.total_cost == Decimal("0.0030")
+        job = await db.get(CostBackfillDB, 1)
+        assert job.unpriced_models == [] and job.new_cost == Decimal("0.0030")
         assert await db.scalar(select(func.count()).select_from(ThreadCostDB)) == 1
         assert await db.scalar(select(func.count()).select_from(CostBackfillDB)) == 1
 
@@ -166,7 +173,7 @@ async def test_price_snapshot_survives_catalog_changes_and_interrupted_job(
     with pytest.raises(RuntimeError, match="interrupted"):
         await Interrupted().tick()
     expensive = model()
-    expensive.pricing.prices.input *= 100
+    expensive.prices.input *= 100
     monkeypatch.setattr(
         "app.runtime.costs.service.get_whitelist", AsyncMock(return_value=[expensive])
     )
@@ -227,7 +234,7 @@ async def test_personal_analytics_are_scoped_and_mark_uncomputed_or_stale(
         assert unknown.threads == 2 and unknown.total_cost is None
         assert unknown.stale_threads == 0  # no saved estimate to mark stale
         changed = model()
-        changed.pricing.prices.input *= 2
+        changed.prices.input *= 2
         monkeypatch.setattr(
             "app.runtime.costs.service.get_whitelist", AsyncMock(return_value=[changed])
         )
@@ -241,6 +248,27 @@ def test_backfill_is_admin_only(client, current_user, method):
         "/thread-costs/backfill", **({"json": {}} if method == "post" else {})
     )
     assert response.status_code == 403
+
+
+def test_backfill_count_is_admin_only(client, current_user):
+    assert client.get("/thread-costs/backfill/count").status_code == 403
+
+
+async def test_count_matches_the_backfill_range(cost_db):
+    await add_thread(cost_db, "included")
+    await add_thread(cost_db, "before", START - timedelta(seconds=1))
+    await add_thread(cost_db, "end", END)
+    async with AsyncSession(cost_db) as db:
+        now = datetime.now(UTC)
+        ranged = await count_threads(
+            db, BackfillRequest(start_at=START, end_at=END), now
+        )
+        assert ranged.threads == 1
+        everything = await count_threads(db, BackfillRequest(), now)
+        assert everything.threads == 3
+        assert everything.first_created_at.replace(tzinfo=UTC) == START - timedelta(
+            seconds=1
+        )
 
 
 def test_backfill_date_validation(client, admin_user):

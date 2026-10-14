@@ -40,6 +40,11 @@ def upgrade():
         sa.Column("failed", sa.Integer(), nullable=False),
         sa.Column("incomplete", sa.Integer(), nullable=False),
         sa.Column("last_error", sa.String()),
+        sa.Column("total", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("previous_cost", sa.Numeric(38, 18), nullable=False, server_default="0"),
+        sa.Column("new_cost", sa.Numeric(38, 18), nullable=False, server_default="0"),
+        sa.Column("unpriced_models", sa.JSON().with_variant(JSONB(), "postgresql"), nullable=False, server_default="[]"),
+        sa.Column("finished_at", sa.DateTime(timezone=True)),
         sa.Column("catalog", sa.JSON().with_variant(JSONB(), "postgresql"), nullable=False),
         sa.CheckConstraint("id = 1", name="ck_cost_backfill_singleton"),
     )

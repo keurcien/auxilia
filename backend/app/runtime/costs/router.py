@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, Depends, Query
 from pydantic import AwareDatetime
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,10 +15,12 @@ from app.runtime.costs.schemas import (
     BackfillResponse,
     CostAnalytics,
     StoredThreadCost,
+    ThreadCount,
 )
 from app.runtime.costs.service import (
     analytics,
     cancel,
+    count_threads,
     enqueue,
     has_active_run,
     job_response,
@@ -78,6 +82,16 @@ async def personal_cost_analytics(
 ) -> CostAnalytics:
     """Lifetime costs for the user's threads created in [start_at, end_at)."""
     return await analytics(db, user.id, dates)
+
+
+@router.get("/thread-costs/backfill/count")
+async def backfill_count(
+    dates: BackfillRequest = Depends(get_date_range),
+    _: UserDB = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> ThreadCount:
+    """How many threads a backfill over [start_at, end_at) would recalculate."""
+    return await count_threads(db, dates, datetime.now(UTC))
 
 
 @router.post("/thread-costs/backfill", status_code=202)

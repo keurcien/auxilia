@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { ThreadCost } from "@/lib/api/resources/thread-costs";
 
 interface ChatHeaderState {
   /** The thread's agent — the header links to its page when set. */
@@ -11,6 +12,9 @@ interface ChatHeaderState {
   triggerId: string | null;
   triggerName: string | null;
   triggerRunAt: string | null;
+  /** The open thread's cost estimate, shown in the model pill. */
+  cost: ThreadCost | null;
+  setCost: (cost: ThreadCost | null) => void;
   setCurrentChat: (data: {
     agentId?: string | null;
     agentName: string | null;
@@ -36,6 +40,10 @@ export const useChatHeaderStore = create<ChatHeaderState>((set) => ({
   triggerId: null,
   triggerName: null,
   triggerRunAt: null,
+  cost: null,
+  setCost: (cost) => {
+    set({ cost });
+  },
   actionsEl: null,
   setActionsEl: (actionsEl) => {
     set({ actionsEl });
@@ -60,6 +68,7 @@ export const useChatHeaderStore = create<ChatHeaderState>((set) => ({
       triggerId: null,
       triggerName: null,
       triggerRunAt: null,
+      cost: null,
     });
   },
 }));

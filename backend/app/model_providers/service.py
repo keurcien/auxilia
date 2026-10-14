@@ -55,7 +55,7 @@ def _managed(entry: SupportedModel | None, row: ModelDB) -> ManagedModelResponse
     """Project an enablement row (plus its whitelist entry, if it still has
     one) into the admin Settings shape."""
     return ManagedModelResponse(
-        pricing=entry.pricing if entry else None,
+        prices=entry.prices if entry else None,
         provider=row.provider,
         model_id=row.model_id,
         display_name=entry.display_name if entry else row.model_id,

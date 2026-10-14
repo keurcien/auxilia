@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 from app.exceptions import NotFoundError, PermissionDeniedError
 from app.main import app
-from app.model_providers.pricing import ModelPricing
+from app.model_providers.pricing import TokenPrices
 from app.model_providers.whitelist import SupportedModel, parse_whitelist
 from app.runtime.api.costs import CostService, get_cost_service, message_cost
 from app.runtime.checkpoints import iter_checkpoint_messages
@@ -25,9 +25,7 @@ def model(**kwargs):
         provider="openai",
         model_id="test-model",
         display_name="Test",
-        pricing=ModelPricing(
-            prices={"input": "2e-6", "input_cache_read": "0.5e-6", "output": "8e-6"}
-        ),
+        prices=TokenPrices(input="2e-6", input_cache_read="0.5e-6", output="8e-6"),
         **kwargs,
     )
 
@@ -48,10 +46,10 @@ def call(id="call-1", **kwargs):
 
 def test_cached_input_is_not_double_charged():
     result = message_cost(call(), "test-model", {"test-model": model()})
-    assert result.currency == "EUR"
     assert result.usage_details.model_dump() == {
         "input": 600,
         "input_cache_read": 400,
+        "input_cache_creation": 0,
         "output": 100,
         "total": 1100,
     }
@@ -59,6 +57,45 @@ def test_cached_input_is_not_double_charged():
     assert result.cost_details.input_cache_read == Decimal("0.0002")
     assert result.cost_details.output == Decimal("0.0008")
     assert result.cost_details.total == Decimal("0.0022")
+
+
+@pytest.mark.parametrize(
+    "details",
+    [
+        {"cache_read": 400, "cache_creation": 300},
+        # Some langchain-anthropic versions only report the per-TTL split.
+        {
+            "cache_read": 400,
+            "cache_creation": 0,
+            "ephemeral_5m_input_tokens": 300,
+            "ephemeral_1h_input_tokens": 0,
+        },
+    ],
+)
+def test_cache_writes_are_their_own_bucket(details):
+    message = call()
+    message.usage_metadata["input_token_details"] = details
+    priced = model()
+    priced.prices.input_cache_creation = Decimal("2.5e-6")
+    result = message_cost(message, "test-model", {"test-model": priced})
+    assert result.usage_details.input == 300
+    assert result.usage_details.input_cache_creation == 300
+    assert result.cost_details.input_cache_creation == Decimal("0.00075")
+    assert result.cost_details.total == Decimal("0.00235")
+    # Without a write price, writes cost the plain input rate.
+    fallback = message_cost(message, "test-model", {"test-model": model()})
+    assert fallback.cost_details.input_cache_creation == Decimal("0.0006")
+    assert fallback.cost_details.total == Decimal("0.0022")
+
+
+def test_cache_reads_and_writes_cannot_exceed_input():
+    message = call()
+    message.usage_metadata["input_token_details"] = {
+        "cache_read": 700,
+        "cache_creation": 400,
+    }
+    result = message_cost(message, "test-model", {"test-model": model()})
+    assert result.reason == "invalid_usage" and result.cost_details is None
 
 
 def test_no_cache_and_reported_model():
@@ -89,29 +126,23 @@ def test_invalid_usage_is_not_a_negative_charge():
 @pytest.mark.parametrize("rate", ["-1", "NaN", "Infinity"])
 def test_invalid_rates_rejected(rate):
     with pytest.raises(ValidationError):
-        ModelPricing(prices={"input": rate, "input_cache_read": "0", "output": "1e-6"})
+        TokenPrices(input=rate, input_cache_read="0", output="1e-6")
 
 
-def test_usd_rates_cannot_be_silently_relabelled_as_euros():
-    with pytest.raises(ValidationError):
-        ModelPricing(currency="USD", prices=model().pricing.prices)
-
-
-def test_whitelist_pricing_is_optional_but_complete_when_present():
+def test_whitelist_prices_are_optional_but_complete_when_present():
     document = """schema_version: 1
 models:
   - provider: openai
     model_id: test-model
     display_name: Test
 """
-    assert parse_whitelist(document)[0].pricing is None
+    assert parse_whitelist(document)[0].prices is None
     priced = (
-        document
-        + "    pricing: {prices: {input: 2e-6, input_cache_read: 0.5e-6, output: 8e-6}}\n"
+        document + "    prices: {input: 2e-6, input_cache_read: 0.5e-6, output: 8e-6}\n"
     )
-    assert parse_whitelist(priced)[0].pricing == model().pricing
+    assert parse_whitelist(priced)[0].prices == model().prices
     with pytest.raises(ValidationError):
-        parse_whitelist(document + "    pricing: {prices: {input: 2e-6}}\n")
+        parse_whitelist(document + "    prices: {input: 2e-6}\n")
 
 
 @pytest.fixture
@@ -191,6 +222,9 @@ async def test_empty_and_partial_conversations(cost_history):
     partial = await CostService(AsyncMock()).conversation("thread", "test-model")
     assert not partial.complete and partial.total_cost is None
     assert partial.known_cost == Decimal("0.0044")
+    details = partial.cost_details
+    assert details.total == partial.known_cost
+    assert details.input + details.input_cache_read + details.output == details.total
 
 
 @pytest.mark.parametrize("path", ["/cost", "/messages/call-1/cost"])
@@ -225,14 +259,13 @@ def test_routes_compute_without_database_writes(
     response = client.get("/threads/thread/cost")
     assert response.status_code == 200
     assert response.json()["total_cost"] == "0"
-    assert response.json()["currency"] == "EUR"
     assert client.get("/threads/thread/messages/missing/cost").status_code == 404
     mock_db.add.assert_not_called()
     mock_db.flush.assert_not_awaited()
     mock_db.commit.assert_not_awaited()
 
 
-async def test_message_route_returns_langfuse_details_in_euros(
+async def test_message_route_returns_langfuse_details(
     client, current_user, cost_history
 ):
     await save_history(cost_history)
@@ -243,16 +276,17 @@ async def test_message_route_returns_langfuse_details_in_euros(
     response = client.get("/threads/thread/messages/call-1/cost")
     assert response.status_code == 200
     body = response.json()
-    assert body["currency"] == "EUR"
     assert body["cost_details"] == {
         "input": "0.001200",
         "input_cache_read": "0.0002000",
+        "input_cache_creation": "0.000000",
         "output": "0.000800",
         "total": "0.0022000",
     }
     assert body["usage_details"] == {
         "input": 600,
         "input_cache_read": 400,
+        "input_cache_creation": 0,
         "output": 100,
         "total": 1100,
     }

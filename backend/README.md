@@ -60,21 +60,19 @@ subagents and per-message breakdowns. `GET
 permissions as the conversation state endpoint. Costs are computed on demand;
 These GET routes do not store message costs or change checkpoints.
 
-Add optional `pricing` to model entries in the model whitelist (the CDN document
+Add optional `prices` to model entries in the model whitelist (the CDN document
 when configured, or `app/model_providers/whitelist.yaml` for the bundled
-fallback). Rates are **EUR per token**, following Langfuse’s `prices` usage-type
+fallback). Rates are **USD per token**, following Langfuse’s `prices` usage-type
 keys; all three are required,
 nonnegative finite decimal values. Model picker and management responses expose
 this metadata. See [Langfuse’s usage-key conventions](https://github.com/langfuse/langfuse/blob/main/.agents/skills/add-model-price/references/provider-usage-key-matrix.md).
 Example rates below are illustrative, not provider prices:
 
 ```yaml
-pricing:
-  currency: EUR
-  prices:
-    input: "2e-6"
-    input_cache_read: "0.5e-6"
-    output: "8e-6"
+prices:
+  input: "2e-6"
+  input_cache_read: "0.5e-6"
+  output: "8e-6"
 ```
 
 The formula for each assistant call is:
@@ -85,10 +83,9 @@ The formula for each assistant call is:
  + output_tokens * prices.output
 ```
 
-Prices must already be denominated in euros; the backend does not convert USD
-rates or infer an exchange rate. For example, `"2e-6"` means €2 per million
-tokens. Langfuse itself records USD costs; this API follows its naming and
-per-token units while explicitly returning `currency: "EUR"`.
+Prices are provider list prices in US dollars, divided by one million. For
+example, `"2e-6"` means $2 per million tokens. Like Langfuse, this API records
+costs in USD per token; every amount it returns is in USD.
 
 Usage comes from LangChain's `usage_metadata`; an absent cache-read detail means
 zero cache hits. Cache creation is charged at the ordinary input rate under
@@ -102,18 +99,18 @@ model; otherwise the pinned definition supplies the rate (including when a
 provider returns a versioned name for an alias). On-demand estimates use **current** catalog prices, even for disabled models;
 editing rates changes the estimate for existing threads.
 
-The conversation response includes `currency`, `complete`, `total_cost`,
+The conversation response includes `complete`, `total_cost`,
 `known_cost`, `call_count`, `unpriced_call_count`, aggregate `usage_details`,
-and `messages`. Each message includes `currency: "EUR"`,
-`usage_details`, and `cost_details`.
+and `messages`. Each message includes `usage_details` and `cost_details`.
 Both detail objects use `input`, `input_cache_read`, `output`, and `total`.
 `usage_details.input` excludes cache reads, so its three buckets sum to `total`.
 Decimal amounts serialize as JSON strings.
 Missing pricing, missing usage, or invalid token counts produce a per-message
 `reason` and `cost_details: null`; the conversation then has `complete: false` and
 `total_cost: null`. `known_cost` is the subtotal for calls that can be priced.
-An empty conversation costs zero. Pricing is deliberately unset in the bundled
-catalog until an administrator supplies rates.
+An empty conversation costs zero. The bundled catalog ships provider list
+prices (checked 2026-10-14); a comment on an entry flags tiered or promotional
+rates that a single per-token rate cannot capture.
 
 This is an estimate of **retained checkpoint usage**, not a billing ledger:
 failed/unrecorded calls and pruned message writes cannot be reconstructed.
@@ -126,7 +123,7 @@ streaming frequency. The stored summary endpoints below provide cheap reads.
 ### Compact storage and backfill
 
 Run `alembic upgrade head` before deployment. `thread_costs` stores **at most one
-replaceable summary per thread**, cascaded on thread deletion. It includes EUR
+replaceable summary per thread**, cascaded on thread deletion. It includes USD
 costs, aggregate token counts, completeness, calculation time, the source
 thread's update timestamp, and a hash of the model prices. It never stores a
 message ID, per-message row, or growing history of cost recalculations.

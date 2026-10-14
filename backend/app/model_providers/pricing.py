@@ -1,7 +1,7 @@
-"""Catalog prices in EUR per token, using Langfuse usage-type names."""
+"""Catalog prices in USD per token, using Langfuse usage-type names."""
 
 from decimal import Decimal
-from typing import Annotated, Literal
+from typing import Annotated
 
 from pydantic import BaseModel, Field
 
@@ -13,8 +13,6 @@ class TokenPrices(BaseModel):
     input: Rate
     input_cache_read: Rate
     output: Rate
-
-
-class ModelPricing(BaseModel):
-    currency: Literal["EUR"] = "EUR"
-    prices: TokenPrices
+    # Cache writes; optional because most providers don't bill them separately.
+    # Missing means writes cost the plain input rate.
+    input_cache_creation: Rate | None = None

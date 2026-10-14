@@ -58,6 +58,23 @@ class CostBackfillDB(SQLModel, table=True):
     failed: int = 0
     incomplete: int = 0
     last_error: str | None = None
+    # Threads in range when the job was queued: the progress bar's denominator.
+    total: int = 0
+    # Over updated threads: their saved known_cost before, and after.
+    previous_cost: Decimal = Field(
+        default=Decimal(0), sa_column=Column(Numeric(38, 18), nullable=False)
+    )
+    new_cost: Decimal = Field(
+        default=Decimal(0), sa_column=Column(Numeric(38, 18), nullable=False)
+    )
+    # Model ids that had calls without a price, so the UI can name them.
+    unpriced_models: list[str] = Field(
+        default_factory=list,
+        sa_column=Column(JSON().with_variant(JSONB(), "postgresql"), nullable=False),
+    )
+    finished_at: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True))
+    )
     # Resume using the same rates even if the catalog changes mid-job.
     catalog: list[dict] = Field(
         default_factory=list,

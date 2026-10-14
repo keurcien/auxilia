@@ -5,7 +5,7 @@ import hashlib
 from collections.abc import AsyncGenerator
 from contextlib import aclosing
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import Depends
 from langchain_core.messages import AIMessage, BaseMessage
@@ -24,6 +24,7 @@ from app.runtime.api.protocol_repository import CheckpointWriteRepository
 class UsageDetails(BaseModel):
     input: int
     input_cache_read: int
+    input_cache_creation: int = 0
     output: int
     total: int
 
@@ -31,14 +32,17 @@ class UsageDetails(BaseModel):
 class CostDetails(BaseModel):
     input: Decimal
     input_cache_read: Decimal
+    input_cache_creation: Decimal = Decimal(0)
     output: Decimal
     total: Decimal
+
+
+BUCKETS = ("input", "input_cache_read", "input_cache_creation", "output", "total")
 
 
 class MessageCost(BaseModel):
     message_id: str | None
     model_id: str | None
-    currency: Literal["EUR"] = "EUR"
     usage_details: UsageDetails | None = None
     cost_details: CostDetails | None = None
     reason: Literal["missing_usage", "missing_pricing", "invalid_usage"] | None = None
@@ -46,7 +50,6 @@ class MessageCost(BaseModel):
 
 class ConversationCost(BaseModel):
     thread_id: str
-    currency: Literal["EUR"] = "EUR"
     complete: bool
     # Null if any call cannot be priced. known_cost is explicitly a subtotal.
     total_cost: Decimal | None
@@ -55,7 +58,17 @@ class ConversationCost(BaseModel):
     unpriced_call_count: int = 0
     usage_details: UsageDetails = Field(
         default_factory=lambda: UsageDetails(
-            input=0, input_cache_read=0, output=0, total=0
+            input=0, input_cache_read=0, input_cache_creation=0, output=0, total=0
+        )
+    )
+    # Per-bucket sum over priced calls only; its total equals known_cost.
+    cost_details: CostDetails = Field(
+        default_factory=lambda: CostDetails(
+            input=Decimal(0),
+            input_cache_read=Decimal(0),
+            input_cache_creation=Decimal(0),
+            output=Decimal(0),
+            total=Decimal(0),
         )
     )
     messages: list[MessageCost] = Field(default_factory=list)
@@ -79,32 +92,58 @@ def message_cost(
         return result
     input_tokens = usage.get("input_tokens")
     output_tokens = usage.get("output_tokens")
-    cached = (usage.get("input_token_details") or {}).get("cache_read", 0)
-    if (
-        any(type(n) is not int or n < 0 for n in (input_tokens, output_tokens, cached))
-        or cached > input_tokens
-    ):
+    # Plain dict: the ephemeral_* keys are outside the TypedDict, validated below.
+    details: dict[str, Any] = dict(usage.get("input_token_details") or {})
+    cached = details.get("cache_read", 0)
+    # langchain-anthropic reports writes as `cache_creation` or, depending on
+    # the version, only as the per-TTL `ephemeral_*` split. Same tokens either way.
+    # shortcut: 1h writes (2x input on Anthropic) are priced as 5m ones; split
+    # the rate if agents ever use the 1h TTL.
+    ephemeral = [
+        details.get("ephemeral_5m_input_tokens", 0),
+        details.get("ephemeral_1h_input_tokens", 0),
+    ]
+    counts = (
+        input_tokens,
+        output_tokens,
+        cached,
+        details.get("cache_creation", 0),
+        *ephemeral,
+    )
+    if any(type(n) is not int or n < 0 for n in counts):
+        result.reason = "invalid_usage"
+        return result
+    written = max(details.get("cache_creation", 0), sum(ephemeral))
+    if cached + written > input_tokens:
         result.reason = "invalid_usage"
         return result
     result.usage_details = UsageDetails(
-        input=input_tokens - cached,
+        input=input_tokens - cached - written,
         input_cache_read=cached,
+        input_cache_creation=written,
         output=output_tokens,
         total=input_tokens + output_tokens,
     )
     model = catalog.get(model_id) if model_id else None
-    if model is None or model.pricing is None:
+    if model is None or model.prices is None:
         result.reason = "missing_pricing"
         return result
-    prices = model.pricing.prices
-    input_cost = Decimal(input_tokens - cached) * prices.input
+    prices = model.prices
+    write_rate = (
+        prices.input
+        if prices.input_cache_creation is None
+        else prices.input_cache_creation
+    )
+    input_cost = Decimal(input_tokens - cached - written) * prices.input
     cached_input_cost = Decimal(cached) * prices.input_cache_read
+    cache_write_cost = Decimal(written) * write_rate
     output_cost = Decimal(output_tokens) * prices.output
     result.cost_details = CostDetails(
         input=input_cost,
         input_cache_read=cached_input_cost,
+        input_cache_creation=cache_write_cost,
         output=output_cost,
-        total=input_cost + cached_input_cost + output_cost,
+        total=input_cost + cached_input_cost + cache_write_cost + output_cost,
     )
     return result
 
@@ -206,7 +245,20 @@ class CostService:
                         for cost in costs
                         if cost.usage_details is not None
                     )
-                    for name in ("input", "input_cache_read", "output", "total")
+                    for name in BUCKETS
+                }
+            ),
+            cost_details=CostDetails(
+                **{
+                    name: sum(
+                        (
+                            getattr(cost.cost_details, name)
+                            for cost in costs
+                            if cost.cost_details is not None
+                        ),
+                        Decimal(0),
+                    )
+                    for name in BUCKETS
                 }
             ),
             messages=costs,

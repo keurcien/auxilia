@@ -40,6 +40,10 @@ models:
   - provider: openai
     model_id: gpt-4o-mini
     display_name: GPT-4o mini
+    prices:
+      input: "1.5e-7"
+      input_cache_read: "7.5e-8"
+      output: "6e-7"
     chef: OpenAI
     chef_slug: openai
     multimodal: true
@@ -52,6 +56,10 @@ models:
   - provider: openai
     model_id: gpt-5
     display_name: GPT-5
+    prices:
+      input: "1.25e-6"
+      input_cache_read: "1.25e-7"
+      output: "1e-5"
     chef: OpenAI
     chef_slug: openai
     multimodal: true
@@ -60,6 +68,10 @@ models:
   - provider: openai
     model_id: gpt-5-mini
     display_name: GPT-5 mini
+    prices:
+      input: "2.5e-7"
+      input_cache_read: "2.5e-8"
+      output: "2e-6"
     chef: OpenAI
     chef_slug: openai
     multimodal: true
@@ -68,6 +80,10 @@ models:
   - provider: openai
     model_id: gpt-5-nano
     display_name: GPT-5 nano
+    prices:
+      input: "5e-8"
+      input_cache_read: "5e-9"
+      output: "4e-7"
     chef: OpenAI
     chef_slug: openai
     multimodal: true
@@ -76,6 +92,10 @@ models:
   - provider: openai
     model_id: gpt-5.1
     display_name: GPT-5.1
+    prices:
+      input: "1.25e-6"
+      input_cache_read: "1.25e-7"
+      output: "1e-5"
     chef: OpenAI
     chef_slug: openai
     multimodal: true
@@ -84,6 +104,10 @@ models:
   - provider: openai
     model_id: gpt-5.2
     display_name: GPT-5.2
+    prices:
+      input: "1.75e-6"
+      input_cache_read: "1.75e-7"
+      output: "1.4e-5"
     chef: OpenAI
     chef_slug: openai
     multimodal: true
@@ -92,6 +116,11 @@ models:
   - provider: openai
     model_id: gpt-5.4
     display_name: GPT-5.4
+    # prices: <=272K-input tier; above it 2x input
+    prices:
+      input: "2.5e-6"
+      input_cache_read: "2.5e-7"
+      output: "1.5e-5"
     chef: OpenAI
     chef_slug: openai
     multimodal: true
@@ -100,6 +129,11 @@ models:
   - provider: openai
     model_id: gpt-5.5
     display_name: GPT-5.5
+    # prices: <=272K-input tier; above it 2x input
+    prices:
+      input: "5e-6"
+      input_cache_read: "5e-7"
+      output: "3e-5"
     chef: OpenAI
     chef_slug: openai
     multimodal: true
@@ -109,6 +143,11 @@ models:
   - provider: openai
     model_id: gpt-5.6-luna
     display_name: GPT-5.6 Luna
+    # prices: <=272K-input tier
+    prices:
+      input: "2e-7"
+      input_cache_read: "2e-8"
+      output: "1.2e-6"
     chef: OpenAI
     chef_slug: openai
     multimodal: true
@@ -118,6 +157,11 @@ models:
   - provider: openai
     model_id: gpt-5.6-sol
     display_name: GPT-5.6 Sol
+    # prices: <=272K-input tier; promo price at least through 2026-11-21
+    prices:
+      input: "4e-6"
+      input_cache_read: "4e-7"
+      output: "2e-5"
     chef: OpenAI
     chef_slug: openai
     multimodal: true
@@ -127,6 +171,11 @@ models:
   - provider: openai
     model_id: gpt-5.6-terra
     display_name: GPT-5.6 Terra
+    # prices: <=272K-input tier
+    prices:
+      input: "2e-6"
+      input_cache_read: "2e-7"
+      output: "1.2e-5"
     chef: OpenAI
     chef_slug: openai
     multimodal: true
@@ -136,6 +185,11 @@ models:
   - provider: openai
     model_id: gpt-6-luna
     display_name: GPT-6 Luna
+    # prices: <=272K-input tier
+    prices:
+      input: "1e-7"
+      input_cache_read: "1e-8"
+      output: "5e-7"
     chef: OpenAI
     chef_slug: openai
     multimodal: true
@@ -145,6 +199,11 @@ models:
   - provider: openai
     model_id: gpt-6-sol
     display_name: GPT-6 Sol
+    # prices: <=272K-input tier
+    prices:
+      input: "2e-6"
+      input_cache_read: "2e-7"
+      output: "1e-5"
     chef: OpenAI
     chef_slug: openai
     multimodal: true
@@ -156,6 +215,10 @@ models:
   - provider: openai
     model_id: gpt-6.1-sol
     display_name: GPT-6.1 Sol
+    prices:
+      input: "2e-6"
+      input_cache_read: "1e-7"
+      output: "1e-5"
     chef: OpenAI
     chef_slug: openai
     multimodal: true
@@ -167,6 +230,11 @@ models:
   - provider: anthropic
     model_id: claude-haiku-4-5
     display_name: Claude Haiku 4.5
+    prices:
+      input: "1e-6"
+      input_cache_read: "1e-7"
+      output: "5e-6"
+      input_cache_creation: "1.25e-6"
     chef: Anthropic
     chef_slug: anthropic
     multimodal: true
@@ -179,6 +247,12 @@ models:
   - provider: anthropic
     model_id: claude-haiku-5-5
     display_name: Claude Haiku 5.5
+    # prices: <=100K-prompt tier; a request above it is billed 5x on all its tokens
+    prices:
+      input: "1e-7"
+      input_cache_read: "1e-8"
+      output: "5e-7"
+      input_cache_creation: "1.25e-7"
     chef: Anthropic
     chef_slug: anthropic
     multimodal: true
@@ -188,6 +262,11 @@ models:
   - provider: anthropic
     model_id: claude-sonnet-4-6
     display_name: Claude Sonnet 4.6
+    prices:
+      input: "3e-6"
+      input_cache_read: "3e-7"
+      output: "1.5e-5"
+      input_cache_creation: "3.75e-6"
     chef: Anthropic
     chef_slug: anthropic
     multimodal: true
@@ -196,6 +275,11 @@ models:
   - provider: anthropic
     model_id: claude-sonnet-5
     display_name: Claude Sonnet 5
+    prices:
+      input: "2e-6"
+      input_cache_read: "2e-7"
+      output: "1e-5"
+      input_cache_creation: "2.5e-6"
     chef: Anthropic
     chef_slug: anthropic
     multimodal: true
@@ -208,6 +292,11 @@ models:
   - provider: anthropic
     model_id: claude-sonnet-5-5
     display_name: Claude Sonnet 5.5
+    prices:
+      input: "2e-6"
+      input_cache_read: "1e-7"
+      output: "1e-5"
+      input_cache_creation: "2.5e-6"
     chef: Anthropic
     chef_slug: anthropic
     multimodal: true
@@ -217,6 +306,11 @@ models:
   - provider: anthropic
     model_id: claude-opus-4-6
     display_name: Claude Opus 4.6
+    prices:
+      input: "5e-6"
+      input_cache_read: "5e-7"
+      output: "2.5e-5"
+      input_cache_creation: "6.25e-6"
     chef: Anthropic
     chef_slug: anthropic
     multimodal: true
@@ -226,6 +320,11 @@ models:
   - provider: anthropic
     model_id: claude-opus-4-8
     display_name: Claude Opus 4.8
+    prices:
+      input: "5e-6"
+      input_cache_read: "5e-7"
+      output: "2.5e-5"
+      input_cache_creation: "6.25e-6"
     chef: Anthropic
     chef_slug: anthropic
     multimodal: true
@@ -241,6 +340,11 @@ models:
   - provider: anthropic
     model_id: claude-opus-5
     display_name: Claude Opus 5
+    prices:
+      input: "5e-6"
+      input_cache_read: "5e-7"
+      output: "2.5e-5"
+      input_cache_creation: "6.25e-6"
     chef: Anthropic
     chef_slug: anthropic
     multimodal: true
@@ -250,6 +354,11 @@ models:
   - provider: anthropic
     model_id: claude-opus-5-5
     display_name: Claude Opus 5.5
+    prices:
+      input: "4e-6"
+      input_cache_read: "2e-7"
+      output: "2e-5"
+      input_cache_creation: "5e-6"
     chef: Anthropic
     chef_slug: anthropic
     multimodal: true
@@ -269,6 +378,11 @@ models:
   - provider: deepseek
     model_id: deepseek-v4-flash
     display_name: DeepSeek V4 Flash
+    # prices: retired alias billed at Flash price; peak rate (off-peak is half)
+    prices:
+      input: "3e-7"
+      input_cache_read: "6e-9"
+      output: "1.2e-6"
     chef: DeepSeek
     chef_slug: deepseek
     multimodal: true
@@ -278,6 +392,11 @@ models:
   - provider: deepseek
     model_id: deepseek-v4-flash-vision-exp
     display_name: DeepSeek V4 Flash Vision Exp
+    # prices: retired alias billed at Flash price; peak rate (off-peak is half)
+    prices:
+      input: "3e-7"
+      input_cache_read: "6e-9"
+      output: "1.2e-6"
     chef: DeepSeek
     chef_slug: deepseek
     multimodal: true
@@ -289,6 +408,11 @@ models:
   - provider: deepseek
     model_id: deepseek-flash
     display_name: DeepSeek V4.1 Flash
+    # prices: peak rate (off-peak is half)
+    prices:
+      input: "3e-7"
+      input_cache_read: "6e-9"
+      output: "1.2e-6"
     chef: DeepSeek
     chef_slug: deepseek
     multimodal: true
@@ -298,6 +422,11 @@ models:
   - provider: deepseek
     model_id: deepseek-v4-pro
     display_name: DeepSeek V4 Pro
+    # prices: peak rate (off-peak is half)
+    prices:
+      input: "1.32e-6"
+      input_cache_read: "4.4e-8"
+      output: "3.96e-6"
     chef: DeepSeek
     chef_slug: deepseek
     multimodal: false
@@ -309,6 +438,10 @@ models:
   - provider: google
     model_id: gemini-3-flash-preview
     display_name: Gemini 3 Flash (preview)
+    prices:
+      input: "5e-7"
+      input_cache_read: "5e-8"
+      output: "3e-6"
     chef: Google
     chef_slug: google
     multimodal: true
@@ -319,6 +452,11 @@ models:
   - provider: google
     model_id: gemini-3.1-pro-preview
     display_name: Gemini 3.1 Pro (preview)
+    # prices: <=200K-prompt tier; above it 4.00/0.40/18.00 per 1M
+    prices:
+      input: "2e-6"
+      input_cache_read: "2e-7"
+      output: "1.2e-5"
     chef: Google
     chef_slug: google
     multimodal: true
@@ -330,6 +468,11 @@ models:
   - provider: google
     model_id: gemini-3.5-flash
     display_name: Gemini 3.5 Flash
+    # prices: routed to gemini-3.6-flash, priced as it; promo through 2026-12-31, doubles 2027-01-01
+    prices:
+      input: "7.5e-7"
+      input_cache_read: "7.5e-8"
+      output: "3.75e-6"
     chef: Google
     chef_slug: google
     multimodal: true
@@ -341,6 +484,10 @@ models:
   - provider: google
     model_id: gemini-3.5-flash-lite
     display_name: Gemini 3.5 Flash-Lite
+    prices:
+      input: "3e-7"
+      input_cache_read: "3e-8"
+      output: "2.5e-6"
     chef: Google
     chef_slug: google
     multimodal: true
@@ -355,6 +502,11 @@ models:
   - provider: google
     model_id: gemini-3.6-flash
     display_name: Gemini 3.6 Flash
+    # prices: promo through 2026-12-31, doubles 2027-01-01
+    prices:
+      input: "7.5e-7"
+      input_cache_read: "7.5e-8"
+      output: "3.75e-6"
     chef: Google
     chef_slug: google
     multimodal: true
@@ -364,6 +516,11 @@ models:
   - provider: google
     model_id: gemini-3.7-flash
     display_name: Gemini 3.7 Flash
+    # prices: routed to gemini-3.8-flash, priced as it; promo through 2026-12-31, doubles 2027-01-01
+    prices:
+      input: "7.5e-7"
+      input_cache_read: "7.5e-8"
+      output: "3.75e-6"
     chef: Google
     chef_slug: google
     multimodal: true
@@ -373,6 +530,11 @@ models:
   - provider: google
     model_id: gemini-3.8-flash
     display_name: Gemini 3.8 Flash
+    # prices: promo through 2026-12-31, doubles 2027-01-01
+    prices:
+      input: "7.5e-7"
+      input_cache_read: "7.5e-8"
+      output: "3.75e-6"
     chef: Google
     chef_slug: google
     multimodal: true
@@ -386,6 +548,11 @@ models:
   - provider: google
     model_id: gemini-4-argon
     display_name: Gemini 4 Argon
+    # prices: promo through 2026-11-30, doubles 2026-12-01
+    prices:
+      input: "2e-6"
+      input_cache_read: "1e-7"
+      output: "1e-5"
     chef: Google
     chef_slug: google
     multimodal: true
@@ -399,6 +566,11 @@ models:
   - provider: xiaomi
     model_id: mimo-v2.5-pro
     display_name: MiMo V2.5 Pro
+    # prices: via OpenRouter's Xiaomi endpoint listing
+    prices:
+      input: "4.35e-7"
+      input_cache_read: "3.6e-9"
+      output: "8.7e-7"
     chef: Xiaomi
     chef_slug: xiaomi
     multimodal: false
@@ -406,6 +578,11 @@ models:
   - provider: xiaomi
     model_id: mimo-v2.5
     display_name: MiMo V2.5
+    # prices: via OpenRouter's Xiaomi endpoint listing
+    prices:
+      input: "1.4e-7"
+      input_cache_read: "2.8e-9"
+      output: "2.8e-7"
     chef: Xiaomi
     chef_slug: xiaomi
     multimodal: true
@@ -420,6 +597,10 @@ models:
   - provider: meta
     model_id: muse-spark-1.2
     display_name: Muse Spark 1.2
+    prices:
+      input: "1.25e-6"
+      input_cache_read: "1.5e-7"
+      output: "4.25e-6"
     chef: Meta
     chef_slug: meta
     multimodal: true
@@ -428,6 +609,10 @@ models:
   - provider: meta
     model_id: muse-spark-1.3
     display_name: Muse Spark 1.3
+    prices:
+      input: "1.25e-6"
+      input_cache_read: "1.5e-7"
+      output: "4.25e-6"
     chef: Meta
     chef_slug: meta
     multimodal: true
@@ -436,6 +621,10 @@ models:
   - provider: meta
     model_id: muse-wonder-1.0
     display_name: Muse Wonder 1.0 (preview)
+    prices:
+      input: "4e-6"
+      input_cache_read: "2e-7"
+      output: "2e-5"
     chef: Meta
     chef_slug: meta
     multimodal: true
@@ -456,6 +645,10 @@ models:
   - provider: openrouter
     model_id: z-ai/glm-5.2
     display_name: GLM 5.2
+    prices:
+      input: "5e-8"
+      input_cache_read: "4.9e-8"
+      output: "7e-6"
     chef: Z.ai
     chef_slug: z-ai
     multimodal: false
@@ -473,6 +666,10 @@ models:
   - provider: openrouter
     model_id: z-ai/glm-5.3
     display_name: GLM 5.3
+    prices:
+      input: "7.9e-8"
+      input_cache_read: "5.9e-8"
+      output: "4.8e-6"
     chef: Z.ai
     chef_slug: z-ai
     multimodal: false
@@ -482,6 +679,10 @@ models:
   - provider: openrouter
     model_id: z-ai/glm-5.3-flash
     display_name: GLM 5.3 Flash
+    prices:
+      input: "3.6e-8"
+      input_cache_read: "1.08e-8"
+      output: "9e-7"
     chef: Z.ai
     chef_slug: z-ai
     multimodal: true
@@ -495,6 +696,10 @@ models:
   - provider: openrouter
     model_id: z-ai/glm-5.3-prime
     display_name: GLM 5.3 Prime
+    prices:
+      input: "2.8e-6"
+      input_cache_read: "5.6e-7"
+      output: "8.8e-6"
     chef: Z.ai
     chef_slug: z-ai
     multimodal: false
@@ -504,6 +709,10 @@ models:
   - provider: openrouter
     model_id: z-ai/glm-5.3-flashx
     display_name: GLM 5.3 FlashX
+    prices:
+      input: "3.7e-7"
+      input_cache_read: "9e-8"
+      output: "1.25e-6"
     chef: Z.ai
     chef_slug: z-ai
     multimodal: true
@@ -524,6 +733,7 @@ models:
   - provider: openrouter
     model_id: qwen/qwen3.8-max
     display_name: Qwen3.8 Max
+    # no prices: slug not listed on OpenRouter
     chef: Qwen
     chef_slug: qwen
     multimodal: true
@@ -533,6 +743,10 @@ models:
   - provider: openrouter
     model_id: qwen/qwen3.8-27b
     display_name: Qwen3.8 27B
+    prices:
+      input: "4e-8"
+      input_cache_read: "1.98e-8"
+      output: "2.3e-6"
     chef: Qwen
     chef_slug: qwen
     multimodal: true
@@ -542,6 +756,10 @@ models:
   - provider: openrouter
     model_id: qwen/qwen3.8-flash
     display_name: Qwen3.8 Flash
+    prices:
+      input: "1.5e-7"
+      input_cache_read: "1.6e-8"
+      output: "4.7e-7"
     chef: Qwen
     chef_slug: qwen
     multimodal: false
@@ -551,6 +769,7 @@ models:
   - provider: openrouter
     model_id: openrouter/auto
     display_name: Auto Router
+    # no prices: routed, no fixed price
     chef: OpenRouter
     chef_slug: openrouter
     multimodal: false

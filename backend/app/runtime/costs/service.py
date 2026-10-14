@@ -19,6 +19,7 @@ from app.runtime.costs.schemas import (
     BackfillResponse,
     CostAnalytics,
     StoredThreadCost,
+    ThreadCount,
 )
 from app.runtime.runs.models import RunDB
 from app.threads.models import ThreadDB
@@ -26,7 +27,7 @@ from app.threads.models import ThreadDB
 
 def pricing_hash(catalog: dict[str, SupportedModel]) -> str:
     prices = {
-        key: value.pricing.model_dump(mode="json") if value.pricing else None
+        key: value.prices.model_dump(mode="json") if value.prices else None
         for key, value in catalog.items()
     }
     return hashlib.sha256(json.dumps(prices, sort_keys=True).encode()).hexdigest()
@@ -89,6 +90,21 @@ def job_response(job: CostBackfillDB) -> BackfillResponse:
     return BackfillResponse.model_validate(job, from_attributes=True)
 
 
+async def count_threads(
+    db: AsyncSession, dates: BackfillRequest, until: datetime
+) -> ThreadCount:
+    """Threads a backfill over `dates` would visit if queued at `until`."""
+    stmt = select(
+        func.count(col(ThreadDB.id)), func.min(col(ThreadDB.created_at))
+    ).where(col(ThreadDB.created_at) <= until)
+    if dates.start_at:
+        stmt = stmt.where(col(ThreadDB.created_at) >= dates.start_at)
+    if dates.end_at:
+        stmt = stmt.where(col(ThreadDB.created_at) < dates.end_at)
+    threads, first_created_at = (await db.execute(stmt)).one()
+    return ThreadCount(threads=threads, first_created_at=first_created_at)
+
+
 async def enqueue(db: AsyncSession, request: BackfillRequest) -> BackfillResponse:
     catalog = await get_whitelist()
     job = (
@@ -107,6 +123,10 @@ async def enqueue(db: AsyncSession, request: BackfillRequest) -> BackfillRespons
     job.cursor_created_at = None
     job.processed = job.skipped = job.failed = job.incomplete = 0
     job.last_error = None
+    job.total = (await count_threads(db, request, job.requested_at)).threads
+    job.previous_cost = job.new_cost = Decimal(0)
+    job.unpriced_models = []
+    job.finished_at = None
     job.catalog = [model.model_dump(mode="json") for model in catalog]
     db.add(job)
     await db.flush()
@@ -122,6 +142,7 @@ async def cancel(db: AsyncSession) -> BackfillResponse:
     if job.status not in {"pending", "running"}:
         raise DomainValidationError("No active cost backfill")
     job.status = "cancelled"
+    job.finished_at = datetime.now(UTC)
     db.add(job)
     await db.flush()
     return job_response(job)
