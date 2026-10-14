@@ -55,6 +55,19 @@ function VersionMeta({ version }: { version: PromptVersion }) {
 	);
 }
 
+function LangfuseLogo() {
+	return (
+		<Image
+			unoptimized
+			src="https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/langfuse.png"
+			alt=""
+			width={14}
+			height={14}
+			className="size-3.5 object-contain"
+		/>
+	);
+}
+
 function Spinner() {
 	return (
 		<div className="flex items-center gap-2 py-6 text-[13px] text-meta dark:text-panel-dim">
@@ -172,14 +185,7 @@ export default function AgentLangfusePanel({
 				) : (
 					<>
 						<span className="flex items-center gap-1.5 text-[12.5px] font-semibold text-foreground">
-							<Image
-								unoptimized
-								src="https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/langfuse.png"
-								alt=""
-								width={14}
-								height={14}
-								className="size-3.5 object-contain"
-							/>
+							<LangfuseLogo />
 							Langfuse version
 						</span>
 						<DropdownMenu
@@ -276,7 +282,8 @@ export default function AgentLangfusePanel({
 		return (
 			<div className="flex flex-col gap-3 rounded-[10px] border border-dashed border-input px-5 py-6">
 				{errorBox}
-				<p className="text-[14px] font-semibold text-foreground">
+				<p className="flex items-center gap-2 text-[14px] font-semibold text-foreground">
+					<LangfuseLogo />
 					Manage agent instructions with Langfuse
 				</p>
 				<p className="text-[13px] text-muted-foreground">

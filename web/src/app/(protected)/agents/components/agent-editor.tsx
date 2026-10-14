@@ -125,6 +125,26 @@ export default function AgentEditor({
 		if (!agent) return;
 		void langfuseApi.isLangfuseEnabled().then(setLangfuseEnabled);
 	}, [agent]);
+	// The production prompt's text, when the agent is managed by Langfuse —
+	// drives the "diverged" hint under the instructions.
+	const [langfuseProduction, setLangfuseProduction] = useState<string | null>(null);
+	const agentId = agent?.id;
+	useEffect(() => {
+		if (!agentId || !canEditAgent || !langfuseEnabled) return;
+		langfuseApi
+			.getLangfusePrompt(agentId)
+			.then((prompt) => {
+				setLangfuseProduction(prompt.production?.text ?? null);
+			})
+			.catch(() => {
+				// No hint when Langfuse is unreachable; the Versions tab shows the error.
+			});
+	}, [agentId, canEditAgent, langfuseEnabled]);
+	const showLangfuseHint =
+		!readOnly &&
+		langfuseProduction !== null &&
+		form.instructions !== initialForm.instructions &&
+		form.instructions.trim() !== langfuseProduction.trim();
 
 	const setField = <K extends keyof AgentFormState>(
 		key: K,
@@ -502,6 +522,23 @@ export default function AgentEditor({
 									className="min-h-[300px] w-full flex-1 resize-none rounded-lg border border-input bg-sidebar p-4 font-mono text-[12.5px] leading-[1.7] text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-meta dark:placeholder:text-panel-dim focus:border-petrol focus:shadow-[0_0_0_3px_rgba(22,96,110,0.10)] [scrollbar-width:thin]"
 								/>
 							))}
+						{activeTab === "instructions" && showLangfuseHint && (
+							<p className="mt-2 text-[12px] text-meta dark:text-panel-dim">
+								These instructions have diverged from the Langfuse production
+								version. See the{" "}
+								<button
+									type="button"
+									onClick={() => {
+										setTab("langfuse");
+										onTabChange?.("langfuse");
+									}}
+									className="cursor-pointer font-semibold text-petrol hover:underline"
+								>
+									Versions
+								</button>{" "}
+								tab.
+							</p>
+						)}
 						{activeTab === "tags" && agent && (
 							<AgentTagsPanel agent={agent} canAssign={canEditAgent} />
 						)}
