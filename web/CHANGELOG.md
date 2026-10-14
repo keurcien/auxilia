@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.8](https://github.com/keurcien/auxilia/compare/web-v0.10.7...web-v0.10.8) (2026-10-14)
+
+
+### Features
+
+* **agents:** version agent instructions in Langfuse ([#408](https://github.com/keurcien/auxilia/issues/408)) ([b9687a9](https://github.com/keurcien/auxilia/commit/b9687a93a2eba0e9b74001be4aeea877ebaaf654))
+
 ## [0.10.7](https://github.com/keurcien/auxilia/compare/web-v0.10.6...web-v0.10.7) (2026-10-13)
 
 
