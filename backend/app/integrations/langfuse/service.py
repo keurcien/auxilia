@@ -1,10 +1,12 @@
+from collections import Counter
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.core.service import AgentService
-from app.agents.models import AgentDB
+from app.agents.models import AgentDB, ToolStatus
 from app.database import get_db
 from app.exceptions import DomainValidationError
 from app.integrations.langfuse import prompts
@@ -12,11 +14,54 @@ from app.integrations.langfuse.schemas import (
     LangfusePromptResponse,
     LangfusePromptVersion,
 )
+from app.mcp.servers.models import MCPServerDB
+
+
+STATUS_META_KEY = "io.auxilia/tool_status"
 
 
 def _same(a: str, b: str) -> bool:
     # Langfuse may trim surrounding whitespace on save; that is not a divergence.
     return a.strip() == b.strip()
+
+
+def _tool_transforms(tools: dict[str, ToolStatus] | None) -> dict[str, dict]:
+    """auxilia tool statuses as FastMCP tool transforms (`MCPConfig` `tools`).
+
+    `disabled` hides the tool; `needs_approval` is carried in the tool's `_meta`
+    for the consumer's HITL — FastMCP has no approval concept of its own.
+    """
+    transforms: dict[str, dict] = {}
+    for tool, status in (tools or {}).items():
+        if status == ToolStatus.disabled:
+            transforms[tool] = {"enabled": False}
+        elif status == ToolStatus.needs_approval:
+            transforms[tool] = {
+                "meta": {STATUS_META_KEY: ToolStatus.needs_approval.value}
+            }
+    return transforms
+
+
+def _without_userinfo(url: str) -> str:
+    # The config is readable by every Langfuse user; never publish user:password@.
+    parts = urlsplit(url)
+    return parts._replace(netloc=parts.netloc.rpartition("@")[2]).geturl()
+
+
+def _mcp_servers(
+    servers: list[MCPServerDB], tools: dict[UUID, dict[str, ToolStatus] | None]
+) -> dict[str, dict]:
+    """The agent's MCP servers in FastMCP's `MCPConfig` shape, without credentials."""
+    counts = Counter(s.name for s in servers)
+    return {
+        # Server names aren't unique; the id keeps a duplicate from overwriting.
+        (s.name if counts[s.name] == 1 else f"{s.name}-{s.id}"): {
+            "url": _without_userinfo(s.url),
+            "transport": "http",
+            "tools": _tool_transforms(tools[s.id]),
+        }
+        for s in servers
+    }
 
 
 class LangfusePromptService:
@@ -70,12 +115,7 @@ class LangfusePromptService:
             tags=[agent.name],
             # Marks auxilia releases in Langfuse's own history view.
             commit_message=f"{message} - Synced from auxilia",
-            config={
-                "mcpServers": {
-                    s.name: {"url": s.url, "transport": "http", "tools": tools[s.id]}
-                    for s in servers
-                }
-            },
+            config={"mcpServers": _mcp_servers(servers, tools)},
         )
 
     async def promote(self, agent_id: UUID, version: int) -> LangfusePromptVersion:

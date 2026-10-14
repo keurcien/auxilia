@@ -7,7 +7,7 @@ import pytest
 from app.exceptions import DomainValidationError
 from app.integrations.langfuse import prompts
 from app.integrations.langfuse.schemas import LangfusePromptVersion
-from app.integrations.langfuse.service import LangfusePromptService
+from app.integrations.langfuse.service import LangfusePromptService, _mcp_servers
 
 
 AGENT_ID = uuid4()
@@ -68,7 +68,7 @@ async def test_publish_defaults_message_and_skips_identical(service, monkeypatch
             "Metabase": {
                 "url": "https://mb.test/mcp",
                 "transport": "http",
-                "tools": {"query": "always_allow"},
+                "tools": {},
             }
         }
     }
@@ -100,3 +100,29 @@ async def test_promote_refuses_a_version_the_agent_does_not_run(service, monkeyp
     )
     await service.promote(AGENT_ID, 1)
     label.assert_awaited_once_with(str(AGENT_ID), 1)
+
+
+def test_mcp_servers_are_fastmcp_config_without_credentials():
+    a, b, c = uuid4(), uuid4(), uuid4()
+    servers = [
+        SimpleNamespace(id=a, name="Sheets", url="https://u:secret@sheets.test/mcp"),
+        SimpleNamespace(id=b, name="Sheets", url="https://sheets2.test/mcp"),
+        SimpleNamespace(id=c, name="Wiki", url="https://wiki.test:8443/mcp?x=1"),
+    ]
+    tools = {
+        a: {"read": "always_allow", "write": "needs_approval", "drop": "disabled"},
+        b: None,
+        c: {},
+    }
+    config = _mcp_servers(servers, tools)  # type: ignore[arg-type]
+
+    assert config[f"Sheets-{a}"] == {
+        "url": "https://sheets.test/mcp",
+        "transport": "http",
+        "tools": {
+            "write": {"meta": {"io.auxilia/tool_status": "needs_approval"}},
+            "drop": {"enabled": False},
+        },
+    }
+    assert config[f"Sheets-{b}"]["tools"] == {}
+    assert config["Wiki"]["url"] == "https://wiki.test:8443/mcp?x=1"

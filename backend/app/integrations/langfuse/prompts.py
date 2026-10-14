@@ -38,7 +38,7 @@ def _to_version(prompt: object) -> LangfusePromptVersion:
             "Only text prompts can be used as agent instructions"
         )
     extra = prompt.model_extra or {}
-    # Langfuse records API writes as "API"; auxilia keeps the publisher in config.
+    # Langfuse records API-key writes as "API", which names no one.
     created_by = extra.get("createdBy")
     return LangfusePromptVersion(
         version=prompt.version,
