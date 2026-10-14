@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.15](https://github.com/keurcien/auxilia/compare/backend-v0.9.14...backend-v0.9.15) (2026-10-14)
+
+
+### Features
+
+* **costs:** live thread cost in the chat model pill, with USD catalog prices ([#406](https://github.com/keurcien/auxilia/issues/406)) ([b63322a](https://github.com/keurcien/auxilia/commit/b63322a189ded56be5767512d1486265bc71f1de))
+
+
+### Bug Fixes
+
+* **runtime:** enable Anthropic prompt caching for agents without a sandbox ([#417](https://github.com/keurcien/auxilia/issues/417)) ([1318b82](https://github.com/keurcien/auxilia/commit/1318b82d480d7125e5615177ca75abc6e9a7e4bc))
+
 ## [0.9.14](https://github.com/keurcien/auxilia/compare/backend-v0.9.13...backend-v0.9.14) (2026-10-14)
 
 

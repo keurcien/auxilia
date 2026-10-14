@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.11](https://github.com/keurcien/auxilia/compare/web-v0.10.10...web-v0.10.11) (2026-10-14)
+
+
+### Features
+
+* **costs:** live thread cost in the chat model pill, with USD catalog prices ([#406](https://github.com/keurcien/auxilia/issues/406)) ([b63322a](https://github.com/keurcien/auxilia/commit/b63322a189ded56be5767512d1486265bc71f1de))
+
 ## [0.10.10](https://github.com/keurcien/auxilia/compare/web-v0.10.9...web-v0.10.10) (2026-10-14)
 
 
