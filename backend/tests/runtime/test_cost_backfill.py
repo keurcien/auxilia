@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
@@ -217,12 +217,15 @@ async def test_personal_analytics_are_scoped_and_mark_uncomputed_or_stale(
     await queue(cost_db)
     await CostBackfillWorker().tick()
     async with AsyncSession(cost_db) as db:
+        db.add(RunDB(thread_id="outside", user_id=OWNER, status="running"))
+        await db.commit()
         report = await analytics(db, OWNER, BackfillRequest(start_at=START, end_at=END))
         assert report.threads == 1 and report.calculated_threads == 1
         assert report.total_cost == Decimal("0.0022")
         assert report.stale_threads == 0
         unknown = await analytics(db, OWNER, BackfillRequest())
         assert unknown.threads == 2 and unknown.total_cost is None
+        assert unknown.stale_threads == 0  # no saved estimate to mark stale
         changed = model()
         changed.pricing.prices.input *= 2
         monkeypatch.setattr(
@@ -291,3 +294,56 @@ def test_summary_has_thread_read_authorization(client, current_user):
     app.dependency_overrides[authorize_thread_read] = denied
     assert client.get("/threads/thread/cost/summary").status_code == 403
     assert client.post("/threads/thread/cost/refresh").status_code == 403
+
+
+async def test_postgres_lock_rejection_does_not_start_another_worker(monkeypatch):
+    connection = MagicMock()
+    connection.dialect.name = "postgresql"
+    connection.scalar = AsyncMock(return_value=False)
+    connection.commit = AsyncMock()
+    engine = MagicMock()
+    engine.connect.return_value.__aenter__.return_value = connection
+    monkeypatch.setattr("app.runtime.costs.worker.engine", engine)
+    worker = CostBackfillWorker()
+    worker.process = AsyncMock()
+    await worker.tick()
+    engine.connect.assert_called_once()
+    worker.process.assert_not_awaited()
+    assert "pg_try_advisory_lock" in str(connection.scalar.call_args.args[0])
+
+
+def test_migration_upgrade_seeds_singleton_and_downgrade_removes_tables():
+    import importlib.util
+    from pathlib import Path
+
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from sqlalchemy import create_engine, inspect
+
+    path = (
+        Path(__file__).parents[2]
+        / "alembic/versions/2c86ef7a1b93_add_thread_cost_summaries.py"
+    )
+    spec = importlib.util.spec_from_file_location("cost_migration", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    engine = create_engine("sqlite:///:memory:")
+    with engine.begin() as connection:
+        connection.execute(
+            text("CREATE TABLE threads (id TEXT PRIMARY KEY, created_at DATETIME)")
+        )
+        module.op = Operations(MigrationContext.configure(connection))
+        module.upgrade()
+        assert (
+            connection.scalar(
+                text("SELECT count(*) FROM cost_backfill WHERE status = 'idle'")
+            )
+            == 1
+        )
+        assert "thread_costs" in inspect(connection).get_table_names()
+        assert "ix_threads_created_at_id" in {
+            index["name"] for index in inspect(connection).get_indexes("threads")
+        }
+        module.downgrade()
+        assert inspect(connection).get_table_names() == ["threads"]
+    engine.dispose()

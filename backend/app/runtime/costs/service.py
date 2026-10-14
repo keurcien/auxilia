@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -140,10 +140,13 @@ async def analytics(
         )
         .exists()
     )
-    stale = or_(
-        col(ThreadCostDB.pricing_hash) != fingerprint,
-        col(ThreadCostDB.source_updated_at) != col(ThreadDB.updated_at),
-        active,
+    stale = and_(
+        col(ThreadCostDB.thread_id).is_not(None),
+        or_(
+            col(ThreadCostDB.pricing_hash) != fingerprint,
+            col(ThreadCostDB.source_updated_at) != col(ThreadDB.updated_at),
+            active,
+        ),
     )
     stmt = (
         select(

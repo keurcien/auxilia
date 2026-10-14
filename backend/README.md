@@ -137,7 +137,7 @@ message ID, per-message row, or growing history of cost recalculations.
 - `GET /thread-costs/analytics?start_at=...&end_at=...`: aggregate saved summaries
   for the current user's threads **created** within the range. Uncomputed,
   incomplete, or stale summaries make `total_cost` null; `known_cost` remains an
-  explicitly dated subtotal. This is lifetime cost for a creation-date cohort,
+  subtotal of saved estimates. This is lifetime cost for a creation-date cohort,
   **not spending that occurred during that week** for threads spanning weeks.
 
 The admin Settings → Models panel contains **Recalculate thread costs**, with
