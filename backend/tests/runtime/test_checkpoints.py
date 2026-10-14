@@ -17,7 +17,11 @@ from langchain_core.messages import AIMessage
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
 
-from app.runtime.checkpoints import EMPTY_STATE, get_checkpoint_state
+from app.runtime.checkpoints import (
+    EMPTY_STATE,
+    get_checkpoint_state,
+    iter_checkpoint_messages,
+)
 from tests.runtime.scripted_model import ScriptedChatModel
 
 
@@ -114,6 +118,13 @@ async def test_reader_reads_a_subagent_namespace():
     assert state.messages[0].content == "go"  # the task description seeds it
     assert state.messages[-1].content == "sub done"
     assert len(state.messages) == 8  # seed + 3 × (ai, tool) + final ai
+
+    # The cost reader walks both namespaces and reconstructs delta channels.
+    history = [messages async for messages in iter_checkpoint_messages(saver, "t-sub")]
+    ai_ids = {
+        m.id for messages in history for m in messages if isinstance(m, AIMessage)
+    }
+    assert len(ai_ids) == 6  # root task + final, child 3 tool turns + final
 
 
 @pytest.mark.asyncio

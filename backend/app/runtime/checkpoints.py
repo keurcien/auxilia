@@ -30,9 +30,11 @@ Pre-migration checkpoints (a plain list under ``channel_values["messages"]``)
 read unchanged: ``DeltaChannel.from_checkpoint`` takes the list as the seed.
 """
 
+from collections.abc import AsyncIterator
 from typing import Any, NamedTuple, NotRequired
 
 from deepagents.graph import DeepAgentState
+from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver, CheckpointTuple
 from langgraph.constants import CONFIG_KEY_CHECKPOINTER
 from langgraph.graph import START, StateGraph
@@ -80,6 +82,36 @@ class CheckpointState(NamedTuple):
 
 
 EMPTY_STATE = CheckpointState(saved=None, values={})
+
+
+async def iter_checkpoint_messages(
+    checkpointer: BaseCheckpointSaver, thread_id: str
+) -> AsyncIterator[list]:
+    """Read retained history across root and subagents, newest first.
+
+    Hydrate each exact checkpoint through the reader: raw delta channel
+    values aren't transcripts. Callers must deduplicate repeated message IDs.
+    Walking history also preserves usage removed by context compaction.
+    """
+    reader = _READER.compile(checkpointer=checkpointer)
+    # AsyncPostgresSaver.alist holds its cursor lock while yielding. Exhaust
+    # it before aget_state performs point reads on the same saver, otherwise
+    # those reads deadlock. Retain only configs, not the large raw tuples.
+    configs = [
+        saved.config
+        async for saved in checkpointer.alist(
+            {"configurable": {"thread_id": thread_id}}
+        )
+    ]
+    for saved_config in configs:
+        config: RunnableConfig = {
+            "configurable": {
+                **saved_config["configurable"],
+                CONFIG_KEY_CHECKPOINTER: checkpointer,
+            }
+        }
+        snapshot = await reader.aget_state(config)
+        yield snapshot.values.get("messages", [])
 
 
 async def get_checkpoint_state(

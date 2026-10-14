@@ -17,6 +17,7 @@ import { useAgentReadiness } from "@/hooks/use-agent-readiness";
 import { useChatHeaderStore } from "@/stores/chat-header-store";
 import { chatHeaderFromThread, useThreadSession } from "@/lib/thread-session";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { getThreadCost } from "@/lib/api/resources/thread-costs";
 import { ConversationBody } from "./conversation-body";
 
 /**
@@ -63,11 +64,32 @@ const ChatPage = () => {
       ? (agentStatusDetail ?? "This agent's sandbox is not available right now.")
       : null);
 
-  const { setCurrentChat, clearCurrentChat } = useChatHeaderStore();
+  const { setCurrentChat, clearCurrentChat, setCost } = useChatHeaderStore();
   useEffect(() => {
     if (thread) setCurrentChat(chatHeaderFromThread(thread));
   }, [thread, setCurrentChat]);
   useEffect(() => clearCurrentChat, [clearCurrentChat]);
+  // The header is global: drop the previous thread's cost right away, even
+  // when this thread's run is still going and the fetch below waits for it.
+  useEffect(() => {
+    setCost(null);
+  }, [threadId, setCost]);
+  // Re-read the checkpoint cost on open and each time a run settles.
+  useEffect(() => {
+    if (run.isLoading) return;
+    let stale = false;
+    getThreadCost(threadId).then(
+      (cost) => {
+        if (!stale) setCost(cost);
+      },
+      () => {
+        if (!stale) setCost(null);
+      },
+    );
+    return () => {
+      stale = true;
+    };
+  }, [threadId, run.isLoading, setCost]);
 
   return (
     <ArtifactWorkspace key={threadId} threadId={threadId} running={run.isLoading} refreshKey={JSON.stringify(transcript.toolCalls.map(tc => [tc.id, tc.status]))} order={transcript.toolCalls.map(tc => tc.callId ?? tc.id)}>

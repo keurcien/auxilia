@@ -36,6 +36,7 @@ def test_get_models_projects_the_picker_shape(client, model_service):
     assert response.status_code == 200
     assert response.json() == [
         {
+            "prices": None,
             "name": "GLM 5.2",
             "id": "z-ai/glm-5.2",
             "chef": "Z.ai",

@@ -51,6 +51,84 @@ The API will be available at `http://localhost:8000`
 
 API documentation: `http://localhost:8000/docs`
 
+## Conversation cost estimates
+
+`GET /threads/{thread_id}/cost` returns a conversation estimate, including
+subagents and per-message breakdowns. `GET
+/threads/{thread_id}/messages/{message_id}/cost` returns one assistant call
+(404 if that assistant message is absent). Both use the same owner/admin read
+permissions as the conversation state endpoint. Costs are computed on demand;
+these GET routes do not store message costs or change checkpoints.
+
+Add optional `prices` to model entries in the model whitelist (the CDN document
+when configured, or `app/model_providers/whitelist.yaml` for the bundled
+fallback). Rates are **USD per token**, following Langfuse’s `prices` usage-type
+keys; all three are required,
+nonnegative finite decimal values. Model picker and management responses expose
+this metadata. See [Langfuse’s usage-key conventions](https://github.com/langfuse/langfuse/blob/main/.agents/skills/add-model-price/references/provider-usage-key-matrix.md).
+Example rates below are illustrative, not provider prices:
+
+```yaml
+prices:
+  input: "2e-6"
+  input_cache_read: "0.5e-6"
+  input_cache_creation: "2.5e-6"  # optional
+  output: "8e-6"
+```
+
+`input`, `input_cache_read` and `output` are required. `input_cache_creation`
+(cache writes) is optional: without it, writes are charged at the `input` rate.
+
+The formula for each assistant call is:
+
+```text
+(input_tokens - cache_read - cache_write) * prices.input
+ + cache_read * prices.input_cache_read
+ + cache_write * prices.input_cache_creation   (or prices.input)
+ + output_tokens * prices.output
+```
+
+Prices are provider list prices in US dollars, divided by one million. For
+example, `"2e-6"` means $2 per million tokens. Like Langfuse, this API reports
+costs in USD per token; every amount it returns is in USD.
+
+Usage comes from LangChain's `usage_metadata`; an absent cache detail means
+zero. Cache writes are read from `cache_creation` or, depending on the
+langchain-anthropic version, from the `ephemeral_5m_input_tokens` /
+`ephemeral_1h_input_tokens` split; 1-hour writes are priced like 5-minute ones.
+Tiered (long-prompt) rates, tools, storage and other non-token fees are outside
+this estimate.
+
+The reader streams retained `messages` task writes once, including messages
+removed by context compaction, and counts each assistant message ID once across
+root/subagent namespaces. It avoids reconstructing every checkpoint. A recognized response model overrides the thread's pinned
+model; otherwise the pinned definition supplies the rate (including when a
+provider returns a versioned name for an alias). On-demand estimates use **current** catalog prices, even for disabled models;
+editing rates changes the estimate for existing threads.
+
+The conversation response includes `complete`, `total_cost`,
+`known_cost`, `call_count`, `unpriced_call_count`, aggregate `usage_details`,
+and `messages`. Each message includes `usage_details` and `cost_details`.
+The conversation also returns a per-bucket `cost_details` over its priced calls.
+Both detail objects use `input`, `input_cache_read`, `input_cache_creation`,
+`output`, and `total`. `usage_details.input` excludes cache reads and writes, so
+its four buckets sum to `total`.
+Decimal amounts serialize as JSON strings.
+Missing pricing, missing usage, or invalid token counts produce a per-message
+`reason` and `cost_details: null`; the conversation then has `complete: false` and
+`total_cost: null`. `known_cost` is the subtotal for calls that can be priced.
+An empty conversation costs zero. The bundled catalog ships provider list
+prices (checked 2026-10-14); a comment on an entry flags tiered or promotional
+rates that a single per-token rate cannot capture.
+
+This is an estimate of **retained checkpoint usage**, not a billing ledger:
+failed/unrecorded calls and pruned message writes cannot be reconstructed.
+If checkpoints exist but all task writes are unavailable, calculation fails
+instead of recording a false zero.
+Legacy messages without IDs are deduplicated by serialized content, which may
+merge identical calls. Reading a long history still takes work; avoid polling the live endpoint at
+streaming frequency.
+
 ## Project Structure
 
 ```

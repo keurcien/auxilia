@@ -38,6 +38,7 @@ async def get_models(
     default_model_id = await service.get_default_model_id(available)
     return [
         ModelResponse(
+            prices=m.prices,
             name=m.display_name,
             id=m.model_id,
             chef=m.chef,
