@@ -72,14 +72,19 @@ Example rates below are illustrative, not provider prices:
 prices:
   input: "2e-6"
   input_cache_read: "0.5e-6"
+  input_cache_creation: "2.5e-6"  # optional
   output: "8e-6"
 ```
+
+`input`, `input_cache_read` and `output` are required. `input_cache_creation`
+(cache writes) is optional: without it, writes are charged at the `input` rate.
 
 The formula for each assistant call is:
 
 ```text
-(input_tokens - cache_read) * prices.input
+(input_tokens - cache_read - cache_write) * prices.input
  + cache_read * prices.input_cache_read
+ + cache_write * prices.input_cache_creation   (or prices.input)
  + output_tokens * prices.output
 ```
 
@@ -87,10 +92,12 @@ Prices are provider list prices in US dollars, divided by one million. For
 example, `"2e-6"` means $2 per million tokens. Like Langfuse, this API records
 costs in USD per token; every amount it returns is in USD.
 
-Usage comes from LangChain's `usage_metadata`; an absent cache-read detail means
-zero cache hits. Cache creation is charged at the ordinary input rate under
-this three-rate scheme. Provider-specific cache-write premiums, tools, storage,
-and other non-token fees are outside this estimate.
+Usage comes from LangChain's `usage_metadata`; an absent cache detail means
+zero. Cache writes are read from `cache_creation` or, depending on the
+langchain-anthropic version, from the `ephemeral_5m_input_tokens` /
+`ephemeral_1h_input_tokens` split; 1-hour writes are priced like 5-minute ones.
+Tiered (long-prompt) rates, tools, storage and other non-token fees are outside
+this estimate.
 
 The reader streams retained `messages` task writes once, including messages
 removed by context compaction, and counts each assistant message ID once across
@@ -102,8 +109,10 @@ editing rates changes the estimate for existing threads.
 The conversation response includes `complete`, `total_cost`,
 `known_cost`, `call_count`, `unpriced_call_count`, aggregate `usage_details`,
 and `messages`. Each message includes `usage_details` and `cost_details`.
-Both detail objects use `input`, `input_cache_read`, `output`, and `total`.
-`usage_details.input` excludes cache reads, so its three buckets sum to `total`.
+The conversation also returns a per-bucket `cost_details` over its priced calls.
+Both detail objects use `input`, `input_cache_read`, `input_cache_creation`,
+`output`, and `total`. `usage_details.input` excludes cache reads and writes, so
+its four buckets sum to `total`.
 Decimal amounts serialize as JSON strings.
 Missing pricing, missing usage, or invalid token counts produce a per-message
 `reason` and `cost_details: null`; the conversation then has `complete: false` and
@@ -118,7 +127,7 @@ If checkpoints exist but all task writes are unavailable, calculation fails
 instead of recording a false zero.
 Legacy messages without IDs are deduplicated by serialized content, which may
 merge identical calls. Reading a long history still takes work; avoid polling the live endpoint at
-streaming frequency. The stored summary endpoints below provide cheap reads.
+streaming frequency.
 
 ## Project Structure
 
