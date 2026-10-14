@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.11](https://github.com/keurcien/auxilia/compare/backend-v0.9.10...backend-v0.9.11) (2026-10-13)
+
+
+### Features
+
+* **artifacts:** run HTML artifact scripts, with configurable CDN sources ([#403](https://github.com/keurcien/auxilia/issues/403)) ([c153e8e](https://github.com/keurcien/auxilia/commit/c153e8ea6ea33570ceba61fe897c50c2992bdada))
+* **models:** add Muse Wonder and Gemini 4 Argon, enable Meta vision, structured output and effort ([#404](https://github.com/keurcien/auxilia/issues/404)) ([e8db65a](https://github.com/keurcien/auxilia/commit/e8db65a1f433077b410a1e8fd31705b61a095686))
+
 ## [0.9.10](https://github.com/keurcien/auxilia/compare/backend-v0.9.9...backend-v0.9.10) (2026-10-12)
 
 
