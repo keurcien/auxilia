@@ -130,7 +130,7 @@ export default function AgentEditor({
 	const [langfuseProduction, setLangfuseProduction] = useState<string | null>(null);
 	const agentId = agent?.id;
 	useEffect(() => {
-		if (!agentId || !canEditAgent || !langfuseEnabled) return;
+		if (readOnly || !agentId || !canEditAgent || !langfuseEnabled) return;
 		langfuseApi
 			.getLangfusePrompt(agentId)
 			.then((prompt) => {
@@ -139,11 +139,10 @@ export default function AgentEditor({
 			.catch(() => {
 				// No hint when Langfuse is unreachable; the Versions tab shows the error.
 			});
-	}, [agentId, canEditAgent, langfuseEnabled]);
+	}, [readOnly, agentId, canEditAgent, langfuseEnabled]);
 	const showLangfuseHint =
 		!readOnly &&
 		langfuseProduction !== null &&
-		form.instructions !== initialForm.instructions &&
 		form.instructions.trim() !== langfuseProduction.trim();
 
 	const setField = <K extends keyof AgentFormState>(
