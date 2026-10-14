@@ -32,8 +32,6 @@ from app.model_providers.router import router as model_providers_router
 from app.redis_client import close_redis, get_redis
 from app.runtime.api.protocol_router import router as protocol_router
 from app.runtime.api.runs_router import router as runs_router, user_runs_router
-from app.runtime.costs.router import router as costs_router
-from app.runtime.costs.worker import CostBackfillWorker
 from app.runtime.runs.reaper import RunReaper
 from app.runtime.runs.settings import run_settings
 from app.runtime.runs.worker import RunDispatcher
@@ -83,7 +81,6 @@ async def lifespan(app: FastAPI):
         background = [
             asyncio.create_task(dispatcher.run(), name="run-dispatcher"),
             asyncio.create_task(reaper.run(), name="run-reaper"),
-            asyncio.create_task(CostBackfillWorker().run(), name="cost-backfill"),
         ]
         # The scanner enqueues onto the run queue, so it only runs where the
         # dispatcher does (always-on worker instances).
@@ -235,7 +232,6 @@ async def health() -> JSONResponse:
 
 app.include_router(agents_router)
 app.include_router(protocol_router)
-app.include_router(costs_router)
 app.include_router(runs_router)
 app.include_router(user_runs_router)
 app.include_router(auth_router)

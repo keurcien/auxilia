@@ -1,7 +1,7 @@
 from enum import Enum
 from uuid import UUID, uuid4
 
-from sqlalchemy import Enum as SAEnum, Index
+from sqlalchemy import Enum as SAEnum
 from sqlmodel import Column, Field, SQLModel, String, Text
 
 from app.models import TimestampMixin
@@ -48,7 +48,6 @@ class ThreadBase(SQLModel):
 
 class ThreadDB(ThreadBase, TimestampMixin, table=True):
     __tablename__ = "threads"
-    __table_args__ = (Index("ix_threads_created_at_id", "created_at", "id"),)
 
     id: str = Field(
         default_factory=lambda: str(uuid4()),

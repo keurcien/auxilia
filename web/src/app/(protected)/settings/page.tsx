@@ -6,7 +6,6 @@ import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import CreateTokenDialog, { type PersonalAccessToken } from "./create-token-dialog";
 import WorkspaceModels from "./workspace-models";
 import WorkspaceSandboxes from "./workspace-sandboxes";
-import ThreadCostRecalculation from "./thread-cost-recalculation";
 import { SubpageHeader } from "@/components/layout/subpage-header";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import * as authApi from "@/lib/api/resources/auth";
@@ -85,7 +84,7 @@ function TokenRevealBanner({ plaintext }: { plaintext: string }) {
 	);
 }
 
-type SettingsTab = "tokens" | "models" | "sandboxes" | "analytics";
+type SettingsTab = "tokens" | "models" | "sandboxes";
 
 export default function SettingsPage() {
 	const [tokens, setTokens] = useState<PersonalAccessToken[]>([]);
@@ -101,10 +100,7 @@ export default function SettingsPage() {
 
 	const [tabParam, setTab] = useQueryParamState("tab", "tokens");
 	const tab: SettingsTab =
-		(tabParam === "models" ||
-			tabParam === "sandboxes" ||
-			tabParam === "analytics") &&
-		isAdmin
+		(tabParam === "models" || tabParam === "sandboxes") && isAdmin
 			? tabParam
 			: "tokens";
 
@@ -283,17 +279,6 @@ export default function SettingsPage() {
 								)}
 							</button>
 						)}
-						{isAdmin && (
-							<button
-								type="button"
-								className={railTabClass(tab === "analytics")}
-								onClick={() => {
-									setTab("analytics");
-								}}
-							>
-								Analytics
-							</button>
-						)}
 					</div>
 				</div>
 
@@ -371,19 +356,6 @@ export default function SettingsPage() {
 									}}
 									onCountChange={setSandboxCount}
 								/>
-							</section>
-						)}
-
-						{/* Analytics — admin only; mounted on demand (it polls) */}
-						{isAdmin && tab === "analytics" && (
-							<section>
-								<div className="mb-1.5 font-mono text-[10.5px] font-semibold tracking-[0.09em] text-subtle dark:text-panel-dim">
-									THREAD COSTS
-								</div>
-								<p className="mb-3.5 max-w-[620px] text-[13px] leading-[1.55] text-subtle dark:text-panel-body">
-									Saved cost estimates for every thread, priced from the model whitelist.
-								</p>
-								<ThreadCostRecalculation />
 							</section>
 						)}
 					</div>
