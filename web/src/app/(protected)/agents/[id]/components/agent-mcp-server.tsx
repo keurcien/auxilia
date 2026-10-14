@@ -116,7 +116,7 @@ export default function AgentMCPServer({
 	// Read mode has no draft, so a saved map that disagrees with the server's
 	// live tool list (never synced after an OAuth connect, or a keyless server
 	// that gained/lost tools) must be healed server-side: sync-tools merges —
-	// curated statuses survive, new tools default to enabled, vanished tools
+	// curated statuses survive, new tools default to disabled, vanished tools
 	// drop. No-op when the map is already current, so merely viewing an
 	// up-to-date agent never writes.
 	const persistIfStale = useCallback(

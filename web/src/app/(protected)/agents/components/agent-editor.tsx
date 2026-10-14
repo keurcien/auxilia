@@ -133,7 +133,10 @@ export default function AgentEditor({
 		setForm((prev) => ({ ...prev, [key]: value }));
 	};
 
-	const isDirty = !readOnly && isFormDirty(form, initialForm);
+	// A picked Langfuse version counts as a change even when its text equals
+	// the saved instructions: saving it is what labels it production.
+	const isDirty =
+		!readOnly && (isFormDirty(form, initialForm) || langfuseVersion !== null);
 	// Read by callbacks that fire after an await (the subagent gate waits for
 	// the agents store), so they see the draft as it is then, not at click.
 	const isDirtyRef = useRef(isDirty);
@@ -151,6 +154,9 @@ export default function AgentEditor({
 			? [{ key: "langfuse" as const, label: "Versions" }]
 			: []),
 	];
+	// The kept tab may not exist here (another agent, other permissions, or
+	// Versions before the Langfuse probe answers): show Instructions instead.
+	const activeTab = tabs.some((t) => t.key === tab) ? tab : "instructions";
 
 	useEffect(() => {
 		const handleClickOutside = (event: MouseEvent) => {
@@ -213,7 +219,8 @@ export default function AgentEditor({
 				agent &&
 				isWorkspaceAdmin &&
 				langfuseVersion &&
-				form.instructions === langfuseVersion.text
+				// The saved payload is trimmed; the backend compares stripped text.
+				form.instructions.trim() === langfuseVersion.text.trim()
 			) {
 				await langfuseApi
 					.promoteLangfuseVersion(agent.id, langfuseVersion.version)
@@ -461,7 +468,7 @@ export default function AgentEditor({
 
 					<UnderlineTabs
 						tabs={tabs}
-						value={tab}
+						value={activeTab}
 						onChange={(key) => {
 							setTab(key);
 							onTabChange?.(key);
@@ -472,7 +479,7 @@ export default function AgentEditor({
 					{/* Instructions fill the remaining panel height and scroll
 					    internally when the text exceeds it. */}
 					<div className="flex min-h-0 flex-1 flex-col pt-5">
-						{tab === "instructions" &&
+						{activeTab === "instructions" &&
 							(readOnly ? (
 								<div className="min-h-[200px] w-full flex-1 overflow-y-auto rounded-lg border border-border bg-sidebar p-4 [scrollbar-width:thin]">
 									{form.instructions ? (
@@ -495,16 +502,16 @@ export default function AgentEditor({
 									className="min-h-[300px] w-full flex-1 resize-none rounded-lg border border-input bg-sidebar p-4 font-mono text-[12.5px] leading-[1.7] text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-meta dark:placeholder:text-panel-dim focus:border-petrol focus:shadow-[0_0_0_3px_rgba(22,96,110,0.10)] [scrollbar-width:thin]"
 								/>
 							))}
-						{tab === "tags" && agent && (
+						{activeTab === "tags" && agent && (
 							<AgentTagsPanel agent={agent} canAssign={canEditAgent} />
 						)}
-						{tab === "permissions" && agent && canManageAgent && (
+						{activeTab === "permissions" && agent && canManageAgent && (
 							<AgentPermissionsPanel
 								agentId={agent.id}
 								ownerId={agent.ownerId}
 							/>
 						)}
-						{tab === "langfuse" && agent && (
+						{activeTab === "langfuse" && agent && (
 							<AgentLangfusePanel
 								agentId={agent.id}
 								agentName={agent.name}

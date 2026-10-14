@@ -101,9 +101,14 @@ export default function AgentLangfusePanel({
 		setIsPublishing(true);
 		setError(null);
 		try {
-			await langfuseApi.publishLangfusePrompt(agentId, commitMessage.trim() || null);
+			// The new version is production and was cut from the saved
+			// instructions, so it can't diverge: no follow-up fetch to fail.
+			const production = await langfuseApi.publishLangfusePrompt(
+				agentId,
+				commitMessage.trim() || null,
+			);
 			setCommitMessage("");
-			setPrompt(await langfuseApi.getLangfusePrompt(agentId));
+			setPrompt({ production, diverged: false });
 		} catch (err) {
 			setError(getApiErrorMessage(err, "Failed to publish to Langfuse"));
 		} finally {
