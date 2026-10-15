@@ -35,13 +35,14 @@ class ArtifactRepository(BaseRepository[ArtifactDB]):
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
-    async def published(
-        self, thread_id: str, tool_call_id: str, path: str
-    ) -> ArtifactDB | None:
-        stmt = select(ArtifactDB).where(
-            ArtifactDB.thread_id == thread_id,
-            ArtifactDB.tool_call_id == tool_call_id,
-            ArtifactDB.source_path == path,
+    async def at_path(self, thread_id: str, path: str) -> ArtifactDB | None:
+        """The thread's artifact for a sandbox path. Threads from before in-place
+        updates can hold several rows per path; the newest one is updated."""
+        stmt = (
+            select(ArtifactDB)
+            .where(ArtifactDB.thread_id == thread_id, ArtifactDB.source_path == path)
+            .order_by(col(ArtifactDB.created_at).desc())
+            .limit(1)
         )
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
@@ -53,7 +54,7 @@ class ArtifactRepository(BaseRepository[ArtifactDB]):
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def insert(self, row: ArtifactDB) -> ArtifactDB:
+    async def save(self, row: ArtifactDB) -> ArtifactDB:
         self.db.add(row)
         await self.db.flush()
         await self.db.refresh(row)

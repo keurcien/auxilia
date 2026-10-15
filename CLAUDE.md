@@ -62,7 +62,8 @@ There are three documented exceptions:
    the deletes — `ThreadService.delete_rows_for_agent` (which *returns the thread
    ids*), then `AgentService.delete_permanently` — and only the router purges. Past
    the commit the purge is logged rather than raised: the operation succeeded, and
-   orphaned checkpoints are invisible and reclaimable.
+   orphaned checkpoints are invisible and reclaimable. `PUT /threads/{id}/artifacts/{id}/content`
+   follows the same rule: it commits the row's new storage key, then deletes the superseded bucket object.
 
 ### Domain exceptions
 

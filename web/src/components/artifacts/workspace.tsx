@@ -24,6 +24,7 @@ import {
   contentUrl,
   listArtifacts,
   readArtifact,
+  saveArtifact,
   slidesExportUrl,
 } from "@/lib/api/resources/artifacts";
 import { getAuthProviders } from "@/lib/api/resources/auth";
@@ -382,7 +383,13 @@ export function AppSlot({
   );
 }
 
-function Preview({ artifact }: { artifact: Artifact }) {
+function Preview({
+  artifact,
+  onSave,
+}: {
+  artifact: Artifact;
+  onSave?: (bytes: Uint8Array) => Promise<void>;
+}) {
   const [bytes, setBytes] = useState<ArrayBuffer>();
   const [error, setError] = useState<string>();
   const [attempt, setAttempt] = useState(0);
@@ -420,7 +427,7 @@ function Preview({ artifact }: { artifact: Artifact }) {
       </div>
     );
   return bytes ? (
-    <ArtifactViewer artifact={artifact} bytes={bytes} />
+    <ArtifactViewer artifact={artifact} bytes={bytes} onSave={onSave} />
   ) : (
     <Loading label="Loading file…" />
   );
@@ -555,12 +562,15 @@ function ResizeHandle({
 export function ArtifactWorkspace({
   threadId,
   running,
+  editable = false,
   refreshKey,
   order = [],
   children,
 }: {
   threadId: string;
   running: boolean;
+  /** The viewer owns the thread: presentations can be edited between turns. */
+  editable?: boolean;
   refreshKey: string;
   /** Tool-call ids in transcript order: files and apps are listed by it. */
   order?: string[];
@@ -578,7 +588,8 @@ export function ArtifactWorkspace({
   const [listOpen, setListOpen] = useState(false);
   const [error, setError] = useState<string>();
   const [attempt, setAttempt] = useState(0);
-  const known = useRef<Set<string> | null>(null);
+  // Artifact id → sha256: an agent update in place shows like a new file.
+  const known = useRef<Map<string, string> | null>(null);
   const container = useRef<HTMLDivElement>(null);
   // One width for list and previewer, so switching views never jumps.
   const [width, setWidth] = useState<number>();
@@ -634,9 +645,19 @@ export function ArtifactWorkspace({
         const fresh =
           known.current === null
             ? []
-            : next.filter((item) => !known.current?.has(item.id));
-        known.current = new Set(next.map((item) => item.id));
+            : next.filter(
+                (item) => known.current?.get(item.id) !== item.sha256,
+              );
+        known.current = new Map(next.map((item) => [item.id, item.sha256]));
         setItems(next);
+        // The open file follows its updates (the viewer reloads on a new sha).
+        // An unchanged poll keeps the same object: Preview refetches on identity.
+        setSelected((prev) => {
+          const match = prev && next.find((item) => item.id === prev.id);
+          return match && JSON.stringify(match) !== JSON.stringify(prev)
+            ? match
+            : prev;
+        });
         setError(undefined);
         if (fresh.length && !userPicked.current) {
           setOpenAppId(undefined);
@@ -804,7 +825,24 @@ export function ArtifactWorkspace({
                 </header>
                 {selected ? (
                   <div className="min-h-0 flex-1 overflow-auto">
-                    <Preview key={selected.id} artifact={selected} />
+                    <Preview
+                      key={`${selected.id}:${selected.sha256}`}
+                      artifact={selected}
+                      onSave={
+                        editable && !running && selected.mime_type === PPTX_MIME
+                          ? async (bytes) => {
+                              const saved = await saveArtifact(selected, bytes);
+                              known.current?.set(saved.id, saved.sha256);
+                              setItems((prev) =>
+                                prev.map((item) =>
+                                  item.id === saved.id ? saved : item,
+                                ),
+                              );
+                              setSelected(saved);
+                            }
+                          : undefined
+                      }
+                    />
                   </div>
                 ) : (
                   app && (

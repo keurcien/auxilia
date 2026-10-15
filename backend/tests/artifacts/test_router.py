@@ -50,3 +50,17 @@ def test_viewer_settings_expose_html_sources(client, current_user, monkeypatch):
     response = client.get("/artifacts/viewer")
     assert response.status_code == 200
     assert response.json() == {"html_sources": ["https:"]}
+
+
+def test_only_the_thread_owner_can_edit_a_file(client, current_user):
+    app.dependency_overrides[authorize_thread_read] = lambda: MagicMock(user_id=uuid4())
+    service = MagicMock()
+    service.replace_content = AsyncMock()
+    app.dependency_overrides[get_artifact_service] = lambda: service
+    response = client.put(
+        f"/threads/thread/artifacts/{uuid4()}/content",
+        content=b"deck",
+        headers={"If-Match": "abc"},
+    )
+    assert response.status_code == 403
+    service.replace_content.assert_not_called()

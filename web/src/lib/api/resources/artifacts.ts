@@ -9,6 +9,8 @@ export interface Artifact {
   filename: string;
   mime_type: string;
   size: number;
+  /** Changes whenever the file is updated in place (agent or user edit). */
+  sha256: string;
   temporary: boolean;
   created_at: string | null;
 }
@@ -77,4 +79,24 @@ export async function readArtifact(
     throw new Error("This file is unavailable right now. Retry in a moment.");
   }
   return response.arrayBuffer();
+}
+
+/** Save an edited file over the artifact. `If-Match` is the version the edit
+ *  started from: a newer version (the agent presented it again) is a 409. */
+export async function saveArtifact(
+  artifact: Artifact,
+  bytes: Uint8Array,
+): Promise<Artifact> {
+  const response = await protocolFetch(contentUrl(artifact), {
+    method: "PUT",
+    headers: { "If-Match": artifact.sha256 },
+    body: new Blob([bytes as BlobPart]),
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as {
+      detail?: string;
+    } | null;
+    throw new Error(body?.detail ?? "Could not save your changes.");
+  }
+  return (await response.json()) as Artifact;
 }

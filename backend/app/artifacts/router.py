@@ -3,8 +3,9 @@ from urllib.parse import quote
 from uuid import UUID
 
 from authlib.integrations.base_client import OAuthError
-from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.core.service import AgentService, get_agent_service
 from app.artifacts.google_slides import DRIVE_FILE_SCOPE, oauth
@@ -13,8 +14,10 @@ from app.artifacts.service import ArtifactService, get_artifact_service
 from app.artifacts.settings import artifact_settings
 from app.auth.dependencies import get_current_user
 from app.auth.settings import auth_settings
-from app.exceptions import DomainValidationError, NotFoundError
+from app.database import get_db
+from app.exceptions import DomainValidationError, NotFoundError, PermissionDeniedError
 from app.threads.dependencies import authorize_thread_read
+from app.threads.models import ThreadDB
 from app.threads.service import ThreadService, get_thread_service
 from app.users.models import UserDB
 
@@ -66,6 +69,35 @@ async def artifact_content(
             "Content-Security-Policy": "default-src 'none'; sandbox",
         },
     )
+
+
+@router.put("/{artifact_id}/content")
+async def replace_artifact_content(
+    thread_id: str,
+    artifact_id: UUID,
+    request: Request,
+    if_match: str = Header(description="sha256 of the version the edit started from"),
+    thread: ThreadDB = Depends(authorize_thread_read),
+    user: UserDB = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    service: ArtifactService = Depends(get_artifact_service),
+) -> ArtifactResponse:
+    """Save an edited presentation over the artifact (thread owner only)."""
+    if thread.user_id != user.id:
+        raise PermissionDeniedError("Only the thread owner can edit its files")
+    data = bytearray()
+    async for chunk in request.stream():
+        data += chunk
+        if len(data) > artifact_settings.max_bytes:
+            raise DomainValidationError("Artifact exceeds the size limit")
+    item = await service.replace_content(
+        thread_id, artifact_id, bytes(data), if_match.strip('"')
+    )
+    # Commit before deleting the superseded object: deleting first and then
+    # failing to commit would leave the row pointing at nothing.
+    await db.commit()
+    await service.purge_replaced()
+    return item
 
 
 # Fixed path: Google only redirects to URIs registered on the OAuth client.

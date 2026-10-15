@@ -12,6 +12,8 @@ import type { Artifact } from "@/lib/api/resources/artifacts";
 export interface ViewerProps {
   artifact: Artifact;
   bytes: ArrayBuffer;
+  /** Set when the viewer may save edits over the artifact. */
+  onSave?: (bytes: Uint8Array) => Promise<void>;
 }
 export interface ViewerAdapter {
   id: string;
