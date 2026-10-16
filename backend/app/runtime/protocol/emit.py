@@ -204,7 +204,7 @@ class ProtocolEmitter:
             return
         if self._answer_id is None:
             return
-        index = data.get("index")
+        index = data.get("index", 0)
         content = data.get("content") or {}
         delta = data.get("delta") or {}
         if kind == "content-block-start" and content.get("type") == "text":
