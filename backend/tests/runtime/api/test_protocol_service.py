@@ -488,3 +488,16 @@ async def test_message_falls_back_to_the_state_when_the_writes_are_gone(monkeypa
     assert (await _service().message("t1", "t9"))["content"] == "old"
     with pytest.raises(NotFoundError):
         await _service().message("t1", "nope")
+
+
+async def test_run_start_rejects_an_unknown_multitask_strategy():
+    with pytest.raises(DomainValidationError):
+        await _service().dispatch(
+            "t1",
+            "u1",
+            ProtocolCommand(
+                id=1,
+                method="run.start",
+                params={"input": {}, "multitaskStrategy": "yolo"},
+            ),
+        )

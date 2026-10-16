@@ -13,7 +13,7 @@ from typing import Literal
 #: raises, `enqueue` waits for the per-thread mutex. One alias shared by the
 #: column, the API schema, and the service so the type checker sees a single
 #: vocabulary instead of three `str`s that happen to agree.
-MultitaskStrategy = Literal["reject", "enqueue"]
+MultitaskStrategy = Literal["reject", "enqueue", "interrupt"]
 
 
 class RunStatus(str, Enum):

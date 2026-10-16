@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import {
   Conversation,
   ConversationContent,
+  ConversationFade,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
 import { Button } from "@/components/ui/button";
@@ -18,7 +19,7 @@ import { useChatHeaderStore } from "@/stores/chat-header-store";
 import { chatHeaderFromThread, useThreadSession } from "@/lib/thread-session";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { getThreadCost } from "@/lib/api/resources/thread-costs";
-import { ConversationBody } from "./conversation-body";
+import { ConversationBody, QueuedTurns } from "./conversation-body";
 
 /**
  * The chat page renders one thread session. Run state, HITL, hydration and
@@ -30,7 +31,7 @@ const ChatPage = () => {
   const agentId = params.id as string;
   const threadId = params.threadId as string;
 
-  const { meta, openError, run, transcript, hitl, actions } = useThreadSession({
+  const { meta, openError, run, transcript, hitl, queue, actions } = useThreadSession({
     threadId,
     agentId,
     onStaleInterrupt: () => {
@@ -115,10 +116,11 @@ const ChatPage = () => {
               error={run.error}
               rehydratedError={run.rehydratedError}
             />
+            <QueuedTurns queue={queue} />
           </ConversationContent>
+          <ConversationFade />
           <ConversationScrollButton />
         </Conversation>
-        <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-background to-transparent z-10" />
       </div>
       <div className="w-full shrink-0 bg-background">
         {meta.status === "error" ? (
@@ -218,6 +220,7 @@ const ChatPage = () => {
         ) : (
           <ChatPromptInput
             onSubmit={actions.send}
+            queueFull={queue.full}
             status={run.isLoading ? "streaming" : "ready"}
             className="w-full max-w-4xl mx-auto lg:px-10 sm:px-6 px-3 py-4"
             stop={actions.stop}

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { isHumanMessage } from "@langchain/core/messages";
 import type { BaseMessage } from "@langchain/core/messages";
-import { useStream } from "@langchain/react";
+import { useStream, useSubmissionQueue } from "@langchain/react";
 import type { AnyStream, SubagentDiscoverySnapshot } from "@langchain/react";
 import type { Interrupt } from "@langchain/langgraph-sdk";
 
@@ -26,7 +26,7 @@ import { usePendingMessageStore } from "@/stores/pending-message-store";
 import type { Run } from "@/types/runs";
 import type { ThreadRead } from "@/types/threads";
 
-import { promptMessageToContent } from "./build-content";
+import { contentPreview, promptMessageToContent } from "./build-content";
 import { EMPTY_HELD, holdInterrupts } from "./interrupt-hold";
 import { submitPendingAfterHydration } from "./pending-message";
 import {
@@ -39,6 +39,11 @@ import {
 } from "./session-reducer";
 
 const EMPTY_TODOS: Todo[] = [];
+
+/** Messages that may wait behind a running turn. */
+export const QUEUE_LIMIT = 2;
+
+export type QueuedMessage = { id: string; text: string };
 /** Render cadence for the streamed views (tokens arrive far faster). */
 const THROTTLE_MS = 60;
 
@@ -81,6 +86,14 @@ export type ThreadSession = {
 		/** Kept separately: the body renders the two differently. */
 		rehydratedError: string | null;
 	};
+	/** Messages sent while a turn runs. The SDK holds them client-side and
+	 * sends the head once the turn ends; `sendNow` interrupts the turn with one. */
+	queue: {
+		messages: QueuedMessage[];
+		full: boolean;
+		sendNow: (id: string) => void;
+		remove: (id: string) => void;
+	};
 	transcript: {
 		messages: BaseMessage[];
 		toolCalls: ToolCallView[];
@@ -98,6 +111,7 @@ export type ThreadSession = {
 		recordDecision: (toolCallId: string, decision: HitlDecision) => void;
 	};
 	actions: {
+		/** Queues behind a running turn (see `queue`); a no-op when it is full. */
 		send: (message: PromptInputMessage) => void;
 		regenerate: () => void;
 		stop: () => void;
@@ -199,6 +213,16 @@ export function useThreadSession({
 		() => pairToolCalls(messages, liveToolCalls),
 		[messages, liveToolCalls],
 	);
+	const queue = useSubmissionQueue(selectorStream);
+	const queued = useMemo(
+		() =>
+			queue.entries.map((entry) => {
+				const values = entry.values as { messages?: Array<{ content?: unknown }> } | undefined;
+				return { id: entry.id, text: contentPreview(values?.messages?.[0]?.content) };
+			}),
+		[queue.entries],
+	);
+	const queueFull = queue.size >= QUEUE_LIMIT;
 	const todos =
 		((stream.values as Record<string, unknown>).todos as Todo[] | undefined) ??
 		EMPTY_TODOS;
@@ -211,11 +235,36 @@ export function useThreadSession({
 	const send = useCallback(
 		(message: PromptInputMessage) => {
 			const content = promptMessageToContent(message);
-			if (content == null) return;
+			if (content == null || queueFull) return;
 			userActed();
-			void selectorStream.submit({ messages: [{ type: "human", content }] });
+			// Idle, `enqueue` just runs; mid-run the SDK queues it client-side.
+			void selectorStream.submit(
+				{ messages: [{ type: "human", content }] },
+				{ multitaskStrategy: "enqueue" },
+			);
 		},
-		[selectorStream, userActed],
+		[selectorStream, userActed, queueFull],
+	);
+
+	const sendNow = useCallback(
+		(id: string) => {
+			const entry = queue.entries.find((e) => e.id === id);
+			if (entry == null) return;
+			void queue.cancel(id).then((removed) => {
+				// Lost the race to the drain: it is already being sent.
+				if (!removed) return;
+				userActed();
+				void selectorStream.submit(entry.values, { multitaskStrategy: "interrupt" });
+			});
+		},
+		[queue, selectorStream, userActed],
+	);
+
+	const removeQueued = useCallback(
+		(id: string) => {
+			void queue.cancel(id);
+		},
+		[queue],
 	);
 
 	const regenerate = useCallback(() => {
@@ -358,6 +407,7 @@ export function useThreadSession({
 			error: stream.error,
 			rehydratedError: state.rehydratedError,
 		},
+		queue: { messages: queued, full: queueFull, sendNow, remove: removeQueued },
 		transcript: { messages, toolCalls, subagents: stream.subagents, todos, stream: selectorStream },
 		hitl: {
 			interrupt,

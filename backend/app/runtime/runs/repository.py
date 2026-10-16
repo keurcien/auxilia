@@ -98,6 +98,14 @@ class RunRepository(BaseRepository[RunDB]):
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def list_active_for_thread(self, thread_id: str) -> list[RunDB]:
+        """The thread's pending/running runs."""
+        stmt = select(RunDB).where(
+            RunDB.thread_id == thread_id, RunDB.status.in_(ACTIVE_STATUSES)
+        )
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
     async def list_active_for_user(
         self, user_id: UUID, *, finished_after: datetime | None = None
     ) -> list[RunDB]:

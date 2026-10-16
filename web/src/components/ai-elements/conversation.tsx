@@ -43,6 +43,21 @@ export const ConversationContent = ({
 	/>
 );
 
+/** Fades the conversation's lower edge into the page — only while there is
+ * more of it below, so the real last message is never washed out. */
+export const ConversationFade = ({ className }: { className?: string }) => {
+	const { isAtBottom } = useStickToBottomContext();
+	if (isAtBottom) return null;
+	return (
+		<div
+			className={cn(
+				"pointer-events-none absolute bottom-0 left-0 right-0 z-10 h-12 bg-gradient-to-t from-background to-transparent",
+				className
+			)}
+		/>
+	);
+};
+
 export type ConversationScrollButtonProps = ComponentProps<typeof Button>;
 
 export const ConversationScrollButton = ({

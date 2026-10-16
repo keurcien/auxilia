@@ -50,6 +50,8 @@ const composerPillClass = cn(
 
 interface ChatPromptInputProps {
 	onSubmit: (message: PromptInputMessage) => void;
+	/** Two messages already wait behind the running turn: Send is disabled. */
+	queueFull?: boolean;
 	status: "submitted" | "streaming" | "ready" | "error";
 	className?: string;
 	stop?: () => void;
@@ -81,6 +83,7 @@ const effortLabel = (effort: string) => EFFORT_LABELS.get(effort) ?? effort;
 
 const ChatPromptInput = ({
 	onSubmit,
+	queueFull = false,
 	status,
 	className,
 	stop,
@@ -411,7 +414,7 @@ const ChatPromptInput = ({
 							}}
 						/>
 					) : (
-						<SubmitButton status={status} stop={stop} />
+						<SubmitButton status={status} stop={stop} queueFull={queueFull} />
 					)}
 				</PromptInputFooter>
 			</PromptInput>
@@ -428,17 +431,21 @@ const ChatPromptInput = ({
 const SubmitButton = ({
 	status,
 	stop,
+	queueFull,
 }: {
 	status: "submitted" | "streaming" | "ready" | "error";
 	stop?: () => void;
+	queueFull: boolean;
 }) => {
 	const controller = usePromptInputController();
 	const input = controller.textInput.value;
-	const isStreaming = status === "streaming";
-	const isDisabled = isStreaming ? false : !input.trim();
+	// While a turn runs, typed text turns Stop back into Send (it queues).
+	const isStreaming = status === "streaming" && !input.trim();
+	const isDisabled = isStreaming ? false : !input.trim() || queueFull;
 
 	return (
 		<button
+			title={queueFull && !isStreaming ? "Queue is full" : undefined}
 			type={isStreaming ? "button" : "submit"}
 			disabled={isDisabled}
 			onClick={(e) => {

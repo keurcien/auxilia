@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { promptMessageToContent } from "./build-content";
+import { contentPreview, promptMessageToContent } from "./build-content";
 
 describe("promptMessageToContent", () => {
 	it("is null for nothing to send", () => {
@@ -34,5 +34,13 @@ describe("promptMessageToContent", () => {
 		expect(content).toEqual([
 			{ type: "file", mime_type: "application/octet-stream", base64: "rawbase64", filename: "file" },
 		]);
+	});
+});
+
+describe("contentPreview", () => {
+	it("shows the text, else the attachment count", () => {
+		expect(contentPreview("hi")).toBe("hi");
+		expect(contentPreview([{ type: "text", text: "see" }, { type: "file" }])).toBe("see");
+		expect(contentPreview([{ type: "file" }, { type: "image_url" }])).toBe("2 attachments");
 	});
 });

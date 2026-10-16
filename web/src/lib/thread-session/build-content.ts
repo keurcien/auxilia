@@ -40,3 +40,14 @@ export function promptMessageToContent(
 		? (parts[0].text as string)
 		: parts;
 }
+
+/** One line for a queued message: its text, else what it attaches. */
+export function contentPreview(content: unknown): string {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	const parts = content as Array<Record<string, unknown>>;
+	const text = parts.find((p) => p.type === "text")?.text;
+	if (typeof text === "string" && text.trim()) return text;
+	const files = parts.length;
+	return `${files} attachment${files === 1 ? "" : "s"}`;
+}

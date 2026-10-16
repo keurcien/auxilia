@@ -1,5 +1,5 @@
-export { useThreadSession, defaultTransport } from "./use-thread-session";
-export type { ThreadSession, ThreadSessionOptions, ThreadSessionTransport } from "./use-thread-session";
+export { useThreadSession, defaultTransport, QUEUE_LIMIT } from "./use-thread-session";
+export type { QueuedMessage, ThreadSession, ThreadSessionOptions, ThreadSessionTransport } from "./use-thread-session";
 export {
 	chatHeaderFromThread,
 	initialSessionState,

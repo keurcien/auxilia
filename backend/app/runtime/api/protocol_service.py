@@ -21,7 +21,7 @@ A thin orchestration layer over `RunService` and the run event log:
 import asyncio
 import logging
 from collections.abc import AsyncGenerator
-from typing import Any
+from typing import Any, get_args
 
 from langchain_core.messages import BaseMessage, ToolMessage
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
@@ -35,14 +35,14 @@ from app.runtime.api.protocol_repository import CheckpointWriteRepository
 from app.runtime.api.protocol_schemas import EventStreamBody, ProtocolCommand
 from app.runtime.checkpoints import get_checkpoint_state
 from app.runtime.hitl import InterruptScope, load_interrupt_scopes
-from app.runtime.protocol.events import terminal_lifecycle
+from app.runtime.protocol.events import terminal_lifecycle, values_event
 from app.runtime.protocol.filter import StreamFilter
 from app.runtime.protocol.messages import serialize_message, serialize_message_preview
 from app.runtime.protocol.wire import decode_event, frame, seq_for_entry
 from app.runtime.runs.events import RunEventStream
 from app.runtime.runs.models import RunDB
 from app.runtime.runs.service import RunService
-from app.runtime.runs.state import is_terminal
+from app.runtime.runs.state import MultitaskStrategy, is_terminal
 
 
 logger = logging.getLogger(__name__)
@@ -50,6 +50,7 @@ logger = logging.getLogger(__name__)
 _KEEP_ALIVE = ": keep-alive\n\n"
 _IDLE_POLL_SECONDS = 1.0
 _BLOCK_MS = 5000
+_SUPERSEDED_CHECK_SECONDS = 0.25
 
 
 class ProtocolService:
@@ -115,6 +116,7 @@ class ProtocolService:
             input=params.get("input"),
             trigger=trigger,
             config_overrides=config_overrides,
+            multitask_strategy=_multitask_strategy(params.get("multitaskStrategy")),
         )
 
     async def _input_respond(self, thread_id: str, user_id: str, params: dict) -> RunDB:
@@ -234,6 +236,10 @@ class ProtocolService:
                 return
 
         cursor = "0"
+        checked_at = 0.0
+        # What the client has of this run at root, for `_retraction`.
+        root_values: dict = {}
+        streamed: list[dict] = []
         while True:
             batch = await events.read_batch_with_ids(cursor, block_ms=_BLOCK_MS)
             if batch is None:
@@ -246,14 +252,42 @@ class ProtocolService:
                 yield _KEEP_ALIVE
                 continue
             cursor, entries, ended = batch
+            # Throttled: batches arrive per token burst, the check is a query.
+            now = asyncio.get_running_loop().time()
+            if ended or now - checked_at >= _SUPERSEDED_CHECK_SECONDS:
+                checked_at = now
+                if await self._superseded(run):
+                    retraction = _retraction(root_values, streamed)
+                    if retraction is not None and sink.matches(retraction):
+                        # Its own event_id; the seq ties the last relayed one.
+                        yield frame(
+                            retraction, run_id=f"{run.id}:retraction", entry_id=cursor
+                        )
+                    return
             for entry_id, raw, _is_end in entries:
                 event = decode_event(raw)
                 if event is None:
                     continue
+                params = event["params"]
+                data = params.get("data")
+                if not params.get("namespace") and isinstance(data, dict):
+                    if event["method"] == "values":
+                        root_values = {**root_values, **data}
+                    elif data.get("event") == "message-start" and data.get("id"):
+                        streamed.append(data)
                 if (sse := relay(event, entry_id)) is not None:
                     yield sse
             if ended:
                 return
+
+    async def _superseded(self, run: RunDB) -> bool:
+        """Whether a newer run `interrupt`s this one. The rest
+        of its log — tokens it streams until its cancel lands, and its
+        terminal — is dropped: rendered after the user's new message it reads
+        as the agent ignoring them, and the client, which armed its terminal
+        watch before dispatching the newer run, would settle on this one's."""
+        newer = await self.runs.next_for_thread(run.thread_id, run)
+        return newer is not None and newer.multitask_strategy == "interrupt"
 
     # --- thread state -------------------------------------------------------------
 
@@ -476,6 +510,53 @@ def _seed_human_content(messages: list) -> str | None:
         return None
     content = getattr(messages[0], "content", None)
     return content if isinstance(content, str) else None
+
+
+def _retraction(root_values: dict, streamed: list[dict]) -> dict | None:
+    """A root `values` snapshot that lists an interrupted run's streamed
+    messages next to the thread's — so the next run's first snapshot, which
+    lists only what was checkpointed, drops the ones that never were.
+
+    The client removes a message only when a snapshot that used to list it no
+    longer does (see `emit.final_snapshot`); a partially streamed answer was
+    never listed, so without this it stays on the page until a reload. The
+    stubs' empty content never shows: the client keeps its streamed copy of a
+    same-id message. `None` when the run sent no snapshot with the thread's
+    messages yet (listing stubs alone would drop the whole history) or
+    streamed nothing unlisted."""
+    messages = root_values.get("messages")
+    if not messages:
+        return None
+    listed = {m.get("id") for m in messages}
+    stubs: list[dict] = []
+    for start in streamed:
+        if start["id"] in listed:
+            continue
+        role = start.get("role", "ai")
+        if role == "ai":
+            stubs.append({"type": "ai", "id": start["id"], "content": ""})
+        elif role == "tool" and start.get("tool_call_id"):
+            stubs.append(
+                {
+                    "type": "tool",
+                    "id": start["id"],
+                    "content": "",
+                    "tool_call_id": start["tool_call_id"],
+                }
+            )
+    if not stubs:
+        return None
+    return values_event([], {**root_values, "messages": [*messages, *stubs]})
+
+
+def _multitask_strategy(value: Any) -> MultitaskStrategy:
+    """`run.start`'s `multitaskStrategy` (the SDK's camelCase param); absent
+    means `reject`, the server default."""
+    if value is None:
+        return "reject"
+    if value not in get_args(MultitaskStrategy):
+        raise DomainValidationError(f"Unknown multitaskStrategy {value!r}.")
+    return value
 
 
 def _success(command_id: int, result: dict) -> dict:

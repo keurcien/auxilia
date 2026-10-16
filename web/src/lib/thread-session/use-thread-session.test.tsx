@@ -311,4 +311,54 @@ describe("useThreadSession", () => {
 		});
 		expect(useActiveRunsStore.getState().pollEpoch).toBe(before + 1);
 	});
+
+	it("queues up to two messages behind a running turn; send now interrupts with one", async () => {
+		const { transport, calls } = transportWith({ thread: thread(), viewerRole: null }, [], {
+			// Accepted, but the scripted event stream never ends the run.
+			commands: (body) =>
+				new Response(JSON.stringify({ type: "success", id: (body as { id?: number }).id, result: { run_id: "r1" } }), {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				}),
+		});
+		const { result } = renderHook(() => useThreadSession({ threadId: "t1", agentId: "a1", transport }));
+		await waitFor(() => {
+			expect(result.current.meta.status).toBe("ready");
+		});
+		const starts = () =>
+			calls
+				.map((c) => c.body as { method?: string; params?: { multitaskStrategy?: string } })
+				.filter((b) => b?.method === "run.start");
+
+		act(() => {
+			result.current.actions.send({ text: "first", files: [] });
+		});
+		await waitFor(() => {
+			expect(starts()).toHaveLength(1);
+		});
+		act(() => {
+			result.current.actions.send({ text: "second", files: [] });
+		});
+		act(() => {
+			result.current.actions.send({ text: "third", files: [] });
+		});
+		await waitFor(() => {
+			expect(result.current.queue.messages.map((m) => m.text)).toEqual(["second", "third"]);
+		});
+		expect(result.current.queue.full).toBe(true);
+		act(() => {
+			result.current.actions.send({ text: "fourth", files: [] });
+		});
+		expect(result.current.queue.messages).toHaveLength(2);
+		expect(starts()).toHaveLength(1);
+
+		act(() => {
+			result.current.queue.sendNow(result.current.queue.messages[1].id);
+		});
+		await waitFor(() => {
+			expect(starts()).toHaveLength(2);
+		});
+		expect(starts()[1].params?.multitaskStrategy).toBe("interrupt");
+		expect(result.current.queue.messages.map((m) => m.text)).toEqual(["second"]);
+	});
 });

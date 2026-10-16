@@ -10,7 +10,8 @@ import {
 } from "@langchain/core/messages";
 import type { AnyStream, SubagentDiscoverySnapshot } from "@langchain/react";
 import type { Interrupt } from "@langchain/langgraph-sdk";
-import { CopyIcon, RefreshCcwIcon } from "lucide-react";
+import { CopyIcon, RefreshCcwIcon, XIcon } from "lucide-react";
+import type { ThreadSession } from "@/lib/thread-session";
 import {
   Message,
   MessageAction,
@@ -267,6 +268,44 @@ const HostNotice = ({ message }: { message: BaseMessage }) => (
     </p>
   </div>
 );
+
+/** Messages waiting behind the running turn, at the bottom of the thread —
+ *  dimmed until they are sent. "Send now" interrupts the turn with one. */
+export const QueuedTurns = ({ queue }: { queue: ThreadSession["queue"] }) =>
+  queue.messages.map((message) => (
+    <div key={message.id} className="flex justify-end">
+      <div className="flex max-w-[78%] min-w-0 flex-col items-end gap-1.5">
+        <div className="relative flex min-w-0 items-center gap-2">
+          <Message from="user" className="w-auto min-w-0 opacity-40">
+            <MessageContent className="group-[.is-user]:max-w-full">
+              <MessageResponse>{message.text}</MessageResponse>
+            </MessageContent>
+          </Message>
+          <button
+            type="button"
+            aria-label="Discard queued message"
+            onClick={() => {
+              queue.remove(message.id);
+            }}
+            // In the page gutter past the bubble, which stays aligned with the
+            // other user turns; inline below lg, where the gutter is too narrow.
+            className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full text-meta transition-colors hover:text-foreground dark:text-panel-dim lg:absolute lg:left-full lg:top-1/2 lg:ml-1.5 lg:-translate-y-1/2"
+          >
+            <XIcon className="size-4" />
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            queue.sendNow(message.id);
+          }}
+          className="cursor-pointer text-[13.5px] font-medium text-meta transition-colors hover:text-foreground dark:text-panel-dim"
+        >
+          Send now
+        </button>
+      </div>
+    </div>
+  ));
 
 const UserTurn = ({ message }: { message: BaseMessage }) => {
   const text = message.text;

@@ -249,8 +249,27 @@ to the channel.
 `reject` (default) — creating a run while one is pending/running for the thread
 raises `DomainValidationError`. `enqueue` — the new run waits as `pending`; the
 claim query skips it until the thread's running run finalizes. No requeue loop,
-no backoff — waiting is a property of the data. (`interrupt`/`rollback` from
-the SDK are out of scope for v1; document if/when added.)
+no backoff — waiting is a property of the data.
+
+`interrupt` — the new run is created, then every active run on the thread is
+cancelled (`RunService.cancel`). It is claimed once the cancelled run
+finalizes; whatever that run checkpointed stays (dangling tool calls are
+patched by the harness, as after a Stop). `rollback` is not offered.
+
+The web client sends the strategy as `run.start`'s `multitaskStrategy`. It
+sends every message with `enqueue`, which the SDK holds client-side while a
+run is active (at most 2 in the composer's queue, then sent without a strategy
+after the run's terminal); a queued message's "Send now" re-sends it with
+`interrupt`. Once a newer `interrupt` run
+exists, protocol sessions stop relaying the old run's log
+(checked every 0.25s while it streams): its remaining tokens would render
+after the user's new message, and its terminal would settle the client's
+watch, which is armed before the new run is dispatched. Cutting it off, the session sends one root `values`
+snapshot listing the thread's messages plus every message the old run
+streamed (empty stubs; the client keeps its streamed copy). The new run's
+first snapshot lists only what was checkpointed, so the client drops the
+partial answer — it removes a message only when a snapshot that listed it no
+longer does.
 
 ## Thread status (`threads.last_run_status`)
 

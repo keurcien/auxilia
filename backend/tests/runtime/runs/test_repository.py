@@ -361,3 +361,101 @@ async def test_stream_poll_follows_runs_with_one_limited_query(redis, run_db):
 
     assert len(queries) == 5
     assert all("LIMIT" in q for q in queries)
+
+
+async def test_create_interrupt_cancels_active_runs(redis, run_db):
+    service = RunService(redis)
+    running = await service.create(thread_id="t-int", user_id=_user(), input={})
+    await service.claim_next()
+    queued = await service.create(
+        thread_id="t-int", user_id=_user(), input={}, multitask_strategy="enqueue"
+    )
+    new = await service.create(
+        thread_id="t-int", user_id=_user(), input={}, multitask_strategy="interrupt"
+    )
+    assert (await service.get(queued.id)).status == RunStatus.cancelled
+    # A running run is signalled; its worker finalizes it.
+    assert await redis.lpop(f"run:{running.id}:control") == "cancel"
+    assert (await service.get(new.id)).status == RunStatus.pending
+    assert new.config_overrides is None
+
+
+async def test_a_run_is_superseded_only_by_an_interrupting_run(redis, run_db):
+    """`interrupt` creates its run *before* the old one stops; the
+    stream session drops the rest of the old run's log from then on."""
+    now = datetime.now()
+    old = await _add_run(
+        run_db, thread_id="ts", user_id=uuid4(), created_at=now - timedelta(seconds=2)
+    )
+    protocol = ProtocolService(redis)
+    assert not await protocol._superseded(old)
+    queued = await _add_run(
+        run_db,
+        thread_id="ts",
+        user_id=uuid4(),
+        multitask_strategy="enqueue",
+        created_at=now - timedelta(seconds=1),
+    )
+    assert not await protocol._superseded(old)
+    await _add_run(
+        run_db,
+        thread_id="ts",
+        user_id=uuid4(),
+        multitask_strategy="interrupt",
+        created_at=now,
+    )
+    assert await protocol._superseded(queued)
+
+
+async def test_an_interrupted_run_retracts_what_it_streamed(redis, run_db, monkeypatch):
+    """Cut off by an `interrupt`, a run's session sends one closing snapshot
+    listing its unpersisted streamed message, so the next run's snapshot —
+    which won't list it — makes the client drop it instead of keeping it."""
+    import json
+
+    import app.runtime.api.protocol_service as protocol_mod
+    from app.runtime.protocol import events as ev
+    from app.runtime.protocol.filter import StreamFilter
+    from app.runtime.protocol.wire import encode_event
+    from app.runtime.runs.events import RunEventStream
+
+    old = await _add_run(
+        run_db,
+        thread_id="tr",
+        user_id=uuid4(),
+        created_at=datetime.now() - timedelta(seconds=1),
+    )
+    log = RunEventStream(old.id, redis)
+    history = [{"type": "human", "id": "h1", "content": "hi"}]
+    await log.publish(
+        encode_event(ev.values_event([], {"messages": history, "todos": []}))
+    )
+    await log.publish(
+        encode_event(ev.message_start([], None, role="ai", message_id="partial"))
+    )
+
+    protocol = ProtocolService(redis)
+    sink = StreamFilter.from_request(["values", "messages", "lifecycle"], None, None)
+    frames = protocol._stream_run(old, sink, since=None)
+    assert '"partial"' in await anext(frames) + await anext(frames)
+
+    await _add_run(
+        run_db,
+        thread_id="tr",
+        user_id=uuid4(),
+        multitask_strategy="interrupt",
+        created_at=datetime.now(),
+    )
+    monkeypatch.setattr(protocol_mod, "_SUPERSEDED_CHECK_SECONDS", 0)
+    await log.publish(
+        encode_event(ev.message_start([], None, role="ai", message_id="dropped"))
+    )
+    rest = [f async for f in frames]
+    assert len(rest) == 1  # the retraction — no further tokens, no terminal
+    retraction = json.loads(rest[0].split("data: ", 1)[1])
+    assert retraction["method"] == "values"
+    assert retraction["params"]["data"]["todos"] == []
+    assert [m["id"] for m in retraction["params"]["data"]["messages"]] == [
+        "h1",
+        "partial",
+    ]

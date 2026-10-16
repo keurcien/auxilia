@@ -66,7 +66,8 @@ class RunService:
         With the default `reject` strategy, creating a run while the thread has
         a pending/running one raises `DomainValidationError`. With `enqueue`,
         the run simply waits — the dispatcher only claims runs whose thread has
-        no running run.
+        no running run. `interrupt` cancels the thread's active runs and keeps
+        whatever the running one checkpointed.
 
         `delivery` is an opaque push-target descriptor (e.g. Slack channel/
         thread) the worker hands to a delivery consumer; `None` means a pull
@@ -91,6 +92,7 @@ class RunService:
         async with AsyncSessionLocal() as db:
             await self._ensure_runnable_thread(db, thread_id)
             repository = RunRepository(db)
+            superseded: list[RunDB] = []
             if multitask_strategy == "reject":
                 # Serialize concurrent creates on this thread so two reject
                 # requests can't both pass the check (lock ends with the txn).
@@ -99,6 +101,9 @@ class RunService:
                     raise DomainValidationError(
                         "This thread already has an active run."
                     )
+            elif multitask_strategy == "interrupt":
+                await repository.lock_thread_runs(thread_id)
+                superseded = await repository.list_active_for_thread(thread_id)
             run = await repository.create(
                 RunDB(
                     thread_id=thread_id,
@@ -113,6 +118,11 @@ class RunService:
                 )
             )
             await db.commit()
+        # Cancelled after the new run is committed: it cannot be claimed while
+        # a superseded run is still `running` (the per-thread mutex), so it
+        # starts as soon as each cancel lands.
+        for record in superseded:
+            await self.cancel(record.id)
         return run
 
     @staticmethod
