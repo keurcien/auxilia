@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.12](https://github.com/keurcien/auxilia/compare/web-v0.10.11...web-v0.10.12) (2026-10-16)
+
+
+### Features
+
+* **chat:** queue messages while the agent runs, with send now ([#421](https://github.com/keurcien/auxilia/issues/421)) ([1a048d8](https://github.com/keurcien/auxilia/commit/1a048d834835f2ef743e30eb2318ebdc83fcefee))
+
 ## [0.10.11](https://github.com/keurcien/auxilia/compare/web-v0.10.10...web-v0.10.11) (2026-10-14)
 
 
