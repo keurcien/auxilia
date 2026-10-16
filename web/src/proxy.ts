@@ -7,6 +7,15 @@ const PUBLIC_PATHS = ["/auth", "/setup", "/invite"];
 // the verify fetch throw on every request and bounces signed-in users to /auth.
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
 
+// Sends the user to /auth, remembering where they were headed so sign-in can
+// bring them back (validated again on the way out: /auth/page.tsx, backend).
+function redirectToAuth(request: NextRequest) {
+	const { pathname, search } = request.nextUrl;
+	const url = new URL("/auth", request.url);
+	if (pathname !== "/") url.searchParams.set("next", pathname + search);
+	return NextResponse.redirect(url);
+}
+
 export async function proxy(request: NextRequest) {
 	const { pathname } = request.nextUrl;
 	const accessToken = request.cookies.get("access_token")?.value;
@@ -43,13 +52,18 @@ export async function proxy(request: NextRequest) {
 			console.error("Backend unreachable or validation failed", err);
 		}
 
-		const response = NextResponse.redirect(new URL("/auth", request.url));
+		// On /auth itself keep the query, so a pending `next` survives.
+		const response = isPublicPath
+			? NextResponse.redirect(
+					new URL(pathname === "/auth" ? `/auth${request.nextUrl.search}` : "/auth", request.url),
+				)
+			: redirectToAuth(request);
 		response.cookies.delete("access_token");
 		return response;
 	}
 
 	if (!isPublicPath) {
-		return NextResponse.redirect(new URL("/auth", request.url));
+		return redirectToAuth(request);
 	}
 
 	return NextResponse.next();

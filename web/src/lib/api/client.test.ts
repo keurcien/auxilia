@@ -3,6 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "./client";
 import { ApiError } from "./errors";
+import { ensureSignedIn } from "./session";
+
+vi.mock("./session", () => ({ ensureSignedIn: vi.fn(() => Promise.resolve()) }));
 
 /** Drive the interceptors without a network: the adapter records the request
  *  it received and answers with whatever the test scripted. */
@@ -120,5 +123,15 @@ describe("response conversion", () => {
 		expect(err).toBeInstanceOf(ApiError);
 		expect((err as ApiError).status).toBeNull();
 		expect((err as ApiError).message).toBe("Network Error");
+	});
+});
+
+describe("session check", () => {
+	it("re-checks the session on a 401, and only on a 401", async () => {
+		vi.mocked(ensureSignedIn).mockClear();
+		scriptAdapter((config) => ({ status: config.url === "/a" ? 401 : 403 }));
+		await expect(api.get("/a")).rejects.toBeInstanceOf(ApiError);
+		await expect(api.get("/b")).rejects.toBeInstanceOf(ApiError);
+		expect(ensureSignedIn).toHaveBeenCalledOnce();
 	});
 });

@@ -7,6 +7,9 @@ import {
 	protocolRejectionError,
 	resolveSameOriginUrl,
 } from "./protocol";
+import { ensureSignedIn } from "./session";
+
+vi.mock("./session", () => ({ ensureSignedIn: vi.fn(() => Promise.resolve()) }));
 
 afterEach(() => {
 	vi.unstubAllGlobals();
@@ -43,6 +46,20 @@ describe("protocolFetch", () => {
 			`${window.location.origin}/api/backend/threads/t/commands`,
 			{ credentials: "include", method: "POST", body },
 		);
+	});
+});
+
+describe("protocolFetch session check", () => {
+	it("re-checks the session on a 401, and only on a 401", async () => {
+		vi.mocked(ensureSignedIn).mockClear();
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce(new Response(null, { status: 401 }))
+			.mockResolvedValueOnce(new Response(null, { status: 403 }));
+		vi.stubGlobal("fetch", fetchMock);
+		await protocolFetch("/api/backend/threads/t/state");
+		await protocolFetch("/api/backend/threads/t/state");
+		expect(ensureSignedIn).toHaveBeenCalledOnce();
 	});
 });
 

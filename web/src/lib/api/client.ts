@@ -2,6 +2,7 @@ import axios from "axios";
 import snakecaseKeys from "snakecase-keys";
 
 import { toApiError } from "@/lib/api/errors";
+import { ensureSignedIn } from "@/lib/api/session";
 
 const isServer = typeof window === "undefined";
 
@@ -128,5 +129,9 @@ api.interceptors.response.use(
 	},
 	// Every failure leaves this client as an `ApiError` — callers branch on
 	// `status` / `code` / `detail`, never on axios internals.
-	(error: unknown) => Promise.reject(toApiError(error)),
+	(error: unknown) => {
+		const apiError = toApiError(error);
+		if (!isServer && apiError.status === 401) void ensureSignedIn();
+		return Promise.reject(apiError);
+	},
 );
