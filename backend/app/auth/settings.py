@@ -8,6 +8,8 @@ class AuthSettings(BaseSettings):
     JWT_SECRET_KEY: str = "change-me-in-production"
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
+    # Activity renews the token (sliding session) up to this long after sign-in.
+    SESSION_MAX_DAYS: int = 30
 
     # Cookie Configuration
     COOKIE_NAME: str = "access_token"

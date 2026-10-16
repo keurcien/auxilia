@@ -13,6 +13,7 @@ from app.artifacts.router import (
     router as artifacts_router,
     slides_router as artifacts_slides_router,
 )
+from app.auth.middleware import SlidingSessionMiddleware
 from app.auth.router import router as auth_router
 from app.auth.settings import auth_settings
 from app.auth.tokens.router import router as tokens_router
@@ -207,6 +208,9 @@ app.add_middleware(
     same_site="lax",
     https_only=auth_settings.COOKIE_SECURE,
 )
+
+# Keeps active users signed in: renews the session cookie past half its lifetime.
+app.add_middleware(SlidingSessionMiddleware)
 
 
 @app.get("/health", tags=["health"])

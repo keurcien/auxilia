@@ -1,6 +1,6 @@
 from authlib.integrations.starlette_client import OAuth
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import JSONResponse, RedirectResponse, Response
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.auth.dependencies import get_current_user
 from app.auth.schemas import (
@@ -14,6 +14,7 @@ from app.auth.schemas import (
 )
 from app.auth.service import AuthService, get_auth_service
 from app.auth.settings import auth_settings
+from app.auth.utils import attach_auth_cookie
 from app.exceptions import NoInviteError
 from app.invites.service import InviteService, get_invite_service
 from app.users.models import UserDB
@@ -33,25 +34,13 @@ if auth_settings.google_oauth_enabled:
     )
 
 
-def _attach_auth_cookie(response: Response, token: str) -> None:
-    response.set_cookie(
-        key=auth_settings.COOKIE_NAME,
-        value=token,
-        httponly=auth_settings.COOKIE_HTTPONLY,
-        secure=auth_settings.COOKIE_SECURE,
-        samesite=auth_settings.COOKIE_SAMESITE,
-        domain=auth_settings.COOKIE_DOMAIN,
-        max_age=auth_settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-    )
-
-
 def _auth_response(user: UserDB, token: str, status_code: int = 200) -> JSONResponse:
     user_read = UserResponse.model_validate(user)
     response = JSONResponse(
         status_code=status_code,
         content=user_read.model_dump(mode="json"),
     )
-    _attach_auth_cookie(response, token)
+    attach_auth_cookie(response, token)
     return response
 
 
@@ -136,8 +125,15 @@ async def accept_invite(
     return _auth_response(user, token, status_code=201)
 
 
+def is_same_origin_path(path: str) -> bool:
+    """A post-login redirect target: "//host" or "/\\host" would be an open redirect."""
+    return path.startswith("/") and path[1:2] not in ("/", "\\")
+
+
 @router.get("/google")
-async def google_login(request: Request, invite_token: str | None = None):
+async def google_login(
+    request: Request, invite_token: str | None = None, next: str | None = None
+):
     if not auth_settings.google_oauth_enabled:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -145,6 +141,8 @@ async def google_login(request: Request, invite_token: str | None = None):
         )
     if invite_token:
         request.session["invite_token"] = invite_token
+    if next and is_same_origin_path(next):
+        request.session["next"] = next
 
     redirect_uri = f"{auth_settings.FRONTEND_URL}/api/backend/auth/google/callback"
     return await oauth.google.authorize_redirect(request, redirect_uri)
@@ -185,6 +183,7 @@ async def google_callback(
         )
 
     invite_token = request.session.pop("invite_token", None)
+    next_path = request.session.pop("next", "/agents")
 
     try:
         _user, access_token = await service.oauth_signin_or_link(
@@ -202,10 +201,10 @@ async def google_callback(
         )
 
     response = RedirectResponse(
-        url=f"{auth_settings.FRONTEND_URL}/agents",
+        url=f"{auth_settings.FRONTEND_URL}{next_path}",
         status_code=302,
     )
-    _attach_auth_cookie(response, access_token)
+    attach_auth_cookie(response, access_token)
     return response
 
 

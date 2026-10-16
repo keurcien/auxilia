@@ -36,12 +36,18 @@ function GoogleIcon() {
 	);
 }
 
+// Only same-origin paths: "//evil.com" and "/\\evil.com" are protocol-relative.
+function safeNext(next: string | null): string | null {
+	return next && /^\/(?![/\\])/.test(next) ? next : null;
+}
+
 function AuthPageContent() {
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [providers, setProviders] = useState<AuthProviders | null>(null);
+	const next = safeNext(searchParams.get("next"));
 
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
@@ -77,7 +83,7 @@ function AuthPageContent() {
 
 		try {
 			await authApi.signIn(email, password);
-			router.push("/agents");
+			router.push(next ?? "/agents");
 		} catch (err: unknown) {
 			setError(getApiErrorMessage(err, "An error occurred"));
 		} finally {
@@ -86,7 +92,9 @@ function AuthPageContent() {
 	};
 
 	const signInWithGoogle = () => {
-		window.location.href = "/api/backend/auth/google";
+		window.location.href = next
+			? `/api/backend/auth/google?next=${encodeURIComponent(next)}`
+			: "/api/backend/auth/google";
 	};
 
 	if (providers?.setupRequired) {
