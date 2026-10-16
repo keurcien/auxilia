@@ -76,6 +76,23 @@ class RunRepository(BaseRepository[RunDB]):
         result = await self.db.execute(stmt.limit(1))
         return result.scalar_one_or_none()
 
+    async def has_newer_run(
+        self, thread_id: str, after: RunDB, *, strategy: str
+    ) -> bool:
+        """Whether a run created after `after` on the thread used `strategy`."""
+        stmt = select(
+            exists().where(
+                RunDB.thread_id == thread_id,
+                RunDB.multitask_strategy == strategy,
+                or_(
+                    RunDB.created_at > after.created_at,
+                    and_(RunDB.created_at == after.created_at, RunDB.id > after.id),
+                ),
+            )
+        )
+        result = await self.db.execute(stmt)
+        return bool(result.scalar())
+
     async def lock_thread_runs(self, thread_id: str) -> None:
         """Serialize run creation for a thread within this transaction
         (advisory xact lock, auto-released at commit/rollback) so two

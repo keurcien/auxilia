@@ -438,10 +438,11 @@ const SubmitButton = ({
 	queueFull: boolean;
 }) => {
 	const controller = usePromptInputController();
-	const input = controller.textInput.value;
-	// While a turn runs, typed text turns Stop back into Send (it queues).
-	const isStreaming = status === "streaming" && !input.trim();
-	const isDisabled = isStreaming ? false : !input.trim() || queueFull;
+	const hasContent =
+		Boolean(controller.textInput.value.trim()) || controller.attachments.files.length > 0;
+	// While a turn runs, anything to send turns Stop back into Send (it queues).
+	const isStreaming = status === "streaming" && !hasContent;
+	const isDisabled = isStreaming ? false : !hasContent || queueFull;
 
 	return (
 		<button

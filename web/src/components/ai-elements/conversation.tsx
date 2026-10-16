@@ -51,7 +51,8 @@ export const ConversationFade = ({ className }: { className?: string }) => {
 	return (
 		<div
 			className={cn(
-				"pointer-events-none absolute bottom-0 left-0 right-0 z-10 h-12 bg-gradient-to-t from-background to-transparent",
+				// No z-index: the scroll button, rendered after it, must stay on top.
+				"pointer-events-none absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-background to-transparent",
 				className
 			)}
 		/>

@@ -405,6 +405,8 @@ async def test_a_run_is_superseded_only_by_an_interrupting_run(redis, run_db):
         created_at=now,
     )
     assert await protocol._superseded(queued)
+    # Even behind the queued run in between.
+    assert await protocol._superseded(old)
 
 
 async def test_an_interrupted_run_retracts_what_it_streamed(redis, run_db, monkeypatch):

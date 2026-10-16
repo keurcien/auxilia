@@ -232,8 +232,10 @@ export function useThreadSession({
 	// our submits not settled yet — `submit()` settles at its run's terminal.
 	// The latter covers "send now": the interrupting submit settles the one
 	// it replaces, which drops `isLoading` until the new run reports in.
-	const [inFlight, setInFlight] = useState(0);
-	const busy = stream.isLoading || inFlight > 0;
+	// Per thread: a submit still settling on the thread left behind must not
+	// hold this one's queue.
+	const [inFlight, setInFlight] = useState<Record<string, number>>({});
+	const busy = stream.isLoading || (inFlight[threadId] ?? 0) > 0;
 
 	const [queueState, setQueueState] = useState<{ threadId: string; items: QueuedEntry[] }>({
 		threadId,
@@ -258,14 +260,15 @@ export function useThreadSession({
 	const submitContent = useCallback(
 		(content: HumanContent, multitaskStrategy: "enqueue" | "interrupt") => {
 			userActed();
-			setInFlight((n) => n + 1);
+			const forThread = threadId;
+			setInFlight((counts) => ({ ...counts, [forThread]: (counts[forThread] ?? 0) + 1 }));
 			void selectorStream
 				.submit({ messages: [{ type: "human", content }] }, { multitaskStrategy })
 				.finally(() => {
-					setInFlight((n) => n - 1);
+					setInFlight((counts) => ({ ...counts, [forThread]: (counts[forThread] ?? 1) - 1 }));
 				});
 		},
-		[selectorStream, userActed],
+		[selectorStream, threadId, userActed],
 	);
 
 	const send = useCallback(
@@ -275,7 +278,10 @@ export function useThreadSession({
 			if (busy || queueItems.length > 0) {
 				if (queueFull) return;
 				userActed();
-				setQueue((items) => [...items, { id: crypto.randomUUID(), content }]);
+				// Rechecked here: two sends batched in one render both pass `queueFull`.
+				setQueue((items) =>
+					items.length >= QUEUE_LIMIT ? items : [...items, { id: crypto.randomUUID(), content }],
+				);
 				return;
 			}
 			// `enqueue` server-side too: a run the page cannot see yet still
@@ -285,13 +291,15 @@ export function useThreadSession({
 		[busy, queueItems.length, queueFull, setQueue, submitContent, userActed],
 	);
 
-	// The turn ended (and is not waiting on an approval): send the next one.
+	// The turn ended (and is not waiting on an approval, its own or a
+	// subagent's): send the next one.
+	const awaitingApproval = isInterrupted || nestedInterrupts.length > 0;
 	useEffect(() => {
-		if (busy || isInterrupted || queueItems.length === 0) return;
+		if (busy || awaitingApproval || queueItems.length === 0) return;
 		const [next] = queueItems;
 		setQueue((items) => items.filter((e) => e.id !== next.id));
 		submitContent(next.content, "enqueue");
-	}, [busy, isInterrupted, queueItems, setQueue, submitContent]);
+	}, [busy, awaitingApproval, queueItems, setQueue, submitContent]);
 
 	const sendNow = useCallback(
 		(id: string) => {

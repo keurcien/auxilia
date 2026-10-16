@@ -229,6 +229,8 @@ class ProtocolService:
         if not await events.exists():
             record = await self.runs.get(run.id)
             if is_terminal(record.status):
+                if await self._superseded(run):
+                    return
                 # The log expired — synthesize the terminal lifecycle from the
                 # durable record, which outlives the log.
                 if (sse := synthetic_terminal(record)) is not None:
@@ -286,8 +288,8 @@ class ProtocolService:
         terminal — is dropped: rendered after the user's new message it reads
         as the agent ignoring them, and the client, which armed its terminal
         watch before dispatching the newer run, would settle on this one's."""
-        newer = await self.runs.next_for_thread(run.thread_id, run)
-        return newer is not None and newer.multitask_strategy == "interrupt"
+        # Any newer one, not just the next: it may sit behind a queued run.
+        return await self.runs.is_interrupted_by_newer(run)
 
     # --- thread state -------------------------------------------------------------
 

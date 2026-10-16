@@ -122,6 +122,15 @@ const ChatPage = () => {
         </Conversation>
       </div>
       <div className="w-full shrink-0 bg-background">
+        {queue.messages.length > 0 && (
+          // Above the composer, not in the thread: a growing answer would keep
+          // moving the buttons away from the cursor. Outside the composer's
+          // branches, so a banner replacing it (e.g. a sandbox outage) still
+          // leaves the queue visible and discardable.
+          <div className="w-full max-w-4xl mx-auto lg:px-10 sm:px-6 px-3 pt-3 flex flex-col gap-3">
+            <QueuedTurns queue={queue} />
+          </div>
+        )}
         {meta.status === "error" ? (
           <div className="w-full max-w-4xl mx-auto lg:px-10 sm:px-6 px-3 py-6">
             <div className="flex items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3">
@@ -217,14 +226,6 @@ const ChatPage = () => {
             </div>
           </div>
         ) : (
-          <>
-          {queue.messages.length > 0 && (
-            // Above the composer, not in the thread: a growing answer would
-            // keep moving the buttons away from the cursor.
-            <div className="w-full max-w-4xl mx-auto lg:px-10 sm:px-6 px-3 pt-3 flex flex-col gap-3">
-              <QueuedTurns queue={queue} />
-            </div>
-          )}
           <ChatPromptInput
             onSubmit={actions.send}
             queueFull={queue.full}
@@ -238,7 +239,6 @@ const ChatPage = () => {
             disconnectedServers={disconnectedMcpServers}
             onAllConnected={refetchReady}
           />
-          </>
         )}
       </div>
     </div>

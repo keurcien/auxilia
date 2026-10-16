@@ -362,8 +362,10 @@ describe("useThreadSession", () => {
 		expect(result.current.queue.messages.map((m) => m.text)).toEqual(["second"]);
 
 		// The interrupting run is the one in flight now: a new message queues.
+		// Two sends batched into one render, one slot left: only the first fits.
 		act(() => {
 			result.current.actions.send({ text: "fifth", files: [] });
+			result.current.actions.send({ text: "sixth", files: [] });
 		});
 		await waitFor(() => {
 			expect(result.current.queue.messages.map((m) => m.text)).toEqual(["second", "fifth"]);

@@ -139,6 +139,10 @@ class ProtocolEmitter:
         yield ev.lifecycle_event([], "running")
         async for envelope in run:
             for event in self.translate(envelope):
+                # Tracked as it is yielded, not per batch: a cancel between
+                # two events must not save text the client never received.
+                if event["method"] == "messages" and not event["params"]["namespace"]:
+                    self._track_answer(event["params"]["data"])
                 yield event
         for event in self.final_snapshot():
             yield event
@@ -175,11 +179,7 @@ class ProtocolEmitter:
         namespace = list(params.get("namespace") or [])
         data = params.get("data")
         if method == "messages":
-            events = self._on_messages(namespace, data)
-            if not namespace:
-                for event in events:
-                    self._track_answer(event["params"]["data"])
-            return events
+            return self._on_messages(namespace, data)
         if method == "values":
             return self._on_values(namespace, data, params.get("interrupts"))
         if method == "tools":

@@ -961,68 +961,77 @@ def test_synthetic_ai_message_events():
     assert _data(values) == {"todos": [], "messages": [serialize_message(msg)]}
 
 
-def test_streamed_answer_keeps_visible_text_only():
+async def test_streamed_answer_keeps_visible_text_only():
     """What a cancelled turn saves: the root answer's text blocks, not its
-    reasoning or a half-streamed tool call, and nothing from a subagent."""
+    reasoning or a half-streamed tool call, and nothing from a subagent —
+    counted as each event is yielded."""
     from app.runtime.protocol.emit import ProtocolEmitter
 
-    emitter = ProtocolEmitter()
+    def envelope(data, namespace=()):
+        return {
+            "method": "messages",
+            "params": {"namespace": list(namespace), "data": [data, {}]},
+        }
 
-    def feed(data, namespace=()):
-        emitter.translate(
+    envelopes = [
+        envelope({"event": "message-start", "role": "ai", "id": "m1"}),
+        envelope(
             {
-                "method": "messages",
-                "params": {"namespace": list(namespace), "data": [data, {}]},
+                "event": "content-block-start",
+                "index": 0,
+                "content": {"type": "reasoning", "reasoning": ""},
             }
-        )
+        ),
+        envelope(
+            {
+                "event": "content-block-delta",
+                "index": 0,
+                "delta": {"type": "reasoning-delta", "reasoning": "hmm"},
+            }
+        ),
+        envelope(
+            {
+                "event": "content-block-start",
+                "index": 1,
+                "content": {"type": "text", "text": "Hel"},
+            }
+        ),
+        envelope(
+            {
+                "event": "content-block-delta",
+                "index": 1,
+                "delta": {"type": "text-delta", "text": "lo"},
+            }
+        ),
+        envelope(
+            {
+                "event": "content-block-start",
+                "index": 2,
+                "content": {"type": "tool_call_chunk", "args": "{"},
+            }
+        ),
+        envelope({"event": "message-start", "role": "ai", "id": "sub"}, ["tools:1"]),
+        envelope(
+            {
+                "event": "content-block-start",
+                "index": 0,
+                "content": {"type": "text", "text": "x"},
+            },
+            ["tools:1"],
+        ),
+    ]
 
-    assert emitter.streamed_answer() is None
-    feed({"event": "message-start", "role": "ai", "id": "m1"})
-    feed(
-        {
-            "event": "content-block-start",
-            "index": 0,
-            "content": {"type": "reasoning", "reasoning": ""},
-        }
-    )
-    feed(
-        {
-            "event": "content-block-delta",
-            "index": 0,
-            "delta": {"type": "reasoning-delta", "reasoning": "hmm"},
-        }
-    )
+    async def run():
+        for e in envelopes:
+            yield e
+
+    emitter = ProtocolEmitter()
+    stream = emitter.stream(run())
+    for _ in range(5):  # the two lifecycle events, then up to the reasoning
+        await anext(stream)
     assert emitter.streamed_answer() is None  # reasoning alone saves nothing
-    feed(
-        {
-            "event": "content-block-start",
-            "index": 1,
-            "content": {"type": "text", "text": "Hel"},
-        }
-    )
-    feed(
-        {
-            "event": "content-block-delta",
-            "index": 1,
-            "delta": {"type": "text-delta", "text": "lo"},
-        }
-    )
-    feed(
-        {
-            "event": "content-block-start",
-            "index": 2,
-            "content": {"type": "tool_call_chunk", "args": "{"},
-        }
-    )
-    feed({"event": "message-start", "role": "ai", "id": "sub"}, namespace=["tools:1"])
-    feed(
-        {
-            "event": "content-block-start",
-            "index": 0,
-            "content": {"type": "text", "text": "x"},
-        },
-        namespace=["tools:1"],
-    )
+    async for _ in stream:
+        pass
 
     answer = emitter.streamed_answer()
     assert (answer.id, answer.content) == ("m1", "Hello")

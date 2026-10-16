@@ -92,18 +92,34 @@ class RunService:
         async with AsyncSessionLocal() as db:
             await self._ensure_runnable_thread(db, thread_id)
             repository = RunRepository(db)
-            superseded: list[RunDB] = []
+            # Serialize every create on this thread (the lock ends with the
+            # txn): reject's active-run check, interrupt's snapshot of what it
+            # supersedes, and the creation order the claim follows.
+            await repository.lock_thread_runs(thread_id)
+            cancelled: list[str] = []
+            to_signal: list[str] = []
             if multitask_strategy == "reject":
-                # Serialize concurrent creates on this thread so two reject
-                # requests can't both pass the check (lock ends with the txn).
-                await repository.lock_thread_runs(thread_id)
                 if await repository.get_active_for_thread(thread_id) is not None:
                     raise DomainValidationError(
                         "This thread already has an active run."
                     )
             elif multitask_strategy == "interrupt":
-                await repository.lock_thread_runs(thread_id)
-                superseded = await repository.list_active_for_thread(thread_id)
+                for active in await repository.list_active_for_thread(thread_id):
+                    # Pending ones are cancelled in this txn, or a dispatcher
+                    # could claim one between the commit and its cancel.
+                    if active.status == RunStatus.pending and (
+                        await repository.finalize_run(
+                            active.id, RunStatus.cancelled, expected=RunStatus.pending
+                        )
+                        is not None
+                    ):
+                        cancelled.append(active.id)
+                    else:
+                        to_signal.append(active.id)
+                if cancelled:
+                    await ThreadRepository(db).set_last_run_status(
+                        thread_id, RunStatus.cancelled
+                    )
             run = await repository.create(
                 RunDB(
                     thread_id=thread_id,
@@ -115,14 +131,30 @@ class RunService:
                     output_schema=output_schema,
                     delivery=delivery,
                     multitask_strategy=multitask_strategy,
+                    # Stamped past the lock: the column default, `now()`, is
+                    # the txn start, which would order a create that waited on
+                    # the lock ahead of the one it waited for.
+                    created_at=datetime.now(UTC),
                 )
             )
             await db.commit()
-        # Cancelled after the new run is committed: it cannot be claimed while
-        # a superseded run is still `running` (the per-thread mutex), so it
-        # starts as soon as each cancel lands.
-        for record in superseded:
-            await self.cancel(record.id)
+        for run_id in cancelled:
+            await RunEventStream(run_id, self.redis).publish_end(RunStatus.cancelled)
+            await self._expire_ephemera(run_id)
+        # Signalled after the commit: the new run cannot be claimed while one
+        # of these is still `running` (the per-thread mutex), so it starts as
+        # soon as each cancel lands.
+        for run_id in to_signal:
+            try:
+                await RunControl(run_id, self.redis).request_cancel(
+                    ttl=run_settings.ttl_seconds
+                )
+            except Exception:  # the run is created; it just waits
+                logger.exception(
+                    "Could not signal run %s to stop; %s waits for it to finish",
+                    run_id,
+                    run.id,
+                )
         return run
 
     @staticmethod
@@ -257,6 +289,12 @@ class RunService:
     ) -> RunDB | None:
         async with AsyncSessionLocal() as db:
             return await RunRepository(db).next_for_thread(thread_id, after)
+
+    async def is_interrupted_by_newer(self, run: RunDB) -> bool:
+        async with AsyncSessionLocal() as db:
+            return await RunRepository(db).has_newer_run(
+                run.thread_id, run, strategy="interrupt"
+            )
 
     async def get_active(self, thread_id: str) -> RunDB | None:
         async with AsyncSessionLocal() as db:
