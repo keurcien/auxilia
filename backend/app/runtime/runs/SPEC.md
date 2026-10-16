@@ -254,7 +254,13 @@ no backoff — waiting is a property of the data.
 `interrupt` — the new run is created, then every active run on the thread is
 cancelled (`RunService.cancel`). It is claimed once the cancelled run
 finalizes; whatever that run checkpointed stays (dangling tool calls are
-patched by the harness, as after a Stop). `rollback` is not offered.
+patched by the harness, as after a Stop). Any cancel (Interrupt, Stop, the
+wall-clock cap) also saves the root answer as far as it streamed:
+`Agent.stream` catches the `CancelledError` and, shielded, writes the
+`ProtocolEmitter.streamed_answer()` — visible text only, under its streamed
+id, `response_metadata.stop_reason = "interrupted"` — unless the checkpoint
+already has that id. The worker awaits the cancelled task before `finalize`,
+so the save lands before the next run can be claimed. `rollback` is not offered.
 
 The web client sends the strategy as `run.start`'s `multitaskStrategy`. It
 sends every message with `enqueue`, which the SDK holds client-side while a
@@ -267,8 +273,9 @@ after the user's new message, and its terminal would settle the client's
 watch, which is armed before the new run is dispatched. Cutting it off, the session sends one root `values`
 snapshot listing the thread's messages plus every message the old run
 streamed (empty stubs; the client keeps its streamed copy). The new run's
-first snapshot lists only what was checkpointed, so the client drops the
-partial answer — it removes a message only when a snapshot that listed it no
+first snapshot lists only what was checkpointed, so the client drops what
+was not saved (a reasoning-only or half-streamed tool-call message; a saved
+answer is listed again and stays) — it removes a message only when a snapshot that listed it no
 longer does.
 
 ## Thread status (`threads.last_run_status`)

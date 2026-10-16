@@ -8,14 +8,17 @@ turn can resume from. They exist to make the P2-3 unification of
 `build_runnable` a refactor with a safety net instead of a leap of faith.
 """
 
+import asyncio
 import json
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import aclosing, asynccontextmanager, contextmanager, suppress
 from contextvars import ContextVar
 from datetime import UTC, datetime
+from typing import Any, ClassVar
 from unittest.mock import MagicMock, patch
 
 import pytest
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, AIMessageChunk
+from langchain_core.outputs import ChatGenerationChunk
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
 
@@ -91,6 +94,7 @@ def build_agent(
     middleware: list | None = None,
     interrupt_on: dict | None = None,
     instructions: str = "You are a test agent",
+    model_class: type[ScriptedChatModel] = ScriptedChatModel,
 ) -> tuple[Agent, ScriptedChatModel]:
     """An `Agent` whose graph is real and whose model is scripted."""
     from app.runtime.agent import build_parent_middleware
@@ -100,7 +104,7 @@ def build_agent(
         prepared.interrupt_on = interrupt_on
     resolved = ResolvedAgent(config=_spec(instructions), prepared=prepared)
     resolved.live = LiveToolsetStub(tools or [])
-    model = ScriptedChatModel(script=script)
+    model = model_class(script=script)
     agent = Agent(
         thread=_thread(),
         agent=resolved,
@@ -701,3 +705,110 @@ async def test_a_rebound_sandbox_ignores_the_previous_provider_s_id(in_memory_ru
     # Reconnect was never attempted with the foreign id.
     agent.agent.sandbox.provider.connect.assert_not_called()
     assert agent.remembered == ["sbx-live"]
+
+
+# --- a turn cancelled mid-answer keeps what it streamed ----------------------
+
+
+class HangingModel(ScriptedChatModel):
+    """Streams `tokens` on its first call, then never finishes; later calls
+    replay the script."""
+
+    tokens: ClassVar[list[str]] = ["partial", " answer"]
+
+    async def _astream(self, messages, stop=None, run_manager=None, **kwargs: Any):
+        if self.index == 0:
+            self.index += 1
+            self.calls.append(list(messages))
+            for token in self.tokens:
+                chunk = ChatGenerationChunk(message=AIMessageChunk(content=token))
+                if run_manager:
+                    await run_manager.on_llm_new_token(token, chunk=chunk)
+                yield chunk
+            await asyncio.Event().wait()
+        message = self._generate(messages).generations[0].message
+        yield ChatGenerationChunk(message=AIMessageChunk(content=message.content))
+
+
+async def _cancel_mid_answer(agent) -> list[dict]:
+    """Run a turn and cancel it once the whole partial answer has streamed."""
+    events: list[dict] = []
+    streamed = asyncio.Event()
+
+    async def consume():
+        # As the worker does: the generator is closed with the task, and the
+        # consumer awaits per event (the Redis publish) — so the cancel lands
+        # in the consumer, and reaches the generator as its `aclose()`.
+        async with aclosing(
+            agent.stream(
+                agent_input={"messages": [{"type": "human", "content": "hello"}]}
+            )
+        ) as stream:
+            async for event in stream:
+                events.append(event)
+                if '"text": " answer"' in json.dumps(event):
+                    streamed.set()
+                await asyncio.sleep(0.05)
+
+    task = asyncio.create_task(consume())
+    await asyncio.wait_for(streamed.wait(), timeout=5)
+    await asyncio.sleep(0.01)  # into the consumer's await
+    task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task
+    return events
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_turn_keeps_its_streamed_text(in_memory_runtime):
+    agent, _ = build_agent(script=[], model_class=HangingModel)
+
+    events = await _cancel_mid_answer(agent)
+
+    streamed_id = next(
+        e["params"]["data"]["id"]
+        for e in events
+        if e["method"] == "messages"
+        and e["params"]["data"].get("event") == "message-start"
+        and e["params"]["data"].get("role") == "ai"
+    )
+    *_, last = await final_messages(in_memory_runtime)
+    assert (last.type, last.content, last.id) == ("ai", "partial answer", streamed_id)
+    assert last.response_metadata.get("stop_reason") == "interrupted"
+
+
+@pytest.mark.asyncio
+async def test_the_next_turn_sees_the_partial_answer_once(
+    in_memory_runtime, monkeypatch
+):
+    agent, _ = build_agent(script=[], model_class=HangingModel)
+    await _cancel_mid_answer(agent)
+
+    agent, model = build_agent(script=["picking up"])
+    await collect(agent, "go on")
+
+    assert [(m.type, m.content) for m in await final_messages(in_memory_runtime)] == [
+        ("human", "hello"),
+        ("ai", "partial answer"),
+        ("human", "go on"),
+        ("ai", "picking up"),
+    ]
+    assert [m.content for m in model.calls[0][1:]] == [
+        "hello",
+        "partial answer",
+        "go on",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_turn_cancelled_before_any_text_saves_nothing(
+    in_memory_runtime, monkeypatch
+):
+    monkeypatch.setattr(HangingModel, "tokens", [])
+    agent, _ = build_agent(script=[], model_class=HangingModel)
+    task = asyncio.create_task(collect(agent, "hello"))
+    await asyncio.sleep(0.3)
+    task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task
+    assert [m.type for m in await final_messages(in_memory_runtime)] == ["human"]

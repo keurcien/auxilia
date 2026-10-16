@@ -360,5 +360,14 @@ describe("useThreadSession", () => {
 		});
 		expect(starts()[1].params?.multitaskStrategy).toBe("interrupt");
 		expect(result.current.queue.messages.map((m) => m.text)).toEqual(["second"]);
+
+		// The interrupting run is the one in flight now: a new message queues.
+		act(() => {
+			result.current.actions.send({ text: "fifth", files: [] });
+		});
+		await waitFor(() => {
+			expect(result.current.queue.messages.map((m) => m.text)).toEqual(["second", "fifth"]);
+		});
+		expect(starts()).toHaveLength(2);
 	});
 });

@@ -805,6 +805,27 @@ class Agent:
         await agent.aupdate_state(config, {"messages": [ai_msg]})
         return ai_msg
 
+    async def _persist_interrupted_answer(
+        self, agent, config, emitter: ProtocolEmitter
+    ) -> None:
+        """Save what a cancelled turn's answer had streamed (Interrupt, Stop,
+        the wall-clock cap), so the thread remembers what the page showed and
+        the next turn's model reads it. Skipped when nothing streamed or the
+        model call finished in time for the graph to checkpoint it. Never
+        raises: a failed save must not mask the cancellation."""
+        message = emitter.streamed_answer()
+        if message is None:
+            return
+        try:
+            state = await agent.aget_state(config)
+            if any(m.id == message.id for m in state.values.get("messages", [])):
+                return
+            await agent.aupdate_state(config, {"messages": [message]})
+        except Exception:
+            logger.exception(
+                "Could not save the interrupted answer of %s", self.thread.id
+            )
+
     async def stream(
         self,
         agent_input: dict | None = None,
@@ -862,6 +883,14 @@ class Agent:
                 async with run:
                     async for event in emitter.stream(run):
                         yield event
+            except (asyncio.CancelledError, GeneratorExit):
+                # A cancel lands here directly, or — when it hit the consumer
+                # between two events — as the consumer's `aclose()`.
+                # Shielded: the save must outlive the cancel it is reacting to.
+                await asyncio.shield(
+                    self._persist_interrupted_answer(agent, config, emitter)
+                )
+                raise
             except GraphRecursionError:
                 ai_msg = await self._persist_recursion_fallback(agent, config)
                 state = await agent.aget_state(config)

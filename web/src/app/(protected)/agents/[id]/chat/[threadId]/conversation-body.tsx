@@ -269,7 +269,7 @@ const HostNotice = ({ message }: { message: BaseMessage }) => (
   </div>
 );
 
-/** Messages waiting behind the running turn, at the bottom of the thread —
+/** Messages waiting behind the running turn, shown above the composer —
  *  dimmed until they are sent. "Send now" interrupts the turn with one. */
 export const QueuedTurns = ({ queue }: { queue: ThreadSession["queue"] }) =>
   queue.messages.map((message) => (

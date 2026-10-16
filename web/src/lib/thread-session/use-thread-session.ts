@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { isHumanMessage } from "@langchain/core/messages";
 import type { BaseMessage } from "@langchain/core/messages";
-import { useStream, useSubmissionQueue } from "@langchain/react";
+import { useStream } from "@langchain/react";
 import type { AnyStream, SubagentDiscoverySnapshot } from "@langchain/react";
 import type { Interrupt } from "@langchain/langgraph-sdk";
 
@@ -26,7 +26,7 @@ import { usePendingMessageStore } from "@/stores/pending-message-store";
 import type { Run } from "@/types/runs";
 import type { ThreadRead } from "@/types/threads";
 
-import { contentPreview, promptMessageToContent } from "./build-content";
+import { contentPreview, type HumanContent, promptMessageToContent } from "./build-content";
 import { EMPTY_HELD, holdInterrupts } from "./interrupt-hold";
 import { submitPendingAfterHydration } from "./pending-message";
 import {
@@ -44,6 +44,8 @@ const EMPTY_TODOS: Todo[] = [];
 export const QUEUE_LIMIT = 2;
 
 export type QueuedMessage = { id: string; text: string };
+type QueuedEntry = { id: string; content: HumanContent };
+const EMPTY_QUEUE: QueuedEntry[] = [];
 /** Render cadence for the streamed views (tokens arrive far faster). */
 const THROTTLE_MS = 60;
 
@@ -86,8 +88,8 @@ export type ThreadSession = {
 		/** Kept separately: the body renders the two differently. */
 		rehydratedError: string | null;
 	};
-	/** Messages sent while a turn runs. The SDK holds them client-side and
-	 * sends the head once the turn ends; `sendNow` interrupts the turn with one. */
+	/** Messages sent while a turn runs, held here and sent in order once it
+	 * ends; `sendNow` interrupts the turn with one. */
 	queue: {
 		messages: QueuedMessage[];
 		full: boolean;
@@ -213,16 +215,6 @@ export function useThreadSession({
 		() => pairToolCalls(messages, liveToolCalls),
 		[messages, liveToolCalls],
 	);
-	const queue = useSubmissionQueue(selectorStream);
-	const queued = useMemo(
-		() =>
-			queue.entries.map((entry) => {
-				const values = entry.values as { messages?: Array<{ content?: unknown }> } | undefined;
-				return { id: entry.id, text: contentPreview(values?.messages?.[0]?.content) };
-			}),
-		[queue.entries],
-	);
-	const queueFull = queue.size >= QUEUE_LIMIT;
 	const todos =
 		((stream.values as Record<string, unknown>).todos as Todo[] | undefined) ??
 		EMPTY_TODOS;
@@ -232,39 +224,90 @@ export function useThreadSession({
 		dispatch({ type: "user-acted" });
 	}, []);
 
+	// --- the queue ------------------------------------------------------------
+	// Ours, not the SDK's `enqueue`: that one queues only behind a run this
+	// page started, so after a reload (or a remount) mid-run a message went
+	// straight to the server — sent, but no longer queued or sendable now.
+	// Busy is `isLoading` (also set for a run reattached on load) or one of
+	// our submits not settled yet — `submit()` settles at its run's terminal.
+	// The latter covers "send now": the interrupting submit settles the one
+	// it replaces, which drops `isLoading` until the new run reports in.
+	const [inFlight, setInFlight] = useState(0);
+	const busy = stream.isLoading || inFlight > 0;
+
+	const [queueState, setQueueState] = useState<{ threadId: string; items: QueuedEntry[] }>({
+		threadId,
+		items: [],
+	});
+	const queueItems = queueState.threadId === threadId ? queueState.items : EMPTY_QUEUE;
+	const queueFull = queueItems.length >= QUEUE_LIMIT;
+	const queued = useMemo(
+		() => queueItems.map((e) => ({ id: e.id, text: contentPreview(e.content) })),
+		[queueItems],
+	);
+	const setQueue = useCallback(
+		(update: (items: QueuedEntry[]) => QueuedEntry[]) => {
+			setQueueState((q) => ({
+				threadId,
+				items: update(q.threadId === threadId ? q.items : EMPTY_QUEUE),
+			}));
+		},
+		[threadId],
+	);
+
+	const submitContent = useCallback(
+		(content: HumanContent, multitaskStrategy: "enqueue" | "interrupt") => {
+			userActed();
+			setInFlight((n) => n + 1);
+			void selectorStream
+				.submit({ messages: [{ type: "human", content }] }, { multitaskStrategy })
+				.finally(() => {
+					setInFlight((n) => n - 1);
+				});
+		},
+		[selectorStream, userActed],
+	);
+
 	const send = useCallback(
 		(message: PromptInputMessage) => {
 			const content = promptMessageToContent(message);
-			if (content == null || queueFull) return;
-			userActed();
-			// Idle, `enqueue` just runs; mid-run the SDK queues it client-side.
-			void selectorStream.submit(
-				{ messages: [{ type: "human", content }] },
-				{ multitaskStrategy: "enqueue" },
-			);
+			if (content == null) return;
+			if (busy || queueItems.length > 0) {
+				if (queueFull) return;
+				userActed();
+				setQueue((items) => [...items, { id: crypto.randomUUID(), content }]);
+				return;
+			}
+			// `enqueue` server-side too: a run the page cannot see yet still
+			// gets waited on rather than rejected.
+			submitContent(content, "enqueue");
 		},
-		[selectorStream, userActed, queueFull],
+		[busy, queueItems.length, queueFull, setQueue, submitContent, userActed],
 	);
+
+	// The turn ended (and is not waiting on an approval): send the next one.
+	useEffect(() => {
+		if (busy || isInterrupted || queueItems.length === 0) return;
+		const [next] = queueItems;
+		setQueue((items) => items.filter((e) => e.id !== next.id));
+		submitContent(next.content, "enqueue");
+	}, [busy, isInterrupted, queueItems, setQueue, submitContent]);
 
 	const sendNow = useCallback(
 		(id: string) => {
-			const entry = queue.entries.find((e) => e.id === id);
+			const entry = queueItems.find((e) => e.id === id);
 			if (entry == null) return;
-			void queue.cancel(id).then((removed) => {
-				// Lost the race to the drain: it is already being sent.
-				if (!removed) return;
-				userActed();
-				void selectorStream.submit(entry.values, { multitaskStrategy: "interrupt" });
-			});
+			setQueue((items) => items.filter((e) => e.id !== id));
+			submitContent(entry.content, "interrupt");
 		},
-		[queue, selectorStream, userActed],
+		[queueItems, setQueue, submitContent],
 	);
 
 	const removeQueued = useCallback(
 		(id: string) => {
-			void queue.cancel(id);
+			setQueue((items) => items.filter((e) => e.id !== id));
 		},
-		[queue],
+		[setQueue],
 	);
 
 	const regenerate = useCallback(() => {

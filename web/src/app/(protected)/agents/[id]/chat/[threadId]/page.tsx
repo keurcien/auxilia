@@ -116,7 +116,6 @@ const ChatPage = () => {
               error={run.error}
               rehydratedError={run.rehydratedError}
             />
-            <QueuedTurns queue={queue} />
           </ConversationContent>
           <ConversationFade />
           <ConversationScrollButton />
@@ -218,6 +217,14 @@ const ChatPage = () => {
             </div>
           </div>
         ) : (
+          <>
+          {queue.messages.length > 0 && (
+            // Above the composer, not in the thread: a growing answer would
+            // keep moving the buttons away from the cursor.
+            <div className="w-full max-w-4xl mx-auto lg:px-10 sm:px-6 px-3 pt-3 flex flex-col gap-3">
+              <QueuedTurns queue={queue} />
+            </div>
+          )}
           <ChatPromptInput
             onSubmit={actions.send}
             queueFull={queue.full}
@@ -231,6 +238,7 @@ const ChatPage = () => {
             disconnectedServers={disconnectedMcpServers}
             onAllConnected={refetchReady}
           />
+          </>
         )}
       </div>
     </div>
