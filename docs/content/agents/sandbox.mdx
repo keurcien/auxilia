@@ -68,3 +68,73 @@ Because the sandbox lives for the length of the thread, later turns can just `ex
 - **[Sandbox — Setup](/deploy/sandbox/setup)** — adding an OpenSandbox, Daytona or Cloud Run sandbox to the workspace
 - **[Sandbox — Security](/deploy/sandbox/security)** — isolation model, volume mounts, timeouts
 - **[Tools & Permissions](/agents/tools)** — approval settings for MCP tool calls (sandbox tools are always allowed)
+
+## MCP tools from sandbox code
+
+An agent with both a sandbox and MCP tools can use either direct tool calls or
+Python code. Tool permissions are identical: disabled tools are unavailable,
+**Always allow** tools run immediately, and **Needs approval** tools wait for the
+user's decision in chat. There is no additional connection setup for users.
+
+```python
+import auxilia_mcp as mcp
+
+# Same exact tool names and schemas as direct calls.
+print(mcp.tools())
+result = mcp.call("your_server_your_tool", {"argument": "value"})
+if result["is_error"]:
+    raise RuntimeError(result["content"])
+data = result["structured_content"]
+
+# Save any result, regardless of size, without copying it through model context.
+mcp.call_to_file("your_server_your_tool", {"argument": "value"}, "/tmp/result.json")
+```
+
+Results contain `content`, `structured_content` and `is_error`. The bridge writes
+results directly to sandbox files; only metadata and paths go through Redis.
+Code can transform those files and print a small summary. Direct calls continue
+to work and are useful for individual actions and model-visible results.
+
+If an MCP call requires OAuth interaction, chat displays **Connect** while the
+script waits. After the existing OAuth callback successfully exchanges the code,
+the bridge reconnects and retries only that authentication-blocked call. Approval
+requests show the exact tool and arguments. These live requests are available in
+the owning user's web chat, including after reloading it. A caller on another
+surface can open that chat to answer them.
+
+### Deployment
+
+Set `SANDBOX_MCP_URL` to a backend URL reachable **from the sandbox**. It defaults
+to `BACKEND_URL`; a development localhost URL will not work from a remote sandbox.
+Permit outbound access to this host in your sandbox provider's network policy.
+For Cloud Run, enable both the sandbox's egress setting and the gateway's
+`ALLOW_EGRESS=true`. Use HTTPS outside local development.
+
+The API accepts requests on any instance; the run worker services them using its
+live MCP sessions. Redis coordinates requests and decisions, so sticky sessions
+and a separate sidecar are unnecessary. Each sandbox-enabled agent receives a
+random run-scoped capability with its own filtered toolset. Real MCP credentials
+stay in the backend. Capabilities are revoked when the run ends; a short lease
+expires them when the worker disappears. Shared parent/subagent sandbox processes
+and files remain one trust boundary; separate agent capabilities do not isolate
+mutually untrusted code within that shared sandbox.
+
+The Python client has no external dependencies. It is automatically installed in
+OpenSandbox, Daytona and Cloud Run sandboxes. It is available to commands started
+by this agent's `execute` tool, not to independently started sessions or notebooks.
+
+### Limits and recovery
+
+The initial implementation serializes sandbox MCP calls per agent. Defaults are
+200 calls per agent per run, 1 MB of arguments, 16 MB of serialized result, and a
+15-minute maximum wait per approval or OAuth request. Operators can configure
+`SANDBOX_MCP_MAX_CALLS`, `SANDBOX_MCP_MAX_REQUEST_BYTES`,
+`SANDBOX_MCP_MAX_RESULT_BYTES` and `SANDBOX_MCP_OPERATION_SECONDS`. The SDK's
+`timeout` defaults to 840 seconds; set an appropriate `execute` timeout too. The
+run's overall wall-clock limit still applies.
+
+Stopping the run, losing the sandbox, or exceeding those timeouts can interrupt
+code. Python execution state is not restored across runs. Network failures and
+uncertain write outcomes are **never automatically retried**; inspect the remote
+state before repeating a write. Retrying the same bridge operation ID cannot
+execute it twice within an active session, even after its result metadata expires.

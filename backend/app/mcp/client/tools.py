@@ -20,8 +20,13 @@ Two policies, chosen per tool when the toolset is built:
   it and the model never had it.
 """
 
+from contextvars import ContextVar
+
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool
+
+
+preserve_mcp_result: ContextVar[bool] = ContextVar("preserve_mcp_result", default=False)
 
 
 _STRUCTURED_CONTENT_KEYS = ("structured_content", "structuredContent")
@@ -57,6 +62,8 @@ def bound_tool_artifact(tool: BaseTool, ui_metadata: dict | None) -> None:
 
     async def bounded_coroutine(*args, **kwargs):
         result = await original_coroutine(*args, **kwargs)
+        if preserve_mcp_result.get():
+            return result
         if isinstance(result, tuple) and len(result) == 2:
             content, artifact = result
             return content, rewrite(artifact)

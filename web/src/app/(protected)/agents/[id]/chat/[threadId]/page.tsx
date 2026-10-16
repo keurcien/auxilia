@@ -19,6 +19,7 @@ import { useChatHeaderStore } from "@/stores/chat-header-store";
 import { chatHeaderFromThread, useThreadSession } from "@/lib/thread-session";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { getThreadCost } from "@/lib/api/resources/thread-costs";
+import { SandboxMcpRequests } from "./sandbox-mcp-requests";
 import { ConversationBody, QueuedTurns } from "./conversation-body";
 
 /**
@@ -116,6 +117,7 @@ const ChatPage = () => {
               error={run.error}
               rehydratedError={run.rehydratedError}
             />
+            <SandboxMcpRequests key={threadId} threadId={threadId} enabled={run.isLoading && meta.viewerRole !== "admin"} />
           </ConversationContent>
           <ConversationFade />
           <ConversationScrollButton />

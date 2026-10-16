@@ -55,6 +55,8 @@ from app.runtime.middleware.tool_errors import (
     ToolErrorMiddleware,
 )
 from app.runtime.protocol.emit import ProtocolEmitter
+from app.runtime.sandbox_mcp.backend import BRIDGE_PROMPT, BridgeSandbox
+from app.runtime.sandbox_mcp.worker import SDK_ROOT, SDK_SOURCE, BridgeSession
 from app.runtime.settings import agent_settings
 from app.runtime.toolset import (
     MCPResolutionScope,
@@ -210,6 +212,8 @@ def build_runnable(
     readable raw — every out-of-request reader goes through
     ``app.runtime.checkpoints.get_checkpoint_state``.
     """
+    if isinstance(sandbox_backend, BridgeSandbox):
+        system_prompt += BRIDGE_PROMPT
     tools = list(tools)
     harness: list = []
 
@@ -367,6 +371,7 @@ class ResolvedAgent:
     prepared: PreparedToolset
     live: Toolset | None = None
     sandbox: ResolvedSandbox | None = None
+    bridge_backend: BridgeSandbox | None = None
 
     @classmethod
     async def resolve(
@@ -481,6 +486,7 @@ class Agent:
         self.skills = list(skills)
         # The run's live sandbox, opened by `_setup` for the length of one run.
         self._sandbox: SandboxSession | None = None
+        self._bridges: list[BridgeSession] = []
 
     @property
     def metadata(self) -> dict:
@@ -695,7 +701,10 @@ class Agent:
             # return_exceptions=True so all enters finish before we
             # proceed or raise — a bare gather would orphan in-flight
             # session opens past the stack's unwind on first failure.
+            self._bridges = []
             resolved = [self.agent, *self.subagents]
+            for ra in resolved:
+                ra.bridge_backend = None
             results = await asyncio.gather(
                 *(
                     stack.enter_async_context(Toolset.open(ra.prepared))
@@ -709,6 +718,30 @@ class Agent:
             for ra, live in zip(resolved, results, strict=True):
                 ra.live = live
             await self._open_sandbox()
+            bridge_agents = [
+                ra
+                for ra in resolved
+                if self._sandbox_for(ra) is not None and ra.live.tools
+            ]
+            if bridge_agents:
+                backend = self._sandbox.backend
+                created = await asyncio.to_thread(
+                    backend.execute, f"mkdir -p {SDK_ROOT}"
+                )
+                if created.exit_code != 0:
+                    raise RuntimeError("Cannot install sandbox MCP client")
+                uploaded = await asyncio.to_thread(
+                    backend.upload_files,
+                    [(f"{SDK_ROOT}/auxilia_mcp.py", SDK_SOURCE.read_bytes())],
+                )
+                if len(uploaded) != 1 or uploaded[0].error:
+                    raise RuntimeError("Cannot upload sandbox MCP client")
+                for ra in bridge_agents:
+                    bridge = await stack.enter_async_context(
+                        BridgeSession(ra, self.thread, backend)
+                    )
+                    self._bridges.append(bridge)
+                    ra.bridge_backend = BridgeSandbox(backend, bridge.token)
             agent = self._build_agent(checkpointer, output_schema)
             resolved_input = self._resolve_input(agent_input, command)
             if self._sandbox is not None and self._sandbox.replaced:
@@ -739,7 +772,7 @@ class Agent:
         """The run's live sandbox, for an agent bound to one."""
         if self._sandbox is None or resolved.sandbox is None:
             return None
-        return self._sandbox.backend
+        return resolved.bridge_backend or self._sandbox.backend
 
     async def _open_sandbox(self) -> None:
         """Connect (or create) the thread's sandbox and put the run's skill
@@ -897,6 +930,8 @@ class Agent:
                 for event in emitter.synthetic_ai_message(ai_msg, state.values):
                     yield event
             finally:
+                for bridge in self._bridges:
+                    await bridge.close()
                 await self._persist_sandbox()
 
 

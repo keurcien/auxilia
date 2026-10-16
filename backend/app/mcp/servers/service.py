@@ -21,6 +21,7 @@ from app.mcp.client.connectivity import (
     is_authorized,
 )
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
+from app.mcp.client.oauth_events import oauth_completion_key
 from app.mcp.client.storage import TokenStorageFactory
 from app.mcp.servers import catalog as mcp_catalog
 from app.mcp.servers.models import MCPAuthType, MCPServerDB
@@ -37,6 +38,7 @@ from app.mcp.servers.schemas import (
     OfficialMCPServerResponse,
     ToolsListed,
 )
+from app.redis_client import get_redis
 from app.service import BaseService
 from app.users.repository import UserRepository
 from app.utils.encryption import decrypt_value
@@ -322,6 +324,8 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         # OAuth quirks (`OAUTH_QUIRKS` in `client/auth.py`) itself, including
         # the token-endpoint auth method this exchange needs.
         await provider.manual_exchange(code, state)
+        # Notify code waiting in a sandbox only after the token exchange succeeds.
+        await get_redis().set(oauth_completion_key(state), "complete", ex=900)
 
         return {
             "status": "success",
