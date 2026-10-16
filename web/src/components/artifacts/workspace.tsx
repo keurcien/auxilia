@@ -838,7 +838,14 @@ export function ArtifactWorkspace({
                                   item.id === saved.id ? saved : item,
                                 ),
                               );
-                              setSelected(saved);
+                              // Only if the panel still shows what was saved:
+                              // the user may have closed it or opened another file.
+                              setSelected((current) =>
+                                current?.id === saved.id &&
+                                current.sha256 === selected.sha256
+                                  ? saved
+                                  : current,
+                              );
                             }
                           : undefined
                       }

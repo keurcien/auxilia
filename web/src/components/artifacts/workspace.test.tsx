@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppSlot, ArtifactCards, ArtifactWorkspace } from "./workspace";
 import { listArtifacts, readArtifact } from "@/lib/api/resources/artifacts";
@@ -85,6 +85,10 @@ describe("artifact workspace", () => {
     );
     await vi.waitFor(() => {
       expect(listArtifacts).toHaveBeenCalledTimes(2);
+    });
+    // Let the poll's result apply before asserting nothing reloaded.
+    await act(async () => {
+      await Promise.resolve();
     });
     expect(readArtifact).toHaveBeenCalledTimes(1);
   });

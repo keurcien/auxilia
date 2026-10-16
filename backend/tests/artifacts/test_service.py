@@ -234,6 +234,7 @@ async def test_update_in_place_deletes_the_superseded_object_after_commit(
     await publish(service, sandbox, "call-3")
     assert store.put.call_count == 2 and service.replaced == [old_key]
     store.delete.assert_not_called()
+    await db.commit()
     await service.purge_replaced()
     store.delete.assert_called_once_with(old_key)
     assert first.id == same.id
@@ -272,8 +273,8 @@ async def test_user_edit_replaces_snapshot_and_agent_copy(db, sandbox, monkeypat
     edited = await service.replace_content("thread", item.id, b"edited", item.sha256)
     assert edited.id == item.id and edited.sha256 != item.sha256
     written = [call.args[0][0][0] for call in sandbox.upload_files.call_args_list]
-    assert written[-1] == "/tmp/deck.pptx"
-    assert written[-2].startswith("/tmp/.auxilia-artifacts/")
+    assert written[-2] == "/tmp/deck.pptx"
+    assert written[-1].startswith("/tmp/.auxilia-artifacts/")
 
 
 async def test_user_edit_from_a_stale_version_is_refused(db, sandbox, monkeypatch):
@@ -290,3 +291,27 @@ async def test_user_edit_must_stay_a_presentation(db, sandbox, monkeypatch):
     monkeypatch.setattr("app.artifacts.service.detect_mime", lambda *args: "text/html")
     with pytest.raises(DomainValidationError):
         await service.replace_content("thread", item.id, b"<script>", item.sha256)
+
+
+async def test_user_edit_fails_when_the_agent_copy_cannot_be_written(
+    db, sandbox, monkeypatch
+):
+    from app.exceptions import DomainError
+
+    service, item = await pptx_artifact(db, sandbox, monkeypatch)
+    sandbox.upload_files.return_value = [SimpleNamespace(error="permission_denied")]
+    with pytest.raises(DomainError):
+        await service.replace_content("thread", item.id, b"edited", item.sha256)
+    row = await service.repository.get(item.id)
+    assert row.sha256 == item.sha256
+
+
+async def test_purge_tolerates_unreachable_storage(db, monkeypatch):
+    def unreachable(cfg):
+        raise ConnectionError
+
+    monkeypatch.setattr("app.artifacts.service.build_store", unreachable)
+    service = ArtifactService(db)
+    service.replaced.append("old-key")
+    await service.purge_replaced()
+    assert service.replaced == []

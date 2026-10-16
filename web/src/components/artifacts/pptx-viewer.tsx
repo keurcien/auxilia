@@ -157,8 +157,8 @@ export default function PptxViewer({ bytes, onSave }: ViewerProps) {
     text: string;
     url: string;
   }>();
+  // The effect below revokes the edit's slide image.
   const endEdit = () => {
-    if (target) URL.revokeObjectURL(target.url);
     setTarget(undefined);
   };
   const [dirty, setDirty] = useState(false);
@@ -247,8 +247,21 @@ export default function PptxViewer({ bytes, onSave }: ViewerProps) {
     }
   };
   const slide = loaded?.deck.at(selected);
+  // Saving became unavailable (a turn started): leave edit mode with it.
+  if (editing && !onSave) {
+    setEditing(false);
+    endEdit();
+  }
   const boxes =
     editing && loaded && slide ? textBoxes(loaded.presentation, slide) : [];
+  // An edit open at unmount still holds its slide image.
+  const targetUrl = target?.url;
+  useEffect(
+    () => () => {
+      if (targetUrl) URL.revokeObjectURL(targetUrl);
+    },
+    [targetUrl],
+  );
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (!count) return;

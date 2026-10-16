@@ -41,16 +41,20 @@ class ArtifactRepository(BaseRepository[ArtifactDB]):
         stmt = (
             select(ArtifactDB)
             .where(ArtifactDB.thread_id == thread_id, ArtifactDB.source_path == path)
-            .order_by(col(ArtifactDB.created_at).desc())
+            .order_by(col(ArtifactDB.created_at).desc(), col(ArtifactDB.id).desc())
             .limit(1)
         )
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def in_thread(self, thread_id: str, artifact_id: UUID) -> ArtifactDB | None:
+    async def in_thread(
+        self, thread_id: str, artifact_id: UUID, *, for_update: bool = False
+    ) -> ArtifactDB | None:
         stmt = select(ArtifactDB).where(
             ArtifactDB.thread_id == thread_id, ArtifactDB.id == artifact_id
         )
+        if for_update:
+            stmt = stmt.with_for_update()
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 

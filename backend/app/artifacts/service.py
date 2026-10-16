@@ -143,7 +143,9 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
     ) -> ArtifactResponse:
         """Save a user's edit of a presentation over the artifact, and over the
         agent's working file in the sandbox so its next turn starts from it."""
-        row = await self.repository.in_thread(thread_id, artifact_id)
+        # Locked until the commit, so two saves from the same revision serialize
+        # and the second one sees the first's digest.
+        row = await self.repository.in_thread(thread_id, artifact_id, for_update=True)
         if row is None:
             raise NotFoundError(self.not_found_message)
         if row.mime_type != PPTX_MIME:
@@ -163,19 +165,17 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
                 backend = await self._connect(row)
             except ArtifactGoneError:
                 backend = None  # the edit is saved; there is no agent copy to update
-        await self._store(row, data, backend)
         if backend is not None:
+            # Before storing: a failed write-back then leaves nothing to clean up,
+            # and the artifact never shows an edit the agent's file lacks.
             # shortcut: a turn running right now can overwrite this, the panel
             # only allows edits between turns; add a server-side guard if needed.
             result = await asyncio.to_thread(
                 backend.upload_files, [(row.source_path, data)]
             )
             if not result or result[0].error:
-                logger.warning(
-                    "Could not write the edit back to %s in sandbox %s",
-                    row.source_path,
-                    row.sandbox_id,
-                )
+                raise DomainError("Could not write the edit back to the sandbox")
+        await self._store(row, data, backend)
         return describe(await self.repository.save(row))
 
     async def _store(
@@ -232,7 +232,12 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
         before it, a rollback would leave rows pointing at deleted bytes."""
         if not self.replaced:
             return
-        store = await asyncio.to_thread(build_store, artifact_settings)
+        try:
+            store = await asyncio.to_thread(build_store, artifact_settings)
+        except Exception:  # noqa: BLE001 — the update is committed; never fail it here
+            logger.warning("Could not reach artifact storage to purge", exc_info=True)
+            self.replaced.clear()
+            return
         for key in self.replaced:
             try:
                 await asyncio.to_thread(store.delete, key)

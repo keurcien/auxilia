@@ -93,7 +93,7 @@ const ChatPage = () => {
   }, [threadId, run.isLoading, setCost]);
 
   return (
-    <ArtifactWorkspace key={threadId} threadId={threadId} running={run.isLoading} editable={meta.viewerRole !== "admin"} refreshKey={JSON.stringify(transcript.toolCalls.map(tc => [tc.id, tc.status]))} order={transcript.toolCalls.map(tc => tc.callId ?? tc.id)}>
+    <ArtifactWorkspace key={threadId} threadId={threadId} running={run.isLoading} editable={meta.status === "ready" && meta.viewerRole !== "admin" && !meta.agentArchived} refreshKey={JSON.stringify(transcript.toolCalls.map(tc => [tc.id, tc.status]))} order={transcript.toolCalls.map(tc => tc.callId ?? tc.id)}>
     <div className="h-full flex flex-col w-full overflow-hidden">
       <div className="h-full relative flex flex-1 flex-col min-h-0 w-full">
         <Conversation>
