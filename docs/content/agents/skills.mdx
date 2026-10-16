@@ -71,7 +71,7 @@ The **Sources** tab lists the GitHub and GitLab repositories the workspace syncs
 
 ![Connect a repository](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/skill-source-new.png)
 
-Each **sync** brings the library up to date with the repository: a new skill becomes a library row pinned to the synced content, and a skill that changed upstream is updated in place — agents pick it up on their next run. A skill that disappeared upstream is marked **GONE UPSTREAM** but keeps working at its pinned revision. A skill whose name collides with one already in the library is skipped and reported.
+Each **sync** brings the library up to date with the repository: a new skill becomes a library row pinned to the synced content, and a valid skill that changed upstream is updated in place — agents pick it up on their next run. A skill that disappeared upstream is marked **GONE UPSTREAM** but keeps working at its pinned revision. A skill whose name collides with one already in the library, or whose contents fail validation, is skipped and reported.
 
 ![Skill sources](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/skills-sources.png)
 

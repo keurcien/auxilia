@@ -266,7 +266,9 @@ async def test_connecting_the_repository_again_re_pins_the_detached_skills(
     assert {s.source_id for s in by_name.values()} == {reconnected.id}
     assert by_name["weekly-brief"].can_manage and not by_name["weekly-brief"].can_edit
     # And the sync it missed is applied on reconnect.
-    assert by_name["margin-audit"].source_revision == "bbb222"
+    margin = await skills.get(by_name["margin-audit"].id, admin)
+    assert margin.source_revision == "bbb222" and margin.revision == 2
+    assert margin.files[0].content == "print('v2')\n"
 
 
 async def test_a_sync_never_claims_a_skill_written_in_the_app(

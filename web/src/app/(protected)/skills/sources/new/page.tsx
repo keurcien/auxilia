@@ -207,7 +207,7 @@ function ImportSummary({ preview }: { preview: SkillSourcePreview }) {
 		<span className="block">
 			<span className="block">
 				From <span className="font-mono text-[12.5px] font-semibold text-petrol">{preview.name}</span> at{" "}
-				<span className="font-mono text-[12.5px]">{shortRevision(preview.revision)}</span>. Every skill is
+				<span className="font-mono text-[12.5px]">{shortRevision(preview.revision)}</span>. Every ready skill is
 				pinned to this commit until the next sync.
 			</span>
 			{ready.length > 0 && (

@@ -43,7 +43,7 @@ Docker image (python-pptx, matplotlib) ── Settings → Sandboxes → Default
 
 Two facts shape the design:
 
-1. **Skills with scripts come from repositories.** A skill written in the app is a single `SKILL.md`; scripts and reference files are only imported from a connected Git source, where they can be reviewed and versioned. Sourced skills are pinned by content digest and updated deliberately (**Review changes** → **Adopt this version**).
+1. **Skills with scripts come from repositories.** A skill written in the app is a single `SKILL.md`; scripts and reference files are only imported from a connected Git source, where they can be reviewed and versioned. Sourced skills are pinned by content digest and updated by each sync.
 2. **The chat does not download files from the sandbox.** A skill that produces a file must also *deliver* it: upload it somewhere and print a link, or hand it to an MCP tool. This guide uploads to a Google Cloud Storage bucket and prints a signed URL; swap in whatever your workspace already has.
 
 ## Before you start
@@ -291,7 +291,7 @@ Change the template, tighten the rules, add a `chart_type` option — then:
 2. **Skills → Sources → Sync** on the repository. The confirmation shows what the sync would do (new, updated, gone, skipped, unchanged) before it runs
 3. `deck-builder` is re-pinned to the new revision and every agent picks it up on its next run
 
-If the skill disappears upstream it stays available, marked **GONE UPSTREAM**, pinned to the last synced revision; disconnecting the source turns its skills into in-app skills you can edit directly.
+If the skill disappears upstream it stays available, marked **GONE UPSTREAM**, pinned to the last synced revision; disconnecting the source detaches its skills while keeping them read-only until the repository is connected again.
 
 ## Troubleshooting
 

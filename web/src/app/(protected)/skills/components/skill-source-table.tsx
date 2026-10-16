@@ -39,7 +39,7 @@ const STATUS_COPY = new Map<
 	updated: {
 		label: "UPDATED",
 		className: "bg-warning-bg text-warning",
-		note: "updated in the library",
+		note: "will update the library",
 	},
 	unchanged: { label: "UNCHANGED", className: "bg-neutral-bg text-subtle dark:bg-white/10 dark:text-panel-body" },
 	gone: {
