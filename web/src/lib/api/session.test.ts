@@ -20,6 +20,13 @@ describe("ensureSignedIn", () => {
 		expect(reload).toHaveBeenCalledOnce();
 	});
 
+	it("shares one check across a burst of 401s", async () => {
+		const reload = setup("/agents/1/chat", 401);
+		await Promise.all([ensureSignedIn(), ensureSignedIn(), ensureSignedIn()]);
+		expect(fetch).toHaveBeenCalledOnce();
+		expect(reload).toHaveBeenCalledOnce();
+	});
+
 	it("stays put when the session is still valid", async () => {
 		const reload = setup("/agents/1/chat", 200);
 		await ensureSignedIn();

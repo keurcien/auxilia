@@ -18,9 +18,12 @@ export function StoreInitializer() {
 		const onVisible = () => {
 			if (document.visibilityState === "visible") void ensureSignedIn();
 		};
+		// `focus` covers coming back from another app with the tab still visible.
 		document.addEventListener("visibilitychange", onVisible);
+		window.addEventListener("focus", onVisible);
 		return () => {
 			document.removeEventListener("visibilitychange", onVisible);
+			window.removeEventListener("focus", onVisible);
 		};
 	}, []);
 

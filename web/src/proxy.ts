@@ -52,8 +52,11 @@ export async function proxy(request: NextRequest) {
 			console.error("Backend unreachable or validation failed", err);
 		}
 
+		// On /auth itself keep the query, so a pending `next` survives.
 		const response = isPublicPath
-			? NextResponse.redirect(new URL("/auth", request.url))
+			? NextResponse.redirect(
+					new URL(pathname === "/auth" ? `/auth${request.nextUrl.search}` : "/auth", request.url),
+				)
 			: redirectToAuth(request);
 		response.cookies.delete("access_token");
 		return response;

@@ -1,5 +1,5 @@
 from authlib.integrations.starlette_client import OAuth
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.auth.dependencies import get_current_user
@@ -127,12 +127,19 @@ async def accept_invite(
 
 def is_same_origin_path(path: str) -> bool:
     """A post-login redirect target: "//host" or "/\\host" would be an open redirect."""
-    return path.startswith("/") and path[1:2] not in ("/", "\\")
+    return (
+        path.startswith("/")
+        and path[1:2] not in ("/", "\\")
+        # Browsers strip these, turning "/\t/evil.com" into "//evil.com".
+        and not any(c in path for c in "\t\n\r")
+    )
 
 
 @router.get("/google")
 async def google_login(
-    request: Request, invite_token: str | None = None, next: str | None = None
+    request: Request,
+    invite_token: str | None = None,
+    next_path: str | None = Query(default=None, alias="next"),
 ):
     if not auth_settings.google_oauth_enabled:
         raise HTTPException(
@@ -141,8 +148,12 @@ async def google_login(
         )
     if invite_token:
         request.session["invite_token"] = invite_token
-    if next and is_same_origin_path(next):
-        request.session["next"] = next
+    # Set or clear on every attempt, so an abandoned sign-in can't leave a
+    # stale target for the next one.
+    if next_path and is_same_origin_path(next_path):
+        request.session["next"] = next_path
+    else:
+        request.session.pop("next", None)
 
     redirect_uri = f"{auth_settings.FRONTEND_URL}/api/backend/auth/google/callback"
     return await oauth.google.authorize_redirect(request, redirect_uri)

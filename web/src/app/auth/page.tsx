@@ -36,9 +36,10 @@ function GoogleIcon() {
 	);
 }
 
-// Only same-origin paths: "//evil.com" and "/\\evil.com" are protocol-relative.
+// Only same-origin paths: "//evil.com" and "/\\evil.com" are protocol-relative,
+// and browsers strip tabs/newlines, so "/\t/evil.com" would become one too.
 function safeNext(next: string | null): string | null {
-	return next && /^\/(?![/\\])/.test(next) ? next : null;
+	return next && /^\/(?![/\\])[^\t\n\r]*$/.test(next) ? next : null;
 }
 
 function AuthPageContent() {
@@ -92,9 +93,13 @@ function AuthPageContent() {
 	};
 
 	const signInWithGoogle = () => {
-		window.location.href = next
+		const url = next
 			? `/api/backend/auth/google?next=${encodeURIComponent(next)}`
 			: "/api/backend/auth/google";
+		// Fixed same-origin endpoint: `next` is only an encoded query value,
+		// validated above and again by the backend.
+		// nosemgrep
+		window.location.assign(url);
 	};
 
 	if (providers?.setupRequired) {

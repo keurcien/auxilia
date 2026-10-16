@@ -12,6 +12,8 @@ from app.auth.router import is_same_origin_path
         ("/\\evil.com", False),
         ("https://evil.com", False),
         ("agents", False),
+        ("/\t/evil.com", False),
+        ("/\n/evil.com", False),
     ],
 )
 def test_is_same_origin_path(path: str, expected: bool) -> None:

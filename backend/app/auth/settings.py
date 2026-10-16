@@ -1,3 +1,6 @@
+from typing import Literal
+
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 from app.settings import settings_config
@@ -9,13 +12,13 @@ class AuthSettings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
     # Activity renews the token (sliding session) up to this long after sign-in.
-    SESSION_MAX_DAYS: int = 30
+    SESSION_MAX_DAYS: int = Field(default=30, ge=1)
 
     # Cookie Configuration
     COOKIE_NAME: str = "access_token"
     COOKIE_SECURE: bool = False  # Set to True in production with HTTPS
     COOKIE_HTTPONLY: bool = True
-    COOKIE_SAMESITE: str = "lax"
+    COOKIE_SAMESITE: Literal["lax", "strict", "none"] = "lax"
     COOKIE_DOMAIN: str | None = None
 
     # Google OAuth (optional - enables if both are set)
