@@ -22,7 +22,11 @@ let inFlight: Promise<void> | null = null;
 
 async function checkSession(): Promise<void> {
 	try {
-		const res = await fetch("/api/backend/auth/me", { credentials: "include" });
+		// Time-boxed: a hung probe would otherwise hold `inFlight` forever.
+		const res = await fetch("/api/backend/auth/me", {
+			credentials: "include",
+			signal: AbortSignal.timeout(10_000),
+		});
 		if (res.status === 401) window.location.reload();
 	} catch {
 		// Offline / backend down — not a sign-out; the next check retries.

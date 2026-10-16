@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
 from app.settings import settings_config
@@ -32,6 +32,12 @@ class AuthSettings(BaseSettings):
     AUTH_GOOGLE_EXCLUSIVE: bool = False
 
     model_config = settings_config()
+
+    @field_validator("COOKIE_SAMESITE", mode="before")
+    @classmethod
+    def _lowercase_samesite(cls, value: object) -> object:
+        # Starlette accepted any case ("Lax"); keep existing envs booting.
+        return value.lower() if isinstance(value, str) else value
 
     @property
     def google_oauth_enabled(self) -> bool:

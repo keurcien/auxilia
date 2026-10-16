@@ -129,3 +129,11 @@ def test_custom_expiry_is_honoured():
     )
 
     assert payload["exp"] - payload["iat"] == pytest.approx(60, abs=2)
+
+
+def test_cookie_samesite_is_case_insensitive(monkeypatch):
+    from app.auth.settings import AuthSettings
+
+    monkeypatch.setenv("COOKIE_SAMESITE", "Lax")
+
+    assert AuthSettings().COOKIE_SAMESITE == "lax"
