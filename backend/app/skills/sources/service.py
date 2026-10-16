@@ -2,9 +2,8 @@
 
 Sync is the only step that reads the host, and it runs in a worker thread
 (`skillkit` is synchronous). It makes each skill in the repository
-*available*: a new skill becomes a library row pinned to the synced content;
-a changed skill gets a stored version the owner adopts against a diff. Sync
-never changes what an agent runs.
+current: a new skill becomes a library row pinned to the synced content, and
+a changed skill is updated in place — agents pick it up on their next run.
 """
 
 from __future__ import annotations
@@ -308,7 +307,7 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
                 # rest of the loop keep using the session afterwards.
                 try:
                     async with self.db.begin_nested():
-                        created = await self._skills.create(
+                        await self._skills.create(
                             SkillCreateDB(
                                 owner_id=row.owner_id,
                                 name=bundle.name,
@@ -324,14 +323,6 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
                         )
                 except IntegrityError:
                     taken.append(decision)
-                    continue
-                await self._skills.record_version(
-                    created.id,
-                    digest=digest,
-                    revision=resolved.revision,
-                    content=bundle.content,
-                    files=[f.model_dump(mode="json") for f in bundle.files],
-                )
                 continue
 
             current = decision.current
@@ -352,19 +343,15 @@ class SkillSourceService(BaseService[SkillSourceDB, SkillSourceRepository]):
             current.source_url = row.url
             current.source_path = decision.path
             current.missing_upstream = False
+            current.source_revision = resolved.revision
             if decision.status == "updated":
                 bundle, digest = _incoming(decision)
-                # Recorded as *available*, never applied: what an agent runs
-                # changes only when someone adopts it.
-                await self._skills.record_version(
-                    current.id,
-                    digest=digest,
-                    revision=resolved.revision,
-                    content=bundle.content,
-                    files=[f.model_dump(mode="json") for f in bundle.files],
-                )
-            else:  # unchanged
-                current.source_revision = resolved.revision
+                current.name = bundle.name
+                current.description = bundle.description
+                current.content = bundle.content
+                current.files = [f.model_dump(mode="json") for f in bundle.files]
+                current.digest = digest
+                current.revision += 1
             self.db.add(current)
 
         row.last_revision = resolved.revision

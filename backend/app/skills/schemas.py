@@ -150,9 +150,9 @@ class SkillSummary(BaseModel):
 
     Two provenances: an in-app skill (`source_id` None) is edited here and is
     live on the next run; a sourced skill is pinned to a content digest from
-    its repository and adopts a newer version explicitly (`update_available`).
+    its repository and updated by every sync.
     `can_edit` is about the content (never for a sourced skill);
-    `can_manage` is delete / adopt (owner or admin).
+    `can_manage` is delete (owner or admin).
     """
 
     id: UUID
@@ -179,23 +179,13 @@ class SkillSummary(BaseModel):
     source_path: str | None = None
     source_revision: str | None = None
     digest: str | None = None
-    update_available: bool = False
     missing_upstream: bool = False
-
-
-class SkillVersionInfo(BaseModel):
-    """A newer version of a sourced skill, waiting to be adopted."""
-
-    digest: str
-    revision: str
-    discovered_at: datetime
 
 
 class SkillResponse(SkillSummary):
     content: str
     files: list[SkillFile]
     agents: list[SkillAgentRef] = Field(default_factory=list)
-    available: SkillVersionInfo | None = None
 
 
 class SkillIssue(BaseModel):
@@ -208,43 +198,14 @@ class SkillIssue(BaseModel):
     suggestion: str | None = None
 
 
-class SkillFileChange(BaseModel):
-    path: str
-    status: Literal["added", "removed", "modified"]
-    old_size: int | None
-    new_size: int | None
-    binary: bool
-    unified: str | None = None
-
-
-class SkillDiffResponse(BaseModel):
-    """What changed between the adopted version of a sourced skill and the
-    newest one its repository holds (skillkit's semantic diff)."""
-
-    name: str
-    status: Literal["changed", "unchanged"]
-    old_digest: str
-    new_digest: str
-    old_revision: str | None
-    new_revision: str | None
-    categories: list[str]
-    description_changed: bool
-    instructions_changed: bool
-    scripts_changed: bool
-    requirements_changed: bool
-    files: list[SkillFileChange]
-
-
 # -- sources -------------------------------------------------------------------
 
 
 class SkillSyncEntry(BaseModel):
     """One skill in a sync plan — what syncing would do to it.
 
-    `unchanged` and `updated` both leave the live skill alone: a sync only
-    makes a new version *available*, and adopting it is a separate, per-skill
-    decision. `new` is the one status that changes the library on the spot,
-    and `gone` only flags the skill — it keeps working, pinned.
+    `new` adds the skill to the library and `updated` replaces its content in
+    place; `gone` only flags the skill — it keeps working, pinned.
     """
 
     name: str

@@ -1,7 +1,6 @@
 import { create } from "zustand";
 import {
 	Skill,
-	SkillDiff,
 	SkillSave,
 	SkillSource,
 	SkillSourceCreate,
@@ -19,9 +18,6 @@ interface SkillsState {
 	createSkill: (payload: SkillSave) => Promise<Skill>;
 	updateSkill: (id: string, payload: SkillSave) => Promise<Skill>;
 	deleteSkill: (id: string) => Promise<void>;
-	/** Sourced skills: what the newest synced version changes, and adopting it. */
-	getSkillDiff: (id: string) => Promise<SkillDiff>;
-	adoptSkill: (id: string) => Promise<Skill>;
 	/** Repositories the workspace syncs skills from. */
 	sources: SkillSource[];
 	sourcesInitialized: boolean;
@@ -37,7 +33,7 @@ interface SkillsState {
 const summaryOf = (skill: Skill): SkillSummary => {
 	// `agents` stays: the library row renders it as an avatar stack.
 	// eslint-disable-next-line @typescript-eslint/no-unused-vars
-	const { content, files, available, ...summary } = skill;
+	const { content, files, ...summary } = skill;
 	return summary;
 };
 
@@ -93,16 +89,6 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
 		set((state) => ({
 			skills: state.skills.filter((skill) => skill.id !== id),
 		}));
-	},
-	getSkillDiff: async (id) => {
-		return skillsApi.getSkillDiff(id);
-	},
-	adoptSkill: async (id) => {
-		const adopted = await skillsApi.adoptSkill(id);
-		set((state) => ({
-			skills: state.skills.map((skill) => (skill.id === id ? summaryOf(adopted) : skill)),
-		}));
-		return adopted;
 	},
 	sources: [],
 	sourcesInitialized: false,

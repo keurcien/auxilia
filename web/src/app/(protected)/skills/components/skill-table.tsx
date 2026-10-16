@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { GitCompareArrows, Pencil, PencilLine, Trash2, Unplug } from "lucide-react";
+import { Pencil, PencilLine, Trash2, Unplug } from "lucide-react";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
@@ -141,11 +141,6 @@ export default function SkillTable({
 						<span className="truncate font-mono text-[12.5px] font-semibold text-petrol">
 							{skill.name}
 						</span>
-						{skill.updateAvailable && (
-							<span className="shrink-0 rounded-[4px] bg-warning-bg px-1.5 py-px font-mono text-[9px] font-semibold tracking-[0.05em] text-warning">
-								UPDATE
-							</span>
-						)}
 						{skill.missingUpstream && (
 							<span
 								title="The last sync no longer found this skill in its repository. It keeps working as pinned."
@@ -229,17 +224,6 @@ export default function SkillTable({
 									router.push(`/skills/${skill.id}${skill.canEdit ? "?edit=1" : ""}`);
 								},
 							},
-							...(skill.updateAvailable
-								? [
-										{
-											label: "Review update",
-											icon: <GitCompareArrows />,
-											onClick: () => {
-												router.push(`/skills/${skill.id}?review=1`);
-											},
-										},
-									]
-								: []),
 							...(skill.canManage
 								? [
 										{ separator: true as const },

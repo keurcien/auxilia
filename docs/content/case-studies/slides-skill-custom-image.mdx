@@ -1,6 +1,6 @@
 ---
 title: Generate slide decks with a skill from GitHub and a custom sandbox image
-description: A deck-builder skill versioned in a repository, a Docker image with python-pptx as the sandbox runtime, and the connect → preview → sync → adopt loop that keeps agents on a reviewed version.
+description: A deck-builder skill versioned in a repository, a Docker image with python-pptx as the sandbox runtime, and the connect → preview → sync loop that ships updates to agents.
 date: "2026-09-23"
 author: Keurcien Luu
 readingTime: 14 min read
@@ -28,7 +28,7 @@ You'll end up with:
 ## How the pieces fit
 
 ```
-GitHub repo ─── skills/deck-builder/SKILL.md ──┐   Skills → Sources (sync, review, adopt)
+GitHub repo ─── skills/deck-builder/SKILL.md ──┐   Skills → Sources (sync)
                skills/deck-builder/scripts/build_deck.py
                skills/deck-builder/assets/template.pptx
                                                 ▼
@@ -289,10 +289,9 @@ Change the template, tighten the rules, add a `chart_type` option — then:
 
 1. Push to `main` (or move the tag)
 2. **Skills → Sources → Sync** on the repository. The confirmation shows what the sync would do (new, updated, gone, skipped, unchanged) before it runs
-3. In the **Library**, `deck-builder` now carries an **UPDATE** badge. Open it → **Review update**: a per-file diff grouped by kind (instructions, scripts, references, assets)
-4. **Adopt this version** — the skill is re-pinned to the new revision and every agent picks it up on its next run
+3. `deck-builder` is re-pinned to the new revision and every agent picks it up on its next run
 
-Until you adopt, agents keep running the pinned version, so a sync never changes behaviour behind your back. If the skill disappears upstream it stays available, marked **GONE UPSTREAM**, pinned to the last adopted revision; disconnecting the source turns its skills into in-app skills you can edit directly.
+If the skill disappears upstream it stays available, marked **GONE UPSTREAM**, pinned to the last synced revision; disconnecting the source turns its skills into in-app skills you can edit directly.
 
 ## Troubleshooting
 
@@ -306,6 +305,6 @@ Until you adopt, agents keep running the pinned version, so a sync never changes
 
 ## Where to go next
 
-- **[Skills](/agents/skills)** — the full model: library, sources, adoption, runtime paths
+- **[Skills](/agents/skills)** — the full model: library, sources, runtime paths
 - **[Google Sheets from a sandbox](/case-studies/google-sheets-service-account)** — mounting credentials into OpenSandbox on a VM
 - **[Triggers](/agents/triggers)** — a Monday-morning deck, built while you sleep

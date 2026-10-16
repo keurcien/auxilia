@@ -179,7 +179,7 @@ auxilia/
 │   │   │   ├── runtime.py             # SkillsBackend (skillkit's in-memory backend), freeze_run_skills, upload_skills
 │   │   │   ├── middleware.py          # FreshSkillsMiddleware (deepagents' SkillsMiddleware, per-run index + Files line) + prompts
 │   │   │   └── sources/               # Skill sources — GitHub/GitLab repos synced into the library (router/service/repository);
-│   │   │                              # sync makes versions available, `POST /skills/{id}/adopt` applies one. Router prefix
+│   │   │                              # sync updates the library in place. Router prefix
 │   │   │                              # `/skills/sources` is registered before `/skills/{skill_id}`; clients use trailing slashes
 │   │   ├── threads/                   # Chat thread management
 │   │   │   └── router.py              # Thread CRUD + metadata read; the conversation itself is served by runtime/api/ (/state, /history, /messages/{id}), runs by runtime/runs/

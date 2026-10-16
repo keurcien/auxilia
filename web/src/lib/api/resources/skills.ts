@@ -12,7 +12,6 @@
 import { api } from "@/lib/api/client";
 import type {
 	Skill,
-	SkillDiff,
 	SkillSave,
 	SkillSource,
 	SkillSourceCreate,
@@ -51,18 +50,6 @@ export async function updateSkill(
 
 export async function deleteSkill(skillId: string): Promise<void> {
 	await api.delete(`/skills/${skillId}`);
-}
-
-/** What adopting the newest synced version of a sourced skill would change. */
-export async function getSkillDiff(skillId: string): Promise<SkillDiff> {
-	const response = await api.get<SkillDiff>(`/skills/${skillId}/diff`);
-	return response.data;
-}
-
-/** Apply that newest version — the only way a sourced skill changes. */
-export async function adoptSkill(skillId: string): Promise<Skill> {
-	const response = await api.post<Skill>(`/skills/${skillId}/adopt`);
-	return response.data;
 }
 
 // -- the repositories they come from -----------------------------------------

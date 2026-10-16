@@ -5,7 +5,6 @@ import Link from "next/link";
 import {
 	CircleAlert,
 	FileText,
-	GitCompareArrows,
 	TerminalSquare,
 	Trash2,
 	TriangleAlert,
@@ -42,14 +41,13 @@ import {
 	splitSkillMarkdown,
 } from "../lib/skill-form";
 import { useDeleteSkill } from "../lib/use-delete-skill";
-import SkillDiffDialog from "./skill-diff-dialog";
 import SkillFilesPanel from "./skill-files-panel";
 import SkillInUseDialog from "./skill-in-use-dialog";
 import SkillUsedBy from "./skill-used-by";
 
 type NoticeTone = "plain" | "warning" | "alert";
 
-// A switch, like `toneClass` in the diff dialog, not a keyed object: the
+// A switch, not a keyed object: the
 // compiler checks every tone is covered so there is no missing-key case to
 // fall back from, and a bracket lookup — even on a typed union — reads to
 // static analysis as an object injection sink.
@@ -124,8 +122,6 @@ interface SkillEditorProps {
 	/** Discard/Cancel: back to read mode (detail) or leave the page (create). */
 	onCancel: () => void;
 	onDeleted?: () => void;
-	/** Open the review-changes dialog on mount (`?review=1` from the library). */
-	reviewOnOpen?: boolean;
 }
 
 interface Draft {
@@ -151,11 +147,9 @@ export default function SkillEditor({
 	onSaved,
 	onCancel,
 	onDeleted,
-	reviewOnOpen = false,
 }: SkillEditorProps) {
 	const createSkill = useSkillsStore((state) => state.createSkill);
 	const updateSkill = useSkillsStore((state) => state.updateSkill);
-	const [reviewOpen, setReviewOpen] = useState(reviewOnOpen && Boolean(skill?.updateAvailable));
 	// The repository's, whether or not it is still connected: the files and
 	// scripts are in the row either way, so they are shown either way.
 	const sourced = skill ? isSourced(skill) : false;
@@ -259,15 +253,6 @@ export default function SkillEditor({
 				]}
 				badge={isDirty ? <UnsavedBadge /> : undefined}
 			>
-				{readOnly && skill?.updateAvailable && (
-					<HeaderPrimaryButton
-						onClick={() => {
-							setReviewOpen(true);
-						}}
-					>
-						Review update
-					</HeaderPrimaryButton>
-				)}
 				{readOnly && onEdit && !sourced && (
 					<HeaderPrimaryButton onClick={onEdit}>Edit</HeaderPrimaryButton>
 				)}
@@ -302,17 +287,6 @@ export default function SkillEditor({
 				{skill && (
 					<DropdownMenu
 						items={[
-							...(skill.updateAvailable
-								? [
-										{
-											label: "Review update",
-											icon: <GitCompareArrows />,
-											onClick: () => {
-												setReviewOpen(true);
-											},
-										},
-									]
-								: []),
 							...(skill.canManage
 								? [
 										{ separator: true as const },
@@ -331,16 +305,6 @@ export default function SkillEditor({
 					/>
 				)}
 			</SubpageHeader>
-
-			{skill && sourced && (
-				<SkillDiffDialog
-					open={reviewOpen}
-					onOpenChange={setReviewOpen}
-					skill={skill}
-					canAdopt={skill.canManage}
-					onAdopted={onSaved}
-				/>
-			)}
 
 			{skill && (
 				<>
@@ -380,11 +344,6 @@ export default function SkillEditor({
 									<h1 className="min-w-0 truncate py-[2px] font-mono text-[19px] font-semibold tracking-[-0.01em] text-petrol">
 										{name || "untitled"}
 									</h1>
-									{skill?.updateAvailable && (
-										<span className="shrink-0 rounded-[4px] bg-warning-bg px-1.5 py-px font-mono text-[9px] font-semibold tracking-[0.05em] text-warning">
-											UPDATE
-										</span>
-									)}
 								</div>
 								<p className="py-[2px] text-[13.5px] font-medium text-label dark:text-muted-foreground">
 									{description || " "}

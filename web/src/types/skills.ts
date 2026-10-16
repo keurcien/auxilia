@@ -33,7 +33,7 @@ export interface SkillSummary {
 	updatedAt: string;
 	/** May change the content — never for a skill that came from a repository. */
 	canEdit: boolean;
-	/** May delete or adopt — the owner or a workspace admin. */
+	/** May delete — the owner or a workspace admin. */
 	canManage: boolean;
 	/** The repository this skill is pinned to; null once it is disconnected. */
 	sourceId: string | null;
@@ -55,17 +55,8 @@ export interface SkillSummary {
 	sourceRevision: string | null;
 	/** Content hash. Every skill has one, a skill written here included. */
 	digest: string | null;
-	/** A newer synced version is waiting to be adopted. */
-	updateAvailable: boolean;
 	/** The last sync no longer found this skill in its repository. */
 	missingUpstream: boolean;
-}
-
-/** A newer version of a sourced skill, waiting to be adopted. */
-export interface SkillVersionInfo {
-	digest: string;
-	revision: string;
-	discoveredAt: string;
 }
 
 /** The full skill — `GET /skills/{id}` and every save result. */
@@ -73,7 +64,6 @@ export interface Skill extends SkillSummary {
 	/** The whole SKILL.md, frontmatter included. */
 	content: string;
 	files: SkillFile[];
-	available: SkillVersionInfo | null;
 }
 
 /** One skillkit validation finding, as the API reports it. */
@@ -83,31 +73,6 @@ export interface SkillIssue {
 	message: string;
 	path: string | null;
 	suggestion: string | null;
-}
-
-export interface SkillFileChange {
-	path: string;
-	status: "added" | "removed" | "modified";
-	oldSize: number | null;
-	newSize: number | null;
-	binary: boolean;
-	unified: string | null;
-}
-
-/** What adopting the newest synced version would change. */
-export interface SkillDiff {
-	name: string;
-	status: "changed" | "unchanged";
-	oldDigest: string;
-	newDigest: string;
-	oldRevision: string | null;
-	newRevision: string | null;
-	categories: string[];
-	descriptionChanged: boolean;
-	instructionsChanged: boolean;
-	scriptsChanged: boolean;
-	requirementsChanged: boolean;
-	files: SkillFileChange[];
 }
 
 // -- sources -------------------------------------------------------------------
@@ -136,10 +101,8 @@ export interface SkillSourceReportEntry {
 /**
  * What a sync would do to one skill.
  *
- * `unchanged` and `updated` both leave the live skill alone — a sync only
- * makes a new version available, and adopting it stays a separate per-skill
- * decision. `new` is the one status that changes the library on the spot;
- * `gone` only flags a skill, which keeps working at its pinned version.
+ * `new` adds the skill to the library and `updated` replaces its content in
+ * place; `gone` only flags a skill, which keeps working at its pinned version.
  */
 export type SkillSyncStatus = "new" | "updated" | "unchanged" | "gone" | "skipped";
 
@@ -209,7 +172,7 @@ export interface SkillSourcePreview {
  * Where a skill's content comes from, read off the two provenance fields —
  * there is no third field, and so no state the API has to keep in step.
  *
- * `sourceRevision` is the pin: only a sync or an adopt writes it, so it marks
+ * `sourceRevision` is the pin: only a sync writes it, so it marks
  * the content as a repository's whatever happens to the repository later.
  * `sourceId` is the live link. Neither → written here. Both → pinned and
  * connected. Pin without link → detached: the document, files and scripts

@@ -65,7 +65,6 @@ export default function SkillsPage() {
 	});
 
 	const isEmpty = isInitialized && skills.length === 0;
-	const updates = skills.filter((skill) => skill.updateAvailable).length;
 
 	return (
 		<WorkspacePage
@@ -73,7 +72,7 @@ export default function SkillsPage() {
 			title="Skills"
 			intro={
 				view === "sources"
-					? "Repositories the workspace syncs skills from. Sync makes new versions available; each skill is adopted on its own, against a diff."
+					? "Repositories the workspace syncs skills from. Each sync brings their skills up to date."
 					: "Procedures any agent in the workspace can be given: a SKILL.md that says when to use it and what to do. Skills with scripts and references come from a connected repository."
 			}
 			fillHeight
@@ -149,7 +148,7 @@ export default function SkillsPage() {
 						<p className="mt-2 max-w-[560px] text-[13.5px] leading-[1.55] text-body dark:text-panel-body">
 							Keep the company&apos;s skills in one git repository, public or private, reviewed and versioned there. Connect it and every
 							<span className="font-mono text-[12px]"> skills/&lt;name&gt;/SKILL.md</span> becomes available in the
-							library, pinned to its content; changes upstream are adopted per skill after a review.
+							library, pinned to its content; a sync brings in changes upstream.
 						</p>
 						{isAdmin ? (
 							<button
@@ -217,12 +216,6 @@ export default function SkillsPage() {
 				</div>
 			) : (
 				<>
-					{updates > 0 && (
-						<p className="mb-3 shrink-0 font-mono text-[11px] text-warning">
-							{updates} skill{updates === 1 ? " has" : "s have"} a newer version in{" "}
-							{updates === 1 ? "its" : "their"} repository — open {updates === 1 ? "it" : "them"} to review and adopt.
-						</p>
-					)}
 				<SkillTable
 					skills={visible}
 					isLoading={!isInitialized}

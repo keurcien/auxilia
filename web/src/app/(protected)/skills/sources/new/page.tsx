@@ -208,7 +208,7 @@ function ImportSummary({ preview }: { preview: SkillSourcePreview }) {
 			<span className="block">
 				From <span className="font-mono text-[12.5px] font-semibold text-petrol">{preview.name}</span> at{" "}
 				<span className="font-mono text-[12.5px]">{shortRevision(preview.revision)}</span>. Every skill is
-				pinned to this commit; a later change is adopted one by one.
+				pinned to this commit until the next sync.
 			</span>
 			{ready.length > 0 && (
 				<span className="mt-3 block overflow-hidden rounded-[8px] border border-border">
@@ -407,7 +407,7 @@ export default function NewSkillSourcePage() {
 							<h1 className="font-display text-[26px] font-bold tracking-[-0.035em] text-foreground">Connect a repository</h1>
 							<p className="mt-1.5 text-[14px] leading-[1.55] text-body dark:text-panel-body">
 								Every skill in the repository — a folder with a <span className="font-mono text-[12.5px]">SKILL.md</span> — becomes
-								available in the library, pinned to its content. A change upstream is adopted per skill, against a diff; nothing
+								available in the library, pinned to its content. Each sync brings in changes upstream; nothing
 								here is edited from the app.
 							</p>
 						</div>
@@ -479,7 +479,7 @@ export default function NewSkillSourcePage() {
 									}}
 									className={MONO_INPUT_CLASS}
 								/>
-								<p className="text-[12px] text-meta dark:text-panel-dim">Resolved to a commit at every sync. A tag pins the whole repository; a branch moves and skills are adopted one by one.</p>
+								<p className="text-[12px] text-meta dark:text-panel-dim">Resolved to a commit at every sync. A tag pins the whole repository; a branch moves, and each sync follows it.</p>
 							</div>
 							<div className="flex flex-col gap-1.5">
 								<label htmlFor="source-path" className={LABEL_CLASS}>

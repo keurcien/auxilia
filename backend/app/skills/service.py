@@ -18,24 +18,20 @@ from app.exceptions import (
 )
 from app.service import BaseService
 from app.skills.bundles import parse_skill
-from app.skills.models import SkillDB, SkillVersionDB
+from app.skills.models import SkillDB
 from app.skills.repository import SkillRepository
 from app.skills.schemas import (
     AgentSkillResponse,
     SkillAgentRef,
     SkillBundle,
     SkillCreateDB,
-    SkillDiffResponse,
-    SkillFile,
-    SkillFileChange,
     SkillResponse,
     SkillSave,
     SkillSummary,
-    SkillVersionInfo,
     count_scripts,
 )
 from app.users.models import UserDB, WorkspaceRole
-from skillkit import Bundle, bundle_digest, diff_bundles
+from skillkit import bundle_digest
 
 
 class SkillService(BaseService[SkillDB, SkillRepository]):
@@ -67,12 +63,11 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
             )
         return [
             SkillSummary(
-                **{k: v for k, v in row._mapping.items() if k != "latest_digest"},
+                **row._mapping,
                 agents=by_skill.get(row.id, []),
                 can_edit=_can_edit(row.owner_id, user)
                 and not _is_sourced(row.source_revision),
                 can_manage=_can_edit(row.owner_id, user),
-                update_available=_update_available(row.digest, row.latest_digest),
             )
             for row in rows
         ]
@@ -130,71 +125,6 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
 
     # -- sourced skills: the version waiting upstream -------------------------
 
-    async def diff(self, skill_id: UUID, _user: UserDB) -> SkillDiffResponse:
-        """What adopting the newest synced version would change (skillkit's
-        semantic diff). `unchanged` when nothing newer is stored."""
-        row = await self.get_or_404(skill_id)
-        current = Bundle(row.to_bundle().file_bytes())
-        version = await self.repository.latest_version(row.id)
-        if version is None or version.digest == (row.digest or current.digest):
-            return SkillDiffResponse(
-                name=row.name,
-                status="unchanged",
-                old_digest=row.digest or current.digest,
-                new_digest=row.digest or current.digest,
-                old_revision=row.source_revision,
-                new_revision=row.source_revision,
-                categories=[],
-                description_changed=False,
-                instructions_changed=False,
-                scripts_changed=False,
-                requirements_changed=False,
-                files=[],
-            )
-        new = Bundle(_version_bundle(version).file_bytes())
-        diff = diff_bundles(row.name, current, new)
-        return SkillDiffResponse(
-            name=row.name,
-            status=diff.status,
-            old_digest=diff.old_digest,
-            new_digest=diff.new_digest,
-            old_revision=row.source_revision,
-            new_revision=version.revision,
-            categories=list(diff.categories),
-            description_changed=diff.description_changed,
-            instructions_changed=diff.instructions_changed,
-            scripts_changed=diff.scripts_changed,
-            requirements_changed=diff.requirements_changed,
-            files=[SkillFileChange(**change.__dict__) for change in diff.files],
-        )
-
-    async def adopt(self, skill_id: UUID, user: UserDB) -> SkillResponse:
-        """Make the newest synced version the one agents run. Explicit on
-        purpose: sync only makes versions *available*."""
-        row = await self._editable(skill_id, user)
-        version = await self.repository.latest_version(row.id)
-        if version is None or version.digest == row.digest:
-            return await self._response(row, user)
-        bundle = _version_bundle(version)
-        if bundle.name != row.name:
-            # Upstream renamed it. The library is one namespace, so the new
-            # name has to be free here too — an adopt is a save like any other.
-            await self._name_is_free(bundle.name)
-            if await self.repository.is_attached(row.id):
-                raise DomainValidationError(
-                    "This version renames the skill; disable it on every agent "
-                    "before adopting"
-                )
-        row.sqlmodel_update(
-            {
-                **_columns(bundle),
-                "revision": row.revision + 1,
-                "source_revision": version.revision,
-                "missing_upstream": False,
-            }
-        )
-        return await self._response(await self._flush(row), user)
-
     async def _name_is_free(self, name: str) -> None:
         """The library is one namespace. Refused here rather than at the
         agent's config save: an agent addresses a skill by name and a graph
@@ -236,16 +166,6 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
             SkillAgentRef(**agent._mapping)
             for agent in await self.repository.list_agents_using(row.id)
         ]
-        latest = await self.repository.latest_version(row.id) if row.source_id else None
-        available = (
-            SkillVersionInfo(
-                digest=latest.digest,
-                revision=latest.revision,
-                discovered_at=latest.created_at,
-            )
-            if latest is not None and _update_available(row.digest, latest.digest)
-            else None
-        )
         source = (
             await self.repository.get_source(row.source_id) if row.source_id else None
         )
@@ -268,12 +188,10 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
             source_path=row.source_path,
             source_revision=row.source_revision,
             digest=row.digest,
-            update_available=available is not None,
             missing_upstream=row.missing_upstream,
             content=bundle.content,
             files=bundle.files,
             agents=agents,
-            available=available,
         )
 
     # -- agent bindings ------------------------------------------------------
@@ -332,7 +250,7 @@ def _can_edit(owner_id: UUID, user: UserDB) -> bool:
 
 def _is_sourced(source_revision: str | None) -> bool:
     """Whether the content came from a repository. `source_revision` is the
-    pin — the commit it was read at — and only a sync or an adopt writes it.
+    pin — the commit it was read at — and only a sync writes it.
     Not `digest`, which every save computes, in-app skills included."""
     return source_revision is not None
 
@@ -363,16 +281,6 @@ def _columns(bundle: SkillBundle) -> dict:
         "files": [file.model_dump(mode="json") for file in bundle.files],
         "digest": bundle_digest(bundle.file_bytes()),
     }
-
-
-def _update_available(digest: str | None, latest_digest: str | None) -> bool:
-    return latest_digest is not None and digest is not None and latest_digest != digest
-
-
-def _version_bundle(version: SkillVersionDB) -> SkillBundle:
-    return parse_skill(
-        version.content, [SkillFile.model_validate(f) for f in version.files]
-    )
 
 
 def get_skill_service(db: AsyncSession = Depends(get_db)) -> SkillService:

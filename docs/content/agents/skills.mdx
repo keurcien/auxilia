@@ -47,7 +47,7 @@ There are two kinds of skill, told apart by where they come from:
 | --- | --- | --- |
 | Created with | **New skill** | **Sources → Connect repository** |
 | Contents | One `SKILL.md` | `SKILL.md` plus files — including `scripts/` |
-| Edited | In the editor, live on the next run | In the repository; the library pins a version and you adopt updates |
+| Edited | In the editor, live on the next run | In the repository; each sync updates the library |
 | Reviewed | By whoever edits it | Through your repository's own review flow |
 
 ### Writing a skill in the app
@@ -71,7 +71,7 @@ The **Sources** tab lists the GitHub and GitLab repositories the workspace syncs
 
 ![Connect a repository](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/skill-source-new.png)
 
-Each **sync** makes the repository's current skills *available*: a new skill becomes a library row pinned to the synced content; a skill that changed upstream gets an **UPDATE** badge, and its owner reviews the diff with **Review update** and adopts it — sync never changes what an agent runs by itself. A skill that disappeared upstream is marked **GONE UPSTREAM** but keeps working at its pinned revision. A skill whose name collides with one already in the library is skipped and reported.
+Each **sync** brings the library up to date with the repository: a new skill becomes a library row pinned to the synced content, and a skill that changed upstream is updated in place — agents pick it up on their next run. A skill that disappeared upstream is marked **GONE UPSTREAM** but keeps working at its pinned revision. A skill whose name collides with one already in the library is skipped and reported.
 
 ![Skill sources](https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/docs/skills-sources.png)
 

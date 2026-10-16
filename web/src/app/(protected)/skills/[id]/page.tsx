@@ -23,7 +23,6 @@ export default function SkillPage() {
 	// `?edit=1` (the library's row menu) opens straight in edit mode; a
 	// viewer who can't edit falls back to read mode below.
 	const [editing, setEditing] = useState(searchParams.get("edit") === "1");
-	const reviewOnOpen = searchParams.get("review") === "1";
 
 	useEffect(() => {
 		let current = true;
@@ -82,7 +81,6 @@ export default function SkillPage() {
 			onDeleted={() => {
 				router.push("/skills");
 			}}
-			reviewOnOpen={reviewOnOpen}
 		/>
 	);
 }

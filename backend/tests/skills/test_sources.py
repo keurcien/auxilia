@@ -1,4 +1,4 @@
-"""Skill sources: sync, adopt, diff, detach — against SQLite, with the host
+"""Skill sources: sync, detach — against SQLite, with the host
 stubbed at the one seam that touches the network (`_resolve`)."""
 
 from __future__ import annotations
@@ -113,7 +113,7 @@ async def test_create_syncs_and_imports_valid_skills_only(agent_session, admin, 
         and margin.source_revision == "aaa111"
     )
     assert margin.script_count == 1 and margin.digest.startswith("sha256:")
-    assert not margin.update_available and not margin.can_edit and margin.can_manage
+    assert not margin.can_edit and margin.can_manage
     with pytest.raises(DomainValidationError, match="synced from a repository"):
         await skills.update(
             margin.id,
@@ -122,9 +122,7 @@ async def test_create_syncs_and_imports_valid_skills_only(agent_session, admin, 
         )
 
 
-async def test_sync_makes_a_new_version_available_and_adopt_applies_it(
-    agent_session, admin, host
-):
+async def test_sync_applies_upstream_changes_in_place(agent_session, admin, host):
     sources = SkillSourceService(agent_session)
     skills = SkillService(agent_session)
     source = await sources.create(SkillSourceCreate(url=URL), admin)
@@ -144,36 +142,18 @@ async def test_sync_makes_a_new_version_available_and_adopt_applies_it(
     assert synced.last_revision == "bbb222" and synced.skill_count == 1
 
     by_name = {s.name: s for s in await skills.list_summaries(admin)}
-    assert by_name["margin-audit"].update_available
-    assert by_name["margin-audit"].source_revision == "aaa111"  # still pinned
-    assert (
-        by_name["weekly-brief"].missing_upstream
-        and not by_name["weekly-brief"].update_available
-    )
-
+    assert by_name["weekly-brief"].missing_upstream
     detail = await skills.get(margin.id, admin)
-    assert (
-        detail.available.revision == "bbb222"
-        and detail.files[0].content == "print('v1')\n"
-    )
+    assert detail.revision == 2 and detail.source_revision == "bbb222"
+    assert detail.files[0].content == "print('v2')\n"
+    assert detail.description.startswith("Recompute margins from raw exports.")
 
-    diff = await skills.diff(margin.id, admin)
-    assert diff.status == "changed" and diff.categories == ["description", "scripts"]
-    assert (diff.old_revision, diff.new_revision) == ("aaa111", "bbb222")
-    assert any(
-        f.path == "scripts/clean.py" and "+print('v2')" in (f.unified or "")
-        for f in diff.files
-    )
-
-    adopted = await skills.adopt(margin.id, admin)
-    assert adopted.revision == 2 and adopted.source_revision == "bbb222"
-    assert adopted.files[0].content == "print('v2')\n" and not adopted.update_available
-    assert (await skills.diff(margin.id, admin)).status == "unchanged"
-    # Adopting again is a no-op.
-    assert (await skills.adopt(margin.id, admin)).revision == 2
+    # Syncing the same revision again changes nothing.
+    await sources.sync(source.id, admin)
+    assert (await skills.get(margin.id, admin)).revision == 2
 
 
-async def test_adopt_refuses_a_rename_while_attached(agent_session, admin, host):
+async def test_a_rename_upstream_reads_as_new_and_gone(agent_session, admin, host):
     sources = SkillSourceService(agent_session)
     skills = SkillService(agent_session)
     await sources.create(SkillSourceCreate(url=URL), admin)
@@ -190,7 +170,7 @@ async def test_adopt_refuses_a_rename_while_attached(agent_session, admin, host)
     # Not spec-valid (name ≠ directory), so it is reported, not imported…
     synced = await sources.sync((await sources.list(admin))[0].id, admin)
     assert synced.last_report[0].issues[0].code == "E003"
-    # …and a valid rename in place still refuses to adopt while attached.
+    # …and a valid rename is a new skill, the old one flagged as gone.
     del host.tree["skills/weekly-brief/SKILL.md"]
     host.tree["skills/monday-brief/SKILL.md"] = skill_md(
         "monday-brief",
@@ -245,7 +225,7 @@ async def test_delete_leaves_its_skills_detached_and_frozen(agent_session, admin
     # never writes files it did not author. Removing the row is not editing,
     # so that stays available, under the same in-use guard as any skill.
     assert not margin.can_edit and margin.can_manage
-    assert not margin.update_available and not margin.missing_upstream
+    assert not margin.missing_upstream
     with pytest.raises(DomainValidationError, match="no longer connected"):
         await skills.update(
             margin.id,
@@ -285,12 +265,8 @@ async def test_connecting_the_repository_again_re_pins_the_detached_skills(
     assert {name: s.id for name, s in by_name.items()} == before
     assert {s.source_id for s in by_name.values()} == {reconnected.id}
     assert by_name["weekly-brief"].can_manage and not by_name["weekly-brief"].can_edit
-    # And the sync it missed is waiting, as an update rather than a rewrite.
-    assert by_name["margin-audit"].update_available
-    assert by_name["margin-audit"].source_revision == "aaa111"
-    assert (await skills.adopt(by_name["margin-audit"].id, admin)).source_revision == (
-        "bbb222"
-    )
+    # And the sync it missed is applied on reconnect.
+    assert by_name["margin-audit"].source_revision == "bbb222"
 
 
 async def test_a_sync_never_claims_a_skill_written_in_the_app(
@@ -446,7 +422,6 @@ async def test_a_repository_cannot_take_over_another_ones_detached_skill(
     assert by_name["margin-audit"].id == before["margin-audit"]
     assert by_name["margin-audit"].source_id is None  # still detached, untouched
     assert by_name["margin-audit"].source_revision == "aaa111"
-    assert not by_name["margin-audit"].update_available
     assert other.skill_count == 0
     [entry] = [e for e in other.last_report if e.name == "margin-audit"]
     assert entry.status == "skipped" and entry.issues[0].code == "W004"
@@ -610,9 +585,8 @@ async def test_an_empty_repository_is_its_own_state_not_an_unreachable_host(
 async def test_plan_says_what_a_sync_would_change_and_writes_nothing(
     agent_session, admin, host
 ):
-    """The confirmation before a sync. `unchanged` and `updated` both leave
-    the live skill alone — only `new` lands in the library on the spot — so
-    the plan has to tell them apart, and it must not itself sync."""
+    """The confirmation before a sync: it must say what changes, and must not
+    itself sync."""
     sources = SkillSourceService(agent_session)
     skills = SkillService(agent_session)
     source = await sources.create(SkillSourceCreate(url=URL), admin)
@@ -647,10 +621,7 @@ async def test_plan_says_what_a_sync_would_change_and_writes_nothing(
     by_name = {s.name: s for s in await skills.list_summaries(admin)}
     assert "kyc-check" in by_name  # the `new` one landed
     assert by_name["weekly-brief"].missing_upstream  # the `gone` one was flagged
-    # The `updated` one is untouched: a sync makes a version available, it does
-    # not apply it. (Whether `update_available` resolves is a separate matter —
-    # `latest_version` breaks ties on a random UUID, so it is not assertable.)
-    assert by_name["margin-audit"].digest == pinned["margin-audit"]
+    assert by_name["margin-audit"].digest != pinned["margin-audit"]  # applied
 
 
 async def test_a_source_is_its_url_ref_and_path(agent_session, admin, host):

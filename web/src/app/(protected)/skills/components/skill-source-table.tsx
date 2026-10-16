@@ -39,7 +39,7 @@ const STATUS_COPY = new Map<
 	updated: {
 		label: "UPDATED",
 		className: "bg-warning-bg text-warning",
-		note: "new version available to adopt",
+		note: "updated in the library",
 	},
 	unchanged: { label: "UNCHANGED", className: "bg-neutral-bg text-subtle dark:bg-white/10 dark:text-panel-body" },
 	gone: {
@@ -66,10 +66,8 @@ function skipReason(issues: SkillIssue[]): string | undefined {
  * What the sync is about to do, as the confirmation body.
  *
  * The point of showing it is that the four outcomes are not equally
- * consequential: only `new` changes the library on the spot. An `updated`
- * skill keeps running exactly as it does now until someone adopts the new
- * version, and a `gone` one keeps working too. Saying that here is what
- * makes the button safe to press.
+ * consequential: `new` and `updated` change what agents run from their next
+ * turn, while a `gone` one keeps working, pinned.
  */
 function SyncPlanSummary({ plan }: { plan: SkillSyncPlan }) {
 	const order: SkillSyncStatus[] = ["new", "updated", "gone", "skipped", "unchanged"];
@@ -143,8 +141,8 @@ function SyncPlanSummary({ plan }: { plan: SkillSyncPlan }) {
 				</span>
 			)}
 			<span className="mt-2.5 block text-[12px] leading-[1.5] text-meta dark:text-panel-dim">
-				Syncing does not change what an agent runs: an updated skill stays on its
-				pinned version until you adopt it, one at a time, against a diff.
+				Agents pick up new and updated skills on their next run; a skill gone
+				upstream keeps working at its pinned version.
 			</span>
 		</span>
 	);
