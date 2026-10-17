@@ -18,6 +18,9 @@ Two policies, chosen per tool when the toolset is built:
   an app result on hydration, since LangGraph persists the ToolMessage as is.
 - **Every other tool**: ``structured_content`` is dropped. No client code reads
   it and the model never had it.
+
+A caller that is not the model (the sandbox bridge, which writes results to
+files) invokes the tool as it was before this policy — `Toolset.call_raw`.
 """
 
 from langchain_core.messages import ToolMessage
@@ -25,6 +28,12 @@ from langchain_core.tools import BaseTool
 
 
 _STRUCTURED_CONTENT_KEYS = ("structured_content", "structuredContent")
+
+
+def structured_content_of(artifact: dict) -> object | None:
+    """The server's structured content under either spelling the adapter and
+    MCP use, or None."""
+    return next((artifact[k] for k in _STRUCTURED_CONTENT_KEYS if k in artifact), None)
 
 
 def bound_tool_artifact(tool: BaseTool, ui_metadata: dict | None) -> None:

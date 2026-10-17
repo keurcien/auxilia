@@ -114,6 +114,25 @@ class SandboxUnavailableError(DomainError):
         }
 
 
+class LeaseEndedError(DomainError):
+    """A sandbox MCP capability whose run is over: the worker closed the
+    bridge, or its lease lapsed. The sandbox code holding the token has
+    nothing to retry against — a 410, not a 404."""
+
+
+class OperationExpiredError(NotFoundError):
+    """A sandbox MCP operation record that is not there — never created, or
+    past its TTL. The worker drops such queue entries without recreating them."""
+
+
+class CallLimitError(DomainError):
+    """The run's budget of distinct sandbox MCP calls is spent (429)."""
+
+
+class PayloadTooLargeError(DomainError):
+    """A sandbox MCP request body over the bridge's byte limit (413)."""
+
+
 #: HTTP status per domain exception — the whole translation table, in one place
 #: instead of one copy-paste handler each (design review §2.3).
 #:
@@ -131,6 +150,9 @@ STATUS: dict[type[DomainError], int] = {
     SandboxUnavailableError: 409,
     StaleApprovalError: 409,
     StaleRevisionError: 409,
+    LeaseEndedError: 410,
+    PayloadTooLargeError: 413,
+    CallLimitError: 429,
     DomainError: 500,
 }
 

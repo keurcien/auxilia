@@ -18,7 +18,7 @@ import {
 } from "@/components/ai-elements/chain-of-thought";
 import {
   type HitlDecision,
-  type HitlResponse,
+  type RespondToInterrupt,
   useHitlApprovals,
 } from "@/hooks/use-hitl-approvals";
 import {
@@ -138,7 +138,7 @@ export type SubAgentCardProps = {
   /** Interrupts raised inside subagents; the card claims its own. */
   interrupts: readonly Interrupt[];
   /** Resume — `stream.respond(response, { interruptId })`. */
-  respond: (response: HitlResponse, interruptId: string | null) => void;
+  respond: RespondToInterrupt;
   /** A run is executing; approvals are held until it settles. */
   resumeInFlight: boolean;
   modelUnavailable: boolean;

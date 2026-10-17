@@ -19,7 +19,7 @@ _SNAPSHOT = {"values": {"messages": []}, "next": [], "tasks": []}
 
 
 class _Protocol:
-    async def thread_state(self, thread_id):
+    async def thread_state(self, thread_id, user_id):
         return _SNAPSHOT
 
     async def message(self, thread_id, message_id):

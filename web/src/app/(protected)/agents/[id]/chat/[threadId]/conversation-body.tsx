@@ -44,7 +44,7 @@ import { TodoList } from "@/components/ai-elements/todo-list";
 import type { Todo } from "@/components/ai-elements/todo-list";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { useAgentsStore } from "@/stores/agents-store";
-import type { HitlDecision, HitlResponse } from "@/hooks/use-hitl-approvals";
+import type { HitlDecision, RespondToInterrupt } from "@/hooks/use-hitl-approvals";
 import { AppSlot, ArtifactCards } from "@/components/artifacts/workspace";
 import {
   type ChainStepData,
@@ -85,7 +85,7 @@ export type ConversationBodyProps = {
    *  one); each card claims its own and approves it itself. */
   nestedInterrupts: Interrupt[];
   /** Resume an interrupt — `stream.respond(response, { interruptId })`. */
-  respond: (response: HitlResponse, interruptId: string | null) => void;
+  respond: RespondToInterrupt;
   modelUnavailable: boolean;
   onRegenerate: () => void;
   error: unknown;
@@ -381,7 +381,7 @@ type ChainProps = {
   decisions: Partial<Record<string, HitlDecision>>;
   recordDecision: (toolCallId: string, decision: HitlDecision) => void;
   nestedInterrupts: Interrupt[];
-  respond: (response: HitlResponse, interruptId: string | null) => void;
+  respond: RespondToInterrupt;
   /** A run is executing: a card's approval waits for it to settle. */
   resumeInFlight: boolean;
   modelUnavailable: boolean;

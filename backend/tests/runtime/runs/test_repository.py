@@ -461,3 +461,40 @@ async def test_an_interrupted_run_retracts_what_it_streamed(redis, run_db, monke
         "h1",
         "partial",
     ]
+
+
+async def test_bridge_requests_stream_to_the_thread_owner_only(redis, run_db):
+    """An agent admin may read another user's thread, but a sandbox bridge
+    request carries that user's tool arguments and OAuth URL: it is dropped
+    from the admin's session, while the graph's own interrupts still relay."""
+    import app.runtime.api.protocol_service as protocol_mod  # noqa: F401
+    from app.runtime.protocol import events as ev
+    from app.runtime.protocol.filter import StreamFilter
+    from app.runtime.protocol.wire import encode_event
+    from app.runtime.runs.events import RunEventStream
+    from app.runtime.sandbox_mcp.service import BRIDGE_NAMESPACE
+
+    run = await _add_run(run_db, thread_id="to", user_id=uuid4())
+    log = RunEventStream(run.id, redis)
+    await log.publish(
+        encode_event(
+            ev.input_requested(
+                BRIDGE_NAMESPACE, interrupt_id="wait", payload={"sandbox_mcp": {}}
+            )
+        )
+    )
+    await log.publish(
+        encode_event(ev.input_requested([], interrupt_id="ab" * 16, payload={}))
+    )
+    await log.publish_end(RunStatus.success)
+
+    protocol = ProtocolService(redis)
+    sink = StreamFilter.from_request(["input"], None, None)
+
+    async def frames(**kwargs):
+        return [f async for f in protocol._stream_run(run, sink, since=None, **kwargs)]
+
+    assert sum('"wait"' in f for f in await frames()) == 1
+    admin = await frames(reader_is_owner=False)
+    assert not any('"wait"' in f for f in admin)
+    assert any('"' + "ab" * 16 + '"' in f for f in admin)

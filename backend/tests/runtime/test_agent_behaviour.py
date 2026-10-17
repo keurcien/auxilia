@@ -48,7 +48,10 @@ class LiveToolsetStub:
     """Stands in for the toolset `Toolset.open` binds to a live MCP session."""
 
     def __init__(self, tools: list):
+        from app.runtime.toolset import AgentTool
+
         self.all = tools
+        self.tools = [AgentTool(tool=t) for t in tools]
 
 
 def _prepared(tools: list) -> PreparedToolset:

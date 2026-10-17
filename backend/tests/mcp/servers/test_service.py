@@ -662,3 +662,59 @@ async def test_a_redis_outage_does_not_fail_the_edit(service, mock_repo, monkeyp
     )
 
     assert result is after
+
+
+@pytest.mark.parametrize("exchange_fails", [False, True])
+async def test_callback_notifies_only_after_successful_exchange(
+    service, mock_repo, monkeypatch, fake_shared_redis, exchange_fails
+):
+    from app.mcp.client.oauth_events import oauth_completion_key
+
+    mock_repo.get.return_value = make_mcp_server()
+    state_data = SimpleNamespace(mcp_server_id="server")
+    factory = MagicMock()
+    factory.get_storage_from_state = AsyncMock(return_value=(MagicMock(), state_data))
+    monkeypatch.setattr(service_module, "TokenStorageFactory", lambda: factory)
+
+    async def exchange(code, state):
+        assert await fake_shared_redis.get(oauth_completion_key(state)) is None
+        if exchange_fails:
+            raise RuntimeError("exchange failed")
+
+    provider = SimpleNamespace(manual_exchange=AsyncMock(side_effect=exchange))
+    monkeypatch.setattr(
+        service_module, "build_oauth_provider", AsyncMock(return_value=provider)
+    )
+    if exchange_fails:
+        with pytest.raises(RuntimeError, match="exchange failed"):
+            await service.handle_oauth_callback("code", "state")
+        assert await fake_shared_redis.get(oauth_completion_key("state")) is None
+    else:
+        assert (await service.handle_oauth_callback("code", "state"))[
+            "status"
+        ] == "success"
+        assert await fake_shared_redis.get(oauth_completion_key("state")) == "complete"
+
+
+async def test_callback_marker_failure_does_not_report_oauth_failure(
+    service, mock_repo, monkeypatch
+):
+    from redis.exceptions import RedisError
+
+    mock_repo.get.return_value = make_mcp_server()
+    factory = MagicMock()
+    factory.get_storage_from_state = AsyncMock(
+        return_value=(MagicMock(), SimpleNamespace(mcp_server_id="server"))
+    )
+    monkeypatch.setattr(service_module, "TokenStorageFactory", lambda: factory)
+    provider = SimpleNamespace(manual_exchange=AsyncMock())
+    monkeypatch.setattr(
+        service_module, "build_oauth_provider", AsyncMock(return_value=provider)
+    )
+    notification = SimpleNamespace(
+        set=AsyncMock(side_effect=RedisError("notification unavailable"))
+    )
+    monkeypatch.setattr(service_module, "get_redis", lambda: notification)
+    result = await service.handle_oauth_callback("code", "state")
+    assert result["status"] == "success"
+    provider.manual_exchange.assert_awaited_once_with("code", "state")
