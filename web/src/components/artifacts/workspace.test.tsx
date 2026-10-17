@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppSlot, ArtifactCards, ArtifactWorkspace } from "./workspace";
 import { listArtifacts, readArtifact } from "@/lib/api/resources/artifacts";
@@ -53,6 +53,7 @@ const item: Artifact = {
   filename: "report.csv",
   mime_type: "text/csv",
   size: 3,
+  sha256: "a",
   temporary: true,
   created_at: null,
 };
@@ -67,6 +68,50 @@ beforeEach(() => {
   vi.mocked(readArtifact).mockResolvedValue(new ArrayBuffer(3));
 });
 describe("artifact workspace", () => {
+  it("does not reload the open file on an unchanged poll", async () => {
+    const view = render(
+      <ArtifactWorkspace threadId="thread" running={false} refreshKey="1">
+        <ArtifactCards toolCallId="call" />
+      </ArtifactWorkspace>,
+    );
+    fireEvent.click(await screen.findByText("Report"));
+    await screen.findByText("File preview");
+    // A poll returns fresh objects with the same content.
+    vi.mocked(listArtifacts).mockResolvedValue([{ ...item }]);
+    view.rerender(
+      <ArtifactWorkspace threadId="thread" running={false} refreshKey="2">
+        <ArtifactCards toolCallId="call" />
+      </ArtifactWorkspace>,
+    );
+    await vi.waitFor(() => {
+      expect(listArtifacts).toHaveBeenCalledTimes(2);
+    });
+    // Let the poll's result apply before asserting nothing reloaded.
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(readArtifact).toHaveBeenCalledTimes(1);
+  });
+  it("reloads the open file when it is updated in place", async () => {
+    const view = render(
+      <ArtifactWorkspace threadId="thread" running={false} refreshKey="1">
+        <ArtifactCards toolCallId="call" />
+      </ArtifactWorkspace>,
+    );
+    fireEvent.click(await screen.findByText("Report"));
+    await screen.findByText("File preview");
+    expect(readArtifact).toHaveBeenCalledTimes(1);
+    vi.mocked(listArtifacts).mockResolvedValue([{ ...item, sha256: "b" }]);
+    view.rerender(
+      <ArtifactWorkspace threadId="thread" running={false} refreshKey="2">
+        <ArtifactCards toolCallId="call" />
+      </ArtifactWorkspace>,
+    );
+    await vi.waitFor(() => {
+      expect(readArtifact).toHaveBeenCalledTimes(2);
+    });
+    expect(vi.mocked(readArtifact).mock.calls[1][0].sha256).toBe("b");
+  });
   it("rehydrates cards, opens the side panel and explains temporary retention", async () => {
     render(
       <ArtifactWorkspace threadId="thread" running={false} refreshKey="">

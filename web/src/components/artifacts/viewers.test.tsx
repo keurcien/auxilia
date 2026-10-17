@@ -15,6 +15,7 @@ const artifact: Artifact = {
   filename: "report.csv",
   mime_type: "text/csv",
   size: 20,
+  sha256: "a",
   temporary: true,
   created_at: null,
 };

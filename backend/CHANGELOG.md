@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.9.17](https://github.com/keurcien/auxilia/compare/backend-v0.9.16...backend-v0.9.17) (2026-10-17)
+
+
+### Features
+
+* **artifacts:** edit presentations in place, from the panel and the agent ([#420](https://github.com/keurcien/auxilia/issues/420)) ([84d2a06](https://github.com/keurcien/auxilia/commit/84d2a069cb74dc3112741b146408a20ea22e32bd))
+* **skills:** sync applies upstream skill updates directly ([#424](https://github.com/keurcien/auxilia/issues/424)) ([cd5c223](https://github.com/keurcien/auxilia/commit/cd5c223be3b105ed0a5ce3b75a427e4b787d09fa))
+
+
+### Bug Fixes
+
+* **auth:** return to the original page after sign-in, and keep active users signed in ([#423](https://github.com/keurcien/auxilia/issues/423)) ([5098d9b](https://github.com/keurcien/auxilia/commit/5098d9b3d6cf4ff20254234126557b1c91e8fab2))
+
 ## [0.9.16](https://github.com/keurcien/auxilia/compare/backend-v0.9.15...backend-v0.9.16) (2026-10-16)
 
 

@@ -20,8 +20,11 @@ def present_files_tool(backend: BaseSandbox, thread_id: str, sandbox_source_id: 
         """Show finished files in the chat artifact panel. Save deliverables under
         /tmp (e.g. /tmp/report.pptx), then pass their absolute paths and optional
         titles. Supports PPTX, PDF, UTF-8 CSV/Markdown and self-contained HTML.
-        Publishes immutable snapshots; call again to present a revision. Without
-        configured object storage, files expire with the execution sandbox.
+        After changing a presented file, present the same path again: its card
+        updates in place. The user may edit a presented PPTX in the panel; their
+        edits are written back to the same path, so read the file again before
+        changing it. Without configured object storage, files expire with the
+        execution sandbox.
         """
         if not 1 <= len(files) <= 10:
             raise ValueError("Present between 1 and 10 files at a time")
@@ -51,6 +54,7 @@ def present_files_tool(backend: BaseSandbox, thread_id: str, sandbox_source_id: 
             # (lost connection), and deleting then would orphan committed rows.
             # The worst case here is an unreferenced object, never a lost file.
             await db.commit()
+            await service.purge_replaced()
         summary = [
             {"id": x["id"], "title": x["title"], "temporary": x["temporary"]}
             for x in items

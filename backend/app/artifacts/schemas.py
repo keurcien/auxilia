@@ -17,6 +17,9 @@ class ArtifactResponse(BaseModel):
     filename: str
     mime_type: str
     size: int
+    # Changes when the content changes: the viewer's reload signal and the
+    # If-Match revision for edits.
+    sha256: str
     temporary: bool
     created_at: datetime | None
 

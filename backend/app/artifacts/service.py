@@ -28,7 +28,12 @@ from app.artifacts.storage import (
     build_store,
 )
 from app.database import get_db
-from app.exceptions import DomainError, DomainValidationError, NotFoundError
+from app.exceptions import (
+    DomainError,
+    DomainValidationError,
+    NotFoundError,
+    StaleRevisionError,
+)
 from app.sandbox.provider import SandboxGoneError, build_provider
 from app.sandbox.repository import SandboxRepository
 from app.service import BaseService
@@ -46,6 +51,7 @@ def describe(row: ArtifactDB) -> ArtifactResponse:
         filename=row.filename,
         mime_type=row.mime_type,
         size=row.size,
+        sha256=row.sha256,
         temporary=row.storage_kind == "sandbox",
         created_at=row.created_at,
     )
@@ -67,6 +73,8 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
         super().__init__(db, ArtifactRepository(db))
         # Objects this service put in the bucket, so an aborted batch can remove them.
         self.uploaded: list[str] = []
+        # Objects an update in place superseded, removed once the update commits.
+        self.replaced: list[str] = []
 
     async def list(
         self, thread_id: str, after: UUID | None = None
@@ -85,9 +93,10 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
         backend: BaseSandbox,
         sandbox_source_id: UUID,
     ) -> ArtifactResponse:
-        existing = await self.repository.published(thread_id, tool_call_id, file.path)
-        if existing:
-            return describe(existing)
+        # One artifact per sandbox path: presenting the path again updates it.
+        row = await self.repository.at_path(thread_id, file.path)
+        if row is not None and row.tool_call_id == tool_call_id:
+            return describe(row)  # tool replay
         cfg = artifact_settings
         try:
             data = await asyncio.to_thread(
@@ -104,19 +113,99 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
         filename = PurePosixPath(file.path).name
         # Zip parsing / UTF-8 decoding of up to max_bytes: keep it off the loop.
         mime_type = await asyncio.to_thread(detect_mime, filename, data)
-        # Stable across tool replay. New tool calls publish new immutable versions.
-        artifact_id = uuid5(
-            NAMESPACE_URL, f"auxilia:{thread_id}:{tool_call_id}:{file.path}"
-        )
-        digest = hashlib.sha256(data).hexdigest()
-        key = f"{cfg.prefix.strip('/')}/threads/{uuid5(NAMESPACE_URL, thread_id)}/{artifact_id}/{digest}/{filename}"
-        kind = cfg.provider or "sandbox"
-        if kind != "sandbox":
-            store = await asyncio.to_thread(build_store, cfg)
-            await asyncio.to_thread(store.put, key, data, mime_type)
-            self.uploaded.append(key)
+        if row is None:
+            row = ArtifactDB(
+                # Stable across tool replay.
+                id=uuid5(
+                    NAMESPACE_URL, f"auxilia:{thread_id}:{tool_call_id}:{file.path}"
+                ),
+                thread_id=thread_id,
+                source_path=file.path,
+                title=file.title or filename,
+                tool_call_id=tool_call_id,
+                filename=filename,
+                mime_type=mime_type,
+                size=0,
+                sha256="",
+                storage_kind="",
+                storage_key="",
+            )
+        row.tool_call_id = tool_call_id  # the card moves to the latest call
+        row.title = file.title or row.title
+        row.mime_type = mime_type
+        row.sandbox_source_id = sandbox_source_id
+        row.sandbox_id = backend.id
+        await self._store(row, data, backend)
+        return describe(await self.repository.save(row))
+
+    async def replace_content(
+        self, thread_id: str, artifact_id: UUID, data: bytes, revision: str
+    ) -> ArtifactResponse:
+        """Save a user's edit of a presentation over the artifact, and over the
+        agent's working file in the sandbox so its next turn starts from it."""
+        # Locked until the commit, so two saves from the same revision serialize
+        # and the second one sees the first's digest.
+        row = await self.repository.in_thread(thread_id, artifact_id, for_update=True)
+        if row is None:
+            raise NotFoundError(self.not_found_message)
+        if row.mime_type != PPTX_MIME:
+            raise DomainValidationError("Only PowerPoint files can be edited")
+        if revision != row.sha256:
+            raise StaleRevisionError(
+                "This file changed since you opened it. Reload it to edit the latest version."
+            )
+        if len(data) > artifact_settings.max_bytes:
+            raise DomainValidationError("Artifact exceeds the size limit")
+        if await asyncio.to_thread(detect_mime, row.filename, data) != PPTX_MIME:
+            raise DomainValidationError("Invalid PowerPoint presentation")
+        if row.storage_kind == "sandbox" or not artifact_settings.provider:
+            backend = await self._connect(row)
         else:
-            key = f"{SNAPSHOT_ROOT}/{artifact_id}/{digest}"
+            try:
+                backend = await self._connect(row)
+            except ArtifactGoneError:
+                backend = None  # the edit is saved; there is no agent copy to update
+        if backend is not None:
+            # Before storing: a failed write-back then leaves nothing to clean up,
+            # and the artifact never shows an edit the agent's file lacks.
+            # shortcut: a turn running right now can overwrite this, the panel
+            # only allows edits between turns; add a server-side guard if needed.
+            result = await asyncio.to_thread(
+                backend.upload_files, [(row.source_path, data)]
+            )
+            if not result or result[0].error:
+                raise DomainError("Could not write the edit back to the sandbox")
+        await self._store(row, data, backend)
+        return describe(await self.repository.save(row))
+
+    async def _store(
+        self, row: ArtifactDB, data: bytes, backend: BaseSandbox | None
+    ) -> None:
+        """Put `data` where the current configuration keeps artifacts and point
+        `row` at it. Keys carry the digest, so a new version never overwrites
+        the object a committed row still references."""
+        cfg = artifact_settings
+        digest = hashlib.sha256(data).hexdigest()
+        kind = cfg.provider or "sandbox"
+        location = (cfg.provider, cfg.bucket_name or None, cfg.endpoint)
+        in_bucket = (
+            row.storage_kind not in ("", "sandbox")
+            and (row.storage_kind, row.storage_bucket, row.storage_endpoint) == location
+        )
+        old_key = row.storage_key
+        if kind != "sandbox":
+            key = f"{cfg.prefix.strip('/')}/threads/{uuid5(NAMESPACE_URL, row.thread_id)}/{row.id}/{digest}/{row.filename}"
+            # Same bytes already in this bucket: nothing to upload.
+            if not (in_bucket and key == old_key):
+                store = await asyncio.to_thread(build_store, cfg)
+                await asyncio.to_thread(store.put, key, data, row.mime_type)
+                self.uploaded.append(key)
+        else:
+            if backend is None:
+                raise ArtifactGoneError(
+                    "This temporary file's execution environment is no longer available."
+                )
+            key = f"{SNAPSHOT_ROOT}/{row.id}/{digest}"
             directory = str(PurePosixPath(key).parent)
             mkdir = await asyncio.to_thread(
                 backend.execute, f"mkdir -p -- {shlex.quote(directory)}", timeout=10
@@ -128,25 +217,35 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
             result = await asyncio.to_thread(backend.upload_files, [(key, data)])
             if not result or result[0].error:
                 raise DomainValidationError("Could not snapshot the temporary artifact")
-        row = ArtifactDB(
-            id=artifact_id,
-            thread_id=thread_id,
-            tool_call_id=tool_call_id,
-            source_path=file.path,
-            title=file.title or filename,
-            filename=filename,
-            mime_type=mime_type,
-            size=len(data),
-            sha256=digest,
-            storage_kind=kind,
-            storage_key=key,
-            storage_bucket=cfg.bucket_name or None,
-            storage_endpoint=cfg.endpoint,
-            sandbox_source_id=sandbox_source_id,
-            sandbox_id=backend.id,
-        )
-        row = await self.repository.insert(row)
-        return describe(row)
+        # Superseded bucket objects only; sandbox snapshots expire with the sandbox.
+        if in_bucket and old_key != key:
+            self.replaced.append(old_key)
+        row.size = len(data)
+        row.sha256 = digest
+        row.storage_kind = kind
+        row.storage_key = key
+        row.storage_bucket = cfg.bucket_name or None
+        row.storage_endpoint = cfg.endpoint
+
+    async def purge_replaced(self) -> None:
+        """Best-effort delete of superseded objects. Call only after the commit:
+        before it, a rollback would leave rows pointing at deleted bytes."""
+        if not self.replaced:
+            return
+        try:
+            store = await asyncio.to_thread(build_store, artifact_settings)
+        except Exception:  # noqa: BLE001 — the update is committed; never fail it here
+            logger.warning("Could not reach artifact storage to purge", exc_info=True)
+            self.replaced.clear()
+            return
+        for key in self.replaced:
+            try:
+                await asyncio.to_thread(store.delete, key)
+            except Exception:  # noqa: BLE001 — an orphaned object is harmless
+                logger.warning(
+                    "Could not delete superseded artifact object %s", key, exc_info=True
+                )
+        self.replaced.clear()
 
     async def discard_uploads(self) -> None:
         """Best-effort delete of this batch's bucket objects after a rollback."""
@@ -192,23 +291,7 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
                     "This saved file exceeds the current download size limit."
                 ) from exc
         else:
-            source = (
-                await SandboxRepository(self.db).get(row.sandbox_source_id)
-                if row.sandbox_source_id
-                else None
-            )
-            if source is None or row.sandbox_id is None:
-                raise ArtifactGoneError(
-                    "This temporary file's execution environment is no longer available."
-                )
-            provider = build_provider(source)
-            try:
-                # Never open_sandbox: reads must not create a replacement environment.
-                backend = await asyncio.to_thread(provider.connect, row.sandbox_id)
-            except SandboxGoneError as exc:
-                raise ArtifactGoneError(
-                    "This temporary file expired with its execution environment."
-                ) from exc
+            backend = await self._connect(row)
             try:
                 data = await asyncio.to_thread(
                     read_bytes,
@@ -230,6 +313,26 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
                 "This artifact's original bytes are no longer available."
             )
         return row, data
+
+    async def _connect(self, row: ArtifactDB) -> BaseSandbox:
+        """The sandbox the artifact was published from."""
+        source = (
+            await SandboxRepository(self.db).get(row.sandbox_source_id)
+            if row.sandbox_source_id
+            else None
+        )
+        if source is None or row.sandbox_id is None:
+            raise ArtifactGoneError(
+                "This temporary file's execution environment is no longer available."
+            )
+        provider = build_provider(source)
+        try:
+            # Never open_sandbox: must not create a replacement environment.
+            return await asyncio.to_thread(provider.connect, row.sandbox_id)
+        except SandboxGoneError as exc:
+            raise ArtifactGoneError(
+                "This temporary file expired with its execution environment."
+            ) from exc
 
     async def export_to_slides(
         self, thread_id: str, artifact_id: UUID, access_token: str
