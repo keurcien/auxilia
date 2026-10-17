@@ -338,3 +338,41 @@ def test_sandbox_capability_cannot_answer_user_approval(client):
         headers={"Authorization": "Bearer sandbox-capability-is-not-a-user-session"},
     )
     assert response.status_code == 401
+
+
+def test_automatic_helper_receives_bridge_discovery_instructions():
+    from deepagents.profiles.harness.harness_profiles import HarnessProfile
+
+    from app.runtime.harness import _general_purpose_subagent
+    from tests.runtime.scripted_model import ScriptedChatModel
+    from tests.sandbox.stub_sandbox import StubSandbox
+
+    backend = BridgeSandbox(StubSandbox(), "temporary-token")
+    helper = _general_purpose_subagent(
+        ScriptedChatModel(script=[]), [], backend, HarnessProfile()
+    )
+    assert helper is not None
+    assert "import auxilia_mcp as mcp" in helper["system_prompt"]
+    assert "print(mcp.tools())" in helper["system_prompt"]
+    assert "temporary-token" not in helper["system_prompt"]
+
+
+def test_main_agent_receives_bridge_discovery_instructions():
+    from unittest.mock import patch
+
+    from app.runtime.agent import build_runnable
+    from tests.runtime.scripted_model import ScriptedChatModel
+    from tests.sandbox.stub_sandbox import StubSandbox
+
+    backend = BridgeSandbox(StubSandbox(), "temporary-token")
+    with patch("app.runtime.agent.create_agent") as create:
+        build_runnable(
+            model=ScriptedChatModel(script=[]),
+            tools=[],
+            system_prompt="Main agent",
+            sandbox_backend=backend,
+        )
+    prompt = create.call_args.kwargs["system_prompt"]
+    assert "import auxilia_mcp as mcp" in prompt
+    assert "print(mcp.tools())" in prompt
+    assert "temporary-token" not in prompt

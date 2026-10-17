@@ -16,6 +16,12 @@ You may either call your MCP tools directly or use them inside sandbox Python.
 Both paths use the same allowed tools and require the same user approvals.
 `import auxilia_mcp as mcp` is available in executed Python. Use `mcp.tools()`
 for exact tool names, descriptions, JSON input schemas and approval requirements.
+Before saying an MCP server or tool is unavailable, execute:
+    import auxilia_mcp as mcp
+    print(mcp.tools())
+Use the returned names exactly; do not guess names from the server's display name.
+Only tools enabled for this agent are listed. If discovery fails, report the
+actual error rather than concluding that sandbox MCP access is unsupported.
 `mcp.call(tool_name, arguments)` returns {content, structured_content, is_error}.
 Prefer structured_content when present; check is_error. For example:
     import auxilia_mcp as mcp
