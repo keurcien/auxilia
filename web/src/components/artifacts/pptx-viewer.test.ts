@@ -28,7 +28,7 @@ describe("pptx text boxes", () => {
     expect(box.top).toBeCloseTo(1 / 7.5, 3);
     expect(box.width).toBeCloseTo(4 / 13.333, 3);
     // 18pt default on a 13.333in slide: 18 / (13.333 × 72) of its width.
-    expect(parseFloat(String(box.text.fontSize))).toBeCloseTo(
+    expect(parseFloat(String(box.style.fontSize))).toBeCloseTo(
       (18 / (13.333 * 72)) * 100,
       2,
     );

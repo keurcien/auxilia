@@ -4,17 +4,20 @@
 import { useEffect, useRef, useState } from "react";
 import {
   getGroupChildren,
-  getParagraphAlignment,
+  getParagraphPropertiesEffective,
+  getShapeBodyPrEffective,
   getShapeBoundsResolved,
   getShapeId,
   getShapeKind,
   getShapeRunFormatEffective,
   getShapeText,
-  getShapeTextMargins,
+  getPresentationFonts,
   getSlides,
   getSlideShapes,
   getSlideSize,
   hasShapeText,
+  isShapePlaceholder,
+  isShapeTextBox,
   loadPresentation,
   savePresentation,
   setShapeText,
@@ -31,6 +34,13 @@ import {
   Pencil,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  fontRendering,
+  lineMetrics,
+  loadFonts,
+  resolvedFamily,
+} from "./deck-fonts";
+import type { DeckFonts } from "./deck-fonts";
 import { Loading } from "./viewers";
 import type { ViewerProps } from "./viewers";
 
@@ -49,68 +59,124 @@ export function withoutText(svg: string, shapeId: number): string {
   return new XMLSerializer().serializeToString(doc);
 }
 
+/** The slide with `css` (our own `@font-face` rules) as its first child: an
+ *  SVG shown as an image cannot fetch fonts, so they travel inline. */
+export function withFonts(svg: string, css: string): string {
+  if (!css) return svg;
+  const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
+  const style = doc.createElementNS("http://www.w3.org/2000/svg", "style");
+  style.textContent = css;
+  doc.documentElement.prepend(style);
+  return new XMLSerializer().serializeToString(doc);
+}
+
 /** `hideTextOf`: a shape id whose text is left out, so an in-place editor
- *  over it shows the slide (fill, borders) without the text twice. */
-function slideUrl(
+ *  over it shows the slide (fill, borders) without the text twice.
+ *  `families`: the authored font names the slide uses. */
+function renderSlide(
   presentation: Presentation,
   slide: Slide,
+  fonts: DeckFonts,
   hideTextOf?: number,
-): string {
+): { url: string; families: ReadonlySet<string> } {
+  const rendering = fontRendering(fonts);
   // SVG is untrusted document content. Sanitize, then use image context
   // (never insert the renderer's SVG directly into the host DOM).
   let svg = DOMPurify.sanitize(
-    renderSlideToSvg(presentation, slide, { textLayout: "svg" }),
+    renderSlideToSvg(presentation, slide, rendering.options),
     {
       USE_PROFILES: { svg: true, svgFilters: true },
       FORBID_TAGS: ["foreignObject", "a"],
     },
   );
   if (hideTextOf !== undefined) svg = withoutText(svg, hideTextOf);
-  return URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+  svg = withFonts(svg, rendering.css());
+  return {
+    url: URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" })),
+    families: rendering.seen,
+  };
 }
+
+// Waiting longer than this for theme fonts shows the substitute first.
+const THEME_FONT_WAIT_MS = 1500;
 
 const ALIGN: Record<string, CSSProperties["textAlign"]> = {
   l: "left",
+  left: "left",
   ctr: "center",
+  center: "center",
   r: "right",
+  right: "right",
   just: "justify",
+  justify: "justify",
   dist: "justify",
+  distribute: "justify",
 };
 
+const ANCHOR_SHARE = { top: 0, center: 0.5, bottom: 1 };
+
+// The renderer drops the first baseline by this share of ascent + descent.
+const BASELINE_LEADING_DROP = 0.036;
+
 /** The shape's first-run typography as CSS, in `cqw` of the slide box so it
- *  scales with the rendered slide. */
+ *  scales with the rendered slide. Mirrors the renderer's text layout (font,
+ *  autofit scale, line advance, insets, alignment, anchor) so swapping the
+ *  rendered text for the editor moves nothing. */
 export function textStyle(
   presentation: Presentation,
   shape: Shape,
   slideWidth: number,
-): CSSProperties {
+  fonts: DeckFonts,
+): { style: CSSProperties; anchor: "top" | "center" | "bottom" } {
   // EMU (12700 per point) → percent of the slide width, as container units.
   const cqw = (emu: number) => `${(emu / slideWidth) * 100}cqw`;
   const run = getShapeRunFormatEffective(presentation, shape, 0, 0);
-  const margins = getShapeTextMargins(shape);
+  const paragraph = getParagraphPropertiesEffective(presentation, shape, 0);
+  const body = getShapeBodyPrEffective(presentation, shape);
+  const fontScale = body.autoFitParams?.fontScale ?? 1;
+  const lineScale = 1 - (body.autoFitParams?.lnSpcReduction ?? 0);
+  const size = (run.size ?? 18) * 12700 * fontScale;
+  const font = lineMetrics(fonts, run.font ?? null, !!run.bold, !!run.italic);
+  const spacing = paragraph.lineSpacing;
+  const advance =
+    spacing?.kind === "pts"
+      ? spacing.value * 12700 * fontScale
+      : size *
+        (font.ascent + font.descent + font.lineGap) *
+        (spacing?.kind === "pct" ? spacing.value : 1);
+  // Shapes other than text boxes and placeholders center their text.
+  const autoshape = !isShapePlaceholder(shape) && !isShapeTextBox(shape);
   // PowerPoint's default insets: 0.1in left/right, 0.05in top/bottom.
-  const inset = (value: number | null | undefined, fallback: number) =>
-    cqw(value ?? fallback);
+  const { margins } = body;
   return {
-    fontFamily: run.font ? `"${run.font}", sans-serif` : undefined,
-    fontSize: cqw((run.size ?? 18) * 12700),
-    fontWeight: run.bold ? 700 : 400,
-    fontStyle: run.italic ? "italic" : undefined,
-    color: run.color ?? undefined,
-    letterSpacing: run.spc ? cqw((run.spc / 100) * 12700) : undefined,
-    lineHeight: 1.2,
-    textAlign: ALIGN[getParagraphAlignment(shape, 0) ?? "l"],
-    padding: [
-      inset(margins?.top, 45720),
-      inset(margins?.right, 91440),
-      inset(margins?.bottom, 45720),
-      inset(margins?.left, 91440),
-    ].join(" "),
+    anchor: body.anchor ?? (autoshape ? "center" : "top"),
+    style: {
+      // No generic fallback: the slide image has none either.
+      fontFamily: `"${resolvedFamily(fonts, run.font ?? null)}"`,
+      fontSize: cqw(size),
+      fontWeight: run.bold ? 700 : 400,
+      fontStyle: run.italic ? "italic" : undefined,
+      color: run.color ?? undefined,
+      letterSpacing: run.spc ? cqw((run.spc / 100) * 12700) : undefined,
+      lineHeight: cqw(advance * lineScale),
+      textAlign: ALIGN[paragraph.align ?? (autoshape ? "ctr" : "l")],
+      padding: [
+        cqw(margins.top ?? 45720),
+        cqw(margins.right ?? 91440),
+        cqw(margins.bottom ?? 45720),
+        cqw(margins.left ?? 91440),
+      ].join(" "),
+      marginTop: cqw(BASELINE_LEADING_DROP * (font.ascent + font.descent) * size),
+    },
   };
 }
 
 /** Text shapes a click can edit, with bounds as fractions of the slide. */
-export function textBoxes(presentation: Presentation, slide: Slide) {
+export function textBoxes(
+  presentation: Presentation,
+  slide: Slide,
+  fonts: DeckFonts = new Map(),
+) {
   const size = getSlideSize(presentation);
   if (!size) return [];
   const shapes = getSlideShapes(slide);
@@ -131,7 +197,7 @@ export function textBoxes(presentation: Presentation, slide: Slide) {
         top: bounds.y / size.height,
         width: bounds.w / size.width,
         height: bounds.h / size.height,
-        text: textStyle(presentation, shape, size.width),
+        ...textStyle(presentation, shape, size.width, fonts),
       },
     ];
   });
@@ -149,6 +215,9 @@ export default function PptxViewer({ bytes, onSave }: ViewerProps) {
     deck: readonly Slide[];
   }>();
   const urlsRef = useRef<string[]>([]);
+  // The ref serves the render loop; the state re-renders the editor boxes.
+  const fontsRef = useRef<DeckFonts>(new Map());
+  const [fonts, setFonts] = useState<DeckFonts>(() => new Map());
   const [ratio, setRatio] = useState(16 / 9);
   const [editing, setEditing] = useState(false);
   // `url`: the slide rendered without this shape's text, shown while editing.
@@ -174,6 +243,16 @@ export default function PptxViewer({ bytes, onSave }: ViewerProps) {
       });
       urls.length = 0;
     };
+    // Per slide: the font names it uses, and the fonts loaded when drawn.
+    const drawn: { families: ReadonlySet<string>; fonts: DeckFonts }[] = [];
+    const draw = (presentation: Presentation, slide: Slide, index: number) => {
+      const fonts = fontsRef.current;
+      const rendered = renderSlide(presentation, slide, fonts);
+      if (urls[index]) URL.revokeObjectURL(urls[index]);
+      urls[index] = rendered.url;
+      drawn[index] = { families: rendered.families, fonts };
+      setSlides([...urls]);
+    };
     // One slide per task, so the panel stays responsive and each slide shows
     // as soon as it is ready.
     const renderNext = (
@@ -183,11 +262,32 @@ export default function PptxViewer({ bytes, onSave }: ViewerProps) {
     ): Promise<void> => {
       const slide = deck.at(index);
       if (!active || !slide) return Promise.resolve();
-      urls.push(slideUrl(presentation, slide));
-      setSlides([...urls]);
+      draw(presentation, slide, index);
       return new Promise((resolve) => setTimeout(resolve, 0)).then(() =>
         renderNext(presentation, deck, index + 1),
       );
+    };
+    const addFonts = (loaded: DeckFonts) => {
+      fontsRef.current = new Map([...fontsRef.current, ...loaded]);
+      setFonts(fontsRef.current);
+    };
+    /** Load the fonts the slides turned out to use, then redraw each slide
+     *  drawn before one of its fonts was available. */
+    const loadUsedFonts = async (
+      presentation: Presentation,
+      deck: readonly Slide[],
+    ) => {
+      addFonts(await loadFonts(drawn.flatMap(({ families }) => [...families])));
+      for (const [index, slide] of deck.entries()) {
+        if (!active) return;
+        const { families, fonts } = drawn[index];
+        const stale = [...families].some(
+          (name) => fontsRef.current.has(name) && !fonts.has(name),
+        );
+        if (!stale) continue;
+        draw(presentation, slide, index);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
     };
     loadPresentation(new Uint8Array(bytes))
       .then((presentation) => {
@@ -201,7 +301,16 @@ export default function PptxViewer({ bytes, onSave }: ViewerProps) {
         setLoaded({ presentation, deck });
         const size = getSlideSize(presentation);
         if (size) setRatio(size.width / size.height);
-        return renderNext(presentation, deck, 0);
+        const theme = getPresentationFonts(presentation);
+        const themeFonts = [theme?.majorLatin, theme?.minorLatin].filter(
+          (name): name is string => !!name,
+        );
+        return Promise.race([
+          loadFonts(themeFonts).then(addFonts),
+          new Promise((resolve) => setTimeout(resolve, THEME_FONT_WAIT_MS)),
+        ])
+          .then(() => renderNext(presentation, deck, 0))
+          .then(() => loadUsedFonts(presentation, deck));
       })
       .catch((cause: unknown) => {
         // The error view replaces the slides: free what was rendered so far.
@@ -229,7 +338,7 @@ export default function PptxViewer({ bytes, onSave }: ViewerProps) {
     const [previous] = urls.splice(
       selected,
       1,
-      slideUrl(loaded.presentation, slide),
+      renderSlide(loaded.presentation, slide, fontsRef.current).url,
     );
     URL.revokeObjectURL(previous);
     setSlides([...urls]);
@@ -258,7 +367,7 @@ export default function PptxViewer({ bytes, onSave }: ViewerProps) {
   // No edits while saving: the saved file reloads into a fresh viewer.
   const boxes =
     editing && !saving && loaded && slide
-      ? textBoxes(loaded.presentation, slide)
+      ? textBoxes(loaded.presentation, slide, fonts)
       : [];
   // An edit open at unmount still holds its slide image.
   const targetUrl = target?.url;
@@ -356,7 +465,14 @@ export default function PptxViewer({ bytes, onSave }: ViewerProps) {
                   autoFocus
                   aria-label="Text"
                   value={target.text}
-                  style={{ ...style, ...box.text }}
+                  // A centered or bottom-anchored body grows from that edge.
+                  style={{
+                    ...style,
+                    ...box.style,
+                    minHeight: box.anchor === "top" ? style.minHeight : undefined,
+                    top: `${(box.top + box.height * ANCHOR_SHARE[box.anchor]) * 100}%`,
+                    translate: `0 ${-ANCHOR_SHARE[box.anchor] * 100}%`,
+                  }}
                   onChange={(event) => {
                     setTarget({ ...target, text: event.target.value });
                   }}
@@ -390,11 +506,12 @@ export default function PptxViewer({ bytes, onSave }: ViewerProps) {
                     setTarget({
                       shape: box.shape,
                       text: getShapeText(box.shape),
-                      url: slideUrl(
+                      url: renderSlide(
                         loaded.presentation,
                         slide,
+                        fontsRef.current,
                         getShapeId(box.shape),
-                      ),
+                      ).url,
                     });
                   }}
                   style={{ ...style, height: style.minHeight }}
