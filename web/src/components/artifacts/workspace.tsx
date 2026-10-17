@@ -10,7 +10,7 @@ import {
 } from "react";
 import type { CSSProperties, ReactNode, RefObject } from "react";
 import Image from "next/image";
-import { ChevronLeft, Download, FileText, PanelRightOpen, X } from "lucide-react";
+import { ChevronLeft, Download, ExternalLink, FileText, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { formatBytes } from "@/app/(protected)/skills/lib/skill-form";
@@ -367,7 +367,7 @@ export function AppSlot({
           }}
           className="flex size-7 flex-none items-center justify-center rounded-lg text-subtle hover:bg-hover"
         >
-          <PanelRightOpen className="size-3.5" />
+          <ExternalLink className="size-3.5" />
         </button>
       </div>
       <McpAppWidget
