@@ -92,6 +92,14 @@ describe("loadFamily", () => {
     expect(await loadFamily("Nope Sans")).toEqual([]);
   });
 
+  it("retries a family whose fetch failed", async () => {
+    const fetch = vi.fn(() => Promise.reject(new TypeError("offline")));
+    vi.stubGlobal("fetch", fetch);
+    expect(await loadFamily("Retry Me")).toEqual([]);
+    expect(await loadFamily("Retry Me")).toEqual([]);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
   it("refuses names that are not plain font names", async () => {
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);

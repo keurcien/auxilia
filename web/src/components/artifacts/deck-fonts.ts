@@ -30,7 +30,11 @@ export function loadFamily(family: string): Promise<Face[]> {
   if (!SAFE_NAME.test(family)) return Promise.resolve([]);
   let faces = families.get(family);
   if (!faces) {
-    faces = fetchFamily(family).catch(() => []);
+    // A family Google lacks stays cached as `[]`; a failed fetch is retried.
+    faces = fetchFamily(family).catch(() => {
+      families.delete(family);
+      return [];
+    });
     families.set(family, faces);
   }
   return faces;
