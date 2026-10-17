@@ -205,6 +205,9 @@ class RunWorker:
                         trigger=record.trigger,
                         config_overrides=record.config_overrides,
                         output_schema=record.output_schema,
+                        # A sandbox bridge's `input.requested` lands in the
+                        # same log, between this loop's own events.
+                        publish=lambda event: publisher.publish(encode_event(event)),
                     )
                 ) as stream,
             ):

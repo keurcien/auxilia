@@ -117,7 +117,7 @@ const ChatPage = () => {
               error={run.error}
               rehydratedError={run.rehydratedError}
             />
-            <SandboxMcpRequests key={threadId} threadId={threadId} enabled={run.isLoading && meta.viewerRole !== "admin"} />
+            <SandboxMcpRequests key={threadId} interrupts={hitl.nestedInterrupts} respond={actions.respond} enabled={meta.viewerRole !== "admin"} />
           </ConversationContent>
           <ConversationFade />
           <ConversationScrollButton />

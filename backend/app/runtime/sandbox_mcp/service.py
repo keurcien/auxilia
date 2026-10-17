@@ -3,24 +3,43 @@
 Request-only instances enqueue work; the run owner consumes it using its live
 MCP sessions. A short lease fails closed if the worker dies. Operation IDs make
 HTTP retries idempotent; uncertain tool outcomes are never automatically replayed.
+
+A call that needs the user (approval, OAuth reconnect) is one *pending decision*
+of the run, surfaced exactly like a graph interrupt: the worker publishes an
+`input.requested` event under `BRIDGE_NAMESPACE`, `/state` lists it while it
+pends (`list_pending`), and `input.respond` answers it (`decide`). Only the
+decision store differs from the checkpoint-backed HITL — the sandbox script is
+blocked inside a running tool, so there is no graph to pause.
 """
 
-import hashlib
 import json
+from typing import Any
 
-from fastapi import HTTPException
-
+from app.exceptions import (
+    AlreadyExistsError,
+    CallLimitError,
+    DomainValidationError,
+    LeaseEndedError,
+    NotFoundError,
+    OperationExpiredError,
+    PayloadTooLargeError,
+    PermissionDeniedError,
+    StaleApprovalError,
+    StaleRevisionError,
+)
 from app.redis_client import get_redis
+from app.runtime.sandbox_mcp import keys
 from app.runtime.sandbox_mcp.schemas import CallRequest
 from app.runtime.sandbox_mcp.settings import bridge_settings
 
 
-def scope_of(token: str) -> str:
-    return hashlib.sha256(token.encode()).hexdigest()
+#: Protocol namespace of a bridge request. One segment deep so the client's
+#: root subscription (prefix `[]`, depth 1) receives it; distinct from the
+#: root so it never reads as the graph itself pausing.
+BRIDGE_NAMESPACE = ["sandbox-mcp"]
 
-
-def key(scope: str, suffix: str) -> str:
-    return f"sandbox-mcp:{scope}:{suffix}"
+_WAITING = ("approval_required", "oauth_required")
+_DECISIONS = {"approval_required": {"approve", "reject"}, "oauth_required": {"reject"}}
 
 
 _ENQUEUE = """
@@ -57,131 +76,182 @@ return 0
 """
 
 
+def request_payload(operation: dict, agent: str) -> dict:
+    """The `input.requested` payload for a waiting operation — the same shape
+    live (worker) and on hydration (`list_pending`). `action_requests` is the
+    HITL vocabulary every consumer already reads; `sandbox_mcp` is what the
+    bridge card needs to answer it."""
+    return {
+        "action_requests": [
+            {"name": operation["tool"], "args": operation["arguments"]}
+        ],
+        "sandbox_mcp": {
+            "operation_id": operation["id"],
+            "agent": agent,
+            "status": operation["status"],
+            "auth_url": operation.get("auth_url"),
+        },
+    }
+
+
 class SandboxMcpService:
     def __init__(self, redis=None):
         self.redis = redis if redis is not None else get_redis()
 
-    async def active(self, scope: str) -> dict:
-        raw = await self.redis.get(key(scope, "lease"))
+    async def get_lease(self, scope: str) -> dict:
+        raw = await self.redis.get(keys.lease_key(scope))
         if raw is None:
-            raise HTTPException(410, "Sandbox MCP session ended")
+            raise LeaseEndedError("Sandbox MCP session ended")
         return json.loads(raw)
 
-    async def enqueue(self, scope: str, call: CallRequest) -> dict:
-        lease = await self.active(scope)
+    async def create(self, scope: str, call: CallRequest) -> dict:
+        lease = await self.get_lease(scope)
         if call.tool not in lease["tools"]:
-            raise HTTPException(403, "Tool is disabled or unavailable for this agent")
+            raise PermissionDeniedError(
+                "Tool is disabled or unavailable for this agent"
+            )
         payload = call.model_dump_json()
         if len(payload.encode()) > bridge_settings.max_request_bytes:
-            raise HTTPException(413, "MCP arguments exceed the request limit")
+            raise PayloadTooLargeError("MCP arguments exceed the request limit")
         # Create the record and enqueue atomically. A separate, lease-renewed
         # seen set prevents an expired result record from replaying a write.
         created = await self.redis.eval(
             _ENQUEUE,
             4,
-            key(scope, "lease"),
-            key(scope, str(call.id)),
-            key(scope, "seen"),
-            key(scope, "queue"),
+            keys.lease_key(scope),
+            keys.operation_key(scope, str(call.id)),
+            keys.seen_key(scope),
+            keys.queue_key(scope),
             str(call.id),
             json.dumps({"status": "queued", **json.loads(payload)}),
             bridge_settings.operation_seconds,
             bridge_settings.max_calls,
         )
         if created == -1:
-            raise HTTPException(429, "Run MCP call limit reached")
+            raise CallLimitError("Run MCP call limit reached")
         if created == -2:
-            raise HTTPException(
-                409, "Operation result expired; check its outcome before retrying"
+            raise AlreadyExistsError(
+                "Operation result expired; check its outcome before retrying"
             )
         if created == -3:
-            raise HTTPException(410, "Sandbox MCP session ended")
-        stored = await self.read(scope, str(call.id))
+            raise LeaseEndedError("Sandbox MCP session ended")
+        stored = await self.get(scope, str(call.id))
         if stored["tool"] != call.tool or stored["arguments"] != call.arguments:
-            raise HTTPException(409, "Operation ID already used for another call")
+            raise AlreadyExistsError("Operation ID already used for another call")
         return {"id": str(call.id), "status": stored["status"]}
 
-    async def read(self, scope: str, operation_id: str) -> dict:
-        await self.active(scope)
-        raw = await self.redis.get(key(scope, operation_id))
+    async def get(self, scope: str, operation_id: str) -> dict:
+        await self.get_lease(scope)
+        raw = await self.redis.get(keys.operation_key(scope, operation_id))
         if raw is None:
-            raise HTTPException(404, "MCP operation not found")
+            raise OperationExpiredError("MCP operation not found")
         await self.redis.expire(
-            key(scope, operation_id), bridge_settings.operation_seconds
+            keys.operation_key(scope, operation_id), bridge_settings.operation_seconds
         )
         return json.loads(raw)
 
-    async def write(self, scope: str, operation_id: str, updates: dict) -> None:
-        # CAS prevents expiry between GET and SET from resurrecting a partial
-        # operation. A retry only updates metadata, never dispatches a tool.
-        operation_key = key(scope, operation_id)
+    async def update(self, scope: str, operation_id: str, updates: dict) -> dict:
+        """Merge `updates` into the record and return it. CAS prevents expiry
+        between GET and SET from resurrecting a partial operation; a retry
+        only updates metadata, never dispatches a tool."""
+        operation_key = keys.operation_key(scope, operation_id)
         for _ in range(3):
             raw = await self.redis.get(operation_key)
             if raw is None:
-                raise HTTPException(404, "MCP operation expired")
-            updated = json.dumps({**json.loads(raw), **updates})
+                raise OperationExpiredError("MCP operation expired")
+            merged = {**json.loads(raw), **updates}
             if await self.redis.eval(
                 _UPDATE,
                 1,
                 operation_key,
                 raw,
-                updated,
+                json.dumps(merged),
                 bridge_settings.operation_seconds,
             ):
-                return
-        raise HTTPException(409, "MCP operation changed during update")
+                return merged
+        raise StaleRevisionError("MCP operation changed during update")
 
-    async def pending(self, thread_id: str, user_id: str) -> list[dict]:
+    # --- pending decisions ----------------------------------------------------
+
+    async def mark_pending(
+        self, scope: str, operation_id: str, interrupt_id: str
+    ) -> None:
+        """Record that `operation_id` waits on the user under `interrupt_id`."""
+        ttl = bridge_settings.operation_seconds
+        async with self.redis.pipeline(transaction=True) as pipe:
+            pipe.set(keys.pending_key(scope), operation_id, ex=ttl)
+            pipe.set(
+                keys.interrupt_key(interrupt_id),
+                json.dumps({"scope": scope, "operation_id": operation_id}),
+                ex=ttl,
+            )
+            await pipe.execute()
+
+    async def clear_pending(self, scope: str, interrupt_id: str) -> None:
+        await self.redis.delete(
+            keys.pending_key(scope), keys.interrupt_key(interrupt_id)
+        )
+
+    async def list_pending(self, thread_id: str) -> list[dict]:
+        """The thread's waiting bridge requests as protocol interrupts
+        (`{id, value, namespace}`) — what `/state` hydration lists so a
+        reloaded page accepts the replayed `input.requested`."""
         found: list[dict] = []
-        for scope in await self.redis.smembers(f"sandbox-mcp:thread:{thread_id}"):
+        for scope in await self.redis.smembers(keys.thread_index_key(thread_id)):
             try:
-                lease = await self.active(scope)
-            except HTTPException:
+                lease = await self.get_lease(scope)
+                operation_id = await self.redis.get(keys.pending_key(scope))
+                if not operation_id:
+                    continue
+                operation = await self.get(scope, operation_id)
+            except (LeaseEndedError, OperationExpiredError):
                 continue
-            if lease["user_id"] != user_id:
-                continue
-            operation_id = await self.redis.get(key(scope, "pending"))
-            if operation_id:
-                operation = await self.read(scope, operation_id)
-                if operation["status"] in ("approval_required", "oauth_required"):
-                    found.append({**operation, "scope": scope, "agent": lease["agent"]})
+            if operation["status"] in _WAITING:
+                found.append(
+                    {
+                        "id": operation["phase"],
+                        "value": request_payload(operation, lease["agent"]),
+                        "namespace": BRIDGE_NAMESPACE,
+                    }
+                )
         return found
 
     async def decide(
-        self,
-        thread_id: str,
-        user_id: str,
-        scope: str,
-        operation_id: str,
-        decision: str,
-        phase: str,
-    ) -> None:
-        lease = await self.active(scope)
+        self, thread_id: str, user_id: str, interrupt_id: str, decision: Any
+    ) -> bool:
+        """Answer a bridge request. False when `interrupt_id` is not one (the
+        caller resumes the graph instead); raises when it is but cannot be
+        answered — `StaleApprovalError` once it is no longer waiting."""
+        raw = await self.redis.get(keys.interrupt_key(interrupt_id))
+        if raw is None:
+            return False
+        target = json.loads(raw)
+        scope, operation_id = target["scope"], target["operation_id"]
+        lease = await self.get_lease(scope)
         if lease["thread_id"] != thread_id or lease["user_id"] != user_id:
-            raise HTTPException(404, "MCP operation not found")
-        operation = await self.read(scope, operation_id)
-        if operation.get("phase") != phase:
-            raise HTTPException(409, "This request was already handled")
-        allowed = {
-            "approval_required": {"approve", "reject"},
-            "oauth_required": {"reconnect", "reject"},
-        }
-        if decision not in allowed.get(operation["status"], set()):
-            raise HTTPException(409, "This request is no longer pending")
+            raise NotFoundError("MCP operation not found")
+        operation = await self.get(scope, operation_id)
+        if operation.get("phase") != interrupt_id:
+            raise StaleApprovalError("This request was already handled.")
+        if decision not in _DECISIONS.get(operation["status"], set()):
+            raise DomainValidationError(
+                f"Decision {decision!r} does not apply to this request."
+            )
         accepted = await self.redis.eval(
             _DECIDE,
             4,
-            key(scope, "lease"),
-            key(scope, operation_id),
-            key(scope, "pending"),
-            key(scope, f"decision:{operation_id}:{phase}"),
+            keys.lease_key(scope),
+            keys.operation_key(scope, operation_id),
+            keys.pending_key(scope),
+            keys.decision_key(scope, operation_id, interrupt_id),
             operation_id,
-            phase,
+            interrupt_id,
             operation["status"],
             decision,
             bridge_settings.operation_seconds,
         )
         if not accepted:
-            raise HTTPException(
-                409, "This request is no longer pending or was already answered"
+            raise StaleApprovalError(
+                "This request is no longer pending or was already answered."
             )
+        return True

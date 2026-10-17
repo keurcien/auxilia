@@ -43,6 +43,7 @@ from app.runtime.runs.events import RunEventStream
 from app.runtime.runs.models import RunDB
 from app.runtime.runs.service import RunService
 from app.runtime.runs.state import MultitaskStrategy, is_terminal
+from app.runtime.sandbox_mcp.service import SandboxMcpService
 
 
 logger = logging.getLogger(__name__)
@@ -57,6 +58,9 @@ class ProtocolService:
     def __init__(self, redis: Redis | None = None):
         self.redis: Redis = redis or get_redis()
         self.runs = RunService(self.redis)
+        # The other source of pending decisions: a sandbox script's MCP call
+        # waiting on the user, answered without resuming the graph.
+        self.sandbox_mcp = SandboxMcpService(self.redis)
 
     # --- commands -------------------------------------------------------------
 
@@ -119,15 +123,21 @@ class ProtocolService:
             multitask_strategy=_multitask_strategy(params.get("multitaskStrategy")),
         )
 
-    async def _input_respond(self, thread_id: str, user_id: str, params: dict) -> RunDB:
-        """Map `input.respond` onto a resume run.
+    async def _input_respond(
+        self, thread_id: str, user_id: str, params: dict
+    ) -> RunDB | None:
+        """Answer a pending decision: a sandbox bridge request in place, or a
+        graph interrupt through a resume run.
 
         The single-response form carries `{interrupt_id, response}`; the
         batched form carries `responses: [...]` — auxilia threads pause on at
         most one interrupt, so the batch must have exactly one entry. The
         `response` payload is the HITL decisions object the web client already
-        builds (`{"decisions": [...]}`); `RunService.create` canonicalizes and
-        stale-checks it against the checkpoint (409 on a stale approval).
+        builds (`{"decisions": [...]}`). A bridge interrupt id (the sandbox
+        script is blocked inside a running tool, so the run is still going) is
+        decided by `SandboxMcpService` and returns None; anything else goes to
+        `RunService.create`, which canonicalizes and stale-checks it against
+        the checkpoint (409 on a stale approval).
         """
         responses = params.get("responses")
         if responses is not None:
@@ -144,6 +154,17 @@ class ProtocolService:
             )
         response_map = response if isinstance(response, dict) else None
         decisions = response_map.get("decisions") if response_map else None
+        if (
+            isinstance(interrupt_id, str)
+            and interrupt_id
+            and isinstance(decisions, list)
+            and len(decisions) == 1
+            and isinstance(decisions[0], dict)
+            and await self.sandbox_mcp.decide(
+                thread_id, user_id, interrupt_id, decisions[0].get("type")
+            )
+        ):
+            return None
         if (
             isinstance(interrupt_id, str)
             and interrupt_id
@@ -330,6 +351,12 @@ class ProtocolService:
             }
             for scope in scopes
         ]
+        # A sandbox bridge call waiting on the user is pending state too: the
+        # client only accepts a replayed `input.requested` it finds here.
+        tasks.extend(
+            {"id": pending["id"], "name": "sandbox-mcp", "interrupts": [pending]}
+            for pending in await self.sandbox_mcp.list_pending(thread_id)
+        )
         return {"values": values, "next": next_nodes, "tasks": tasks}
 
     async def thread_history(self, thread_id: str, checkpoint_ns: str | None) -> list:

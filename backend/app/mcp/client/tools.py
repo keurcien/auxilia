@@ -19,21 +19,21 @@ Two policies, chosen per tool when the toolset is built:
 - **Every other tool**: ``structured_content`` is dropped. No client code reads
   it and the model never had it.
 
-Sandbox bridge calls opt out through the task-local `preserve_mcp_result` flag:
-they keep structured content long enough to write it to sandbox files, without
-changing the artifact policy of concurrent direct calls.
+A caller that is not the model (the sandbox bridge, which writes results to
+files) invokes the tool as it was before this policy — `Toolset.call_raw`.
 """
-
-from contextvars import ContextVar
 
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool
 
 
-preserve_mcp_result: ContextVar[bool] = ContextVar("preserve_mcp_result", default=False)
-
-
 _STRUCTURED_CONTENT_KEYS = ("structured_content", "structuredContent")
+
+
+def structured_content_of(artifact: dict) -> object | None:
+    """The server's structured content under either spelling the adapter and
+    MCP use, or None."""
+    return next((artifact[k] for k in _STRUCTURED_CONTENT_KEYS if k in artifact), None)
 
 
 def bound_tool_artifact(tool: BaseTool, ui_metadata: dict | None) -> None:
@@ -66,8 +66,6 @@ def bound_tool_artifact(tool: BaseTool, ui_metadata: dict | None) -> None:
 
     async def bounded_coroutine(*args, **kwargs):
         result = await original_coroutine(*args, **kwargs)
-        if preserve_mcp_result.get():
-            return result
         if isinstance(result, tuple) and len(result) == 2:
             content, artifact = result
             return content, rewrite(artifact)

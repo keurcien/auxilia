@@ -56,7 +56,12 @@ from app.runtime.middleware.tool_errors import (
 )
 from app.runtime.protocol.emit import ProtocolEmitter
 from app.runtime.sandbox_mcp.backend import BridgeSandbox, append_bridge_prompt
-from app.runtime.sandbox_mcp.worker import SDK_ROOT, SDK_SOURCE, BridgeSession
+from app.runtime.sandbox_mcp.worker import (
+    SDK_ROOT,
+    SDK_SOURCE,
+    BridgeSession,
+    EventSink,
+)
 from app.runtime.settings import agent_settings
 from app.runtime.toolset import (
     MCPResolutionScope,
@@ -682,6 +687,7 @@ class Agent:
         trigger: str | None,
         config_overrides: dict | None,
         output_schema: dict | None = None,
+        publish: EventSink | None = None,
     ):
         """Open a checkpointer scope and yield (agent, resolved_input, config).
 
@@ -738,7 +744,7 @@ class Agent:
                     raise RuntimeError("Cannot upload sandbox MCP client")
                 for ra in bridge_agents:
                     bridge = await stack.enter_async_context(
-                        BridgeSession(ra, self.thread, backend)
+                        BridgeSession(ra, self.thread, backend, publish=publish)
                     )
                     self._bridges.append(bridge)
                     ra.bridge_backend = BridgeSandbox(backend, bridge.token)
@@ -866,6 +872,7 @@ class Agent:
         trigger: str | None = None,
         config_overrides: dict | None = None,
         output_schema: dict | None = None,
+        publish: EventSink | None = None,
     ):
         """Run one turn, yielding Agent Streaming Protocol events (`{method,
         params}` dicts — see `app/runtime/protocol/emit.py`).
@@ -884,9 +891,13 @@ class Agent:
             config_overrides: Optional config dict with configurable overrides.
             output_schema: Optional JSON Schema; when set, the run produces a
                 `structured_response` in its final state (read via `read_run_result`).
+            publish: Where a sandbox MCP bridge puts the `input.requested` it
+                raises mid-turn — the worker's event-log publisher. Those
+                events cannot ride this generator: the bridge waits inside a
+                running tool while the graph stream is blocked on it.
         """
         async with self._setup(
-            agent_input, command, trigger, config_overrides, output_schema
+            agent_input, command, trigger, config_overrides, output_schema, publish
         ) as (
             agent,
             stream_input,

@@ -80,7 +80,7 @@ async def wait_for_approval(execution, bridge, thread):
                 pytest.fail(
                     f"Sandbox exited before requesting approval:\n{result.output}"
                 )
-            pending = await bridge.broker.pending(thread.id, str(thread.user_id))
+            pending = await bridge.broker.list_pending(thread.id)
             if pending:
                 return pending
             await asyncio.sleep(0.01)
@@ -153,14 +153,11 @@ async def test_python_process_can_call_mcp_and_wait_for_approval(
                     pending = await wait_for_approval(execution, bridge, thread)
                     assert not execution.done()  # The script really waits for the user.
                     request = pending[0]
-                    assert request["tool"] == "crm_widget"
+                    assert (
+                        request["value"]["action_requests"][0]["name"] == "crm_widget"
+                    )
                     await bridge.broker.decide(
-                        thread.id,
-                        str(thread.user_id),
-                        bridge.scope,
-                        request["id"],
-                        "approve",
-                        request["phase"],
+                        thread.id, str(thread.user_id), request["id"], "approve"
                     )
                     result = await execution
                     assert result.exit_code == 0, result.output

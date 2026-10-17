@@ -3,8 +3,8 @@ import re
 import warnings
 from collections.abc import Collection, Sequence
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
-from typing import cast
+from dataclasses import dataclass, field
+from typing import Any, cast
 from uuid import UUID
 
 from fastmcp.client.group import ClientGroup
@@ -16,7 +16,7 @@ from app.agents.models import AgentMCPServerBase
 from app.mcp.client.connection import ConnectionSpec, build_client
 from app.mcp.client.connectivity import CredentialCache, resolve_connection
 from app.mcp.client.exceptions import as_oauth_required
-from app.mcp.client.tools import bound_tool_artifact
+from app.mcp.client.tools import bound_tool_artifact, structured_content_of
 from app.mcp.servers.models import MCPServerDB
 from app.mcp.servers.repository import MCPServerRepository
 
@@ -123,6 +123,21 @@ class AgentTool:
     tool: BaseTool
     requires_approval: bool = False
     ui_metadata: dict[str, str] | None = None
+    #: `tool` before `bound_artifacts` applied the model-facing artifact policy
+    #: (set there). What `Toolset.call_raw` invokes, so a caller that wants the
+    #: whole MCP result never has to undo the policy.
+    raw: BaseTool | None = field(default=None, repr=False)
+
+
+@dataclass(frozen=True)
+class McpResult:
+    """One MCP tool result, whole: what the model would see as content, the
+    server's structured content (if any), and whether the server flagged it
+    as an error (`isError`)."""
+
+    content: Any
+    structured_content: Any
+    is_error: bool
 
 
 @dataclass
@@ -258,6 +273,26 @@ class Toolset:
     @property
     def interrupt_on(self) -> dict[str, bool]:
         return {t.tool.name: True for t in self.tools if t.requires_approval}
+
+    async def call_raw(self, name: str, args: dict, *, call_id: str) -> McpResult:
+        """Invoke a tool and return its whole result, untouched by the artifact
+        policy `bound_artifacts` applies for the model. The caller is not the
+        model — the sandbox bridge saves the result to a file — so it gets the
+        structured content a plain tool would have lost, and `isError` as a
+        flag rather than an error-status message. Raises `LookupError` for a
+        tool this toolset does not hold (disabled, or another agent's)."""
+        agent_tool = next((t for t in self.tools if t.tool.name == name), None)
+        if agent_tool is None:
+            raise LookupError(name)
+        message = await (agent_tool.raw or agent_tool.tool).ainvoke(
+            {"type": "tool_call", "id": call_id, "name": name, "args": args}
+        )
+        artifact = message.artifact if isinstance(message.artifact, dict) else {}
+        return McpResult(
+            content=message.content,
+            structured_content=structured_content_of(artifact),
+            is_error=message.status == "error",
+        )
 
     @classmethod
     async def prepare(
@@ -409,4 +444,7 @@ class Toolset:
         other.
         """
         for t in self.tools:
+            # A shallow copy keeps the adapter's coroutine; the policy below
+            # rebinds it on the original only.
+            t.raw = t.tool.model_copy()
             bound_tool_artifact(t.tool, t.ui_metadata if ui else None)
