@@ -208,6 +208,8 @@ class AgentListResponse(SQLModel):
     owner: AgentOwnerInfo | None = None
     is_subagent: bool = False
     current_user_permission: EffectivePermission | None = None
+    # Agent owner/admin only — a workspace admin role alone does not grant it.
+    can_view_threads: bool = False
 
 
 class AgentResponse(AgentListResponse):
