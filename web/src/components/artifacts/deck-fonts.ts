@@ -41,11 +41,12 @@ export function loadFamily(family: string): Promise<Face[]> {
 }
 
 export async function loadFonts(names: Iterable<string>): Promise<DeckFonts> {
-  const unique = [...new Set(names)];
-  const loaded = await Promise.all(unique.map(loadFamily));
-  return new Map(
-    unique.flatMap((name, i) => (loaded[i].length ? [[name, loaded[i]]] : [])),
+  const loaded = await Promise.all(
+    [...new Set(names)].map(
+      async (name) => [name, await loadFamily(name)] as const,
+    ),
   );
+  return new Map(loaded.filter(([, faces]) => faces.length));
 }
 
 async function fetchFamily(family: string): Promise<Face[]> {

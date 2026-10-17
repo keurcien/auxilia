@@ -244,13 +244,17 @@ export default function PptxViewer({ bytes, onSave }: ViewerProps) {
       urls.length = 0;
     };
     // Per slide: the font names it uses, and the fonts loaded when drawn.
-    const drawn: { families: ReadonlySet<string>; fonts: DeckFonts }[] = [];
+    const drawn = new Map<
+      number,
+      { families: ReadonlySet<string>; fonts: DeckFonts }
+    >();
     const draw = (presentation: Presentation, slide: Slide, index: number) => {
       const fonts = fontsRef.current;
       const rendered = renderSlide(presentation, slide, fonts);
-      if (urls[index]) URL.revokeObjectURL(urls[index]);
-      urls[index] = rendered.url;
-      drawn[index] = { families: rendered.families, fonts };
+      const previous = urls.at(index);
+      if (previous) URL.revokeObjectURL(previous);
+      urls.splice(index, 1, rendered.url);
+      drawn.set(index, { families: rendered.families, fonts });
       setSlides([...urls]);
     };
     // One slide per task, so the panel stays responsive and each slide shows
@@ -277,12 +281,16 @@ export default function PptxViewer({ bytes, onSave }: ViewerProps) {
       presentation: Presentation,
       deck: readonly Slide[],
     ) => {
-      addFonts(await loadFonts(drawn.flatMap(({ families }) => [...families])));
+      addFonts(
+        await loadFonts(
+          [...drawn.values()].flatMap(({ families }) => [...families]),
+        ),
+      );
       for (const [index, slide] of deck.entries()) {
         if (!active) return;
-        const { families, fonts } = drawn[index];
-        const stale = [...families].some(
-          (name) => fontsRef.current.has(name) && !fonts.has(name),
+        const slideFonts = drawn.get(index);
+        const stale = [...(slideFonts?.families ?? [])].some(
+          (name) => fontsRef.current.has(name) && !slideFonts?.fonts.has(name),
         );
         if (!stale) continue;
         draw(presentation, slide, index);
