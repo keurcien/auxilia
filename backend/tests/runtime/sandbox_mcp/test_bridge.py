@@ -345,7 +345,9 @@ async def test_pending_decision_is_one_protocol_interrupt():
         ]
         assert requested["payload"]["sandbox_mcp"]["operation_id"] == str(call.id)
         assert requested["payload"]["sandbox_mcp"]["agent"] == "CRM agent"
-        [listed] = await session.broker.list_pending(session.thread.id)
+        [listed] = await session.broker.list_pending(
+            session.thread.id, str(session.thread.user_id)
+        )
         assert listed == {
             "id": pending["phase"],
             "value": requested["payload"],
@@ -359,7 +361,12 @@ async def test_pending_decision_is_one_protocol_interrupt():
             session.thread.id, str(session.thread.user_id), pending["phase"], "approve"
         )
         await wait_status(session, call, "complete")
-        assert await session.broker.list_pending(session.thread.id) == []
+        assert (
+            await session.broker.list_pending(
+                session.thread.id, str(session.thread.user_id)
+            )
+            == []
+        )
 
 
 def test_automatic_helper_receives_bridge_discovery_instructions():

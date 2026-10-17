@@ -80,7 +80,7 @@ async def wait_for_approval(execution, bridge, thread):
                 pytest.fail(
                     f"Sandbox exited before requesting approval:\n{result.output}"
                 )
-            pending = await bridge.broker.list_pending(thread.id)
+            pending = await bridge.broker.list_pending(thread.id, str(thread.user_id))
             if pending:
                 return pending
             await asyncio.sleep(0.01)

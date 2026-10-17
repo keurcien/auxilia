@@ -445,6 +445,8 @@ class Toolset:
         """
         for t in self.tools:
             # A shallow copy keeps the adapter's coroutine; the policy below
-            # rebinds it on the original only.
-            t.raw = t.tool.model_copy()
+            # rebinds it on the original only. Taken once: a second bind would
+            # snapshot the already-wrapped coroutine.
+            if t.raw is None:
+                t.raw = t.tool.model_copy()
             bound_tool_artifact(t.tool, t.ui_metadata if ui else None)

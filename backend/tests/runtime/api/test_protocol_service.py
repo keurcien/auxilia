@@ -401,12 +401,12 @@ async def test_thread_state_interrupt_carries_the_paused_agents_namespace(
 
     monkeypatch.setattr(service.runs, "get_active", _no_active)
 
-    async def _no_pending(_thread_id):
+    async def _no_pending(_thread_id, _user_id):
         return []
 
     monkeypatch.setattr(service.sandbox_mcp, "list_pending", _no_pending)
 
-    state = await service.thread_state("t1")
+    state = await service.thread_state("t1", "u1")
     assert state["next"] == ["agent"]
     [task] = state["tasks"]
     assert task["interrupts"] == [
@@ -600,12 +600,12 @@ async def test_thread_state_lists_waiting_bridge_requests(monkeypatch):
     async def _active(_thread_id):
         return object()
 
-    async def _list_pending(_thread_id):
+    async def _list_pending(_thread_id, _user_id):
         return [pending]
 
     monkeypatch.setattr(service.runs, "get_active", _active)
     monkeypatch.setattr(service.sandbox_mcp, "list_pending", _list_pending)
-    state = await service.thread_state("t1")
+    state = await service.thread_state("t1", "u1")
     assert state["tasks"] == [
         {"id": "wait-1", "name": "sandbox-mcp", "interrupts": [pending]}
     ]

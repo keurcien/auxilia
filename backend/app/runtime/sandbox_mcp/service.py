@@ -192,14 +192,18 @@ class SandboxMcpService:
             keys.pending_key(scope), keys.interrupt_key(interrupt_id)
         )
 
-    async def list_pending(self, thread_id: str) -> list[dict]:
+    async def list_pending(self, thread_id: str, user_id: str) -> list[dict]:
         """The thread's waiting bridge requests as protocol interrupts
         (`{id, value, namespace}`) — what `/state` hydration lists so a
-        reloaded page accepts the replayed `input.requested`."""
+        reloaded page accepts the replayed `input.requested`. Only the run's
+        owner sees them: an admin reading the thread gets neither the tool
+        arguments nor the OAuth URL, and could not answer anyway."""
         found: list[dict] = []
         for scope in await self.redis.smembers(keys.thread_index_key(thread_id)):
             try:
                 lease = await self.get_lease(scope)
+                if lease["user_id"] != user_id:
+                    continue
                 operation_id = await self.redis.get(keys.pending_key(scope))
                 if not operation_id:
                     continue
@@ -233,7 +237,9 @@ class SandboxMcpService:
         operation = await self.get(scope, operation_id)
         if operation.get("phase") != interrupt_id:
             raise StaleApprovalError("This request was already handled.")
-        if decision not in _DECISIONS.get(operation["status"], set()):
+        if not isinstance(decision, str) or decision not in _DECISIONS.get(
+            operation["status"], set()
+        ):
             raise DomainValidationError(
                 f"Decision {decision!r} does not apply to this request."
             )

@@ -314,8 +314,9 @@ class ProtocolService:
 
     # --- thread state -------------------------------------------------------------
 
-    async def thread_state(self, thread_id: str) -> dict:
-        """LangGraph-shaped state snapshot for client hydration."""
+    async def thread_state(self, thread_id: str, user_id: str) -> dict:
+        """LangGraph-shaped state snapshot for client hydration. `user_id` is
+        the reader: bridge requests are listed for the run's owner only."""
         scopes: list[InterruptScope] = []
         async with get_checkpointer() as checkpointer:
             state = await get_checkpoint_state(checkpointer, thread_id)
@@ -355,7 +356,7 @@ class ProtocolService:
         # client only accepts a replayed `input.requested` it finds here.
         tasks.extend(
             {"id": pending["id"], "name": "sandbox-mcp", "interrupts": [pending]}
-            for pending in await self.sandbox_mcp.list_pending(thread_id)
+            for pending in await self.sandbox_mcp.list_pending(thread_id, user_id)
         )
         return {"values": values, "next": next_nodes, "tasks": tasks}
 
