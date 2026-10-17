@@ -226,8 +226,11 @@ export default function PptxViewer({ bytes, onSave }: ViewerProps) {
     if (target.text === getShapeText(target.shape)) return;
     setShapeText(target.shape, target.text, { preserveFormatting: true });
     const urls = urlsRef.current;
-    const previous = urls[selected];
-    urls[selected] = slideUrl(loaded.presentation, slide);
+    const [previous] = urls.splice(
+      selected,
+      1,
+      slideUrl(loaded.presentation, slide),
+    );
     URL.revokeObjectURL(previous);
     setSlides([...urls]);
     setDirty(true);
@@ -252,8 +255,11 @@ export default function PptxViewer({ bytes, onSave }: ViewerProps) {
     setEditing(false);
     endEdit();
   }
+  // No edits while saving: the saved file reloads into a fresh viewer.
   const boxes =
-    editing && loaded && slide ? textBoxes(loaded.presentation, slide) : [];
+    editing && !saving && loaded && slide
+      ? textBoxes(loaded.presentation, slide)
+      : [];
   // An edit open at unmount still holds its slide image.
   const targetUrl = target?.url;
   useEffect(
