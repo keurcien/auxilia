@@ -7,14 +7,14 @@ import secrets
 from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
+from fastapi import HTTPException
 from redis.exceptions import RedisError
 
 from app.database import AsyncSessionLocal
 from app.mcp.client.exceptions import as_oauth_required
-from app.mcp.client.oauth_events import oauth_completion_key
+from app.mcp.client.oauth_events import OAuthCompletion
 from app.mcp.client.tools import preserve_mcp_result
 from app.runtime.sandbox_mcp.service import SandboxMcpService, key, scope_of
 from app.runtime.sandbox_mcp.settings import bridge_settings
@@ -142,9 +142,19 @@ class BridgeSession:
 
     async def _decision(self, operation_id: str, status: str, **fields) -> str:
         phase = str(uuid4())
-        state = parse_qs(urlparse(fields.get("auth_url", "")).query).get(
-            "state", [None]
-        )[0]
+        completion = (
+            await OAuthCompletion.for_challenge(
+                fields.get("auth_url", ""),
+                user_id=str(self.thread.user_id),
+                server_ids={
+                    str(binding.mcp_server_id)
+                    for binding in self.resolved.config.mcp_servers
+                },
+                redis=self.broker.redis,
+            )
+            if status == "oauth_required"
+            else None
+        )
         await self.broker.write(
             self.scope, operation_id, {"status": status, "phase": phase, **fields}
         )
@@ -161,18 +171,18 @@ class BridgeSession:
                     )
                     if value:
                         return value
-                    if (
-                        status == "oauth_required"
-                        and state
-                        and await self.broker.redis.get(oauth_completion_key(state))
-                    ):
+                    if completion is not None and await completion.completed():
                         return "reconnect"
                     await asyncio.sleep(0.5)
         finally:
             await self.broker.redis.delete(key(self.scope, "pending"))
 
     async def _reconnect(self):
-        # Refresh the provider too: the old live session may hold cached tokens.
+        # Close our previous replacement before opening another. The initial
+        # live toolset is shared with direct calls and remains owned by Agent's
+        # outer ExitStack; only replacement sessions belong to this stack.
+        await self._stack.aclose()
+        self._stack = AsyncExitStack()
         async with AsyncSessionLocal() as db:
             prepared = await Toolset.prepare(
                 self.resolved.config.mcp_servers,
@@ -184,6 +194,14 @@ class BridgeSession:
         self.tools = {t.tool.name: t for t in live.tools}
 
     async def _execute(self, operation_id: str):
+        try:
+            await self._run_operation(operation_id)
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
+            logger.info("Dropping expired sandbox MCP operation %s", operation_id)
+
+    async def _run_operation(self, operation_id: str):
         operation = await self.broker.read(self.scope, operation_id)
         name, arguments = operation["tool"], operation["arguments"]
         try:
@@ -274,6 +292,8 @@ class BridgeSession:
                 )
             finally:
                 preserve_mcp_result.reset(token)
+        except HTTPException:
+            raise  # Missing/expired records are handled without recreating them.
         except Exception as exc:  # noqa: BLE001 - return operation failures to sandbox code
             await self.broker.write(
                 self.scope,

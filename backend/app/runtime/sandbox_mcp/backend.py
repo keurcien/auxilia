@@ -4,6 +4,7 @@ import shlex
 
 from deepagents.backends.protocol import ExecuteResponse
 from deepagents.backends.sandbox import BaseSandbox
+from langchain_core.messages import SystemMessage
 
 from app.runtime.sandbox_mcp.settings import bridge_settings
 from app.runtime.sandbox_mcp.worker import SDK_ROOT
@@ -36,6 +37,19 @@ without checking its outcome. Direct MCP calls remain available.
 """
 
 
+def append_bridge_prompt(prompt: str | SystemMessage | None) -> str | SystemMessage:
+    if isinstance(prompt, SystemMessage):
+        return prompt.model_copy(
+            update={
+                "content": [
+                    *prompt.content_blocks,
+                    {"type": "text", "text": BRIDGE_PROMPT},
+                ]
+            }
+        )
+    return (prompt or "") + BRIDGE_PROMPT
+
+
 class BridgeSandbox(BaseSandbox):
     def __init__(self, backend: BaseSandbox, token: str):
         self.backend = backend
@@ -50,14 +64,14 @@ class BridgeSandbox(BaseSandbox):
         environment = {
             "AUXILIA_MCP_URL": url,
             "AUXILIA_MCP_TOKEN": self._token,
-            "PYTHONPATH": SDK_ROOT,
         }
-        prefix = " ".join(
-            f"{name}={shlex.quote(value)}" for name, value in environment.items()
+        exports = "; ".join(
+            f"export {name}={shlex.quote(value)}" for name, value in environment.items()
         )
-        # Injection happens at the provider seam, so LangChain's tool input,
-        # checkpoints and events retain only the original command.
-        wrapped = f"env {prefix} /bin/sh -c {shlex.quote(command)}"
+        # Run in the provider's shell (Cloud Run uses bash). Keep an existing
+        # PYTHONPATH, and inject below tool tracing so capabilities stay out
+        # of graph inputs, checkpoints and events.
+        wrapped = f'{exports}; export PYTHONPATH={shlex.quote(SDK_ROOT)}${{PYTHONPATH:+:"$PYTHONPATH"}}; {command}'
         return self.backend.execute(wrapped, timeout=timeout)
 
     def upload_files(self, files):

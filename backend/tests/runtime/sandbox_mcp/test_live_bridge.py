@@ -6,15 +6,19 @@ It exercises concurrent sandbox execution and result upload, not a mock SDK.
 
 import asyncio
 import json
+import os
 import shlex
 import shutil
+import signal
 import socket
 import subprocess
 import sys
+from contextlib import suppress
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 
+import pytest
 import uvicorn
 from fastapi import FastAPI
 
@@ -30,26 +34,66 @@ from tests.sandbox.stub_sandbox import StubSandbox
 
 
 class ProcessSandbox(StubSandbox):
+    def __init__(self):
+        super().__init__()
+        self.processes = set()
+
     def execute(self, command, *, timeout=None):
         from deepagents.backends.protocol import ExecuteResponse
 
-        completed = subprocess.run(
-            command,
-            shell=True,
-            executable="/bin/sh",
-            capture_output=True,
+        process = subprocess.Popen(
+            ["/bin/bash", "-c", command],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout,
-            check=False,
+            start_new_session=True,
         )
-        return ExecuteResponse(
-            output=completed.stdout + completed.stderr, exit_code=completed.returncode
-        )
+        self.processes.add(process)
+        try:
+            try:
+                stdout, stderr = process.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                with suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGKILL)
+                process.communicate()
+                raise
+            return ExecuteResponse(output=stdout + stderr, exit_code=process.returncode)
+        finally:
+            self.processes.discard(process)
+
+    def terminate(self):
+        for process in list(self.processes):
+            with suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGKILL)
 
     def upload_files(self, files):
         for path, data in files:
             Path(path).write_bytes(data)
         return super().upload_files(files)
+
+
+async def wait_for_approval(execution, bridge, thread):
+    async with asyncio.timeout(10):
+        while True:
+            if execution.done():
+                result = execution.result()
+                pytest.fail(
+                    f"Sandbox exited before requesting approval:\n{result.output}"
+                )
+            pending = await bridge.broker.pending(thread.id, str(thread.user_id))
+            if pending:
+                return pending
+            await asyncio.sleep(0.01)
+
+
+async def cleanup_execution(execution, backend):
+    # Kill only processes owned by this test backend. Do not wait for the
+    # subprocess's 20-second timeout or replace the original test failure.
+    backend.terminate()
+    with suppress(Exception):
+        await asyncio.wait_for(asyncio.shield(execution), timeout=2)
+    if not execution.done():
+        execution.cancel()
 
 
 async def test_python_process_can_call_mcp_and_wait_for_approval(
@@ -94,19 +138,19 @@ async def test_python_process_can_call_mcp_and_wait_for_approval(
             backend = ProcessSandbox()
             async with BridgeSession(resolved, thread, backend) as bridge:
                 wrapped = BridgeSandbox(backend, bridge.token)
-                code = 'import auxilia_mcp as mcp; import json; print(json.dumps(mcp.call("crm_widget", {})["structured_content"]))'
+                operation_id = str(uuid4())
+                code = (
+                    "import auxilia_mcp as mcp; import json; "
+                    f'result = mcp.call("crm_widget", {{}}, operation_id="{operation_id}"); '
+                    f'assert mcp.call("crm_widget", {{}}, operation_id="{operation_id}") == result; '
+                    'print(json.dumps(result["structured_content"]))'
+                )
                 command = f"{shlex.quote(sys.executable)} -c {shlex.quote(code)}"
                 execution = asyncio.create_task(
                     asyncio.to_thread(wrapped.execute, command, timeout=20)
                 )
                 try:
-                    async with asyncio.timeout(10):
-                        while not (  # noqa: ASYNC110 - polling an external operation
-                            pending := await bridge.broker.pending(
-                                thread.id, str(thread.user_id)
-                            )
-                        ):
-                            await asyncio.sleep(0.01)
+                    pending = await wait_for_approval(execution, bridge, thread)
                     assert not execution.done()  # The script really waits for the user.
                     request = pending[0]
                     assert request["tool"] == "crm_widget"
@@ -121,12 +165,37 @@ async def test_python_process_can_call_mcp_and_wait_for_approval(
                     result = await execution
                     assert result.exit_code == 0, result.output
                     assert json.loads(result.output) == {"rows": [1, 2, 3]}
+                    assert (
+                        len(backend.uploads) == 1
+                    )  # Reusing the ID did not invoke MCP again.
                 finally:
-                    if not execution.done():
-                        await execution
+                    await cleanup_execution(execution, backend)
                     shutil.rmtree(
                         f"/tmp/auxilia-mcp-results/{bridge.scope}", ignore_errors=True
                     )
     finally:
         server.should_exit = True
         await server_task
+
+
+async def test_early_script_failure_reports_its_output():
+    future = asyncio.get_running_loop().create_future()
+    future.set_result(
+        SimpleNamespace(output="ModuleNotFoundError: client missing", exit_code=1)
+    )
+    with pytest.raises(
+        pytest.fail.Exception, match="ModuleNotFoundError: client missing"
+    ):
+        await wait_for_approval(future, None, None)
+
+
+async def test_cleanup_terminates_a_waiting_script():
+    from unittest.mock import MagicMock
+
+    future = asyncio.get_running_loop().create_future()
+    backend = MagicMock()
+    backend.terminate.side_effect = lambda: future.set_result(
+        SimpleNamespace(output="terminated")
+    )
+    await cleanup_execution(future, backend)
+    backend.terminate.assert_called_once()

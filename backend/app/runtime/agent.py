@@ -55,7 +55,7 @@ from app.runtime.middleware.tool_errors import (
     ToolErrorMiddleware,
 )
 from app.runtime.protocol.emit import ProtocolEmitter
-from app.runtime.sandbox_mcp.backend import BRIDGE_PROMPT, BridgeSandbox
+from app.runtime.sandbox_mcp.backend import BridgeSandbox, append_bridge_prompt
 from app.runtime.sandbox_mcp.worker import SDK_ROOT, SDK_SOURCE, BridgeSession
 from app.runtime.settings import agent_settings
 from app.runtime.toolset import (
@@ -213,7 +213,7 @@ def build_runnable(
     ``app.runtime.checkpoints.get_checkpoint_state``.
     """
     if isinstance(sandbox_backend, BridgeSandbox):
-        system_prompt += BRIDGE_PROMPT
+        system_prompt = append_bridge_prompt(system_prompt)
     tools = list(tools)
     harness: list = []
 
@@ -930,9 +930,17 @@ class Agent:
                 for event in emitter.synthetic_ai_message(ai_msg, state.values):
                     yield event
             finally:
-                for bridge in self._bridges:
+                await self._finish_sandbox()
+
+    async def _finish_sandbox(self) -> None:
+        try:
+            for bridge in self._bridges:
+                try:
                     await bridge.close()
-                await self._persist_sandbox()
+                except Exception:
+                    logger.exception("Failed to close sandbox MCP bridge")
+        finally:
+            await self._persist_sandbox()
 
 
 def _with_host_notice(resolved_input, text: str, kind: str):

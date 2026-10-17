@@ -376,3 +376,178 @@ def test_main_agent_receives_bridge_discovery_instructions():
     assert "import auxilia_mcp as mcp" in prompt
     assert "print(mcp.tools())" in prompt
     assert "temporary-token" not in prompt
+
+
+async def test_expired_queue_entry_does_not_stop_other_calls(monkeypatch):
+    session, tool = setup()
+    consume = session._consume
+    gate = asyncio.Event()
+
+    async def delayed_consume():
+        await gate.wait()
+        await consume()
+
+    monkeypatch.setattr(session, "_consume", delayed_consume)
+    async with session:
+        expired = CallRequest(id=uuid4(), tool=tool.name)
+        healthy = CallRequest(id=uuid4(), tool=tool.name)
+        await session.broker.enqueue(session.scope, expired)
+        await session.broker.enqueue(session.scope, healthy)
+        await session.broker.redis.delete(key(session.scope, str(expired.id)))
+        gate.set()
+        await wait_status(session, healthy, "complete")
+        assert await session.broker.active(session.scope)
+        assert session.backend.upload_files.call_count == 1
+
+
+async def test_write_never_resurrects_expired_operation(monkeypatch):
+    from app.runtime.sandbox_mcp.service import _UPDATE
+
+    session, tool = setup()
+    await session._lease()
+    call = CallRequest(id=uuid4(), tool=tool.name)
+    await session.broker.enqueue(session.scope, call)
+    evaluate = session.broker.redis.eval
+
+    async def expire_before_update(script, *args):
+        if script == _UPDATE:
+            await session.broker.redis.delete(key(session.scope, str(call.id)))
+        return await evaluate(script, *args)
+
+    monkeypatch.setattr(session.broker.redis, "eval", expire_before_update)
+    with pytest.raises(HTTPException) as expired:
+        await session.broker.write(session.scope, str(call.id), {"status": "complete"})
+    assert expired.value.status_code == 404
+    assert await session.broker.redis.get(key(session.scope, str(call.id))) is None
+    with pytest.raises(HTTPException) as replay:
+        await session.broker.enqueue(session.scope, call)
+    assert replay.value.status_code == 409
+
+
+async def test_late_decision_is_rejected_after_waiter_stops():
+    session, tool = setup(approval=True)
+    async with session:
+        call = CallRequest(id=uuid4(), tool=tool.name)
+        await session.broker.enqueue(session.scope, call)
+        pending = await wait_status(session, call, "approval_required")
+        await session.broker.redis.delete(key(session.scope, "pending"))
+        with pytest.raises(HTTPException) as stale:
+            await session.broker.decide(
+                session.thread.id,
+                str(session.thread.user_id),
+                session.scope,
+                str(call.id),
+                "approve",
+                pending["phase"],
+            )
+        assert stale.value.status_code == 409
+        assert (
+            await session.broker.redis.get(
+                key(session.scope, f"decision:{call.id}:{pending['phase']}")
+            )
+            is None
+        )
+
+
+async def test_reconnect_closes_owned_replacement_before_opening_next(monkeypatch):
+    from contextlib import asynccontextmanager
+
+    session, _ = setup()
+    events = []
+
+    @asynccontextmanager
+    async def db():
+        yield None
+
+    @asynccontextmanager
+    async def opened(prepared):
+        events.append(("open", prepared))
+        try:
+            yield session.resolved.live
+        finally:
+            events.append(("close", prepared))
+
+    monkeypatch.setattr("app.runtime.sandbox_mcp.worker.AsyncSessionLocal", db)
+    monkeypatch.setattr(Toolset, "prepare", AsyncMock(side_effect=["first", "second"]))
+    monkeypatch.setattr(Toolset, "open", opened)
+    await session._reconnect()
+    await session._reconnect()
+    assert events == [("open", "first"), ("close", "first"), ("open", "second")]
+    await session.close()
+    assert events[-1] == ("close", "second")
+
+
+async def test_cleanup_failure_does_not_skip_later_bridges_or_snapshot():
+    from app.runtime.agent import Agent
+
+    agent = object.__new__(Agent)
+    first = SimpleNamespace(
+        close=AsyncMock(side_effect=RuntimeError("transport close failed"))
+    )
+    second = SimpleNamespace(close=AsyncMock())
+    agent._bridges = [first, second]
+    agent._persist_sandbox = AsyncMock()
+    await agent._finish_sandbox()
+    first.close.assert_awaited_once()
+    second.close.assert_awaited_once()
+    agent._persist_sandbox.assert_awaited_once()
+
+
+async def test_sdk_result_endpoint_only_exposes_its_contract(current_user):
+    from httpx import ASGITransport, AsyncClient
+
+    from app.main import app
+
+    session, tool = setup()
+    async with session:
+        call = CallRequest(id=uuid4(), tool=tool.name)
+        await session.broker.enqueue(session.scope, call)
+        await wait_status(session, call, "complete")
+        await session.broker.write(
+            session.scope,
+            str(call.id),
+            {
+                "future_private_field": "must stay private",
+                "auth_url": "https://auth.example",
+            },
+        )
+        async with AsyncClient(
+            transport=ASGITransport(app), base_url="http://test"
+        ) as http:
+            response = await http.get(
+                f"/sandbox-mcp/calls/{call.id}",
+                headers={"Authorization": "Bearer " + session.token},
+            )
+        assert set(response.json()) == {"status", "path"}
+
+
+def test_provider_bash_semantics_and_existing_pythonpath_are_preserved(
+    tmp_path, monkeypatch
+):
+    import os
+    import subprocess
+
+    from deepagents.backends.protocol import ExecuteResponse
+
+    from app.runtime.sandbox_mcp.backend import SDK_ROOT
+
+    backend = MagicMock()
+
+    def execute(command, **kwargs):
+        result = subprocess.run(
+            ["/bin/bash", "-c", command],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={**os.environ, "PYTHONPATH": "/existing/python/path"},
+        )
+        return ExecuteResponse(
+            output=result.stdout + result.stderr, exit_code=result.returncode
+        )
+
+    backend.execute.side_effect = execute
+    result = BridgeSandbox(backend, "temporary-token").execute(
+        '[[ 2 -eq 2 ]] && printf "%s" "$PYTHONPATH"'
+    )
+    assert result.exit_code == 0
+    assert result.output == SDK_ROOT + ":/existing/python/path"

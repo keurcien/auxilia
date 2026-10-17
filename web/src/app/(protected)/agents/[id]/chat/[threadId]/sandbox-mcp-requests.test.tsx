@@ -1,6 +1,7 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { SandboxMcpRequests, safeOAuthUrl } from "./sandbox-mcp-requests";
+import { toHttpUrl } from "@/lib/urls/http";
+import { SandboxMcpRequests } from "./sandbox-mcp-requests";
 import { decideSandboxMcp, pendingSandboxMcp } from "@/lib/api/resources/sandbox-mcp";
 
 vi.mock("@/lib/api/resources/sandbox-mcp", () => ({
@@ -37,9 +38,24 @@ describe("sandbox MCP requests", () => {
     expect(pendingSandboxMcp).not.toHaveBeenCalled();
   });
 
+  it("clears a transient poll error after the next successful five-second poll", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(pendingSandboxMcp).mockRejectedValueOnce(new Error("offline")).mockResolvedValue([]);
+      render(<SandboxMcpRequests threadId="thread" enabled />);
+      await act(async () => {});
+      expect(screen.getByRole("alert")).toBeDefined();
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+      expect(pendingSandboxMcp).toHaveBeenCalledTimes(2);
+      expect(screen.queryByRole("alert")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("rejects executable authorization URLs", () => {
-    expect(safeOAuthUrl("javascript:alert(1)")).toBeNull();
-    expect(safeOAuthUrl("data:text/html,test")).toBeNull();
-    expect(safeOAuthUrl("https://auth.example/connect")).toBe("https://auth.example/connect");
+    expect(toHttpUrl("javascript:alert(1)")).toBeNull();
+    expect(toHttpUrl("data:text/html,test")).toBeNull();
+    expect(toHttpUrl("https://auth.example/connect")).toBe("https://auth.example/connect");
   });
 });

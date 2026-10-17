@@ -86,9 +86,16 @@ if result["is_error"]:
     raise RuntimeError(result["content"])
 data = result["structured_content"]
 
-# Save any result, regardless of size, without copying it through model context.
-mcp.call_to_file("your_server_your_tool", {"argument": "value"}, "/tmp/result.json")
+# Save the result already fetched, without invoking the tool again.
+import json
+from pathlib import Path
+Path("/tmp/result.json").write_text(json.dumps(result), encoding="utf-8")
 ```
+
+`mcp.call_to_file(tool_name, arguments, path)` is an alternative that invokes the
+tool once and saves its result. Use it instead of `call`, not to save a result
+you have already fetched. Both methods enforce the configured result-size limit
+(16 MB by default), regardless of the size threshold used for context offloading.
 
 Results contain `content`, `structured_content` and `is_error`. The bridge writes
 results directly to sandbox files; only metadata and paths go through Redis.
@@ -138,3 +145,9 @@ code. Python execution state is not restored across runs. Network failures and
 uncertain write outcomes are **never automatically retried**; inspect the remote
 state before repeating a write. Retrying the same bridge operation ID cannot
 execute it twice within an active session, even after its result metadata expires.
+Supply `operation_id=<UUID>` to `call` or `call_to_file` to reuse a known operation.
+Exceptions expose `.operation_id` and include it in their message, including when
+the POST response was lost. Keep this ID to recover an uncertain write within the
+same active run. Reusing it with different tool arguments is rejected. The client
+retries transient failures of the idempotent result GET within the call deadline;
+it never automatically retries the POST.

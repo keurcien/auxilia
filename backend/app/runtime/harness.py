@@ -61,7 +61,7 @@ from deepagents.profiles.harness.harness_profiles import (
 from langchain.agents.middleware import TodoListMiddleware
 from langchain_core.messages import SystemMessage
 
-from app.runtime.sandbox_mcp.backend import BRIDGE_PROMPT, BridgeSandbox
+from app.runtime.sandbox_mcp.backend import BridgeSandbox, append_bridge_prompt
 from app.skills.middleware import skills_index_middleware
 
 
@@ -161,7 +161,7 @@ def _general_purpose_subagent(
             profile, GENERAL_PURPOSE_SUBAGENT["system_prompt"]
         )
     if isinstance(backend, BridgeSandbox):
-        spec["system_prompt"] += BRIDGE_PROMPT
+        spec["system_prompt"] = append_bridge_prompt(spec["system_prompt"])
     return spec
 
 

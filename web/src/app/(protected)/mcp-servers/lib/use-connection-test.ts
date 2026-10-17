@@ -3,22 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { toHttpUrl } from "@/lib/urls/http";
 import { ConnectionTestResult, MCPAuthType } from "@/types/mcp-servers";
 
 export type ConnectionTestStatus = "idle" | "testing" | "success" | "error";
-
-// Only navigate a popup to http(s) URLs — reject javascript:/data: and other
-// schemes so a malformed/hostile authorize URL can't execute script.
-function toHttpUrl(value: string): string | null {
-	try {
-		const url = new URL(value);
-		return url.protocol === "https:" || url.protocol === "http:"
-			? url.href
-			: null;
-	} catch {
-		return null;
-	}
-}
 
 export interface CandidateTestInput {
 	url: string;

@@ -18,6 +18,10 @@ Two policies, chosen per tool when the toolset is built:
   an app result on hydration, since LangGraph persists the ToolMessage as is.
 - **Every other tool**: ``structured_content`` is dropped. No client code reads
   it and the model never had it.
+
+Sandbox bridge calls opt out through the task-local `preserve_mcp_result` flag:
+they keep structured content long enough to write it to sandbox files, without
+changing the artifact policy of concurrent direct calls.
 """
 
 from contextvars import ContextVar

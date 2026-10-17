@@ -37,6 +37,7 @@ from app.runtime.middleware.structured_output import (
     DeferredStructuredOutputMiddleware,
 )
 from app.runtime.middleware.tool_errors import ToolErrorMiddleware
+from app.runtime.sandbox_mcp.backend import BRIDGE_PROMPT, BridgeSandbox
 from app.skills.middleware import SKILLS_SOURCES, FreshSkillsMiddleware
 from app.skills.runtime import SkillsBackend
 from app.skills.schemas import SkillBundle
@@ -45,6 +46,8 @@ from tests.sandbox.stub_sandbox import StubSandbox
 
 
 EXPECTED_DEVIATIONS: list[str] = [
+    "Bridge-enabled main and general-purpose agents receive the MCP code-access "
+    "instructions in addition to deepagents' prompts.",
     "TodoListMiddleware leads the main stack: deepagents 0.7 dropped it from "
     "the default bundle, but the web client renders the `todos` channel.",
     "FreshSkillsMiddleware stands in for SkillsMiddleware wherever deepagents "
@@ -208,7 +211,7 @@ def comparable(ours: dict, deep: dict) -> tuple[dict, dict]:
 
     Everything left has to match exactly.
     """
-    assert len(EXPECTED_DEVIATIONS) == 2
+    assert len(EXPECTED_DEVIATIONS) == 3
     # Shallow copies: the projections hold the model instance, which does not
     # deepcopy (its HTTP client carries a lock), and nothing below mutates deeper.
     ours = {**ours, "middleware": list(ours["middleware"])}
@@ -226,6 +229,19 @@ def comparable(ours: dict, deep: dict) -> tuple[dict, dict]:
     ours["middleware"] = [_fold_skills(m) for m in ours["middleware"]]
     assert "FreshSkillsMiddleware" not in _classes(deep["middleware"])
 
+    # 3. Only bridge-enabled prompts append this exact instruction block.
+    assert BRIDGE_PROMPT not in deep["system_prompt"]
+    if BRIDGE_PROMPT in ours["system_prompt"]:
+        assert ours["system_prompt"].count(BRIDGE_PROMPT) == 1
+        # Profiles can append their own suffix after the bridge block.
+        ours["system_prompt"] = ours["system_prompt"].replace(BRIDGE_PROMPT, "")
+        for middleware in ours["middleware"]:
+            for sub in middleware.get("subagents", []):
+                if sub["name"] == "general-purpose" and not sub["compiled"]:
+                    assert sub["system_prompt"].count(BRIDGE_PROMPT) == 1
+                    sub["system_prompt"] = sub["system_prompt"].replace(
+                        BRIDGE_PROMPT, ""
+                    )
     return ours, deep
 
 
@@ -263,6 +279,7 @@ def _both(
     instructions="You are a test agent",
     output_schema=None,
     skills=False,
+    bridge=False,
 ) -> tuple[dict, dict]:
     """Build both ways from one set of inputs and project each for comparison.
 
@@ -273,7 +290,9 @@ def _both(
     `ToolErrorMiddleware` last. That call site is the behaviour P2-3 had to
     preserve. ``skills`` builds both sides with one skill source.
     """
-    backend = StubSandbox()
+    backend = (
+        BridgeSandbox(StubSandbox(), "temporary-token") if bridge else StubSandbox()
+    )
     deep_middleware = [
         m for m in base_middleware if not isinstance(m, PatchToolCallsMiddleware)
     ]
@@ -521,3 +540,13 @@ def test_plain_path_wires_subagents_after_the_caller_stack():
         "ToolErrorMiddleware",
         "AnthropicPromptCachingMiddleware",
     ]
+
+
+@pytest.mark.parametrize(
+    "instructions", ["Test agent", SystemMessage(content="Test agent")]
+)
+@pytest.mark.parametrize("model_name", list(MODELS))
+def test_bridge_prompts_are_an_explicit_harness_deviation(instructions, model_name):
+    deep, ours = _both(MODELS[model_name](), instructions=instructions, bridge=True)
+    ours, deep = comparable(ours, deep)
+    assert ours == deep

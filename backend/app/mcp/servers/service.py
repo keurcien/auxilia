@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import Depends
+from redis.exceptions import RedisError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -325,7 +326,15 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         # the token-endpoint auth method this exchange needs.
         await provider.manual_exchange(code, state)
         # Notify code waiting in a sandbox only after the token exchange succeeds.
-        await get_redis().set(oauth_completion_key(state), "complete", ex=900)
+        try:
+            await get_redis().set(oauth_completion_key(state), "complete", ex=900)
+        except RedisError:
+            # The waiting bridge can recover from the new stored token. Do not
+            # report OAuth failure after the one-use code has been exchanged.
+            logger.warning(
+                "OAuth completion notification failed; token recovery remains available",
+                exc_info=True,
+            )
 
         return {
             "status": "success",

@@ -46,9 +46,11 @@ async def call(request: Request, scope: str = Depends(sandbox_scope)):
 @router.get("/sandbox-mcp/calls/{operation_id}")
 async def result(operation_id: UUID, scope: str = Depends(sandbox_scope)):
     operation = await SandboxMcpService().read(scope, str(operation_id))
-    # OAuth URLs and approval input belong on the trusted user's surface only.
+    # Only the SDK's response contract crosses the sandbox boundary.
     return {
-        k: v for k, v in operation.items() if k not in ("auth_url", "arguments", "tool")
+        field: operation[field]
+        for field in ("status", "path", "error")
+        if field in operation
     }
 
 

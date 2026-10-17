@@ -1,19 +1,10 @@
 "use client";
 
+import { toHttpUrl } from "@/lib/urls/http";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { decideSandboxMcp, pendingSandboxMcp, type SandboxMcpRequest } from "@/lib/api/resources/sandbox-mcp";
-
-export function safeOAuthUrl(value?: string): string | null {
-  if (!value) return null;
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
-  } catch {
-    return null;
-  }
-}
 
 /** Independent of execute completion: a script can wait while the user connects. */
 export function SandboxMcpRequests({ threadId, enabled }: { threadId: string; enabled: boolean }) {
@@ -21,6 +12,7 @@ export function SandboxMcpRequests({ threadId, enabled }: { threadId: string; en
   const [requests, setRequests] = useState<SandboxMcpRequest[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pollError, setPollError] = useState<string | null>(null);
   useEffect(() => {
     if (!enabled) return;
     const controller = new AbortController();
@@ -28,11 +20,14 @@ export function SandboxMcpRequests({ threadId, enabled }: { threadId: string; en
     async function poll() {
       try {
         const pending = await pendingSandboxMcp(threadId, controller.signal);
-        if (!controller.signal.aborted) setRequests(pending.filter(item => !answered.current.has(item.phase)));
+        if (!controller.signal.aborted) {
+          setRequests(pending.filter(item => !answered.current.has(item.phase)));
+          setPollError(null);
+        }
       } catch (error) {
-        if (!controller.signal.aborted) setError(getApiErrorMessage(error, "Could not check pending tool requests."));
+        if (!controller.signal.aborted) setPollError(getApiErrorMessage(error, "Could not check pending tool requests."));
       } finally {
-        if (!controller.signal.aborted) timer = setTimeout(() => { void poll(); }, 1000);
+        if (!controller.signal.aborted) timer = setTimeout(() => { void poll(); }, 5000);
       }
     }
     void poll();
@@ -57,7 +52,7 @@ export function SandboxMcpRequests({ threadId, enabled }: { threadId: string; en
   return <div className="space-y-3" aria-live="polite">
     {requests.map(request => {
       const auth = request.status === "oauth_required";
-      const authUrl = safeOAuthUrl(request.authUrl);
+      const authUrl = toHttpUrl(request.authUrl);
       return <div key={request.phase} className="rounded-lg border p-4 space-y-3">
         <p className="text-sm font-medium">{auth ? "Connection needed" : "Approval needed"}: {request.tool}</p>
         {!auth && <pre className="max-h-48 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(request.arguments, null, 2)}</pre>}
@@ -70,6 +65,6 @@ export function SandboxMcpRequests({ threadId, enabled }: { threadId: string; en
         </div>
       </div>;
     })}
-    {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+    {(error || pollError) && <p role="alert" className="text-sm text-destructive">{error || pollError}</p>}
   </div>;
 }

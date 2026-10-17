@@ -37,6 +37,26 @@ return 1
 """
 
 
+# Compare raw JSON rather than round-tripping it through Lua's cjson: empty
+# arrays in tool arguments must remain arrays. Missing records are never recreated.
+_UPDATE = """
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+redis.call('SET', KEYS[1], ARGV[2], 'XX', 'EX', ARGV[3])
+return 1
+"""
+
+_DECIDE = """
+if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
+if redis.call('GET', KEYS[3]) ~= ARGV[1] then return 0 end
+local raw = redis.call('GET', KEYS[2])
+if not raw then return 0 end
+local operation = cjson.decode(raw)
+if operation.phase ~= ARGV[2] or operation.status ~= ARGV[3] then return 0 end
+if redis.call('SET', KEYS[4], ARGV[4], 'NX', 'EX', ARGV[5]) then return 1 end
+return 0
+"""
+
+
 class SandboxMcpService:
     def __init__(self, redis=None):
         self.redis = redis if redis is not None else get_redis()
@@ -92,14 +112,24 @@ class SandboxMcpService:
         return json.loads(raw)
 
     async def write(self, scope: str, operation_id: str, updates: dict) -> None:
-        # Only the run worker writes operation state; decisions use a separate key.
-        raw = await self.redis.get(key(scope, operation_id))
-        current = json.loads(raw) if raw else {}
-        await self.redis.set(
-            key(scope, operation_id),
-            json.dumps({**current, **updates}),
-            ex=bridge_settings.operation_seconds,
-        )
+        # CAS prevents expiry between GET and SET from resurrecting a partial
+        # operation. A retry only updates metadata, never dispatches a tool.
+        operation_key = key(scope, operation_id)
+        for _ in range(3):
+            raw = await self.redis.get(operation_key)
+            if raw is None:
+                raise HTTPException(404, "MCP operation expired")
+            updated = json.dumps({**json.loads(raw), **updates})
+            if await self.redis.eval(
+                _UPDATE,
+                1,
+                operation_key,
+                raw,
+                updated,
+                bridge_settings.operation_seconds,
+            ):
+                return
+        raise HTTPException(409, "MCP operation changed during update")
 
     async def pending(self, thread_id: str, user_id: str) -> list[dict]:
         found: list[dict] = []
@@ -138,11 +168,20 @@ class SandboxMcpService:
         }
         if decision not in allowed.get(operation["status"], set()):
             raise HTTPException(409, "This request is no longer pending")
-        accepted = await self.redis.set(
+        accepted = await self.redis.eval(
+            _DECIDE,
+            4,
+            key(scope, "lease"),
+            key(scope, operation_id),
+            key(scope, "pending"),
             key(scope, f"decision:{operation_id}:{phase}"),
+            operation_id,
+            phase,
+            operation["status"],
             decision,
-            nx=True,
-            ex=bridge_settings.operation_seconds,
+            bridge_settings.operation_seconds,
         )
         if not accepted:
-            raise HTTPException(409, "This request was already answered")
+            raise HTTPException(
+                409, "This request is no longer pending or was already answered"
+            )
