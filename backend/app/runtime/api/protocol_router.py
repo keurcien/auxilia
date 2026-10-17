@@ -105,7 +105,8 @@ async def post_command(
 async def stream_events(
     thread_id: str,
     body: EventStreamBody,
-    _: ThreadDB = Depends(authorize_thread_read),
+    thread: ThreadDB = Depends(authorize_thread_read),
+    user: UserDB = Depends(get_current_user),  # dependency-cached: same lookup
     service: ProtocolService = Depends(get_protocol_service),
     db: AsyncSession = Depends(get_db),  # dependency-cached: same session auth used
 ):
@@ -113,7 +114,9 @@ async def stream_events(
     # Release the pooled connection before the response streams indefinitely.
     await db.commit()
     return StreamingResponse(
-        service.stream_events(thread_id, body),
+        service.stream_events(
+            thread_id, body, reader_is_owner=thread.user_id == user.id
+        ),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )

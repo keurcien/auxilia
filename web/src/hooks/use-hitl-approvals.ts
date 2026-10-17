@@ -14,13 +14,20 @@ export type HitlResponse = {
 	decisions: { tool_call_id?: string; type: HitlDecision }[];
 };
 
+/** Answer a pending interrupt — the session's `respond`, which wraps
+ *  `stream.respond(response, { interruptId })` and resolves once the server
+ *  accepted the decision (rejects when it did not). */
+export type RespondToInterrupt = (
+	response: HitlResponse,
+	interruptId: string | null,
+) => Promise<void>;
+
 type UseHitlApprovalsArgs<TPending extends { id: string }> = {
 	/** Id of the pending interrupt; `null` forces the positional form. */
 	interruptId: string | null;
 	/** The tool calls the interrupt is waiting on; empty when not interrupted. */
 	pendingToolCalls: TPending[];
-	/** Resume the run — `stream.respond(response, { interruptId })`. */
-	respond: (response: HitlResponse, interruptId: string | null) => void;
+	respond: RespondToInterrupt;
 	/** Hold a complete batch until this is true (e.g. another resume is in
 	 *  flight — the thread accepts one run at a time). Default: send at once. */
 	enabled?: boolean;
@@ -48,7 +55,8 @@ export function useHitlApprovals<TPending extends { id: string }>({
 		if (submittedBatch.current === batchKey) return;
 		submittedBatch.current = batchKey;
 
-		respond(
+		// Outcome is reported through the stream's error state, as before.
+		void respond(
 			{
 				decisions: pendingToolCalls.map((tc) =>
 					interruptId

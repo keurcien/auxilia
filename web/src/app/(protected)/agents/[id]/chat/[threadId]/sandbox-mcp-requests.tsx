@@ -3,7 +3,7 @@
 import type { Interrupt } from "@langchain/langgraph-sdk";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import type { HitlResponse } from "@/hooks/use-hitl-approvals";
+import type { RespondToInterrupt } from "@/hooks/use-hitl-approvals";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { toHttpUrl } from "@/lib/urls/http";
 
@@ -22,10 +22,6 @@ export type SandboxMcpRequest = SandboxMcpPayload & {
   arguments: unknown;
 };
 
-/** `stream.respond` — resolves once the server accepted the decision, which is
- *  also when the SDK drops the interrupt (and so this card). */
-export type RespondToInterrupt = (response: HitlResponse, options: { interruptId: string }) => Promise<void>;
-
 /** A sandbox script's MCP call waiting on the user, or null for any other
  *  interrupt (the graph's approvals belong to the tool steps). */
 export function sandboxMcpRequest(interrupt: Interrupt): SandboxMcpRequest | null {
@@ -41,10 +37,11 @@ export function sandboxMcpRequest(interrupt: Interrupt): SandboxMcpRequest | nul
 
 /**
  * Bridge requests ride `stream.interrupts` like every pending decision and are
- * answered through the same `input.respond`; only the card differs, because
+ * answered through the same session `respond`; only the card differs, because
  * the waiting call is not a step of the transcript (the running step is the
- * script's `execute`). A card stays until the server accepted the decision,
- * so a failed submission is visible and can be retried.
+ * script's `execute`). A card stays until the server accepted the decision —
+ * the SDK drops the interrupt then — so a failed submission is visible and
+ * can be retried.
  */
 export function SandboxMcpRequests({ interrupts, respond, enabled }: {
   interrupts: readonly Interrupt[];
@@ -61,7 +58,7 @@ export function SandboxMcpRequests({ interrupts, respond, enabled }: {
     setBusy(request.interruptId);
     setError(null);
     try {
-      await respond({ decisions: [{ tool_call_id: request.operation_id, type }] }, { interruptId: request.interruptId });
+      await respond({ decisions: [{ tool_call_id: request.operation_id, type }] }, request.interruptId);
     } catch (failure) {
       setError(getApiErrorMessage(failure, "Could not submit your decision."));
     } finally {

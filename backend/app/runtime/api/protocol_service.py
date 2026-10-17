@@ -43,7 +43,7 @@ from app.runtime.runs.events import RunEventStream
 from app.runtime.runs.models import RunDB
 from app.runtime.runs.service import RunService
 from app.runtime.runs.state import MultitaskStrategy, is_terminal
-from app.runtime.sandbox_mcp.service import SandboxMcpService
+from app.runtime.sandbox_mcp.service import BRIDGE_NAMESPACE, SandboxMcpService
 
 
 logger = logging.getLogger(__name__)
@@ -189,10 +189,12 @@ class ProtocolService:
     # --- event stream -----------------------------------------------------------
 
     async def stream_events(
-        self, thread_id: str, body: EventStreamBody
+        self, thread_id: str, body: EventStreamBody, *, reader_is_owner: bool = True
     ) -> AsyncGenerator[str, None]:
         """One protocol SSE session: replay the newest run, then follow newer
-        runs as they appear, until the client disconnects."""
+        runs as they appear, until the client disconnects. A reader who is not
+        the thread's owner (an agent admin) gets everything but the sandbox
+        bridge's requests — the same owner-only rule as `thread_state`."""
         sink = StreamFilter.from_request(body.channels, body.namespaces, body.depth)
         current: RunDB | None = None
         while True:
@@ -202,7 +204,9 @@ class ProtocolService:
                 await asyncio.sleep(_IDLE_POLL_SECONDS)
                 continue
             current = run
-            async for sse in self._stream_run(run, sink, since=body.since):
+            async for sse in self._stream_run(
+                run, sink, since=body.since, reader_is_owner=reader_is_owner
+            ):
                 yield sse
 
     async def _next_run(self, thread_id: str, after: RunDB | None) -> RunDB | None:
@@ -213,7 +217,12 @@ class ProtocolService:
         return await self.runs.next_for_thread(thread_id, after)
 
     async def _stream_run(
-        self, run: RunDB, sink: StreamFilter, *, since: int | None
+        self,
+        run: RunDB,
+        sink: StreamFilter,
+        *,
+        since: int | None,
+        reader_is_owner: bool = True,
     ) -> AsyncGenerator[str, None]:
         """Relay one run's stored events through the session filter.
 
@@ -236,6 +245,8 @@ class ProtocolService:
                 return None
             if not sink.matches(event):
                 return None
+            if not reader_is_owner and _is_bridge_request(event):
+                return None  # tool arguments and OAuth URL are the owner's
             return frame(event, run_id=run.id, entry_id=entry_id)
 
         def synthetic_terminal(record: RunDB) -> str | None:
@@ -587,6 +598,15 @@ def _multitask_strategy(value: Any) -> MultitaskStrategy:
     if value not in get_args(MultitaskStrategy):
         raise DomainValidationError(f"Unknown multitaskStrategy {value!r}.")
     return value
+
+
+def _is_bridge_request(event: dict) -> bool:
+    """An `input.requested` raised by the sandbox MCP bridge (see
+    `SandboxMcpService.request_payload`), as opposed to a graph interrupt."""
+    return (
+        event.get("method") == "input.requested"
+        and event.get("params", {}).get("namespace") == BRIDGE_NAMESPACE
+    )
 
 
 def _success(command_id: int, result: dict) -> dict:

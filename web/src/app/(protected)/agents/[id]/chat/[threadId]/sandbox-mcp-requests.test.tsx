@@ -30,7 +30,7 @@ describe("sandbox MCP requests", () => {
     render(<SandboxMcpRequests interrupts={[approval, graphApproval]} respond={respond} enabled />);
     expect(screen.getByText(/CustomerID/)).toBeDefined();
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
-    expect(respond).toHaveBeenCalledWith({ decisions: [{ tool_call_id: "op", type: "approve" }] }, { interruptId: "wait-1" });
+    expect(respond).toHaveBeenCalledWith({ decisions: [{ tool_call_id: "op", type: "approve" }] }, "wait-1");
     await waitFor(() => { expect(screen.getByRole("button", { name: "Approve" }).hasAttribute("disabled")).toBe(false); });
   });
 
@@ -48,7 +48,7 @@ describe("sandbox MCP requests", () => {
     expect(screen.getByRole("button", { name: "Connect" })).toBeDefined();
     expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(respond).toHaveBeenCalledWith({ decisions: [{ tool_call_id: "op-2", type: "reject" }] }, { interruptId: "wait-2" });
+    expect(respond).toHaveBeenCalledWith({ decisions: [{ tool_call_id: "op-2", type: "reject" }] }, "wait-2");
   });
 
   it("ignores the graph's own interrupts and read-only sessions", () => {

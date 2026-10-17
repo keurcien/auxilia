@@ -9,7 +9,7 @@ import type { Interrupt } from "@langchain/langgraph-sdk";
 
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import type { Todo } from "@/components/ai-elements/todo-list";
-import { type HitlDecision, type HitlResponse, useHitlApprovals } from "@/hooks/use-hitl-approvals";
+import { type HitlDecision, type HitlResponse, type RespondToInterrupt, useHitlApprovals } from "@/hooks/use-hitl-approvals";
 import { useProtocolFetch } from "@/hooks/use-protocol-fetch";
 import { useThrottledValue } from "@/hooks/use-throttled-value";
 import { protocolApiUrl } from "@/lib/api/protocol";
@@ -117,7 +117,7 @@ export type ThreadSession = {
 		send: (message: PromptInputMessage) => void;
 		regenerate: () => void;
 		stop: () => void;
-		respond: (response: HitlResponse, interruptId: string | null) => void;
+		respond: RespondToInterrupt;
 		recheckModel: () => Promise<void>;
 		/** Clear the mid-session sandbox gate so the composer comes back; the
 		 * page re-polls readiness alongside it. */
@@ -334,7 +334,9 @@ export function useThreadSession({
 	const respond = useCallback(
 		(response: HitlResponse, addressedId: string | null) => {
 			userActed();
-			void selectorStream.respond(
+			// Returned, not voided: the bridge card awaits it to keep its
+			// request on screen until the server accepted the decision.
+			return selectorStream.respond(
 				response,
 				addressedId != null ? { interruptId: addressedId } : undefined,
 			);
