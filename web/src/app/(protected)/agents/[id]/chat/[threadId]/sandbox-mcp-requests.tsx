@@ -30,7 +30,7 @@ export function sandboxMcpRequest(interrupt: Interrupt): SandboxMcpRequest | nul
   } | null;
   const bridge = value?.sandbox_mcp;
   if (!bridge || typeof interrupt.id !== "string") return null;
-  const [request] = value.action_requests ?? [];
+  const request = value.action_requests?.[0];
   return { ...bridge, interruptId: interrupt.id, tool: request?.name ?? "tool", arguments: request?.args ?? {} };
 }
 
