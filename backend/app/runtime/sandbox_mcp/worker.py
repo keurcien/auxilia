@@ -32,6 +32,9 @@ logger = logging.getLogger(__name__)
 
 SDK_ROOT = "/tmp/auxilia-mcp-sdk"  # nosec B108 - sandbox-local, contains no credentials
 SDK_SOURCE = Path(__file__).with_name("client.py")
+#: Where results land *inside the sandbox* (one folder per capability scope).
+#: A path on the sandbox's disk, not this process's — no temp-file race here.
+RESULTS_ROOT = "/tmp/auxilia-mcp-results"  # nosec B108
 
 #: Where the bridge hands a protocol event to the run's event log. `None`
 #: (tests, callers without a log) leaves requests reachable through `/state`
@@ -285,7 +288,7 @@ class BridgeSession:
                 raise ValueError(
                     "MCP completed but its result exceeds the bridge limit; check the outcome before repeating a write"
                 )
-            folder = f"/tmp/auxilia-mcp-results/{self.scope}"
+            folder = f"{RESULTS_ROOT}/{self.scope}"
             created = await asyncio.to_thread(
                 self.backend.execute, f"mkdir -p {folder}"
             )
@@ -309,12 +312,14 @@ class BridgeSession:
         except OperationExpiredError:
             raise  # Missing/expired records are handled without recreating them.
         except Exception as exc:  # noqa: BLE001 - return operation failures to sandbox code
+            # `str()` of an exhausted OAuth challenge is the bare authorize
+            # URL; the sandbox (and so the model) never gets credentials material.
+            if as_oauth_required(exc) is not None:
+                error = "MCP authorization required; reconnect the server in chat"
+            else:
+                error = str(exc) or type(exc).__name__
             await self.broker.update(
                 self.scope,
                 operation_id,
-                {
-                    "status": "error",
-                    "error": str(exc) or type(exc).__name__,
-                    "auth_url": None,
-                },
+                {"status": "error", "error": error, "auth_url": None},
             )

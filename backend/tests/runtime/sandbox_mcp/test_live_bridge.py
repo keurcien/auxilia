@@ -25,7 +25,7 @@ from fastapi import FastAPI
 from app.mcp.client.connection import ConnectionSpec
 from app.runtime.sandbox_mcp.backend import BridgeSandbox
 from app.runtime.sandbox_mcp.router import router
-from app.runtime.sandbox_mcp.worker import SDK_SOURCE, BridgeSession
+from app.runtime.sandbox_mcp.worker import RESULTS_ROOT, SDK_SOURCE, BridgeSession
 from app.runtime.toolset import PreparedToolset, Toolset
 from tests.mcp.client.test_live_client import (
     live_server as live_server,
@@ -167,9 +167,7 @@ async def test_python_process_can_call_mcp_and_wait_for_approval(
                     )  # Reusing the ID did not invoke MCP again.
                 finally:
                     await cleanup_execution(execution, backend)
-                    shutil.rmtree(
-                        f"/tmp/auxilia-mcp-results/{bridge.scope}", ignore_errors=True
-                    )
+                    shutil.rmtree(f"{RESULTS_ROOT}/{bridge.scope}", ignore_errors=True)
     finally:
         server.should_exit = True
         await server_task

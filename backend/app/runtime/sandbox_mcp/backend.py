@@ -72,6 +72,9 @@ class BridgeSandbox(BaseSandbox):
         # PYTHONPATH, and inject below tool tracing so capabilities stay out
         # of graph inputs, checkpoints and events.
         wrapped = f'{exports}; export PYTHONPATH={shlex.quote(SDK_ROOT)}${{PYTHONPATH:+:"$PYTHONPATH"}}; {command}'
+        # This `execute` is the sandbox shell, not a DB cursor: the formatted
+        # string is the agent's own command, as every provider already runs it.
+        # nosemgrep
         return self.backend.execute(wrapped, timeout=timeout)
 
     def upload_files(self, files):

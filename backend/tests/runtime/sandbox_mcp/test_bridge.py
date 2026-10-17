@@ -575,3 +575,22 @@ def test_provider_bash_semantics_and_existing_pythonpath_are_preserved(
     )
     assert result.exit_code == 0
     assert result.output == SDK_ROOT + ":/existing/python/path"
+
+
+async def test_exhausted_oauth_challenge_never_leaks_the_authorize_url():
+    async def customers():
+        raise OAuthAuthorizationRequired("https://auth.example/authorize?state=secret")
+
+    session, tool = setup(function=customers)
+    session._reconnect = AsyncMock()
+
+    async def reconnect(*_args, **_kwargs):
+        return "reconnect"
+
+    session._decision = reconnect
+    async with session:
+        call = CallRequest(id=uuid4(), tool=tool.name)
+        await session.broker.create(session.scope, call)
+        failed = await wait_status(session, call, "error")
+        assert "auth.example" not in failed["error"]
+        assert "authorization required" in failed["error"]

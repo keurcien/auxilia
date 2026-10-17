@@ -122,7 +122,19 @@ def call(tool, arguments=None, *, timeout=840, operation_id=None):
 
 
 def call_to_file(tool, arguments, path, *, timeout=840, operation_id=None):
-    """Invoke once and save its result, subject to the bridge's result-size limit."""
+    """Invoke once and save its result, subject to the bridge's result-size limit.
+
+    The operation ID is fixed here so a failed local save still reports it:
+    recover with the same ID rather than calling the tool again.
+    """
+    operation_id = (
+        str(UUID(str(operation_id))) if operation_id is not None else str(uuid4())
+    )
     result = call(tool, arguments, timeout=timeout, operation_id=operation_id)
-    Path(path).write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+    try:
+        Path(path).write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+    except (OSError, ValueError) as exc:
+        raise MCPCallError(
+            f"MCP call completed but saving {path} failed: {exc}", operation_id
+        ) from exc
     return str(path)

@@ -141,9 +141,9 @@ The initial implementation serializes sandbox MCP calls per agent. Defaults are
 run's overall wall-clock limit still applies.
 
 Stopping the run, losing the sandbox, or exceeding those timeouts can interrupt
-code. Python execution state is not restored across runs. Network failures and
-uncertain write outcomes are **never automatically retried**; inspect the remote
-state before repeating a write. Retrying the same bridge operation ID cannot
+code. Python execution state is not restored across runs. Network failures on the
+call POST and uncertain write outcomes are **never automatically retried**; inspect
+the remote state before repeating a write. Retrying the same bridge operation ID cannot
 execute it twice within an active session, even after its result metadata expires.
 Supply `operation_id=<UUID>` to `call` or `call_to_file` to reuse a known operation.
 Exceptions expose `.operation_id` and include it in their message, including when

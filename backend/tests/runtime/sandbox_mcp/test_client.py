@@ -126,3 +126,72 @@ def test_invalid_operation_id_never_dispatches(monkeypatch):
     with pytest.raises(ValueError):
         client.call("write", {}, operation_id="not-a-uuid")
     request.assert_not_called()
+
+
+def _poll(monkeypatch, *responses):
+    """Script the POST (first) and each result GET (then) of one `call`."""
+    calls = []
+    script = list(responses)
+
+    def request(endpoint, body=None, **kwargs):
+        calls.append(endpoint)
+        if endpoint == "calls":
+            return {"status": "queued"}
+        step = script.pop(0)
+        if isinstance(step, Exception):
+            raise step
+        return step
+
+    monkeypatch.setattr(client, "_request", request)
+    return calls
+
+
+def test_poll_client_error_is_not_retried(monkeypatch, clock):
+    operation_id = str(uuid4())
+    calls = _poll(monkeypatch, client.BridgeHTTPError(410, "Sandbox MCP session ended"))
+    with pytest.raises(client.MCPCallError) as error:
+        client.call("write", {}, timeout=3, operation_id=operation_id)
+    assert error.value.operation_id == operation_id
+    assert "HTTP 410" in str(error.value)
+    assert calls.count("calls") == 1 and len(calls) == 2
+
+
+@pytest.mark.parametrize("status", [429, 503])
+def test_poll_retries_rate_limits_and_server_errors(
+    monkeypatch, tmp_path, clock, status
+):
+    path = tmp_path / "result.json"
+    path.write_text('{"value": 1}')
+    calls = _poll(
+        monkeypatch,
+        client.BridgeHTTPError(status, "later"),
+        {"status": "complete", "path": str(path)},
+    )
+    assert client.call("write", {}, timeout=3) == {"value": 1}
+    assert calls.count("calls") == 1 and len(calls) == 3
+    assert clock.elapsed == 0.5
+
+
+def test_error_status_raises_with_the_operation_id(monkeypatch, clock):
+    operation_id = str(uuid4())
+    _poll(monkeypatch, {"status": "error", "error": "User rejected this tool call"})
+    with pytest.raises(client.MCPCallError, match="User rejected") as error:
+        client.call("write", {}, timeout=3, operation_id=operation_id)
+    assert error.value.operation_id == operation_id
+
+
+def test_call_to_file_keeps_the_operation_id_when_saving_fails(monkeypatch, tmp_path):
+    result = tmp_path / "result.json"
+    result.write_text('{"value": 42}')
+    posted = []
+
+    def request(endpoint, body=None, **kwargs):
+        if endpoint == "calls":
+            posted.append(body["id"])
+        return {"status": "complete", "path": str(result)}
+
+    monkeypatch.setattr(client, "_request", request)
+    with pytest.raises(client.MCPCallError, match="saving") as error:
+        client.call_to_file("write", {}, tmp_path / "missing-dir" / "out.json")
+    assert error.value.operation_id == posted[0]
+    assert len(posted) == 1  # the tool is not called again to recover
