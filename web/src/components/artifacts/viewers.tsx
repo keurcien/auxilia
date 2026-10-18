@@ -7,6 +7,8 @@ import { Streamdown } from "streamdown";
 import { Loader2, Maximize } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getHtmlSources } from "@/lib/api/resources/artifacts";
+import { CodeBlock } from "@/components/ai-elements/code-block";
+import type { BundledLanguage } from "shiki";
 import type { Artifact } from "@/lib/api/resources/artifacts";
 
 export interface ViewerProps {
@@ -134,6 +136,21 @@ function TextViewer({ bytes }: ViewerProps) {
     </pre>
   );
 }
+const CODE_LANGUAGES: Record<string, BundledLanguage> = {
+  "application/json": "json",
+  "text/x-python": "python",
+  "text/javascript": "javascript",
+};
+function CodeViewer({ artifact, bytes }: ViewerProps) {
+  return (
+    <CodeBlock
+      code={decode(bytes)}
+      language={CODE_LANGUAGES[artifact.mime_type]}
+      showLineNumbers
+      className="rounded-none"
+    />
+  );
+}
 function CsvViewer({ bytes }: ViewerProps) {
   const result = useMemo(
     () =>
@@ -197,6 +214,11 @@ export const viewers: ViewerAdapter[] = [
     id: "text",
     supports: (mime) => mime === "text/plain",
     component: TextViewer,
+  },
+  {
+    id: "code",
+    supports: (mime) => mime in CODE_LANGUAGES,
+    component: CodeViewer,
   },
 ];
 export function ArtifactViewer(props: ViewerProps) {

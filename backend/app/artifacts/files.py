@@ -108,6 +108,9 @@ def detect_mime(filename: str, data: bytes) -> str:
         ".md": "text/markdown",
         ".markdown": "text/markdown",
         ".txt": "text/plain",
+        ".json": "application/json",
+        ".py": "text/x-python",
+        ".js": "text/javascript",
     }
     if suffix in types:
         try:

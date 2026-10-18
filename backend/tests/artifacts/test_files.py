@@ -65,6 +65,9 @@ def test_pptx_validation_and_utf8():
     with pytest.raises(DomainValidationError):
         detect_mime("data.csv", b"\xff")
     assert detect_mime("report.pdf", b"not pdf") == "application/octet-stream"
+    assert detect_mime("main.py", b"print(1)") == "text/x-python"
+    assert detect_mime("data.json", b"{}") == "application/json"
+    assert detect_mime("app.js", b"1") == "text/javascript"
 
 
 def test_pptx_zip_bomb_is_rejected():

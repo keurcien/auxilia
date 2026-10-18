@@ -45,7 +45,9 @@ describe("artifact viewer adapters", () => {
     const policy = frame.getAttribute("srcdoc");
     expect(policy).toContain("connect-src 'none'");
     // Scripts may load from the workspace's allowed sources, never fetch.
-    expect(policy).toContain("script-src 'unsafe-inline' https://cdn.jsdelivr.net;");
+    expect(policy).toContain(
+      "script-src 'unsafe-inline' https://cdn.jsdelivr.net;",
+    );
     expect(isolatedHtml("", [])).toContain("script-src 'unsafe-inline';");
     const page = isolatedHtml("<script>evil()</script>", []);
     expect(page.indexOf("Content-Security-Policy")).toBeLessThan(
@@ -60,6 +62,19 @@ describe("artifact viewer adapters", () => {
       />,
     );
     expect(screen.getByText(/Preview unavailable/)).toBeInTheDocument();
+  });
+  it("renders source files as code, with the text intact", () => {
+    render(
+      <ArtifactViewer
+        artifact={{ ...artifact, mime_type: "text/x-python" }}
+        bytes={bytes("print('<b>hi</b>')")}
+      />,
+    );
+    expect(screen.getByText("print('<b>hi</b>')")).toBeInTheDocument();
+    expect(document.querySelector("b")).toBeNull();
+    expect(
+      viewers.find((viewer) => viewer.supports("application/json"))?.id,
+    ).toBe("code");
   });
   it("selects PPTX without using an HTML MIME guess", () => {
     expect(
