@@ -37,6 +37,7 @@ def _build_agent(
 ) -> Agent:
     resolved = MagicMock()
     resolved.sandbox = MagicMock() if sandbox else None
+    resolved.bridge_backend = None
     resolved.config.instructions = "You are a test agent"
     resolved.live.all = []
     agent = Agent(

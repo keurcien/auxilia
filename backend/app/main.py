@@ -36,6 +36,7 @@ from app.runtime.api.runs_router import router as runs_router, user_runs_router
 from app.runtime.runs.reaper import RunReaper
 from app.runtime.runs.settings import run_settings
 from app.runtime.runs.worker import RunDispatcher
+from app.runtime.sandbox_mcp.router import router as sandbox_mcp_router
 from app.sandbox.router import sandboxes_router
 from app.skills.router import router as skills_router
 from app.skills.sources.router import router as skill_sources_router
@@ -254,6 +255,7 @@ app.include_router(teams_router)
 app.include_router(tags_router)
 app.include_router(model_providers_router)
 app.include_router(sandboxes_router)
+app.include_router(sandbox_mcp_router)
 app.include_router(slack_router)
 app.include_router(langfuse_router)
 

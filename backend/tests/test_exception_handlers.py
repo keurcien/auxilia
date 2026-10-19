@@ -15,12 +15,16 @@ from fastapi.testclient import TestClient
 
 from app.exceptions import (
     AlreadyExistsError,
+    CallLimitError,
     DomainError,
     DomainValidationError,
     InvalidCredentialsError,
+    LeaseEndedError,
     ModelUnavailableError,
     NoInviteError,
     NotFoundError,
+    OperationExpiredError,
+    PayloadTooLargeError,
     PermissionDeniedError,
     StaleApprovalError,
     StructuredOutputError,
@@ -62,6 +66,10 @@ def _client(exc: BaseException) -> TestClient:
         (InvalidCredentialsError("wrong password"), 401),
         (ModelUnavailableError("gpt-9", "not whitelisted"), 409),
         (StaleApprovalError("already handled"), 409),
+        (OperationExpiredError("expired"), 404),
+        (LeaseEndedError("run over"), 410),
+        (PayloadTooLargeError("too big"), 413),
+        (CallLimitError("budget spent"), 429),
         (DomainError("something broke"), 500),
     ],
 )

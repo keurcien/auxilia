@@ -401,7 +401,12 @@ async def test_thread_state_interrupt_carries_the_paused_agents_namespace(
 
     monkeypatch.setattr(service.runs, "get_active", _no_active)
 
-    state = await service.thread_state("t1")
+    async def _no_pending(_thread_id, _user_id):
+        return []
+
+    monkeypatch.setattr(service.sandbox_mcp, "list_pending", _no_pending)
+
+    state = await service.thread_state("t1", "u1")
     assert state["next"] == ["agent"]
     [task] = state["tasks"]
     assert task["interrupts"] == [
@@ -501,3 +506,106 @@ async def test_run_start_rejects_an_unknown_multitask_strategy():
                 params={"input": {}, "multitaskStrategy": "yolo"},
             ),
         )
+
+
+# ---------------------------------------------------------------------------
+# Sandbox MCP bridge requests — the other source of pending decisions
+# ---------------------------------------------------------------------------
+
+
+async def test_input_respond_answers_a_bridge_interrupt_without_a_run(monkeypatch):
+    """A bridge interrupt id is decided in place: no resume run is created
+    (the sandbox script is blocked inside the tool that is still running)."""
+    service = _service()
+    decided = []
+
+    async def decide(thread_id, user_id, interrupt_id, decision):
+        decided.append((thread_id, user_id, interrupt_id, decision))
+        return True
+
+    async def create(**_kwargs):
+        raise AssertionError("a bridge decision must not create a run")
+
+    monkeypatch.setattr(service.sandbox_mcp, "decide", decide)
+    monkeypatch.setattr(service.runs, "create", create)
+    response = await service.dispatch(
+        "t1",
+        "u1",
+        ProtocolCommand(
+            id=1,
+            method="input.respond",
+            params={
+                "interrupt_id": "bridge-wait",
+                "response": {"decisions": [{"tool_call_id": "op", "type": "approve"}]},
+            },
+        ),
+    )
+    assert response == {"type": "success", "id": 1, "result": {}}
+    assert decided == [("t1", "u1", "bridge-wait", "approve")]
+
+
+async def test_input_respond_falls_through_to_the_graph_resume(monkeypatch):
+    service = _service()
+    created = []
+
+    async def decide(*_args):
+        return False
+
+    async def create(**kwargs):
+        created.append(kwargs)
+        return None
+
+    monkeypatch.setattr(service.sandbox_mcp, "decide", decide)
+    monkeypatch.setattr(service.runs, "create", create)
+    await service.dispatch(
+        "t1",
+        "u1",
+        ProtocolCommand(
+            id=2,
+            method="input.respond",
+            params={
+                "interrupt_id": "ab" * 16,
+                "response": {"decisions": [{"tool_call_id": "call", "type": "reject"}]},
+            },
+        ),
+    )
+    [kwargs] = created
+    assert kwargs["command"] == {
+        "resume": {
+            "interrupt_id": "ab" * 16,
+            "decisions": [{"tool_call_id": "call", "type": "reject"}],
+        }
+    }
+
+
+async def test_thread_state_lists_waiting_bridge_requests(monkeypatch):
+    """Hydration must list a bridge request as a task interrupt, or the client
+    drops the replayed `input.requested` as resolved history."""
+    from contextlib import asynccontextmanager
+
+    from app.runtime.api import protocol_service as service_mod
+
+    @asynccontextmanager
+    async def _checkpointer():
+        yield _NsCheckpointer({"": EMPTY_STATE})
+
+    monkeypatch.setattr(service_mod, "get_checkpointer", _checkpointer)
+    service = _service()
+    pending = {
+        "id": "wait-1",
+        "value": {"sandbox_mcp": {}},
+        "namespace": ["sandbox-mcp"],
+    }
+
+    async def _active(_thread_id):
+        return object()
+
+    async def _list_pending(_thread_id, _user_id):
+        return [pending]
+
+    monkeypatch.setattr(service.runs, "get_active", _active)
+    monkeypatch.setattr(service.sandbox_mcp, "list_pending", _list_pending)
+    state = await service.thread_state("t1", "u1")
+    assert state["tasks"] == [
+        {"id": "wait-1", "name": "sandbox-mcp", "interrupts": [pending]}
+    ]

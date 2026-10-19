@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import get_current_user  # noqa: F401 — via authorize_thread
+from app.auth.dependencies import get_current_user
 from app.database import get_db
 from app.mcp.client.responses import oauth_required_response
 from app.redis_client import get_redis
@@ -36,6 +36,7 @@ from app.runtime.runs.service import RunService
 from app.threads.dependencies import authorize_thread_read
 from app.threads.models import ThreadDB
 from app.threads.schemas import ThreadResponse
+from app.users.models import UserDB
 
 
 router = APIRouter(prefix="/threads/{thread_id}", tags=["protocol"])
@@ -104,7 +105,8 @@ async def post_command(
 async def stream_events(
     thread_id: str,
     body: EventStreamBody,
-    _: ThreadDB = Depends(authorize_thread_read),
+    thread: ThreadDB = Depends(authorize_thread_read),
+    user: UserDB = Depends(get_current_user),  # dependency-cached: same lookup
     service: ProtocolService = Depends(get_protocol_service),
     db: AsyncSession = Depends(get_db),  # dependency-cached: same session auth used
 ):
@@ -112,7 +114,9 @@ async def stream_events(
     # Release the pooled connection before the response streams indefinitely.
     await db.commit()
     return StreamingResponse(
-        service.stream_events(thread_id, body),
+        service.stream_events(
+            thread_id, body, reader_is_owner=thread.user_id == user.id
+        ),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )
@@ -138,12 +142,13 @@ async def get_history(
 async def get_state(
     thread_id: str,
     _: ThreadDB = Depends(authorize_thread_read),
+    user: UserDB = Depends(get_current_user),  # dependency-cached: same lookup
     service: ProtocolService = Depends(get_protocol_service),
 ) -> dict:
     """LangGraph-shaped state snapshot (`values` / `next` / `tasks`) for
     client hydration. Served raw (never camelized) — the protocol client
     fetches it outside the axios interceptor."""
-    return await service.thread_state(thread_id)
+    return await service.thread_state(thread_id, str(user.id))
 
 
 @router.get("/messages/{message_id}")
