@@ -79,14 +79,20 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         user_role: WorkspaceRole | None,
         granted: PermissionLevel | None,
         team_member: bool = False,
+        workspace_admin_bypass: bool = True,
     ) -> EffectivePermission | None:
         """Resolve one user's access to one agent. Two callers feed it: the
         list/detail assembly (from maps built by one joined query) and
         `require_permission` (from `AgentRepository.get_access`'s single row).
+
+        `workspace_admin_bypass=False` resolves the agent-level permission
+        alone, ignoring the workspace admin role. Conversations are private to
+        the agent's own admins: a workspace admin administers agents, not what
+        users say to them, so thread access is resolved this way.
         """
         if user_id and owner_id == user_id:
             return EffectivePermission.owner
-        if user_role == WorkspaceRole.admin:
+        if workspace_admin_bypass and user_role == WorkspaceRole.admin:
             return EffectivePermission.admin
         if granted is not None:
             return EffectivePermission(granted.value)
@@ -104,12 +110,15 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         user_role: WorkspaceRole | None = None,
         user_team_id: UUID | None = None,
         include_archived: bool = False,
+        workspace_admin_bypass: bool = True,
     ) -> EffectivePermission:
         """The single gate on agent access — every check goes through here.
 
         Raises `NotFoundError` for an agent the caller cannot see at all and
         `PermissionDeniedError` when their permission is weaker than
         `at_least`; `action` completes the sentence "Not authorized to …".
+        `workspace_admin_bypass=False` drops the workspace-admin shortcut —
+        see `_resolve_permission` (thread access).
 
         It costs one narrow query, not a full `get`: gates run on endpoints
         that then do their own reads (and on one the frontend polls), so
@@ -130,6 +139,7 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
             user_role=user_role,
             granted=access.granted,
             team_member=access.team_member,
+            workspace_admin_bypass=workspace_admin_bypass,
         )
         if permission is None or not permission.covers(at_least):
             raise PermissionDeniedError(f"Not authorized to {action}")
@@ -244,9 +254,28 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
                     granted=permissions_map.get(agent.id),
                     team_member=agent.id in team_agent_ids if team_agent_ids else False,
                 ),
+                can_view_threads=self._can_view_threads(
+                    agent.owner_id, user_id, permissions_map.get(agent.id)
+                ),
             )
             for agent in agents
         ]
+
+    @classmethod
+    def _can_view_threads(
+        cls, owner_id: UUID, user_id: UUID | None, granted: PermissionLevel | None
+    ) -> bool:
+        """Whether the user may read other users' threads on this agent — the
+        same resolution `require_permission(workspace_admin_bypass=False)`
+        gates the thread endpoints with."""
+        permission = cls._resolve_permission(
+            owner_id=owner_id,
+            user_id=user_id,
+            user_role=None,
+            granted=granted,
+            workspace_admin_bypass=False,
+        )
+        return permission is not None and permission.covers(EffectivePermission.admin)
 
     @staticmethod
     def _group_rows(
