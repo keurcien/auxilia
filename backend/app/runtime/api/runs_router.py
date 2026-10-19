@@ -194,6 +194,7 @@ async def create_run(
         trigger=trigger,
         config_overrides=config_overrides,
         multitask_strategy=body.multitask_strategy,
+        output_schema=body.output_schema,
     )
     return RunResponse.from_record(record)
 
