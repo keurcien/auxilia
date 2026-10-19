@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.18](https://github.com/keurcien/auxilia/compare/backend-v0.9.17...backend-v0.9.18) (2026-10-19)
+
+
+### Features
+
+* **artifacts:** preview JSON, Python and JavaScript files with syntax highlighting ([#429](https://github.com/keurcien/auxilia/issues/429)) ([ea77c1f](https://github.com/keurcien/auxilia/commit/ea77c1f5f40c2b75718f24b955f155b6847c18bf))
+
 ## [0.9.17](https://github.com/keurcien/auxilia/compare/backend-v0.9.16...backend-v0.9.17) (2026-10-17)
 
 

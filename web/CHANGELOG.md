@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.14](https://github.com/keurcien/auxilia/compare/web-v0.10.13...web-v0.10.14) (2026-10-19)
+
+
+### Features
+
+* **artifacts:** preview JSON, Python and JavaScript files with syntax highlighting ([#429](https://github.com/keurcien/auxilia/issues/429)) ([ea77c1f](https://github.com/keurcien/auxilia/commit/ea77c1f5f40c2b75718f24b955f155b6847c18bf))
+
 ## [0.10.13](https://github.com/keurcien/auxilia/compare/web-v0.10.12...web-v0.10.13) (2026-10-17)
 
 

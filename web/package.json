@@ -1,6 +1,6 @@
 {
 	"name": "web",
-	"version": "0.10.13",
+	"version": "0.10.14",
 	"license": "AGPL-3.0-or-later",
 	"private": true,
 	"scripts": {
