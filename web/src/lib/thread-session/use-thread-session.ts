@@ -283,20 +283,22 @@ export function useThreadSession({
 		[selectorStream, threadId, userActed],
 	);
 
+	/** False when the queue is full and the message was not taken. */
 	const sendInput = useCallback(
-		(input: HumanInput) => {
+		(input: HumanInput): boolean => {
 			if (busy || queueItems.length > 0) {
-				if (queueFull) return;
+				if (queueFull) return false;
 				userActed();
 				// Rechecked here: two sends batched in one render both pass `queueFull`.
 				setQueue((items) =>
 					items.length >= QUEUE_LIMIT ? items : [...items, { id: crypto.randomUUID(), input }],
 				);
-				return;
+				return true;
 			}
 			// `enqueue` server-side too: a run the page cannot see yet still
 			// gets waited on rather than rejected.
 			submitContent(input, "enqueue");
+			return true;
 		},
 		[busy, queueItems.length, queueFull, setQueue, submitContent, userActed],
 	);
@@ -335,7 +337,8 @@ export function useThreadSession({
 			const prepared = promptMessageToInput(message, { vision: vision.current, upload });
 			const sent = Promise.all([prepared, sendChain.current]).then(([input]) => {
 				// The page moved to another thread meanwhile: these files are not its.
-				if (input && currentThread.current === forThread) latestSendInput.current(input);
+				if (input && currentThread.current === forThread && !latestSendInput.current(input))
+					throw new Error("Two messages are already waiting. Send this one when the turn ends.");
 			});
 			sendChain.current = sent.catch(() => undefined);
 			// Rejects on a failed upload, so the composer keeps the files to retry.

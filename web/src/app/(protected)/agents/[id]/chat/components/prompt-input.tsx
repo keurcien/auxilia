@@ -17,6 +17,7 @@ import {
 } from "@/components/ai-elements/prompt-input";
 import { BrainIcon, CheckIcon, PlugIcon } from "lucide-react";
 import { useRef, useState, useEffect, useMemo } from "react";
+import { toast } from "sonner";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { useModelsStore } from "@/stores/models-store";
 import { useChatHeaderStore } from "@/stores/chat-header-store";
@@ -191,15 +192,22 @@ const ChatPromptInput = ({
 		if (!open) setModelSearch("");
 	};
 
+	// A send still uploading its files: submitting again would send them twice.
+	const [uploading, setUploading] = useState(false);
 	const handleSubmit = (message: PromptInputMessage): void | Promise<void> => {
-		if (!message) return;
+		if (!message || uploading) return;
 
 		const hasText = Boolean("text" in message && message.text);
 		const hasAttachments = Boolean("files" in message && message.files?.length);
 		if (!(hasText || hasAttachments)) {
 			return;
 		}
-		return onSubmit(message);
+		const result = onSubmit(message);
+		if (!(result instanceof Promise)) return result;
+		setUploading(true);
+		return result.finally(() => {
+			setUploading(false);
+		});
 	};
 
 	useEffect(() => {
@@ -216,6 +224,13 @@ const ChatPromptInput = ({
 				multiple
 				accept={acceptsFiles ? undefined : "image/*"}
 				disableAttachments={noAttachments}
+				onError={(error) => {
+					toast.error(
+						error.code === "accept"
+							? "Only images can be attached for this agent."
+							: error.message,
+					);
+				}}
 				onSubmit={handleSubmit}
 				className={cn(
 					"min-h-[116px] transition-all duration-200",
@@ -428,7 +443,12 @@ const ChatPromptInput = ({
 							}}
 						/>
 					) : (
-						<SubmitButton status={status} stop={stop} queueFull={queueFull} />
+						<SubmitButton
+							status={status}
+							stop={stop}
+							queueFull={queueFull}
+							uploading={uploading}
+						/>
 					)}
 				</PromptInputFooter>
 			</PromptInput>
@@ -446,21 +466,31 @@ const SubmitButton = ({
 	status,
 	stop,
 	queueFull,
+	uploading,
 }: {
 	status: "submitted" | "streaming" | "ready" | "error";
 	stop?: () => void;
 	queueFull: boolean;
+	uploading: boolean;
 }) => {
 	const controller = usePromptInputController();
 	const hasContent =
 		Boolean(controller.textInput.value.trim()) || controller.attachments.files.length > 0;
 	// While a turn runs, anything to send turns Stop back into Send (it queues).
 	const isStreaming = status === "streaming" && !hasContent;
-	const isDisabled = isStreaming ? false : !hasContent || queueFull;
+	const isDisabled = isStreaming ? false : !hasContent || queueFull || uploading;
 
 	return (
 		<button
-			title={queueFull && !isStreaming ? "Queue is full" : undefined}
+			title={
+				isStreaming
+					? undefined
+					: uploading
+						? "Uploading files…"
+						: queueFull
+							? "Queue is full"
+							: undefined
+			}
 			type={isStreaming ? "button" : "submit"}
 			disabled={isDisabled}
 			onClick={(e) => {

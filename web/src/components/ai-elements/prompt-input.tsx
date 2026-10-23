@@ -258,6 +258,9 @@ const LocalAttachmentsContext = createContext<AttachmentsContext | null>(null);
 // True when the surrounding PromptInput has attachments disabled (e.g. the
 // selected model can't take files) — lets paste/button handlers opt out too.
 const AttachmentsDisabledContext = createContext(false);
+// The surrounding PromptInput's own add: paste goes through the same accept,
+// size and count checks as the file dialog and drops.
+const AttachmentsAddContext = createContext<((files: File[]) => void) | null>(null);
 
 const usePromptInputAttachments = () => {
 	// Dual-mode: prefer provider if present, otherwise use local
@@ -826,53 +829,55 @@ export const PromptInput = ({
 
 	// Render with or without local provider
 	const inner = (
-		<AttachmentsDisabledContext.Provider value={!!disableAttachments}>
-			<span aria-hidden="true" className="hidden" ref={anchorRef} />
-			<input
-				accept={accept}
-				aria-label="Upload files"
-				className="hidden"
-				multiple={multiple}
-				onChange={handleChange}
-				ref={inputRef}
-				title="Upload files"
-				type="file"
-			/>
-			<form
-				className={cn("w-full", className)}
-				onSubmit={handleSubmit}
-				{...props}
-			>
-				<InputGroup
-					className={cn(
-						"overflow-hidden",
-						// `!` beats consumer border overrides scoped on the form
-						// (e.g. the chat composer's [&>[data-slot=input-group]] rules).
-						isDragActive &&
-							disableAttachments &&
-							"border-destructive! dark:border-destructive!",
-					)}
+		<AttachmentsAddContext.Provider value={add}>
+			<AttachmentsDisabledContext.Provider value={!!disableAttachments}>
+				<span aria-hidden="true" className="hidden" ref={anchorRef} />
+				<input
+					accept={accept}
+					aria-label="Upload files"
+					className="hidden"
+					multiple={multiple}
+					onChange={handleChange}
+					ref={inputRef}
+					title="Upload files"
+					type="file"
+				/>
+				<form
+					className={cn("w-full", className)}
+					onSubmit={handleSubmit}
+					{...props}
 				>
-					{children}
-					{isDragActive && (
-						<div
-							className={cn(
-								"pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-[inherit] transition-colors",
-								disableAttachments
-									? "bg-destructive/8 dark:bg-destructive/15"
-									: "bg-petrol/8 dark:bg-petrol/25",
-							)}
-						>
-							{disableAttachments && (
-								<span className="rounded-full border border-destructive/30 bg-card px-3 py-1.5 text-[13px] font-medium text-destructive shadow-sm">
-									This model does not support attachments
-								</span>
-							)}
-						</div>
-					)}
-				</InputGroup>
-			</form>
-		</AttachmentsDisabledContext.Provider>
+					<InputGroup
+						className={cn(
+							"overflow-hidden",
+							// `!` beats consumer border overrides scoped on the form
+							// (e.g. the chat composer's [&>[data-slot=input-group]] rules).
+							isDragActive &&
+								disableAttachments &&
+								"border-destructive! dark:border-destructive!",
+						)}
+					>
+						{children}
+						{isDragActive && (
+							<div
+								className={cn(
+									"pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-[inherit] transition-colors",
+									disableAttachments
+										? "bg-destructive/8 dark:bg-destructive/15"
+										: "bg-petrol/8 dark:bg-petrol/25",
+								)}
+							>
+								{disableAttachments && (
+									<span className="rounded-full border border-destructive/30 bg-card px-3 py-1.5 text-[13px] font-medium text-destructive shadow-sm">
+										This model does not support attachments
+									</span>
+								)}
+							</div>
+						)}
+					</InputGroup>
+				</form>
+			</AttachmentsDisabledContext.Provider>
+		</AttachmentsAddContext.Provider>
 	);
 
 	return usingProvider ? (
@@ -906,6 +911,7 @@ export const PromptInputTextarea = ({
 	const controller = useOptionalPromptInputController();
 	const attachments = usePromptInputAttachments();
 	const attachmentsDisabled = useContext(AttachmentsDisabledContext);
+	const addChecked = useContext(AttachmentsAddContext);
 	const [isComposing, setIsComposing] = useState(false);
 
 	const handleKeyDown: KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
@@ -962,7 +968,8 @@ export const PromptInputTextarea = ({
 
 		if (files.length > 0) {
 			event.preventDefault();
-			attachments.add(files);
+			if (addChecked) addChecked(files);
+			else attachments.add(files);
 		}
 	};
 
