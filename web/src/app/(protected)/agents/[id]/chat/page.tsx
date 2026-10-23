@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { toast } from "sonner";
 import { useParams, useRouter } from "next/navigation";
 import {
 	type PromptInputMessage,
@@ -99,6 +100,9 @@ const StarterChatPage = () => {
 		} catch (error) {
 			console.error("Error creating thread:", error);
 			setIsCreating(false);
+			toast.error("Could not start the conversation. Try again.");
+			// Rejected, so the composer keeps the draft for a retry.
+			throw error;
 		}
 	};
 
@@ -186,9 +190,7 @@ const StarterChatPage = () => {
 						/>
 					) : (
 						<ChatPromptInput
-							onSubmit={(message) => {
-								void handleSubmit(message);
-							}}
+							onSubmit={(message) => handleSubmit(message)}
 							status={isCreating ? "streaming" : "ready"}
 							className="w-full"
 							selectedModel={selectedModel}
