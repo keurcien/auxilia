@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.19](https://github.com/keurcien/auxilia/compare/backend-v0.9.18...backend-v0.9.19) (2026-10-21)
+
+
+### Features
+
+* **runtime:** accept output schema for async runs ([#431](https://github.com/keurcien/auxilia/issues/431)) ([be7bad9](https://github.com/keurcien/auxilia/commit/be7bad9dada180c5e1f5e4af2a00fcdb0dcef593))
+
 ## [0.9.18](https://github.com/keurcien/auxilia/compare/backend-v0.9.17...backend-v0.9.18) (2026-10-19)
 
 

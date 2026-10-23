@@ -231,6 +231,31 @@ def test_create_run_gates_before_creating(client: TestClient, mock_db, current_u
     assert fake.gate_args == (thread.agent_id, str(thread.user_id))
 
 
+def test_async_run_preserves_the_requested_output_schema(client, mock_db, current_user):
+    thread = _owned_thread(current_user)
+    _mock_thread_lookup(mock_db, thread)
+    fake = _FakeRunService()
+    app.dependency_overrides[get_run_service] = lambda: fake
+    schema = {
+        "type": "object",
+        "required": ["summary"],
+        "properties": {"summary": {"type": "string"}},
+    }
+    try:
+        response = client.post(
+            f"/threads/{thread.id}/runs",
+            json={
+                "input": {"messages": [{"type": "human", "content": "Audit"}]},
+                "output_schema": schema,
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_run_service, None)
+
+    assert response.status_code == 201
+    assert fake.create_kwargs["output_schema"] == schema
+
+
 def test_legacy_stream_endpoints_are_gone(client: TestClient, mock_db, current_user):
     """Live streaming is the protocol's `/threads/{id}/stream/events` now; the
     pre-protocol SSE routes must not linger as a second wire format."""

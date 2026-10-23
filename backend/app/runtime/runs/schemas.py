@@ -16,6 +16,7 @@ class RunCreate(BaseModel):
     input: dict | None = None
     command: dict | None = None
     config: dict | None = None
+    output_schema: dict | None = None
     multitask_strategy: MultitaskStrategy = "reject"
 
 
