@@ -17,8 +17,9 @@ export type UploadFile = (file: FileUIPart) => Promise<string>;
  * model as `image_url` blocks when it has vision. Nothing else is inlined.
  * Text alone stays a string. Resolves to `null` when there is nothing to send.
  *
- * An image upload may fail (no object store: the agent takes images only);
- * any other file's failure rejects, since the agent would never see it.
+ * An image the model sees inline may fail to upload (no object store: the
+ * agent takes images only); any other failure rejects, since the agent would
+ * never see the file.
  */
 export async function promptMessageToInput(
 	message: PromptInputMessage | null | undefined,
@@ -41,9 +42,11 @@ export async function promptMessageToInput(
 		try {
 			attachments.push(await upload(file));
 		} catch (error) {
-			if (!isImage) throw error;
+			// Only an image the model sees inline may go without its thread file.
+			if (!(isImage && vision)) throw error;
 		}
 	}
+	if (parts.length === 0 && attachments.length === 0) return null;
 	const content =
 		parts.length === 1 && parts[0].type === "text" ? (parts[0].text as string) : parts;
 	return { content, attachments };

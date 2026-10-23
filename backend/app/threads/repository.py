@@ -22,6 +22,11 @@ class ThreadRepository(BaseRepository[ThreadDB]):
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def lock(self, thread_id: str) -> None:
+        """Hold the thread's row until the transaction ends."""
+        stmt = select(ThreadDB.id).where(ThreadDB.id == thread_id).with_for_update()
+        await self.db.execute(stmt)
+
     async def list_ids_for_agent(self, agent_id: UUID) -> list[str]:
         stmt = select(ThreadDB.id).where(ThreadDB.agent_id == agent_id)
         result = await self.db.execute(stmt)

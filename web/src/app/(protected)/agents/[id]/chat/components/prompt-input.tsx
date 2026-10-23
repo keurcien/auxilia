@@ -49,7 +49,8 @@ const composerPillClass = cn(
 );
 
 interface ChatPromptInputProps {
-	onSubmit: (message: PromptInputMessage) => void;
+	/** A rejected Promise keeps the attachments in the composer, for a retry. */
+	onSubmit: (message: PromptInputMessage) => void | Promise<void>;
 	/** Two messages already wait behind the running turn: Send is disabled. */
 	queueFull?: boolean;
 	status: "submitted" | "streaming" | "ready" | "error";
@@ -135,6 +136,14 @@ const ChatPromptInput = ({
 	// which also takes images as plain files on a model without vision.
 	const vision = selectedModelData === undefined || selectedModelData.multimodal;
 	const noAttachments = !vision && !acceptsFiles;
+	const promptController = usePromptInputController();
+	// Files queued while the agent could take them, and it no longer can.
+	useEffect(() => {
+		if (acceptsFiles) return;
+		for (const file of promptController.attachments.files) {
+			if (!file.mediaType.startsWith("image/")) promptController.attachments.remove(file.id);
+		}
+	}, [acceptsFiles, promptController.attachments]);
 
 	// Editable composer only: normalize a stale selection in the parent state
 	// too (not just the display), so what's shown as Default/Auto is also what
@@ -182,7 +191,7 @@ const ChatPromptInput = ({
 		if (!open) setModelSearch("");
 	};
 
-	const handleSubmit = (message: PromptInputMessage) => {
+	const handleSubmit = (message: PromptInputMessage): void | Promise<void> => {
 		if (!message) return;
 
 		const hasText = Boolean("text" in message && message.text);
@@ -190,7 +199,7 @@ const ChatPromptInput = ({
 		if (!(hasText || hasAttachments)) {
 			return;
 		}
-		onSubmit(message);
+		return onSubmit(message);
 	};
 
 	useEffect(() => {
@@ -253,8 +262,7 @@ const ChatPromptInput = ({
 									</span>
 								</TooltipTrigger>
 								<TooltipContent>
-									This model does not read images, and this agent has no
-									sandbox for files.
+									File uploads are unavailable for this model and agent.
 								</TooltipContent>
 							</Tooltip>
 						) : (

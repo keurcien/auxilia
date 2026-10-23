@@ -490,10 +490,35 @@ async def test_replaced_sandbox_tells_the_model_once(in_memory_runtime):
     [notice, question, _answer] = state.messages
     assert notice.name == "host"
     assert notice.additional_kwargs["host_notice"] == "sandbox_replaced"
-    assert "scratch work is gone" in notice.content
+    assert "anything else written earlier is" in notice.content
     assert question.content == "hello"
     # The model saw it too, as a user-role turn ahead of the question.
     assert "sandbox" in model.calls[0][1].content
+
+
+@pytest.mark.asyncio
+async def test_a_notice_does_not_replace_the_question_a_regeneration_replays(
+    in_memory_runtime,
+):
+    """A no-input regeneration re-sends the turn's message itself; a host
+    notice added this run must not count as that input, or the model would
+    answer the notice instead of the user."""
+    from app.sandbox.provider import SandboxGoneError
+
+    agent, _, _ = build_sandbox_agent(script=["first answer"])
+    await collect(agent, "the question")
+
+    agent, _, _ = build_sandbox_agent(script=["second answer"], sandbox_id="sbx-old")
+    agent.agent.sandbox.provider.connect.side_effect = SandboxGoneError("expired")
+    async for _ in agent.stream(trigger="regenerate-message"):
+        pass
+
+    state = await get_checkpoint_state(in_memory_runtime, "thread-sandbox")
+    assert [(m.type, m.content) for m in state.messages[1:]] == [
+        ("human", "the question"),
+        ("ai", "second answer"),
+    ]
+    assert state.messages[0].additional_kwargs["host_notice"] == "sandbox_replaced"
 
 
 @pytest.mark.asyncio

@@ -37,6 +37,7 @@ export function useAgentConnectionStatus(agentId: string | undefined): AgentRead
 				setDisconnectedServers([]);
 				setStatus("disconnected");
 				setDetail(null);
+				setAcceptsFiles(false);
 			});
 	}, [agentId]);
 

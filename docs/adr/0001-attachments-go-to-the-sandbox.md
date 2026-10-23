@@ -5,7 +5,7 @@ date: 2026-10-22
 
 # Attachments go to the sandbox, images also to the model
 
-A file attached to a message is stored as a thread file and placed on the thread's sandbox disk, where the agent reads it or runs code on it. An image is additionally sent to the model as a vision block. Nothing else is ever inlined in the message, and the system never guesses whether a file is "for the model" or "for the sandbox": the model sees the image and knows its path, and does whichever the user asked.
+A file attached to a message is stored as a thread file and placed on the thread's sandbox disk, where the agent reads it or runs code on it. An image is additionally sent to the model as a vision block when the model has vision; it then still reaches the model if its upload fails (no object store). Nothing else is ever inlined in the message, and the system never guesses whether a file is "for the model" or "for the sandbox": the model sees the image and knows its path, and does whichever the user asked.
 
 ## Considered options
 

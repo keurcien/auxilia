@@ -1,4 +1,5 @@
 import asyncio
+import builtins
 import hashlib
 import logging
 import mimetypes
@@ -39,6 +40,7 @@ from app.exceptions import (
 from app.sandbox.provider import SandboxGoneError, build_provider
 from app.sandbox.repository import SandboxRepository
 from app.service import BaseService
+from app.threads.repository import ThreadRepository
 
 
 logger = logging.getLogger(__name__)
@@ -69,8 +71,6 @@ class ArtifactGoneError(NotFoundError):
 SNAPSHOT_ROOT = "/tmp/.auxilia-artifacts"  # nosec B108
 # Where the user's attachments are placed on the sandbox disk.
 ATTACHMENTS_ROOT = "/workspace/files"
-# Digest of the thread files last placed on the disk: a warm sandbox costs one read.
-FILES_MARKER = f"{SNAPSHOT_ROOT}/.thread-files-digest"
 
 
 def attachment_filename(name: str) -> str:
@@ -101,16 +101,11 @@ def attachment_mime(filename: str, data: bytes) -> str:
     return mime
 
 
-def files_digest(rows: list[ArtifactDB]) -> str:
-    entries = sorted(f"{row.source_path}\0{row.sha256}" for row in rows)
-    return hashlib.sha256("\n".join(entries).encode()).hexdigest()
-
-
 def missing_on_disk(backend: BaseSandbox, paths: list[str]) -> set[str]:
     script = (
         "for p in "
         + " ".join(shlex.quote(path) for path in paths)
-        + '; do [ -e "$p" ] || printf \'%s\\n\' "$p"; done'
+        + '; do [ -f "$p" ] || printf \'%s\\n\' "$p"; done'
     )
     result = backend.execute(script)  # nosemgrep — a sandbox shell, every path quoted
     if result.exit_code != 0:
@@ -214,8 +209,8 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
         if len(data) > artifact_settings.max_bytes:
             raise DomainValidationError("Attachment exceeds the size limit")
         filename = attachment_filename(filename)
-        # shortcut: two concurrent uploads of one name can share a path (the
-        # client uploads sequentially); add a lock if other clients appear.
+        # Serializes attaches to one thread, so two of one name never share a path.
+        await ThreadRepository(self.db).lock(thread_id)
         path = free_path(filename, await self.repository.paths_in_thread(thread_id))
         row = ArtifactDB(
             thread_id=thread_id,
@@ -234,7 +229,7 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
 
     async def restore(
         self, thread_id: str, backend: BaseSandbox, sandbox_source_id: UUID | None
-    ) -> "list[ArtifactDB]":  # `list` is a method here
+    ) -> builtins.list[ArtifactDB]:  # `list` is a method here
         """Put every stored thread file missing from the sandbox disk back at its
         path, and return those. Raises on any failure: an agent whose files are
         missing would answer about data it cannot see."""
@@ -246,12 +241,7 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
         )
         if not rows:
             return []
-        digest = files_digest(rows)
-        current = await asyncio.to_thread(
-            backend.execute, f"cat {shlex.quote(FILES_MARKER)} 2>/dev/null"
-        )
-        if current.exit_code == 0 and current.output.strip() == digest:
-            return []
+        # One shell call on a warm sandbox, and a file deleted since comes back.
         missing = await asyncio.to_thread(
             missing_on_disk, backend, [row.source_path for row in rows]
         )
@@ -265,8 +255,6 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
             row.sandbox_id = backend.id
             row.sandbox_source_id = sandbox_source_id
         await self.db.flush()
-        # Last, so a failure above leaves no marker and the next run retries.
-        await asyncio.to_thread(put_on_disk, backend, [(FILES_MARKER, digest.encode())])
         return restored
 
     async def replace_content(

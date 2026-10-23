@@ -13,6 +13,7 @@ from app.artifacts.settings import ArtifactSettings
 from app.artifacts.storage import ObjectMissingError
 from app.exceptions import DomainValidationError, NotFoundError
 from app.sandbox.provider import SandboxGoneError
+from app.threads.models import ThreadDB
 
 
 @pytest.fixture
@@ -21,7 +22,7 @@ async def db(tmp_path):
     async with engine.begin() as connection:
         await connection.run_sync(
             lambda conn: SQLModel.metadata.create_all(
-                conn, tables=[ArtifactDB.__table__]
+                conn, tables=[ThreadDB.__table__, ArtifactDB.__table__]
             )
         )
     async with AsyncSession(engine, expire_on_commit=False) as session:
@@ -370,8 +371,6 @@ async def test_restore_puts_back_only_missing_files_and_restamps(db, monkeypatch
     uploads: list[tuple[str, bytes]] = []
 
     def execute(command, **_):
-        if command.startswith("cat "):
-            return SimpleNamespace(exit_code=1, output="")
         if command.startswith("for p in"):
             missing = [
                 p
@@ -393,7 +392,11 @@ async def test_restore_puts_back_only_missing_files_and_restamps(db, monkeypatch
     assert [r.id for r in restored] == [lost.id]
     assert ("/workspace/files/lost.csv", b"2") in uploads
     assert all(p != "/workspace/files/kept.csv" for p, _ in uploads)
-    assert uploads[-1][0] == "/tmp/.auxilia-artifacts/.thread-files-digest"
+    # Deleted since: the next run puts it back.
+    disk.discard("/workspace/files/kept.csv")
+    disk.add("/workspace/files/lost.csv")
+    again = await service.restore("thread", backend, source)
+    assert [r.id for r in again] == [kept.id]
     for item in (kept, lost):
         row = await service.repository.get(item.id)
         assert (row.sandbox_id, row.sandbox_source_id) == ("new-sandbox", source)

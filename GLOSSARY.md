@@ -15,5 +15,5 @@ A file the agent produces for the user during a turn.
 _Avoid_: Output, deliverable, download
 
 **Thread file**:
-An attachment or an artifact, as kept on the thread and placed on its sandbox. Thread files outlive the sandbox.
+An attachment or an artifact, as kept on the thread and placed on its sandbox. Thread files in the object store outlive the sandbox; without one, artifacts are temporary and expire with it.
 _Avoid_: Sandbox file, workspace file

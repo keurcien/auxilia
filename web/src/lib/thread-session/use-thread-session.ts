@@ -121,8 +121,9 @@ export type ThreadSession = {
 		recordDecision: (toolCallId: string, decision: HitlDecision) => void;
 	};
 	actions: {
-		/** Queues behind a running turn (see `queue`); a no-op when it is full. */
-		send: (message: PromptInputMessage) => void;
+		/** Queues behind a running turn (see `queue`); a no-op when it is full.
+		 * With files, resolves once they are uploaded and rejects if one fails. */
+		send: (message: PromptInputMessage) => Promise<void> | undefined;
 		regenerate: () => void;
 		stop: () => void;
 		respond: (response: HitlResponse, interruptId: string | null) => void;
@@ -309,10 +310,18 @@ export function useThreadSession({
 	const vision = useRef(true);
 	vision.current = models.find((m) => m.id === modelId)?.multimodal !== false;
 
+	// Sends wait on the uploads of the sends before them, so messages keep
+	// the order they were written in.
+	const currentThread = useRef(threadId);
+	currentThread.current = threadId;
+	const sendChain = useRef<Promise<unknown>>(Promise.resolve());
+	const preparing = useRef(0);
+
 	const send = useCallback(
-		(message: PromptInputMessage) => {
-			// Text alone sends synchronously: nothing to upload first.
-			if (!message.files?.length) {
+		(message: PromptInputMessage): Promise<void> | undefined => {
+			const files = message.files ?? [];
+			// Nothing to upload and nothing ahead: send synchronously.
+			if (files.length === 0 && preparing.current === 0) {
 				if (message.text?.trim()) sendInput({ content: message.text, attachments: [] });
 				return;
 			}
@@ -322,12 +331,21 @@ export function useThreadSession({
 				const blob = await (await fetch(file.url)).blob();
 				return transport.attachFile(forThread, blob, file.filename || "file");
 			};
-			promptMessageToInput(message, { vision: vision.current, upload })
-				.then((input) => {
-					if (input) latestSendInput.current(input);
-				})
+			preparing.current += 1;
+			const prepared = promptMessageToInput(message, { vision: vision.current, upload });
+			const sent = Promise.all([prepared, sendChain.current]).then(([input]) => {
+				// The page moved to another thread meanwhile: these files are not its.
+				if (input && currentThread.current === forThread) latestSendInput.current(input);
+			});
+			sendChain.current = sent.catch(() => undefined);
+			// Rejects on a failed upload, so the composer keeps the files to retry.
+			return sent
 				.catch((error: unknown) => {
 					toast.error(error instanceof Error ? error.message : "Could not attach the files.");
+					throw error;
+				})
+				.finally(() => {
+					preparing.current -= 1;
 				});
 		},
 		[sendInput, threadId, transport],

@@ -54,13 +54,23 @@ async def attach_file(
     filename: str = Query(min_length=1, max_length=1024),
     thread: ThreadDB = Depends(authorize_thread_read),
     user: UserDB = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: ArtifactService = Depends(get_artifact_service),
 ) -> ArtifactResponse:
     """Store a file the user attaches to a message (thread owner only). The
     raw bytes are the body; the run places them on the sandbox disk."""
     if thread.user_id != user.id:
         raise PermissionDeniedError("Only the thread owner can attach files")
-    return await service.attach(thread_id, filename, await read_capped(request))
+    data = await read_capped(request)
+    try:
+        item = await service.attach(thread_id, filename, data)
+        # Committed here, not by get_db: a failed commit must also drop the
+        # object already put in the bucket.
+        await db.commit()
+    except BaseException:
+        await service.discard_uploads()
+        raise
+    return item
 
 
 def content_disposition(filename: str) -> str:

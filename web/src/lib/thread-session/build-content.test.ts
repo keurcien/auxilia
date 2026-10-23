@@ -45,6 +45,10 @@ describe("promptMessageToInput", () => {
 		await expect(promptMessageToInput({ files: [csv] }, { vision: true, upload: failing })).rejects.toThrow(
 			"no store",
 		);
+		// Without vision the upload is the image's only way to the agent.
+		await expect(promptMessageToInput({ files: [png] }, { vision: false, upload: failing })).rejects.toThrow(
+			"no store",
+		);
 	});
 });
 
