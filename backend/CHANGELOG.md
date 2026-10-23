@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.20](https://github.com/keurcien/auxilia/compare/backend-v0.9.19...backend-v0.9.20) (2026-10-23)
+
+
+### Features
+
+* **attachments:** place chat attachments on the sandbox disk ([#433](https://github.com/keurcien/auxilia/issues/433)) ([ade63cc](https://github.com/keurcien/auxilia/commit/ade63ccf25d405a06c61626bff8ee45c6f6a9dac))
+
 ## [0.9.19](https://github.com/keurcien/auxilia/compare/backend-v0.9.18...backend-v0.9.19) (2026-10-21)
 
 

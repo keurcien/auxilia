@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.15](https://github.com/keurcien/auxilia/compare/web-v0.10.14...web-v0.10.15) (2026-10-23)
+
+
+### Features
+
+* **attachments:** place chat attachments on the sandbox disk ([#433](https://github.com/keurcien/auxilia/issues/433)) ([ade63cc](https://github.com/keurcien/auxilia/commit/ade63ccf25d405a06c61626bff8ee45c6f6a9dac))
+
 ## [0.10.14](https://github.com/keurcien/auxilia/compare/web-v0.10.13...web-v0.10.14) (2026-10-19)
 
 
