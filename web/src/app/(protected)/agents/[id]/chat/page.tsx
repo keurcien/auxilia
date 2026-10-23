@@ -69,9 +69,9 @@ const StarterChatPage = () => {
 
 		setIsCreating(true);
 
+		// Generate thread ID on frontend
+		const threadId = generateUuid();
 		try {
-			// Generate thread ID on frontend
-			const threadId = generateUuid();
 
 			// Store the pending message (with files) to be consumed by the thread page
 			setPendingMessage(threadId, message);
@@ -100,6 +100,8 @@ const StarterChatPage = () => {
 		} catch (error) {
 			console.error("Error creating thread:", error);
 			setIsCreating(false);
+			// The parked copy belongs to a thread that was never created.
+			usePendingMessageStore.getState().consumePendingMessage(threadId);
 			toast.error("Could not start the conversation. Try again.");
 			// Rejected, so the composer keeps the draft for a retry.
 			throw error;
