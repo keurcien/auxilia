@@ -10,6 +10,7 @@ vi.mock("@/lib/api/resources/artifacts", () => ({
 const artifact: Artifact = {
   id: "file",
   thread_id: "thread",
+  origin: "artifact",
   tool_call_id: "call",
   title: "Report",
   filename: "report.csv",

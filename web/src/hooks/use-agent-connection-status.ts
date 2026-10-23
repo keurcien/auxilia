@@ -10,6 +10,7 @@ interface AgentReadyState {
 	status: AgentReadyStatus;
 	/** Human-readable reason, set with `sandbox_unavailable`. */
 	detail: string | null;
+	acceptsFiles: boolean;
 	refetch: () => void;
 }
 
@@ -18,6 +19,7 @@ export function useAgentConnectionStatus(agentId: string | undefined): AgentRead
 	const [disconnectedServers, setDisconnectedServers] = useState<string[]>([]);
 	const [status, setStatus] = useState<AgentReadyStatus>(null);
 	const [detail, setDetail] = useState<string | null>(null);
+	const [acceptsFiles, setAcceptsFiles] = useState(false);
 
 	const refetch = useCallback(() => {
 		if (!agentId) return;
@@ -28,6 +30,7 @@ export function useAgentConnectionStatus(agentId: string | undefined): AgentRead
 				setDisconnectedServers(readiness.disconnectedServers);
 				setStatus(readiness.status);
 				setDetail(readiness.detail ?? null);
+				setAcceptsFiles(readiness.acceptsFiles);
 			})
 			.catch(() => {
 				setReady(false);
@@ -41,5 +44,5 @@ export function useAgentConnectionStatus(agentId: string | undefined): AgentRead
 		refetch();
 	}, [refetch]);
 
-	return { ready, disconnectedServers, status, detail, refetch };
+	return { ready, disconnectedServers, status, detail, acceptsFiles, refetch };
 }

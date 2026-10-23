@@ -1,53 +1,61 @@
+import type { FileUIPart } from "@/components/ai-elements/attachments";
+
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 
 /** A human turn as the backend accepts it: plain text, or LangChain content blocks. */
 export type HumanContent = string | Array<Record<string, unknown>>;
 
+/** A human turn ready to submit: its content, and the thread files it attaches. */
+export type HumanInput = { content: HumanContent; attachments: string[] };
+
+/** Stores one attachment as a thread file and resolves to its id. */
+export type UploadFile = (file: FileUIPart) => Promise<string>;
+
 /**
- * Turn a composer message into the `content` of a human message. Text alone
- * stays a string; anything with attachments becomes content blocks — images
- * as `image_url`, other files as `file` blocks with their base64 payload.
- * Returns `null` when there is nothing to send.
+ * Turn a composer message into a human turn. Every attachment is uploaded as a
+ * thread file (the run places it on the sandbox disk); images also go to the
+ * model as `image_url` blocks when it has vision. Nothing else is inlined.
+ * Text alone stays a string. Resolves to `null` when there is nothing to send.
+ *
+ * An image upload may fail (no object store: the agent takes images only);
+ * any other file's failure rejects, since the agent would never see it.
  */
-export function promptMessageToContent(
+export async function promptMessageToInput(
 	message: PromptInputMessage | null | undefined,
-): HumanContent | null {
+	{ vision, upload }: { vision: boolean; upload: UploadFile },
+): Promise<HumanInput | null> {
 	if (!message) return null;
-	const text = "text" in message ? message.text?.trim() : undefined;
-	const files = ("files" in message && message.files) || [];
+	const text = message.text?.trim() ? message.text : "";
+	const files = message.files ?? [];
 	if (!text && files.length === 0) return null;
 
 	const parts: Array<Record<string, unknown>> = [];
-	if (text) parts.push({ type: "text", text: message.text });
+	if (text) parts.push({ type: "text", text });
+	const attachments: string[] = [];
+	// One at a time: the backend numbers clashing names in arrival order.
 	for (const file of files) {
-		const mediaType = file.mediaType;
-		if (mediaType.startsWith("image/")) {
-			parts.push({
-				type: "image_url",
-				image_url: { url: file.url, detail: "auto" },
-			});
-		} else {
-			const base64Match = file.url.match(/^data:[^;]*;base64,(.*)$/);
-			parts.push({
-				type: "file",
-				mime_type: mediaType || "application/octet-stream",
-				base64: base64Match ? base64Match[1] : file.url,
-				filename: file.filename || "file",
-			});
+		const isImage = file.mediaType.startsWith("image/");
+		if (isImage && vision) {
+			parts.push({ type: "image_url", image_url: { url: file.url, detail: "auto" } });
+		}
+		try {
+			attachments.push(await upload(file));
+		} catch (error) {
+			if (!isImage) throw error;
 		}
 	}
-	return parts.length === 1 && parts[0].type === "text"
-		? (parts[0].text as string)
-		: parts;
+	const content =
+		parts.length === 1 && parts[0].type === "text" ? (parts[0].text as string) : parts;
+	return { content, attachments };
 }
 
 /** One line for a queued message: its text, else what it attaches. */
-export function contentPreview(content: unknown): string {
-	if (typeof content === "string") return content;
-	if (!Array.isArray(content)) return "";
-	const parts = content as Array<Record<string, unknown>>;
-	const text = parts.find((p) => p.type === "text")?.text;
+export function contentPreview({ content, attachments }: HumanInput): string {
+	if (typeof content === "string" && content) return content;
+	const text = Array.isArray(content)
+		? content.find((p) => p.type === "text")?.text
+		: undefined;
 	if (typeof text === "string" && text.trim()) return text;
-	const files = parts.length;
+	const files = Math.max(attachments.length, Array.isArray(content) ? content.length : 0);
 	return `${files} attachment${files === 1 ? "" : "s"}`;
 }

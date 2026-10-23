@@ -20,6 +20,7 @@ from app.agents.models import (
     EffectivePermission,
     PermissionLevel,
 )
+from app.agents.run_spec import RunSpec
 from app.agents.schemas import (
     AgentConfig,
     AgentCreateDB,
@@ -36,6 +37,7 @@ from app.agents.schemas import (
     SubagentResponse,
     TagInfo,
 )
+from app.artifacts.settings import artifact_settings
 from app.database import get_db
 from app.exceptions import (
     DomainValidationError,
@@ -722,6 +724,16 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
 
     async def describe_readiness(self, agent_id: UUID, user_id: str) -> dict:
         spec = await self.repository.get_run_spec(agent_id)
+        # Non-image attachments go to the sandbox disk, by way of the object store.
+        accepts_files = bool(spec and spec.all_sandbox_rows) and bool(
+            artifact_settings.provider
+        )
+        return {
+            **await self._readiness(spec, user_id),
+            "accepts_files": accepts_files,
+        }
+
+    async def _readiness(self, spec: RunSpec | None, user_id: str) -> dict:
         # The sandbox first: an outage blocks the agent outright, and there is
         # nothing the user can click to fix it (unlike an MCP reconnect).
         try:

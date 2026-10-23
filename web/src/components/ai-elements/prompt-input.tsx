@@ -566,7 +566,7 @@ export const PromptInput = ({
 	);
 
 	const addFiles = usingProvider
-		? (files: File[] | FileList) => { controller.attachments.add(files); }
+		? (files: File[] | FileList) => { controller.attachments.add(Array.from(files).filter(matchesAccept)); }
 		: addLocal;
 	// Every ingestion path (file dialog, drop, paste) funnels through here.
 	const add = disableAttachments ? () => {} : addFiles;

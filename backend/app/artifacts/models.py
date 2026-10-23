@@ -11,7 +11,11 @@ class ArtifactDB(BaseDBModel, table=True):
     __table_args__ = (UniqueConstraint("thread_id", "tool_call_id", "source_path"),)
 
     thread_id: str = Field(foreign_key="threads.id", ondelete="CASCADE", index=True)
-    tool_call_id: str
+    # `attachment` (added by the user, no tool call) or `artifact` (presented by the agent).
+    origin: str = Field(
+        default="artifact", sa_column_kwargs={"server_default": "artifact"}
+    )
+    tool_call_id: str | None = None
     source_path: str
     title: str
     filename: str

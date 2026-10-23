@@ -490,7 +490,7 @@ async def test_replaced_sandbox_tells_the_model_once(in_memory_runtime):
     [notice, question, _answer] = state.messages
     assert notice.name == "host"
     assert notice.additional_kwargs["host_notice"] == "sandbox_replaced"
-    assert "new, empty sandbox" in notice.content
+    assert "scratch work is gone" in notice.content
     assert question.content == "hello"
     # The model saw it too, as a user-role turn ahead of the question.
     assert "sandbox" in model.calls[0][1].content

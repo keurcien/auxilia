@@ -305,6 +305,12 @@ function Card({
   );
 }
 
+/** The thread files a message attaches (`additional_kwargs.attachments`), once listed. */
+export function useAttachedFiles(ids: readonly string[]): Artifact[] {
+  const { items } = useContext(ArtifactContext);
+  return items.filter((item) => ids.includes(item.id));
+}
+
 export function ArtifactCards({ toolCallId }: { toolCallId: string }) {
   const { items, selectedId, open } = useContext(ArtifactContext);
   return items
@@ -646,7 +652,9 @@ export function ArtifactWorkspace({
           known.current === null
             ? []
             : next.filter(
-                (item) => known.current?.get(item.id) !== item.sha256,
+                (item) =>
+                  item.origin !== "attachment" &&
+                  known.current?.get(item.id) !== item.sha256,
               );
         known.current = new Map(next.map((item) => [item.id, item.sha256]));
         setItems(next);
@@ -685,12 +693,15 @@ export function ArtifactWorkspace({
   }, [threadId, running, refreshKey, attempt]);
   const app = openAppId ? apps.get(openAppId) : undefined;
   const entries: Entry[] = [
-    ...items.map((item): Entry => ({
-      kind: "file",
-      key: item.id,
-      toolCallId: item.tool_call_id,
-      item,
-    })),
+    // The user's attachments show on their message, not in the panel's list.
+    ...items
+      .filter((item) => item.origin !== "attachment")
+      .map((item): Entry => ({
+        kind: "file",
+        key: item.id,
+        toolCallId: item.tool_call_id ?? "",
+        item,
+      })),
     ...Array.from(apps, ([toolCallId, app]): Entry => ({
       kind: "app",
       key: toolCallId,

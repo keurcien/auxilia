@@ -315,3 +315,85 @@ async def test_purge_tolerates_unreachable_storage(db, monkeypatch):
     service.replaced.append("old-key")
     await service.purge_replaced()
     assert service.replaced == []
+
+
+async def test_attach_needs_a_store_and_respects_the_size_limit(db, monkeypatch):
+    monkeypatch.setattr(
+        "app.artifacts.service.artifact_settings", ArtifactSettings(_env_file=None)
+    )
+    with pytest.raises(DomainValidationError, match="object store"):
+        await ArtifactService(db).attach("thread", "a.csv", b"a,b")
+    monkeypatch.setattr(
+        "app.artifacts.service.artifact_settings",
+        ArtifactSettings(_env_file=None, bucket="private", max_bytes=1024),
+    )
+    with pytest.raises(DomainValidationError, match="size limit"):
+        await ArtifactService(db).attach("thread", "a.csv", b"x" * 1025)
+
+
+async def test_attach_stores_a_thread_file_at_a_free_path(db, monkeypatch):
+    monkeypatch.setattr(
+        "app.artifacts.service.artifact_settings",
+        ArtifactSettings(_env_file=None, bucket="private"),
+    )
+    store = MagicMock()
+    monkeypatch.setattr("app.artifacts.service.build_store", lambda cfg: store)
+    service = ArtifactService(db)
+    # Latin-1 is still a file: no preview-only UTF-8 rejection.
+    first = await service.attach("thread", "../sales.csv", "café".encode("latin-1"))
+    second = await service.attach("thread", "sales.csv", b"a,b")
+    image = await service.attach("thread", "photo.png", b"\x89PNG")
+    assert first.origin == "attachment" and first.tool_call_id is None
+    assert (first.filename, second.filename) == ("sales.csv", "sales-2.csv")
+    assert first.mime_type == "text/csv" and image.mime_type == "image/png"
+    row = await service.repository.get(second.id)
+    assert row.source_path == "/workspace/files/sales-2.csv"
+    assert store.put.call_count == 3
+
+
+async def test_restore_puts_back_only_missing_files_and_restamps(db, monkeypatch):
+    monkeypatch.setattr(
+        "app.artifacts.service.artifact_settings",
+        ArtifactSettings(_env_file=None, bucket="private"),
+    )
+    store = MagicMock()
+    stored: dict[str, bytes] = {}
+    store.put.side_effect = lambda key, data, mime: stored.__setitem__(key, data)
+    store.get.side_effect = lambda key, limit: stored[key]
+    monkeypatch.setattr("app.artifacts.service.build_store", lambda cfg: store)
+    service = ArtifactService(db)
+    kept = await service.attach("thread", "kept.csv", b"1")
+    lost = await service.attach("thread", "lost.csv", b"2")
+    await db.commit()
+
+    disk = {"/workspace/files/kept.csv"}
+    uploads: list[tuple[str, bytes]] = []
+
+    def execute(command, **_):
+        if command.startswith("cat "):
+            return SimpleNamespace(exit_code=1, output="")
+        if command.startswith("for p in"):
+            missing = [
+                p
+                for p in ("/workspace/files/kept.csv", "/workspace/files/lost.csv")
+                if p not in disk
+            ]
+            return SimpleNamespace(exit_code=0, output="\n".join(missing))
+        return SimpleNamespace(exit_code=0, output="")
+
+    def upload_files(files):
+        uploads.extend(files)
+        return [SimpleNamespace(error=None, path=p) for p, _ in files]
+
+    backend = SimpleNamespace(
+        id="new-sandbox", execute=execute, upload_files=upload_files
+    )
+    source = uuid4()
+    restored = await service.restore("thread", backend, source)
+    assert [r.id for r in restored] == [lost.id]
+    assert ("/workspace/files/lost.csv", b"2") in uploads
+    assert all(p != "/workspace/files/kept.csv" for p, _ in uploads)
+    assert uploads[-1][0] == "/tmp/.auxilia-artifacts/.thread-files-digest"
+    for item in (kept, lost):
+        row = await service.repository.get(item.id)
+        assert (row.sandbox_id, row.sandbox_source_id) == ("new-sandbox", source)

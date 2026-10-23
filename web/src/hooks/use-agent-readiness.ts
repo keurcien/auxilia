@@ -5,7 +5,7 @@ import { useMcpServersStore } from "@/stores/mcp-servers-store";
 export function useAgentReadiness(agentId: string | undefined) {
 	const mcpServers = useMcpServersStore((state) => state.mcpServers);
 	const fetchMcpServers = useMcpServersStore((state) => state.fetchMcpServers);
-	const { ready, disconnectedServers, status, detail, refetch } =
+	const { ready, disconnectedServers, status, detail, acceptsFiles, refetch } =
 		useAgentConnectionStatus(agentId);
 
 	useEffect(() => {
@@ -18,5 +18,5 @@ export function useAgentReadiness(agentId: string | undefined) {
 		return mcpServers.filter((s) => set.has(s.id));
 	}, [mcpServers, disconnectedServers]);
 
-	return { ready, status, detail, disconnectedMcpServers, refetch };
+	return { ready, status, detail, acceptsFiles, disconnectedMcpServers, refetch };
 }

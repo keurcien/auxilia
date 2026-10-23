@@ -44,6 +44,7 @@ const StarterChatPage = () => {
 		ready: agentReady,
 		status,
 		detail: statusDetail,
+		acceptsFiles,
 		disconnectedMcpServers,
 		refetch: refetchReady,
 	} = useAgentReadiness(agentId);
@@ -200,6 +201,7 @@ const StarterChatPage = () => {
 							selectedEffort={reasoningEffort}
 							onEffortChange={setReasoningEffort}
 							agentReady={agentReady}
+							acceptsFiles={acceptsFiles}
 							disconnectedServers={disconnectedMcpServers}
 							onAllConnected={() => {
 								refetchReady();

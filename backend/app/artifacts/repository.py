@@ -63,3 +63,25 @@ class ArtifactRepository(BaseRepository[ArtifactDB]):
         await self.db.flush()
         await self.db.refresh(row)
         return row
+
+    async def paths_in_thread(self, thread_id: str) -> set[str]:
+        stmt = select(ArtifactDB.source_path).where(ArtifactDB.thread_id == thread_id)
+        result = await self.db.execute(stmt)
+        return set(result.scalars().all())
+
+    async def list_stored_in(
+        self, thread_id: str, kind: str, bucket: str | None, endpoint: str | None
+    ) -> list[ArtifactDB]:
+        """Every thread file whose bytes live in this object store location."""
+        stmt = (
+            select(ArtifactDB)
+            .where(
+                ArtifactDB.thread_id == thread_id,
+                ArtifactDB.storage_kind == kind,
+                col(ArtifactDB.storage_bucket).is_not_distinct_from(bucket),
+                col(ArtifactDB.storage_endpoint).is_not_distinct_from(endpoint),
+            )
+            .order_by(col(ArtifactDB.created_at), col(ArtifactDB.id))
+        )
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())

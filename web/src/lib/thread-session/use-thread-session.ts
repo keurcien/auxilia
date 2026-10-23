@@ -13,6 +13,7 @@ import { type HitlDecision, type HitlResponse, useHitlApprovals } from "@/hooks/
 import { useProtocolFetch } from "@/hooks/use-protocol-fetch";
 import { useThrottledValue } from "@/hooks/use-throttled-value";
 import { protocolApiUrl } from "@/lib/api/protocol";
+import * as artifactsApi from "@/lib/api/resources/artifacts";
 import * as threadsApi from "@/lib/api/resources/threads";
 import {
 	extractHitlToolNames,
@@ -22,11 +23,14 @@ import {
 	type ToolCallView,
 } from "@/lib/transcript";
 import { useActiveRunsStore } from "@/stores/active-runs-store";
+import { useModelsStore } from "@/stores/models-store";
 import { usePendingMessageStore } from "@/stores/pending-message-store";
 import type { Run } from "@/types/runs";
 import type { ThreadRead } from "@/types/threads";
 
-import { contentPreview, type HumanContent, promptMessageToContent } from "./build-content";
+import { toast } from "sonner";
+
+import { contentPreview, type HumanInput, promptMessageToInput } from "./build-content";
 import { EMPTY_HELD, holdInterrupts } from "./interrupt-hold";
 import { submitPendingAfterHydration } from "./pending-message";
 import {
@@ -44,7 +48,7 @@ const EMPTY_TODOS: Todo[] = [];
 export const QUEUE_LIMIT = 2;
 
 export type QueuedMessage = { id: string; text: string };
-type QueuedEntry = { id: string; content: HumanContent };
+type QueuedEntry = { id: string; input: HumanInput };
 const EMPTY_QUEUE: QueuedEntry[] = [];
 /** Render cadence for the streamed views (tokens arrive far faster). */
 const THROTTLE_MS = 60;
@@ -55,11 +59,15 @@ export type ThreadSessionTransport = {
 	fetch?: typeof fetch;
 	readThread: (threadId: string) => Promise<ThreadRead>;
 	listThreadRuns: (threadId: string) => Promise<Run[]>;
+	/** Stores an attachment as a thread file; resolves to its id. */
+	attachFile: (threadId: string, file: Blob, filename: string) => Promise<string>;
 };
 
 export const defaultTransport: ThreadSessionTransport = {
 	readThread: threadsApi.readThread,
 	listThreadRuns: threadsApi.listThreadRuns,
+	attachFile: async (threadId, file, filename) =>
+		(await artifactsApi.attachFile(threadId, file, filename)).id,
 };
 
 export type ThreadSessionOptions = {
@@ -244,7 +252,7 @@ export function useThreadSession({
 	const queueItems = queueState.threadId === threadId ? queueState.items : EMPTY_QUEUE;
 	const queueFull = queueItems.length >= QUEUE_LIMIT;
 	const queued = useMemo(
-		() => queueItems.map((e) => ({ id: e.id, text: contentPreview(e.content) })),
+		() => queueItems.map((e) => ({ id: e.id, text: contentPreview(e.input) })),
 		[queueItems],
 	);
 	const setQueue = useCallback(
@@ -258,12 +266,15 @@ export function useThreadSession({
 	);
 
 	const submitContent = useCallback(
-		(content: HumanContent, multitaskStrategy: "enqueue" | "interrupt") => {
+		({ content, attachments }: HumanInput, multitaskStrategy: "enqueue" | "interrupt") => {
 			userActed();
 			const forThread = threadId;
 			setInFlight((counts) => ({ ...counts, [forThread]: (counts[forThread] ?? 0) + 1 }));
+			const message = attachments.length
+				? { type: "human", content, additional_kwargs: { attachments } }
+				: { type: "human", content };
 			void selectorStream
-				.submit({ messages: [{ type: "human", content }] }, { multitaskStrategy })
+				.submit({ messages: [message] }, { multitaskStrategy })
 				.finally(() => {
 					setInFlight((counts) => ({ ...counts, [forThread]: (counts[forThread] ?? 1) - 1 }));
 				});
@@ -271,24 +282,55 @@ export function useThreadSession({
 		[selectorStream, threadId, userActed],
 	);
 
-	const send = useCallback(
-		(message: PromptInputMessage) => {
-			const content = promptMessageToContent(message);
-			if (content == null) return;
+	const sendInput = useCallback(
+		(input: HumanInput) => {
 			if (busy || queueItems.length > 0) {
 				if (queueFull) return;
 				userActed();
 				// Rechecked here: two sends batched in one render both pass `queueFull`.
 				setQueue((items) =>
-					items.length >= QUEUE_LIMIT ? items : [...items, { id: crypto.randomUUID(), content }],
+					items.length >= QUEUE_LIMIT ? items : [...items, { id: crypto.randomUUID(), input }],
 				);
 				return;
 			}
 			// `enqueue` server-side too: a run the page cannot see yet still
 			// gets waited on rather than rejected.
-			submitContent(content, "enqueue");
+			submitContent(input, "enqueue");
 		},
 		[busy, queueItems.length, queueFull, setQueue, submitContent, userActed],
+	);
+	// Read after the uploads settle: the queue state may have moved meanwhile.
+	const latestSendInput = useRef(sendInput);
+	latestSendInput.current = sendInput;
+
+	// Unknown model (not in the picker list) → assume vision, as the composer does.
+	const models = useModelsStore((s) => s.models);
+	const modelId = state.meta.thread?.modelId;
+	const vision = useRef(true);
+	vision.current = models.find((m) => m.id === modelId)?.multimodal !== false;
+
+	const send = useCallback(
+		(message: PromptInputMessage) => {
+			// Text alone sends synchronously: nothing to upload first.
+			if (!message.files?.length) {
+				if (message.text?.trim()) sendInput({ content: message.text, attachments: [] });
+				return;
+			}
+			const forThread = threadId;
+			const upload = async (file: { url: string; filename?: string }) => {
+				// The composer's own data:/blob: URL, never a network destination.
+				const blob = await (await fetch(file.url)).blob();
+				return transport.attachFile(forThread, blob, file.filename || "file");
+			};
+			promptMessageToInput(message, { vision: vision.current, upload })
+				.then((input) => {
+					if (input) latestSendInput.current(input);
+				})
+				.catch((error: unknown) => {
+					toast.error(error instanceof Error ? error.message : "Could not attach the files.");
+				});
+		},
+		[sendInput, threadId, transport],
 	);
 
 	// The turn ended (and is not waiting on an approval, its own or a
@@ -298,7 +340,7 @@ export function useThreadSession({
 		if (busy || awaitingApproval || queueItems.length === 0) return;
 		const [next] = queueItems;
 		setQueue((items) => items.filter((e) => e.id !== next.id));
-		submitContent(next.content, "enqueue");
+		submitContent(next.input, "enqueue");
 	}, [busy, awaitingApproval, queueItems, setQueue, submitContent]);
 
 	const sendNow = useCallback(
@@ -306,7 +348,7 @@ export function useThreadSession({
 			const entry = queueItems.find((e) => e.id === id);
 			if (entry == null) return;
 			setQueue((items) => items.filter((e) => e.id !== id));
-			submitContent(entry.content, "interrupt");
+			submitContent(entry.input, "interrupt");
 		},
 		[queueItems, setQueue, submitContent],
 	);

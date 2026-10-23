@@ -12,7 +12,8 @@ class PresentFile(BaseModel):
 class ArtifactResponse(BaseModel):
     id: UUID
     thread_id: str
-    tool_call_id: str
+    origin: str
+    tool_call_id: str | None
     title: str
     filename: str
     mime_type: str

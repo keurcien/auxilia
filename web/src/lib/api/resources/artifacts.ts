@@ -4,7 +4,9 @@ import { protocolFetch } from "@/lib/api/protocol";
 export interface Artifact {
   id: string;
   thread_id: string;
-  tool_call_id: string;
+  /** `attachment`: added by the user to a message; `artifact`: presented by the agent. */
+  origin: "attachment" | "artifact";
+  tool_call_id: string | null;
   title: string;
   filename: string;
   mime_type: string;
@@ -43,6 +45,25 @@ export async function listArtifacts(
     items.push(...page);
     if (page.length < 100) return items;
   }
+}
+
+/** Store a file the user attaches to a message as a thread file. */
+export async function attachFile(
+  threadId: string,
+  file: Blob,
+  filename: string,
+): Promise<Artifact> {
+  const response = await protocolFetch(
+    `${API_BASE_URL}/threads/${encodeURIComponent(threadId)}/artifacts?filename=${encodeURIComponent(filename)}`,
+    { method: "POST", body: file },
+  );
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as {
+      detail?: string;
+    } | null;
+    throw new Error(body?.detail ?? `Could not attach ${filename}.`);
+  }
+  return (await response.json()) as Artifact;
 }
 
 let htmlSources: Promise<string[]> | undefined;

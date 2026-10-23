@@ -39,17 +39,24 @@ import {
   Attachments,
   getAttachmentLabel,
   getMediaCategory,
+  type AttachmentData,
 } from "@/components/ai-elements/attachments";
 import { TodoList } from "@/components/ai-elements/todo-list";
 import type { Todo } from "@/components/ai-elements/todo-list";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { useAgentsStore } from "@/stores/agents-store";
 import type { HitlDecision, HitlResponse } from "@/hooks/use-hitl-approvals";
-import { AppSlot, ArtifactCards } from "@/components/artifacts/workspace";
+import {
+  AppSlot,
+  ArtifactCards,
+  useAttachedFiles,
+} from "@/components/artifacts/workspace";
+import { contentUrl } from "@/lib/api/resources/artifacts";
 import {
   type ChainStepData,
   type ToolCallView,
   type ToolStepState,
+  getAttachmentIds,
   getFileAttachments,
   getMcpAppInfo,
   getReasoning,
@@ -263,7 +270,7 @@ export function isHostNotice(message: BaseMessage): boolean {
 
 const HostNotice = ({ message }: { message: BaseMessage }) => (
   <div className="my-2 flex justify-center">
-    <p className="max-w-[80%] rounded-md border border-dashed border-border px-3 py-1.5 text-center font-mono text-[11.5px] leading-[1.5] text-muted-foreground">
+    <p className="max-w-[80%] rounded-md border border-dashed border-border px-3 py-1.5 whitespace-pre-line text-center font-mono text-[11.5px] leading-[1.5] text-muted-foreground">
       {message.text.replace(/^\[Host notice\]\s*/, "")}
     </p>
   </div>
@@ -309,7 +316,21 @@ export const QueuedTurns = ({ queue }: { queue: ThreadSession["queue"] }) =>
 
 const UserTurn = ({ message }: { message: BaseMessage }) => {
   const text = message.text;
-  const attachments = getFileAttachments(message);
+  const inline = getFileAttachments(message);
+  // Images the model saw already preview from their inline block.
+  const hasInlineImages = inline.some((a) => getMediaCategory(a) === "image");
+  const files = useAttachedFiles(getAttachmentIds(message))
+    .filter((f) => !(hasInlineImages && f.mime_type.startsWith("image/")))
+    .map(
+      (f): AttachmentData => ({
+        id: f.id,
+        type: "file",
+        url: contentUrl(f),
+        filename: f.filename,
+        mediaType: f.mime_type,
+      }),
+    );
+  const attachments = [...inline, ...files];
   return (
     <>
       {attachments.length > 0 && (

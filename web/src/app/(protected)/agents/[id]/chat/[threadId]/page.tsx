@@ -53,6 +53,7 @@ const ChatPage = () => {
     ready: agentReady,
     status: agentStatus,
     detail: agentStatusDetail,
+    acceptsFiles,
     disconnectedMcpServers,
     refetch: refetchReady,
   } = useAgentReadiness(meta.agentArchived ? undefined : agentId);
@@ -236,6 +237,7 @@ const ChatPage = () => {
             readOnlyModel={true}
             selectedEffort={thread?.reasoningEffort ?? null}
             agentReady={agentReady}
+            acceptsFiles={acceptsFiles}
             disconnectedServers={disconnectedMcpServers}
             onAllConnected={refetchReady}
           />

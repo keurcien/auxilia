@@ -63,6 +63,8 @@ interface ChatPromptInputProps {
 	selectedEffort?: string | null;
 	onEffortChange?: (effort: string | null) => void;
 	agentReady?: boolean | null;
+	/** Non-image attachments go to the agent's sandbox (readiness `acceptsFiles`). */
+	acceptsFiles?: boolean;
 	disconnectedServers?: MCPServer[];
 	onAllConnected?: () => void;
 }
@@ -93,6 +95,7 @@ const ChatPromptInput = ({
 	selectedEffort = null,
 	onEffortChange,
 	agentReady,
+	acceptsFiles = false,
 	disconnectedServers = [],
 	onAllConnected,
 }: ChatPromptInputProps) => {
@@ -125,12 +128,13 @@ const ChatPromptInput = ({
 		: effortDefault
 			? effortLabel(effortDefault)
 			: "Auto";
-	// Text-only models can't take image attachments. Per model, not per chef:
-	// e.g. GLM 5.3 Flash accepts images while plain GLM 5.3 does not. Unknown
-	// model (not in the picker list, e.g. a disabled pinned model) → allow,
-	// matching the old lookup-miss behavior.
-	const noAttachments =
-		selectedModelData !== undefined && !selectedModelData.multimodal;
+	// Two independent rules. Images need a model with vision — per model, not
+	// per chef: e.g. GLM 5.3 Flash accepts images while plain GLM 5.3 does not;
+	// an unknown model (not in the picker list, e.g. a disabled pinned model)
+	// is allowed. Any other file needs the agent's sandbox (`acceptsFiles`),
+	// which also takes images as plain files on a model without vision.
+	const vision = selectedModelData === undefined || selectedModelData.multimodal;
+	const noAttachments = !vision && !acceptsFiles;
 
 	// Editable composer only: normalize a stale selection in the parent state
 	// too (not just the display), so what's shown as Default/Auto is also what
@@ -201,6 +205,7 @@ const ChatPromptInput = ({
 			<PromptInput
 				globalDrop
 				multiple
+				accept={acceptsFiles ? undefined : "image/*"}
 				disableAttachments={noAttachments}
 				onSubmit={handleSubmit}
 				className={cn(
@@ -248,7 +253,8 @@ const ChatPromptInput = ({
 									</span>
 								</TooltipTrigger>
 								<TooltipContent>
-									This model does not support attachments.
+									This model does not read images, and this agent has no
+									sandbox for files.
 								</TooltipContent>
 							</Tooltip>
 						) : (

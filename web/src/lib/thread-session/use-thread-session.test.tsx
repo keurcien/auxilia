@@ -69,6 +69,7 @@ function transportWith(
 		fetch: script.fetch,
 		readThread: vi.fn().mockResolvedValue(read),
 		listThreadRuns: vi.fn().mockImplementation(() => Promise.resolve(runs)),
+		attachFile: vi.fn().mockResolvedValue("file-id"),
 	};
 	return { transport, calls: script.calls };
 }

@@ -55,6 +55,12 @@ export function getFileAttachments(message: BaseMessage): AttachmentData[] {
   return attachments;
 }
 
+/** Thread-file ids a human turn attaches (`additional_kwargs.attachments`). */
+export function getAttachmentIds(message: BaseMessage): string[] {
+  const ids = message.additional_kwargs?.attachments;
+  return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
+}
+
 // ---------------------------------------------------------------------------
 // Tool identity
 // ---------------------------------------------------------------------------

@@ -40,6 +40,8 @@ export interface AgentReadiness {
 	status: AgentReadyStatus;
 	/** Human-readable reason, set with `sandbox_unavailable`. */
 	detail?: string | null;
+	/** Non-image attachments are possible: a sandbox and an object store. */
+	acceptsFiles: boolean;
 }
 
 /** A grant row on the agent — everything but `owner`, which is derived. */
