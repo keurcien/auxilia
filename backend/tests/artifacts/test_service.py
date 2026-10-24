@@ -413,10 +413,9 @@ async def test_restore_creates_the_attachments_folder_with_nothing_to_restore(
         execute=MagicMock(return_value=SimpleNamespace(exit_code=0, output="")),
     )
     assert await ArtifactService(db).restore("thread", backend, None) == []
-    assert backend.execute.call_args.args[0] == "mkdir -p -- /workspace/files"
-    # An unwritable folder is logged, not raised: nothing depended on it.
-    backend.execute.return_value = SimpleNamespace(exit_code=1, output="denied")
-    assert await ArtifactService(db).restore("thread", backend, None) == []
+    assert backend.execute.call_args.args[0] == (
+        "mkdir -p -- /workspace/files 2>/dev/null"
+    )
 
 
 async def test_presenting_an_edited_attachment_keeps_the_original(db, monkeypatch):

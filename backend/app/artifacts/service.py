@@ -104,13 +104,14 @@ def attachment_mime(filename: str, data: bytes) -> str:
 def missing_on_disk(backend: BaseSandbox, paths: list[str]) -> set[str]:
     """Create the attachments folder, then return which `paths` are not files.
 
-    The folder always exists: the system prompt names it, and a model that
-    looks there before anything is attached should find it empty, not missing.
+    The system prompt names the folder, so a model that looks there before
+    anything is attached should find it empty, not missing. Best-effort: a
+    file that does need writing there fails in `put_on_disk` instead.
     """
-    script = f"mkdir -p -- {shlex.quote(ATTACHMENTS_ROOT)}"
+    script = f"mkdir -p -- {shlex.quote(ATTACHMENTS_ROOT)} 2>/dev/null"
     if paths:
         script += (
-            " && for p in "
+            "; for p in "
             + " ".join(shlex.quote(path) for path in paths)
             + '; do [ -f "$p" ] || printf \'%s\\n\' "$p"; done'
         )
@@ -254,16 +255,9 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
             else []
         )
         # One shell call on a warm sandbox, and a file deleted since comes back.
-        try:
-            missing = await asyncio.to_thread(
-                missing_on_disk, backend, [row.source_path for row in rows]
-            )
-        except RuntimeError:
-            if rows:
-                raise
-            # Nothing to restore: an unwritable folder must not fail the run.
-            logger.warning("Could not create %s", ATTACHMENTS_ROOT, exc_info=True)
-            return []
+        missing = await asyncio.to_thread(
+            missing_on_disk, backend, [row.source_path for row in rows]
+        )
         if not rows:
             return []
         # One file per path: an artifact presented over an attachment is newer,
