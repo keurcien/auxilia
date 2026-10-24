@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { ArtifactViewer, isolatedHtml, viewers } from "./viewers";
+import { ArtifactViewer, guardLinks, isolatedHtml, viewers } from "./viewers";
 import type { Artifact } from "@/lib/api/resources/artifacts";
 
 vi.mock("@/lib/api/resources/artifacts", () => ({
@@ -54,6 +54,24 @@ describe("artifact viewer adapters", () => {
     expect(page.indexOf("Content-Security-Policy")).toBeLessThan(
       page.indexOf("<script>"),
     );
+  });
+  it("keeps links from navigating the frame; in-page anchors scroll", () => {
+    document.body.innerHTML =
+      '<a id="away" href="joueurs.html">Joueurs</a><a id="top" href="#target">Top</a><div id="target"></div>';
+    const scroll = vi.fn();
+    const target = document.getElementById("target");
+    if (target) target.scrollIntoView = scroll;
+    guardLinks(document);
+    const click = (id: string) => {
+      const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+      document.getElementById(id)?.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    expect(click("away")).toBe(true);
+    expect(click("top")).toBe(true);
+    expect(scroll).toHaveBeenCalledOnce();
+    const page = isolatedHtml("<p>authored</p>", []);
+    expect(page.indexOf(")(document)</script>")).toBeLessThan(page.indexOf("<p>authored"));
   });
   it("falls back to download for unknown content", () => {
     render(
