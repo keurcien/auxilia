@@ -108,7 +108,7 @@ def missing_on_disk(backend: BaseSandbox, paths: list[str]) -> set[str]:
     anything is attached should find it empty, not missing. Best-effort: a
     file that does need writing there fails in `put_on_disk` instead.
     """
-    script = f"mkdir -p -- {shlex.quote(ATTACHMENTS_ROOT)} 2>/dev/null"
+    script = f"mkdir -p -- {shlex.quote(ATTACHMENTS_ROOT)} 2>/dev/null || true"
     if paths:
         script += (
             "; for p in "
