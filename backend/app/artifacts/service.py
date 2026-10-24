@@ -169,7 +169,12 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
         cfg = artifact_settings
         try:
             data = await asyncio.to_thread(
-                read_bytes, backend, file.path, cfg.allowed_roots, cfg.max_bytes
+                read_bytes,
+                backend,
+                file.path,
+                # An attachment the agent edited in place can be presented too.
+                [*cfg.allowed_roots, ATTACHMENTS_ROOT],
+                cfg.max_bytes,
             )
         except SandboxFileMissingError as exc:
             raise DomainValidationError(
@@ -261,7 +266,10 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
             return []
         if not rows:
             return []
-        restored = [row for row in rows if row.source_path in missing]
+        # One file per path: an artifact presented over an attachment is newer,
+        # and rows come in creation order, so the last one is what the disk had.
+        latest = {row.source_path: row for row in rows}
+        restored = [row for row in latest.values() if row.source_path in missing]
         # One file in memory at a time.
         for row in restored:
             _, data = await self.content(thread_id, row.id)

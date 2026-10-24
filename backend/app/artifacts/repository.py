@@ -37,10 +37,16 @@ class ArtifactRepository(BaseRepository[ArtifactDB]):
 
     async def at_path(self, thread_id: str, path: str) -> ArtifactDB | None:
         """The thread's artifact for a sandbox path. Threads from before in-place
-        updates can hold several rows per path; the newest one is updated."""
+        updates can hold several rows per path; the newest one is updated.
+        An attachment at the path is not one: presenting it makes an artifact
+        beside it, and the user's original stays as uploaded."""
         stmt = (
             select(ArtifactDB)
-            .where(ArtifactDB.thread_id == thread_id, ArtifactDB.source_path == path)
+            .where(
+                ArtifactDB.thread_id == thread_id,
+                ArtifactDB.source_path == path,
+                ArtifactDB.origin == "artifact",
+            )
             .order_by(col(ArtifactDB.created_at).desc(), col(ArtifactDB.id).desc())
             .limit(1)
         )

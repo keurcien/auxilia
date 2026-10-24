@@ -417,3 +417,47 @@ async def test_restore_creates_the_attachments_folder_with_nothing_to_restore(
     # An unwritable folder is logged, not raised: nothing depended on it.
     backend.execute.return_value = SimpleNamespace(exit_code=1, output="denied")
     assert await ArtifactService(db).restore("thread", backend, None) == []
+
+
+async def test_presenting_an_edited_attachment_keeps_the_original(db, monkeypatch):
+    monkeypatch.setattr(
+        "app.artifacts.service.artifact_settings",
+        ArtifactSettings(_env_file=None, bucket="private"),
+    )
+    store = MagicMock()
+    stored: dict[str, bytes] = {}
+    store.put.side_effect = lambda key, data, mime: stored.__setitem__(key, data)
+    store.get.side_effect = lambda key, limit: stored[key]
+    monkeypatch.setattr("app.artifacts.service.build_store", lambda cfg: store)
+    reader = MagicMock(return_value=b"<p>edited</p>")
+    monkeypatch.setattr("app.artifacts.service.read_bytes", reader)
+    service = ArtifactService(db)
+    original = await service.attach("thread", "jeux.html", b"<p>original</p>")
+
+    uploads: list[tuple[str, bytes]] = []
+    backend = SimpleNamespace(
+        id="sbx",
+        execute=lambda command, **_: SimpleNamespace(
+            exit_code=0, output="/workspace/files/jeux.html"
+        ),
+        upload_files=lambda files: (
+            uploads.extend(files)
+            or [SimpleNamespace(error=None, path=p) for p, _ in files]
+        ),
+    )
+    presented = await service.publish(
+        thread_id="thread",
+        tool_call_id="call-1",
+        file=PresentFile(path="/workspace/files/jeux.html"),
+        backend=backend,
+        sandbox_source_id=uuid4(),
+    )
+    await db.commit()
+    assert "/workspace/files" in reader.call_args.args[2]
+    assert presented.id != original.id and presented.origin == "artifact"
+    assert (await service.repository.get(original.id)).sha256 == original.sha256
+
+    # A fresh disk gets the path once, with the newer (presented) bytes.
+    restored = await service.restore("thread", backend, None)
+    assert [r.id for r in restored] == [presented.id]
+    assert uploads == [("/workspace/files/jeux.html", b"<p>edited</p>")]
