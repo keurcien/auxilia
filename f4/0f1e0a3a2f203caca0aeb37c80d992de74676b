@@ -1,0 +1,25 @@
+.github/workflows/frontend-ci.yml
+  s_ccf12f1ddc16d2::t_1037909a71d9f3 42,45
+CLAUDE.md
+  s_ccf12f1ddc16d2::t_ec26c520a3e9c7 394
+CONTRIBUTING.md
+  s_ccf12f1ddc16d2::t_2ae75b15a2c469 16
+web/Dockerfile
+  s_ccf12f1ddc16d2::t_eab5c596267e8a 4,39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f40f1e0a3a2f203caca0aeb37c80d992de74676b",
+  "prompts": {},
+  "sessions": {
+    "s_ccf12f1ddc16d2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a16fa5-9fd2-7051-8367-cfeb80239bdf",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}
