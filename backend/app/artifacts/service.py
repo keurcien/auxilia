@@ -102,11 +102,18 @@ def attachment_mime(filename: str, data: bytes) -> str:
 
 
 def missing_on_disk(backend: BaseSandbox, paths: list[str]) -> set[str]:
-    script = (
-        "for p in "
-        + " ".join(shlex.quote(path) for path in paths)
-        + '; do [ -f "$p" ] || printf \'%s\\n\' "$p"; done'
-    )
+    """Create the attachments folder, then return which `paths` are not files.
+
+    The folder always exists: the system prompt names it, and a model that
+    looks there before anything is attached should find it empty, not missing.
+    """
+    script = f"mkdir -p -- {shlex.quote(ATTACHMENTS_ROOT)}"
+    if paths:
+        script += (
+            " && for p in "
+            + " ".join(shlex.quote(path) for path in paths)
+            + '; do [ -f "$p" ] || printf \'%s\\n\' "$p"; done'
+        )
     result = backend.execute(script)  # nosemgrep — a sandbox shell, every path quoted
     if result.exit_code != 0:
         raise RuntimeError(f"Could not list thread files: {result.output[:2000]}")
@@ -234,17 +241,26 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
         path, and return those. Raises on any failure: an agent whose files are
         missing would answer about data it cannot see."""
         cfg = artifact_settings
-        if not cfg.provider:
-            return []
-        rows = await self.repository.list_stored_in(
-            thread_id, cfg.provider, cfg.bucket_name or None, cfg.endpoint
+        rows = (
+            await self.repository.list_stored_in(
+                thread_id, cfg.provider, cfg.bucket_name or None, cfg.endpoint
+            )
+            if cfg.provider
+            else []
         )
+        # One shell call on a warm sandbox, and a file deleted since comes back.
+        try:
+            missing = await asyncio.to_thread(
+                missing_on_disk, backend, [row.source_path for row in rows]
+            )
+        except RuntimeError:
+            if rows:
+                raise
+            # Nothing to restore: an unwritable folder must not fail the run.
+            logger.warning("Could not create %s", ATTACHMENTS_ROOT, exc_info=True)
+            return []
         if not rows:
             return []
-        # One shell call on a warm sandbox, and a file deleted since comes back.
-        missing = await asyncio.to_thread(
-            missing_on_disk, backend, [row.source_path for row in rows]
-        )
         restored = [row for row in rows if row.source_path in missing]
         # One file in memory at a time.
         for row in restored:

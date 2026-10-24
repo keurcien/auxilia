@@ -371,7 +371,7 @@ async def test_restore_puts_back_only_missing_files_and_restamps(db, monkeypatch
     uploads: list[tuple[str, bytes]] = []
 
     def execute(command, **_):
-        if command.startswith("for p in"):
+        if "for p in" in command:
             missing = [
                 p
                 for p in ("/workspace/files/kept.csv", "/workspace/files/lost.csv")
@@ -400,3 +400,20 @@ async def test_restore_puts_back_only_missing_files_and_restamps(db, monkeypatch
     for item in (kept, lost):
         row = await service.repository.get(item.id)
         assert (row.sandbox_id, row.sandbox_source_id) == ("new-sandbox", source)
+
+
+async def test_restore_creates_the_attachments_folder_with_nothing_to_restore(
+    db, monkeypatch
+):
+    monkeypatch.setattr(
+        "app.artifacts.service.artifact_settings", ArtifactSettings(_env_file=None)
+    )
+    backend = SimpleNamespace(
+        id="sbx",
+        execute=MagicMock(return_value=SimpleNamespace(exit_code=0, output="")),
+    )
+    assert await ArtifactService(db).restore("thread", backend, None) == []
+    assert backend.execute.call_args.args[0] == "mkdir -p -- /workspace/files"
+    # An unwritable folder is logged, not raised: nothing depended on it.
+    backend.execute.return_value = SimpleNamespace(exit_code=1, output="denied")
+    assert await ArtifactService(db).restore("thread", backend, None) == []
