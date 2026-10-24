@@ -51,13 +51,19 @@ const decode = (bytes: ArrayBuffer) => new TextDecoder().decode(bytes);
  * even `#`) would load the app itself in the frame. In-page anchors scroll;
  * every other link does nothing, `javascript:` URLs included: a single file
  * has no neighbour to open. The page's own click handlers still run. Capture
- * phase, so a handler that stops propagation cannot skip it. Self-contained,
- * since it is inlined as source.
+ * phase, so a handler that stops propagation cannot skip it; the composed
+ * path, so a link inside an open shadow root is found too (a closed one is
+ * left to the app's frame-ancestors header). Self-contained, since it is
+ * inlined as source.
  */
 export function guardLinks(doc: Document): void {
   const guard = (event: MouseEvent) => {
-    const target = event.target;
-    const link = target instanceof Element ? target.closest("a, area") : null;
+    const link = event
+      .composedPath()
+      .find(
+        (node): node is Element =>
+          node instanceof Element && node.matches("a, area"),
+      );
     if (!link) return;
     event.preventDefault();
     const href =

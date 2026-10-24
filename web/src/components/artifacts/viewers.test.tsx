@@ -78,6 +78,17 @@ describe("artifact viewer adapters", () => {
     expect(click("top")).toBe(true);
     expect(click("js")).toBe(true);
     expect(click("stopper")).toBe(true);
+    const middle = new MouseEvent("auxclick", { bubbles: true, cancelable: true, button: 1 });
+    document.getElementById("away")?.dispatchEvent(middle);
+    expect(middle.defaultPrevented).toBe(true);
+    // A link inside an open shadow root.
+    const host = document.createElement("div");
+    document.body.append(host);
+    const shadow = host.attachShadow({ mode: "open" });
+    shadow.innerHTML = '<a href="joueurs.html"><span>Inside</span></a>';
+    const inner = new MouseEvent("click", { bubbles: true, cancelable: true, composed: true });
+    shadow.querySelector("span")?.dispatchEvent(inner);
+    expect(inner.defaultPrevented).toBe(true);
     expect(scroll).toHaveBeenCalledOnce();
     const page = isolatedHtml("<p>authored</p>", []);
     expect(page.indexOf(")(document)</script>")).toBeLessThan(page.indexOf("<p>authored"));
