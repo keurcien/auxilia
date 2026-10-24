@@ -89,6 +89,7 @@ describe("artifact viewer adapters", () => {
     const inner = new MouseEvent("click", { bubbles: true, cancelable: true, composed: true });
     shadow.querySelector("span")?.dispatchEvent(inner);
     expect(inner.defaultPrevented).toBe(true);
+    document.body.innerHTML = "";
     expect(scroll).toHaveBeenCalledOnce();
     const page = isolatedHtml("<p>authored</p>", []);
     expect(page.indexOf(")(document)</script>")).toBeLessThan(page.indexOf("<p>authored"));
