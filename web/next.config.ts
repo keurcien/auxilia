@@ -26,6 +26,14 @@ const nextConfig: NextConfig = {
 					{ key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
 				],
 			},
+			{
+				// It runs its parent's HTML same-origin: only the app may frame it.
+				source: "/sandbox.html",
+				headers: [
+					{ key: "X-Frame-Options", value: "SAMEORIGIN" },
+					{ key: "Content-Security-Policy", value: "frame-ancestors 'self'" },
+				],
+			},
 		];
 	},
 	async redirects() {

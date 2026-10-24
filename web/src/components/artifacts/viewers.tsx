@@ -49,22 +49,27 @@ const decode = (bytes: ArrayBuffer) => new TextDecoder().decode(bytes);
  * Runs inside the frame, before the page's own scripts. A srcdoc page resolves
  * relative links against the auxilia page around it, so `joueurs.html` (or
  * even `#`) would load the app itself in the frame. In-page anchors scroll;
- * every other link does nothing: a single file has no neighbour to open.
- * Self-contained, since it is inlined as source.
+ * every other link does nothing, `javascript:` URLs included: a single file
+ * has no neighbour to open. The page's own click handlers still run. Capture
+ * phase, so a handler that stops propagation cannot skip it. Self-contained,
+ * since it is inlined as source.
  */
 export function guardLinks(doc: Document): void {
-  doc.addEventListener("click", (event) => {
+  const guard = (event: MouseEvent) => {
     const target = event.target;
-    const link =
-      target instanceof Element ? target.closest("a[href], area[href]") : null;
-    if (!link || event.defaultPrevented) return;
-    const href = link.getAttribute("href") ?? "";
-    if (/^\s*javascript:/i.test(href)) return;
+    const link = target instanceof Element ? target.closest("a, area") : null;
+    if (!link) return;
     event.preventDefault();
-    if (href.startsWith("#") && href.length > 1) {
+    const href =
+      link.getAttribute("href") ??
+      link.getAttributeNS("http://www.w3.org/1999/xlink", "href") ??
+      "";
+    if (event.type === "click" && href.startsWith("#") && href.length > 1) {
       doc.getElementById(decodeURIComponent(href.slice(1)))?.scrollIntoView();
     }
-  });
+  };
+  doc.addEventListener("click", guard, true);
+  doc.addEventListener("auxclick", guard, true);
 }
 
 export function isolatedHtml(html: string, sources: string[]): string {

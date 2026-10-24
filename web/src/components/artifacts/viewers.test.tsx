@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { ArtifactViewer, guardLinks, isolatedHtml, viewers } from "./viewers";
+import { ArtifactViewer, isolatedHtml, viewers } from "./viewers";
 import type { Artifact } from "@/lib/api/resources/artifacts";
 
 vi.mock("@/lib/api/resources/artifacts", () => ({
@@ -57,11 +57,18 @@ describe("artifact viewer adapters", () => {
   });
   it("keeps links from navigating the frame; in-page anchors scroll", () => {
     document.body.innerHTML =
-      '<a id="away" href="joueurs.html">Joueurs</a><a id="top" href="#target">Top</a><div id="target"></div>';
+      '<a id="away" href="joueurs.html">Joueurs</a><a id="top" href="#target">Top</a>' +
+      '<a id="js" href="javascript:location=\'/agents\'">JS</a>' +
+      '<a id="stopper" href="/agents">Stopper</a><div id="target"></div>';
+    document.getElementById("stopper")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+    });
     const scroll = vi.fn();
     const target = document.getElementById("target");
     if (target) target.scrollIntoView = scroll;
-    guardLinks(document);
+    // The script the frame actually runs: guardLinks' source, as emitted.
+    const emitted = /<script>([\s\S]*?)<\/script>/.exec(isolatedHtml("", []))?.[1] ?? "";
+    new Function(emitted)();
     const click = (id: string) => {
       const event = new MouseEvent("click", { bubbles: true, cancelable: true });
       document.getElementById(id)?.dispatchEvent(event);
@@ -69,6 +76,8 @@ describe("artifact viewer adapters", () => {
     };
     expect(click("away")).toBe(true);
     expect(click("top")).toBe(true);
+    expect(click("js")).toBe(true);
+    expect(click("stopper")).toBe(true);
     expect(scroll).toHaveBeenCalledOnce();
     const page = isolatedHtml("<p>authored</p>", []);
     expect(page.indexOf(")(document)</script>")).toBeLessThan(page.indexOf("<p>authored"));
