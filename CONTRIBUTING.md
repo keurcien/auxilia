@@ -13,7 +13,7 @@ on-ramp.
 
 ## Getting set up
 
-Requirements: Python 3.11+ with [uv](https://docs.astral.sh/uv/), Node 20+,
+Requirements: Python 3.11+ with [uv](https://docs.astral.sh/uv/), Node 24+,
 Docker (for Postgres and Redis).
 
 ```sh
