@@ -333,8 +333,14 @@ class ProtocolEmitter:
             # client's assembler flattens human echoes to text, and replacing
             # a richer optimistic copy with that would lose the attachments.
             # A real id is required — every superstep repeats the message and
-            # only an id makes the echo deduplicable.
-            if isinstance(message, HumanMessage) and isinstance(message.content, str):
+            # only an id makes the echo deduplicable. Host notices are skipped
+            # too: the echo drops the tag the chat hides them by, and the
+            # snapshot above already carries them.
+            if (
+                isinstance(message, HumanMessage)
+                and isinstance(message.content, str)
+                and "host_notice" not in message.additional_kwargs
+            ):
                 out.extend(self._whole_message([], None, message, role="human"))
         out.extend(self._input_requested([], interrupts))
         return out

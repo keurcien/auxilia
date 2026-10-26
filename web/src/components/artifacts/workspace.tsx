@@ -20,6 +20,7 @@ import { humanizeToolName } from "@/components/ai-elements/chain-of-thought";
 import { McpAppWidget } from "@/app/(protected)/agents/[id]/chat/components/mcp-app-widget";
 import type { DisplayedApp } from "@/app/(protected)/agents/[id]/chat/components/mcp-app-widget";
 import { ArtifactViewer, Loading } from "./viewers";
+import { FileTypeIcon, extension, tone } from "./file-type-icon";
 import {
   contentUrl,
   listArtifacts,
@@ -79,84 +80,17 @@ function sameApp(a: SlotApp, b: SlotApp): boolean {
   );
 }
 
-// Label colour per file kind, on a document glyph with the extension on it.
-function tone(mime: string): string {
-  if (mime.includes("presentation")) return "#c2502f";
-  if (mime === "text/csv" || mime.includes("spreadsheet")) return "#1e7a56";
-  if (mime === "application/pdf") return "#b42318";
-  if (mime === "text/html") return "#2a5c8a";
-  if (mime.startsWith("image/")) return "#5b4bb0";
-  if (mime.startsWith("text/")) return "#56646a";
-  return "#8a9aa0";
-}
-
-function extension(item: Artifact): string {
-  const dot = item.filename.lastIndexOf(".");
-  return dot > 0 ? item.filename.slice(dot + 1).toUpperCase() : "FILE";
-}
-
 function meta(item: Artifact, withTime = false): string {
-  const parts = [extension(item), formatBytes(item.size)];
+  const parts = [extension(item.filename), formatBytes(item.size)];
   if (withTime && item.created_at) parts.push(relativeTime(item.created_at));
   return parts.join(" · ");
-}
-
-function FileTypeIcon({
-  label: text,
-  color,
-  large,
-}: {
-  label: string;
-  color: string;
-  large?: boolean;
-}) {
-  const label = text.slice(0, 4);
-  return (
-    <svg
-      aria-hidden
-      viewBox="0 0 32 40"
-      className={cn("flex-none font-mono", large ? "h-11 w-9" : "h-9 w-[29px]")}
-    >
-      <path
-        d="M4 1.5h16.5L30.5 11.5V36a2.5 2.5 0 0 1-2.5 2.5H4A2.5 2.5 0 0 1 1.5 36V4A2.5 2.5 0 0 1 4 1.5z"
-        fill="#fff"
-        stroke="#dce4e4"
-        strokeWidth="1.5"
-      />
-      <path
-        d="M20.5 1.5v7.5a2.5 2.5 0 0 0 2.5 2.5h7.5"
-        fill="#f1f5f5"
-        stroke="#dce4e4"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-      />
-      <rect
-        x="0"
-        y="21"
-        width={label.length > 3 ? 27 : 23}
-        height="11"
-        rx="2"
-        fill={color}
-      />
-      <text
-        x={label.length > 3 ? 13.5 : 11.5}
-        y="29.2"
-        textAnchor="middle"
-        fontSize="7.2"
-        fontWeight="600"
-        fill="#fff"
-      >
-        {label}
-      </text>
-    </svg>
-  );
 }
 
 function ArtifactIcon({ entry, large }: { entry: Entry; large?: boolean }) {
   if (entry.kind === "file")
     return (
       <FileTypeIcon
-        label={extension(entry.item)}
+        label={extension(entry.item.filename)}
         color={tone(entry.item.mime_type)}
         large={large}
       />

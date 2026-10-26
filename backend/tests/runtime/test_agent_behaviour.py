@@ -522,6 +522,30 @@ async def test_a_notice_does_not_replace_the_question_a_regeneration_replays(
 
 
 @pytest.mark.asyncio
+async def test_a_regeneration_keeps_the_turns_notice(in_memory_runtime):
+    """The fork drops the redone turn's notice and the regeneration has nothing
+    new to report (the files are already on disk), so the notice is re-sent
+    with the question — or the model would not know about the files."""
+    from app.sandbox.provider import SandboxGoneError
+
+    agent, _, _ = build_sandbox_agent(script=["first answer"], sandbox_id="sbx-old")
+    agent.agent.sandbox.provider.connect.side_effect = SandboxGoneError("expired")
+    await collect(agent, "the question")
+
+    agent, model, _ = build_sandbox_agent(
+        script=["second answer"], sandbox_id="sbx-live"
+    )
+    async for _ in agent.stream(trigger="regenerate-message"):
+        pass
+
+    state = await get_checkpoint_state(in_memory_runtime, "thread-sandbox")
+    [notice, question, answer] = state.messages
+    assert notice.additional_kwargs["host_notice"] == "sandbox_replaced"
+    assert (question.content, answer.content) == ("the question", "second answer")
+    assert "sandbox" in model.calls[0][1].content
+
+
+@pytest.mark.asyncio
 async def test_plain_agent_is_offered_only_its_own_tools(in_memory_runtime):
     """The counterpart to the harness test: without a sandbox the agent gets
     no filesystem, no todos and no `task` tool, and its instructions are the
