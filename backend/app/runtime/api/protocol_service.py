@@ -35,7 +35,11 @@ from app.runtime.api.protocol_repository import CheckpointWriteRepository
 from app.runtime.api.protocol_schemas import EventStreamBody, ProtocolCommand
 from app.runtime.checkpoints import get_checkpoint_state
 from app.runtime.hitl import InterruptScope, load_interrupt_scopes
-from app.runtime.protocol.events import terminal_lifecycle, values_event
+from app.runtime.protocol.events import (
+    terminal_lifecycle,
+    values_event,
+    wire_interrupt_id,
+)
 from app.runtime.protocol.filter import StreamFilter
 from app.runtime.protocol.messages import serialize_message, serialize_message_preview
 from app.runtime.protocol.wire import decode_event, frame, seq_for_entry
@@ -328,7 +332,12 @@ class ProtocolService:
                 "name": "agent",
                 "interrupts": [
                     {
-                        "id": scope.interrupt.id,
+                        # The id the live `input.requested` carried, so the
+                        # client's hydration allowlist and resume agree.
+                        "id": scope.interrupt.id
+                        and wire_interrupt_id(
+                            scope.interrupt.id, scope.interrupt.value
+                        ),
                         "value": scope.interrupt.value,
                         "namespace": _hydration_namespace(scope),
                     }

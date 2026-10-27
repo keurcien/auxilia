@@ -709,6 +709,70 @@ async def test_elicitation_pause_does_not_fail_the_tool_call():
     assert _kinds(_of(resumed, "tools", []))[-1] == "tool-finished"
 
 
+@tool
+def book_table_in_two_rounds(restaurant: str) -> str:
+    """Asks twice from one call, as a server re-asking on retry does."""
+    first = interrupt({"type": "mcp_elicitation", "tool_name": "b", "requests": [1]})
+    second = interrupt({"type": "mcp_elicitation", "tool_name": "b", "requests": [2]})
+    return f"{restaurant}: {first} {second}"
+
+
+async def test_elicitation_rounds_are_requested_under_distinct_ids():
+    """langgraph gives both rounds the task's one interrupt id; the client
+    drops an id it already answered, so the wire ids must differ."""
+    model = ScriptedModel(
+        script=[
+            AIMessage(
+                content="",
+                id="ai-1",
+                tool_calls=[
+                    {
+                        "id": "call_b",
+                        "name": "book_table_in_two_rounds",
+                        "args": {"restaurant": "X"},
+                    }
+                ],
+            ),
+            AIMessage(content="Done.", id="ai-2"),
+        ]
+    )
+    agent = build_runnable(
+        model=model,
+        tools=[book_table_in_two_rounds],
+        system_prompt="root",
+        base_middleware=build_agent_middleware(datetime.now(UTC), recursion_limit=25),
+        checkpointer=MemorySaver(),
+    )
+    config = {"configurable": {"thread_id": "elicit-2"}, "recursion_limit": 25}
+
+    first = await _collect(
+        agent, {"messages": [HumanMessage(content="hi", id="h-1")]}, config
+    )
+    (round_1,) = _of(first, "input.requested")
+    second = await _collect(agent, Command(resume="a"), config)
+    (round_2,) = _of(second, "input.requested")
+    assert _data(round_1)["payload"]["requests"] == [1]
+    assert _data(round_2)["payload"]["requests"] == [2]
+    assert _data(round_1)["interrupt_id"] != _data(round_2)["interrupt_id"]
+
+
+def test_only_an_elicitation_value_marks_a_tool_interrupt_as_a_pause():
+    """The elicitation marker must be the interrupt value's own `type`, not
+    text anywhere in another payload."""
+    iid = "ab" * 16
+    emitter = ProtocolEmitter()
+    _started(emitter, "call_m", "mcp_tool")
+    paused = (
+        f"(Interrupt(value={{'type': 'mcp_elicitation', 'requests': []}}, id='{iid}'),)"
+    )
+    assert _errored(emitter, "call_m", paused) == []
+    _started(emitter, "call_n", "other_tool")
+    nested = (
+        f"(Interrupt(value={{'note': {{'type': 'mcp_elicitation'}}}}, id='{iid}'),)"
+    )
+    assert _kinds(_errored(emitter, "call_n", nested)) == ["tool-error"]
+
+
 async def test_graph_failure_propagates_after_buffered_events():
     """A raising graph must surface to the worker (which finalizes the run as
     `error`), not be swallowed into an event."""

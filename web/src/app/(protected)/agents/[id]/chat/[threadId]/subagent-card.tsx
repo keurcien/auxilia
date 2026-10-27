@@ -34,7 +34,7 @@ import {
   type ElicitationInterrupt,
   type ElicitationResponse,
   type ToolCallView,
-  extractElicitationToolName,
+  findElicitedCallId,
   extractHitlToolNames,
   findSubagentInterrupt,
   getToolStepState,
@@ -85,7 +85,7 @@ const SubAgentConversation = memo(function SubAgentConversation({
   respond: (response: ElicitationResponse, interruptId: string | null) => void;
   inputDisabled: boolean;
 }) {
-  const inputToolName = extractElicitationToolName(elicitation);
+  const elicitedCallId = findElicitedCallId(toolCalls, elicitation);
   const byMessage = new Map<string, ToolCallView[]>();
   for (const tc of toolCalls) {
     if (!tc.messageId) continue;
@@ -112,7 +112,7 @@ const SubAgentConversation = memo(function SubAgentConversation({
                 tc,
                 isInterrupted,
                 hitlToolNames,
-                inputToolName,
+                elicitedCallId,
               );
               return (
                 <Fragment key={tc.id}>
@@ -133,7 +133,7 @@ const SubAgentConversation = memo(function SubAgentConversation({
                         : undefined
                     }
                     input={
-                      state === "awaiting-input" && elicitation ? (
+                      state === "awaiting-input" && elicitation && elicitationId ? (
                         <ElicitationForm
                           key={elicitationId}
                           interrupt={elicitation}

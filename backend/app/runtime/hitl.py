@@ -27,11 +27,11 @@ protocol state snapshot (interrupt namespace for the client).
 import re
 from typing import Any, NamedTuple
 
-from langchain.mcp.elicitation import ELICITATION_INTERRUPT_TYPE
 from langchain_core.messages import ToolMessage
 
 from app.exceptions import DomainValidationError, StaleApprovalError
 from app.runtime.checkpoints import CheckpointState, get_checkpoint_state
+from app.runtime.protocol.events import is_elicitation, wire_interrupt_id
 
 
 class PendingInterrupt(NamedTuple):
@@ -146,7 +146,17 @@ def pending_interrupt(
     """
     interrupts = pending_interrupts(checkpoint)
     if interrupt_id is not None:
-        return next((i for i in interrupts if i.id == interrupt_id), None)
+        # Clients address an elicitation round by its wire id (see
+        # `wire_interrupt_id`); everything else by the checkpoint's id.
+        return next(
+            (
+                i
+                for i in interrupts
+                if i.id is not None
+                and interrupt_id in (i.id, wire_interrupt_id(i.id, i.value))
+            ),
+            None,
+        )
     return interrupts[0] if interrupts else None
 
 
@@ -219,12 +229,6 @@ async def _scope_of(
         state=scope,
         subagent_call=subagent_call,
     )
-
-
-def is_elicitation(value: Any) -> bool:
-    """Whether an interrupt is an MCP server asking the user for input
-    (`langchain.mcp`'s `MCPElicitationInterrupt`) rather than a tool approval."""
-    return isinstance(value, dict) and value.get("type") == ELICITATION_INTERRUPT_TYPE
 
 
 def pending_approval_requests(
@@ -326,7 +330,11 @@ def build_resume_command(
     ) or pending_interrupt(root)
     if pending is None:
         raise StaleApprovalError("No approval is pending on this thread.")
-    if pending.id is not None and interrupt_id != pending.id:
+    # An elicitation round must be named by its own wire id: the checkpoint id
+    # alone would let an answer to an earlier round land on the next one.
+    if pending.id is not None and interrupt_id != wire_interrupt_id(
+        pending.id, pending.value
+    ):
         raise StaleApprovalError("This approval request was already handled.")
 
     payload = (

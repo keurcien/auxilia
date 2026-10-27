@@ -10,8 +10,12 @@ Channel inference and namespace prefix matching mirror the client's
 and the client's per-subscription narrowing can never disagree.
 """
 
+import hashlib
+import json
 import time
 from typing import Any
+
+from langchain.mcp.elicitation import ELICITATION_INTERRUPT_TYPE
 
 
 Namespace = list[str]
@@ -198,8 +202,35 @@ def values_event(namespace: Namespace, data: dict) -> dict:
     return {"method": "values", "params": _params(namespace, data)}
 
 
+def is_elicitation(value: Any) -> bool:
+    """Whether an interrupt is an MCP server asking the user for input
+    (`langchain.mcp`'s `MCPElicitationInterrupt`) rather than a tool approval."""
+    return isinstance(value, dict) and value.get("type") == ELICITATION_INTERRUPT_TYPE
+
+
+def wire_interrupt_id(interrupt_id: str, value: Any) -> str:
+    """The id the client knows an interrupt by.
+
+    langgraph derives an interrupt's id from its task's namespace, so every
+    round of an MCP elicitation — the same tool call interrupting again —
+    reuses one id, and the client ignores an id once it has answered it
+    (`resolvedInterrupts` in the SDK's stream controller). Each round gets its
+    own id instead: the real one plus a digest of what it asks. Approvals
+    keep theirs.
+    """
+    if not is_elicitation(value):
+        return interrupt_id
+    digest = hashlib.sha256(
+        json.dumps(value, sort_keys=True, default=str).encode()
+    ).hexdigest()[:8]
+    return f"{interrupt_id}-{digest}"
+
+
 def input_requested(namespace: Namespace, *, interrupt_id: str, payload: Any) -> dict:
-    data = {"interrupt_id": interrupt_id, "payload": payload}
+    data = {
+        "interrupt_id": wire_interrupt_id(interrupt_id, payload),
+        "payload": payload,
+    }
     return {"method": "input.requested", "params": _params(namespace, data)}
 
 

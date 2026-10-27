@@ -14,7 +14,9 @@ import {
   elicitationChoices,
 } from "@/lib/transcript";
 
-type FormValues = Record<string, Record<string, unknown>>;
+/** Answers per request key, then per field. Maps, because every key here is
+ *  the server's to choose. */
+type FormValues = Map<string, Map<string, unknown>>;
 
 /**
  * An MCP server asking for input mid tool call (`langchain.mcp` raises it as
@@ -28,12 +30,13 @@ export function ElicitationForm({
   disabled = false,
 }: {
   interrupt: ElicitationInterrupt;
-  interruptId: string | null;
+  /** Required: an unaddressed answer could land on another pending interrupt. */
+  interruptId: string;
   respond: (response: ElicitationResponse, interruptId: string | null) => void;
   disabled?: boolean;
 }) {
-  const [values, setValues] = useState<FormValues>(() =>
-    Object.fromEntries(interrupt.requests.map((r) => [r.key, defaults(r)])),
+  const [values, setValues] = useState<FormValues>(
+    () => new Map(interrupt.requests.map((r) => [r.key, defaults(r)])),
   );
   const [sent, setSent] = useState(false);
 
@@ -50,7 +53,7 @@ export function ElicitationForm({
   };
   const off = disabled || sent;
   const incomplete = interrupt.requests.some((r) =>
-    missingChoices(r, values[r.key] ?? {}),
+    missingAnswers(r, values.get(r.key) ?? new Map()),
   );
 
   return (
@@ -60,7 +63,7 @@ export function ElicitationForm({
         e.preventDefault();
         answer((r) =>
           r.mode === "form"
-            ? { action: "accept", content: values[r.key] }
+            ? { action: "accept", content: Object.fromEntries(values.get(r.key) ?? []) }
             : { action: "accept" },
         );
       }}
@@ -79,20 +82,25 @@ export function ElicitationForm({
             </a>
           ) : (
             // The question spans the step; the controls keep a readable width.
-            <div className="max-w-md space-y-2">
+            <div className="max-w-md space-y-4">
             {Object.entries(request.requested_schema.properties ?? {}).map(
-              ([name, field]) => (
+              ([name, field], _, all) => (
                 <FieldInput
                   key={name}
                   name={name}
                   field={field}
+                  // One question needs no heading; several chip groups do, or
+                  // they read as one list.
+                  titled={all.length > 1}
                   required={request.requested_schema.required?.includes(name) ?? false}
-                  value={values[request.key]?.[name]}
+                  value={values.get(request.key)?.get(name)}
                   onChange={(v) => {
-                    setValues((prev) => ({
-                      ...prev,
-                      [request.key]: { ...prev[request.key], [name]: v },
-                    }));
+                    setValues((prev) =>
+                      new Map(prev).set(
+                        request.key,
+                        new Map(prev.get(request.key)).set(name, v),
+                      ),
+                    );
                   }}
                 />
               ),
@@ -130,19 +138,21 @@ function FieldInput({
   name,
   field,
   required,
+  titled,
   value,
   onChange,
 }: {
   name: string;
   field: ElicitationField;
   required: boolean;
+  titled: boolean;
   value: unknown;
   onChange: (value: unknown) => void;
 }) {
   const title = field.title ?? name;
   const choices = elicitationChoices(field);
   if (choices) {
-    return (
+    const chips = (
       <ChoiceChips
         label={title}
         choices={choices}
@@ -151,6 +161,14 @@ function FieldInput({
         max={field.maxItems}
       />
     );
+    return titled ? (
+      <div className="space-y-1.5">
+        <p className="text-xs font-medium text-muted-foreground">{title}</p>
+        {chips}
+      </div>
+    ) : (
+      chips
+    );
   }
   if (field.type === "boolean") {
     return (
@@ -158,6 +176,8 @@ function FieldInput({
         on={value === true}
         aria-pressed={value === true}
         onClick={() => {
+          // Unset until tapped, so an unanswered optional boolean is not
+          // sent as `false`; once tapped it toggles true / false.
           onChange(value !== true);
         }}
       >
@@ -260,13 +280,14 @@ function ChoiceChips({
 }
 
 /** Chips aren't native inputs, so `required` / `minItems` are checked here. */
-function missingChoices(request: ElicitationRequest, values: Record<string, unknown>) {
+function missingAnswers(request: ElicitationRequest, answers: Map<string, unknown>) {
   if (request.mode !== "form") return false;
   const { properties = {}, required = [] } = request.requested_schema;
   return Object.entries(properties).some(([name, field]) => {
+    const v = answers.get(name);
+    if (field.type === "boolean") return required.includes(name) && v === undefined;
     const choices = elicitationChoices(field);
     if (!choices) return false;
-    const v = values[name];
     const count = Array.isArray(v) ? v.length : v ? 1 : 0;
     const min = field.minItems ?? (required.includes(name) ? 1 : 0);
     return count < min;
@@ -281,11 +302,12 @@ function inputType(field: ElicitationField): string {
   return "text";
 }
 
-function defaults(request: ElicitationRequest): Record<string, unknown> {
-  if (request.mode !== "form") return {};
-  return Object.fromEntries(
+/** The schema's own defaults; anything else starts unanswered. */
+function defaults(request: ElicitationRequest): Map<string, unknown> {
+  if (request.mode !== "form") return new Map();
+  return new Map(
     Object.entries(request.requested_schema.properties ?? {})
-      .filter(([, f]) => f.default !== undefined || f.type === "boolean")
-      .map(([name, f]) => [name, f.default ?? false]),
+      .filter(([, f]) => f.default !== undefined)
+      .map(([name, f]) => [name, f.default]),
   );
 }

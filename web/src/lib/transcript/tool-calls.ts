@@ -136,13 +136,14 @@ export function getToolStepState(
   tc: ToolCallView,
   isInterrupted = false,
   hitlToolNames: ReadonlySet<string> | null = null,
-  inputToolName: string | null = null,
+  /** The call an MCP elicitation is paused in (`findElicitedCallId`). */
+  elicitedCallId: string | null = null,
 ): ToolStepState {
   if (tc.status === "finished") return "done";
   if (tc.status === "error") {
     return REJECTION_NOTICE.test(tc.error ?? "") ? "rejected" : "error";
   }
-  if (isInterrupted && inputToolName === tc.name) return "awaiting-input";
+  if (isInterrupted && elicitedCallId === tc.id) return "awaiting-input";
   if (isInterrupted && (!hitlToolNames || hitlToolNames.has(tc.name))) {
     return "awaiting-approval";
   }

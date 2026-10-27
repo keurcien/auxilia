@@ -71,7 +71,7 @@ import {
   sanitizeToolIdentifier,
   claimsInterrupt,
   type ElicitationResponse,
-  extractElicitationToolName,
+  findElicitedCallId,
   isElicitation,
 } from "@/lib/transcript";
 import {
@@ -158,6 +158,11 @@ export const ConversationBody = memo(function ConversationBody({
     () => groupChains(messages, toolCalls),
     [messages, toolCalls],
   );
+  // Over the whole transcript, not per chain: one form per interrupt.
+  const elicitedCallId = useMemo(
+    () => findElicitedCallId(toolCalls, elicitation?.value),
+    [toolCalls, elicitation],
+  );
 
   const last = messages.at(-1);
   const assistantStreaming = isLoading && last != null && isAIMessage(last);
@@ -214,6 +219,7 @@ export const ConversationBody = memo(function ConversationBody({
                 recordDecision={recordDecision}
                 nestedInterrupts={nestedInterrupts}
                 elicitation={elicitation}
+                elicitedCallId={elicitedCallId}
                 respond={respond}
                 resumeInFlight={isLoading}
                 modelUnavailable={modelUnavailable}
@@ -416,6 +422,7 @@ type ChainProps = {
   recordDecision: (toolCallId: string, decision: HitlDecision) => void;
   nestedInterrupts: Interrupt[];
   elicitation: Interrupt | null;
+  elicitedCallId: string | null;
   respond: (
     response: HitlResponse | ElicitationResponse,
     interruptId: string | null,
@@ -454,12 +461,12 @@ const Chain = ({
   recordDecision,
   nestedInterrupts,
   elicitation,
+  elicitedCallId,
   respond,
   resumeInFlight,
   modelUnavailable,
   coordinatorStreaming,
 }: ChainProps) => {
-  const inputToolName = extractElicitationToolName(elicitation?.value);
   const rows: ChainRow[] = steps.map((step) =>
     step.kind === "reasoning"
       ? step
@@ -471,7 +478,7 @@ const Chain = ({
             step.tc,
             isInterrupted,
             hitlToolNames,
-            inputToolName,
+            elicitedCallId,
           ),
         },
   );
@@ -554,11 +561,13 @@ const Chain = ({
                   : undefined
               }
               input={
-                state === "awaiting-input" && isElicitation(elicitation?.value) ? (
+                state === "awaiting-input" &&
+                elicitation?.id != null &&
+                isElicitation(elicitation.value) ? (
                   <ElicitationForm
                     key={elicitation.id}
                     interrupt={elicitation.value}
-                    interruptId={elicitation.id ?? null}
+                    interruptId={elicitation.id}
                     respond={respond}
                     disabled={resumeInFlight || modelUnavailable}
                   />

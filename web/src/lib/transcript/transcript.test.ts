@@ -3,7 +3,7 @@ import type { AssembledToolCall } from "@langchain/react";
 import { describe, expect, it } from "vitest";
 import {
   elicitationChoices,
-  extractElicitationToolName,
+  findElicitedCallId,
   extractHitlToolNames,
   getFileAttachments,
   findSubagentInterrupt,
@@ -126,9 +126,10 @@ describe("getToolStepState", () => {
     expect(getToolStepState(call, true, names)).toBe("running");
   });
 
-  it("marks the call an elicitation paused in as awaiting input", () => {
-    const [asking, other] = pairToolCalls([
+  it("marks only the call an elicitation is paused in as awaiting input", () => {
+    const [earlier, asking, other] = pairToolCalls([
       ai("a1", [
+        { id: "c0", name: "my_server_book_table" },
         { id: "c1", name: "my_server_book_table" },
         { id: "c2", name: "search" },
       ]),
@@ -136,10 +137,15 @@ describe("getToolStepState", () => {
     // The payload carries the MCP name; the transcript, the sanitized one.
     const value = { type: "mcp_elicitation", tool_name: "my server_book_table", requests: [] };
     const names = extractHitlToolNames(value);
-    const input = extractElicitationToolName(value);
-    expect(getToolStepState(asking, true, names, input)).toBe("awaiting-input");
-    expect(getToolStepState(other, true, names, input)).toBe("running");
-    expect(getToolStepState(asking, false, names, input)).toBe("running");
+    const calls = [earlier, asking, other];
+    const elicited = findElicitedCallId(calls, value);
+    expect(elicited).toBe("c1");
+    // One form per interrupt: the earlier call of the same tool does not ask.
+    expect(getToolStepState(earlier, true, names, elicited)).toBe("running");
+    expect(getToolStepState(asking, true, names, elicited)).toBe("awaiting-input");
+    expect(getToolStepState(other, true, names, elicited)).toBe("running");
+    expect(getToolStepState(asking, false, names, elicited)).toBe("running");
+    expect(findElicitedCallId(calls, { action_requests: [] })).toBeNull();
   });
 });
 

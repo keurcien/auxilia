@@ -17,6 +17,7 @@ from app.runtime.hitl import (
     pending_interrupt,
     pending_interrupts,
 )
+from app.runtime.protocol.events import wire_interrupt_id
 from tests.runtime.fake_checkpoints import checkpoint_state
 
 
@@ -188,10 +189,14 @@ _ELICITATION = {
 }
 
 
+_ELICITATION_WIRE_ID = wire_interrupt_id(INTERRUPT_ID, _ELICITATION)
+
+
 def test_elicitation_resume_passes_the_responses_through():
     answer = {"action": "accept", "content": {"date": "2026-11-02"}}
-    resume = {"interrupt_id": INTERRUPT_ID, "responses": {"details": answer}}
+    resume = {"interrupt_id": _ELICITATION_WIRE_ID, "responses": {"details": answer}}
     out = build_resume_command(_checkpoint(_ELICITATION, []), resume)
+    # Addressed by the checkpoint's own id: that is what langgraph resumes.
     assert out == {"resume": {INTERRUPT_ID: {"responses": {"details": answer}}}}
     # Not an approval: no tool calls to match against.
     assert pending_approval_requests(_checkpoint(_ELICITATION, [])) == []
@@ -208,9 +213,36 @@ def test_elicitation_resume_passes_the_responses_through():
     ],
 )
 def test_elicitation_responses_must_answer_every_request(responses):
-    resume = {"interrupt_id": INTERRUPT_ID, "responses": responses}
+    resume = {"interrupt_id": _ELICITATION_WIRE_ID, "responses": responses}
     with pytest.raises(DomainValidationError):
         build_resume_command(_checkpoint(_ELICITATION, []), resume)
+
+
+def test_each_elicitation_round_has_its_own_wire_id():
+    """Every round of one tool call shares langgraph's interrupt id, and the
+    client ignores an id it already answered: rounds must differ on the wire,
+    and an answer to an earlier round must not land on the next one."""
+    round_2 = {
+        **_ELICITATION,
+        "requests": [{**_ELICITATION["requests"][0], "key": "more"}],
+    }
+    round_2_id = wire_interrupt_id(INTERRUPT_ID, round_2)
+    assert round_2_id not in (INTERRUPT_ID, _ELICITATION_WIRE_ID)
+    # Approvals keep the checkpoint's id.
+    assert wire_interrupt_id(INTERRUPT_ID, {"action_requests": []}) == INTERRUPT_ID
+
+    checkpoint = _checkpoint(round_2, [])
+    answer = {"action": "decline"}
+    for stale_id in (_ELICITATION_WIRE_ID, INTERRUPT_ID):
+        with pytest.raises(StaleApprovalError):
+            build_resume_command(
+                checkpoint, {"interrupt_id": stale_id, "responses": {"more": answer}}
+            )
+    out = build_resume_command(
+        checkpoint, {"interrupt_id": round_2_id, "responses": {"more": answer}}
+    )
+    assert out == {"resume": {INTERRUPT_ID: {"responses": {"more": answer}}}}
+    assert pending_interrupt(checkpoint, round_2_id).id == INTERRUPT_ID
 
 
 def test_stale_when_nothing_is_pending():

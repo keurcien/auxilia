@@ -129,13 +129,30 @@ export function isElicitation(value: unknown): value is ElicitationInterrupt {
   );
 }
 
-/** The tool call an MCP elicitation is paused in, as the transcript names it.
+/** The tool an MCP elicitation is paused in, as the transcript names it.
  *  The payload carries the MCP name; the runtime sanitizes tool names the same
  *  way before the model sees them.
  *  shortcut: misses a name the runtime also de-duplicated (`_2`) or truncated
  *  past 128 chars — carry the tool-call id in the payload if that bites. */
-export function extractElicitationToolName(value: unknown): string | null {
+function elicitationToolName(value: unknown): string | null {
   return isElicitation(value) ? sanitizeToolIdentifier(value.tool_name) : null;
+}
+
+/** The one call an elicitation is paused in: the latest unfinished call of its
+ *  tool, so parallel or earlier calls of the same tool never get a form too.
+ *  The payload names a tool, not a call — with two calls of one tool pausing
+ *  together, the answer still goes to the interrupt the form carries. */
+export function findElicitedCallId(
+  toolCalls: readonly { id: string; name: string; status: string }[],
+  value: unknown,
+): string | null {
+  const name = elicitationToolName(value);
+  if (name == null) return null;
+  return (
+    toolCalls.findLast(
+      (tc) => tc.name === name && tc.status !== "finished" && tc.status !== "error",
+    )?.id ?? null
+  );
 }
 
 /** The HITL middleware only hangs the tool calls named in the interrupt's

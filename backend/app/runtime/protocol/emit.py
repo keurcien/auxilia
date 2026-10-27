@@ -57,7 +57,6 @@ import re
 from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Any
 
-from langchain.mcp.elicitation import ELICITATION_INTERRUPT_TYPE
 from langchain_core.language_models._compat_bridge import message_to_events
 from langchain_core.messages import (
     AIMessage,
@@ -94,9 +93,13 @@ _SUBGRAPH_STATUS = {
 #: `str(GraphInterrupt(...))` — the shape a bubbling interrupt takes on the
 #: `tools` channel's `tool-error` message.
 _INTERRUPT_REPR = re.compile(r"^\(?Interrupt\(")
-#: The ``'type': 'mcp_elicitation'`` an MCP elicitation's payload carries in
-#: that repr.
-_ELICITATION_IN_REPR = repr({"type": ELICITATION_INTERRUPT_TYPE})[1:-1]
+#: That repr when the interrupt's value is an MCP elicitation: its top-level
+#: ``type`` (the first key `langchain.mcp` writes), not the marker text
+#: anywhere in some other payload.
+_ELICITATION_REPR = re.compile(
+    r"^\(?Interrupt\(value=\{"
+    + re.escape(repr("type") + ": " + repr(ev.ELICITATION_INTERRUPT_TYPE))
+)
 #: The ``id='<xxh3-128 hex>'`` field(s) inside that repr.
 _INTERRUPT_ID_IN_REPR = re.compile(r"\bid='([0-9a-f]{32})'")
 
@@ -522,7 +525,7 @@ class ProtocolEmitter:
             # langgraph's repr always names the id; a shape without one is
             # some other failure and must reach the client.
             return False
-        if _ELICITATION_IN_REPR in message:
+        if _ELICITATION_REPR.match(message):
             # Raised by the tool itself, so its `tool-error` comes before the
             # interrupt is announced — the payload's own marker is the proof.
             return True
