@@ -811,7 +811,7 @@ def test_whole_ai_message_is_replayed_as_a_message_lifecycle():
     )
 
 
-def test_block_content_and_idless_human_messages_are_not_echoed():
+def test_block_content_idless_and_host_notice_messages_are_not_echoed():
     emitter = ProtocolEmitter()
     rich = HumanMessage(
         content=[
@@ -821,7 +821,15 @@ def test_block_content_and_idless_human_messages_are_not_echoed():
         id="human-2",
     )
     anonymous = HumanMessage(content="hi", id="")
-    events = emitter.translate(_envelope("values", [], {"messages": [rich, anonymous]}))
+    notice = HumanMessage(
+        content="[Host notice] …",
+        id="human-3",
+        name="host",
+        additional_kwargs={"host_notice": "files_restored"},
+    )
+    events = emitter.translate(
+        _envelope("values", [], {"messages": [rich, anonymous, notice]})
+    )
     assert [e["method"] for e in events] == ["values"]
 
 

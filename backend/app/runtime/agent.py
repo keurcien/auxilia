@@ -133,11 +133,14 @@ class RegenerationPoint:
     the turn being redone. ``None`` means the turn being redone was the
     thread's first, so there is nothing earlier to fork from and the thread
     restarts from scratch instead. ``message`` is the user message that
-    opened the turn, re-sent as the fork's input under its original id.
+    opened the turn, re-sent as the fork's input under its original id, and
+    ``notices`` the host notices ahead of it, re-sent with it: the fork drops
+    them, and the run that made them (e.g. placing the files) won't again.
     """
 
     checkpoint_id: str | None
     message: HumanMessage | None
+    notices: tuple[HumanMessage, ...] = ()
 
 
 async def get_regeneration_point(agent, config: dict) -> RegenerationPoint | None:
@@ -164,19 +167,25 @@ async def get_regeneration_point(agent, config: dict) -> RegenerationPoint | Non
         # message is read off the thread's latest state instead: its last
         # human message.
         latest = await agent.aget_state(config)
-        message = next(
+        messages = latest.values.get("messages", [])
+        at = next(
             (
-                m
-                for m in reversed(latest.values.get("messages", []))
-                if isinstance(m, HumanMessage)
+                i
+                for i in reversed(range(len(messages)))
+                if isinstance(messages[i], HumanMessage)
             ),
             None,
         )
+        message = None if at is None else messages[at]
+        start = at or 0
+        while start > 0 and _is_host_notice(messages[start - 1]):
+            start -= 1
+        notices = tuple(messages[start:at]) if at is not None else ()
         parent = state.parent_config
-        if parent is None:
-            return RegenerationPoint(checkpoint_id=None, message=message)
         return RegenerationPoint(
-            checkpoint_id=parent["configurable"]["checkpoint_id"], message=message
+            checkpoint_id=parent["configurable"]["checkpoint_id"] if parent else None,
+            message=message,
+            notices=notices,
         )
     return None
 
@@ -662,6 +671,9 @@ class Agent:
             messages = convert_to_messages(raw)
         except (ValueError, TypeError, KeyError, NotImplementedError) as e:
             raise DomainValidationError(f"Invalid run input: {e}") from e
+        for message in messages:
+            # The host-notice marker is the runtime's own; a client can't claim it.
+            message.additional_kwargs.pop("host_notice", None)
         return {"messages": messages}
 
     async def _resolve_config(
@@ -700,6 +712,10 @@ class Agent:
             else:
                 if not has_input:
                     resolved_input = {"messages": [point.message]}
+                resolved_input = {
+                    **resolved_input,
+                    "messages": [*point.notices, *resolved_input["messages"]],
+                }
                 if point.checkpoint_id is None:
                     await checkpointer.adelete_thread(self.thread.id)
                 else:
@@ -966,7 +982,21 @@ def _with_host_notice(resolved_input, text: str, kind: str):
     notice = HumanMessage(
         content=text, name="host", additional_kwargs={"host_notice": kind}
     )
-    return {**resolved_input, "messages": [notice, *resolved_input.get("messages", [])]}
+    # A regeneration may carry the redone turn's notice of this kind: this one is current.
+    rest = [
+        m
+        for m in resolved_input.get("messages", [])
+        if not (_is_host_notice(m) and m.additional_kwargs["host_notice"] == kind)
+    ]
+    return {**resolved_input, "messages": [notice, *rest]}
+
+
+def _is_host_notice(message) -> bool:
+    return (
+        isinstance(message, HumanMessage)
+        and message.name == "host"
+        and ("host_notice" in message.additional_kwargs)
+    )
 
 
 def extract_invoke_result(
