@@ -45,13 +45,46 @@ export function Loading({
 const PptxViewer = lazy(() => import("./pptx-viewer"));
 const decode = (bytes: ArrayBuffer) => new TextDecoder().decode(bytes);
 
+/**
+ * Runs inside the frame, before the page's own scripts. A srcdoc page resolves
+ * relative links against the auxilia page around it, so `joueurs.html` (or
+ * even `#`) would load the app itself in the frame. In-page anchors scroll;
+ * every other link does nothing, `javascript:` URLs included: a single file
+ * has no neighbour to open. The page's own click handlers still run. Capture
+ * phase, so a handler that stops propagation cannot skip it; the composed
+ * path, so a link inside an open shadow root is found too (a closed one is
+ * left to the app's frame-ancestors header). Self-contained, since it is
+ * inlined as source.
+ */
+export function guardLinks(doc: Document): void {
+  const guard = (event: MouseEvent) => {
+    const link = event
+      .composedPath()
+      .find(
+        (node): node is Element =>
+          node instanceof Element && node.matches("a, area"),
+      );
+    if (!link) return;
+    event.preventDefault();
+    const href =
+      link.getAttribute("href") ??
+      link.getAttributeNS("http://www.w3.org/1999/xlink", "href") ??
+      "";
+    if (event.type === "click" && href.startsWith("#") && href.length > 1) {
+      doc.getElementById(decodeURIComponent(href.slice(1)))?.scrollIntoView();
+    }
+  };
+  doc.addEventListener("click", guard, true);
+  doc.addEventListener("auxclick", guard, true);
+}
+
 export function isolatedHtml(html: string, sources: string[]): string {
   // Placed before all authored content. The frame has an opaque origin: no
   // cookies, auxilia API, forms, nested frames, fetch or host bridge. Scripts
   // run, and may load libraries, styles, fonts and images from the workspace's
   // allowed sources (ARTIFACT_HTML_SOURCES, validated by the backend).
   const remote = sources.map((source) => ` ${source}`).join("");
-  return `<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'${remote}; style-src 'unsafe-inline'${remote}; img-src data: blob:${remote}; font-src data:${remote}; media-src data: blob:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">${html}`;
+  return `<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'${remote}; style-src 'unsafe-inline'${remote}; img-src data: blob:${remote}; font-src data:${remote}; media-src data: blob:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"><script>(${guardLinks.toString()})(document)</script>${html}`;
 }
 const pill =
   "flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-full border border-border bg-white/90 text-[12px] font-semibold text-subtle shadow-[0_2px_8px_rgba(10,25,30,0.08)] backdrop-blur hover:bg-hover hover:text-ink";

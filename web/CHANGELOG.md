@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.10.16](https://github.com/keurcien/auxilia/compare/web-v0.10.15...web-v0.10.16) (2026-10-27)
+
+
+### Bug Fixes
+
+* **artifacts:** keep HTML artifact links from loading the app in the viewer ([#436](https://github.com/keurcien/auxilia/issues/436)) ([ed9863d](https://github.com/keurcien/auxilia/commit/ed9863d7989aec468a5a7596986af58606f97bff))
+* **attachments:** keep host notices out of the chat and in regenerations ([#438](https://github.com/keurcien/auxilia/issues/438)) ([4e53e60](https://github.com/keurcien/auxilia/commit/4e53e6007151c7df2c0357f1ff933b2d1ea95d65))
+
 ## [0.10.15](https://github.com/keurcien/auxilia/compare/web-v0.10.14...web-v0.10.15) (2026-10-23)
 
 

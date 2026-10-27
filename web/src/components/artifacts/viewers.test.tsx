@@ -55,6 +55,45 @@ describe("artifact viewer adapters", () => {
       page.indexOf("<script>"),
     );
   });
+  it("keeps links from navigating the frame; in-page anchors scroll", () => {
+    document.body.innerHTML =
+      '<a id="away" href="joueurs.html">Joueurs</a><a id="top" href="#target">Top</a>' +
+      '<a id="js" href="javascript:location=\'/agents\'">JS</a>' +
+      '<a id="stopper" href="/agents">Stopper</a><div id="target"></div>';
+    document.getElementById("stopper")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+    });
+    const scroll = vi.fn();
+    const target = document.getElementById("target");
+    if (target) target.scrollIntoView = scroll;
+    // The script the frame actually runs: guardLinks' source, as emitted.
+    const emitted = /<script>([\s\S]*?)<\/script>/.exec(isolatedHtml("", []))?.[1] ?? "";
+    new Function(emitted)();
+    const click = (id: string) => {
+      const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+      document.getElementById(id)?.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    expect(click("away")).toBe(true);
+    expect(click("top")).toBe(true);
+    expect(click("js")).toBe(true);
+    expect(click("stopper")).toBe(true);
+    const middle = new MouseEvent("auxclick", { bubbles: true, cancelable: true, button: 1 });
+    document.getElementById("away")?.dispatchEvent(middle);
+    expect(middle.defaultPrevented).toBe(true);
+    // A link inside an open shadow root.
+    const host = document.createElement("div");
+    document.body.append(host);
+    const shadow = host.attachShadow({ mode: "open" });
+    shadow.innerHTML = '<a href="joueurs.html"><span>Inside</span></a>';
+    const inner = new MouseEvent("click", { bubbles: true, cancelable: true, composed: true });
+    shadow.querySelector("span")?.dispatchEvent(inner);
+    expect(inner.defaultPrevented).toBe(true);
+    document.body.innerHTML = "";
+    expect(scroll).toHaveBeenCalledOnce();
+    const page = isolatedHtml("<p>authored</p>", []);
+    expect(page.indexOf(")(document)</script>")).toBeLessThan(page.indexOf("<p>authored"));
+  });
   it("falls back to download for unknown content", () => {
     render(
       <ArtifactViewer

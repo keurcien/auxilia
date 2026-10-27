@@ -10,7 +10,12 @@ import {
 } from "@langchain/core/messages";
 import type { AnyStream, SubagentDiscoverySnapshot } from "@langchain/react";
 import type { Interrupt } from "@langchain/langgraph-sdk";
-import { CopyIcon, RefreshCcwIcon, XIcon } from "lucide-react";
+import {
+  CopyIcon,
+  RefreshCcwIcon,
+  XIcon,
+} from "lucide-react";
+import { FileIcon } from "@/components/artifacts/file-type-icon";
 import type { ThreadSession } from "@/lib/thread-session";
 import {
   Message,
@@ -172,9 +177,8 @@ export const ConversationBody = memo(function ConversationBody({
       {messages.map((message, index) => {
         const key = message.id ?? index;
         if (isHumanMessage(message)) {
-          return isHostNotice(message) ? (
-            <HostNotice key={key} message={message} />
-          ) : (
+          // Host notices are for the model; the chat already shows the files.
+          return isHostNotice(message) ? null : (
             <UserTurn key={key} message={message} />
           );
         }
@@ -258,8 +262,7 @@ export const ConversationBody = memo(function ConversationBody({
 /**
  * A user-role message the runtime authored, not the user: it carries
  * `name: "host"` and `additional_kwargs.host_notice` (e.g. the sandbox of
- * the thread was replaced). Rendered as a muted event line, never as a
- * user bubble, so the transcript keeps who said what.
+ * the thread was replaced). Context for the model, not shown in the chat.
  */
 export function isHostNotice(message: BaseMessage): boolean {
   return (
@@ -267,14 +270,6 @@ export function isHostNotice(message: BaseMessage): boolean {
     typeof message.additional_kwargs?.host_notice === "string"
   );
 }
-
-const HostNotice = ({ message }: { message: BaseMessage }) => (
-  <div className="my-2 flex justify-center">
-    <p className="max-w-[80%] rounded-md border border-dashed border-border px-3 py-1.5 whitespace-pre-line text-center font-mono text-[11.5px] leading-[1.5] text-muted-foreground">
-      {message.text.replace(/^\[Host notice\]\s*/, "")}
-    </p>
-  </div>
-);
 
 /** Messages waiting behind the running turn, shown above the composer —
  *  dimmed until they are sent. "Send now" interrupts the turn with one. */
@@ -343,8 +338,15 @@ const UserTurn = ({ message }: { message: BaseMessage }) => {
                   <AttachmentHoverCardTrigger asChild>
                     <Attachment data={attachment}>
                       <div className="relative size-5 shrink-0">
-                        <div className="absolute inset-0 transition-opacity group-hover:opacity-0">
-                          <AttachmentPreview />
+                        <div className="absolute inset-0 flex items-center justify-center transition-opacity group-hover:opacity-0">
+                          <AttachmentPreview
+                            fallbackIcon={
+                              <FileIcon
+                                mimeType={attachment.mediaType ?? ""}
+                                className="h-5 w-4"
+                              />
+                            }
+                          />
                         </div>
                       </div>
                       <AttachmentInfo />
