@@ -262,7 +262,12 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
             return []
         # One file per path: an artifact presented over an attachment is newer,
         # and rows come in creation order, so the last one is what the disk had.
-        latest = {row.source_path: row for row in rows}
+        # Rows written in one transaction share `created_at`; the presented one
+        # still wins, since it can only come after the attachment it edits.
+        ordered = sorted(
+            rows, key=lambda row: (row.created_at, row.origin == "artifact")
+        )
+        latest = {row.source_path: row for row in ordered}
         restored = [row for row in latest.values() if row.source_path in missing]
         # One file in memory at a time.
         for row in restored:
