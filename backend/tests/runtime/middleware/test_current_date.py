@@ -1,7 +1,7 @@
 """Tests for CurrentDateMiddleware.
 
-The middleware appends a date frozen at construction (the thread's creation
-date) to the end of the system prompt on every model call, preserving
+The middleware appends a timestamp frozen at construction (the thread's creation
+time) to the end of the system prompt on every model call, preserving
 whichever content shape the caller used (plain string vs content blocks).
 The frozen stamp keeps the system prompt byte-identical for the thread's
 lifetime, so provider prompt caches (multi-day on DeepSeek) never see the
@@ -46,7 +46,7 @@ async def _run(system_message, middleware=None):
 async def test_string_content_gets_suffix():
     stamped = await _run(SystemMessage("You are a helpful assistant."))
     assert stamped.content == (
-        "You are a helpful assistant.\n\nCurrent date: Tuesday, July 21, 2026 (UTC)"
+        "You are a helpful assistant.\n\nCurrent date: Tuesday, July 21, 2026 at 14:32 (UTC)"
     )
 
 
@@ -58,7 +58,7 @@ async def test_block_content_gets_extra_text_block():
     assert stamped.content[0] == {"type": "text", "text": "Instructions."}
     assert stamped.content[1] == {
         "type": "text",
-        "text": "Current date: Tuesday, July 21, 2026 (UTC)",
+        "text": "Current date: Tuesday, July 21, 2026 at 14:32 (UTC)",
     }
 
 
@@ -66,16 +66,14 @@ async def test_block_content_gets_extra_text_block():
 async def test_no_system_message_creates_one():
     stamped = await _run(None)
     assert isinstance(stamped, SystemMessage)
-    assert stamped.content == "Current date: Tuesday, July 21, 2026 (UTC)"
+    assert stamped.content == "Current date: Tuesday, July 21, 2026 at 14:32 (UTC)"
 
 
 @pytest.mark.asyncio
 async def test_stamp_is_frozen_at_construction():
     """Cache-safety: the stamp comes from the given date, never from now()."""
-    middleware = CurrentDateMiddleware(datetime(2025, 1, 1, tzinfo=UTC))
+    middleware = CurrentDateMiddleware(datetime(2025, 1, 1, 9, 5, tzinfo=UTC))
     first = await _run(SystemMessage("Instructions."), middleware)
     second = await _run(SystemMessage("Instructions."), middleware)
     assert first.content == second.content
-    assert "Wednesday, January 01, 2025" in first.content
-    # Date only — no time-of-day component in the stamp.
-    assert ":" not in first.content.split("Current date:")[1]
+    assert "Wednesday, January 01, 2025 at 09:05 (UTC)" in first.content
