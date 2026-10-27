@@ -34,11 +34,10 @@ from app.redis_client import get_redis
 from app.runtime.api.protocol_repository import CheckpointWriteRepository
 from app.runtime.api.protocol_schemas import EventStreamBody, ProtocolCommand
 from app.runtime.checkpoints import get_checkpoint_state
-from app.runtime.hitl import InterruptScope, load_interrupt_scopes
+from app.runtime.hitl import InterruptScope, load_interrupt_scopes, scope_wire_id
 from app.runtime.protocol.events import (
     terminal_lifecycle,
     values_event,
-    wire_interrupt_id,
 )
 from app.runtime.protocol.filter import StreamFilter
 from app.runtime.protocol.messages import serialize_message, serialize_message_preview
@@ -334,10 +333,7 @@ class ProtocolService:
                     {
                         # The id the live `input.requested` carried, so the
                         # client's hydration allowlist and resume agree.
-                        "id": scope.interrupt.id
-                        and wire_interrupt_id(
-                            scope.interrupt.id, scope.interrupt.value
-                        ),
+                        "id": scope_wire_id(scope),
                         "value": scope.interrupt.value,
                         "namespace": _hydration_namespace(scope),
                     }

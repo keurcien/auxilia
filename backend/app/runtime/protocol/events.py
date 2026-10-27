@@ -10,8 +10,6 @@ Channel inference and namespace prefix matching mirror the client's
 and the client's per-subscription narrowing can never disagree.
 """
 
-import hashlib
-import json
 import time
 from typing import Any
 
@@ -208,29 +206,28 @@ def is_elicitation(value: Any) -> bool:
     return isinstance(value, dict) and value.get("type") == ELICITATION_INTERRUPT_TYPE
 
 
-def wire_interrupt_id(interrupt_id: str, value: Any) -> str:
+def wire_interrupt_id(interrupt_id: str, value: Any, round_: int) -> str:
     """The id the client knows an interrupt by.
 
     langgraph derives an interrupt's id from its task's namespace, so every
     round of an MCP elicitation — the same tool call interrupting again —
     reuses one id, and the client ignores an id once it has answered it
     (`resolvedInterrupts` in the SDK's stream controller). Each round gets its
-    own id instead: the real one plus a digest of what it asks. Approvals
-    keep theirs.
+    own id instead: the real one plus the round's number (`hitl.wire_id`
+    counts it off the checkpoint), so even a server asking the identical
+    question again is asked anew. Approvals keep theirs.
     """
-    if not is_elicitation(value):
-        return interrupt_id
-    digest = hashlib.sha256(
-        json.dumps(value, sort_keys=True, default=str).encode()
-    ).hexdigest()[:8]
-    return f"{interrupt_id}-{digest}"
+    return f"{interrupt_id}-{round_}" if is_elicitation(value) else interrupt_id
+
+
+def base_interrupt_id(wire_id: str) -> str:
+    """The checkpoint's interrupt id inside a `wire_interrupt_id`."""
+    base, sep, round_ = wire_id.rpartition("-")
+    return base if sep and round_.isdigit() else wire_id
 
 
 def input_requested(namespace: Namespace, *, interrupt_id: str, payload: Any) -> dict:
-    data = {
-        "interrupt_id": wire_interrupt_id(interrupt_id, payload),
-        "payload": payload,
-    }
+    data = {"interrupt_id": interrupt_id, "payload": payload}
     return {"method": "input.requested", "params": _params(namespace, data)}
 
 

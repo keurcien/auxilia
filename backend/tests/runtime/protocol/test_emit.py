@@ -34,7 +34,16 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.stream.transformers import UpdatesTransformer
 from langgraph.types import Command, Interrupt, Overwrite, interrupt
 
+from app.exceptions import StaleApprovalError
 from app.runtime.agent import build_agent_middleware, build_runnable
+from app.runtime.checkpoints import get_checkpoint_state
+from app.runtime.hitl import (
+    address_input_requested,
+    build_resume_command,
+    load_interrupt_scope,
+    next_elicitation_rounds,
+    scope_wire_id,
+)
 from app.runtime.protocol.emit import ProtocolEmitter
 from app.runtime.protocol.messages import serialize_message
 
@@ -709,51 +718,69 @@ async def test_elicitation_pause_does_not_fail_the_tool_call():
     assert _kinds(_of(resumed, "tools", []))[-1] == "tool-finished"
 
 
+_SAME_QUESTION = {"type": "mcp_elicitation", "tool_name": "b", "requests": []}
+
+
 @tool
-def book_table_in_two_rounds(restaurant: str) -> str:
-    """Asks twice from one call, as a server re-asking on retry does."""
-    first = interrupt({"type": "mcp_elicitation", "tool_name": "b", "requests": [1]})
-    second = interrupt({"type": "mcp_elicitation", "tool_name": "b", "requests": [2]})
+def ask_twice(restaurant: str) -> str:
+    """Asks the identical question twice from one call, as a server re-asking
+    after an answer it rejects does."""
+    first = interrupt(_SAME_QUESTION)
+    second = interrupt(_SAME_QUESTION)
     return f"{restaurant}: {first} {second}"
 
 
-async def test_elicitation_rounds_are_requested_under_distinct_ids():
-    """langgraph gives both rounds the task's one interrupt id; the client
-    drops an id it already answered, so the wire ids must differ."""
+async def test_repeated_elicitation_rounds_get_distinct_wire_ids():
+    """langgraph gives every round the task's one interrupt id, and the
+    client drops an id it already answered. Each live `input.requested`,
+    stamped as `Agent.stream` does, carries its round — even for an identical
+    question — and the same id `/state` reports, which resume accepts."""
     model = ScriptedModel(
         script=[
             AIMessage(
                 content="",
                 id="ai-1",
                 tool_calls=[
-                    {
-                        "id": "call_b",
-                        "name": "book_table_in_two_rounds",
-                        "args": {"restaurant": "X"},
-                    }
+                    {"id": "call_b", "name": "ask_twice", "args": {"restaurant": "X"}}
                 ],
             ),
             AIMessage(content="Done.", id="ai-2"),
         ]
     )
+    checkpointer = MemorySaver()
     agent = build_runnable(
         model=model,
-        tools=[book_table_in_two_rounds],
+        tools=[ask_twice],
         system_prompt="root",
         base_middleware=build_agent_middleware(datetime.now(UTC), recursion_limit=25),
-        checkpointer=MemorySaver(),
+        checkpointer=checkpointer,
     )
-    config = {"configurable": {"thread_id": "elicit-2"}, "recursion_limit": 25}
+    thread_id = "elicit-2"
+    config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 25}
 
-    first = await _collect(
-        agent, {"messages": [HumanMessage(content="hi", id="h-1")]}, config
-    )
-    (round_1,) = _of(first, "input.requested")
-    second = await _collect(agent, Command(resume="a"), config)
-    (round_2,) = _of(second, "input.requested")
-    assert _data(round_1)["payload"]["requests"] == [1]
-    assert _data(round_2)["payload"]["requests"] == [2]
-    assert _data(round_1)["interrupt_id"] != _data(round_2)["interrupt_id"]
+    async def round_of(agent_input, command=None) -> str:
+        # As `Agent.stream`: rounds counted before the run, stamped mid-stream.
+        rounds = await next_elicitation_rounds(checkpointer, thread_id, command)
+        events = await _collect(agent, agent_input, config)
+        (requested,) = _of(events, "input.requested")
+        live = _data(address_input_requested(requested, rounds))["interrupt_id"]
+        scope = await load_interrupt_scope(checkpointer, thread_id)
+        assert live == scope_wire_id(scope)  # what /state reports
+        return live
+
+    round_1 = await round_of({"messages": [HumanMessage(content="hi", id="h-1")]})
+    root = await get_checkpoint_state(checkpointer, thread_id)
+    resume = build_resume_command(root, {"interrupt_id": round_1, "responses": {}})
+    round_2 = await round_of(Command(**resume), resume)
+    assert round_1 != round_2
+
+    root = await get_checkpoint_state(checkpointer, thread_id)
+    with pytest.raises(StaleApprovalError):
+        build_resume_command(root, {"interrupt_id": round_1, "responses": {}})
+    resume = build_resume_command(root, {"interrupt_id": round_2, "responses": {}})
+    done = await _collect(agent, Command(**resume), config)
+    assert _of(done, "input.requested") == []
+    assert _kinds(_of(done, "tools", []))[-1] == "tool-finished"
 
 
 def test_only_an_elicitation_value_marks_a_tool_interrupt_as_a_pause():
