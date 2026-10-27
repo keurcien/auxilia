@@ -18,8 +18,8 @@ def present_files_tool(backend: BaseSandbox, thread_id: str, sandbox_source_id: 
         files: list[PresentFile], tool_call_id: Annotated[str, InjectedToolCallId]
     ):
         """Show finished files in the chat artifact panel. Save deliverables under
-        /tmp (e.g. /tmp/report.pptx), then pass their absolute paths and optional
-        titles. Supports PPTX, PDF, UTF-8 CSV/Markdown and self-contained HTML.
+        /tmp (e.g. /tmp/report.pptx), or edit an attachment in /workspace/files/
+        in place, then pass their absolute paths and optional titles. Supports PPTX, PDF, UTF-8 CSV/Markdown and self-contained HTML.
         After changing a presented file, present the same path again: its card
         updates in place. The user may edit a presented PPTX in the panel; their
         edits are written back to the same path, so read the file again before

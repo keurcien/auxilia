@@ -14,6 +14,28 @@ const nextConfig: NextConfig = {
 			},
 		],
 	},
+	async headers() {
+		return [
+			{
+				// Never framed: an HTML artifact's links would otherwise load the
+				// signed-in app inside its viewer. The MCP-apps host page is the
+				// one page the app frames itself.
+				source: "/((?!sandbox\\.html$).*)",
+				headers: [
+					{ key: "X-Frame-Options", value: "DENY" },
+					{ key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+				],
+			},
+			{
+				// It runs its parent's HTML same-origin: only the app may frame it.
+				source: "/sandbox.html",
+				headers: [
+					{ key: "X-Frame-Options", value: "SAMEORIGIN" },
+					{ key: "Content-Security-Policy", value: "frame-ancestors 'self'" },
+				],
+			},
+		];
+	},
 	async redirects() {
 		return [
 			{

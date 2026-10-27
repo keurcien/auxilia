@@ -371,7 +371,7 @@ async def test_restore_puts_back_only_missing_files_and_restamps(db, monkeypatch
     uploads: list[tuple[str, bytes]] = []
 
     def execute(command, **_):
-        if command.startswith("for p in"):
+        if "for p in" in command:
             missing = [
                 p
                 for p in ("/workspace/files/kept.csv", "/workspace/files/lost.csv")
@@ -400,3 +400,69 @@ async def test_restore_puts_back_only_missing_files_and_restamps(db, monkeypatch
     for item in (kept, lost):
         row = await service.repository.get(item.id)
         assert (row.sandbox_id, row.sandbox_source_id) == ("new-sandbox", source)
+
+
+async def test_restore_creates_the_attachments_folder_with_nothing_to_restore(
+    db, monkeypatch
+):
+    monkeypatch.setattr(
+        "app.artifacts.service.artifact_settings", ArtifactSettings(_env_file=None)
+    )
+    backend = SimpleNamespace(
+        id="sbx",
+        execute=MagicMock(return_value=SimpleNamespace(exit_code=0, output="")),
+    )
+    assert await ArtifactService(db).restore("thread", backend, None) == []
+    assert backend.execute.call_args.args[0].startswith("mkdir -p -- /workspace/files")
+
+    # An unwritable folder must not fail the run: the shell, like this fake,
+    # exits non-zero on a failed mkdir unless the script tolerates it.
+    def unwritable(command, **_):
+        return SimpleNamespace(exit_code=0 if "|| true" in command else 1, output="")
+
+    backend.execute = unwritable
+    assert await ArtifactService(db).restore("thread", backend, None) == []
+
+
+async def test_presenting_an_edited_attachment_keeps_the_original(db, monkeypatch):
+    monkeypatch.setattr(
+        "app.artifacts.service.artifact_settings",
+        ArtifactSettings(_env_file=None, bucket="private"),
+    )
+    store = MagicMock()
+    stored: dict[str, bytes] = {}
+    store.put.side_effect = lambda key, data, mime: stored.__setitem__(key, data)
+    store.get.side_effect = lambda key, limit: stored[key]
+    monkeypatch.setattr("app.artifacts.service.build_store", lambda cfg: store)
+    reader = MagicMock(return_value=b"<p>edited</p>")
+    monkeypatch.setattr("app.artifacts.service.read_bytes", reader)
+    service = ArtifactService(db)
+    original = await service.attach("thread", "jeux.html", b"<p>original</p>")
+
+    uploads: list[tuple[str, bytes]] = []
+    backend = SimpleNamespace(
+        id="sbx",
+        execute=lambda command, **_: SimpleNamespace(
+            exit_code=0, output="/workspace/files/jeux.html"
+        ),
+        upload_files=lambda files: (
+            uploads.extend(files)
+            or [SimpleNamespace(error=None, path=p) for p, _ in files]
+        ),
+    )
+    presented = await service.publish(
+        thread_id="thread",
+        tool_call_id="call-1",
+        file=PresentFile(path="/workspace/files/jeux.html"),
+        backend=backend,
+        sandbox_source_id=uuid4(),
+    )
+    await db.commit()
+    assert "/workspace/files" in reader.call_args.args[2]
+    assert presented.id != original.id and presented.origin == "artifact"
+    assert (await service.repository.get(original.id)).sha256 == original.sha256
+
+    # A fresh disk gets the path once, with the newer (presented) bytes.
+    restored = await service.restore("thread", backend, None)
+    assert [r.id for r in restored] == [presented.id]
+    assert uploads == [("/workspace/files/jeux.html", b"<p>edited</p>")]
