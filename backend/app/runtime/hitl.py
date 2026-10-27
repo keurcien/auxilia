@@ -201,7 +201,7 @@ async def next_elicitation_rounds(
     return {
         scope.interrupt.id: _scope_round(scope) + 1
         for scope in await load_interrupt_scopes(checkpointer, thread_id)
-        if scope.interrupt.id in resume
+        if scope.interrupt.id is not None and scope.interrupt.id in resume
     }
 
 
