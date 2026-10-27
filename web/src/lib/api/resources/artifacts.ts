@@ -22,9 +22,9 @@ export function contentUrl(artifact: Artifact): string {
 }
 
 /** Browser navigation (new tab): the backend runs the Google consent, then
- *  redirects to the Slides copy of this PPTX. */
-export function slidesExportUrl(artifact: Artifact): string {
-  return `${contentUrl(artifact).slice(0, -"/content".length)}/export/slides`;
+ *  redirects to the Slides (PPTX) or Sheets (CSV) copy of this file. */
+export function googleExportUrl(artifact: Artifact): string {
+  return `${contentUrl(artifact).slice(0, -"/content".length)}/export/google`;
 }
 
 export async function listArtifacts(
