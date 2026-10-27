@@ -51,7 +51,7 @@
 					frame.contentWindow.postMessage(data, "*");
 				};
 
-				let currentBlobUrl = null;
+				let loads = 0;
 
 				const loadResource = (params) => {
 					if (
@@ -68,34 +68,29 @@
 							: "allow-scripts allow-same-origin allow-forms";
 					frame.setAttribute("sandbox", sandboxPermissions);
 
-					// Prefer a blob: URL so the app gets a real `location.origin`
-					// (this page's origin). A `srcdoc` iframe reports
-					// `location.origin === "null"`, and `new URL(path, "null")`
-					// throws — which breaks embeds that build request URLs from
-					// `location.origin` (e.g. Metabase's /api/dataset). `allow-
-					// same-origin` (set above) is required for the blob frame to
-					// keep a real origin. Fall back to srcdoc if blob: is
-					// unavailable.
-					try {
-						if (
-							typeof Blob === "function" &&
-							typeof URL !== "undefined" &&
-							URL.createObjectURL
-						) {
-							if (currentBlobUrl) {
-								URL.revokeObjectURL(currentBlobUrl);
-							}
-							currentBlobUrl = URL.createObjectURL(
-								new Blob([params.html], { type: "text/html" }),
-							);
-							frame.removeAttribute("srcdoc");
-							frame.src = currentBlobUrl;
+					// Give the app a real same-origin URL: load an empty static page,
+					// then write the app's HTML into it. A `srcdoc` frame reports
+					// `location.origin === "null"`, which breaks embeds that build
+					// request URLs from it (Metabase's /api/dataset). A blob: frame
+					// has a real origin but its `location.pathname` is the whole
+					// blob URL, so `new URL(origin + pathname)` throws — which kills
+					// apps bundling @cfworker/json-schema (the MCP SDK's validator)
+					// at load. `allow-same-origin` (set above) is what lets this
+					// page write into the frame; without it, fall back to srcdoc.
+					frame.removeAttribute("srcdoc");
+					frame.onload = () => {
+						frame.onload = null;
+						const doc = frame.contentDocument;
+						if (!doc) {
+							frame.srcdoc = params.html;
 							return;
 						}
-					} catch (_err) {
-						// fall through to srcdoc
-					}
-					frame.srcdoc = params.html;
+						doc.open();
+						doc.write(params.html);
+						doc.close();
+					};
+					// A fresh query per load, so a second resource navigates again.
+					frame.src = `/mcp-app-frame.html?load=${++loads}`;
 				};
 
 				// @mcp-ui/client has a 10s hardcoded timeout waiting for
