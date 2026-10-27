@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.9.21](https://github.com/keurcien/auxilia/compare/backend-v0.9.20...backend-v0.9.21) (2026-10-27)
+
+
+### Bug Fixes
+
+* **artifacts:** restore the presented file when it shares a timestamp with its attachment ([#440](https://github.com/keurcien/auxilia/issues/440)) ([afe2c40](https://github.com/keurcien/auxilia/commit/afe2c40ddd944147812f12484e64d4c9735d155f))
+* **attachments:** create /workspace/files, and let the agent present edited attachments ([#435](https://github.com/keurcien/auxilia/issues/435)) ([ef00da3](https://github.com/keurcien/auxilia/commit/ef00da36d8dfc6324ba2a3aa2297c9e72bfe3de1))
+* **attachments:** keep host notices out of the chat and in regenerations ([#438](https://github.com/keurcien/auxilia/issues/438)) ([4e53e60](https://github.com/keurcien/auxilia/commit/4e53e6007151c7df2c0357f1ff933b2d1ea95d65))
+
 ## [0.9.20](https://github.com/keurcien/auxilia/compare/backend-v0.9.19...backend-v0.9.20) (2026-10-23)
 
 
