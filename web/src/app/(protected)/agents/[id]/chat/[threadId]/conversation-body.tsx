@@ -342,7 +342,6 @@ const UserTurn = ({ message }: { message: BaseMessage }) => {
                           <AttachmentPreview
                             fallbackIcon={
                               <FileIcon
-                                filename={label}
                                 mimeType={attachment.mediaType ?? ""}
                                 className="h-5 w-4"
                               />

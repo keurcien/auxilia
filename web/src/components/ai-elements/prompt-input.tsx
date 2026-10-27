@@ -319,8 +319,7 @@ export function PromptInputAttachment({
 								/>
 							) : (
 								<FileIcon
-									filename={filename}
-									mimeType={data.mediaType ?? ""}
+									mimeType={data.mediaType}
 									className="h-5 w-4"
 								/>
 							)}

@@ -671,6 +671,9 @@ class Agent:
             messages = convert_to_messages(raw)
         except (ValueError, TypeError, KeyError, NotImplementedError) as e:
             raise DomainValidationError(f"Invalid run input: {e}") from e
+        for message in messages:
+            # The host-notice marker is the runtime's own; a client can't claim it.
+            message.additional_kwargs.pop("host_notice", None)
         return {"messages": messages}
 
     async def _resolve_config(

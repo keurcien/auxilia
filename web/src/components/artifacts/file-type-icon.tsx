@@ -59,6 +59,7 @@ export function FileTypeIcon({
         rx="2"
         fill={color}
       />
+      {label && (
       <text
         x={label.length > 3 ? 13.5 : 11.5}
         y="29.2"
@@ -69,23 +70,26 @@ export function FileTypeIcon({
       >
         {label}
       </text>
+      )}
     </svg>
   );
 }
 
-/** The artifact panel's file glyph, for any file by its name and type. */
+/**
+ * The artifact panel's file glyph at chip size (~20px), for any file by its
+ * type: the colour band without the extension, which would be unreadable here
+ * and is in the filename beside it anyway.
+ */
 export function FileIcon({
-  filename,
   mimeType,
   className,
 }: {
-  filename: string;
   mimeType: string;
   className?: string;
 }) {
   return (
     <FileTypeIcon
-      label={extension(filename)}
+      label=""
       color={tone(mimeType)}
       className={className}
     />
