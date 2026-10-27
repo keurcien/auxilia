@@ -27,6 +27,7 @@ protocol state snapshot (interrupt namespace for the client).
 import re
 from typing import Any, NamedTuple
 
+from langchain.mcp.elicitation import ELICITATION_INTERRUPT_TYPE
 from langchain_core.messages import ToolMessage
 
 from app.exceptions import DomainValidationError, StaleApprovalError
@@ -220,6 +221,12 @@ async def _scope_of(
     )
 
 
+def is_elicitation(value: Any) -> bool:
+    """Whether an interrupt is an MCP server asking the user for input
+    (`langchain.mcp`'s `MCPElicitationInterrupt`) rather than a tool approval."""
+    return isinstance(value, dict) and value.get("type") == ELICITATION_INTERRUPT_TYPE
+
+
 def pending_approval_requests(
     root: CheckpointState,
     scope: CheckpointState | None = None,
@@ -292,6 +299,9 @@ def build_resume_command(
     the checkpoint here — never from the client — so no UI reordering of the
     approval cards can misassign a decision.
 
+    An MCP elicitation (`is_elicitation`) is answered instead with
+    ``{"responses": {<request key>: {"action": ..., "content": ...}}}``.
+
     Output: ``{"resume": {<interrupt_id>: {"decisions": [...]}}}`` — the
     id-keyed form, so LangGraph applies it only to the addressed interrupt.
     When the checkpoint carries no usable id, falls back to the plain form,
@@ -302,8 +312,8 @@ def build_resume_command(
 
     Raises `StaleApprovalError` when nothing is pending or the addressed
     interrupt was already resolved (the thread moved on — e.g. approved from
-    another surface), and `DomainValidationError` when the decisions don't
-    cover the pending requests exactly.
+    another surface), and `DomainValidationError` when the decisions (or
+    responses) don't cover the pending requests exactly.
     """
     # Addressed by id: with parallel subagents paused together the resume
     # must answer the interrupt the client named, not the first pending one.
@@ -319,6 +329,24 @@ def build_resume_command(
     if pending.id is not None and interrupt_id != pending.id:
         raise StaleApprovalError("This approval request was already handled.")
 
+    payload = (
+        _elicitation_payload(pending.value, resume)
+        if is_elicitation(pending.value)
+        else _approval_payload(root, scope, pending, resume)
+    )
+    if pending.id is None or not _INTERRUPT_ID_RE.fullmatch(pending.id):
+        return {"resume": payload}
+    return {"resume": {pending.id: payload}}
+
+
+def _approval_payload(
+    root: CheckpointState,
+    scope: CheckpointState | None,
+    pending: PendingInterrupt,
+    resume: dict[str, Any],
+) -> dict[str, Any]:
+    """`HITLResponse` for a tool approval: the client's decisions, keyed by
+    `tool_call_id`, re-ordered to the checkpoint's action requests."""
     # No `or []`: a falsy non-list ({}, 0, "", explicit null) must reach the
     # type check and fail loudly, not coerce into "no decisions supplied".
     decisions = resume.get("decisions", [])
@@ -346,10 +374,32 @@ def build_resume_command(
             f"(missing: {missing}, unknown: {unknown})."
         )
 
-    payload = {"decisions": [supplied[tc] for tc in expected]}
-    if pending.id is None or not _INTERRUPT_ID_RE.fullmatch(pending.id):
-        return {"resume": payload}
-    return {"resume": {pending.id: payload}}
+    return {"decisions": [supplied[tc] for tc in expected]}
+
+
+_ELICITATION_ACTIONS = ("accept", "decline", "cancel")
+
+
+def _elicitation_payload(value: dict, resume: dict[str, Any]) -> dict[str, Any]:
+    """`MCPElicitationResume` for an MCP elicitation: one answer per request
+    key, checked here so a bad answer is a 400 rather than a failed run."""
+    responses = resume.get("responses")
+    if not isinstance(responses, dict):
+        raise DomainValidationError("`responses` must be an object keyed by request.")
+    expected = [r.get("key") for r in value.get("requests") or []]
+    if sorted(responses) != sorted(expected):
+        raise DomainValidationError(
+            f"Responses do not match the pending requests (expected: {expected})."
+        )
+    for answer in responses.values():
+        if (
+            not isinstance(answer, dict)
+            or answer.get("action") not in _ELICITATION_ACTIONS
+        ):
+            raise DomainValidationError(
+                "Each response needs an action: accept, decline or cancel."
+            )
+    return {"responses": responses}
 
 
 def _paused_task_call(

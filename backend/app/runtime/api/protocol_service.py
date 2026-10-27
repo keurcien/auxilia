@@ -126,7 +126,8 @@ class ProtocolService:
         batched form carries `responses: [...]` — auxilia threads pause on at
         most one interrupt, so the batch must have exactly one entry. The
         `response` payload is the HITL decisions object the web client already
-        builds (`{"decisions": [...]}`); `RunService.create` canonicalizes and
+        builds (`{"decisions": [...]}`), or an MCP elicitation's answers
+        (`{"responses": {...}}`); `RunService.create` canonicalizes and
         stale-checks it against the checkpoint (409 on a stale approval).
         """
         responses = params.get("responses")
@@ -148,10 +149,15 @@ class ProtocolService:
             isinstance(interrupt_id, str)
             and interrupt_id
             and response_map is not None
-            and isinstance(decisions, list)
-            and all(
-                isinstance(d, dict) and isinstance(d.get("tool_call_id"), str)
-                for d in decisions
+            and (
+                isinstance(response_map.get("responses"), dict)
+                or (
+                    isinstance(decisions, list)
+                    and all(
+                        isinstance(d, dict) and isinstance(d.get("tool_call_id"), str)
+                        for d in decisions
+                    )
+                )
             )
         ):
             resume: Any = {"interrupt_id": interrupt_id, **response_map}

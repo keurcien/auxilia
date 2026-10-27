@@ -179,6 +179,40 @@ def test_addressed_resume_is_ordered_by_the_checkpoint_not_the_client():
     }
 
 
+_ELICITATION = {
+    "type": "mcp_elicitation",
+    "tool_name": "probe_book_table",
+    "requests": [
+        {"key": "details", "message": "When?", "mode": "form", "requested_schema": {}}
+    ],
+}
+
+
+def test_elicitation_resume_passes_the_responses_through():
+    answer = {"action": "accept", "content": {"date": "2026-11-02"}}
+    resume = {"interrupt_id": INTERRUPT_ID, "responses": {"details": answer}}
+    out = build_resume_command(_checkpoint(_ELICITATION, []), resume)
+    assert out == {"resume": {INTERRUPT_ID: {"responses": {"details": answer}}}}
+    # Not an approval: no tool calls to match against.
+    assert pending_approval_requests(_checkpoint(_ELICITATION, [])) == []
+
+
+@pytest.mark.parametrize(
+    "responses",
+    [
+        None,
+        {},
+        {"other": {"action": "accept"}},
+        {"details": {"action": "approve"}},
+        {"details": "accept"},
+    ],
+)
+def test_elicitation_responses_must_answer_every_request(responses):
+    resume = {"interrupt_id": INTERRUPT_ID, "responses": responses}
+    with pytest.raises(DomainValidationError):
+        build_resume_command(_checkpoint(_ELICITATION, []), resume)
+
+
 def test_stale_when_nothing_is_pending():
     resume = {"interrupt_id": INTERRUPT_ID, "decisions": []}
     with pytest.raises(StaleApprovalError):

@@ -32,7 +32,7 @@ from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResu
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.stream.transformers import UpdatesTransformer
-from langgraph.types import Command, Interrupt, Overwrite
+from langgraph.types import Command, Interrupt, Overwrite, interrupt
 
 from app.runtime.agent import build_agent_middleware, build_runnable
 from app.runtime.protocol.emit import ProtocolEmitter
@@ -662,6 +662,51 @@ def test_only_the_task_tools_own_interrupt_is_swallowed():
     assert _kinds(_errored(emitter, "call_task_3", "(Interrupt(value={}),)")) == [
         "tool-error"
     ]
+
+
+@tool
+def book_table(restaurant: str) -> str:
+    """Book a table — asks for details the way `langchain.mcp` elicitation does."""
+    answer = interrupt(
+        {"type": "mcp_elicitation", "tool_name": "book_table", "requests": []}
+    )
+    return f"booked {restaurant}: {answer}"
+
+
+async def test_elicitation_pause_does_not_fail_the_tool_call():
+    """An MCP tool waiting on elicitation interrupts from inside the tool, which
+    langgraph reports to the tool callbacks as a `tool-error`. Like an
+    approval, the call is paused, not failed: it stays open and finishes on
+    the resumed run."""
+    model = ScriptedModel(
+        script=[
+            AIMessage(
+                content="",
+                id="ai-1",
+                tool_calls=[
+                    {"id": "call_b", "name": "book_table", "args": {"restaurant": "X"}}
+                ],
+            ),
+            AIMessage(content="Done.", id="ai-2"),
+        ]
+    )
+    agent = build_runnable(
+        model=model,
+        tools=[book_table],
+        system_prompt="root",
+        base_middleware=build_agent_middleware(datetime.now(UTC), recursion_limit=25),
+        checkpointer=MemorySaver(),
+    )
+    config = {"configurable": {"thread_id": "elicit"}, "recursion_limit": 25}
+
+    events = await _collect(
+        agent, {"messages": [HumanMessage(content="hi", id="h-1")]}, config
+    )
+    assert len(_of(events, "input.requested")) == 1
+    assert _kinds(_of(events, "tools", [])) == ["tool-started"]
+
+    resumed = await _collect(agent, Command(resume={"responses": {}}), config)
+    assert _kinds(_of(resumed, "tools", []))[-1] == "tool-finished"
 
 
 async def test_graph_failure_propagates_after_buffered_events():

@@ -20,6 +20,7 @@ import { chatHeaderFromThread, useThreadSession } from "@/lib/thread-session";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { getThreadCost } from "@/lib/api/resources/thread-costs";
 import { ConversationBody, QueuedTurns } from "./conversation-body";
+import { isElicitation } from "@/lib/transcript";
 
 /**
  * The chat page renders one thread session. Run state, HITL, hydration and
@@ -111,6 +112,7 @@ const ChatPage = () => {
               decisions={hitl.decisions}
               recordDecision={hitl.recordDecision}
               nestedInterrupts={hitl.nestedInterrupts}
+              elicitation={isElicitation(hitl.interrupt?.value) ? hitl.interrupt : null}
               respond={actions.respond}
               modelUnavailable={!meta.modelAvailable}
               onRegenerate={actions.regenerate}

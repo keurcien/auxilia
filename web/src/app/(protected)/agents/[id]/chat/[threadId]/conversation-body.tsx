@@ -70,6 +70,9 @@ import {
   groupChains,
   sanitizeToolIdentifier,
   claimsInterrupt,
+  type ElicitationResponse,
+  extractElicitationToolName,
+  isElicitation,
 } from "@/lib/transcript";
 import {
   SubAgentCard,
@@ -77,6 +80,7 @@ import {
   SynthesisIndicator,
 } from "./subagent-card";
 import { type DescribeTool, ToolStep, useDescribeTool } from "./tool-step";
+import { ElicitationForm } from "./elicitation-form";
 
 export type ConversationBodyProps = {
   /** Throttled `stream.messages` (or the hydrated history when idle). */
@@ -96,8 +100,13 @@ export type ConversationBodyProps = {
   /** Interrupts raised inside subagents (`stream.interrupts` minus the root
    *  one); each card claims its own and approves it itself. */
   nestedInterrupts: Interrupt[];
+  /** The root interrupt when it is an MCP elicitation: its tool step asks. */
+  elicitation: Interrupt | null;
   /** Resume an interrupt — `stream.respond(response, { interruptId })`. */
-  respond: (response: HitlResponse, interruptId: string | null) => void;
+  respond: (
+    response: HitlResponse | ElicitationResponse,
+    interruptId: string | null,
+  ) => void;
   modelUnavailable: boolean;
   onRegenerate: () => void;
   error: unknown;
@@ -121,6 +130,7 @@ export const ConversationBody = memo(function ConversationBody({
   decisions,
   recordDecision,
   nestedInterrupts,
+  elicitation,
   respond,
   modelUnavailable,
   onRegenerate,
@@ -203,6 +213,7 @@ export const ConversationBody = memo(function ConversationBody({
                 decisions={decisions}
                 recordDecision={recordDecision}
                 nestedInterrupts={nestedInterrupts}
+                elicitation={elicitation}
                 respond={respond}
                 resumeInFlight={isLoading}
                 modelUnavailable={modelUnavailable}
@@ -404,7 +415,11 @@ type ChainProps = {
   decisions: Partial<Record<string, HitlDecision>>;
   recordDecision: (toolCallId: string, decision: HitlDecision) => void;
   nestedInterrupts: Interrupt[];
-  respond: (response: HitlResponse, interruptId: string | null) => void;
+  elicitation: Interrupt | null;
+  respond: (
+    response: HitlResponse | ElicitationResponse,
+    interruptId: string | null,
+  ) => void;
   /** A run is executing: a card's approval waits for it to settle. */
   resumeInFlight: boolean;
   modelUnavailable: boolean;
@@ -438,11 +453,13 @@ const Chain = ({
   decisions,
   recordDecision,
   nestedInterrupts,
+  elicitation,
   respond,
   resumeInFlight,
   modelUnavailable,
   coordinatorStreaming,
 }: ChainProps) => {
+  const inputToolName = extractElicitationToolName(elicitation?.value);
   const rows: ChainRow[] = steps.map((step) =>
     step.kind === "reasoning"
       ? step
@@ -450,7 +467,12 @@ const Chain = ({
           kind: "tool",
           tc: step.tc,
           sub: step.tc.name === "task" ? subagents.get(step.tc.id) : undefined,
-          state: getToolStepState(step.tc, isInterrupted, hitlToolNames),
+          state: getToolStepState(
+            step.tc,
+            isInterrupted,
+            hitlToolNames,
+            inputToolName,
+          ),
         },
   );
   const tools = rows.filter((r): r is ToolRow => r.kind === "tool");
@@ -482,7 +504,10 @@ const Chain = ({
         lockOpen={
           pausedSubagents.length > 0 ||
           tools.some(
-            (r) => !r.sub && r.state === "awaiting-approval" && !decisions[r.tc.id],
+            (r) =>
+              !r.sub &&
+              (r.state === "awaiting-input" ||
+                (r.state === "awaiting-approval" && !decisions[r.tc.id])),
           )
         }
         toolCount={tools.length - chainSubagents.length}
@@ -527,6 +552,17 @@ const Chain = ({
                       },
                     }
                   : undefined
+              }
+              input={
+                state === "awaiting-input" && isElicitation(elicitation?.value) ? (
+                  <ElicitationForm
+                    key={elicitation.id}
+                    interrupt={elicitation.value}
+                    interruptId={elicitation.id ?? null}
+                    respond={respond}
+                    disabled={resumeInFlight || modelUnavailable}
+                  />
+                ) : undefined
               }
             />
           );
