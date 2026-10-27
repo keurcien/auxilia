@@ -1,0 +1,27 @@
+backend/app/model_providers/catalog.py
+  s_650d883b1bf156::t_abe9956c0a7c6e 219-222
+backend/app/model_providers/whitelist.yaml
+  s_650d883b1bf156::t_1ab246f5eebf1c 753-768
+backend/tests/model_providers/test_catalog.py
+  s_650d883b1bf156::t_bc90c440e5e2fe 4,165-166,169-170,173,178-185
+backend/tests/runtime/test_costs.py
+  s_650d883b1bf156::t_8a148fc15c8da1 71,74
+docs/content/agents/index.mdx
+  s_650d883b1bf156::t_0b311f8f898109 59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fa8a551599a0bb493040ecf8f1bbd242f6ec7e77",
+  "prompts": {},
+  "sessions": {
+    "s_650d883b1bf156": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17eed-7754-75d0-aa91-871fd536f275",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}
