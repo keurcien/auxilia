@@ -102,11 +102,19 @@ def attachment_mime(filename: str, data: bytes) -> str:
 
 
 def missing_on_disk(backend: BaseSandbox, paths: list[str]) -> set[str]:
-    script = (
-        "for p in "
-        + " ".join(shlex.quote(path) for path in paths)
-        + '; do [ -f "$p" ] || printf \'%s\\n\' "$p"; done'
-    )
+    """Create the attachments folder, then return which `paths` are not files.
+
+    The system prompt names the folder, so a model that looks there before
+    anything is attached should find it empty, not missing. Best-effort: a
+    file that does need writing there fails in `put_on_disk` instead.
+    """
+    script = f"mkdir -p -- {shlex.quote(ATTACHMENTS_ROOT)} 2>/dev/null || true"
+    if paths:
+        script += (
+            "; for p in "
+            + " ".join(shlex.quote(path) for path in paths)
+            + '; do [ -f "$p" ] || printf \'%s\\n\' "$p"; done'
+        )
     result = backend.execute(script)  # nosemgrep — a sandbox shell, every path quoted
     if result.exit_code != 0:
         raise RuntimeError(f"Could not list thread files: {result.output[:2000]}")
@@ -162,7 +170,12 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
         cfg = artifact_settings
         try:
             data = await asyncio.to_thread(
-                read_bytes, backend, file.path, cfg.allowed_roots, cfg.max_bytes
+                read_bytes,
+                backend,
+                file.path,
+                # An attachment the agent edited in place can be presented too.
+                [*cfg.allowed_roots, ATTACHMENTS_ROOT],
+                cfg.max_bytes,
             )
         except SandboxFileMissingError as exc:
             raise DomainValidationError(
@@ -234,18 +247,23 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
         path, and return those. Raises on any failure: an agent whose files are
         missing would answer about data it cannot see."""
         cfg = artifact_settings
-        if not cfg.provider:
-            return []
-        rows = await self.repository.list_stored_in(
-            thread_id, cfg.provider, cfg.bucket_name or None, cfg.endpoint
+        rows = (
+            await self.repository.list_stored_in(
+                thread_id, cfg.provider, cfg.bucket_name or None, cfg.endpoint
+            )
+            if cfg.provider
+            else []
         )
-        if not rows:
-            return []
         # One shell call on a warm sandbox, and a file deleted since comes back.
         missing = await asyncio.to_thread(
             missing_on_disk, backend, [row.source_path for row in rows]
         )
-        restored = [row for row in rows if row.source_path in missing]
+        if not rows:
+            return []
+        # One file per path: an artifact presented over an attachment is newer,
+        # and rows come in creation order, so the last one is what the disk had.
+        latest = {row.source_path: row for row in rows}
+        restored = [row for row in latest.values() if row.source_path in missing]
         # One file in memory at a time.
         for row in restored:
             _, data = await self.content(thread_id, row.id)
