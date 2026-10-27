@@ -750,6 +750,22 @@ models:
     reasoning_effort_levels: [low, high, max]
     reasoning_effort_default: max
 
+  # Kimi K3.1 Pro: OpenRouter's Moonshot endpoints support tools and JSON Schema.
+  # shortcut: ChatOpenAI drops reasoning history; use a provider client when continuity is needed.
+  - provider: openrouter
+    model_id: moonshotai/kimi-k3.1-pro
+    display_name: Kimi K3.1 Pro
+    prices:
+      input: "2e-6"
+      input_cache_read: "2e-7"
+      output: "1e-5"
+    chef: Moonshot AI
+    chef_slug: moonshotai
+    multimodal: true
+    supports_structured_output: true
+    reasoning_effort_levels: [low, high, max]
+    reasoning_effort_default: max
+
   # --- Qwen 3.8 via OpenRouter (added 2026-08-26) ---
   # There is NO qwen3.8-flash (on OpenRouter or Alibaba); the 3.8 lineup is
   # Max (hosted, multimodal), 27B (open-weight dense VL) and 2.4T-A95B (the

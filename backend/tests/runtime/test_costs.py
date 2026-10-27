@@ -68,11 +68,10 @@ def test_cached_input_is_not_double_charged():
     [
         ("gpt-6-astra", "0.01215", "0.00375"),
         ("gpt-6.1-terra", "0.001195", "0.000375"),
+        ("moonshotai/kimi-k3.1-pro", "0.00228", "0.0006"),
     ],
 )
-def test_new_openai_models_have_catalog_costs(
-    model_id, expected_total, expected_cache_write
-):
+def test_new_models_have_catalog_costs(model_id, expected_total, expected_cache_write):
     catalog = {entry.model_id: entry for entry in bundled_whitelist()}
     message = call()
     message.usage_metadata["input_token_details"]["cache_creation"] = 300
