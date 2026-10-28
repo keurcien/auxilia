@@ -153,12 +153,15 @@ async def test_final_turn_adds_constrained_formatting_call():
     assert not is_structured_output_artifact(prose)
 
 
-class _FirstOfferedToolModel(ScriptedChatModel):
-    """Choose the first offered tool when the provider must make a tool call."""
+class _WorkToolPreferringModel(ScriptedChatModel):
+    """Prefer the work tool whenever the formatting turn still offers it."""
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
         if kwargs.get("tool_choice") is None:
             return super()._generate(messages, stop, run_manager, **kwargs)
+        selected = min(
+            kwargs["tools"], key=lambda offered: offered.name != "lookup_answer"
+        )
         return ChatResult(
             generations=[
                 ChatGeneration(
@@ -166,7 +169,7 @@ class _FirstOfferedToolModel(ScriptedChatModel):
                         "",
                         tool_calls=[
                             {
-                                "name": kwargs["tools"][0].name,
+                                "name": selected.name,
                                 "args": {"answer": 4},
                                 "id": "format-answer",
                             }
@@ -185,7 +188,7 @@ async def test_final_report_is_structured_when_agent_has_work_tools():
 
     final_answer = AIMessage("The answer is 4.", id="report-answer")
     graph = create_agent(
-        model=_FirstOfferedToolModel(script=[final_answer]),
+        model=_WorkToolPreferringModel(script=[final_answer]),
         tools=[lookup_answer],
         response_format=SCHEMA,
         middleware=[DeferredStructuredOutputMiddleware()],
