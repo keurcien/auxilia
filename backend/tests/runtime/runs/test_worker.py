@@ -765,3 +765,22 @@ async def test_a_redis_error_on_the_pop_does_not_stop_dispatch(
             return len(dispatcher.claims) >= 2
 
         await until(_two, what="the fallback to claim despite a dead LPOP")
+
+
+async def test_a_due_fallback_does_not_wait_for_redis(
+    dispatcher, redis, monkeypatch, until
+):
+    """A stalled Redis must not postpone the scheduled Postgres claim: a pass
+    whose fallback is due claims without touching the wake list."""
+    monkeypatch.setattr(run_settings, "claim_fallback_seconds", 0.03)
+
+    async def _hangs(*_, **__):
+        await asyncio.sleep(60)
+
+    monkeypatch.setattr(redis, "lpop", _hangs)
+    async with _dispatching(dispatcher):
+
+        async def _two() -> bool:
+            return len(dispatcher.claims) >= 2
+
+        await until(_two, what="the fallback to claim past a hanging LPOP")

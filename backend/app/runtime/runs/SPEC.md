@@ -154,7 +154,7 @@ Indexes:
 | `run:{run_id}:events`  | stream | append-only protocol events (`{"data": "<json>"}`; the last entry also carries `end: 1`) | 1h after finish  |
 | `run:{run_id}:control` | list   | cancel signal (polled via non-blocking `LPOP`) | 1h after finish  |
 | `run:{run_id}:alive`   | string | worker heartbeat                               | self-expiring    |
-| `run:dispatch:wake`    | list   | wake tokens, one per create/finalize (`LPOP`ed by an idle dispatcher), capped at 32 | `RUN_TTL_SECONDS` |
+| `run:dispatch:wake`    | list   | wake tokens, one per create/finalize (`LPOP`ed by every dispatcher pass that holds a free slot, except one whose Postgres fallback is already due), capped at 32 | `RUN_TTL_SECONDS` |
 | `thread:{thread_id}:latest_run` | string | id of the thread's newest run, compared by stream sessions before they query Postgres | `RUN_TTL_SECONDS` |
 
 The event-stream entry IDs (Redis Stream `XADD` ids) are the **resume cursor**:

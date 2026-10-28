@@ -321,12 +321,14 @@ class RunDispatcher:
         # with a slot held, so a saturated instance never consumes a wake-up
         # it cannot act on — and on every pass that holds one, so a burst's
         # tokens are used up by the passes that drain it rather than left to
-        # trigger idle claims later.
-        woken = await self._pop_wake()
+        # trigger idle claims later. A pass whose fallback is already due
+        # skips the pop: a stalled Redis must not postpone the scheduled
+        # Postgres claim, and the token waits for the next pass.
         due = (
             time.monotonic() - self._last_claim_at
             >= run_settings.claim_fallback_seconds
         )
+        woken = not due and await self._pop_wake()
         if not (self._claimed_last or woken or due):
             self._semaphore.release()
             await self._sleep(run_settings.wake_poll_seconds)
@@ -363,9 +365,13 @@ class RunDispatcher:
 
     async def _pop_wake(self) -> bool:
         """Take one wake token; a Redis error reads as "no token" and the
-        fallback poll carries dispatch."""
+        fallback poll carries dispatch. Bounded by the fallback interval, so a
+        Redis that hangs rather than fails delays that poll by one period at
+        most instead of pinning the loop."""
         try:
-            woken = await self.service.pop_wake()
+            woken = await asyncio.wait_for(
+                self.service.pop_wake(), timeout=run_settings.claim_fallback_seconds
+            )
         except Exception:  # noqa: BLE001 — a blip must not end the loop
             # Once per outage, not twice a second with a traceback.
             if not self._wake_failing:
