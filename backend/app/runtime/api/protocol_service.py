@@ -45,6 +45,7 @@ from app.runtime.protocol.wire import decode_event, frame, seq_for_entry
 from app.runtime.runs.events import RunEventStream
 from app.runtime.runs.models import RunDB
 from app.runtime.runs.service import RunService
+from app.runtime.runs.settings import run_settings
 from app.runtime.runs.state import MultitaskStrategy, is_terminal
 
 
@@ -183,15 +184,41 @@ class ProtocolService:
         runs as they appear, until the client disconnects."""
         sink = StreamFilter.from_request(body.channels, body.namespaces, body.depth)
         current: RunDB | None = None
+        loop = asyncio.get_running_loop()
+        # Read before the first `_next_run`: a run created between the two
+        # reads still shows up as a change on the next comparison.
+        marker = await self._latest_run_marker(thread_id)
         while True:
             run = await self._next_run(thread_id, after=current)
-            if run is None:
+            checked_at = loop.time()
+            if run is not None:
+                current = run
+                async for sse in self._stream_run(run, sink, since=body.since):
+                    yield sse
+                continue
+            # Idle: Postgres is asked again only when the thread's marker
+            # changes (`RunService.create` sets it) or the fallback is due —
+            # an expired key, a flushed Redis, or a lost signal.
+            while True:
                 yield _KEEP_ALIVE
                 await asyncio.sleep(_IDLE_POLL_SECONDS)
-                continue
-            current = run
-            async for sse in self._stream_run(run, sink, since=body.since):
-                yield sse
+                seen = await self._latest_run_marker(thread_id)
+                if (
+                    seen != marker
+                    or loop.time() - checked_at >= run_settings.claim_fallback_seconds
+                ):
+                    marker = seen
+                    break
+
+    async def _latest_run_marker(self, thread_id: str) -> object:
+        """The thread's newest run id per Redis; a fresh sentinel on a Redis
+        error, so the comparison reads as "changed" and the session falls back
+        to Postgres (today's behaviour) rather than missing a run."""
+        try:
+            return await self.runs.latest_run_marker(thread_id)
+        except Exception:  # noqa: BLE001 — a Redis outage costs queries, not runs
+            logger.warning("Latest-run marker read failed", exc_info=True)
+            return object()
 
     async def _next_run(self, thread_id: str, after: RunDB | None) -> RunDB | None:
         """The newest run of the thread — or, when we already served `after`,

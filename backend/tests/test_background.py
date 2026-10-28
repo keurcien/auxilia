@@ -270,14 +270,16 @@ def test_the_loop_intervals_that_sleep_directly_are_clamped():
     settings = RunSettings(
         heartbeat_interval_seconds=0,
         reaper_interval_seconds=0,
-        claim_interval_seconds=0,
+        claim_fallback_seconds=0,
+        wake_poll_seconds=0,
         cancel_poll_seconds=-1,
         _env_file=None,
     )
 
     assert settings.heartbeat_interval_seconds == 1
     assert settings.reaper_interval_seconds == 1
-    assert settings.claim_interval_seconds > 0
+    assert settings.claim_fallback_seconds > 0
+    assert settings.wake_poll_seconds > 0
     assert settings.cancel_poll_seconds > 0
     # The whole-second fields must stay whole — they are typed `int`.
     assert isinstance(settings.heartbeat_interval_seconds, int)
@@ -292,7 +294,9 @@ def test_non_finite_intervals_are_rejected_not_clamped(bad):
     from app.runtime.runs.settings import RunSettings
 
     with pytest.raises(ValidationError):
-        RunSettings(claim_interval_seconds=bad, _env_file=None)
+        RunSettings(claim_fallback_seconds=bad, _env_file=None)
+    with pytest.raises(ValidationError):
+        RunSettings(wake_poll_seconds=bad, _env_file=None)
     with pytest.raises(ValidationError):
         RunSettings(cancel_poll_seconds=bad, _env_file=None)
 

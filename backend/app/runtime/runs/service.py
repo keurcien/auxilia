@@ -138,6 +138,7 @@ class RunService:
                 )
             )
             await db.commit()
+        await self._signal_dispatch(thread_id=thread_id, run_id=run.id)
         for run_id in cancelled:
             await RunEventStream(run_id, self.redis).publish_end(RunStatus.cancelled)
             await self._expire_ephemera(run_id)
@@ -418,6 +419,8 @@ class RunService:
             record = await repository.get(run_id)
         if thread_id is not None:
             await RunEventStream(run_id, self.redis).publish_end(status, error)
+            # A terminal run frees its thread: an `enqueue` run may be claimable.
+            await self._signal_dispatch()
         # `thread_id is None` means the guarded UPDATE matched nothing, which
         # covers three different situations and only two of them are finished:
         #   1. the run was already terminal — expire, it is over;
@@ -448,6 +451,36 @@ class RunService:
             count = await RunRepository(db).prune_terminal(older_than)
             await db.commit()
         return count
+
+    async def pop_wake(self) -> bool:
+        """Take one dispatch wake token, if any (the dispatcher's idle check)."""
+        return await self.redis.lpop(keys.dispatch_wake_key()) is not None
+
+    async def latest_run_marker(self, thread_id: str) -> str | None:
+        """The thread's newest run id as last signalled, or None."""
+        return await self.redis.get(keys.thread_latest_run_key(thread_id))
+
+    async def _signal_dispatch(
+        self, *, thread_id: str | None = None, run_id: str | None = None
+    ) -> None:
+        """Wake a dispatcher and, on create, record the thread's newest run.
+        Best effort: the fallback poll covers a lost signal."""
+        wake = keys.dispatch_wake_key()
+        try:
+            async with self.redis.pipeline(transaction=True) as pipe:
+                pipe.rpush(wake, "1")
+                # Capped: nothing consumes the list when no dispatcher runs.
+                pipe.ltrim(wake, -1000, -1)
+                pipe.expire(wake, run_settings.ttl_seconds)
+                if thread_id is not None and run_id is not None:
+                    pipe.set(
+                        keys.thread_latest_run_key(thread_id),
+                        run_id,
+                        ex=run_settings.ttl_seconds,
+                    )
+                await pipe.execute()
+        except Exception:  # the row is committed; the fallback poll covers this
+            logger.exception("Could not signal dispatch (run %s)", run_id)
 
     async def _expire_ephemera(self, run_id: str) -> None:
         """TTL the finished run's event log + control key (the reattach/replay

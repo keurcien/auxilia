@@ -154,6 +154,8 @@ Indexes:
 | `run:{run_id}:events`  | stream | append-only protocol events (`{"data": "<json>"}`; the last entry also carries `end: 1`) | 1h after finish  |
 | `run:{run_id}:control` | list   | cancel signal (polled via non-blocking `LPOP`) | 1h after finish  |
 | `run:{run_id}:alive`   | string | worker heartbeat                               | self-expiring    |
+| `run:dispatch:wake`    | list   | wake tokens, one per create/finalize (`LPOP`ed by an idle dispatcher), capped at 1000 | `RUN_TTL_SECONDS` |
+| `thread:{thread_id}:latest_run` | string | id of the thread's newest run, compared by stream sessions before they query Postgres | `RUN_TTL_SECONDS` |
 
 The event-stream entry IDs (Redis Stream `XADD` ids) are the **resume cursor**:
 `subscribe(last_event_id)` does `XREAD` from that id, so reattach replays only
@@ -192,9 +194,13 @@ worker finalizes the run as `error` with the root-cause message.
 1. `RunService.create(thread_id, input|command)` → INSERT `RunDB(status=pending)`.
    `reject` strategy: a same-transaction check refuses a thread with a
    pending/running run. Returns the record (HTTP layer captures `run_id` →
-   `X-Run-Id`).
-2. A `RunDispatcher` (one per process, started in `lifespan`) polls
-   `claim_next()` every `RUN_CLAIM_INTERVAL_SECONDS`: an atomic
+   `X-Run-Id`). After the commit it signals: a wake token on
+   `run:dispatch:wake` and the thread's `latest_run` marker (best effort —
+   the fallback polls below cover a lost signal).
+2. A `RunDispatcher` (one per process, started in `lifespan`) pops a wake
+   token every `RUN_WAKE_POLL_SECONDS` and calls `claim_next()` on a token,
+   right after a successful claim (drain), or every
+   `RUN_CLAIM_FALLBACK_SECONDS` regardless: an atomic
    `UPDATE … WHERE id IN (SELECT … FOR UPDATE SKIP LOCKED)` that moves the
    oldest claimable pending run to `running`. A pending run is claimable only
    while its thread has no running run — that's the whole of the `enqueue`
@@ -210,7 +216,8 @@ worker finalizes the run as `error` with the root-cause message.
    - finalize: pick terminal status (interrupted if `__interrupt__` pending,
      else success / error / cancelled / timeout) →
      `RunService.finalize`: one transaction (run row + `threads.last_run_status`),
-     then the terminal lifecycle entry + TTL the Redis ephemera.
+     then the terminal lifecycle entry + TTL the Redis ephemera, then a wake
+     token (the freed thread may make an `enqueue` run claimable).
 4. Subscribers (a protocol event-stream session on the thread, or the Slack
    consumer) read from a cursor and relay until the terminal entry.
 
@@ -324,7 +331,8 @@ copy).
 | -------------------------------- | ------- | ------------------------------------------------- |
 | `RUN_WORKER_CONCURRENCY`         | 8       | max concurrent runs per process                   |
 | `RUN_MAX_DURATION_SECONDS`       | 1800    | wall-clock cap per run (0 disables)               |
-| `RUN_CLAIM_INTERVAL_SECONDS`     | 0.5     | idle dispatcher poll cadence (dispatch latency)   |
+| `RUN_WAKE_POLL_SECONDS`          | 0.5     | idle dispatcher Redis wake-token poll (dispatch latency) |
+| `RUN_CLAIM_FALLBACK_SECONDS`     | 10      | Postgres claim / stream-session check without a signal |
 | `RUN_HEARTBEAT_INTERVAL_SECONDS` | 5       | worker liveness stamp cadence                     |
 | `RUN_HEARTBEAT_TIMEOUT_SECONDS`  | 30      | liveness key TTL / reaper grace for `running`     |
 | `RUN_PENDING_TIMEOUT_SECONDS`    | 600     | reaper threshold for stuck `pending`              |

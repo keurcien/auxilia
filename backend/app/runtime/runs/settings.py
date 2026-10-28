@@ -19,9 +19,13 @@ class RunSettings(BaseSettings):
     # How often a running worker polls its control channel for a Stop — the
     # upper bound on cancel latency.
     cancel_poll_seconds: float = 1.0
-    # How often an idle dispatcher polls Postgres for claimable pending runs —
-    # the upper bound on dispatch latency.
-    claim_interval_seconds: float = 0.5
+    # How often an idle dispatcher checks Redis for a wake token — the upper
+    # bound on dispatch latency, so keep it sub-second.
+    wake_poll_seconds: float = 0.5
+    # Longest a claimable run waits if its wake signal was lost: an idle
+    # dispatcher queries Postgres this often regardless. Also paces the stream
+    # sessions' Postgres safety check.
+    claim_fallback_seconds: float = 10.0
     # Reaper threshold: a `running` run whose liveness key is gone AND whose
     # last transition is older than this is reaped to `error`.
     heartbeat_timeout_seconds: int = 30
@@ -71,7 +75,12 @@ class RunSettings(BaseSettings):
     def _whole_second_intervals_stay_whole(cls, value: int) -> int:
         return max(value, 1)
 
-    @field_validator("claim_interval_seconds", "cancel_poll_seconds", mode="after")
+    @field_validator(
+        "claim_fallback_seconds",
+        "wake_poll_seconds",
+        "cancel_poll_seconds",
+        mode="after",
+    )
     @classmethod
     def _sub_second_intervals_stay_positive(cls, value: float) -> float:
         # `nan`/`inf` are rejected rather than clamped: `max(nan, x)` is `nan`,

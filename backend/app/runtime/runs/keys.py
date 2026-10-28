@@ -31,3 +31,16 @@ def dispatchers_alive_key() -> str:
     means the check is one EXISTS instead of a SCAN.
     """
     return "run:dispatchers:alive"
+
+
+def dispatch_wake_key() -> str:
+    """List of wake tokens: one is pushed per event that may have made a run
+    claimable (a run created, a run reaching a terminal state). Any dispatcher
+    with a free slot pops one and claims."""
+    return "run:dispatch:wake"
+
+
+def thread_latest_run_key(thread_id: str) -> str:
+    """Id of the thread's most recently created run. Stream sessions compare it
+    to the run they last served instead of querying Postgres."""
+    return f"thread:{thread_id}:latest_run"

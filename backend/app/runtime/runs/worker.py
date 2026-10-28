@@ -3,13 +3,16 @@
 `RunWorker.run(record)` executes one already-claimed run by wrapping the
 existing `Agent.stream(...)` and publishing each protocol event to the run's
 event log, while watching for cancel and enforcing the wall-clock cap.
-`RunDispatcher` polls Postgres for claimable pending runs (the trigger-scanner
+`RunDispatcher` claims pending runs off Postgres (the trigger-scanner
 `SKIP LOCKED` pattern — claiming *is* the pending → running transition) and
-runs them, semaphore-capped at `RUN_WORKER_CONCURRENCY`.
+runs them, semaphore-capped at `RUN_WORKER_CONCURRENCY`. It is woken through a
+Redis list (`RunService._signal_dispatch`) and only falls back to a slow
+Postgres poll, so an idle instance costs Postgres nothing.
 """
 
 import asyncio
 import logging
+import time
 from contextlib import aclosing, suppress
 
 from sqlalchemy.exc import IntegrityError
@@ -253,6 +256,10 @@ class RunDispatcher:
         self._stopping = asyncio.Event()
         self._tasks: set[asyncio.Task] = set()
         self._heartbeat: asyncio.Task | None = None
+        # The fallback is already due, so the first pass claims whatever was
+        # created while no dispatcher was up.
+        self._last_claim_at = float("-inf")
+        self._claimed_last = False
         # Not a `PeriodicLoop`: this loop is not periodic — it blocks on the
         # semaphore for as long as every slot is busy, which can be the whole
         # length of an agent turn. Health is therefore ticked by
@@ -269,9 +276,10 @@ class RunDispatcher:
 
     async def run(self) -> None:
         logger.info(
-            "run dispatcher started: concurrency=%s claim_interval=%ss",
+            "run dispatcher started: concurrency=%s wake_poll=%ss claim_fallback=%ss",
             run_settings.worker_concurrency,
-            run_settings.claim_interval_seconds,
+            run_settings.wake_poll_seconds,
+            run_settings.claim_fallback_seconds,
         )
         self.health.started = True
         self.health.mark_tick()
@@ -289,7 +297,7 @@ class RunDispatcher:
                     # while no run ever executed again (design review §2.3).
                     self.health.mark_failure(exc)
                     logger.exception("Run dispatch loop failed; retrying")
-                    await self._sleep(min(run_settings.claim_interval_seconds * 4, 5.0))
+                    await self._sleep(min(run_settings.wake_poll_seconds * 4, 5.0))
         finally:
             # The heartbeat is what ticks health, so it must not outlive this
             # loop: an orphaned heartbeat would keep reporting a dispatcher that
@@ -301,12 +309,30 @@ class RunDispatcher:
             self.health.stopped = self._stopping.is_set()
 
     async def _claim_and_dispatch(self) -> None:
-        """One pass: take a slot, claim a run, start it."""
+        """One pass: take a slot, claim a run if anything says one may be
+        there, start it."""
         await self._semaphore.acquire()
-        record = None if self._stopping.is_set() else await self._claim_one()
+        if self._stopping.is_set():
+            self._semaphore.release()
+            return
+        # Postgres is queried only after a successful claim (keep draining),
+        # on a wake token, or when the fallback is due. The token is popped
+        # with a slot held, so a saturated instance never consumes a wake-up
+        # it cannot act on.
+        due = (
+            time.monotonic() - self._last_claim_at
+            >= run_settings.claim_fallback_seconds
+        )
+        if not (self._claimed_last or due or await self._pop_wake()):
+            self._semaphore.release()
+            await self._sleep(run_settings.wake_poll_seconds)
+            return
+        self._last_claim_at = time.monotonic()
+        record = await self._claim_one()
+        self._claimed_last = record is not None
         if record is None:
             self._semaphore.release()
-            await self._sleep(run_settings.claim_interval_seconds)
+            await self._sleep(run_settings.wake_poll_seconds)
             return
         task = asyncio.create_task(self._run_one(record))
         self._tasks.add(task)
@@ -330,6 +356,15 @@ class RunDispatcher:
                 # see the note on `self.health` above.
                 self.health.mark_tick()
             await self._sleep(run_settings.heartbeat_interval_seconds)
+
+    async def _pop_wake(self) -> bool:
+        """Take one wake token; a Redis error reads as "no token" and the
+        fallback poll carries dispatch."""
+        try:
+            return await self.service.pop_wake()
+        except Exception:  # noqa: BLE001 — a blip must not end the loop
+            logger.warning("Wake token pop failed; polling instead", exc_info=True)
+            return False
 
     async def _claim_one(self) -> RunDB | None:
         """Claim the next dispatchable run; a claim failure (e.g. a transient

@@ -8,7 +8,7 @@ touch the checkpointer at all.
 
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 from uuid import UUID
 
 import pytest
@@ -44,7 +44,7 @@ def _paused_checkpoint():
 
 
 @pytest.fixture
-def service(run_db, monkeypatch):
+def service(run_db, redis, monkeypatch):
     """A RunService whose checkpoint reader serves `_paused_checkpoint` at the
     root (and nothing under any subagent namespace), counting reads."""
     monkeypatch.setattr(
@@ -62,7 +62,7 @@ def service(run_db, monkeypatch):
 
     monkeypatch.setattr(service_mod, "get_checkpointer", _checkpointer)
     monkeypatch.setattr(hitl_mod, "get_checkpoint_state", _get_state)
-    svc = RunService(redis=MagicMock())
+    svc = RunService(redis)
     svc._checkpoint_reads = reads  # test-only counter
     return svc
 
