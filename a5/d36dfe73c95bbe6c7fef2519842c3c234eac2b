@@ -1,0 +1,20 @@
+backend/tests/runtime/middleware/test_structured_output.py
+  s_b80235e5dd6dcd::t_1f57e9a2e7c14c 156-157,162
+  s_b80235e5dd6dcd::t_c5666bf53c9f97 163-164,172,191
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a5d36dfe73c95bbe6c7fef2519842c3c234eac2b",
+  "prompts": {},
+  "sessions": {
+    "s_b80235e5dd6dcd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1820b-2e14-7c53-8242-acf9f900f929",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}
