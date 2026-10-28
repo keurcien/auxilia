@@ -16,7 +16,7 @@ from app.runtime.api.protocol_schemas import EventStreamBody
 from app.runtime.api.protocol_service import ProtocolService
 from app.runtime.runs import keys
 from app.runtime.runs.models import RunDB
-from app.runtime.runs.service import RunService
+from app.runtime.runs.service import WAKE_LIST_CAP, RunService
 from app.runtime.runs.settings import run_settings
 from app.runtime.runs.state import RunStatus
 
@@ -71,11 +71,11 @@ async def test_a_redis_failure_inside_the_signal_does_not_fail_create(
 
 
 async def test_the_wake_list_is_capped(redis):
-    await redis.rpush(keys.dispatch_wake_key(), *["1"] * 1200)
+    await redis.rpush(keys.dispatch_wake_key(), *["1"] * (WAKE_LIST_CAP + 20))
 
     await RunService(redis)._signal_dispatch()
 
-    assert await redis.llen(keys.dispatch_wake_key()) == 1000
+    assert await redis.llen(keys.dispatch_wake_key()) == WAKE_LIST_CAP
 
 
 # --- the stream session --------------------------------------------------------

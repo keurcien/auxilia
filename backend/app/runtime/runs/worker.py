@@ -260,6 +260,7 @@ class RunDispatcher:
         # created while no dispatcher was up.
         self._last_claim_at = float("-inf")
         self._claimed_last = False
+        self._wake_failing = False
         # Not a `PeriodicLoop`: this loop is not periodic — it blocks on the
         # semaphore for as long as every slot is busy, which can be the whole
         # length of an agent turn. Health is therefore ticked by
@@ -318,12 +319,15 @@ class RunDispatcher:
         # Postgres is queried only after a successful claim (keep draining),
         # on a wake token, or when the fallback is due. The token is popped
         # with a slot held, so a saturated instance never consumes a wake-up
-        # it cannot act on.
+        # it cannot act on — and on every pass that holds one, so a burst's
+        # tokens are used up by the passes that drain it rather than left to
+        # trigger idle claims later.
+        woken = await self._pop_wake()
         due = (
             time.monotonic() - self._last_claim_at
             >= run_settings.claim_fallback_seconds
         )
-        if not (self._claimed_last or due or await self._pop_wake()):
+        if not (self._claimed_last or woken or due):
             self._semaphore.release()
             await self._sleep(run_settings.wake_poll_seconds)
             return
@@ -361,24 +365,31 @@ class RunDispatcher:
         """Take one wake token; a Redis error reads as "no token" and the
         fallback poll carries dispatch."""
         try:
-            return await self.service.pop_wake()
+            woken = await self.service.pop_wake()
         except Exception:  # noqa: BLE001 — a blip must not end the loop
-            logger.warning("Wake token pop failed; polling instead", exc_info=True)
+            # Once per outage, not twice a second with a traceback.
+            if not self._wake_failing:
+                logger.warning("Wake token pop failed; polling instead", exc_info=True)
+            self._wake_failing = True
             return False
+        self._wake_failing = False
+        return woken
 
     async def _claim_one(self) -> RunDB | None:
         """Claim the next dispatchable run; a claim failure (e.g. a transient
-        DB error) must not kill the loop."""
+        DB error) must not kill the loop. It re-arms the fallback, so the next
+        pass retries promptly instead of letting the token it consumed count
+        as "nothing to claim"."""
         try:
             return await self.service.claim_next()
         except IntegrityError:
             # Another instance claimed a run on the same thread in the same
             # instant and won the one-running-per-thread index — not ours.
             logger.debug("Run claim lost a cross-instance race")
-            return None
         except Exception:
             logger.exception("Run claim failed")
-            return None
+        self._last_claim_at = float("-inf")
+        return None
 
     async def _run_one(self, record: RunDB) -> None:
         try:

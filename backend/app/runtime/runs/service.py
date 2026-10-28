@@ -43,6 +43,12 @@ from app.threads.repository import ThreadRepository
 
 logger = logging.getLogger(__name__)
 
+# A wake token means "something may be claimable", not a count: one successful
+# claim drains everything claimable, so tokens beyond the cluster's free slots
+# only buy idle claim queries later. Sized for a few instances of
+# `worker_concurrency`.
+WAKE_LIST_CAP = 32
+
 
 class RunService:
     def __init__(self, redis: Redis | None = None):
@@ -469,8 +475,7 @@ class RunService:
         try:
             async with self.redis.pipeline(transaction=True) as pipe:
                 pipe.rpush(wake, "1")
-                # Capped: nothing consumes the list when no dispatcher runs.
-                pipe.ltrim(wake, -1000, -1)
+                pipe.ltrim(wake, -WAKE_LIST_CAP, -1)
                 pipe.expire(wake, run_settings.ttl_seconds)
                 if thread_id is not None and run_id is not None:
                     pipe.set(

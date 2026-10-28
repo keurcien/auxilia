@@ -671,12 +671,17 @@ async def test_the_fallback_claims_without_a_token(dispatcher, monkeypatch, unti
 
 
 @pytest.mark.usefixtures("patch_agent")
-async def test_a_successful_claim_drains_without_more_tokens(dispatcher, redis, until):
+async def test_a_successful_claim_drains_without_more_tokens(
+    dispatcher, redis, until, monkeypatch
+):
     service = dispatcher.service
     async with _dispatching(dispatcher):
         await until(lambda: _one(dispatcher.claims), what="the boot claim")
         a = await service.create(thread_id="ta", user_id=str(uuid4()))
         b = await service.create(thread_id="tb", user_id=str(uuid4()))
+        # From here on nothing signals (finalize would push a token per run),
+        # so the second claim can only come from the drain path.
+        monkeypatch.setattr(service, "_signal_dispatch", _no_signal)
         await redis.delete(keys.dispatch_wake_key())
         await redis.rpush(keys.dispatch_wake_key(), "1")
 
@@ -685,6 +690,33 @@ async def test_a_successful_claim_drains_without_more_tokens(dispatcher, redis, 
             return done == [RunStatus.success, RunStatus.success]
 
         await until(_both_done, what="both runs to be claimed and finished")
+    # Every pass that held a slot popped a token: the seeded one is used up.
+    assert await redis.llen(keys.dispatch_wake_key()) == 0
+
+
+async def _no_signal(*_, **__) -> None:
+    pass
+
+
+async def test_a_failed_claim_retries_promptly(dispatcher, monkeypatch, until):
+    """A transient DB error consumed the token that triggered the claim; the
+    retry must not wait for the 10 s fallback."""
+    inner = dispatcher.service.claim_next
+    failures = iter([RuntimeError("db hiccup")])
+
+    async def _flaky():
+        dispatcher.claims.append(1)
+        for exc in failures:
+            raise exc
+        return await inner()
+
+    monkeypatch.setattr(dispatcher.service, "claim_next", _flaky)
+    async with _dispatching(dispatcher):
+
+        async def _retried() -> bool:
+            return len(dispatcher.claims) >= 2
+
+        await until(_retried, what="a prompt retry after a failed claim", seconds=0.2)
 
 
 async def test_a_saturated_dispatcher_does_not_consume_tokens(

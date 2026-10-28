@@ -61,6 +61,7 @@ class ProtocolService:
     def __init__(self, redis: Redis | None = None):
         self.redis: Redis = redis or get_redis()
         self.runs = RunService(self.redis)
+        self._marker_failing = False
 
     # --- commands -------------------------------------------------------------
 
@@ -185,10 +186,10 @@ class ProtocolService:
         sink = StreamFilter.from_request(body.channels, body.namespaces, body.depth)
         current: RunDB | None = None
         loop = asyncio.get_running_loop()
-        # Read before the first `_next_run`: a run created between the two
-        # reads still shows up as a change on the next comparison.
-        marker = await self._latest_run_marker(thread_id)
         while True:
+            # Read before `_next_run`: a run created between the two reads
+            # still shows up as a change on the next comparison.
+            marker = await self._latest_run_marker(thread_id)
             run = await self._next_run(thread_id, after=current)
             checked_at = loop.time()
             if run is not None:
@@ -215,10 +216,15 @@ class ProtocolService:
         error, so the comparison reads as "changed" and the session falls back
         to Postgres (today's behaviour) rather than missing a run."""
         try:
-            return await self.runs.latest_run_marker(thread_id)
+            marker = await self.runs.latest_run_marker(thread_id)
         except Exception:  # noqa: BLE001 — a Redis outage costs queries, not runs
-            logger.warning("Latest-run marker read failed", exc_info=True)
+            # Once per session, not once per idle tick on every open tab.
+            if not self._marker_failing:
+                logger.warning("Latest-run marker read failed", exc_info=True)
+            self._marker_failing = True
             return object()
+        self._marker_failing = False
+        return marker
 
     async def _next_run(self, thread_id: str, after: RunDB | None) -> RunDB | None:
         """The newest run of the thread — or, when we already served `after`,

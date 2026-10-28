@@ -154,7 +154,7 @@ Indexes:
 | `run:{run_id}:events`  | stream | append-only protocol events (`{"data": "<json>"}`; the last entry also carries `end: 1`) | 1h after finish  |
 | `run:{run_id}:control` | list   | cancel signal (polled via non-blocking `LPOP`) | 1h after finish  |
 | `run:{run_id}:alive`   | string | worker heartbeat                               | self-expiring    |
-| `run:dispatch:wake`    | list   | wake tokens, one per create/finalize (`LPOP`ed by an idle dispatcher), capped at 1000 | `RUN_TTL_SECONDS` |
+| `run:dispatch:wake`    | list   | wake tokens, one per create/finalize (`LPOP`ed by an idle dispatcher), capped at 32 | `RUN_TTL_SECONDS` |
 | `thread:{thread_id}:latest_run` | string | id of the thread's newest run, compared by stream sessions before they query Postgres | `RUN_TTL_SECONDS` |
 
 The event-stream entry IDs (Redis Stream `XADD` ids) are the **resume cursor**:
@@ -339,6 +339,11 @@ copy).
 | `RUN_TTL_SECONDS`                | 3600    | Redis retention for a finished run's event log    |
 | `RUN_RETENTION_DAYS`             | 90      | Postgres retention for terminal run rows          |
 | `RUN_DISPATCHER_ENABLED`         | true    | run the in-process dispatcher + reaper            |
+
+`RUN_CLAIM_INTERVAL_SECONDS` (the old 0.5 s Postgres poll) is no longer read —
+`RunSettings` ignores unknown variables, so a deployment that tuned it silently
+gets the defaults above: sub-second dispatch now comes from the Redis wake-up,
+and Postgres is polled only every `RUN_CLAIM_FALLBACK_SECONDS`.
 
 ## Deployment (portable; Cloud Run focus)
 
