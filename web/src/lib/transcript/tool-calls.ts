@@ -127,6 +127,7 @@ export type ToolStepState =
   | "error"
   | "rejected"
   | "awaiting-approval"
+  | "awaiting-input"
   | "running";
 
 const REJECTION_NOTICE = /^User rejected the tool call\b/;
@@ -135,11 +136,14 @@ export function getToolStepState(
   tc: ToolCallView,
   isInterrupted = false,
   hitlToolNames: ReadonlySet<string> | null = null,
+  /** The call an MCP elicitation is paused in (`findElicitedCallId`). */
+  elicitedCallId: string | null = null,
 ): ToolStepState {
   if (tc.status === "finished") return "done";
   if (tc.status === "error") {
     return REJECTION_NOTICE.test(tc.error ?? "") ? "rejected" : "error";
   }
+  if (isInterrupted && elicitedCallId === tc.id) return "awaiting-input";
   if (isInterrupted && (!hitlToolNames || hitlToolNames.has(tc.name))) {
     return "awaiting-approval";
   }

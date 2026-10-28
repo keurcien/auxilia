@@ -93,6 +93,13 @@ _SUBGRAPH_STATUS = {
 #: `str(GraphInterrupt(...))` — the shape a bubbling interrupt takes on the
 #: `tools` channel's `tool-error` message.
 _INTERRUPT_REPR = re.compile(r"^\(?Interrupt\(")
+#: That repr when the interrupt's value is an MCP elicitation: its top-level
+#: ``type`` (the first key `langchain.mcp` writes), not the marker text
+#: anywhere in some other payload.
+_ELICITATION_REPR = re.compile(
+    r"^\(?Interrupt\(value=\{"
+    + re.escape(repr("type") + ": " + repr(ev.ELICITATION_INTERRUPT_TYPE))
+)
 #: The ``id='<xxh3-128 hex>'`` field(s) inside that repr.
 _INTERRUPT_ID_IN_REPR = re.compile(r"\bid='([0-9a-f]{32})'")
 
@@ -475,12 +482,13 @@ class ProtocolEmitter:
                 return []
             if self._is_bubbling_interrupt(str(tool_call_id), data.get("message")):
                 # A subagent's approval interrupt bubbles up through the
-                # `task` tool, and langgraph reports that to the parent's
-                # tool callbacks as a failure. It is not one: the call is
-                # paused, its subagent resumes into the same call later, and
-                # forwarding this would have the client mark the subagent
-                # card errored (with the Interrupt repr as the message) for
-                # the length of the pause. Leave the call running.
+                # `task` tool (and an MCP tool's elicitation interrupts from
+                # inside it); langgraph reports either to the tool callbacks
+                # as a failure. It is not one: the call is paused, resumes
+                # into the same call later, and forwarding this would have
+                # the client mark the card errored (with the Interrupt repr
+                # as the message) for the length of the pause. Leave the
+                # call running.
                 return []
             self._tool_finished_ids.add(tool_call_id)
             return [
@@ -500,23 +508,28 @@ class ProtocolEmitter:
         return []
 
     def _is_bubbling_interrupt(self, tool_call_id: str, message: Any) -> bool:
-        """Whether a `task` call's `tool-error` is a `GraphInterrupt` in flight.
+        """Whether a call's `tool-error` is a `GraphInterrupt` in flight.
 
         langgraph stringifies the exception: ``(Interrupt(value=..., id='…'),)``.
-        Three checks, so a genuine failure is never mistaken for a pause: the
-        failing call is the `task` tool (name recorded at `tool-started`), the
-        message has the repr's shape, and it names at least one interrupt id,
-        every one of which the subagent's own `values` envelope announced
-        just before.
+        The message must have the repr's shape and name at least one interrupt
+        id, so a genuine failure is never mistaken for a pause. Then either the
+        payload is an MCP elicitation (`langchain.mcp` interrupts from inside
+        any MCP tool), or the failing call is the `task` tool (name recorded at
+        `tool-started`) and every named id was announced just before by the
+        subagent's own `values` envelope.
         """
-        if self._tool_names.get(tool_call_id) != "task":
-            return False
         if not isinstance(message, str) or _INTERRUPT_REPR.match(message) is None:
             return False
         named = _INTERRUPT_ID_IN_REPR.findall(message)
         if not named:
             # langgraph's repr always names the id; a shape without one is
             # some other failure and must reach the client.
+            return False
+        if _ELICITATION_REPR.match(message):
+            # Raised by the tool itself, so its `tool-error` comes before the
+            # interrupt is announced — the payload's own marker is the proof.
+            return True
+        if self._tool_names.get(tool_call_id) != "task":
             return False
         return all(interrupt_id in self._interrupt_ids for interrupt_id in named)
 

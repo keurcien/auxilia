@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, type ReactNode, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { BanIcon, Loader2, XCircleIcon } from "lucide-react";
 import { parseToolPayload } from "@langchain/langgraph-sdk/stream";
@@ -68,6 +68,8 @@ export type ToolStepProps = {
   nested?: boolean;
   /** Approve / deny footer — root chains only. */
   approval?: ToolStepApproval;
+  /** The form an MCP server's elicitation asks for, while the call waits. */
+  input?: ReactNode;
 };
 
 /** One tool call on the chain rail, at the root or nested in a subagent. */
@@ -77,17 +79,22 @@ export const ToolStep = memo(function ToolStep({
   describe,
   nested = false,
   approval,
+  input,
 }: ToolStepProps) {
   const { serverName, toolName, icon } = describe(tc.name);
   const awaiting = state === "awaiting-approval";
   const showResult =
     state === "rejected" || state === "error" || tc.output !== undefined;
   const showApproval = awaiting && approval != null;
-  const hasDetails = tc.args !== undefined || showResult || showApproval;
+  const showInput = state === "awaiting-input" && input != null;
+  const hasDetails =
+    tc.args !== undefined || showResult || showApproval || showInput;
 
   const meta =
     state === "awaiting-approval" ? (
       <NeedsApprovalBadge />
+    ) : state === "awaiting-input" ? (
+      <NeedsApprovalBadge label="NEEDS INPUT" />
     ) : state === "running" ? (
       <Loader2 className="size-3 animate-spin text-petrol" />
     ) : state === "error" ? (
@@ -103,7 +110,7 @@ export const ToolStep = memo(function ToolStep({
       title={humanizeToolName(toolName)}
       summary={summarizeToolArgs(tc.args)}
       meta={meta}
-      lockOpen={awaiting && approval?.decided == null}
+      lockOpen={(awaiting && approval?.decided == null) || showInput}
     >
       {hasDetails && (
         <>
@@ -127,6 +134,7 @@ export const ToolStep = memo(function ToolStep({
               </StepSection>
             )
           )}
+          {showInput && input}
           {showApproval && (
         <div className="flex items-center gap-2 pt-1">
           <ApprovalButton

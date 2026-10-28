@@ -28,9 +28,15 @@ import re
 from typing import Any, NamedTuple
 
 from langchain_core.messages import ToolMessage
+from langgraph.constants import RESUME
 
 from app.exceptions import DomainValidationError, StaleApprovalError
 from app.runtime.checkpoints import CheckpointState, get_checkpoint_state
+from app.runtime.protocol.events import (
+    base_interrupt_id,
+    is_elicitation,
+    wire_interrupt_id,
+)
 
 
 class PendingInterrupt(NamedTuple):
@@ -134,6 +140,83 @@ def pending_interrupts(checkpoint: Any) -> list[PendingInterrupt]:
     return found
 
 
+def _round(checkpoint: Any, interrupt: PendingInterrupt) -> int:
+    """Which round of its task's questions `interrupt` is, counted off
+    `checkpoint` — the one in the interrupt's own namespace, where its task
+    re-runs: langgraph keeps one checkpoint for every round and appends each
+    answer to the task's `__resume__` write."""
+    saved = checkpoint.saved if isinstance(checkpoint, CheckpointState) else checkpoint
+    answered = max(
+        (
+            len(value) if isinstance(value, (list, tuple)) else 1
+            for task_id, channel, value in getattr(saved, "pending_writes", None) or []
+            if channel == RESUME and task_id == interrupt.task_id
+        ),
+        default=0,
+    )
+    return answered + 1
+
+
+def wire_id(checkpoint: Any, interrupt: PendingInterrupt) -> str | None:
+    """The id the client knows `interrupt` by (`wire_interrupt_id`), its round
+    counted off `checkpoint` (see `_round`)."""
+    if interrupt.id is None:
+        return None
+    return wire_interrupt_id(
+        interrupt.id, interrupt.value, _round(checkpoint, interrupt)
+    )
+
+
+def _scope_round(scope: "InterruptScope") -> int:
+    """`_round` of a located interrupt, counted where it lives — the paused
+    subagent's checkpoint when a subagent asked."""
+    own = (
+        pending_interrupt(scope.state, scope.interrupt.id) if scope.namespace else None
+    )
+    return _round(scope.state, own) if own else _round(scope.root, scope.interrupt)
+
+
+def scope_wire_id(scope: "InterruptScope") -> str | None:
+    """`wire_id` of a located interrupt (see `_scope_round`)."""
+    if scope.interrupt.id is None:
+        return None
+    return wire_interrupt_id(
+        scope.interrupt.id, scope.interrupt.value, _scope_round(scope)
+    )
+
+
+async def next_elicitation_rounds(
+    checkpointer: Any, thread_id: str, command: dict | None
+) -> dict[str, int]:
+    """The round each interrupt this run answers will be in if it asks again.
+
+    Read before the run, off a checkpoint the previous run finished writing:
+    a run's own checkpoint writes are flushed in the background, so counting
+    them while it streams races. An interrupt the run does not answer is new,
+    and in its first round.
+    """
+    resume = (command or {}).get("resume")
+    if not isinstance(resume, dict):
+        return {}
+    return {
+        scope.interrupt.id: _scope_round(scope) + 1
+        for scope in await load_interrupt_scopes(checkpointer, thread_id)
+        if scope.interrupt.id is not None and scope.interrupt.id in resume
+    }
+
+
+def address_input_requested(event: dict, rounds: dict[str, int]) -> dict:
+    """A live `input.requested` stamped with the id `/state` and resume use,
+    its round from `next_elicitation_rounds`."""
+    params = event["params"]
+    data = params["data"]
+    interrupt_id = data["interrupt_id"]
+    addressed = wire_interrupt_id(
+        interrupt_id, data.get("payload"), rounds.get(interrupt_id, 1)
+    )
+    return {**event, "params": {**params, "data": {**data, "interrupt_id": addressed}}}
+
+
 def pending_interrupt(
     checkpoint: Any, interrupt_id: str | None = None
 ) -> PendingInterrupt | None:
@@ -145,7 +228,10 @@ def pending_interrupt(
     """
     interrupts = pending_interrupts(checkpoint)
     if interrupt_id is not None:
-        return next((i for i in interrupts if i.id == interrupt_id), None)
+        # Clients address an elicitation round by its wire id (`wire_id`);
+        # it names the interrupt, `build_resume_command` checks the round.
+        ids = {interrupt_id, base_interrupt_id(interrupt_id)}
+        return next((i for i in interrupts if i.id in ids), None)
     return interrupts[0] if interrupts else None
 
 
@@ -292,6 +378,9 @@ def build_resume_command(
     the checkpoint here — never from the client — so no UI reordering of the
     approval cards can misassign a decision.
 
+    An MCP elicitation (`is_elicitation`) is answered instead with
+    ``{"responses": {<request key>: {"action": ..., "content": ...}}}``.
+
     Output: ``{"resume": {<interrupt_id>: {"decisions": [...]}}}`` — the
     id-keyed form, so LangGraph applies it only to the addressed interrupt.
     When the checkpoint carries no usable id, falls back to the plain form,
@@ -302,8 +391,8 @@ def build_resume_command(
 
     Raises `StaleApprovalError` when nothing is pending or the addressed
     interrupt was already resolved (the thread moved on — e.g. approved from
-    another surface), and `DomainValidationError` when the decisions don't
-    cover the pending requests exactly.
+    another surface), and `DomainValidationError` when the decisions (or
+    responses) don't cover the pending requests exactly.
     """
     # Addressed by id: with parallel subagents paused together the resume
     # must answer the interrupt the client named, not the first pending one.
@@ -316,9 +405,32 @@ def build_resume_command(
     ) or pending_interrupt(root)
     if pending is None:
         raise StaleApprovalError("No approval is pending on this thread.")
-    if pending.id is not None and interrupt_id != pending.id:
+    # An elicitation round must be named by its own wire id, counted where the
+    # interrupt lives (`scope`): an answer to an earlier round must not land
+    # on the next one.
+    own = pending_interrupt(scope, pending.id) if scope is not None else None
+    expected = wire_id(scope, own) if own else wire_id(root, pending)
+    if pending.id is not None and interrupt_id != expected:
         raise StaleApprovalError("This approval request was already handled.")
 
+    payload = (
+        _elicitation_payload(pending.value, resume)
+        if is_elicitation(pending.value)
+        else _approval_payload(root, scope, pending, resume)
+    )
+    if pending.id is None or not _INTERRUPT_ID_RE.fullmatch(pending.id):
+        return {"resume": payload}
+    return {"resume": {pending.id: payload}}
+
+
+def _approval_payload(
+    root: CheckpointState,
+    scope: CheckpointState | None,
+    pending: PendingInterrupt,
+    resume: dict[str, Any],
+) -> dict[str, Any]:
+    """`HITLResponse` for a tool approval: the client's decisions, keyed by
+    `tool_call_id`, re-ordered to the checkpoint's action requests."""
     # No `or []`: a falsy non-list ({}, 0, "", explicit null) must reach the
     # type check and fail loudly, not coerce into "no decisions supplied".
     decisions = resume.get("decisions", [])
@@ -346,10 +458,32 @@ def build_resume_command(
             f"(missing: {missing}, unknown: {unknown})."
         )
 
-    payload = {"decisions": [supplied[tc] for tc in expected]}
-    if pending.id is None or not _INTERRUPT_ID_RE.fullmatch(pending.id):
-        return {"resume": payload}
-    return {"resume": {pending.id: payload}}
+    return {"decisions": [supplied[tc] for tc in expected]}
+
+
+_ELICITATION_ACTIONS = ("accept", "decline", "cancel")
+
+
+def _elicitation_payload(value: dict, resume: dict[str, Any]) -> dict[str, Any]:
+    """`MCPElicitationResume` for an MCP elicitation: one answer per request
+    key, checked here so a bad answer is a 400 rather than a failed run."""
+    responses = resume.get("responses")
+    if not isinstance(responses, dict):
+        raise DomainValidationError("`responses` must be an object keyed by request.")
+    expected = [r.get("key") for r in value.get("requests") or []]
+    if sorted(responses) != sorted(expected):
+        raise DomainValidationError(
+            f"Responses do not match the pending requests (expected: {expected})."
+        )
+    for answer in responses.values():
+        if (
+            not isinstance(answer, dict)
+            or answer.get("action") not in _ELICITATION_ACTIONS
+        ):
+            raise DomainValidationError(
+                "Each response needs an action: accept, decline or cancel."
+            )
+    return {"responses": responses}
 
 
 def _paused_task_call(

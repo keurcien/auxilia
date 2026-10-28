@@ -45,6 +45,7 @@ from app.runtime.harness import (
     harness_system_prompt,
     harness_trailing_middleware,
 )
+from app.runtime.hitl import address_input_requested, next_elicitation_rounds
 from app.runtime.middleware.current_date import CurrentDateMiddleware
 from app.runtime.middleware.structured_output import (
     FORMAT_TOOL,
@@ -946,9 +947,16 @@ class Agent:
                 transformers=[UpdatesTransformer],
             )
             emitter = ProtocolEmitter()
+            # An elicitation that asks again is in its next round: counted now,
+            # off what the previous run wrote, not mid-stream.
+            rounds = await next_elicitation_rounds(
+                agent.checkpointer, self.thread.id, command
+            )
             try:
                 async with run:
                     async for event in emitter.stream(run):
+                        if event["method"] == "input.requested":
+                            event = address_input_requested(event, rounds)
                         yield event
             except (asyncio.CancelledError, GeneratorExit):
                 # A cancel lands here directly, or — when it hit the consumer

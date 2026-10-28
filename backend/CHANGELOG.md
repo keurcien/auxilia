@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.22](https://github.com/keurcien/auxilia/compare/backend-v0.9.21...backend-v0.9.22) (2026-10-27)
+
+
+### Features
+
+* **mcp:** answer MCP elicitation requests in the chat ([#444](https://github.com/keurcien/auxilia/issues/444)) ([dcc6f82](https://github.com/keurcien/auxilia/commit/dcc6f82c2833827704a76c08f921f0d5769b04b3))
+
 ## [0.9.21](https://github.com/keurcien/auxilia/compare/backend-v0.9.20...backend-v0.9.21) (2026-10-27)
 
 

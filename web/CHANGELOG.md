@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.17](https://github.com/keurcien/auxilia/compare/web-v0.10.16...web-v0.10.17) (2026-10-27)
+
+
+### Features
+
+* **mcp:** answer MCP elicitation requests in the chat ([#444](https://github.com/keurcien/auxilia/issues/444)) ([dcc6f82](https://github.com/keurcien/auxilia/commit/dcc6f82c2833827704a76c08f921f0d5769b04b3))
+
 ## [0.10.16](https://github.com/keurcien/auxilia/compare/web-v0.10.15...web-v0.10.16) (2026-10-27)
 
 

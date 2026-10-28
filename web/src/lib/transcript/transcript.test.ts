@@ -2,6 +2,8 @@ import { AIMessage, HumanMessage, ToolMessage } from "@langchain/core/messages";
 import type { AssembledToolCall } from "@langchain/react";
 import { describe, expect, it } from "vitest";
 import {
+  elicitationChoices,
+  findElicitedCallId,
   extractHitlToolNames,
   getFileAttachments,
   findSubagentInterrupt,
@@ -112,6 +114,38 @@ describe("getToolStepState", () => {
     expect(getToolStepState(gated, true, names)).toBe("awaiting-approval");
     expect(getToolStepState(free, true, names)).toBe("running");
     expect(getToolStepState(free, true, null)).toBe("awaiting-approval");
+  });
+
+  it("asks for no approval while an MCP server waits on input", () => {
+    const [call] = pairToolCalls([ai("a1", [{ id: "c1", name: "probe_book_table" }])]);
+    const names = extractHitlToolNames({
+      type: "mcp_elicitation",
+      tool_name: "probe_book_table",
+      requests: [],
+    });
+    expect(getToolStepState(call, true, names)).toBe("running");
+  });
+
+  it("marks only the call an elicitation is paused in as awaiting input", () => {
+    const [earlier, asking, other] = pairToolCalls([
+      ai("a1", [
+        { id: "c0", name: "my_server_book_table" },
+        { id: "c1", name: "my_server_book_table" },
+        { id: "c2", name: "search" },
+      ]),
+    ]);
+    // The payload carries the MCP name; the transcript, the sanitized one.
+    const value = { type: "mcp_elicitation", tool_name: "my server_book_table", requests: [] };
+    const names = extractHitlToolNames(value);
+    const calls = [earlier, asking, other];
+    const elicited = findElicitedCallId(calls, value);
+    expect(elicited).toBe("c1");
+    // One form per interrupt: the earlier call of the same tool does not ask.
+    expect(getToolStepState(earlier, true, names, elicited)).toBe("running");
+    expect(getToolStepState(asking, true, names, elicited)).toBe("awaiting-input");
+    expect(getToolStepState(other, true, names, elicited)).toBe("running");
+    expect(getToolStepState(asking, false, names, elicited)).toBe("running");
+    expect(findElicitedCallId(calls, { action_requests: [] })).toBeNull();
   });
 });
 
@@ -236,5 +270,36 @@ describe("subagent interrupts", () => {
   it("never matches by content: identical siblings do not share an interrupt", () => {
     const sibling = { id: "call_2", namespace: ["tools:call_2"] };
     expect(findSubagentInterrupt([nested], sibling)).toBeNull();
+  });
+});
+
+describe("elicitationChoices", () => {
+  const opts = (c: ReturnType<typeof elicitationChoices>) =>
+    c && [c.multi, c.options.map((o) => `${o.value}:${o.label}`)];
+
+  it("reads every single- and multi-select shape the MCP spec allows", () => {
+    expect(opts(elicitationChoices({ type: "string", enum: ["a", "b"] }))).toEqual([
+      false,
+      ["a:a", "b:b"],
+    ]);
+    expect(
+      opts(elicitationChoices({ type: "string", enum: ["a"], enumNames: ["Aye"] })),
+    ).toEqual([false, ["a:Aye"]]);
+    expect(
+      opts(elicitationChoices({ type: "string", oneOf: [{ const: "a", title: "Aye" }] })),
+    ).toEqual([false, ["a:Aye"]]);
+    expect(
+      opts(elicitationChoices({ type: "array", items: { enum: ["a", "b"] } })),
+    ).toEqual([true, ["a:a", "b:b"]]);
+    expect(
+      opts(
+        elicitationChoices({ type: "array", items: { anyOf: [{ const: "a", title: "Aye" }] } }),
+      ),
+    ).toEqual([true, ["a:Aye"]]);
+  });
+
+  it("is null for a free field", () => {
+    expect(elicitationChoices({ type: "string" })).toBeNull();
+    expect(elicitationChoices({ type: "array" })).toBeNull();
   });
 });

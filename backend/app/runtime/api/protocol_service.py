@@ -34,8 +34,11 @@ from app.redis_client import get_redis
 from app.runtime.api.protocol_repository import CheckpointWriteRepository
 from app.runtime.api.protocol_schemas import EventStreamBody, ProtocolCommand
 from app.runtime.checkpoints import get_checkpoint_state
-from app.runtime.hitl import InterruptScope, load_interrupt_scopes
-from app.runtime.protocol.events import terminal_lifecycle, values_event
+from app.runtime.hitl import InterruptScope, load_interrupt_scopes, scope_wire_id
+from app.runtime.protocol.events import (
+    terminal_lifecycle,
+    values_event,
+)
 from app.runtime.protocol.filter import StreamFilter
 from app.runtime.protocol.messages import serialize_message, serialize_message_preview
 from app.runtime.protocol.wire import decode_event, frame, seq_for_entry
@@ -126,7 +129,8 @@ class ProtocolService:
         batched form carries `responses: [...]` — auxilia threads pause on at
         most one interrupt, so the batch must have exactly one entry. The
         `response` payload is the HITL decisions object the web client already
-        builds (`{"decisions": [...]}`); `RunService.create` canonicalizes and
+        builds (`{"decisions": [...]}`), or an MCP elicitation's answers
+        (`{"responses": {...}}`); `RunService.create` canonicalizes and
         stale-checks it against the checkpoint (409 on a stale approval).
         """
         responses = params.get("responses")
@@ -148,10 +152,15 @@ class ProtocolService:
             isinstance(interrupt_id, str)
             and interrupt_id
             and response_map is not None
-            and isinstance(decisions, list)
-            and all(
-                isinstance(d, dict) and isinstance(d.get("tool_call_id"), str)
-                for d in decisions
+            and (
+                isinstance(response_map.get("responses"), dict)
+                or (
+                    isinstance(decisions, list)
+                    and all(
+                        isinstance(d, dict) and isinstance(d.get("tool_call_id"), str)
+                        for d in decisions
+                    )
+                )
             )
         ):
             resume: Any = {"interrupt_id": interrupt_id, **response_map}
@@ -322,7 +331,9 @@ class ProtocolService:
                 "name": "agent",
                 "interrupts": [
                     {
-                        "id": scope.interrupt.id,
+                        # The id the live `input.requested` carried, so the
+                        # client's hydration allowlist and resume agree.
+                        "id": scope_wire_id(scope),
                         "value": scope.interrupt.value,
                         "namespace": _hydration_namespace(scope),
                     }

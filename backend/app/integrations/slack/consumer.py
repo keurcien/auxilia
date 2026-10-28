@@ -24,7 +24,11 @@ from app.integrations.slack.blocks import (
     format_tool_streamer_label,
 )
 from app.integrations.slack.settings import slack_settings
-from app.runtime.hitl import load_interrupt_scope, pending_approval_requests
+from app.runtime.hitl import (
+    is_elicitation,
+    load_interrupt_scope,
+    pending_approval_requests,
+)
 from app.runtime.protocol.wire import decode_event
 from app.runtime.runs.delivery import DeliveryConsumer
 from app.runtime.runs.models import RunDB
@@ -280,6 +284,17 @@ class SlackRunConsumer(DeliveryConsumer):
         async with get_checkpointer() as checkpointer:
             scope = await load_interrupt_scope(checkpointer, self.record.thread_id)
         if scope is None:
+            return
+        if is_elicitation(scope.interrupt.value):
+            # shortcut: no Block Kit form for MCP elicitation yet — the user
+            # answers in the web app; build Slack inputs if this gets used.
+            await self.client.chat_postMessage(
+                channel=channel_id,
+                thread_ts=thread_ts,
+                text=f"{scope.interrupt.value.get('tool_name')} needs more "
+                "information — answer it in auxilia.",
+            )
+            await self._post_auxilia_link(channel_id, thread_ts)
             return
         # A subagent's gated calls live in its own checkpoint; the card says
         # which subagent asked, since the tool name alone is ambiguous.

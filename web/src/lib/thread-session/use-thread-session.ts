@@ -20,6 +20,7 @@ import {
 	getToolStepState,
 	pairToolCalls,
 	splitInterrupts,
+	type ElicitationResponse,
 	type ToolCallView,
 } from "@/lib/transcript";
 import { useActiveRunsStore } from "@/stores/active-runs-store";
@@ -126,7 +127,7 @@ export type ThreadSession = {
 		send: (message: PromptInputMessage) => Promise<void> | undefined;
 		regenerate: () => void;
 		stop: () => void;
-		respond: (response: HitlResponse, interruptId: string | null) => void;
+		respond: (response: HitlResponse | ElicitationResponse, interruptId: string | null) => void;
 		recheckModel: () => Promise<void>;
 		/** Clear the mid-session sandbox gate so the composer comes back; the
 		 * page re-polls readiness alongside it. */
@@ -395,7 +396,7 @@ export function useThreadSession({
 	}, [selectorStream]);
 
 	const respond = useCallback(
-		(response: HitlResponse, addressedId: string | null) => {
+		(response: HitlResponse | ElicitationResponse, addressedId: string | null) => {
 			userActed();
 			void selectorStream.respond(
 				response,

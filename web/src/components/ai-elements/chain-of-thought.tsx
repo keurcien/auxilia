@@ -503,9 +503,9 @@ export const ChainReasoningLine = ({
 );
 
 /** Amber approval badge for steps waiting on a human. */
-export const NeedsApprovalBadge = () => (
+export const NeedsApprovalBadge = ({ label = "NEEDS APPROVAL" }: { label?: string }) => (
 	<span className="rounded-[4px] bg-warning-bg px-2 py-0.5 font-mono text-[9.5px] font-semibold tracking-[0.05em] text-warning">
-		NEEDS APPROVAL
+		{label}
 	</span>
 );
 

@@ -32,9 +32,18 @@ from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResu
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.stream.transformers import UpdatesTransformer
-from langgraph.types import Command, Interrupt, Overwrite
+from langgraph.types import Command, Interrupt, Overwrite, interrupt
 
+from app.exceptions import StaleApprovalError
 from app.runtime.agent import build_agent_middleware, build_runnable
+from app.runtime.checkpoints import get_checkpoint_state
+from app.runtime.hitl import (
+    address_input_requested,
+    build_resume_command,
+    load_interrupt_scope,
+    next_elicitation_rounds,
+    scope_wire_id,
+)
 from app.runtime.protocol.emit import ProtocolEmitter
 from app.runtime.protocol.messages import serialize_message
 
@@ -662,6 +671,133 @@ def test_only_the_task_tools_own_interrupt_is_swallowed():
     assert _kinds(_errored(emitter, "call_task_3", "(Interrupt(value={}),)")) == [
         "tool-error"
     ]
+
+
+@tool
+def book_table(restaurant: str) -> str:
+    """Book a table — asks for details the way `langchain.mcp` elicitation does."""
+    answer = interrupt(
+        {"type": "mcp_elicitation", "tool_name": "book_table", "requests": []}
+    )
+    return f"booked {restaurant}: {answer}"
+
+
+async def test_elicitation_pause_does_not_fail_the_tool_call():
+    """An MCP tool waiting on elicitation interrupts from inside the tool, which
+    langgraph reports to the tool callbacks as a `tool-error`. Like an
+    approval, the call is paused, not failed: it stays open and finishes on
+    the resumed run."""
+    model = ScriptedModel(
+        script=[
+            AIMessage(
+                content="",
+                id="ai-1",
+                tool_calls=[
+                    {"id": "call_b", "name": "book_table", "args": {"restaurant": "X"}}
+                ],
+            ),
+            AIMessage(content="Done.", id="ai-2"),
+        ]
+    )
+    agent = build_runnable(
+        model=model,
+        tools=[book_table],
+        system_prompt="root",
+        base_middleware=build_agent_middleware(datetime.now(UTC), recursion_limit=25),
+        checkpointer=MemorySaver(),
+    )
+    config = {"configurable": {"thread_id": "elicit"}, "recursion_limit": 25}
+
+    events = await _collect(
+        agent, {"messages": [HumanMessage(content="hi", id="h-1")]}, config
+    )
+    assert len(_of(events, "input.requested")) == 1
+    assert _kinds(_of(events, "tools", [])) == ["tool-started"]
+
+    resumed = await _collect(agent, Command(resume={"responses": {}}), config)
+    assert _kinds(_of(resumed, "tools", []))[-1] == "tool-finished"
+
+
+_SAME_QUESTION = {"type": "mcp_elicitation", "tool_name": "b", "requests": []}
+
+
+@tool
+def ask_twice(restaurant: str) -> str:
+    """Asks the identical question twice from one call, as a server re-asking
+    after an answer it rejects does."""
+    first = interrupt(_SAME_QUESTION)
+    second = interrupt(_SAME_QUESTION)
+    return f"{restaurant}: {first} {second}"
+
+
+async def test_repeated_elicitation_rounds_get_distinct_wire_ids():
+    """langgraph gives every round the task's one interrupt id, and the
+    client drops an id it already answered. Each live `input.requested`,
+    stamped as `Agent.stream` does, carries its round — even for an identical
+    question — and the same id `/state` reports, which resume accepts."""
+    model = ScriptedModel(
+        script=[
+            AIMessage(
+                content="",
+                id="ai-1",
+                tool_calls=[
+                    {"id": "call_b", "name": "ask_twice", "args": {"restaurant": "X"}}
+                ],
+            ),
+            AIMessage(content="Done.", id="ai-2"),
+        ]
+    )
+    checkpointer = MemorySaver()
+    agent = build_runnable(
+        model=model,
+        tools=[ask_twice],
+        system_prompt="root",
+        base_middleware=build_agent_middleware(datetime.now(UTC), recursion_limit=25),
+        checkpointer=checkpointer,
+    )
+    thread_id = "elicit-2"
+    config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 25}
+
+    async def round_of(agent_input, command=None) -> str:
+        # As `Agent.stream`: rounds counted before the run, stamped mid-stream.
+        rounds = await next_elicitation_rounds(checkpointer, thread_id, command)
+        events = await _collect(agent, agent_input, config)
+        (requested,) = _of(events, "input.requested")
+        live = _data(address_input_requested(requested, rounds))["interrupt_id"]
+        scope = await load_interrupt_scope(checkpointer, thread_id)
+        assert live == scope_wire_id(scope)  # what /state reports
+        return live
+
+    round_1 = await round_of({"messages": [HumanMessage(content="hi", id="h-1")]})
+    root = await get_checkpoint_state(checkpointer, thread_id)
+    resume = build_resume_command(root, {"interrupt_id": round_1, "responses": {}})
+    round_2 = await round_of(Command(**resume), resume)
+    assert round_1 != round_2
+
+    root = await get_checkpoint_state(checkpointer, thread_id)
+    with pytest.raises(StaleApprovalError):
+        build_resume_command(root, {"interrupt_id": round_1, "responses": {}})
+    resume = build_resume_command(root, {"interrupt_id": round_2, "responses": {}})
+    done = await _collect(agent, Command(**resume), config)
+    assert _of(done, "input.requested") == []
+    assert _kinds(_of(done, "tools", []))[-1] == "tool-finished"
+
+
+def test_only_an_elicitation_value_marks_a_tool_interrupt_as_a_pause():
+    """The elicitation marker must be the interrupt value's own `type`, not
+    text anywhere in another payload."""
+    iid = "ab" * 16
+    emitter = ProtocolEmitter()
+    _started(emitter, "call_m", "mcp_tool")
+    paused = (
+        f"(Interrupt(value={{'type': 'mcp_elicitation', 'requests': []}}, id='{iid}'),)"
+    )
+    assert _errored(emitter, "call_m", paused) == []
+    _started(emitter, "call_n", "other_tool")
+    nested = (
+        f"(Interrupt(value={{'note': {{'type': 'mcp_elicitation'}}}}, id='{iid}'),)"
+    )
+    assert _kinds(_errored(emitter, "call_n", nested)) == ["tool-error"]
 
 
 async def test_graph_failure_propagates_after_buffered_events():

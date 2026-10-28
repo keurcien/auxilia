@@ -13,6 +13,8 @@ and the client's per-subscription narrowing can never disagree.
 import time
 from typing import Any
 
+from langchain.mcp.elicitation import ELICITATION_INTERRUPT_TYPE
+
 
 Namespace = list[str]
 
@@ -196,6 +198,32 @@ def tool_error(
 
 def values_event(namespace: Namespace, data: dict) -> dict:
     return {"method": "values", "params": _params(namespace, data)}
+
+
+def is_elicitation(value: Any) -> bool:
+    """Whether an interrupt is an MCP server asking the user for input
+    (`langchain.mcp`'s `MCPElicitationInterrupt`) rather than a tool approval."""
+    return isinstance(value, dict) and value.get("type") == ELICITATION_INTERRUPT_TYPE
+
+
+def wire_interrupt_id(interrupt_id: str, value: Any, round_: int) -> str:
+    """The id the client knows an interrupt by.
+
+    langgraph derives an interrupt's id from its task's namespace, so every
+    round of an MCP elicitation — the same tool call interrupting again —
+    reuses one id, and the client ignores an id once it has answered it
+    (`resolvedInterrupts` in the SDK's stream controller). Each round gets its
+    own id instead: the real one plus the round's number (`hitl.wire_id`
+    counts it off the checkpoint), so even a server asking the identical
+    question again is asked anew. Approvals keep theirs.
+    """
+    return f"{interrupt_id}-{round_}" if is_elicitation(value) else interrupt_id
+
+
+def base_interrupt_id(wire_id: str) -> str:
+    """The checkpoint's interrupt id inside a `wire_interrupt_id`."""
+    base, sep, round_ = wire_id.rpartition("-")
+    return base if sep and round_.isdigit() else wire_id
 
 
 def input_requested(namespace: Namespace, *, interrupt_id: str, payload: Any) -> dict:
