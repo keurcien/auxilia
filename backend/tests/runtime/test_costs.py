@@ -67,6 +67,7 @@ def test_cached_input_is_not_double_charged():
     ("model_id", "expected_total", "expected_cache_write"),
     [
         ("gpt-6-astra", "0.01215", "0.00375"),
+        ("gpt-6.1-sol", "0.00224", "0.0006"),
         ("gpt-6.1-terra", "0.001195", "0.000375"),
         ("moonshotai/kimi-k3.1-pro", "0.00228", "0.0006"),
     ],
