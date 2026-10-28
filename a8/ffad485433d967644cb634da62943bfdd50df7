@@ -1,0 +1,21 @@
+backend/app/model_providers/whitelist.yaml
+  s_650d883b1bf156::t_4378add078e7be 188,193
+backend/tests/runtime/test_costs.py
+  s_650d883b1bf156::t_0ebe41495cdf3b 69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a8ffad485433d967644cb634da62943bfdd50df7",
+  "prompts": {},
+  "sessions": {
+    "s_650d883b1bf156": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17eed-7754-75d0-aa91-871fd536f275",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}
