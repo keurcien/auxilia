@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.23](https://github.com/keurcien/auxilia/compare/backend-v0.9.22...backend-v0.9.23) (2026-10-28)
+
+
+### Performance Improvements
+
+* **runs:** wake the dispatcher and stream sessions through Redis ([#447](https://github.com/keurcien/auxilia/issues/447)) ([1fc9046](https://github.com/keurcien/auxilia/commit/1fc9046df581640780c5bcb95d09b987e3d0891a))
+
 ## [0.9.22](https://github.com/keurcien/auxilia/compare/backend-v0.9.21...backend-v0.9.22) (2026-10-27)
 
 
