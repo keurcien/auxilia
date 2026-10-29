@@ -20,8 +20,8 @@
 	},
 	"dependencies": {
 		"@langchain/core": "^1.2.9",
-		"@langchain/langgraph-sdk": "^1.10.0",
-		"@langchain/react": "^1.0.33",
+		"@langchain/langgraph-sdk": "^1.12.8",
+		"@langchain/react": "^1.2.8",
 		"@mcp-ui/client": "^7.1.1",
 		"@modelcontextprotocol/ext-apps": "1.7.4",
 		"@modelcontextprotocol/sdk": "1.29.0",
