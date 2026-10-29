@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.18](https://github.com/keurcien/auxilia/compare/web-v0.10.17...web-v0.10.18) (2026-10-29)
+
+
+### Dependencies
+
+* **web:** upgrade @langchain/langgraph-sdk to 1.12.8 and @langchain/react to 1.2.8 ([#449](https://github.com/keurcien/auxilia/issues/449)) ([4482f0e](https://github.com/keurcien/auxilia/commit/4482f0eaff2a36146c5d5e997c74fe7b6595ad5f))
+
 ## [0.10.17](https://github.com/keurcien/auxilia/compare/web-v0.10.16...web-v0.10.17) (2026-10-27)
 
 
