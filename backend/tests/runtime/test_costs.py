@@ -12,7 +12,11 @@ from pydantic import ValidationError
 from app.exceptions import NotFoundError, PermissionDeniedError
 from app.main import app
 from app.model_providers.pricing import TokenPrices
-from app.model_providers.whitelist import SupportedModel, parse_whitelist
+from app.model_providers.whitelist import (
+    SupportedModel,
+    bundled_whitelist,
+    parse_whitelist,
+)
 from app.runtime.api.costs import CostService, get_cost_service, message_cost
 from app.runtime.checkpoints import iter_checkpoint_messages
 from app.threads.dependencies import authorize_thread_read
@@ -57,6 +61,26 @@ def test_cached_input_is_not_double_charged():
     assert result.cost_details.input_cache_read == Decimal("0.0002")
     assert result.cost_details.output == Decimal("0.0008")
     assert result.cost_details.total == Decimal("0.0022")
+
+
+@pytest.mark.parametrize(
+    ("model_id", "expected_total", "expected_cache_write"),
+    [
+        ("gpt-6-luna", "0.0001215", "0.0000375"),
+        ("gpt-6-astra", "0.01215", "0.00375"),
+        ("gpt-6.1-sol", "0.00224", "0.0006"),
+        ("gpt-6.1-terra", "0.001195", "0.000375"),
+        ("moonshotai/kimi-k3.1-pro", "0.00228", "0.0006"),
+    ],
+)
+def test_new_models_have_catalog_costs(model_id, expected_total, expected_cache_write):
+    catalog = {entry.model_id: entry for entry in bundled_whitelist()}
+    message = call()
+    message.usage_metadata["input_token_details"]["cache_creation"] = 300
+    result = message_cost(message, model_id, catalog)
+    assert result.reason is None
+    assert result.cost_details.total == Decimal(expected_total)
+    assert result.cost_details.input_cache_creation == Decimal(expected_cache_write)
 
 
 @pytest.mark.parametrize(

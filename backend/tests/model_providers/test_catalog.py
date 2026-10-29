@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 import pytest
+from langchain.agents.factory import _supports_provider_strategy
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import StructuredTool
 
@@ -28,6 +29,8 @@ from app.model_providers.catalog import (
         "gpt-6-luna",
         "gpt-6-sol",
         "gpt-6-astra",
+        "gpt-6.1-sol",
+        "gpt-6.1-terra",
         "future-openai-model",
     ],
 )
@@ -159,16 +162,25 @@ def test_google_factory_sends_level_xor_dynamic_budget():
     assert model.reasoning_effort is None
 
 
-def test_openrouter_factory_sends_the_slug_verbatim():
+@pytest.mark.parametrize("model_id", ["z-ai/glm-5.2", "moonshotai/kimi-k3.1-pro"])
+def test_openrouter_factory_sends_the_slug_verbatim(model_id):
     factory = ChatModelFactory()
     # No mapping table anymore: the whitelist model_id IS the OpenRouter slug.
-    model = factory.create("openrouter", "z-ai/glm-5.2", "unit-test-key")
-    assert model.model_name == "z-ai/glm-5.2"
+    model = factory.create("openrouter", model_id, "unit-test-key")
+    assert model.model_name == model_id
     assert model.extra_body is None
     model = factory.create(
-        "openrouter", "z-ai/glm-5.2", "unit-test-key", reasoning_effort="high"
+        "openrouter", model_id, "unit-test-key", reasoning_effort="high"
     )
     assert model.extra_body == {"reasoning_effort": "high"}
+
+
+def test_kimi_uses_native_structured_output_in_langchain():
+    factory = ChatModelFactory()
+    kimi = factory.create("openrouter", "moonshotai/kimi-k3.1-pro", "unit-test-key")
+    assert _supports_provider_strategy(kimi) is True
+    glm = factory.create("openrouter", "z-ai/glm-5.2", "unit-test-key")
+    assert _supports_provider_strategy(glm) is False
 
 
 def test_meta_factory_sends_reasoning_effort_top_level():
