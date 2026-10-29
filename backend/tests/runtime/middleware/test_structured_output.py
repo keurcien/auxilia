@@ -1,9 +1,12 @@
 from unittest.mock import MagicMock
 
 import pytest
+from langchain.agents import create_agent
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
 from langchain.agents.structured_output import ProviderStrategy, ToolStrategy
 from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.tools import tool
 from pydantic import BaseModel
 
 from app.exceptions import StructuredOutputError
@@ -16,6 +19,7 @@ from app.runtime.middleware.structured_output import (
     is_structured_output_artifact,
     validate_structured_response,
 )
+from tests.runtime.scripted_model import ScriptedChatModel
 
 
 SCHEMA = {
@@ -147,6 +151,53 @@ async def test_final_turn_adds_constrained_formatting_call():
     # rendered chat history; the prose answer is not.
     assert is_structured_output_artifact(structured)
     assert not is_structured_output_artifact(prose)
+
+
+class _WorkToolPreferringModel(ScriptedChatModel):
+    """Prefer the work tool whenever the formatting turn still offers it."""
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
+        if kwargs.get("tool_choice") is None:
+            return super()._generate(messages, stop, run_manager, **kwargs)
+        selected = min(
+            kwargs["tools"], key=lambda offered: offered.name != "lookup_answer"
+        )
+        return ChatResult(
+            generations=[
+                ChatGeneration(
+                    message=AIMessage(
+                        "",
+                        tool_calls=[
+                            {
+                                "name": selected.name,
+                                "args": {"answer": 4},
+                                "id": "format-answer",
+                            }
+                        ],
+                    )
+                )
+            ]
+        )
+
+
+async def test_final_report_is_structured_when_agent_has_work_tools():
+    @tool
+    def lookup_answer(answer: int) -> int:
+        """Look up the answer for the report."""
+        return answer
+
+    final_answer = AIMessage("The answer is 4.", id="report-answer")
+    graph = create_agent(
+        model=_WorkToolPreferringModel(script=[final_answer]),
+        tools=[lookup_answer],
+        response_format=SCHEMA,
+        middleware=[DeferredStructuredOutputMiddleware()],
+    )
+
+    state = await graph.ainvoke({"messages": [HumanMessage("What is 2 + 2?")]})
+
+    assert state["structured_response"] == {"answer": 4}
+    assert final_answer in state["messages"]
 
 
 async def test_provider_native_formats_with_provider_strategy():
