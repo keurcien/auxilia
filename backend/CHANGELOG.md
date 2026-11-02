@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.70](https://github.com/jr-k/auxilia/compare/backend-v0.11.69...backend-v0.11.70) (2026-11-02)
+
+
+### Features
+
+* **memories:** enable automatic capture for new users ([64f7b4e](https://github.com/jr-k/auxilia/commit/64f7b4e3e1e3ec8c2d9ffe07290781543876a879))
+
 ## [0.11.69](https://github.com/jr-k/auxilia/compare/backend-v0.11.68...backend-v0.11.69) (2026-11-01)
 
 
