@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.103](https://github.com/jr-k/auxilia/compare/web-v0.12.102...web-v0.12.103) (2026-11-02)
+
+
+### Bug Fixes
+
+* **projects:** expand directory layout ([df56380](https://github.com/jr-k/auxilia/commit/df56380b681dfdf68013899e4258a70e38d5b321))
+
 ## [0.12.102](https://github.com/jr-k/auxilia/compare/web-v0.12.101...web-v0.12.102) (2026-11-02)
 
 
