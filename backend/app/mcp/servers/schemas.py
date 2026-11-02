@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import field_serializer, field_validator
 from sqlmodel import Field, SQLModel
 
+from app.mcp.compatibility import OAuthRedirectMode
 from app.mcp.servers.models import MCPAuthType, ServiceCredentialProvider
 from app.visibility import ResourceVisibility
 
@@ -181,6 +182,16 @@ class OAuthCallbackInfo(SQLModel):
     callback_url: str
 
 
+class OAuthManualCallbackRequest(SQLModel):
+    callback_url: str = Field(min_length=1, max_length=4096)
+
+
+class OAuthManualCallbackResponse(SQLModel):
+    success: bool = True
+    server_id: UUID
+    server_name: str
+
+
 class MCPServerConnectionResponse(SQLModel):
     """A user's stored OAuth connection to an MCP server (admin view).
 
@@ -233,6 +244,7 @@ class AuthorizationRequired(SQLModel):
 
     status: Literal["auth_required"] = "auth_required"
     auth_url: str
+    oauth_redirect_mode: OAuthRedirectMode = OAuthRedirectMode.hosted_callback
 
 
 ListToolsResult = Annotated[
@@ -249,4 +261,5 @@ class ConnectionTestResult(SQLModel):
     tool_names: list[str] | None = None
     oauth_required: bool = False
     auth_url: str | None = None
+    oauth_redirect_mode: OAuthRedirectMode = OAuthRedirectMode.hosted_callback
     error: str | None = None

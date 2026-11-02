@@ -37,6 +37,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { ServerIconTile } from "@/app/(protected)/mcp-servers/components/server-icon-tile";
+import { useMcpOAuth } from "@/components/providers/mcp-oauth-provider";
 import { SkillAvatar } from "@/components/ui/skill-avatar";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -70,6 +71,7 @@ export function ConnectServersDialog({
 	onResourceSettingsChange,
 	resourceSettingsSaving = false,
 }: ConnectServersDialogProps) {
+	const { startAuthorization } = useMcpOAuth();
 	const [activeTab, setActiveTab] = useState<ResourceTab>("servers");
 	const [resources, setResources] = useState<AgentResources | null>(null);
 	const [resourcesAgentId, setResourcesAgentId] = useState<string | null>(null);
@@ -283,22 +285,30 @@ export function ConnectServersDialog({
 	const handleConnect = useCallback(
 		async (server: AgentResourceMCPServer) => {
 			setConnectingId(server.id);
+			const popup = window.open("", "_blank", "width=600,height=700");
 
 			try {
 				const result = await mcpServersApi.listMcpServerTools(server.id);
 
 				if (result.status === "ok") {
+					if (popup && !popup.closed) popup.close();
 					markConnected(server.id);
 					return;
 				}
 
-				const popup = window.open(
-					result.authUrl,
-					"_blank",
-					"width=600,height=700",
-				);
-				if (!popup) {
-					toast.error(`Allow pop-ups to connect ${server.name}.`);
+				if (
+					!startAuthorization({
+						authUrl: result.authUrl,
+						redirectMode: result.oauthRedirectMode,
+						serverId: server.id,
+						serverName: server.name,
+						popup,
+						onSuccess: () => {
+							clearPolling();
+							markConnected(server.id);
+						},
+					})
+				) {
 					setConnectingId(null);
 					return;
 				}
@@ -312,7 +322,7 @@ export function ConnectServersDialog({
 						if (!connected || connectionHandled) return;
 						connectionHandled = true;
 						clearPolling();
-						if (!popup.closed) popup.close();
+						if (popup && !popup.closed) popup.close();
 						markConnected(server.id);
 					} catch {
 						// A transient probe failure should not stop OAuth polling.
@@ -325,14 +335,15 @@ export function ConnectServersDialog({
 					clearPolling();
 					setConnectingId(null);
 					toast.error(`Connection to ${server.name} timed out.`);
-				}, 60000);
+				}, result.oauthRedirectMode === "loopback_manual" ? 600000 : 60000);
 			} catch (error: unknown) {
+				if (popup && !popup.closed) popup.close();
 				console.error("Failed to connect:", error);
 				setConnectingId(null);
 				toast.error(`Could not connect ${server.name}.`);
 			}
 		},
-		[clearPolling, markConnected],
+		[clearPolling, markConnected, startAuthorization],
 	);
 
 	const setResourceEnabled = (

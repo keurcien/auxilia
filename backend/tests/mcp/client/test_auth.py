@@ -11,6 +11,8 @@ httpx2 MockTransport serving the discovery endpoints.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlparse
@@ -24,9 +26,14 @@ from mcp.shared.auth import (
     OAuthToken,
 )
 
-from app.mcp.client.auth import WebOAuthClientProvider, build_oauth_client_metadata
+from app.mcp.client.auth import (
+    WebOAuthClientProvider,
+    build_oauth_client_metadata,
+    resolve_oauth_redirect_strategy,
+)
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
-from app.mcp.client.storage import StoredToken
+from app.mcp.client.storage import RedisTokenStorage, StoredToken
+from app.mcp.compatibility import OAuthRedirectMode
 
 
 BIGQUERY_URL = "https://bigquery.googleapis.com/mcp"
@@ -60,8 +67,9 @@ class _FakeStorage:
     async def set_oauth_metadata(self, metadata):
         self.oauth_metadata = metadata
 
-    async def set_verifier(self, state, verifier):
+    async def set_verifier(self, state, verifier, redirect_strategy):
         self.verifier = (state, verifier)
+        self.redirect_strategy = redirect_strategy
 
 
 def _make_provider() -> WebOAuthClientProvider:
@@ -172,6 +180,14 @@ async def test_uses_scopes_discovered_from_prm(monkeypatch):
     assert query["resource"] == [BIGQUERY_URL]
     # PKCE + the Google quirk (offline access on a consent screen).
     assert query["code_challenge_method"] == ["S256"]
+    expected_challenge = (
+        base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest())
+        .rstrip(b"=")
+        .decode()
+    )
+    assert query["code_challenge"] == [expected_challenge]
+    assert verifier not in exc_info.value.url
+    assert state not in str(exc_info.value)
     assert query["access_type"] == ["offline"]
     assert query["prompt"] == ["consent"]
     assert query["client_id"] == ["client-123"]
@@ -304,6 +320,97 @@ async def test_dynamic_client_registration_when_no_static_creds(monkeypatch):
     assert "scope" not in query
 
 
+async def test_frame_io_registers_native_public_client_with_loopback_pkce(monkeypatch):
+    frame_url = "https://mcp.frame.io/v1/mcp"
+    frame_issuer = "https://auth.frame.io/"
+    redirect_uri = "http://127.0.0.1:4789/oauth/callback"
+    seen: dict[str, dict] = {}
+
+    def register(request: httpx2.Request) -> httpx2.Response:
+        seen["registration"] = json.loads(request.content.decode())
+        return httpx2.Response(
+            201,
+            json={
+                "client_id": "frame-dcr-client",
+                "client_id_issued_at": 123456,
+                "token_endpoint_auth_method": "none",
+                "redirect_uris": [redirect_uri],
+                "application_type": "native",
+            },
+        )
+
+    _serve(
+        monkeypatch,
+        {
+            f"POST {frame_url}": _probe_must_not_be_sent,
+            "GET https://mcp.frame.io/.well-known/oauth-protected-resource/v1/mcp": {
+                "resource": frame_url,
+                "authorization_servers": [frame_issuer],
+            },
+            "GET https://auth.frame.io/.well-known/oauth-authorization-server": {
+                "issuer": frame_issuer,
+                "authorization_endpoint": "https://auth.frame.io/authorize",
+                "token_endpoint": "https://auth.frame.io/token",
+                "registration_endpoint": "https://auth.frame.io/register",
+                "token_endpoint_auth_methods_supported": ["none"],
+                "response_types_supported": ["code"],
+            },
+            "POST https://auth.frame.io/register": register,
+        },
+    )
+
+    strategy = resolve_oauth_redirect_strategy(server_url=frame_url)
+    storage = _FakeStorage()
+    provider = WebOAuthClientProvider(
+        server_url=frame_url,
+        client_metadata=build_oauth_client_metadata(strategy),
+        storage=storage,
+        redirect_strategy=strategy,
+    )
+
+    with pytest.raises(OAuthAuthorizationRequired) as exc_info:
+        await provider.initiate_authorization()
+
+    assert seen["registration"]["redirect_uris"] == [redirect_uri]
+    assert seen["registration"]["application_type"] == "native"
+    assert seen["registration"]["token_endpoint_auth_method"] == "none"
+    assert storage.client_info.client_id == "frame-dcr-client"
+    assert storage.client_info.client_id_issued_at == 123456
+    query = parse_qs(urlparse(exc_info.value.url).query)
+    assert query["redirect_uri"] == [redirect_uri]
+    assert query["code_challenge_method"] == ["S256"]
+    assert exc_info.value.redirect_mode is OAuthRedirectMode.loopback_manual
+    assert storage.redirect_strategy == strategy
+
+
+async def test_redirect_strategy_change_invalidates_dcr_even_without_echoed_uris(
+    fake_shared_redis,
+):
+    storage = RedisTokenStorage("u1", "s1", "w1", redis=fake_shared_redis)
+    await storage.set_client_info(
+        OAuthClientInformationFull(
+            client_id="old-dcr-client",
+            token_endpoint_auth_method="client_secret_post",
+        )
+    )
+    await storage.set_client_redirect_strategy(
+        resolve_oauth_redirect_strategy(server_url="https://mcp.notion.com/mcp")
+    )
+    frame_strategy = resolve_oauth_redirect_strategy(
+        server_url="https://mcp.frame.io/v1/mcp"
+    )
+    provider = WebOAuthClientProvider(
+        server_url="https://mcp.frame.io/v1/mcp",
+        client_metadata=build_oauth_client_metadata(frame_strategy),
+        storage=storage,
+        redirect_strategy=frame_strategy,
+    )
+
+    await provider._initialize()
+
+    assert provider.context.client_info is None
+
+
 TIKTOK_URL = "https://business-api.tiktok.com/open_mcp/tt-ads-mcp-layer/oauth"
 TIKTOK_BASE = "https://business-api.tiktok.com"
 
@@ -429,7 +536,7 @@ async def test_manual_exchange_finishes_from_persisted_state(monkeypatch):
     storage.client_info = OAuthClientInformationFull(
         client_id="client-123",
         client_secret="secret-xyz",
-        redirect_uris=["https://app.example/cb"],
+        redirect_uris=build_oauth_client_metadata().redirect_uris,
         token_endpoint_auth_method="client_secret_post",
     )
     storage.get_verifier = lambda state: _resolve(
@@ -447,6 +554,9 @@ async def test_manual_exchange_finishes_from_persisted_state(monkeypatch):
     assert seen["body"]["code"] == ["the-code"]
     assert seen["body"]["code_verifier"] == ["verifier-abc"]
     assert seen["body"]["client_secret"] == ["secret-xyz"]
+    assert seen["body"]["redirect_uri"] == [
+        str(build_oauth_client_metadata().redirect_uris[0])
+    ]
     assert storage.tokens.access_token == "at"
     assert seen["deleted"] == "st"
 
@@ -454,7 +564,8 @@ async def test_manual_exchange_finishes_from_persisted_state(monkeypatch):
 async def test_manual_exchange_rejects_an_unknown_state():
     storage = _FakeStorage()
     storage.client_info = OAuthClientInformationFull(
-        client_id="client-123", redirect_uris=["https://app.example/cb"]
+        client_id="client-123",
+        redirect_uris=build_oauth_client_metadata().redirect_uris,
     )
     storage.get_verifier = lambda state: _resolve(None)  # type: ignore[attr-defined]
     provider = WebOAuthClientProvider(

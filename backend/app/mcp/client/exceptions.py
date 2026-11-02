@@ -1,3 +1,6 @@
+from app.mcp.compatibility import OAuthRedirectMode
+
+
 class OAuthAuthorizationRequired(Exception):
     """The user must visit ``url`` before this MCP server can be used.
 
@@ -8,10 +11,19 @@ class OAuthAuthorizationRequired(Exception):
     normal control flow (design review §2.4).
     """
 
-    def __init__(self, url: str, *, server_name: str | None = None):
+    def __init__(
+        self,
+        url: str,
+        *,
+        server_name: str | None = None,
+        redirect_mode: OAuthRedirectMode = OAuthRedirectMode.hosted_callback,
+    ):
         self.url = url
         self.server_name = server_name
-        super().__init__(url)
+        self.redirect_mode = redirect_mode
+        # Never put the authorization URL in the exception message: it carries
+        # the one-time state and can otherwise leak through a wrapper traceback.
+        super().__init__("OAuth authorization required")
 
 
 def as_oauth_required(exc: BaseException) -> OAuthAuthorizationRequired | None:

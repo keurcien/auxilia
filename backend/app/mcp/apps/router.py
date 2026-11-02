@@ -64,7 +64,7 @@ async def read_mcp_app_resource(
         # These endpoints act on a server the user is already using, so the
         # only expected reason to land here is a credential revoked or expired
         # since the app rendered.
-        return oauth_required_response(exc.url)
+        return oauth_required_response(exc.url, exc.redirect_mode)
 
 
 @router.post("/mcp-servers/{server_id}/app/call-tool")
@@ -93,4 +93,4 @@ async def call_mcp_app_tool(
         # These endpoints act on a server the user is already using, so the
         # only expected reason to land here is a credential revoked or expired
         # since the app rendered.
-        return oauth_required_response(exc.url)
+        return oauth_required_response(exc.url, exc.redirect_mode)

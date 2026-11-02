@@ -133,3 +133,14 @@ def test_bundled_snapshot_is_valid():
         "https://mcp.deepwiki.com/mcp",
         "https://drivemcp.googleapis.com/mcp/v1",
     } <= urls
+
+
+def test_frame_io_catalog_declares_manual_loopback_oauth():
+    frame = next(server for server in bundled_catalog() if server.name == "Frame.io")
+    [quirk] = frame.quirks
+
+    assert quirk.oauth is not None
+    assert quirk.oauth.redirect_strategy is not None
+    assert quirk.oauth.redirect_strategy.redirect_uri == (
+        "http://127.0.0.1:4789/oauth/callback"
+    )

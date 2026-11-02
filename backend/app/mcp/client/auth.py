@@ -59,8 +59,13 @@ from redis.exceptions import LockError
 
 from app.auth.settings import auth_settings
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
-from app.mcp.client.storage import StoredToken
-from app.mcp.compatibility import MCPCompatibilityQuirk, matching_quirks
+from app.mcp.client.storage import RedisTokenStorage, StoredToken
+from app.mcp.compatibility import (
+    MCPCompatibilityQuirk,
+    OAuthRedirectMode,
+    OAuthRedirectStrategy,
+    matching_quirks,
+)
 from app.mcp.servers.catalog import bundled_compatibility_quirks
 
 
@@ -178,6 +183,29 @@ def quirk_scope(
     return None
 
 
+def hosted_oauth_redirect_strategy() -> OAuthRedirectStrategy:
+    return OAuthRedirectStrategy(
+        mode=OAuthRedirectMode.hosted_callback,
+        redirect_uri=oauth_callback_url(),
+        application_type="web",
+        token_endpoint_auth_method=AUTH_METHOD_POST,
+        manual_completion_required=False,
+    )
+
+
+def resolve_oauth_redirect_strategy(
+    *,
+    server_url: str | AnyUrl | None = None,
+    issuer: str | AnyHttpUrl | None = None,
+    quirks: Sequence[MCPCompatibilityQuirk] | None = None,
+) -> OAuthRedirectStrategy:
+    """Resolve the callback strategy, defaulting every server to hosted OAuth."""
+    for quirk in resolve_quirks(server_url=server_url, issuer=issuer, quirks=quirks):
+        if quirk.oauth and quirk.oauth.redirect_strategy:
+            return quirk.oauth.redirect_strategy
+    return hosted_oauth_redirect_strategy()
+
+
 def _select_oauth_scopes(
     www_authenticate_scope: str | None,
     protected_resource_metadata: ProtectedResourceMetadata | None,
@@ -267,7 +295,9 @@ def oauth_client_metadata_url() -> str | None:
     return f"{frontend_url}/api/backend/mcp-servers/oauth/client-metadata.json"
 
 
-def build_oauth_client_metadata() -> OAuthClientMetadata:
+def build_oauth_client_metadata(
+    strategy: OAuthRedirectStrategy | None = None,
+) -> OAuthClientMetadata:
     """Static OAuth client-registration metadata for auxilia.
 
     Scopes are intentionally omitted: they are discovered per-server from the
@@ -283,19 +313,20 @@ def build_oauth_client_metadata() -> OAuthClientMetadata:
     HTTPS redirect URI, not a native app on a loopback redirect (the SDK's
     SEP-837 default).
     """
+    resolved = strategy or hosted_oauth_redirect_strategy()
     return OAuthClientMetadata(
         client_name="auxilia",
-        redirect_uris=[AnyUrl(oauth_callback_url())],
+        redirect_uris=[AnyUrl(resolved.redirect_uri)],
         grant_types=["authorization_code", "refresh_token"],
         response_types=["code"],
-        token_endpoint_auth_method=AUTH_METHOD_POST,
-        application_type="web",
+        token_endpoint_auth_method=resolved.token_endpoint_auth_method,
+        application_type=resolved.application_type,
     )
 
 
 def build_oauth_client_metadata_document() -> OAuthClientMetadata:
     """Public-client metadata served at :func:`oauth_client_metadata_url`."""
-    metadata = build_oauth_client_metadata()
+    metadata = build_oauth_client_metadata(hosted_oauth_redirect_strategy())
     metadata.token_endpoint_auth_method = AUTH_METHOD_NONE
     return metadata
 
@@ -324,6 +355,7 @@ class WebOAuthClientProvider(OAuthClientProvider):
         client_id: str | None = None,
         client_secret: str | None = None,
         server_name: str | None = None,
+        redirect_strategy: OAuthRedirectStrategy | None = None,
         quirks: Sequence[MCPCompatibilityQuirk] | None = None,
         **kwargs,
     ):
@@ -331,6 +363,7 @@ class WebOAuthClientProvider(OAuthClientProvider):
         self._client_id = client_id
         self._client_secret = client_secret
         self._server_name = server_name
+        self.redirect_strategy = redirect_strategy or hosted_oauth_redirect_strategy()
         self._quirks = tuple(
             quirks if quirks is not None else bundled_compatibility_quirks()
         )
@@ -413,6 +446,32 @@ class WebOAuthClientProvider(OAuthClientProvider):
             if self.context.client_info:
                 self.context.client_info.token_endpoint_auth_method = auth_method
 
+        # A dynamic registration is valid only for the redirect metadata it was
+        # created with. If a compatibility policy changes callback mode, discard
+        # the stale in-memory registration so the SDK performs DCR again and
+        # overwrites the stored response with the authorization server's real one.
+        if self.context.client_info and not self._client_id:
+            stored_redirects = [
+                str(uri) for uri in (self.context.client_info.redirect_uris or [])
+            ]
+            expected_redirects = [
+                str(uri) for uri in (self.context.client_metadata.redirect_uris or [])
+            ]
+            stored_strategy = None
+            if isinstance(self.context.storage, RedisTokenStorage):
+                stored_strategy = (
+                    await self.context.storage.get_client_redirect_strategy()
+                )
+            if (
+                stored_strategy is not None
+                and stored_strategy != self.redirect_strategy
+            ) or (
+                stored_strategy is None
+                and stored_redirects
+                and stored_redirects != expected_redirects
+            ):
+                self.context.client_info = None
+
         # Static credentials are authoritative. A server can be switched from
         # DCR to a pre-registered client while Redis still contains the dynamic
         # registration; reusing that stale client_id makes the provider compare
@@ -441,6 +500,10 @@ class WebOAuthClientProvider(OAuthClientProvider):
                 **self.context.client_metadata.model_dump(),
             )
         )
+        if isinstance(self.context.storage, RedisTokenStorage):
+            await self.context.storage.set_client_redirect_strategy(
+                self.redirect_strategy
+            )
 
     async def ensure_valid_token(self) -> bool:
         """Return True when a usable access token is available for this user.
@@ -785,10 +848,25 @@ class WebOAuthClientProvider(OAuthClientProvider):
         # with a fresh provider) and the refresh path can recover the
         # client_id/secret from storage.
         await self.context.storage.set_client_info(self.context.client_info)
+        if isinstance(self.context.storage, RedisTokenStorage):
+            await self.context.storage.set_client_redirect_strategy(
+                self.redirect_strategy
+            )
 
         pkce_params = PKCEParameters.generate()
-        state = secrets.token_urlsafe(32)
-        await self.context.storage.set_verifier(state, pkce_params.code_verifier)
+        for _ in range(3):
+            state = secrets.token_urlsafe(32)
+            stored = await self.context.storage.set_verifier(
+                state,
+                pkce_params.code_verifier,
+                self.redirect_strategy,
+            )
+            # Third-party/test TokenStorage implementations predate the boolean
+            # return and commonly return None after a successful write.
+            if stored is not False:
+                break
+        else:
+            raise OAuthFlowError("Could not allocate OAuth state")
 
         auth_params = {
             "response_type": "code",
@@ -813,9 +891,17 @@ class WebOAuthClientProvider(OAuthClientProvider):
         raise OAuthAuthorizationRequired(
             f"{auth_endpoint}?{urlencode(auth_params)}",
             server_name=self._server_name,
+            redirect_mode=self.redirect_strategy.mode,
         )
 
-    async def manual_exchange(self, code: str, state: str) -> None:
+    async def manual_exchange(
+        self,
+        code: str,
+        state: str,
+        *,
+        verifier: str | None = None,
+        consume_state: bool = True,
+    ) -> None:
         """Finish the authorization-code exchange started by
         :meth:`_perform_authorization_code_grant`, from the ``/callback``
         endpoint — a separate request with a fresh provider."""
@@ -825,7 +911,7 @@ class WebOAuthClientProvider(OAuthClientProvider):
         if not self.context.client_info:
             raise OAuthFlowError("Client info not found in storage")
 
-        verifier = await self.context.storage.get_verifier(state)
+        verifier = verifier or await self.context.storage.get_verifier(state)
         if not verifier:
             raise OAuthFlowError("Session expired or invalid state")
 
@@ -852,4 +938,5 @@ class WebOAuthClientProvider(OAuthClientProvider):
                 with contextlib.suppress(LockError):
                     await lock.release()
 
-        await self.context.storage.delete_verifier(state)
+        if consume_state:
+            await self.context.storage.delete_verifier(state)

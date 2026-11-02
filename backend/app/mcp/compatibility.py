@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
+from enum import StrEnum
 from typing import Literal
 from urllib.parse import urlparse
 
@@ -11,6 +12,58 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 _HTTP_HEADER_NAME = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
+
+
+class OAuthRedirectMode(StrEnum):
+    hosted_callback = "hosted_callback"
+    loopback_manual = "loopback_manual"
+
+
+class OAuthRedirectStrategy(BaseModel):
+    """Where an OAuth server sends the browser after authorization."""
+
+    model_config = ConfigDict(frozen=True)
+
+    mode: OAuthRedirectMode
+    redirect_uri: str
+    application_type: Literal["web", "native"]
+    token_endpoint_auth_method: Literal[
+        "client_secret_post", "client_secret_basic", "none"
+    ]
+    manual_completion_required: bool
+
+    @model_validator(mode="after")
+    def validate_strategy(self) -> OAuthRedirectStrategy:
+        _absolute_http_url(self.redirect_uri, field="OAuth redirect URI")
+        parsed = urlparse(self.redirect_uri)
+        if self.mode is OAuthRedirectMode.loopback_manual:
+            if (
+                parsed.scheme != "http"
+                or parsed.hostname != "127.0.0.1"
+                or parsed.port is None
+                or parsed.username is not None
+                or parsed.password is not None
+                or not parsed.path
+                or parsed.params
+                or parsed.query
+                or parsed.fragment
+            ):
+                raise ValueError(
+                    "manual loopback OAuth redirects must be fixed http URLs on "
+                    "127.0.0.1 with an explicit port and path"
+                )
+            if (
+                self.application_type != "native"
+                or self.token_endpoint_auth_method != "none"
+                or not self.manual_completion_required
+            ):
+                raise ValueError(
+                    "manual loopback OAuth requires a native public client and "
+                    "manual completion"
+                )
+        elif self.manual_completion_required:
+            raise ValueError("hosted OAuth callbacks cannot require manual completion")
+        return self
 
 
 def _absolute_http_url(value: str, *, field: str) -> str:
@@ -69,11 +122,15 @@ class OAuthCompatibility(BaseModel):
     ) = None
     authorization_params: dict[str, str] = Field(default_factory=dict)
     scope: str | None = None
+    redirect_strategy: OAuthRedirectStrategy | None = None
 
     @model_validator(mode="after")
     def validate_policy(self) -> OAuthCompatibility:
         if not (
-            self.token_endpoint_auth_method or self.authorization_params or self.scope
+            self.token_endpoint_auth_method
+            or self.authorization_params
+            or self.scope
+            or self.redirect_strategy
         ):
             raise ValueError("an OAuth compatibility policy must not be empty")
         if self.scope is not None and not self.scope.strip():

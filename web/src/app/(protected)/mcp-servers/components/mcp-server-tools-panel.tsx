@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ExternalLink, RefreshCw, Wrench } from "lucide-react";
+import { useMcpOAuth } from "@/components/providers/mcp-oauth-provider";
 import { Switch } from "@/components/ui/switch";
 import { humanizeToolName } from "@/components/ai-elements/chain-of-thought";
 import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 import { getApiErrorMessage } from "@/lib/api/errors";
-import type { MCPServerTool } from "@/types/mcp-servers";
+import type { MCPServerTool, OAuthRedirectMode } from "@/types/mcp-servers";
 import { cn } from "@/lib/utils";
 
 interface MCPServerToolsPanelProps {
@@ -24,10 +25,13 @@ export function MCPServerToolsPanel({
 	disabled = false,
 	readOnly = false,
 }: MCPServerToolsPanelProps) {
+	const { startAuthorization } = useMcpOAuth();
 	const [tools, setTools] = useState<MCPServerTool[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const [authUrl, setAuthUrl] = useState<string | null>(null);
+	const [authRedirectMode, setAuthRedirectMode] =
+		useState<OAuthRedirectMode>("hosted_callback");
 
 	const loadTools = useCallback(async () => {
 		setIsLoading(true);
@@ -37,6 +41,7 @@ export function MCPServerToolsPanel({
 			if (result.status === "auth_required") {
 				setTools([]);
 				setAuthUrl(result.authUrl);
+				setAuthRedirectMode(result.oauthRedirectMode);
 				return;
 			}
 			setAuthUrl(null);
@@ -121,7 +126,14 @@ export function MCPServerToolsPanel({
 							<button
 								type="button"
 								onClick={() => {
-									window.open(authUrl, "_blank", "width=600,height=700");
+									startAuthorization({
+										authUrl,
+										redirectMode: authRedirectMode,
+										serverId,
+										onSuccess: async () => {
+											await loadTools();
+										},
+									});
 								}}
 								className="inline-flex cursor-pointer items-center gap-1.5 rounded-[7px] bg-petrol px-3 py-2 text-[12px] font-semibold text-white hover:opacity-90"
 							>

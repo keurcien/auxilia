@@ -14,9 +14,15 @@ from uuid import uuid4
 import pytest
 from mcp.shared.auth import OAuthClientInformationFull
 
-from app.exceptions import DomainValidationError
+from app.exceptions import DomainValidationError, NotFoundError
 from app.mcp.client import connectivity as connectivity_module
+from app.mcp.client.auth import (
+    hosted_oauth_redirect_strategy,
+    resolve_oauth_redirect_strategy,
+)
 from app.mcp.client.connectivity import build_oauth_provider
+from app.mcp.client.storage import RedisTokenStorage
+from app.mcp.compatibility import OAuthRedirectMode
 from app.mcp.servers import service as service_module
 from app.mcp.servers.models import MCPAuthType
 from app.mcp.servers.schemas import MCPServerCreate, MCPServerPatch
@@ -80,6 +86,25 @@ async def test_build_oauth_provider_without_credentials_defers_to_dcr():
         provider.context.client_metadata.token_endpoint_auth_method
         == "client_secret_post"
     )
+
+
+async def test_build_frame_provider_disables_cimd_and_uses_loopback_metadata():
+    server = SimpleNamespace(
+        id="s1",
+        name="Frame.io",
+        url="https://mcp.frame.io/v1/mcp",
+    )
+
+    provider = await build_oauth_provider(
+        server, MagicMock(), _repo_without_credentials()
+    )
+
+    assert provider.context.client_metadata_url is None
+    assert [str(uri) for uri in provider.context.client_metadata.redirect_uris] == [
+        "http://127.0.0.1:4789/oauth/callback"
+    ]
+    assert provider.context.client_metadata.application_type == "native"
+    assert provider.context.client_metadata.token_endpoint_auth_method == "none"
 
 
 async def test_persist_client_info_writes_when_credentials_present(monkeypatch):
@@ -155,8 +180,247 @@ def make_mcp_server(**kwargs):
     server = MagicMock()
     server.id = kwargs.get("id", uuid4())
     server.workspace_id = kwargs.get("workspace_id", TEST_WORKSPACE_ID)
+    server.name = kwargs.get("name", "Server")
     server.url = kwargs.get("url", "https://mcp.example.com/mcp")
+    server.managed_by = kwargs.get("managed_by")
     return server
+
+
+# ---------------------------------------------------------------------------
+# OAuth callback completion
+# ---------------------------------------------------------------------------
+
+
+async def _oauth_attempt(
+    fake_shared_redis,
+    *,
+    user_id=TEST_OWNER_ID,
+    server_id=None,
+    strategy=None,
+    state="state-123",
+):
+    resolved_server_id = server_id or uuid4()
+    resolved_strategy = strategy or resolve_oauth_redirect_strategy(
+        server_url="https://mcp.frame.io/v1/mcp"
+    )
+    storage = RedisTokenStorage(
+        str(user_id),
+        str(resolved_server_id),
+        str(TEST_WORKSPACE_ID),
+        redis=fake_shared_redis,
+    )
+    await storage.set_verifier(state, "verifier-secret", resolved_strategy)
+    return storage, resolved_server_id
+
+
+async def test_manual_oauth_callback_accepts_exact_loopback_url(
+    service, mock_repo, fake_shared_redis, monkeypatch
+):
+    strategy = resolve_oauth_redirect_strategy(server_url="https://mcp.frame.io/v1/mcp")
+    _storage, server_id = await _oauth_attempt(fake_shared_redis, strategy=strategy)
+    server = make_mcp_server(
+        id=server_id,
+        name="Frame.io",
+        url="https://mcp.frame.io/v1/mcp",
+    )
+    mock_repo.get_scoped.return_value = server
+
+    async def exchange(code, state, *, verifier, consume_state):
+        assert code == "authorization-code"
+        assert state == "state-123"
+        assert verifier == "verifier-secret"
+        assert consume_state is False
+
+    provider = MagicMock(manual_exchange=AsyncMock(side_effect=exchange))
+    build = AsyncMock(return_value=provider)
+    monkeypatch.setattr(service_module, "build_oauth_provider", build)
+
+    result = await service.handle_manual_oauth_callback(
+        "http://127.0.0.1:4789/oauth/callback?code=authorization-code&state=state-123",
+        TEST_OWNER_ID,
+    )
+
+    assert result == {
+        "success": True,
+        "server_id": str(server_id),
+        "server_name": "Frame.io",
+    }
+    assert build.await_args.kwargs["redirect_strategy"] == strategy
+    assert await service_module.TokenStorageFactory(
+        redis=fake_shared_redis
+    ).state_was_used("state-123")
+
+
+@pytest.mark.parametrize(
+    ("url", "message"),
+    [
+        (
+            "https://127.0.0.1:4789/oauth/callback?code=c&state=s",
+            "must use http",
+        ),
+        (
+            "http://localhost:4789/oauth/callback?code=c&state=s",
+            "must use 127.0.0.1",
+        ),
+        (
+            "http://evil.example:4789/oauth/callback?code=c&state=s",
+            "must use 127.0.0.1",
+        ),
+        (
+            "http://127.0.0.1:4789/oauth/callback?code=c",
+            "missing state",
+        ),
+        (
+            "http://127.0.0.1:4789/oauth/callback?state=s",
+            "missing the authorization code",
+        ),
+        (
+            "http://127.0.0.1:4789/oauth/callback?code=c&state=s&state=t",
+            "duplicate parameters",
+        ),
+    ],
+)
+async def test_manual_oauth_callback_rejects_invalid_url_before_lookup(
+    service, url, message
+):
+    with pytest.raises(DomainValidationError, match=message):
+        await service.handle_manual_oauth_callback(url, TEST_OWNER_ID)
+
+
+@pytest.mark.parametrize(
+    ("url", "message"),
+    [
+        (
+            "http://127.0.0.1:4790/oauth/callback?code=c&state=state-123",
+            "unexpected port",
+        ),
+        (
+            "http://127.0.0.1:4789/wrong?code=c&state=state-123",
+            "unexpected path",
+        ),
+    ],
+)
+async def test_manual_oauth_callback_rejects_wrong_port_or_path(
+    service, fake_shared_redis, url, message
+):
+    await _oauth_attempt(fake_shared_redis)
+
+    with pytest.raises(DomainValidationError, match=message):
+        await service.handle_manual_oauth_callback(url, TEST_OWNER_ID)
+
+
+async def test_manual_oauth_callback_rejects_expired_unknown_and_used_state(
+    service, fake_shared_redis
+):
+    callback = "http://127.0.0.1:4789/oauth/callback?code=c&state=missing-state"
+    with pytest.raises(DomainValidationError, match="Invalid or expired"):
+        await service.handle_manual_oauth_callback(callback, TEST_OWNER_ID)
+
+    storage, _ = await _oauth_attempt(fake_shared_redis, state="used-state")
+    await storage.delete_verifier("used-state")
+    used_callback = "http://127.0.0.1:4789/oauth/callback?code=c&state=used-state"
+    with pytest.raises(DomainValidationError, match="already used"):
+        await service.handle_manual_oauth_callback(used_callback, TEST_OWNER_ID)
+
+
+async def test_manual_oauth_callback_rejects_another_users_state(
+    service, fake_shared_redis, monkeypatch
+):
+    await _oauth_attempt(fake_shared_redis, user_id=uuid4())
+    build = AsyncMock()
+    monkeypatch.setattr(service_module, "build_oauth_provider", build)
+
+    with pytest.raises(NotFoundError, match="MCP server not found"):
+        await service.handle_manual_oauth_callback(
+            "http://127.0.0.1:4789/oauth/callback?code=c&state=state-123",
+            TEST_OWNER_ID,
+        )
+
+    build.assert_not_awaited()
+    assert await service_module.TokenStorageFactory(
+        redis=fake_shared_redis
+    ).get_state_data("state-123")
+
+
+async def test_manual_oauth_error_consumes_state_without_exchanging(
+    service, fake_shared_redis, monkeypatch
+):
+    await _oauth_attempt(fake_shared_redis)
+    build = AsyncMock()
+    monkeypatch.setattr(service_module, "build_oauth_provider", build)
+
+    with pytest.raises(DomainValidationError, match="did not authorize"):
+        await service.handle_manual_oauth_callback(
+            "http://127.0.0.1:4789/oauth/callback?error=access_denied&state=state-123",
+            TEST_OWNER_ID,
+        )
+
+    build.assert_not_awaited()
+    assert await service_module.TokenStorageFactory(
+        redis=fake_shared_redis
+    ).state_was_used("state-123")
+
+
+async def test_exchange_failure_is_sanitized_and_consumes_manual_state(
+    service, mock_repo, fake_shared_redis, monkeypatch, caplog
+):
+    await _oauth_attempt(fake_shared_redis)
+    server = make_mcp_server(name="Frame.io")
+    mock_repo.get_scoped.return_value = server
+    provider = MagicMock(
+        manual_exchange=AsyncMock(
+            side_effect=RuntimeError(
+                "provider leaked authorization-code verifier-secret access-token"
+            )
+        )
+    )
+    monkeypatch.setattr(
+        service_module, "build_oauth_provider", AsyncMock(return_value=provider)
+    )
+
+    with pytest.raises(DomainValidationError) as exc_info:
+        await service.handle_manual_oauth_callback(
+            "http://127.0.0.1:4789/oauth/callback"
+            "?code=authorization-code&state=state-123",
+            TEST_OWNER_ID,
+        )
+
+    output = f"{exc_info.value} {caplog.text}"
+    assert "authorization-code" not in output
+    assert "verifier-secret" not in output
+    assert "access-token" not in output
+    factory = service_module.TokenStorageFactory(redis=fake_shared_redis)
+    assert await factory.get_state_data("state-123") is None
+    assert await factory.state_was_used("state-123") is True
+
+
+async def test_hosted_callback_keeps_existing_flow(
+    service, mock_repo, fake_shared_redis, monkeypatch
+):
+    strategy = hosted_oauth_redirect_strategy()
+    storage, server_id = await _oauth_attempt(
+        fake_shared_redis,
+        strategy=strategy,
+        state="hosted-state",
+    )
+    server = make_mcp_server(id=server_id, name="Notion")
+    mock_repo.get_scoped.return_value = server
+
+    async def exchange(_code, state):
+        await storage.delete_verifier(state)
+
+    provider = MagicMock(manual_exchange=AsyncMock(side_effect=exchange))
+    build = AsyncMock(return_value=provider)
+    monkeypatch.setattr(service_module, "build_oauth_provider", build)
+
+    result = await service.handle_oauth_callback(
+        "hosted-code", "hosted-state", TEST_OWNER_ID
+    )
+
+    assert result["status"] == "success"
+    assert build.await_args.kwargs["redirect_strategy"].mode is (
+        OAuthRedirectMode.hosted_callback
+    )
 
 
 # ---------------------------------------------------------------------------

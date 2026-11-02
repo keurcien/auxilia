@@ -2,6 +2,7 @@ import type { ResourceVisibility } from "./visibility";
 
 export type MCPAuthType =
 	"none" | "api_key" | "oauth2" | "service_identity" | "custom_http";
+export type OAuthRedirectMode = "hosted_callback" | "loopback_manual";
 export type ServiceCredentialProvider =
 	| "google_service_account"
 	| "oauth_client_credentials"
@@ -98,7 +99,11 @@ export interface MCPServerTool {
  */
 export type ListToolsResult =
 	| { status: "ok"; tools: MCPServerTool[] }
-	| { status: "auth_required"; authUrl: string };
+	| {
+			status: "auth_required";
+			authUrl: string;
+			oauthRedirectMode: OAuthRedirectMode;
+	  };
 
 export interface ConnectionTestResult {
 	reachable: boolean;
@@ -106,7 +111,14 @@ export interface ConnectionTestResult {
 	toolNames?: string[] | null;
 	oauthRequired: boolean;
 	authUrl?: string | null;
+	oauthRedirectMode: OAuthRedirectMode;
 	error?: string | null;
+}
+
+export interface OAuthManualCallbackResponse {
+	success: boolean;
+	serverId: string;
+	serverName: string;
 }
 
 // A reusable template in the official catalog (a CDN-hosted file, not a DB

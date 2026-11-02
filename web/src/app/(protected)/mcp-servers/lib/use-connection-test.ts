@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useMcpOAuth } from "@/components/providers/mcp-oauth-provider";
 import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import {
@@ -10,19 +11,6 @@ import {
 } from "@/types/mcp-servers";
 
 export type ConnectionTestStatus = "idle" | "testing" | "success" | "error";
-
-// Only navigate a popup to http(s) URLs — reject javascript:/data: and other
-// schemes so a malformed/hostile authorize URL can't execute script.
-function toHttpUrl(value: string): string | null {
-	try {
-		const url = new URL(value);
-		return url.protocol === "https:" || url.protocol === "http:"
-			? url.href
-			: null;
-	} catch {
-		return null;
-	}
-}
 
 export interface CandidateTestInput {
 	url: string;
@@ -43,6 +31,7 @@ export interface CandidateTestInput {
  * values without persisting anything.
  */
 export function useConnectionTest() {
+	const { startAuthorization } = useMcpOAuth();
 	const [status, setStatus] = useState<ConnectionTestStatus>("idle");
 	const [message, setMessage] = useState<string | null>(null);
 	const [oauthFollowUpOpen, setOauthFollowUpOpen] = useState(false);
@@ -109,7 +98,7 @@ export function useConnectionTest() {
 	}, []);
 
 	const runSavedTest = useCallback(
-		async (server: { id: string; authType: MCPAuthType }) => {
+		async (server: { id: string; name?: string; authType: MCPAuthType }) => {
 			clearPolling();
 			clearFollowUpTimer();
 			setOauthFollowUpOpen(false);
@@ -142,19 +131,25 @@ export function useConnectionTest() {
 					return;
 				}
 				if (data.oauthRequired && data.authUrl) {
-					const safeAuthUrl = toHttpUrl(data.authUrl);
-					if (!safeAuthUrl) {
-						popup?.close();
+					const started = startAuthorization({
+						authUrl: data.authUrl,
+						redirectMode: data.oauthRedirectMode,
+						serverId: server.id,
+						serverName: server.name,
+						popup,
+					});
+					if (!started) {
 						setStatus("error");
-						setMessage("Received an invalid authorization URL.");
+						setMessage("Could not open the authorization page.");
 						return;
 					}
-					if (popup) popup.location.href = safeAuthUrl;
 					setMessage("Waiting for authentication…");
-					followUpTimerRef.current = setTimeout(() => {
-						if (!isStale()) setOauthFollowUpOpen(true);
-						followUpTimerRef.current = null;
-					}, 1000);
+					if (data.oauthRedirectMode !== "loopback_manual") {
+						followUpTimerRef.current = setTimeout(() => {
+							if (!isStale()) setOauthFollowUpOpen(true);
+							followUpTimerRef.current = null;
+						}, 1000);
+					}
 					pollBusyRef.current = false;
 					pollRef.current = setInterval(() => {
 						// Serialize probes: skip the tick while one is in flight.
@@ -203,7 +198,7 @@ export function useConnectionTest() {
 						runRef.current++;
 						setStatus("error");
 						setMessage("Authentication timed out. Please try again.");
-					}, 60000);
+					}, data.oauthRedirectMode === "loopback_manual" ? 600000 : 60000);
 					return;
 				}
 				// No authorization needed — discard the pre-opened popup.
@@ -216,7 +211,7 @@ export function useConnectionTest() {
 				setMessage(getApiErrorMessage(error, "Failed to test connection."));
 			}
 		},
-		[applyResult, clearFollowUpTimer, clearPolling],
+		[applyResult, clearFollowUpTimer, clearPolling, startAuthorization],
 	);
 
 	const verifySavedConnection = useCallback(

@@ -34,6 +34,7 @@ from app.mcp.client.auth import (
     WebOAuthClientProvider,
     build_oauth_client_metadata,
     oauth_client_metadata_url,
+    resolve_oauth_redirect_strategy,
 )
 from app.mcp.client.connection import ConnectionSpec, open_client
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
@@ -43,7 +44,12 @@ from app.mcp.client.service_credentials import (
     service_credential_config,
 )
 from app.mcp.client.storage import RedisTokenStorage, TokenStorageFactory
-from app.mcp.compatibility import MCPCompatibilityQuirk, matching_quirks
+from app.mcp.compatibility import (
+    MCPCompatibilityQuirk,
+    OAuthRedirectMode,
+    OAuthRedirectStrategy,
+    matching_quirks,
+)
 from app.mcp.servers.catalog import get_compatibility_quirks
 from app.mcp.servers.models import (
     MCPAuthType,
@@ -67,6 +73,8 @@ async def build_oauth_provider(
     mcp_server: MCPServerDB,
     storage: RedisTokenStorage,
     repository: MCPServerRepository | None = None,
+    *,
+    redirect_strategy: OAuthRedirectStrategy | None = None,
 ) -> WebOAuthClientProvider:
     """Build a ``WebOAuthClientProvider`` for an OAuth2 MCP server.
 
@@ -89,6 +97,7 @@ async def build_oauth_provider(
         mcp_server,
         storage,
         static_credentials(row),
+        redirect_strategy=redirect_strategy,
         quirks=quirks,
     )
 
@@ -123,6 +132,7 @@ def provider_with_credentials(
     storage: RedisTokenStorage,
     credentials: StaticClientCredentials | None,
     *,
+    redirect_strategy: OAuthRedirectStrategy | None = None,
     quirks: Sequence[MCPCompatibilityQuirk] | None = None,
 ) -> WebOAuthClientProvider:
     """The provider construction itself, once the credentials are in hand.
@@ -132,7 +142,11 @@ def provider_with_credentials(
     provider is what has to be fresh per call, not its inputs. Everyone else
     goes through :func:`build_oauth_provider`.
     """
-    client_metadata = build_oauth_client_metadata()
+    strategy = redirect_strategy or resolve_oauth_redirect_strategy(
+        server_url=mcp_server.url,
+        quirks=quirks,
+    )
+    client_metadata = build_oauth_client_metadata(strategy)
     client_id = client_secret = None
     if credentials is not None:
         client_id = credentials.client_id
@@ -142,12 +156,17 @@ def provider_with_credentials(
         )
     return WebOAuthClientProvider(
         server_url=mcp_server.url,
-        server_name=mcp_server.name,
+        server_name=getattr(mcp_server, "name", None),
         client_metadata=client_metadata,
         storage=storage,
         client_id=client_id,
         client_secret=client_secret,
-        client_metadata_url=oauth_client_metadata_url(),
+        client_metadata_url=(
+            oauth_client_metadata_url()
+            if strategy.mode is OAuthRedirectMode.hosted_callback
+            else None
+        ),
+        redirect_strategy=strategy,
         quirks=quirks,
     )
 
@@ -520,7 +539,10 @@ async def test_connection(
             await initiate_oauth(server, user_id, workspace_id, db)
         except OAuthAuthorizationRequired as e:
             return ConnectionTestResult(
-                reachable=False, oauth_required=True, auth_url=e.url
+                reachable=False,
+                oauth_required=True,
+                auth_url=e.url,
+                oauth_redirect_mode=e.redirect_mode,
             )
         except Exception as e:  # noqa: BLE001 — any failure is reported as unreachable
             return ConnectionTestResult(reachable=False, error=str(e))
@@ -537,7 +559,10 @@ async def test_connection(
         # e.g. a revoked-but-unexpired token: surface as re-authorization needed
         # so the caller can restart the OAuth flow rather than see a raw error.
         return ConnectionTestResult(
-            reachable=False, oauth_required=True, auth_url=e.url
+            reachable=False,
+            oauth_required=True,
+            auth_url=e.url,
+            oauth_redirect_mode=e.redirect_mode,
         )
     except Exception as e:  # noqa: BLE001 — any failure is reported as unreachable
         return ConnectionTestResult(reachable=False, error=str(e))

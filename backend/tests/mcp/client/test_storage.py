@@ -2,9 +2,10 @@ from datetime import UTC, datetime
 from fnmatch import fnmatch
 
 import pytest
-from mcp.shared.auth import OAuthToken
+from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 from app.mcp.client import storage as storage_module
+from app.mcp.client.auth import hosted_oauth_redirect_strategy
 from app.mcp.client.storage import RedisTokenStorage, TokenStorageFactory
 from tests.conftest import TEST_WORKSPACE_ID
 
@@ -161,3 +162,92 @@ async def test_delete_tokens_keeps_client_info_and_metadata():
     assert await storage.get_stored_token() is None
     assert storage._client_info_key() in storage.redis.store
     assert storage._oauth_metadata_key() in storage.redis.store
+
+
+@pytest.mark.asyncio
+async def test_oauth_state_is_encrypted_scoped_and_expires(fake_shared_redis):
+    storage = RedisTokenStorage(
+        "u1", "s1", str(TEST_WORKSPACE_ID), redis=fake_shared_redis
+    )
+    strategy = hosted_oauth_redirect_strategy()
+
+    assert await storage.set_verifier("state-1", "verifier-secret", strategy) is True
+    raw = await fake_shared_redis.get(storage._state_key("state-1"))
+    assert raw is not None
+    assert "verifier-secret" not in raw
+    assert await fake_shared_redis.ttl(storage._state_key("state-1")) > 0
+
+    state_data = await TokenStorageFactory(redis=fake_shared_redis).get_state_data(
+        "state-1"
+    )
+    assert state_data is not None
+    assert state_data.user_id == "u1"
+    assert state_data.mcp_server_id == "s1"
+    assert state_data.redirect_strategy == strategy
+
+    await fake_shared_redis.expire(storage._state_key("state-1"), 0)
+    assert (
+        await TokenStorageFactory(redis=fake_shared_redis).get_state_data("state-1")
+        is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_oauth_state_collision_cannot_be_overwritten(fake_shared_redis):
+    storage = RedisTokenStorage(
+        "u1", "s1", str(TEST_WORKSPACE_ID), redis=fake_shared_redis
+    )
+    strategy = hosted_oauth_redirect_strategy()
+
+    assert await storage.set_verifier("same-state", "first", strategy) is True
+    assert await storage.set_verifier("same-state", "second", strategy) is False
+    assert await storage.get_verifier("same-state") == "first"
+
+
+@pytest.mark.asyncio
+async def test_consumed_oauth_state_is_deleted_and_marked_used(fake_shared_redis):
+    storage = RedisTokenStorage(
+        "u1", "s1", str(TEST_WORKSPACE_ID), redis=fake_shared_redis
+    )
+    factory = TokenStorageFactory(redis=fake_shared_redis)
+    await storage.set_verifier(
+        "used-state", "verifier-secret", hosted_oauth_redirect_strategy()
+    )
+    state_data = await factory.get_state_data("used-state")
+    assert state_data is not None
+
+    wrong_owner = state_data.model_copy(update={"user_id": "another-user"})
+    assert await factory.claim_state("used-state", wrong_owner) is False
+    assert await factory.get_state_data("used-state") == state_data
+    assert await factory.claim_state("used-state", state_data) is True
+
+    assert await factory.get_state_data("used-state") is None
+    assert await factory.state_was_used("used-state") is True
+
+
+@pytest.mark.asyncio
+async def test_client_registration_secret_is_encrypted_with_legacy_read_support(
+    fake_shared_redis,
+):
+    storage = RedisTokenStorage(
+        "u1", "s1", str(TEST_WORKSPACE_ID), redis=fake_shared_redis
+    )
+    client_info = OAuthClientInformationFull(
+        client_id="client-id",
+        client_secret="client-secret",
+        redirect_uris=["https://app.example/callback"],
+    )
+    strategy = hosted_oauth_redirect_strategy()
+
+    await storage.set_client_info(client_info)
+    await storage.set_client_redirect_strategy(strategy)
+    raw = await fake_shared_redis.get(storage._client_info_key())
+    assert raw is not None
+    assert "client-secret" not in raw
+    assert await storage.get_client_info() == client_info
+    assert await storage.get_client_redirect_strategy() == strategy
+
+    await fake_shared_redis.set(
+        storage._client_info_key(), client_info.model_dump_json()
+    )
+    assert await storage.get_client_info() == client_info

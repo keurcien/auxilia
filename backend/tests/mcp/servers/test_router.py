@@ -119,3 +119,67 @@ def test_delete_with_detach_agents_detaches_then_deletes(
     assert [name for name, _, _ in calls.mock_calls] == ["detach", "delete"]
     binding_service.detach_server.assert_awaited_once_with(server_id)
     mcp_server_service.delete.assert_awaited_once_with(server_id)
+
+
+def test_manual_oauth_callback_requires_authentication(client, mcp_server_service):
+    response = client.post(
+        "/mcp-servers/oauth/manual-callback",
+        json={"callback_url": ("http://127.0.0.1:4789/oauth/callback?code=c&state=s")},
+    )
+
+    assert response.status_code == 401
+    mcp_server_service.handle_manual_oauth_callback.assert_not_called()
+
+
+def test_manual_oauth_callback_completes_for_current_user(
+    client, mcp_server_service, current_user
+):
+    server_id = uuid4()
+    callback_url = (
+        "http://127.0.0.1:4789/oauth/callback?code=secret-code&state=secret-state"
+    )
+    mcp_server_service.handle_manual_oauth_callback.return_value = {
+        "success": True,
+        "server_id": str(server_id),
+        "server_name": "Frame.io",
+    }
+
+    response = client.post(
+        "/mcp-servers/oauth/manual-callback",
+        json={"callback_url": callback_url},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "success": True,
+        "server_id": str(server_id),
+        "server_name": "Frame.io",
+    }
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["referrer-policy"] == "no-referrer"
+    mcp_server_service.handle_manual_oauth_callback.assert_awaited_once_with(
+        callback_url, current_user.id
+    )
+
+
+def test_manual_oauth_callback_does_not_echo_sensitive_values(
+    client, mcp_server_service, current_user
+):
+    mcp_server_service.handle_manual_oauth_callback.side_effect = DomainValidationError(
+        "The OAuth code exchange failed"
+    )
+
+    response = client.post(
+        "/mcp-servers/oauth/manual-callback",
+        json={
+            "callback_url": (
+                "http://127.0.0.1:4789/oauth/callback"
+                "?code=secret-code&state=secret-state"
+            )
+        },
+    )
+
+    assert response.status_code == 400
+    body = response.text
+    assert "secret-code" not in body
+    assert "secret-state" not in body

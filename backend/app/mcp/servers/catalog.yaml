@@ -663,6 +663,15 @@ servers:
     auth_type: oauth2
     icon_url: "https://pub-fee562950db945e0af49322d187f2a02.r2.dev/assets/icons/frame-io.ico"
     supports_dcr: true
+    quirks:
+      - name: frame-io-loopback-oauth
+        oauth:
+          redirect_strategy:
+            mode: loopback_manual
+            redirect_uri: "http://127.0.0.1:4789/oauth/callback"
+            application_type: native
+            token_endpoint_auth_method: none
+            manual_completion_required: true
     description: >-
       Access Frame.io V4 projects, media, comments, and review workflows through
       Adobe IMS OAuth. Requires a V4 account associated with an Adobe ID.

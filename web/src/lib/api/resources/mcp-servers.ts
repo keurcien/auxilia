@@ -17,6 +17,7 @@ import type {
 	MCPServerCreate,
 	MCPServerUpdate,
 	OAuthCallbackInfo,
+	OAuthManualCallbackResponse,
 	OAuthSecretHint,
 	OfficialMCPServer,
 	ServiceCredentialProvider,
@@ -114,6 +115,16 @@ export async function getOAuthCallbackInfo(
 	const response = await api.get<OAuthCallbackInfo>(
 		"/mcp-servers/oauth/callback-info",
 		{ signal: options.signal },
+	);
+	return response.data;
+}
+
+export async function completeManualOAuth(
+	callbackUrl: string,
+): Promise<OAuthManualCallbackResponse> {
+	const response = await api.post<OAuthManualCallbackResponse>(
+		"/mcp-servers/oauth/manual-callback",
+		{ callbackUrl },
 	);
 	return response.data;
 }

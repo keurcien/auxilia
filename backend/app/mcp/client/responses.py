@@ -12,9 +12,19 @@ data (`list-tools`) use the `auth_required` schema variant instead.
 
 from fastapi.responses import JSONResponse
 
+from app.mcp.compatibility import OAuthRedirectMode
 
-def oauth_required_response(auth_url: str) -> JSONResponse:
+
+def oauth_required_response(
+    auth_url: str,
+    redirect_mode: OAuthRedirectMode = OAuthRedirectMode.hosted_callback,
+) -> JSONResponse:
     """401 telling the client which authorize URL to open."""
     return JSONResponse(
-        status_code=401, content={"error": "oauth_required", "auth_url": auth_url}
+        status_code=401,
+        content={
+            "error": "oauth_required",
+            "auth_url": auth_url,
+            "oauth_redirect_mode": redirect_mode.value,
+        },
     )

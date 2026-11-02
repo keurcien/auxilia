@@ -34,6 +34,11 @@ vi.mock("@/lib/api/resources/mcp-servers", () => ({
 vi.mock("@/lib/api/resources/sandboxes", () => ({
 	listSandboxes: vi.fn(),
 }));
+vi.mock("@/components/providers/mcp-oauth-provider", () => ({
+	useMcpOAuth: () => ({
+		startAuthorization: vi.fn(() => true),
+	}),
+}));
 
 vi.mock("next/image", () => ({
 	default: ({ alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) => (
@@ -213,7 +218,11 @@ describe("agent tool map persistence", () => {
 			Promise.resolve(
 				connected
 					? { status: "ok", tools: [{ name: "search" }] }
-					: { status: "auth_required", authUrl: "https://oauth.example.com" },
+					: {
+							status: "auth_required",
+							authUrl: "https://oauth.example.com",
+							oauthRedirectMode: "hosted_callback",
+						},
 			),
 		);
 		vi.mocked(mcpServersApi.syncAgentMcpServerTools).mockResolvedValue({
@@ -243,7 +252,7 @@ describe("agent tool map persistence", () => {
 		fireEvent.click(connect);
 		await vi.waitFor(() => {
 			expect(openSpy).toHaveBeenCalledWith(
-				"https://oauth.example.com",
+				"",
 				"_blank",
 				"width=600,height=700",
 			);

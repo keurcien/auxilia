@@ -4,6 +4,7 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { PageShell } from "@/components/layout/page-shell";
 import { WorkspacesProvider } from "@/components/providers/workspaces-provider";
+import { McpOAuthProvider } from "@/components/providers/mcp-oauth-provider";
 import { PromptInputProvider } from "@/components/ai-elements/prompt-input";
 
 export default async function ProtectedLayout({
@@ -16,12 +17,14 @@ export default async function ProtectedLayout({
 
 	return (
 		<WorkspacesProvider>
-			<PromptInputProvider>
-				<SidebarProvider defaultOpen={defaultOpen} className="bg-surface">
-					<AppSidebar />
-					<PageShell>{children}</PageShell>
-				</SidebarProvider>
-			</PromptInputProvider>
+			<McpOAuthProvider>
+				<PromptInputProvider>
+					<SidebarProvider defaultOpen={defaultOpen} className="bg-surface">
+						<AppSidebar />
+						<PageShell>{children}</PageShell>
+					</SidebarProvider>
+				</PromptInputProvider>
+			</McpOAuthProvider>
 		</WorkspacesProvider>
 	);
 }

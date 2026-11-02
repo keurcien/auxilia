@@ -18,13 +18,16 @@ from app.mcp.client.auth import (
     quirk_authorization_params,
     quirk_scope,
     quirk_token_endpoint_auth_method,
+    resolve_oauth_redirect_strategy,
     resolve_quirks,
 )
+from app.mcp.compatibility import OAuthRedirectMode
 
 
 SUPABASE_URL = "https://mcp.supabase.com/mcp"
 SUPABASE_ISSUER = "https://api.supabase.com/"
 GMAIL_URL = "https://gmailmcp.googleapis.com/mcp/v1"
+FRAME_URL = "https://mcp.frame.io/v1/mcp"
 
 
 def test_an_unknown_server_matches_nothing():
@@ -37,6 +40,19 @@ def test_an_unknown_server_matches_nothing():
     assert quirk_token_endpoint_auth_method(server_url="https://mcp.notion.com") is None
     assert quirk_authorization_params(issuer="https://notion.so/") == {}
     assert quirk_scope(server_url="https://mcp.notion.com") is None
+    strategy = resolve_oauth_redirect_strategy(server_url="https://mcp.notion.com/mcp")
+    assert strategy.mode is OAuthRedirectMode.hosted_callback
+    assert strategy.application_type == "web"
+
+
+def test_frame_io_uses_manual_loopback_oauth():
+    strategy = resolve_oauth_redirect_strategy(server_url=FRAME_URL)
+
+    assert strategy.mode is OAuthRedirectMode.loopback_manual
+    assert strategy.redirect_uri == "http://127.0.0.1:4789/oauth/callback"
+    assert strategy.application_type == "native"
+    assert strategy.token_endpoint_auth_method == "none"
+    assert strategy.manual_completion_required is True
 
 
 @pytest.mark.parametrize(
@@ -77,7 +93,7 @@ async def test_initialize_applies_the_quirk_by_url_alone():
     stored = OAuthClientInformationFull(
         client_id="abc",
         client_secret="xyz",
-        redirect_uris=["https://auxilia.example.com/callback"],
+        redirect_uris=build_oauth_client_metadata().redirect_uris,
         token_endpoint_auth_method="client_secret_basic",
     )
     storage = AsyncMock()

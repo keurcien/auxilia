@@ -28,6 +28,8 @@ from app.mcp.servers.schemas import (
     MCPServerPatch,
     MCPServerResponse,
     OAuthCallbackInfo,
+    OAuthManualCallbackRequest,
+    OAuthManualCallbackResponse,
     OAuthSecretHint,
     OfficialMCPServerResponse,
     ToolsListed,
@@ -38,6 +40,12 @@ from app.utils.images import image_response, process_uploaded_image
 
 
 router = APIRouter(prefix="/mcp-servers", tags=["mcp-servers"])
+
+
+def _secure_oauth_response(response: Response) -> None:
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Referrer-Policy"] = "no-referrer"
 
 
 async def get_mcp_server_dependency(
@@ -263,13 +271,32 @@ async def revoke_mcp_server_connection(
 
 @router.get("/oauth/callback")
 async def oauth_callback(
+    response: Response,
     code: str = Query(..., description="Authorization code from OAuth provider"),
     state: str = Query(..., description="State parameter from OAuth provider"),
     current_user: UserDB = Depends(get_current_user),
     service: MCPServerService = Depends(get_mcp_server_service),
 ):
+    _secure_oauth_response(response)
     result = await service.handle_oauth_callback(code, state, current_user.id)
-    return JSONResponse(status_code=200, content=result)
+    return result
+
+
+@router.post(
+    "/oauth/manual-callback",
+    response_model=OAuthManualCallbackResponse,
+)
+async def manual_oauth_callback(
+    payload: OAuthManualCallbackRequest,
+    response: Response,
+    current_user: UserDB = Depends(get_current_user),
+    service: MCPServerService = Depends(get_mcp_server_service),
+) -> OAuthManualCallbackResponse:
+    _secure_oauth_response(response)
+    result = await service.handle_manual_oauth_callback(
+        payload.callback_url, current_user.id
+    )
+    return OAuthManualCallbackResponse.model_validate(result)
 
 
 @router.get("/{server_id}/list-tools", response_model=ListToolsResult)

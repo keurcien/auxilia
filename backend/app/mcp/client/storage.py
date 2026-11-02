@@ -2,6 +2,7 @@ import logging
 import secrets
 from datetime import UTC, datetime, timedelta
 
+from cryptography.fernet import InvalidToken
 from mcp.client.auth import TokenStorage
 from mcp.shared.auth import (
     OAuthClientInformationFull,
@@ -14,6 +15,7 @@ from redis.asyncio import Redis
 from redis.asyncio.lock import Lock
 from redis.exceptions import WatchError
 
+from app.mcp.compatibility import OAuthRedirectStrategy
 from app.redis_client import get_redis
 from app.utils.encryption import decrypt_value, encrypt_value
 
@@ -22,6 +24,8 @@ logger = logging.getLogger(__name__)
 
 _REFRESH_LOCK_TTL_SECONDS = 30
 _REFRESH_LOCK_WAIT_SECONDS = 10
+_OAUTH_STATE_TTL_SECONDS = 600
+_OAUTH_STATE_USED_TTL_SECONDS = 600
 
 
 class StoredToken(BaseModel):
@@ -36,6 +40,20 @@ class OAuthStateData(BaseModel):
     user_id: str
     mcp_server_id: str
     verifier: str
+    redirect_strategy: OAuthRedirectStrategy | None = None
+
+
+def _decrypt_or_legacy_json(raw: str | bytes) -> str:
+    value = raw.decode() if isinstance(raw, bytes) else raw
+    if value.lstrip().startswith("{"):
+        return value
+    try:
+        return decrypt_value(value)
+    except InvalidToken:
+        # Existing deployments stored client registration JSON in plaintext.
+        # Keep it readable during a rolling deployment; every subsequent write
+        # uses encryption.
+        return value
 
 
 class RedisTokenStorage(TokenStorage):
@@ -68,6 +86,9 @@ class RedisTokenStorage(TokenStorage):
     def _client_info_key(self) -> str:
         return f"{self._base()}:client_info"
 
+    def _client_redirect_strategy_key(self) -> str:
+        return f"{self._base()}:client_redirect_strategy"
+
     def _oauth_metadata_key(self) -> str:
         return f"{self._base()}:oauth_metadata"
 
@@ -78,6 +99,14 @@ class RedisTokenStorage(TokenStorage):
     def _state_key(state: str, prefix: str = "mcp") -> str:
         """Global state key (not scoped to user/server since we need to look up by state)."""
         return f"{prefix}:oauth_states:{state}"
+
+    @staticmethod
+    def _used_state_key(state: str, prefix: str = "mcp") -> str:
+        return f"{prefix}:oauth_used_states:{state}"
+
+    @staticmethod
+    def _state_lock_key(state: str, prefix: str = "mcp") -> str:
+        return f"{prefix}:oauth_state_locks:{state}"
 
     async def get_stored_token(self) -> StoredToken | None:
         """Get the raw stored token including the absolute expires_at timestamp."""
@@ -188,12 +217,28 @@ class RedisTokenStorage(TokenStorage):
         raw = await self.redis.get(self._client_info_key())
         if not raw:
             return None
-        return OAuthClientInformationFull.model_validate_json(raw)
+        return OAuthClientInformationFull.model_validate_json(
+            _decrypt_or_legacy_json(raw)
+        )
 
     async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
         await self.redis.set(
             self._client_info_key(),
-            client_info.model_dump_json(),
+            encrypt_value(client_info.model_dump_json()),
+        )
+
+    async def get_client_redirect_strategy(self) -> OAuthRedirectStrategy | None:
+        raw = await self.redis.get(self._client_redirect_strategy_key())
+        if not raw:
+            return None
+        return OAuthRedirectStrategy.model_validate_json(_decrypt_or_legacy_json(raw))
+
+    async def set_client_redirect_strategy(
+        self, strategy: OAuthRedirectStrategy
+    ) -> None:
+        await self.redis.set(
+            self._client_redirect_strategy_key(),
+            encrypt_value(strategy.model_dump_json()),
         )
 
     async def set_oauth_metadata(self, oauth_metadata: OAuthMetadata) -> None:
@@ -224,31 +269,46 @@ class RedisTokenStorage(TokenStorage):
             return None
         return ProtectedResourceMetadata.model_validate_json(raw)
 
-    async def set_verifier(self, state: str, verifier: str) -> None:
+    async def set_verifier(
+        self,
+        state: str,
+        verifier: str,
+        redirect_strategy: OAuthRedirectStrategy,
+    ) -> bool:
         """Store OAuth state data including user_id, mcp_server_id, and verifier."""
         state_data = OAuthStateData(
             workspace_id=self.workspace_id,
             user_id=self.user_id,
             mcp_server_id=self.mcp_server_id,
             verifier=verifier,
+            redirect_strategy=redirect_strategy,
         )
 
-        await self.redis.set(
+        stored = await self.redis.set(
             self._state_key(state, self._prefix),
-            state_data.model_dump_json(),
-            ex=600,
+            encrypt_value(state_data.model_dump_json()),
+            ex=_OAUTH_STATE_TTL_SECONDS,
+            nx=True,
         )
+        return bool(stored)
 
     async def get_verifier(self, state: str) -> str | None:
         """Get verifier from state data."""
         raw = await self.redis.get(self._state_key(state, self._prefix))
         if not raw:
             return None
-        state_data = OAuthStateData.model_validate_json(raw)
+        state_data = OAuthStateData.model_validate_json(_decrypt_or_legacy_json(raw))
         return state_data.verifier
 
     async def delete_verifier(self, state: str) -> None:
-        await self.redis.delete(self._state_key(state, self._prefix))
+        async with self.redis.pipeline(transaction=True) as pipe:
+            pipe.delete(self._state_key(state, self._prefix))
+            pipe.set(
+                self._used_state_key(state, self._prefix),
+                "1",
+                ex=_OAUTH_STATE_USED_TTL_SECONDS,
+            )
+            await pipe.execute()
 
 
 class TokenStorageFactory:
@@ -278,7 +338,43 @@ class TokenStorageFactory:
         raw = await self.redis.get(RedisTokenStorage._state_key(state))
         if not raw:
             return None
-        return OAuthStateData.model_validate_json(raw)
+        return OAuthStateData.model_validate_json(_decrypt_or_legacy_json(raw))
+
+    async def state_was_used(self, state: str) -> bool:
+        return bool(await self.redis.get(RedisTokenStorage._used_state_key(state)))
+
+    async def claim_state(self, state: str, expected: OAuthStateData) -> bool:
+        """Atomically consume an OAuth state only if every bound value matches."""
+        state_key = RedisTokenStorage._state_key(state)
+        used_key = RedisTokenStorage._used_state_key(state)
+        while True:
+            try:
+                async with self.redis.pipeline(transaction=True) as pipe:
+                    await pipe.watch(state_key)
+                    raw = await pipe.get(state_key)
+                    if not raw:
+                        return False
+                    current = OAuthStateData.model_validate_json(
+                        _decrypt_or_legacy_json(raw)
+                    )
+                    if current != expected:
+                        return False
+                    pipe.multi()
+                    pipe.delete(state_key)
+                    pipe.set(used_key, "1", ex=_OAUTH_STATE_USED_TTL_SECONDS)
+                    await pipe.execute()
+                    return True
+            except WatchError:
+                continue
+
+    def state_lock(self, state: str) -> Lock:
+        """Allow only one callback request to exchange a given authorization code."""
+        return self.redis.lock(
+            RedisTokenStorage._state_lock_key(state),
+            timeout=_REFRESH_LOCK_TTL_SECONDS,
+            blocking=True,
+            blocking_timeout=_REFRESH_LOCK_WAIT_SECONDS,
+        )
 
     async def get_storage_from_state(
         self, state: str

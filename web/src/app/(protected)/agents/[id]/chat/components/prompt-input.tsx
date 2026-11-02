@@ -41,6 +41,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
+import { useMcpOAuth } from "@/components/providers/mcp-oauth-provider";
 import { useModelsStore } from "@/stores/models-store";
 import { useChatHeaderStore } from "@/stores/chat-header-store";
 import { Model } from "@/types/models";
@@ -202,6 +203,7 @@ const ChatPromptInput = ({
 	loadLatestConversationMessages,
 }: ChatPromptInputProps) => {
 	usePromptInputDraft(draftKey);
+	const { startAuthorization } = useMcpOAuth();
 	const [connectDialogOpen, setConnectDialogOpen] = useState(false);
 	const models = useModelsStore((state) => state.models);
 	const fetchModels = useModelsStore((state) => state.fetchModels);
@@ -612,17 +614,20 @@ const ChatPromptInput = ({
 							: null;
 					const authUrl = safeHttpUrl(body?.auth_url);
 					if (authUrl) {
+						const redirectMode =
+							body?.oauth_redirect_mode === "loopback_manual"
+								? "loopback_manual"
+								: "hosted_callback";
 						toast.error(
 							"Reconnect the agent's MCP server before queueing this prompt.",
 							{
 								action: {
 									label: "Connect",
 									onClick: () => {
-										window.open(
+										startAuthorization({
 											authUrl,
-											"_blank",
-											"width=600,height=700",
-										);
+											redirectMode,
+										});
 									},
 								},
 							},

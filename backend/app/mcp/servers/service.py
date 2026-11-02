@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 from datetime import UTC, datetime
+from urllib.parse import parse_qsl, urlsplit
 from uuid import UUID, uuid4
 
 from fastapi import Depends
+from redis.exceptions import LockError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +20,7 @@ from app.exceptions import (
     DomainValidationError,
     NotFoundError,
 )
+from app.mcp.client.auth import hosted_oauth_redirect_strategy
 from app.mcp.client.connectivity import (
     build_oauth_provider,
     connect_to_server,
@@ -26,6 +30,7 @@ from app.mcp.client.connectivity import (
 from app.mcp.client.exceptions import OAuthAuthorizationRequired
 from app.mcp.client.service_credentials import validate_service_credential
 from app.mcp.client.storage import TokenStorageFactory
+from app.mcp.compatibility import OAuthRedirectMode, OAuthRedirectStrategy
 from app.mcp.servers import catalog as mcp_catalog
 from app.mcp.servers.models import (
     MCPAuthType,
@@ -67,6 +72,60 @@ from app.workspaces.repository import WorkspaceRepository
 
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_manual_oauth_callback_url(
+    callback_url: str,
+) -> tuple[str | None, str, bool]:
+    """Return (code, state, provider_error) after generic loopback validation."""
+    if any(character.isspace() for character in callback_url):
+        raise DomainValidationError("The callback URL is invalid")
+    try:
+        parsed = urlsplit(callback_url)
+        port = parsed.port
+    except ValueError as exc:
+        raise DomainValidationError("The callback URL is invalid") from exc
+    if parsed.scheme != "http":
+        raise DomainValidationError("The callback URL must use http")
+    if parsed.hostname != "127.0.0.1":
+        raise DomainValidationError("The callback URL must use 127.0.0.1")
+    if (
+        parsed.username is not None
+        or parsed.password is not None
+        or port is None
+        or parsed.fragment
+    ):
+        raise DomainValidationError("The callback URL is invalid")
+    try:
+        pairs = parse_qsl(parsed.query, keep_blank_values=True, strict_parsing=True)
+    except ValueError as exc:
+        raise DomainValidationError("The callback URL query is invalid") from exc
+    values: dict[str, list[str]] = {}
+    for key, value in pairs:
+        values.setdefault(key, []).append(value)
+    if any(len(items) != 1 for items in values.values()):
+        raise DomainValidationError("The callback URL contains duplicate parameters")
+    state = values.get("state", [""])[0]
+    if not state:
+        raise DomainValidationError("The callback URL is missing state")
+    provider_error = bool(values.get("error", [""])[0])
+    code = values.get("code", [""])[0] or None
+    if not provider_error and code is None:
+        raise DomainValidationError(
+            "The callback URL is missing the authorization code"
+        )
+    return code, state, provider_error
+
+
+def _validate_manual_redirect_uri(
+    callback_url: str, strategy: OAuthRedirectStrategy
+) -> None:
+    actual = urlsplit(callback_url)
+    expected = urlsplit(strategy.redirect_uri)
+    if actual.port != expected.port:
+        raise DomainValidationError("The callback URL uses an unexpected port")
+    if actual.path != expected.path:
+        raise DomainValidationError("The callback URL uses an unexpected path")
 
 
 class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
@@ -747,34 +806,132 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         )
         return {"deleted_keys": deleted}
 
-    async def handle_oauth_callback(self, code: str, state: str, user_id: UUID) -> dict:
+    async def _complete_oauth(
+        self,
+        *,
+        code: str | None,
+        state: str,
+        user_id: UUID,
+        expected_mode: OAuthRedirectMode,
+        callback_url: str | None = None,
+        provider_error: bool = False,
+    ) -> MCPServerDB:
         storage_factory = TokenStorageFactory()
-        result = await storage_factory.get_storage_from_state(state)
+        lock = storage_factory.state_lock(state)
+        if not await lock.acquire():
+            raise DomainValidationError(
+                "This OAuth callback is already being processed"
+            )
 
-        if not result:
-            raise DomainValidationError("Invalid or expired OAuth state")
+        try:
+            result = await storage_factory.get_storage_from_state(state)
+            if not result:
+                if await storage_factory.state_was_used(state):
+                    raise DomainValidationError("This OAuth callback was already used")
+                raise DomainValidationError("Invalid or expired OAuth state")
 
-        storage, state_data = result
-        if (
-            self.workspace_id is None
-            or state_data.workspace_id != str(self.workspace_id)
-            or state_data.user_id != str(user_id)
-        ):
-            raise NotFoundError("MCP server not found")
+            storage, state_data = result
+            if (
+                self.workspace_id is None
+                or state_data.workspace_id != str(self.workspace_id)
+                or state_data.user_id != str(user_id)
+            ):
+                raise NotFoundError("MCP server not found")
 
-        mcp_server = await self.repository.get_scoped(state_data.mcp_server_id)
-        if not mcp_server:
-            raise NotFoundError("MCP server not found")
+            strategy = state_data.redirect_strategy or hosted_oauth_redirect_strategy()
+            if strategy.mode is not expected_mode:
+                raise DomainValidationError(
+                    "This OAuth callback must be completed through the expected flow"
+                )
+            if callback_url is not None:
+                _validate_manual_redirect_uri(callback_url, strategy)
 
-        provider = await build_oauth_provider(mcp_server, storage, self.repository)
-        # The provider loads its stored state and applies the current catalog's
-        # compatibility policy itself, including the client-auth method this
-        # exchange needs.
-        await provider.manual_exchange(code, state)
+            mcp_server = await self.repository.get_scoped(state_data.mcp_server_id)
+            if not mcp_server:
+                raise NotFoundError("MCP server not found")
 
+            verifier: str | None = None
+            if expected_mode is OAuthRedirectMode.loopback_manual:
+                if not await storage_factory.claim_state(state, state_data):
+                    raise DomainValidationError(
+                        "This OAuth callback was already used or expired"
+                    )
+                verifier = state_data.verifier
+
+            if provider_error:
+                if verifier is None:
+                    await storage.delete_verifier(state)
+                raise DomainValidationError(
+                    "The OAuth provider did not authorize the connection"
+                )
+            if code is None:
+                raise DomainValidationError(
+                    "The callback URL is missing the authorization code"
+                )
+
+            provider = await build_oauth_provider(
+                mcp_server,
+                storage,
+                self.repository,
+                redirect_strategy=strategy,
+            )
+            # The provider loads the exact DCR response and redirect metadata
+            # persisted during initiation. Never expose its detailed exception:
+            # provider responses can contain credentials or authorization codes.
+            try:
+                if verifier is None:
+                    await provider.manual_exchange(code, state)
+                else:
+                    await provider.manual_exchange(
+                        code,
+                        state,
+                        verifier=verifier,
+                        consume_state=False,
+                    )
+            except Exception as exc:  # noqa: BLE001 - sanitize every OAuth dependency failure
+                logger.warning(
+                    "OAuth code exchange failed for MCP server %s (%s)",
+                    mcp_server.id,
+                    type(exc).__name__,
+                )
+                raise DomainValidationError(
+                    "The OAuth code exchange failed. Restart authorization and try again."
+                ) from None
+            return mcp_server
+        finally:
+            with contextlib.suppress(LockError):
+                await lock.release()
+
+    async def handle_oauth_callback(
+        self, code: str, state: str, user_id: UUID
+    ) -> dict[str, str]:
+        await self._complete_oauth(
+            code=code,
+            state=state,
+            user_id=user_id,
+            expected_mode=OAuthRedirectMode.hosted_callback,
+        )
         return {
             "status": "success",
             "message": "Authorization code received and published",
+        }
+
+    async def handle_manual_oauth_callback(
+        self, callback_url: str, user_id: UUID
+    ) -> dict[str, str | bool]:
+        code, state, provider_error = _parse_manual_oauth_callback_url(callback_url)
+        server = await self._complete_oauth(
+            code=code,
+            state=state,
+            user_id=user_id,
+            expected_mode=OAuthRedirectMode.loopback_manual,
+            callback_url=callback_url,
+            provider_error=provider_error,
+        )
+        return {
+            "success": True,
+            "server_id": str(server.id),
+            "server_name": server.name,
         }
 
     async def list_tools(
@@ -813,7 +970,10 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
             # Also catches the *implicit* 401 — a stored token that the server
             # has since revoked only fails during the handshake, and the seam
             # unwraps it out of the client's connect failure for us.
-            return AuthorizationRequired(auth_url=exc.url)
+            return AuthorizationRequired(
+                auth_url=exc.url,
+                oauth_redirect_mode=exc.redirect_mode,
+            )
         except Exception:
             logger.exception(
                 "Failed to list tools for MCP server %s (%s)",

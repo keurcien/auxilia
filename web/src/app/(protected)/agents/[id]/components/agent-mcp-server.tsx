@@ -18,6 +18,7 @@ import MCPToolsDialog from "./mcp-tools-dialog";
 import { AgentMCPServerForm } from "../../lib/agent-form";
 import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 import { ServerIconTile } from "@/app/(protected)/mcp-servers/components/server-icon-tile";
+import { useMcpOAuth } from "@/components/providers/mcp-oauth-provider";
 import { Switch } from "@/components/ui/switch";
 import { ThreeStateToggle } from "@/components/ui/three-state-toggle";
 
@@ -212,6 +213,7 @@ export default function AgentMCPServer({
 	onToolsPersisted,
 	onRemove,
 }: AgentMCPServerProps) {
+	const { startAuthorization } = useMcpOAuth();
 	const [tools, setTools] = useState<MCPServerTool[]>([]);
 	const [isLoading, setIsLoading] = useState(false);
 	const [isConnected, setIsConnected] = useState(false);
@@ -335,7 +337,7 @@ export default function AgentMCPServer({
 		persistRef.current = persistIfStale;
 	}, [persistIfStale]);
 
-	const fetchTools = useCallback(async () => {
+	const fetchTools = useCallback(async (oauthPopup?: Window | null) => {
 		setIsLoading(true);
 		setToolsUnavailable(false);
 		try {
@@ -345,11 +347,26 @@ export default function AgentMCPServer({
 			// not connected for this user yet, and the backend hands back the
 			// URL to open. (This used to arrive as a 401 in the catch below.)
 			if (result.status === "auth_required") {
-				const popup = window.open(
-					result.authUrl,
-					"_blank",
-					"width=600,height=700",
-				);
+				if (oauthPopup === undefined) {
+					setIsConnected(false);
+					setToolsUnavailable(true);
+					expandedChangeRef.current(true);
+					setIsLoading(false);
+					return;
+				}
+				if (
+					!startAuthorization({
+						authUrl: result.authUrl,
+						redirectMode: result.oauthRedirectMode,
+						serverId: server.id,
+						serverName: server.name,
+						popup: oauthPopup,
+					})
+				) {
+					setToolsUnavailable(true);
+					setIsLoading(false);
+					return;
+				}
 
 				// Poll ticks overlap when a response is slow — only the first
 				// tick that sees the connection may run the fetch/persist leg,
@@ -396,8 +413,8 @@ export default function AgentMCPServer({
 								setIsLoading(false);
 							}
 
-							if (popup && !popup.closed) {
-								popup.close();
+							if (oauthPopup && !oauthPopup.closed) {
+								oauthPopup.close();
 							}
 						}
 					} catch (pollError) {
@@ -411,15 +428,17 @@ export default function AgentMCPServer({
 				setTimeout(() => {
 					clearInterval(pollInterval);
 					setIsLoading(false);
-				}, 60000);
+				}, result.oauthRedirectMode === "loopback_manual" ? 600000 : 60000);
 
 				return;
 			}
 
+			if (oauthPopup && !oauthPopup.closed) oauthPopup.close();
 			setTools(result.tools);
 			seedRef.current(result.tools);
 			await persistRef.current(result.tools);
 		} catch (error: unknown) {
+			if (oauthPopup && !oauthPopup.closed) oauthPopup.close();
 			console.error("Failed to fetch tools:", error);
 			setTools([]);
 			setToolsUnavailable(true);
@@ -427,10 +446,18 @@ export default function AgentMCPServer({
 		} finally {
 			setIsLoading(false);
 		}
-	}, [server.id]);
+	}, [server.id, server.name, startAuthorization]);
 
 	const handleConnect = async () => {
-		await fetchTools();
+		const popup =
+			server.authType === "oauth2"
+				? window.open("", "_blank", "width=600,height=700")
+				: undefined;
+		if (server.authType === "oauth2" && !popup) {
+			setToolsUnavailable(true);
+			return;
+		}
+		await fetchTools(popup);
 	};
 
 	useEffect(() => {
