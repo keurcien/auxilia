@@ -190,7 +190,7 @@ function FolderRow({
 				onClick={onOpen}
 				className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 py-3 text-left"
 			>
-				<span className="flex size-8 shrink-0 items-center justify-center rounded-[8px] bg-petrol-tint text-petrol dark:bg-white/10 dark:text-panel-terminal">
+				<span className="flex size-9 shrink-0 items-center justify-center rounded-[9px] bg-petrol-tint text-petrol dark:bg-white/10 dark:text-panel-terminal">
 					<Folder className="size-4" />
 				</span>
 				<span className="min-w-0">
@@ -237,24 +237,26 @@ function ThreadRow({
 	const title = titleOf(thread);
 	return (
 		<div className="group flex min-h-14 items-center rounded-[10px] border border-border bg-card px-3 shadow-[0_1px_2px_rgba(10,25,30,0.03)] transition-[border-color,box-shadow] hover:border-border-hover hover:shadow-raised">
-			{thread.canManage ? (
-				<ConversationCompletionButton
-					completed={thread.completedAt !== null}
-					onToggle={onToggleCompletion}
-					className="mr-2 size-5"
-				/>
-			) : (
-				<span
-					className={cn(
-						"mr-2 flex size-5 shrink-0 items-center justify-center rounded-full border",
-						thread.completedAt
-							? "border-emerald-600 bg-emerald-600 text-white"
-							: "border-border text-transparent",
-					)}
-				>
-					<Check className="size-3" />
-				</span>
-			)}
+			<span className="mr-3 flex size-9 shrink-0 items-center justify-center">
+				{thread.canManage ? (
+					<ConversationCompletionButton
+						completed={thread.completedAt !== null}
+						onToggle={onToggleCompletion}
+						className="size-5"
+					/>
+				) : (
+					<span
+						className={cn(
+							"flex size-5 shrink-0 items-center justify-center rounded-full border",
+							thread.completedAt
+								? "border-emerald-600 bg-emerald-600 text-white"
+								: "border-border text-transparent",
+						)}
+					>
+						<Check className="size-3" />
+					</span>
+				)}
+			</span>
 			<Link
 				href={`/agents/${thread.agentId}/chat/${thread.id}`}
 				prefetch={false}
@@ -305,7 +307,7 @@ function TriggerRow({
 }) {
 	return (
 		<div className="group flex min-h-14 items-center rounded-[10px] border border-border bg-card px-3 shadow-[0_1px_2px_rgba(10,25,30,0.03)] transition-[border-color,box-shadow] hover:border-border-hover hover:shadow-raised">
-			<span className="mr-3 flex size-8 shrink-0 items-center justify-center rounded-[8px] bg-warning-bg text-warning">
+			<span className="mr-3 flex size-9 shrink-0 items-center justify-center rounded-[9px] bg-warning-bg text-warning">
 				<AlarmClock className="size-4" />
 			</span>
 			<Link href={`/triggers/${trigger.id}`} className="min-w-0 flex-1 py-3">
