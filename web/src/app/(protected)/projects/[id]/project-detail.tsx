@@ -7,8 +7,10 @@ import {
 	useState,
 	useSyncExternalStore,
 } from "react";
+import EmojiPicker, { type EmojiClickData, Theme } from "emoji-picker-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useTheme } from "next-themes";
 import {
 	AlarmClock,
 	Check,
@@ -20,9 +22,9 @@ import {
 	FolderPlus,
 	Info,
 	ListTree,
+	Loader2,
 	MoreVertical,
 	PanelRight,
-	Pencil,
 	Search,
 	SquarePen,
 	Trash2,
@@ -38,9 +40,9 @@ import {
 } from "@/components/layout/subpage-header";
 import { useConfirmDialog } from "@/components/providers/dialog-provider";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
+import { VisibilityPicker } from "@/components/ui/visibility-picker";
 import { ConversationCompletionButton } from "@/components/layout/app-sidebar/conversation-completion-button";
 import { FolderDialog } from "@/components/layout/app-sidebar/folder-dialog";
-import { ProjectDialog } from "@/components/layout/app-sidebar/project-dialog";
 import {
 	ThreadPlacementDialog,
 	type ThreadPlacementTarget,
@@ -71,6 +73,7 @@ import type {
 	ProjectThread,
 	ProjectTrigger,
 } from "@/types/projects";
+import type { ResourceVisibility } from "@/types/visibility";
 import { ProjectInfoPanel } from "./project-info-panel";
 
 type ProjectView = "directory" | "split";
@@ -110,6 +113,363 @@ function largeViewportSnapshot(): boolean {
 
 function titleOf(thread: ProjectThread): string {
 	return thread.title?.trim() || "Untitled conversation";
+}
+
+function ProjectIdentityHeading({ project }: { project: ProjectDetail }) {
+	const { resolvedTheme } = useTheme();
+	const updateProject = useProjectsStore((state) => state.updateProject);
+	const [name, setName] = useState(project.name);
+	const [emoji, setEmoji] = useState(project.emoji);
+	const [pickerOpen, setPickerOpen] = useState(false);
+	const [pending, setPending] = useState(0);
+	const committedNameRef = useRef(project.name);
+	const emojiTriggerRef = useRef<HTMLButtonElement>(null);
+	const emojiPickerRef = useRef<HTMLDivElement>(null);
+
+	useEffect(() => {
+		setName(project.name);
+		committedNameRef.current = project.name;
+	}, [project.name]);
+
+	useEffect(() => {
+		setEmoji(project.emoji);
+	}, [project.emoji]);
+
+	useEffect(() => {
+		if (!pickerOpen) return;
+		const closeOnOutsidePointer = (event: PointerEvent) => {
+			if (
+				emojiPickerRef.current &&
+				!emojiPickerRef.current.contains(event.target as Node)
+			) {
+				setPickerOpen(false);
+			}
+		};
+		document.addEventListener("pointerdown", closeOnOutsidePointer);
+		return () => {
+			document.removeEventListener("pointerdown", closeOnOutsidePointer);
+		};
+	}, [pickerOpen]);
+
+	const saveName = async () => {
+		const next = name.trim();
+		if (!next) {
+			setName(committedNameRef.current);
+			return;
+		}
+		if (next === committedNameRef.current) {
+			if (next !== name) setName(next);
+			return;
+		}
+		const previous = committedNameRef.current;
+		committedNameRef.current = next;
+		setName(next);
+		setPending((value) => value + 1);
+		try {
+			await updateProject(project.id, { name: next });
+		} catch (error) {
+			committedNameRef.current = previous;
+			setName(previous);
+			toast.error(getApiErrorMessage(error, "The project name could not be saved."));
+		} finally {
+			setPending((value) => Math.max(0, value - 1));
+		}
+	};
+
+	const saveEmoji = async (next: string | null) => {
+		const previous = emoji;
+		setEmoji(next);
+		setPickerOpen(false);
+		setPending((value) => value + 1);
+		requestAnimationFrame(() => {
+			emojiTriggerRef.current?.focus();
+		});
+		try {
+			await updateProject(project.id, { emoji: next });
+		} catch (error) {
+			setEmoji(previous);
+			toast.error(getApiErrorMessage(error, "The project icon could not be saved."));
+		} finally {
+			setPending((value) => Math.max(0, value - 1));
+		}
+	};
+
+	if (!project.canManage) {
+		return (
+			<h1 className="flex min-w-0 items-center gap-2 font-display text-[20px] font-bold text-foreground">
+				{project.emoji && (
+					<span aria-hidden className="shrink-0 text-[19px]">
+						{project.emoji}
+					</span>
+				)}
+				<span className="truncate">{project.name}</span>
+			</h1>
+		);
+	}
+
+	return (
+		<div className="flex min-w-0 items-center gap-1.5">
+			<div ref={emojiPickerRef} className="relative shrink-0">
+				<button
+					ref={emojiTriggerRef}
+					type="button"
+					aria-label="Change project emoji"
+					aria-expanded={pickerOpen}
+					onPointerDown={(event) => {
+						event.preventDefault();
+					}}
+					onKeyDown={(event) => {
+						if (event.key === "Escape" && pickerOpen) {
+							event.preventDefault();
+							setPickerOpen(false);
+							return;
+						}
+						if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+						event.preventDefault();
+						setPickerOpen(true);
+					}}
+					onClick={() => {
+						setPickerOpen((value) => !value);
+					}}
+					className="flex size-8 cursor-pointer items-center justify-center rounded-[7px] border border-transparent text-[18px] outline-none transition-colors hover:border-border hover:bg-card focus-visible:border-petrol focus-visible:ring-2 focus-visible:ring-ring/30"
+				>
+					{emoji ?? <Folder className="size-4 text-petrol" />}
+				</button>
+				{pickerOpen && (
+					<div className="absolute left-0 top-full z-[60] mt-2 overflow-hidden rounded-[10px] border border-border bg-card shadow-xl">
+						{emoji && (
+							<button
+								type="button"
+								onClick={() => {
+									void saveEmoji(null);
+								}}
+								className="flex h-9 w-full cursor-pointer items-center gap-2 border-b border-border px-3 text-left text-[11.5px] font-semibold text-label transition-colors hover:bg-hover"
+							>
+								<Folder className="size-3.5 text-petrol" />
+								Use folder icon
+							</button>
+						)}
+						<EmojiPicker
+							autoFocusSearch
+							onEmojiClick={(data: EmojiClickData) => {
+								void saveEmoji(data.emoji);
+							}}
+							theme={resolvedTheme === "dark" ? Theme.DARK : Theme.LIGHT}
+							skinTonesDisabled
+							previewConfig={{ showPreview: false }}
+						/>
+					</div>
+				)}
+			</div>
+			<input
+				value={name}
+				maxLength={255}
+				aria-label="Project name"
+				onChange={(event) => {
+					setName(event.target.value);
+				}}
+				onBlur={() => {
+					void saveName();
+				}}
+				onKeyDown={(event) => {
+					if (event.key === "Enter") {
+						event.preventDefault();
+						event.currentTarget.blur();
+					}
+					if (event.key === "Escape") {
+						event.preventDefault();
+						setName(committedNameRef.current);
+						event.currentTarget.blur();
+					}
+				}}
+				className="-ml-1 h-8 min-w-0 flex-1 rounded-[7px] border border-transparent bg-transparent px-1 font-display text-[20px] font-bold text-foreground outline-none transition-colors hover:border-border focus:border-petrol focus:bg-card"
+			/>
+			{pending > 0 && (
+				<Loader2
+					aria-label="Saving project identity"
+					className="size-3.5 shrink-0 animate-spin text-meta"
+				/>
+			)}
+		</div>
+	);
+}
+
+function ProjectDescription({ project }: { project: ProjectDetail }) {
+	const updateProject = useProjectsStore((state) => state.updateProject);
+	const [description, setDescription] = useState(project.description);
+	const [saving, setSaving] = useState(false);
+	const committedDescriptionRef = useRef(project.description);
+	const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+	useEffect(() => {
+		setDescription(project.description);
+		committedDescriptionRef.current = project.description;
+	}, [project.description]);
+
+	useEffect(() => {
+		const textarea = textareaRef.current;
+		if (!textarea) return;
+		textarea.style.height = "0px";
+		textarea.style.height = `${textarea.scrollHeight}px`;
+	}, [description]);
+
+	const saveDescription = async () => {
+		const next = description.trim();
+		if (next === committedDescriptionRef.current) {
+			if (next !== description) setDescription(next);
+			return;
+		}
+		const previous = committedDescriptionRef.current;
+		committedDescriptionRef.current = next;
+		setDescription(next);
+		setSaving(true);
+		try {
+			await updateProject(project.id, { description: next });
+		} catch (error) {
+			committedDescriptionRef.current = previous;
+			setDescription(previous);
+			toast.error(
+				getApiErrorMessage(error, "The project description could not be saved."),
+			);
+		} finally {
+			setSaving(false);
+		}
+	};
+
+	if (!project.canManage) {
+		return project.description ? (
+			<p className="mt-2 max-w-2xl whitespace-pre-wrap text-[12px] leading-5 text-label">
+				{project.description}
+			</p>
+		) : null;
+	}
+
+	return (
+		<div className="relative mt-1.5 w-full sm:w-1/2">
+			<textarea
+				ref={textareaRef}
+				rows={1}
+				maxLength={4_000}
+				value={description}
+				aria-label="Project description"
+				placeholder="Add a project description"
+				onChange={(event) => {
+					setDescription(event.target.value);
+				}}
+				onBlur={() => {
+					void saveDescription();
+				}}
+				onKeyDown={(event) => {
+					if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+						event.preventDefault();
+						event.currentTarget.blur();
+					}
+					if (event.key === "Escape") {
+						event.preventDefault();
+						setDescription(committedDescriptionRef.current);
+						event.currentTarget.blur();
+					}
+				}}
+				className="-ml-1 block w-full resize-none overflow-hidden rounded-[7px] border border-transparent bg-transparent py-0.5 pl-1 pr-6 text-[12px] leading-5 text-label outline-none transition-colors placeholder:text-meta hover:border-border focus:border-petrol focus:bg-card"
+			/>
+			{saving && (
+				<Loader2
+					aria-label="Saving project description"
+					className="absolute right-1 top-1 size-3.5 animate-spin text-meta"
+				/>
+			)}
+		</div>
+	);
+}
+
+function ProjectVisibilityEditor({ project }: { project: ProjectDetail }) {
+	const updateProject = useProjectsStore((state) => state.updateProject);
+	const [visibility, setVisibility] = useState(project.visibility);
+	const [teamIds, setTeamIds] = useState(project.teamIds);
+	const [saving, setSaving] = useState(false);
+	const committedRef = useRef({
+		visibility: project.visibility,
+		teamIds: project.teamIds,
+	});
+	const saveVersionRef = useRef(0);
+
+	useEffect(() => {
+		setVisibility(project.visibility);
+		setTeamIds(project.teamIds);
+		committedRef.current = {
+			visibility: project.visibility,
+			teamIds: project.teamIds,
+		};
+	}, [project.teamIds, project.visibility]);
+
+	const resetToCommitted = () => {
+		setVisibility(committedRef.current.visibility);
+		setTeamIds(committedRef.current.teamIds);
+	};
+
+	const changeVisibility = async (
+		nextVisibility: ResourceVisibility,
+		nextTeamIds: string[],
+	) => {
+		if (nextVisibility === "teams" && nextTeamIds.length === 0) {
+			if (visibility !== "teams") {
+				setVisibility("teams");
+				setTeamIds([]);
+			}
+			return;
+		}
+
+		const previous = committedRef.current;
+		const next = {
+			visibility: nextVisibility,
+			teamIds: nextTeamIds,
+		};
+		setVisibility(nextVisibility);
+		setTeamIds(nextTeamIds);
+		committedRef.current = next;
+		const version = ++saveVersionRef.current;
+		setSaving(true);
+		try {
+			await updateProject(project.id, next);
+		} catch (error) {
+			if (version === saveVersionRef.current) {
+				committedRef.current = previous;
+				resetToCommitted();
+				toast.error(
+					getApiErrorMessage(
+						error,
+						"The project visibility could not be saved.",
+					),
+				);
+			}
+		} finally {
+			if (version === saveVersionRef.current) setSaving(false);
+		}
+	};
+
+	return (
+		<div className="mt-1 flex items-center gap-1">
+			<VisibilityPicker
+				compact
+				visibility={visibility}
+				teamIds={teamIds}
+				onChange={(nextVisibility, nextTeamIds) => {
+					void changeVisibility(nextVisibility, nextTeamIds);
+				}}
+				onOpenChange={(open) => {
+					if (!open && visibility === "teams" && teamIds.length === 0) {
+						resetToCommitted();
+					}
+				}}
+			/>
+			{saving && (
+				<Loader2
+					aria-label="Saving project visibility"
+					className="size-3.5 animate-spin text-meta"
+				/>
+			)}
+		</div>
+	);
 }
 
 function ProjectViewToggle({
@@ -569,7 +929,6 @@ export default function ProjectDetailView({
 	const [query, setQuery] = useState("");
 	const [expanded, setExpanded] = useState<Set<string>>(new Set());
 	const [infoOpen, setInfoOpen] = useState(false);
-	const [projectDialogOpen, setProjectDialogOpen] = useState(false);
 	const [folderDialog, setFolderDialog] = useState<FolderDialogState>(null);
 	const [movingThread, setMovingThread] =
 		useState<ThreadPlacementTarget | null>(null);
@@ -955,7 +1314,9 @@ export default function ProjectDetailView({
 					{ label: "workspace", href: "/" },
 					{ label: "projects" },
 					{
-						label: detail.name,
+						label: detail.emoji
+							? `${detail.emoji} ${detail.name}`
+							: detail.name,
 						href: selectedFolderId ? folderHref(null) : undefined,
 					},
 					...breadcrumbs.map((folder) => ({
@@ -981,28 +1342,18 @@ export default function ProjectDetailView({
 					Info
 				</HeaderButton>
 				{detail.canManage ? (
-					<>
-						<HeaderButton
-							onClick={() => {
-								setProjectDialogOpen(true);
-							}}
-						>
-							<Pencil className="size-3.5" />
-							Edit
-						</HeaderButton>
-						<DropdownMenu
-							items={[
-								{
-									label: "Delete project",
-									icon: <Trash2 />,
-									destructive: true,
-									onClick: () => {
-										void removeProject();
-									},
+					<DropdownMenu
+						items={[
+							{
+								label: "Delete project",
+								icon: <Trash2 />,
+								destructive: true,
+								onClick: () => {
+									void removeProject();
 								},
-							]}
-						/>
-					</>
+							},
+						]}
+					/>
 				) : (
 					<HeaderReadOnly title="You can view this project but cannot change it." />
 				)}
@@ -1091,20 +1442,25 @@ export default function ProjectDetailView({
 							<div className="mx-auto max-w-3xl">
 								<div className="mb-4 flex items-end justify-between gap-3">
 									<div className="min-w-0">
-										<h1 className="truncate font-display text-[20px] font-bold text-foreground">
-											{selectedFolderId
-												? normalized.foldersById.get(selectedFolderId)?.name
-												: detail.name}
-										</h1>
+										{selectedFolderId === null ? (
+											<ProjectIdentityHeading project={detail} />
+										) : (
+											<h1 className="truncate font-display text-[20px] font-bold text-foreground">
+												{normalized.foldersById.get(selectedFolderId)?.name}
+											</h1>
+										)}
 										<p className="mt-1 text-[11px] text-meta">
 											{needle
 												? `${searchFolders.length + searchThreads.length + searchTriggers.length} search results`
 												: `${folders.length} folders / ${threads.length} conversations / ${triggers.length} triggers`}
 										</p>
-										{selectedFolderId === null && detail.description && (
-											<p className="mt-2 max-w-2xl whitespace-pre-wrap text-[12px] leading-5 text-label">
-												{detail.description}
-											</p>
+										{selectedFolderId === null && (
+											<>
+												<ProjectDescription project={detail} />
+												{detail.canManage && (
+													<ProjectVisibilityEditor project={detail} />
+												)}
+											</>
 										)}
 									</div>
 								</div>
@@ -1256,11 +1612,6 @@ export default function ProjectDetailView({
 					</div>
 				</aside>
 			</div>
-			<ProjectDialog
-				open={projectDialogOpen}
-				onOpenChange={setProjectDialogOpen}
-				project={detail}
-			/>
 			<FolderDialog
 				open={folderDialog !== null}
 				onOpenChange={(open) => {

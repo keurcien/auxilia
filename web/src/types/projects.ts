@@ -7,6 +7,7 @@ export interface Project {
 	workspaceId: string;
 	ownerId: string;
 	name: string;
+	emoji: string | null;
 	description: string;
 	visibility: ResourceVisibility;
 	teamIds: string[];
@@ -105,6 +106,7 @@ export interface ProjectSkillsResponse {
 
 export interface ProjectWrite {
 	name: string;
+	emoji: string | null;
 	description: string;
 	visibility: ResourceVisibility;
 	teamIds: string[];

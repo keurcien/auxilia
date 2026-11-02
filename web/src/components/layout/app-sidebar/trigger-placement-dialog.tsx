@@ -90,6 +90,7 @@ export function TriggerPlacementDialog({
 							<option value="">No project</option>
 							{projects.map((project) => (
 								<option key={project.id} value={project.id}>
+									{project.emoji ? `${project.emoji} ` : ""}
 									{project.name}
 								</option>
 							))}

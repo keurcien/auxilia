@@ -10,6 +10,7 @@ from app.visibility import ResourceVisibility
 
 class ProjectCreate(SQLModel):
     name: str = Field(min_length=1, max_length=255)
+    emoji: str | None = Field(default=None, max_length=10)
     description: str = Field(default="", max_length=4_000)
     visibility: ResourceVisibility = ResourceVisibility.personal
     team_ids: list[UUID] = Field(default_factory=list, exclude=True)
@@ -17,6 +18,7 @@ class ProjectCreate(SQLModel):
 
 class ProjectPatch(SQLModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
+    emoji: str | None = Field(default=None, max_length=10)
     description: str | None = Field(default=None, max_length=4_000)
     visibility: ResourceVisibility | None = None
     team_ids: list[UUID] | None = Field(default=None, exclude=True)
@@ -27,6 +29,7 @@ class ProjectResponse(SQLModel):
     workspace_id: UUID
     owner_id: UUID
     name: str
+    emoji: str | None = None
     description: str
     visibility: ResourceVisibility
     team_ids: list[UUID] = Field(default_factory=list)

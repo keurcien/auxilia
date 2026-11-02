@@ -368,6 +368,7 @@ class ProjectService(BaseService[ProjectDB, ProjectRepository]):
             workspace_id=self.workspace_id,
             owner_id=owner.id,
             name=data.name,
+            emoji=data.emoji,
             description=data.description,
             visibility=data.visibility,
         )

@@ -514,17 +514,26 @@ export function AppSidebar() {
 															<span className="truncate text-[10.5px] text-sidebar-muted-highlight">
 																{subtitle}
 															</span>
+														</div>
+													</div>
+													<div
+														className={`flex min-w-8 shrink-0 flex-col items-end justify-center gap-1 group-data-[collapsible=icon]:hidden ${trailingMetadataClass}`}
+													>
+														<span className="font-mono text-[10px] text-sidebar-section-label">
+															{shortTimeAgo(thread.createdAt)}
+														</span>
+														<div className="flex items-center gap-[3px]">
 															{activeRunThreadIds.has(thread.id) ? (
 																<Loader2
 																	aria-label="Running"
-																	className={`ml-auto size-3 shrink-0 animate-spin text-sidebar-active-icon ${trailingMetadataClass}`}
+																	className="size-3 shrink-0 animate-spin text-sidebar-active-icon"
 																/>
 															) : (
 																(thread.lastRunStatus === "error" ||
 																	thread.lastRunStatus === "timeout") && (
 																	<AlertCircle
 																		aria-label="Last run failed"
-																		className={`ml-auto size-3 shrink-0 text-destructive ${trailingMetadataClass}`}
+																		className="size-3 shrink-0 text-destructive"
 																	>
 																		<title>Last run failed</title>
 																	</AlertCircle>
@@ -536,48 +545,37 @@ export function AppSidebar() {
 																	alt="Slack"
 																	height={12}
 																	width={12}
-																	className={`size-3 shrink-0 ${activeRunThreadIds.has(thread.id) ? "" : "ml-auto"} ${trailingMetadataClass}`}
+																	className="size-3 shrink-0"
 																	title="Thread initiated in Slack"
 																/>
 															)}
 															{thread.source === "telegram" && (
-																<TelegramLogo
-																	className={`size-3 ${activeRunThreadIds.has(thread.id) ? "" : "ml-auto"} ${trailingMetadataClass}`}
-																/>
+																<TelegramLogo className="size-3 shrink-0" />
 															)}
 															{thread.source === "whatsapp" && (
-																<WhatsAppLogo
-																	className={`size-3 ${activeRunThreadIds.has(thread.id) ? "" : "ml-auto"} ${trailingMetadataClass}`}
-																/>
+																<WhatsAppLogo className="size-3 shrink-0" />
 															)}
+															<span
+																aria-label={
+																	thread.completedAt
+																		? "Conversation completed"
+																		: "Conversation open"
+																}
+																title={
+																	thread.completedAt
+																		? "Completed"
+																		: "Open"
+																}
+																className={cn(
+																	"flex size-3 items-center justify-center rounded-full border",
+																	thread.completedAt
+																		? "border-emerald-600 bg-emerald-600 text-white"
+																		: "border-sidebar-muted-highlight text-transparent",
+																)}
+															>
+																<Check className="size-2" strokeWidth={3} />
+															</span>
 														</div>
-													</div>
-													<div
-														className={`flex w-8 shrink-0 flex-col items-end justify-center gap-1 group-data-[collapsible=icon]:hidden ${trailingMetadataClass}`}
-													>
-														<span className="font-mono text-[10px] text-sidebar-section-label">
-															{shortTimeAgo(thread.createdAt)}
-														</span>
-														<span
-															aria-label={
-																thread.completedAt
-																	? "Conversation completed"
-																	: "Conversation open"
-															}
-															title={
-																thread.completedAt
-																	? "Completed"
-																	: "Open"
-															}
-															className={cn(
-																"flex size-3 items-center justify-center rounded-full border",
-																thread.completedAt
-																	? "border-emerald-600 bg-emerald-600 text-white"
-																	: "border-sidebar-muted-highlight text-transparent",
-															)}
-														>
-															<Check className="size-2" strokeWidth={3} />
-														</span>
 													</div>
 												</Link>
 											</SidebarMenuButton>
@@ -590,7 +588,7 @@ export function AppSidebar() {
 													selection.toggle(thread.id, shiftKey);
 												}}
 												hoverOnSelf
-												className="absolute left-[9px] top-1/2 z-10 size-7 -translate-y-1/2 group-data-[collapsible=icon]:hidden"
+												className="absolute left-[5px] top-1/2 z-10 size-7 -translate-y-1/2 group-data-[collapsible=icon]:hidden"
 											>
 												{isTriggerThread ? (
 													<span

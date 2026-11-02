@@ -207,7 +207,9 @@ export default function TriggerEditor({
 	const selectedProjectOption: AsyncSearchOption | null = selectedProject
 		? {
 				value: selectedProject.id,
-				label: selectedProject.name,
+				label: selectedProject.emoji
+					? `${selectedProject.emoji} ${selectedProject.name}`
+					: selectedProject.name,
 				description: selectedProject.description || undefined,
 			}
 		: null;
@@ -221,7 +223,9 @@ export default function TriggerEditor({
 		async (query: string, signal: AbortSignal) =>
 			(await projectsApi.searchProjects(query, signal)).map((project) => ({
 				value: project.id,
-				label: project.name,
+				label: project.emoji
+					? `${project.emoji} ${project.name}`
+					: project.name,
 				description: project.description || undefined,
 			})),
 		[],

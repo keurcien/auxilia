@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
 	AlarmClock,
+	Building2,
 	Check,
 	CircleCheck,
 	ChevronDown,
@@ -12,12 +13,14 @@ import {
 	Folder,
 	FolderInput,
 	FolderPlus,
+	LockKeyhole,
 	MoreVertical,
 	Pencil,
 	Plus,
 	SquarePen,
 	Trash2,
 	Undo2,
+	Users,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -56,6 +59,34 @@ type FolderDialogState = {
 	folder: ProjectFolder | null;
 	parentId: string | null;
 } | null;
+
+function ProjectVisibilityIcon({
+	visibility,
+}: {
+	visibility: Project["visibility"];
+}) {
+	const Icon =
+		visibility === "personal"
+			? LockKeyhole
+			: visibility === "teams"
+				? Users
+				: Building2;
+	const label =
+		visibility === "personal"
+			? "Personal"
+			: visibility === "teams"
+				? "Teams"
+				: "Workspace";
+	return (
+		<span
+			aria-label={`${label} visibility`}
+			title={`${label} visibility`}
+			className="pointer-events-none absolute right-1 flex size-6 items-center justify-center text-sidebar-muted transition-opacity group-hover/project:opacity-0 group-focus-within/project:opacity-0"
+		>
+			<Icon className="size-3.5" />
+		</span>
+	);
+}
 
 export function ProjectsTree({
 	pathname,
@@ -107,6 +138,7 @@ export function ProjectsTree({
 					? value.filter((item): item is string => typeof item === "string")
 					: [],
 			);
+			if (activeProjectId) next.add(activeProjectId);
 			queueMicrotask(() => {
 				if (!cancelled) setExpanded(next);
 			});
@@ -118,7 +150,7 @@ export function ProjectsTree({
 		return () => {
 			cancelled = true;
 		};
-	}, [workspaceId]);
+	}, [activeProjectId, workspaceId]);
 
 	const toggleExpanded = (id: string) => {
 		setExpanded((current) => {
@@ -234,8 +266,7 @@ export function ProjectsTree({
 					</button>
 				</li>
 				{projects.map((project) => {
-					const isOpen =
-						expanded.has(project.id) || activeProjectId === project.id;
+					const isOpen = expanded.has(project.id);
 					const isActive = activeProjectId === project.id;
 					const count = project.threads.length + project.triggers.length;
 					return (
@@ -266,7 +297,16 @@ export function ProjectsTree({
 									onClick={closeMobile}
 									className="flex min-w-0 flex-1 items-center gap-2 self-stretch pr-9 text-left"
 								>
-									<Folder className="size-4 shrink-0 text-sidebar-active-icon" />
+									{project.emoji ? (
+										<span
+											aria-hidden
+											className="flex size-4 shrink-0 items-center justify-center text-[14px]"
+										>
+											{project.emoji}
+										</span>
+									) : (
+										<Folder className="size-4 shrink-0 text-sidebar-active-icon" />
+									)}
 									<span
 										className={cn(
 											"truncate text-[12.5px] text-sidebar-foreground",
@@ -279,6 +319,7 @@ export function ProjectsTree({
 										{count}
 									</span>
 								</Link>
+								<ProjectVisibilityIcon visibility={project.visibility} />
 								<DropdownMenu
 									side="right"
 									align="start"
@@ -286,7 +327,7 @@ export function ProjectsTree({
 										<button
 											type="button"
 											aria-label={`More options for ${project.name}`}
-											className="absolute right-1 flex size-6 cursor-pointer items-center justify-center rounded-md text-sidebar-muted opacity-0 hover:bg-sidebar-accent group-hover/project:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+											className="absolute right-1 z-10 flex size-6 cursor-pointer items-center justify-center rounded-md text-sidebar-muted opacity-0 hover:bg-sidebar-accent group-hover/project:opacity-100 focus-visible:opacity-100 data-[state=open]:bg-sidebar-accent data-[state=open]:opacity-100"
 										>
 											<MoreVertical className="size-3.5" />
 										</button>

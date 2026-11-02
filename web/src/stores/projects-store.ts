@@ -87,6 +87,7 @@ const projectFromTree = (project: ProjectTree): Project => ({
 	workspaceId: project.workspaceId,
 	ownerId: project.ownerId,
 	name: project.name,
+	emoji: project.emoji,
 	description: project.description,
 	visibility: project.visibility,
 	teamIds: project.teamIds,

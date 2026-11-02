@@ -12,6 +12,8 @@ interface VisibilityPickerProps {
 	visibility: ResourceVisibility;
 	teamIds: string[];
 	onChange: (visibility: ResourceVisibility, teamIds: string[]) => void;
+	compact?: boolean;
+	onOpenChange?: (open: boolean) => void;
 }
 
 const OPTIONS = [
@@ -24,6 +26,8 @@ export function VisibilityPicker({
 	visibility,
 	teamIds,
 	onChange,
+	compact = false,
+	onOpenChange,
 }: VisibilityPickerProps) {
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const [open, setOpen] = useState(false);
@@ -61,19 +65,39 @@ export function VisibilityPicker({
 	};
 
 	return (
-		<div>
-			<label className="mb-1.5 block text-[11px] font-semibold text-label dark:text-muted-foreground">
-				Visibility
-			</label>
-			<DropdownMenuPrimitive.Root open={open} onOpenChange={setOpen}>
+		<div className={cn(compact && "inline-block")}>
+			{!compact && (
+				<label className="mb-1.5 block text-[11px] font-semibold text-label dark:text-muted-foreground">
+					Visibility
+				</label>
+			)}
+			<DropdownMenuPrimitive.Root
+				open={open}
+				onOpenChange={(nextOpen) => {
+					setOpen(nextOpen);
+					onOpenChange?.(nextOpen);
+				}}
+			>
 				<DropdownMenuPrimitive.Trigger asChild>
 					<button
 						ref={triggerRef}
 						type="button"
-						className="flex h-9 w-full cursor-pointer items-center gap-2 rounded-lg border border-input bg-card px-3 text-left"
+						className={cn(
+							"flex cursor-pointer items-center gap-2 border text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/30",
+							compact
+								? "h-7 w-auto rounded-[7px] border-transparent bg-transparent px-1.5 hover:border-border hover:bg-card"
+								: "h-9 w-full rounded-lg border-input bg-card px-3",
+						)}
 					>
-						<selected.Icon className="size-4 text-meta" />
-						<span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-foreground">
+						<selected.Icon
+							className={cn("text-meta", compact ? "size-3.5" : "size-4")}
+						/>
+						<span
+							className={cn(
+								"min-w-0 flex-1 truncate font-medium text-foreground",
+								compact ? "text-[11.5px]" : "text-[12.5px]",
+							)}
+						>
 							{selected.label}
 						</span>
 						<ChevronDown className={cn("size-3.5 text-meta transition-transform", open && "rotate-180")} />
@@ -84,7 +108,12 @@ export function VisibilityPicker({
 						align="start"
 						sideOffset={4}
 						collisionPadding={16}
-						className="z-[70] max-h-[var(--radix-dropdown-menu-content-available-height)] w-[var(--radix-dropdown-menu-trigger-width)] overflow-hidden rounded-xl border border-border bg-card shadow-[0_14px_40px_rgba(16,24,32,0.14)] dark:border-white/10"
+						className={cn(
+							"z-[70] max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-hidden rounded-xl border border-border bg-card shadow-[0_14px_40px_rgba(16,24,32,0.14)] dark:border-white/10",
+							compact
+								? "w-[min(320px,calc(100vw-32px))]"
+								: "w-[var(--radix-dropdown-menu-trigger-width)]",
+						)}
 					>
 						<div role="listbox" className="p-1.5">
 						{OPTIONS.map(({ value, label, description, Icon }) => (

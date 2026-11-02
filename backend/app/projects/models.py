@@ -9,6 +9,7 @@ from app.visibility import ResourceVisibility
 
 class ProjectBase(SQLModel):
     name: str = Field(min_length=1, max_length=255, nullable=False)
+    emoji: str | None = Field(default=None, max_length=10, nullable=True)
     description: str = Field(
         default="",
         sa_column=Column(Text, nullable=False, server_default=""),
