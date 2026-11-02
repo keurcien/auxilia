@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.101](https://github.com/jr-k/auxilia/compare/web-v0.12.100...web-v0.12.101) (2026-11-02)
+
+
+### Features
+
+* **users:** control conversation deletion ([c9423f2](https://github.com/jr-k/auxilia/commit/c9423f27fe359874470b7bd64f5325b169117512))
+
 ## [0.12.100](https://github.com/jr-k/auxilia/compare/web-v0.12.99...web-v0.12.100) (2026-11-02)
 
 

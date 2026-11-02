@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.73](https://github.com/jr-k/auxilia/compare/backend-v0.11.72...backend-v0.11.73) (2026-11-02)
+
+
+### Features
+
+* **users:** control conversation deletion ([c9423f2](https://github.com/jr-k/auxilia/commit/c9423f27fe359874470b7bd64f5325b169117512))
+
 ## [0.11.72](https://github.com/jr-k/auxilia/compare/backend-v0.11.71...backend-v0.11.72) (2026-11-02)
 
 
