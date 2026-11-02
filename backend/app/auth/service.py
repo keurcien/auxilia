@@ -32,6 +32,7 @@ from app.exceptions import (
 )
 from app.invites.models import InviteStatus
 from app.invites.service import InviteService
+from app.memories.service import MemoryService
 from app.users.models import OAuthAccountDB, UserDB, WorkspaceRole
 from app.users.service import UserService
 from app.workspaces.models import WorkspaceMembershipDB
@@ -43,6 +44,7 @@ class AuthService:
     def __init__(self, db: AsyncSession):
         self.db = db
         self.invites = InviteService(db)
+        self.memories = MemoryService(db)
         self.authentication = WorkspaceAuthenticationService(db)
         self.workspaces = WorkspaceRepository(db)
 
@@ -181,6 +183,7 @@ class AuthService:
         )
         self.db.add(user)
         await self.db.flush()
+        await self.memories.enable_auto_capture_for_new_user(user.id)
         workspace = await self.workspaces.get_first_workspace()
         if workspace is None:
             workspace = await self.workspaces.create(
@@ -220,6 +223,7 @@ class AuthService:
             )
             self.db.add(user)
             await self.db.flush()
+            await self.memories.enable_auto_capture_for_new_user(user.id)
         elif user.password_hash is None or not await verify_password(
             data.password, user.password_hash
         ):
@@ -356,6 +360,7 @@ class AuthService:
         )
         self.db.add(user)
         await self.db.flush()
+        await self.memories.enable_auto_capture_for_new_user(user.id)
         await self._add_invited_membership(
             user,
             invite.workspace_id,

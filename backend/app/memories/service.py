@@ -361,6 +361,9 @@ class MemoryService:
             )
         )
 
+    async def enable_auto_capture_for_new_user(self, user_id: UUID) -> None:
+        await self.preferences.set_auto_capture(user_id, True)
+
     async def set_auto_capture(
         self, user_id: UUID, enabled: bool
     ) -> MemoryPreferencesResponse:

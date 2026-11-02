@@ -26,6 +26,7 @@ from app.exceptions import (
     InvalidCredentialsError,
     NotFoundError,
 )
+from app.memories.service import MemoryService
 from app.pagination import Page, PageParams
 from app.service import BaseService
 from app.teams.repository import TeamRepository
@@ -63,6 +64,7 @@ class UserService(BaseService[UserDB, UserRepository]):
 
     def __init__(self, db: AsyncSession):
         super().__init__(db, UserRepository(db))
+        self.memory_service = MemoryService(db)
         self.team_repository = TeamRepository(db)
         self.workspace_repository = WorkspaceRepository(db)
 
@@ -75,6 +77,7 @@ class UserService(BaseService[UserDB, UserRepository]):
             await self._ensure_email_available(data.email)
         user_data = UserCreateDB.model_validate(data.model_dump(exclude={"role"}))
         user = await self.repository.create(user_data)
+        await self.memory_service.enable_auto_capture_for_new_user(user.id)
         membership = await self.workspace_repository.create_membership(
             WorkspaceMembershipDB(
                 workspace_id=workspace_id,
