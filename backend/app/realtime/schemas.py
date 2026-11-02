@@ -3,6 +3,7 @@ from enum import Enum
 
 class WorkspaceEventKind(str, Enum):
     agents = "agents"
+    projects = "projects"
     triggers = "triggers"
     mcp_servers = "mcp_servers"
     skills = "skills"

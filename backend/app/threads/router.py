@@ -14,10 +14,12 @@ from app.pagination import Page, PageParams
 from app.threads.dependencies import resolve_viewer_role
 from app.threads.models import ThreadSource
 from app.threads.schemas import (
+    ThreadCompletionUpdate,
     ThreadCreate,
     ThreadMemoriesUpdate,
     ThreadModelUpdate,
     ThreadPatch,
+    ThreadPlacementUpdate,
     ThreadResourcesPatch,
     ThreadResponse,
     ThreadStartCreate,
@@ -63,7 +65,11 @@ async def start_thread(
         user_team_id=current_user.team_id,
     )
     return await service.create_with_initial_run(
-        data, files or [], current_user.id, source
+        data,
+        files or [],
+        current_user.id,
+        source,
+        placement_user=current_user,
     )
 
 
@@ -119,7 +125,12 @@ async def create_thread(
         user_role=current_user.role,
         user_team_id=current_user.team_id,
     )
-    return await service.create(thread_data, current_user.id, source)
+    return await service.create(
+        thread_data,
+        current_user.id,
+        source,
+        placement_user=current_user,
+    )
 
 
 @router.patch("/{thread_id}")
@@ -172,6 +183,32 @@ async def update_thread_resources(
     if thread.user_id != current_user.id:
         raise PermissionDeniedError("Not authorized to edit this thread")
     return await service.update_resources(thread_id, data)
+
+
+@router.put("/{thread_id}/placement")
+async def update_thread_placement(
+    thread_id: str,
+    data: ThreadPlacementUpdate,
+    current_user: UserDB = Depends(get_current_user),
+    service: ThreadService = Depends(get_thread_service),
+) -> ThreadResponse:
+    thread = await service.get(thread_id)
+    if thread.user_id != current_user.id:
+        raise PermissionDeniedError("Not authorized to edit this thread")
+    return await service.update_placement(thread_id, data, current_user)
+
+
+@router.put("/{thread_id}/completion")
+async def update_thread_completion(
+    thread_id: str,
+    data: ThreadCompletionUpdate,
+    current_user: UserDB = Depends(get_current_user),
+    service: ThreadService = Depends(get_thread_service),
+) -> ThreadResponse:
+    thread = await service.get(thread_id)
+    if thread.user_id != current_user.id:
+        raise PermissionDeniedError("Not authorized to edit this thread")
+    return await service.update_completion(thread_id, data)
 
 
 @router.delete("/{thread_id}", status_code=204)

@@ -143,11 +143,15 @@ def skills_read_middleware(skills: BackendProtocol) -> list:
     files: the view is rebuilt from the run's frozen set each time."""
     return [
         skills_index_middleware(skills, sandbox=False),
-        FilesystemMiddleware(
-            backend=skills,
-            tools=["ls", "read_file"],
-            # Evictions write to the backend; a read-only one has nowhere to put them.
-            tool_token_limit_before_evict=None,
-            human_message_token_limit_before_evict=None,
-        ),
+        read_only_files_middleware(skills),
     ]
+
+
+def read_only_files_middleware(files: BackendProtocol) -> FilesystemMiddleware:
+    return FilesystemMiddleware(
+        backend=files,
+        tools=["ls", "read_file"],
+        # Evictions write to the backend; a read-only one has nowhere to put them.
+        tool_token_limit_before_evict=None,
+        human_message_token_limit_before_evict=None,
+    )

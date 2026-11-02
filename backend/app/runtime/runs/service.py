@@ -307,9 +307,11 @@ class RunService:
         else ModelUnavailableError. Sandbox availability is deliberately not
         a launch gate: the provider is opened only if the graph invokes a
         sandbox operation."""
-        thread = await db.get(ThreadDB, thread_id)
+        thread = await ThreadRepository(db).lock(thread_id)
         if thread is None:
             raise NotFoundError("Thread not found")
+        if thread.completed_at is not None:
+            raise DomainValidationError("Completed threads cannot start new runs")
         await ModelService(db, thread.workspace_id).ensure_available(thread.model_id)
         spec = await AgentRepository(db, thread.workspace_id).get_run_spec(
             thread.agent_id

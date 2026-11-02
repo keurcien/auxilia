@@ -83,7 +83,10 @@ export function sessionReducer(
 				meta: {
 					status: "ready",
 					thread,
-					viewerRole: viewerRole === "admin" ? "admin" : null,
+					viewerRole:
+						viewerRole === "admin" || viewerRole === "viewer"
+							? viewerRole
+							: null,
 					modelAvailable: thread.modelAvailable !== false,
 					sandboxUnavailable: null,
 					agentArchived: thread.agentArchived,

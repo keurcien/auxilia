@@ -57,6 +57,7 @@ async def resolve_run_skills(
     agent_ids: Iterable[UUID],
     workspace_id: UUID,
     *,
+    project_skill_ids: Iterable[UUID] = (),
     excluded_skill_ids: Iterable[UUID] = (),
 ) -> list[SkillBundle]:
     """The skills this run executes with — read from the library, every time.
@@ -83,10 +84,17 @@ async def resolve_run_skills(
     Access is not checked here because there is nothing to check: every
     workspace user may read and use every skill.
     """
-    rows = await SkillRepository(db, workspace_id).list_for_agents(
-        agent_ids, excluded_skill_ids
+    excluded = set(excluded_skill_ids)
+    repository = SkillRepository(db, workspace_id)
+    rows = await repository.list_for_agents(agent_ids, excluded)
+    project_rows = await repository.list_by_ids(
+        skill_id for skill_id in project_skill_ids if skill_id not in excluded
     )
-    bundles = [row.to_bundle() for row in rows]
+    by_id = {row.id: row for row in [*rows, *project_rows]}
+    bundles = [
+        row.to_bundle()
+        for row in sorted(by_id.values(), key=lambda item: (item.name, str(item.id)))
+    ]
     ensure_unique_names(bundles)
     return bundles
 
@@ -119,8 +127,12 @@ class SkillsBackend(InMemorySkillsBackend):
     ``InMemorySkillsBackend`` over ``skill_files``). Nothing lands in the
     checkpoint; it works outside a graph context; every write is refused."""
 
-    def __init__(self, bundles: Iterable[SkillBundle]) -> None:
-        super().__init__(skill_files(bundles))
+    def __init__(
+        self,
+        bundles: Iterable[SkillBundle],
+        extra_files: dict[str, bytes] | None = None,
+    ) -> None:
+        super().__init__({**skill_files(bundles), **(extra_files or {})})
 
 
 def skills_digest(files: dict[str, bytes]) -> str:

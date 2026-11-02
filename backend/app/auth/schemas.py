@@ -29,6 +29,7 @@ class AuthProvidersResponse(BaseModel):
     """Response for available auth providers."""
 
     password: bool = True
+    password_reset: bool = False
     google: bool = False
     setup_required: bool = False
 
@@ -37,6 +38,15 @@ class AuthMessageResponse(BaseModel):
     """Generic auth message response."""
 
     message: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=32, max_length=512)
+    password: str = Field(min_length=8)
 
 
 class SetupStatusResponse(BaseModel):

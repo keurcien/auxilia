@@ -11,6 +11,10 @@ interface TriggerBase {
 	ownerId: string;
 	visibility: ResourceVisibility;
 	teamIds: string[];
+	effectiveVisibility: ResourceVisibility;
+	effectiveTeamIds: string[];
+	projectId: string | null;
+	folderId: string | null;
 	agentId: string;
 	modelId: string;
 	reasoningEffort: string | null;
@@ -61,6 +65,8 @@ interface TriggerCreateBase {
 	isActive?: boolean;
 	visibility?: ResourceVisibility;
 	teamIds?: string[];
+	projectId?: string | null;
+	folderId?: string | null;
 	disabledMcpServerIds?: string[] | null;
 	disabledSkillIds?: string[] | null;
 	disabledSandboxIds?: string[] | null;
@@ -91,6 +97,8 @@ export interface TriggerUpdate {
 	isActive?: boolean;
 	visibility?: ResourceVisibility;
 	teamIds?: string[];
+	projectId?: string | null;
+	folderId?: string | null;
 	disabledMcpServerIds?: string[] | null;
 	disabledSkillIds?: string[] | null;
 	disabledSandboxIds?: string[] | null;

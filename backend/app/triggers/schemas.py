@@ -21,6 +21,8 @@ def _normalize_group(value: str | None) -> str | None:
 class TriggerCreate(TriggerBase):
     trigger_type: TriggerType = TriggerType.schedule
     timezone: str | None = Field(default="UTC", max_length=64)
+    project_id: UUID | None = None
+    folder_id: UUID | None = None
     visibility: ResourceVisibility = ResourceVisibility.personal
     team_ids: list[UUID] = Field(default_factory=list, exclude=True)
     disabled_mcp_server_ids: list[UUID] | None = Field(
@@ -83,6 +85,8 @@ class TriggerCreate(TriggerBase):
 class TriggerCreateDB(TriggerBase):
     workspace_id: UUID
     owner_id: UUID
+    project_id: UUID | None = None
+    folder_id: UUID | None = None
     visibility: ResourceVisibility = ResourceVisibility.personal
     trigger_type: TriggerType
     webhook_id: UUID | None = None
@@ -104,6 +108,8 @@ class TriggerPatch(SQLModel):
     cron_expression: str | None = None
     timezone: str | None = None
     is_active: bool | None = None
+    project_id: UUID | None = None
+    folder_id: UUID | None = None
     visibility: ResourceVisibility | None = None
     team_ids: list[UUID] | None = Field(default=None, exclude=True)
     disabled_mcp_server_ids: list[UUID] | None = Field(
@@ -145,8 +151,12 @@ class TriggerResponse(SQLModel):
     group: str | None = None
     instructions: str
     owner_id: UUID
+    project_id: UUID | None = None
+    folder_id: UUID | None = None
     visibility: ResourceVisibility = ResourceVisibility.personal
     team_ids: list[UUID] = Field(default_factory=list)
+    effective_visibility: ResourceVisibility = ResourceVisibility.personal
+    effective_team_ids: list[UUID] = Field(default_factory=list)
     agent_id: UUID
     model_id: str
     reasoning_effort: str | None = None

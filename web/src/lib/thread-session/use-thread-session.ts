@@ -918,9 +918,9 @@ export function useThreadSession({
     try {
       const { thread } = await transport.readThread(forThread);
       dispatch({
-        type: "model-rechecked",
+        type: "thread-updated",
         threadId: forThread,
-        available: thread.modelAvailable !== false,
+        thread,
       });
     } catch {
       // Leave the banner as it is; the user can try again.

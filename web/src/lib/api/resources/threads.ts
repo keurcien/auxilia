@@ -146,6 +146,8 @@ export async function startThread(
 				agent_id: payload.agentId,
 				model_id: payload.modelId,
 				reasoning_effort: payload.reasoningEffort,
+				project_id: payload.projectId,
+				folder_id: payload.folderId,
 				tool_mode: payload.toolMode,
 				memories_enabled: payload.memoriesEnabled,
 				disabled_mcp_server_ids: payload.disabledMcpServerIds,
@@ -171,6 +173,28 @@ export async function renameThread(
 	firstMessageContent: string,
 ): Promise<void> {
 	await api.patch(`/threads/${threadId}`, { firstMessageContent });
+}
+
+export async function updateThreadPlacement(
+	threadId: string,
+	projectId: string | null,
+	folderId: string | null,
+): Promise<Thread> {
+	const response = await api.put<Thread>(`/threads/${threadId}/placement`, {
+		projectId,
+		folderId,
+	});
+	return response.data;
+}
+
+export async function updateThreadCompletion(
+	threadId: string,
+	completed: boolean,
+): Promise<Thread> {
+	const response = await api.put<Thread>(`/threads/${threadId}/completion`, {
+		completed,
+	});
+	return response.data;
 }
 
 /**

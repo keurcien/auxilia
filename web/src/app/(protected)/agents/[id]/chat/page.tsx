@@ -8,7 +8,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
 	type PromptInputMessage,
 	usePromptInputController,
@@ -50,7 +50,10 @@ const AVATAR_SWIPE_LIMIT = 44;
 const StarterChatPage = () => {
 	const params = useParams();
 	const router = useRouter();
+	const searchParams = useSearchParams();
 	const agentId = params.id as string;
+	const projectId = searchParams.get("projectId");
+	const folderId = projectId ? searchParams.get("folderId") : null;
 	const [isCreating, setIsCreating] = useState(false);
 	const [memoriesEnabled, setMemoriesEnabled] = useState(true);
 	const { modelSelection, starterAgent } = usePromptInputController();
@@ -123,10 +126,11 @@ const StarterChatPage = () => {
 				name: target.name,
 				emoji: target.emoji ?? null,
 			});
-			router.replace(`/agents/${target.id}/chat`);
+			const query = searchParams.toString();
+			router.replace(`/agents/${target.id}/chat${query ? `?${query}` : ""}`);
 			return true;
 		},
-		[agentId, availableAgents, isCreating, router, setStarterAgent],
+		[agentId, availableAgents, isCreating, router, searchParams, setStarterAgent],
 	);
 
 	const resetAvatarGesture = useCallback(() => {
@@ -211,6 +215,8 @@ const StarterChatPage = () => {
 					modelId,
 					reasoningEffort,
 					memoriesEnabled,
+					projectId,
+					folderId,
 					...(submittedResourceSettings ?? {}),
 				},
 				message,

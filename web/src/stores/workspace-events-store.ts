@@ -16,6 +16,7 @@ interface WorkspaceEventsState {
   mcpServersVersion: number;
   skillsVersion: number;
   threadsVersion: number;
+  projectsVersion: number;
   runsVersion: number;
   triggerHistoryVersion: number;
   queueVersions: Record<string, number>;
@@ -32,6 +33,7 @@ const initialVersions = {
   mcpServersVersion: 0,
   skillsVersion: 0,
   threadsVersion: 0,
+  projectsVersion: 0,
   runsVersion: 0,
   triggerHistoryVersion: 0,
   queueVersions: {},
@@ -51,6 +53,7 @@ export const useWorkspaceEventsStore = create<WorkspaceEventsState>((set) => ({
       mcpServersVersion: state.mcpServersVersion + 1,
       skillsVersion: state.skillsVersion + 1,
       threadsVersion: state.threadsVersion + 1,
+      projectsVersion: state.projectsVersion + 1,
       runsVersion: state.runsVersion + 1,
       triggerHistoryVersion: state.triggerHistoryVersion + 1,
     }));
@@ -61,7 +64,10 @@ export const useWorkspaceEventsStore = create<WorkspaceEventsState>((set) => ({
         set((state) => ({ agentsVersion: state.agentsVersion + 1 }));
         break;
       case "triggers":
-        set((state) => ({ triggersVersion: state.triggersVersion + 1 }));
+        set((state) => ({
+          triggersVersion: state.triggersVersion + 1,
+          projectsVersion: state.projectsVersion + 1,
+        }));
         break;
       case "mcp_servers":
         set((state) => ({
@@ -72,7 +78,13 @@ export const useWorkspaceEventsStore = create<WorkspaceEventsState>((set) => ({
         set((state) => ({ skillsVersion: state.skillsVersion + 1 }));
         break;
       case "threads":
-        set((state) => ({ threadsVersion: state.threadsVersion + 1 }));
+        set((state) => ({
+          threadsVersion: state.threadsVersion + 1,
+          projectsVersion: state.projectsVersion + 1,
+        }));
+        break;
+      case "projects":
+        set((state) => ({ projectsVersion: state.projectsVersion + 1 }));
         break;
       case "runs":
         set((state) => ({ runsVersion: state.runsVersion + 1 }));

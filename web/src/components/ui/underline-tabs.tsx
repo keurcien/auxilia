@@ -14,6 +14,7 @@ interface UnderlineTabsProps<K extends string> {
 	value: K;
 	onChange: (key: K) => void;
 	className?: string;
+	idPrefix?: string;
 }
 
 /**
@@ -26,9 +27,11 @@ export function UnderlineTabs<K extends string>({
 	value,
 	onChange,
 	className,
+	idPrefix,
 }: UnderlineTabsProps<K>) {
 	return (
 		<div
+			role="tablist"
 			className={cn(
 				"flex min-w-0 gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
 				className,
@@ -40,8 +43,43 @@ export function UnderlineTabs<K extends string>({
 					<button
 						key={tab.key}
 						type="button"
+						role="tab"
+						id={idPrefix ? `${idPrefix}-tab-${tab.key}` : undefined}
+						aria-controls={
+							idPrefix ? `${idPrefix}-panel-${tab.key}` : undefined
+						}
+						aria-selected={active}
+						tabIndex={active ? 0 : -1}
 						onClick={() => {
 							onChange(tab.key);
+						}}
+						onKeyDown={(event) => {
+							if (
+								!["ArrowLeft", "ArrowRight", "Home", "End"].includes(
+									event.key,
+								)
+							) {
+								return;
+							}
+							event.preventDefault();
+							const currentIndex = tabs.findIndex(
+								(candidate) => candidate.key === tab.key,
+							);
+							const nextIndex =
+								event.key === "Home"
+									? 0
+									: event.key === "End"
+										? tabs.length - 1
+										: event.key === "ArrowRight"
+											? (currentIndex + 1) % tabs.length
+											: (currentIndex - 1 + tabs.length) % tabs.length;
+							const next = tabs[nextIndex];
+							if (!next) return;
+							onChange(next.key);
+							const tablist = event.currentTarget.parentElement;
+							const buttons =
+								tablist?.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+							buttons?.item(nextIndex).focus();
 						}}
 						className={cn(
 							"shrink-0 cursor-pointer whitespace-nowrap border-b-2 px-3 py-2 text-[13px] transition-colors",

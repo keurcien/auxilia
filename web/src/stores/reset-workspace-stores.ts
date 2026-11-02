@@ -5,6 +5,7 @@ import { useChatHeaderStore } from "@/stores/chat-header-store";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { useModelsStore } from "@/stores/models-store";
 import { usePendingMessageStore } from "@/stores/pending-message-store";
+import { useProjectsStore } from "@/stores/projects-store";
 import { useSkillsStore } from "@/stores/skills-store";
 import { useThreadsStore } from "@/stores/threads-store";
 import { useTriggerRunsStore } from "@/stores/trigger-runs-store";
@@ -15,6 +16,16 @@ export function resetWorkspaceStores(): void {
 	advanceWorkspaceGeneration();
 	useAgentsStore.setState({ agents: [], isInitialized: false });
 	useThreadsStore.setState({ threads: [], total: 0, isLoadingMore: false });
+	useProjectsStore.setState({
+		projects: [],
+		tree: [],
+		detailsById: {},
+		detailLoadingById: {},
+		detailAccessLostById: {},
+		mountedDetailIds: {},
+		isInitialized: false,
+		isLoading: false,
+	});
 	useMcpServersStore.setState({ mcpServers: [], isInitialized: false });
 	useTriggersStore.setState({ triggers: [], isInitialized: false });
 	useTriggerRunsStore.setState({ runsByTrigger: {} });

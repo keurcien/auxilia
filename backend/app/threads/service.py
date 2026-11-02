@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import Depends, UploadFile
@@ -18,8 +18,10 @@ from app.database import get_checkpointer, get_db
 from app.exceptions import DomainValidationError, NotFoundError
 from app.model_providers.service import ModelService
 from app.pagination import Page, PageParams
+from app.projects.service import ProjectService
 from app.realtime.schemas import WorkspaceEventKind
 from app.realtime.service import stage_workspace_event
+from app.runtime.runs.repository import RunRepository
 from app.runtime.runs.service import RunService
 from app.service import BaseService
 from app.skills.repository import SkillRepository
@@ -27,14 +29,17 @@ from app.threads.models import ThreadDB, ThreadSource, ThreadToolMode
 from app.threads.repository import ThreadRepository
 from app.threads.schemas import (
     AgentThreadResponse,
+    ThreadCompletionUpdate,
     ThreadCreate,
     ThreadMemoriesUpdate,
     ThreadModelUpdate,
     ThreadPatch,
+    ThreadPlacementUpdate,
     ThreadResourcesPatch,
     ThreadResponse,
     ThreadStartCreate,
 )
+from app.users.models import UserDB
 from app.workspaces.dependencies import get_active_workspace_id
 
 
@@ -170,7 +175,17 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
         user_id: UUID,
         source: ThreadSource,
         trigger_id: UUID | None = None,
+        placement_user: UserDB | None = None,
     ) -> ThreadResponse:
+        if placement_user is not None:
+            await ProjectService(self.db, self.workspace_id).validate_placement(
+                data.project_id,
+                data.folder_id,
+                placement_user,
+                lock_project=data.project_id is not None,
+            )
+        elif data.folder_id is not None and data.project_id is None:
+            raise DomainValidationError("A folder requires a project")
         spec = await AgentRepository(self.db, self.workspace_id).get_run_spec(
             data.agent_id
         )
@@ -230,6 +245,7 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
                 if "disabled_subagent_ids" in data.model_fields_set
                 else default_disabled_subagent_ids
             ),
+            project_id=data.project_id,
             tolerated_mcp_ids=(
                 set(data.disabled_mcp_server_ids)
                 if source == ThreadSource.trigger
@@ -323,6 +339,12 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
                 workspace_id=self.workspace_id,
                 kind=WorkspaceEventKind.trigger_history,
             )
+        if thread.project_id is not None:
+            await stage_workspace_event(
+                self.db,
+                workspace_id=self.workspace_id,
+                kind=WorkspaceEventKind.projects,
+            )
         # Compute (not default) the availability flag: creating a thread on a
         # disabled model is possible via the API, and the schema default
         # (True) must not masquerade as a runnable thread.
@@ -341,6 +363,7 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
         files: list[UploadFile],
         user_id: UUID,
         source: ThreadSource,
+        placement_user: UserDB | None = None,
     ) -> ThreadResponse:
         """Persist the thread, its attachments and first run atomically."""
         text = data.message_text if data.message_text.strip() else ""
@@ -349,12 +372,22 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
         if len(files) > 10:
             raise DomainValidationError("A message can contain at most 10 files")
 
+        placement = {}
+        if "project_id" in data.model_fields_set:
+            placement["project_id"] = data.project_id
+        if "folder_id" in data.model_fields_set:
+            placement["folder_id"] = data.folder_id
         thread_data = data.thread.model_copy(
-            update={"first_message_content": text or None}
+            update={"first_message_content": text or None, **placement}
         )
         artifacts = ArtifactService(self.db, self.workspace_id)
         try:
-            thread = await self.create(thread_data, user_id, source)
+            thread = await self.create(
+                thread_data,
+                user_id,
+                source,
+                placement_user=placement_user,
+            )
             attachment_metadata: list[dict[str, str]] = []
             image_parts: list[dict] = []
             inline_text_parts: list[dict] = []
@@ -470,14 +503,20 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
             raise
 
     async def update(self, thread_id: str, data: ThreadPatch) -> ThreadResponse:
-        thread = await self.get_or_404(thread_id)
+        thread = await self._lock_editable(thread_id)
         await self.repository.update(thread, data)
+        if thread.project_id is not None:
+            await stage_workspace_event(
+                self.db,
+                workspace_id=self.workspace_id,
+                kind=WorkspaceEventKind.projects,
+            )
         return await self.get_with_agent(thread_id)
 
     async def update_model(
         self, thread_id: str, data: ThreadModelUpdate
     ) -> ThreadResponse:
-        await self.get_or_404(thread_id)
+        await self._lock_editable(thread_id)
         await ModelService(self.db, self.workspace_id).ensure_available(data.model_id)
         await ModelService.validate_reasoning_effort(
             data.model_id, data.reasoning_effort
@@ -488,14 +527,14 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
     async def update_memories(
         self, thread_id: str, data: ThreadMemoriesUpdate
     ) -> ThreadResponse:
-        await self.get_or_404(thread_id)
+        await self._lock_editable(thread_id)
         await self.repository.set_memories_enabled(thread_id, data.memories_enabled)
         return await self.get_with_agent(thread_id)
 
     async def update_resources(
         self, thread_id: str, data: ThreadResourcesPatch
     ) -> ThreadResponse:
-        thread = await self.get_or_404(thread_id)
+        thread = await self._lock_editable(thread_id)
         spec = await AgentRepository(self.db, self.workspace_id).get_run_spec(
             thread.agent_id
         )
@@ -512,6 +551,7 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
             data.disabled_skill_ids,
             data.disabled_sandbox_ids,
             data.disabled_subagent_ids,
+            project_id=thread.project_id,
             tolerated_mcp_ids={
                 UUID(resource_id) for resource_id in thread.disabled_mcp_server_ids
             },
@@ -535,6 +575,87 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
         )
         return await self.get_with_agent(thread_id)
 
+    @staticmethod
+    def _ensure_not_completed(thread: ThreadDB) -> None:
+        if thread.completed_at is not None:
+            raise DomainValidationError("Completed threads are read-only")
+
+    async def _lock_editable(self, thread_id: str) -> ThreadDB:
+        thread = await self.repository.lock(thread_id)
+        if thread is None:
+            raise NotFoundError(self.not_found_message)
+        self._ensure_not_completed(thread)
+        return thread
+
+    async def update_placement(
+        self,
+        thread_id: str,
+        data: ThreadPlacementUpdate,
+        user: UserDB,
+    ) -> ThreadResponse:
+        await ProjectService(self.db, self.workspace_id).validate_placement(
+            data.project_id,
+            data.folder_id,
+            user,
+            lock_project=data.project_id is not None,
+        )
+        thread = await self.repository.lock(thread_id)
+        if thread is None:
+            raise NotFoundError(self.not_found_message)
+        previous_project_id = thread.project_id
+        await self.repository.set_placement(thread_id, data.project_id, data.folder_id)
+        await stage_workspace_event(
+            self.db,
+            workspace_id=self.workspace_id,
+            kind=WorkspaceEventKind.threads,
+            target_user_id=thread.user_id,
+            thread_id=thread.id,
+        )
+        if previous_project_id is not None or data.project_id is not None:
+            await stage_workspace_event(
+                self.db,
+                workspace_id=self.workspace_id,
+                kind=WorkspaceEventKind.projects,
+            )
+        return await self.get_with_agent(thread_id)
+
+    async def update_completion(
+        self,
+        thread_id: str,
+        data: ThreadCompletionUpdate,
+    ) -> ThreadResponse:
+        thread = await self.repository.lock(thread_id)
+        if thread is None:
+            raise NotFoundError(self.not_found_message)
+        if data.completed and thread.completed_at is None:
+            active = await RunRepository(
+                self.db, self.workspace_id
+            ).get_active_for_thread(thread_id)
+            queued = await RunRepository(
+                self.db, self.workspace_id
+            ).list_queued_prompts(thread_id)
+            if active is not None or queued or thread.awaiting_input:
+                raise DomainValidationError(
+                    "A thread with active or queued work cannot be completed"
+                )
+        await self.repository.set_completed_at(
+            thread_id, datetime.now(UTC) if data.completed else None
+        )
+        await stage_workspace_event(
+            self.db,
+            workspace_id=self.workspace_id,
+            kind=WorkspaceEventKind.threads,
+            target_user_id=thread.user_id,
+            thread_id=thread.id,
+        )
+        if thread.project_id is not None:
+            await stage_workspace_event(
+                self.db,
+                workspace_id=self.workspace_id,
+                kind=WorkspaceEventKind.projects,
+            )
+        return await self.get_with_agent(thread_id)
+
     async def normalize_resource_ids(
         self,
         spec: RunSpec,
@@ -543,6 +664,7 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
         disabled_sandbox_ids: list[UUID],
         disabled_subagent_ids: list[UUID],
         *,
+        project_id: UUID | None = None,
         tolerated_mcp_ids: set[UUID] | None = None,
         tolerated_skill_ids: set[UUID] | None = None,
         tolerated_sandbox_ids: set[UUID] | None = None,
@@ -556,6 +678,12 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
         available_skill_ids = await SkillRepository(
             self.db, self.workspace_id
         ).list_attached_ids_for_agents(spec.all_agent_ids)
+        if project_id is not None:
+            available_skill_ids.update(
+                await ProjectService(
+                    self.db, self.workspace_id
+                ).repository.list_skill_ids(project_id)
+            )
         available_sandbox_ids = {sandbox.id for sandbox in spec.all_sandbox_rows}
         available_subagent_ids = {subagent.id for subagent in spec.subagents}
         unknown_mcp_ids = (
@@ -602,6 +730,12 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
                 self.db,
                 workspace_id=self.workspace_id,
                 kind=WorkspaceEventKind.trigger_history,
+            )
+        if thread.project_id is not None:
+            await stage_workspace_event(
+                self.db,
+                workspace_id=self.workspace_id,
+                kind=WorkspaceEventKind.projects,
             )
         await self.db.delete(thread)
         return thread

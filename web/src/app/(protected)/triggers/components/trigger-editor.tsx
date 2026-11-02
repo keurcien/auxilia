@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Braces, Webhook } from "lucide-react";
 import { Trigger, TriggerType } from "@/types/triggers";
 import {
@@ -13,6 +13,7 @@ import { getApiErrorMessage } from "@/lib/api/errors";
 import { getDefaultModel } from "@/lib/utils/get-default-model";
 import { useTriggersStore } from "@/stores/triggers-store";
 import { useModelsStore } from "@/stores/models-store";
+import { useProjectsStore } from "@/stores/projects-store";
 import { CodeBlock } from "@/components/ai-elements/code-block";
 import { useConfirmDialog } from "@/components/providers/dialog-provider";
 import {
@@ -24,10 +25,16 @@ import { SaveActions } from "@/components/editor/save-actions";
 import { AgentPicker } from "@/components/editor/agent-picker";
 import { ModelPickerChip } from "@/components/editor/model-picker-chip";
 import { GroupPicker } from "@/components/ui/group-picker";
+import {
+	AsyncSearchSelect,
+	type AsyncSearchOption,
+} from "@/components/ui/async-search-select";
 import { UnderlineTabs } from "@/components/ui/underline-tabs";
 import { VisibilityPicker } from "@/components/ui/visibility-picker";
 import type { ResourceVisibility } from "@/types/visibility";
 import { groupOptions } from "@/lib/groups";
+import { getProjectFolderPath } from "@/lib/project-folders";
+import * as projectsApi from "@/lib/api/resources/projects";
 import { PETROL_MONO_THEME } from "@/lib/shiki-petrol-mono";
 import ScheduleBuilder from "@/app/(protected)/triggers/components/schedule-builder";
 import NextRunsCard from "@/app/(protected)/triggers/components/next-runs-card";
@@ -46,6 +53,8 @@ interface TriggerFormState {
 	timezone: string;
 	visibility: ResourceVisibility;
 	teamIds: string[];
+	projectId: string | null;
+	folderId: string | null;
 	disabledMcpServerIds: string[] | null;
 	disabledSkillIds: string[] | null;
 	disabledSandboxIds: string[] | null;
@@ -68,6 +77,8 @@ function defaultForm(): TriggerFormState {
 		timezone: browserTimezone(),
 		visibility: "personal",
 		teamIds: [],
+		projectId: null,
+		folderId: null,
 		disabledMcpServerIds: null,
 		disabledSkillIds: null,
 		disabledSandboxIds: null,
@@ -93,6 +104,8 @@ function fromTrigger(trigger: Trigger): TriggerFormState {
 				: browserTimezone(),
 		visibility: trigger.visibility,
 		teamIds: trigger.teamIds,
+		projectId: trigger.projectId,
+		folderId: trigger.folderId,
 		disabledMcpServerIds: trigger.disabledMcpServerIds,
 		disabledSkillIds: trigger.disabledSkillIds,
 		disabledSandboxIds: trigger.disabledSandboxIds,
@@ -110,6 +123,8 @@ function toComparablePayload(form: TriggerFormState, triggerType: TriggerType) {
 		modelId: form.modelId,
 		visibility: form.visibility,
 		teamIds: [...form.teamIds].sort(),
+		projectId: form.projectId,
+		folderId: form.folderId,
 		disabledMcpServerIds: form.disabledMcpServerIds,
 		disabledSkillIds: form.disabledSkillIds,
 		disabledSandboxIds: form.disabledSandboxIds,
@@ -147,6 +162,9 @@ export default function TriggerEditor({
 	const triggers = useTriggersStore((state) => state.triggers);
 	const fetchTriggers = useTriggersStore((state) => state.fetchTriggers);
 	const models = useModelsStore((state) => state.models);
+	const projects = useProjectsStore((state) => state.projects);
+	const projectTree = useProjectsStore((state) => state.tree);
+	const fetchProjects = useProjectsStore((state) => state.fetchProjects);
 	const confirmDialog = useConfirmDialog();
 	const type = trigger?.triggerType ?? triggerType ?? "schedule";
 
@@ -164,7 +182,8 @@ export default function TriggerEditor({
 
 	useEffect(() => {
 		fetchTriggers().catch(() => {});
-	}, [fetchTriggers]);
+		void fetchProjects().catch(() => {});
+	}, [fetchProjects, fetchTriggers]);
 
 	const setField = <K extends keyof TriggerFormState>(
 		key: K,
@@ -177,6 +196,48 @@ export default function TriggerEditor({
 		form.modelId ?? (trigger ? null : (getDefaultModel(models) ?? null));
 
 	const cronExpression = buildCronExpression(form.schedule);
+	const selectedProject = projects.find(
+		(project) => project.id === form.projectId,
+	);
+	const projectFolders =
+		projectTree.find((project) => project.id === form.projectId)?.folders ?? [];
+	const selectedFolder = projectFolders.find(
+		(folder) => folder.id === form.folderId,
+	);
+	const selectedProjectOption: AsyncSearchOption | null = selectedProject
+		? {
+				value: selectedProject.id,
+				label: selectedProject.name,
+				description: selectedProject.description || undefined,
+			}
+		: null;
+	const selectedFolderOption: AsyncSearchOption | null = selectedFolder
+		? {
+				value: selectedFolder.id,
+				label: getProjectFolderPath(selectedFolder, projectFolders),
+			}
+		: null;
+	const loadProjectOptions = useCallback(
+		async (query: string, signal: AbortSignal) =>
+			(await projectsApi.searchProjects(query, signal)).map((project) => ({
+				value: project.id,
+				label: project.name,
+				description: project.description || undefined,
+			})),
+		[],
+	);
+	const loadFolderOptions = useCallback(
+		async (query: string, signal: AbortSignal) => {
+			if (!form.projectId) return [];
+			return (
+				await projectsApi.searchProjectFolders(form.projectId, query, signal)
+			).map((folder) => ({
+				value: folder.id,
+				label: folder.path,
+			}));
+		},
+		[form.projectId],
+	);
 	const isDirty =
 		JSON.stringify(toComparablePayload(form, type)) !==
 		JSON.stringify(toComparablePayload(initialForm, type));
@@ -186,7 +247,9 @@ export default function TriggerEditor({
 		form.agentId &&
 		selectedModelId &&
 		(type === "webhook" || cronExpression) &&
-		(form.visibility !== "teams" || form.teamIds.length > 0),
+		(form.projectId !== null ||
+			form.visibility !== "teams" ||
+			form.teamIds.length > 0),
 	);
 
 	const handleSave = async () => {
@@ -200,8 +263,11 @@ export default function TriggerEditor({
 			instructions: form.instructions.trim(),
 			agentId: form.agentId,
 			modelId: selectedModelId,
-			visibility: form.visibility,
-			teamIds: form.teamIds,
+			projectId: form.projectId,
+			folderId: form.folderId,
+			...(form.projectId === null
+				? { visibility: form.visibility, teamIds: form.teamIds }
+				: {}),
 			disabledMcpServerIds: form.disabledMcpServerIds,
 			disabledSkillIds: form.disabledSkillIds,
 			disabledSandboxIds: form.disabledSandboxIds,
@@ -314,17 +380,56 @@ export default function TriggerEditor({
 							setField("group", group);
 						}}
 					/>
-					<VisibilityPicker
-						visibility={form.visibility}
-						teamIds={form.teamIds}
-						onChange={(visibility, teamIds) => {
-							setForm((current) => ({
-								...current,
-								visibility,
-								teamIds,
-							}));
-						}}
-					/>
+					<div className="grid gap-3 sm:grid-cols-2">
+						<AsyncSearchSelect
+							label="Project"
+							value={form.projectId}
+							selectedOption={selectedProjectOption}
+							placeholder="Search projects"
+							emptyValueLabel="No project"
+							loadOptions={loadProjectOptions}
+							onChange={(projectId) => {
+								setForm((current) => ({
+									...current,
+									projectId,
+									folderId: null,
+								}));
+							}}
+						/>
+						<AsyncSearchSelect
+							label="Folder"
+							value={form.folderId}
+							selectedOption={selectedFolderOption}
+							placeholder="Search folders"
+							emptyValueLabel="Project root"
+							disabled={form.projectId === null}
+							loadOptions={loadFolderOptions}
+							onChange={(folderId) => {
+								setField("folderId", folderId);
+							}}
+						/>
+					</div>
+					{selectedProject ? (
+						<p className="rounded-[8px] bg-petrol-tint px-3 py-2 text-[11.5px] leading-5 text-petrol dark:bg-white/5 dark:text-panel-dim">
+							Access is inherited from {selectedProject.name} (
+							{selectedProject.visibility === "teams"
+								? "selected teams"
+								: selectedProject.visibility}
+							).
+						</p>
+					) : (
+						<VisibilityPicker
+							visibility={form.visibility}
+							teamIds={form.teamIds}
+							onChange={(visibility, teamIds) => {
+								setForm((current) => ({
+									...current,
+									visibility,
+									teamIds,
+								}));
+							}}
+						/>
+					)}
 
 					<EditorSection label="Agent">
 						<AgentPicker

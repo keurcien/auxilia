@@ -5,6 +5,10 @@ Services return the freshly authenticated ``UserDB`` plus a JWT string; the
 router is responsible for attaching the auth cookie to the response.
 """
 
+import hashlib
+import logging
+import secrets
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from fastapi import Depends
@@ -12,12 +16,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import func, select
 
 from app.auth.configuration import WorkspaceAuthenticationService
+from app.auth.email import password_reset_mailer
+from app.auth.models import PasswordResetTokenDB
+from app.auth.repository import PasswordResetTokenRepository
 from app.auth.schemas import (
+    ForgotPasswordRequest,
     InviteAcceptRequest,
+    ResetPasswordRequest,
     SigninRequest,
     SignupRequest,
     TwoFactorSigninVerifyRequest,
 )
+from app.auth.settings import auth_settings
 from app.auth.two_factor import create_scoped_token, decode_scoped_token
 from app.auth.two_factor_challenges import consume_challenge, record_challenge_attempt
 from app.auth.utils import create_access_token, get_password_hash, verify_password
@@ -40,6 +50,9 @@ from app.workspaces.repository import WorkspaceRepository
 from app.workspaces.schemas import WorkspaceCreate
 
 
+logger = logging.getLogger(__name__)
+
+
 class AuthService:
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -47,6 +60,7 @@ class AuthService:
         self.memories = MemoryService(db)
         self.authentication = WorkspaceAuthenticationService(db)
         self.workspaces = WorkspaceRepository(db)
+        self.password_resets = PasswordResetTokenRepository(db)
 
     async def count_users(self) -> int:
         result = await self.db.execute(select(func.count()).select_from(UserDB))
@@ -151,6 +165,58 @@ class AuthService:
                 remember_me=data.remember_me,
             )
         return self.build_jwt_for_user(user, remember_me=data.remember_me)
+
+    async def request_password_reset(self, data: ForgotPasswordRequest) -> None:
+        if not password_reset_mailer.configured:
+            raise DomainValidationError("Password reset email is not configured")
+
+        user = await self.password_resets.get_user_by_email(str(data.email))
+        if user is None or user.email is None or user.password_hash is None:
+            return
+
+        cooldown = auth_settings.PASSWORD_RESET_REQUEST_COOLDOWN_SECONDS
+        if cooldown > 0 and await self.password_resets.has_recent_for_user(
+            user.id, datetime.now(UTC) - timedelta(seconds=cooldown)
+        ):
+            return
+
+        raw_token = secrets.token_urlsafe(48)
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        await self.password_resets.replace_for_user(
+            PasswordResetTokenDB(
+                user_id=user.id,
+                token_hash=token_hash,
+                expires_at=datetime.now(UTC)
+                + timedelta(minutes=auth_settings.PASSWORD_RESET_TOKEN_EXPIRE_MINUTES),
+            )
+        )
+
+        # SMTP delivery cannot be rolled back. Commit the token first so a
+        # delivered link never points at data that a later commit failed to save.
+        await self.db.commit()
+        try:
+            await password_reset_mailer.send(user.email, raw_token)
+        except Exception:
+            # The public response must not disclose whether the account exists.
+            # Operators still get the delivery failure with the affected user id.
+            logger.exception(
+                "Password reset email delivery failed for user %s", user.id
+            )
+
+    async def reset_password(self, data: ResetPasswordRequest) -> None:
+        token_hash = hashlib.sha256(data.token.encode()).hexdigest()
+        token = await self.password_resets.get_valid_for_update(token_hash)
+        if token is None:
+            raise DomainValidationError("Invalid or expired reset link")
+
+        user = await self.password_resets.get_user(token.user_id)
+        if user is None:
+            raise DomainValidationError("Invalid or expired reset link")
+
+        user.password_hash = await get_password_hash(data.password)
+        self.db.add(user)
+        await self.password_resets.delete_for_user(user.id)
+        await self.db.flush()
 
     async def verify_two_factor_signin(
         self,

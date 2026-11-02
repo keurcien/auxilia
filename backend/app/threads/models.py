@@ -121,6 +121,24 @@ class ThreadDB(ThreadBase, TimestampMixin, table=True):
         index=True,
         nullable=True,
     )
+    project_id: UUID | None = Field(
+        default=None,
+        foreign_key="projects.id",
+        ondelete="SET NULL",
+        index=True,
+        nullable=True,
+    )
+    folder_id: UUID | None = Field(
+        default=None,
+        foreign_key="project_folders.id",
+        ondelete="SET NULL",
+        index=True,
+        nullable=True,
+    )
+    completed_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
     # The sandbox every run of this thread reconnects to. Stamped by the
     # runtime when a run creates one (and again when a gone sandbox is
     # replaced); NULL until then, or for agents without a sandbox binding.

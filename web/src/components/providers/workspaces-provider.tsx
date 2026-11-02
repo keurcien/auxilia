@@ -8,6 +8,7 @@ import { useWorkspaceResourcesSync } from "@/hooks/use-workspace-resources-sync"
 import { useAgentsStore } from "@/stores/agents-store";
 import { useAppearanceStore } from "@/stores/appearance-store";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
+import { useProjectsStore } from "@/stores/projects-store";
 import { useSkillsStore } from "@/stores/skills-store";
 import { useThreadsStore } from "@/stores/threads-store";
 import { useTriggersStore } from "@/stores/triggers-store";
@@ -22,6 +23,7 @@ async function bootstrapProtectedApp(hydrate: () => Promise<void>): Promise<void
 	await Promise.allSettled([
 		useAgentsStore.getState().fetchAgents(),
 		useThreadsStore.getState().fetchThreads(),
+		useProjectsStore.getState().fetchProjects(),
 		useTriggersStore.getState().fetchTriggers(),
 		useMcpServersStore.getState().fetchMcpServers(),
 		useSkillsStore.getState().fetchSkills(),

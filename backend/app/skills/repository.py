@@ -396,6 +396,17 @@ class SkillRepository(BaseRepository[SkillDB]):
             stmt = stmt.where(SkillDB.workspace_id == self.workspace_id)
         return set((await self.db.execute(stmt)).scalars().all())
 
+    async def list_by_ids(self, skill_ids: Iterable[UUID]) -> list[SkillDB]:
+        ids = list(skill_ids)
+        if not ids:
+            return []
+        stmt = (
+            self._skills()
+            .where(col(SkillDB.id).in_(ids))
+            .order_by(col(SkillDB.name), col(SkillDB.id))
+        )
+        return list((await self.db.execute(stmt)).scalars().all())
+
     async def list_for_agents(
         self,
         agent_ids: Iterable[UUID],

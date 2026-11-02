@@ -51,6 +51,7 @@ from app.memories.router import router as memories_router
 from app.model_providers.router import router as model_providers_router
 from app.notifications.router import router as notifications_router
 from app.observability.router import router as observability_router
+from app.projects.router import router as projects_router
 from app.realtime.relay import WorkspaceEventRelay
 from app.realtime.router import router as realtime_router
 from app.redis_client import close_redis, get_redis
@@ -330,6 +331,7 @@ app.include_router(mcp_oauth_router)
 app.include_router(mcp_servers_router)
 app.include_router(memories_router)
 app.include_router(database_connections_router)
+app.include_router(projects_router)
 app.include_router(threads_router)
 app.include_router(conversation_shares_router)
 app.include_router(public_conversation_shares_router)

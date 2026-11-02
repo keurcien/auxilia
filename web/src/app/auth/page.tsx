@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useState, useEffect } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import * as authApi from "@/lib/api/resources/auth";
 import { getApiErrorMessage } from "@/lib/api/errors";
@@ -111,7 +112,12 @@ function AuthPageContent() {
 					router.replace("/setup");
 				}
 			} catch {
-				setProviders({ password: true, google: false, setupRequired: false });
+				setProviders({
+					password: true,
+					passwordReset: false,
+					google: false,
+					setupRequired: false,
+				});
 			}
 		};
 		fetchProviders();
@@ -256,6 +262,17 @@ function AuthPageContent() {
 						}}
 						required
 					/>
+
+					{providers.passwordReset && (
+						<div className="-mt-2 flex justify-end">
+							<Link
+								href="/forgot-password"
+								className="whitespace-nowrap text-[12.5px] font-semibold text-petrol hover:text-foreground"
+							>
+								Forgot your password?
+							</Link>
+						</div>
+					)}
 
 					<RememberMeField
 						checked={rememberMe}

@@ -1,6 +1,7 @@
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, Column, Text
+from sqlalchemy import CheckConstraint, Column, DateTime, Text
 from sqlmodel import Field, UniqueConstraint
 
 from app.models import BaseDBModel
@@ -37,3 +38,18 @@ class WorkspaceAuthenticationDB(BaseDBModel, table=True):
     )
     google_exclusive: bool = Field(default=False, nullable=False)
     enforce_two_factor: bool = Field(default=False, nullable=False)
+
+
+class PasswordResetTokenDB(BaseDBModel, table=True):
+    __tablename__ = "password_reset_tokens"
+
+    user_id: UUID = Field(
+        foreign_key="users.id",
+        ondelete="CASCADE",
+        nullable=False,
+        index=True,
+    )
+    token_hash: str = Field(max_length=64, nullable=False, unique=True, index=True)
+    expires_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, index=True)
+    )

@@ -9,6 +9,8 @@ import {
 	AlarmClock,
 	AlertCircle,
 	Bot,
+	Check,
+	CircleCheck,
 	ChevronDown,
 	Loader2,
 	Server,
@@ -21,6 +23,7 @@ import {
 	BookOpen,
 	Settings,
 	Users,
+	Undo2,
 	Moon,
 	Sun,
 	Monitor,
@@ -28,6 +31,9 @@ import {
 	List,
 	UserRound,
 	Info,
+	FolderKanban,
+	MessagesSquare,
+	FolderInput,
 	type LucideIcon,
 } from "lucide-react";
 import {
@@ -54,12 +60,14 @@ import { useAgentsStore } from "@/stores/agents-store";
 import { useTriggersStore } from "@/stores/triggers-store";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { useAppearanceStore } from "@/stores/appearance-store";
+import { useProjectsStore } from "@/stores/projects-store";
 import * as threadsApi from "@/lib/api/resources/threads";
 import { appearanceLogoUrl } from "@/lib/api/resources/appearance";
 import { useSkillsStore } from "@/stores/skills-store";
 import { formatRunAt } from "@/lib/triggers/schedule";
 import { useActiveRunThreadIds } from "@/hooks/use-active-runs";
 import { useRowSelection } from "@/hooks/use-row-selection";
+import { navigateWithUnsavedChanges } from "@/hooks/use-unsaved-changes-warning";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import {
@@ -75,6 +83,13 @@ import { WorkspaceSwitcher } from "@/components/layout/app-sidebar/workspace-swi
 import { useShowShortcutsInMenu } from "@/lib/user-preferences";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { userRoleLabel } from "@/lib/user-role";
+import { cn } from "@/lib/utils";
+import { ProjectsTree } from "@/components/layout/app-sidebar/projects-tree";
+import {
+	ThreadPlacementDialog,
+	type ThreadPlacementTarget,
+} from "@/components/layout/app-sidebar/thread-placement-dialog";
+import { toast } from "sonner";
 
 const navItems: {
 	title: string;
@@ -158,8 +173,10 @@ export function AppSidebar() {
 		isLoadingMore,
 		loadMoreThreads,
 		removeThread,
+		setThreadCompleted,
 	} = useThreadsStore();
 	const triggers = useTriggersStore((state) => state.triggers);
+	const refreshProjectTree = useProjectsStore((state) => state.refreshTree);
 	const triggersReady = useTriggersStore((state) => state.isInitialized);
 	const mcpServers = useMcpServersStore((state) => state.mcpServers);
 	const mcpServersReady = useMcpServersStore((state) => state.isInitialized);
@@ -177,6 +194,11 @@ export function AppSidebar() {
 	const [openThreadMenuId, setOpenThreadMenuId] = useState<string | null>(null);
 	const [aboutOpen, setAboutOpen] = useState(false);
 	const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+	const [sidebarMode, setSidebarMode] = useState<"threads" | "projects">(
+		"threads",
+	);
+	const [movingThread, setMovingThread] =
+		useState<ThreadPlacementTarget | null>(null);
 	const activeRunThreadIds = useActiveRunThreadIds(threads);
 	const appearance = useAppearanceStore((state) => state.appearance);
 	const showShortcutsInMenu = useShowShortcutsInMenu();
@@ -190,6 +212,20 @@ export function AppSidebar() {
 	useEffect(() => {
 		if (isMobile) setOpenMobile(false);
 	}, [isMobile, pathname, setOpenMobile]);
+
+	useEffect(() => {
+		const saved = window.localStorage.getItem("auxilia:sidebar-mode");
+		if (saved !== "projects") return;
+		queueMicrotask(() => {
+			setSidebarMode("projects");
+		});
+	}, []);
+
+	const changeSidebarMode = (mode: "threads" | "projects") => {
+		if (mode === "projects") selection.clear();
+		setSidebarMode(mode);
+		window.localStorage.setItem("auxilia:sidebar-mode", mode);
+	};
 
 	const navCounts: Record<string, number | undefined> = {
 		"/agents": agentsReady ? agents.length : undefined,
@@ -209,12 +245,28 @@ export function AppSidebar() {
 			});
 	};
 
+	const handleThreadCompletion = async (thread: Thread) => {
+		try {
+			await setThreadCompleted(thread.id, !thread.completedAt);
+			void refreshProjectTree();
+		} catch (error) {
+			toast.error(
+				getApiErrorMessage(error, "The conversation could not be updated."),
+			);
+		}
+	};
+
 	const handleLogout = () => {
-		logout();
+		navigateWithUnsavedChanges(logout);
+	};
+	const navigateTo = (href: string) => {
+		const navigated = navigateWithUnsavedChanges(() => {
+			router.push(href);
+		});
+		if (navigated && isMobile) setOpenMobile(false);
 	};
 	const navigateHome = () => {
-		router.push("/");
-		if (isMobile) setOpenMobile(false);
+		navigateTo("/");
 	};
 	const handleBrandLogoClick = () => {
 		if (!isMobile && state === "collapsed") {
@@ -293,8 +345,7 @@ export function AppSidebar() {
 										const lastAgent = threads[0]
 											? agents.find((a) => a.id === threads[0].agentId)
 											: undefined;
-										router.push(`/agents/${(lastAgent ?? agents[0]).id}/chat`);
-										if (isMobile) setOpenMobile(false);
+										navigateTo(`/agents/${(lastAgent ?? agents[0]).id}/chat`);
 									}
 								}}
 								disabled={agents.length === 0}
@@ -335,7 +386,36 @@ export function AppSidebar() {
 						</div>
 					</SidebarGroup>
 
+					<SidebarGroup className="pt-0 pb-1 group-data-[collapsible=icon]:hidden">
+						<div className="grid grid-cols-2 rounded-[8px] border border-sidebar-border bg-sidebar-accent/45 p-0.5">
+							{[
+								{ key: "threads" as const, label: "Threads", icon: MessagesSquare },
+								{ key: "projects" as const, label: "Projects", icon: FolderKanban },
+							].map((item) => (
+								<button
+									key={item.key}
+									type="button"
+									aria-pressed={sidebarMode === item.key}
+									onClick={() => {
+										changeSidebarMode(item.key);
+									}}
+									className={cn(
+										"flex h-7 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-[6px] text-[11.5px] font-semibold transition-colors",
+										sidebarMode === item.key
+											? "bg-card text-sidebar-foreground shadow-raised"
+											: "text-sidebar-muted hover:text-sidebar-foreground",
+									)}
+								>
+									<item.icon className="size-3.5" />
+									{item.label}
+								</button>
+							))}
+						</div>
+					</SidebarGroup>
+
 					<SidebarGroup className="flex-1 min-h-0 overflow-hidden pt-0">
+						{sidebarMode === "threads" ? (
+							<>
 						{/* mt-0 cancels shadcn's collapsed -mt-8 and nowrap keeps the
 						    (invisible) label the same height in the narrow rail, so the
 						 thread rows below don't move when collapsing */}
@@ -417,16 +497,11 @@ export function AppSidebar() {
 												>
 													<span className="w-7 shrink-0" aria-hidden />
 													<div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
-														<div className="flex items-center gap-2">
+														<div className="flex items-center">
 															<span
 																className={`truncate text-[13px] leading-[1.45] text-sidebar-foreground ${isActive ? "font-semibold" : "font-medium"}`}
 															>
 																{title}
-															</span>
-															<span
-																className={`ml-auto shrink-0 font-mono text-[10px] text-sidebar-section-label ${trailingMetadataClass}`}
-															>
-																{shortTimeAgo(thread.createdAt)}
 															</span>
 														</div>
 														<div className="flex items-center gap-1.5">
@@ -471,6 +546,33 @@ export function AppSidebar() {
 															)}
 														</div>
 													</div>
+													<div
+														className={`flex w-8 shrink-0 flex-col items-end justify-center gap-1 group-data-[collapsible=icon]:hidden ${trailingMetadataClass}`}
+													>
+														<span className="font-mono text-[10px] text-sidebar-section-label">
+															{shortTimeAgo(thread.createdAt)}
+														</span>
+														<span
+															aria-label={
+																thread.completedAt
+																	? "Conversation completed"
+																	: "Conversation open"
+															}
+															title={
+																thread.completedAt
+																	? "Completed"
+																	: "Open"
+															}
+															className={cn(
+																"flex size-3 items-center justify-center rounded-full border",
+																thread.completedAt
+																	? "border-emerald-600 bg-emerald-600 text-white"
+																	: "border-sidebar-muted-highlight text-transparent",
+															)}
+														>
+															<Check className="size-2" strokeWidth={3} />
+														</span>
+													</div>
 												</Link>
 											</SidebarMenuButton>
 											<SelectableLeading
@@ -481,7 +583,7 @@ export function AppSidebar() {
 													selection.toggle(thread.id, shiftKey);
 												}}
 												hoverOnSelf
-												className="absolute left-[5px] top-1/2 z-10 size-7 -translate-y-1/2"
+												className="absolute left-[9px] top-1/2 z-10 size-7 -translate-y-1/2 group-data-[collapsible=icon]:hidden"
 											>
 												{isTriggerThread ? (
 													<span
@@ -534,6 +636,33 @@ export function AppSidebar() {
 													align="start"
 													items={[
 														{
+															label:
+																thread.completedAt == null
+																	? "Mark as complete"
+																	: "Reopen",
+															icon:
+																thread.completedAt == null ? (
+																	<CircleCheck />
+																) : (
+																	<Undo2 />
+																),
+															onClick: () => {
+																void handleThreadCompletion(thread);
+															},
+														},
+														{
+															label: "Move conversation",
+															icon: <FolderInput />,
+															onClick: () => {
+																setMovingThread({
+																	id: thread.id,
+																	title,
+																	projectId: thread.projectId ?? null,
+																	folderId: thread.folderId ?? null,
+																});
+															},
+														},
+														{
 															label: "Rename",
 															icon: <Pencil />,
 															onClick: () => {
@@ -575,6 +704,22 @@ export function AppSidebar() {
 								)}
 							</SidebarMenu>
 						</SidebarGroupContent>
+							</>
+						) : (
+							<>
+								<SidebarGroupLabel className="h-auto overflow-hidden whitespace-nowrap pl-2 pr-[5px] pt-2 pb-1.5 font-sans text-[10px] font-semibold text-sidebar-muted-highlight group-data-[collapsible=icon]:mt-0">
+									<span>Projects</span>
+								</SidebarGroupLabel>
+								<SidebarGroupContent className="overflow-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+									<ProjectsTree
+										pathname={pathname}
+										closeMobile={() => {
+											if (isMobile) setOpenMobile(false);
+										}}
+									/>
+								</SidebarGroupContent>
+							</>
+						)}
 					</SidebarGroup>
 
 					<SidebarGroup
@@ -680,16 +825,14 @@ export function AppSidebar() {
 										label: "Profile",
 										icon: <UserRound />,
 										onClick: () => {
-											router.push("/settings?tab=profile");
-											if (isMobile) setOpenMobile(false);
+											navigateTo("/settings?tab=profile");
 										},
 									},
 									{
 										label: "Settings",
 										icon: <Settings />,
 										onClick: () => {
-											router.push("/settings");
-											if (isMobile) setOpenMobile(false);
+											navigateTo("/settings");
 										},
 									},
 									{
@@ -724,8 +867,7 @@ export function AppSidebar() {
 															? pathname.startsWith(item.href)
 															: pathname === item.href,
 													onClick: () => {
-														router.push(item.href);
-														setOpenMobile(false);
+														navigateTo(item.href);
 													},
 												})),
 											]
@@ -785,6 +927,13 @@ export function AppSidebar() {
 					selection.remove(succeeded);
 					return failures;
 				}}
+			/>
+			<ThreadPlacementDialog
+				open={movingThread !== null}
+				onOpenChange={(open) => {
+					if (!open) setMovingThread(null);
+				}}
+				thread={movingThread}
 			/>
 			<AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} />
 		</>

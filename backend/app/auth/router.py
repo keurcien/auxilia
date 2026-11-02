@@ -17,8 +17,10 @@ from app.auth.dependencies import (
 from app.auth.schemas import (
     AuthMessageResponse,
     AuthProvidersResponse,
+    ForgotPasswordRequest,
     InviteAcceptRequest,
     InviteInfoResponse,
+    ResetPasswordRequest,
     SetupStatusResponse,
     SigninRequest,
     SignupRequest,
@@ -128,6 +130,7 @@ async def get_auth_providers(
             if workspace_id is not None
             else True
         ),
+        password_reset=auth_settings.smtp_configured,
         google=config is not None,
         setup_required=user_count == 0,
     )
@@ -203,6 +206,26 @@ async def signin(
             clear_active_workspace_cookie(response)
         return response
     return _auth_response(user, token)
+
+
+@router.post("/password/forgot", response_model=AuthMessageResponse)
+async def forgot_password(
+    data: ForgotPasswordRequest,
+    service: AuthService = Depends(get_auth_service),
+) -> AuthMessageResponse:
+    await service.request_password_reset(data)
+    return AuthMessageResponse(
+        message="If an account exists for this email, a reset link has been sent"
+    )
+
+
+@router.post("/password/reset", response_model=AuthMessageResponse)
+async def reset_password(
+    data: ResetPasswordRequest,
+    service: AuthService = Depends(get_auth_service),
+) -> AuthMessageResponse:
+    await service.reset_password(data)
+    return AuthMessageResponse(message="Password reset successfully")
 
 
 @router.post("/signin/two-factor", response_model=CurrentUserResponse)

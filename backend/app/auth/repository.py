@@ -1,10 +1,13 @@
+from datetime import UTC, datetime
 from uuid import UUID
 
+from sqlalchemy import delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
-from app.auth.models import WorkspaceAuthenticationDB
+from app.auth.models import PasswordResetTokenDB, WorkspaceAuthenticationDB
 from app.repository import BaseRepository
+from app.users.models import UserDB
 from app.utils.encryption import decrypt_value, encrypt_value
 
 
@@ -72,4 +75,62 @@ class WorkspaceAuthenticationRepository(BaseRepository[WorkspaceAuthenticationDB
             self.db.add(row)
         else:
             await self.db.delete(row)
+        await self.db.flush()
+
+
+class PasswordResetTokenRepository(BaseRepository[PasswordResetTokenDB]):
+    def __init__(self, db: AsyncSession):
+        super().__init__(PasswordResetTokenDB, db)
+
+    async def get_user_by_email(self, email: str) -> UserDB | None:
+        stmt = (
+            select(UserDB)
+            .where(func.lower(UserDB.email) == email.lower())
+            .with_for_update()
+        )
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_user(self, user_id: UUID) -> UserDB | None:
+        stmt = select(UserDB).where(UserDB.id == user_id)
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def replace_for_user(
+        self, token: PasswordResetTokenDB
+    ) -> PasswordResetTokenDB:
+        await self.delete_for_user(token.user_id)
+        return await self.create(token)
+
+    async def has_recent_for_user(self, user_id: UUID, since: datetime) -> bool:
+        stmt = (
+            select(PasswordResetTokenDB)
+            .where(
+                col(PasswordResetTokenDB.user_id) == user_id,
+                col(PasswordResetTokenDB.created_at) >= since,
+            )
+            .limit(1)
+        )
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none() is not None
+
+    async def get_valid_for_update(
+        self, token_hash: str
+    ) -> PasswordResetTokenDB | None:
+        stmt = (
+            select(PasswordResetTokenDB)
+            .where(
+                PasswordResetTokenDB.token_hash == token_hash,
+                PasswordResetTokenDB.expires_at > datetime.now(UTC),
+            )
+            .with_for_update()
+        )
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def delete_for_user(self, user_id: UUID) -> None:
+        stmt = delete(PasswordResetTokenDB).where(
+            col(PasswordResetTokenDB.user_id) == user_id
+        )
+        await self.db.execute(stmt)
         await self.db.flush()

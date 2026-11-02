@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/auth", "/setup", "/invite"];
+const PUBLIC_PATHS = [
+	"/auth",
+	"/setup",
+	"/invite",
+	"/forgot-password",
+	"/reset-password",
+];
 const ALWAYS_PUBLIC_PATHS = ["/share"];
 const PUBLIC_MCP_ENDPOINTS = new Set([
 	"/mcp",
@@ -76,6 +82,9 @@ export async function proxy(request: NextRequest) {
 	}
 	const isPublicPath = PUBLIC_PATHS.some((path) => isPathWithin(pathname, path));
 	const isInvitePath = isPathWithin(pathname, "/invite");
+	const isPasswordRecoveryPath =
+		isPathWithin(pathname, "/forgot-password") ||
+		isPathWithin(pathname, "/reset-password");
 
 	// Router prefetches (Next 16 issues two per visible <Link>: a route-tree
 	// request and a segment request) would each pay a blocking backend
@@ -103,7 +112,7 @@ export async function proxy(request: NextRequest) {
 				// A signed-in user may still need to accept an invitation to
 				// another workspace. Auth/setup pages are no longer useful once
 				// authenticated, but invite pages must remain reachable.
-				if (isPublicPath && !isInvitePath) {
+				if (isPublicPath && !isInvitePath && !isPasswordRecoveryPath) {
 					const returnTo = oauthReturnTo(
 						request.nextUrl.searchParams.get("returnTo"),
 					);
@@ -129,7 +138,10 @@ export async function proxy(request: NextRequest) {
 			return NextResponse.next();
 		}
 
-		const response = isInvitePath ? NextResponse.next() : authRedirect(request);
+		const response =
+			isInvitePath || isPasswordRecoveryPath
+				? NextResponse.next()
+				: authRedirect(request);
 		response.cookies.delete("access_token");
 		response.cookies.delete("active_workspace_id");
 		return response;

@@ -1,12 +1,14 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import delete
+from sqlalchemy import delete, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from app.projects.models import ProjectDB
 from app.repository import BaseRepository
 from app.triggers.models import TriggerDB, TriggerTeamDB, TriggerType
+from app.visibility import ResourceVisibility
 
 
 class TriggerRepository(BaseRepository[TriggerDB]):
@@ -24,6 +26,13 @@ class TriggerRepository(BaseRepository[TriggerDB]):
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_for_update(self, trigger_id: UUID) -> TriggerDB | None:
+        stmt = self._scope(
+            select(TriggerDB).where(TriggerDB.id == trigger_id)
+        ).with_for_update()
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def list_all(self) -> list[TriggerDB]:
         stmt = self._scope(select(TriggerDB)).order_by(TriggerDB.created_at.desc())
         result = await self.db.execute(stmt)
@@ -38,6 +47,32 @@ class TriggerRepository(BaseRepository[TriggerDB]):
         stmt = self._scope(stmt)
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
+
+    async def list_active_agent_ids_requiring_user_access(
+        self, user_id: UUID
+    ) -> set[UUID]:
+        """Agents an identity must keep using for active trigger execution.
+
+        The trigger owner executes every firing. A different user can also be
+        required when the trigger inherits a personal project's audience:
+        that project's owner must retain access to the selected agent.
+        """
+        stmt = (
+            select(TriggerDB.agent_id)
+            .outerjoin(ProjectDB, TriggerDB.project_id == ProjectDB.id)
+            .where(
+                TriggerDB.is_active,
+                or_(
+                    TriggerDB.owner_id == user_id,
+                    (
+                        (ProjectDB.owner_id == user_id)
+                        & (ProjectDB.visibility == ResourceVisibility.personal)
+                    ),
+                ),
+            )
+        )
+        stmt = self._scope(stmt)
+        return set((await self.db.execute(stmt)).scalars().all())
 
     async def list_for_agent(self, agent_id: UUID) -> list[TriggerDB]:
         stmt = self._scope(select(TriggerDB).where(TriggerDB.agent_id == agent_id))
@@ -80,6 +115,15 @@ class TriggerRepository(BaseRepository[TriggerDB]):
             TriggerDB.trigger_type == TriggerType.webhook,
         )
         stmt = self._scope(stmt)
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_by_webhook_id_for_update(self, webhook_id: UUID) -> TriggerDB | None:
+        stmt = select(TriggerDB).where(
+            TriggerDB.webhook_id == webhook_id,
+            TriggerDB.trigger_type == TriggerType.webhook,
+        )
+        stmt = self._scope(stmt).with_for_update()
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 

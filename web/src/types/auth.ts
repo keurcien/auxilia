@@ -30,6 +30,7 @@ export interface CurrentUser {
 /** `GET /auth/providers` — which sign-in methods the workspace offers. */
 export interface AuthProviders {
 	password: boolean;
+	passwordReset: boolean;
 	google: boolean;
 	setupRequired: boolean;
 }

@@ -70,6 +70,20 @@ class TriggerDB(TriggerBase, BaseDBModel, table=True):
     owner_id: UUID = Field(
         foreign_key="users.id", ondelete="CASCADE", index=True, nullable=False
     )
+    project_id: UUID | None = Field(
+        default=None,
+        foreign_key="projects.id",
+        ondelete="SET NULL",
+        index=True,
+        nullable=True,
+    )
+    folder_id: UUID | None = Field(
+        default=None,
+        foreign_key="project_folders.id",
+        ondelete="SET NULL",
+        index=True,
+        nullable=True,
+    )
     visibility: ResourceVisibility = Field(
         default=ResourceVisibility.personal,
         sa_column=Column(

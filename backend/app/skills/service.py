@@ -166,6 +166,12 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
         validate_visibility(visibility, team_ids)
         if data.visibility is not None or data.team_ids is not None:
             await self._ensure_bound_agent_scopes(row, visibility, team_ids)
+            if self.workspace_id is not None:
+                from app.projects.service import ProjectService
+
+                await ProjectService(
+                    self.db, self.workspace_id
+                ).ensure_projects_fit_skill(row, visibility, team_ids)
         if data.revision != row.revision:
             raise StaleRevisionError(
                 "This skill changed since you opened it. Reload it before saving."
@@ -272,8 +278,23 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
             raise DomainValidationError(
                 "Disable this skill on every agent before deleting it"
             )
+        project_bound = False
+        if self.workspace_id is not None:
+            from app.projects.repository import ProjectRepository
+
+            project_bound = bool(
+                await ProjectRepository(
+                    self.db, self.workspace_id
+                ).list_projects_for_skill(row.id)
+            )
         await self.repository.delete(row)
         await self._stage_skills_changed()
+        if project_bound and self.workspace_id is not None:
+            await stage_workspace_event(
+                self.db,
+                workspace_id=self.workspace_id,
+                kind=WorkspaceEventKind.projects,
+            )
 
     async def _name_is_free(self, name: str) -> None:
         """The library is one namespace. Refused here rather than at the

@@ -4,6 +4,7 @@ export const WORKSPACE_EVENT_KINDS = [
   "mcp_servers",
   "skills",
   "threads",
+  "projects",
   "runs",
   "prompt_queue",
   "trigger_history",

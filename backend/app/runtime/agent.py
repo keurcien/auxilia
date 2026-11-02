@@ -40,7 +40,7 @@ from app.artifacts.models import ArtifactDB
 from app.artifacts.service import ATTACHMENTS_ROOT, ArtifactService
 from app.artifacts.tool import present_files_tool
 from app.database import AsyncSessionLocal, get_checkpointer
-from app.exceptions import DomainValidationError, NotFoundError
+from app.exceptions import DomainValidationError, NotFoundError, PermissionDeniedError
 from app.integrations.tracing import NoOpTracing, RunTracing, get_tracing
 from app.memories.constants import MEMORY_STATE_KEY
 from app.memories.middleware import MemoryMiddleware
@@ -52,6 +52,11 @@ from app.model_providers.web_search import (
     native_web_search_tool,
 )
 from app.observability.service import WorkspaceObservabilityService
+from app.projects.runtime import (
+    ProjectRunContext,
+    resolve_project_run_context,
+    upload_project_context,
+)
 from app.runtime.checkpoints import checkpoint_thread_id, get_checkpoint_state
 from app.runtime.harness import (
     HARNESS_CONFIG,
@@ -95,7 +100,7 @@ from app.sandbox.provider import (
     build_provider,
     open_sandbox,
 )
-from app.skills.middleware import skills_read_middleware
+from app.skills.middleware import read_only_files_middleware, skills_read_middleware
 from app.skills.runtime import (
     SkillsBackend,
     resolve_run_skills,
@@ -274,6 +279,8 @@ def build_runnable(
     mcp_context: str | None = None,
     sandbox_backend=None,
     skills: SkillsBackend | None = None,
+    skills_enabled: bool = True,
+    shared_context: str | None = None,
     base_middleware=(),
     subagents=None,
     checkpointer=None,
@@ -360,6 +367,7 @@ def build_runnable(
         else None
     )
     system_prompt = _append_system_prompt_context(system_prompt, mcp_context)
+    system_prompt = _append_system_prompt_context(system_prompt, shared_context)
     harness: list = []
 
     def discovery_for(agent_model):
@@ -386,7 +394,9 @@ def build_runnable(
             backend=sandbox_backend,
             subagents=subagents,
             skills=skills,
+            skills_enabled=skills_enabled,
             mcp_context=mcp_context,
+            shared_context=shared_context,
             general_purpose_middleware=(
                 [general_purpose_discovery] if general_purpose_discovery else []
             ),
@@ -403,8 +413,10 @@ def build_runnable(
         base_middleware = [
             m for m in base_middleware if not isinstance(m, PatchToolCallsMiddleware)
         ]
-    elif skills is not None:
+    elif skills is not None and skills_enabled:
         harness += skills_read_middleware(skills)
+    elif skills is not None:
+        harness.append(read_only_files_middleware(skills))
 
     discovery = discovery_for(model)
     # Discovery wraps the harness so hidden schemas are removed before
@@ -625,6 +637,8 @@ class ResolvedAgent:
         *,
         sandbox_backend=None,
         skills: SkillsBackend | None = None,
+        skills_enabled: bool = True,
+        shared_context: str | None = None,
         web_search_tool: dict | None = None,
         router_model=None,
         artifact_context: tuple[UUID, str, UUID] | None = None,
@@ -662,6 +676,8 @@ class ResolvedAgent:
             mcp_context=self.prepared.mcp_context_prompt,
             sandbox_backend=sandbox_backend if self.sandbox else None,
             skills=skills,
+            skills_enabled=skills_enabled,
+            shared_context=shared_context,
             base_middleware=build_agent_middleware(
                 created_at,
                 recursion_limit=agent_settings.recursion_limit,
@@ -694,6 +710,7 @@ class Agent:
         web_search_supported: bool = False,
         router_model=None,
         skills: list[SkillBundle] = (),
+        project_context: ProjectRunContext | None = None,
         tracing: RunTracing | None = None,
         runtime_tools: Sequence[BaseTool] = (),
         runtime_tool_interrupt_on: dict[str, bool] | None = None,
@@ -715,6 +732,7 @@ class Agent:
         self.runtime_tool_interrupt_on = dict(runtime_tool_interrupt_on or {})
         # One skill set for the whole graph, frozen for this run.
         self.skills = list(skills)
+        self.project_context = project_context
         # The provider session exists only after the model first uses a sandbox
         # tool (or immediately when this turn attaches files).
         self._sandbox: SandboxSession | None = None
@@ -767,6 +785,16 @@ class Agent:
         )
         if spec is None:
             raise NotFoundError("Agent not found")
+        project_context = await resolve_project_run_context(
+            db,
+            thread.workspace_id,
+            thread.project_id,
+            thread.user_id,
+        )
+        if thread.project_id is not None and project_context is None:
+            raise PermissionDeniedError(
+                "Thread owner can no longer access this project"
+            )
 
         # The thread is the runtime source of truth on every surface. Slack and
         # Telegram stamp their connection default when they create a thread;
@@ -975,8 +1003,6 @@ class Agent:
         # One skill set per graph: every agent lists, reads and runs the union
         # of what the supervisor and its subagents have enabled.
         disabled_skill_ids = {UUID(skill_id) for skill_id in thread.disabled_skill_ids}
-        if force_enable_resources:
-            disabled_skill_ids.clear()
         skills = (
             []
             if force_no_tools
@@ -984,6 +1010,9 @@ class Agent:
                 db,
                 spec.all_agent_ids,
                 thread.workspace_id,
+                project_skill_ids=(
+                    project_context.skill_ids if project_context is not None else ()
+                ),
                 excluded_skill_ids=disabled_skill_ids,
             )
         )
@@ -1009,6 +1038,7 @@ class Agent:
             web_search_supported=resolved.supports_web_search,
             router_model=router_model,
             skills=skills,
+            project_context=project_context,
             runtime_tools=runtime_tools,
             runtime_tool_interrupt_on=runtime_tool_interrupt_on,
         )
@@ -1032,7 +1062,19 @@ class Agent:
         """
         # Read-only and shared by every agent of the graph; None means no
         # skills middleware and no prompt fragment at all.
-        skills = SkillsBackend(self.skills) if self.skills else None
+        project_files = (
+            self.project_context.files if self.project_context is not None else {}
+        )
+        skills = (
+            SkillsBackend(self.skills, project_files)
+            if self.skills or project_files
+            else None
+        )
+        shared_context = (
+            self.project_context.system_context
+            if self.project_context is not None
+            else None
+        )
         source = self._sandbox_binding()
         source_id = (
             self.thread.sandbox_source_id
@@ -1053,6 +1095,8 @@ class Agent:
                     self.thread.created_at,
                     sandbox_backend=self._sandbox_for(s),
                     skills=skills,
+                    skills_enabled=bool(self.skills),
+                    shared_context=shared_context,
                     web_search_tool=self._web_search_tool(s),
                     router_model=self.router_model,
                     artifact_context=artifact_context,
@@ -1080,6 +1124,8 @@ class Agent:
             mcp_context=self.agent.prepared.mcp_context_prompt,
             sandbox_backend=sandbox_backend,
             skills=skills,
+            skills_enabled=bool(self.skills),
+            shared_context=shared_context,
             base_middleware=self.middleware,
             subagents=compiled,
             checkpointer=checkpointer,
@@ -1308,6 +1354,11 @@ class Agent:
             await self._remember_sandbox(session.sandbox_id, source.row_id)
         await asyncio.to_thread(
             upload_skills, session.backend, skill_files(self.skills)
+        )
+        await asyncio.to_thread(
+            upload_project_context,
+            session.backend,
+            self.project_context.files if self.project_context is not None else {},
         )
         state = await get_checkpoint_state(
             checkpointer,

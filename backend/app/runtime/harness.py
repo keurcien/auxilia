@@ -138,6 +138,7 @@ def _general_purpose_subagent(
     profile: HarnessProfile,
     skills=None,
     mcp_context: str | None = None,
+    shared_context: str | None = None,
     extra_middleware=(),
     interrupt_on=None,
 ) -> dict | None:
@@ -185,6 +186,8 @@ def _general_purpose_subagent(
         )
     if mcp_context:
         spec["system_prompt"] += f"\n\n{mcp_context}"
+    if shared_context:
+        spec["system_prompt"] += f"\n\n{shared_context}"
     return spec
 
 
@@ -196,7 +199,9 @@ def harness_middleware(
     backend,
     subagents=None,
     skills=None,
+    skills_enabled: bool = True,
     mcp_context: str | None = None,
+    shared_context: str | None = None,
     general_purpose_middleware=(),
     general_purpose_interrupt_on=None,
     private_state_keys: frozenset[str] | None = None,
@@ -222,14 +227,15 @@ def harness_middleware(
             general_purpose_tools if general_purpose_tools is not None else tools,
             backend,
             profile,
-            skills,
+            skills if skills_enabled else None,
             mcp_context,
+            shared_context,
             general_purpose_middleware,
             general_purpose_interrupt_on,
         )
         specs = [default, *supplied] if default is not None else supplied
     middleware: list = [TodoListMiddleware()]
-    if skills is not None:
+    if skills is not None and skills_enabled:
         middleware.append(skills_index_middleware(skills, sandbox=True))
     middleware.append(
         FilesystemMiddleware(

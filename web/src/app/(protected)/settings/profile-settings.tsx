@@ -67,6 +67,36 @@ function Feedback({
 	);
 }
 
+function CopyLinkButton({ command }: { command: string }) {
+	const [copied, setCopied] = useState(false);
+
+	const copy = async () => {
+		await navigator.clipboard.writeText(command);
+		setCopied(true);
+		window.setTimeout(() => {
+			setCopied(false);
+		}, 2000);
+	};
+
+	return (
+		<button
+			type="button"
+			onClick={() => {
+				void copy();
+			}}
+			className="flex shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-[6px] bg-primary px-3 py-1.5 text-[11.5px] font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+			aria-label={`Copy ${command}`}
+		>
+			{copied ? (
+				<Check className="size-3.5" aria-hidden="true" />
+			) : (
+				<Copy className="size-3.5" aria-hidden="true" />
+			)}
+			{copied ? "Copied" : "Copy"}
+		</button>
+	);
+}
+
 function SectionHeading({
 	icon,
 	title,
@@ -592,22 +622,25 @@ function ConnectedAccountsCard() {
 						in a direct message to any Slack bot connected to this workspace.
 						The code expires in 10 minutes and can only be used once.
 					</p>
-					<button
-						type="button"
-						disabled={checking !== null}
-						onClick={() => {
-							void checkConnection("slack");
-						}}
-						className="mt-2 flex cursor-pointer items-center gap-1.5 rounded-[6px] border border-input bg-card px-3 py-1.5 text-[11.5px] font-semibold text-foreground disabled:cursor-default disabled:opacity-60"
-					>
-						{checking === "slack" && (
-							<Loader2
-								className="size-3.5 animate-spin"
-								aria-hidden="true"
-							/>
-						)}
-						{checking === "slack" ? "Checking…" : "Check connection"}
-					</button>
+					<div className="mt-2 flex items-center gap-2">
+						<CopyLinkButton command={`link ${slackLink.code}`} />
+						<button
+							type="button"
+							disabled={checking !== null}
+							onClick={() => {
+								void checkConnection("slack");
+							}}
+							className="flex shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-[6px] border border-input bg-card px-3 py-1.5 text-[11.5px] font-semibold text-foreground disabled:cursor-default disabled:opacity-60"
+						>
+							{checking === "slack" && (
+								<Loader2
+									className="size-3.5 animate-spin"
+									aria-hidden="true"
+								/>
+							)}
+							{checking === "slack" ? "Checking…" : "Check connection"}
+						</button>
+					</div>
 				</div>
 			)}
 			{telegramLink && !telegramIdentity?.linked && (
@@ -631,6 +664,7 @@ function ConnectedAccountsCard() {
 								Open Telegram
 							</a>
 						)}
+						<CopyLinkButton command={`/link ${telegramLink.code}`} />
 						<button
 							type="button"
 							disabled={checking !== null}
@@ -671,6 +705,7 @@ function ConnectedAccountsCard() {
 								Open WhatsApp
 							</a>
 						)}
+						<CopyLinkButton command={`/link ${whatsAppLink.code}`} />
 						<button
 							type="button"
 							disabled={checking !== null}

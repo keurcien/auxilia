@@ -29,10 +29,28 @@ const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
 // group pad = 54px interior + the 1px right border = 55px. The width is
 // border-box on the bordered container, so the border must be counted or
 // the rows lose 1px of right margin and sit off-center.
-const SIDEBAR_WIDTH = "18rem";
 const SIDEBAR_WIDTH_MOBILE = "18rem";
 const SIDEBAR_WIDTH_ICON = "3.4375rem";
 const SIDEBAR_KEYBOARD_SHORTCUT = "b";
+const SIDEBAR_WIDTH_STORAGE_KEY = "auxilia:sidebar-width";
+const SIDEBAR_MIN_WIDTH_REM = 16;
+
+const getSidebarBounds = () => {
+	if (typeof window === "undefined") {
+		return { min: SIDEBAR_MIN_WIDTH_REM * 16, max: 18 * 16 };
+	}
+	const rootSize =
+		Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+	return {
+		min: SIDEBAR_MIN_WIDTH_REM * rootSize,
+		max: window.innerWidth * 0.45,
+	};
+};
+
+const clampSidebarWidth = (width: number) => {
+	const bounds = getSidebarBounds();
+	return Math.min(Math.max(width, bounds.min), bounds.max);
+};
 
 type SidebarContextProps = {
 	state: "expanded" | "collapsed";
@@ -42,6 +60,12 @@ type SidebarContextProps = {
 	setOpenMobile: (open: boolean) => void;
 	isMobile: boolean;
 	toggleSidebar: () => void;
+	width: number;
+	setWidth: (width: number) => void;
+	minWidth: number;
+	maxWidth: number;
+	resizing: boolean;
+	setResizing: (resizing: boolean) => void;
 };
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null);
@@ -70,6 +94,49 @@ function SidebarProvider({
 }) {
 	const isMobile = useIsMobile();
 	const [openMobile, setOpenMobile] = React.useState(false);
+	const [width, setWidthState] = React.useState(18 * 16);
+	const [bounds, setBounds] = React.useState({
+		min: SIDEBAR_MIN_WIDTH_REM * 16,
+		max: 18 * 16,
+	});
+	const [widthHydrated, setWidthHydrated] = React.useState(false);
+	const [resizing, setResizing] = React.useState(false);
+	const setWidth = React.useCallback((nextWidth: number) => {
+		setWidthState(clampSidebarWidth(nextWidth));
+	}, []);
+
+	React.useEffect(() => {
+		setBounds(getSidebarBounds());
+		const stored = Number.parseFloat(
+			window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY) ?? "",
+		);
+		if (Number.isFinite(stored)) {
+			setWidthState(clampSidebarWidth(stored));
+		} else {
+			const rootSize =
+				Number.parseFloat(
+					getComputedStyle(document.documentElement).fontSize,
+				) || 16;
+			setWidthState(clampSidebarWidth(18 * rootSize));
+		}
+		setWidthHydrated(true);
+	}, []);
+
+	React.useEffect(() => {
+		if (!widthHydrated) return;
+		window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(width));
+	}, [width, widthHydrated]);
+
+	React.useEffect(() => {
+		const reclamp = () => {
+			setBounds(getSidebarBounds());
+			setWidthState((current) => clampSidebarWidth(current));
+		};
+		window.addEventListener("resize", reclamp);
+		return () => {
+			window.removeEventListener("resize", reclamp);
+		};
+	}, []);
 
 	// This is the internal state of the sidebar.
 	// We use openProp and setOpenProp for control from outside the component.
@@ -130,8 +197,26 @@ function SidebarProvider({
 			openMobile,
 			setOpenMobile,
 			toggleSidebar,
+			width,
+			setWidth,
+			minWidth: bounds.min,
+			maxWidth: bounds.max,
+			resizing,
+			setResizing,
 		}),
-		[state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar],
+		[
+			state,
+			open,
+			setOpen,
+			isMobile,
+			openMobile,
+			setOpenMobile,
+			toggleSidebar,
+			width,
+			setWidth,
+			bounds,
+			resizing,
+		],
 	);
 
 	return (
@@ -139,15 +224,16 @@ function SidebarProvider({
 			<TooltipProvider delayDuration={0}>
 				<div
 					data-slot="sidebar-wrapper"
+					data-resizing={resizing || undefined}
 					style={
 						{
-							"--sidebar-width": SIDEBAR_WIDTH,
+							"--sidebar-width": `${width}px`,
 							"--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
 							...style,
 						} as React.CSSProperties
 					}
 					className={cn(
-						"group/sidebar-wrapper has-data-[variant=inset]:bg-sidebar flex min-h-svh w-full",
+						"group/sidebar-wrapper has-data-[variant=inset]:bg-sidebar flex min-h-svh w-full data-[resizing=true]:select-none",
 						className,
 					)}
 					{...props}
@@ -171,7 +257,19 @@ function Sidebar({
 	variant?: "sidebar" | "floating" | "inset";
 	collapsible?: "offcanvas" | "icon" | "none";
 }) {
-	const { isMobile, state, openMobile, setOpenMobile } = useSidebar();
+	const {
+		isMobile,
+		state,
+		openMobile,
+		setOpenMobile,
+		width,
+		setWidth,
+		minWidth,
+		maxWidth,
+		resizing,
+		setResizing,
+	} = useSidebar();
+	const resizeStart = React.useRef<{ x: number; width: number } | null>(null);
 
 	if (collapsible === "none") {
 		return (
@@ -226,7 +324,7 @@ function Sidebar({
 			<div
 				data-slot="sidebar-gap"
 				className={cn(
-					"relative w-(--sidebar-width) bg-transparent transition-[width] duration-300 ease-in-out",
+					"relative w-(--sidebar-width) bg-transparent transition-[width] duration-300 ease-in-out group-data-[resizing=true]/sidebar-wrapper:transition-none",
 					"group-data-[collapsible=offcanvas]:w-0",
 					"group-data-[side=right]:rotate-180",
 					variant === "floating" || variant === "inset"
@@ -237,7 +335,7 @@ function Sidebar({
 			<div
 				data-slot="sidebar-container"
 				className={cn(
-					"fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-300 ease-in-out md:flex",
+					"fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-300 ease-in-out md:flex group-data-[resizing=true]/sidebar-wrapper:transition-none",
 					side === "left"
 						? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
 						: "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]",
@@ -256,6 +354,54 @@ function Sidebar({
 				>
 					{children}
 				</div>
+				{state === "expanded" && side === "left" && (
+					<div
+						role="separator"
+						aria-label="Resize sidebar"
+						aria-orientation="vertical"
+						aria-valuemin={Math.round(minWidth)}
+						aria-valuemax={Math.round(maxWidth)}
+						aria-valuenow={Math.round(width)}
+						tabIndex={0}
+						onPointerDown={(event) => {
+							if (event.button !== 0) return;
+							event.currentTarget.setPointerCapture(event.pointerId);
+							resizeStart.current = { x: event.clientX, width };
+							setResizing(true);
+						}}
+						onPointerMove={(event) => {
+							if (!resizeStart.current) return;
+							setWidth(
+								resizeStart.current.width +
+									event.clientX -
+									resizeStart.current.x,
+							);
+						}}
+						onPointerUp={(event) => {
+							if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+								event.currentTarget.releasePointerCapture(event.pointerId);
+							}
+							resizeStart.current = null;
+							setResizing(false);
+						}}
+						onPointerCancel={() => {
+							resizeStart.current = null;
+							setResizing(false);
+						}}
+						onKeyDown={(event) => {
+							if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+								return;
+							}
+							event.preventDefault();
+							setWidth(width + (event.key === "ArrowRight" ? 8 : -8));
+						}}
+						className={cn(
+							"absolute inset-y-0 right-[-4px] z-30 w-2 cursor-col-resize touch-none outline-none",
+							"after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-transparent after:transition-colors hover:after:bg-petrol/45 focus-visible:after:bg-petrol",
+							resizing && "after:bg-petrol",
+						)}
+					/>
+				)}
 			</div>
 		</div>
 	);

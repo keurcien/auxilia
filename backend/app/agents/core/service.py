@@ -72,6 +72,7 @@ from app.visibility import (
     validate_visibility,
 )
 from app.workspaces.dependencies import get_active_workspace_id
+from app.workspaces.models import WorkspaceMembershipDB
 from app.workspaces.repository import WorkspaceRepository
 
 
@@ -863,6 +864,7 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         visibility: ResourceVisibility,
         team_ids: set[UUID],
     ) -> None:
+        from app.projects.repository import ProjectRepository
         from app.triggers.repository import TriggerRepository
 
         agent = await self.repository.get_scoped(agent_id)
@@ -872,15 +874,54 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
             grant.user_id for grant in await self.repository.get_permissions(agent_id)
         }
         triggers = TriggerRepository(self.db, self.workspace_id)
+        projects = ProjectRepository(self.db, self.workspace_id)
         for trigger in await triggers.list_for_agent(agent_id):
-            trigger_team_ids = (
-                set(await triggers.list_team_ids(trigger.id))
-                if trigger.visibility == ResourceVisibility.teams
-                else set()
+            membership = await self.workspaces.get_membership(
+                self.workspace_id, trigger.owner_id
             )
+            owner_can_execute = (
+                trigger.owner_id == agent.owner_id
+                or trigger.owner_id in granted_user_ids
+                or (
+                    membership is not None
+                    and is_resource_visible_to_identity(
+                        visibility=visibility,
+                        owner_id=agent.owner_id,
+                        team_ids=team_ids,
+                        user_id=trigger.owner_id,
+                        is_admin=membership.role == WorkspaceRole.admin,
+                        team_id=membership.team_id,
+                    )
+                )
+            )
+            if not owner_can_execute:
+                raise DomainValidationError(
+                    f"Agent scope would prevent trigger owner from running "
+                    f"'{trigger.name}'"
+                )
+            effective_visibility = trigger.visibility
+            effective_owner_id = trigger.owner_id
+            if trigger.project_id is not None:
+                project = await projects.get(trigger.project_id)
+            else:
+                project = None
+            if project is not None:
+                effective_visibility = project.visibility
+                effective_owner_id = project.owner_id
+                trigger_team_ids = (
+                    set(await projects.list_team_ids(project.id))
+                    if project.visibility == ResourceVisibility.teams
+                    else set()
+                )
+            else:
+                trigger_team_ids = (
+                    set(await triggers.list_team_ids(trigger.id))
+                    if trigger.visibility == ResourceVisibility.teams
+                    else set()
+                )
             compatible = audience_contains(
-                parent_visibility=trigger.visibility,
-                parent_owner_id=trigger.owner_id,
+                parent_visibility=effective_visibility,
+                parent_owner_id=effective_owner_id,
                 parent_team_ids=trigger_team_ids,
                 child_visibility=visibility,
                 child_owner_id=agent.owner_id,
@@ -888,8 +929,8 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
             )
             if (
                 not compatible
-                and trigger.visibility == ResourceVisibility.personal
-                and trigger.owner_id in granted_user_ids
+                and effective_visibility == ResourceVisibility.personal
+                and effective_owner_id in granted_user_ids
             ):
                 compatible = True
             if not compatible:
@@ -1134,6 +1175,7 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
     async def _ensure_trigger_owners_keep_access(
         self, agent_id: UUID, proposed_user_ids: set[UUID]
     ) -> None:
+        from app.projects.repository import ProjectRepository
         from app.triggers.repository import TriggerRepository
 
         if self.workspace_id is None:
@@ -1147,26 +1189,51 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
             else set()
         )
         triggers = TriggerRepository(self.db, self.workspace_id)
-        for trigger in await triggers.list_for_agent(agent_id):
-            if trigger.visibility != ResourceVisibility.personal:
-                continue
-            membership = await self.workspaces.get_membership(
-                self.workspace_id, trigger.owner_id
-            )
-            has_baseline_access = (
-                membership is not None
-                and is_resource_visible_to_identity(
-                    visibility=agent.visibility,
-                    owner_id=agent.owner_id,
-                    team_ids=agent_team_ids,
-                    user_id=trigger.owner_id,
-                    is_admin=membership.role == WorkspaceRole.admin,
-                    team_id=membership.team_id,
+        projects = ProjectRepository(self.db, self.workspace_id)
+        membership_by_user: dict[UUID, WorkspaceMembershipDB | None] = {}
+
+        async def keeps_access(user_id: UUID) -> bool:
+            if user_id in proposed_user_ids:
+                return True
+            if user_id not in membership_by_user:
+                membership_by_user[user_id] = await self.workspaces.get_membership(
+                    self.workspace_id, user_id
                 )
+            membership = membership_by_user[user_id]
+            return membership is not None and is_resource_visible_to_identity(
+                visibility=agent.visibility,
+                owner_id=agent.owner_id,
+                team_ids=agent_team_ids,
+                user_id=user_id,
+                is_admin=membership.role == WorkspaceRole.admin,
+                team_id=membership.team_id,
             )
-            if trigger.owner_id not in proposed_user_ids and not has_baseline_access:
+
+        for trigger in await triggers.list_for_agent(agent_id):
+            project = (
+                await projects.get(trigger.project_id)
+                if trigger.project_id is not None
+                else None
+            )
+            effective_visibility = (
+                project.visibility if project is not None else trigger.visibility
+            )
+            effective_owner_id = (
+                project.owner_id if project is not None else trigger.owner_id
+            )
+            if not await keeps_access(trigger.owner_id):
                 raise DomainValidationError(
                     f"Removing this grant would disable trigger '{trigger.name}'"
+                )
+            if (
+                project is not None
+                and effective_visibility == ResourceVisibility.personal
+                and effective_owner_id != trigger.owner_id
+                and not await keeps_access(effective_owner_id)
+            ):
+                raise DomainValidationError(
+                    "Removing this grant would make the agent unavailable to "
+                    f"the owner of trigger project '{project.name}'"
                 )
 
     async def ensure_dependencies_visible_to_identity(

@@ -37,6 +37,9 @@ import { ShareConversation } from "./share-conversation";
 import type { ThreadResourceSettings } from "@/types/threads";
 import type { QueuedPrompt } from "@/types/runs";
 import { ArtifactWorkspace } from "@/components/artifacts/workspace";
+import { useThreadsStore } from "@/stores/threads-store";
+import { useProjectsStore } from "@/stores/projects-store";
+import { useWorkspaceEventsStore } from "@/stores/workspace-events-store";
 import {
   ChatHeaderActions,
   ChatMemoryToggle,
@@ -84,6 +87,19 @@ const ChatPage = () => {
     enabled: boolean;
   } | null>(null);
   const [memorySaving, setMemorySaving] = useState(false);
+  const [completionOverride, setCompletionOverride] = useState<{
+    threadId: string;
+    completed: boolean;
+  } | null>(null);
+  const [reopening, setReopening] = useState(false);
+  const threadsVersion = useWorkspaceEventsStore(
+    (state) => state.threadsVersion,
+  );
+  const setThreadCompleted = useThreadsStore(
+    (state) => state.setThreadCompleted,
+  );
+  const refreshThreads = useThreadsStore((state) => state.refreshThreads);
+  const refreshProjectTree = useProjectsStore((state) => state.refreshTree);
 
   const acknowledgeCurrentResponse = () => {
     acknowledgedAssistantId.current =
@@ -140,6 +156,11 @@ const ChatPage = () => {
       settleSuccessfulCompletion(candidate);
     },
   });
+  const recheckThreadMetadata = actions.recheckModel;
+  useEffect(() => {
+    if (threadsVersion === 0 || meta.status !== "ready") return;
+    void recheckThreadMetadata();
+  }, [meta.status, recheckThreadMetadata, threadsVersion]);
   useEffect(() => {
     transcriptMessages.current = transcript.messages;
   }, [transcript.messages]);
@@ -233,6 +254,10 @@ const ChatPage = () => {
     userMessageCount,
   ]);
   const thread = meta.thread;
+  const completed =
+    completionOverride?.threadId === threadId
+      ? completionOverride.completed
+      : thread?.completedAt != null;
   const canRetryInitial = run.canRetryInitial;
   const resourceSettings = useMemo(
     () =>
@@ -303,6 +328,22 @@ const ChatPage = () => {
       );
     } finally {
       setMemorySaving(false);
+    }
+  };
+
+  const reopenConversation = async () => {
+    if (reopening) return;
+    setReopening(true);
+    try {
+      await setThreadCompleted(threadId, false);
+      setCompletionOverride({ threadId, completed: false });
+      await Promise.allSettled([refreshThreads(), refreshProjectTree()]);
+    } catch (error) {
+      toast.error(
+        getApiErrorMessage(error, "The conversation could not be reopened."),
+      );
+    } finally {
+      setReopening(false);
     }
   };
 
@@ -384,7 +425,8 @@ const ChatPage = () => {
       running={run.status !== "idle" || promptQueue.runStarting}
       editable={
         meta.status === "ready" &&
-        meta.viewerRole !== "admin" &&
+        meta.viewerRole === null &&
+        !completed &&
         !meta.agentArchived
       }
       refreshKey={JSON.stringify(
@@ -403,7 +445,8 @@ const ChatPage = () => {
             enabled={memoriesEnabled}
             saving={memorySaving}
             disabled={
-              meta.viewerRole === "admin" ||
+              meta.viewerRole !== null ||
+              completed ||
               meta.agentArchived ||
               run.status !== "idle" ||
               promptQueue.runStarting ||
@@ -447,6 +490,7 @@ const ChatPage = () => {
               nestedInterrupts={hitl.nestedInterrupts}
               respond={actions.respond}
               modelUnavailable={!meta.modelAvailable}
+              readOnly={completed}
               onRegenerate={() => {
                 acknowledgeCurrentResponse();
                 actions.regenerate();
@@ -495,7 +539,7 @@ const ChatPage = () => {
       </div>
       <div className="w-full shrink-0 bg-background">
         {meta.status === "ready" &&
-          meta.viewerRole !== "admin" &&
+          meta.viewerRole === null &&
           !meta.agentArchived &&
           !meta.modelAvailable && (
             <div className="w-full max-w-4xl mx-auto lg:px-10 sm:px-6 px-3 pt-6">
@@ -540,13 +584,14 @@ const ChatPage = () => {
               </Button>
             </div>
           </div>
-        ) : meta.viewerRole === "admin" ? (
+        ) : meta.viewerRole !== null ? (
           <div className="w-full max-w-4xl mx-auto lg:px-10 sm:px-6 px-3 py-6">
             <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/50 px-4 py-3">
               <ShieldCheck className="size-5 shrink-0 text-muted-foreground" />
               <p className="text-sm text-muted-foreground">
-                Viewing as admin, this thread belongs to another user and is
-                read-only.
+                {meta.viewerRole === "admin"
+                  ? "Viewing as admin, this conversation belongs to another user and is read-only."
+                  : "This conversation is shared through its project and is read-only."}
               </p>
             </div>
           </div>
@@ -607,8 +652,13 @@ const ChatPage = () => {
             status={run.isLoading ? "streaming" : "ready"}
             queueMode={run.status === "streaming" && !run.isStopping}
             submissionDisabled={
-              !meta.modelAvailable || run.isStopping || memorySaving
+              !meta.modelAvailable || run.isStopping || memorySaving || completed
             }
+            completed={completed}
+            reopening={reopening}
+            onReopen={() => {
+              void reopenConversation();
+            }}
             className="w-full max-w-4xl mx-auto lg:px-10 sm:px-6 px-3 py-4"
             stop={actions.stop}
             stopping={run.isStopping}

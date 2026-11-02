@@ -6,6 +6,7 @@ from sqlmodel import select
 
 from app.agents.models import AgentTeamDB
 from app.mcp.servers.models import MCPServerTeamDB
+from app.projects.models import ProjectTeamDB
 from app.repository import BaseRepository
 from app.skills.models import SkillTeamDB
 from app.teams.models import TeamDB
@@ -84,6 +85,7 @@ class TeamRepository(BaseRepository[TeamDB]):
                 exists().where(MCPServerTeamDB.team_id == team_id),
                 exists().where(SkillTeamDB.team_id == team_id),
                 exists().where(TriggerTeamDB.team_id == team_id),
+                exists().where(ProjectTeamDB.team_id == team_id),
             )
         )
         return bool((await self.db.execute(stmt)).scalar_one())

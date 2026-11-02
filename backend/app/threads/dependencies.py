@@ -11,6 +11,7 @@ from fastapi import Depends
 from app.agents.core.service import AgentService, get_agent_service
 from app.agents.models import EffectivePermission
 from app.auth.dependencies import get_current_user
+from app.projects.repository import ProjectRepository
 from app.threads.models import ThreadDB
 from app.threads.schemas import ViewerRole
 from app.threads.service import ThreadService, get_thread_service
@@ -27,28 +28,60 @@ async def resolve_viewer_role(
     """Return the viewer's role on this thread, or raise 403.
 
     - Owner of the thread → ``None`` (full access).
-    - Viewer of the trigger that created it → ``"admin"`` (read-only).
+    - Viewer of the project or trigger that contains it → ``"viewer"`` (read-only).
     - Workspace admin or per-agent owner/admin → ``"admin"`` (read-only).
     - Anyone else → ``PermissionDeniedError``.
     """
     if thread.user_id == current_user.id:
         return None
+    if thread.project_id is not None:
+        projects = ProjectRepository(agent_service.db, thread.workspace_id)
+        project = await projects.get(thread.project_id)
+        if project is not None:
+            team_ids = (
+                set(await projects.list_team_ids(project.id))
+                if project.visibility == ResourceVisibility.teams
+                else set()
+            )
+            if is_resource_visible(
+                visibility=project.visibility,
+                owner_id=project.owner_id,
+                team_ids=team_ids,
+                user=current_user,
+            ):
+                return "viewer"
     if thread.trigger_id is not None:
         triggers = TriggerRepository(agent_service.db, thread.workspace_id)
         trigger = await triggers.get(thread.trigger_id)
         if trigger is not None:
-            team_ids = (
-                set(await triggers.list_team_ids(trigger.id))
-                if trigger.visibility == ResourceVisibility.teams
-                else set()
-            )
+            visibility = trigger.visibility
+            owner_id = trigger.owner_id
+            if trigger.project_id is not None:
+                projects = ProjectRepository(agent_service.db, thread.workspace_id)
+                project = await projects.get(trigger.project_id)
+                if project is not None:
+                    visibility = project.visibility
+                    owner_id = project.owner_id
+                    team_ids = (
+                        set(await projects.list_team_ids(project.id))
+                        if project.visibility == ResourceVisibility.teams
+                        else set()
+                    )
+                else:
+                    team_ids = set()
+            else:
+                team_ids = (
+                    set(await triggers.list_team_ids(trigger.id))
+                    if trigger.visibility == ResourceVisibility.teams
+                    else set()
+                )
             if is_resource_visible(
-                visibility=trigger.visibility,
-                owner_id=trigger.owner_id,
+                visibility=visibility,
+                owner_id=owner_id,
                 team_ids=team_ids,
                 user=current_user,
             ):
-                return "admin"
+                return "viewer"
     await agent_service.require_permission(
         thread.agent_id,
         at_least=EffectivePermission.admin,

@@ -134,6 +134,9 @@ interface ChatPromptInputProps {
 	queueLoading?: boolean;
 	onQueueAuthorizationRequired?: () => void;
 	submissionDisabled?: boolean;
+	completed?: boolean;
+	reopening?: boolean;
+	onReopen?: () => void;
 	conversationMessages?: BaseMessage[];
 	loadLatestConversationMessages?: () => Promise<BaseMessage[]>;
 }
@@ -199,6 +202,9 @@ const ChatPromptInput = ({
 	queueLoading = false,
 	onQueueAuthorizationRequired,
 	submissionDisabled = false,
+	completed = false,
+	reopening = false,
+	onReopen,
 	conversationMessages,
 	loadLatestConversationMessages,
 }: ChatPromptInputProps) => {
@@ -215,6 +221,7 @@ const ChatPromptInput = ({
 	const [effortUpdatePending, setEffortUpdatePending] = useState(false);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const initialFocusPendingRef = useRef(true);
+	const wasCompletedRef = useRef(completed);
 	const controller = usePromptInputController();
 	const setThreadDraft = controller.textInput.setDraft;
 	const mountedRef = useRef(true);
@@ -562,6 +569,15 @@ const ChatPromptInput = ({
 		};
 	}, [queueLoading]);
 
+	useEffect(() => {
+		if (wasCompletedRef.current && !completed) {
+			requestAnimationFrame(() => {
+				textareaRef.current?.focus({ preventScroll: true });
+			});
+		}
+		wasCompletedRef.current = completed;
+	}, [completed]);
+
 	const submitMessage = async (message: PromptInputMessage) => {
 		const hasText = Boolean("text" in message && message.text);
 		const hasAttachments = Boolean("files" in message && message.files?.length);
@@ -682,6 +698,7 @@ const ChatPromptInput = ({
 			!message ||
 			queueLoading ||
 			submissionDisabled ||
+			completed ||
 			modelUpdatePending ||
 			preparingSubmission
 		) {
@@ -878,11 +895,13 @@ const ChatPromptInput = ({
 						</button>
 					</div>
 				)}
+				<div className="relative">
 				<PromptInput
 					globalDrop
 					multiple
 					maxFiles={10}
-					disableAttachments={effectiveEditingId !== null}
+					disableAttachments={effectiveEditingId !== null || completed}
+					inert={completed ? true : undefined}
 					attachmentsDisabledMessage={
 						effectiveEditingId
 							? "Attachments cannot be changed while editing a queued prompt"
@@ -915,7 +934,7 @@ const ChatPromptInput = ({
 				<PromptInputBody>
 					<PromptInputTextarea
 						ref={textareaRef}
-						disabled={queueLoading}
+						disabled={queueLoading || completed}
 						onKeyDown={(event) => {
 							// Escape leaves edit mode without saving: the lease is
 							// released and the pre-edit draft comes back.
@@ -1396,6 +1415,7 @@ const ChatPromptInput = ({
 							disabled={
 								queueLoading ||
 								submissionDisabled ||
+								completed ||
 								modelUpdatePending ||
 								preparingSubmission
 							}
@@ -1403,6 +1423,22 @@ const ChatPromptInput = ({
 					</div>
 				</PromptInputFooter>
 				</PromptInput>
+				{completed && (
+					<div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-card/72 backdrop-blur-[1px]">
+						<button
+							type="button"
+							disabled={reopening}
+							onClick={() => {
+								onReopen?.();
+							}}
+							className="flex cursor-pointer items-center gap-2 whitespace-nowrap rounded-full bg-petrol px-4 py-2 text-[13px] font-semibold text-white shadow-submit transition-opacity hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
+						>
+							{reopening && <Loader2 className="size-3.5 animate-spin" />}
+							{reopening ? "Reopening…" : "Reopen conversation"}
+						</button>
+					</div>
+				)}
+				</div>
 			</div>
 			<ConnectServersDialog
 				open={connectDialogOpen}

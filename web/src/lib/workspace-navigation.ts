@@ -12,6 +12,10 @@ const DETAIL_ROUTES: Array<{ pattern: RegExp; listing: string }> = [
 		pattern: new RegExp(`^/triggers/${UUID_SEGMENT}(?:/|$)`, "i"),
 		listing: "/triggers",
 	},
+	{
+		pattern: new RegExp(`^/projects/${UUID_SEGMENT}(?:/|$)`, "i"),
+		listing: "/",
+	},
 ];
 
 export function workspaceSwitchDestination(

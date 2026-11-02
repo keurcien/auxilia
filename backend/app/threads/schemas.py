@@ -12,6 +12,8 @@ from app.threads.models import ThreadBase, ThreadToolMode
 class ThreadCreate(SQLModel):
     id: str | None = None
     agent_id: UUID
+    project_id: UUID | None = None
+    folder_id: UUID | None = None
     model_id: str | None = None
     # Validated against the model's whitelist-declared levels at creation
     # (400 on an undeclared value). None = the model's default.
@@ -31,6 +33,8 @@ class ThreadStartCreate(BaseModel):
     """Create a web thread and its first durable run in one transaction."""
 
     thread: ThreadCreate
+    project_id: UUID | None = None
+    folder_id: UUID | None = None
     message_text: str = PydanticField(default="", max_length=100_000)
     include_images: bool = True
     store_files: bool = False
@@ -54,6 +58,15 @@ class ThreadMemoriesUpdate(SQLModel):
     memories_enabled: bool
 
 
+class ThreadPlacementUpdate(SQLModel):
+    project_id: UUID | None = None
+    folder_id: UUID | None = None
+
+
+class ThreadCompletionUpdate(SQLModel):
+    completed: bool
+
+
 class ThreadResourcesPatch(SQLModel):
     # Conversation-level tool policy, updated with the other capability
     # choices so the composer has one persistence path.
@@ -68,6 +81,9 @@ class ThreadResourcesPatch(SQLModel):
 class ThreadResponse(ThreadBase):
     id: str
     trigger_id: UUID | None = None
+    project_id: UUID | None = None
+    folder_id: UUID | None = None
+    completed_at: datetime | None = None
     # Outcome of the most recent run; None = no finished run. "busy" is
     # deliberately not a value here — in-flight state comes from the
     # /runs/active poll.
@@ -99,4 +115,4 @@ class AgentThreadResponse(ThreadResponse):
 # Set when the requester is reading a thread they do not own but have admin
 # access. Drives read-only mode on the chat page. `None` means the requester
 # owns the thread (no special role).
-ViewerRole = Literal["admin"]
+ViewerRole = Literal["admin", "viewer"]

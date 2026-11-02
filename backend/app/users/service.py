@@ -443,13 +443,9 @@ class UserService(BaseService[UserDB, UserRepository]):
         repository = AgentRepository(self.db, workspace_id)
         service = AgentService(self.db, workspace_id)
         granted_agent_ids = set(await repository.list_granted_agent_ids(user_id))
-        trigger_agent_ids = {
-            trigger.agent_id
-            for trigger in await TriggerRepository(
-                self.db, workspace_id
-            ).list_for_owner(user_id)
-            if trigger.is_active
-        }
+        trigger_agent_ids = await TriggerRepository(
+            self.db, workspace_id
+        ).list_active_agent_ids_requiring_user_access(user_id)
         for agent_id in granted_agent_ids | trigger_agent_ids:
             try:
                 await service.require_permission(

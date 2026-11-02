@@ -68,6 +68,17 @@ export async function signOut(): Promise<void> {
 	await api.post("/auth/signout");
 }
 
+export async function requestPasswordReset(email: string): Promise<void> {
+	await api.post("/auth/password/forgot", { email });
+}
+
+export async function resetPassword(
+	token: string,
+	password: string,
+): Promise<void> {
+	await api.post("/auth/password/reset", { token, password });
+}
+
 export async function getCurrentUser(): Promise<CurrentUser> {
 	const response = await api.get<CurrentUser>("/auth/me");
 	return response.data;

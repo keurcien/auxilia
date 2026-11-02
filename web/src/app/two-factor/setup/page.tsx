@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, Copy, Loader2, ShieldCheck } from "lucide-react";
+import { Check, Copy, Download, Loader2, ShieldCheck } from "lucide-react";
 import { AuthShell } from "@/components/auth/auth-shell";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import * as authApi from "@/lib/api/resources/auth";
 import * as usersApi from "@/lib/api/resources/users";
+import { useAppearanceStore } from "@/stores/appearance-store";
 import { useUserStore } from "@/stores/user-store";
 import type { CurrentUser } from "@/types/auth";
 
@@ -15,6 +16,7 @@ const inputClass =
 export default function RequiredTwoFactorSetupPage() {
 	const setUser = useUserStore((state) => state.setUser);
 	const logout = useUserStore((state) => state.logout);
+	const appName = useAppearanceStore((state) => state.appearance.appName);
 	const [user, setLocalUser] = useState<CurrentUser | null>(null);
 	const [setup, setSetup] = useState<usersApi.TwoFactorSetup | null>(null);
 	const [backupCodes, setBackupCodes] = useState<string[] | null>(null);
@@ -95,6 +97,28 @@ export default function RequiredTwoFactorSetupPage() {
 		}
 	};
 
+	const downloadBackupCodes = () => {
+		if (!backupCodes) return;
+		const fileAppName =
+			appName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") ||
+			"app";
+		const content = [
+			`${appName} backup codes`,
+			"Each code can be used once.",
+			"",
+			...backupCodes,
+			"",
+		].join("\n");
+		const url = URL.createObjectURL(
+			new Blob([content], { type: "text/plain;charset=utf-8" }),
+		);
+		const link = document.createElement("a");
+		link.href = url;
+		link.download = `backup-codes-${fileAppName}.txt`;
+		link.click();
+		URL.revokeObjectURL(url);
+	};
+
 	if (!user) {
 		return (
 			<div
@@ -154,10 +178,18 @@ export default function RequiredTwoFactorSetupPage() {
 						<div className="mt-4 flex flex-wrap items-center gap-2">
 							<button
 								type="button"
+								onClick={downloadBackupCodes}
+								className="flex shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap rounded-[7px] border border-input px-3.5 py-2 text-[12px] font-semibold text-foreground hover:border-border-hover"
+							>
+								<Download className="size-3.5" aria-hidden="true" />
+								Download codes
+							</button>
+							<button
+								type="button"
 								onClick={() => {
 									void copyBackupCodes();
 								}}
-								className="flex cursor-pointer items-center gap-2 rounded-[7px] border border-input px-3.5 py-2 text-[12px] font-semibold text-foreground hover:border-border-hover"
+								className="flex shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap rounded-[7px] border border-input px-3.5 py-2 text-[12px] font-semibold text-foreground hover:border-border-hover"
 							>
 								{copied ? (
 									<Check className="size-3.5" aria-hidden="true" />
@@ -171,7 +203,7 @@ export default function RequiredTwoFactorSetupPage() {
 								onClick={() => {
 									window.location.assign("/agents");
 								}}
-								className="cursor-pointer rounded-[7px] bg-petrol px-4 py-2 text-[12px] font-semibold text-white hover:opacity-90"
+								className="shrink-0 cursor-pointer whitespace-nowrap rounded-[7px] bg-petrol px-4 py-2 text-[12px] font-semibold text-white hover:opacity-90"
 							>
 								I saved my codes. Continue
 							</button>

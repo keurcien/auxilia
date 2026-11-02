@@ -27,6 +27,9 @@ export interface Thread {
 	agentArchived: boolean;
 	source: ThreadSource;
 	triggerId?: string | null;
+	projectId?: string | null;
+	folderId?: string | null;
+	completedAt?: string | null;
 	/** Outcome of the most recent run; null = no finished run. In-flight state
 	 * comes from the active-runs poll, never from this field. */
 	lastRunStatus?: RunTerminalStatus | null;
@@ -48,8 +51,8 @@ export interface Thread {
 	updatedAt?: string;
 }
 
-/** Roles a non-owner may hold on a thread — today only a workspace admin, read-only. */
-export type ViewerRole = "admin";
+/** Read-only roles a non-owner may hold on a thread. */
+export type ViewerRole = "admin" | "viewer";
 
 /** `GET /threads/{id}`: metadata plus the caller's role. The conversation is
  * not here — the client hydrates it from the protocol snapshot. */
@@ -71,6 +74,8 @@ export interface ThreadCreate {
 	toolMode?: ThreadToolMode | null;
 	memoriesEnabled?: boolean;
 	firstMessageContent?: string;
+	projectId?: string | null;
+	folderId?: string | null;
 	disabledMcpServerIds?: string[];
 	disabledSkillIds?: string[];
 	disabledSandboxIds?: string[];

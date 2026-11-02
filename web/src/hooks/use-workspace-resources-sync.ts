@@ -4,6 +4,7 @@ import { useEffect } from "react";
 
 import { useAgentsStore } from "@/stores/agents-store";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
+import { useProjectsStore } from "@/stores/projects-store";
 import { useSkillsStore } from "@/stores/skills-store";
 import { useTriggersStore } from "@/stores/triggers-store";
 import { useWorkspaceEventsStore } from "@/stores/workspace-events-store";
@@ -24,6 +25,9 @@ export function useWorkspaceResourcesSync(): void {
 	);
 	const skillsVersion = useWorkspaceEventsStore(
 		(state) => state.skillsVersion,
+	);
+	const projectsVersion = useWorkspaceEventsStore(
+		(state) => state.projectsVersion,
 	);
 
 	useEffect(() => {
@@ -57,10 +61,40 @@ export function useWorkspaceResourcesSync(): void {
 	}, [mcpServersVersion]);
 
 	useEffect(() => {
+		if (projectsVersion === 0) return;
+		const projects = useProjectsStore.getState();
+		const mountedProjectIds = Object.keys(projects.mountedDetailIds);
+		void projects
+			.refreshTree()
+			.then(async () => {
+				const current = useProjectsStore.getState();
+				const results = await Promise.allSettled(
+					mountedProjectIds
+						.filter((id) =>
+							current.tree.some((project) => project.id === id),
+						)
+						.map((id) => current.refreshProjectDetail(id)),
+				);
+				for (const result of results) {
+					if (result.status === "rejected") {
+						reportRefreshError("projects", result.reason);
+					}
+				}
+			})
+			.catch((error: unknown) => {
+				reportRefreshError("projects", error);
+			});
+	}, [projectsVersion]);
+
+	useEffect(() => {
 		if (skillsVersion === 0) return;
+		const projects = useProjectsStore.getState();
 		void Promise.allSettled([
 			useSkillsStore.getState().fetchSkills(true),
 			useSkillsStore.getState().fetchSources(true),
+			...Object.keys(projects.mountedDetailIds)
+				.filter((id) => projects.detailsById[id])
+				.map((id) => projects.refreshProjectDetail(id)),
 		]).then((results) => {
 			for (const result of results) {
 				if (result.status === "rejected") {

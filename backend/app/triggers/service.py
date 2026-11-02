@@ -18,6 +18,9 @@ from app.exceptions import (
     PermissionDeniedError,
 )
 from app.model_providers.service import ModelService
+from app.projects.models import ProjectDB
+from app.projects.repository import ProjectRepository
+from app.projects.service import ProjectService
 from app.realtime.schemas import WorkspaceEventKind
 from app.realtime.service import stage_workspace_event
 from app.runtime.runs.service import RunService
@@ -110,15 +113,34 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         visibility,
         owner_id: UUID,
         team_ids: list[UUID],
+        trigger_owner_id: UUID,
     ) -> None:
         agents = AgentRepository(self.db, self.workspace_id)
         agent = await agents.get_scoped_for_update(agent_id)
         if agent is None:
             raise NotFoundError("Agent not found")
-        # The trigger owner was checked through AgentService immediately before
-        # this call; for a personal trigger, that explicit grant is its entire
-        # non-admin audience.
         if visibility == ResourceVisibility.personal:
+            if owner_id != trigger_owner_id:
+                membership = await WorkspaceRepository(self.db).get_membership(
+                    agent.workspace_id, owner_id
+                )
+                if membership is None:
+                    raise DomainValidationError(
+                        "Project owner no longer belongs to the workspace"
+                    )
+                try:
+                    await AgentService(self.db, agent.workspace_id).require_permission(
+                        agent_id,
+                        at_least=EffectivePermission.member,
+                        action="use this agent",
+                        user_id=owner_id,
+                        user_role=membership.role,
+                        user_team_id=membership.team_id,
+                    )
+                except (NotFoundError, PermissionDeniedError) as exc:
+                    raise DomainValidationError(
+                        "Project owner is not allowed to use this trigger's agent"
+                    ) from exc
             return
         if not audience_contains(
             parent_visibility=visibility,
@@ -148,10 +170,36 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         owner.set_workspace_membership(membership)
         return owner
 
+    async def _ensure_project_visible_to_owner(
+        self, trigger: TriggerDB, owner: UserDB
+    ) -> None:
+        if trigger.project_id is None:
+            return
+        projects = ProjectRepository(self.db, trigger.workspace_id)
+        project = await projects.get(trigger.project_id)
+        if project is None:
+            raise DomainValidationError("Trigger project no longer exists")
+        team_ids = (
+            set(await projects.list_team_ids(project.id))
+            if project.visibility == ResourceVisibility.teams
+            else set()
+        )
+        if not is_resource_visible(
+            visibility=project.visibility,
+            owner_id=project.owner_id,
+            team_ids=team_ids,
+            user=owner,
+        ):
+            raise PermissionDeniedError(
+                "Trigger owner can no longer access this project"
+            )
+
     async def _normalize_resource_selection(
         self,
         agent_id: UUID,
         selection: dict[str, list[UUID] | dict[UUID, list[str]] | None],
+        *,
+        project_id: UUID | None = None,
     ) -> dict[str, list[str] | dict[str, list[str]] | None]:
         """Validate explicit trigger overrides against the selected agent graph."""
         if not selection:
@@ -172,6 +220,7 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
             selected_ids.get("disabled_skill_ids", []),
             selected_ids.get("disabled_sandbox_ids", []),
             selected_ids.get("disabled_subagent_ids", []),
+            project_id=project_id,
         )
         result: dict[str, list[str] | dict[str, list[str]] | None] = {
             field: normalized[index] if selection.get(field) is not None else None
@@ -226,34 +275,76 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         names = {
             m.model_id: m.display_name for m in await self.model_service.list_catalog()
         }
-        team_ids = await self.repository.list_team_ids_for_triggers(
+        direct_team_ids = await self.repository.list_team_ids_for_triggers(
             [
                 trigger.id
                 for trigger in triggers
                 if trigger.visibility == ResourceVisibility.teams
             ]
         )
-        return [
-            TriggerResponse.model_validate(
-                t,
-                update={
-                    "team_ids": team_ids.get(t.id, []),
-                    "can_manage": (
-                        user.id == t.owner_id or user.role == WorkspaceRole.admin
-                    ),
-                    "model_available": t.model_id in available,
-                    "model_display_name": names.get(t.model_id),
-                    "webhook_url": (
-                        f"{auth_settings.FRONTEND_URL.rstrip('/')}"
-                        f"/api/backend/triggers/webhooks/{t.webhook_id}"
-                        if t.webhook_id is not None
-                        and (user.id == t.owner_id or user.role == WorkspaceRole.admin)
-                        else None
-                    ),
-                },
+        projects = ProjectRepository(self.db, self.workspace_id)
+        responses: list[TriggerResponse] = []
+        for trigger in triggers:
+            (
+                _project,
+                effective_visibility,
+                _,
+                effective_team_ids,
+            ) = await self._effective_audience(trigger, projects)
+            responses.append(
+                TriggerResponse.model_validate(
+                    trigger,
+                    update={
+                        "team_ids": direct_team_ids.get(trigger.id, []),
+                        "effective_visibility": effective_visibility,
+                        "effective_team_ids": list(effective_team_ids),
+                        "can_manage": (
+                            user.id == trigger.owner_id
+                            or user.role == WorkspaceRole.admin
+                        ),
+                        "model_available": trigger.model_id in available,
+                        "model_display_name": names.get(trigger.model_id),
+                        "webhook_url": (
+                            f"{auth_settings.FRONTEND_URL.rstrip('/')}"
+                            f"/api/backend/triggers/webhooks/{trigger.webhook_id}"
+                            if trigger.webhook_id is not None
+                            and (
+                                user.id == trigger.owner_id
+                                or user.role == WorkspaceRole.admin
+                            )
+                            else None
+                        ),
+                    },
+                )
             )
-            for t in triggers
-        ]
+        return responses
+
+    async def _effective_audience(
+        self,
+        trigger: TriggerDB,
+        projects: ProjectRepository | None = None,
+    ) -> tuple[ProjectDB | None, ResourceVisibility, UUID, set[UUID]]:
+        if trigger.project_id is not None:
+            projects = projects or ProjectRepository(self.db, trigger.workspace_id)
+            project = await projects.get(trigger.project_id)
+            if project is not None:
+                team_ids = (
+                    set(await projects.list_team_ids(project.id))
+                    if project.visibility == ResourceVisibility.teams
+                    else set()
+                )
+                return (
+                    project,
+                    project.visibility,
+                    project.owner_id,
+                    team_ids,
+                )
+        team_ids = (
+            set(await self.repository.list_team_ids(trigger.id))
+            if trigger.visibility == ResourceVisibility.teams
+            else set()
+        )
+        return None, trigger.visibility, trigger.owner_id, team_ids
 
     # ------------------------------------------------------------------
     # CRUD
@@ -261,24 +352,20 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
 
     async def list(self, user: UserDB) -> list[TriggerResponse]:
         triggers = await self.repository.list_all()
-        team_ids = await self.repository.list_team_ids_for_triggers(
-            [
-                trigger.id
-                for trigger in triggers
-                if trigger.visibility == ResourceVisibility.teams
-            ]
-        )
-        triggers = [
-            trigger
-            for trigger in triggers
-            if is_resource_visible(
-                visibility=trigger.visibility,
-                owner_id=trigger.owner_id,
-                team_ids=set(team_ids.get(trigger.id, [])),
-                user=user,
+        visible: list[TriggerDB] = []
+        projects = ProjectRepository(self.db, self.workspace_id)
+        for trigger in triggers:
+            _, visibility, owner_id, team_ids = await self._effective_audience(
+                trigger, projects
             )
-        ]
-        return await self._to_responses(triggers, user)
+            if trigger.owner_id == user.id or is_resource_visible(
+                visibility=visibility,
+                owner_id=owner_id,
+                team_ids=team_ids,
+                user=user,
+            ):
+                visible.append(trigger)
+        return await self._to_responses(visible, user)
 
     async def get(self, trigger_id: UUID, user: UserDB) -> TriggerResponse:
         trigger = await self.get_or_404(trigger_id)
@@ -302,6 +389,14 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
             raise RuntimeError("workspace_id is required to create a trigger")
         await self._validate_team_ids(data.team_ids)
         validate_visibility(data.visibility, data.team_ids)
+        project, _ = await ProjectService(
+            self.db, self.workspace_id
+        ).validate_placement(
+            data.project_id,
+            data.folder_id,
+            owner,
+            lock_project=data.project_id is not None,
+        )
         if data.trigger_type == TriggerType.schedule:
             if data.cron_expression is None or data.timezone is None:
                 raise DomainValidationError(
@@ -314,11 +409,25 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
             data.model_id, data.reasoning_effort
         )
         await self._ensure_agent_usable(data.agent_id, owner, self.workspace_id)
+        audience_visibility = (
+            project.visibility if project is not None else data.visibility
+        )
+        audience_owner_id = project.owner_id if project is not None else owner.id
+        audience_team_ids = (
+            await ProjectRepository(self.db, self.workspace_id).list_team_ids(
+                project.id
+            )
+            if project is not None and project.visibility == ResourceVisibility.teams
+            else data.team_ids
+            if project is None
+            else []
+        )
         await self._ensure_agent_scope(
             data.agent_id,
-            visibility=data.visibility,
-            owner_id=owner.id,
-            team_ids=data.team_ids,
+            visibility=audience_visibility,
+            owner_id=audience_owner_id,
+            team_ids=audience_team_ids,
+            trigger_owner_id=owner.id,
         )
         normalized_resources = await self._normalize_resource_selection(
             data.agent_id,
@@ -327,6 +436,7 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
                 for field in (*_RESOURCE_FIELDS, _TOOL_RESOURCE_FIELD)
                 if getattr(data, field) is not None
             },
+            project_id=data.project_id,
         )
         next_run_at = (
             compute_next_run_at(
@@ -355,13 +465,55 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
             workspace_id=self.workspace_id,
             kind=WorkspaceEventKind.triggers,
         )
+        if trigger.project_id is not None:
+            await stage_workspace_event(
+                self.db,
+                workspace_id=self.workspace_id,
+                kind=WorkspaceEventKind.projects,
+            )
         return response
 
     async def update(
         self, trigger_id: UUID, data: TriggerPatch, user: UserDB
     ) -> TriggerResponse:
-        trigger = await self.get_or_404(trigger_id)
+        trigger = await self.repository.get_for_update(trigger_id)
+        if trigger is None:
+            raise NotFoundError("Trigger not found")
         self._ensure_can_manage(trigger, user)
+        previous_project_id = trigger.project_id
+        if trigger.project_id is not None and (
+            "visibility" in data.model_fields_set or "team_ids" in data.model_fields_set
+        ):
+            raise DomainValidationError(
+                "Detach the trigger before changing its direct visibility"
+            )
+        update_data = data.model_dump(exclude_unset=True)
+        next_project_id = (
+            data.project_id
+            if "project_id" in data.model_fields_set
+            else trigger.project_id
+        )
+        if (
+            "project_id" in data.model_fields_set
+            and next_project_id != trigger.project_id
+            and "folder_id" not in data.model_fields_set
+        ):
+            data = data.model_copy(update={"folder_id": None})
+            data.model_fields_set.add("folder_id")
+            update_data = data.model_dump(exclude_unset=True)
+        next_folder_id = (
+            data.folder_id
+            if "folder_id" in data.model_fields_set
+            else trigger.folder_id
+        )
+        project, _ = await ProjectService(
+            self.db, trigger.workspace_id
+        ).validate_placement(
+            next_project_id,
+            next_folder_id,
+            user,
+            lock_project=next_project_id is not None,
+        )
         next_visibility = data.visibility or trigger.visibility
         next_team_ids = (
             data.team_ids
@@ -374,14 +526,29 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         )
         await self._validate_team_ids(next_team_ids)
         validate_visibility(next_visibility, next_team_ids)
+        effective_visibility = (
+            project.visibility if project is not None else next_visibility
+        )
+        effective_owner_id = (
+            project.owner_id if project is not None else trigger.owner_id
+        )
+        effective_team_ids = (
+            await ProjectRepository(self.db, trigger.workspace_id).list_team_ids(
+                project.id
+            )
+            if project is not None and project.visibility == ResourceVisibility.teams
+            else next_team_ids
+            if project is None
+            else []
+        )
         await self._ensure_agent_scope(
             data.agent_id or trigger.agent_id,
-            visibility=next_visibility,
-            owner_id=trigger.owner_id,
-            team_ids=next_team_ids,
+            visibility=effective_visibility,
+            owner_id=effective_owner_id,
+            team_ids=effective_team_ids,
+            trigger_owner_id=trigger.owner_id,
         )
 
-        update_data = data.model_dump(exclude_unset=True)
         if trigger.trigger_type == TriggerType.webhook and (
             "cron_expression" in update_data or "timezone" in update_data
         ):
@@ -438,6 +605,7 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
                 update=await self._normalize_resource_selection(
                     update_data.get("agent_id", trigger.agent_id),
                     resource_selection,
+                    project_id=next_project_id,
                 )
             )
         reactivating = data.is_active is True and not trigger.is_active
@@ -488,17 +656,19 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
             workspace_id=trigger.workspace_id,
             kind=WorkspaceEventKind.triggers,
         )
+        if previous_project_id is not None or trigger.project_id is not None:
+            await stage_workspace_event(
+                self.db,
+                workspace_id=trigger.workspace_id,
+                kind=WorkspaceEventKind.projects,
+            )
         return response
 
     async def _ensure_visible(self, trigger: TriggerDB, user: UserDB) -> None:
-        team_ids = (
-            set(await self.repository.list_team_ids(trigger.id))
-            if trigger.visibility == ResourceVisibility.teams
-            else set()
-        )
-        if not is_resource_visible(
-            visibility=trigger.visibility,
-            owner_id=trigger.owner_id,
+        _, visibility, owner_id, team_ids = await self._effective_audience(trigger)
+        if trigger.owner_id != user.id and not is_resource_visible(
+            visibility=visibility,
+            owner_id=owner_id,
             team_ids=team_ids,
             user=user,
         ):
@@ -525,6 +695,12 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
             workspace_id=trigger.workspace_id,
             kind=WorkspaceEventKind.triggers,
         )
+        if trigger.project_id is not None:
+            await stage_workspace_event(
+                self.db,
+                workspace_id=trigger.workspace_id,
+                kind=WorkspaceEventKind.projects,
+            )
 
     async def run_now(self, trigger_id: UUID, user: UserDB) -> TriggerRunResponse:
         """Fire one occurrence immediately — the test path behind a "Run now"
@@ -537,9 +713,12 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         the worker reads the thread from its own session, so the row must be
         committed before the run is dispatched.
         """
-        trigger = await self.get_or_404(trigger_id)
+        trigger = await self.repository.get_for_update(trigger_id)
+        if trigger is None:
+            raise NotFoundError("Trigger not found")
         self._ensure_can_manage(trigger, user)
         owner = await self._get_owner(trigger)
+        await self._ensure_project_visible_to_owner(trigger, owner)
         await self._ensure_agent_usable(trigger.agent_id, owner, trigger.workspace_id)
         agent = await AgentService(self.db, trigger.workspace_id).repository.get_scoped(
             trigger.agent_id
@@ -563,13 +742,14 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         self, webhook_id: UUID, data: WebhookTriggerInvoke
     ) -> TriggerRunResponse:
         """Resolve webhook overrides and atomically create its thread and run."""
-        trigger = await self.repository.get_by_webhook_id(webhook_id)
+        trigger = await self.repository.get_by_webhook_id_for_update(webhook_id)
         if trigger is None or not trigger.is_active:
             # Keep inactive and unknown webhook URLs indistinguishable to
             # unauthenticated callers.
             raise NotFoundError("Webhook not found")
 
         owner = await self._get_owner(trigger)
+        await self._ensure_project_visible_to_owner(trigger, owner)
         agent_id = data.agent_id or trigger.agent_id
         model_id = data.model_id if data.model_id is not None else trigger.model_id
         instructions = (
@@ -579,15 +759,13 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
             raise DomainValidationError("Webhook instructions cannot be empty")
 
         await self._ensure_agent_usable(agent_id, owner, trigger.workspace_id)
+        _, visibility, owner_id, team_ids = await self._effective_audience(trigger)
         await self._ensure_agent_scope(
             agent_id,
-            visibility=trigger.visibility,
-            owner_id=trigger.owner_id,
-            team_ids=(
-                await self.repository.list_team_ids(trigger.id)
-                if trigger.visibility == ResourceVisibility.teams
-                else []
-            ),
+            visibility=visibility,
+            owner_id=owner_id,
+            team_ids=list(team_ids),
+            trigger_owner_id=owner.id,
         )
         agent = await AgentService(self.db, trigger.workspace_id).repository.get_scoped(
             agent_id
@@ -646,6 +824,8 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         return await ThreadService(self.db, trigger.workspace_id).create(
             ThreadCreate(
                 agent_id=effective_agent_id,
+                project_id=trigger.project_id,
+                folder_id=trigger.folder_id,
                 model_id=model_id or trigger.model_id,
                 reasoning_effort=(
                     trigger.reasoning_effort
@@ -691,12 +871,14 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         for trigger in claimed:
             try:
                 owner = await self._get_owner(trigger)
+                await self._ensure_project_visible_to_owner(trigger, owner)
                 await self._ensure_agent_usable(
                     trigger.agent_id, owner, trigger.workspace_id
                 )
             except (DomainValidationError, NotFoundError, PermissionDeniedError):
                 logger.warning(
-                    "Pausing trigger %s: its owner can no longer use agent %s",
+                    "Pausing trigger %s: its owner can no longer access its "
+                    "project or agent %s",
                     trigger.id,
                     trigger.agent_id,
                 )

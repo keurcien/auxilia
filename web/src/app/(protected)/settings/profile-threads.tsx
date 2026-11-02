@@ -3,7 +3,9 @@
 import { useDeferredValue, useEffect, useState } from "react";
 import { Search, X } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
+import { ConversationCompletionButton } from "@/components/layout/app-sidebar/conversation-completion-button";
 import {
 	BulkConfirmDialog,
 	type BulkFailure,
@@ -38,6 +40,9 @@ function threadTitle(thread: Thread): string {
 export default function ProfileThreads() {
 	const router = useRouter();
 	const removeStoredThread = useThreadsStore((state) => state.removeThread);
+	const setThreadCompleted = useThreadsStore(
+		(state) => state.setThreadCompleted,
+	);
 	const [threads, setThreads] = useState<Thread[]>([]);
 	const [total, setTotal] = useState(0);
 	const [offset, setOffset] = useState(0);
@@ -50,6 +55,9 @@ export default function ProfileThreads() {
 	const isLoading = settledRequestKey !== requestKey;
 	const [loadError, setLoadError] = useState<string | null>(null);
 	const [bulkOpen, setBulkOpen] = useState(false);
+	const [completionSavingIds, setCompletionSavingIds] = useState<Set<string>>(
+		new Set(),
+	);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -83,6 +91,29 @@ export default function ProfileThreads() {
 	const selectedThreads = threads.filter((thread) =>
 		selection.selectedIds.has(thread.id),
 	);
+	const toggleCompletion = async (thread: Thread) => {
+		if (completionSavingIds.has(thread.id)) return;
+		setCompletionSavingIds((current) => new Set(current).add(thread.id));
+		try {
+			const updated = await setThreadCompleted(
+				thread.id,
+				thread.completedAt === null,
+			);
+			setThreads((current) =>
+				current.map((item) => (item.id === thread.id ? updated : item)),
+			);
+		} catch (error) {
+			toast.error(
+				getApiErrorMessage(error, "The conversation could not be updated."),
+			);
+		} finally {
+			setCompletionSavingIds((current) => {
+				const next = new Set(current);
+				next.delete(thread.id);
+				return next;
+			});
+		}
+	};
 
 	const columns: DataTableColumn<Thread>[] = [
 		{
@@ -156,6 +187,23 @@ export default function ProfileThreads() {
 				<span className="font-mono text-[11px] text-meta dark:text-panel-dim">
 					{formatDate(thread.createdAt)}
 				</span>
+			),
+		},
+		{
+			key: "completed",
+			header: "Complete",
+			width: "76px",
+			mobileWidth: "auto",
+			align: "right",
+			cell: (thread) => (
+				<ConversationCompletionButton
+					completed={thread.completedAt !== null}
+					disabled={completionSavingIds.has(thread.id)}
+					onToggle={() => {
+						void toggleCompletion(thread);
+					}}
+					className="ml-auto"
+				/>
 			),
 		},
 	];

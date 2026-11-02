@@ -14,6 +14,7 @@ interface ThreadsState {
 	isLoadingMore: boolean;
 	/** Fetch the first page, replacing the current list. */
 	fetchThreads: () => Promise<void>;
+	refreshThreads: () => Promise<void>;
 	/** Merge newly-created first-page threads into the current sidebar list. */
 	pollRecentThreads: () => Promise<void>;
 	/** Append the next page (deduped by id — new threads shift offsets). */
@@ -22,6 +23,12 @@ interface ThreadsState {
 	removeThread: (threadId: string) => void;
 	removeThreadsForAgent: (agentId: string) => string[];
 	renameThread: (threadId: string, firstMessageContent: string) => void;
+	setThreadPlacement: (
+		threadId: string,
+		projectId: string | null,
+		folderId: string | null,
+	) => Promise<Thread>;
+	setThreadCompleted: (threadId: string, completed: boolean) => Promise<Thread>;
 	markAgentArchived: (agentId: string) => void;
 	markAgentRestored: (agentId: string, agentName: string) => void;
 	/** Stamp a run outcome observed by the active-runs poll (sidebar badge). */
@@ -33,6 +40,9 @@ export const useThreadsStore = create<ThreadsState>((set, get) => ({
 	total: 0,
 	isLoadingMore: false,
 	fetchThreads: async () => {
+		await get().refreshThreads();
+	},
+	refreshThreads: async () => {
 		const generation = getWorkspaceGeneration();
 		try {
 			const page = await threadsApi.listThreads({ limit: PAGE_SIZE, offset: 0 });
@@ -49,13 +59,20 @@ export const useThreadsStore = create<ThreadsState>((set, get) => ({
 			const page = await threadsApi.listThreads({ limit: PAGE_SIZE, offset: 0 });
 			if (!isCurrentWorkspaceGeneration(generation)) return;
 			set((state) => {
+				const incoming = new Map(
+					page.items.map((thread) => [thread.id, thread]),
+				);
 				const knownIds = new Set(state.threads.map((thread) => thread.id));
 				const newThreads = page.items.filter(
 					(thread) => !knownIds.has(thread.id),
 				);
-				if (newThreads.length === 0 && state.total === page.total) return state;
 				return {
-					threads: [...newThreads, ...state.threads],
+					threads: [
+						...newThreads,
+						...state.threads.map(
+							(thread) => incoming.get(thread.id) ?? thread,
+						),
+					],
 					total: page.total,
 				};
 			});
@@ -128,6 +145,63 @@ export const useThreadsStore = create<ThreadsState>((set, get) => ({
 				thread.id === threadId ? { ...thread, firstMessageContent } : thread,
 			),
 		}));
+	},
+	setThreadPlacement: async (threadId, projectId, folderId) => {
+		const previous = get().threads.find((thread) => thread.id === threadId);
+		set((state) => ({
+			threads: state.threads.map((thread) =>
+				thread.id === threadId ? { ...thread, projectId, folderId } : thread,
+			),
+		}));
+		try {
+			const updated = await threadsApi.updateThreadPlacement(
+				threadId,
+				projectId,
+				folderId,
+			);
+			set((state) => ({
+				threads: state.threads.map((thread) =>
+					thread.id === threadId ? { ...thread, ...updated } : thread,
+				),
+			}));
+			return updated;
+		} catch (error) {
+			if (previous) {
+				set((state) => ({
+					threads: state.threads.map((thread) =>
+						thread.id === threadId ? previous : thread,
+					),
+				}));
+			}
+			throw error;
+		}
+	},
+	setThreadCompleted: async (threadId, completed) => {
+		const previous = get().threads.find((thread) => thread.id === threadId);
+		const completedAt = completed ? new Date().toISOString() : null;
+		set((state) => ({
+			threads: state.threads.map((thread) =>
+				thread.id === threadId ? { ...thread, completedAt } : thread,
+			),
+		}));
+		try {
+			const updated = await threadsApi.updateThreadCompletion(threadId, completed);
+			set((state) => ({
+				threads: state.threads.map((thread) =>
+					thread.id === threadId ? { ...thread, ...updated } : thread,
+				),
+			}));
+			return updated;
+		} catch (error) {
+			if (previous) {
+				set((state) => ({
+					threads: state.threads.map((thread) =>
+						thread.id === threadId ? previous : thread,
+					),
+				}));
+			}
+			throw error;
+		}
 	},
 	markAgentArchived: (agentId) => {
 		set((state) => ({

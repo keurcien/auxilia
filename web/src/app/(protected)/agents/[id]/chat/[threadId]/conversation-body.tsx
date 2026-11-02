@@ -135,6 +135,7 @@ export type ConversationBodyProps = {
     interruptId: string | null,
   ) => Promise<void>;
   modelUnavailable: boolean;
+  readOnly: boolean;
   onRegenerate: () => void;
   /** A claimed queued prompt waiting for its server-authored message event. */
   optimisticPrompt: QueuedPrompt | null;
@@ -183,6 +184,7 @@ export const ConversationBody = memo(function ConversationBody({
   nestedInterrupts,
   respond,
   modelUnavailable,
+  readOnly,
   onRegenerate,
   optimisticPrompt,
   emptyPrompt,
@@ -364,7 +366,7 @@ export const ConversationBody = memo(function ConversationBody({
                 </Message>
                 {!isLoading && isLast && (
                   <MessageActions>
-                    {!modelUnavailable && (
+                    {!modelUnavailable && !readOnly && (
                       <MessageAction onClick={onRegenerate} label="Retry">
                         <RefreshCcwIcon className="size-3" />
                       </MessageAction>
@@ -422,7 +424,7 @@ export const ConversationBody = memo(function ConversationBody({
           {currentErrorDetail && (
             <p className="text-xs text-destructive">{currentErrorDetail}</p>
           )}
-          {(emptyPrompt || canRetryInitial) && (
+          {!readOnly && (emptyPrompt || canRetryInitial) && (
             <button
               type="button"
               className="w-fit shrink-0 cursor-pointer whitespace-nowrap rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium hover:bg-muted"

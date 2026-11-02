@@ -184,6 +184,33 @@ class ThreadRepository(BaseRepository[ThreadDB]):
             stmt = stmt.where(ThreadDB.workspace_id == self.workspace_id)
         await self.db.execute(stmt)
 
+    async def set_placement(
+        self,
+        thread_id: str,
+        project_id: UUID | None,
+        folder_id: UUID | None,
+    ) -> None:
+        stmt = (
+            update(ThreadDB)
+            .where(ThreadDB.id == thread_id)
+            .values(project_id=project_id, folder_id=folder_id)
+        )
+        if self.workspace_id is not None:
+            stmt = stmt.where(ThreadDB.workspace_id == self.workspace_id)
+        await self.db.execute(stmt)
+
+    async def set_completed_at(
+        self, thread_id: str, completed_at: datetime | None
+    ) -> None:
+        stmt = (
+            update(ThreadDB)
+            .where(ThreadDB.id == thread_id)
+            .values(completed_at=completed_at)
+        )
+        if self.workspace_id is not None:
+            stmt = stmt.where(ThreadDB.workspace_id == self.workspace_id)
+        await self.db.execute(stmt)
+
     async def set_queue_edit_lease(
         self, thread_id: str, run_id: str, expires_at: datetime
     ) -> None:

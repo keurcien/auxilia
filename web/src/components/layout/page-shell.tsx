@@ -18,6 +18,7 @@ const WORKSPACE_ROUTE = /^\/(agents|users)$/;
 const AGENT_EDITOR_ROUTE = /^\/agents\/[^/]+$/;
 const MCP_SERVERS_ROUTE = /^\/mcp-servers(\/|$)/;
 const TRIGGERS_ROUTE = /^\/triggers(\/|$)/;
+const PROJECTS_ROUTE = /^\/projects\/[^/]+(\/|$)/;
 const SETTINGS_ROUTE = /^\/settings(\/|$)/;
 
 export function PageShell({ children }: { children: React.ReactNode }) {
@@ -31,6 +32,7 @@ export function PageShell({ children }: { children: React.ReactNode }) {
 		AGENT_EDITOR_ROUTE.test(pathname) ||
 		MCP_SERVERS_ROUTE.test(pathname) ||
 		TRIGGERS_ROUTE.test(pathname) ||
+		PROJECTS_ROUTE.test(pathname) ||
 		SETTINGS_ROUTE.test(pathname);
 
 	return (
