@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.100](https://github.com/jr-k/auxilia/compare/web-v0.12.99...web-v0.12.100) (2026-11-02)
+
+
+### Bug Fixes
+
+* **projects:** align directory item controls ([7dbf5f1](https://github.com/jr-k/auxilia/commit/7dbf5f1576db6efcf75e06c7321975b23e6f5dd6))
+
 ## [0.12.99](https://github.com/jr-k/auxilia/compare/web-v0.12.98...web-v0.12.99) (2026-11-02)
 
 
