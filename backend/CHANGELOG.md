@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.72](https://github.com/jr-k/auxilia/compare/backend-v0.11.71...backend-v0.11.72) (2026-11-02)
+
+
+### Features
+
+* add projects, password recovery, and thread organization ([2336fd1](https://github.com/jr-k/auxilia/commit/2336fd1a9e3c8c355e37f843edcc533a61e3f368))
+
 ## [0.11.71](https://github.com/jr-k/auxilia/compare/backend-v0.11.70...backend-v0.11.71) (2026-11-02)
 
 

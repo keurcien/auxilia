@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.99](https://github.com/jr-k/auxilia/compare/web-v0.12.98...web-v0.12.99) (2026-11-02)
+
+
+### Features
+
+* add projects, password recovery, and thread organization ([2336fd1](https://github.com/jr-k/auxilia/commit/2336fd1a9e3c8c355e37f843edcc533a61e3f368))
+
 ## [0.12.98](https://github.com/jr-k/auxilia/compare/web-v0.12.97...web-v0.12.98) (2026-11-02)
 
 
