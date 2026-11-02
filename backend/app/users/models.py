@@ -22,6 +22,7 @@ class UserBase(SQLModel):
     email: str | None = Field(default=None, max_length=255, unique=True, index=True)
     password_hash: str | None = Field(default=None)
     can_create_workspace: bool = Field(default=False, nullable=False)
+    can_delete_threads: bool = Field(default=True, nullable=False)
     picture_url: str | None = Field(default=None, max_length=1024)
     image_revision: UUID | None = Field(default=None, nullable=True)
     two_factor_enabled: bool = Field(default=False, nullable=False)

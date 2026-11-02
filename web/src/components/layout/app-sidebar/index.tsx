@@ -184,6 +184,7 @@ export function AppSidebar() {
 	const skillsReady = useSkillsStore((state) => state.isInitialized);
 	const hasMoreThreads = threads.length < total;
 	const { user, logout } = useUserStore();
+	const canDeleteThreads = user?.canDeleteThreads === true;
 	const { theme, setTheme } = useTheme();
 	const themeMode: ThemeMode =
 		theme === "dark" || theme === "light" ? theme : "system";
@@ -214,6 +215,10 @@ export function AppSidebar() {
 	}, [isMobile, pathname, setOpenMobile]);
 
 	useEffect(() => {
+		if (!canDeleteThreads && selection.selectionMode) selection.clear();
+	}, [canDeleteThreads, selection]);
+
+	useEffect(() => {
 		const saved = window.localStorage.getItem("auxilia:sidebar-mode");
 		if (saved !== "projects") return;
 		queueMicrotask(() => {
@@ -235,6 +240,7 @@ export function AppSidebar() {
 	};
 
 	const handleDeleteThread = (threadId: string) => {
+		if (!canDeleteThreads) return;
 		threadsApi
 			.deleteThread(threadId)
 			.then(() => {
@@ -363,7 +369,7 @@ export function AppSidebar() {
 									New thread
 								</span>
 							</button>
-							{selection.selectionMode && (
+							{canDeleteThreads && selection.selectionMode && (
 								<button
 									type="button"
 									title={`Delete ${selection.selectedCount} selected conversation${
@@ -578,6 +584,7 @@ export function AppSidebar() {
 											<SelectableLeading
 												selected={selection.isSelected(thread.id)}
 												selectionMode={selection.selectionMode}
+												disabled={!canDeleteThreads}
 												label={`Select ${title}`}
 												onToggle={(shiftKey) => {
 													selection.toggle(thread.id, shiftKey);
@@ -669,14 +676,18 @@ export function AppSidebar() {
 																setRenamingThread(thread);
 															},
 														},
-														{
-															label: "Delete",
-															icon: <Trash2 />,
-															destructive: true,
-															onClick: () => {
-																handleDeleteThread(thread.id);
-															},
-														},
+														...(canDeleteThreads
+															? [
+																	{
+																		label: "Delete",
+																		icon: <Trash2 />,
+																		destructive: true,
+																		onClick: () => {
+																			handleDeleteThread(thread.id);
+																		},
+																	},
+																]
+															: []),
 													]}
 												/>
 											)}

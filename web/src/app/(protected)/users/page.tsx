@@ -349,10 +349,30 @@ export default function UsersPage() {
 		try {
 			const updated = await usersApi.setCanCreateWorkspace(userId, allowed);
 			setUsers((previous) =>
-				previous.map((user) => (user.id === userId ? updated : user)),
+				previous.map((user) =>
+					user.id === userId ? { ...user, ...updated } : user,
+				),
 			);
 			if (userId === currentUser?.id) {
 				useUserStore.getState().setUser({ ...currentUser, canCreateWorkspace: allowed });
+			}
+		} catch {
+			setErrorDialogOpen(true);
+		}
+	};
+
+	const handleThreadDeletionChange = async (userId: string, allowed: boolean) => {
+		try {
+			const updated = await usersApi.setCanDeleteThreads(userId, allowed);
+			setUsers((previous) =>
+				previous.map((user) =>
+					user.id === userId ? { ...user, ...updated } : user,
+				),
+			);
+			if (userId === currentUser?.id) {
+				useUserStore
+					.getState()
+					.setUser({ ...currentUser, canDeleteThreads: allowed });
 			}
 		} catch {
 			setErrorDialogOpen(true);
@@ -628,6 +648,29 @@ export default function UsersPage() {
 		</div>
 	);
 
+	const renderThreadDeletionControl = (user: ListedUser) => (
+		<div className="flex items-center gap-2">
+			<Switch
+				checked={user.canDeleteThreads}
+				disabled={
+					currentUser?.role !== "admin" ||
+					(Boolean(user.memberships) &&
+						!user.memberships?.some(
+							(membership) =>
+								membership.workspaceId === activeWorkspaceId,
+						))
+				}
+				onCheckedChange={(checked) => {
+					void handleThreadDeletionChange(user.id, checked);
+				}}
+				aria-label={`Allow ${user.name ?? user.email ?? "user"} to delete conversations`}
+			/>
+			<span className="text-[11px] text-meta">
+				{user.canDeleteThreads ? "Allowed" : "No"}
+			</span>
+		</div>
+	);
+
 	const renderTeamControl = (user: User) => {
 		const team = user.teamId ? teamsById.get(user.teamId) : undefined;
 		if (!isAdmin) {
@@ -811,6 +854,13 @@ export default function UsersPage() {
 			width: "150px",
 			mobileWidth: "auto",
 			cell: renderWorkspaceCreationControl,
+		},
+		{
+			key: "can-delete-threads",
+			header: "Delete conversations",
+			width: "165px",
+			mobileWidth: "auto",
+			cell: renderThreadDeletionControl,
 		},
 		...(!isOwner
 			? [
@@ -1178,11 +1228,19 @@ export default function UsersPage() {
 													{renderPromptActivity(user)}
 												</div>
 											)}
-											<div className="col-span-2 mt-auto border-t border-hairline pt-3 dark:border-white/5">
-												<p className="mb-1.5 text-[10px] font-semibold text-meta">
-													Create workspaces
-												</p>
-												{renderWorkspaceCreationControl(user)}
+											<div className="col-span-2 mt-auto grid grid-cols-2 gap-3 border-t border-hairline pt-3 dark:border-white/5">
+												<div>
+													<p className="mb-1.5 text-[10px] font-semibold text-meta">
+														Create workspaces
+													</p>
+													{renderWorkspaceCreationControl(user)}
+												</div>
+												<div>
+													<p className="mb-1.5 text-[10px] font-semibold text-meta">
+														Delete conversations
+													</p>
+													{renderThreadDeletionControl(user)}
+												</div>
 											</div>
 										</div>
 									</article>

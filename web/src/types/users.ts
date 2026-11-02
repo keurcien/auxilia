@@ -9,6 +9,7 @@ export interface User {
 	email: string | null;
 	role: WorkspaceRole;
 	canCreateWorkspace: boolean;
+	canDeleteThreads: boolean;
 	isInstanceOwner: boolean;
 	teamId: string | null;
 	pictureUrl: string | null;
@@ -31,6 +32,7 @@ export interface InstanceUser {
 	lastName: string | null;
 	email: string | null;
 	canCreateWorkspace: boolean;
+	canDeleteThreads: boolean;
 	isInstanceOwner: boolean;
 	pictureUrl: string | null;
 	imageRevision: string | null;

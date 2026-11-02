@@ -72,6 +72,14 @@ export async function setCanCreateWorkspace(
 	return response.data;
 }
 
+export async function setCanDeleteThreads(
+	userId: string,
+	canDeleteThreads: boolean,
+): Promise<User> {
+	const response = await api.patch<User>(`/users/${userId}`, { canDeleteThreads });
+	return response.data;
+}
+
 export async function deleteUser(userId: string): Promise<void> {
 	await api.delete(`/users/${userId}`);
 }

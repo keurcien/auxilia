@@ -25,6 +25,7 @@ class UserPatch(SQLModel):
     email: str | None = Field(default=None, max_length=255)
     password_hash: str | None = None
     can_create_workspace: bool | None = None
+    can_delete_threads: bool | None = None
 
 
 class UserRolePatch(SQLModel):
@@ -45,6 +46,7 @@ class UserResponse(SQLModel):
     role: WorkspaceRole
     team_id: UUID | None = None
     can_create_workspace: bool = False
+    can_delete_threads: bool = True
     picture_url: str | None = None
     image_revision: UUID | None = None
     created_at: datetime
@@ -72,6 +74,7 @@ class InstanceUserResponse(SQLModel):
     email: str | None
     is_instance_owner: bool = False
     can_create_workspace: bool = False
+    can_delete_threads: bool = True
     picture_url: str | None = None
     image_revision: UUID | None = None
     created_at: datetime

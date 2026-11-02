@@ -79,6 +79,7 @@ class MCPUserPatch(BaseModel):
     name: str | None = Field(default=None, max_length=255)
     email: str | None = Field(default=None, max_length=255)
     can_create_workspace: bool | None = None
+    can_delete_threads: bool | None = None
 
 
 class MCPApprovalDecision(BaseModel):

@@ -218,6 +218,8 @@ async def delete_thread(
     service: ThreadService = Depends(get_thread_service),
     db: AsyncSession = Depends(get_db),  # dependency-cached: the service's session
 ) -> None:
+    if not current_user.can_delete_threads:
+        raise PermissionDeniedError("Conversation deletion is not allowed")
     thread = await service.get(thread_id)
     if thread.user_id != current_user.id:
         raise PermissionDeniedError("Not authorized to delete this thread")

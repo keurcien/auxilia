@@ -19,6 +19,7 @@ import { useRowSelection } from "@/hooks/use-row-selection";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import * as threadsApi from "@/lib/api/resources/threads";
 import { useThreadsStore } from "@/stores/threads-store";
+import { useUserStore } from "@/stores/user-store";
 import type { Thread } from "@/types/threads";
 
 const PAGE_SIZE = 20;
@@ -39,6 +40,9 @@ function threadTitle(thread: Thread): string {
 
 export default function ProfileThreads() {
 	const router = useRouter();
+	const canDeleteThreads = useUserStore(
+		(state) => state.user?.canDeleteThreads === true,
+	);
 	const removeStoredThread = useThreadsStore((state) => state.removeThread);
 	const setThreadCompleted = useThreadsStore(
 		(state) => state.setThreadCompleted,
@@ -91,6 +95,10 @@ export default function ProfileThreads() {
 	const selectedThreads = threads.filter((thread) =>
 		selection.selectedIds.has(thread.id),
 	);
+	useEffect(() => {
+		if (!canDeleteThreads && selection.selectionMode) selection.clear();
+	}, [canDeleteThreads, selection]);
+
 	const toggleCompletion = async (thread: Thread) => {
 		if (completionSavingIds.has(thread.id)) return;
 		setCompletionSavingIds((current) => new Set(current).add(thread.id));
@@ -118,7 +126,9 @@ export default function ProfileThreads() {
 	const columns: DataTableColumn<Thread>[] = [
 		{
 			key: "conversation",
-			header: selection.selectionMode ? (
+			header: !canDeleteThreads ? (
+				"Conversation"
+			) : selection.selectionMode ? (
 				""
 			) : (
 				<span className="flex items-center gap-3">
@@ -142,6 +152,7 @@ export default function ProfileThreads() {
 					<SelectableLeading
 						selected={selection.isSelected(thread.id)}
 						selectionMode={selection.selectionMode}
+						disabled={!canDeleteThreads}
 						label={`Select ${threadTitle(thread)}`}
 						onToggle={(shiftKey) => {
 							selection.toggle(thread.id, shiftKey);
@@ -252,18 +263,20 @@ export default function ProfileThreads() {
 				</div>
 			)}
 
-			<BulkActionBar
-				selectedCount={selection.selectedCount}
-				totalCount={threads.length}
-				allSelected={selection.allSelected}
-				someSelected={selection.someSelected}
-				onToggleAll={selection.toggleAll}
-				onClear={selection.clear}
-				actionLabel="Delete"
-				onAction={() => {
-					setBulkOpen(true);
-				}}
-			/>
+			{canDeleteThreads && (
+				<BulkActionBar
+					selectedCount={selection.selectedCount}
+					totalCount={threads.length}
+					allSelected={selection.allSelected}
+					someSelected={selection.someSelected}
+					onToggleAll={selection.toggleAll}
+					onClear={selection.clear}
+					actionLabel="Delete"
+					onAction={() => {
+						setBulkOpen(true);
+					}}
+				/>
+			)}
 
 			<DataTable
 				columns={columns}
@@ -272,9 +285,13 @@ export default function ProfileThreads() {
 				isLoading={isLoading}
 				isRowSelected={(thread) => selection.isSelected(thread.id)}
 				selectionMode={selection.selectionMode}
-				onRowSelectionClick={(thread, shiftKey) => {
-					selection.toggle(thread.id, shiftKey);
-				}}
+				onRowSelectionClick={
+					canDeleteThreads
+						? (thread, shiftKey) => {
+								selection.toggle(thread.id, shiftKey);
+							}
+						: undefined
+				}
 				minTableWidth="620px"
 				onRowClick={(thread) => {
 					router.push(`/agents/${thread.agentId}/chat/${thread.id}`);
