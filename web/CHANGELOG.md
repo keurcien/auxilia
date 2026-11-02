@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.98](https://github.com/jr-k/auxilia/compare/web-v0.12.97...web-v0.12.98) (2026-11-02)
+
+
+### Features
+
+* **mcp:** add manual loopback OAuth ([25b423b](https://github.com/jr-k/auxilia/commit/25b423bdd67abe1abe12804f84cc940f4193c6a7))
+
 ## [0.12.97](https://github.com/jr-k/auxilia/compare/web-v0.12.96...web-v0.12.97) (2026-11-01)
 
 
