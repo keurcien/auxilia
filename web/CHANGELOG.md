@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.102](https://github.com/jr-k/auxilia/compare/web-v0.12.101...web-v0.12.102) (2026-11-02)
+
+
+### Features
+
+* **projects:** edit project identity inline ([711f387](https://github.com/jr-k/auxilia/commit/711f387985fea52ac6b6e15227cfc148525e657b))
+
 ## [0.12.101](https://github.com/jr-k/auxilia/compare/web-v0.12.100...web-v0.12.101) (2026-11-02)
 
 

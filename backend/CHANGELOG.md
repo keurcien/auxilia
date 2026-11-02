@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.74](https://github.com/jr-k/auxilia/compare/backend-v0.11.73...backend-v0.11.74) (2026-11-02)
+
+
+### Features
+
+* **projects:** edit project identity inline ([711f387](https://github.com/jr-k/auxilia/commit/711f387985fea52ac6b6e15227cfc148525e657b))
+
 ## [0.11.73](https://github.com/jr-k/auxilia/compare/backend-v0.11.72...backend-v0.11.73) (2026-11-02)
 
 
