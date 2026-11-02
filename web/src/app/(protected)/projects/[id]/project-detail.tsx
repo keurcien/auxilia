@@ -243,7 +243,7 @@ function ProjectIdentityHeading({ project }: { project: ProjectDetail }) {
 								onClick={() => {
 									void saveEmoji(null);
 								}}
-								className="flex h-9 w-full cursor-pointer items-center gap-2 border-b border-border px-3 text-left text-[11.5px] font-semibold text-label transition-colors hover:bg-hover"
+								className="flex h-9 w-full cursor-pointer items-center gap-2 border-b border-border px-3 text-left text-[11.5px] font-semibold text-label transition-colors hover:bg-hover dark:hover:bg-white/10"
 							>
 								<Folder className="size-3.5 text-petrol" />
 								Use folder icon
@@ -521,7 +521,7 @@ function ResourceMenuButton({ label }: { label: string }) {
 		<button
 			type="button"
 			aria-label={`More options for ${label}`}
-			className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-meta transition-colors hover:bg-hover hover:text-foreground data-[state=open]:bg-hover"
+			className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-meta transition-colors hover:bg-hover hover:text-foreground data-[state=open]:bg-hover dark:hover:bg-white/10 dark:data-[state=open]:bg-white/10"
 		>
 			<MoreVertical className="size-4" />
 		</button>
@@ -777,7 +777,7 @@ function ProjectTreeNavigation({
 					>
 						<div
 							className={cn(
-								"flex h-8 items-center rounded-[6px] transition-colors hover:bg-hover",
+								"flex h-8 items-center rounded-[6px] transition-colors hover:bg-hover dark:hover:bg-white/10",
 								isSelected && "bg-petrol-tint dark:bg-white/10",
 							)}
 							style={{ paddingLeft: `${depth * 12 + 4}px` }}
@@ -854,7 +854,7 @@ function ProjectTreeNavigation({
 						);
 					}}
 					className={cn(
-						"flex h-8 w-full cursor-pointer items-center gap-2 rounded-[6px] px-2 text-left transition-colors hover:bg-hover",
+						"flex h-8 w-full cursor-pointer items-center gap-2 rounded-[6px] px-2 text-left transition-colors hover:bg-hover dark:hover:bg-white/10",
 						selectedFolderId === null && "bg-petrol-tint dark:bg-white/10",
 					)}
 				>
@@ -1439,31 +1439,36 @@ export default function ProjectDetailView({
 							</aside>
 						)}
 						<main className="min-w-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6">
-							<div className="mx-auto max-w-3xl">
-								<div className="mb-4 flex items-end justify-between gap-3">
-									<div className="min-w-0">
-										{selectedFolderId === null ? (
-											<ProjectIdentityHeading project={detail} />
-										) : (
-											<h1 className="truncate font-display text-[20px] font-bold text-foreground">
-												{normalized.foldersById.get(selectedFolderId)?.name}
-											</h1>
-										)}
-										<p className="mt-1 text-[11px] text-meta">
-											{needle
-												? `${searchFolders.length + searchThreads.length + searchTriggers.length} search results`
-												: `${folders.length} folders / ${threads.length} conversations / ${triggers.length} triggers`}
-										</p>
-										{selectedFolderId === null && (
-											<>
-												<ProjectDescription project={detail} />
-												{detail.canManage && (
-													<ProjectVisibilityEditor project={detail} />
-												)}
-											</>
-										)}
-									</div>
+							<div className="mb-4 flex w-full items-end justify-between gap-3">
+								<div className="min-w-0 flex-1">
+									{selectedFolderId === null ? (
+										<ProjectIdentityHeading project={detail} />
+									) : (
+										<h1 className="truncate font-display text-[20px] font-bold text-foreground">
+											{normalized.foldersById.get(selectedFolderId)?.name}
+										</h1>
+									)}
+									<p className="mt-1 text-[11px] text-meta">
+										{needle
+											? `${searchFolders.length + searchThreads.length + searchTriggers.length} search results`
+											: `${folders.length} folders / ${threads.length} conversations / ${triggers.length} triggers`}
+									</p>
+									{selectedFolderId === null && (
+										<>
+											<ProjectDescription project={detail} />
+											{detail.canManage && (
+												<ProjectVisibilityEditor project={detail} />
+											)}
+										</>
+									)}
 								</div>
+							</div>
+							<div
+								className={cn(
+									"w-full",
+									view === "split" && "mx-auto max-w-3xl",
+								)}
+							>
 								{view === "split" && (
 									<div className="mb-4 sm:hidden">
 										<label className="text-[11px] font-semibold text-label">
@@ -1602,7 +1607,7 @@ export default function ProjectDetailView({
 							onClick={() => {
 								setInfoOpen(false);
 							}}
-							className="ml-auto flex size-8 cursor-pointer items-center justify-center rounded-[7px] text-meta hover:bg-hover hover:text-foreground"
+							className="ml-auto flex size-8 cursor-pointer items-center justify-center rounded-[7px] text-meta hover:bg-hover hover:text-foreground dark:hover:bg-white/10"
 						>
 							<X className="size-4" />
 						</button>
