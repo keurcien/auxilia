@@ -29,6 +29,7 @@ from app.runtime.api.protocol_service import ProtocolService
 from app.settings import app_settings
 from app.skills.schemas import SkillSave
 from app.skills.service import SkillService
+from app.threads.schemas import ThreadPlacementFilter
 from app.threads.service import ThreadService
 from app.users.models import WorkspaceRole
 
@@ -57,9 +58,9 @@ def transport_security_settings() -> TransportSecuritySettings:
 auxilia_mcp = MCPServer(
     "Auxilia",
     description=(
-        "Manage an Auxilia workspace: agents, conversations, triggers, skills "
-        "and sources, MCP servers, models, sandboxes, teams, users, invites, "
-        "authentication, observability, appearance, and Slack integrations."
+        "Manage an Auxilia workspace: agents, conversations, projects, triggers, "
+        "skills and sources, MCP servers, models, sandboxes, teams, users, "
+        "invites, authentication, observability, appearance, and integrations."
     ),
     auth_server_provider=auxilia_oauth_provider,
     auth=AuthSettings(
@@ -134,15 +135,24 @@ async def search_conversations(
     query: str | None = None,
     limit: int = 50,
     offset: int = 0,
+    project_id: UUID | None = None,
+    folder_id: UUID | None = None,
+    placement: ThreadPlacementFilter = "all",
 ) -> dict[str, Any]:
-    """Search the caller's conversations by title, first message, or agent name."""
+    """Search owned conversations by title, first message, agent, or placement."""
     if not 1 <= limit <= 200 or offset < 0:
         raise DomainValidationError(
             "limit must be 1..200 and offset must be non-negative"
         )
     async with tool_session(ctx) as (db, user, workspace_id):
         page = await ThreadService(db, workspace_id).list(
-            user.id, PageParams(limit=limit, offset=offset), query=query
+            user.id,
+            PageParams(limit=limit, offset=offset),
+            query=query,
+            project_id=project_id,
+            folder_id=folder_id,
+            placement=placement,
+            include_api=True,
         )
         return to_json(page)
 

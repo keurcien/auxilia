@@ -43,6 +43,17 @@ from app.notifications.service import SlackNotificationSettingsService
 from app.observability.schemas import WorkspaceObservabilityUpdate
 from app.observability.service import WorkspaceObservabilityService
 from app.pagination import PageParams
+from app.projects.schemas import (
+    ProjectConfigUpdate,
+    ProjectContextFileCreate,
+    ProjectContextFileUpdate,
+    ProjectCreate,
+    ProjectFolderCreate,
+    ProjectFolderPatch,
+    ProjectPatch,
+    ProjectSkillsUpdate,
+)
+from app.projects.service import ProjectService
 from app.runtime.hitl import load_interrupt_scopes, pending_approval_requests
 from app.runtime.runs.schemas import RunResponse, queued_prompt_input
 from app.runtime.runs.service import RunService
@@ -55,9 +66,11 @@ from app.teams.schemas import TeamCreate, TeamPatch
 from app.teams.service import TeamService
 from app.threads.models import ThreadSource
 from app.threads.schemas import (
+    ThreadBulkPlacementUpdate,
     ThreadCreate,
     ThreadModelUpdate,
     ThreadPatch,
+    ThreadPlacementUpdate,
     ThreadResourcesPatch,
 )
 from app.threads.service import ThreadService
@@ -196,7 +209,10 @@ def register_management_tools(mcp: MCPServer) -> None:
             )
             return to_json(
                 await ThreadService(db, workspace_id).create(
-                    data, user.id, ThreadSource.api
+                    data,
+                    user.id,
+                    ThreadSource.api,
+                    placement_user=user,
                 )
             )
 
@@ -237,9 +253,43 @@ def register_management_tools(mcp: MCPServer) -> None:
             return to_json(await service.update_resources(thread_id, data))
 
     @mcp.tool()
+    async def set_conversation_placement(
+        thread_id: str, data: ThreadPlacementUpdate, ctx: Context
+    ) -> dict[str, Any]:
+        """Move one owned conversation into a visible project and folder.
+
+        Set both project_id and folder_id to null to remove it from a project.
+        Moving into a shared project makes the conversation visible to that
+        project's audience.
+        """
+        async with tool_session(ctx) as (db, user, workspace_id):
+            return to_json(
+                await ThreadService(db, workspace_id).update_placement(
+                    thread_id, data, user
+                )
+            )
+
+    @mcp.tool()
+    async def set_conversations_placement(
+        data: ThreadBulkPlacementUpdate, ctx: Context
+    ) -> dict[str, Any]:
+        """Atomically move up to 200 owned conversations to one placement.
+
+        Use search_conversations first to select explicit conversation IDs.
+        Set both project_id and folder_id to null to remove them from projects.
+        Moving into a shared project makes them visible to that project's audience.
+        """
+        async with tool_session(ctx) as (db, user, workspace_id):
+            return to_json(
+                await ThreadService(db, workspace_id).update_placements(data, user)
+            )
+
+    @mcp.tool()
     async def delete_conversation(thread_id: str, ctx: Context) -> dict[str, bool]:
         """Permanently delete one conversation owned by the caller."""
         async with tool_session(ctx) as (db, user, workspace_id):
+            if not user.can_delete_threads:
+                raise PermissionDeniedError("Conversation deletion is not allowed")
             service = ThreadService(db, workspace_id)
             thread = await service.get(thread_id)
             if thread.user_id != user.id:
@@ -374,6 +424,198 @@ def register_management_tools(mcp: MCPServer) -> None:
             raise NotFoundError("Run not found")
         return to_json(RunResponse.from_record(record))
 
+    # Projects
+
+    @mcp.tool()
+    async def list_projects(
+        ctx: Context,
+        query: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """List visible projects, optionally matching their name or description."""
+        if not 1 <= limit <= 50:
+            raise DomainValidationError("limit must be between 1 and 50")
+        async with tool_session(ctx) as (db, user, workspace_id):
+            return to_json(
+                await ProjectService(db, workspace_id).list(
+                    user, query=query, limit=limit
+                )
+            )
+
+    @mcp.tool()
+    async def get_project(project_id: UUID, ctx: Context) -> dict[str, Any]:
+        """Read a visible project with its configuration, folders, and content."""
+        async with tool_session(ctx) as (db, user, workspace_id):
+            return to_json(
+                await ProjectService(db, workspace_id).detail(project_id, user)
+            )
+
+    @mcp.tool()
+    async def create_project(data: ProjectCreate, ctx: Context) -> dict[str, Any]:
+        """Create a project owned by the caller."""
+        async with tool_session(ctx) as (db, user, workspace_id):
+            return to_json(await ProjectService(db, workspace_id).create(data, user))
+
+    @mcp.tool()
+    async def update_project(
+        project_id: UUID, data: ProjectPatch, ctx: Context
+    ) -> dict[str, Any]:
+        """Update a managed project's name, emoji, description, or audience."""
+        async with tool_session(ctx) as (db, user, workspace_id):
+            return to_json(
+                await ProjectService(db, workspace_id).update(project_id, data, user)
+            )
+
+    @mcp.tool()
+    async def update_project_config(
+        project_id: UUID, data: ProjectConfigUpdate, ctx: Context
+    ) -> dict[str, Any]:
+        """Replace a managed project's system prompt at its current revision."""
+        async with tool_session(ctx) as (db, user, workspace_id):
+            return to_json(
+                await ProjectService(db, workspace_id).update_config(
+                    project_id, data, user
+                )
+            )
+
+    @mcp.tool()
+    async def delete_project(project_id: UUID, ctx: Context) -> dict[str, bool]:
+        """Delete a managed project and detach its conversations and triggers."""
+        async with tool_session(ctx) as (db, user, workspace_id):
+            await ProjectService(db, workspace_id).delete(project_id, user)
+            return {"deleted": True}
+
+    @mcp.tool()
+    async def list_project_context_files(
+        project_id: UUID, ctx: Context
+    ) -> list[dict[str, Any]]:
+        """List context files in a visible project."""
+        async with tool_session(ctx) as (db, user, workspace_id):
+            return to_json(
+                await ProjectService(db, workspace_id).list_context_files(
+                    project_id, user
+                )
+            )
+
+    @mcp.tool()
+    async def get_project_context_file(file_id: UUID, ctx: Context) -> dict[str, Any]:
+        """Read one visible project context file, including its content."""
+        async with tool_session(ctx) as (db, user, workspace_id):
+            return to_json(
+                await ProjectService(db, workspace_id).get_context_file(file_id, user)
+            )
+
+    @mcp.tool()
+    async def create_project_context_file(
+        project_id: UUID,
+        data: ProjectContextFileCreate,
+        ctx: Context,
+    ) -> dict[str, Any]:
+        """Create a Markdown context file in a managed project."""
+        async with tool_session(ctx) as (db, user, workspace_id):
+            return to_json(
+                await ProjectService(db, workspace_id).create_context_file(
+                    project_id, data, user
+                )
+            )
+
+    @mcp.tool()
+    async def update_project_context_file(
+        file_id: UUID,
+        data: ProjectContextFileUpdate,
+        ctx: Context,
+    ) -> dict[str, Any]:
+        """Replace a project context file at its current revision."""
+        async with tool_session(ctx) as (db, user, workspace_id):
+            return to_json(
+                await ProjectService(db, workspace_id).update_context_file(
+                    file_id, data, user
+                )
+            )
+
+    @mcp.tool()
+    async def delete_project_context_file(
+        file_id: UUID, revision: int, ctx: Context
+    ) -> dict[str, bool]:
+        """Delete a managed project context file at its current revision."""
+        async with tool_session(ctx) as (db, user, workspace_id):
+            await ProjectService(db, workspace_id).delete_context_file(
+                file_id, revision, user
+            )
+            return {"deleted": True}
+
+    @mcp.tool()
+    async def list_project_skills(project_id: UUID, ctx: Context) -> dict[str, Any]:
+        """List the skill bindings and revision of a visible project."""
+        async with tool_session(ctx) as (db, user, workspace_id):
+            return to_json(
+                await ProjectService(db, workspace_id).list_skills(project_id, user)
+            )
+
+    @mcp.tool()
+    async def set_project_skills(
+        project_id: UUID, data: ProjectSkillsUpdate, ctx: Context
+    ) -> dict[str, Any]:
+        """Replace a managed project's skills at its current revision."""
+        async with tool_session(ctx) as (db, user, workspace_id):
+            return to_json(
+                await ProjectService(db, workspace_id).set_skills(
+                    project_id, data, user
+                )
+            )
+
+    @mcp.tool()
+    async def search_project_folders(
+        project_id: UUID,
+        ctx: Context,
+        query: str = "",
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Search folder paths in one visible project."""
+        if not 1 <= limit <= 50:
+            raise DomainValidationError("limit must be between 1 and 50")
+        async with tool_session(ctx) as (db, user, workspace_id):
+            return to_json(
+                await ProjectService(db, workspace_id).search_folders(
+                    project_id, user, query=query, limit=limit
+                )
+            )
+
+    @mcp.tool()
+    async def create_project_folder(
+        project_id: UUID,
+        data: ProjectFolderCreate,
+        ctx: Context,
+    ) -> dict[str, Any]:
+        """Create a folder, optionally nested under another project folder."""
+        async with tool_session(ctx) as (db, user, workspace_id):
+            return to_json(
+                await ProjectService(db, workspace_id).create_folder(
+                    project_id, data, user
+                )
+            )
+
+    @mcp.tool()
+    async def update_project_folder(
+        folder_id: UUID,
+        data: ProjectFolderPatch,
+        ctx: Context,
+    ) -> dict[str, Any]:
+        """Rename or move a managed project folder."""
+        async with tool_session(ctx) as (db, user, workspace_id):
+            return to_json(
+                await ProjectService(db, workspace_id).update_folder(
+                    folder_id, data, user
+                )
+            )
+
+    @mcp.tool()
+    async def delete_project_folder(folder_id: UUID, ctx: Context) -> dict[str, bool]:
+        """Delete a managed project folder and reparent its contents."""
+        async with tool_session(ctx) as (db, user, workspace_id):
+            await ProjectService(db, workspace_id).delete_folder(folder_id, user)
+            return {"deleted": True}
+
     # Triggers
 
     @mcp.tool()
@@ -412,7 +654,7 @@ def register_management_tools(mcp: MCPServer) -> None:
     async def update_trigger(
         trigger_id: UUID, data: TriggerPatch, ctx: Context
     ) -> dict[str, Any]:
-        """Update, pause, resume, or change resource selection for a trigger."""
+        """Update, pause, move, or change resource selection for a trigger."""
         async with tool_session(ctx) as (db, user, workspace_id):
             return to_json(
                 await TriggerService(db, workspace_id).update(trigger_id, data, user)

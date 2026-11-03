@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from sqlalchemy import delete, or_, update
@@ -9,7 +10,12 @@ from app.agents.models import AgentDB
 from app.pagination import PageParams
 from app.repository import BaseRepository
 from app.runtime.runs.state import RunStatus
-from app.threads.models import FIRST_PARTY_SOURCES, ThreadDB, ThreadToolMode
+from app.threads.models import (
+    FIRST_PARTY_SOURCES,
+    ThreadDB,
+    ThreadSource,
+    ThreadToolMode,
+)
 from app.users.models import UserDB
 
 
@@ -35,6 +41,30 @@ class ThreadRepository(BaseRepository[ThreadDB]):
         )
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def lock_owned(self, thread_id: str, user_id: UUID) -> ThreadDB | None:
+        stmt = self._scope(
+            select(ThreadDB)
+            .where(ThreadDB.id == thread_id, ThreadDB.user_id == user_id)
+            .with_for_update()
+        )
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def lock_owned_many(
+        self, thread_ids: list[str], user_id: UUID
+    ) -> list[ThreadDB]:
+        stmt = self._scope(
+            select(ThreadDB)
+            .where(
+                ThreadDB.id.in_(thread_ids),
+                ThreadDB.user_id == user_id,
+            )
+            .order_by(ThreadDB.id)
+            .with_for_update()
+        )
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
 
     async def list_ids_for_agent(self, agent_id: UUID) -> list[str]:
         stmt = self._scope(select(ThreadDB.id).where(ThreadDB.agent_id == agent_id))
@@ -68,8 +98,21 @@ class ThreadRepository(BaseRepository[ThreadDB]):
         return result.one_or_none()
 
     async def list_for_user(
-        self, user_id: UUID, page: PageParams, query: str | None = None
+        self,
+        user_id: UUID,
+        page: PageParams,
+        query: str | None = None,
+        *,
+        project_id: UUID | None = None,
+        folder_id: UUID | None = None,
+        placement: Literal["all", "assigned", "unassigned"] = "all",
+        include_api: bool = False,
     ):
+        sources = (
+            (*FIRST_PARTY_SOURCES, ThreadSource.api)
+            if include_api
+            else FIRST_PARTY_SOURCES
+        )
         stmt = (
             select(
                 ThreadDB,
@@ -81,9 +124,17 @@ class ThreadRepository(BaseRepository[ThreadDB]):
             )
             .join(AgentDB, ThreadDB.agent_id == AgentDB.id)
             .where(ThreadDB.user_id == user_id)
-            .where(ThreadDB.source.in_(FIRST_PARTY_SOURCES))
+            .where(ThreadDB.source.in_(sources))
             .order_by(ThreadDB.created_at.desc(), ThreadDB.id)
         )
+        if project_id is not None:
+            stmt = stmt.where(ThreadDB.project_id == project_id)
+        if folder_id is not None:
+            stmt = stmt.where(ThreadDB.folder_id == folder_id)
+        if placement == "assigned":
+            stmt = stmt.where(ThreadDB.project_id.is_not(None))
+        elif placement == "unassigned":
+            stmt = stmt.where(ThreadDB.project_id.is_(None))
         if query and (term := query.strip()):
             escape = "\\"
             escaped_term = (
@@ -193,6 +244,25 @@ class ThreadRepository(BaseRepository[ThreadDB]):
         stmt = (
             update(ThreadDB)
             .where(ThreadDB.id == thread_id)
+            .values(project_id=project_id, folder_id=folder_id)
+        )
+        if self.workspace_id is not None:
+            stmt = stmt.where(ThreadDB.workspace_id == self.workspace_id)
+        await self.db.execute(stmt)
+
+    async def set_placement_many(
+        self,
+        thread_ids: list[str],
+        user_id: UUID,
+        project_id: UUID | None,
+        folder_id: UUID | None,
+    ) -> None:
+        stmt = (
+            update(ThreadDB)
+            .where(
+                ThreadDB.id.in_(thread_ids),
+                ThreadDB.user_id == user_id,
+            )
             .values(project_id=project_id, folder_id=folder_id)
         )
         if self.workspace_id is not None:

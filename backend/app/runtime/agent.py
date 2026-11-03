@@ -748,6 +748,35 @@ class Agent:
             "agent_id": self.thread.agent_id,
         }
 
+    def _shared_system_context(self) -> str:
+        placement = [
+            "## Current conversation",
+            "",
+            f"- Conversation ID: `{self.thread.id}`",
+            (
+                f"- Project ID: `{self.thread.project_id}`"
+                if self.thread.project_id is not None
+                else "- Project ID: none"
+            ),
+            (
+                f"- Folder ID: `{self.thread.folder_id}`"
+                if self.thread.folder_id is not None
+                else "- Folder ID: none"
+            ),
+            "",
+            "Use this conversation ID when the user refers to this or the current "
+            "conversation. Placement values reflect the start of this run.",
+        ]
+        sections = [
+            (
+                self.project_context.system_context
+                if self.project_context is not None
+                else None
+            ),
+            "\n".join(placement),
+        ]
+        return "\n\n".join(section for section in sections if section)
+
     @property
     def _stream_config(self) -> dict:
         return {
@@ -1070,11 +1099,7 @@ class Agent:
             if self.skills or project_files
             else None
         )
-        shared_context = (
-            self.project_context.system_context
-            if self.project_context is not None
-            else None
-        )
+        shared_context = self._shared_system_context()
         source = self._sandbox_binding()
         source_id = (
             self.thread.sandbox_source_id

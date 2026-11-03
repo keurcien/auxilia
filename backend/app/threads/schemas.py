@@ -63,6 +63,27 @@ class ThreadPlacementUpdate(SQLModel):
     folder_id: UUID | None = None
 
 
+ThreadPlacementFilter = Literal["all", "assigned", "unassigned"]
+
+
+class ThreadBulkPlacementUpdate(BaseModel):
+    thread_ids: list[str] = PydanticField(min_length=1, max_length=200)
+    project_id: UUID | None = None
+    folder_id: UUID | None = None
+
+
+class ThreadPlacementResult(SQLModel):
+    thread_id: str
+    previous_project_id: UUID | None = None
+    previous_folder_id: UUID | None = None
+    project_id: UUID | None = None
+    folder_id: UUID | None = None
+
+
+class ThreadBulkPlacementResponse(SQLModel):
+    items: list[ThreadPlacementResult] = Field(default_factory=list)
+
+
 class ThreadCompletionUpdate(SQLModel):
     completed: bool
 

@@ -1,6 +1,7 @@
 import logging
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,11 +15,14 @@ from app.pagination import Page, PageParams
 from app.threads.dependencies import resolve_viewer_role
 from app.threads.models import ThreadSource
 from app.threads.schemas import (
+    ThreadBulkPlacementResponse,
+    ThreadBulkPlacementUpdate,
     ThreadCompletionUpdate,
     ThreadCreate,
     ThreadMemoriesUpdate,
     ThreadModelUpdate,
     ThreadPatch,
+    ThreadPlacementFilter,
     ThreadPlacementUpdate,
     ThreadResourcesPatch,
     ThreadResponse,
@@ -97,11 +101,30 @@ async def read_thread(
 @router.get("/")
 async def get_threads(
     page: PageParams = Depends(),
-    q: str | None = None,
+    q: str | None = Query(default=None, max_length=255),
+    project_id: UUID | None = None,
+    folder_id: UUID | None = None,
+    placement: ThreadPlacementFilter = "all",
     current_user: UserDB = Depends(get_current_user),
     service: ThreadService = Depends(get_thread_service),
 ) -> Page[ThreadResponse]:
-    return await service.list(current_user.id, page, query=q)
+    return await service.list(
+        current_user.id,
+        page,
+        query=q,
+        project_id=project_id,
+        folder_id=folder_id,
+        placement=placement,
+    )
+
+
+@router.put("/placement/bulk")
+async def update_thread_placements(
+    data: ThreadBulkPlacementUpdate,
+    current_user: UserDB = Depends(get_current_user),
+    service: ThreadService = Depends(get_thread_service),
+) -> ThreadBulkPlacementResponse:
+    return await service.update_placements(data, current_user)
 
 
 @router.post("/")

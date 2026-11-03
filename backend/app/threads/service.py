@@ -29,11 +29,15 @@ from app.threads.models import ThreadDB, ThreadSource, ThreadToolMode
 from app.threads.repository import ThreadRepository
 from app.threads.schemas import (
     AgentThreadResponse,
+    ThreadBulkPlacementResponse,
+    ThreadBulkPlacementUpdate,
     ThreadCompletionUpdate,
     ThreadCreate,
     ThreadMemoriesUpdate,
     ThreadModelUpdate,
     ThreadPatch,
+    ThreadPlacementFilter,
+    ThreadPlacementResult,
     ThreadPlacementUpdate,
     ThreadResourcesPatch,
     ThreadResponse,
@@ -124,9 +128,31 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
         return response
 
     async def list(
-        self, user_id: UUID, page: PageParams, query: str | None = None
+        self,
+        user_id: UUID,
+        page: PageParams,
+        query: str | None = None,
+        *,
+        project_id: UUID | None = None,
+        folder_id: UUID | None = None,
+        placement: ThreadPlacementFilter = "all",
+        include_api: bool = False,
     ) -> Page[ThreadResponse]:
-        rows, total = await self.repository.list_for_user(user_id, page, query=query)
+        if placement == "unassigned" and (
+            project_id is not None or folder_id is not None
+        ):
+            raise DomainValidationError(
+                "Unassigned conversations cannot be filtered by project or folder"
+            )
+        rows, total = await self.repository.list_for_user(
+            user_id,
+            page,
+            query=query,
+            project_id=project_id,
+            folder_id=folder_id,
+            placement=placement,
+            include_api=include_api,
+        )
         return Page.build([_thread_with_agent(*row) for row in rows], total, page)
 
     async def list_for_agent(
@@ -599,7 +625,7 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
             user,
             lock_project=data.project_id is not None,
         )
-        thread = await self.repository.lock(thread_id)
+        thread = await self.repository.lock_owned(thread_id, user.id)
         if thread is None:
             raise NotFoundError(self.not_found_message)
         previous_project_id = thread.project_id
@@ -618,6 +644,55 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
                 kind=WorkspaceEventKind.projects,
             )
         return await self.get_with_agent(thread_id)
+
+    async def update_placements(
+        self,
+        data: ThreadBulkPlacementUpdate,
+        user: UserDB,
+    ) -> ThreadBulkPlacementResponse:
+        thread_ids = list(dict.fromkeys(data.thread_ids))
+        await ProjectService(self.db, self.workspace_id).validate_placement(
+            data.project_id,
+            data.folder_id,
+            user,
+            lock_project=data.project_id is not None,
+        )
+        threads = await self.repository.lock_owned_many(thread_ids, user.id)
+        if len(threads) != len(thread_ids):
+            raise NotFoundError(self.not_found_message)
+
+        by_id = {thread.id: thread for thread in threads}
+        items = [
+            ThreadPlacementResult(
+                thread_id=thread_id,
+                previous_project_id=by_id[thread_id].project_id,
+                previous_folder_id=by_id[thread_id].folder_id,
+                project_id=data.project_id,
+                folder_id=data.folder_id,
+            )
+            for thread_id in thread_ids
+        ]
+        await self.repository.set_placement_many(
+            thread_ids,
+            user.id,
+            data.project_id,
+            data.folder_id,
+        )
+        await stage_workspace_event(
+            self.db,
+            workspace_id=self.workspace_id,
+            kind=WorkspaceEventKind.threads,
+            target_user_id=user.id,
+        )
+        if data.project_id is not None or any(
+            item.previous_project_id is not None for item in items
+        ):
+            await stage_workspace_event(
+                self.db,
+                workspace_id=self.workspace_id,
+                kind=WorkspaceEventKind.projects,
+            )
+        return ThreadBulkPlacementResponse(items=items)
 
     async def update_completion(
         self,
