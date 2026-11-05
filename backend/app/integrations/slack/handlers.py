@@ -7,6 +7,7 @@
 
 import logging
 
+from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +27,7 @@ from app.integrations.slack.commands.chat import (
     post_agent_picker,
 )
 from app.integrations.slack.consumer import build_slack_delivery
+from app.integrations.slack.history import thread_history_messages
 from app.integrations.slack.models import SlackEvent, SlackInteractionPayload
 from app.integrations.slack.settings import slack_settings
 from app.integrations.slack.utils import get_user_info, resolve_user
@@ -51,7 +53,7 @@ async def _enqueue_slack_run(
     team_id: str | None,
     input: dict | None = None,
     command: dict | None = None,
-) -> None:
+) -> bool:
     """Create a durable run for a Slack turn; the worker executes + delivers it.
 
     A duplicate that slips the webhook dedup races the per-thread mutex and is
@@ -73,6 +75,8 @@ async def _enqueue_slack_run(
         )
     except DomainValidationError:
         logger.info("Slack run for thread %s skipped: active run exists", thread_id)
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -471,31 +475,47 @@ async def handle_message(event: SlackEvent, *, team_id: str | None = None) -> No
             )
             return
 
-        await client.assistant_threads_setStatus(
-            channel_id=event.channel,
-            thread_ts=thread_ts,
-            status="is typing...",
-        )
+        first_turn = not thread.first_message_content
 
-        # Set the Slack thread title to the first real user message.
-        if not thread.first_message_content:
-            thread.first_message_content = question
-            await db.commit()
-            await client.assistant_threads_setTitle(
-                channel_id=event.channel,
-                thread_ts=thread_ts,
-                title=question[:255],
+    messages = []
+    if first_turn and event.thread_ts and event.ts:
+        try:
+            messages = await thread_history_messages(
+                client, event.channel, thread_ts, event.ts
             )
+        except (SlackApiError, ValueError):
+            logger.warning("Unable to import Slack thread %s", thread_ts, exc_info=True)
+            await client.chat_postMessage(
+                channel=event.channel,
+                thread_ts=thread_ts,
+                text="I couldn't read the earlier thread messages. Please check the app's channel access and history permissions, then resend your message.",
+            )
+            return
+    messages = [*messages, {"type": "human", "content": question}]
+
+    await client.assistant_threads_setStatus(
+        channel_id=event.channel,
+        thread_ts=thread_ts,
+        status="is typing...",
+    )
 
     try:
-        await _enqueue_slack_run(
+        created = await _enqueue_slack_run(
             thread_id=thread_ts,
             user_id=str(user.id),
             channel_id=event.channel,
             slack_user_id=event.user,
             team_id=team_id,
-            input={"messages": [{"type": "human", "content": question}]},
+            input={"messages": messages},
         )
+        if created and first_turn:
+            async with AsyncSessionLocal() as db:
+                thread = await db.get(ThreadDB, thread_ts)
+                thread.first_message_content = question
+                await db.commit()
+            await client.assistant_threads_setTitle(
+                channel_id=event.channel, thread_ts=thread_ts, title=question[:255]
+            )
     except ModelUnavailableError as exc:
         # exc.detail carries the precise reason (disabled by admin / provider
         # key missing / removed from the catalog) — a fixed "ask an admin to

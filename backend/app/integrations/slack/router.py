@@ -9,7 +9,10 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from redis.exceptions import RedisError
 
-from app.integrations.slack.commands.chat import handle_agent_selection
+from app.integrations.slack.commands.chat import (
+    handle_agent_options,
+    handle_agent_selection,
+)
 from app.integrations.slack.handlers import (
     handle_assistant_thread_started,
     handle_interaction,
@@ -104,6 +107,9 @@ async def slack_interactions(body: bytes = Depends(verify_slack_signature)):
         return JSONResponse(content={"ok": True})
 
     payload = SlackInteractionPayload.model_validate(json.loads(raw_payload))
+
+    if payload.type == "block_suggestion":
+        return JSONResponse(content=await handle_agent_options(payload))
 
     if payload.type == "block_actions":
         action = payload.actions[0] if payload.actions else None

@@ -53,7 +53,17 @@ Under **Interactivity & Shortcuts**, enable interactivity and set the **Request 
 <BACKEND_URL>/integrations/slack/interactions
 ```
 
-This is where **Approve / Reject** button clicks are delivered.
+This endpoint receives agent selections and **Approve / Reject** button clicks.
+
+Also set **Select Menus → Options Load URL** to the same URL:
+
+```
+<BACKEND_URL>/integrations/slack/interactions
+```
+
+The agent picker uses this endpoint to search all agents the requesting user can access. Each response contains up to 100 matches; typing a name or agent ID searches the full list.
+
+Before the first agent run in an existing Slack thread, auxilia fetches all pages of earlier message text using `conversations.replies`. The bot needs access to the conversation and its corresponding history scope. If Slack denies the read, auxilia reports the failure and asks the user to retry instead of answering with missing context. File contents are not imported.
 
 ## Which model Slack threads use
 

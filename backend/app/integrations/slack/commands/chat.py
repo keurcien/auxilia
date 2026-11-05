@@ -11,14 +11,13 @@ from app.agents.schemas import AgentListResponse
 from app.database import AsyncSessionLocal
 from app.integrations.slack.models import SlackInteractionPayload
 from app.integrations.slack.settings import slack_settings
-from app.integrations.slack.utils import get_user_info
+from app.integrations.slack.utils import get_user_info, resolve_user
 from app.threads.service import ThreadService
 from app.users.models import WorkspaceRole
 from app.users.repository import UserRepository
 
 
-# Slack caps a static_select at 100 options. Past that we'd need option groups
-# or an external_select; treat it as a soft ceiling and surface the truncation.
+# Slack caps each external-select search response at 100 options.
 MAX_OPTIONS = 100
 
 DEFAULT_PICKER_HEADER = "Choose an agent for this thread:"
@@ -54,52 +53,66 @@ def _agent_option(agent: AgentListResponse) -> dict:
     return {
         "text": {
             "type": "plain_text",
-            "text": f"{agent.emoji or ''} {agent.name}".strip(),
+            "text": f"{agent.emoji or ''} {agent.name}".strip()[:75],
         },
         "value": str(agent.id),
     }
 
 
 def build_agent_picker_blocks(
-    agents: list[AgentListResponse],
+    _agents: list[AgentListResponse],
     *,
     header_text: str = DEFAULT_PICKER_HEADER,
 ) -> list[dict]:
-    """Build the picker as a single static_select.
-
-    A dropdown scrolls/filters natively and sidesteps Slack's button-overflow
-    UI (the "+ N more" chip that fights a paginated button grid in the
-    AI-assistant thread view). Slack caps options at ``MAX_OPTIONS``; beyond
-    that we render the first N and append a truncation note.
-    """
-    options = [_agent_option(a) for a in agents[:MAX_OPTIONS]]
-    blocks: list[dict] = [
+    """Use server-side search so every accessible agent can be selected."""
+    return [
         {"type": "section", "text": {"type": "mrkdwn", "text": header_text}},
         {
             "type": "actions",
             "elements": [
                 {
-                    "type": "static_select",
+                    "type": "external_select",
                     "action_id": SELECT_AGENT_ACTION_ID,
-                    "placeholder": {"type": "plain_text", "text": "Pick an agent…"},
-                    "options": options,
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "Search agents by name or ID…",
+                    },
+                    "min_query_length": 0,
                 }
             ],
         },
     ]
-    if len(agents) > MAX_OPTIONS:
-        blocks.append(
-            {
-                "type": "context",
-                "elements": [
-                    {
-                        "type": "mrkdwn",
-                        "text": f"_Showing the first {MAX_OPTIONS} of {len(agents)} agents._",
-                    }
-                ],
-            }
+
+
+def search_agent_options(agents: list[AgentListResponse], query: str) -> list[dict]:
+    """Filter before limiting; exact names precede prefixes and substrings."""
+    query = query.strip().casefold()
+    matches = [
+        a for a in agents if query in (a.name or "").casefold() or query == str(a.id)
+    ]
+    matches.sort(
+        key=lambda a: (
+            0
+            if query in ((a.name or "").casefold(), str(a.id))
+            else 1
+            if (a.name or "").casefold().startswith(query)
+            else 2,
+            (a.name or "").casefold(),
+            str(a.id),
         )
-    return blocks
+    )
+    return [_agent_option(a) for a in matches[:MAX_OPTIONS]]
+
+
+async def handle_agent_options(payload: SlackInteractionPayload) -> dict:
+    if payload.action_id != SELECT_AGENT_ACTION_ID:
+        return {"options": []}
+    user = await resolve_user(payload.user.id)
+    if not user:
+        return {"options": []}
+    async with AsyncSessionLocal() as db:
+        agents = await list_pickable_agents(db, user.id, user.role, user.team_id)
+    return {"options": search_agent_options(agents, payload.value or "")}
 
 
 def _build_agent_selected_blocks(agent: AgentDB) -> list[dict]:
@@ -171,7 +184,9 @@ async def handle_agent_selection(payload: SlackInteractionPayload) -> None:
         if payload.container
         else None
     )
-    thread_ts = payload.container.thread_ts if payload.container else None
+    thread_ts = (payload.container.thread_ts if payload.container else None) or (
+        payload.message.thread_ts if payload.message else None
+    )
     message_ts = payload.container.message_ts if payload.container else None
     if not channel_id or not thread_ts:
         return
@@ -185,8 +200,11 @@ async def handle_agent_selection(payload: SlackInteractionPayload) -> None:
     if not user:
         return
 
-    # Fetch the agent
+    # Recheck access at selection time: suggestions can be stale or forged.
     async with AsyncSessionLocal() as db:
+        allowed = await list_pickable_agents(db, user.id, user.role, user.team_id)
+        if not any(str(a.id) == agent_id for a in allowed):
+            return
         agent = await db.get(AgentDB, agent_id)
     if not agent:
         return
