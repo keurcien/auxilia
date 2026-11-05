@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.24](https://github.com/keurcien/auxilia/compare/backend-v0.9.23...backend-v0.9.24) (2026-11-05)
+
+
+### Features
+
+* **slack:** search all accessible agents and import existing thread context ([d9925f4](https://github.com/keurcien/auxilia/commit/d9925f479bc645b85df214bc37cf56286aec35ba))
+
 ## [0.9.23](https://github.com/keurcien/auxilia/compare/backend-v0.9.22...backend-v0.9.23) (2026-10-28)
 
 
