@@ -2,6 +2,9 @@
 
 from types import SimpleNamespace
 
+import pytest
+from slack_sdk.errors import SlackRequestError
+
 import app.integrations.slack.handlers as handlers_mod
 from app.exceptions import DomainValidationError
 from app.integrations.slack.blocks import build_tool_approval_blocks
@@ -587,7 +590,17 @@ async def test_resume_agent_reports_a_lost_race_as_already_handled(monkeypatch):
     assert "already handled" in posts[0]["text"].lower()
 
 
-async def test_first_turn_imports_history_once_and_retries_failures(monkeypatch):
+@pytest.mark.parametrize(
+    "failure",
+    [
+        ValueError("incomplete history"),
+        SlackRequestError("connection failed"),
+        TimeoutError("timeout"),
+    ],
+)
+async def test_first_turn_imports_history_once_and_retries_failures(
+    monkeypatch, failure
+):
     from unittest.mock import AsyncMock
 
     from app.integrations.slack.models import SlackEvent
@@ -604,7 +617,7 @@ async def test_first_turn_imports_history_once_and_retries_failures(monkeypatch)
     monkeypatch.setattr(handlers_mod, "_is_agent_ready", AsyncMock(return_value=True))
     client = AsyncMock()
     monkeypatch.setattr(handlers_mod, "AsyncWebClient", lambda **kw: client)
-    history = AsyncMock(side_effect=ValueError("incomplete history"))
+    history = AsyncMock(side_effect=failure)
     monkeypatch.setattr(handlers_mod, "thread_history_messages", history)
     enqueue = AsyncMock(return_value=True)
     monkeypatch.setattr(handlers_mod, "_enqueue_slack_run", enqueue)
@@ -619,6 +632,9 @@ async def test_first_turn_imports_history_once_and_retries_failures(monkeypatch)
 
     await handlers_mod.handle_message(event)
     enqueue.assert_not_awaited()
+    client.chat_postMessage.assert_awaited_once()
+    assert client.chat_postMessage.await_args.kwargs["thread_ts"] == "1.0"
+    assert "couldn't read" in client.chat_postMessage.await_args.kwargs["text"]
     assert thread.first_message_content is None
     history.side_effect = None
     history.return_value = [{"type": "human", "content": "earlier"}]

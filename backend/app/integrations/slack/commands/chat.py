@@ -1,5 +1,7 @@
 """Slack agent picker — lets users pick an agent for the current thread."""
 
+import asyncio
+import logging
 from uuid import UUID
 
 from slack_sdk.web.async_client import AsyncWebClient
@@ -19,6 +21,8 @@ from app.users.repository import UserRepository
 
 # Slack caps each external-select search response at 100 options.
 MAX_OPTIONS = 100
+OPTIONS_TIMEOUT_SECONDS = 2.5
+logger = logging.getLogger(__name__)
 
 DEFAULT_PICKER_HEADER = "Choose an agent for this thread:"
 SELECT_AGENT_ACTION_ID = "select_agent"
@@ -107,12 +111,20 @@ def search_agent_options(agents: list[AgentListResponse], query: str) -> list[di
 async def handle_agent_options(payload: SlackInteractionPayload) -> dict:
     if payload.action_id != SELECT_AGENT_ACTION_ID:
         return {"options": []}
-    user = await resolve_user(payload.user.id)
-    if not user:
+    try:
+        # Includes cache misses and database work; leave time for HTTP serialization.
+        async with asyncio.timeout(OPTIONS_TIMEOUT_SECONDS):
+            user = await resolve_user(payload.user.id)
+            if not user:
+                return {"options": []}
+            async with AsyncSessionLocal() as db:
+                agents = await list_pickable_agents(
+                    db, user.id, user.role, user.team_id
+                )
+            return {"options": search_agent_options(agents, payload.value or "")}
+    except TimeoutError:
+        logger.warning("Slack agent options timed out")
         return {"options": []}
-    async with AsyncSessionLocal() as db:
-        agents = await list_pickable_agents(db, user.id, user.role, user.team_id)
-    return {"options": search_agent_options(agents, payload.value or "")}
 
 
 def _build_agent_selected_blocks(agent: AgentDB) -> list[dict]:
@@ -187,7 +199,9 @@ async def handle_agent_selection(payload: SlackInteractionPayload) -> None:
     thread_ts = (payload.container.thread_ts if payload.container else None) or (
         payload.message.thread_ts if payload.message else None
     )
-    message_ts = payload.container.message_ts if payload.container else None
+    message_ts = (payload.container.message_ts if payload.container else None) or (
+        payload.message.ts if payload.message else None
+    )
     if not channel_id or not thread_ts:
         return
 

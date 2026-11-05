@@ -884,3 +884,27 @@ async def test_a_turn_cancelled_before_any_text_saves_nothing(
     with suppress(asyncio.CancelledError):
         await task
     assert [m.type for m in await final_messages(in_memory_runtime)] == ["human"]
+
+
+async def test_trusted_slack_history_retains_host_notice(in_memory_runtime):
+    from unittest.mock import AsyncMock
+
+    from app.integrations.slack.history import thread_history_messages
+
+    client = AsyncMock()
+    client.conversations_replies.return_value = {
+        "messages": [{"ts": "1.0", "user": "U1", "text": "earlier context"}]
+    }
+    history = await thread_history_messages(client, "C1", "1.0", "2.0")
+    agent, _ = build_agent(script=["answer"])
+    async for _ in agent.stream(
+        agent_input={"messages": [*history, {"type": "human", "content": "question"}]},
+        trusted_host_notices=True,
+    ):
+        pass
+    [notice, question, _answer] = await final_messages(in_memory_runtime)
+    assert notice.name == "host"
+    assert notice.additional_kwargs["host_notice"] == "slack_thread_history"
+    assert notice.id == "slack-history:C1:1.0"
+    assert "earlier context" in notice.content
+    assert question.content == "question"

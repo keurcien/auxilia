@@ -70,3 +70,55 @@ async def test_options_resolve_current_user_permissions(monkeypatch):
     )
     chat.resolve_user.return_value = None
     assert await chat.handle_agent_options(payload) == {"options": []}
+
+
+async def test_options_deadline_cancels_slow_identity_lookup(monkeypatch):
+    import asyncio
+
+    lookup = AsyncMock(side_effect=lambda: None)
+
+    async def slow_lookup(_user):
+        await asyncio.Event().wait()
+
+    lookup.side_effect = slow_lookup
+    monkeypatch.setattr(chat, "resolve_user", lookup)
+    monkeypatch.setattr(chat, "OPTIONS_TIMEOUT_SECONDS", 0.01)
+    payload = SlackInteractionPayload(
+        type="block_suggestion", user={"id": "U1"}, action_id="select_agent"
+    )
+    assert await asyncio.wait_for(chat.handle_agent_options(payload), timeout=0.5) == {
+        "options": []
+    }
+
+
+async def test_selection_replaces_picker_without_container(monkeypatch):
+    agent = _agents(1)[0]
+    user = SimpleNamespace(id=uuid4(), role="member", team_id=None)
+    info = SimpleNamespace(profile=SimpleNamespace(email="member@example.com"))
+    monkeypatch.setattr(chat, "get_user_info", AsyncMock(return_value=info))
+    repo = SimpleNamespace(get_by_email=AsyncMock(return_value=user))
+    monkeypatch.setattr(chat, "UserRepository", lambda _db: repo)
+    db = AsyncMock()
+    db.get.return_value = agent
+    session = AsyncMock()
+    session.__aenter__.return_value = db
+    monkeypatch.setattr(chat, "AsyncSessionLocal", lambda: session)
+    monkeypatch.setattr(chat, "list_pickable_agents", AsyncMock(return_value=[agent]))
+    service = SimpleNamespace(get_or_create=AsyncMock())
+    monkeypatch.setattr(chat, "ThreadService", lambda _db: service)
+    client = AsyncMock()
+    monkeypatch.setattr(chat, "AsyncWebClient", lambda **_kwargs: client)
+    payload = SlackInteractionPayload(
+        type="block_actions",
+        user={"id": "U1"},
+        channel={"id": "C1"},
+        message={"ts": "2.0", "thread_ts": "1.0"},
+        actions=[
+            {"action_id": "select_agent", "selected_option": {"value": str(agent.id)}}
+        ],
+    )
+    await chat.handle_agent_selection(payload)
+    service.get_or_create.assert_awaited_once()
+    assert service.get_or_create.await_args.kwargs["ts"] == "1.0"
+    client.chat_update.assert_awaited_once()
+    assert client.chat_update.await_args.kwargs["ts"] == "2.0"

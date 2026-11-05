@@ -243,3 +243,7 @@ def test_options_are_returned_in_webhook_response(slack_client, spawned, monkeyp
     assert response.json() == options
     assert spawned == []
     handler.assert_awaited_once()
+    forwarded = handler.await_args.args[0]
+    assert forwarded.value == "Agent"
+    assert forwarded.action_id == "select_agent"
+    assert forwarded.user.id == "U1"

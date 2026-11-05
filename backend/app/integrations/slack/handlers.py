@@ -7,7 +7,8 @@
 
 import logging
 
-from slack_sdk.errors import SlackApiError
+from aiohttp import ClientError
+from slack_sdk.errors import SlackClientError
 from slack_sdk.web.async_client import AsyncWebClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -483,7 +484,7 @@ async def handle_message(event: SlackEvent, *, team_id: str | None = None) -> No
             messages = await thread_history_messages(
                 client, event.channel, thread_ts, event.ts
             )
-        except (SlackApiError, ValueError):
+        except (SlackClientError, ClientError, TimeoutError, ValueError):
             logger.warning("Unable to import Slack thread %s", thread_ts, exc_info=True)
             await client.chat_postMessage(
                 channel=event.channel,
