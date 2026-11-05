@@ -652,7 +652,13 @@ class Agent:
             format_mode=PROVIDER_FORMAT_MODES.get(self.provider, FORMAT_TOOL),
         )
 
-    def _resolve_input(self, agent_input: dict | None, command: dict | None):
+    def _resolve_input(
+        self,
+        agent_input: dict | None,
+        command: dict | None,
+        *,
+        trusted_host_notices: bool = False,
+    ):
         """Resolve raw input/command dicts into the value to pass to the agent.
 
         The message dicts come from a client (the chat UI, a trigger, Slack), so
@@ -674,7 +680,8 @@ class Agent:
             raise DomainValidationError(f"Invalid run input: {e}") from e
         for message in messages:
             # The host-notice marker is the runtime's own; a client can't claim it.
-            message.additional_kwargs.pop("host_notice", None)
+            if not trusted_host_notices:
+                message.additional_kwargs.pop("host_notice", None)
         return {"messages": messages}
 
     async def _resolve_config(
@@ -731,6 +738,7 @@ class Agent:
         trigger: str | None,
         config_overrides: dict | None,
         output_schema: dict | None = None,
+        trusted_host_notices: bool = False,
     ):
         """Open a checkpointer scope and yield (agent, resolved_input, config).
 
@@ -765,7 +773,9 @@ class Agent:
                 ra.live = live
             await self._open_sandbox()
             agent = self._build_agent(checkpointer, output_schema)
-            resolved_input = self._resolve_input(agent_input, command)
+            resolved_input = self._resolve_input(
+                agent_input, command, trusted_host_notices=trusted_host_notices
+            )
             config, resolved_input = await self._resolve_config(
                 agent, checkpointer, trigger, config_overrides, resolved_input
             )
@@ -901,6 +911,7 @@ class Agent:
         trigger: str | None = None,
         config_overrides: dict | None = None,
         output_schema: dict | None = None,
+        trusted_host_notices: bool = False,
     ):
         """Run one turn, yielding Agent Streaming Protocol events (`{method,
         params}` dicts — see `app/runtime/protocol/emit.py`).
@@ -914,6 +925,8 @@ class Agent:
 
         Args:
             agent_input: Graph input dict (e.g. {"messages": [{"type": "human", ...}]}) or None for resume.
+            trusted_host_notices: Internal-only permission to preserve host markers
+                in server-authored Slack inputs. Never exposed by the public API.
             command: LangGraph Command dict (e.g. {"resume": {...}}) for HITL resume.
             trigger: Optional trigger ("regenerate-message") for regeneration.
             config_overrides: Optional config dict with configurable overrides.
@@ -921,7 +934,12 @@ class Agent:
                 `structured_response` in its final state (read via `read_run_result`).
         """
         async with self._setup(
-            agent_input, command, trigger, config_overrides, output_schema
+            agent_input,
+            command,
+            trigger,
+            config_overrides,
+            output_schema,
+            trusted_host_notices,
         ) as (
             agent,
             stream_input,

@@ -13,7 +13,9 @@ There are two ways to invoke an agent:
 1. **Mention the bot in a channel** — type `@auxilia` in any channel the bot is in. The bot replies with a picker listing the agents you have access to.
 2. **Start an assistant thread** — Slack shows an "Assistants" entry in the sidebar; opening one gives you a private thread with the bot.
 
-Pick an agent from the picker to start a conversation. Every Slack thread maps to a dedicated **auxilia** thread — so the agent remembers the context as the conversation continues.
+Search for an agent by name (or paste its ID) in the picker to start a conversation. With an empty search, agents appear alphabetically. Searches rank exact matches first, followed by name prefixes and other matches, alphabetically within each group. Every Slack thread maps to a dedicated **auxilia** thread — so the agent remembers the context as the conversation continues.
+
+When joining an existing Slack thread, the first message you send after selecting an agent includes the earlier thread message text as context, including the parent message. Subsequent turns use auxilia's saved conversation history. Attachments are not downloaded, and very long threads remain subject to the model's context limits.
 
 ### Having the conversation
 
@@ -54,4 +56,4 @@ Each Slack thread has its own memory. To start fresh with the same agent, just o
 
 **"The bot said it doesn't recognize me"** — your Slack email doesn't match an account in **auxilia**. Sign up in the web app with the same email you use in Slack, then try again.
 
-**"I don't see the agent I want in the picker"** — an admin hasn't shared it with you yet. Ask them to grant you access on the agent's permissions page.
+**"I don't see the agent I want in the picker"** — type its name or ID to search beyond the first 100 results. If it is still absent, check your agent permissions. If no options load at all, ask an admin to check the Options Load URL in the Slack app settings.

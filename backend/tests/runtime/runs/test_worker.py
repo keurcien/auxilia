@@ -784,3 +784,25 @@ async def test_a_due_fallback_does_not_wait_for_redis(
             return len(dispatcher.claims) >= 2
 
         await until(_two, what="the fallback to claim past a hanging LPOP")
+
+
+@pytest.mark.usefixtures("patch_agent")
+@pytest.mark.parametrize(
+    "delivery, trusted", [(None, False), ({"channel": "slack"}, True)]
+)
+async def test_worker_trusts_host_notices_only_for_server_slack_delivery(
+    redis, monkeypatch, delivery, trusted
+):
+    inputs = []
+
+    async def stream(self, **kwargs):
+        inputs.append(kwargs)
+        yield _event(1)
+
+    monkeypatch.setattr(_FakeAgent, "stream", stream)
+    service = RunService(redis)
+    record = await _create_and_claim(service, thread_id="t1", delivery=delivery)
+    await RunWorker(redis).run(record)
+    assert (await service.get(record.id)).status == RunStatus.success
+    assert len(inputs) == 1
+    assert inputs[0]["trusted_host_notices"] is trusted

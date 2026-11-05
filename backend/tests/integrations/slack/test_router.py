@@ -216,3 +216,34 @@ async def test_claim_delivery_uses_set_nx_ex(monkeypatch):
     assert await router_module._claim_delivery("slack:event:x") is True
     assert recorded["nx"] is True
     assert recorded["ex"] == router_module._DEDUP_TTL_SECONDS
+
+
+def test_options_are_returned_in_webhook_response(slack_client, spawned, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    options = {
+        "options": [{"text": {"type": "plain_text", "text": "Agent"}, "value": "id"}]
+    }
+    handler = AsyncMock(return_value=options)
+    monkeypatch.setattr(router_module, "handle_agent_options", handler)
+    response = slack_client.post(
+        "/integrations/slack/interactions",
+        data={
+            "payload": json.dumps(
+                {
+                    "type": "block_suggestion",
+                    "user": {"id": "U1"},
+                    "action_id": "select_agent",
+                    "value": "Agent",
+                }
+            )
+        },
+    )
+    assert response.status_code == 200
+    assert response.json() == options
+    assert spawned == []
+    handler.assert_awaited_once()
+    forwarded = handler.await_args.args[0]
+    assert forwarded.value == "Agent"
+    assert forwarded.action_id == "select_agent"
+    assert forwarded.user.id == "U1"

@@ -97,6 +97,8 @@ class SlackInteractionPayload(BaseModel):
     container: SlackInteractionContainer | None = None
     message: SlackInteractionMessage | None = None
     message_ts: str | None = None
+    action_id: str | None = None
+    value: str | None = None
     callback_id: str | None = None
     team: dict | None = None
 

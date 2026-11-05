@@ -204,6 +204,10 @@ class RunWorker:
                 aclosing(
                     agent.stream(
                         agent_input=record.input,
+                        # Delivery is set only by server integrations, never by
+                        # the public run API. Slack history is host-authored.
+                        trusted_host_notices=(record.delivery or {}).get("channel")
+                        == "slack",
                         command=record.command,
                         trigger=record.trigger,
                         config_overrides=record.config_overrides,

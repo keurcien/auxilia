@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import hmac
 import logging
@@ -5,10 +6,13 @@ import time
 
 import httpx
 from fastapi import Header, HTTPException, Request
+from pydantic import ValidationError
+from redis.exceptions import RedisError
 
 from app.database import AsyncSessionLocal
 from app.integrations.slack.models import SlackUserInfo
 from app.integrations.slack.settings import slack_settings
+from app.redis_client import get_redis
 from app.users.models import UserDB
 from app.users.repository import UserRepository
 
@@ -54,7 +58,24 @@ async def verify_slack_signature(
 
 
 async def get_user_info(user_id: str) -> SlackUserInfo | None:
-    """Get user information from Slack API."""
+    """Cache Slack identity for five minutes; permissions still come from the DB.
+
+    Picker-opening events warm this shared cache before typeahead requests.
+    Namespace by bot token so replacing a workspace connection cannot reuse
+    another workspace's identities. Cache failures fall back to Slack.
+    """
+    token_hash = hashlib.sha256(slack_settings.slack_bot_token.encode()).hexdigest()
+    cache_key = f"slack:user-info:{token_hash}:{user_id}"
+    try:
+        async with asyncio.timeout(0.2):
+            cached = await get_redis().get(cache_key)
+        if cached:
+            return SlackUserInfo.model_validate_json(cached)
+    except ValidationError:
+        # Pydantic tracebacks include rejected input, potentially profile emails.
+        logger.warning("Slack identity cache payload failed validation")
+    except (RedisError, TimeoutError):
+        logger.warning("Slack identity cache read failed", exc_info=True)
     url = "https://slack.com/api/users.info"
     headers = {"Authorization": f"Bearer {slack_settings.slack_bot_token}"}
     params = {"user": user_id}
@@ -66,8 +87,17 @@ async def get_user_info(user_id: str) -> SlackUserInfo | None:
 
             data = response.json()
             if data.get("ok"):
-                return SlackUserInfo.model_validate(data.get("user"))
+                user = SlackUserInfo.model_validate(data.get("user"))
+                try:
+                    async with asyncio.timeout(0.2):
+                        await get_redis().set(cache_key, user.model_dump_json(), ex=300)
+                except (RedisError, TimeoutError):
+                    logger.warning("Slack identity cache write failed", exc_info=True)
+                return user
             logger.warning("Slack API error (users.info): %s", data.get("error"))
+            return None
+        except ValidationError:
+            logger.warning("Slack users.info payload failed validation")
             return None
         except httpx.HTTPStatusError as e:
             logger.warning(

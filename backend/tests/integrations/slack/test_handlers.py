@@ -2,6 +2,9 @@
 
 from types import SimpleNamespace
 
+import pytest
+from slack_sdk.errors import SlackRequestError
+
 import app.integrations.slack.handlers as handlers_mod
 from app.exceptions import DomainValidationError
 from app.integrations.slack.blocks import build_tool_approval_blocks
@@ -585,3 +588,70 @@ async def test_resume_agent_reports_a_lost_race_as_already_handled(monkeypatch):
 
     assert len(posts) == 1
     assert "already handled" in posts[0]["text"].lower()
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        ValueError("incomplete history"),
+        SlackRequestError("connection failed"),
+        TimeoutError("timeout"),
+    ],
+)
+async def test_first_turn_imports_history_once_and_retries_failures(
+    monkeypatch, failure
+):
+    from unittest.mock import AsyncMock
+
+    from app.integrations.slack.models import SlackEvent
+
+    thread = SimpleNamespace(agent_id="a1", first_message_content=None)
+    db = AsyncMock()
+    db.get.return_value = thread
+    session = AsyncMock()
+    session.__aenter__.return_value = db
+    monkeypatch.setattr(handlers_mod, "AsyncSessionLocal", lambda: session)
+    monkeypatch.setattr(
+        handlers_mod, "resolve_user", AsyncMock(return_value=SimpleNamespace(id="u1"))
+    )
+    monkeypatch.setattr(handlers_mod, "_is_agent_ready", AsyncMock(return_value=True))
+    client = AsyncMock()
+    monkeypatch.setattr(handlers_mod, "AsyncWebClient", lambda **kw: client)
+    history = AsyncMock(side_effect=failure)
+    monkeypatch.setattr(handlers_mod, "thread_history_messages", history)
+    enqueue = AsyncMock(return_value=True)
+    monkeypatch.setattr(handlers_mod, "_enqueue_slack_run", enqueue)
+    event = SlackEvent(
+        type="message",
+        user="U1",
+        channel="C1",
+        thread_ts="1.0",
+        ts="2.0",
+        text="question",
+    )
+
+    await handlers_mod.handle_message(event)
+    enqueue.assert_not_awaited()
+    client.chat_postMessage.assert_awaited_once()
+    assert client.chat_postMessage.await_args.kwargs["thread_ts"] == "1.0"
+    assert "couldn't read" in client.chat_postMessage.await_args.kwargs["text"]
+    assert thread.first_message_content is None
+    history.side_effect = None
+    history.return_value = [{"type": "human", "content": "earlier"}]
+    # An active-run conflict must not mark history as imported, either.
+    enqueue.return_value = False
+    await handlers_mod.handle_message(event)
+    assert thread.first_message_content is None
+    enqueue.return_value = True
+    await handlers_mod.handle_message(event)
+    assert enqueue.call_args.kwargs["input"]["messages"] == [
+        {"type": "human", "content": "earlier"},
+        {"type": "human", "content": "question"},
+    ]
+    assert thread.first_message_content == "question"
+    history.reset_mock()
+    await handlers_mod.handle_message(event)
+    history.assert_not_awaited()
+    assert enqueue.call_args.kwargs["input"]["messages"] == [
+        {"type": "human", "content": "question"}
+    ]
