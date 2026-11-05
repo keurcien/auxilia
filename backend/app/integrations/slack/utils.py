@@ -72,7 +72,7 @@ async def get_user_info(user_id: str) -> SlackUserInfo | None:
         if cached:
             return SlackUserInfo.model_validate_json(cached)
     except (RedisError, TimeoutError, ValidationError):
-        logger.warning("Slack identity cache read failed")
+        logger.warning("Slack identity cache read failed", exc_info=True)
     url = "https://slack.com/api/users.info"
     headers = {"Authorization": f"Bearer {slack_settings.slack_bot_token}"}
     params = {"user": user_id}
@@ -89,7 +89,7 @@ async def get_user_info(user_id: str) -> SlackUserInfo | None:
                     async with asyncio.timeout(0.2):
                         await get_redis().set(cache_key, user.model_dump_json(), ex=300)
                 except (RedisError, TimeoutError):
-                    logger.warning("Slack identity cache write failed")
+                    logger.warning("Slack identity cache write failed", exc_info=True)
                 return user
             logger.warning("Slack API error (users.info): %s", data.get("error"))
             return None
