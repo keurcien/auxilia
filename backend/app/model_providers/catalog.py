@@ -216,6 +216,10 @@ class ChatModelFactory:
                 return ChatOpenAI(
                     base_url="https://openrouter.ai/api/v1",
                     model=model_id,
+                    # Kimi rejects forced tool_choice; select native JSON Schema.
+                    profile={"structured_output": True}
+                    if model_id == "moonshotai/kimi-k3.1-pro"
+                    else None,
                     api_key=api_key,
                     max_tokens=32768,
                     max_retries=0,
