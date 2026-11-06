@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -6,15 +7,33 @@ import pytest
 
 from app.exceptions import DomainValidationError
 from app.integrations.langfuse import prompts
-from app.integrations.langfuse.schemas import LangfusePromptVersion
+from app.integrations.langfuse.schemas import (
+    LangfusePromptVersion,
+    LangfusePublishRequest,
+)
 from app.integrations.langfuse.service import LangfusePromptService, _mcp_servers
 
 
 AGENT_ID = uuid4()
 
 
-def _version(version: int, text: str) -> LangfusePromptVersion:
-    return LangfusePromptVersion(version=version, labels=["production"], text=text)
+def _version(
+    version: int, text: str, config: dict | None = None
+) -> LangfusePromptVersion:
+    return LangfusePromptVersion(
+        version=version, labels=["production"], text=text, config=config
+    )
+
+
+CONFIG = {
+    "mcpServers": {
+        "Metabase": {
+            "url": "https://mb.test/mcp",
+            "transport": "http",
+            "tools": {"query": {"enabled": True}},
+        }
+    }
+}
 
 
 @pytest.fixture
@@ -54,35 +73,54 @@ async def test_get_unmanaged_is_not_diverged(service, monkeypatch):
 
 async def test_publish_defaults_message_and_skips_identical(service, monkeypatch):
     create = AsyncMock(return_value=_version(2, "Be nice.\n"))
-    monkeypatch.setattr(prompts, "create_production", create)
+    monkeypatch.setattr(prompts, "create_version", create)
     monkeypatch.setattr(prompts, "get_production", AsyncMock(return_value=None))
 
-    await service.publish(AGENT_ID, None)
+    await service.publish(AGENT_ID, LangfusePublishRequest())
     kwargs = create.await_args.kwargs
     assert (
         kwargs["commit_message"]
         == "Publish first version of Sales - Synced from auxilia"
     )
-    assert kwargs["config"] == {
-        "mcpServers": {
-            "Metabase": {
-                "url": "https://mb.test/mcp",
-                "transport": "http",
-                "tools": {"query": {"enabled": True}},
-            }
-        }
-    }
+    assert kwargs["config"] == CONFIG
+    assert kwargs["label"] == "production"
     assert kwargs["tags"] == ["Sales"]
 
-    await service.publish(AGENT_ID, " tweak ")
+    await service.publish(AGENT_ID, LangfusePublishRequest(commit_message=" tweak "))
     assert create.await_args.kwargs["commit_message"] == "tweak - Synced from auxilia"
 
     create.reset_mock()
     monkeypatch.setattr(
-        prompts, "get_production", AsyncMock(return_value=_version(2, "Be nice."))
+        prompts,
+        "get_production",
+        AsyncMock(return_value=_version(2, "Be nice.", CONFIG)),
     )
-    await service.publish(AGENT_ID, None)
+    await service.publish(AGENT_ID, LangfusePublishRequest())
     create.assert_not_awaited()
+
+    # Same text, but a different config or label: still a new version.
+    await service.publish(
+        AGENT_ID, LangfusePublishRequest(config_json='{"mcpServers": {}}')
+    )
+    assert create.await_args.kwargs["config"] == {"mcpServers": {}}
+    await service.publish(AGENT_ID, LangfusePublishRequest(label="staging"))
+    assert create.await_args.kwargs["label"] == "staging"
+
+
+async def test_publish_rejects_bad_config(service, monkeypatch):
+    monkeypatch.setattr(prompts, "get_production", AsyncMock(return_value=None))
+    for bad in ("not json", "[]"):
+        with pytest.raises(DomainValidationError):
+            await service.publish(AGENT_ID, LangfusePublishRequest(config_json=bad))
+
+
+async def test_draft_lists_labels_and_computed_config(service, monkeypatch):
+    monkeypatch.setattr(
+        prompts, "list_labels", AsyncMock(return_value=["staging", "production"])
+    )
+    draft = await service.draft(AGENT_ID)
+    assert draft.labels == ["production", "staging"]
+    assert json.loads(draft.config_json) == CONFIG
 
 
 async def test_promote_refuses_a_version_the_agent_does_not_run(service, monkeypatch):

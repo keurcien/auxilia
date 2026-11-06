@@ -9,6 +9,7 @@ from app.integrations.langfuse.callback import get_langfuse_client
 from app.integrations.langfuse.schemas import (
     LangfusePromptResponse,
     LangfusePromptVersion,
+    LangfusePublishDraft,
     LangfusePublishRequest,
     LangfuseStatusResponse,
 )
@@ -57,6 +58,18 @@ async def list_versions(
     return await service.list_versions(agent_id)
 
 
+@router.get(
+    "/agents/{agent_id}/langfuse-prompt/draft",
+    response_model=LangfusePublishDraft,
+)
+async def get_publish_draft(
+    agent_id: UUID,
+    _: UserDB = Depends(require_admin),
+    service: LangfusePromptService = Depends(get_langfuse_prompt_service),
+) -> LangfusePublishDraft:
+    return await service.draft(agent_id)
+
+
 @router.post(
     "/agents/{agent_id}/langfuse-prompt/publish",
     response_model=LangfusePromptVersion,
@@ -67,7 +80,7 @@ async def publish(
     _: UserDB = Depends(require_admin),
     service: LangfusePromptService = Depends(get_langfuse_prompt_service),
 ) -> LangfusePromptVersion:
-    return await service.publish(agent_id, data.commit_message)
+    return await service.publish(agent_id, data)
 
 
 @router.post(

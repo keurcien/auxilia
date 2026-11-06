@@ -1,3 +1,4 @@
+import json
 from collections import Counter
 from urllib.parse import urlsplit
 from uuid import UUID
@@ -13,6 +14,8 @@ from app.integrations.langfuse import prompts
 from app.integrations.langfuse.schemas import (
     LangfusePromptResponse,
     LangfusePromptVersion,
+    LangfusePublishDraft,
+    LangfusePublishRequest,
 )
 from app.mcp.servers.models import MCPServerDB
 
@@ -67,6 +70,16 @@ def _mcp_servers(
     }
 
 
+def _parse_config(text: str) -> dict:
+    try:
+        config = json.loads(text)
+    except ValueError as err:
+        raise DomainValidationError(f"Config is not valid JSON: {err}") from err
+    if not isinstance(config, dict):
+        raise DomainValidationError("Config must be a JSON object")
+    return config
+
+
 class LangfusePromptService:
     """Agent instructions ↔ the Langfuse prompt named after the agent id.
 
@@ -93,32 +106,55 @@ class LangfusePromptService:
         await self._agent(agent_id)
         return await prompts.list_versions(str(agent_id))
 
-    async def publish(
-        self, agent_id: UUID, commit_message: str | None
-    ) -> LangfusePromptVersion:
-        """Release the saved instructions as a new production version."""
-        agent = await self._agent(agent_id)
-        name = str(agent_id)
-        production = await prompts.get_production(name)
-        if production is not None and _same(production.text, agent.instructions):
-            return production
-        message = (commit_message or "").strip() or (
-            f"Publish first version of {agent.name}"
-            if production is None
-            else f"Publish {agent.name}"
-        )
+    async def _config(self, agent_id: UUID) -> dict:
         bindings = await self.agents.mcp_server_repository.list_for_agent(agent_id)
         servers = await self.agents.mcp_servers.list_by_ids(
             [b.mcp_server_id for b in bindings]
         )
         tools = {b.mcp_server_id: b.tools for b in bindings}
-        return await prompts.create_production(
+        return {"mcpServers": _mcp_servers(servers, tools)}
+
+    async def draft(self, agent_id: UUID) -> LangfusePublishDraft:
+        """What `publish` sends by default, for the user to review and edit."""
+        await self._agent(agent_id)
+        labels = await prompts.list_labels(str(agent_id))
+        return LangfusePublishDraft(
+            config_json=json.dumps(await self._config(agent_id), indent=2),
+            labels=sorted({*labels, prompts.PRODUCTION}),
+        )
+
+    async def publish(
+        self, agent_id: UUID, data: LangfusePublishRequest
+    ) -> LangfusePromptVersion:
+        """Release the saved instructions as a new version under `data.label`."""
+        agent = await self._agent(agent_id)
+        name = str(agent_id)
+        config = (
+            await self._config(agent_id)
+            if data.config_json is None
+            else _parse_config(data.config_json)
+        )
+        production = await prompts.get_production(name)
+        if (
+            data.label == prompts.PRODUCTION
+            and production is not None
+            and _same(production.text, agent.instructions)
+            and production.config == config
+        ):
+            return production
+        message = (data.commit_message or "").strip() or (
+            f"Publish first version of {agent.name}"
+            if production is None
+            else f"Publish {agent.name}"
+        )
+        return await prompts.create_version(
             name,
             text=agent.instructions,
+            label=data.label,
             tags=[agent.name],
             # Marks auxilia releases in Langfuse's own history view.
             commit_message=f"{message} - Synced from auxilia",
-            config={"mcpServers": _mcp_servers(servers, tools)},
+            config=config,
         )
 
     async def promote(self, agent_id: UUID, version: int) -> LangfusePromptVersion:
