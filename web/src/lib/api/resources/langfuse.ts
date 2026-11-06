@@ -37,8 +37,12 @@ export function isLangfuseEnabled(): Promise<boolean> {
 	return statusRequest;
 }
 
-export async function getLangfusePrompt(agentId: string): Promise<LangfusePrompt> {
-	const response = await api.get<LangfusePrompt>(`/agents/${agentId}/langfuse-prompt`);
+export async function getLangfusePrompt(
+	agentId: string,
+): Promise<LangfusePrompt> {
+	const response = await api.get<LangfusePrompt>(
+		`/agents/${agentId}/langfuse-prompt`,
+	);
 	return response.data;
 }
 
@@ -51,14 +55,37 @@ export async function listLangfuseVersions(
 	return response.data;
 }
 
-/** Releases the agent's saved instructions as a new production version. */
+export interface LangfusePublishDraft {
+	/** The config a publish sends by default, pretty-printed for editing. */
+	configJson: string;
+	/** Labels already on this prompt; always includes "production". */
+	labels: string[];
+}
+
+export interface LangfusePublishInput {
+	commitMessage: string | null;
+	label: string;
+	/** Carried as text: its keys are server and tool names, not API fields. */
+	configJson: string;
+}
+
+export async function getLangfusePublishDraft(
+	agentId: string,
+): Promise<LangfusePublishDraft> {
+	const response = await api.get<LangfusePublishDraft>(
+		`/agents/${agentId}/langfuse-prompt/draft`,
+	);
+	return response.data;
+}
+
+/** Releases the agent's saved instructions as a new version under `label`. */
 export async function publishLangfusePrompt(
 	agentId: string,
-	commitMessage: string | null,
+	input: LangfusePublishInput,
 ): Promise<LangfusePromptVersion> {
 	const response = await api.post<LangfusePromptVersion>(
 		`/agents/${agentId}/langfuse-prompt/publish`,
-		{ commitMessage },
+		input,
 	);
 	return response.data;
 }

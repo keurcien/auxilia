@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import { ChevronDown, Info, Loader2, TriangleAlert } from "lucide-react";
 import * as langfuseApi from "@/lib/api/resources/langfuse";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import ConfirmDialog from "@/components/ui/confirm-dialog";
+import LangfusePublishDialog from "./langfuse-publish-dialog";
 import { cn } from "@/lib/utils";
 import { relativeTime } from "../../skills/lib/relative-time";
 
@@ -94,40 +95,26 @@ export default function AgentLangfusePanel({
 }: AgentLangfusePanelProps) {
 	const [prompt, setPrompt] = useState<langfuseApi.LangfusePrompt | null>(null);
 	const [versions, setVersions] = useState<PromptVersion[] | null>(null);
-	const [commitMessage, setCommitMessage] = useState("");
-	const [isPublishing, setIsPublishing] = useState(false);
+	const [publishOpen, setPublishOpen] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	// A version waiting for "Replace your unsaved edits?" confirmation.
 	const [pending, setPending] = useState<PromptVersion | null>(null);
 
-	useEffect(() => {
-		setError(null);
+	const refresh = useCallback(() => {
 		const load = readOnly
 			? langfuseApi.getLangfusePrompt(agentId).then(setPrompt)
 			: langfuseApi.listLangfuseVersions(agentId).then(setVersions);
-		load.catch((err: unknown) => {
-			setError(getApiErrorMessage(err, "Failed to reach Langfuse"));
-		});
+		load.then(
+			() => {
+				setError(null);
+			},
+			(err: unknown) => {
+				setError(getApiErrorMessage(err, "Failed to reach Langfuse"));
+			},
+		);
 	}, [agentId, readOnly]);
 
-	const publish = async () => {
-		setIsPublishing(true);
-		setError(null);
-		try {
-			// The new version is production and was cut from the saved
-			// instructions, so it can't diverge: no follow-up fetch to fail.
-			const production = await langfuseApi.publishLangfusePrompt(
-				agentId,
-				commitMessage.trim() || null,
-			);
-			setCommitMessage("");
-			setPrompt({ production, diverged: false });
-		} catch (err) {
-			setError(getApiErrorMessage(err, "Failed to publish to Langfuse"));
-		} finally {
-			setIsPublishing(false);
-		}
-	};
+	useEffect(refresh, [refresh]);
 
 	const errorBox = error && (
 		<div className="rounded-md bg-destructive/10 px-4 py-2.5 text-[13px] text-destructive">
@@ -137,27 +124,24 @@ export default function AgentLangfusePanel({
 
 	const publishForm = (placeholder: string) =>
 		isWorkspaceAdmin ? (
-			<div className="flex gap-2">
-				<input
-					type="text"
-					value={commitMessage}
-					onChange={(e) => {
-						setCommitMessage(e.target.value);
-					}}
-					placeholder={placeholder}
-					className="min-w-0 flex-1 rounded-lg border border-input bg-card px-3 py-[7px] text-[13px] outline-none transition-[border-color,box-shadow] placeholder:text-meta focus:border-petrol focus:shadow-[0_0_0_3px_rgba(22,96,110,0.10)] dark:placeholder:text-panel-dim"
-				/>
+			<>
 				<button
 					type="button"
-					disabled={isPublishing}
 					onClick={() => {
-						void publish();
+						setPublishOpen(true);
 					}}
-					className="shrink-0 cursor-pointer rounded-[7px] bg-petrol px-4 py-2 text-[13px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+					className="cursor-pointer self-start rounded-[7px] bg-petrol px-4 py-2 text-[13px] font-semibold text-white transition-opacity hover:opacity-90"
 				>
-					{isPublishing ? "Publishing…" : "Publish to Langfuse"}
+					Publish to Langfuse
 				</button>
-			</div>
+				<LangfusePublishDialog
+					agentId={agentId}
+					open={publishOpen}
+					onOpenChange={setPublishOpen}
+					messagePlaceholder={placeholder}
+					onPublished={refresh}
+				/>
+			</>
 		) : (
 			<p className="text-[12.5px] text-meta dark:text-panel-dim">
 				Only workspace admins can publish to Langfuse.
@@ -244,15 +228,15 @@ export default function AgentLangfusePanel({
 								<span>
 									{isWorkspaceAdmin ? (
 										<>
-											When you save, <strong>v{pickedVersion}</strong> becomes the
-											production version in Langfuse. Anything that fetches this
-											prompt from Langfuse will start using it.
+											When you save, <strong>v{pickedVersion}</strong> becomes
+											the production version in Langfuse. Anything that fetches
+											this prompt from Langfuse will start using it.
 										</>
 									) : (
 										<>
-											When you save, <strong>v{pickedVersion}</strong> becomes this
-											agent&apos;s instructions. Langfuse production stays as it
-											is: only workspace admins can change it.
+											When you save, <strong>v{pickedVersion}</strong> becomes
+											this agent&apos;s instructions. Langfuse production stays
+											as it is: only workspace admins can change it.
 										</>
 									)}
 								</span>
@@ -288,8 +272,8 @@ export default function AgentLangfusePanel({
 				</p>
 				<p className="text-[13px] text-muted-foreground">
 					Publish the saved instructions as a Langfuse prompt labelled
-					production. Langfuse keeps the version history; external consumers
-					can fetch the prompt from there.
+					production. Langfuse keeps the version history; external consumers can
+					fetch the prompt from there.
 				</p>
 				{publishForm(`Publish first version of ${agentName}`)}
 			</div>
@@ -318,7 +302,7 @@ export default function AgentLangfusePanel({
 					<VersionMeta version={production} />
 				</span>
 			</div>
-			{prompt.diverged && publishForm("Commit message (optional)")}
+			{publishForm("Commit message (optional)")}
 		</div>
 	);
 }

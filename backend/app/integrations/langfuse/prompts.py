@@ -47,6 +47,7 @@ def _to_version(prompt: object) -> LangfusePromptVersion:
         text=prompt.prompt,
         author=created_by if created_by != "API" else None,
         created_at=extra.get("createdAt"),
+        config=prompt.config if isinstance(prompt.config, dict) else None,
     )
 
 
@@ -80,6 +81,16 @@ async def list_versions(name: str) -> list[LangfusePromptVersion]:
     return [_to_version(p) for p in prompts if isinstance(p, Prompt_Text)]
 
 
+async def list_labels(name: str) -> list[str]:
+    """Every label on any version of the prompt, minus Langfuse's own `latest`."""
+    try:
+        page = await _client().async_api.prompts.list(name=name)
+    except ApiError as err:
+        raise _failed(err) from err
+    labels = {lbl for meta in page.data if meta.name == name for lbl in meta.labels}
+    return sorted(labels - {"latest"})
+
+
 async def get_version(name: str, version: int) -> LangfusePromptVersion:
     try:
         prompt = await _client().async_api.prompts.get(name, version=version)
@@ -90,14 +101,20 @@ async def get_version(name: str, version: int) -> LangfusePromptVersion:
     return _to_version(prompt)
 
 
-async def create_production(
-    name: str, *, text: str, tags: list[str], commit_message: str, config: dict
+async def create_version(
+    name: str,
+    *,
+    text: str,
+    label: str,
+    tags: list[str],
+    commit_message: str,
+    config: dict,
 ) -> LangfusePromptVersion:
     request = CreateTextPromptRequest(
         name=name,
         prompt=text,
         type="text",
-        labels=[PRODUCTION],
+        labels=[label],
         tags=tags,
         commit_message=commit_message,
         config=config,
