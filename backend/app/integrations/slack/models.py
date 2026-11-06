@@ -32,6 +32,7 @@ class SlackEvent(BaseModel):
 
     type: str
     channel: str | None = None
+    channel_type: str | None = None
     user: str | None = None
     text: str | None = None
     ts: str | None = None

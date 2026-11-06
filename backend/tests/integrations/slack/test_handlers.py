@@ -655,3 +655,136 @@ async def test_first_turn_imports_history_once_and_retries_failures(
     assert enqueue.call_args.kwargs["input"]["messages"] == [
         {"type": "human", "content": "question"}
     ]
+
+
+@pytest.mark.parametrize(
+    "event_type,channel_type,thread_ts,selected,picker,runs",
+    [
+        ("message", "channel", None, False, False, False),
+        ("message", "channel", "1.0", False, False, False),
+        ("message", "group", "1.0", False, False, False),
+        ("app_mention", "channel", None, False, True, False),
+        ("app_mention", "channel", "1.0", False, True, False),
+        ("message", "channel", "1.0", True, False, True),
+        ("app_mention", "channel", "1.0", True, False, False),
+        ("message", "im", None, False, True, False),
+    ],
+)
+async def test_channel_activation_requires_mention_and_selected_thread(
+    monkeypatch, event_type, channel_type, thread_ts, selected, picker, runs
+):
+    from unittest.mock import AsyncMock
+
+    from app.integrations.slack.models import SlackEvent
+
+    db = AsyncMock()
+    db.get.return_value = (
+        SimpleNamespace(agent_id="a1", first_message_content="already started")
+        if selected
+        else None
+    )
+    session = AsyncMock()
+    session.__aenter__.return_value = db
+    monkeypatch.setattr(handlers_mod, "AsyncSessionLocal", lambda: session)
+    identity = AsyncMock(
+        return_value=SimpleNamespace(id="u1", role="member", team_id=None)
+    )
+    monkeypatch.setattr(handlers_mod, "resolve_user", identity)
+    client = AsyncMock()
+    monkeypatch.setattr(handlers_mod, "AsyncWebClient", lambda **kw: client)
+    pick = AsyncMock()
+    enqueue = AsyncMock(return_value=True)
+    monkeypatch.setattr(handlers_mod, "post_agent_picker", pick)
+    monkeypatch.setattr(handlers_mod, "_enqueue_slack_run", enqueue)
+    monkeypatch.setattr(handlers_mod, "_is_agent_ready", AsyncMock(return_value=True))
+    await handlers_mod.handle_message(
+        SlackEvent(
+            type=event_type,
+            channel_type=channel_type,
+            channel="C1",
+            user="U1",
+            ts="2.0",
+            thread_ts=thread_ts,
+            text="hello",
+        )
+    )
+    assert pick.await_count == int(picker)
+    assert enqueue.await_count == int(runs)
+    if not picker and not runs:
+        identity.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "event_type,initially_selected,finally_selected,expect_run,expect_picker",
+    [
+        ("message", True, True, True, False),
+        ("message", True, False, False, False),
+        ("app_mention", False, True, False, False),
+        ("app_mention", False, False, False, True),
+    ],
+)
+async def test_identity_resolution_releases_lookup_session_and_rechecks_thread(
+    monkeypatch,
+    event_type,
+    initially_selected,
+    finally_selected,
+    expect_run,
+    expect_picker,
+):
+    from unittest.mock import AsyncMock
+
+    from app.integrations.slack.models import SlackEvent
+
+    thread = SimpleNamespace(agent_id="a1", first_message_content="existing")
+    db = AsyncMock()
+    db.get.side_effect = [
+        thread if initially_selected else None,
+        thread if finally_selected else None,
+    ]
+    open_sessions = 0
+    sessions_entered = 0
+
+    class Session:
+        async def __aenter__(self):
+            nonlocal open_sessions, sessions_entered
+            open_sessions += 1
+            sessions_entered += 1
+            return db
+
+        async def __aexit__(self, *args):
+            nonlocal open_sessions
+            open_sessions -= 1
+
+    monkeypatch.setattr(handlers_mod, "AsyncSessionLocal", Session)
+
+    async def resolve(_slack_user):
+        assert sessions_entered == 1
+        assert open_sessions == 0, (
+            "Thread lookup must release its connection before resolving identity"
+        )
+        return SimpleNamespace(id="u1", role="member", team_id=None)
+
+    monkeypatch.setattr(handlers_mod, "resolve_user", resolve)
+    client = AsyncMock()
+    monkeypatch.setattr(handlers_mod, "AsyncWebClient", lambda **kw: client)
+    enqueue = AsyncMock(return_value=True)
+    picker = AsyncMock()
+    monkeypatch.setattr(handlers_mod, "_enqueue_slack_run", enqueue)
+    monkeypatch.setattr(handlers_mod, "post_agent_picker", picker)
+    monkeypatch.setattr(handlers_mod, "_is_agent_ready", AsyncMock(return_value=True))
+    await handlers_mod.handle_message(
+        SlackEvent(
+            type=event_type,
+            channel="C1",
+            channel_type="channel",
+            user="U1",
+            ts="2.0",
+            thread_ts="1.0",
+            text="hello",
+        )
+    )
+    assert sessions_entered == 2
+    assert open_sessions == 0
+    assert db.get.await_count == 2
+    assert enqueue.await_count == int(expect_run)
+    assert picker.await_count == int(expect_picker)
