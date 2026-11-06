@@ -463,10 +463,20 @@ async def handle_message(event: SlackEvent, *, team_id: str | None = None) -> No
             # Only that event runs the agent, regardless of delivery order.
             return
 
-        user = await resolve_user(event.user)
-        if not user:
+    # Release the lookup transaction before Redis/Slack I/O and resolve_user's
+    # own DB session. Unrelated channel messages still skip identity resolution.
+    user = await resolve_user(event.user)
+    if not user:
+        return
+    client = AsyncWebClient(token=slack_settings.slack_bot_token)
+
+    async with AsyncSessionLocal() as db:
+        # Selection/deletion may have happened while identity was resolving.
+        thread = await db.get(ThreadDB, thread_ts)
+        if not thread and not (is_mention or is_dm):
             return
-        client = AsyncWebClient(token=slack_settings.slack_bot_token)
+        if thread and is_mention:
+            return
 
         if not thread:
             await post_agent_picker(
