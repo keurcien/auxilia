@@ -76,4 +76,6 @@ export interface Agent {
 	owner?: AgentOwner | null;
 	isSubagent: boolean;
 	currentUserPermission?: AgentPermission | null;
+	/** Agent owner/admin only — the workspace admin role alone does not grant it. */
+	canViewThreads?: boolean;
 }

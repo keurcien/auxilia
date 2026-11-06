@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
+from app.agents.models import PermissionLevel
 from app.threads.models import ThreadDB, ThreadSource
 
 
@@ -192,6 +193,52 @@ def test_get_thread_forbidden_for_non_owner(client: TestClient, mock_db):
 
     response = client.get(f"/threads/{thread_id}")
     assert response.status_code == 403
+
+
+@pytest.mark.usefixtures("admin_user")
+def test_get_thread_forbidden_for_workspace_admin(client: TestClient, mock_db):
+    """The workspace admin role alone does not open someone else's thread."""
+    other_user_id = uuid4()
+    thread = ThreadDB(
+        id=str(uuid4()),
+        user_id=other_user_id,
+        agent_id=uuid4(),
+        first_message_content="Someone else's thread",
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = thread
+    mock_result.first.return_value = (other_user_id, None)
+    mock_db.execute.return_value = mock_result
+
+    response = client.get(f"/threads/{thread.id}")
+    assert response.status_code == 403
+
+
+@pytest.mark.usefixtures("admin_user")
+def test_get_thread_read_only_for_agent_admin(client: TestClient, mock_db):
+    """An agent-level admin grant opens it, read-only."""
+    other_user_id = uuid4()
+    thread = ThreadDB(
+        id=str(uuid4()),
+        user_id=other_user_id,
+        agent_id=uuid4(),
+        first_message_content="Someone else's thread",
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = thread
+    mock_result.first.return_value = (other_user_id, PermissionLevel.admin)
+    mock_result.one_or_none.return_value = (thread, "Test Agent", "🤖", None, False)
+    mock_db.execute.return_value = mock_result
+
+    response = client.get(f"/threads/{thread.id}")
+    assert response.status_code == 200
+    assert response.json()["viewer_role"] == "admin"
 
 
 @pytest.mark.usefixtures("current_user")
