@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.25](https://github.com/keurcien/auxilia/compare/backend-v0.9.24...backend-v0.9.25) (2026-11-06)
+
+
+### Bug Fixes
+
+* **slack:** require a mention to activate channel threads ([#454](https://github.com/keurcien/auxilia/issues/454)) ([4bc326b](https://github.com/keurcien/auxilia/commit/4bc326b5b3d1492908a33580082bf4dd7a52d15c))
+
 ## [0.9.24](https://github.com/keurcien/auxilia/compare/backend-v0.9.23...backend-v0.9.24) (2026-11-05)
 
 
