@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.26](https://github.com/keurcien/auxilia/compare/backend-v0.9.25...backend-v0.9.26) (2026-11-06)
+
+
+### Features
+
+* **langfuse:** review config and label in a dialog before publishing ([#457](https://github.com/keurcien/auxilia/issues/457)) ([ba6e9fd](https://github.com/keurcien/auxilia/commit/ba6e9fd0f3a7c2c8f5cf58cf225f7573fbdfa299))
+
 ## [0.9.25](https://github.com/keurcien/auxilia/compare/backend-v0.9.24...backend-v0.9.25) (2026-11-06)
 
 
