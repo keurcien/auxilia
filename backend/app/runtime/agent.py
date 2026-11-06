@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 from deepagents.backends import StateBackend
 from deepagents.graph import DeepAgentState
 from deepagents.middleware._prompt_caching import append_prompt_caching_middleware
+from deepagents.middleware._state import private_state_field_names
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.subagents import CompiledSubAgent, SubAgentMiddleware
 from langchain.agents import create_agent
@@ -226,7 +227,7 @@ def build_runnable(
     ``base_middleware`` is the caller's own stack — the parent passes
     ``build_parent_middleware``'s list; subagents pass their own retry/limit/
     repair/date stack (see ``ResolvedAgent.compile``). It sits where deepagents
-    puts caller middleware: after the harness, before prompt caching.
+    puts caller middleware: after the harness, before skills and prompt caching.
 
     ``DeferredStructuredOutputMiddleware`` is appended whenever an
     ``output_schema`` is given (it keeps the schema off the tool-calling loop
@@ -287,11 +288,19 @@ def build_runnable(
         middleware.append(DeferredStructuredOutputMiddleware(format_mode))
     middleware.append(ToolErrorMiddleware())
     if sandbox_backend is not None:
-        middleware += harness_trailing_middleware(model)
+        middleware += harness_trailing_middleware(model, skills)
     else:
         # Same trailing caching as the harness, minus its profile guard
         # (which only concerns the sandbox stack).
         append_prompt_caching_middleware(middleware)
+    # As in deepagents: `task` neither hands a subagent the stack's
+    # `PrivateStateAttr` fields nor merges them back from its result.
+    private = private_state_field_names(
+        *(m.state_schema for m in middleware if getattr(m, "state_schema", None))
+    )
+    for m in middleware:
+        if isinstance(m, SubAgentMiddleware):
+            m.private_state_keys = m.private_state_keys | private
 
     agent = create_agent(
         model=model,

@@ -154,7 +154,7 @@ def test_build_agent_caches_prompts_without_a_sandbox(mock_create_agent):
 
     agent._build_agent(checkpointer=None)
 
-    names = [type(m).__name__ for m in mock_create_agent.call_args.kwargs["middleware"]]
+    names = [m.name for m in mock_create_agent.call_args.kwargs["middleware"]]
     assert names[-2:] == ["ToolErrorMiddleware", "AnthropicPromptCachingMiddleware"]
 
 
@@ -163,7 +163,7 @@ def test_build_agent_sandbox_uses_the_same_create_agent_path(mock_create_agent):
     """A sandbox no longer forks the construction path: it adds deepagents'
     harness middleware to the same `create_agent` call. The caller's
     PatchToolCallsMiddleware is dropped in favour of the harness's one (langchain
-    asserts against duplicates), and prompt caching closes the stack.
+    asserts against duplicates), and prompt caching and the unsupported-content filter close the stack.
 
     `tests/runtime/test_harness_parity.py` pins the assembly to what
     `create_deep_agent` built, middleware for middleware; this only checks that
@@ -179,10 +179,13 @@ def test_build_agent_sandbox_uses_the_same_create_agent_path(mock_create_agent):
     agent._build_agent(checkpointer=None)
 
     middleware = mock_create_agent.call_args.kwargs["middleware"]
-    names = [type(m).__name__ for m in middleware]
+    names = [m.name for m in middleware]
     assert names.count("PatchToolCallsMiddleware") == 1
     assert "FilesystemMiddleware" in names
-    assert names[-1] == "AnthropicPromptCachingMiddleware"
+    assert names[-2:] == [
+        "AnthropicPromptCachingMiddleware",
+        "UnsupportedContentMiddleware",
+    ]
     assert "ToolErrorMiddleware" in names
 
 
@@ -208,7 +211,7 @@ def test_compile_subagent_middleware_stack(mock_create_agent):
     assert any(isinstance(m, ModelRetryMiddleware) for m in middleware)
     assert any(isinstance(m, RepairInvalidToolCallsMiddleware) for m in middleware)
     assert any(isinstance(m, CurrentDateMiddleware) for m in middleware)
-    names = [type(m).__name__ for m in middleware]
+    names = [m.name for m in middleware]
     assert names[-2:] == ["ToolErrorMiddleware", "AnthropicPromptCachingMiddleware"]
     # A subagent inherits the parent's recursion_limit through the task tool's
     # ambient config, so its tool budget is sized like the parent's.

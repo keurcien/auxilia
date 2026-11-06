@@ -170,6 +170,7 @@ def _describe_middleware(m) -> dict:
         # profile-suffixed prompt are all invisible from the outside, and
         # dropping any of them would diverge from `create_deep_agent` silently.
         described["subagents"] = [_describe_subagent(s) for s in m._subagents]
+        described["private_state_keys"] = m.private_state_keys
     return described
 
 
@@ -317,15 +318,21 @@ def test_sandbox_assembly_matches_create_deep_agent(model_name):
 
 @pytest.mark.parametrize("model_name", list(MODELS))
 def test_sandbox_assembly_with_skills_matches_create_deep_agent(model_name):
-    """With skills, deepagents puts `SkillsMiddleware` first on the main stack
-    and last on the general-purpose subagent's; ours lands in the same slots."""
+    """With skills, deepagents puts `SkillsMiddleware` innermost on the main
+    stack (after the caller's middleware, right before prompt caching) and
+    after the patcher on the general-purpose subagent's; ours lands in the
+    same slots."""
     model = MODELS[model_name]()
 
     deep, ours = _both(model, skills=True)
 
     ours, deep = comparable(ours, deep)
     assert ours == deep
-    assert ours["middleware"][0]["class"] == "SkillsMiddleware"
+    names = [m["name"] for m in ours["middleware"]]
+    assert names.index("SkillsMiddleware") == names.index("ToolErrorMiddleware") + 1
+    assert names.index("SkillsMiddleware") + 1 == names.index(
+        "AnthropicPromptCachingMiddleware"
+    )
     gp = next(m for m in ours["middleware"] if m["name"] == "SubAgentMiddleware")
     gp_classes = [m["class"] for m in gp["subagents"][0]["middleware"]]
     assert "SkillsMiddleware" in gp_classes
@@ -388,7 +395,7 @@ def test_caller_middleware_keeps_its_place_in_the_stack():
     assert names.index("DeferredStructuredOutputMiddleware") < names.index(
         "ToolErrorMiddleware"
     )
-    assert names[-1] == "AnthropicPromptCachingMiddleware"
+    assert names[-1] == "UnsupportedContentMiddleware"
 
 
 def test_a_system_message_prompt_is_extended_the_same_way():
@@ -445,7 +452,7 @@ def test_no_sandbox_means_no_harness():
     described = describe(seen)
     assert described["system_prompt"] == "You are a test agent"
     assert described["tools"] == ["add"]
-    assert [m["class"] for m in described["middleware"]] == [
+    assert [m["name"] for m in described["middleware"]] == [
         "ToolErrorMiddleware",
         "AnthropicPromptCachingMiddleware",
     ]
@@ -514,7 +521,7 @@ def test_plain_path_wires_subagents_after_the_caller_stack():
             ],
         )
 
-    names = [type(m).__name__ for m in seen["middleware"]]
+    names = [m.name for m in seen["middleware"]]
     assert names == [
         "CurrentDateMiddleware",
         "SubAgentMiddleware",

@@ -52,6 +52,11 @@ from app.mcp.client.exceptions import as_oauth_required
 
 logger = logging.getLogger(__name__)
 
+# The SDK's 1 MiB default cuts off large tool results (a Metabase
+# `execute_question` answer is one SSE event); still bounded, so one runaway
+# event cannot exhaust a worker's memory.
+MAX_SSE_EVENT_SIZE = 32 * 1024 * 1024
+
 # FastMCP configures its own logger on import: a RichHandler and
 # ``propagate = False``, i.e. its records bypass the application's logging
 # setup and go straight to stderr in rich formatting. Hand them back to the
@@ -134,7 +139,10 @@ class SessionKeepingTransport(StreamableHttpTransport):
         async with (  # noqa: SIM117 — nesting is deliberate, see above
             http_client,
             streamable_http_client(
-                self.url, http_client=http_client, terminate_on_close=False
+                self.url,
+                http_client=http_client,
+                terminate_on_close=False,
+                max_sse_event_size=self.max_sse_event_size,
             ) as (read_stream, write_stream),
         ):
             async with options.session_class(
@@ -152,7 +160,12 @@ def build_client(spec: ConnectionSpec, *, terminate_on_close: bool = True) -> Cl
     transport_cls: type[StreamableHttpTransport] = (
         StreamableHttpTransport if terminate_on_close else SessionKeepingTransport
     )
-    transport = transport_cls(spec.url, headers=spec.headers, auth=spec.auth)
+    transport = transport_cls(
+        spec.url,
+        headers=spec.headers,
+        auth=spec.auth,
+        max_sse_event_size=MAX_SSE_EVENT_SIZE,
+    )
     client: Client[Any] = Client(
         transport, extensions=[advertise(UI_EXTENSION, UI_CAPABILITY)]
     )

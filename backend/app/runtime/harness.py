@@ -8,7 +8,7 @@ so middleware added to the parent stack behaved differently depending on
 whether the agent happened to have a sandbox bound (design review §1.4).
 
 This module composes the same bundle by hand, so ``build_runnable`` has one
-path and the stack is one diffable list. It reproduces deepagents 0.7 for the
+path and the stack is one diffable list. It reproduces deepagents 0.7.32 for the
 one call shape the runtime uses (a pre-built model, skills, no memory/
 permissions, `interrupt_on` handled by our own HITL middleware);
 ``tests/runtime/test_harness_parity.py`` builds a graph both ways and asserts
@@ -44,6 +44,7 @@ visible at the call site:
 from typing import Any
 
 from deepagents._version import _lc_version
+from deepagents.middleware._parent_notifier import _ParentNotifierMiddleware
 from deepagents.middleware._prompt_caching import append_prompt_caching_middleware
 from deepagents.middleware.filesystem import FilesystemMiddleware
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
@@ -52,6 +53,7 @@ from deepagents.middleware.subagents import (
     SubAgentMiddleware,
 )
 from deepagents.middleware.summarization import create_summarization_middleware
+from deepagents.middleware.unsupported_content import UnsupportedContentMiddleware
 from deepagents.profiles.harness.harness_profiles import (
     GeneralPurposeSubagentProfile,
     HarnessProfile,
@@ -167,11 +169,13 @@ def harness_middleware(
 ) -> list:
     """The harness middleware that runs *before* the caller's own stack.
 
-    Order matters and mirrors deepagents exactly: skills (when the run has
-    any), filesystem, the task tool, summarization, then the patcher — with
-    our own `TodoListMiddleware` in front (see the module docstring). The
-    general-purpose subagent inherits the parent's full toolset and, as in
-    deepagents, the parent's skills.
+    Order matters and mirrors deepagents exactly: filesystem, the task tool,
+    the (no-op unless launched by an async task) parent notifier,
+    summarization, then the patcher — with our own `TodoListMiddleware` in
+    front (see the module docstring). Skills come after the caller's stack
+    (see :func:`harness_trailing_middleware`). The general-purpose subagent
+    inherits the parent's full toolset and, as in deepagents, the parent's
+    skills.
     """
     profile = _profile(model)
     supplied = list(subagents or [])
@@ -182,15 +186,13 @@ def harness_middleware(
     else:
         default = _general_purpose_subagent(model, tools, backend, profile, skills)
         specs = [default, *supplied] if default is not None else supplied
-    middleware: list = [TodoListMiddleware()]
-    if skills is not None:
-        middleware.append(skills_index_middleware(skills, sandbox=True))
-    middleware.append(
+    middleware: list = [
+        TodoListMiddleware(),
         FilesystemMiddleware(
             backend=backend,
             custom_tool_descriptions=profile.tool_description_overrides,
-        )
-    )
+        ),
+    ]
     if specs:
         middleware.append(
             SubAgentMiddleware(
@@ -200,22 +202,30 @@ def harness_middleware(
             )
         )
     middleware += [
+        _ParentNotifierMiddleware(),
         create_summarization_middleware(model, backend),
         PatchToolCallsMiddleware(),
     ]
     return middleware
 
 
-def harness_trailing_middleware(model) -> list:
+def harness_trailing_middleware(model, skills=None) -> list:
     """The harness middleware that runs *after* the caller's own stack.
 
-    Prompt caching is unconditional in deepagents; Anthropic's is a no-op on
-    other providers, and the Bedrock / Fireworks variants are only appended
-    when their packages are installed (they are not).
+    Skills sit innermost, ahead of caching (deepagents 0.7.32 moved them there
+    so skill disclosure sees the compacted conversation). Prompt caching is
+    unconditional in deepagents; Anthropic's is a no-op on other providers, and
+    the Bedrock / Fireworks variants are only appended when their packages are
+    installed (they are not). `UnsupportedContentMiddleware` closes the stack:
+    it swaps content blocks the model cannot accept (an image sent to a
+    text-only model) for a text notice.
     """
     _profile(model)  # same guard, so a bad profile fails on either entry point
     middleware: list = []
+    if skills is not None:
+        middleware.append(skills_index_middleware(skills, sandbox=True))
     append_prompt_caching_middleware(middleware)
+    middleware.append(UnsupportedContentMiddleware())
     return middleware
 
 

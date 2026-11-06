@@ -95,9 +95,13 @@ def _free_port() -> int:
 
 
 @pytest.fixture
-async def live_server() -> AsyncIterator[LiveServer]:
+async def live_server(request) -> AsyncIterator[LiveServer]:
+    """JSON responses by default; parametrize indirectly with `False` for SSE."""
     mcp_server = _build_server()
-    counter = _MethodCounter(mcp_server.streamable_http_app(json_response=True))
+    json_response = getattr(request, "param", True)
+    counter = _MethodCounter(
+        mcp_server.streamable_http_app(json_response=json_response)
+    )
     port = _free_port()
     config = uvicorn.Config(
         counter, host="127.0.0.1", port=port, log_level="warning", lifespan="on"
@@ -173,6 +177,22 @@ async def test_the_session_keeping_transport_sends_no_delete(live_server):
         async with client:
             await client.list_tools()
         assert live_server.counter.counts.get("DELETE", 0) == int(terminate_on_close)
+
+
+@pytest.mark.parametrize("live_server", [False], indirect=True)
+@pytest.mark.parametrize("terminate_on_close", [True, False])
+async def test_a_tool_result_over_one_mib_survives_sse(live_server, terminate_on_close):
+    """The SDK caps one SSE event at 1 MiB by default, which cut off large
+    Metabase results; both transports must carry the raised cap."""
+    text = "x" * (2 * 1024 * 1024)
+    client = build_client(
+        ConnectionSpec(url=live_server.url), terminate_on_close=terminate_on_close
+    )
+    client.mode = "legacy"  # the modern era answers in JSON, not SSE
+    async with client:
+        result = await client.call_tool("echo", {"text": text})
+
+    assert result.content[0].text == text
 
 
 async def test_an_mcp_app_resource_serializes_in_wire_case(live_server):
