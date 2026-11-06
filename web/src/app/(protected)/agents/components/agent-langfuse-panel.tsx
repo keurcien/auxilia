@@ -302,7 +302,7 @@ export default function AgentLangfusePanel({
 					<VersionMeta version={production} />
 				</span>
 			</div>
-			{prompt.diverged && publishForm("Commit message (optional)")}
+			{publishForm("Commit message (optional)")}
 		</div>
 	);
 }

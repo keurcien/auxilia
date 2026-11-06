@@ -53,15 +53,21 @@ export default function LangfusePublishDialog({
 		setError(null);
 		setCommitMessage("");
 		setLabel(PRODUCTION);
+		let stale = false;
 		langfuseApi
 			.getLangfusePublishDraft(agentId)
 			.then((draft) => {
+				if (stale) return;
 				setLabels(draft.labels);
 				setConfigJson(draft.configJson);
 			})
 			.catch((err: unknown) => {
+				if (stale) return;
 				setError(getApiErrorMessage(err, "Failed to reach Langfuse"));
 			});
+		return () => {
+			stale = true;
+		};
 	}, [open, agentId]);
 
 	const publish = async () => {
@@ -122,6 +128,7 @@ export default function LangfusePublishDialog({
 						trigger={
 							<button
 								type="button"
+								aria-label="Langfuse label"
 								disabled={!labels}
 								className={`${control} flex cursor-pointer items-center gap-2 text-left disabled:cursor-not-allowed disabled:opacity-50`}
 							>

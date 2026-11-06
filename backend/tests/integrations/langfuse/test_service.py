@@ -109,9 +109,19 @@ async def test_publish_defaults_message_and_skips_identical(service, monkeypatch
 
 async def test_publish_rejects_bad_config(service, monkeypatch):
     monkeypatch.setattr(prompts, "get_production", AsyncMock(return_value=None))
-    for bad in ("not json", "[]"):
+    for bad in (
+        "not json",
+        "[]",
+        '{"x": NaN}',
+        "[" * 100_000,
+        '{"mcpServers": {"a": {"url": "https://u:p@x.test/mcp"}}}',
+    ):
         with pytest.raises(DomainValidationError):
             await service.publish(AGENT_ID, LangfusePublishRequest(config_json=bad))
+    with pytest.raises(DomainValidationError):
+        await service.publish(AGENT_ID, LangfusePublishRequest(label="latest"))
+    with pytest.raises(ValueError):
+        LangfusePublishRequest(label="production ")
 
 
 async def test_draft_lists_labels_and_computed_config(service, monkeypatch):

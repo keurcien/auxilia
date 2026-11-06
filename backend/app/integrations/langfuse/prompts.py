@@ -47,7 +47,7 @@ def _to_version(prompt: object) -> LangfusePromptVersion:
         text=prompt.prompt,
         author=created_by if created_by != "API" else None,
         created_at=extra.get("createdAt"),
-        config=prompt.config,
+        config=prompt.config if isinstance(prompt.config, dict) else None,
     )
 
 

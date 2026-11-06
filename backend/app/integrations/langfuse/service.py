@@ -70,13 +70,25 @@ def _mcp_servers(
     }
 
 
+def _reject_constant(name: str) -> None:
+    raise ValueError(f"{name} is not valid JSON")
+
+
 def _parse_config(text: str) -> dict:
     try:
-        config = json.loads(text)
-    except ValueError as err:
+        config = json.loads(text, parse_constant=_reject_constant)
+    except (ValueError, RecursionError) as err:
         raise DomainValidationError(f"Config is not valid JSON: {err}") from err
     if not isinstance(config, dict):
         raise DomainValidationError("Config must be a JSON object")
+    servers = config.get("mcpServers")
+    for server in (servers or {}).values() if isinstance(servers, dict) else ():
+        url = server.get("url") if isinstance(server, dict) else None
+        if isinstance(url, str) and url != _without_userinfo(url):
+            raise DomainValidationError(
+                "Config URLs must not embed credentials: the prompt is readable "
+                "by every Langfuse user"
+            )
     return config
 
 
@@ -127,6 +139,8 @@ class LangfusePromptService:
         self, agent_id: UUID, data: LangfusePublishRequest
     ) -> LangfusePromptVersion:
         """Release the saved instructions as a new version under `data.label`."""
+        if data.label == "latest":
+            raise DomainValidationError("The label `latest` is reserved by Langfuse")
         agent = await self._agent(agent_id)
         name = str(agent_id)
         config = (

@@ -1,5 +1,7 @@
 from datetime import datetime
+from typing import Annotated
 
+from pydantic import StringConstraints
 from sqlmodel import Field, SQLModel
 
 
@@ -34,6 +36,9 @@ class LangfusePublishDraft(SQLModel):
 
 class LangfusePublishRequest(SQLModel):
     commit_message: str | None = None
-    label: str = Field(default="production", min_length=1)
+    # SQLModel's Field drops `regex` under pydantic v2, hence the annotation.
+    label: Annotated[str, StringConstraints(min_length=1, pattern=r"^\S+$")] = (
+        "production"
+    )
     # None publishes the computed config (see `LangfusePublishDraft`).
     config_json: str | None = None
