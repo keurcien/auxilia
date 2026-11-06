@@ -17,6 +17,8 @@ Search for an agent by name (or paste its ID) in the picker to start a conversat
 
 When joining an existing Slack thread, the first message you send after selecting an agent includes the earlier thread message text as context, including the parent message. Subsequent turns use auxilia's saved conversation history. Attachments are not downloaded, and very long threads remain subject to the model's context limits.
 
+In channels, only an explicit `@auxilia` mention opens an agent picker. Ordinary channel messages and replies in threads without a selected agent are ignored. After selecting an agent, replies in that same thread continue the conversation without another mention. Direct messages to auxilia do not require a mention.
+
 ### Having the conversation
 
 Once the agent is picked, chatting feels like talking to a teammate. Messages stream in as the agent thinks, and any tool it calls (looking up a HubSpot contact, querying BigQuery, searching Linear) is shown inline so you can see what's happening.

@@ -447,16 +447,26 @@ async def handle_message(event: SlackEvent, *, team_id: str | None = None) -> No
     if not question:
         return
 
-    user = await resolve_user(event.user)
-
-    if not user:
+    # Only a mention may open a channel picker; regular messages may continue
+    # an existing thread. Do this before identity lookups or Slack API calls.
+    is_mention = event.type == "app_mention"
+    is_dm = event.channel_type == "im"
+    if not is_mention and not is_dm and not event.thread_ts:
         return
 
-    client = AsyncWebClient(token=slack_settings.slack_bot_token)
-
-    # Look up the existing thread (created when the user picked an agent)
     async with AsyncSessionLocal() as db:
         thread = await db.get(ThreadDB, thread_ts)
+        if not thread and not (is_mention or is_dm):
+            return
+        if thread and is_mention:
+            # Slack also delivers message.channels/groups for this reply.
+            # Only that event runs the agent, regardless of delivery order.
+            return
+
+        user = await resolve_user(event.user)
+        if not user:
+            return
+        client = AsyncWebClient(token=slack_settings.slack_bot_token)
 
         if not thread:
             await post_agent_picker(

@@ -83,12 +83,20 @@ async def slack_events(body: bytes = Depends(verify_slack_signature)):
     if event.type == "assistant_thread_started":
         _spawn(handle_assistant_thread_started(event))
 
-    elif event.type == "message" and event.user:
+    elif event.type in ("message", "app_mention") and event.user:
         if event.bot_id or event.subtype == "bot_message":
             return JSONResponse(content={})
 
+        # Ordinary channel roots never start a conversation. DMs remain direct.
+        if (
+            event.type == "message"
+            and event.channel_type != "im"
+            and not event.thread_ts
+        ):
+            return JSONResponse(content={"ok": True})
+
         if event.ts and not await _claim_delivery(
-            f"slack:event:{payload.team_id}:{event.channel}:{event.ts}"
+            f"slack:event:{payload.team_id}:{event.channel}:{event.ts}:{event.type}"
         ):
             return JSONResponse(content={"ok": True})
 

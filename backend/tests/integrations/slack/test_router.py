@@ -100,13 +100,14 @@ def test_message_event_spawns_a_handler(slack_client, spawned, claimed):
                 "channel": "C1",
                 "ts": "1.0",
                 "text": "hi",
+                "thread_ts": "0.5",
             },
         },
     )
 
     assert response.status_code == 200
     assert len(spawned) == 1
-    assert keys == ["slack:event:T1:C1:1.0"]
+    assert keys == ["slack:event:T1:C1:1.0:message"]
 
 
 def test_unclaimed_duplicate_delivery_is_dropped(slack_client, spawned, claimed):
@@ -119,7 +120,13 @@ def test_unclaimed_duplicate_delivery_is_dropped(slack_client, spawned, claimed)
         {
             "type": "event_callback",
             "team_id": "T1",
-            "event": {"type": "message", "user": "U1", "channel": "C1", "ts": "1.0"},
+            "event": {
+                "type": "message",
+                "user": "U1",
+                "channel": "C1",
+                "ts": "1.0",
+                "thread_ts": "0.5",
+            },
         },
     )
 
@@ -247,3 +254,69 @@ def test_options_are_returned_in_webhook_response(slack_client, spawned, monkeyp
     assert forwarded.value == "Agent"
     assert forwarded.action_id == "select_agent"
     assert forwarded.user.id == "U1"
+
+
+@pytest.mark.parametrize("channel_type", ["channel", "group", "mpim", None])
+def test_channel_roots_do_not_trigger_picker(
+    slack_client, spawned, claimed, channel_type
+):
+    response = _post(
+        slack_client,
+        {
+            "type": "event_callback",
+            "event": {
+                "type": "message",
+                "user": "U1",
+                "channel": "C1",
+                "channel_type": channel_type,
+                "ts": "1.0",
+                "text": "hello",
+            },
+        },
+    )
+    assert response.status_code == 200
+    assert spawned == []
+    assert claimed[0] == []
+
+
+@pytest.mark.parametrize(
+    "event_type, channel_type", [("app_mention", "channel"), ("message", "im")]
+)
+def test_mentions_and_direct_messages_can_start_conversations(
+    slack_client, spawned, claimed, event_type, channel_type
+):
+    _post(
+        slack_client,
+        {
+            "type": "event_callback",
+            "event": {
+                "type": event_type,
+                "user": "U1",
+                "channel": "C1",
+                "channel_type": channel_type,
+                "ts": "1.0",
+                "text": "hello",
+            },
+        },
+    )
+    assert len(spawned) == 1
+
+
+async def test_message_dedup_does_not_swallow_mention(slack_client, spawned):
+    for event_type in ["message", "app_mention", "app_mention", "message"]:
+        _post(
+            slack_client,
+            {
+                "type": "event_callback",
+                "team_id": "T1",
+                "event": {
+                    "type": event_type,
+                    "user": "U1",
+                    "channel": "C1",
+                    "thread_ts": "0.5",
+                    "ts": "1.0",
+                    "text": "<@BOT>",
+                },
+            },
+        )
+    assert len(spawned) == 2  # one per event type, retries deduplicated
