@@ -1,7 +1,7 @@
-"""Export a PPTX artifact to Google Slides through the user's own Drive.
+"""Export an artifact to Google Slides or Sheets through the user's own Drive.
 
 Uses the sign-in OAuth client with the extra `drive.file` scope, requested on
-the first export only. Nothing is persisted: the Slides file carries the
+the first export only. Nothing is persisted: the Google file carries the
 artifact id in `appProperties` (private to this OAuth client), which is how a
 later export finds it again.
 """
@@ -12,11 +12,16 @@ from uuid import UUID
 import httpx
 from authlib.integrations.starlette_client import OAuth
 
+from app.artifacts.files import PPTX_MIME
 from app.auth.settings import auth_settings
 
 
 DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
-SLIDES_MIME = "application/vnd.google-apps.presentation"
+# Artifact mime → (Google mime Drive converts it to, URL path, title suffix).
+EXPORTS = {
+    PPTX_MIME: ("application/vnd.google-apps.presentation", "presentation", ".pptx"),
+    "text/csv": ("application/vnd.google-apps.spreadsheet", "spreadsheets", ".csv"),
+}
 PROPERTY = "auxilia_artifact"
 DRIVE = "https://www.googleapis.com/drive/v3/files"
 UPLOAD = "https://www.googleapis.com/upload/drive/v3/files"
@@ -32,12 +37,12 @@ if auth_settings.google_oauth_enabled:
     )
 
 
-def slides_url(file_id: str) -> str:
-    return f"https://docs.google.com/presentation/d/{file_id}/edit"
+def google_url(mime_type: str, file_id: str) -> str:
+    return f"https://docs.google.com/{EXPORTS[mime_type][1]}/d/{file_id}/edit"
 
 
 async def find_export(client: httpx.AsyncClient, artifact_id: UUID) -> str | None:
-    """The Slides file a previous export created for this artifact, if still live."""
+    """The Google file a previous export created for this artifact, if still live."""
     query = (
         f"appProperties has {{ key='{PROPERTY}' and value='{artifact_id}' }}"
         " and trashed = false"
@@ -50,18 +55,18 @@ async def find_export(client: httpx.AsyncClient, artifact_id: UUID) -> str | Non
     return files[0]["id"] if files else None
 
 
-async def upload_as_slides(
+async def upload_converted(
     client: httpx.AsyncClient,
     artifact_id: UUID,
     name: str,
     data: bytes,
     mime_type: str,
 ) -> str:
-    """Upload the PPTX and let Drive convert it to a Slides file; returns its id."""
+    """Upload the file and let Drive convert it to a Google file; returns its id."""
     # Resumable upload: no 5 MB ceiling, and no hand-built multipart/related body.
     metadata = {
         "name": name,
-        "mimeType": SLIDES_MIME,
+        "mimeType": EXPORTS[mime_type][0],
         "appProperties": {PROPERTY: str(artifact_id)},
     }
     start = await client.post(

@@ -34,6 +34,21 @@ describe("artifact viewer adapters", () => {
     expect(screen.getByText("<script>alert(1)</script>")).toBeInTheDocument();
     expect(document.querySelector("script")).toBeNull();
   });
+  it("shows the CSV header row apart and says when rows are cut", () => {
+    const csv = [
+      "Name,Value",
+      ...Array.from({ length: 501 }, (_, i) => `r${i},${i}`),
+    ];
+    render(
+      <ArtifactViewer artifact={artifact} bytes={bytes(csv.join("\n"))} />,
+    );
+    expect(
+      screen.getByRole("columnheader", { name: "Value" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Showing the first 500 rows/)).toBeInTheDocument();
+    expect(screen.getByText("r499")).toBeInTheDocument();
+    expect(screen.queryByText("r500")).toBeNull();
+  });
   it("uses an opaque HTML iframe with CSP ahead of authored content", async () => {
     render(
       <ArtifactViewer
@@ -67,10 +82,14 @@ describe("artifact viewer adapters", () => {
     const target = document.getElementById("target");
     if (target) target.scrollIntoView = scroll;
     // The script the frame actually runs: guardLinks' source, as emitted.
-    const emitted = /<script>([\s\S]*?)<\/script>/.exec(isolatedHtml("", []))?.[1] ?? "";
+    const emitted =
+      /<script>([\s\S]*?)<\/script>/.exec(isolatedHtml("", []))?.[1] ?? "";
     new Function(emitted)();
     const click = (id: string) => {
-      const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+      const event = new MouseEvent("click", {
+        bubbles: true,
+        cancelable: true,
+      });
       document.getElementById(id)?.dispatchEvent(event);
       return event.defaultPrevented;
     };
@@ -78,7 +97,11 @@ describe("artifact viewer adapters", () => {
     expect(click("top")).toBe(true);
     expect(click("js")).toBe(true);
     expect(click("stopper")).toBe(true);
-    const middle = new MouseEvent("auxclick", { bubbles: true, cancelable: true, button: 1 });
+    const middle = new MouseEvent("auxclick", {
+      bubbles: true,
+      cancelable: true,
+      button: 1,
+    });
     document.getElementById("away")?.dispatchEvent(middle);
     expect(middle.defaultPrevented).toBe(true);
     // A link inside an open shadow root.
@@ -86,13 +109,19 @@ describe("artifact viewer adapters", () => {
     document.body.append(host);
     const shadow = host.attachShadow({ mode: "open" });
     shadow.innerHTML = '<a href="joueurs.html"><span>Inside</span></a>';
-    const inner = new MouseEvent("click", { bubbles: true, cancelable: true, composed: true });
+    const inner = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+    });
     shadow.querySelector("span")?.dispatchEvent(inner);
     expect(inner.defaultPrevented).toBe(true);
     document.body.innerHTML = "";
     expect(scroll).toHaveBeenCalledOnce();
     const page = isolatedHtml("<p>authored</p>", []);
-    expect(page.indexOf(")(document)</script>")).toBeLessThan(page.indexOf("<p>authored"));
+    expect(page.indexOf(")(document)</script>")).toBeLessThan(
+      page.indexOf("<p>authored"),
+    );
   });
   it("falls back to download for unknown content", () => {
     render(
