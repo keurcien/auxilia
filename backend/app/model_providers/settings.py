@@ -67,9 +67,13 @@ class ModelProviderSettings(BaseSettings):
                 )
             ),
         }
-        for required, is_partial in partial.items():
-            if is_partial:
-                raise ValueError(f"Workload identity federation needs both {required}.")
+        errors = [
+            f"Workload identity federation needs both {required}."
+            for required, is_partial in partial.items()
+            if is_partial
+        ]
+        if errors:
+            raise ValueError(" ".join(errors))
         return self
 
 

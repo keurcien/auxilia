@@ -72,6 +72,7 @@ def test_provider_api_keys_keeps_api_keys_without_federation():
     "partial",
     [
         {"anthropic_federation_rule_id": "fdrl_test"},
+        {"anthropic_service_account_id": "svac_test"},
         {"anthropic_workspace_id": "wrkspc_test"},
         {"openai_identity_provider_id": "idp_test"},
         {"openai_service_account_id": "svcacct_test"},
@@ -126,7 +127,7 @@ def test_openai_factory_shares_workload_identity_clients(federated_settings):
     assert root.max_retries == 0
 
 
-def test_openai_workload_identity_uses_the_openai_audience():
+def test_openai_workload_identity_uses_the_openai_audience(federated_settings):
     with patch(
         "app.model_providers.federation.gcp_identity_token",
         return_value="google-id-token",

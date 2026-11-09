@@ -16,7 +16,7 @@ These must be set for **auxilia** to start. Missing any of them will fail backen
 | `SALT`                      | Salt for AES-GCM encryption of stored MCP API keys                    |
 | `FRONTEND_URL`              | Public URL of the web app (used as OAuth redirect base)               |
 | `BACKEND_URL`               | Internal URL the Next.js proxy uses to reach the backend (web only)   |
-| One LLM key                 | See [LLM providers](#llm-providers) — at least one is required        |
+| One LLM provider            | See [LLM providers](#llm-providers) — at least one is required        |
 
 In production, also set:
 
@@ -26,7 +26,7 @@ In production, also set:
 
 ## LLM providers
 
-At least one provider must be configured. That means a provider key — except for Google, which also works with [Application Default Credentials](#google-via-application-default-credentials) alone. Configuring a provider makes its models eligible for the picker — configure multiple to give agent authors a choice. Which models actually appear (and which one is preselected) is managed by workspace admins under **Settings → Models**; see [Available models](/agents#available-models).
+At least one provider must be configured. That means a provider key — except for Google, which also works with [Application Default Credentials](#google-via-application-default-credentials) alone, and Anthropic and OpenAI, which also work with [workload identity federation](#anthropic-and-openai-via-workload-identity-federation) on GCP. Configuring a provider makes its models eligible for the picker — configure multiple to give agent authors a choice. Which models actually appear (and which one is preselected) is managed by workspace admins under **Settings → Models**; see [Available models](/agents#available-models).
 
 | Provider  | Environment variable | Models                                                     |
 | --------- | -------------------- | ---------------------------------------------------------- |
@@ -52,8 +52,8 @@ On GCP, Anthropic and OpenAI can also run without an API key: the backend exchan
 | ------------------------------ | ------------------------------------------------------------------------------- |
 | `ANTHROPIC_FEDERATION_RULE_ID` | `fdrl_…`. Required with `ANTHROPIC_ORGANIZATION_ID`                              |
 | `ANTHROPIC_ORGANIZATION_ID`    | Organization UUID                                                               |
-| `ANTHROPIC_SERVICE_ACCOUNT_ID` | Optional `svac_…` target service account                                        |
-| `ANTHROPIC_WORKSPACE_ID`       | Optional `wrkspc_…`; required when the rule enables several workspaces          |
+| `ANTHROPIC_SERVICE_ACCOUNT_ID` | Optional `svac_…`; set only with `ANTHROPIC_FEDERATION_RULE_ID` and `ANTHROPIC_ORGANIZATION_ID` |
+| `ANTHROPIC_WORKSPACE_ID`       | Optional `wrkspc_…`, set only with the two IDs above; required when the rule enables several workspaces |
 | `OPENAI_IDENTITY_PROVIDER_ID`  | `idp_…`. Required with `OPENAI_SERVICE_ACCOUNT_ID`                               |
 | `OPENAI_SERVICE_ACCOUNT_ID`    | ID of the OpenAI service account the mapping targets                            |
 
