@@ -37,6 +37,12 @@ def gcp_identity_token(audience: str) -> str:
     `format=full` adds the `email` claim, so a federation rule can match the
     service account's email and not only its numeric `sub`. (openai's own
     `gcp_id_token_provider` omits it, hence this helper for both SDKs.)
+
+    Blocking on purpose: both SDKs call their token providers from a worker
+    thread on the async path (anthropic's AccessTokenAuth.async_auth_flow via
+    asyncify, openai's WorkloadIdentityAuth.get_token_async via to_thread), and
+    only when their token cache needs a new token, so the event loop never
+    waits on the metadata server.
     """
     response = httpx.get(
         _METADATA_IDENTITY_URL,
