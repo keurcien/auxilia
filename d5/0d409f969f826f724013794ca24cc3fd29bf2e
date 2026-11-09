@@ -1,0 +1,19 @@
+docs/content/deploy/environment-variables.mdx
+  e543b9ce4931c2f8 47-61
+backend/tests/model_providers/test_federation.py
+  e543b9ce4931c2f8 1-137
+backend/app/model_providers/federation.py
+  e543b9ce4931c2f8 1-89
+backend/app/model_providers/catalog.py
+  e543b9ce4931c2f8 1-2,11,23-28,75-76,78-80,82-84,104-115,140-150,156,197-202
+README.md
+  e543b9ce4931c2f8 59
+backend/app/model_providers/settings.py
+  e543b9ce4931c2f8 1,25-34,37-74
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d50d409f969f826f724013794ca24cc3fd29bf2e",
+  "prompts": {}
+}
