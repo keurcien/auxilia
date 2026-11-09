@@ -20,6 +20,7 @@ from openai.auth import WorkloadIdentity
 
 from app.model_providers.settings import model_provider_settings
 
+
 ANTHROPIC_AUDIENCE = "https://api.anthropic.com"
 OPENAI_AUDIENCE = "https://api.openai.com/v1"
 

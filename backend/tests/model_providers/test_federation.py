@@ -13,6 +13,7 @@ from app.model_providers.catalog import (
 )
 from app.model_providers.settings import ModelProviderSettings
 
+
 ANTHROPIC_IDS = {
     "anthropic_federation_rule_id": "fdrl_test",
     "anthropic_organization_id": "00000000-0000-4000-8000-000000000000",
