@@ -44,6 +44,21 @@ Anthropic models run with thinking enabled by default; Google models run with `i
 
 `GOOGLE_API_KEY` is not the only way to enable Gemini. If it is unset but [Application Default Credentials](https://cloud.google.com/docs/authentication/application-default-credentials) are available — a GCP service account on Cloud Run/GKE/Compute, `gcloud auth application-default login`, or `GOOGLE_APPLICATION_CREDENTIALS` — the backend serves Gemini models through **Vertex AI** using those credentials instead of the Gemini Developer API. The identity needs permission to call Vertex AI (e.g. the **Vertex AI User** role). When `GOOGLE_API_KEY` is set, it always wins.
 
+### Anthropic and OpenAI via workload identity federation
+
+On GCP, Anthropic and OpenAI can also run without an API key: the backend exchanges the Google ID token of its service account (from the metadata server) for short-lived provider access tokens, which the SDKs refresh. Configure the federation on the provider side (an Anthropic federation rule, an OpenAI workload identity provider and service account mapping) to match the token's `sub` and `email` claims, then set:
+
+| Variable                       | Notes                                                                           |
+| ------------------------------ | ------------------------------------------------------------------------------- |
+| `ANTHROPIC_FEDERATION_RULE_ID` | `fdrl_…`. Required with `ANTHROPIC_ORGANIZATION_ID`                              |
+| `ANTHROPIC_ORGANIZATION_ID`    | Organization UUID                                                               |
+| `ANTHROPIC_SERVICE_ACCOUNT_ID` | Optional `svac_…` target service account                                        |
+| `ANTHROPIC_WORKSPACE_ID`       | Optional `wrkspc_…`; required when the rule enables several workspaces          |
+| `OPENAI_IDENTITY_PROVIDER_ID`  | `idp_…`. Required with `OPENAI_SERVICE_ACCOUNT_ID`                               |
+| `OPENAI_SERVICE_ACCOUNT_ID`    | ID of the OpenAI service account the mapping targets                            |
+
+Token audiences are `https://api.anthropic.com` and `https://api.openai.com/v1`. Once a provider's required IDs are set, federation takes precedence over its API key; a partial configuration stops the backend at startup.
+
 ## Authentication
 
 | Variable                 | Notes                                                                 |
