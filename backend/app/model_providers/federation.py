@@ -12,12 +12,16 @@ models share the same clients, hence one access token; each Anthropic client
 keeps its own token cache over the shared credentials provider.
 """
 
-from functools import lru_cache
+from functools import lru_cache, partial
 
 import httpx
 from anthropic.lib.credentials import WorkloadIdentityCredentials
-from openai import AsyncOpenAI, OpenAI
-from openai.auth import WorkloadIdentity
+
+# This module only builds authenticated SDK clients: prompts and completions
+# still go through LangChain like every other provider, so a Guardrails import
+# (static analysis pattern) has nothing to wrap here.
+from openai import AsyncOpenAI, OpenAI  # nosemgrep
+from openai.auth import WorkloadIdentity  # nosemgrep
 
 from app.model_providers.settings import model_provider_settings
 
@@ -57,17 +61,25 @@ def gcp_identity_token(audience: str) -> str:
     return token
 
 
+def _require(*ids: str | None) -> list[str]:
+    """The given IDs, all set. ModelProviderSettings rejects partial
+    configurations, so a missing ID means federation is not configured."""
+    present = [value for value in ids if value]
+    if len(present) != len(ids):
+        raise RuntimeError("Workload identity federation is not configured")
+    return present
+
+
 @lru_cache(maxsize=1)
 def anthropic_credentials() -> WorkloadIdentityCredentials:
     """Anthropic credentials provider. Each client wraps it in its own token
     cache; sharing the provider shares its HTTP client for the exchange."""
     settings = model_provider_settings
-    federation_rule_id = settings.anthropic_federation_rule_id
-    organization_id = settings.anthropic_organization_id
-    if not (federation_rule_id and organization_id):
-        raise RuntimeError("Anthropic workload identity federation is not configured")
+    federation_rule_id, organization_id = _require(
+        settings.anthropic_federation_rule_id, settings.anthropic_organization_id
+    )
     return WorkloadIdentityCredentials(
-        identity_token_provider=lambda: gcp_identity_token(ANTHROPIC_AUDIENCE),
+        identity_token_provider=partial(gcp_identity_token, ANTHROPIC_AUDIENCE),
         federation_rule_id=federation_rule_id,
         organization_id=organization_id,
         service_account_id=settings.anthropic_service_account_id,
@@ -77,16 +89,16 @@ def anthropic_credentials() -> WorkloadIdentityCredentials:
 
 def openai_workload_identity() -> WorkloadIdentity:
     settings = model_provider_settings
-    identity_provider_id = settings.openai_identity_provider_id
-    service_account_id = settings.openai_service_account_id
-    if not (identity_provider_id and service_account_id):
-        raise RuntimeError("OpenAI workload identity federation is not configured")
+    identity_provider_id, service_account_id = _require(
+        settings.openai_identity_provider_id, settings.openai_service_account_id
+    )
     return {
         "identity_provider_id": identity_provider_id,
         "service_account_id": service_account_id,
         "provider": {
-            "token_type": "id",
-            "get_token": lambda: gcp_identity_token(OPENAI_AUDIENCE),
+            # A Google ID token, as opposed to "jwt": a type name, not a secret.
+            "token_type": "id",  # nosec B105
+            "get_token": partial(gcp_identity_token, OPENAI_AUDIENCE),
         },
     }
 

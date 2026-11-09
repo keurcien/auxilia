@@ -36,41 +36,36 @@ class ModelProviderSettings(BaseSettings):
 
     @property
     def anthropic_federation(self) -> bool:
-        return bool(
-            self.anthropic_federation_rule_id and self.anthropic_organization_id
-        )
+        return all((self.anthropic_federation_rule_id, self.anthropic_organization_id))
 
     @property
     def openai_federation(self) -> bool:
-        return bool(self.openai_identity_provider_id and self.openai_service_account_id)
+        return all((self.openai_identity_provider_id, self.openai_service_account_id))
 
     @model_validator(mode="after")
     def _federation_is_complete(self) -> "ModelProviderSettings":
         # A partial federation config is a typo, not a choice: fail at startup
         # instead of silently serving the provider with its API key (or not at all).
-        partial = {
+        # Required pair -> (is it complete?, every ID of that provider).
+        providers = {
             "ANTHROPIC_FEDERATION_RULE_ID and ANTHROPIC_ORGANIZATION_ID": (
-                not self.anthropic_federation
-                and any(
-                    (
-                        self.anthropic_federation_rule_id,
-                        self.anthropic_organization_id,
-                        self.anthropic_service_account_id,
-                        self.anthropic_workspace_id,
-                    )
-                )
+                self.anthropic_federation,
+                (
+                    self.anthropic_federation_rule_id,
+                    self.anthropic_organization_id,
+                    self.anthropic_service_account_id,
+                    self.anthropic_workspace_id,
+                ),
             ),
             "OPENAI_IDENTITY_PROVIDER_ID and OPENAI_SERVICE_ACCOUNT_ID": (
-                not self.openai_federation
-                and any(
-                    (self.openai_identity_provider_id, self.openai_service_account_id)
-                )
+                self.openai_federation,
+                (self.openai_identity_provider_id, self.openai_service_account_id),
             ),
         }
         errors = [
             f"Workload identity federation needs both {required}."
-            for required, is_partial in partial.items()
-            if is_partial
+            for required, (complete, ids) in providers.items()
+            if any(ids) and not complete
         ]
         if errors:
             raise ValueError(" ".join(errors))
