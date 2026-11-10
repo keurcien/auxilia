@@ -12,6 +12,8 @@ thread per run.
 """
 
 import logging
+from typing import Any
+from uuid import UUID
 
 from langfuse import Langfuse
 from langfuse.langchain import CallbackHandler
@@ -20,6 +22,44 @@ from app.integrations.langfuse.settings import langfuse_settings
 
 
 logger = logging.getLogger(__name__)
+
+# `create_agent` compiles each middleware hook into a graph node named
+# `<Middleware>.<hook>`, next to the `model` node that makes the LLM call.
+_NODE_HOOKS = (".before_agent", ".before_model", ".after_model", ".after_agent")
+
+
+class LeanCallbackHandler(CallbackHandler):
+    """The Langfuse handler, minus the graph state on node spans.
+
+    LangGraph hands every node the whole state, and the stock handler stores it
+    as the span's input. One model call therefore exported the conversation once
+    for the generation — the prompt, the copy worth keeping — and again for the
+    `model` node and for every `after_model` middleware. Trace size grew with
+    the square of the run length, several times over.
+
+    Node spans keep their output, timing and errors, which is what they are
+    for: a middleware's decision is in what it returns, not in what it was fed.
+    """
+
+    def on_chain_start(
+        self,
+        serialized: dict[str, Any] | None,
+        inputs: Any,
+        *,
+        parent_run_id: UUID | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        name = kwargs.get("name") or ""
+        # The root run has no parent and keeps its input: it is the turn the
+        # user sent, and what the trace list previews.
+        if parent_run_id is not None and (
+            name == "model" or name.endswith(_NODE_HOOKS)
+        ):
+            inputs = None
+        return super().on_chain_start(
+            serialized, inputs, parent_run_id=parent_run_id, **kwargs
+        )
+
 
 _client: Langfuse | None = None
 _handler: CallbackHandler | None = None
@@ -40,7 +80,7 @@ def _build_langfuse() -> tuple[Langfuse | None, CallbackHandler | None]:
         host=langfuse_settings.langfuse_base_url,
         timeout=langfuse_settings.langfuse_timeout,
     )
-    return client, CallbackHandler()
+    return client, LeanCallbackHandler()
 
 
 def _ensure_built() -> None:

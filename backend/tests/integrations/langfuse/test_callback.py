@@ -33,7 +33,7 @@ def test_langfuse_client_receives_configured_timeout(monkeypatch):
     langfuse_constructor = MagicMock()
     callback_constructor = MagicMock()
     monkeypatch.setattr(callback, "Langfuse", langfuse_constructor)
-    monkeypatch.setattr(callback, "CallbackHandler", callback_constructor)
+    monkeypatch.setattr(callback, "LeanCallbackHandler", callback_constructor)
     monkeypatch.setattr(callback.langfuse_settings, "langfuse_public_key", "pk-test")
     monkeypatch.setattr(callback.langfuse_settings, "langfuse_secret_key", "sk-test")
     monkeypatch.setattr(
@@ -93,7 +93,7 @@ def test_the_client_is_built_once_not_per_run(monkeypatch):
     _configure(monkeypatch)
     constructor = MagicMock()
     monkeypatch.setattr(callback, "Langfuse", constructor)
-    monkeypatch.setattr(callback, "CallbackHandler", MagicMock())
+    monkeypatch.setattr(callback, "LeanCallbackHandler", MagicMock())
 
     first = callback.get_langfuse_callback_handler()
     second = callback.get_langfuse_callback_handler()
@@ -115,7 +115,7 @@ def test_flush_ships_buffered_traces(monkeypatch):
     _configure(monkeypatch)
     client = MagicMock()
     monkeypatch.setattr(callback, "Langfuse", MagicMock(return_value=client))
-    monkeypatch.setattr(callback, "CallbackHandler", MagicMock())
+    monkeypatch.setattr(callback, "LeanCallbackHandler", MagicMock())
     callback.get_langfuse_callback_handler()  # build it
 
     callback.flush_langfuse()
@@ -137,7 +137,7 @@ def test_a_failing_flush_does_not_fail_shutdown(monkeypatch):
     client = MagicMock()
     client.flush.side_effect = RuntimeError("langfuse unreachable")
     monkeypatch.setattr(callback, "Langfuse", MagicMock(return_value=client))
-    monkeypatch.setattr(callback, "CallbackHandler", MagicMock())
+    monkeypatch.setattr(callback, "LeanCallbackHandler", MagicMock())
     callback.get_langfuse_callback_handler()
 
     callback.flush_langfuse()  # must not raise

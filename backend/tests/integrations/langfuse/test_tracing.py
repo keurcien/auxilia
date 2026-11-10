@@ -2,14 +2,16 @@ import asyncio
 from uuid import uuid4
 
 import pytest
+from langchain_core.messages import AIMessage
 from langfuse import Langfuse
-from langfuse.langchain import CallbackHandler
 from opentelemetry import context as otel_context
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
+from app.integrations.langfuse.callback import LeanCallbackHandler
 from app.integrations.langfuse.tracing import LangfuseTracing
 from tests.runtime.test_agent_behaviour import (
+    add,
     build_agent,
     collect,
     in_memory_runtime,  # noqa: F401 — shared real-runtime fixture
@@ -30,7 +32,7 @@ def exported_tracing():
         tracer_provider=TracerProvider(),
         span_exporter=exporter,
     )
-    adapter = LangfuseTracing(CallbackHandler(public_key=key))
+    adapter = LangfuseTracing(LeanCallbackHandler(public_key=key))
     try:
         yield adapter, client, exporter
     finally:
@@ -80,6 +82,46 @@ async def test_generation_spans_keep_session_ids_across_concurrent_runs(
         )
         assert root.attributes["session.id"] == generation.attributes["session.id"]
     assert otel_context.get_value("langfuse.propagated.session_id") is None
+
+
+@pytest.mark.asyncio
+async def test_only_the_prompt_repeats_the_conversation(exported_tracing):
+    """LangGraph hands every node the whole state and the stock handler stores
+    it as the span's input: each model call exported the conversation once for
+    the generation and again for the `model` node and every `after_model`
+    middleware, so most of a long trace was the same history, repeated.
+
+    Asserted on where the user's words land rather than on node names, so a
+    node langchain renames or adds fails here instead of quietly carrying the
+    state again.
+    """
+    adapter, client, exporter = exported_tracing
+    agent, _ = build_agent(
+        script=[
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "add", "args": {"a": 2, "b": 3}, "id": "call-1"}],
+            ),
+            "the sum is 5",
+        ],
+        tools=[add],
+    )
+    agent.tracing = adapter
+    question = "a question only the prompt should repeat"
+
+    await collect(agent, question)
+    client.flush()
+
+    spans = exporter.get_finished_spans()
+    assert sorted(
+        "root" if s.parent is None else s.attributes["langfuse.observation.type"]
+        for s in spans
+        if question in s.attributes.get("langfuse.observation.input", "")
+    ) == ["generation", "generation", "root"]
+    # The node spans are still exported, with what they decided.
+    model_nodes = [s for s in spans if s.name == "model"]
+    assert len(model_nodes) == 2
+    assert all("langfuse.observation.output" in s.attributes for s in model_nodes)
 
 
 @pytest.mark.asyncio
