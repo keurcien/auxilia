@@ -1,0 +1,16 @@
+backend/app/model_providers/federation.py
+  h_df81e42269d667 23
+backend/tests/model_providers/test_federation.py
+  h_df81e42269d667 16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1082671bd72c0a6c8fd8130cf5916b82b0dd7c39",
+  "prompts": {},
+  "humans": {
+    "h_df81e42269d667": {
+      "author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}

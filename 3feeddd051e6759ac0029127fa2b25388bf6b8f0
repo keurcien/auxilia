@@ -1,0 +1,24 @@
+backend/app/runtime/api/runs_router.py
+  s_b275b7797da1a6::t_a089473b8e1f13 197
+backend/app/runtime/runs/schemas.py
+  s_b275b7797da1a6::t_a089473b8e1f13 19
+backend/tests/runtime/api/test_runs_router.py
+  s_b275b7797da1a6::t_e154de4f35fa8e 234-251,255-258
+  s_b275b7797da1a6::t_144bebfd268fce 252-254
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3feeddd051e6759ac0029127fa2b25388bf6b8f0",
+  "prompts": {},
+  "sessions": {
+    "s_b275b7797da1a6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a14516-62ec-7af3-9238-547f8880fe1b",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}

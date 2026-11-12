@@ -1,0 +1,23 @@
+backend/app/model_providers/whitelist.yaml
+  s_650d883b1bf156::t_7e0817a6640a4a 213-221,237-245
+backend/tests/model_providers/test_catalog.py
+  s_650d883b1bf156::t_61580c15f22c41 31-32
+docs/content/agents/index.mdx
+  s_650d883b1bf156::t_1d8678367ef219 55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b88767338a6fbaba7a80845c33cf294dccf851b4",
+  "prompts": {},
+  "sessions": {
+    "s_650d883b1bf156": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17eed-7754-75d0-aa91-871fd536f275",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}

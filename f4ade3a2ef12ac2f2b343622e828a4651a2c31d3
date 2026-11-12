@@ -1,0 +1,42 @@
+backend/app/model_providers/catalog.py
+  s_91a7c6d41fa915::t_4e24344182f355 58-61,163-165,171
+  h_df81e42269d667 62-63
+backend/tests/model_providers/test_catalog.py
+  s_91a7c6d41fa915::t_4dfdcc894af018 81-83
+  s_91a7c6d41fa915::t_4e24344182f355 72-73
+  s_91a7c6d41fa915::t_3ac6e3a14d1beb 74-80,84-86
+backend/tests/model_providers/test_whitelist.py
+  s_91a7c6d41fa915::t_59af9e6c363eb2 86
+docs/content/agents/index.mdx
+  h_df81e42269d667 61
+docs/content/deploy/environment-variables.mdx
+  h_df81e42269d667 38
+backend/app/model_providers/whitelist.yaml
+  h_df81e42269d667 179-180,233-234,240-241
+  s_91a7c6d41fa915::t_4e24344182f355 218-224
+README.md
+  s_91a7c6d41fa915::t_1ab43e000e3536 95
+docs/content/index.mdx
+  h_df81e42269d667 101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "f4ade3a2ef12ac2f2b343622e828a4651a2c31d3",
+  "prompts": {},
+  "humans": {
+    "h_df81e42269d667": {
+      "author": "tgensol <thibaut@appchoose.io>"
+    }
+  },
+  "sessions": {
+    "s_91a7c6d41fa915": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a038c2-50cf-7d33-899d-75865aed068f",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}

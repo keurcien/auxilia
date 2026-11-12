@@ -1,0 +1,80 @@
+web/src/app/(protected)/agents/[id]/chat/[threadId]/page.tsx
+  s_c578ab0eada8a0::t_3d7558f20a88fd 427-434
+  s_c578ab0eada8a0::t_ec43d296044742 83-84
+  s_c578ab0eada8a0::t_a76c3089a11e38 1150-1152
+web/src/app/(protected)/triggers/components/trigger-card.tsx
+  s_c578ab0eada8a0::t_2a9855036b8955 7
+  s_c578ab0eada8a0::t_916ed6228eae81 32
+backend/app/integrations/slack/utils.py
+  s_c578ab0eada8a0::t_3f640b47c354dc 75-76
+backend/tests/agents/runs/test_worker.py
+  s_c578ab0eada8a0::t_83f824beb40b47 122-125,136-162
+  s_c578ab0eada8a0::t_617323ad6456ab 111,234
+  s_c578ab0eada8a0::t_3f688ab79e3d96 53-55,57
+  s_c578ab0eada8a0::t_4d8c64d22d2a5b 112-121,126-135,163-164
+backend/app/triggers/service.py
+  s_c578ab0eada8a0::t_ca63ea7a684017 15
+  s_c578ab0eada8a0::t_5b75888799388e 189-197,201
+  s_c578ab0eada8a0::t_1758902513e60e 188,198-200
+backend/tests/triggers/test_run_now_gate.py
+  s_c578ab0eada8a0::t_40a434d4948b6b 1-8,10,12,14-15,17-18,20-27,30,34-36,53-55,59,65,67,69-70
+  s_c578ab0eada8a0::t_6b1433a673fba7 37-47,51,63-64,68
+  s_c578ab0eada8a0::t_d01ce58834ecb4 60,66
+  s_c578ab0eada8a0::t_ff7318977d57be 9,11,13,16,19,28-29,31-33,48-50,52,56-58,61-62
+backend/tests/integrations/slack/test_handlers.py
+  s_c578ab0eada8a0::t_1ac01b996bcedc 111-116,118-119,121-123,125,128-141,160-161,168-170,174,177-178,180-184,187-188,191-200,202
+  s_c578ab0eada8a0::t_990c1c2a5779c0 142-159,162-167,171-173,175-176,179,185-186,189-190,203-204
+  s_c578ab0eada8a0::t_126f119d2f9bc7 201
+  s_c578ab0eada8a0::t_99ac55c86ffe0b 117,120,124,126-127
+backend/app/integrations/slack/blocks.py
+  s_c578ab0eada8a0::t_ea23d56fa44bad 77-103
+backend/app/integrations/slack/handlers.py
+  s_c578ab0eada8a0::t_335963b68b69f3 18
+  s_c578ab0eada8a0::t_14f732bb7743a6 242,244-247,249-256
+  s_c578ab0eada8a0::t_3aba6e81920713 305-306
+  s_c578ab0eada8a0::t_a5b560b198fd5d 421-427
+  s_c578ab0eada8a0::t_4474625353b1cd 241,258,261-268,270
+  s_c578ab0eada8a0::t_dc1587ae8c2609 269
+backend/app/agents/runs/state.py
+  s_c578ab0eada8a0::t_587c32ba327a5c 24-33
+backend/tests/integrations/slack/test_consumer.py
+  s_c578ab0eada8a0::t_ead98ac1e0eac0 148-154,161,173-200
+  s_c578ab0eada8a0::t_921abdb7ebe540 201-202
+web/src/app/(protected)/agents/[id]/chat/page.tsx
+  s_c578ab0eada8a0::t_9bfab385842eda 17
+  s_c578ab0eada8a0::t_e1c7125f81afb6 156-160
+backend/app/agents/runs/service.py
+  s_c578ab0eada8a0::t_364efbe6cc0a05 94,96,104-109
+backend/app/integrations/slack/consumer.py
+  s_c578ab0eada8a0::t_375ca7916b20c5 140-169
+  s_c578ab0eada8a0::t_ada25ef3761008 20,25
+  s_c578ab0eada8a0::t_ee7868da414e9e 96-97
+web/src/types/agents.ts
+  s_c578ab0eada8a0::t_4b7304f2f6cf75 12-15
+backend/app/integrations/slack/models.py
+  s_c578ab0eada8a0::t_3f640b47c354dc 24,32,46,56,62,84,92
+backend/app/agents/runs/worker.py
+  s_c578ab0eada8a0::t_f1113b2e5f1482 173
+  s_c578ab0eada8a0::t_b8d9d89437efac 40-41,43-46,56
+  s_c578ab0eada8a0::t_d5b9e83c374e1b 174
+  s_c578ab0eada8a0::t_0c14de2ba6ca12 24
+  s_c578ab0eada8a0::t_acbdc0262c27ee 42,47-55
+  s_c578ab0eada8a0::t_a164605a4f4024 28
+  s_c578ab0eada8a0::t_d1897ad10318d7 57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "b588cdd9e6cda6513337ab2e0c9d0657765486ad",
+  "prompts": {},
+  "sessions": {
+    "s_c578ab0eada8a0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "62eb8fe3-cbb6-4c08-9eb0-fd101602de6b",
+        "model": "claude-fable-5"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}

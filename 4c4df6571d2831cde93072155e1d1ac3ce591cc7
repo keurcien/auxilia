@@ -1,0 +1,59 @@
+.env.example
+  s_728d82d79cb7df::t_ef7c61349a2af8 11
+  s_728d82d79cb7df::t_39f9786df9ca8b 10
+docs/content/index.mdx
+  s_728d82d79cb7df::t_280e4313e35b07 83
+  s_728d82d79cb7df::t_18d2c42c93250e 86
+  s_728d82d79cb7df::t_7a302a15d4c995 87-89
+web/src/components/ai-elements/model-selector.tsx
+  s_728d82d79cb7df::t_1e5c7ae6707b45 68
+backend/app/model_providers/catalog.py
+  s_728d82d79cb7df::t_209cee47742ddd 161-169
+  s_728d82d79cb7df::t_2dc3a108d7cad5 79-84
+docker-compose.yml
+  s_728d82d79cb7df::t_0caa5f4d277af9 61
+  s_728d82d79cb7df::t_199b0670f2e04a 62
+backend/app/model_providers/settings.py
+  s_728d82d79cb7df::t_b5d6119df00b5c 18
+README.md
+  s_728d82d79cb7df::t_1331dbf3edbba0 58
+  s_728d82d79cb7df::t_f4264b8fbc178d 92
+  s_728d82d79cb7df::t_7e231bbca0b43c 93-94
+backend/app/model_providers/router.py
+  s_728d82d79cb7df::t_d7a52662dc047c 136-147
+  s_728d82d79cb7df::t_3da85d52f8f490 26-27
+docs/content/agents/index.mdx
+  s_728d82d79cb7df::t_f63f3495c8f855 59-62
+  s_728d82d79cb7df::t_97183caf6a6b98 56
+docs/content/deploy/environment-variables.mdx
+  s_728d82d79cb7df::t_83948fc2626468 36
+  s_728d82d79cb7df::t_7f450bbdbffedb 37
+  s_728d82d79cb7df::t_38c32514614940 39
+  s_728d82d79cb7df::t_46613653313ffa 33
+backend/app/model_providers/models.py
+  s_728d82d79cb7df::t_284c3a4af2dc2c 12
+docs/content/get-started.mdx
+  h_df81e42269d667 42
+  s_728d82d79cb7df::t_567b51262b7584 41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.11",
+  "base_commit_sha": "4c4df6571d2831cde93072155e1d1ac3ce591cc7",
+  "prompts": {},
+  "humans": {
+    "h_df81e42269d667": {
+      "author": "tgensol <thibaut@appchoose.io>"
+    }
+  },
+  "sessions": {
+    "s_728d82d79cb7df": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "162e0a23-fad0-4b8a-8252-45c0b02db572",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}

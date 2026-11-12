@@ -1,0 +1,31 @@
+backend/app/runtime/agent.py
+  s_b0e6ebb49fe2dc::t_3280dbbdb1847d 25
+  s_b0e6ebb49fe2dc::t_c7b2d53b1749eb 677-681
+backend/tests/runtime/test_agent_behaviour.py
+  s_b0e6ebb49fe2dc::t_b84e3d0396f246 20,180-198
+  s_258e2e576864d3::t_c1e0e210a9e318 199-200
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "51de2e375eb5a417477772db7b8ed9c8e42e3149",
+  "prompts": {},
+  "sessions": {
+    "s_258e2e576864d3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e7eb-1baf-7001-87f0-01626d458fd1",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    },
+    "s_b0e6ebb49fe2dc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e7e3-9df4-7d10-9e4a-5dc6f39165a3",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}

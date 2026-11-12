@@ -1,0 +1,24 @@
+backend/app/agents/structured_output.py
+  s_219aaf1f191b15::t_02c3078259820e 181,183
+  s_219aaf1f191b15::t_ec64edb6a508f3 112-120
+backend/tests/agents/runs/test_events.py
+  s_219aaf1f191b15::t_8cff4dbe8aab87 20-26,28,32-34
+backend/tests/agents/test_structured_output.py
+  s_219aaf1f191b15::t_5f661ebe479aa1 217-218,221-225,235,242,247-249
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "86ed1ddbf8fe5e89a3306fabb4169573d0b34150",
+  "prompts": {},
+  "sessions": {
+    "s_219aaf1f191b15": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "14501e95-d622-42e7-8d38-944f56fdd0aa",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}

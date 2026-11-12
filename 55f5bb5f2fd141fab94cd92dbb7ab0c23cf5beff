@@ -1,0 +1,24 @@
+backend/README.md
+  s_6946df8ca59e94::t_1a794691150b33 128-143
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.13",
+  "base_commit_sha": "55f5bb5f2fd141fab94cd92dbb7ab0c23cf5beff",
+  "prompts": {},
+  "humans": {
+    "h_df81e42269d667": {
+      "author": "tgensol <thibaut@appchoose.io>"
+    }
+  },
+  "sessions": {
+    "s_6946df8ca59e94": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7af4772e-a180-4f98-a411-987694e169c0",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}

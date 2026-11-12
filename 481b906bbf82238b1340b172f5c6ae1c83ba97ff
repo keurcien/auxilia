@@ -1,0 +1,37 @@
+backend/tests/agents/runs/test_events.py
+  s_219aaf1f191b15::t_f132c2aad9612d 2
+  s_219aaf1f191b15::t_8a6a21891f988a 19-31
+backend/app/agents/structured_output.py
+  s_219aaf1f191b15::t_94fb0f6e9e45bc 43,58-59,73-75
+  s_219aaf1f191b15::t_ceaa432538c72c 29-32
+  s_219aaf1f191b15::t_dee0a99c8bed78 147,150-152,154-156,158,163-169,171-178
+  s_219aaf1f191b15::t_71e287a2a1fbd4 76
+backend/app/agents/runs/settings.py
+  s_219aaf1f191b15::t_b90014ed96dbdb 31-33
+backend/app/agents/runs/events.py
+  s_219aaf1f191b15::t_b83d67746399fb 34-38,43-49
+  s_219aaf1f191b15::t_eb8f7fb26f6be2 14
+docker-compose.yml
+  s_219aaf1f191b15::t_b3cc25edff69d9 89-90,92-93
+  s_219aaf1f191b15::t_afc72e81f0ac77 91
+backend/tests/agents/test_structured_output.py
+  s_219aaf1f191b15::t_a7c4da9a38cad8 191-193,196-198,202-227,232-237,241
+  s_219aaf1f191b15::t_e3a6d56279c46e 228-231,238-240
+  s_219aaf1f191b15::t_3e2fecf03bfa8c 11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "481b906bbf82238b1340b172f5c6ae1c83ba97ff",
+  "prompts": {},
+  "sessions": {
+    "s_219aaf1f191b15": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "14501e95-d622-42e7-8d38-944f56fdd0aa",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}

@@ -1,0 +1,26 @@
+backend/app/agents/runs/service.py
+  s_af6c3ad0bd9d73::t_2683ac2f57fb74 121-124
+backend/tests/agents/core/test_service.py
+  s_af6c3ad0bd9d73::t_6904d883efc5ac 802-804,815-833
+backend/app/agents/core/service.py
+  s_af6c3ad0bd9d73::t_9297fa319fbb6b 316,318-323,326
+  s_af6c3ad0bd9d73::t_81da4506f9c66f 346
+backend/app/agents/runs/router.py
+  s_af6c3ad0bd9d73::t_3649991f5beac0 201-203
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "7f50ca5e0ce5f9a2bffadb63c6e7b0c1f4895312",
+  "prompts": {},
+  "sessions": {
+    "s_af6c3ad0bd9d73": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "eff59b63-deb8-42b2-a4a8-c1936e3224b3",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}

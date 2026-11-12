@@ -1,0 +1,27 @@
+web/src/components/ai-elements/subagent.tsx
+  s_b784fa0df8a109::t_158bb302032791 10,268,274-279
+  s_b784fa0df8a109::t_cdad7abcd91d22 280
+web/src/components/ai-elements/subagent.test.tsx
+  s_b784fa0df8a109::t_158bb302032791 30-49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "7db73ab3fcf76fe5d541e86c60242a1c116b7ae9",
+  "prompts": {},
+  "humans": {
+    "h_df81e42269d667": {
+      "author": "tgensol <thibaut@appchoose.io>"
+    }
+  },
+  "sessions": {
+    "s_b784fa0df8a109": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa8d1-5b02-7383-8345-408fe3c4065e",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}

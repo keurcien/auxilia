@@ -1,0 +1,29 @@
+backend/app/agents/runs/service.py
+  s_c578ab0eada8a0::t_67c1c1469ba648 100-101,108-111,115-116,118-119,129-149,151-153
+  s_c578ab0eada8a0::t_2518842f755da5 150
+backend/tests/agents/runs/test_gate.py
+  s_c578ab0eada8a0::t_67c1c1469ba648 8,12,27,36-40,51-55,64-65,67-69,73-77,82-94
+backend/app/agents/runs/router.py
+  s_c578ab0eada8a0::t_67c1c1469ba648 110-112,152-154
+backend/tests/mcp/servers/test_service.py
+  s_c578ab0eada8a0::t_67c1c1469ba648 5
+backend/tests/agents/runs/test_router.py
+  s_c578ab0eada8a0::t_67c1c1469ba648 32-33,37-42,45,47-56,103-104,162-198
+  s_c578ab0eada8a0::t_df0ce4edb274a8 199-200
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "45bce3a40f2ff042fb0cfef1fe898a179af52f5c",
+  "prompts": {},
+  "sessions": {
+    "s_c578ab0eada8a0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "62eb8fe3-cbb6-4c08-9eb0-fd101602de6b",
+        "model": "claude-fable-5"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}

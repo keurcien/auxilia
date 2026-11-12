@@ -1,0 +1,24 @@
+Makefile
+  s_1ad6685c8feea1::t_db54a79f84f879 7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.11",
+  "base_commit_sha": "7321dd35e30b2b94e846826d425bc7b59b3a81bd",
+  "prompts": {},
+  "humans": {
+    "h_df81e42269d667": {
+      "author": "tgensol <thibaut@appchoose.io>"
+    }
+  },
+  "sessions": {
+    "s_1ad6685c8feea1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b488bf93-8ea4-4697-9052-8e14e27357eb",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}

@@ -1,0 +1,35 @@
+web/src/components/ai-elements/subagent.tsx
+  s_b784fa0df8a109::t_c46683a6afe1de 241,244,249,279-283,288
+backend/tests/threads/test_threads_router.py
+  s_b784fa0df8a109::t_c46683a6afe1de 273-295,297-299
+  s_b784fa0df8a109::t_b5d684fcaa5e86 296
+web/src/app/(protected)/agents/[id]/chat/[threadId]/page.tsx
+  s_b784fa0df8a109::t_c46683a6afe1de 430,698-709,712-718,1078-1084
+backend/app/threads/router.py
+  s_b784fa0df8a109::t_c46683a6afe1de 118-124,133-135
+web/src/components/ai-elements/subagent.test.tsx
+  s_b784fa0df8a109::t_3f4345c540c6c7 20-21
+  s_b784fa0df8a109::t_c46683a6afe1de 1-17,23-30
+  s_b784fa0df8a109::t_8371f375ca94c6 18-19,22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "223e0af7b32b950349a10e7cca14ba582dbfbc66",
+  "prompts": {},
+  "humans": {
+    "h_df81e42269d667": {
+      "author": "tgensol <thibaut@appchoose.io>"
+    }
+  },
+  "sessions": {
+    "s_b784fa0df8a109": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa8d1-5b02-7383-8345-408fe3c4065e",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}

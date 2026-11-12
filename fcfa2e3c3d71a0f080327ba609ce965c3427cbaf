@@ -1,0 +1,37 @@
+backend/app/agents/structured_output.py
+  s_6946df8ca59e94::t_82494dee11b7c2 87-94,107
+  s_6946df8ca59e94::t_221194af713a37 137-138,140-144,146-148
+  s_6946df8ca59e94::t_13fc533ea7ac87 173-175,182-183,186-189,191
+backend/app/agents/runtime.py
+  s_6946df8ca59e94::t_26adbab1317353 42-47
+  s_6946df8ca59e94::t_5cba2eb1a75f31 133
+  s_6946df8ca59e94::t_90df81befec5d3 117
+  s_6946df8ca59e94::t_3f73febc1ab769 319-321,331
+  s_6946df8ca59e94::t_40d10eeebb263f 86
+backend/app/model_providers/catalog.py
+  s_6946df8ca59e94::t_0031e69832e5b1 28-33
+backend/tests/agents/test_structured_output.py
+  s_6946df8ca59e94::t_eaff6ee813f95d 150-154,156,160-169,171-179
+  s_6946df8ca59e94::t_a647235a13aac8 180
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.13",
+  "base_commit_sha": "fcfa2e3c3d71a0f080327ba609ce965c3427cbaf",
+  "prompts": {},
+  "humans": {
+    "h_df81e42269d667": {
+      "author": "tgensol <thibaut@appchoose.io>"
+    }
+  },
+  "sessions": {
+    "s_6946df8ca59e94": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7af4772e-a180-4f98-a411-987694e169c0",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}

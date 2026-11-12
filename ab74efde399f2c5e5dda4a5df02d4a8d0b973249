@@ -1,0 +1,31 @@
+.env.example
+  s_4c3d507ebe31c4::t_15cfc36c95d4b3 57
+backend/app/integrations/langfuse/callback.py
+  s_4c3d507ebe31c4::t_14b069b05aca21 7-15,18-19,21-24
+backend/app/integrations/langfuse/settings.py
+  s_4c3d507ebe31c4::t_873fd876b4bb21 3,15,19
+backend/tests/integrations/langfuse/test_callback.py
+  s_4c3d507ebe31c4::t_52dec342d88f69 1-54
+docs/content/deploy/environment-variables.mdx
+  s_4c3d507ebe31c4::t_9cf2cfa16d84bf 77,79
+docs/content/deploy/langfuse.mdx
+  s_4c3d507ebe31c4::t_7dadba70bcfc99 14,20,23
+docs/content/get-started.mdx
+  s_4c3d507ebe31c4::t_cb1498d61555b7 76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.12",
+  "base_commit_sha": "ab74efde399f2c5e5dda4a5df02d4a8d0b973249",
+  "prompts": {},
+  "sessions": {
+    "s_4c3d507ebe31c4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f5a5f-c0e9-77b1-b75a-a19f4459ee5b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}

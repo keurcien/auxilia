@@ -1,0 +1,39 @@
+backend/app/model_providers/catalog.py
+  s_91a7c6d41fa915::t_25ee8eb9d05f67 59
+catalog/whitelist.yaml
+  s_91a7c6d41fa915::t_25ee8eb9d05f67 219-229,233,235-236,240
+backend/tests/model_providers/test_catalog.py
+  s_91a7c6d41fa915::t_25ee8eb9d05f67 78
+backend/app/model_providers/whitelist.yaml
+  s_91a7c6d41fa915::t_46e0caf482b49d 225-226,233,240
+backend/tests/model_providers/test_router.py
+  s_91a7c6d41fa915::t_25ee8eb9d05f67 24-25,30,37-38
+web/src/app/(protected)/agents/[id]/chat/components/prompt-input.tsx
+  s_91a7c6d41fa915::t_25ee8eb9d05f67 86
+backend/tests/model_providers/test_whitelist.py
+  s_91a7c6d41fa915::t_46e0caf482b49d 86-87,90
+  s_91a7c6d41fa915::t_25ee8eb9d05f67 19-20,28,83,85,88-89
+README.md
+  s_91a7c6d41fa915::t_25ee8eb9d05f67 95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "cab5d874fa6e6c7e045263ac468fe641a5f7d805",
+  "prompts": {},
+  "humans": {
+    "h_df81e42269d667": {
+      "author": "tgensol <thibaut@appchoose.io>"
+    }
+  },
+  "sessions": {
+    "s_91a7c6d41fa915": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a038c2-50cf-7d33-899d-75865aed068f",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}

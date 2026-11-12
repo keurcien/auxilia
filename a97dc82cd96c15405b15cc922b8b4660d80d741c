@@ -1,0 +1,40 @@
+backend/app/model_providers/catalog.py
+  s_6946df8ca59e94::t_7b91b7c8aa03ce 28-34
+backend/app/agents/structured_output.py
+  s_6946df8ca59e94::t_1d5c84d6c050f7 171-175,179-181,187-190,193
+  s_6946df8ca59e94::t_f92356d2d78839 53
+  s_6946df8ca59e94::t_1c1b1a96c2cb2c 87-94,107
+  s_6946df8ca59e94::t_2c4f05a65b1e37 138-148
+backend/app/agents/runtime.py
+  s_6946df8ca59e94::t_32c5cb2efa96e8 305
+  s_6946df8ca59e94::t_f1d4b785094295 336
+  s_6946df8ca59e94::t_1aff0da2747bab 211,219
+  s_6946df8ca59e94::t_5be0b0a913bfe8 42-47
+  s_6946df8ca59e94::t_57cc559f59e695 117-119
+  s_6946df8ca59e94::t_0280973b2f6477 86
+  s_6946df8ca59e94::t_c5bd0f7b484718 264-266
+backend/tests/agents/test_structured_output.py
+  s_6946df8ca59e94::t_4c028cc3afed10 5
+  s_6946df8ca59e94::t_37dcdc41bf0cfd 150-209
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.13",
+  "base_commit_sha": "a97dc82cd96c15405b15cc922b8b4660d80d741c",
+  "prompts": {},
+  "humans": {
+    "h_df81e42269d667": {
+      "author": "tgensol <thibaut@appchoose.io>"
+    }
+  },
+  "sessions": {
+    "s_6946df8ca59e94": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7af4772e-a180-4f98-a411-987694e169c0",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}

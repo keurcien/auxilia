@@ -1,0 +1,21 @@
+backend/app/runtime/middleware/current_date.py
+  s_c18915144956ef::t_4646412200be95 1,4,7-8,12,29,33
+backend/tests/runtime/middleware/test_current_date.py
+  s_c18915144956ef::t_287907eed303bb 3-4,49,61,69,75,79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a952ea909ec1c3f95b362193b09245f9755131b8",
+  "prompts": {},
+  "sessions": {
+    "s_c18915144956ef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17f05-4244-7ad3-87c6-c9b014349bcc",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}
