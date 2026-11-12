@@ -1,0 +1,31 @@
+backend/tests/runtime/middleware/test_structured_output_graph.py
+  s_93bc5d20d6969b::t_6b516a67bb35de 56
+  s_93bc5d20d6969b::t_011639527e3609 6-7,33-39,48
+  s_93bc5d20d6969b::t_1f89fe6572304a 1-5,8-32,40-47,49-55,57-96
+backend/app/runtime/agent.py
+  s_93bc5d20d6969b::t_1d847b1febe582 37,979-980,985-987
+  s_93bc5d20d6969b::t_bacb6450228e79 982
+  s_93bc5d20d6969b::t_847769ccea2fe5 981,983-984
+backend/tests/runtime/test_agent_behaviour.py
+  s_93bc5d20d6969b::t_ff4a393d4342c8 333-335,371-373
+  s_93bc5d20d6969b::t_13ce071df8997e 26,332,336-370,374-395,416-419
+backend/app/runtime/middleware/structured_output.py
+  s_93bc5d20d6969b::t_2e848fe7a2a45d 276
+  s_93bc5d20d6969b::t_2b5ab84db076bc 14-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8aa7d4e266970b59035a669faa7888bb58522de2",
+  "prompts": {},
+  "sessions": {
+    "s_93bc5d20d6969b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1cf3b-2520-72a2-a7f5-15e2559effb0",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "tgensol <thibaut@appchoose.io>"
+    }
+  }
+}
