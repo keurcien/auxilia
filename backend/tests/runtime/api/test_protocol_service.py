@@ -6,6 +6,7 @@ shapes for unknown/unsupported methods, seq derivation, the SSE frame, and
 the stored-event codec.
 """
 
+import asyncio
 import json
 
 import pytest
@@ -323,6 +324,61 @@ async def test_history_maps_duplicate_descriptions_by_task_id(monkeypatch):
 
     assert one[0]["values"]["messages"][-1]["content"] == "first result"
     assert two[0]["values"]["messages"][-1]["content"] == "second result"
+
+
+class _LockingCheckpointer(_Checkpointer):
+    """Locks the way `AsyncPostgresSaver` does: `alist` holds the saver's lock
+    for as long as it is being iterated, and a point read needs that lock.
+    The fake above has no lock, which is how a read made from inside the
+    listing loop passed every test."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.lock = asyncio.Lock()
+
+    async def alist(self, config):
+        async with self.lock:
+            async for saved in super().alist(config):
+                yield saved
+
+
+async def _locked_state(checkpointer, thread_id, checkpoint_ns=""):
+    async with checkpointer.lock:
+        return checkpointer.state_for(checkpoint_ns)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "task_writes",
+    [{"task-a": "call_1"}, None],
+    ids=["resolved by task id", "resolved by description"],
+)
+async def test_history_never_reads_state_while_listing_checkpoints(
+    monkeypatch, task_writes
+):
+    """Against a saver that locks like Postgres, both ways of resolving a
+    task call still answer. The description fallback used to read each
+    namespace's state from inside the `alist` loop: that read waits on the
+    lock the listing holds, so the request never returned and kept its
+    database connections until the process restarted."""
+    inner = [HumanMessage(content="Inspect the incident", id="s1"), AIMessage("done")]
+    checkpointer = _LockingCheckpointer(
+        _root_with_task("call_1", "Inspect the incident"),
+        {
+            "tools:task-b": [HumanMessage(content="Else", id="s2")],
+            "tools:task-a": inner,
+        },
+        task_writes=task_writes,
+    )
+    monkeypatch.setattr(service_mod, "get_checkpointer", _checkpointer_cm(checkpointer))
+    monkeypatch.setattr(service_mod, "get_checkpoint_state", _locked_state)
+
+    # A regression is a hang, not a wrong answer: bound it so it fails.
+    page = await asyncio.wait_for(
+        _service().thread_history("t1", "tools:call_1"), timeout=1
+    )
+
+    assert page[0]["values"]["messages"][-1]["content"] == "done"
 
 
 # ── thread_state: the hydration snapshot names the paused agent ─────────────

@@ -504,15 +504,23 @@ async def _subagent_messages(checkpointer, thread_id: str, tool_call_id: str) ->
     description = _task_description(root.messages, tool_call_id)
     if description:
         # alist() with only thread_id walks every namespace's checkpoints
-        # newest-first; the first time we see a namespace is its latest.
-        seen_ns: set[str] = set()
-        async for ct in checkpointer.alist(
-            config={"configurable": {"thread_id": thread_id}}
-        ):
-            ns = ct.config["configurable"].get("checkpoint_ns") or ""
-            if not ns or ns in seen_ns:
-                continue
-            seen_ns.add(ns)
+        # newest-first; keep each namespace once, in that order.
+        # AsyncPostgresSaver.alist holds its cursor lock while yielding, and
+        # get_checkpoint_state point-reads on the same saver: a read made
+        # inside the listing waits on that lock forever, pinning the
+        # request's database connections until the process restarts. So
+        # exhaust the listing first, retaining only the namespaces, not the
+        # large raw tuples.
+        namespaces = dict.fromkeys(
+            [
+                ns
+                async for ct in checkpointer.alist(
+                    config={"configurable": {"thread_id": thread_id}}
+                )
+                if (ns := ct.config["configurable"].get("checkpoint_ns"))
+            ]
+        )
+        for ns in namespaces:
             ns_messages = (
                 await get_checkpoint_state(checkpointer, thread_id, ns)
             ).messages
