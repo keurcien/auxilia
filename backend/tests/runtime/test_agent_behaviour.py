@@ -394,6 +394,85 @@ async def test_a_required_report_can_wait_for_approval_and_finish_after_resume(
 
 
 @pytest.mark.asyncio
+async def test_regenerating_a_required_report_accepts_the_new_valid_report(
+    in_memory_runtime,
+):
+    schema = {
+        "title": "answer",
+        "type": "object",
+        "properties": {"answer": {"type": "integer"}},
+        "required": ["answer"],
+    }
+    agent, _ = build_agent(
+        script=[
+            "First answer without a report.",
+            "The answer is 2.",
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {"name": "answer", "args": {"answer": 2}, "id": "report-2"}
+                ],
+            ),
+            "The answer is 3.",
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {"name": "answer", "args": {"answer": 3}, "id": "report-3"}
+                ],
+            ),
+        ]
+    )
+    await collect(agent, "question one")
+    await collect(agent, "question two", output_schema=schema)
+
+    await collect(
+        agent, "question two", trigger="regenerate-message", output_schema=schema
+    )
+
+    state = await get_checkpoint_state(in_memory_runtime, "thread-1")
+    assert state.structured_response == {"answer": 3}
+
+
+@pytest.mark.asyncio
+async def test_an_old_report_cannot_hide_a_failed_regeneration(in_memory_runtime):
+    schema = {
+        "title": "answer",
+        "type": "object",
+        "properties": {"answer": {"type": "integer"}},
+        "required": ["answer"],
+    }
+    agent, _ = build_agent(
+        script=[
+            "The first answer is 1.",
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {"name": "answer", "args": {"answer": 1}, "id": "report-1"}
+                ],
+            ),
+            "The second answer is 2.",
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {"name": "answer", "args": {"answer": 2}, "id": "report-2"}
+                ],
+            ),
+            *(["analysis", "", "", ""] * 3),
+        ]
+    )
+    await collect(agent, "question one", output_schema=schema)
+    await collect(agent, "question two", output_schema=schema)
+
+    with pytest.raises(StructuredOutputError):
+        await collect(
+            agent, "question two", trigger="regenerate-message", output_schema=schema
+        )
+
+    state = await get_checkpoint_state(in_memory_runtime, "thread-1")
+    assert state.structured_response is None
+
+
+@pytest.mark.asyncio
 async def test_stale_structured_response_is_cleared_before_a_new_run(in_memory_runtime):
     """`structured_response` is a persistent channel: a turn that never reaches
     its formatting step must not read back the previous turn's object."""

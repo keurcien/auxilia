@@ -977,7 +977,16 @@ class Agent:
                             event = address_input_requested(event, rounds)
                         yield event
                 if output_schema is not None:
-                    state = await agent.aget_state(config)
+                    # Regeneration pins the starting checkpoint; validate the completed turn.
+                    state = await agent.aget_state(
+                        {
+                            **config,
+                            "configurable": {
+                                **config["configurable"],
+                                "checkpoint_id": None,
+                            },
+                        }
+                    )
                     if (
                         not state.next
                         and state.values.get("structured_response") is None

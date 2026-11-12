@@ -11,7 +11,7 @@ fabricated values.
 1. Every model call runs with ``response_format`` stripped, so the model calls
    tools and reasons exactly as it would without a schema.
 2. When a call produces no tool calls (the final answer), one extra model call
-   is made — same conversation plus a formatting instruction, without work tools
+   is made — same conversation plus a formatting instruction, without agent tools
    — with the original ``response_format`` restored. langchain's strategy resolution
    (provider-native vs. forced tool call) applies only to that turn, and the
    parsed result flows through the normal ``structured_response`` channel, so
