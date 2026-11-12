@@ -511,15 +511,13 @@ async def _subagent_messages(checkpointer, thread_id: str, tool_call_id: str) ->
         # request's database connections until the process restarts. So
         # exhaust the listing first, retaining only the namespaces, not the
         # large raw tuples.
-        namespaces = dict.fromkeys(
-            [
-                ns
-                async for ct in checkpointer.alist(
-                    config={"configurable": {"thread_id": thread_id}}
-                )
-                if (ns := ct.config["configurable"].get("checkpoint_ns"))
-            ]
-        )
+        namespaces = {
+            ns: None
+            async for ct in checkpointer.alist(
+                config={"configurable": {"thread_id": thread_id}}
+            )
+            if (ns := ct.config["configurable"].get("checkpoint_ns"))
+        }
         for ns in namespaces:
             ns_messages = (
                 await get_checkpoint_state(checkpointer, thread_id, ns)
