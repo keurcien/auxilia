@@ -1,0 +1,116 @@
+"""Workload identity federation: keyless Anthropic and OpenAI authentication.
+
+On GCP (Cloud Run, GKE, Compute Engine) the backend's service account gets a
+Google ID token from the metadata server; Anthropic and OpenAI exchange it for
+short-lived access tokens, so no provider API key is stored or rotated. Each
+provider's federation (rule / mapping) must match the token's claims; the IDs
+come from ModelProviderSettings.
+
+The SDKs own the exchange and the token refresh. This module only supplies
+the Google identity token and builds the credentials once per process. OpenAI
+models share the same clients, hence one access token; each Anthropic client
+keeps its own token cache over the shared credentials provider.
+"""
+
+from functools import lru_cache, partial
+
+import httpx
+from anthropic.lib.credentials import WorkloadIdentityCredentials
+
+# This module only builds authenticated SDK clients: prompts and completions
+# still go through LangChain like every other provider, so a Guardrails import
+# (static analysis pattern) has nothing to wrap here.
+from openai import AsyncOpenAI, OpenAI  # nosemgrep
+from openai.auth import WorkloadIdentity  # nosemgrep
+
+from app.model_providers.settings import model_provider_settings
+
+
+ANTHROPIC_AUDIENCE = "https://api.anthropic.com"
+OPENAI_AUDIENCE = "https://api.openai.com/v1"
+
+_METADATA_IDENTITY_URL = (
+    "http://metadata.google.internal/computeMetadata/v1"
+    "/instance/service-accounts/default/identity"
+)
+
+
+def gcp_identity_token(audience: str) -> str:
+    """Google ID token of the attached service account, for `audience`.
+
+    `format=full` adds the `email` claim, so a federation rule can match the
+    service account's email and not only its numeric `sub`. (openai's own
+    `gcp_id_token_provider` omits it, hence this helper for both SDKs.)
+
+    Blocking on purpose: both SDKs call their token providers from a worker
+    thread on the async path (anthropic's AccessTokenAuth.async_auth_flow via
+    asyncify, openai's WorkloadIdentityAuth.get_token_async via to_thread), and
+    only when their token cache needs a new token, so the event loop never
+    waits on the metadata server.
+    """
+    response = httpx.get(
+        _METADATA_IDENTITY_URL,
+        params={"audience": audience, "format": "full"},
+        headers={"Metadata-Flavor": "Google"},
+        timeout=10,
+    )
+    response.raise_for_status()
+    token = response.text.strip()
+    if not token:
+        raise RuntimeError("The GCP metadata server returned an empty identity token")
+    return token
+
+
+def _require(*ids: str | None) -> list[str]:
+    """The given IDs, all set. ModelProviderSettings rejects partial
+    configurations, so a missing ID means federation is not configured."""
+    present = [value for value in ids if value]
+    if len(present) != len(ids):
+        raise RuntimeError("Workload identity federation is not configured")
+    return present
+
+
+@lru_cache(maxsize=1)
+def anthropic_credentials() -> WorkloadIdentityCredentials:
+    """Anthropic credentials provider. Each client wraps it in its own token
+    cache; sharing the provider shares its HTTP client for the exchange."""
+    settings = model_provider_settings
+    federation_rule_id, organization_id = _require(
+        settings.anthropic_federation_rule_id, settings.anthropic_organization_id
+    )
+    return WorkloadIdentityCredentials(
+        identity_token_provider=partial(gcp_identity_token, ANTHROPIC_AUDIENCE),
+        federation_rule_id=federation_rule_id,
+        organization_id=organization_id,
+        service_account_id=settings.anthropic_service_account_id,
+        workspace_id=settings.anthropic_workspace_id,
+    )
+
+
+def openai_workload_identity() -> WorkloadIdentity:
+    settings = model_provider_settings
+    identity_provider_id, service_account_id = _require(
+        settings.openai_identity_provider_id, settings.openai_service_account_id
+    )
+    return {
+        "identity_provider_id": identity_provider_id,
+        "service_account_id": service_account_id,
+        "provider": {
+            # A Google ID token, as opposed to "jwt": a type name, not a secret.
+            "token_type": "id",  # nosec B105
+            "get_token": partial(gcp_identity_token, OPENAI_AUDIENCE),
+        },
+    }
+
+
+@lru_cache(maxsize=1)
+def openai_clients() -> tuple[OpenAI, AsyncOpenAI]:
+    """Shared OpenAI clients authenticated by workload identity: one access
+    token for every model instance. Same options as the clients LangChain
+    builds from an API key in ChatModelFactory: max_retries=0 (retrying is
+    owned by ModelRetryMiddleware) and no request timeout."""
+    identity = openai_workload_identity()
+    return (
+        OpenAI(workload_identity=identity, max_retries=0, timeout=None),
+        AsyncOpenAI(workload_identity=identity, max_retries=0, timeout=None),
+    )
