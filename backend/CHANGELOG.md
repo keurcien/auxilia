@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.27](https://github.com/keurcien/auxilia/compare/backend-v0.9.26...backend-v0.9.27) (2026-11-13)
+
+
+### Bug Fixes
+
+* **runtime:** stop thread history from hanging on the subagent description fallback ([#462](https://github.com/keurcien/auxilia/issues/462)) ([7366a5a](https://github.com/keurcien/auxilia/commit/7366a5aadf38204d12f9a2bf061dd073e39c4905))
+
 ## [0.9.26](https://github.com/keurcien/auxilia/compare/backend-v0.9.25...backend-v0.9.26) (2026-11-06)
 
 
