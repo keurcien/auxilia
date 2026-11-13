@@ -34,7 +34,7 @@ from app.artifacts.models import ArtifactDB
 from app.artifacts.service import ATTACHMENTS_ROOT, ArtifactService
 from app.artifacts.tool import present_files_tool
 from app.database import AsyncSessionLocal, get_checkpointer
-from app.exceptions import DomainValidationError, NotFoundError
+from app.exceptions import DomainValidationError, NotFoundError, StructuredOutputError
 from app.integrations.tracing import NoOpTracing, RunTracing, get_tracing
 from app.model_providers.catalog import ChatModelFactory
 from app.model_providers.service import ModelService
@@ -976,6 +976,24 @@ class Agent:
                         if event["method"] == "input.requested":
                             event = address_input_requested(event, rounds)
                         yield event
+                if output_schema is not None:
+                    # Regeneration pins the starting checkpoint; validate the completed turn.
+                    state = await agent.aget_state(
+                        {
+                            **config,
+                            "configurable": {
+                                **config["configurable"],
+                                "checkpoint_id": None,
+                            },
+                        }
+                    )
+                    if (
+                        not state.next
+                        and state.values.get("structured_response") is None
+                    ):
+                        raise StructuredOutputError(
+                            "Run ended without the required structured response"
+                        )
             except (asyncio.CancelledError, GeneratorExit):
                 # A cancel lands here directly, or — when it hit the consumer
                 # between two events — as the consumer's `aclose()`.
