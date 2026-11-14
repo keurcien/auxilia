@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.108](https://github.com/jr-k/auxilia/compare/backend-v0.11.107...backend-v0.11.108) (2026-11-14)
+
+
+### Bug Fixes
+
+* **runtime:** stop /history deadlocking on the checkpointer lock ([57122fc](https://github.com/jr-k/auxilia/commit/57122fc05d36f2192547974aac4cf37134781198))
+
 ## [0.11.107](https://github.com/jr-k/auxilia/compare/backend-v0.11.106...backend-v0.11.107) (2026-11-13)
 
 
