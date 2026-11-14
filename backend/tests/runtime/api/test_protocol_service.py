@@ -170,15 +170,6 @@ def test_terminal_entries_map_run_statuses():
 # --- thread history -------------------------------------------------------------
 
 
-class _Tuple:
-    """What `alist` yields: enough of a checkpoint tuple to name its namespace
-    and carry the root's pending writes."""
-
-    def __init__(self, ns: str, pending_writes: list | None = None):
-        self.config = {"configurable": {"checkpoint_ns": ns}}
-        self.pending_writes = pending_writes or []
-
-
 @pytest.fixture(autouse=True)
 def _route_fake_checkpointers(monkeypatch):
     """The service and `hitl` read state through `get_checkpoint_state`; the
@@ -197,7 +188,7 @@ class _Checkpointer:
     """Root state plus subagent namespaces keyed by pregel task ids.
 
     `task_writes` maps a pregel task id to the tool_call_id it answered — the
-    root checkpoint's pending writes."""
+    root namespace's message writes."""
 
     def __init__(
         self,
@@ -219,12 +210,26 @@ class _Checkpointer:
             return checkpoint_state(self._namespaces[checkpoint_ns])
         return EMPTY_STATE
 
-    async def alist(self, config):
-        if config["configurable"].get("checkpoint_ns") == "":
-            yield _Tuple("", self._writes)
-            return
-        for ns in self._namespaces:
-            yield _Tuple(ns)
+    def writes_repo(self):
+        """A `CheckpointWriteRepository` stand-in over the same data."""
+        serde = JsonPlusSerializer()
+        writes = self._writes
+        namespaces = list(self._namespaces)
+
+        class _Repo:
+            def __init__(self, db):
+                pass
+
+            async def iter_namespace_message_writes(self, thread_id, checkpoint_ns):
+                if checkpoint_ns != "":
+                    return
+                for task_id, _channel, message in writes:
+                    yield (task_id, *serde.dumps_typed(message))
+
+            async def list_subgraph_namespaces(self, thread_id):
+                return namespaces
+
+        return _Repo
 
 
 def _checkpointer_cm(checkpointer):
@@ -236,6 +241,14 @@ def _checkpointer_cm(checkpointer):
             return False
 
     return lambda: _CM()
+
+
+def _use_checkpointer(monkeypatch, checkpointer):
+    monkeypatch.setattr(service_mod, "get_checkpointer", _checkpointer_cm(checkpointer))
+    monkeypatch.setattr(
+        service_mod, "CheckpointWriteRepository", checkpointer.writes_repo()
+    )
+    monkeypatch.setattr(service_mod, "AsyncSessionLocal", lambda: _Session())
 
 
 def _root_with_task(tool_call_id: str, description: str) -> list:
@@ -257,10 +270,7 @@ def _root_with_task(tool_call_id: str, description: str) -> list:
 
 @pytest.mark.asyncio
 async def test_history_without_a_tools_namespace_is_empty(monkeypatch):
-    monkeypatch.setattr(
-        "app.runtime.api.protocol_service.get_checkpointer",
-        _checkpointer_cm(_Checkpointer([], {})),
-    )
+    _use_checkpointer(monkeypatch, _Checkpointer([], {}))
     assert await _service().thread_history(WORKSPACE_ID, "t1", None) == []
     assert await _service().thread_history(WORKSPACE_ID, "t1", "research:abc") == []
 
@@ -276,10 +286,7 @@ async def test_history_resolves_a_task_call_to_its_subgraph_checkpoint(monkeypat
         _root_with_task("call_1", "Inspect the incident"),
         {"tools:task-b": decoy, "tools:task-a": inner},
     )
-    monkeypatch.setattr(
-        "app.runtime.api.protocol_service.get_checkpointer",
-        _checkpointer_cm(checkpointer),
-    )
+    _use_checkpointer(monkeypatch, checkpointer)
 
     page = await _service().thread_history(WORKSPACE_ID, "t1", "tools:call_1")
 
@@ -296,10 +303,7 @@ async def test_history_resolves_a_task_call_to_its_subgraph_checkpoint(monkeypat
 @pytest.mark.asyncio
 async def test_history_for_an_unknown_task_call_is_empty(monkeypatch):
     checkpointer = _Checkpointer(_root_with_task("call_1", "x"), {"tools:t": []})
-    monkeypatch.setattr(
-        "app.runtime.api.protocol_service.get_checkpointer",
-        _checkpointer_cm(checkpointer),
-    )
+    _use_checkpointer(monkeypatch, checkpointer)
     assert await _service().thread_history(WORKSPACE_ID, "t1", "tools:call_9") == []
 
 
@@ -325,10 +329,7 @@ async def test_history_maps_duplicate_descriptions_by_task_id(monkeypatch):
         {"tools:task-a": first, "tools:task-b": second},
         task_writes={"task-a": "call_1", "task-b": "call_2"},
     )
-    monkeypatch.setattr(
-        "app.runtime.api.protocol_service.get_checkpointer",
-        _checkpointer_cm(checkpointer),
-    )
+    _use_checkpointer(monkeypatch, checkpointer)
 
     svc = _service()
     one = await svc.thread_history(WORKSPACE_ID, "t1", "tools:call_1")

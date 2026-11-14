@@ -21,6 +21,7 @@ A thin orchestration layer over `RunService` and the run event log:
 import asyncio
 import logging
 from collections.abc import AsyncGenerator
+from contextlib import aclosing
 from typing import Any
 
 from langchain_core.messages import BaseMessage, ToolMessage, convert_to_messages
@@ -642,8 +643,7 @@ async def _subagent_messages(checkpointer, thread_id: str, tool_call_id: str) ->
     each namespace's seed ``HumanMessage`` (strict equality, first match), and
     finally to the pre-subgraph ``tools:<tool_call_id>`` layout.
     """
-    root_config = {"configurable": {"thread_id": thread_id, "checkpoint_ns": ""}}
-    namespace = await _task_namespace(checkpointer, root_config, tool_call_id)
+    namespace = await _task_namespace(thread_id, tool_call_id)
     if namespace is not None:
         state = await get_checkpoint_state(checkpointer, thread_id, namespace)
         if state.saved is not None:
@@ -652,16 +652,14 @@ async def _subagent_messages(checkpointer, thread_id: str, tool_call_id: str) ->
     root = await get_checkpoint_state(checkpointer, thread_id)
     description = _task_description(root.messages, tool_call_id)
     if description:
-        # alist() with only thread_id walks every namespace's checkpoints
-        # newest-first; the first time we see a namespace is its latest.
-        seen_ns: set[str] = set()
-        async for ct in checkpointer.alist(
-            config={"configurable": {"thread_id": thread_id}}
-        ):
-            ns = ct.config["configurable"].get("checkpoint_ns") or ""
-            if not ns or ns in seen_ns:
-                continue
-            seen_ns.add(ns)
+        # Never read the checkpointer from inside `checkpointer.alist()`: the
+        # Postgres saver holds its lock for the whole iteration, so the nested
+        # read waits forever and the request pins the fetched rows in memory.
+        async with AsyncSessionLocal() as db:
+            namespaces = await CheckpointWriteRepository(db).list_subgraph_namespaces(
+                thread_id
+            )
+        for ns in namespaces:
             ns_messages = (
                 await get_checkpoint_state(checkpointer, thread_id, ns)
             ).messages
@@ -673,20 +671,24 @@ async def _subagent_messages(checkpointer, thread_id: str, tool_call_id: str) ->
     return legacy.messages
 
 
-async def _task_namespace(
-    checkpointer, root_config: dict, tool_call_id: str
-) -> str | None:
+async def _task_namespace(thread_id: str, tool_call_id: str) -> str | None:
     """``tools:<task id>`` of the Pregel task that answered ``tool_call_id``,
-    read off the root checkpoints' pending writes; ``None`` when no root
-    checkpoint recorded that write."""
-    async for ct in checkpointer.alist(config=root_config):
-        for task_id, _channel, value in getattr(ct, "pending_writes", None) or []:
-            written = value if isinstance(value, list) else [value]
-            if any(
-                isinstance(m, ToolMessage) and m.tool_call_id == tool_call_id
-                for m in written
-            ):
-                return f"{_TOOLS_NS_PREFIX}{task_id}"
+    read off the root namespace's message writes; ``None`` when no root
+    write recorded it. Streamed one write at a time: listing the root
+    checkpoints instead loads every one of them, with its blobs, at once."""
+    async with AsyncSessionLocal() as db:
+        writes = CheckpointWriteRepository(db).iter_namespace_message_writes(
+            thread_id, ""
+        )
+        async with aclosing(writes):
+            async for task_id, type_tag, blob in writes:
+                value = _SERDE.loads_typed((type_tag, blob))
+                written = value if isinstance(value, list) else [value]
+                if any(
+                    isinstance(m, ToolMessage) and m.tool_call_id == tool_call_id
+                    for m in written
+                ):
+                    return f"{_TOOLS_NS_PREFIX}{task_id}"
     return None
 
 

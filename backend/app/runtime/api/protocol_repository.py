@@ -40,3 +40,34 @@ class CheckpointWriteRepository:
                 yield row.type, bytes(row.blob)
         finally:
             await result.close()
+
+    async def iter_namespace_message_writes(
+        self, thread_id: str, checkpoint_ns: str
+    ) -> AsyncGenerator[tuple[str, str, bytes], None]:
+        """`(task_id, type, blob)` of the `messages`-channel writes of one
+        namespace, newest checkpoint first, streamed like `iter_message_writes`."""
+        stmt = text(
+            "SELECT task_id, type, blob FROM checkpoint_writes "
+            "WHERE thread_id = :thread_id AND checkpoint_ns = :checkpoint_ns "
+            "AND channel = 'messages' "
+            "ORDER BY checkpoint_id DESC, idx ASC"
+        )
+        result = await self.db.stream(
+            stmt.execution_options(yield_per=1),
+            {"thread_id": thread_id, "checkpoint_ns": checkpoint_ns},
+        )
+        try:
+            async for row in result:
+                yield row.task_id, row.type, bytes(row.blob)
+        finally:
+            await result.close()
+
+    async def list_subgraph_namespaces(self, thread_id: str) -> list[str]:
+        """The thread's non-root checkpoint namespaces, most recently written first."""
+        stmt = text(
+            "SELECT checkpoint_ns FROM checkpoints "
+            "WHERE thread_id = :thread_id AND checkpoint_ns <> '' "
+            "GROUP BY checkpoint_ns ORDER BY max(checkpoint_id) DESC"
+        )
+        result = await self.db.execute(stmt, {"thread_id": thread_id})
+        return list(result.scalars())
