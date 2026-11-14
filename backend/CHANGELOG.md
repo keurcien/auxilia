@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.109](https://github.com/jr-k/auxilia/compare/backend-v0.11.108...backend-v0.11.109) (2026-11-14)
+
+
+### Bug Fixes
+
+* **model-providers:** drop foreign reasoning blocks when replaying to OpenAI ([03d2349](https://github.com/jr-k/auxilia/commit/03d234936e29a43ae4967946e16bf26915b72033))
+
 ## [0.11.108](https://github.com/jr-k/auxilia/compare/backend-v0.11.107...backend-v0.11.108) (2026-11-14)
 
 
