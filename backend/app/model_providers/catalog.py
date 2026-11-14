@@ -165,7 +165,11 @@ class ResponsesChatOpenAI(ChatOpenAI):
         stop: list[str] | None = None,
         **kwargs: Any,
     ) -> dict:
-        payload = super()._get_request_payload(input_, stop=stop, **kwargs)
+        messages = [
+            _drop_foreign_blocks(message, "openai", _FOREIGN_OPENAI_BLOCK_TYPES)
+            for message in self._convert_input(input_).to_messages()
+        ]
+        payload = super()._get_request_payload(messages, stop=stop, **kwargs)
         items = payload.get("input")
         if isinstance(items, list):
             payload["input"] = [
@@ -189,28 +193,32 @@ _ANTHROPIC_SERVER_RESULT_TYPES = frozenset(
 _FOREIGN_V1_BLOCK_TYPES = frozenset(
     {"server_tool_call", "server_tool_call_chunk", "server_tool_result", "non_standard"}
 )
+# langchain-openai replays every `reasoning` block as a Responses reasoning
+# item, foreign fields included (Anthropic's `signature` is a 400).
+_FOREIGN_OPENAI_BLOCK_TYPES = _FOREIGN_V1_BLOCK_TYPES | {"reasoning"}
 
 
-def _drop_foreign_server_blocks(message: BaseMessage) -> BaseMessage:
-    """Strip another provider's server-tool blocks from a replayed AI message.
+def _drop_foreign_blocks(
+    message: BaseMessage, provider: str, block_types: frozenset[str]
+) -> BaseMessage:
+    """Strip another provider's provider-specific blocks from a replayed AI message.
 
     A thread can switch models mid-conversation. langchain-anthropic only
-    translates v1 server-tool and non-standard blocks produced by Anthropic and
-    forwards the rest verbatim (e.g. an OpenAI web search), which the Messages
-    API rejects. The visible answer text is kept.
+    translates v1 server-tool and non-standard blocks produced by Anthropic,
+    and langchain-openai replays reasoning and server-tool blocks whatever
+    produced them; either API rejects the foreign shapes. The visible answer
+    text and the tool calls are kept.
     """
     if (
         not isinstance(message, AIMessage)
         or not isinstance(message.content, list)
-        or message.response_metadata.get("model_provider") == "anthropic"
+        or message.response_metadata.get("model_provider") == provider
     ):
         return message
     content = [
         block
         for block in message.content
-        if not (
-            isinstance(block, dict) and block.get("type") in _FOREIGN_V1_BLOCK_TYPES
-        )
+        if not (isinstance(block, dict) and block.get("type") in block_types)
     ]
     if len(content) == len(message.content):
         return message
@@ -320,7 +328,7 @@ class ReplaySafeChatAnthropic(ChatAnthropic):
         **kwargs: Any,
     ) -> dict:
         messages = [
-            _drop_foreign_server_blocks(message)
+            _drop_foreign_blocks(message, "anthropic", _FOREIGN_V1_BLOCK_TYPES)
             for message in self._convert_input(input_).to_messages()
         ]
         calls, results = _nested_anthropic_callers(messages)
