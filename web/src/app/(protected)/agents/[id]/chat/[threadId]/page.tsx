@@ -38,7 +38,7 @@ import { ConversationBody } from "./conversation-body";
 import { usePromptQueue } from "@/hooks/use-prompt-queue";
 import { ThreadMap } from "@/components/ai-elements/thread-map";
 import { ShareConversation } from "./share-conversation";
-import type { ThreadResourceSettings } from "@/types/threads";
+import type { Thread, ThreadResourceSettings } from "@/types/threads";
 import type { QueuedPrompt } from "@/types/runs";
 import { ArtifactWorkspace } from "@/components/artifacts/workspace";
 import { isElicitation } from "@/lib/transcript";
@@ -107,13 +107,15 @@ const ChatPage = () => {
     enabled: boolean;
   } | null>(null);
   const [memorySaving, setMemorySaving] = useState(false);
+  // Optimistic values hold only until the next server read of the thread, so
+  // a change made from another tab is never masked by a stale local choice.
   const [completionOverride, setCompletionOverride] = useState<{
-    threadId: string;
+    thread: Thread | null;
     completed: boolean;
   } | null>(null);
   const [completionSaving, setCompletionSaving] = useState(false);
   const [readOverride, setReadOverride] = useState<{
-    threadId: string;
+    thread: Thread | null;
     isUnread: boolean;
   } | null>(null);
   const [readSaving, setReadSaving] = useState(false);
@@ -375,7 +377,7 @@ const ChatPage = () => {
   ]);
   const thread = meta.thread;
   const isUnread =
-    readOverride?.threadId === threadId
+    readOverride !== null && readOverride.thread === thread
       ? readOverride.isUnread
       : thread?.isUnread === true;
   useEffect(() => {
@@ -405,7 +407,6 @@ const ChatPage = () => {
     const request = setThreadReadState(threadId, false)
       .then(() => {
         if (manuallyUnreadOnPage.current) return;
-        setReadOverride({ threadId, isUnread: false });
         readCompletionSequence.current = Math.max(
           readCompletionSequence.current,
           completionSequenceToRead,
@@ -436,7 +437,7 @@ const ChatPage = () => {
     transcript.hydrated,
   ]);
   const completed =
-    completionOverride?.threadId === threadId
+    completionOverride !== null && completionOverride.thread === thread
       ? completionOverride.completed
       : thread?.completedAt != null;
   const canRetryInitial = run.canRetryInitial;
@@ -517,18 +518,17 @@ const ChatPage = () => {
 
   const updateCompletion = async (nextCompleted: boolean) => {
     if (completionSaving) return;
-    const previous = completed;
-    setCompletionOverride({ threadId, completed: nextCompleted });
+    setCompletionOverride({ thread, completed: nextCompleted });
     setCompletionSaving(true);
     try {
-      const updated = await setThreadCompleted(threadId, nextCompleted);
-      setCompletionOverride({
-        threadId,
-        completed: updated.completedAt !== null,
-      });
-      await Promise.allSettled([refreshThreads(), refreshProjectTree()]);
+      await setThreadCompleted(threadId, nextCompleted);
+      await Promise.allSettled([
+        recheckThreadMetadata(),
+        refreshThreads(),
+        refreshProjectTree(),
+      ]);
     } catch (error) {
-      setCompletionOverride({ threadId, completed: previous });
+      setCompletionOverride(null);
       toast.error(
         getApiErrorMessage(
           error,
@@ -544,10 +544,9 @@ const ChatPage = () => {
 
   const updateReadState = async (nextUnread: boolean) => {
     if (readSaving) return;
-    const previous = isUnread;
     const previousManualState = manuallyUnreadOnPage.current;
     manuallyUnreadOnPage.current = nextUnread;
-    setReadOverride({ threadId, isUnread: nextUnread });
+    setReadOverride({ thread, isUnread: nextUnread });
     setReadSaving(true);
     try {
       if (nextUnread) {
@@ -559,7 +558,7 @@ const ChatPage = () => {
       await recheckThreadMetadata();
     } catch (error) {
       manuallyUnreadOnPage.current = previousManualState;
-      setReadOverride({ threadId, isUnread: previous });
+      setReadOverride(null);
       toast.error(
         getApiErrorMessage(error, "The read state could not be updated."),
       );

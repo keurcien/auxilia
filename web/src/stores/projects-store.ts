@@ -71,11 +71,16 @@ interface ProjectsState {
 	deleteFolder: (id: string) => Promise<void>;
 }
 
-let loading: { generation: number; promise: Promise<void> } | null = null;
-const detailLoads = new Map<
-	string,
-	{ generation: number; promise: Promise<ProjectDetail> }
->();
+// `started` is false while a load waits behind an earlier one: it has not read
+// anything yet, so later refresh requests can share it.
+interface PendingLoad<T> {
+	generation: number;
+	promise: Promise<T>;
+	readonly started: boolean;
+}
+
+let loading: PendingLoad<void> | null = null;
+const detailLoads = new Map<string, PendingLoad<ProjectDetail>>();
 
 const projectFromTree = (project: ProjectTree): Project => ({
 	id: project.id,
@@ -113,10 +118,19 @@ export const useProjectsStore = create<ProjectsState>((set, get) => ({
 	},
 	refreshTree: async () => {
 		const generation = getWorkspaceGeneration();
-		if (loading?.generation === generation) return loading.promise;
-		set({ isLoading: true });
-		const promise: Promise<void> = projectsApi
-			.getProjectTree()
+		const pending = loading?.generation === generation ? loading : null;
+		if (pending && !pending.started) return pending.promise;
+		// A load already in flight may have read before the change this refresh
+		// is for. Read again once it settles instead of sharing its result.
+		let started = false;
+		const load = () => {
+			started = true;
+			set({ isLoading: true });
+			return projectsApi.getProjectTree();
+		};
+		const promise: Promise<void> = (
+			pending ? pending.promise.then(load, load) : load()
+		)
 			.then((tree) => {
 				if (!isCurrentWorkspaceGeneration(generation)) return;
 				set((state) => {
@@ -158,7 +172,13 @@ export const useProjectsStore = create<ProjectsState>((set, get) => ({
 					set({ isLoading: false });
 				}
 			});
-		loading = { generation, promise };
+		loading = {
+			generation,
+			promise,
+			get started() {
+				return started;
+			},
+		};
 		return promise;
 	},
 	setProjectDetail: (detail) => {
@@ -236,12 +256,17 @@ export const useProjectsStore = create<ProjectsState>((set, get) => ({
 		if (cached && !force) return cached;
 		const generation = getWorkspaceGeneration();
 		const existing = detailLoads.get(id);
-		if (existing?.generation === generation) return existing.promise;
-		set((state) => ({
-			detailLoadingById: { ...state.detailLoadingById, [id]: true },
-		}));
-		const promise = projectsApi
-			.getProjectDetail(id)
+		const pending = existing?.generation === generation ? existing : null;
+		if (pending && (!force || !pending.started)) return pending.promise;
+		let started = false;
+		const load = () => {
+			started = true;
+			set((state) => ({
+				detailLoadingById: { ...state.detailLoadingById, [id]: true },
+			}));
+			return projectsApi.getProjectDetail(id);
+		};
+		const promise = (pending ? pending.promise.then(load, load) : load())
 			.then((detail) => {
 				if (isCurrentWorkspaceGeneration(generation)) {
 					get().setProjectDetail(detail);
@@ -269,7 +294,13 @@ export const useProjectsStore = create<ProjectsState>((set, get) => ({
 					}));
 				}
 			});
-		detailLoads.set(id, { generation, promise });
+		detailLoads.set(id, {
+			generation,
+			promise,
+			get started() {
+				return started;
+			},
+		});
 		return promise;
 	},
 	refreshProjectDetail: async (id) => get().fetchProjectDetail(id, true),

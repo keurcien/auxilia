@@ -313,6 +313,23 @@ const THREAD_SOURCE_FILTER_ICON: Record<ThreadSourceFilter, LucideIcon> = {
 	triggers: AlarmClock,
 };
 
+const THREAD_COMPLETION_FILTER_KEY = "auxilia:recent-threads-completion-filter";
+const THREAD_SOURCE_FILTER_KEY = "auxilia:recent-threads-source-filter";
+
+function parseThreadCompletionFilter(
+	value: string | null,
+): ThreadCompletionFilter | null {
+	return value === "mixed" || value === "uncompleted" || value === "completed"
+		? value
+		: null;
+}
+
+function parseThreadSourceFilter(value: string | null): ThreadSourceFilter | null {
+	return value === "all" || value === "conversations" || value === "triggers"
+		? value
+		: null;
+}
+
 export function AppSidebar() {
 	const router = useRouter();
 	const pathname = usePathname();
@@ -399,28 +416,46 @@ export function AppSidebar() {
 	}, []);
 
 	useEffect(() => {
-		const saved = window.localStorage.getItem(
-			"auxilia:recent-threads-completion-filter",
+		const saved = parseThreadCompletionFilter(
+			window.localStorage.getItem(THREAD_COMPLETION_FILTER_KEY),
 		);
-		if (saved !== "mixed" && saved !== "uncompleted" && saved !== "completed") {
-			return;
-		}
+		if (saved === null) return;
 		queueMicrotask(() => {
 			setThreadCompletionFilter(saved);
 		});
 	}, []);
 
 	useEffect(() => {
-		const saved = window.localStorage.getItem(
-			"auxilia:recent-threads-source-filter",
+		const saved = parseThreadSourceFilter(
+			window.localStorage.getItem(THREAD_SOURCE_FILTER_KEY),
 		);
-		if (saved !== "all" && saved !== "conversations" && saved !== "triggers") {
-			return;
-		}
+		if (saved === null) return;
 		queueMicrotask(() => {
 			setThreadSourceFilter(saved);
 		});
 	}, []);
+
+	const clearSelection = selection.clear;
+	useEffect(() => {
+		// Fired only in the other tabs, when one of them saves a filter.
+		const handleStorage = (event: StorageEvent) => {
+			if (event.key === THREAD_COMPLETION_FILTER_KEY) {
+				const next = parseThreadCompletionFilter(event.newValue);
+				if (next === null) return;
+				clearSelection();
+				setThreadCompletionFilter(next);
+			} else if (event.key === THREAD_SOURCE_FILTER_KEY) {
+				const next = parseThreadSourceFilter(event.newValue);
+				if (next === null) return;
+				clearSelection();
+				setThreadSourceFilter(next);
+			}
+		};
+		window.addEventListener("storage", handleStorage);
+		return () => {
+			window.removeEventListener("storage", handleStorage);
+		};
+	}, [clearSelection]);
 
 	const changeSidebarMode = (mode: "threads" | "projects") => {
 		if (mode === "projects") selection.clear();
@@ -432,17 +467,14 @@ export function AppSidebar() {
 		const next = NEXT_THREAD_FILTER[threadCompletionFilter];
 		selection.clear();
 		setThreadCompletionFilter(next);
-		window.localStorage.setItem(
-			"auxilia:recent-threads-completion-filter",
-			next,
-		);
+		window.localStorage.setItem(THREAD_COMPLETION_FILTER_KEY, next);
 	};
 
 	const cycleThreadSourceFilter = () => {
 		const next = NEXT_THREAD_SOURCE_FILTER[threadSourceFilter];
 		selection.clear();
 		setThreadSourceFilter(next);
-		window.localStorage.setItem("auxilia:recent-threads-source-filter", next);
+		window.localStorage.setItem(THREAD_SOURCE_FILTER_KEY, next);
 	};
 
 	const navCounts: Record<string, number | undefined> = {

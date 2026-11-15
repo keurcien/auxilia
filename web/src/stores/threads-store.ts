@@ -37,6 +37,15 @@ interface ThreadsState {
 	setLastRunStatus: (threadId: string, status: RunTerminalStatus) => void;
 }
 
+// Workspace events arrive in bursts. Concurrent first-page reads can resolve
+// out of order, so a response that predates a change would overwrite the one
+// that follows it: run them one after another instead.
+let firstPageLoad: Promise<void> = Promise.resolve();
+const loadFirstPageAfterPrevious = (load: () => Promise<void>) => {
+	firstPageLoad = firstPageLoad.then(load, load);
+	return firstPageLoad;
+};
+
 export const useThreadsStore = create<ThreadsState>((set, get) => ({
 	threads: [],
 	total: 0,
@@ -44,46 +53,48 @@ export const useThreadsStore = create<ThreadsState>((set, get) => ({
 	fetchThreads: async () => {
 		await get().refreshThreads();
 	},
-	refreshThreads: async () => {
-		const generation = getWorkspaceGeneration();
-		try {
-			const page = await threadsApi.listThreads({
-				limit: PAGE_SIZE,
-				offset: 0,
-				order: "activity",
-			});
-			if (isCurrentWorkspaceGeneration(generation)) {
-				set({ threads: page.items, total: page.total });
+	refreshThreads: () =>
+		loadFirstPageAfterPrevious(async () => {
+			const generation = getWorkspaceGeneration();
+			try {
+				const page = await threadsApi.listThreads({
+					limit: PAGE_SIZE,
+					offset: 0,
+					order: "activity",
+				});
+				if (isCurrentWorkspaceGeneration(generation)) {
+					set({ threads: page.items, total: page.total });
+				}
+			} catch (error) {
+				console.error("Error fetching threads:", error);
 			}
-		} catch (error) {
-			console.error("Error fetching threads:", error);
-		}
-	},
-	pollRecentThreads: async () => {
-		const generation = getWorkspaceGeneration();
-		try {
-			const page = await threadsApi.listThreads({
-				limit: PAGE_SIZE,
-				offset: 0,
-				order: "activity",
-			});
-			if (!isCurrentWorkspaceGeneration(generation)) return;
-			set((state) => {
-				const refreshedIds = new Set(page.items.map((thread) => thread.id));
-				return {
-					threads: [
-						...page.items,
-						...state.threads.filter(
-							(thread) => !refreshedIds.has(thread.id),
-						),
-					],
-					total: page.total,
-				};
-			});
-		} catch (error) {
-			console.error("Error polling recent threads:", error);
-		}
-	},
+		}),
+	pollRecentThreads: () =>
+		loadFirstPageAfterPrevious(async () => {
+			const generation = getWorkspaceGeneration();
+			try {
+				const page = await threadsApi.listThreads({
+					limit: PAGE_SIZE,
+					offset: 0,
+					order: "activity",
+				});
+				if (!isCurrentWorkspaceGeneration(generation)) return;
+				set((state) => {
+					const refreshedIds = new Set(page.items.map((thread) => thread.id));
+					return {
+						threads: [
+							...page.items,
+							...state.threads.filter(
+								(thread) => !refreshedIds.has(thread.id),
+							),
+						],
+						total: page.total,
+					};
+				});
+			} catch (error) {
+				console.error("Error polling recent threads:", error);
+			}
+		}),
 	loadMoreThreads: async () => {
 		const generation = getWorkspaceGeneration();
 		const { threads, total, isLoadingMore } = get();
