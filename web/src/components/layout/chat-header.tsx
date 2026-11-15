@@ -5,7 +5,6 @@ import {
 	Bell,
 	BellOff,
 	Brain,
-	ChevronRight,
 	LoaderCircle,
 	MoreHorizontal,
 	Settings2,
@@ -341,23 +340,21 @@ function accountNotificationsLabel(
 	if (webPushState === "disabled" || webPushState === "unsupported") {
 		return "Notifications are on for your account, but not on this browser";
 	}
+	if (webPushState === "not-configured") {
+		return "Notifications are on for your account, but push is not configured on this server";
+	}
 	return "Notifications are on for your account";
 }
 
-export function ChatMobileNotificationsSection() {
+export function ChatMobileNotificationsRow() {
 	const { available, enabled, saving, webPushState, setEnabled } =
 		useAccountNotifications();
-	if (!available || webPushState === "not-configured") return null;
+	if (!available) return null;
 
 	return (
-		<section className="mt-6">
-			<div className="mb-2 px-1">
-				<h2 className="font-display text-[15px] font-semibold text-sidebar-foreground">
-					Notifications
-				</h2>
-			</div>
-			<div className="rounded-[12px] border border-sidebar-border bg-card px-4 py-4">
-				<div className="flex min-h-7 items-center gap-2.5">
+		<div className="border-t border-sidebar-border px-4 py-3">
+			<div className="flex min-h-10 items-center justify-between gap-4">
+				<span className="flex min-w-0 items-center gap-2.5 text-[15px] font-semibold text-sidebar-foreground">
 					{saving ? (
 						<LoaderCircle className="size-[18px] shrink-0 animate-spin text-sidebar-active-icon" />
 					) : enabled ? (
@@ -365,39 +362,29 @@ export function ChatMobileNotificationsSection() {
 					) : (
 						<BellOff className="size-[18px] shrink-0 text-sidebar-muted" />
 					)}
-					<span className="min-w-0 flex-1 text-[15px] font-semibold text-sidebar-foreground">
-						All conversations
-					</span>
-					<Switch
-						className="h-6 w-11 [&_[data-slot=switch-thumb]]:size-5 [&[data-state=checked]_[data-slot=switch-thumb]]:translate-x-5"
-						checked={enabled}
-						disabled={saving}
-						aria-label="Notifications for your account"
-						onCheckedChange={(checked) => {
-							void setEnabled(checked);
-						}}
-					/>
-				</div>
-				<p className="mt-3 text-[13.5px] leading-5 text-sidebar-muted">
-					{accountNotificationsLabel(enabled, webPushState)}. This applies to
-					every device signed in to your account.
-				</p>
-				<Link
-					href="/settings?tab=profile&section=preferences"
-					className="mt-4 flex min-h-11 touch-manipulation items-center justify-between border-t border-sidebar-border pt-3 text-[14px] font-semibold text-sidebar-foreground transition-colors hover:text-sidebar-active-icon"
-				>
-					Notification settings
-					<ChevronRight className="size-4" />
-				</Link>
+					Notifications
+				</span>
+				<Switch
+					className="h-6 w-11 [&_[data-slot=switch-thumb]]:size-5 [&[data-state=checked]_[data-slot=switch-thumb]]:translate-x-5"
+					checked={enabled}
+					disabled={saving}
+					aria-label="Notifications for your account"
+					onCheckedChange={(checked) => {
+						void setEnabled(checked);
+					}}
+				/>
 			</div>
-		</section>
+			<p className="mt-1 text-[13px] leading-5 text-sidebar-muted">
+				{accountNotificationsLabel(enabled, webPushState)}.
+			</p>
+		</div>
 	);
 }
 
 export function ChatNotificationsToggle() {
 	const { available, enabled, saving, webPushState, setEnabled } =
 		useAccountNotifications();
-	if (!available || webPushState === "not-configured") return null;
+	if (!available) return null;
 
 	const label = accountNotificationsLabel(enabled, webPushState);
 	return (

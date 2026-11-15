@@ -50,7 +50,7 @@ import {
   ChatHeaderLeadingActions,
   ChatMemoryToggle,
   ChatMobileActionsSheet,
-  ChatMobileNotificationsSection,
+  ChatMobileNotificationsRow,
   ChatNotificationsToggle,
 } from "@/components/layout/chat-header";
 import {
@@ -866,6 +866,7 @@ const ChatPage = () => {
                   </div>
                 </div>
               )}
+              <ChatMobileNotificationsRow />
             </div>
           </section>
 
@@ -913,8 +914,6 @@ const ChatPage = () => {
               </Link>
             </div>
           </section>
-
-          <ChatMobileNotificationsSection />
 
           {meta.viewerRole === null && (
             <section className="mt-6">
