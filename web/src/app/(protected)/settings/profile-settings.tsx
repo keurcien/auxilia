@@ -43,6 +43,7 @@ import { useAgentsStore } from "@/stores/agents-store";
 import { useAppearanceStore } from "@/stores/appearance-store";
 import { useUserStore } from "@/stores/user-store";
 import { useWebPushStore } from "@/stores/web-push-store";
+import { useAccountNotifications } from "@/hooks/use-account-notifications";
 import type { CurrentUser } from "@/types/auth";
 import type { MCPConnectionDisconnectSummary } from "@/types/mcp-servers";
 import type {
@@ -1202,6 +1203,7 @@ function PreferencesCard() {
 	const webPushError = useWebPushStore((state) => state.error);
 	const enableWebPush = useWebPushStore((state) => state.enable);
 	const disableWebPush = useWebPushStore((state) => state.disable);
+	const accountNotifications = useAccountNotifications();
 	const [onboardingResetting, setOnboardingResetting] = useState(false);
 	const [onboardingError, setOnboardingError] = useState<string | null>(null);
 	const webPushDescription = {
@@ -1301,6 +1303,26 @@ function PreferencesCard() {
 					title="Browser notifications"
 					description={`Choose whether ${appName} can notify you outside the active tab.`}
 				/>
+				<div className="mb-3 flex items-center justify-between gap-6 rounded-[9px] border border-input px-4 py-3.5">
+					<div>
+						<p className="text-[13px] font-semibold text-foreground">
+							Notifications for your account
+						</p>
+						<p className="mt-0.5 text-[12px] leading-5 text-subtle dark:text-panel-body">
+							Turning this off mutes notifications on every device signed in
+							to your account, without removing their subscriptions.
+						</p>
+					</div>
+					<Switch
+						checked={accountNotifications.enabled}
+						disabled={accountNotifications.saving}
+						onCheckedChange={(checked) => {
+							void accountNotifications.setEnabled(checked);
+						}}
+						aria-label="Notifications for your account"
+						className="cursor-pointer disabled:cursor-default"
+					/>
+				</div>
 				<div className="flex items-center justify-between gap-6 rounded-[9px] border border-input px-4 py-3.5">
 					<div>
 						<p className="text-[13px] font-semibold text-foreground">

@@ -95,6 +95,7 @@ class CurrentUserResponse(UserResponse):
     two_factor_enforced: bool = False
     two_factor_required: bool = False
     preferences_onboarding_version: int = 0
+    notifications_enabled: bool = True
     supervision: SupervisionInfo | None = None
 
 
@@ -109,6 +110,10 @@ class PreferencesOnboardingPatch(SQLModel):
 
 class PreferencesOnboardingResponse(SQLModel):
     version: int
+
+
+class NotificationPreference(SQLModel):
+    enabled: bool
 
 
 class PasswordChange(SQLModel):

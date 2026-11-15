@@ -19,6 +19,7 @@ interface WorkspaceEventsState {
   projectsVersion: number;
   runsVersion: number;
   triggerHistoryVersion: number;
+  notificationsVersion: number;
   queueVersions: Record<string, number>;
   setConnection: (connection: WorkspaceEventConnection) => void;
   sync: () => void;
@@ -36,6 +37,7 @@ const initialVersions = {
   projectsVersion: 0,
   runsVersion: 0,
   triggerHistoryVersion: 0,
+  notificationsVersion: 0,
   queueVersions: {},
 };
 
@@ -56,6 +58,7 @@ export const useWorkspaceEventsStore = create<WorkspaceEventsState>((set) => ({
       projectsVersion: state.projectsVersion + 1,
       runsVersion: state.runsVersion + 1,
       triggerHistoryVersion: state.triggerHistoryVersion + 1,
+      notificationsVersion: state.notificationsVersion + 1,
     }));
   },
   invalidate: (event) => {
@@ -92,6 +95,11 @@ export const useWorkspaceEventsStore = create<WorkspaceEventsState>((set) => ({
       case "trigger_history":
         set((state) => ({
           triggerHistoryVersion: state.triggerHistoryVersion + 1,
+        }));
+        break;
+      case "notifications":
+        set((state) => ({
+          notificationsVersion: state.notificationsVersion + 1,
         }));
         break;
       case "prompt_queue": {

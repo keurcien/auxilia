@@ -2,7 +2,10 @@
 
 import {
 	AlarmClock,
+	Bell,
+	BellOff,
 	Brain,
+	ChevronRight,
 	LoaderCircle,
 	MoreHorizontal,
 	Settings2,
@@ -40,7 +43,10 @@ import {
 	SheetHeader,
 	SheetTitle,
 } from "@/components/ui/sheet";
+import { useAccountNotifications } from "@/hooks/use-account-notifications";
 import { useEdgeSwipe } from "@/hooks/use-edge-swipe";
+import { Switch } from "@/components/ui/switch";
+import type { WebPushState } from "@/types/web-push";
 
 /** Pill amount: two decimals, or less than one cent. */
 export function formatPillCost(amount: string): string {
@@ -318,6 +324,134 @@ export function ChatMemoryToggle({
 				</TooltipTrigger>
 				<TooltipContent side="bottom" sideOffset={7}>
 					Open memory settings
+				</TooltipContent>
+			</Tooltip>
+		</div>
+	);
+}
+
+function accountNotificationsLabel(
+	enabled: boolean,
+	webPushState: WebPushState,
+): string {
+	if (!enabled) return "Notifications are off for your account";
+	if (webPushState === "denied") {
+		return "Notifications are on for your account, but this browser blocks them";
+	}
+	if (webPushState === "disabled" || webPushState === "unsupported") {
+		return "Notifications are on for your account, but not on this browser";
+	}
+	return "Notifications are on for your account";
+}
+
+export function ChatMobileNotificationsSection() {
+	const { available, enabled, saving, webPushState, setEnabled } =
+		useAccountNotifications();
+	if (!available || webPushState === "not-configured") return null;
+
+	return (
+		<section className="mt-6">
+			<div className="mb-2 px-1">
+				<h2 className="font-display text-[15px] font-semibold text-sidebar-foreground">
+					Notifications
+				</h2>
+			</div>
+			<div className="rounded-[12px] border border-sidebar-border bg-card px-4 py-4">
+				<div className="flex min-h-7 items-center gap-2.5">
+					{saving ? (
+						<LoaderCircle className="size-[18px] shrink-0 animate-spin text-sidebar-active-icon" />
+					) : enabled ? (
+						<Bell className="size-[18px] shrink-0 text-sidebar-active-icon" />
+					) : (
+						<BellOff className="size-[18px] shrink-0 text-sidebar-muted" />
+					)}
+					<span className="min-w-0 flex-1 text-[15px] font-semibold text-sidebar-foreground">
+						All conversations
+					</span>
+					<Switch
+						className="h-6 w-11 [&_[data-slot=switch-thumb]]:size-5 [&[data-state=checked]_[data-slot=switch-thumb]]:translate-x-5"
+						checked={enabled}
+						disabled={saving}
+						aria-label="Notifications for your account"
+						onCheckedChange={(checked) => {
+							void setEnabled(checked);
+						}}
+					/>
+				</div>
+				<p className="mt-3 text-[13.5px] leading-5 text-sidebar-muted">
+					{accountNotificationsLabel(enabled, webPushState)}. This applies to
+					every device signed in to your account.
+				</p>
+				<Link
+					href="/settings?tab=profile&section=preferences"
+					className="mt-4 flex min-h-11 touch-manipulation items-center justify-between border-t border-sidebar-border pt-3 text-[14px] font-semibold text-sidebar-foreground transition-colors hover:text-sidebar-active-icon"
+				>
+					Notification settings
+					<ChevronRight className="size-4" />
+				</Link>
+			</div>
+		</section>
+	);
+}
+
+export function ChatNotificationsToggle() {
+	const { available, enabled, saving, webPushState, setEnabled } =
+		useAccountNotifications();
+	if (!available || webPushState === "not-configured") return null;
+
+	const label = accountNotificationsLabel(enabled, webPushState);
+	return (
+		<div
+			className={`flex h-[30px] items-center overflow-hidden rounded-full border text-[11.5px] font-semibold transition-colors ${
+				enabled
+					? "border-petrol/25 bg-petrol/8 text-petrol dark:border-panel-terminal/25 dark:bg-panel-terminal/10 dark:text-panel-terminal"
+					: "border-border bg-card text-meta dark:bg-white/5"
+			}`}
+		>
+			<Tooltip>
+				<TooltipTrigger asChild>
+					<button
+						type="button"
+						role="switch"
+						aria-label="Notifications for your account"
+						aria-checked={enabled}
+						disabled={saving}
+						onClick={() => {
+							void setEnabled(!enabled);
+						}}
+						className="flex h-full cursor-pointer items-center gap-1.5 px-2.5 transition-colors hover:bg-black/5 hover:text-foreground disabled:cursor-wait disabled:opacity-45 dark:hover:bg-white/5"
+					>
+						{saving ? (
+							<LoaderCircle className="size-3.5 animate-spin" />
+						) : enabled ? (
+							<Bell className="size-3.5" />
+						) : (
+							<BellOff className="size-3.5" />
+						)}
+						<span className="hidden xl:inline">Notifications</span>
+						<span
+							className={`hidden size-1.5 rounded-full xl:block ${
+								enabled ? "bg-current" : "bg-meta/50"
+							}`}
+						/>
+					</button>
+				</TooltipTrigger>
+				<TooltipContent side="bottom" sideOffset={7}>
+					{label}
+				</TooltipContent>
+			</Tooltip>
+			<Tooltip>
+				<TooltipTrigger asChild>
+					<Link
+						href="/settings?tab=profile&section=preferences"
+						aria-label="Open notification settings"
+						className="flex h-full w-6 items-center justify-center border-l border-current/15 opacity-65 transition-colors hover:bg-black/5 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none dark:hover:bg-white/5"
+					>
+						<Settings2 className="size-3" />
+					</Link>
+				</TooltipTrigger>
+				<TooltipContent side="bottom" sideOffset={7}>
+					Open notification settings
 				</TooltipContent>
 			</Tooltip>
 		</div>

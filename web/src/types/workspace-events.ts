@@ -8,6 +8,7 @@ export const WORKSPACE_EVENT_KINDS = [
   "runs",
   "prompt_queue",
   "trigger_history",
+  "notifications",
 ] as const;
 
 export type WorkspaceEventKind = (typeof WORKSPACE_EVENT_KINDS)[number];

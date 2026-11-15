@@ -28,6 +28,8 @@ from app.exceptions import (
 )
 from app.memories.service import MemoryService
 from app.pagination import Page, PageParams
+from app.realtime.schemas import WorkspaceEventKind
+from app.realtime.service import stage_workspace_event
 from app.service import BaseService
 from app.teams.repository import TeamRepository
 from app.users.models import UserDB, UserImageDB, UserTwoFactorDB, WorkspaceRole
@@ -36,6 +38,7 @@ from app.users.schemas import (
     BackupCodesResponse,
     InstanceUserMembershipResponse,
     InstanceUserResponse,
+    NotificationPreference,
     PasswordChange,
     PreferencesOnboardingPatch,
     ProfilePatch,
@@ -129,6 +132,23 @@ class UserService(BaseService[UserDB, UserRepository]):
         self.db.add(user)
         await self.db.flush()
         await self.db.refresh(user)
+        return user
+
+    async def update_notifications(
+        self, user: UserDB, data: NotificationPreference
+    ) -> UserDB:
+        user.notifications_enabled = data.enabled
+        self.db.add(user)
+        await self.db.flush()
+        await self.db.refresh(user)
+        # The preference is account-wide; open tabs in any workspace must see it.
+        for workspace, _ in await self.workspace_repository.list_for_user(user.id):
+            await stage_workspace_event(
+                self.db,
+                workspace_id=workspace.id,
+                kind=WorkspaceEventKind.notifications,
+                target_user_id=user.id,
+            )
         return user
 
     async def change_password(self, user: UserDB, data: PasswordChange) -> None:

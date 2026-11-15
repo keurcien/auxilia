@@ -102,6 +102,23 @@ export async function updatePreferencesOnboarding(
 	return response.data.version;
 }
 
+export async function getNotificationsEnabled(): Promise<boolean> {
+	const response = await api.get<{ enabled: boolean }>(
+		"/users/me/notifications",
+	);
+	return response.data.enabled;
+}
+
+export async function updateNotificationsEnabled(
+	enabled: boolean,
+): Promise<boolean> {
+	const response = await api.put<{ enabled: boolean }>(
+		"/users/me/notifications",
+		{ enabled },
+	);
+	return response.data.enabled;
+}
+
 export async function changePassword(payload: {
 	currentPassword: string | null;
 	newPassword: string;

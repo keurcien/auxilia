@@ -18,6 +18,7 @@ from app.users.schemas import (
     BackupCodesResponse,
     CurrentUserResponse,
     InstanceUserResponse,
+    NotificationPreference,
     PasswordChange,
     PreferencesOnboardingPatch,
     PreferencesOnboardingResponse,
@@ -137,6 +138,23 @@ async def update_preferences_onboarding(
 ) -> PreferencesOnboardingResponse:
     user = await service.update_preferences_onboarding(current_user, data)
     return PreferencesOnboardingResponse(version=user.preferences_onboarding_version)
+
+
+@router.get("/me/notifications", response_model=NotificationPreference)
+async def get_notifications(
+    current_user: UserDB = Depends(get_current_user),
+) -> NotificationPreference:
+    return NotificationPreference(enabled=current_user.notifications_enabled)
+
+
+@router.put("/me/notifications", response_model=NotificationPreference)
+async def update_notifications(
+    data: NotificationPreference,
+    current_user: UserDB = Depends(get_current_user),
+    service: UserService = Depends(get_user_service),
+) -> NotificationPreference:
+    user = await service.update_notifications(current_user, data)
+    return NotificationPreference(enabled=user.notifications_enabled)
 
 
 @router.put("/me/password", status_code=204)

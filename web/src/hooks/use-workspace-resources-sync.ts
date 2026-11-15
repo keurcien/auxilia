@@ -7,6 +7,7 @@ import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useSkillsStore } from "@/stores/skills-store";
 import { useTriggersStore } from "@/stores/triggers-store";
+import { useUserStore } from "@/stores/user-store";
 import { useWorkspaceEventsStore } from "@/stores/workspace-events-store";
 
 const reportRefreshError = (resource: string, error: unknown) => {
@@ -28,6 +29,9 @@ export function useWorkspaceResourcesSync(): void {
 	);
 	const projectsVersion = useWorkspaceEventsStore(
 		(state) => state.projectsVersion,
+	);
+	const notificationsVersion = useWorkspaceEventsStore(
+		(state) => state.notificationsVersion,
 	);
 
 	useEffect(() => {
@@ -99,4 +103,14 @@ export function useWorkspaceResourcesSync(): void {
 			}
 		});
 	}, [skillsVersion]);
+
+	useEffect(() => {
+		if (notificationsVersion === 0) return;
+		void useUserStore
+			.getState()
+			.refreshNotifications()
+			.catch((error: unknown) => {
+				reportRefreshError("notifications", error);
+			});
+	}, [notificationsVersion]);
 }

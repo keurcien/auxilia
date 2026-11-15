@@ -33,6 +33,8 @@ class UserDB(UserBase, BaseDBModel, table=True):
 
     is_instance_owner: bool = Field(default=False, nullable=False)
     preferences_onboarding_version: int = Field(default=0, nullable=False)
+    # Account-wide mute, checked before any device subscription is notified.
+    notifications_enabled: bool = Field(default=True, nullable=False)
 
     _workspace_role: WorkspaceRole = PrivateAttr(default=WorkspaceRole.member)
     _workspace_team_id: UUID | None = PrivateAttr(default=None)

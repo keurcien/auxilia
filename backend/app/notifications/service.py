@@ -24,6 +24,7 @@ from app.notifications.schemas import (
 from app.notifications.settings import web_push_settings
 from app.threads.models import ThreadDB
 from app.triggers.repository import TriggerRepository
+from app.users.repository import UserRepository
 from app.utils.encryption import encrypt_value
 
 
@@ -137,6 +138,9 @@ async def stage_run_web_push_deliveries(
         ),
     }.get(status)
     if copy is None:
+        return
+    user = await UserRepository(db).get(user_id)
+    if user is None or not user.notifications_enabled:
         return
     if thread.trigger_id is not None:
         trigger = await TriggerRepository(db, thread.workspace_id).get(

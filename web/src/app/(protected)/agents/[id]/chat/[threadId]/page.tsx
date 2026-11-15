@@ -50,6 +50,8 @@ import {
   ChatHeaderLeadingActions,
   ChatMemoryToggle,
   ChatMobileActionsSheet,
+  ChatMobileNotificationsSection,
+  ChatNotificationsToggle,
 } from "@/components/layout/chat-header";
 import {
   Tooltip,
@@ -754,6 +756,7 @@ const ChatPage = () => {
               </TooltipContent>
             </Tooltip>
           )}
+          <ChatNotificationsToggle />
         </ChatHeaderLeadingActions>
       )}
       {meta.status === "ready" && (
@@ -910,6 +913,8 @@ const ChatPage = () => {
               </Link>
             </div>
           </section>
+
+          <ChatMobileNotificationsSection />
 
           {meta.viewerRole === null && (
             <section className="mt-6">
