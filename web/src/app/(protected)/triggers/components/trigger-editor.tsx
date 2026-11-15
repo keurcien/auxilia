@@ -63,6 +63,7 @@ interface TriggerFormState {
 	disabledSubagentIds: string[] | null;
 	disabledMcpTools: Record<string, string[]> | null;
 	notificationsEnabled: boolean;
+	runOnce: boolean;
 }
 
 function browserTimezone(): string {
@@ -88,6 +89,7 @@ function defaultForm(): TriggerFormState {
 		disabledSubagentIds: null,
 		disabledMcpTools: null,
 		notificationsEnabled: false,
+		runOnce: false,
 	};
 }
 
@@ -116,6 +118,7 @@ function fromTrigger(trigger: Trigger): TriggerFormState {
 		disabledSubagentIds: trigger.disabledSubagentIds,
 		disabledMcpTools: trigger.disabledMcpTools,
 		notificationsEnabled: trigger.notificationsEnabled,
+		runOnce: trigger.runOnce,
 	};
 }
 
@@ -136,6 +139,7 @@ function toComparablePayload(form: TriggerFormState, triggerType: TriggerType) {
 		disabledSubagentIds: form.disabledSubagentIds,
 		disabledMcpTools: form.disabledMcpTools,
 		notificationsEnabled: form.notificationsEnabled,
+		runOnce: form.runOnce,
 		...(triggerType === "schedule"
 			? {
 					cronExpression: buildCronExpression(form.schedule),
@@ -284,6 +288,7 @@ export default function TriggerEditor({
 			disabledSubagentIds: form.disabledSubagentIds,
 			disabledMcpTools: form.disabledMcpTools,
 			notificationsEnabled: form.notificationsEnabled,
+			runOnce: form.runOnce,
 		};
 		try {
 			let saved: Trigger;
@@ -476,6 +481,28 @@ export default function TriggerEditor({
 								setField("notificationsEnabled", checked);
 							}}
 							aria-label="Push notifications"
+							className="shrink-0 cursor-pointer"
+						/>
+					</div>
+
+					<div className="flex items-center justify-between gap-6 rounded-[10px] border border-input bg-card px-4 py-3.5">
+						<div>
+							<p className="text-[13px] font-semibold text-foreground">
+								Run once
+							</p>
+							<p className="mt-0.5 text-[12px] leading-5 text-meta dark:text-panel-dim">
+								{type === "webhook"
+									? "Pause this trigger after its first webhook call, for a one-off action."
+									: "Pause this trigger as soon as it fires, for a one-off reminder."}{" "}
+								Its run and history are kept, and you can resume it later.
+							</p>
+						</div>
+						<Switch
+							checked={form.runOnce}
+							onCheckedChange={(checked) => {
+								setField("runOnce", checked);
+							}}
+							aria-label="Run once"
 							className="shrink-0 cursor-pointer"
 						/>
 					</div>

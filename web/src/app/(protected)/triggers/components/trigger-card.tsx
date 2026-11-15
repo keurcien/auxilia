@@ -9,6 +9,7 @@ import {
 	Pause,
 	Pencil,
 	Play,
+	Repeat1,
 	Trash2,
 	TriangleAlert,
 	Webhook,
@@ -19,6 +20,7 @@ import { getApiErrorMessage } from "@/lib/api/errors";
 import { useAgentsStore } from "@/stores/agents-store";
 import { useTriggersStore } from "@/stores/triggers-store";
 import { useRunTrigger } from "@/hooks/use-run-trigger";
+import { LONG_PRESS_TARGET_CLASS, useLongPress } from "@/hooks/use-long-press";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { VisibilityBadge } from "@/components/ui/visibility-badge";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
@@ -73,13 +75,24 @@ export default function TriggerCard({
 		);
 	};
 
+	const longPress = useLongPress();
+	const pressProps = longPress.bind(
+		trigger.canManage
+			? () => {
+					if (!selected) onToggleSelection(false);
+				}
+			: undefined,
+	);
+
 	return (
 		<div
 			className={`group flex h-full cursor-pointer flex-col gap-3 rounded-2xl border bg-white p-5 transition-[border-color,box-shadow] duration-[130ms] ease-out hover:shadow-[0_6px_18px_-4px_rgba(33,36,31,0.08)] dark:bg-card ${
 				selected
 					? "border-petrol/45 shadow-[inset_0_0_0_1px_rgba(38,103,81,0.12)] dark:border-petrol/60"
 					: "border-[#E9EEEB] hover:border-[#D7E0DB] dark:border-white/10 dark:hover:border-white/20"
-			}`}
+			} ${trigger.canManage ? LONG_PRESS_TARGET_CLASS : ""}`}
+			{...pressProps}
+			onClickCapture={longPress.onClickCapture}
 			onClick={(event) => {
 				if (selectionMode && trigger.canManage) {
 					onToggleSelection(event.shiftKey);
@@ -204,6 +217,17 @@ export default function TriggerCard({
 						{frequency}
 					</span>
 				</div>
+				{trigger.runOnce && (
+					<div
+						className="flex h-[30px] max-w-full min-w-0 items-center gap-1.5 rounded-[4px] border border-[#ECF1EE] bg-[#F4F7F5] px-3 dark:border-white/10 dark:bg-white/5"
+						title="This trigger pauses itself as soon as it fires."
+					>
+						<Repeat1 className="size-[13px] shrink-0 text-[#7C8C84] dark:text-muted-foreground" />
+						<span className="truncate font-[family-name:var(--font-dm-sans)] text-[12.5px] font-medium text-[#4A5B53] dark:text-white/80">
+							Run once
+						</span>
+					</div>
+				)}
 				{!trigger.modelAvailable && (
 					<div
 						className="flex h-[30px] max-w-full min-w-0 items-center gap-1.5 rounded-[4px] border border-[#F0E4D3] bg-[#FDF6EC] px-3 dark:border-amber-400/20 dark:bg-amber-950/30"

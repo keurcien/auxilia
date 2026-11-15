@@ -704,7 +704,8 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
     async def run_now(self, trigger_id: UUID, user: UserDB) -> TriggerRunResponse:
         """Fire one occurrence immediately — the test path behind a "Run now"
         button. Works on paused triggers and leaves the schedule untouched
-        (`next_run_at` / `last_run_at` track scheduled fires only).
+        (`next_run_at` / `last_run_at` track scheduled fires only); a one-shot
+        (`run_once`) trigger stays armed for its real firing.
 
         The run executes as the trigger *owner* (their MCP credentials), even
         when an admin presses the button — exactly as a scheduled firing would.
@@ -810,8 +811,12 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
             input={"messages": [{"type": "human", "content": instructions}]},
         )
         trigger.last_run_at = datetime.now(UTC)
+        if trigger.run_once:
+            self._consume_run_once(trigger)
         self.db.add(trigger)
         await self.db.flush()
+        if trigger.run_once:
+            await self._stage_consumed_events([trigger])
         # The run and its webhook metadata must be durable before a dispatcher
         # can claim it from another session. This also releases the pooled
         # connection before ``wait`` blocks for the whole run.
@@ -829,6 +834,35 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         return WebhookTriggerResult(
             thread_id=thread.id, run_id=record.id, content=result["content"]
         )
+
+    @staticmethod
+    def _consume_run_once(trigger: TriggerDB) -> None:
+        """Pause a one-shot trigger on the row locked for its firing.
+
+        Callers hold the row lock (``claim_due`` / webhook ``FOR UPDATE``) and
+        commit before dispatching the run, so a concurrent firing re-reads the
+        row as inactive, while the run already created is left untouched.
+        """
+        trigger.is_active = False
+        trigger.next_run_at = None
+
+    async def _stage_consumed_events(self, triggers: list[TriggerDB]) -> None:
+        workspace_ids = {trigger.workspace_id for trigger in triggers}
+        project_workspace_ids = {
+            trigger.workspace_id for trigger in triggers if trigger.project_id
+        }
+        for workspace_id in workspace_ids:
+            await stage_workspace_event(
+                self.db,
+                workspace_id=workspace_id,
+                kind=WorkspaceEventKind.triggers,
+            )
+        for workspace_id in project_workspace_ids:
+            await stage_workspace_event(
+                self.db,
+                workspace_id=workspace_id,
+                kind=WorkspaceEventKind.projects,
+            )
 
     async def _create_fire_thread(
         self,
@@ -904,6 +938,7 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
             now, limit=trigger_settings.claim_batch_size
         )
         launches: list[tuple[str, str, str]] = []  # (thread_id, owner_id, message)
+        consumed: list[TriggerDB] = []
         for trigger in claimed:
             try:
                 owner = await self._get_owner(trigger)
@@ -964,9 +999,13 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
                 self.db.add(trigger)
                 continue
             trigger.last_run_at = now
+            if trigger.run_once:
+                self._consume_run_once(trigger)
+                consumed.append(trigger)
             self.db.add(trigger)
             thread = await self._create_fire_thread(trigger)
             launches.append((thread.id, str(trigger.owner_id), trigger.instructions))
+        await self._stage_consumed_events(consumed)
         await self.db.commit()  # finish the claim, release the row locks
 
         run_service = RunService()

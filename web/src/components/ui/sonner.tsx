@@ -10,6 +10,8 @@ export function Toaster() {
 	return (
 		<Sonner
 			position="bottom-right"
+			offset={{ bottom: "calc(var(--bottom-tab-bar-offset, 0px) + 24px)" }}
+			mobileOffset={{ bottom: "calc(var(--bottom-tab-bar-offset, 0px) + 16px)" }}
 			gap={10}
 			toastOptions={{
 				unstyled: true,

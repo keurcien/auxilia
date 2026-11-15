@@ -509,6 +509,7 @@ export default function SkillSourceTable({ sources, isLoading, canManage, onErro
 				rowKey={(source) => source.id}
 				isRowSelected={(source) => selection.isSelected(source.id)}
 				selectionMode={selection.selectionMode}
+				isRowSelectable={() => canManage}
 				onRowSelectionClick={(source, shiftKey) => {
 					selection.toggle(source.id, shiftKey);
 				}}

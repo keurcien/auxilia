@@ -15,6 +15,7 @@ import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { GroupedCardTree } from "@/components/ui/grouped-card-tree";
 import { SelectableLeading } from "@/components/ui/selectable-leading";
+import { LONG_PRESS_TARGET_CLASS, useLongPress } from "@/hooks/use-long-press";
 import { VisibilityBadge } from "@/components/ui/visibility-badge";
 import type { ViewMode } from "@/components/ui/view-toggle";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
@@ -171,6 +172,7 @@ export default function MCPServerTable({
 		() => (isAdmin ? orderedServers.map((server) => server.id) : []),
 		[isAdmin, orderedServers],
 	);
+	const longPress = useLongPress();
 	const selection = useRowSelection({
 		orderedIds: orderedServers.map((server) => server.id),
 		eligibleIds: selectableServerIds,
@@ -625,6 +627,16 @@ export default function MCPServerTable({
 							>
 								<Link
 									href={serverHref(server)}
+									{...longPress.bind(
+										isAdmin
+											? () => {
+													if (!selection.isSelected(server.id)) {
+														selection.toggle(server.id);
+													}
+												}
+											: undefined,
+									)}
+									onClickCapture={longPress.onClickCapture}
 									onClick={(event) => {
 										if (
 											!selection.selectionMode ||
@@ -634,7 +646,9 @@ export default function MCPServerTable({
 										event.preventDefault();
 										selection.toggle(server.id, event.shiftKey);
 									}}
-									className="absolute inset-0 rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
+									className={`absolute inset-0 rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol ${
+										isAdmin ? LONG_PRESS_TARGET_CLASS : ""
+									}`}
 								>
 									<span className="sr-only">Open {server.name}</span>
 								</Link>

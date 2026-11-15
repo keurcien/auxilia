@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { Fragment } from "react";
 
 import { PageContainer } from "@/components/layout/page-container";
+import type { BreadcrumbSegment } from "@/components/layout/subpage-header";
 import { SearchBar } from "@/components/ui/search-bar";
 import { cn } from "@/lib/utils";
 import { useWorkspacesStore } from "@/stores/workspaces-store";
@@ -16,6 +18,9 @@ interface WorkspaceSearch {
 interface WorkspacePageProps {
 	/** Breadcrumb segment: `workspace / <slug>` */
 	slug: string;
+	/** Linked segments between the workspace and `slug`, for nested pages
+	 * (e.g. `workspace / agents / <agent> / threads`). */
+	parents?: BreadcrumbSegment[];
 	title: string;
 	intro: string;
 	search?: WorkspaceSearch;
@@ -23,8 +28,10 @@ interface WorkspacePageProps {
 	actions?: React.ReactNode;
 	/** Right side of the page header (tabs, view toggles) */
 	headerRight?: React.ReactNode;
-	/** Pin the page (no page scroll) and give children the remaining height —
-	 * for content that scrolls internally (e.g. a capped table body). */
+	/** On tall viewports, pin the page (no page scroll) and give children the
+	 * remaining height — for content that scrolls internally (e.g. a capped
+	 * table body). Short viewports keep a single page scroll so the header
+	 * cannot squeeze the content out of view. */
 	fillHeight?: boolean;
 	/** Let dense list pages use the full workspace width instead of the
 	 * standard reading-width cap. */
@@ -39,6 +46,7 @@ interface WorkspacePageProps {
  */
 export function WorkspacePage({
 	slug,
+	parents = [],
 	title,
 	intro,
 	search,
@@ -65,6 +73,23 @@ export function WorkspacePage({
 					<span className="mx-1.5 shrink-0 text-ghost dark:text-panel-dim">
 						/
 					</span>
+					{parents.map((segment, index) => (
+						<Fragment key={`${segment.label}-${index}`}>
+							{segment.href ? (
+								<Link
+									href={segment.href}
+									className="min-w-0 truncate rounded-[3px] transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-petrol/35"
+								>
+									{segment.label}
+								</Link>
+							) : (
+								<span className="min-w-0 truncate">{segment.label}</span>
+							)}
+							<span className="mx-1.5 shrink-0 text-ghost dark:text-panel-dim">
+								/
+							</span>
+						</Fragment>
+					))}
 					<span className="max-w-[50%] shrink-0 truncate font-medium text-foreground">
 						{slug}
 					</span>
@@ -73,17 +98,20 @@ export function WorkspacePage({
 					{actions}
 				</div>
 			</header>
+			{/* `relative` makes the scroll area the containing block of absolutely
+			    positioned descendants (sr-only labels, checkboxes): without it they
+			    escape its overflow and extend the document into a second scroll. */}
 			<div
-				className={
-					fillHeight
-						? "flex min-h-0 flex-1 flex-col overflow-hidden"
-						: "flex-1 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-				}
+				data-workspace-scroll=""
+				className={cn(
+					"relative min-h-0 flex-1 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+					fillHeight && "flex flex-col tall:overflow-hidden",
+				)}
 			>
 				<PageContainer
 					className={cn(
-						"px-4 pt-8 pb-10 sm:px-6 lg:px-8",
-						fillHeight && "flex min-h-0 flex-1 flex-col",
+						"px-4 pt-8 pb-[calc(2.5rem+env(safe-area-inset-bottom))] sm:px-6 lg:px-8",
+						fillHeight && "tall:flex tall:min-h-0 tall:flex-1 tall:flex-col",
 						fullWidth && "@min-screen-xl/layout:max-w-none",
 					)}
 				>
@@ -113,9 +141,10 @@ export function WorkspacePage({
 						)}
 					</div>
 					<div
-						className={
-							fillHeight ? "mt-4 flex min-h-0 flex-1 flex-col" : "mt-4"
-						}
+						className={cn(
+							"mt-4",
+							fillHeight && "tall:flex tall:min-h-0 tall:flex-1 tall:flex-col",
+						)}
 					>
 						{children}
 					</div>

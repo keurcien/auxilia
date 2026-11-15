@@ -109,6 +109,14 @@ class TriggerPatch(SQLModel):
     timezone: str | None = None
     is_active: bool | None = None
     notifications_enabled: bool | None = None
+    run_once: bool | None = Field(
+        default=None,
+        description=(
+            "True pauses the trigger as soon as its next scheduled or webhook "
+            "firing starts; false restores the recurring behavior. To re-arm a "
+            "fired one-shot trigger, set is_active to true."
+        ),
+    )
     project_id: UUID | None = None
     folder_id: UUID | None = None
     visibility: ResourceVisibility | None = None
@@ -167,6 +175,7 @@ class TriggerResponse(SQLModel):
     webhook_url: str | None = None
     is_active: bool
     notifications_enabled: bool = False
+    run_once: bool = False
     next_run_at: datetime | None = None
     last_run_at: datetime | None = None
     disabled_mcp_server_ids: list[UUID] | None = None

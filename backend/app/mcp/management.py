@@ -655,7 +655,9 @@ def register_management_tools(mcp: MCPServer) -> None:
         """Create a scheduled or webhook trigger for an agent.
 
         This is the primary tool when the user asks to schedule or automate
-        recurring agent work, for example every day at 08:00. Do not claim the
+        recurring agent work, for example every day at 08:00. For a one-off
+        reminder that must not repeat, set run_once to true: the trigger pauses
+        itself as soon as it fires and keeps its history. Do not claim the
         automation is active until this tool returns the created trigger.
         Call get_agent_resources first when choosing resources. Put every
         unchosen resource ID in its matching disabled list and every rejected
@@ -677,7 +679,11 @@ def register_management_tools(mcp: MCPServer) -> None:
     async def update_trigger(
         trigger_id: UUID, data: TriggerPatch, ctx: Context
     ) -> dict[str, Any]:
-        """Update an existing trigger's instructions, schedule, state, or resources."""
+        """Update an existing trigger's instructions, schedule, state, or resources.
+
+        Set run_once to switch between one-shot and recurring firing, and
+        is_active to true to re-arm a one-shot trigger that already fired.
+        """
         async with tool_session(ctx) as (db, user, workspace_id):
             return to_json(
                 await TriggerService(db, workspace_id).update(trigger_id, data, user)
@@ -692,7 +698,10 @@ def register_management_tools(mcp: MCPServer) -> None:
 
     @mcp.tool()
     async def run_trigger_now(trigger_id: UUID, ctx: Context) -> dict[str, Any]:
-        """Run a trigger immediately without changing its schedule."""
+        """Run a trigger immediately without changing its schedule.
+
+        This is a manual test: it does not consume a run_once trigger.
+        """
         async with tool_session(ctx) as (db, user, workspace_id):
             return to_json(
                 await TriggerService(db, workspace_id).run_now(trigger_id, user)

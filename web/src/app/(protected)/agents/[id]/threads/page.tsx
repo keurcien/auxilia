@@ -1,128 +1,188 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
-import * as agentsApi from "@/lib/api/resources/agents";
-import * as threadsApi from "@/lib/api/resources/threads";
-import { PageContainer } from "@/components/layout/page-container";
+import { RotateCcw } from "lucide-react";
+import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
+import { WorkspacePage } from "@/components/layout/workspace-page";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { ThreadSourceBadge } from "@/components/ui/thread-source-badge";
-import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
+import { UserAvatar } from "@/components/ui/user-avatar";
+import { useQueryParamState } from "@/hooks/use-query-param-state";
+import { getApiErrorMessage } from "@/lib/api/errors";
+import * as agentsApi from "@/lib/api/resources/agents";
+import * as threadsApi from "@/lib/api/resources/threads";
+import { useWorkspaceEventsStore } from "@/stores/workspace-events-store";
 import type { Agent } from "@/types/agents";
 import type { AgentThread } from "@/types/threads";
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 20;
 
-function initials(name: string | null, email: string | null): string {
-	const source = name || email || "?";
-	const parts = source.trim().split(/\s+/);
-	if (parts.length >= 2) {
-		return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-	}
-	return source.substring(0, 2).toUpperCase();
+function isAccessDenied(error: unknown): boolean {
+	return (
+		error instanceof Object &&
+		"status" in error &&
+		(error.status === 403 || error.status === 401)
+	);
 }
 
-function formatDate(dateStr: string): string {
-	const diff = Date.now() - new Date(dateStr).getTime();
-	const minutes = Math.floor(diff / (1000 * 60));
-	if (minutes < 1) return "just now";
-	if (minutes < 60) return `${minutes}m ago`;
-	const hours = Math.floor(minutes / 60);
-	if (hours < 24) return `${hours}h ago`;
-	const days = Math.floor(hours / 24);
-	if (days < 7) return `${days}d ago`;
-	return new Date(dateStr).toLocaleDateString("en-US", {
-		month: "short",
-		day: "numeric",
-		year: "numeric",
+function threadTitle(thread: AgentThread): string {
+	return thread.firstMessageContent?.trim() || "Untitled conversation";
+}
+
+function threadAuthor(thread: AgentThread): string {
+	return thread.userName || thread.userEmail || "Unknown user";
+}
+
+function formatDate(value: string): string {
+	return new Date(value)
+		.toLocaleDateString("en-US", {
+			year: "numeric",
+			month: "short",
+			day: "numeric",
+		})
+		.toLowerCase();
+}
+
+function formatDateTime(value: string): string {
+	return new Date(value).toLocaleString("en-US", {
+		dateStyle: "medium",
+		timeStyle: "short",
 	});
 }
 
+/**
+ * Every user's conversations with one agent, newest first. The endpoint is
+ * restricted to the agent's owner and admins and only pages, so the list is
+ * read-only: opening a row is the one action.
+ */
 export default function AgentThreadsPage() {
 	const params = useParams();
 	const router = useRouter();
 	const agentId = params.id as string;
+	const threadsVersion = useWorkspaceEventsStore(
+		(state) => state.threadsVersion,
+	);
 	const [agent, setAgent] = useState<Agent | null>(null);
 	const [threads, setThreads] = useState<AgentThread[]>([]);
 	const [total, setTotal] = useState(0);
-	const [offset, setOffset] = useState(0);
-	const [isLoading, setIsLoading] = useState(true);
+	const [offsetParam, setOffsetParam] = useQueryParamState("offset");
+	const parsedOffset = Number.parseInt(offsetParam, 10);
+	const offset =
+		Number.isFinite(parsedOffset) && parsedOffset >= 0 ? parsedOffset : 0;
+	const [reloadVersion, setReloadVersion] = useState(0);
+	const requestKey = [agentId, offset, threadsVersion, reloadVersion].join(":");
+	const [settledRequestKey, setSettledRequestKey] = useState<string | null>(
+		null,
+	);
+	const isLoading = settledRequestKey !== requestKey;
+	const [loadError, setLoadError] = useState<string | null>(null);
 	const [forbiddenOpen, setForbiddenOpen] = useState(false);
-	const [hasError, setHasError] = useState(false);
-	const requestIdRef = useRef(0);
 
 	useEffect(() => {
-		const requestId = ++requestIdRef.current;
-		const fetch = async () => {
-			setIsLoading(true);
-			setHasError(false);
-			setForbiddenOpen(false);
-			try {
-				const [agentRes, threadsRes] = await Promise.all([
-					agentsApi.getAgent(agentId),
-					threadsApi.listAgentThreads(agentId, { limit: PAGE_SIZE, offset }),
-				]);
-				if (requestId !== requestIdRef.current) return;
-				setAgent(agentRes);
-				setThreads(threadsRes.items);
-				setTotal(threadsRes.total);
-			} catch (error: unknown) {
-				if (requestId !== requestIdRef.current) return;
-				if (
-					error instanceof Object &&
-					"status" in error &&
-					(error.status === 403 || error.status === 401)
-				) {
-					setForbiddenOpen(true);
-				} else {
-					console.error("Error fetching agent threads:", error);
-					setHasError(true);
-				}
-			} finally {
-				if (requestId === requestIdRef.current) setIsLoading(false);
-			}
-		};
-		void fetch();
+		let cancelled = false;
+		void agentsApi
+			.getAgent(agentId)
+			.then((result) => {
+				if (!cancelled) setAgent(result);
+			})
+			.catch((error: unknown) => {
+				if (!cancelled && isAccessDenied(error)) setForbiddenOpen(true);
+			});
 		return () => {
-			requestIdRef.current += 1;
+			cancelled = true;
 		};
-	}, [agentId, offset]);
+	}, [agentId]);
+
+	useEffect(() => {
+		let cancelled = false;
+		void threadsApi
+			.listAgentThreads(agentId, { limit: PAGE_SIZE, offset })
+			.then((page) => {
+				if (cancelled) return;
+				setThreads(page.items);
+				setTotal(page.total);
+				setLoadError(null);
+			})
+			.catch((error: unknown) => {
+				if (cancelled) return;
+				if (isAccessDenied(error)) {
+					setForbiddenOpen(true);
+					return;
+				}
+				setLoadError(getApiErrorMessage(error, "Could not load conversations."));
+			})
+			.finally(() => {
+				if (!cancelled) setSettledRequestKey(requestKey);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [agentId, offset, requestKey]);
+
+	const changePage = (nextOffset: number) => {
+		setOffsetParam(nextOffset > 0 ? String(nextOffset) : "");
+		const scrollArea = document.querySelector("[data-workspace-scroll]");
+		if (scrollArea) scrollArea.scrollTop = 0;
+	};
 
 	const columns: DataTableColumn<AgentThread>[] = [
 		{
-			key: "firstMessage",
-			header: "First message",
-			width: "minmax(240px, 1fr)",
+			key: "conversation",
+			header: "Conversation",
+			width: "minmax(0, 2fr)",
+			mobileWidth: "minmax(0, 1fr)",
 			cell: (thread) => (
-				<span className="block truncate font-[family-name:var(--font-dm-sans)] text-[13.5px] font-medium text-[#3F524B] dark:text-foreground/80">
-					{thread.firstMessageContent || (
-						<span className="italic text-[#A3B5AD]">No message</span>
-					)}
-				</span>
+				<div className="min-w-0">
+					<p
+						title={threadTitle(thread)}
+						className="line-clamp-2 break-words text-[12.5px] font-semibold text-foreground lg:line-clamp-1"
+					>
+						{threadTitle(thread)}
+					</p>
+					<div className="mt-1 flex min-w-0 items-center gap-2 lg:hidden">
+						<span className="min-w-0 truncate text-[11.5px] text-meta dark:text-panel-dim">
+							{threadAuthor(thread)}
+						</span>
+						<ThreadSourceBadge source={thread.source} />
+					</div>
+				</div>
 			),
 		},
 		{
 			key: "user",
 			header: "User",
-			width: "220px",
+			width: "minmax(0, 1fr)",
+			hideBelowLg: true,
 			cell: (thread) => (
 				<div className="flex min-w-0 items-center gap-2.5">
-					<span className="flex size-[26px] shrink-0 items-center justify-center rounded-full bg-[#e7f0eb] font-[family-name:var(--font-jakarta-sans)] text-[10px] font-bold text-[#3d8b63] dark:bg-emerald-950 dark:text-emerald-300">
-						{initials(thread.userName, thread.userEmail)}
-					</span>
-					<span className="truncate font-[family-name:var(--font-dm-sans)] text-[13px] font-medium text-[#5f7068] dark:text-muted-foreground">
-						{thread.userName || thread.userEmail || "Unknown"}
-					</span>
+					<UserAvatar
+						name={thread.userName || thread.userEmail}
+						pictureUrl={null}
+						userId={thread.userId}
+						className="size-[26px]"
+						fallbackClassName="text-[10px]"
+					/>
+					<div className="min-w-0">
+						<p className="truncate text-[12.5px] font-medium text-foreground">
+							{threadAuthor(thread)}
+						</p>
+						{thread.userName && thread.userEmail && (
+							<p className="truncate text-[11px] text-meta dark:text-panel-dim">
+								{thread.userEmail}
+							</p>
+						)}
+					</div>
 				</div>
 			),
 		},
 		{
 			key: "source",
 			header: "Source",
-			width: "110px",
-			mobileWidth: "auto",
+			width: "100px",
+			hideBelowLg: true,
 			cell: (thread) => <ThreadSourceBadge source={thread.source} />,
 		},
 		{
@@ -132,15 +192,48 @@ export default function AgentThreadsPage() {
 			mobileWidth: "auto",
 			align: "right",
 			cell: (thread) => (
-				<span className="font-[family-name:var(--font-dm-sans)] text-[13px] font-medium text-[#8FA89E] dark:text-muted-foreground">
+				<time
+					dateTime={thread.createdAt}
+					title={formatDateTime(thread.createdAt)}
+					className="whitespace-nowrap font-mono text-[11px] text-meta dark:text-panel-dim"
+				>
 					{formatDate(thread.createdAt)}
-				</span>
+				</time>
 			),
 		},
 	];
 
 	return (
-		<PageContainer>
+		<WorkspacePage
+			slug="threads"
+			parents={[
+				{ label: "agents", href: "/agents" },
+				{ label: agent?.name ?? "agent", href: `/agents/${agentId}` },
+			]}
+			title="Thread history"
+			intro="Every conversation with this agent across the workspace, newest first."
+			headerRight={
+				agent && (
+					<Link
+						href={`/agents/${agentId}`}
+						aria-label={`Back to ${agent.name}`}
+						className="flex min-h-10 min-w-0 max-w-full items-center gap-2.5 rounded-[9px] border border-border bg-card px-3 py-1.5 transition-colors hover:border-border-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-petrol/35 dark:border-white/10 dark:bg-white/[0.03]"
+					>
+						<AgentAvatar
+							agentId={agent.id}
+							name={agent.name}
+							imageRevision={agent.imageRevision}
+							color={agent.color}
+							emoji={agent.emoji}
+							size="sm"
+						/>
+						<span className="min-w-0 truncate text-[13px] font-semibold text-foreground">
+							{agent.name}
+						</span>
+					</Link>
+				)
+			}
+		>
 			<ForbiddenErrorDialog
 				open={forbiddenOpen}
 				onOpenChange={(open) => {
@@ -151,62 +244,40 @@ export default function AgentThreadsPage() {
 				message="You don't have permission to view this agent's threads."
 			/>
 
-			<div className="flex items-start gap-4 my-8">
-				<button
-					type="button"
-					onClick={() => {
-						router.push(`/agents/${agentId}`);
-					}}
-					className="shrink-0 w-10 h-10 rounded-full bg-[#F5F8F6] dark:bg-white/10 flex items-center justify-center cursor-pointer transition-colors hover:bg-[#EDF4F0] dark:hover:bg-white/15"
-					aria-label="Back to agent"
+			{loadError ? (
+				<div
+					role="alert"
+					className="flex flex-wrap items-center gap-3 rounded-[9px] bg-destructive/10 px-3.5 py-2.5 text-[12.5px] font-medium text-destructive"
 				>
-					<ArrowLeft className="w-[18px] h-[18px] text-[#6B7F76]" />
-				</button>
-
-				<div className="flex-1 min-w-0">
-					<div className="mb-7 flex items-center justify-between gap-4">
-						<h1 className="font-[family-name:var(--font-jakarta-sans)] font-extrabold text-[28px] tracking-[-0.03em] text-[#111111] dark:text-white truncate">
-							Thread history
-						</h1>
-						{agent && (
-							<div className="flex items-center gap-2 shrink-0 min-w-0">
-								<AgentAvatar
-									agentId={agent.id}
-									name={agent.name}
-									imageRevision={agent.imageRevision}
-									color={agent.color}
-									emoji={agent.emoji}
-									size="sm"
-								/>
-								<h2 className="text-md font-bold truncate">{agent.name}</h2>
-							</div>
-						)}
-					</div>
-
-					{hasError ? (
-						<div className="text-center py-16 text-[14px] text-[#A3B5AD] dark:text-muted-foreground font-medium">
-							Failed to load threads. Please try again.
-						</div>
-					) : (
-						<DataTable
-							columns={columns}
-							rows={threads}
-							rowKey={(thread) => thread.id}
-							isLoading={isLoading}
-							minTableWidth="770px"
-							emptyMessage="No threads yet for this agent."
-							getRowHref={(thread) => `/agents/${agentId}/chat/${thread.id}`}
-							pagination={{
-								total,
-								limit: PAGE_SIZE,
-								offset,
-								onOffsetChange: setOffset,
-								itemLabel: total === 1 ? "thread" : "threads",
-							}}
-						/>
-					)}
+					<span className="min-w-0 flex-1">{loadError}</span>
+					<button
+						type="button"
+						onClick={() => {
+							setReloadVersion((current) => current + 1);
+						}}
+						className="flex min-h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-[7px] px-2.5 font-semibold transition-colors hover:bg-destructive/10"
+					>
+						<RotateCcw className="size-3.5" />
+						Retry
+					</button>
 				</div>
-			</div>
-		</PageContainer>
+			) : (
+				<DataTable
+					columns={columns}
+					rows={threads}
+					rowKey={(thread) => thread.id}
+					isLoading={isLoading}
+					emptyMessage="No conversations with this agent yet."
+					getRowHref={(thread) => `/agents/${agentId}/chat/${thread.id}`}
+					pagination={{
+						total,
+						limit: PAGE_SIZE,
+						offset,
+						onOffsetChange: changePage,
+						itemLabel: total === 1 ? "thread" : "threads",
+					}}
+				/>
+			)}
+		</WorkspacePage>
 	);
 }

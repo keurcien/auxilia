@@ -21,6 +21,7 @@ import WorkspaceObservability from "./workspace-observability";
 import ProfileSettings, { type ProfileSection } from "./profile-settings";
 import ProfileMemories from "./profile-memories";
 import ProfileThreads from "./profile-threads";
+import { SettingsTabBar, settingsTabBarItems } from "./settings-tab-bar";
 import { SubpageHeader } from "@/components/layout/subpage-header";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import * as authApi from "@/lib/api/resources/auth";
@@ -271,6 +272,8 @@ export default function SettingsPage() {
 		},
 	];
 
+	const tabBarItems = settingsTabBarItems({ tab, profileSection, isAdmin });
+
 	const railTabClass = (active: boolean) =>
 		`flex cursor-pointer items-center gap-2 px-3 py-[7px] text-left text-[13px] transition-colors ${
 			active
@@ -309,12 +312,13 @@ export default function SettingsPage() {
 
 			<div className="flex min-h-0 flex-1 flex-col lg:flex-row">
 				{/* Left rail: title + vertical section tabs */}
-				<div className="w-full flex-none border-b border-border px-4 pt-5 lg:w-[200px] lg:border-b-0 lg:pl-7 lg:pr-0 lg:pt-8">
-					<h1 className="mb-3 pl-3.5 font-display text-[22px] font-bold tracking-[-0.03em] text-foreground lg:mb-[18px]">
+				<div className="w-full flex-none border-b border-border px-4 pt-5 pb-3 lg:w-[200px] lg:border-b-0 lg:pl-7 lg:pr-0 lg:pt-8 lg:pb-0">
+					<h1 className="pl-3.5 font-display text-[22px] font-bold tracking-[-0.03em] text-foreground lg:mb-[18px]">
 						{tab === "profile" ? "Profile" : "Settings"}
 					</h1>
+					{/* Below lg the SettingsTabBar replaces this rail. */}
 					{tab === "profile" ? (
-						<div className="flex gap-4 overflow-x-auto pb-3 lg:flex-col lg:gap-0 lg:overflow-visible lg:pb-0">
+						<div className="hidden lg:flex lg:flex-col">
 							<div className="shrink-0 lg:mb-5">
 								<p className="mb-1.5 px-3.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-meta dark:text-panel-dim">
 									Account
@@ -404,7 +408,7 @@ export default function SettingsPage() {
 							</div>
 						</div>
 					) : (
-						<div className="flex gap-4 overflow-x-auto pb-3 lg:flex-col lg:gap-0 lg:overflow-visible lg:pb-0">
+						<div className="hidden lg:flex lg:flex-col">
 						{isAdmin && (
 							<div className="shrink-0 lg:mb-5">
 								<p className="mb-1.5 px-3.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-meta dark:text-panel-dim">
@@ -670,6 +674,11 @@ export default function SettingsPage() {
 					</div>
 				</div>
 			</div>
+
+			<SettingsTabBar
+				label={tab === "profile" ? "Profile sections" : "Settings sections"}
+				items={tabBarItems}
+			/>
 		</div>
 	);
 }

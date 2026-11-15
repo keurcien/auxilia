@@ -44,6 +44,17 @@ class TriggerBase(SQLModel):
     # Web Push to the owner when a firing's run ends. Off by default: a
     # recurring trigger would otherwise notify on every occurrence.
     notifications_enabled: bool = Field(default=False, nullable=False)
+    # One-shot mode: an automatic firing (schedule or webhook) pauses the
+    # trigger in the same transaction that claims it, so it never fires twice.
+    run_once: bool = Field(
+        default=False,
+        nullable=False,
+        description=(
+            "Pause the trigger as soon as a scheduled or webhook firing starts, "
+            "for one-off reminders. The started run continues and the paused "
+            "trigger keeps its history. False keeps the recurring behavior."
+        ),
+    )
 
 
 class TriggerDB(TriggerBase, BaseDBModel, table=True):

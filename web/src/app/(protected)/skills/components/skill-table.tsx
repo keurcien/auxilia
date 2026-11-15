@@ -18,6 +18,7 @@ import { VisibilityBadge } from "@/components/ui/visibility-badge";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { GroupedCardTree } from "@/components/ui/grouped-card-tree";
 import { SelectableLeading } from "@/components/ui/selectable-leading";
+import { LONG_PRESS_TARGET_CLASS, useLongPress } from "@/hooks/use-long-press";
 import { SkillAvatar } from "@/components/ui/skill-avatar";
 import {
 	Tooltip,
@@ -251,6 +252,7 @@ export default function SkillTable({
 	const [bulkItems, setBulkItems] = useState<BulkConfirmItem[]>([]);
 	const [bulkDetachesAgents, setBulkDetachesAgents] = useState(false);
 	const orderedSkills = flattenGroupTree(groupTree);
+	const longPress = useLongPress();
 	const selection = useRowSelection({
 		orderedIds: orderedSkills.map((skill) => skill.id),
 		eligibleIds: orderedSkills
@@ -581,12 +583,24 @@ export default function SkillTable({
 					>
 						<Link
 							href={`/skills/${skill.id}`}
+							{...longPress.bind(
+								skill.canManage
+									? () => {
+											if (!selection.isSelected(skill.id)) {
+												selection.toggle(skill.id);
+											}
+										}
+									: undefined,
+							)}
+							onClickCapture={longPress.onClickCapture}
 							onClick={(event) => {
 								if (!selection.selectionMode || !skill.canManage) return;
 								event.preventDefault();
 								selection.toggle(skill.id, event.shiftKey);
 							}}
-							className="absolute inset-0 rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
+							className={`absolute inset-0 rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol ${
+								skill.canManage ? LONG_PRESS_TARGET_CLASS : ""
+							}`}
 						>
 							<span className="sr-only">Open {skill.name}</span>
 						</Link>

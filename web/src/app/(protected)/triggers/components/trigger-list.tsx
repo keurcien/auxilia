@@ -153,6 +153,7 @@ export default function TriggerList({
 				modelId: trigger.modelId,
 				reasoningEffort: trigger.reasoningEffort,
 				isActive: false,
+				runOnce: trigger.runOnce,
 				visibility: trigger.visibility,
 				teamIds: trigger.teamIds,
 			};

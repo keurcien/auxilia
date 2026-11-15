@@ -72,6 +72,7 @@ import { useSkillsStore } from "@/stores/skills-store";
 import { formatRunAt } from "@/lib/triggers/schedule";
 import { useActiveRunThreadIds } from "@/hooks/use-active-runs";
 import { useRowSelection } from "@/hooks/use-row-selection";
+import { LONG_PRESS_TARGET_CLASS, useLongPress } from "@/hooks/use-long-press";
 import { navigateWithUnsavedChanges } from "@/hooks/use-unsaved-changes-warning";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { UserAvatar } from "@/components/ui/user-avatar";
@@ -392,6 +393,7 @@ export function AppSidebar() {
 	);
 	const appearance = useAppearanceStore((state) => state.appearance);
 	const showShortcutsInMenu = useShowShortcutsInMenu();
+	const threadLongPress = useLongPress();
 	const selection = useRowSelection({
 		orderedIds: visibleThreads.map((thread) => thread.id),
 	});
@@ -768,6 +770,16 @@ export function AppSidebar() {
 															// prefetches on page load — dozens of requests for
 															// threads the user rarely opens.
 															prefetch={false}
+															{...threadLongPress.bind(
+																canDeleteThreads
+																	? () => {
+																			if (!selection.isSelected(thread.id)) {
+																				selection.toggle(thread.id);
+																			}
+																		}
+																	: undefined,
+															)}
+															onClickCapture={threadLongPress.onClickCapture}
 															onClick={(event) => {
 																if (selection.selectionMode) {
 																	event.preventDefault();
@@ -776,7 +788,10 @@ export function AppSidebar() {
 																}
 																if (isMobile) setOpenMobile(false);
 															}}
-															className="flex items-center gap-1.5 px-[5px]"
+															className={cn(
+																"flex items-center gap-1.5 px-[5px]",
+																canDeleteThreads && LONG_PRESS_TARGET_CLASS,
+															)}
 														>
 															<span className="w-7 shrink-0" aria-hidden />
 															<div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">

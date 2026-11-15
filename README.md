@@ -88,7 +88,8 @@ The highlights below focus on capabilities added by this fork.
   disabled, and query limits stay under workspace control.
 - **Automation**: trigger agents on a schedule or through a webhook, override
   selected run inputs, and follow execution in the same durable runtime as web
-  conversations.
+  conversations. One-shot triggers pause themselves after their first firing,
+  for reminders that must not repeat.
 - **Native data access**: add Gmail and provider-native web search alongside
   remote MCP tools.
 

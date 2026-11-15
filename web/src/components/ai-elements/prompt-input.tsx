@@ -39,6 +39,7 @@ import {
 	useMemo,
 	useRef,
 	useState,
+	useSyncExternalStore,
 } from "react";
 
 // ============================================================================
@@ -1065,6 +1066,30 @@ export type PromptInputTextareaProps = ComponentProps<
 	typeof InputGroupTextarea
 >;
 
+// Matched on input capability, not width: a narrow desktop window keeps
+// Enter to send, while touch keyboards (no Shift+Enter) keep it a line break.
+const TOUCH_KEYBOARD_QUERY = "(hover: none) and (pointer: coarse)";
+
+function subscribeTouchKeyboard(onChange: () => void): () => void {
+	const query = window.matchMedia(TOUCH_KEYBOARD_QUERY);
+	query.addEventListener("change", onChange);
+	return () => {
+		query.removeEventListener("change", onChange);
+	};
+}
+
+function useTouchKeyboard(): boolean {
+	return useSyncExternalStore(
+		subscribeTouchKeyboard,
+		() => window.matchMedia(TOUCH_KEYBOARD_QUERY).matches,
+		() => false,
+	);
+}
+
+// Safari and Android keyboards report the Enter that confirms a composition
+// with keyCode 229 after compositionend, when isComposing is already false.
+const IME_PROCESS_KEY_CODE = 229;
+
 export const PromptInputTextarea = ({
 	onChange,
 	onKeyDown,
@@ -1077,6 +1102,7 @@ export const PromptInputTextarea = ({
 	const attachmentsDisabled = useContext(AttachmentsDisabledContext);
 	const addChecked = useContext(AttachmentsAddContext);
 	const [isComposing, setIsComposing] = useState(false);
+	const touchKeyboard = useTouchKeyboard();
 
 	const handleKeyDown: KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
 		// The caller's handler runs first and may claim the key.
@@ -1085,10 +1111,14 @@ export const PromptInputTextarea = ({
 			return;
 		}
 		if (e.key === "Enter") {
-			if (isComposing || e.nativeEvent.isComposing) {
+			if (
+				isComposing ||
+				e.nativeEvent.isComposing ||
+				e.nativeEvent.keyCode === IME_PROCESS_KEY_CODE
+			) {
 				return;
 			}
-			if (e.shiftKey) {
+			if (e.shiftKey || touchKeyboard) {
 				return;
 			}
 			e.preventDefault();
@@ -1156,6 +1186,7 @@ export const PromptInputTextarea = ({
 	return (
 		<InputGroupTextarea
 			className={cn("field-sizing-content max-h-48 min-h-16", className)}
+			enterKeyHint={touchKeyboard ? "enter" : undefined}
 			name="message"
 			onCompositionEnd={() => { setIsComposing(false); }}
 			onCompositionStart={() => { setIsComposing(true); }}

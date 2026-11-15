@@ -4,6 +4,7 @@ import { useState, type CSSProperties, type ReactNode } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Folder } from "lucide-react";
 import type { GroupNode } from "@/lib/groups";
+import { LONG_PRESS_TARGET_CLASS, useLongPress } from "@/hooks/use-long-press";
 
 export interface DataTableColumn<T> {
 	key: string;
@@ -14,6 +15,9 @@ export interface DataTableColumn<T> {
 	mobileWidth?: string;
 	/** Render the column only on md+ screens. */
 	hideBelowMd?: boolean;
+	/** Render the column only on lg+ screens, for columns that crowd the
+	 * md range next to the sidebar. */
+	hideBelowLg?: boolean;
 	align?: "left" | "center" | "right";
 	cell: (row: T) => ReactNode;
 }
@@ -143,10 +147,13 @@ function DataTableTreeGroup<T>({
 	);
 }
 
-function cellClass(column: Pick<DataTableColumn<never>, "hideBelowMd" | "align">): string {
+function cellClass(
+	column: Pick<DataTableColumn<never>, "hideBelowMd" | "hideBelowLg" | "align">,
+): string {
 	return [
 		"min-w-0",
 		column.hideBelowMd ? "hidden md:block" : "",
+		column.hideBelowLg ? "hidden lg:block" : "",
 		column.align === "center" ? "text-center" : "",
 		column.align === "right" ? "text-right" : "",
 	]
@@ -258,7 +265,8 @@ export function DataTablePaginationFooter({
  * mono count + numbered pagination below it (design 7a/13b/13c).
  *
  * Layout is a CSS grid so columns can collapse below `md` (`hideBelowMd`,
- * `mobileWidth`); the two grid templates are passed down as CSS variables.
+ * `mobileWidth`) or `lg` (`hideBelowLg`); the grid templates are passed down
+ * as CSS variables.
  * Rows link (`getRowHref`) or run a click handler (`onRowClick`); pagination
  * can be server-side or a client-side slice — the caller owns `rows` either
  * way. The footer renders whenever `pagination` is provided and there are
@@ -290,15 +298,20 @@ export function DataTable<T>({
 	isRowSelected,
 	className = "",
 }: DataTableProps<T>) {
+	const longPress = useLongPress();
 	const gridTemplates = {
 		"--dt-cols": columns
-			.filter((c) => !c.hideBelowMd)
+			.filter((c) => !c.hideBelowMd && !c.hideBelowLg)
 			.map((c) => c.mobileWidth ?? c.width ?? "1fr")
 			.join(" "),
-		"--dt-cols-md": columns.map((c) => c.width ?? "1fr").join(" "),
+		"--dt-cols-md": columns
+			.filter((c) => !c.hideBelowLg)
+			.map((c) => c.width ?? "1fr")
+			.join(" "),
+		"--dt-cols-lg": columns.map((c) => c.width ?? "1fr").join(" "),
 	} as CSSProperties;
 	const gridClass =
-		"grid items-center gap-4 px-[18px] [grid-template-columns:var(--dt-cols)] md:[grid-template-columns:var(--dt-cols-md)]";
+		"grid items-center gap-4 px-[18px] [grid-template-columns:var(--dt-cols)] md:[grid-template-columns:var(--dt-cols-md)] lg:[grid-template-columns:var(--dt-cols-lg)]";
 	const tableWidthStyle = minTableWidth
 		? ({ minWidth: minTableWidth } satisfies CSSProperties)
 		: undefined;
@@ -325,16 +338,29 @@ export function DataTable<T>({
 		const selectedClass = selected
 			? "bg-petrol/[0.055] dark:bg-petrol/10"
 			: "";
+		const longPressSelectable =
+			!!onRowSelectionClick && (isRowSelectable?.(row) ?? true);
+		const pressProps = longPress.bind(
+			longPressSelectable
+				? () => {
+						if (!(isRowSelected?.(row) ?? false)) {
+							onRowSelectionClick(row, false);
+						}
+					}
+				: undefined,
+		);
+		const pressClass = longPressSelectable ? LONG_PRESS_TARGET_CLASS : "";
 		if (getRowHref) {
 			if (selectRow) {
 				return (
 					<div
 						key={rowKey(row)}
 						data-selected={selected || undefined}
+						{...pressProps}
 						onClick={(event) => {
 							selectRow(row, event.shiftKey);
 						}}
-						className={`${gridClass} ${ROW_CLASS} ${selectedClass} cursor-pointer`}
+						className={`${gridClass} ${ROW_CLASS} ${selectedClass} ${pressClass} cursor-pointer`}
 					>
 						{renderCells(row, depth)}
 					</div>
@@ -345,7 +371,8 @@ export function DataTable<T>({
 					key={rowKey(row)}
 					href={getRowHref(row)}
 					data-selected={selected || undefined}
-					className={`${gridClass} ${ROW_CLASS} ${selectedClass}`}
+					{...pressProps}
+					className={`${gridClass} ${ROW_CLASS} ${selectedClass} ${pressClass}`}
 				>
 					{renderCells(row, depth)}
 				</Link>
@@ -356,10 +383,11 @@ export function DataTable<T>({
 				<div
 					key={rowKey(row)}
 					data-selected={selected || undefined}
+					{...pressProps}
 					onClick={(event) => {
 						selectRow(row, event.shiftKey);
 					}}
-					className={`${gridClass} ${ROW_CLASS} ${selectedClass} cursor-pointer`}
+					className={`${gridClass} ${ROW_CLASS} ${selectedClass} ${pressClass} cursor-pointer`}
 				>
 					{renderCells(row, depth)}
 				</div>
@@ -372,6 +400,7 @@ export function DataTable<T>({
 					role="button"
 					tabIndex={0}
 					data-selected={selected || undefined}
+					{...pressProps}
 					onClick={() => {
 						onRowClick(row);
 					}}
@@ -382,7 +411,7 @@ export function DataTable<T>({
 							onRowClick(row);
 						}
 					}}
-					className={`${gridClass} ${ROW_CLASS} ${selectedClass} cursor-pointer`}
+					className={`${gridClass} ${ROW_CLASS} ${selectedClass} ${pressClass} cursor-pointer`}
 				>
 					{renderCells(row, depth)}
 				</div>
@@ -392,7 +421,8 @@ export function DataTable<T>({
 			<div
 				key={rowKey(row)}
 				data-selected={selected || undefined}
-				className={`${gridClass} ${ROW_CLASS} ${selectedClass}`}
+				{...pressProps}
+				className={`${gridClass} ${ROW_CLASS} ${selectedClass} ${pressClass}`}
 			>
 				{renderCells(row, depth)}
 			</div>
@@ -428,10 +458,11 @@ export function DataTable<T>({
 
 			<div
 				style={tableWidthStyle}
+				onClickCapture={longPress.onClickCapture}
 				className={`${tableGutterClass} rounded-[10px] border border-border bg-card dark:border-white/10 ${
 					scrollBody
-						? "min-h-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-						: "overflow-hidden"
+						? "relative min-h-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+						: "relative overflow-hidden"
 				}`}
 			>
 				{showSkeleton ? (

@@ -21,6 +21,8 @@ interface TriggerBase {
 	triggerType: TriggerType;
 	isActive: boolean;
 	notificationsEnabled: boolean;
+	/** One-shot: the first scheduled or webhook firing pauses the trigger. */
+	runOnce: boolean;
 	lastRunAt: string | null;
 	createdAt: string;
 	updatedAt: string;
@@ -65,6 +67,7 @@ interface TriggerCreateBase {
 	reasoningEffort?: string | null;
 	isActive?: boolean;
 	notificationsEnabled?: boolean;
+	runOnce?: boolean;
 	visibility?: ResourceVisibility;
 	teamIds?: string[];
 	projectId?: string | null;
@@ -98,6 +101,7 @@ export interface TriggerUpdate {
 	timezone?: string;
 	isActive?: boolean;
 	notificationsEnabled?: boolean;
+	runOnce?: boolean;
 	visibility?: ResourceVisibility;
 	teamIds?: string[];
 	projectId?: string | null;

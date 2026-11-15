@@ -10,6 +10,7 @@ import ArchivedAgentDialog from "@/app/(protected)/agents/components/archived-ag
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { SelectableLeading } from "@/components/ui/selectable-leading";
+import { LONG_PRESS_TARGET_CLASS, useLongPress } from "@/hooks/use-long-press";
 import { VisibilityBadge } from "@/components/ui/visibility-badge";
 import { mcpServerImageUrl } from "@/lib/api/resources/mcp-servers";
 
@@ -110,6 +111,16 @@ export default function AgentCard({
 		router.push(`/agents/${agent.id}`);
 	};
 
+	const longPress = useLongPress();
+	const longPressSelectable = canManage && !!onToggleSelection;
+	const pressProps = longPress.bind(
+		longPressSelectable
+			? () => {
+					if (!selected) onToggleSelection(false);
+				}
+			: undefined,
+	);
+
 	const ownerName = agent.owner?.name || agent.owner?.email;
 
 	return (
@@ -119,7 +130,9 @@ export default function AgentCard({
 					selected
 						? "border-petrol/45 shadow-[inset_0_0_0_1px_rgba(38,103,81,0.12)] dark:border-petrol/60"
 						: "border-[#e1ebe6] hover:border-[#cfe0d8] dark:border-white/10 dark:hover:border-white/20"
-				}`}
+				} ${longPressSelectable ? LONG_PRESS_TARGET_CLASS : ""}`}
+				{...pressProps}
+				onClickCapture={longPress.onClickCapture}
 				onClick={handleClick}
 			>
 				{/* Head: narrow cards wrap both badges beneath the identity. */}

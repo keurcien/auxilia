@@ -243,15 +243,23 @@ export default function TriggerDetail({ trigger }: TriggerDetailProps) {
 								/>
 								<span className="size-[3px] rounded-full bg-faint dark:bg-white/20" />
 								<span className="text-[11px] text-meta dark:text-panel-dim">
-									{liveTrigger.triggerType === "webhook" ? (
+									{!liveTrigger.isActive &&
+									liveTrigger.runOnce &&
+									liveTrigger.lastRunAt ? (
+										"Ran once, now paused"
+									) : liveTrigger.triggerType === "webhook" ? (
 										liveTrigger.isActive ? (
-											"Listening for POST requests"
+											liveTrigger.runOnce ? (
+												"Listening for one POST request"
+											) : (
+												"Listening for POST requests"
+											)
 										) : (
 											"Webhook disabled"
 										)
 									) : liveTrigger.isActive && liveTrigger.nextRunAt ? (
 										<>
-											Next run{" "}
+											{liveTrigger.runOnce ? "Runs once" : "Next run"}{" "}
 											<span className="font-mono">
 												{formatRunAt(
 													liveTrigger.nextRunAt,
