@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.110](https://github.com/jr-k/auxilia/compare/backend-v0.11.109...backend-v0.11.110) (2026-11-15)
+
+
+### Features
+
+* **notifications:** account-wide notification switch in the conversation header ([6594027](https://github.com/jr-k/auxilia/commit/6594027c585d87a9b35eeeb465fec37c75a08812))
+
 ## [0.11.109](https://github.com/jr-k/auxilia/compare/backend-v0.11.108...backend-v0.11.109) (2026-11-14)
 
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.12.143](https://github.com/jr-k/auxilia/compare/web-v0.12.142...web-v0.12.143) (2026-11-15)
+
+
+### Features
+
+* **notifications:** account-wide notification switch in the conversation header ([6594027](https://github.com/jr-k/auxilia/commit/6594027c585d87a9b35eeeb465fec37c75a08812))
+
+
+### Bug Fixes
+
+* **web:** keep read, completed and sidebar filter state in sync across tabs ([10eed39](https://github.com/jr-k/auxilia/commit/10eed39f34cd5f101bb5f43b71fec90923c5bd8c))
+
 ## [0.12.142](https://github.com/jr-k/auxilia/compare/web-v0.12.141...web-v0.12.142) (2026-11-13)
 
 
