@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.111](https://github.com/jr-k/auxilia/compare/backend-v0.11.110...backend-v0.11.111) (2026-11-15)
+
+
+### Features
+
+* one-shot triggers, long-press selection, mobile Settings tab bar and responsive fixes ([#298](https://github.com/jr-k/auxilia/issues/298)) ([783d5c3](https://github.com/jr-k/auxilia/commit/783d5c36fe5fe7b988a0e0d8cc29b4178ff67a6d))
+
 ## [0.11.110](https://github.com/jr-k/auxilia/compare/backend-v0.11.109...backend-v0.11.110) (2026-11-15)
 
 

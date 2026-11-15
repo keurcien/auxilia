@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.145](https://github.com/jr-k/auxilia/compare/web-v0.12.144...web-v0.12.145) (2026-11-15)
+
+
+### Features
+
+* one-shot triggers, long-press selection, mobile Settings tab bar and responsive fixes ([#298](https://github.com/jr-k/auxilia/issues/298)) ([783d5c3](https://github.com/jr-k/auxilia/commit/783d5c36fe5fe7b988a0e0d8cc29b4178ff67a6d))
+
 ## [0.12.144](https://github.com/jr-k/auxilia/compare/web-v0.12.143...web-v0.12.144) (2026-11-15)
 
 
