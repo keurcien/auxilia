@@ -593,37 +593,38 @@ export default function SettingsPage() {
 									: "hidden"
 							}
 						>
-							<div className="mb-1.5 flex items-baseline gap-2.5">
+							<div className="mb-3.5 grid gap-x-2.5 gap-y-1.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-baseline">
 								<span className="text-[10.5px] font-semibold text-subtle dark:text-panel-dim">
 									Personal access tokens
 								</span>
-								<span className="flex-1" />
-								<a
-									href="/docs"
-									target="_blank"
-									rel="noreferrer"
-									className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[7px] border border-input px-3.5 py-2 text-[12.5px] font-semibold text-foreground transition-colors hover:border-meta hover:bg-muted/50 dark:border-white/15 dark:text-panel-body dark:hover:border-white/25 dark:hover:bg-white/5"
-								>
-									<BookOpenText className="size-3.5" />
-									API documentation
-								</a>
-								{isAdmin && (
-									<button
-										type="button"
-										onClick={() => {
-											setCreateDialogOpen(true);
-										}}
-										className="flex shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-[7px] bg-primary px-4 py-2 text-[12.5px] font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+								<div className="flex flex-wrap items-center gap-2.5 max-sm:order-last max-sm:mt-1.5">
+									<a
+										href="/docs"
+										target="_blank"
+										rel="noreferrer"
+										className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[7px] border border-input px-3.5 py-2 text-[12.5px] font-semibold text-foreground transition-colors hover:border-meta hover:bg-muted/50 dark:border-white/15 dark:text-panel-body dark:hover:border-white/25 dark:hover:bg-white/5"
 									>
-										<Plus className="size-3.5" />
-										Generate token
-									</button>
-								)}
+										<BookOpenText className="size-3.5" />
+										API documentation
+									</a>
+									{isAdmin && (
+										<button
+											type="button"
+											onClick={() => {
+												setCreateDialogOpen(true);
+											}}
+											className="flex shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-[7px] bg-primary px-4 py-2 text-[12.5px] font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+										>
+											<Plus className="size-3.5" />
+											Generate token
+										</button>
+									)}
+								</div>
+								<p className="max-w-[620px] text-[13px] leading-[1.55] text-subtle sm:col-span-2 dark:text-panel-body">
+									Authenticate external services against the API, n8n, the
+									invoke endpoint, scripts. Tokens act as you.
+								</p>
 							</div>
-							<p className="mb-3.5 max-w-[620px] text-[13px] leading-[1.55] text-subtle dark:text-panel-body">
-								Authenticate external services against the API, n8n, the
-								invoke endpoint, scripts. Tokens act as you.
-							</p>
 
 							{revealedToken && <TokenRevealBanner plaintext={revealedToken} />}
 

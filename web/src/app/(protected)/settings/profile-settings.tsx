@@ -781,32 +781,36 @@ function MCPAccountsCard() {
 				title="Tools"
 				description="Manage your personal connections to tools in this workspace."
 			/>
-			<div className="flex items-center gap-3 rounded-[9px] border border-input px-4 py-3.5">
-				<span className="flex size-9 shrink-0 items-center justify-center rounded-[8px] border border-border bg-background text-petrol shadow-sm dark:border-white/10 dark:text-panel-terminal">
-					<ServerCog className="size-4" />
-				</span>
-				<div className="min-w-0 flex-1">
-					<p className="text-[13px] font-semibold text-foreground">
-						Personal MCP connections
-					</p>
-					<p className="mt-0.5 text-[12px] leading-[1.45] text-subtle dark:text-panel-body">
-						Disconnect your accounts without affecting other users or shared
-						workspace credentials.
-					</p>
+			<div className="@container rounded-[9px] border border-input px-4 py-3.5">
+				<div className="flex flex-col gap-3 @xl:flex-row @xl:items-center">
+					<div className="flex min-w-0 flex-1 items-center gap-3">
+						<span className="flex size-9 shrink-0 items-center justify-center rounded-[8px] border border-border bg-background text-petrol shadow-sm dark:border-white/10 dark:text-panel-terminal">
+							<ServerCog className="size-4" />
+						</span>
+						<div className="min-w-0 flex-1">
+							<p className="text-[13px] font-semibold text-foreground">
+								Personal MCP connections
+							</p>
+							<p className="mt-0.5 text-[12px] leading-[1.45] text-subtle dark:text-panel-body">
+								Disconnect your accounts without affecting other users or shared
+								workspace credentials.
+							</p>
+						</div>
+					</div>
+					<button
+						type="button"
+						disabled={isDisconnecting}
+						onClick={() => {
+							void disconnectAll();
+						}}
+						className="flex shrink-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-[7px] border border-input bg-card px-3 py-2 text-[12px] font-semibold text-destructive disabled:cursor-default disabled:opacity-50 @xl:py-1.5"
+					>
+						<Unplug className="size-3.5" />
+						{isDisconnecting
+							? "Disconnecting…"
+							: "Disconnect all my MCP accounts"}
+					</button>
 				</div>
-				<button
-					type="button"
-					disabled={isDisconnecting}
-					onClick={() => {
-						void disconnectAll();
-					}}
-					className="flex shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-[7px] border border-input bg-card px-3 py-1.5 text-[12px] font-semibold text-destructive disabled:cursor-default disabled:opacity-50"
-				>
-					<Unplug className="size-3.5" />
-					{isDisconnecting
-						? "Disconnecting…"
-						: "Disconnect all my MCP accounts"}
-				</button>
 			</div>
 			{error && <p className="mt-3 text-[12px] text-destructive">{error}</p>}
 			<DisconnectSummaryDialog
