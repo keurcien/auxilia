@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.144](https://github.com/jr-k/auxilia/compare/web-v0.12.143...web-v0.12.144) (2026-11-15)
+
+
+### Bug Fixes
+
+* **web:** put the notification switch next to read state in mobile conversation options ([eb61254](https://github.com/jr-k/auxilia/commit/eb61254a955454e65d3a7fa9072982e5dec38c1c))
+
 ## [0.12.143](https://github.com/jr-k/auxilia/compare/web-v0.12.142...web-v0.12.143) (2026-11-15)
 
 
