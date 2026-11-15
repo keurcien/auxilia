@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.146](https://github.com/jr-k/auxilia/compare/web-v0.12.145...web-v0.12.146) (2026-11-15)
+
+
+### Bug Fixes
+
+* **web:** stack settings actions on narrow screens and theme warning colors in dark mode ([db342ad](https://github.com/jr-k/auxilia/commit/db342ad61afa10957e0b19358e42938fa986632f))
+
 ## [0.12.145](https://github.com/jr-k/auxilia/compare/web-v0.12.144...web-v0.12.145) (2026-11-15)
 
 
