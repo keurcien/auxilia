@@ -59,6 +59,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Switch } from "@/components/ui/switch";
+import { useThreadNotifications } from "@/hooks/use-thread-notifications";
 
 const EMPTY_RESOURCE_SETTINGS: ThreadResourceSettings = {
   toolMode: null,
@@ -489,6 +490,8 @@ const ChatPage = () => {
     }
   };
 
+  const notifications = useThreadNotifications(thread ?? null);
+
   const memoriesEnabled =
     memoryOverride?.threadId === threadId
       ? memoryOverride.enabled
@@ -756,7 +759,9 @@ const ChatPage = () => {
               </TooltipContent>
             </Tooltip>
           )}
-          <ChatNotificationsToggle />
+          {meta.viewerRole === null && (
+            <ChatNotificationsToggle notifications={notifications} />
+          )}
         </ChatHeaderLeadingActions>
       )}
       {meta.status === "ready" && (
@@ -866,7 +871,9 @@ const ChatPage = () => {
                   </div>
                 </div>
               )}
-              <ChatMobileNotificationsRow />
+              {meta.viewerRole === null && (
+                <ChatMobileNotificationsRow notifications={notifications} />
+              )}
             </div>
           </section>
 

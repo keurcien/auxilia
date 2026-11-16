@@ -22,6 +22,7 @@ function trigger(overrides: Partial<Trigger> = {}): Trigger {
 		modelAvailable: true,
 		isActive: true,
 		runOnce: false,
+	autoComplete: false,
 		visibility: "workspace",
 		teamIds: [],
 		canManage: true,

@@ -55,6 +55,17 @@ class TriggerBase(SQLModel):
             "trigger keeps its history. False keeps the recurring behavior."
         ),
     )
+    # Copied onto each firing's thread (`ThreadDB.complete_on_success`), so
+    # editing the trigger never changes a conversation already started.
+    auto_complete: bool = Field(
+        default=False,
+        nullable=False,
+        description=(
+            "Mark each firing's conversation as completed as soon as its run "
+            "succeeds. Failed runs and runs waiting for a tool approval stay "
+            "open. False leaves conversations open."
+        ),
+    )
 
 
 class TriggerDB(TriggerBase, BaseDBModel, table=True):

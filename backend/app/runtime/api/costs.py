@@ -247,7 +247,7 @@ def message_cost(
 _SERDE = JsonPlusSerializer()
 
 
-def _decode_write(type_tag: str, blob: bytes) -> list[AIMessage]:
+def decode_message_write(type_tag: str, blob: bytes) -> list[AIMessage]:
     value = _SERDE.loads_typed((type_tag, blob))
     if isinstance(value, Overwrite):
         value = value.value
@@ -275,7 +275,9 @@ async def iter_cost_messages(
         )
     ) as writes:
         async for type_tag, blob in writes:
-            for message in await asyncio.to_thread(_decode_write, type_tag, blob):
+            for message in await asyncio.to_thread(
+                decode_message_write, type_tag, blob
+            ):
                 yield message
             count += 1
             if pause_seconds and count % 16 == 0:

@@ -23,6 +23,7 @@ from app.threads.schemas import (
     ThreadCreate,
     ThreadMemoriesUpdate,
     ThreadModelUpdate,
+    ThreadNotificationsUpdate,
     ThreadOrder,
     ThreadPatch,
     ThreadPlacementFilter,
@@ -213,6 +214,19 @@ async def update_thread_memories(
     if thread.user_id != current_user.id:
         raise PermissionDeniedError("Not authorized to edit this thread")
     return await service.update_memories(thread_id, data)
+
+
+@router.put("/{thread_id}/notifications")
+async def update_thread_notifications(
+    thread_id: str,
+    data: ThreadNotificationsUpdate,
+    current_user: UserDB = Depends(get_current_user),
+    service: ThreadService = Depends(get_thread_service_before_response),
+) -> ThreadResponse:
+    thread = await service.get(thread_id)
+    if thread.user_id != current_user.id:
+        raise PermissionDeniedError("Not authorized to edit this thread")
+    return await service.update_notifications(thread_id, data)
 
 
 @router.put("/{thread_id}/resources")

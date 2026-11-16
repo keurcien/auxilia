@@ -91,6 +91,10 @@ class ThreadCompletionUpdate(SQLModel):
     completed: bool
 
 
+class ThreadNotificationsUpdate(SQLModel):
+    enabled: bool
+
+
 class ThreadReadStateUpdate(SQLModel):
     is_unread: bool
 
@@ -120,6 +124,8 @@ class ThreadResponse(ThreadBase):
     # deliberately not a value here — in-flight state comes from the
     # /runs/active poll.
     last_run_status: RunStatus | None = None
+    # None = follows the owner's account default.
+    notifications_enabled: bool | None = None
     created_at: datetime
     updated_at: datetime
     agent_name: str | None = None

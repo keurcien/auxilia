@@ -116,6 +116,7 @@ from app.skills.runtime import (
 from app.skills.schemas import SkillBundle
 from app.threads.models import ThreadDB, ThreadSource, ThreadToolMode
 from app.threads.repository import ThreadRepository
+from app.usage.recorder import UsageAttribution, UsageRecorder
 
 
 logger = logging.getLogger(__name__)
@@ -724,12 +725,14 @@ class Agent:
         tracing: RunTracing | None = None,
         runtime_tools: Sequence[BaseTool] = (),
         runtime_tool_interrupt_on: dict[str, bool] | None = None,
+        usage: UsageRecorder | None = None,
     ):
         self.thread = thread
         self.agent = agent
         self.model = model
         self.middleware = middleware
         self.tracing = tracing if tracing is not None else NoOpTracing()
+        self.usage = usage
         self.subagents = subagents
         self.provider = provider
         self.web_search_supported = web_search_supported
@@ -796,7 +799,10 @@ class Agent:
                 )
             },
             "recursion_limit": agent_settings.recursion_limit,
-            "callbacks": self.tracing.callbacks,
+            "callbacks": [
+                *self.tracing.callbacks,
+                *([self.usage] if self.usage is not None else []),
+            ],
             "metadata": self.metadata,
         }
 
@@ -1069,6 +1075,15 @@ class Agent:
                 exc_info=True,
             )
             observability = None
+        try:
+            usage = UsageRecorder(await UsageAttribution.for_thread(db, thread))
+        except Exception:  # noqa: BLE001 — accounting must never block a run
+            logger.warning(
+                "Could not attribute LLM usage for thread %s; not recording it",
+                thread.id,
+                exc_info=True,
+            )
+            usage = None
 
         return cls(
             thread=thread,
@@ -1084,6 +1099,7 @@ class Agent:
             project_context=project_context,
             runtime_tools=runtime_tools,
             runtime_tool_interrupt_on=runtime_tool_interrupt_on,
+            usage=usage,
         )
 
     def _web_search_tool(self, agent: ResolvedAgent) -> dict | None:

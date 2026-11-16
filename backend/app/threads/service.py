@@ -36,6 +36,7 @@ from app.threads.schemas import (
     ThreadCreate,
     ThreadMemoriesUpdate,
     ThreadModelUpdate,
+    ThreadNotificationsUpdate,
     ThreadOrder,
     ThreadPatch,
     ThreadPlacementFilter,
@@ -49,6 +50,7 @@ from app.threads.schemas import (
     ThreadStartCreate,
 )
 from app.users.models import UserDB
+from app.users.repository import UserRepository
 from app.workspaces.dependencies import get_active_workspace_id
 
 
@@ -273,6 +275,8 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
         source: ThreadSource,
         trigger_id: UUID | None = None,
         placement_user: UserDB | None = None,
+        complete_on_success: bool = False,
+        notifications_allowed: bool = True,
     ) -> ThreadResponse:
         if placement_user is not None:
             await ProjectService(self.db, self.workspace_id).validate_placement(
@@ -392,8 +396,9 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
                 )
         else:
             disabled_mcp_tools = {}
-        # `trigger_id` is a keyword (not a ThreadCreate field) so API clients
-        # can't attach arbitrary threads to a trigger — only the scanner sets it.
+        owner = await UserRepository(self.db).get(user_id)
+        # `trigger_id` and `complete_on_success` are keywords (not ThreadCreate
+        # fields) so API clients can't set them; only trigger firings do.
         thread = ThreadDB(
             **data.model_dump(
                 exclude_none=True,
@@ -413,6 +418,10 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
             user_id=user_id,
             source=source,
             trigger_id=trigger_id,
+            complete_on_success=complete_on_success,
+            notifications_enabled=notifications_allowed
+            and owner is not None
+            and owner.notifications_enabled,
             disabled_mcp_server_ids=disabled_mcp_server_ids,
             disabled_skill_ids=disabled_skill_ids,
             disabled_sandbox_ids=disabled_sandbox_ids,
@@ -637,6 +646,17 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
     ) -> ThreadResponse:
         thread = await self._lock_editable(thread_id)
         await self.repository.set_memories_enabled(thread_id, data.memories_enabled)
+        return await self.get_with_agent(thread_id, thread.user_id)
+
+    async def update_notifications(
+        self, thread_id: str, data: ThreadNotificationsUpdate
+    ) -> ThreadResponse:
+        # Not `_lock_editable`: a completed thread can still be reopened, and
+        # its notification choice is not part of the read-only conversation.
+        thread = await self.repository.lock(thread_id)
+        if thread is None:
+            raise NotFoundError(self.not_found_message)
+        await self.repository.set_notifications_enabled(thread_id, data.enabled)
         return await self.get_with_agent(thread_id, thread.user_id)
 
     async def update_resources(

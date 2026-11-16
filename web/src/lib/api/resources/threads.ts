@@ -259,6 +259,17 @@ export async function updateThreadMemories(
 	return response.data;
 }
 
+export async function updateThreadNotifications(
+	threadId: string,
+	enabled: boolean,
+): Promise<Thread> {
+	const response = await api.put<Thread>(
+		`/threads/${threadId}/notifications`,
+		{ enabled },
+	);
+	return response.data;
+}
+
 export async function deleteThread(threadId: string): Promise<void> {
 	await api.delete(`/threads/${threadId}`);
 }

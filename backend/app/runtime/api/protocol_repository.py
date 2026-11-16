@@ -41,6 +41,28 @@ class CheckpointWriteRepository:
         finally:
             await result.close()
 
+    async def iter_timed_message_writes(
+        self, thread_id: str
+    ) -> AsyncGenerator[tuple[str, bytes, str | None], None]:
+        """`(type, blob, ts)` of every `messages`-channel write, unordered;
+        `ts` is the ISO timestamp of the checkpoint the write belongs to."""
+        stmt = text(
+            "SELECT w.type, w.blob, c.checkpoint->>'ts' AS ts "
+            "FROM checkpoint_writes w "
+            "LEFT JOIN checkpoints c ON c.thread_id = w.thread_id "
+            "AND c.checkpoint_ns = w.checkpoint_ns "
+            "AND c.checkpoint_id = w.checkpoint_id "
+            "WHERE w.thread_id = :thread_id AND w.channel = 'messages'"
+        )
+        result = await self.db.stream(
+            stmt.execution_options(yield_per=1), {"thread_id": thread_id}
+        )
+        try:
+            async for row in result:
+                yield row.type, bytes(row.blob), row.ts
+        finally:
+            await result.close()
+
     async def iter_namespace_message_writes(
         self, thread_id: str, checkpoint_ns: str
     ) -> AsyncGenerator[tuple[str, str, bytes], None]:

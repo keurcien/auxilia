@@ -21,6 +21,7 @@ import { UserAvatar } from "@/components/ui/user-avatar";
 import { cn } from "@/lib/utils";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { VisibilityBadge } from "@/components/ui/visibility-badge";
+import { UsageBadge } from "@/components/usage/usage-badge";
 import { mcpServerImageUrl } from "@/lib/api/resources/mcp-servers";
 import { buildGroupTree } from "@/lib/groups";
 
@@ -360,6 +361,20 @@ export default function AgentTable({
 					</span>
 				);
 			},
+		},
+		{
+			key: "usage",
+			header: "This month",
+			width: "130px",
+			hideBelowLg: true,
+			cell: (agent) => (
+				<UsageBadge
+					dimension="agent"
+					id={agent.id}
+					title={agent.name}
+					variant="pill"
+				/>
+			),
 		},
 		{
 			key: "chevron",

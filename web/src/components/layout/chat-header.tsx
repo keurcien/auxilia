@@ -42,7 +42,7 @@ import {
 	SheetHeader,
 	SheetTitle,
 } from "@/components/ui/sheet";
-import { useAccountNotifications } from "@/hooks/use-account-notifications";
+import type { ThreadNotifications } from "@/hooks/use-thread-notifications";
 import { useEdgeSwipe } from "@/hooks/use-edge-swipe";
 import { Switch } from "@/components/ui/switch";
 import type { WebPushState } from "@/types/web-push";
@@ -329,28 +329,28 @@ export function ChatMemoryToggle({
 	);
 }
 
-function accountNotificationsLabel(
+function threadNotificationsLabel(
 	enabled: boolean,
 	webPushState: WebPushState,
 ): string {
-	if (!enabled) return "Notifications are off for your account";
+	if (!enabled) return "Notifications are off for this conversation";
 	if (webPushState === "denied") {
-		return "Notifications are on for your account, but this browser blocks them";
+		return "Notifications are on for this conversation, but this browser blocks them";
 	}
 	if (webPushState === "disabled" || webPushState === "unsupported") {
-		return "Notifications are on for your account, but not on this browser";
+		return "Notifications are on for this conversation, but not on this browser";
 	}
 	if (webPushState === "not-configured") {
-		return "Notifications are on for your account, but push is not configured on this server";
+		return "Notifications are on for this conversation, but push is not configured on this server";
 	}
-	return "Notifications are on for your account";
+	return "Notifications are on for this conversation";
 }
 
-export function ChatMobileNotificationsRow() {
-	const { available, enabled, saving, webPushState, setEnabled } =
-		useAccountNotifications();
-	if (!available) return null;
-
+export function ChatMobileNotificationsRow({
+	notifications: { enabled, saving, webPushState, setEnabled },
+}: {
+	notifications: ThreadNotifications;
+}) {
 	return (
 		<div className="border-t border-sidebar-border px-4 py-3">
 			<div className="flex min-h-10 items-center justify-between gap-4">
@@ -368,25 +368,25 @@ export function ChatMobileNotificationsRow() {
 					className="h-6 w-11 [&_[data-slot=switch-thumb]]:size-5 [&[data-state=checked]_[data-slot=switch-thumb]]:translate-x-5"
 					checked={enabled}
 					disabled={saving}
-					aria-label="Notifications for your account"
+					aria-label="Notifications for this conversation"
 					onCheckedChange={(checked) => {
 						void setEnabled(checked);
 					}}
 				/>
 			</div>
 			<p className="mt-1 text-[13px] leading-5 text-sidebar-muted">
-				{accountNotificationsLabel(enabled, webPushState)}.
+				{threadNotificationsLabel(enabled, webPushState)}.
 			</p>
 		</div>
 	);
 }
 
-export function ChatNotificationsToggle() {
-	const { available, enabled, saving, webPushState, setEnabled } =
-		useAccountNotifications();
-	if (!available) return null;
-
-	const label = accountNotificationsLabel(enabled, webPushState);
+export function ChatNotificationsToggle({
+	notifications: { enabled, saving, webPushState, setEnabled },
+}: {
+	notifications: ThreadNotifications;
+}) {
+	const label = threadNotificationsLabel(enabled, webPushState);
 	return (
 		<div
 			className={`flex h-[30px] items-center overflow-hidden rounded-full border text-[11.5px] font-semibold transition-colors ${
@@ -400,7 +400,7 @@ export function ChatNotificationsToggle() {
 					<button
 						type="button"
 						role="switch"
-						aria-label="Notifications for your account"
+						aria-label="Notifications for this conversation"
 						aria-checked={enabled}
 						disabled={saving}
 						onClick={() => {
@@ -431,14 +431,14 @@ export function ChatNotificationsToggle() {
 				<TooltipTrigger asChild>
 					<Link
 						href="/settings?tab=profile&section=preferences"
-						aria-label="Open notification settings"
+						aria-label="Default for new conversations"
 						className="flex h-full w-6 items-center justify-center border-l border-current/15 opacity-65 transition-colors hover:bg-black/5 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none dark:hover:bg-white/5"
 					>
 						<Settings2 className="size-3" />
 					</Link>
 				</TooltipTrigger>
 				<TooltipContent side="bottom" sideOffset={7}>
-					Open notification settings
+					Default for new conversations
 				</TooltipContent>
 			</Tooltip>
 		</div>

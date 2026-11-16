@@ -23,6 +23,8 @@ interface TriggerBase {
 	notificationsEnabled: boolean;
 	/** One-shot: the first scheduled or webhook firing pauses the trigger. */
 	runOnce: boolean;
+	/** Each firing's conversation is marked completed once its run succeeds. */
+	autoComplete: boolean;
 	lastRunAt: string | null;
 	createdAt: string;
 	updatedAt: string;
@@ -68,6 +70,7 @@ interface TriggerCreateBase {
 	isActive?: boolean;
 	notificationsEnabled?: boolean;
 	runOnce?: boolean;
+	autoComplete?: boolean;
 	visibility?: ResourceVisibility;
 	teamIds?: string[];
 	projectId?: string | null;
@@ -102,6 +105,7 @@ export interface TriggerUpdate {
 	isActive?: boolean;
 	notificationsEnabled?: boolean;
 	runOnce?: boolean;
+	autoComplete?: boolean;
 	visibility?: ResourceVisibility;
 	teamIds?: string[];
 	projectId?: string | null;

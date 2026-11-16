@@ -64,6 +64,7 @@ interface TriggerFormState {
 	disabledMcpTools: Record<string, string[]> | null;
 	notificationsEnabled: boolean;
 	runOnce: boolean;
+	autoComplete: boolean;
 }
 
 function browserTimezone(): string {
@@ -90,6 +91,7 @@ function defaultForm(): TriggerFormState {
 		disabledMcpTools: null,
 		notificationsEnabled: false,
 		runOnce: false,
+		autoComplete: false,
 	};
 }
 
@@ -119,6 +121,7 @@ function fromTrigger(trigger: Trigger): TriggerFormState {
 		disabledMcpTools: trigger.disabledMcpTools,
 		notificationsEnabled: trigger.notificationsEnabled,
 		runOnce: trigger.runOnce,
+		autoComplete: trigger.autoComplete,
 	};
 }
 
@@ -140,6 +143,7 @@ function toComparablePayload(form: TriggerFormState, triggerType: TriggerType) {
 		disabledMcpTools: form.disabledMcpTools,
 		notificationsEnabled: form.notificationsEnabled,
 		runOnce: form.runOnce,
+		autoComplete: form.autoComplete,
 		...(triggerType === "schedule"
 			? {
 					cronExpression: buildCronExpression(form.schedule),
@@ -289,6 +293,7 @@ export default function TriggerEditor({
 			disabledMcpTools: form.disabledMcpTools,
 			notificationsEnabled: form.notificationsEnabled,
 			runOnce: form.runOnce,
+			autoComplete: form.autoComplete,
 		};
 		try {
 			let saved: Trigger;
@@ -503,6 +508,27 @@ export default function TriggerEditor({
 								setField("runOnce", checked);
 							}}
 							aria-label="Run once"
+							className="shrink-0 cursor-pointer"
+						/>
+					</div>
+
+					<div className="flex items-center justify-between gap-6 rounded-[10px] border border-input bg-card px-4 py-3.5">
+						<div>
+							<p className="text-[13px] font-semibold text-foreground">
+								Complete automatically
+							</p>
+							<p className="mt-0.5 text-[12px] leading-5 text-meta dark:text-panel-dim">
+								Mark each run&apos;s conversation as completed as soon as it
+								succeeds. Failed runs and runs waiting for an approval stay
+								open.
+							</p>
+						</div>
+						<Switch
+							checked={form.autoComplete}
+							onCheckedChange={(checked) => {
+								setField("autoComplete", checked);
+							}}
+							aria-label="Complete automatically"
 							className="shrink-0 cursor-pointer"
 						/>
 					</div>

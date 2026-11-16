@@ -38,6 +38,7 @@ import TriggerSummaryBanner from "@/app/(protected)/triggers/components/trigger-
 import TriggerResources from "@/app/(protected)/triggers/components/trigger-resources";
 import NextRunsCard from "@/app/(protected)/triggers/components/next-runs-card";
 import { VisibilityBadge } from "@/components/ui/visibility-badge";
+import { UsageBadge } from "@/components/usage/usage-badge";
 import RunHistoryCard from "@/app/(protected)/triggers/components/run-history-card";
 
 const slugify = (name: string) =>
@@ -176,6 +177,13 @@ export default function TriggerDetail({ trigger }: TriggerDetailProps) {
 					{ label: slugify(liveTrigger.name) },
 				]}
 			>
+				<UsageBadge
+					dimension="trigger"
+					id={liveTrigger.id}
+					title={liveTrigger.name}
+					variant="header"
+					className="hidden lg:flex"
+				/>
 				{liveTrigger.canManage && <HeaderButton
 					accent
 					disabled={isRunning}

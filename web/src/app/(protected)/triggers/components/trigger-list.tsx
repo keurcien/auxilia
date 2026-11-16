@@ -25,6 +25,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useConfirmDialog } from "@/components/providers/dialog-provider";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
+import { UsageBadge } from "@/components/usage/usage-badge";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { GroupedCardTree } from "@/components/ui/grouped-card-tree";
 import { SelectableLeading } from "@/components/ui/selectable-leading";
@@ -154,6 +155,7 @@ export default function TriggerList({
 				reasoningEffort: trigger.reasoningEffort,
 				isActive: false,
 				runOnce: trigger.runOnce,
+				autoComplete: trigger.autoComplete,
 				visibility: trigger.visibility,
 				teamIds: trigger.teamIds,
 			};
@@ -305,6 +307,20 @@ export default function TriggerList({
 							? formatRunAt(trigger.nextRunAt, trigger.timezone)
 							: "Paused"}
 				</span>
+			),
+		},
+		{
+			key: "usage",
+			header: "This month",
+			width: "150px",
+			hideBelowLg: true,
+			cell: (trigger) => (
+				<UsageBadge
+					dimension="trigger"
+					id={trigger.id}
+					title={trigger.name}
+					variant="pill"
+				/>
 			),
 		},
 		{

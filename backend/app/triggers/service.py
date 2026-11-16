@@ -908,6 +908,8 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
             user_id=trigger.owner_id,
             source=ThreadSource.trigger,
             trigger_id=trigger.id,
+            complete_on_success=trigger.auto_complete,
+            notifications_allowed=trigger.notifications_enabled,
         )
 
     # ------------------------------------------------------------------

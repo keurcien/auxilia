@@ -9,6 +9,7 @@ import {
 	AlarmClock,
 	AlertCircle,
 	Bot,
+	ChartColumn,
 	Check,
 	Circle,
 	CircleCheck,
@@ -133,6 +134,11 @@ const navItems: {
 		href: "/skills",
 		icon: ScrollText,
 		match: "prefix",
+	},
+	{
+		title: "Usage",
+		href: "/usage",
+		icon: ChartColumn,
 	},
 	{
 		title: "Users",

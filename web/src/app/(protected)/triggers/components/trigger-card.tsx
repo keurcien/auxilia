@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
+	CircleCheck,
 	Clock,
 	Copy,
 	MoreVertical,
@@ -25,6 +26,7 @@ import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { VisibilityBadge } from "@/components/ui/visibility-badge";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { SelectableLeading } from "@/components/ui/selectable-leading";
+import { UsageBadge } from "@/components/usage/usage-badge";
 
 interface TriggerCardProps {
 	trigger: Trigger;
@@ -228,6 +230,17 @@ export default function TriggerCard({
 						</span>
 					</div>
 				)}
+				{trigger.autoComplete && (
+					<div
+						className="flex h-[30px] max-w-full min-w-0 items-center gap-1.5 rounded-[4px] border border-[#ECF1EE] bg-[#F4F7F5] px-3 dark:border-white/10 dark:bg-white/5"
+						title="Each run's conversation is marked as completed once it succeeds."
+					>
+						<CircleCheck className="size-[13px] shrink-0 text-[#7C8C84] dark:text-muted-foreground" />
+						<span className="truncate font-[family-name:var(--font-dm-sans)] text-[12.5px] font-medium text-[#4A5B53] dark:text-white/80">
+							Completes automatically
+						</span>
+					</div>
+				)}
 				{!trigger.modelAvailable && (
 					<div
 						className="flex h-[30px] max-w-full min-w-0 items-center gap-1.5 rounded-[4px] border border-[#F0E4D3] bg-[#FDF6EC] px-3 dark:border-amber-400/20 dark:bg-amber-950/30"
@@ -239,6 +252,13 @@ export default function TriggerCard({
 						</span>
 					</div>
 				)}
+				<UsageBadge
+					dimension="trigger"
+					id={trigger.id}
+					title={trigger.name}
+					hideWhenEmpty
+					className="font-[family-name:var(--font-dm-sans)]"
+				/>
 			</div>
 		</div>
 	);

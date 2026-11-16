@@ -10,6 +10,7 @@ import { useSkillsStore } from "@/stores/skills-store";
 import { useThreadsStore } from "@/stores/threads-store";
 import { useTriggerRunsStore } from "@/stores/trigger-runs-store";
 import { useTriggersStore } from "@/stores/triggers-store";
+import { useUsageSummariesStore } from "@/stores/usage-summaries-store";
 import { useWorkspaceEventsStore } from "@/stores/workspace-events-store";
 
 export function resetWorkspaceStores(): void {
@@ -29,6 +30,7 @@ export function resetWorkspaceStores(): void {
 	useMcpServersStore.setState({ mcpServers: [], isInitialized: false });
 	useTriggersStore.setState({ triggers: [], isInitialized: false });
 	useTriggerRunsStore.setState({ runsByTrigger: {} });
+	useUsageSummariesStore.setState({ byDimension: {}, details: {} });
 	useSkillsStore.setState({
 		skills: [],
 		isInitialized: false,

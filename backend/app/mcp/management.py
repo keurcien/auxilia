@@ -657,7 +657,9 @@ def register_management_tools(mcp: MCPServer) -> None:
         This is the primary tool when the user asks to schedule or automate
         recurring agent work, for example every day at 08:00. For a one-off
         reminder that must not repeat, set run_once to true: the trigger pauses
-        itself as soon as it fires and keeps its history. Do not claim the
+        itself as soon as it fires and keeps its history. Set auto_complete to
+        true when the user wants each firing's conversation marked as
+        completed once its run succeeds. Do not claim the
         automation is active until this tool returns the created trigger.
         Call get_agent_resources first when choosing resources. Put every
         unchosen resource ID in its matching disabled list and every rejected
@@ -683,6 +685,7 @@ def register_management_tools(mcp: MCPServer) -> None:
 
         Set run_once to switch between one-shot and recurring firing, and
         is_active to true to re-arm a one-shot trigger that already fired.
+        Set auto_complete to complete later firings' conversations on success.
         """
         async with tool_session(ctx) as (db, user, workspace_id):
             return to_json(
@@ -871,9 +874,9 @@ def register_management_tools(mcp: MCPServer) -> None:
         service account, or other shared workspace credential.
         """
         async with tool_session(ctx) as (db, user, workspace_id):
-            result = await MCPServerService(
-                db, workspace_id
-            ).disconnect_my_connection(server_id, user)
+            result = await MCPServerService(db, workspace_id).disconnect_my_connection(
+                server_id, user
+            )
             return to_json(result)
 
     @mcp.tool()

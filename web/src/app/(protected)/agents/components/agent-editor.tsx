@@ -42,6 +42,7 @@ import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
 import * as agentsApi from "@/lib/api/resources/agents";
 import * as langfuseApi from "@/lib/api/resources/langfuse";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
+import { UsageBadge } from "@/components/usage/usage-badge";
 import { ModelPickerChip } from "@/components/editor/model-picker-chip";
 import {
 	ImageFilePreview,
@@ -763,6 +764,15 @@ export default function AgentEditor({
 					</span>
 				)}
 				<div className="ml-auto flex shrink-0 items-center gap-2">
+					{agent && (
+						<UsageBadge
+							dimension="agent"
+							id={agent.id}
+							title={agent.name}
+							variant="header"
+							className="hidden lg:flex"
+						/>
+					)}
 					{agent && canSetDefaultAgent && (
 						<button
 							type="button"

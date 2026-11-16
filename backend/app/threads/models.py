@@ -139,6 +139,21 @@ class ThreadDB(ThreadBase, TimestampMixin, table=True):
         default=None,
         sa_column=Column(DateTime(timezone=True), nullable=True),
     )
+    # Set on a firing of an `auto_complete` trigger: the next successful run
+    # completes the thread. Any other terminal outcome clears it so a failed
+    # or user-continued conversation stays open; an interrupted run keeps it
+    # until the approval resumes. Server-side only.
+    complete_on_success: bool = Field(
+        default=False,
+        sa_column=Column(Boolean, nullable=False, server_default="false"),
+    )
+    # Web Push when this conversation's runs end. Copied from the owner's
+    # account default when the thread is created, then toggled per thread.
+    # NULL (threads created outside ThreadService.create, e.g. Slack) follows
+    # the account default live.
+    notifications_enabled: bool | None = Field(
+        default=None, sa_column=Column(Boolean, nullable=True)
+    )
     # The sandbox every run of this thread reconnects to. Stamped by the
     # runtime when a run creates one (and again when a gone sandbox is
     # replaced); NULL until then, or for agents without a sandbox binding.

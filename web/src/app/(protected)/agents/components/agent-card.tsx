@@ -12,6 +12,7 @@ import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { SelectableLeading } from "@/components/ui/selectable-leading";
 import { LONG_PRESS_TARGET_CLASS, useLongPress } from "@/hooks/use-long-press";
 import { VisibilityBadge } from "@/components/ui/visibility-badge";
+import { UsageBadge } from "@/components/usage/usage-badge";
 import { mcpServerImageUrl } from "@/lib/api/resources/mcp-servers";
 
 interface AgentCardProps {
@@ -189,6 +190,15 @@ export default function AgentCard({
 								</span>
 							);
 						})()}
+						{!archived && (
+							<UsageBadge
+								dimension="agent"
+								id={agent.id}
+								title={agent.name}
+								variant="pill"
+								hideWhenEmpty
+							/>
+						)}
 					</div>
 				</div>
 

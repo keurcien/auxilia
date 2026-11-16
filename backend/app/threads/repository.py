@@ -318,6 +318,16 @@ class ThreadRepository(BaseRepository[ThreadDB]):
             stmt = stmt.where(ThreadDB.workspace_id == self.workspace_id)
         await self.db.execute(stmt)
 
+    async def set_notifications_enabled(self, thread_id: str, enabled: bool) -> None:
+        stmt = (
+            update(ThreadDB)
+            .where(ThreadDB.id == thread_id)
+            .values(notifications_enabled=enabled)
+        )
+        if self.workspace_id is not None:
+            stmt = stmt.where(ThreadDB.workspace_id == self.workspace_id)
+        await self.db.execute(stmt)
+
     async def set_memories_enabled(self, thread_id: str, enabled: bool) -> None:
         stmt = (
             update(ThreadDB)
@@ -361,6 +371,19 @@ class ThreadRepository(BaseRepository[ThreadDB]):
         if self.workspace_id is not None:
             stmt = stmt.where(ThreadDB.workspace_id == self.workspace_id)
         await self.db.execute(stmt)
+
+    async def take_complete_on_success(self, thread_id: str) -> bool:
+        """Clear the thread's auto-completion flag; True if it was set."""
+        stmt = (
+            update(ThreadDB)
+            .where(ThreadDB.id == thread_id, ThreadDB.complete_on_success.is_(True))
+            .values(complete_on_success=False)
+            .returning(ThreadDB.id)
+        )
+        if self.workspace_id is not None:
+            stmt = stmt.where(ThreadDB.workspace_id == self.workspace_id)
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none() is not None
 
     async def set_completed_at(
         self, thread_id: str, completed_at: datetime | None

@@ -78,6 +78,8 @@ from app.threads.shares.router import (
 from app.triggers.router import router as triggers_router
 from app.triggers.scanner import TriggerScanner
 from app.triggers.settings import trigger_settings
+from app.usage.backfill import UsageBackfill
+from app.usage.router import router as usage_router
 from app.users.router import router as users_router
 from app.version import BACKEND_VERSION
 from app.workspaces.router import router as workspaces_router
@@ -152,6 +154,8 @@ async def lifespan(app: FastAPI):
                 asyncio.create_task(
                     whatsapp_processor.run(), name="whatsapp-update-processor"
                 ),
+                # One-shot, not a loop: returns once history is imported.
+                asyncio.create_task(UsageBackfill().run(), name="usage-backfill"),
             ]
         )
         if web_push_processor is not None:
@@ -350,6 +354,7 @@ app.include_router(threads_router)
 app.include_router(conversation_shares_router)
 app.include_router(public_conversation_shares_router)
 app.include_router(triggers_router)
+app.include_router(usage_router)
 app.include_router(skill_sources_router)  # before /skills/{skill_id}
 app.include_router(skills_router)
 app.include_router(users_router)

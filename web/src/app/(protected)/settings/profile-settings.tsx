@@ -1310,11 +1310,12 @@ function PreferencesCard() {
 				<div className="mb-3 flex items-center justify-between gap-6 rounded-[9px] border border-input px-4 py-3.5">
 					<div>
 						<p className="text-[13px] font-semibold text-foreground">
-							Notifications for your account
+							Notify new conversations by default
 						</p>
 						<p className="mt-0.5 text-[12px] leading-5 text-subtle dark:text-panel-body">
-							Turning this off mutes notifications on every device signed in
-							to your account, without removing their subscriptions.
+							Each conversation starts with this setting, then has its own
+							switch in the conversation header. Changing it here does not
+							affect conversations already started.
 						</p>
 					</div>
 					<Switch
@@ -1323,7 +1324,7 @@ function PreferencesCard() {
 						onCheckedChange={(checked) => {
 							void accountNotifications.setEnabled(checked);
 						}}
-						aria-label="Notifications for your account"
+						aria-label="Notify new conversations by default"
 						className="cursor-pointer disabled:cursor-default"
 					/>
 				</div>

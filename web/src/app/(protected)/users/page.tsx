@@ -32,6 +32,7 @@ import {
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 import { ViewToggle } from "@/components/ui/view-toggle";
+import { UsageBadge } from "@/components/usage/usage-badge";
 import {
 	Dialog,
 	DialogContent,
@@ -130,6 +131,8 @@ export default function UsersPage() {
 	const isAdmin =
 		currentUser?.role === "admin" ||
 		(isOwner && currentUser.supervision === null);
+	// Per-user usage is a workspace-scope read, which needs the admin role itself.
+	const canSeeUsage = currentUser?.role === "admin";
 	const fetchUsersTicket = useRef(0);
 	const membersTableRef = useRef<HTMLDivElement>(null);
 	const [users, setUsers] = useState<ListedUser[]>([]);
@@ -835,6 +838,23 @@ export default function UsersPage() {
 					},
 				]
 			: []),
+		...(canSeeUsage
+			? [
+					{
+						key: "usage",
+						header: "This month",
+						width: "130px",
+						cell: (user: ListedUser) => (
+							<UsageBadge
+								dimension="user"
+								id={user.id}
+								title={user.name || user.email || "User"}
+								variant="pill"
+							/>
+						),
+					},
+				]
+			: []),
 		...(isOwner
 			? [
 					{
@@ -1095,9 +1115,10 @@ export default function UsersPage() {
 						rows={users}
 						rowKey={(user) => user.id}
 						isLoading={isLoading}
-						minTableWidth={
-							isOwner ? (isAdmin ? "1250px" : "1120px") : isAdmin ? "1180px" : "1050px"
-						}
+						minTableWidth={`${
+							(isOwner ? (isAdmin ? 1250 : 1120) : isAdmin ? 1180 : 1050) +
+							(canSeeUsage ? 130 : 0)
+						}px`}
 						bleedOnNarrow
 						emptyMessage={
 							debouncedSearch || roleFilter !== "all" || teamFilterId

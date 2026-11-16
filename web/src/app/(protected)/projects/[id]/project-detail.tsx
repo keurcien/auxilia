@@ -45,6 +45,7 @@ import {
 import { useConfirmDialog } from "@/components/providers/dialog-provider";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { ThreadUnreadBadge } from "@/components/ui/thread-unread-badge";
+import { UsageBadge } from "@/components/usage/usage-badge";
 import { VisibilityPicker } from "@/components/ui/visibility-picker";
 import { ConversationCompletionButton } from "@/components/layout/app-sidebar/conversation-completion-button";
 import { FolderDialog } from "@/components/layout/app-sidebar/folder-dialog";
@@ -1370,6 +1371,13 @@ export default function ProjectDetailView({
 							})),
 						]}
 					>
+						<UsageBadge
+							dimension="project"
+							id={detail.id}
+							title={detail.name}
+							variant="header"
+							className="hidden lg:flex"
+						/>
 						<HeaderButton
 							ref={infoTriggerRef}
 							className="lg:hidden"

@@ -43,6 +43,9 @@ export interface Thread {
 	toolMode?: ThreadToolMode | null;
 	/** Whether personal memories may be read or updated in this conversation. */
 	memoriesEnabled?: boolean;
+	/** Web Push when this conversation's runs end, seeded from the account
+	 * default at creation. Null follows the account default. */
+	notificationsEnabled?: boolean | null;
 	/** False once the thread's current model is no longer available. */
 	modelAvailable?: boolean;
 	disabledMcpServerIds?: string[];

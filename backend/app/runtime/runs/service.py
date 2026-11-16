@@ -681,6 +681,17 @@ class RunService:
                 cancelled_waiter = was_pending_queue and status == RunStatus.cancelled
                 if not cancelled_waiter:
                     await threads.set_last_run_status(thread_id, status)
+                # An interrupted run keeps the flag: the approval that resumes
+                # it decides. A prompt queued behind the run means someone is
+                # continuing the conversation, so it stays open.
+                if (
+                    not cancelled_waiter
+                    and status != RunStatus.interrupted
+                    and await threads.take_complete_on_success(thread_id)
+                    and status == RunStatus.success
+                    and not await repository.list_queued_prompts(thread_id)
+                ):
+                    await threads.set_completed_at(thread_id, datetime.now(UTC))
                 if status == RunStatus.success:
                     await threads.increment_response_version(thread_id)
                 if status == RunStatus.interrupted:

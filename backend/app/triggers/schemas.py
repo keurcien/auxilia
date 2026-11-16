@@ -117,6 +117,13 @@ class TriggerPatch(SQLModel):
             "fired one-shot trigger, set is_active to true."
         ),
     )
+    auto_complete: bool | None = Field(
+        default=None,
+        description=(
+            "True marks the conversations of later firings as completed once "
+            "their run succeeds; false leaves them open."
+        ),
+    )
     project_id: UUID | None = None
     folder_id: UUID | None = None
     visibility: ResourceVisibility | None = None
@@ -176,6 +183,7 @@ class TriggerResponse(SQLModel):
     is_active: bool
     notifications_enabled: bool = False
     run_once: bool = False
+    auto_complete: bool = False
     next_run_at: datetime | None = None
     last_run_at: datetime | None = None
     disabled_mcp_server_ids: list[UUID] | None = None
