@@ -38,7 +38,10 @@ export interface ProjectThread {
 	source: ThreadSource;
 	completedAt: string | null;
 	folderId: string | null;
+	/** Owner only: completion, placement and other edits. */
 	canManage: boolean;
+	/** The owner, or a workspace admin. */
+	canDelete: boolean;
 	isUnread: boolean;
 	createdAt: string;
 }

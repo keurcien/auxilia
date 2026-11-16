@@ -40,7 +40,7 @@ from app.threads.service import (
     get_thread_service,
     get_thread_service_before_response,
 )
-from app.users.models import UserDB
+from app.users.models import UserDB, WorkspaceRole
 
 
 logger = logging.getLogger(__name__)
@@ -291,7 +291,9 @@ async def delete_thread(
     if not current_user.can_delete_threads:
         raise PermissionDeniedError("Conversation deletion is not allowed")
     thread = await service.get(thread_id)
-    if thread.user_id != current_user.id:
+    # The service is scoped to the active workspace, where admins may delete
+    # any conversation.
+    if thread.user_id != current_user.id and current_user.role != WorkspaceRole.admin:
         raise PermissionDeniedError("Not authorized to delete this thread")
     await service.delete(thread_id)
     # Commit the row delete BEFORE purging checkpoints — the order

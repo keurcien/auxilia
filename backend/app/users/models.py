@@ -35,6 +35,9 @@ class UserDB(UserBase, BaseDBModel, table=True):
     preferences_onboarding_version: int = Field(default=0, nullable=False)
     # Account-wide mute, checked before any device subscription is notified.
     notifications_enabled: bool = Field(default=True, nullable=False)
+    # IANA name synced from the browser; dates webhook trigger conversations,
+    # which have no schedule timezone of their own.
+    timezone: str | None = Field(default=None, max_length=64, nullable=True)
 
     _workspace_role: WorkspaceRole = PrivateAttr(default=WorkspaceRole.member)
     _workspace_team_id: UUID | None = PrivateAttr(default=None)

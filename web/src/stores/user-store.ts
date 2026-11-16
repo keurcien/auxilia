@@ -28,6 +28,20 @@ export const useUserStore = create<UserStore>((set, get) => {
 		set({ user: { ...user, notificationsEnabled: enabled } });
 	};
 
+	// Webhook trigger conversations are titled in the owner's timezone, so the
+	// server keeps the browser's. A supervising admin's browser is not the user's.
+	const syncTimezone = (user: CurrentUser) => {
+		const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+		if (!timezone || user.supervision || user.timezone === timezone) return;
+		usersApi
+			.setTimezone(timezone)
+			.then((saved) => {
+				const current = get().user;
+				if (current?.id === user.id) set({ user: { ...current, timezone: saved } });
+			})
+			.catch(() => undefined);
+	};
+
 	return {
 		user: null,
 		isLoading: false,
@@ -41,6 +55,7 @@ export const useUserStore = create<UserStore>((set, get) => {
 			try {
 				const user = await authApi.getCurrentUser();
 				set({ user, isInitialized: true });
+				syncTimezone(user);
 			} catch {
 				set({ user: null, isInitialized: true });
 			} finally {
@@ -50,6 +65,7 @@ export const useUserStore = create<UserStore>((set, get) => {
 
 		setUser: (user) => {
 			set({ user, isInitialized: true });
+			syncTimezone(user);
 		},
 
 		setNotificationsEnabled: async (enabled) => {

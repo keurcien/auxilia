@@ -238,6 +238,8 @@ class ProjectService(BaseService[ProjectDB, ProjectRepository]):
                     completed_at=thread.completed_at,
                     folder_id=thread.folder_id,
                     can_manage=thread.user_id == user.id,
+                    can_delete=thread.user_id == user.id
+                    or user.role == WorkspaceRole.admin,
                     is_unread=is_unread,
                     created_at=thread.created_at,
                 )

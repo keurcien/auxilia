@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query
 from app.auth.dependencies import get_current_user, require_admin
 from app.usage.repository import Granularity, UsageDimension
 from app.usage.schemas import (
+    UsageFilterOptionsResponse,
     UsageReportResponse,
     UsageScope,
     UsageSettingsResponse,
@@ -33,6 +34,8 @@ async def get_usage_report(
     trigger_id: UUID | None = None,
     user_id: UUID | None = None,
     channel: str | None = None,
+    model_id: str | None = Query(default=None, max_length=255),
+    vendor: str | None = Query(default=None, max_length=100),
     user: UserDB = Depends(get_current_user),
     workspace_id: UUID = Depends(get_active_workspace_id),
     service: UsageService = Depends(get_usage_service),
@@ -47,7 +50,9 @@ async def get_usage_report(
         trigger_id=trigger_id,
         user_id=user_id,
         channel=channel,
+        model_id=model_id,
     )
+    usage_filter = await service.restrict_to_vendor(usage_filter, vendor)
     return await service.report(
         resolved,
         usage_filter,
@@ -57,6 +62,21 @@ async def get_usage_report(
         granularity=granularity,
         tz=tz,
     )
+
+
+@router.get("/filter-options")
+async def get_usage_filter_options(
+    q: str = Query(default="", max_length=100),
+    scope: UsageScope | None = None,
+    limit: int = Query(default=5, ge=1, le=20),
+    user: UserDB = Depends(get_current_user),
+    workspace_id: UUID = Depends(get_active_workspace_id),
+    service: UsageService = Depends(get_usage_service),
+) -> UsageFilterOptionsResponse:
+    """Projects, vendors, models, users, agents and triggers with usage in the
+    scope whose name matches `q`, at most `limit` of each, by all-time spend."""
+    resolved, usage_filter = service.resolve_scope(user, workspace_id, scope)
+    return await service.filter_options(resolved, usage_filter, workspace_id, q, limit)
 
 
 @router.get("/summary")

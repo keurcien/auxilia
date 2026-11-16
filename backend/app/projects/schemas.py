@@ -105,7 +105,9 @@ class ProjectThreadRow(SQLModel):
     source: ThreadSource
     completed_at: datetime | None = None
     folder_id: UUID | None = None
+    # Owner-only edits; deletion also open to workspace admins.
     can_manage: bool = False
+    can_delete: bool = False
     is_unread: bool = False
     created_at: datetime
 

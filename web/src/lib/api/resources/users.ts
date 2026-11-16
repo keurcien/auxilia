@@ -102,6 +102,13 @@ export async function updatePreferencesOnboarding(
 	return response.data.version;
 }
 
+export async function setTimezone(timezone: string): Promise<string> {
+	const response = await api.put<{ timezone: string }>("/users/me/timezone", {
+		timezone,
+	});
+	return response.data.timezone;
+}
+
 export async function getNotificationsEnabled(): Promise<boolean> {
 	const response = await api.get<{ enabled: boolean }>(
 		"/users/me/notifications",

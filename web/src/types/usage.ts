@@ -118,6 +118,8 @@ export interface UsageReport {
 	budget: UsageBudget | null;
 	trackingStartedAt: string | null;
 	backfillCompleted: boolean;
+	/** Display names of the active filters, even those without usage in range. */
+	filterLabels: Partial<Record<UsageDimension, string>>;
 }
 
 export interface UsageReportParams {
@@ -130,6 +132,19 @@ export interface UsageReportParams {
 	triggerId?: string;
 	userId?: string;
 	channel?: UsageChannel;
+	modelId?: string;
+	vendor?: string;
+}
+
+/** Something the usage report can be focused on. */
+export interface UsageFilterOption {
+	dimension: UsageDimension;
+	key: string;
+	label: string;
+	/** Vendor slug of model and vendor options, for their logo. */
+	vendor: string | null;
+	/** All-time spend in the scope. */
+	cost: number;
 }
 
 export interface UsageSummaryParams {

@@ -15,9 +15,24 @@ import {
 import { cn } from "@/lib/utils";
 import type { UsageBreakdownRow, UsageChannel, UsageDimension } from "@/types/usage";
 
-export type FilterDimension = "agent" | "project" | "trigger" | "user" | "channel";
+export type FilterDimension =
+	| "agent"
+	| "project"
+	| "trigger"
+	| "user"
+	| "channel"
+	| "model"
+	| "vendor";
 
-const FILTERABLE = new Set<UsageDimension>(["agent", "project", "trigger", "user", "channel"]);
+const FILTERABLE = new Set<UsageDimension>([
+	"agent",
+	"project",
+	"trigger",
+	"user",
+	"channel",
+	"model",
+	"vendor",
+]);
 
 export const DIMENSION_LABELS: Record<UsageDimension, { tab: string; singular: string }> = {
 	channel: { tab: "Channels", singular: "Channel" },

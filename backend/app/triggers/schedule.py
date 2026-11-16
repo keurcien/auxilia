@@ -40,11 +40,11 @@ def fire_thread_title(name: str, timezone: str | None, at: datetime) -> str:
     """Title of a firing's thread: the trigger name plus its local date and time.
 
     Firings of one trigger otherwise share a title everywhere threads are
-    listed. Webhook triggers have no timezone, so their time is stamped in UTC.
+    listed. ``timezone`` is the schedule's, or the owner's for webhook
+    triggers; UTC only when neither is known.
     """
-    if timezone is None:
-        return f"{name} / {at.astimezone(UTC):%Y-%m-%d %H:%M} UTC"
-    return f"{name} / {at.astimezone(ZoneInfo(timezone)):%Y-%m-%d %H:%M}"
+    zone = ZoneInfo(timezone) if timezone else UTC
+    return f"{name} / {at.astimezone(zone):%Y-%m-%d %H:%M}"
 
 
 def compute_next_run_ats(

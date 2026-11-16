@@ -2,6 +2,7 @@ import { api } from "@/lib/api/client";
 import { browserTimeZone } from "@/lib/usage/format";
 import type {
 	UsageDimension,
+	UsageFilterOption,
 	UsageReport,
 	UsageReportParams,
 	UsageScope,
@@ -19,6 +20,18 @@ export async function getUsageReport(
 		params: { ...params, tz: browserTimeZone() },
 	});
 	return response.data;
+}
+
+export async function searchUsageFilterOptions(
+	query: string,
+	scope: UsageScope | undefined,
+	signal: AbortSignal,
+): Promise<UsageFilterOption[]> {
+	const response = await api.get<{ options: UsageFilterOption[] }>(
+		"/usage/filter-options",
+		{ params: { q: query, scope }, signal },
+	);
+	return response.data.options;
 }
 
 export async function getUsageSummary(

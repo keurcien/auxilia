@@ -11,6 +11,7 @@ from sqlalchemy import (
     Row,
     func,
     literal_column,
+    or_,
     select,
     tuple_,
     update,
@@ -18,6 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import col
 
 from app.agents.models import AgentDB
 from app.projects.models import ProjectDB
@@ -80,6 +82,10 @@ class UsageFilter:
     project_id: UUID | None = None
     trigger_id: UUID | None = None
     channel: str | None = None
+    model_id: str | None = None
+    # A vendor is a set of catalog models, resolved by the service.
+    vendor: str | None = None
+    vendor_model_ids: tuple[str, ...] = ()
 
     def conditions(self) -> list[ColumnElement[bool]]:
         pairs = (
@@ -89,8 +95,14 @@ class UsageFilter:
             (LLMUsageDB.project_id, self.project_id),
             (LLMUsageDB.trigger_id, self.trigger_id),
             (LLMUsageDB.channel, self.channel),
+            (LLMUsageDB.model_id, self.model_id),
         )
-        return [column == value for column, value in pairs if value is not None]
+        conditions = [
+            col(column) == value for column, value in pairs if value is not None
+        ]
+        if self.vendor is not None:
+            conditions.append(col(LLMUsageDB.model_id).in_(self.vendor_model_ids))
+        return conditions
 
 
 def _measures(
@@ -117,6 +129,10 @@ def _measures(
         total(LLMUsageDB.output_tokens).label(f"{prefix}output_tokens"),
         total(LLMUsageDB.total_tokens).label(f"{prefix}total_tokens"),
     ]
+
+
+def _escape_like(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def _in_range(
@@ -256,6 +272,45 @@ class UsageRepository(BaseRepository[LLMUsageDB]):
     async def first_occurred_at(self, scope: UsageFilter) -> datetime | None:
         stmt = select(func.min(LLMUsageDB.occurred_at)).where(*scope.conditions())
         return await self.db.scalar(stmt)
+
+    async def search_entities(
+        self, scope: UsageFilter, dimension: UsageDimension, query: str, limit: int
+    ) -> list[Row]:
+        """Existing agents, projects, triggers or users with usage in the scope
+        whose name contains `query`, by spend. Rows carry `key`, `label`, `cost_usd`."""
+        column = _DIMENSION_COLUMNS[dimension]
+        entity: Any
+        if dimension is UsageDimension.user:
+            entity = UserDB
+            label = func.coalesce(UserDB.name, UserDB.email, "Unnamed user")
+            searched = [col(UserDB.name), col(UserDB.email)]
+        else:
+            entity = {
+                UsageDimension.agent: AgentDB,
+                UsageDimension.project: ProjectDB,
+                UsageDimension.trigger: TriggerDB,
+            }[dimension]
+            label = entity.name
+            searched = [col(entity.name)]
+        entity_id = entity.id
+        conditions = scope.conditions()
+        if query:
+            pattern = f"%{_escape_like(query)}%"
+            conditions.append(
+                or_(*(field.ilike(pattern, escape="\\") for field in searched))
+            )
+        cost = func.coalesce(func.sum(LLMUsageDB.cost_usd), 0)
+        stmt = (
+            select(entity_id.label("key"), label.label("label"), cost.label("cost_usd"))
+            .select_from(LLMUsageDB)
+            .join(entity, entity_id == column)
+            .where(*conditions)
+            .group_by(entity_id, label)
+            .order_by(cost.desc(), label)
+            .limit(limit)
+        )
+        result = await self.db.execute(stmt)
+        return list(result.all())
 
     async def labels(
         self, dimension: UsageDimension, ids: Sequence[UUID]

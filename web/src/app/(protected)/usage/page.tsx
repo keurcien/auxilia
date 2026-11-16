@@ -26,6 +26,7 @@ import {
 	UsageBreakdown,
 } from "./components/usage-breakdown";
 import { type ChartMetric, ChannelLegend, UsageChart } from "./components/usage-chart";
+import { UsageFilterSearch } from "./components/usage-filter-search";
 import { UsageKpis } from "./components/usage-kpis";
 import { UsageSettingsDialog } from "./components/usage-settings-dialog";
 import {
@@ -37,7 +38,15 @@ import {
 	rangeDays,
 } from "./range";
 
-const FILTER_DIMENSIONS: FilterDimension[] = ["agent", "project", "trigger", "user", "channel"];
+const FILTER_DIMENSIONS: FilterDimension[] = [
+	"project",
+	"vendor",
+	"model",
+	"user",
+	"agent",
+	"trigger",
+	"channel",
+];
 
 const SCOPE_LABELS: Record<UsageScope, string> = {
 	personal: "My usage",
@@ -94,13 +103,25 @@ function useFilters() {
 	const [trigger, setTrigger] = useQueryParamState("trigger");
 	const [user, setUser] = useQueryParamState("user");
 	const [channel, setChannel] = useQueryParamState("channel");
-	const values: Record<FilterDimension, string> = { agent, project, trigger, user, channel };
+	const [model, setModel] = useQueryParamState("model");
+	const [vendor, setVendor] = useQueryParamState("vendor");
+	const values: Record<FilterDimension, string> = {
+		agent,
+		project,
+		trigger,
+		user,
+		channel,
+		model,
+		vendor,
+	};
 	const setters: Record<FilterDimension, (value: string) => void> = {
 		agent: setAgent,
 		project: setProject,
 		trigger: setTrigger,
 		user: setUser,
 		channel: setChannel,
+		model: setModel,
+		vendor: setVendor,
 	};
 	return { values, setters };
 }
@@ -157,6 +178,8 @@ export default function UsagePage() {
 			triggerId: filters.trigger || undefined,
 			userId: filters.user || undefined,
 			channel: (filters.channel || undefined) as UsageChannel | undefined,
+			modelId: filters.model || undefined,
+			vendor: filters.vendor || undefined,
 		})
 			.then((next) => {
 				if (cancelled) return;
@@ -191,7 +214,8 @@ export default function UsagePage() {
 			const label =
 				dimension === "channel"
 					? (CHANNEL_META[id as UsageChannel]?.label ?? id)
-					: report?.breakdowns[dimension]?.find((row) => row.key === id)?.label;
+					: (report?.filterLabels[dimension] ??
+						report?.breakdowns[dimension]?.find((row) => row.key === id)?.label);
 			return {
 				dimension,
 				label: label ?? `Unknown ${DIMENSION_LABELS[dimension].singular.toLowerCase()}`,
@@ -233,6 +257,12 @@ export default function UsagePage() {
 			}
 			headerRight={
 				<div className="flex w-full flex-wrap items-center gap-2 lg:justify-end">
+					<UsageFilterSearch
+						scope={requestedScope}
+						currency={currency}
+						activeFilters={filters}
+						onSelect={selectFilter}
+					/>
 					{scopeOptions.length > 1 && (
 						<Segmented
 							label="Scope"

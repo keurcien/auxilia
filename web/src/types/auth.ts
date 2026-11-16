@@ -20,6 +20,7 @@ export interface CurrentUser {
 	twoFactorRequired: boolean;
 	preferencesOnboardingVersion: number;
 	notificationsEnabled: boolean;
+	timezone: string | null;
 	supervision: {
 		actorId: string;
 		actorName: string | null;

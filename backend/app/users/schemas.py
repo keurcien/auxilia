@@ -96,6 +96,7 @@ class CurrentUserResponse(UserResponse):
     two_factor_required: bool = False
     preferences_onboarding_version: int = 0
     notifications_enabled: bool = True
+    timezone: str | None = None
     supervision: SupervisionInfo | None = None
 
 
@@ -114,6 +115,10 @@ class PreferencesOnboardingResponse(SQLModel):
 
 class NotificationPreference(SQLModel):
     enabled: bool
+
+
+class TimezonePreference(SQLModel):
+    timezone: str = Field(min_length=1, max_length=64)
 
 
 class PasswordChange(SQLModel):

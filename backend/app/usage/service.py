@@ -1,6 +1,7 @@
 import re
 from calendar import monthrange
 from collections.abc import Iterable
+from dataclasses import replace
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any
@@ -28,6 +29,8 @@ from app.usage.schemas import (
     UsageBreakdownRow,
     UsageBudget,
     UsageCurrency,
+    UsageFilterOption,
+    UsageFilterOptionsResponse,
     UsageReportResponse,
     UsageScope,
     UsageSeriesPoint,
@@ -205,6 +208,13 @@ def _vendor(
     return model.chef_slug, model.chef or model.provider
 
 
+def _vendor_label(slug: str, catalog: dict[str, SupportedModel]) -> str:
+    for model in catalog.values():
+        if model.chef_slug == slug:
+            return model.chef or model.provider
+    return slug
+
+
 def _share(cost: float, tokens: int, totals: UsageTotals) -> float:
     if totals.cost > 0:
         return cost / totals.cost
@@ -225,7 +235,7 @@ class UsageService:
         user: UserDB,
         workspace_id: UUID,
         requested: UsageScope | None,
-        **filters: UUID | str | None,
+        **filters: Any,
     ) -> tuple[UsageScope, UsageFilter]:
         """Members see their own usage; admins their workspace; the instance
         owner may ask for every workspace."""
@@ -244,6 +254,120 @@ class UsageService:
             )
         filters["user_id"] = user.id
         return UsageScope.personal, UsageFilter(workspace_id=workspace_id, **filters)
+
+    async def restrict_to_vendor(
+        self, usage_filter: UsageFilter, vendor: str | None
+    ) -> UsageFilter:
+        if vendor is None:
+            return usage_filter
+        model_ids = tuple(
+            model_id
+            for model_id, model in (await _catalog()).items()
+            if model.chef_slug == vendor
+        )
+        return replace(usage_filter, vendor=vendor, vendor_model_ids=model_ids)
+
+    # Filter search ---------------------------------------------------------
+
+    async def filter_options(
+        self,
+        scope: UsageScope,
+        usage_filter: UsageFilter,
+        workspace_id: UUID,
+        query: str,
+        limit: int,
+    ) -> UsageFilterOptionsResponse:
+        """What the report can be focused on, among things with recorded usage."""
+        _, converter = await self._currency(workspace_id)
+        needle = query.strip()
+        folded = needle.casefold()
+        catalog = await _catalog()
+        vendors: dict[str, UsageFilterOption] = {}
+        models: list[UsageFilterOption] = []
+        for row in await self.repository.breakdown(
+            usage_filter, None, None, UsageDimension.model, ALL_MODELS
+        ):
+            if row.key is None:
+                continue
+            cost = converter.money(row.cost_usd)
+            vendor, vendor_label = _vendor(row.key, catalog)
+            model = catalog.get(row.key)
+            label = model.display_name if model else row.key
+            if vendor is not None and folded in f"{vendor} {vendor_label}".casefold():
+                group = vendors.setdefault(
+                    vendor,
+                    UsageFilterOption(
+                        dimension=UsageDimension.vendor,
+                        key=vendor,
+                        label=vendor_label,
+                        vendor=vendor,
+                        cost=0,
+                    ),
+                )
+                group.cost += cost
+            if folded in f"{label} {row.key} {vendor_label}".casefold():
+                models.append(
+                    UsageFilterOption(
+                        dimension=UsageDimension.model,
+                        key=row.key,
+                        label=label,
+                        vendor=vendor,
+                        cost=cost,
+                    )
+                )
+
+        async def entities(dimension: UsageDimension) -> list[UsageFilterOption]:
+            rows = await self.repository.search_entities(
+                usage_filter, dimension, needle, limit
+            )
+            return [
+                UsageFilterOption(
+                    dimension=dimension,
+                    key=str(row.key),
+                    label=row.label,
+                    cost=converter.money(row.cost_usd),
+                )
+                for row in rows
+            ]
+
+        by_cost = sorted(vendors.values(), key=lambda option: option.cost, reverse=True)
+        options = [
+            *await entities(UsageDimension.project),
+            *by_cost[:limit],
+            *models[:limit],
+        ]
+        if scope is not UsageScope.personal:
+            options.extend(await entities(UsageDimension.user))
+        options.extend(await entities(UsageDimension.agent))
+        options.extend(await entities(UsageDimension.trigger))
+        return UsageFilterOptionsResponse(options=options)
+
+    async def _filter_labels(
+        self, scope: UsageScope, usage_filter: UsageFilter
+    ) -> dict[UsageDimension, str]:
+        active: dict[UsageDimension, Any] = {
+            UsageDimension.agent: usage_filter.agent_id,
+            UsageDimension.project: usage_filter.project_id,
+            UsageDimension.trigger: usage_filter.trigger_id,
+            # A personal scope's user filter is the caller, not a choice.
+            UsageDimension.user: (
+                usage_filter.user_id if scope is not UsageScope.personal else None
+            ),
+            UsageDimension.channel: usage_filter.channel,
+            UsageDimension.model: usage_filter.model_id,
+        }
+        labels: dict[UsageDimension, str] = {}
+        for dimension, value in active.items():
+            if value is None:
+                continue
+            labels[dimension] = (await self._labels(dimension, [value])).get(
+                value
+            ) or MISSING_LABELS.get(dimension, "Unknown")
+        if usage_filter.vendor is not None:
+            labels[UsageDimension.vendor] = _vendor_label(
+                usage_filter.vendor, await _catalog()
+            )
+        return labels
 
     # Settings -------------------------------------------------------------
 
@@ -469,6 +593,7 @@ class UsageService:
                 state.tracking_started_at.astimezone(zone).date() if state else None
             ),
             backfill_completed=bool(state and state.backfill_completed_at),
+            filter_labels=await self._filter_labels(scope, usage_filter),
         )
 
     async def _series(

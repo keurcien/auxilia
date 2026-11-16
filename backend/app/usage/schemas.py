@@ -115,6 +115,22 @@ class UsageReportResponse(BaseModel):
     budget: UsageBudget | None
     tracking_started_at: date | None
     backfill_completed: bool
+    # Display names of the active filters, even those with no usage in range.
+    filter_labels: dict[UsageDimension, str] = Field(default_factory=dict)
+
+
+class UsageFilterOption(BaseModel):
+    dimension: UsageDimension
+    key: str
+    label: str
+    # Vendor slug of model and vendor options, for their logo.
+    vendor: str | None = None
+    # All-time spend in the scope, in the display currency.
+    cost: float
+
+
+class UsageFilterOptionsResponse(BaseModel):
+    options: list[UsageFilterOption]
 
 
 class UsageSettingsResponse(BaseModel):

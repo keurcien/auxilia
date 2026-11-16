@@ -895,6 +895,10 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
                 UUID(server_id): tool_names
                 for server_id, tool_names in trigger.disabled_mcp_tools.items()
             }
+        timezone = trigger.timezone
+        if timezone is None:
+            owner = await self.db.get(UserDB, trigger.owner_id)
+            timezone = owner.timezone if owner is not None else None
         return await ThreadService(self.db, trigger.workspace_id).create(
             ThreadCreate(
                 agent_id=effective_agent_id,
@@ -907,7 +911,7 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
                     else reasoning_effort
                 ),
                 first_message_content=fire_thread_title(
-                    trigger.name, trigger.timezone, datetime.now(UTC)
+                    trigger.name, timezone, datetime.now(UTC)
                 ),
                 **resource_selection,
             ),

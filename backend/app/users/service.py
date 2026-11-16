@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,6 +33,7 @@ from app.realtime.schemas import WorkspaceEventKind
 from app.realtime.service import stage_workspace_event
 from app.service import BaseService
 from app.teams.repository import TeamRepository
+from app.triggers.repository import TriggerRepository
 from app.users.models import UserDB, UserImageDB, UserTwoFactorDB, WorkspaceRole
 from app.users.repository import UserRepository
 from app.users.schemas import (
@@ -42,6 +44,7 @@ from app.users.schemas import (
     PasswordChange,
     PreferencesOnboardingPatch,
     ProfilePatch,
+    TimezonePreference,
     TwoFactorConfirmRequest,
     TwoFactorDisableRequest,
     TwoFactorRegenerateRequest,
@@ -149,6 +152,30 @@ class UserService(BaseService[UserDB, UserRepository]):
                 kind=WorkspaceEventKind.notifications,
                 target_user_id=user.id,
             )
+        return user
+
+    async def update_timezone(self, user: UserDB, data: TimezonePreference) -> UserDB:
+        try:
+            ZoneInfo(data.timezone)
+        except (ValueError, ZoneInfoNotFoundError) as exc:
+            raise DomainValidationError(f"Unknown timezone: {data.timezone!r}") from exc
+        if user.timezone == data.timezone:
+            return user
+        user.timezone = data.timezone
+        self.db.add(user)
+        restamped = await TriggerRepository(self.db).restamp_webhook_thread_titles(
+            user.id, data.timezone
+        )
+        await self.db.flush()
+        await self.db.refresh(user)
+        if restamped:
+            for workspace, _ in await self.workspace_repository.list_for_user(user.id):
+                await stage_workspace_event(
+                    self.db,
+                    workspace_id=workspace.id,
+                    kind=WorkspaceEventKind.threads,
+                    target_user_id=user.id,
+                )
         return user
 
     async def change_password(self, user: UserDB, data: PasswordChange) -> None:

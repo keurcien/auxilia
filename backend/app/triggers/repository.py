@@ -1,12 +1,13 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import delete, or_
+from sqlalchemy import delete, func, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from app.projects.models import ProjectDB
 from app.repository import BaseRepository
+from app.threads.models import ThreadDB
 from app.triggers.models import TriggerDB, TriggerTeamDB, TriggerType
 from app.visibility import ResourceVisibility
 
@@ -32,6 +33,30 @@ class TriggerRepository(BaseRepository[TriggerDB]):
         ).with_for_update()
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def restamp_webhook_thread_titles(self, owner_id: UUID, timezone: str) -> int:
+        """Re-date the owner's webhook conversations still titled in UTC (the
+        format used before the owner's timezone was known), in ``timezone``.
+        Renamed conversations no longer match and keep their title."""
+
+        def stamp(zone: str):
+            return func.to_char(
+                func.timezone(zone, col(ThreadDB.created_at)), "YYYY-MM-DD HH24:MI"
+            )
+
+        utc_title = col(TriggerDB.name) + " / " + stamp("UTC") + " UTC"
+        stmt = (
+            update(ThreadDB)
+            .where(
+                col(ThreadDB.trigger_id) == col(TriggerDB.id),
+                col(TriggerDB.owner_id) == owner_id,
+                col(TriggerDB.timezone).is_(None),
+                col(ThreadDB.first_message_content) == utc_title,
+            )
+            .values(first_message_content=col(TriggerDB.name) + " / " + stamp(timezone))
+        )
+        result = await self.db.execute(stmt)
+        return result.rowcount  # type: ignore[attr-defined]
 
     async def list_all(self) -> list[TriggerDB]:
         stmt = self._scope(select(TriggerDB)).order_by(TriggerDB.created_at.desc())

@@ -50,8 +50,8 @@ import {
 	BulkConfirmDialog,
 	type BulkFailure,
 } from "@/components/ui/bulk-confirm-dialog";
-import { Checkbox } from "@/components/ui/checkbox";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
+import { SelectableLeading } from "@/components/ui/selectable-leading";
 import { ThreadUnreadBadge } from "@/components/ui/thread-unread-badge";
 import { UsageBadge } from "@/components/usage/usage-badge";
 import { VisibilityPicker } from "@/components/ui/visibility-picker";
@@ -630,7 +630,6 @@ function FolderRow({
 
 function ThreadRow({
 	thread,
-	selectionColumn,
 	selectable,
 	selected,
 	selectionMode,
@@ -638,15 +637,16 @@ function ThreadRow({
 	onToggleCompletion,
 	onToggleReadState,
 	onMove,
+	onDelete,
 }: {
 	thread: ProjectThread;
-	selectionColumn: boolean;
 	selectable: boolean;
 	selected: boolean;
 	selectionMode: boolean;
 	onToggleSelected: (shiftKey: boolean) => void;
 	onToggleCompletion: () => void;
 	onToggleReadState: () => void;
+	onDelete?: () => void;
 	onMove: () => void;
 }) {
 	const title = titleOf(thread);
@@ -659,22 +659,18 @@ function ThreadRow({
 					: "border-border hover:border-border-hover",
 			)}
 		>
-			{selectionColumn && (
-				<span className="mr-3 flex w-4 shrink-0 items-center justify-center">
-					{selectable && (
-						<Checkbox
-							checked={selected}
-							aria-label={`Select ${title}`}
-							onCheckedChange={(_checked, event) => {
-								onToggleSelected(event.shiftKey);
-							}}
-						/>
-					)}
+			<SelectableLeading
+				selected={selected}
+				selectionMode={selectionMode}
+				disabled={!selectable}
+				label={`Select ${title}`}
+				onToggle={onToggleSelected}
+				className="mr-3 size-9"
+			>
+				<span className="flex size-9 items-center justify-center rounded-[9px] bg-sidebar text-meta dark:bg-white/5 dark:text-panel-dim">
+					<MessageSquare className="size-4" />
 				</span>
-			)}
-			<span className="mr-3 flex size-9 shrink-0 items-center justify-center rounded-[9px] bg-sidebar text-meta dark:bg-white/5 dark:text-panel-dim">
-				<MessageSquare className="size-4" />
-			</span>
+			</SelectableLeading>
 			<Link
 				href={`/agents/${thread.agentId}/chat/${thread.id}`}
 				prefetch={false}
@@ -740,6 +736,16 @@ function ThreadRow({
 									label: "Move or detach conversation",
 									icon: <FolderInput />,
 									onClick: onMove,
+								},
+							]
+						: []),
+					...(onDelete
+						? [
+								{
+									label: "Delete conversation",
+									icon: <Trash2 />,
+									destructive: true,
+									onClick: onDelete,
 								},
 							]
 						: []),
@@ -1025,6 +1031,8 @@ export default function ProjectDetailView({
 	const [infoOpen, setInfoOpen] = useState(false);
 	const [folderDialog, setFolderDialog] = useState<FolderDialogState>(null);
 	const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+	// Set when deleting one conversation from its menu instead of the selection.
+	const [deleteTarget, setDeleteTarget] = useState<ProjectThread | null>(null);
 	const [movingThread, setMovingThread] =
 		useState<ThreadPlacementTarget | null>(null);
 	const [movingTrigger, setMovingTrigger] =
@@ -1334,7 +1342,7 @@ export default function ProjectDetailView({
 	const visibleThreads = needle ? searchThreads : threads;
 	const deletableThreadIds = canDeleteThreads
 		? visibleThreads
-				.filter((thread) => thread.canManage)
+				.filter((thread) => thread.canDelete)
 				.map((thread) => thread.id)
 		: [];
 	const selection = useRowSelection({
@@ -1344,6 +1352,7 @@ export default function ProjectDetailView({
 	const selectedThreads = visibleThreads.filter((thread) =>
 		selection.isSelected(thread.id),
 	);
+	const threadsToDelete = deleteTarget ? [deleteTarget] : selectedThreads;
 
 	const renderFolder = (folder: ProjectFolder) => (
 		<FolderRow
@@ -1375,8 +1384,7 @@ export default function ProjectDetailView({
 		<ThreadRow
 			key={thread.id}
 			thread={thread}
-			selectionColumn={deletableThreadIds.length > 0}
-			selectable={canDeleteThreads && thread.canManage}
+			selectable={canDeleteThreads && thread.canDelete}
 			selected={selection.isSelected(thread.id)}
 			selectionMode={selection.selectionMode}
 			onToggleSelected={(shiftKey) => {
@@ -1388,6 +1396,14 @@ export default function ProjectDetailView({
 			onToggleReadState={() => {
 				void toggleReadState(thread);
 			}}
+			onDelete={
+				canDeleteThreads && thread.canDelete
+					? () => {
+							setDeleteTarget(thread);
+							setBulkDeleteOpen(true);
+						}
+					: undefined
+			}
 			onMove={() => {
 				setMovingThread({
 					id: thread.id,
@@ -1683,6 +1699,7 @@ export default function ProjectDetailView({
 											onClear={selection.clear}
 											actionLabel="Delete"
 											onAction={() => {
+												setDeleteTarget(null);
 												setBulkDeleteOpen(true);
 											}}
 											showWhenEmpty
@@ -1716,7 +1733,12 @@ export default function ProjectDetailView({
 						inert={!isLargeViewport && !modalInfoOpen}
 						style={isLargeViewport ? { width: infoPanelWidth } : undefined}
 						className={cn(
-							"fixed inset-y-0 right-0 z-50 flex w-[min(92vw,600px)] shrink-0 flex-col border-l border-border bg-background shadow-2xl transition-transform duration-200 lg:relative lg:inset-auto lg:z-auto lg:min-w-[340px] lg:max-w-[45vw] lg:translate-x-0 lg:shadow-none",
+							"fixed inset-y-0 right-0 z-50 flex w-[min(92vw,600px)] shrink-0 flex-col border-l border-border bg-background shadow-2xl transition-transform duration-200 lg:relative lg:inset-auto lg:z-auto lg:min-w-[340px] lg:translate-x-0 lg:shadow-none",
+							// The resource list keeps room for its rows' actions; past
+							// that the panel yields instead of covering them.
+							view === "split"
+								? "lg:max-w-[min(45vw,calc(100%_-_30rem))]"
+								: "lg:max-w-[min(45vw,calc(100%_-_20rem))]",
 							modalInfoOpen ? "translate-x-0" : "translate-x-full",
 						)}
 					>
@@ -1827,9 +1849,13 @@ export default function ProjectDetailView({
 				<BulkConfirmDialog
 					open={bulkDeleteOpen}
 					onOpenChange={setBulkDeleteOpen}
-					title="Delete selected conversations?"
-					description="Their messages and run history will be removed permanently. This cannot be undone."
-					items={selectedThreads.map((thread) => ({
+					title={
+						deleteTarget
+							? "Delete this conversation?"
+							: "Delete selected conversations?"
+					}
+					description="Messages and run history will be removed permanently. This cannot be undone."
+					items={threadsToDelete.map((thread) => ({
 						id: thread.id,
 						name: titleOf(thread),
 					}))}

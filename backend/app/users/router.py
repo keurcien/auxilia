@@ -1,7 +1,7 @@
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Header, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Header, Query, Request, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +23,7 @@ from app.users.schemas import (
     PreferencesOnboardingPatch,
     PreferencesOnboardingResponse,
     ProfilePatch,
+    TimezonePreference,
     TwoFactorConfirmRequest,
     TwoFactorDisableRequest,
     TwoFactorRegenerateRequest,
@@ -155,6 +156,20 @@ async def update_notifications(
 ) -> NotificationPreference:
     user = await service.update_notifications(current_user, data)
     return NotificationPreference(enabled=user.notifications_enabled)
+
+
+@router.put("/me/timezone", response_model=TimezonePreference)
+async def update_timezone(
+    data: TimezonePreference,
+    request: Request,
+    current_user: UserDB = Depends(get_current_user),
+    service: UserService = Depends(get_user_service),
+) -> TimezonePreference:
+    # A supervising admin's browser timezone is theirs, not the user's.
+    if getattr(request.state, "supervision_actor", None) is not None:
+        return TimezonePreference(timezone=current_user.timezone or data.timezone)
+    user = await service.update_timezone(current_user, data)
+    return TimezonePreference(timezone=user.timezone or data.timezone)
 
 
 @router.put("/me/password", status_code=204)
