@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.150](https://github.com/jr-k/auxilia/compare/web-v0.12.149...web-v0.12.150) (2026-11-16)
+
+
+### Features
+
+* **web:** custom date range on usage, delete from the projects sidebar ([#307](https://github.com/jr-k/auxilia/issues/307)) ([c2082f9](https://github.com/jr-k/auxilia/commit/c2082f9d143ab6a86aec1e00c6751576a089d1e8))
+
 ## [0.12.149](https://github.com/jr-k/auxilia/compare/web-v0.12.148...web-v0.12.149) (2026-11-16)
 
 
