@@ -26,6 +26,12 @@ class RunSettings(BaseSettings):
     # dispatcher queries Postgres this often regardless. Also paces the stream
     # sessions' Postgres safety check.
     claim_fallback_seconds: float = 10.0
+    # How long a stream session stays open with no run to relay; 0 disables.
+    # An idle session carries nothing, and where the platform does not tell
+    # the process that a client left (Cloud Run over HTTP/1.1) it would
+    # otherwise count as an in-flight request until the request timeout. A
+    # client that is still there reconnects.
+    stream_idle_timeout_seconds: float = 300.0
     # Reaper threshold: a `running` run whose liveness key is gone AND whose
     # last transition is older than this is reaped to `error`.
     heartbeat_timeout_seconds: int = 30

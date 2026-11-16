@@ -10,8 +10,9 @@ A thin orchestration layer over `RunService` and the run event log:
   run, relays its stored protocol events (filtered by the session's sink,
   stamped with `event_id`/`seq` derived from the log entry ids — see
   `wire.py`), then follows onto newer runs as they appear. A session is
-  thread-scoped and lives until the client closes it (the client's lifecycle
-  watcher holds one open for the thread's whole life).
+  thread-scoped and lives until the client closes it, or until the thread has
+  had no run to relay for `RUN_STREAM_IDLE_TIMEOUT_SECONDS` — the client
+  reconnects, so its lifecycle watcher still covers the thread's whole life.
 - `thread_state` builds the LangGraph-shaped `{values, next, tasks}` snapshot
   the client hydrates from; `next`/`tasks[].interrupts` drive its
   "is this thread active" gate, so they must reflect the active run and any
@@ -182,10 +183,13 @@ class ProtocolService:
         self, thread_id: str, body: EventStreamBody
     ) -> AsyncGenerator[str, None]:
         """One protocol SSE session: replay the newest run, then follow newer
-        runs as they appear, until the client disconnects."""
+        runs as they appear, until the client disconnects or the thread has
+        had no run to relay for `RUN_STREAM_IDLE_TIMEOUT_SECONDS`."""
         sink = StreamFilter.from_request(body.channels, body.namespaces, body.depth)
         current: RunDB | None = None
         loop = asyncio.get_running_loop()
+        idle_timeout = run_settings.stream_idle_timeout_seconds
+        idle_since: float | None = None
         while True:
             # Read before `_next_run`: a run created between the two reads
             # still shows up as a change on the next comparison.
@@ -194,9 +198,16 @@ class ProtocolService:
             checked_at = loop.time()
             if run is not None:
                 current = run
+                idle_since = None
                 async for sse in self._stream_run(run, sink, since=body.since):
                     yield sse
                 continue
+            # Ended only here, on Postgres's word that there is no run to
+            # relay — never on the Redis marker alone.
+            if idle_since is None:
+                idle_since = checked_at
+            elif 0 < idle_timeout <= checked_at - idle_since:
+                return
             # Idle: Postgres is asked again only when the thread's marker
             # changes (`RunService.create` sets it) or the fallback is due —
             # an expired key, a flushed Redis, or a lost signal.
