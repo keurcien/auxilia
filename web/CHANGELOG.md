@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.149](https://github.com/jr-k/auxilia/compare/web-v0.12.148...web-v0.12.149) (2026-11-16)
+
+
+### Features
+
+* usage filter search, admin conversation deletion and owner-timezone webhook titles ([#305](https://github.com/jr-k/auxilia/issues/305)) ([cd72723](https://github.com/jr-k/auxilia/commit/cd72723c108f40e808c00c003a0e7d7abd396530))
+
 ## [0.12.148](https://github.com/jr-k/auxilia/compare/web-v0.12.147...web-v0.12.148) (2026-11-16)
 
 

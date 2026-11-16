@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.114](https://github.com/jr-k/auxilia/compare/backend-v0.11.113...backend-v0.11.114) (2026-11-16)
+
+
+### Features
+
+* usage filter search, admin conversation deletion and owner-timezone webhook titles ([#305](https://github.com/jr-k/auxilia/issues/305)) ([cd72723](https://github.com/jr-k/auxilia/commit/cd72723c108f40e808c00c003a0e7d7abd396530))
+
 ## [0.11.113](https://github.com/jr-k/auxilia/compare/backend-v0.11.112...backend-v0.11.113) (2026-11-16)
 
 
