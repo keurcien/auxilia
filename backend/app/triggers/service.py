@@ -34,7 +34,11 @@ from app.threads.schemas import ThreadCreate
 from app.threads.service import ThreadService
 from app.triggers.models import TriggerDB, TriggerType
 from app.triggers.repository import TriggerRepository
-from app.triggers.schedule import compute_next_run_at, ensure_valid_schedule
+from app.triggers.schedule import (
+    compute_next_run_at,
+    ensure_valid_schedule,
+    fire_thread_title,
+)
 from app.triggers.schemas import (
     TriggerCreate,
     TriggerCreateDB,
@@ -902,7 +906,9 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
                     if reasoning_effort is None and model_id is None
                     else reasoning_effort
                 ),
-                first_message_content=trigger.name,
+                first_message_content=fire_thread_title(
+                    trigger.name, trigger.timezone, datetime.now(UTC)
+                ),
                 **resource_selection,
             ),
             user_id=trigger.owner_id,

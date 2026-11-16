@@ -669,6 +669,38 @@ class ProjectService(BaseService[ProjectDB, ProjectRepository]):
             ) from exc
         await self._stage_events(content=True)
 
+    async def empty_folder(self, folder_id: UUID, user: UserDB) -> builtins.list[str]:
+        """Delete everything under the folder, recursively: its conversations,
+        triggers and child folders. The folder itself stays.
+
+        Returns the deleted thread ids; the caller purges their LangGraph
+        checkpoints once this transaction has committed (``purge_checkpoints``).
+        """
+        folder = await self.repository.get_folder(folder_id)
+        if folder is None:
+            raise NotFoundError("Folder not found")
+        project = await self.get_or_404(folder.project_id)
+        self._ensure_can_manage(project, user)
+        if not user.can_delete_threads:
+            raise PermissionDeniedError("Conversation deletion is not allowed")
+        folder = await self.repository.get_folder_for_update(folder.id)
+        if folder is None:
+            raise NotFoundError("Folder not found")
+        folder_ids = await self.repository.list_folder_subtree_ids(folder.id)
+        await self.repository.lock_triggers_in_folders(folder_ids)
+        threads = await self.repository.list_threads_in_folders(
+            folder.project_id, folder_ids
+        )
+        await self.repository.delete_folder_content(folder, folder_ids)
+        await self._stage_events(content=True)
+        if any(trigger_id is not None for _, trigger_id in threads):
+            await stage_workspace_event(
+                self.db,
+                workspace_id=self.workspace_id,
+                kind=WorkspaceEventKind.trigger_history,
+            )
+        return [thread_id for thread_id, _ in threads]
+
     async def _validate_parent(
         self,
         project_id: UUID,

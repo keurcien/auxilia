@@ -36,6 +36,17 @@ def compute_next_run_at(
     return next_local.astimezone(UTC)
 
 
+def fire_thread_title(name: str, timezone: str | None, at: datetime) -> str:
+    """Title of a firing's thread: the trigger name plus its local date and time.
+
+    Firings of one trigger otherwise share a title everywhere threads are
+    listed. Webhook triggers have no timezone, so their time is stamped in UTC.
+    """
+    if timezone is None:
+        return f"{name} / {at.astimezone(UTC):%Y-%m-%d %H:%M} UTC"
+    return f"{name} / {at.astimezone(ZoneInfo(timezone)):%Y-%m-%d %H:%M}"
+
+
 def compute_next_run_ats(
     cron_expression: str, timezone: str, after: datetime, count: int
 ) -> list[datetime]:

@@ -69,6 +69,7 @@ interface ProjectsState {
 		payload: ProjectFolderPatch,
 	) => Promise<ProjectFolder>;
 	deleteFolder: (id: string) => Promise<void>;
+	emptyFolder: (id: string) => Promise<void>;
 }
 
 // `started` is false while a load waits behind an earlier one: it has not read
@@ -508,6 +509,16 @@ export const useProjectsStore = create<ProjectsState>((set, get) => ({
 			project.folders.some((folder) => folder.id === id),
 		)?.id;
 		await projectsApi.deleteFolder(id);
+		if (!isCurrentWorkspaceGeneration(generation)) return;
+		await get().refreshTree();
+		if (projectId) await get().refreshProjectDetail(projectId);
+	},
+	emptyFolder: async (id) => {
+		const generation = getWorkspaceGeneration();
+		const projectId = Object.values(get().detailsById).find((project) =>
+			project.folders.some((folder) => folder.id === id),
+		)?.id;
+		await projectsApi.emptyFolder(id);
 		if (!isCurrentWorkspaceGeneration(generation)) return;
 		await get().refreshTree();
 		if (projectId) await get().refreshProjectDetail(projectId);

@@ -27,10 +27,12 @@ import {
 	Loader2,
 	Mail,
 	MailOpen,
+	MessageSquare,
 	MoreVertical,
 	PanelRight,
 	Search,
 	SquarePen,
+	Eraser,
 	Trash2,
 	Undo2,
 	X,
@@ -43,6 +45,12 @@ import {
 	SubpageHeader,
 } from "@/components/layout/subpage-header";
 import { useConfirmDialog } from "@/components/providers/dialog-provider";
+import { BulkActionBar } from "@/components/ui/bulk-action-bar";
+import {
+	BulkConfirmDialog,
+	type BulkFailure,
+} from "@/components/ui/bulk-confirm-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { ThreadUnreadBadge } from "@/components/ui/thread-unread-badge";
 import { UsageBadge } from "@/components/usage/usage-badge";
@@ -57,13 +65,16 @@ import {
 	TriggerPlacementDialog,
 	type TriggerPlacementTarget,
 } from "@/components/layout/app-sidebar/trigger-placement-dialog";
+import { useRowSelection } from "@/hooks/use-row-selection";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import * as threadsApi from "@/lib/api/resources/threads";
 import {
 	cancelPreparedNavigation,
 	navigateWithUnsavedChanges,
 	prepareToDiscardUnsavedChanges,
 } from "@/hooks/use-unsaved-changes-warning";
 import {
+	countProjectFolderContent,
 	getProjectFolderAncestors,
 	normalizeProjectTree,
 	PROJECT_ROOT,
@@ -72,6 +83,7 @@ import { cn } from "@/lib/utils";
 import { useAgentsStore } from "@/stores/agents-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useThreadsStore } from "@/stores/threads-store";
+import { useUserStore } from "@/stores/user-store";
 import { useWorkspacesStore } from "@/stores/workspaces-store";
 import type {
 	ProjectDetail,
@@ -554,6 +566,7 @@ function FolderRow({
 	onOpen,
 	onCreate,
 	onEdit,
+	onEmpty,
 	onDelete,
 	canManage,
 }: {
@@ -561,6 +574,7 @@ function FolderRow({
 	onOpen: () => void;
 	onCreate: () => void;
 	onEdit: () => void;
+	onEmpty?: () => void;
 	onDelete: () => void;
 	canManage: boolean;
 }) {
@@ -591,6 +605,16 @@ function FolderRow({
 							icon: <FolderInput />,
 							onClick: onEdit,
 						},
+						...(onEmpty
+							? [
+									{
+										label: "Empty folder",
+										icon: <Eraser />,
+										destructive: true,
+										onClick: onEmpty,
+									},
+								]
+							: []),
 						{
 							label: "Delete folder",
 							icon: <Trash2 />,
@@ -606,19 +630,72 @@ function FolderRow({
 
 function ThreadRow({
 	thread,
+	selectionColumn,
+	selectable,
+	selected,
+	selectionMode,
+	onToggleSelected,
 	onToggleCompletion,
 	onToggleReadState,
 	onMove,
 }: {
 	thread: ProjectThread;
+	selectionColumn: boolean;
+	selectable: boolean;
+	selected: boolean;
+	selectionMode: boolean;
+	onToggleSelected: (shiftKey: boolean) => void;
 	onToggleCompletion: () => void;
 	onToggleReadState: () => void;
 	onMove: () => void;
 }) {
 	const title = titleOf(thread);
 	return (
-		<div className="group flex min-h-14 items-center rounded-[10px] border border-border bg-card px-3 shadow-[0_1px_2px_rgba(10,25,30,0.03)] transition-[border-color,box-shadow] hover:border-border-hover hover:shadow-raised">
-			<span className="mr-3 flex size-9 shrink-0 items-center justify-center">
+		<div
+			className={cn(
+				"group flex min-h-14 items-center rounded-[10px] border bg-card px-3 shadow-[0_1px_2px_rgba(10,25,30,0.03)] transition-[border-color,box-shadow] hover:shadow-raised",
+				selected
+					? "border-petrol/45 dark:border-panel-terminal/45"
+					: "border-border hover:border-border-hover",
+			)}
+		>
+			{selectionColumn && (
+				<span className="mr-3 flex w-4 shrink-0 items-center justify-center">
+					{selectable && (
+						<Checkbox
+							checked={selected}
+							aria-label={`Select ${title}`}
+							onCheckedChange={(_checked, event) => {
+								onToggleSelected(event.shiftKey);
+							}}
+						/>
+					)}
+				</span>
+			)}
+			<span className="mr-3 flex size-9 shrink-0 items-center justify-center rounded-[9px] bg-sidebar text-meta dark:bg-white/5 dark:text-panel-dim">
+				<MessageSquare className="size-4" />
+			</span>
+			<Link
+				href={`/agents/${thread.agentId}/chat/${thread.id}`}
+				prefetch={false}
+				onClick={(event) => {
+					if (!selectionMode || !selectable) return;
+					event.preventDefault();
+					onToggleSelected(event.shiftKey);
+				}}
+				className="min-w-0 flex-1 py-3"
+			>
+				<span className="flex items-center gap-1.5">
+					<span className="truncate text-[13px] font-semibold text-foreground">
+						{title}
+					</span>
+					{thread.isUnread && <ThreadUnreadBadge />}
+				</span>
+				<span className="mt-0.5 block text-[10.5px] text-meta">
+					{thread.completedAt ? "Completed conversation" : "Conversation"}
+				</span>
+			</Link>
+			<span className="ml-3 mr-1 flex size-8 shrink-0 items-center justify-center">
 				{thread.canManage ? (
 					<ConversationCompletionButton
 						completed={thread.completedAt !== null}
@@ -638,21 +715,6 @@ function ThreadRow({
 					</span>
 				)}
 			</span>
-			<Link
-				href={`/agents/${thread.agentId}/chat/${thread.id}`}
-				prefetch={false}
-				className="min-w-0 flex-1 py-3"
-			>
-				<span className="flex items-center gap-1.5">
-					<span className="truncate text-[13px] font-semibold text-foreground">
-						{title}
-					</span>
-					{thread.isUnread && <ThreadUnreadBadge />}
-				</span>
-				<span className="mt-0.5 block text-[10.5px] text-meta">
-					{thread.completedAt ? "Completed conversation" : "Conversation"}
-				</span>
-			</Link>
 			<DropdownMenu
 				trigger={<ResourceMenuButton label={title} />}
 				items={[
@@ -923,8 +985,13 @@ export default function ProjectDetailView({
 	);
 	const deleteProject = useProjectsStore((state) => state.deleteProject);
 	const deleteFolder = useProjectsStore((state) => state.deleteFolder);
+	const emptyFolder = useProjectsStore((state) => state.emptyFolder);
+	const canDeleteThreads = useUserStore(
+		(state) => state.user?.canDeleteThreads === true,
+	);
 	const refreshDetail = useProjectsStore((state) => state.refreshProjectDetail);
 	const recentThreads = useThreadsStore((state) => state.threads);
+	const removeStoredThread = useThreadsStore((state) => state.removeThread);
 	const setThreadCompleted = useThreadsStore(
 		(state) => state.setThreadCompleted,
 	);
@@ -957,6 +1024,7 @@ export default function ProjectDetailView({
 	const [expanded, setExpanded] = useState<Set<string>>(new Set());
 	const [infoOpen, setInfoOpen] = useState(false);
 	const [folderDialog, setFolderDialog] = useState<FolderDialogState>(null);
+	const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 	const [movingThread, setMovingThread] =
 		useState<ThreadPlacementTarget | null>(null);
 	const [movingTrigger, setMovingTrigger] =
@@ -1155,6 +1223,41 @@ export default function ProjectDetailView({
 		}
 	};
 
+	const emptyFolderContent = async (folder: ProjectFolder) => {
+		const count = countProjectFolderContent(folder.id, normalized);
+		const entries: [number, string][] = [
+			[count.threads, "conversation"],
+			[count.triggers, "trigger"],
+			[count.folders, "folder"],
+		];
+		const parts = entries
+			.filter(([total]) => total > 0)
+			.map(([total, noun]) => `${total} ${noun}${total === 1 ? "" : "s"}`);
+		if (parts.length === 0) {
+			toast.info(`${folder.name} is already empty.`);
+			return;
+		}
+		const summary =
+			parts.length === 1
+				? parts[0]
+				: `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}`;
+		const accepted = await confirm({
+			title: `Empty ${folder.name}?`,
+			description: `This permanently deletes ${summary} inside it, including everything in child folders. The folder itself stays. This cannot be undone.`,
+			confirmLabel: "Empty folder",
+			destructive: true,
+		});
+		if (!accepted) return;
+		try {
+			await emptyFolder(folder.id);
+			toast.success(`${folder.name} was emptied.`);
+		} catch (error) {
+			toast.error(
+				getApiErrorMessage(error, "The folder could not be emptied."),
+			);
+		}
+	};
+
 	const removeProject = async () => {
 		const accepted = await confirm({
 			title: `Delete ${detail.name}?`,
@@ -1228,6 +1331,20 @@ export default function ProjectDetailView({
 			)
 		: [];
 
+	const visibleThreads = needle ? searchThreads : threads;
+	const deletableThreadIds = canDeleteThreads
+		? visibleThreads
+				.filter((thread) => thread.canManage)
+				.map((thread) => thread.id)
+		: [];
+	const selection = useRowSelection({
+		orderedIds: visibleThreads.map((thread) => thread.id),
+		eligibleIds: deletableThreadIds,
+	});
+	const selectedThreads = visibleThreads.filter((thread) =>
+		selection.isSelected(thread.id),
+	);
+
 	const renderFolder = (folder: ProjectFolder) => (
 		<FolderRow
 			key={folder.id}
@@ -1242,6 +1359,13 @@ export default function ProjectDetailView({
 			onEdit={() => {
 				setFolderDialog({ folder, parentId: folder.parentId });
 			}}
+			onEmpty={
+				canDeleteThreads
+					? () => {
+							void emptyFolderContent(folder);
+						}
+					: undefined
+			}
 			onDelete={() => {
 				void removeFolder(folder);
 			}}
@@ -1251,6 +1375,13 @@ export default function ProjectDetailView({
 		<ThreadRow
 			key={thread.id}
 			thread={thread}
+			selectionColumn={deletableThreadIds.length > 0}
+			selectable={canDeleteThreads && thread.canManage}
+			selected={selection.isSelected(thread.id)}
+			selectionMode={selection.selectionMode}
+			onToggleSelected={(shiftKey) => {
+				selection.toggle(thread.id, shiftKey);
+			}}
 			onToggleCompletion={() => {
 				void toggleCompletion(thread);
 			}}
@@ -1542,6 +1673,21 @@ export default function ProjectDetailView({
 											</label>
 										</div>
 									)}
+									{deletableThreadIds.length > 0 && (
+										<BulkActionBar
+											selectedCount={selection.selectedCount}
+											totalCount={deletableThreadIds.length}
+											allSelected={selection.allSelected}
+											someSelected={selection.someSelected}
+											onToggleAll={selection.toggleAll}
+											onClear={selection.clear}
+											actionLabel="Delete"
+											onAction={() => {
+												setBulkDeleteOpen(true);
+											}}
+											showWhenEmpty
+										/>
+									)}
 									{resourceList}
 								</div>
 							</main>
@@ -1677,6 +1823,44 @@ export default function ProjectDetailView({
 						}
 					}}
 					thread={movingThread}
+				/>
+				<BulkConfirmDialog
+					open={bulkDeleteOpen}
+					onOpenChange={setBulkDeleteOpen}
+					title="Delete selected conversations?"
+					description="Their messages and run history will be removed permanently. This cannot be undone."
+					items={selectedThreads.map((thread) => ({
+						id: thread.id,
+						name: titleOf(thread),
+					}))}
+					confirmLabel="Delete"
+					busyLabel="Deleting…"
+					onConfirm={async (items) => {
+						const results = await Promise.allSettled(
+							items.map((item) => threadsApi.deleteThread(item.id)),
+						);
+						const succeeded: string[] = [];
+						const failures: BulkFailure[] = [];
+						results.forEach((result, index) => {
+							const item = items.at(index);
+							if (!item) return;
+							if (result.status === "fulfilled") {
+								succeeded.push(item.id);
+								removeStoredThread(item.id);
+							} else {
+								failures.push({
+									id: item.id,
+									name: item.name,
+									message: getApiErrorMessage(result.reason, "Delete failed."),
+								});
+							}
+						});
+						if (succeeded.length > 0) {
+							selection.remove(succeeded);
+							await refreshDetail(detail.id);
+						}
+						return failures;
+					}}
 				/>
 				<TriggerPlacementDialog
 					open={movingTrigger !== null}

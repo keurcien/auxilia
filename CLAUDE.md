@@ -55,7 +55,8 @@ There are three documented exceptions:
    connection for the length of an agent run risks pool starvation. Each such
    commit carries a comment saying why; if you add one, so should yours.
 3. **Request handlers commit before a non-rollbackable side effect.**
-   `DELETE /threads/{id}` and `DELETE /agents/{id}/permanent` delete their rows,
+   `DELETE /threads/{id}`, `DELETE /agents/{id}/permanent` and
+ `POST /projects/folders/{id}/empty` delete their rows,
    `await db.commit()`, and only then purge LangGraph checkpoints — those live on a
    separate auto-committed connection, so purging first and then failing to commit
    would leave a row whose entire history is irrecoverably gone. The router composes

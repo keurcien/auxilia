@@ -302,6 +302,73 @@ class ProjectRepository(BaseRepository[ProjectDB]):
         await self.db.delete(folder)
         await self.db.flush()
 
+    async def list_folder_subtree_ids(self, folder_id: UUID) -> list[UUID]:
+        """The folder and all its descendants. UNION (not UNION ALL) so a
+        corrupted parent cycle terminates instead of recursing forever."""
+        tree = (
+            select(col(ProjectFolderDB.id).label("id"))
+            .where(col(ProjectFolderDB.id) == folder_id)
+            .cte("folder_tree", recursive=True)
+        )
+        tree = tree.union(
+            select(col(ProjectFolderDB.id)).where(
+                col(ProjectFolderDB.parent_id) == tree.c.id
+            )
+        )
+        stmt = select(tree.c.id)
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def lock_triggers_in_folders(self, folder_ids: list[UUID]) -> None:
+        stmt = (
+            select(TriggerDB.id)
+            .where(
+                col(TriggerDB.workspace_id) == self.workspace_id,
+                col(TriggerDB.folder_id).in_(folder_ids),
+            )
+            .order_by(col(TriggerDB.id))
+            .with_for_update()
+        )
+        await self.db.execute(stmt)
+
+    async def list_threads_in_folders(
+        self, project_id: UUID, folder_ids: list[UUID]
+    ) -> list[tuple[str, UUID | None]]:
+        """``(thread_id, trigger_id)`` of every thread placed in ``folder_ids``."""
+        stmt = select(ThreadDB.id, ThreadDB.trigger_id).where(
+            col(ThreadDB.workspace_id) == self.workspace_id,
+            col(ThreadDB.project_id) == project_id,
+            col(ThreadDB.folder_id).in_(folder_ids),
+        )
+        result = await self.db.execute(stmt)
+        return [(str(thread_id), trigger_id) for thread_id, trigger_id in result.all()]
+
+    async def delete_folder_content(
+        self, folder: ProjectFolderDB, folder_ids: list[UUID]
+    ) -> None:
+        """Delete every thread, trigger and descendant folder under ``folder``
+        (``folder_ids`` is its subtree, itself included); the folder stays."""
+        thread_stmt = delete(ThreadDB).where(
+            col(ThreadDB.workspace_id) == self.workspace_id,
+            col(ThreadDB.project_id) == folder.project_id,
+            col(ThreadDB.folder_id).in_(folder_ids),
+        )
+        trigger_stmt = delete(TriggerDB).where(
+            col(TriggerDB.workspace_id) == self.workspace_id,
+            col(TriggerDB.project_id) == folder.project_id,
+            col(TriggerDB.folder_id).in_(folder_ids),
+        )
+        folder_stmt = delete(ProjectFolderDB).where(
+            col(ProjectFolderDB.project_id) == folder.project_id,
+            col(ProjectFolderDB.id).in_(
+                [folder_id for folder_id in folder_ids if folder_id != folder.id]
+            ),
+        )
+        await self.db.execute(thread_stmt)
+        await self.db.execute(trigger_stmt)
+        await self.db.execute(folder_stmt)
+        await self.db.flush()
+
     async def has_reparent_conflict(self, folder: ProjectFolderDB) -> bool:
         child_names_stmt = select(ProjectFolderDB.name).where(
             col(ProjectFolderDB.parent_id) == folder.id

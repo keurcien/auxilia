@@ -177,3 +177,7 @@ export async function updateFolder(
 export async function deleteFolder(folderId: string): Promise<void> {
 	await api.delete(`/projects/folders/${folderId}`);
 }
+
+export async function emptyFolder(folderId: string): Promise<void> {
+	await api.post(`/projects/folders/${folderId}/empty`);
+}

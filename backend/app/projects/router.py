@@ -1,8 +1,11 @@
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
+from app.database import get_db
 from app.projects.schemas import (
     ProjectConfigResponse,
     ProjectConfigUpdate,
@@ -21,8 +24,11 @@ from app.projects.schemas import (
     ProjectTreeResponse,
 )
 from app.projects.service import ProjectService, get_project_service
+from app.threads.service import ThreadService, get_thread_service
 from app.users.models import UserDB
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -71,6 +77,32 @@ async def delete_project_folder(
     service: ProjectService = Depends(get_project_service),
 ) -> None:
     await service.delete_folder(folder_id, user)
+
+
+@router.post("/folders/{folder_id}/empty", status_code=204)
+async def empty_project_folder(
+    folder_id: UUID,
+    user: UserDB = Depends(get_current_user),
+    service: ProjectService = Depends(get_project_service),
+    thread_service: ThreadService = Depends(get_thread_service),
+    db: AsyncSession = Depends(get_db),  # dependency-cached: the services' session
+) -> None:
+    thread_ids = await service.empty_folder(folder_id, user)
+    # Commit the row deletes BEFORE purging checkpoints, as `DELETE /threads/{id}`
+    # does: checkpoints live on a separate auto-committed connection, so purging
+    # first and then failing to commit would leave rows whose history is gone.
+    await db.commit()
+    # Past the commit the content is gone; a purge failure only orphans
+    # checkpoints, which are invisible and reclaimable.
+    try:
+        await thread_service.purge_checkpoints(thread_ids)
+    except Exception:
+        logger.exception(
+            "Folder %s was emptied but the checkpoints of its %d thread(s) could "
+            "not be purged; they are now orphaned",
+            folder_id,
+            len(thread_ids),
+        )
 
 
 @router.get(

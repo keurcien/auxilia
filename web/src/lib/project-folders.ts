@@ -78,6 +78,38 @@ export function getProjectFolderAncestors(
 	return result;
 }
 
+export interface ProjectFolderContentCount {
+	folders: number;
+	threads: number;
+	triggers: number;
+}
+
+/** Everything under a folder, recursively; the folder itself is not counted. */
+export function countProjectFolderContent(
+	folderId: string,
+	tree: NormalizedProjectTree,
+): ProjectFolderContentCount {
+	const count: ProjectFolderContentCount = {
+		folders: 0,
+		threads: 0,
+		triggers: 0,
+	};
+	const seen = new Set<string>();
+	const pending = [folderId];
+	while (pending.length > 0) {
+		const currentId = pending.pop();
+		if (currentId === undefined || seen.has(currentId)) continue;
+		seen.add(currentId);
+		count.threads += tree.threadsByFolder.get(currentId)?.length ?? 0;
+		count.triggers += tree.triggersByFolder.get(currentId)?.length ?? 0;
+		for (const child of tree.foldersByParent.get(currentId) ?? []) {
+			count.folders += 1;
+			pending.push(child.id);
+		}
+	}
+	return count;
+}
+
 export function getProjectFolderPath(
 	folder: ProjectFolder,
 	folders: ProjectFolder[],
