@@ -1,4 +1,4 @@
-import { isoDate } from "@/lib/usage/format";
+import { formatRange, isoDate } from "@/lib/usage/format";
 import type { UsageGranularity } from "@/types/usage";
 
 export type RangePreset =
@@ -22,15 +22,45 @@ export const RANGE_PRESETS: { key: RangePreset; label: string }[] = [
 
 export const DEFAULT_PRESET: RangePreset = "30d";
 
-export function parsePreset(value: string): RangePreset {
-	return RANGE_PRESETS.some((preset) => preset.key === value)
-		? (value as RangePreset)
-		: DEFAULT_PRESET;
+/** A preset, or an inclusive custom range of local dates. */
+export type UsageRange =
+	| { preset: RangePreset }
+	| { preset: "custom"; start: string; end: string };
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const CUSTOM_SEPARATOR = "..";
+
+/** The `range` query param: a preset key, or `YYYY-MM-DD..YYYY-MM-DD`. */
+export function parseRange(value: string): UsageRange {
+	const preset = RANGE_PRESETS.find((option) => option.key === value);
+	if (preset) return { preset: preset.key };
+	const [start, end, ...rest] = value.split(CUSTOM_SEPARATOR);
+	if (
+		rest.length === 0 &&
+		ISO_DATE.test(start ?? "") &&
+		ISO_DATE.test(end ?? "") &&
+		!Number.isNaN(Date.parse(start)) &&
+		!Number.isNaN(Date.parse(end)) &&
+		start <= end
+	) {
+		return { preset: "custom", start, end };
+	}
+	return { preset: DEFAULT_PRESET };
+}
+
+export function serializeRange(range: UsageRange): string {
+	if (range.preset === "custom") return `${range.start}${CUSTOM_SEPARATOR}${range.end}`;
+	return range.preset === DEFAULT_PRESET ? "" : range.preset;
+}
+
+export function rangeLabel(range: UsageRange): string {
+	if (range.preset === "custom") return formatRange(range.start, range.end);
+	return RANGE_PRESETS.find((option) => option.key === range.preset)?.label ?? "";
 }
 
 /** Inclusive local dates; `all` leaves the start to the server (first call). */
-export function presetDates(
-	preset: RangePreset,
+export function rangeDates(
+	range: UsageRange,
 	today = new Date(),
 ): { start?: string; end?: string } {
 	const daysAgo = (days: number) => {
@@ -40,7 +70,9 @@ export function presetDates(
 	};
 	const year = today.getFullYear();
 	const month = today.getMonth();
-	switch (preset) {
+	switch (range.preset) {
+		case "custom":
+			return { start: range.start, end: range.end };
 		case "7d":
 			return { start: daysAgo(6), end: isoDate(today) };
 		case "30d":
@@ -61,9 +93,19 @@ export function presetDates(
 	}
 }
 
-/** Granularities that give a readable chart for a preset; the first is the default. */
-export function presetGranularities(preset: RangePreset): UsageGranularity[] {
-	switch (preset) {
+/** The server caps a series at 800 points. */
+const MAX_DAILY_POINTS = 800;
+
+/** Granularities that give a readable chart for a range; the first is the default. */
+export function rangeGranularities(range: UsageRange): UsageGranularity[] {
+	switch (range.preset) {
+		case "custom": {
+			const days = rangeDays(range.start, range.end);
+			if (days <= 45) return ["day", "week"];
+			if (days <= 180) return ["week", "day", "month"];
+			if (days <= MAX_DAILY_POINTS) return ["week", "month", "day"];
+			return ["month", "week"];
+		}
 		case "7d":
 		case "30d":
 		case "month":

@@ -31,11 +31,13 @@ import { ThreadUnreadBadge } from "@/components/ui/thread-unread-badge";
 import { useConfirmDialog } from "@/components/providers/dialog-provider";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import * as teamsApi from "@/lib/api/resources/teams";
+import * as threadsApi from "@/lib/api/resources/threads";
 import { cn } from "@/lib/utils";
 import { navigateWithUnsavedChanges } from "@/hooks/use-unsaved-changes-warning";
 import { useAgentsStore } from "@/stores/agents-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useThreadsStore } from "@/stores/threads-store";
+import { useUserStore } from "@/stores/user-store";
 import { useWorkspacesStore } from "@/stores/workspaces-store";
 import type {
 	Project,
@@ -156,6 +158,10 @@ export function ProjectsTree({
 	const recentThreads = useThreadsStore((state) => state.threads);
 	const setThreadCompleted = useThreadsStore(
 		(state) => state.setThreadCompleted,
+	);
+	const removeStoredThread = useThreadsStore((state) => state.removeThread);
+	const canDeleteThreads = useUserStore(
+		(state) => state.user?.canDeleteThreads === true,
 	);
 	const allAgents = useAgentsStore((state) => state.agents);
 	const agents = useMemo(
@@ -278,6 +284,30 @@ export function ProjectsTree({
 				getApiErrorMessage(error, "The folder could not be deleted."),
 			);
 		}
+	};
+
+	const removeThread = async (project: ProjectTree, thread: ProjectThread) => {
+		const accepted = await confirm({
+			title: "Delete this conversation?",
+			description:
+				"Messages and run history will be removed permanently. This cannot be undone.",
+			confirmLabel: "Delete conversation",
+			destructive: true,
+		});
+		if (!accepted) return;
+		try {
+			await threadsApi.deleteThread(thread.id);
+		} catch (error) {
+			toast.error(
+				getApiErrorMessage(error, "The conversation could not be deleted."),
+			);
+			return;
+		}
+		removeStoredThread(thread.id);
+		if (pathname === `/agents/${thread.agentId}/chat/${thread.id}`) {
+			router.push(`/projects/${project.id}`);
+		}
+		await refreshTree();
 	};
 
 	const toggleCompletion = async (thread: ProjectThread) => {
@@ -479,6 +509,13 @@ export function ProjectsTree({
 										onToggleCompletion={(thread) => {
 											void toggleCompletion(thread);
 										}}
+										onDeleteThread={
+											canDeleteThreads
+												? (thread) => {
+														void removeThread(project, thread);
+													}
+												: undefined
+										}
 										closeMobile={closeMobile}
 									/>
 								</div>
@@ -534,6 +571,7 @@ function ProjectResources({
 	onMoveThread,
 	onMoveTrigger,
 	onToggleCompletion,
+	onDeleteThread,
 	closeMobile,
 }: {
 	project: ProjectTree;
@@ -550,6 +588,8 @@ function ProjectResources({
 	onMoveThread: (thread: ThreadPlacementTarget) => void;
 	onMoveTrigger: (trigger: TriggerPlacementTarget) => void;
 	onToggleCompletion: (thread: ProjectThread) => void;
+	/** Unset when the user is not allowed to delete conversations. */
+	onDeleteThread?: (thread: ProjectThread) => void;
 	closeMobile: () => void;
 }) {
 	const setThreadReadState = useThreadsStore(
@@ -667,6 +707,7 @@ function ProjectResources({
 									onMoveThread={onMoveThread}
 									onMoveTrigger={onMoveTrigger}
 									onToggleCompletion={onToggleCompletion}
+									onDeleteThread={onDeleteThread}
 									closeMobile={closeMobile}
 								/>
 							</div>
@@ -766,6 +807,18 @@ function ProjectResources({
 														projectId: project.id,
 														folderId: thread.folderId,
 													});
+												},
+											},
+										]
+									: []),
+								...(onDeleteThread && thread.canDelete
+									? [
+											{
+												label: "Delete conversation",
+												icon: <Trash2 />,
+												destructive: true,
+												onClick: () => {
+													onDeleteThread(thread);
 												},
 											},
 										]

@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CalendarRange, ChevronDown, History, RotateCw, Settings2, X } from "lucide-react";
+import { History, RotateCw, Settings2, X } from "lucide-react";
 import { WorkspacePage } from "@/components/layout/workspace-page";
-import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { useQueryParamState } from "@/hooks/use-query-param-state";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { getUsageReport } from "@/lib/api/resources/usage";
@@ -28,14 +27,15 @@ import {
 import { type ChartMetric, ChannelLegend, UsageChart } from "./components/usage-chart";
 import { UsageFilterSearch } from "./components/usage-filter-search";
 import { UsageKpis } from "./components/usage-kpis";
+import { UsageRangePicker } from "./components/usage-range-picker";
 import { UsageSettingsDialog } from "./components/usage-settings-dialog";
 import {
 	GRANULARITY_LABELS,
-	parsePreset,
-	presetDates,
-	presetGranularities,
-	RANGE_PRESETS,
+	parseRange,
+	rangeDates,
 	rangeDays,
+	rangeGranularities,
+	serializeRange,
 } from "./range";
 
 const FILTER_DIMENSIONS: FilterDimension[] = [
@@ -134,8 +134,8 @@ export default function UsagePage() {
 	const isInstanceOwner = user?.isInstanceOwner ?? false;
 
 	const [rangeParam, setRangeParam] = useQueryParamState("range");
-	const preset = parsePreset(rangeParam);
-	const granularities = presetGranularities(preset);
+	const range = parseRange(rangeParam);
+	const granularities = rangeGranularities(range);
 	const [intervalParam, setIntervalParam] = useQueryParamState("interval");
 	const granularity = granularities.includes(intervalParam as UsageGranularity)
 		? (intervalParam as UsageGranularity)
@@ -157,7 +157,7 @@ export default function UsagePage() {
 	const [reloadKey, setReloadKey] = useState(0);
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const requestKey = [
-		preset,
+		serializeRange(range),
 		granularity,
 		requestedScope,
 		...FILTER_DIMENSIONS.map((dimension) => filters[dimension]),
@@ -170,7 +170,7 @@ export default function UsagePage() {
 	useEffect(() => {
 		let cancelled = false;
 		getUsageReport({
-			...presetDates(preset),
+			...rangeDates(range),
 			granularity,
 			scope: requestedScope,
 			agentId: filters.agent || undefined,
@@ -203,10 +203,9 @@ export default function UsagePage() {
 	const scope = report?.scope ?? requestedScope ?? (isAdmin ? "workspace" : "personal");
 	const currency = report?.currency.code ?? "EUR";
 	const days = report ? rangeDays(report.start, report.end) : 0;
-	const compare = preset !== "all";
+	const compare = range.preset !== "all";
 	const previousLabel = `the previous ${days} ${days === 1 ? "day" : "days"}`;
 	const today = isoDate(new Date());
-	const presetLabel = RANGE_PRESETS.find((option) => option.key === preset)?.label ?? "";
 
 	const activeFilters = FILTER_DIMENSIONS.filter((dimension) => filters[dimension]).map(
 		(dimension) => {
@@ -273,26 +272,13 @@ export default function UsagePage() {
 							}}
 						/>
 					)}
-					<DropdownMenu
-						align="end"
-						items={RANGE_PRESETS.map((option) => ({
-							label: option.label,
-							active: option.key === preset,
-							onClick: () => {
-								setRangeParam(option.key === "30d" ? "" : option.key);
-								setIntervalParam("");
-							},
-						}))}
-						trigger={
-							<button
-								type="button"
-								className="flex cursor-pointer items-center gap-2 whitespace-nowrap rounded-[8px] border border-input px-3 py-[7px] text-[12.5px] font-semibold text-foreground transition-colors hover:border-border-hover data-[state=open]:border-border-hover dark:border-white/10"
-							>
-								<CalendarRange className="size-3.5 text-meta" />
-								{presetLabel}
-								<ChevronDown className="size-3.5 text-meta" />
-							</button>
-						}
+					<UsageRangePicker
+						range={range}
+						resolved={report ? { start: report.start, end: report.end } : undefined}
+						onChange={(next) => {
+							setRangeParam(serializeRange(next));
+							setIntervalParam("");
+						}}
 					/>
 					<Segmented
 						label="Interval"
@@ -309,9 +295,9 @@ export default function UsagePage() {
 			}
 		>
 			<div className={cn("space-y-4 transition-opacity", loading && report && "opacity-60")}>
-				{(activeFilters.length > 0 || report) && (
+				{(activeFilters.length > 0 || (report && range.preset !== "custom")) && (
 					<div className="flex min-h-7 flex-wrap items-center gap-2 text-[12.5px] text-meta dark:text-panel-dim">
-						{report && (
+						{report && range.preset !== "custom" && (
 							<span className="tabular-nums">
 								{formatRange(report.start, report.end)}
 							</span>

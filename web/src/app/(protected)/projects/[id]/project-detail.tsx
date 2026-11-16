@@ -1431,7 +1431,7 @@ export default function ProjectDetailView({
 
 	const resourceList = needle ? (
 		searchFolders.length + searchThreads.length + searchTriggers.length > 0 ? (
-			<div className="grid gap-2">
+			<div className="grid grid-cols-1 gap-2">
 				{searchFolders.map(renderFolder)}
 				{searchThreads.map(renderThread)}
 				{searchTriggers.map(renderTrigger)}
@@ -1448,7 +1448,7 @@ export default function ProjectDetailView({
 			</div>
 		)
 	) : folders.length + threads.length + triggers.length > 0 ? (
-		<div className="grid gap-2">
+		<div className="grid grid-cols-1 gap-2">
 			{folders.map(renderFolder)}
 			{threads.map(renderThread)}
 			{triggers.map(renderTrigger)}
