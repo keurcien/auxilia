@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
+from pydantic import ValidationError
 
 import app.runtime.api.protocol_service as protocol_mod
 from app.runtime.api.protocol_schemas import EventStreamBody
@@ -17,7 +18,7 @@ from app.runtime.api.protocol_service import ProtocolService
 from app.runtime.runs import keys
 from app.runtime.runs.models import RunDB
 from app.runtime.runs.service import WAKE_LIST_CAP, RunService
-from app.runtime.runs.settings import run_settings
+from app.runtime.runs.settings import RunSettings, run_settings
 from app.runtime.runs.state import RunStatus
 
 
@@ -256,3 +257,12 @@ async def test_a_zero_idle_timeout_keeps_an_idle_session_open(
                 assert await anext(gen) == protocol_mod._KEEP_ALIVE
     finally:
         await gen.aclose()
+
+
+@pytest.mark.parametrize("bad", [-1, float("nan"), float("inf")])
+async def test_only_zero_turns_the_idle_timeout_off(bad):
+    with pytest.raises(ValidationError):
+        RunSettings(stream_idle_timeout_seconds=bad, _env_file=None)
+
+    off = RunSettings(stream_idle_timeout_seconds=0, _env_file=None)
+    assert off.stream_idle_timeout_seconds == 0
