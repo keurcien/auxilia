@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
+from pydantic import ValidationError
 
 import app.runtime.api.protocol_service as protocol_mod
 from app.runtime.api.protocol_schemas import EventStreamBody
@@ -17,7 +18,7 @@ from app.runtime.api.protocol_service import ProtocolService
 from app.runtime.runs import keys
 from app.runtime.runs.models import RunDB
 from app.runtime.runs.service import WAKE_LIST_CAP, RunService
-from app.runtime.runs.settings import run_settings
+from app.runtime.runs.settings import RunSettings, run_settings
 from app.runtime.runs.state import RunStatus
 
 
@@ -177,3 +178,91 @@ async def test_a_redis_error_on_the_marker_falls_back_to_postgres(
         await gen.aclose()
 
     assert len(session.pg_calls) >= 3
+
+
+# --- the idle timeout ----------------------------------------------------------
+
+
+@pytest.fixture
+def idle_timeout(session, monkeypatch):
+    """A session whose Postgres check and idle timeout are both short."""
+    monkeypatch.setattr(run_settings, "claim_fallback_seconds", 0.03)
+    monkeypatch.setattr(run_settings, "stream_idle_timeout_seconds", 0.2)
+    return 0.2
+
+
+async def _frames_until_closed(gen) -> list[str]:
+    async with asyncio.timeout(2):
+        return [frame async for frame in gen]
+
+
+async def test_a_session_with_no_run_to_relay_ends_after_the_idle_timeout(
+    session, idle_timeout
+):
+    loop = asyncio.get_running_loop()
+    opened_at = loop.time()
+
+    frames = await _frames_until_closed(
+        session.stream_events("t1", EventStreamBody(channels=["lifecycle"]))
+    )
+
+    assert loop.time() - opened_at >= idle_timeout
+    assert set(frames) == {protocol_mod._KEEP_ALIVE}
+
+
+async def test_the_idle_timeout_starts_again_after_a_run(session, idle_timeout):
+    loop = asyncio.get_running_loop()
+    gen = session.stream_events("t1", EventStreamBody(channels=["lifecycle"]))
+    # Most of the timeout is spent before the run shows up.
+    spent = loop.time() + 0.75 * idle_timeout
+    while loop.time() < spent:
+        assert await anext(gen) == protocol_mod._KEEP_ALIVE
+    run = await session.runs.create(thread_id="t1", user_id=_user())
+    await session.runs.claim_next()
+    await session.runs.finalize(run.id, RunStatus.success)
+    assert run.id in await _next_frame(gen)
+    relayed_at = loop.time()
+
+    await _frames_until_closed(gen)
+
+    assert loop.time() - relayed_at >= idle_timeout
+
+
+async def test_a_session_waiting_on_an_unfinished_run_outlives_the_idle_timeout(
+    session, idle_timeout, monkeypatch
+):
+    monkeypatch.setattr(protocol_mod, "_BLOCK_MS", 10)
+    await session.runs.create(thread_id="t1", user_id=_user())  # stays pending
+    loop = asyncio.get_running_loop()
+    gen = session.stream_events("t1", EventStreamBody(channels=["lifecycle"]))
+    try:
+        deadline = loop.time() + 3 * idle_timeout
+        async with asyncio.timeout(2):
+            while loop.time() < deadline:
+                assert await anext(gen) == protocol_mod._KEEP_ALIVE
+    finally:
+        await gen.aclose()
+
+
+async def test_a_zero_idle_timeout_keeps_an_idle_session_open(
+    session, idle_timeout, monkeypatch
+):
+    monkeypatch.setattr(run_settings, "stream_idle_timeout_seconds", 0)
+    loop = asyncio.get_running_loop()
+    gen = session.stream_events("t1", EventStreamBody(channels=["lifecycle"]))
+    try:
+        deadline = loop.time() + 3 * idle_timeout
+        async with asyncio.timeout(2):
+            while loop.time() < deadline:
+                assert await anext(gen) == protocol_mod._KEEP_ALIVE
+    finally:
+        await gen.aclose()
+
+
+@pytest.mark.parametrize("bad", [-1, float("nan"), float("inf")])
+async def test_only_zero_turns_the_idle_timeout_off(bad):
+    with pytest.raises(ValidationError):
+        RunSettings(stream_idle_timeout_seconds=bad, _env_file=None)
+
+    off = RunSettings(stream_idle_timeout_seconds=0, _env_file=None)
+    assert off.stream_idle_timeout_seconds == 0
