@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.112](https://github.com/jr-k/auxilia/compare/backend-v0.11.111...backend-v0.11.112) (2026-11-16)
+
+
+### Features
+
+* LLM usage and cost tracking, trigger auto-complete and per-conversation notifications ([#301](https://github.com/jr-k/auxilia/issues/301)) ([17b3a01](https://github.com/jr-k/auxilia/commit/17b3a0165932ac89d3034ca760b4346a54285fa9))
+
 ## [0.11.111](https://github.com/jr-k/auxilia/compare/backend-v0.11.110...backend-v0.11.111) (2026-11-15)
 
 

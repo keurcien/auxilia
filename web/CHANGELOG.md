@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.147](https://github.com/jr-k/auxilia/compare/web-v0.12.146...web-v0.12.147) (2026-11-16)
+
+
+### Features
+
+* LLM usage and cost tracking, trigger auto-complete and per-conversation notifications ([#301](https://github.com/jr-k/auxilia/issues/301)) ([17b3a01](https://github.com/jr-k/auxilia/commit/17b3a0165932ac89d3034ca760b4346a54285fa9))
+
 ## [0.12.146](https://github.com/jr-k/auxilia/compare/web-v0.12.145...web-v0.12.146) (2026-11-15)
 
 
