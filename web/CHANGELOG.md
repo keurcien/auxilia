@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.148](https://github.com/jr-k/auxilia/compare/web-v0.12.147...web-v0.12.148) (2026-11-16)
+
+
+### Features
+
+* **projects:** empty folder, bulk conversation delete, and dated trigger thread titles ([#303](https://github.com/jr-k/auxilia/issues/303)) ([d55f40c](https://github.com/jr-k/auxilia/commit/d55f40c98384774b89105c959c3a493f99fddef8))
+
 ## [0.12.147](https://github.com/jr-k/auxilia/compare/web-v0.12.146...web-v0.12.147) (2026-11-16)
 
 
